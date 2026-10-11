@@ -270,6 +270,12 @@ pub struct MessageDef {
     pub text: Option<String>,
     pub buttons: Vec<String>,
     pub message_box: bool,
+    /// INAM: the Menu Icon (MICN) drawn with the message when it is not a box; none
+    /// means the default icon [documented: GECK wiki, Message; corner-messages.md §3].
+    pub icon: Option<FormId>,
+    /// TNAM: the seconds a message that is not a box stays on screen [documented: GECK
+    /// wiki, Message "Display Time"]; boxes have none [observed].
+    pub display_seconds: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -450,6 +456,9 @@ pub struct GameData {
     pub package_defs: HashMap<FormId, PackageDef>,
     pub messages: HashMap<FormId, MessageDef>,
     pub form_lists: HashMap<FormId, Vec<FormId>>,
+    /// MICN (Menu Icon) ICON: the icon's texture file as the record names it, under
+    /// the textures folder [documented: GECK wiki, MenuIcon; corner-messages.md §3].
+    pub menu_icons: HashMap<FormId, String>,
     pub actors: HashMap<FormId, ActorDef>,
     /// SCRI of every winning record that has one (base forms, quests).
     pub form_script: HashMap<FormId, FormId>,
@@ -562,6 +571,7 @@ struct Read {
     topic: Option<TopicDef>,
     message: Option<MessageDef>,
     form_list: Option<Vec<FormId>>,
+    menu_icon: Option<String>,
     actor: Option<ActorDef>,
     package: Option<PackageDef>,
     reputation: Option<f32>,
@@ -619,6 +629,7 @@ impl GameData {
             package_defs: HashMap::new(),
             messages: HashMap::new(),
             form_lists: HashMap::new(),
+            menu_icons: HashMap::new(),
             actors: HashMap::new(),
             form_script: HashMap::new(),
             edids: HashMap::new(),
@@ -725,6 +736,9 @@ impl GameData {
             }
             if let Some(l) = r.form_list {
                 d.form_lists.insert(id, l);
+            }
+            if let Some(i) = r.menu_icon {
+                d.menu_icons.insert(id, i);
             }
             if let Some(a) = r.actor {
                 d.actors.insert(id, a);
@@ -933,6 +947,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"INFO"
             | b"DIAL"
             | b"MESG"
+            | b"MICN"
             | b"FLST"
             | b"NPC_"
             | b"CREA"
@@ -1253,10 +1268,15 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"DESC" => m.text = v.as_ref().and_then(|v| v.as_str().map(str::to_string)),
                     b"ITXT" => m.buttons.push(v.as_ref().and_then(|v| v.as_str()).unwrap_or_default().to_string()),
                     b"DNAM" => m.message_box = has_flag(v.as_ref(), "Message Box"),
+                    b"INAM" => m.icon = fid(v).filter(|f| f.0 != 0),
+                    b"TNAM" => m.display_seconds = v.as_ref().and_then(Json::as_u64).map(|x| x as u32),
                     _ => {}
                 }
             }
             out.message = Some(m);
+        }
+        b"MICN" => {
+            out.menu_icon = decoded.iter().find(|(s, _)| *s == b"ICON").and_then(|(_, v)| v.as_ref()?.as_str().map(str::to_string));
         }
         b"FLST" => {
             out.form_list = Some(decoded.iter().filter(|(s, _)| *s == b"LNAM").filter_map(|(_, v)| fid(v)).collect());

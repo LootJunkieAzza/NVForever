@@ -26,9 +26,33 @@ pub enum ScriptEffect {
     OpenContainer(u32),
     /// A short line on screen (a message without the message-box flag, an objective,
     /// items a script gave the player, a default activation's message).
-    Notify(String),
+    Notify(Note),
     /// A message box (`MESG` flagged "Message Box", or one with buttons).
     MessageBox(BoxMessage),
+}
+
+/// A short line for the top left of the view (`crate::corner_messages`). A message
+/// record's line has the record's icon and time; the others have neither.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Note {
+    pub text: String,
+    /// The icon's texture file as its Menu Icon record names it (under the textures
+    /// folder); none for the default icon.
+    pub icon: Option<String>,
+    /// The seconds it stays (MESG Display Time); none for the default time.
+    pub seconds: Option<f32>,
+}
+
+impl From<String> for Note {
+    fn from(text: String) -> Note {
+        Note { text, ..Note::default() }
+    }
+}
+
+impl From<&str> for Note {
+    fn from(text: &str) -> Note {
+        text.to_string().into()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,6 +77,9 @@ pub trait EffectCtx {
     fn objective_text(&self, quest: FormId, index: i32) -> Option<String>;
     /// `MESG` DNAM "Message Box" flag.
     fn is_message_box(&self, message: FormId) -> bool;
+    /// The icon file and the seconds of a message that is not a box, as [`Note`] has
+    /// them.
+    fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>);
     /// References whose enable parent chain leads to `r` (their presence follows it).
     fn enable_children(&self, r: FormId) -> Vec<FormId>;
     /// The player's compass heading in degrees (kept across a scripted MoveTo).
@@ -173,7 +200,7 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                             out.push(ScriptEffect::Travel(Travel { world, interior, feet, heading_deg }))
                         }
                         Effect::OpenContainer(c) if *by == player => out.push(ScriptEffect::OpenContainer(c)),
-                        Effect::Message(m) if *by == player => out.push(ScriptEffect::Notify(m)),
+                        Effect::Message(m) if *by == player => out.push(ScriptEffect::Notify(m.into())),
                         _ => {}
                     }
                 }
@@ -183,26 +210,27 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                 if !buttons.is_empty() || ctx.is_message_box(*message) {
                     out.push(ScriptEffect::MessageBox(BoxMessage { message: message.0, text, buttons: buttons.clone() }));
                 } else if !text.trim().is_empty() {
-                    out.push(ScriptEffect::Notify(text));
+                    let (icon, seconds) = ctx.message_look(*message);
+                    out.push(ScriptEffect::Notify(Note { text, icon, seconds }));
                 }
             }
             EventKind::ObjectiveDisplayed { quest, index, on: true } => {
                 let t = ctx.objective_text(*quest, *index).unwrap_or_else(|| format!("{} objective {index}", ctx.quest_name(*quest)));
-                out.push(ScriptEffect::Notify(format!("Objective: {t}")));
+                out.push(ScriptEffect::Notify(format!("Objective: {t}").into()));
             }
             EventKind::ObjectiveCompleted { quest, index, on: true } => {
                 let t = ctx.objective_text(*quest, *index).unwrap_or_else(|| format!("{} objective {index}", ctx.quest_name(*quest)));
-                out.push(ScriptEffect::Notify(format!("Completed: {t}")));
+                out.push(ScriptEffect::Notify(format!("Completed: {t}").into()));
             }
-            EventKind::QuestCompleted { quest } => out.push(ScriptEffect::Notify(format!("Quest completed: {}", ctx.quest_name(*quest)))),
-            EventKind::QuestFailed { quest } => out.push(ScriptEffect::Notify(format!("Quest failed: {}", ctx.quest_name(*quest)))),
+            EventKind::QuestCompleted { quest } => out.push(ScriptEffect::Notify(format!("Quest completed: {}", ctx.quest_name(*quest)).into())),
+            EventKind::QuestFailed { quest } => out.push(ScriptEffect::Notify(format!("Quest failed: {}", ctx.quest_name(*quest)).into())),
             EventKind::ItemAdded { to, item, count } if *to == player => match added.iter_mut().find(|(i, _)| i == item) {
                 Some((_, n)) => *n += count,
                 None => added.push((*item, *count)),
             },
             EventKind::ItemRemoved { from, item, count } if *from == player => {
                 let n = ctx.name(*item);
-                out.push(ScriptEffect::Notify(if *count > 1 { format!("{n} ({count}) removed") } else { format!("{n} removed") }));
+                out.push(ScriptEffect::Notify(if *count > 1 { format!("{n} ({count}) removed") } else { format!("{n} removed") }.into()));
             }
             _ => {}
         }
@@ -212,11 +240,11 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
     const MANY: usize = 4;
     if added.len() >= MANY {
         let total: i32 = added.iter().map(|(_, n)| n).sum();
-        out.push(ScriptEffect::Notify(format!("{} items added ({total} in all)", added.len())));
+        out.push(ScriptEffect::Notify(format!("{} items added ({total} in all)", added.len()).into()));
     } else {
         for (item, n) in added {
             let name = ctx.name(item);
-            out.push(ScriptEffect::Notify(if n > 1 { format!("{name} ({n}) added") } else { format!("{name} added") }));
+            out.push(ScriptEffect::Notify(if n > 1 { format!("{name} ({n}) added") } else { format!("{name} added") }.into()));
         }
     }
     out
@@ -538,6 +566,12 @@ mod tests {
         fn is_message_box(&self, message: FormId) -> bool {
             message.0 == 0x0BB
         }
+        fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>) {
+            match message.0 {
+                0x0AA => (Some("icons\\pain.dds".into()), Some(10.0)),
+                _ => (None, None),
+            }
+        }
         fn enable_children(&self, r: FormId) -> Vec<FormId> {
             if r == PARENT {
                 vec![CHILD, GRANDCHILD]
@@ -637,7 +671,8 @@ mod tests {
         assert_eq!(
             e,
             vec![
-                ScriptEffect::Notify("To jump, press Space.".into()),
+                // A message's line has its record's icon and time; the others have neither.
+                ScriptEffect::Notify(Note { text: "To jump, press Space.".into(), icon: Some("icons\\pain.dds".into()), seconds: Some(10.0) }),
                 ScriptEffect::MessageBox(BoxMessage { message: 0xBB, text: "Old World Blues has been loaded.".into(), buttons: vec![] }),
                 ScriptEffect::MessageBox(BoxMessage { message: 0xCC, text: "Hardcore?".into(), buttons: vec!["No".into(), "Yes".into()] }),
                 ScriptEffect::Notify("Objective: Use the Vit-o-matic Vigor Tester".into()),

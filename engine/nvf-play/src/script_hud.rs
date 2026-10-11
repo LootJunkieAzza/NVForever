@@ -1,10 +1,9 @@
-//! Script messages on screen. The lines and subtitles are a minimal overlay (layout and
-//! wording are NVForever's own, not a claim about the original's interface); the message
-//! box is drawn as the original's (`crate::message_menu`).
+//! Script messages on screen. The subtitles are a minimal overlay (layout and wording
+//! are NVForever's own, not a claim about the original's interface); the message box is
+//! drawn as the original's (`crate::message_menu`), and so are the short lines at the
+//! top left (`crate::corner_messages`: messages without the message-box flag, objectives
+//! shown or completed, quests completed, items a script gave or took).
 //!
-//! - **Lines** (messages without the message-box flag, objectives shown or completed,
-//!   quests completed, items a script gave or took): bottom left (nvforever's status text
-//!   is top left), the newest last, each for [`NOTE_SECONDS`].
 //! - **Message boxes**: the runtime's queue (`fnv_game::Game::boxes`, scripts.md §7.7),
 //!   the first one in the middle of the view while the open menu is 1001, with the
 //!   message's title and its buttons one under the other, the chosen one framed. A click
@@ -38,16 +37,10 @@ use crate::sim::SimState;
 use bevy::prelude::*;
 use fnv_game::game::menus;
 use fnv_sim::FormId;
-use std::collections::{HashMap, VecDeque};
-
-/// Seconds a line stays on screen.
-pub const NOTE_SECONDS: f32 = 6.0;
-/// Lines on screen at once (older ones go first).
-const MAX_NOTES: usize = 6;
+use std::collections::HashMap;
 
 #[derive(Resource, Default)]
 pub struct ScriptHud {
-    notes: VecDeque<(String, f32)>,
     /// The text and buttons each message was last shown with (the trace's
     /// `message_shown`), for the box queue, which holds only FormIDs.
     shown: HashMap<u32, BoxMessage>,
@@ -55,20 +48,9 @@ pub struct ScriptHud {
     lines: HashMap<u32, Vec<String>>,
     /// The message box on screen (as last drawn).
     on_screen: Option<BoxMessage>,
-    dirty: bool,
 }
 
 impl ScriptHud {
-    pub fn notify(&mut self, text: String) {
-        let text = text.trim().to_string();
-        info!("on screen: {}", text.replace('\n', " / "));
-        self.notes.push_back((text, 0.0));
-        while self.notes.len() > MAX_NOTES {
-            self.notes.pop_front();
-        }
-        self.dirty = true;
-    }
-
     /// A message box was shown: remember its text for when it reaches the front.
     pub fn message_box(&mut self, b: BoxMessage) {
         info!("message box shown: {} {:?}", b.text.replace('\n', " / "), b.buttons);
@@ -128,14 +110,11 @@ pub struct ScriptHudPlugin;
 impl Plugin for ScriptHudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptHud>()
-            .add_plugins(crate::message_menu::MessageMenuPlugin)
+            .add_plugins((crate::message_menu::MessageMenuPlugin, crate::corner_messages::CornerMessagesPlugin))
             .add_systems(Startup, spawn)
             .add_systems(Update, draw.in_set(crate::PlaySet::Ui).before(crate::message_menu::DrawBox));
     }
 }
-
-#[derive(Component)]
-struct NotesText;
 
 #[derive(Component)]
 struct SubtitleText;
@@ -146,10 +125,6 @@ pub struct BoxButton(pub usize);
 
 fn spawn(mut commands: Commands) {
     let font = |size: f32| TextFont { font_size: FontSize::Px(size), ..default() };
-    commands.spawn((
-        Node { position_type: PositionType::Absolute, left: Val::Px(16.0), bottom: Val::Px(48.0), max_width: Val::Percent(45.0), ..default() },
-        children![(Text::new(""), font(15.0), TextColor(Color::srgb(0.95, 0.9, 0.7)), NotesText)],
-    ));
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -209,30 +184,13 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<PanelV
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw(
-    time: Res<Time>,
     mut hud: ResMut<ScriptHud>,
     script: Res<ScriptState>,
     sim: Res<SimState>,
     mut panel: ResMut<MessagePanel>,
     mut shown: Local<String>,
-    mut notes: Query<&mut Text, (With<NotesText>, Without<SubtitleText>)>,
-    mut subtitles: Query<&mut Text, (With<SubtitleText>, Without<NotesText>)>,
+    mut subtitles: Query<&mut Text, With<SubtitleText>>,
 ) {
-    let dt = time.delta_secs();
-    let before = hud.notes.len();
-    for n in hud.notes.iter_mut() {
-        n.1 += dt;
-    }
-    hud.notes.retain(|n| n.1 < NOTE_SECONDS);
-    if hud.notes.len() != before {
-        hud.dirty = true;
-    }
-    if std::mem::take(&mut hud.dirty) {
-        let text: Vec<&str> = hud.notes.iter().map(|n| n.0.as_str()).collect();
-        for mut t in &mut notes {
-            t.0 = text.join("\n");
-        }
-    }
     let (p, front, subs) = view(&hud, &script, &sim);
     hud.on_screen = front;
     if panel.view != p {

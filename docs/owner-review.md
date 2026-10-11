@@ -2150,6 +2150,57 @@ You asked for the placeholder message boxes to be swapped for the game's own, li
    and `NVF_PLAY_TEST_SCRIPT_MENUS=off` before starting with `--play` (the name is the
    message's Editor ID).
 
+## Messages at the top left, as the original's (2026-10-11, session "corner messages")
+
+Branch `claude/corner-messages` (it contains the message box branch). Rules and
+sources: `docs/spec-notes/corner-messages.md`.
+
+You asked for the messages that are not message boxes to be shown as the original
+shows them, with their icons, and then: one at a time, each for the time its record
+gives.
+
+1. **What you get.** A message without the Message Box flag now appears at the top
+   left: the bracket, the Vault Boy icon and the text beside it in the game's own HUD
+   font, all read from your install when the game runs. Next to your "You are now Well
+   Rested!" screenshot, at the same window size, the bracket, the face and the text
+   fall on the same pixels to within one.
+2. **One at a time, for the record's time.** Messages wait in line. Each is shown for
+   its own Display Time (Well Rested: 10 seconds), then the next. In the game's data
+   the times run from 1 to 15 seconds; 2 and 10 are the commonest.
+3. **Icons.** A message's icon is the Menu Icon record it names (the faction faces,
+   Wild Wasteland, Vault Boy in pain). Most messages name none and get the neutral
+   Vault Boy face, as the GECK wiki says and as your screenshot shows.
+4. **Something I found.** The bracket in your screenshot has a cut corner. The bracket's
+   own picture file has a square one. The game takes the bracket from its big shared
+   interface picture (the "atlas"), where it is drawn differently. NVForever now reads
+   that atlas too.
+5. **Guesses for you to judge:**
+   - **Messages without a time.** Nineteen old messages have no Display Time. They
+     stay 2 seconds.
+   - **Objectives, quests, items, "Gate is locked".** These lines used to be at the
+     bottom left. Nothing I could read says where the original shows them, so they now
+     go through the same top-left area, in the same line, with the neutral face, 2
+     seconds each. The wording ("Objective: ...", "... added") is still NVForever's.
+     After a new game's start about ten of them wait in line, so the last comes some
+     20 seconds late. Say if they should be shorter, grouped, or go elsewhere.
+   - **Fading.** A message fades in and out over a quarter of a second. Your one still
+     picture cannot show how the original does it.
+   - **The same message twice running** is shown once.
+   - **While a message box is open** the corner message is hidden and its time does not
+     run, so it is not used up behind the box.
+   - **Where long texts break.** Your screenshot only pins the line width between 228
+     and 336 units; I use 330. A screenshot of a longer message (three or more lines)
+     would settle it, and would show whether the bracket grows with the text.
+6. **Not built:** a sound when a message appears; the original's own messages that do
+   not come from scripts (experience, karma, picking things up by hand); the other HUD
+   text areas (quest added, location names). The bottom HUD is the other session's.
+7. **The debug text gets in the way.** NVForever's own status text is also at the top
+   left and lies over the message. Start with `--no-overlay` to look.
+8. **To look at any message:** set
+   `NVF_PLAY_TEST_SCRIPT=20:message:AbilityWellRestedStartMsg` before starting with
+   `--play --no-overlay` (the name is the message's Editor ID; `FactionReminderNCR` has
+   a faction face).
+
 ## Weapon and armour condition (2026-10-11, session "item condition")
 
 Branch `claude/item-condition`. Rules and sources: docs/spec-notes/combat-rules.md §17.
