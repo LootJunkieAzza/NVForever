@@ -59,7 +59,7 @@
 //!   `<seconds>@<quest>=<stage>`, seconds after the stage was first seen done):
 //!   `start:<quest>`, `stop:<quest>`, `stage:<quest>:<n>`, `objective:<quest>:<n>`,
 //!   `objective_done:<quest>:<n>`, `info:<INFO>[:<speaker>]`, `button:<n>`, `close`,
-//!   `message:<MESG>`,
+//!   `message:<MESG>`, `menu:<code>`,
 //!   `var:<form>:<variable>:<value>`, `walk:<reference>`, `activate:<reference>`,
 //!   `say_to:<speaker>:<target>:<topic>[:<noTargetLookFlag>]`.
 //! - `NVF_PLAY_TEST_SCRIPT_MENUS=<seconds>|off`: every menu or message box a script opens
@@ -706,6 +706,7 @@ impl Runtime {
                     g.show_box(m);
                 }
             }
+            ScriptAid::Menu(code) => g.open_menu(*code),
             ScriptAid::Activate(r) => {
                 let r = resolve(g, r)?;
                 if let ByHand::Default(a) = self.activate_as_player(r)? {
