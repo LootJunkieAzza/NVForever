@@ -489,10 +489,27 @@ pub struct Speech {
     /// Topics are applied and no SayToDone block runs [hypothesis for both].
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub greeting: bool,
+    /// A line of a conversation between two actors (StartConversation with an actor as
+    /// the target, `crate::dialogue`, docs/spec-notes/dialogue.md §5.1): its number in
+    /// the conversation, from 1. Only its first response is said; when it ends the
+    /// conversation goes on with the next line, and no SayToDone block runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<u32>,
     /// Position (in the order the responses are said) of the response whose idles were
     /// last asked for (`crate::idles`); not part of the saved state.
     #[serde(skip)]
     pub response: usize,
+}
+
+/// What a line said outside a conversation with the player is ([`Speech`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineKind {
+    Say,
+    SayTo,
+    /// A greeting with the Goodbye flag ([`Speech::greeting`]).
+    Greeting,
+    /// Line `n` of a conversation between two actors ([`Speech::conversation`]).
+    Conversation(u32),
 }
 
 pub struct Game<'a> {
@@ -1280,21 +1297,30 @@ impl<'a> Game<'a> {
             self.emit(EventKind::NoLine { speaker, topic });
             return None;
         };
-        self.say_line(speaker, target, topic, info, say_to, false);
+        self.say_line(speaker, target, topic, info, if say_to { LineKind::SayTo } else { LineKind::Say });
         Some(info)
     }
 
-    /// The speaker starts saying the line `info` outside a conversation: a line it was
-    /// saying stops, the line is remembered for Say Once, and its begin result script
-    /// runs ([`Game::say`]; `greeting`: [`Speech::greeting`]).
-    pub(crate) fn say_line(&mut self, speaker: FormId, target: Option<FormId>, topic: FormId, info: FormId, say_to: bool, greeting: bool) {
+    /// The speaker starts saying the line `info` outside a conversation with the player:
+    /// a line it was saying stops, the line is remembered for Say Once, and its begin
+    /// result script runs ([`Game::say`]; [`LineKind`]). A line of a conversation
+    /// between actors lasts as long as its first response.
+    pub(crate) fn say_line(&mut self, speaker: FormId, target: Option<FormId>, topic: FormId, info: FormId, kind: LineKind) {
         let data = self.data;
         let Some(def) = data.infos.get(&info) else { return };
         self.cut_line(speaker);
         self.mark_said(speaker, info, false);
-        let seconds = self.line_seconds(speaker, info);
+        let conversation = match kind {
+            LineKind::Conversation(n) => Some(n),
+            _ => None,
+        };
+        let seconds = match (conversation, def.response_order().first()) {
+            (Some(_), Some(&r)) => self.response_seconds(speaker, info, r),
+            _ => self.line_seconds(speaker, info),
+        };
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, response: 0 });
+        let (say_to, greeting) = (kind == LineKind::SayTo, kind == LineKind::Greeting);
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, response: 0 });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }
@@ -1312,6 +1338,10 @@ impl<'a> Game<'a> {
         let mut started = Vec::new();
         for k in 0..self.speech.len() {
             let s = &self.speech[k];
+            // A conversation line between actors is its first response only.
+            if s.conversation.is_some() {
+                continue;
+            }
             let Some(def) = data.infos.get(&s.info) else { continue };
             let order = def.response_order();
             if order.len() < 2 {
@@ -1335,11 +1365,15 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// Stop the line a speaker is saying, without its end script.
+    /// Stop the line a speaker is saying, without its end script. A conversation between
+    /// actors whose line is cut ends there [hypothesis].
     pub(crate) fn cut_line(&mut self, speaker: FormId) {
         if let Some(k) = self.speech.iter().position(|s| s.speaker == speaker) {
             let s = self.speech.remove(k);
             self.emit(EventKind::LineEnded { speaker, info: s.info, cut: true });
+            if let (Some(lines), Some(target)) = (s.conversation, s.target) {
+                self.emit(EventKind::ActorConversationEnded { speaker, target, reason: crate::dialogue::ended::CUT, lines });
+            }
         }
     }
 
@@ -1395,6 +1429,12 @@ impl<'a> Game<'a> {
                 }
             }
             if s.greeting {
+                continue;
+            }
+            // A conversation between actors goes on (`crate::dialogue`); its lines are no
+            // SayTo lines [hypothesis].
+            if let Some(lines) = s.conversation {
+                self.next_conversation_line(&s, lines);
                 continue;
             }
             // SayToDone follows a line said by Say as well as by SayTo [documented: GECK

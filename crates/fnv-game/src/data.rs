@@ -79,8 +79,9 @@ pub struct InfoDef {
     pub record_flags: u32,
     /// DATA type code (0 Topic … 7 Radio, [`topic_type`]) [documented: xEdit INFO DATA].
     pub info_type: u8,
-    /// DATA next speaker (0 Target, 1 Self, 2 Either) [documented: xEdit wbNextSpeaker];
-    /// read, not used (conversations between NPCs).
+    /// DATA next speaker (0 Target, 1 Self, 2 Either) [documented: xEdit wbNextSpeaker]:
+    /// who says the next line of a conversation between actors
+    /// (`Game::next_conversation_line`).
     pub next_speaker: u8,
     /// DATA flags: the first flag byte in bits 0–7, the second in bits 8–15
     /// ([`info_flag`]) [documented: xEdit INFO DATA; the same combined value the GECK
