@@ -1028,7 +1028,9 @@ Mercenary, Caravan, Tribal. In the game the next box came 0.45–1.4 s after a c
 [observed, §10.2]; here 1 frame (they were all due) — a difference.
 
 **Dialogue lines** (`Game::say`, `Game::speech`). `speaker.SayTo target topic` and
-`speaker.Say topic` say the topic's first line the speaker can say. Since 2026-10-10 the
+`speaker.Say topic` say the topic's first line the speaker can say. SayTo's
+`noTargetLookFlag` (4th parameter) is read for who turns to whom
+(docs/design/dialogue-play.md §9); `forceSubtitleFlag` is not (subtitles always show). Since 2026-10-10 the
 choice of the line is shared with conversations (`Game::select_line`,
 docs/spec-notes/dialogue.md §4: quest priority, then stored order, Random stacks picked
 at random, Say Once a Day), and a response is timed in one place

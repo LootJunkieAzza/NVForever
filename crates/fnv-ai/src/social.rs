@@ -33,10 +33,11 @@
 //!   value stands in), and within [`CHAT_REACH`] [stand-in: in the game the two go up to
 //!   each other first; here both must already be close and standing].
 //!
-//! While two actors talk, and while an actor says hello, they turn to whom they talk to
-//! [hypothesis]; the engine keeps both of a conversation where they stand.
+//! While two actors talk, and while an actor says hello or a SayTo line, they turn to
+//! whom they talk to (`Game::facings`, which says who turns; [hypothesis] for hellos and
+//! conversations); the engine keeps both of a conversation where they stand.
 
-use crate::carry::{Activity, Ai, AiEvent};
+use crate::carry::{Activity, Ai, AiEvent, Talking};
 use crate::goal::{self, dist};
 use crate::sandbox::Rng;
 use fnv_game::game::Game;
@@ -177,24 +178,18 @@ impl Ai {
         }
     }
 
-    /// Who says a hello, or a line of a conversation between actors, turns to its
-    /// listener, and the listener of a conversation to the speaker, unless on furniture
-    /// or on its way.
+    /// Who says a line to someone turns its body to the listener, and the listener of a
+    /// conversation between actors to the speaker (`Game::facings`: SayTo lines, hellos,
+    /// conversations; not a line whose script asked for no turning), unless on furniture,
+    /// on its way, or turning with its Dialogue package already.
     fn face_listeners(&mut self, game: &mut Game, dt: f32) {
-        let pairs: Vec<(FormId, FormId)> = game
-            .speech
-            .iter()
-            .filter(|s| s.hello || s.conversation.is_some())
-            .filter_map(|s| s.target.map(|t| (s.speaker, t)))
-            .flat_map(|(a, b)| [(a, b), (b, a)])
-            .collect();
-        for (who, to) in pairs {
-            let Some(a) = self.agents.get(&who) else { continue };
-            if a.using.is_some() || a.activity == Activity::Travelling {
+        for f in game.facings().into_iter().filter(|f| f.body) {
+            let Some(a) = self.agents.get(&f.who) else { continue };
+            if a.using.is_some() || a.activity == Activity::Travelling || a.talk == Some(Talking::Speaking) {
                 continue;
             }
-            if let Some(at) = goal::place_of_ref(game, to) {
-                self.face(game, who, at, dt);
+            if let Some(at) = goal::place_of_ref(game, f.to) {
+                self.face(game, f.who, at, dt);
             }
         }
     }

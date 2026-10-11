@@ -355,6 +355,11 @@ fn is_actor(refs: &RefTable, id: FormId) -> bool {
 }
 
 impl Residents {
+    /// Whether the AI runs this reference (it turns and moves its body).
+    pub fn runs(&self, reference: u32) -> bool {
+        self.core.ai.agents.contains_key(&FormId(reference))
+    }
+
     /// Resolve the named actors and, without `--play` (`shared` false), build the game
     /// state the package choice runs in.
     pub fn build(world: &WorldData, names: &[String], clock: Clock, walk_speed: f32, shared: bool) -> Result<Residents, String> {

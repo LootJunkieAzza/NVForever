@@ -772,6 +772,7 @@ impl<'a> Game<'a> {
             if let Some(&f) = def.follow_ups.iter().find(|&&f| self.can_say(who, Some(to), f)) {
                 let topic = data.infos.get(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
                 self.say_line(who, Some(to), topic, f, next);
+                self.set_line_look(who, said.look);
                 return;
             }
             let mut linked: Vec<(FormId, FormId)> = Vec::new();
@@ -788,6 +789,7 @@ impl<'a> Game<'a> {
                 n => linked[self.rng.next_u32() as usize % n],
             };
             self.say_line(who, Some(to), topic, info, next);
+            self.set_line_look(who, said.look);
             return;
         }
         end(self, ended::NO_LINKS)

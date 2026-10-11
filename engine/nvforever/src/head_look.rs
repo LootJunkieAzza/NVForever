@@ -220,8 +220,9 @@ impl Plugin for HeadLookPlugin {
         app.insert_resource(HeadLookSettings { enabled: self.enabled, camera_is_player: self.camera_is_player, force_point: self.force_point })
             .init_resource::<HeadLookStats>()
             // After a conversation has turned its actor (dialogue_look.rs), whose head is
-            // left to it.
-            .add_systems(Update, (attach, track).chain().after(crate::locomotion::drive).after(nvf_play::player::BodySet).after(crate::dialogue_look::turn_speaker))
+            // left to it, and after the lines said to someone set their heads' targets
+            // (speech_look.rs).
+            .add_systems(Update, (attach, track).chain().after(crate::locomotion::drive).after(nvf_play::player::BodySet).after(crate::dialogue_look::turn_speaker).after(crate::speech_look::face))
             .add_systems(Last, report);
         if self.force_point.is_some() {
             app.add_systems(Update, force_point.before(track));
