@@ -311,6 +311,8 @@ impl ScriptState {
     pub fn locks(&self) -> ControlLocks {
         match self.rt.as_ref() {
             _ if self.before_opening() => ControlLocks::ALL,
+            // The player is dead: nothing more to do [design] (`crate::combat`).
+            Some(rt) if rt.game.is_dead(FormId::PLAYER_REF) => ControlLocks::ALL,
             Some(rt) => ControlLocks::from_flags(rt.game.player.controls_disabled),
             None => ControlLocks::default(),
         }
@@ -666,6 +668,10 @@ impl Runtime {
             ScriptAid::Start(q) => {
                 let q = resolve(g, q)?;
                 g.start_quest(q);
+            }
+            ScriptAid::Combat(a, t) => {
+                let (a, t) = (resolve(g, a)?, resolve(g, t)?);
+                g.start_combat(a, t);
             }
             ScriptAid::Stop(q) => {
                 let q = resolve(g, q)?;
@@ -1166,6 +1172,10 @@ fn sync_locks(mut script: ResMut<ScriptState>, mut locks: ResMut<ControlLocks>, 
     let names = now.names();
     if script.before_opening() {
         info!("player controls: all held until the new game's opening starts");
+        return;
+    }
+    if script.rt.as_ref().is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF)) {
+        info!("player controls: all held, the player is dead");
         return;
     }
     stats.changes += 1;

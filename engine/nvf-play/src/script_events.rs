@@ -505,6 +505,8 @@ pub fn trigger_changes<T: Ord + Copy>(before: &BTreeSet<T>, now: &BTreeSet<T>) -
 pub enum ScriptAid {
     /// `start:<quest>`: StartQuest.
     Start(String),
+    /// `combat:<actor>:<target>`: actor.StartCombat target (`player` for the player).
+    Combat(String, String),
     /// `stop:<quest>`: StopQuest.
     Stop(String),
     /// `stage:<quest>:<stage>`: SetStage.
@@ -579,6 +581,7 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 ["walk", _, ..] => ScriptAid::Walk(whole.unwrap_or_default()),
                 ["activate", _, ..] => ScriptAid::Activate(whole.unwrap_or_default()),
                 ["start", q] => ScriptAid::Start(q.to_string()),
+                ["combat", a, t] => ScriptAid::Combat(a.to_string(), t.to_string()),
                 ["enable", r] => ScriptAid::Enable(r.to_string()),
                 ["stop", q] => ScriptAid::Stop(q.to_string()),
                 ["stage", q, s] => ScriptAid::Stage(q.to_string(), int(s)?),
@@ -598,7 +601,7 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 }
                 _ => {
                     return Err(format!(
-                        "{rest:?}: expected start:, stop:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate: or say_to:"
+                        "{rest:?}: expected start:, stop:, combat:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate: or say_to:"
                     ))
                 }
             };

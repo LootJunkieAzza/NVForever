@@ -11,8 +11,7 @@
 //! Also here: who counts as a hostile actor near the player, and whose bed the player
 //! may sleep in, for the menu's refusals (§9). Neither rule is sourced; each says so.
 
-use crate::actor_values::AGGRESSION;
-use crate::functions::{actor_value, faction_relation, none, yes, Args, Ctx};
+use crate::functions::{none, yes, Args, Ctx};
 use crate::game::Game;
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
@@ -137,22 +136,13 @@ pub fn show_sleep_wait_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value,
 /// An actor's factions and aggression are its template's where the template flags say so
 /// (docs/spec-notes/factions.md §2, §3). Most hostile actors are Very Aggressive and
 /// neutral to the player by their factions (§5 there), a Fiend for one.
+///
+/// The rule is [`Game::would_attack`]'s with the player as the other, which the
+/// detection states use too (`crate::awareness`).
 pub fn hostile_to_player(g: &mut Game, actor: FormId) -> bool {
-    if actor == FormId::PLAYER_REF || !g.world.is_enabled(actor).unwrap_or(false) {
-        return false;
-    }
-    if g.extra.get(&actor).is_some_and(|e| e.dead || e.teammate || e.unconscious || e.restrained) {
-        return false;
-    }
-    let relation = faction_relation(g, actor, FormId::PLAYER_REF);
-    let aggression = actor_value(g, actor, AGGRESSION).unwrap_or(0.0) as i64;
-    tracing::debug!(%actor, aggression, relation, "hostile to the player?");
-    match aggression {
-        a if a >= 3 => true,
-        2 => relation != 2 && relation != 3,
-        1 => relation == 1,
-        _ => false,
-    }
+    let hostile = g.would_attack(actor, FormId::PLAYER_REF);
+    tracing::debug!(%actor, hostile, "hostile to the player?");
+    hostile
 }
 
 /// Whether the player may not sleep in `bed` because of who owns it, and the owner. The

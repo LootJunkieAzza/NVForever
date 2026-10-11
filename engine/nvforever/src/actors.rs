@@ -534,6 +534,10 @@ fn arm(
             commands.entity(e).insert(crate::weapons::HeldWeapon { reference, weapon });
         }
     }
+    // Where its shots leave (`npc_combat`): the model's `ProjectileNode`.
+    if let Some(pm) = ctx.models.model(&fnv_actor::resolve::mesh_path(model)) {
+        crate::weapons::spawn_muzzle(commands, spawned, stance.weapon_node, &pm, reference);
+    }
     let skel_parent = skel.parents[stance.weapon_node].unwrap_or(0);
     let mut hold = WeaponHold::new(stance, world.weapon_mode == WeaponMode::Drawn, skel_parent);
     if let Some(period) = world.weapon_test {

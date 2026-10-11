@@ -25,6 +25,7 @@
 pub mod actor_values;
 pub mod ai;
 pub mod anims;
+pub mod awareness;
 pub mod chargen;
 pub mod combat;
 pub mod cond;

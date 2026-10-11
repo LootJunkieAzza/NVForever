@@ -104,6 +104,7 @@ const P_SB_OBJECTS: u32 = 0x82B;
 const P_SB_NOTHING: u32 = 0x82C;
 const P_TO_CHAIR: u32 = 0x82D;
 const P_SLEEP_C: u32 = 0x82E;
+const P_STEADY: u32 = 0x82F;
 // Bases.
 const N_TRAVEL: u32 = 0x840;
 const N_IN: u32 = 0x841;
@@ -119,6 +120,7 @@ const N_SB_OBJECTS: u32 = 0x84A;
 const N_SB_NOTHING: u32 = 0x84B;
 const N_TO_CHAIR: u32 = 0x84C;
 const N_SLEEP_C: u32 = 0x84D;
+const N_STEADY: u32 = 0x84E;
 // Cells and references.
 const CELL_A: u32 = 0x860;
 const CELL_B: u32 = 0x861;
@@ -150,6 +152,7 @@ const R_LOOP: u32 = 0x884;
 const R_FOLLOW: u32 = 0x885;
 const R_HERE: u32 = 0x886;
 const R_RUN: u32 = 0x887;
+const R_STEADY: u32 = 0x888;
 const DOOR_A: u32 = 0x8D1;
 const DOOR_B: u32 = 0x8D2;
 
@@ -192,6 +195,7 @@ fn plugin_bytes() -> Vec<u8> {
         pack_with(P_SB_NOTHING, "SandboxNothing", 0, SANDBOX, NO_OBJECTS | type_flags::NO_WANDERING, (0, MARK_C, 450), None),
         pack(P_TO_CHAIR, "TravelToChair", 0, TRAVEL, (0, CHAIR_C, 0), None),
         pack(P_SLEEP_C, "SleepInC", 0, SLEEP, (1, CELL_C, 0), None),
+        pack(P_STEADY, "TravelToBInCombat", flags::MUST_REACH_LOCATION | flags::CONTINUE_DURING_COMBAT, TRAVEL, (0, MARK_B, 0), None),
     ]
     .concat();
     let npcs = [
@@ -210,6 +214,7 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_SB_NOTHING, "Statue", &[P_SB_NOTHING]),
         npc(N_TO_CHAIR, "ChairUser", &[P_TO_CHAIR]),
         npc(N_SLEEP_C, "Sleeper", &[P_SLEEP_C]),
+        npc(N_STEADY, "Courier", &[P_STEADY]),
     ]
     .concat();
     // Furniture: a chair (marker flags bit 30) and a bed (bit 31); an idle marker with
@@ -241,6 +246,7 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_FOLLOW, "FollowerRef", N_FOLLOW, START, None),
         placed(b"ACHR", R_HERE, "StanderRef", N_HERE, START, None),
         placed(b"ACHR", R_RUN, "RunnerRef", N_RUN, START, None),
+        placed(b"ACHR", R_STEADY, "CourierRef", N_STEADY, START, None),
     ]
     .concat();
     let b_refs = placed(b"REFR", MARK_B, "MarkB", STAT, [5250.0, 5250.0, 50.0], None);
@@ -782,4 +788,82 @@ fn a_standing_actor_is_pushed_over_the_navmesh_and_goes_back() {
     assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)));
     assert!(!s.ai.stands(&s.game, FormId(R_TO_CHAIR)));
     assert_eq!(s.ai.push(&mut s.game, &s.nav, FormId(R_TO_CHAIR), [5.0, 0.0]), 0.0);
+}
+
+// ---- combat states (fnv_ai::alert) ----------------------------------------------------
+
+use fnv_game::awareness::{Cause, State, Timers};
+use fnv_game::detection::{Band, Detection};
+
+/// Put `actor` in Alert, about something of the player's at `at`.
+fn alert(s: &mut Sim, actor: u32, at: [f32; 3]) {
+    let (now, t) = (s.game.time, Timers::default());
+    let a = s.game.awareness.actors.entry(FormId(actor)).or_default();
+    a.alarm(FormId::PLAYER_REF, at, -10.0, Cause::Noticed, now, &t);
+    a.settle(FormId(actor), now, &t, true);
+    assert_eq!(a.state, State::Alert);
+}
+
+#[test]
+fn an_alerted_actor_searches_where_the_alarm_is_and_goes_back_after() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_RADIUS]);
+    s.run(30.0);
+    assert_eq!(s.ai.agents[&FormId(R_RADIUS)].activity, Activity::There);
+    alert(&mut s, R_RADIUS, [150.0, 100.0, 0.0]);
+    s.run(1.0);
+    assert!(s.events(R_RADIUS).iter().any(|e| matches!(e, AiEvent::Search { about, .. } if *about == FormId::PLAYER_REF)));
+    s.run(8.0);
+    // It looked about where the alarm is, then searched on around it.
+    let looked = s.events(R_RADIUS).into_iter().find_map(|e| match e {
+        AiEvent::SearchLook { at, .. } => Some(*at),
+        _ => None,
+    });
+    assert!(looked.is_some_and(|at| dist(at, [150.0, 100.0, 0.0]) < 40.0), "{looked:?}");
+    assert!(s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::Search { .. })).count() >= 2);
+    // Back to Normal: the search ends and the actor goes back to its package's place.
+    s.game.awareness.actors.remove(&FormId(R_RADIUS));
+    s.run(30.0);
+    let ev = s.events(R_RADIUS);
+    let over = ev.iter().position(|e| matches!(e, AiEvent::SearchOver { .. })).expect("search over");
+    assert!(matches!(ev[over + 1], AiEvent::SearchBack { .. }), "{ev:?}");
+    assert!(dist(s.feet(R_RADIUS), [350.0, 350.0, 0.0]) <= 150.0);
+    assert!(s.ai.agents[&FormId(R_RADIUS)].search.is_none());
+}
+
+#[test]
+fn continue_during_combat_keeps_the_package_going() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_STEADY, R_TRAVEL]);
+    s.run(1.0);
+    for a in [R_STEADY, R_TRAVEL] {
+        assert_eq!(s.ai.agents[&FormId(a)].activity, Activity::Travelling);
+        alert(&mut s, a, [100.0, 100.0, 0.0]);
+    }
+    s.run(30.0);
+    // The courier's package continues during combat: it walks on to cell B.
+    let steady = s.events(R_STEADY);
+    assert!(!steady.iter().any(|e| matches!(e, AiEvent::Search { .. } | AiEvent::Hold { .. })), "{steady:?}");
+    assert!(matches!(steady.last().unwrap(), AiEvent::Arrived { .. }), "{steady:?}");
+    assert!(dist(s.feet(R_STEADY), [5250.0, 5250.0, 50.0]) < 5.0);
+    // The traveller's does not: it breaks off to search and never gets there.
+    let travel = s.events(R_TRAVEL);
+    assert!(travel.iter().any(|e| matches!(e, AiEvent::Search { .. })), "{travel:?}");
+    assert!(!travel.iter().any(|e| matches!(e, AiEvent::Arrived { .. })), "{travel:?}");
+}
+
+#[test]
+fn an_actor_in_combat_stops_and_faces_its_target() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    let (now, t) = (s.game.time, Timers::default());
+    let a = s.game.awareness.actors.entry(FormId(R_TRAVEL)).or_default();
+    a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [50.0, 300.0, 0.0], now, &t);
+    a.settle(FormId(R_TRAVEL), now, &t, true);
+    let at = s.feet(R_TRAVEL);
+    s.run(3.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Hold { target, .. } if *target == FormId::PLAYER_REF)));
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::There);
+    assert!(dist(s.feet(R_TRAVEL), at) < 1.0, "it stands");
 }

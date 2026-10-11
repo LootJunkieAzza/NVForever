@@ -324,6 +324,10 @@ pub struct ActorDef {
     /// Creatures].
     pub combat_skill: Option<u8>,
     pub stealth_skill: Option<u8>,
+    /// CREA DATA Damage, the creature's own attack damage, and RNAM Attack Reach
+    /// [documented: xEdit field names].
+    pub attack_damage: Option<i64>,
+    pub attack_reach: Option<u8>,
     /// ACBS Fatigue, Speed Multiplier (percent) and Karma [documented: xEdit].
     pub fatigue: i64,
     pub speed_mult: i64,
@@ -1475,6 +1479,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"PKID" => a.packages.extend(fid(v)),
                     b"TPLT" => a.template = fid(v),
                     b"RNAM" if &sig == b"NPC_" => a.race = fid(v),
+                    b"RNAM" if &sig == b"CREA" => a.attack_reach = v.as_ref().and_then(Json::as_u64).map(|n| n.min(255) as u8),
                     b"CNAM" if &sig == b"NPC_" => a.class = fid(v),
                     b"DATA" if &sig == b"CREA" => {
                         a.creature_type =
@@ -1483,6 +1488,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.attributes = v.as_ref().and_then(|v| v.get("attributes")).and_then(attributes);
                         let skill = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_u64).map(|n| n.min(255) as u8);
                         (a.combat_skill, a.stealth_skill) = (skill("combat_skill"), skill("stealth_skill"));
+                        a.attack_damage = v.as_ref().and_then(|v| v.get("damage")).and_then(Json::as_i64);
                     }
                     b"DATA" if &sig == b"NPC_" => {
                         a.base_health = v.as_ref().and_then(|v| v.get("base_health")).and_then(Json::as_i64).unwrap_or(0);
