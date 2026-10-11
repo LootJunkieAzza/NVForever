@@ -138,46 +138,6 @@ pub struct AtlasPiece {
     pub rect: [f32; 4],
 }
 
-/// A picture to draw: the texture and, for a piece of an atlas, its rectangle in texels.
-pub type Picture = (Handle<Image>, Option<Rect>);
-
-/// The interface's pictures as its files name them, read once each: a picture the shared
-/// atlas index knows is cut from its atlas, any other is read from its own file.
-#[derive(Default)]
-pub struct Pictures {
-    atlas: HashMap<String, AtlasPiece>,
-    textures: HashMap<String, Option<(Handle<Image>, Vec2)>>,
-}
-
-impl Pictures {
-    pub const ATLAS_INDEX: &'static str = "textures\\interface\\interfaceshared.tai";
-
-    pub fn load(data: Option<&GameData>) -> Pictures {
-        let atlas = data.and_then(|d| d.read(Self::ATLAS_INDEX)).map(|b| atlas_index(&String::from_utf8_lossy(&b))).unwrap_or_default();
-        Pictures { atlas, textures: HashMap::new() }
-    }
-
-    fn texture(&mut self, path: String, data: &GameData, images: &mut Assets<Image>, bc: bool) -> Option<(Handle<Image>, Vec2)> {
-        self.textures.entry(path).or_insert_with_key(|p| texture(p, data, images, bc)).clone()
-    }
-
-    /// A picture named as the interface names it, under the textures folder
-    /// (`Interface\Shared\...`, or an item's ICON path).
-    pub fn get(&mut self, path: &str, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Option<Picture> {
-        let data = data?;
-        let name = path.rsplit(['\\', '/']).next().unwrap_or(path).to_ascii_lowercase();
-        if let Some(piece) = self.atlas.get(&name).cloned() {
-            if let Some((image, size)) = self.texture(format!("textures\\interface\\{}", piece.atlas), data, images, bc) {
-                let [x, y, w, h] = piece.rect;
-                return Some((image, Some(Rect::new(x * size.x, y * size.y, (x + w) * size.x, (y + h) * size.y))));
-            }
-        }
-        let own = path.trim().trim_start_matches(['\\', '/']).replace('/', "\\").to_ascii_lowercase();
-        let own = if own.starts_with("textures\\") { own } else { format!("textures\\{own}") };
-        self.texture(own, data, images, bc).map(|(image, _)| (image, None))
-    }
-}
-
 /// Read an atlas index (`textures\interface\interfaceshared.tai`), by picture file name
 /// in small letters. A line is the picture's file name, then the atlas's file name, a
 /// number, a type, and after them the left and top offsets, a depth offset, and the

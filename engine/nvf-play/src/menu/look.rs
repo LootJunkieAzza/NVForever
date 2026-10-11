@@ -234,7 +234,7 @@ struct Ctx<'a> {
 
 impl Ctx<'_> {
     fn picture(&mut self, path: &str) -> Option<Picture> {
-        self.kit.pictures.get(path, self.data, self.images, self.bc)
+        self.kit.pictures.picture(path, self.data, self.images, self.bc)
     }
 
     /// A picture tinted the interface's colour (at `alpha`), stretched over `node`.
