@@ -29,7 +29,8 @@
 //!   conversation with the player (`Game::dialogue`, `crate::dialogue::subtitle`) is in
 //!   the log's `subtitle:` lines too, but drawn by the dialogue menu
 //!   (`crate::dialogue_menu`). A radio's talk line heard loudly enough is subtitled too
-//!   (`crate::radio::RadioSubtitle`).
+//!   (`crate::radio::RadioSubtitle`). Every text is shown without its acting notes in
+//!   braces (`crate::dialogue::shown_text`).
 
 use crate::interface::{amber, bc_supported, face, plain_font, set_line, u, Face};
 use crate::message_menu::{MessagePanel, PanelView};
@@ -199,16 +200,20 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&cr
         let Some(text) = texts.get(i).or_else(|| texts.last()) else { continue };
         let base = sim.base_of(s.speaker.0).unwrap_or(s.speaker);
         let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(s.speaker));
-        subs.push(format!("{who}: {}", text.trim()));
-        on_screen.push(text.trim().to_string());
+        let text = crate::dialogue::shown_text(text);
+        if text.is_empty() {
+            continue;
+        }
+        subs.push(format!("{who}: {text}"));
+        on_screen.push(text);
     }
     // A radio's talk line (`crate::radio::RadioSubtitle`), the station's name as the speaker.
     if let Some((station, info, response)) = radio.and_then(|r| r.0) {
-        if let Some(text) = hud.lines.get(&info.0).and_then(|t| t.get(response)).filter(|t| !t.trim().is_empty()) {
+        if let Some(text) = hud.lines.get(&info.0).and_then(|t| t.get(response)).map(|t| crate::dialogue::shown_text(t)).filter(|t| !t.is_empty()) {
             let base = sim.base_of(station.0).unwrap_or(station);
             let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(station));
-            subs.push(format!("{who}: {}", text.trim()));
-            on_screen.push(text.trim().to_string());
+            subs.push(format!("{who}: {text}"));
+            on_screen.push(text);
         }
     }
     // The response being said in the conversation with the player: drawn by the dialogue
