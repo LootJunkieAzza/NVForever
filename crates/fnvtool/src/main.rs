@@ -32,6 +32,7 @@ mod script_cmd;
 mod sim_cmd;
 mod source;
 mod voice_cmd;
+mod world_audio;
 mod world_cmd;
 
 use clap::{Args, Parser, Subcommand};
@@ -513,6 +514,22 @@ pub enum WorldCmd {
         /// Worldspace to check (default: every worldspace).
         #[arg(long)]
         world: Option<String>,
+    },
+    /// Music and placed sounds (fnv.world.audio/1): music types, media sets and location
+    /// controllers, acoustic spaces; with --cell the audio markers and sound markers in
+    /// earshot of it, and with --at what is heard there.
+    Audio {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Cell Editor ID or load-order FormID (an exterior cell stands for its worldspace).
+        #[arg(long)]
+        cell: Option<String>,
+        /// Listener position "x,y,z" in world units (with --cell).
+        #[arg(long, allow_hyphen_values = true, requires = "cell")]
+        at: Option<String>,
+        /// Game hour for the day or night choice (with --at).
+        #[arg(long, default_value_t = 12.0)]
+        hour: f32,
     },
 }
 

@@ -29,6 +29,12 @@ pub struct Sound {
     /// Decibels taken off (the stored value is in hundredths).
     pub static_attenuation_db: f32,
     pub frequency_adjust_percent: f32,
+    /// `RNAM` "Random Chance %".
+    pub random_chance_percent: f32,
+    /// `SNDD` start and stop time in hours: the stored byte over 256 is the fraction of
+    /// a day [documented: xEdit wbAlocTime].
+    pub start_hour: f32,
+    pub stop_hour: f32,
 }
 
 impl Sound {
@@ -215,6 +221,9 @@ fn load_one(r: &Record, d: &[Decoded], edid: Option<String>, fid: &dyn Fn(Option
                 max_distance: n("max_attenuation_distance") * 100.0,
                 static_attenuation_db: n("static_attenuation_cdb") / 100.0,
                 frequency_adjust_percent: n("frequency_adjustment_percent"),
+                random_chance_percent: first(d, b"RNAM").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                start_hour: n("start_time") / 256.0 * 24.0,
+                stop_hour: n("stop_time") / 256.0 * 24.0,
             })
         }
         b"WEAP" => {

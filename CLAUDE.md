@@ -95,6 +95,13 @@ CrCoyote, four factions; the pick against the actor drawn: 3,003 same, 0 differ)
 After furniture changes (docs/spec-notes/furniture.md §7), run the sitting smoke test:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-sit EasyPeteRef=0010634A:8 --follow-npc --run-seconds 45`
 (expect exit 0 and "furniture summary: 1 of 1 actors sat down, 1 got up again").
+After music, placed sound or background loop changes (docs/spec-notes/audio.md), run
+`fnvtool world audio <Data> FalloutNV.esm --schema schemas/fnv` (compare the counts with
+audio.md) and the music smoke test:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --pos=-69000,3500,8900 --hour 12 --run-seconds 40`
+(expect exit 0, "music: musSetLOCDesExplBothABC day started, layers outer+middle+inner",
+"music summary: 1 started, 0 changes of layers, 0 files not played" and "ambient summary:
+2 placed loops started, … 1 background loops started"; the count of random sounds varies).
 After changes to the player's controls or to what scripts lock of them (`nvf-play`
 `control::ControlLocks`, `script::sync_locks`; docs/spec-notes/controls.md §5), run the
 held-player smoke test, with `NVF_PLAY_TEST_SCRIPT_MENUS=1`, `NVF_PLAY_TEST_MOVE=1:1:0`,
