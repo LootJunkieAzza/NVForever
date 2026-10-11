@@ -646,13 +646,11 @@ fn object_sounds(mut s: ResMut<AnimSounds>, sfx: Option<Res<Sfx>>, mut keys: Mes
     let s = &mut *s;
     build(s, &sfx);
     for k in keys.read() {
-        match s.sound(&k.key) {
-            Some(sound) => {
-                s.counts.object_sounds += 1;
-                debug!("anim sounds: object key {} at {:?}", k.key, k.at);
-                out.write(PlaySound { sound, at: Some(k.at) });
-            }
-            None => {}
+        // A key naming no SOUN is counted by `sound`.
+        if let Some(sound) = s.sound(&k.key) {
+            s.counts.object_sounds += 1;
+            debug!("anim sounds: object key {} at {:?}", k.key, k.at);
+            out.write(PlaySound { sound, at: Some(k.at) });
         }
     }
 }
