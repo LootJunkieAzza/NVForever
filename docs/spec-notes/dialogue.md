@@ -263,12 +263,38 @@ hypothesis: the first sayable one when a line lists several].
 
 ### 3.5 Link From (TCLF)
 
-The wiki: lets many topics link to this one [documented: Category:Dialogue, "Edit Topic
-Links"]; for conversations between NPCs it chains HELLO → … → GOODBYE [documented:
-Conversation Tab]. In topics of type Topic, 170 of 185 link-from links repeat a choice
-link the other way round (the topic named already lists this one as a choice)
-[observed: scratch parse]. Runtime: read, not used [hypothesis: in player dialogue the
-choices alone decide; capture question 10].
+The wiki: "This can be used to allow many topics to link to this topic" [documented:
+Category:Dialogue, "Edit Topic Links"]; for conversations between NPCs it chains HELLO
+→ … → GOODBYE, and the starting HELLO must have it blank [documented: Conversation Tab].
+
+What the data shows (the ten masters) [observed: scratch survey 2026-10-11]:
+
+- 1,293 links on 924 lines. Most are radio (792) and NPC conversation chains; 431 name
+  the Conversation topic `ANY`.
+- Between player topics (a type-Topic line of a type-Topic topic naming a type-Topic
+  topic): 185 links under 58 named topics. In 166 of them every line of the named
+  topic already lists this one as a choice; 19 add something (the real-data test
+  asserts 58 / 185 / 19).
+- Michael Angelo (VMS22) uses it most. His "Bye" line (`VMS22MichaelAngeloTopic004`)
+  names all his topics and GREETING: an exit from anywhere. Topics 031, 032 and 034
+  name each other: a group of answers that each offer the others. GREETING is named by
+  his 003 and 004 only.
+- A per-line reading (the line with the Link From can be said only after the topics
+  it names) would contradict Choices links: 54 type-Topic lines (many of them Dead
+  Money's radio acts, which name `ANY`) are listed as a choice by a topic their Link From
+  leaves out, e.g. `VMS22MichaelAngeloTopic024`, a choice of
+  Topic006, whose only line names just Topic025. Doctor Medical's two identical
+  `DoctorMedical99YES` lines, one with Link From `DoctorMedicalSpeech` and one
+  without, change nothing under either reading, since both have the same condition.
+
+Runtime (player dialogue, `GameData::linked_from`, `Game::build_choices`): after a line
+said under topic X, the topics whose player lines name X in their Link From join the
+list the line offers. They join its choices if it has any; otherwise they join the
+topic list, by priority. They do not turn a line without choices into one with
+choices. A topic named this way is offered like a choice, by whichever of its lines the
+actor can say. [hypothesis for all three; documented that it adds links; capture
+question 10.] Not yet used in conversations between NPCs (except the blank-for-HELLO
+start rule, §5.1) or on the radio.
 
 ### 3.6 Run Immediately
 
@@ -397,7 +423,8 @@ All of it is in `GameSnapshot`.
   line's choices can be said, nothing is offered and the conversation ends
   [hypothesis]. (Until 2026-10-11 the topic list stood in there; with shared lines
   ignored, that showed the top-level topics after 257 lines whose choices only had
-  shared lines, e.g. Red Lucy's greeting.) Order: topic priority (DIAL PNAM), highest first
+  shared lines, e.g. Red Lucy's greeting.) Topics whose lines name the line's topic in
+  their Link From join either list (§3.5) [documented; hypothesis on how]. Order: topic priority (DIAL PNAM), highest first
   [documented]; then, for a line's choices, their order in the record [documented:
   "Sorting order of links"], and for the topic list the topics' record order
   [hypothesis]. Quest priority plays no part in the order of the list.
@@ -650,7 +677,9 @@ up to C and F):
    player skips a line or leaves; Run Immediately on a chosen line.
 9. INFC/INFX: a "shared" line is taken as a line of the listing topic (§1.2); check it
    in game (Red Lucy's "What's this place?") and where the Info Index puts it.
-10. Link From in player dialogue: does it add a choice?
+10. Link From in player dialogue: taken as adding the topic to the list after the named
+    topics' lines (§3.5); check in game with Michael Angelo (031/032/034, and 004 after a
+    greeting), and whether it is per line or per topic.
 11. The skill tag's numbers: taken from the line's condition? What is shown for a perk?
 12. Inside the pause (B): what `IsTalking` reads while the player chooses;
     `Begin MenuMode 1009` blocks and the MenuMode quest delay; whether magic effects

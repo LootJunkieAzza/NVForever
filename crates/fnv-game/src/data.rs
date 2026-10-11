@@ -95,8 +95,9 @@ pub struct InfoDef {
     /// TCLT, in record order: the topics offered after this line ("Choices" in the
     /// editor; xEdit calls the list "Link To") [documented: xEdit INFO; Category:Dialogue].
     pub choices: Vec<FormId>,
-    /// TCLF, in record order ("Link From") [documented: xEdit INFO]. Read, not used
-    /// (dialogue.md §5).
+    /// TCLF, in record order ("Link From") [documented: xEdit INFO]: the topics after
+    /// whose lines this line's topic is offered to the player ([`GameData::linked_from`],
+    /// dialogue.md §3.5); a HELLO line with one cannot start a conversation.
     pub link_from: Vec<FormId>,
     /// TCFU, in record order: follow-up lines (INFO) [documented: xEdit INFO "Follow Up"].
     pub follow_ups: Vec<FormId>,
@@ -461,6 +462,11 @@ pub struct GameData {
     /// lines with the shared ones put in at their Info Index, the order
     /// [`GameData::lines_tried`] starts from (dialogue.md §1.2).
     pub shared_lines: HashMap<FormId, Vec<FormId>>,
+    /// Link From turned round, for player dialogue: for a topic X, the topics of type
+    /// Topic with a player line (type Topic) whose Link From names X, in topic record
+    /// order ([`TopicDef::order`]). They are offered after a line of X as its choices are
+    /// (`Game::build_choices`, dialogue.md §3.5).
+    pub linked_from: HashMap<FormId, Vec<FormId>>,
     /// Every topic (DIAL) from its winning record.
     pub topic_defs: HashMap<FormId, TopicDef>,
     /// The top-level topics of type Topic, in the order they are offered: priority,
@@ -646,6 +652,7 @@ impl GameData {
             infos: HashMap::new(),
             topics: HashMap::new(),
             shared_lines: HashMap::new(),
+            linked_from: HashMap::new(),
             topic_defs: HashMap::new(),
             top_level: Vec::new(),
             greeting: None,
@@ -831,6 +838,7 @@ impl GameData {
             t.order = order.get(id).copied().unwrap_or((usize::MAX, 0));
         }
         d.shared_lines = shared_lines(&d.topics, &d.topic_defs, &d.infos);
+        d.linked_from = linked_from(&d.topic_defs, &d.infos);
         let mut top: Vec<&TopicDef> = d.topic_defs.values().filter(|t| t.top_level() && t.topic_type == topic_type::TOPIC).collect();
         top.sort_by(|a, b| b.priority.total_cmp(&a.priority).then(a.order.cmp(&b.order)));
         d.top_level = top.into_iter().map(|t| t.form).collect();
@@ -950,6 +958,28 @@ fn shared_lines(topics: &HashMap<FormId, Vec<FormId>>, defs: &HashMap<FormId, To
             lines.insert(at, i);
         }
         out.insert(*id, lines);
+    }
+    out
+}
+
+/// [`GameData::linked_from`]: each player line (type Topic, of a topic of type Topic)
+/// with a Link From list puts its topic under every topic the list names, once, in the
+/// topics' record order.
+fn linked_from(defs: &HashMap<FormId, TopicDef>, infos: &HashMap<FormId, InfoDef>) -> HashMap<FormId, Vec<FormId>> {
+    let mut out: HashMap<FormId, Vec<FormId>> = HashMap::new();
+    let player_topic = |t: &FormId| defs.get(t).is_some_and(|d| d.topic_type == topic_type::TOPIC);
+    for i in infos.values().filter(|i| i.info_type == topic_type::TOPIC && !i.link_from.is_empty()) {
+        let Some(t) = i.topic.filter(player_topic) else { continue };
+        for &x in &i.link_from {
+            let list = out.entry(x).or_default();
+            if !list.contains(&t) {
+                list.push(t);
+            }
+        }
+    }
+    let order = |t: &FormId| defs.get(t).map_or((usize::MAX, 0), |d| d.order);
+    for list in out.values_mut() {
+        list.sort_by_key(|t| (order(t), t.0));
     }
     out
 }

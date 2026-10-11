@@ -429,7 +429,7 @@ impl<'a> Game<'a> {
                     self.emit_response(actor, def, line.info, line.response);
                 }
                 None => {
-                    self.finish_line(actor, line.info);
+                    self.finish_line(actor, line.topic, line.info);
                     return;
                 }
             }
@@ -452,7 +452,7 @@ impl<'a> Game<'a> {
     ///    captured; hypothesis: the first sayable of several, dialogue.md §3.4];
     /// 5. otherwise the player is offered choices ([`Game::build_choices`]); with
     ///    nothing to offer the conversation ends [hypothesis].
-    fn finish_line(&mut self, actor: FormId, info: FormId) {
+    fn finish_line(&mut self, actor: FormId, topic: FormId, info: FormId) {
         let data = self.data;
         let Some(def) = data.infos.get(&info) else { return };
         if let Some(c) = self.dialogue.as_mut() {
@@ -483,7 +483,7 @@ impl<'a> Game<'a> {
                 return;
             }
         }
-        let choices = self.build_choices(actor, def);
+        let choices = self.build_choices(actor, topic, def);
         if choices.is_empty() {
             self.end_dialogue_as(ended::NO_CHOICES);
             return;
@@ -494,7 +494,7 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// The list the player chooses from after the line `def`:
+    /// The list the player chooses from after the line `def`, said under `topic`:
     /// - the line's choices (TCLT), if it has any, and nothing else
     ///   [documented: Category:Dialogue: top-level topics are "the ones that come up when
     ///   an info isn't linked to anything in particular"; Quest and Dialogue Tutorial;
@@ -506,6 +506,16 @@ impl<'a> Game<'a> {
     ///   Topics lists and `AddTopic`) [documented: the same pages]; a known topic is
     ///   offered by every actor that can say a line of it [owner statement 2026-10-10;
     ///   not yet captured].
+    ///
+    /// Either list also holds the topics whose lines name `topic` in their Link From
+    /// ([`GameData::linked_from`]) [documented: Category:Dialogue: Link From "can be used
+    /// to allow many topics to link to this topic"; hypothesis: they join the list the
+    /// line offers, so a line without choices of its own still offers the topic list,
+    /// and they do not make it a line with choices; dialogue.md §3.5]. A topic named this
+    /// way is offered as a choice is, by any of its lines the actor can say [hypothesis:
+    /// not only the line that carries the Link From; reading it as a limit on that line
+    /// would hide choices that other lines list outright, e.g. Michael Angelo's
+    /// VMS22MichaelAngeloTopic024 after Topic006].
     ///
     /// Each topic is offered only if the actor has a line of it to say now, its own or
     /// one it shares ([`GameData::lines_tried`]), and that line is the one chosen later
@@ -522,16 +532,18 @@ impl<'a> Game<'a> {
     /// Tutorial: the generic GOODBYE of the Conversation tab appears when no listed
     /// topic says goodbye; Conversation Tab: the topic is also what NPCs say when the
     /// player leaves the menu].
-    pub fn build_choices(&mut self, actor: FormId, def: &InfoDef) -> Vec<Choice> {
+    pub fn build_choices(&mut self, actor: FormId, topic: FormId, def: &InfoDef) -> Vec<Choice> {
         let data = self.data;
         let priority = |t: &FormId| data.topic_defs.get(t).map_or(50.0, |d| d.priority);
+        let linked_from = data.linked_from.get(&topic).map(Vec::as_slice).unwrap_or_default();
         if !def.choices.is_empty() {
             let mut linked = def.choices.clone();
+            linked.extend(linked_from.iter().filter(|t| !def.choices.contains(t)));
             linked.sort_by(|a, b| priority(b).total_cmp(&priority(a)));
             return self.offer(actor, &linked);
         }
         let mut listed: Vec<FormId> = data.top_level.clone();
-        let mut known: Vec<FormId> = self.player.topics.iter().copied().filter(|t| !listed.contains(t)).collect();
+        let mut known: Vec<FormId> = self.player.topics.iter().chain(linked_from).copied().filter(|t| !listed.contains(t)).collect();
         if !known.is_empty() {
             listed.append(&mut known);
             let order = |t: &FormId| data.topic_defs.get(t).map_or((usize::MAX, 0), |d| d.order);

@@ -94,6 +94,17 @@ fn counts(d: &GameData) {
     let lucy = d.by_edid("VMS38VMS38RedLucyTopic047").unwrap();
     assert_eq!((d.lines_by_priority(lucy), d.lines_tried(lucy)), (vec![], vec![FormId(0x0013_4FC1)]));
     assert_eq!(d.infos[&FormId(0x0013_4FC1)].topic, d.by_edid("VMS38VMS38RedLucyTopic004"));
+    // Link From turned round (dialogue.md §3.5): 185 links between player topics under
+    // 58 topics; 19 offer a topic that not every line of the named topic lists already.
+    let pairs: usize = d.linked_from.values().map(Vec::len).sum();
+    let new = d.linked_from.iter().flat_map(|(x, ts)| ts.iter().map(move |t| (*x, *t))).filter(|(x, t)| !d.lines_tried(*x).iter().all(|l| d.infos[l].choices.contains(t))).count();
+    assert_eq!((d.linked_from.len(), pairs, new), (58, 185, 19));
+    let ma = |n: &str| d.by_edid(&format!("VMS22MichaelAngeloTopic{n}")).unwrap();
+    assert_eq!(d.linked_from[&greeting], vec![ma("003"), ma("004")]);
+    // Michael Angelo's "Thank you for the offer…" lists 035, 042 and 004; the lines of
+    // 031, 032 and 033 name it in their Link From.
+    assert_eq!(d.infos[&FormId(0x0011_3C4E)].choices, vec![ma("035"), ma("042"), ma("004")]);
+    assert!(["031", "032", "033"].iter().all(|n| d.linked_from[&ma("034")].contains(&ma(n))));
     // GREETING shares five lines; four of VMS07Greeting go in at indices 11–14.
     let greeting_tried = d.lines_tried(greeting);
     assert_eq!(greeting_tried.len(), 5_579 + 5);

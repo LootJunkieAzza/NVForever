@@ -63,6 +63,12 @@ const T_DEAD_END: u32 = 0x953;
 const S_LINE: u32 = 0xF51;
 const S_LINKS: u32 = 0xF52;
 const S_DEAD_END: u32 = 0xF53;
+const T_LF_FROM: u32 = 0x954;
+const T_LF_PLAIN: u32 = 0x955;
+const T_LF_TO: u32 = 0x956;
+const S_LF_FROM: u32 = 0xF54;
+const S_LF_PLAIN: u32 = 0xF55;
+const S_LF_TO: u32 = 0xF56;
 const A_OFF: u32 = 0xA01;
 const A_FIRST: u32 = 0xA02;
 const A_HIGH: u32 = 0xA03;
@@ -473,6 +479,27 @@ fn plugin_bytes() -> Vec<u8> {
             50.0,
             vec![L { id: S_DEAD_END, quest: QA, speaker: me, responses: one("Hmm"), choices: vec![T_HIDDEN], ..L::default() }],
         ),
+        // Link From: TopicLinkTo's line names TopicLinkFrom (whose own only choice cannot
+        // be said) and TopicLinkPlain (no choices of its own).
+        topic(
+            T_LF_FROM,
+            "TopicLinkFrom",
+            "Link from",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![L { id: S_LF_FROM, quest: QA, speaker: me, responses: one("From"), choices: vec![T_HIDDEN], ..L::default() }],
+        ),
+        topic(T_LF_PLAIN, "TopicLinkPlain", "Link plain", topic_type::TOPIC, 0, 50.0, vec![L { id: S_LF_PLAIN, quest: QA, speaker: me, responses: one("Plain"), ..L::default() }]),
+        topic(
+            T_LF_TO,
+            "TopicLinkTo",
+            "Link to",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![L { id: S_LF_TO, quest: QA, speaker: me, responses: one("To"), link_from: vec![T_LF_FROM, T_LF_PLAIN], ..L::default() }],
+        ),
     ]
     .concat();
     let placed = |id: u32, base: u32, edid: &str| record(b"ACHR", 0, id, &[sub(b"EDID", z(edid)), sub(b"NAME", u32b(base)), sub(b"DATA", vec![0; 24])]);
@@ -770,6 +797,23 @@ fn a_choice_with_only_a_shared_line_is_offered_and_says_that_line() {
     assert_eq!(offered(&g), vec![T_SHARED]);
     assert_eq!(g.choice_text(&g.dialogue_choices()[0]), "Where?");
     assert_eq!(pick(&mut g, T_SHARED), FormId(S_LINE));
+}
+
+#[test]
+fn a_topic_is_offered_after_the_topics_its_lines_link_from() {
+    let f = fixture();
+    assert_eq!(f.data.linked_from[&FormId(T_LF_FROM)], vec![FormId(T_LF_TO)]);
+    // A line with choices: Link From joins them (its own choice cannot be said).
+    let mut g = game(&f);
+    g.start_dialogue(actor(), Some(FormId(T_LF_FROM))).unwrap();
+    listen(&mut g);
+    assert_eq!(offered(&g), vec![T_LF_TO]);
+    assert_eq!(pick(&mut g, T_LF_TO), FormId(S_LF_TO));
+    // A line without choices: the topic list, with the linked topic in it by priority.
+    let mut h = game(&f);
+    h.start_dialogue(actor(), Some(FormId(T_LF_PLAIN))).unwrap();
+    listen(&mut h);
+    assert_eq!(offered(&h), vec![T_TOP2, T_TOP, T_LF_TO, T_SKILL, GOODBYE]);
 }
 
 #[test]
