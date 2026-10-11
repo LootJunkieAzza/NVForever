@@ -299,22 +299,34 @@ fn a_revolver_loads_round_by_round() {
     assert_eq!(rounds(&ev), 4);
     assert_eq!(ev.last(), Some(&Event::ReloadClosing { stopped: false }));
 
-    // Empty, the trigger pulled 2 s in (the second round is in hand): it goes in, the
-    // revolver closes (to 3.47 s), then fires without another pull.
+    // Empty, the trigger pulled 2 s in (the second round is in hand): it goes in and the
+    // revolver closes (to 3.47 s); that pull fires nothing (owner, 2026-10-11).
     let mut c = Cycle::new(&w, timing, false, 0);
     let ev = steps(&mut c, 0, 340, &|k| k == 200, 20);
     assert_eq!(rounds(&ev), 2);
     assert!(ev.contains(&Event::ReloadClosing { stopped: true }));
     assert_eq!(shots(&ev), 0, "not before it is closed");
     let ev = steps(&mut c, 340, 20, &|_| false, 20);
-    assert_eq!(ev, vec![Event::Reloaded { taken: 2 }, Event::Fired { rounds: 1 }]);
-    assert_eq!(c.magazine, 1);
+    assert_eq!(ev, vec![Event::Reloaded { taken: 2 }]);
+    assert_eq!(c.magazine, 2);
+    // Pulled again once it is closed: it fires.
+    let ev = steps(&mut c, 360, 20, &|k| k == 365, 20);
+    assert_eq!(shots(&ev), 1);
 
-    // Pulled while it opens: the first round still goes in, then it closes.
+    // A second pull while it closes, within the grace of its end (3.47 s): the shot
+    // follows the close. Earlier than the grace: dropped.
+    let mut c = Cycle::new(&w, timing, false, 0);
+    let ev = steps(&mut c, 0, 360, &|k| k == 200 || k == 330, 20);
+    assert_eq!(ev[ev.len() - 2..], [Event::Reloaded { taken: 2 }, Event::Fired { rounds: 1 }]);
+    let mut c = Cycle::new(&w, timing, false, 0);
+    let ev = steps(&mut c, 0, 360, &|k| k == 200 || k == 300, 20);
+    assert_eq!(shots(&ev), 0, "the pull 0.47 s before the close ended is dropped");
+
+    // Pulled while it opens: the first round still goes in, then it closes, no shot.
     let mut c = Cycle::new(&w, timing, false, 0);
     let ev = steps(&mut c, 0, 300, &|k| k == 50, 20);
     assert_eq!(rounds(&ev), 1);
-    assert_eq!(shots(&ev), 1);
+    assert_eq!(shots(&ev), 0);
 
     // One round carried: it goes in and the revolver closes.
     let mut c = Cycle::new(&w, timing, false, 0);

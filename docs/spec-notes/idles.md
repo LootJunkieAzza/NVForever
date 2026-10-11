@@ -128,11 +128,17 @@ below 30).
   idle on most bones, so both cannot play; a special idle takes the place of what the
   body does by itself. Ours keeps the body's own clips under an idle only while the first
   one fades in.
-- **Looking round** [design]: stage 0 disables the player's controls except looking
-  (`DisablePlayerControls 1 1 1 1 0 0 1` [observed]). The first-person rig keeps the
-  heading and pitch the view had when the idle started; the view's own turning since then
-  is added to what the camera node gives. When the last idle is over, the view's heading
-  and pitch are taken from where the animation left it.
+- **Looking round** [design: the owner's wish, playtest of 2026-10-11]: while an idle
+  drives the first-person view, the camera node alone places the view; mouse look, the
+  look test aid and the movement keys are ignored (`nvf_play::player::ViewDriven`, set by
+  nvforever `player_body.rs` while `PlayerIdles::held` is set; logged as "player view:
+  driven by an idle's camera node …" and "… back to the player"). The first-person rig
+  keeps the heading and pitch the view had when the idle started. When the last idle is
+  over, the view's heading and pitch are taken from where the animation left it. The
+  original's scripts leave looking on during the wake-up (VCG01 stage 0
+  `EnablePlayerControls 0 0 0 0 1`, then `DisablePlayerControls 1 1 1 1 0 0 1`
+  [observed]), so the original may let the mouse turn the view there; until 2026-10-11
+  ours added the view's own turning to what the node gave.
 - **Where the scene plays** [design, from an observation]: the opening's start marker
   (`VCG01PlayerStartMarkerREF`, 2257.0, 2318.2, 7360.0, facing south) is in Doc
   Mitchell's bed, and our collision pushes the character about 10 units off it before

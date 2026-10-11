@@ -46,6 +46,14 @@ pub const LOOK_RADIANS_PER_COUNT: f32 = crate::bindings::MOUSE_SENSITIVITY;
 /// Steepest look up or down [engineering choice].
 pub const MAX_PITCH: f32 = 89.0 * std::f32::consts::PI / 180.0;
 
+/// Set while an animation drives the first-person view (the opening's wake-up, an idle
+/// with a `Camera1st` track; nvforever `idles.rs`, docs/spec-notes/idles.md §4): mouse
+/// look, the look test aid and the movement keys are ignored, so the clip alone places
+/// the camera [design: the owner's playtest of 2026-10-11, "locked in place so the idle
+/// kf has control of camera position"].
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ViewDriven(pub bool);
+
 /// The player's pose in game space.
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct Player {
@@ -326,10 +334,11 @@ impl Plugin for PlayerPlugin {
             .init_resource::<crate::control::LockStats>()
             .init_resource::<Bindings>()
             .init_resource::<crate::control::BodyView>()
+            .init_resource::<ViewDriven>()
             .insert_resource(NearAid::from_env())
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
-            .add_systems(Update, crate::control::enforce_locks.after(PlaySet::Input).before(PlaySet::Physics))
+            .add_systems(Update, (crate::control::enforce_locks, aiming_walks).chain().after(PlaySet::Input).before(PlaySet::Physics))
             .add_systems(Last, crate::control::report_locks)
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(
@@ -419,8 +428,15 @@ fn read_input(
     mut control: ResMut<PlayerControl>,
     mut intent: ResMut<MoveIntent>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
+    driven: Option<Res<ViewDriven>>,
 ) {
     if *state.get() != PlayState::Playing {
+        *intent = MoveIntent::default();
+        return;
+    }
+    if driven.is_some_and(|d| d.0) {
+        // An animation has the view: the player stays where it plays it.
+        control.auto_move = false;
         *intent = MoveIntent::default();
         return;
     }
@@ -447,6 +463,21 @@ fn read_input(
     }
 }
 
+/// While the player aims (Block held with a weapon out) they move at walking speed, not
+/// running, and the body walks [design: the owner's wish, playtest of 2026-10-11, "reduced
+/// to walk speed while aiming"; the original's rule is not captured]. Sneaking still
+/// slows the walk. NPCs that aim are for the combat AI (docs/design/combat-ai.md, open).
+pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>, mut was: Local<bool>) {
+    let aiming = control.aiming && control.weapon_out;
+    if aiming && !intent.walk {
+        intent.walk = true;
+    }
+    if aiming != *was {
+        *was = aiming;
+        info!("aiming: {}", if aiming { "the player moves at walking speed" } else { "over, running speed again" });
+    }
+}
+
 /// Mouse look while the cursor is grabbed; while Toggle POV is held it circles the camera
 /// instead (control.rs). Not while a script has locked looking: the view stays where it
 /// is [documented: GECK wiki DisablePlayerControls, LookingFlag].
@@ -461,7 +492,11 @@ fn mouse_look(
     mut control: ResMut<PlayerControl>,
     mut player: ResMut<Player>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
+    driven: Option<Res<ViewDriven>>,
 ) {
+    if driven.is_some_and(|d| d.0) {
+        return;
+    }
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
     // The player looks around freely while an actor speaks in a conversation.
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);

@@ -86,6 +86,13 @@ const DEFAULT_BARTER_SKILL: f32 = 15.0;
 /// owner's container screenshot].
 const RESPAWN_NOTE: &str = "This container respawns and is unsafe to store your items.";
 
+/// Set when a menu opened this frame: the key that opened it (E on a container) is still
+/// "just pressed" when the menu's keys are read later in the same frame, and E also
+/// closes the container menu, so the menu's keys wait for the next frame [design: the
+/// fix of the playtest's "cannot open containers", 2026-10-11].
+#[derive(Resource, Default)]
+pub struct FreshMenu(pub bool);
+
 /// A command for the open menu (keys, mouse, test aid).
 #[derive(Message, Clone, Copy, Debug)]
 pub struct MenuInput(pub Command);
@@ -118,6 +125,7 @@ pub struct MenuPlugin;
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActiveMenu>()
+            .init_resource::<FreshMenu>()
             .add_message::<MenuInput>()
             .add_message::<OpenInventory>()
             .add_message::<OpenNearestContainer>()
@@ -169,6 +177,19 @@ fn f9_opens_nearest_container(
     }
 }
 
+/// For tests: opening a menu and its keys, as the plugin chains them, after `before`.
+#[cfg(test)]
+pub(crate) fn add_open_and_keys<M>(app: &mut App, before: impl IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>) {
+    app.init_resource::<ActiveMenu>()
+        .init_resource::<FreshMenu>()
+        .add_message::<MenuInput>()
+        .add_message::<OpenBarter>()
+        .add_message::<OpenInventory>()
+        .add_message::<ItemUsed>()
+        .add_message::<crate::ui_sounds::UiSound>()
+        .add_systems(Update, (before, open_menus, (menu_keys, apply_input).chain().run_if(menu_open)).chain());
+}
+
 /// Whether one of these menus is open.
 pub fn menu_open(active: Res<ActiveMenu>) -> bool {
     active.0.is_some()
@@ -212,6 +233,7 @@ pub(crate) fn open_menus(
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
     wait: Option<Res<crate::wait::WaitMenu>>,
+    mut fresh: ResMut<FreshMenu>,
 ) {
     let mut script = script.map(|s| s.into_inner());
     let container = containers.read().last().copied();
@@ -254,6 +276,7 @@ pub(crate) fn open_menus(
             // Scripts run MenuMode 1008 / 1002 / 1053 from now on (layer5-play.md).
             crate::script::engine_menu_opened(script, m.mode);
             active.0 = Some(m);
+            fresh.0 = true;
             if !talking {
                 next.set(PlayState::Menu);
             }
@@ -296,8 +319,12 @@ fn close_menu(
     }
 }
 
-fn menu_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut out: MessageWriter<MenuInput>) {
+fn menu_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut fresh: ResMut<FreshMenu>, mut out: MessageWriter<MenuInput>) {
     use KeyCode::*;
+    // The press that opened the menu is not one of its keys (see [`FreshMenu`]).
+    if std::mem::take(&mut fresh.0) {
+        return;
+    }
     let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory) else { return };
     let shift = keys.any_pressed([ShiftLeft, ShiftRight]);
     let mut send = |c| {
