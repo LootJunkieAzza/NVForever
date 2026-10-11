@@ -89,6 +89,11 @@ pub struct Item {
     /// (`World::set_quest_object`). Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub quest_item: bool,
+    /// ICON: the picture the menus show of the item, a path under `textures\`
+    /// [documented: xEdit "Large Icon FileName"; observed: `interface\icons\pipboyimages\
+    /// items\...` on MISC, AMMO and ALCH records]. Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub icon: Option<String>,
 }
 
 /// The name `schemas/fnv` gives the quest-item bit in `header_flags`.
@@ -371,6 +376,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         health: None,
                         non_playable: false,
                         quest_item: quest_flag(schema, r),
+                        icon: None,
                     }),
                 })),
                 None => Loaded::Skip,
@@ -515,6 +521,7 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         // File-local here; made global by the caller.
         projectile: projectile.map(FormId),
         health,
+        icon: first(d, b"ICON").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string),
     })
 }
 

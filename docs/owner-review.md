@@ -2413,3 +2413,40 @@ Docs: docs/spec-notes/audio.md. Start `--play` in Goodsprings to hear it.
    silently skipped before.
 5. **Cost:** reading every marker at the start takes about half a second on the main
    thread before the first frame.
+
+## Barter and container menus drawn as the original's (2026-10-11, session "barter menu")
+
+Docs: docs/spec-notes/barter-menu.md. Talk to Chet in the Goodsprings General Store and
+pick "Show me what you have for sale."; or open any container.
+
+1. **What you should see:** the layout of your screenshots, built from the game's own
+   menu files: your items at the left, the merchant's or container's at the right,
+   "Caps" (barter) or "Wg" (container) at the top right of a list, prices in the barter
+   lists, the item's picture with WG and VAL under the lists, "Accept A)" / "Exit X)"
+   or "Take All R)" / "Exit E)", and the caps arrow between the lists while a trade is
+   put together. Items you put up move to the other list, first, with an open square.
+2. **Prices** follow the GECK wiki formula with the settings in FalloutNV.esm; at Barter
+   100 they give exactly the prices on your screenshots (Gold Bar 9492, Hydra 50,
+   .308 AP 10 and so on). A Barter skill of 15, a new character's, makes buying dear and
+   selling cheap.
+3. **Guesses I had to make, for you to check against the game:**
+   - **Keys.** I used the letters on the screen: A accepts, X exits (barter); R takes
+     all, E exits (container); Esc and Tab also leave; `[` and `]` change a list's
+     category. A click acts on the row under the pointer at once (one unit),
+     Shift+click on the whole stack. The game asks "how many?" in a quantity box for a
+     stack; that box is not built.
+   - **Categories.** I only saw "ITEMS" and "MISC" as list titles; I added WEAPONS,
+     APPAREL, AID and AMMO in that order. What does the merchant's list title say when
+     it shows only weapons?
+   - **Not enough caps.** I refuse with "You don't have enough caps." (or "Chet doesn't
+     have enough caps.") under the menu. What does the game do and say?
+   - **After the barter menu closes** I go back to the conversation. In the game, does
+     the merchant say something then (the "BarterExit" lines)?
+   - **The merchant's own pockets:** I only offer what is in the merchant's vendor
+     chest, not what the merchant carries.
+   - **Quest items** are hidden from the barter lists.
+   - **The world behind** is darkened by about a third, as measured on your screenshot,
+     but not blurred.
+4. **Would help:** a screenshot of the barter menu with the cursor on a weapon (to see
+   the damage, condition and strength figures, which I have not drawn), and one of the
+   "how many?" box.

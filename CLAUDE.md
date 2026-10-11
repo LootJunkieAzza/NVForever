@@ -142,6 +142,14 @@ After changes to the messages at the top left (`nvf-play` `corner_messages`, `in
 for 2 s, icon glow_message_vaultboy_ncr.dds` and `corner message: "You are now Well Rested!" for
 10 s, icon default`, about 2.25 s apart).
 
+After changes to the container or barter menus (`nvf-play` `menu`, `menu::look`, `menu::barter`,
+`fnv-game` ShowBarterMenu; docs/spec-notes/barter-menu.md §6), run the barter from Chet's
+dialogue, with `NVF_PLAY_TEST_TALK=10:GSChetRef=for sale|leave`, `NVF_PLAY_TEST_BARTER=*` and
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3` set:
+`engine/target/release/nvforever --data <Data> --cell GSGeneralStore --play --no-voice --run-seconds 50`
+(expect exit 0, "menu: a script opens the barter menu with 0x00104C79", "stock in 0x00104C7A",
+"menu: Accept: Traded", "menu: close" and then the conversation's "Goodbye." choice).
+
 ## Commits
 
 End commit messages with the session's attribution lines. Keep commits focused; write

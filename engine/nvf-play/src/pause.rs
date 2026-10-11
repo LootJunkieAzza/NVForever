@@ -232,8 +232,9 @@ impl Plugin for PausePlugin {
             .add_systems(
                 Update,
                 // Esc pauses a conversation too; resuming goes back to it (`crate::dialogue`).
+                // Over a conversation, a barter menu takes Esc for itself (`crate::menu`).
                 (
-                    open.run_if(in_state(PlayState::Playing).or_else(in_state(PlayState::Dialogue))),
+                    open.run_if(in_state(PlayState::Playing).or_else(in_state(PlayState::Dialogue)).and_then(crate::menu::no_menu)),
                     (choose, show_switches).chain().run_if(in_state(PlayState::Menu)),
                 )
                     .in_set(PlaySet::Ui),

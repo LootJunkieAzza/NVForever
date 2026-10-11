@@ -162,11 +162,11 @@ fn rows_are_sorted_by_name_with_totals() {
     let m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
     assert_eq!(m.title, "Cash Box");
     assert_eq!(m.focus, Side::Container);
-    // Case-insensitive: "tin can" before "Varmint Rifle" (byte order would swap them).
-    assert_eq!(names(m.list(Side::Container)), vec![("anvil", 1), ("Bottle Cap", 200), ("tin can", 2), ("Varmint Rifle", 1)]);
+    // Byte order, as the original lists them: capitals before small letters.
+    assert_eq!(names(m.list(Side::Container)), vec![("Bottle Cap", 200), ("Varmint Rifle", 1), ("anvil", 1), ("tin can", 2)]);
     let c = m.list(Side::Container);
     assert_eq!((c.weight, c.value), (260.0, 200 + 4 + 300 + 1));
-    let rifle = &c.rows[3];
+    let rifle = &c.rows[1];
     assert_eq!((rifle.weight, rifle.value, rifle.kind, rifle.equipped), (Some(8.0), Some(300), Some(ItemKind::Weapon), false));
     assert_eq!(names(m.list(Side::Player)), vec![("Aid", 2), ("Ammo", 10), ("Bottle Cap", 5), ("Pistol", 1)]);
     // Ammunition weighs nothing outside Hardcore mode (the simulation's rule).
@@ -189,11 +189,12 @@ fn take_and_store_through_the_sim() {
     // The selection stays on the item; the player's column shows it.
     assert_eq!(m.selected_row(Side::Container).unwrap().name, "tin can");
     assert!(names(m.list(Side::Player)).contains(&("tin can", 1)));
-    // The rest of the stack: the row goes, the selection moves to the next row.
+    // The rest of the stack: the row goes, the selection moves to the row before (it was
+    // the last).
     m.apply(&mut w, Command::Stack);
     assert_eq!(count(&mut w, BOX_REF, CAN), 0);
-    assert_eq!(names(m.list(Side::Container)), vec![("anvil", 1), ("Bottle Cap", 200), ("Varmint Rifle", 1)]);
-    assert_eq!(m.selected_row(Side::Container).unwrap().name, "Varmint Rifle");
+    assert_eq!(names(m.list(Side::Container)), vec![("Bottle Cap", 200), ("Varmint Rifle", 1), ("anvil", 1)]);
+    assert_eq!(m.selected_row(Side::Container).unwrap().name, "anvil");
     // Store a stack from the player.
     m.apply(&mut w, Command::Focus(Side::Player));
     select(&mut m, Side::Player, "Bottle Cap");
@@ -399,4 +400,126 @@ fn quest_items_cannot_be_dropped_but_can_be_stored() {
     c.apply(&mut w, Command::One);
     assert_eq!(c.status.as_deref(), Some("Stored Bottle Cap x1"));
     assert_eq!(count(&mut w, 0x14, CAPS), 4);
+}
+
+fn barter(w: &mut World<'_>) -> MenuModel {
+    // The cash box stands in for both the merchant and its stock; Barter 100.
+    MenuModel::open_barter(w, FormId(BOX_REF), FormId(BOX_REF), FormId(CAPS), 100.0, 0).unwrap()
+}
+
+fn prices(l: &Listing) -> Vec<(&str, i32, String, bool)> {
+    l.rows.iter().map(|r| (r.name.as_str(), r.count, r.price.map_or("?".into(), barter::price_text), r.bartered)).collect()
+}
+
+#[test]
+fn barter_lists_prices_without_caps_or_quest_items() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    w.add_item(PLAYER, FormId(CHIP), 1).unwrap();
+    let m = barter(&mut w);
+    assert_eq!((m.mode, m.focus, m.title.as_str()), (Mode::Barter(FormId(BOX_REF)), Side::Player, "Cash Box"));
+    // Selling at 90 %, buying at 110 %, rounded; the caps are in the headings only.
+    let s = |n: &str, c: i32, p: &str| (n.to_string(), c, p.to_string(), false);
+    let own = |l: &Listing| prices(l).into_iter().map(|(n, c, p, b)| (n.to_string(), c, p, b)).collect::<Vec<_>>();
+    assert_eq!(own(m.list(Side::Player)), vec![s("Aid", 2, "18"), s("Ammo", 10, "2"), s("Pistol", 1, "90")]);
+    assert_eq!(own(m.list(Side::Container)), vec![s("Varmint Rifle", 1, "330"), s("anvil", 1, "1"), s("tin can", 2, "2")]);
+    let t = m.trade.as_ref().unwrap();
+    assert_eq!((t.purse, t.balance), ([200, 5], 0));
+}
+
+#[test]
+fn barter_put_up_take_back_and_accept() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    w.equip(PLAYER, FormId(PISTOL)).unwrap();
+    let mut m = barter(&mut w);
+    // Nothing put up: nothing to accept.
+    m.apply(&mut w, Command::Accept);
+    assert_eq!(m.status.as_deref(), Some("Nothing to trade"));
+    // Sell the (equipped) pistol: it moves to the top of the merchant's list, marked.
+    select(&mut m, Side::Player, "Pistol");
+    m.apply(&mut w, Command::One);
+    assert!(m.list(Side::Player).rows.iter().all(|r| r.item != FormId(PISTOL)));
+    assert_eq!(prices(m.list(Side::Container))[0], ("Pistol", 1, "90".into(), true));
+    assert_eq!(m.trade.as_ref().unwrap().balance, 90);
+    // Nothing has moved yet.
+    assert_eq!((count(&mut w, 0x14, PISTOL), count(&mut w, 0x14, CAPS)), (1, 5));
+    m.apply(&mut w, Command::Accept);
+    assert_eq!(m.status.as_deref(), Some("Traded: received 90 caps"));
+    assert_eq!((count(&mut w, 0x14, PISTOL), count(&mut w, BOX_REF, PISTOL)), (0, 1));
+    assert_eq!((count(&mut w, 0x14, CAPS), count(&mut w, BOX_REF, CAPS)), (95, 110));
+    let t = m.trade.as_ref().unwrap();
+    assert!(t.is_empty());
+    assert_eq!((t.purse, t.balance), ([110, 95], 0));
+    // Buy the rifle: 330 caps, more than the player has.
+    select(&mut m, Side::Container, "Varmint Rifle");
+    m.apply(&mut w, Command::One);
+    assert_eq!(prices(m.list(Side::Player))[0], ("Varmint Rifle", 1, "330".into(), true));
+    assert_eq!(m.trade.as_ref().unwrap().balance, -330);
+    m.apply(&mut w, Command::Accept);
+    assert_eq!(m.status.as_deref(), Some("You don't have enough caps."));
+    assert_eq!(count(&mut w, 0x14, RIFLE), 0);
+    // Take it back from the player's side; sell the aid and buy the cans instead.
+    select(&mut m, Side::Player, "Varmint Rifle");
+    m.apply(&mut w, Command::One);
+    assert!(m.trade.as_ref().unwrap().is_empty());
+    assert!(m.list(Side::Container).rows.iter().any(|r| r.name == "Varmint Rifle" && !r.bartered));
+    select(&mut m, Side::Player, "Aid");
+    m.apply(&mut w, Command::Stack);
+    select(&mut m, Side::Container, "tin can");
+    m.apply(&mut w, Command::Stack);
+    assert_eq!(m.trade.as_ref().unwrap().balance, 36 - 4);
+    m.apply(&mut w, Command::Accept);
+    assert_eq!(m.status.as_deref(), Some("Traded: received 32 caps"));
+    assert_eq!((count(&mut w, 0x14, AID), count(&mut w, 0x14, CAN), count(&mut w, 0x14, CAPS)), (0, 2, 127));
+}
+
+#[test]
+fn a_merchant_without_enough_caps_cannot_buy() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    w.add_item(PLAYER, FormId(RIFLE), 1).unwrap();
+    w.transfer(FormId(BOX_REF), PLAYER, FormId(CAPS), 150).unwrap();
+    let mut m = barter(&mut w);
+    select(&mut m, Side::Player, "Varmint Rifle");
+    m.apply(&mut w, Command::One);
+    m.apply(&mut w, Command::Accept);
+    assert_eq!(m.status.as_deref(), Some("Cash Box doesn't have enough caps."));
+    assert_eq!(count(&mut w, 0x14, RIFLE), 1);
+}
+
+#[test]
+fn categories_filter_each_list() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    m.apply(&mut w, Command::Category(Side::Container, 1));
+    assert_eq!(m.category[0], Category::Weapons);
+    assert_eq!(names(m.list(Side::Container)), vec![("Varmint Rifle", 1)]);
+    // The player's list keeps its own.
+    assert_eq!(m.list(Side::Player).rows.len(), 4);
+    m.apply(&mut w, Command::Category(Side::Container, -2));
+    assert_eq!((m.category[0], m.category[0].title()), (Category::Ammo, "AMMO"));
+    assert!(m.list(Side::Container).rows.is_empty());
+    m.apply(&mut w, Command::Category(Side::Container, -1));
+    assert_eq!(names(m.list(Side::Container)), vec![("Bottle Cap", 200), ("anvil", 1), ("tin can", 2)]);
+    // Take All takes what is listed.
+    m.apply(&mut w, Command::TakeAll);
+    assert_eq!(count(&mut w, BOX_REF, RIFLE), 1);
+    // The inventory menu has no categories.
+    let mut inv = MenuModel::open_inventory(&mut w).unwrap();
+    inv.apply(&mut w, Command::Category(Side::Player, 1));
+    assert_eq!(inv.category[1], Category::All);
+}
+
+#[test]
+fn hovering_selects_without_acting() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    let a = m.apply(&mut w, Command::Hover(Side::Player, 3));
+    assert_eq!((a, m.focus, m.selected[1]), (Applied::default(), Side::Player, 3));
+    // A click on the row under the pointer then acts at once.
+    assert!(m.apply(&mut w, Command::Select(Side::Player, 3)).changed);
+    assert_eq!(count(&mut w, BOX_REF, PISTOL), 1);
 }

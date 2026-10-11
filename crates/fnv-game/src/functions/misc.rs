@@ -245,6 +245,17 @@ pub fn show_trait_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, Str
     open(g, menus::TRAITS)
 }
 
+/// `merchant.ShowBarterMenu [discount]`: the barter menu with the calling actor as the
+/// merchant (`Game::barter_requests`; the engine draws it and closes the menu). The
+/// discount is clamped to its documented range, -100 to 100 [documented: GECK wiki
+/// ShowBarterMenu].
+pub fn show_barter_menu(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let merchant = ctx.subject()?;
+    let discount = a.num_or(0, 0.0).clamp(-100.0, 100.0) as i32;
+    g.barter_requests.push(crate::game::BarterRequest { merchant, discount });
+    open(g, menus::BARTER)
+}
+
 /// ShowLoveTesterMenuParams: the Vigor Tester's S.P.E.C.I.A.L. menu.
 pub fn show_love_tester_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     open(g, menus::LOVE_TESTER)

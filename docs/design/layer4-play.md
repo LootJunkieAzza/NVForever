@@ -138,6 +138,11 @@ worldspace asks for it: world.md §6).
   line says "<name> is a quest item and can't be dropped" [documented: GECK wiki
   Category:Items; the wording is ours]; storing one in a container is allowed
   [hypothesis] (2026-10-09, simulation.md §3 "Quest items").
+- Since 2026-10-11 the container menu is drawn as the original's, from the game's
+  `menus\container_menu.xml` (player's list at the left, categories, the item's picture
+  and figures), and the barter menu has been added beside it (`ShowBarterMenu`, prices by
+  the Barter skill, caps): `menu/look.rs`, `menu/barter.rs`,
+  docs/spec-notes/barter-menu.md. The inventory menu keeps the plain look above.
 - Dropped items (`dropped.rs` and `phys.rs`; added 2026-10-08): created
   references are drawn from their base form's model at the simulation's pose as children
   of their `RenderCell` (so render streaming and door travel unload and reload them);

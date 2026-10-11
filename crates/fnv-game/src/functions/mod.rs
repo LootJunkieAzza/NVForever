@@ -439,7 +439,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x111E, "IsSneaking", Stub("movement (sneaking)")),
         (0x1032, "GetTalkedToPC", Impl(misc::get_talked_to_pc)),
         (0x1245, "ShowLoveTesterMenuParams", Impl(misc::show_love_tester_menu)),
-        (0x1173, "ShowBarterMenu", Stub("menus (barter)")),
+        (0x1173, "ShowBarterMenu", Impl(misc::show_barter_menu)),
         (0x1123, "PlayMagicShaderVisuals", Stub("rendering (effect shaders)")),
         (0x1129, "SetActorAlpha", Stub("rendering")),
         (0x10B2, "PlaySound3D", Stub("sound")),
