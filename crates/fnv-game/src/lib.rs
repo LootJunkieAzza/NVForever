@@ -32,6 +32,7 @@ pub mod idles;
 pub mod intro;
 pub mod package;
 pub mod quest;
+pub mod radio;
 pub mod rest;
 pub mod sound;
 pub mod runner;
