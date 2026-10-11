@@ -1,6 +1,6 @@
-// NIF surface material (nif_material.rs): Bevy's standard PBR fragment with five changes,
+// NIF surface material (nif_material.rs): Bevy's standard PBR fragment with six changes,
 // all [hypothesis, docs/spec-notes/nif.md §6 "Emissive light", "Specular", "View-angle
-// falloff", "Multiply blend", "Alpha"]:
+// falloff", "Multiply blend", "Additive blend", "Alpha"]:
 // - the alpha is scaled by the view-angle falloff (blended effect shapes only);
 // - a blended shape that is also alpha-tested drops the fragments below its cut;
 // - the emissive light is modulated by the surface colour (diffuse texture × vertex
@@ -9,7 +9,9 @@
 //   taken out again, since the game's ambient term is a flat colour and highlights come
 //   from lights (and environment maps, not drawn yet);
 // - a multiply-blended shape's colour is a factor on what lies behind it: summed in
-//   display values, held to 0..1, and neither fogged nor tonemapped.
+//   display values, held to 0..1, and neither fogged nor tonemapped;
+// - an additive shape adds about what it would add to display values: its alpha is
+//   raised to a power (`add_alpha`).
 
 // Meshes in a crossfade (VisibilityRange; streamed cells fading in and out) are dithered
 // first, as Bevy's own PBR fragment does.
@@ -39,7 +41,7 @@
 #import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
-    pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT,
+    pbr_types::{STANDARD_MATERIAL_FLAGS_UNLIT_BIT, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS, STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD},
     lighting::{EnvBRDFApprox, F_AB},
     mesh_view_bindings::{lights, view},
 }
@@ -81,6 +83,14 @@ fn falloff_opacity(cos_angle: f32, p: vec4<f32>) -> f32 {
 fn multiply_factor(lit: vec3<f32>, emissive: vec3<f32>) -> vec3<f32> {
     let display = pow(max(lit, vec3(0.0)), vec3(1.0 / 2.2)) + pow(max(emissive, vec3(0.0)), vec3(1.0 / 2.2));
     return pow(saturate(display), vec3(2.2));
+}
+
+// The alpha an additive shape (blend factors SRC_ALPHA and ONE) is drawn with, for its
+// alpha `a` (CPU mirror and the reasons: nif_material.rs `add_alpha`, ADD_ALPHA_POWER).
+// The game adds colour × alpha to display values [hypothesis]; a fixed blend cannot,
+// and alpha^1.5 added as linear light comes near it in the Prospector Saloon.
+fn add_alpha(a: f32) -> f32 {
+    return pow(saturate(a), 1.5);
 }
 
 #ifndef PREPASS_PIPELINE
@@ -215,6 +225,11 @@ fn fragment(
     let factor = multiply_factor(out.color.rgb, multiply_emissive);
     out.color = vec4(factor * out.color.a, out.color.a);
 #else
+#ifdef BLEND_PREMULTIPLIED_ALPHA
+    if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS) == STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
+        out.color.a = add_alpha(out.color.a);
+    }
+#endif
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
 #ifdef SOFT_EDGES
     out.color.a = edge;

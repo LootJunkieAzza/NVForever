@@ -2436,3 +2436,29 @@ Branch `claude/dialogue-menu`; note docs/spec-notes/dialogue-menu.md.
    - **The scroll marker** is 40 units long; your two pictures show about 30 and 43.
 3. **Not built yet:** the subtitles setting (lines always show), sounds on the list,
    dragging the marker or clicking the arrows.
+
+## Light rays and lamp glows were far too strong (2026-10-11, session "light rays")
+
+Your screenshots of the Prospector Saloon at 8:00 (rays) and of a booth table (the ring
+round the lantern). Branch `claude/light-rays`. Facts and measurements:
+`docs/spec-notes/nif.md` §6 "Additive blend". Pictures: `C:\fnv-private\references\light_rays\`.
+
+1. **Why:** the game adds the light of rays, glows and flames to the colours on the
+   screen; we added it to linear light, which on a dark wall shows three to four times
+   brighter. The rays themselves are faint in the files (they add at most a tenth of
+   white); our way of adding turned them into solid shafts and a haze, and turned the
+   faint outer part of the lantern glow into a ring on the table.
+2. **Changed:** every additive shape now adds about what the game would. The rays are
+   faint streaks near the jukebox window; the lantern keeps a small halo on its glass and
+   no ring.
+3. **A compromise, for you to judge:** our renderer cannot add exactly as the game does
+   in one step, so the strength is fitted to the Saloon (`ADD_ALPHA_POWER`, 1.5). Over
+   dark walls it is still a little stronger than the game, over lit ones a little
+   weaker. If the streaks now look too faint or too strong beside the game, tell me
+   which; an exact version needs a render pass of its own, which I have not built.
+4. **Also changed by this, not compared with the game:** fire, muzzle flashes, sparks and
+   other additive particles use the same material and are fainter at their soft edges
+   now. A screenshot of a campfire or a gun firing in a dark place would show whether
+   they lost too much.
+5. **Seen on the way, not changed:** in your rays screenshot the frosted window panes are
+   a light grey-yellow in the game and nearly white in ours.
