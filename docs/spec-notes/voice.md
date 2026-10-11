@@ -307,8 +307,29 @@ the conversation itself goes on in real time and is held only by a message box o
 of it; the pause menu holds every line. Before, the sound played on while the timer
 stood still, ran ahead of it, and the subtitle outlasted the sound after the menu.
 
-Not done [decision]: 3D placement and distance (voices play flat), the response's sound
-form (§6) and emotions. Lip sync follows the voice from
+**Heard where it is said** (2026-10-11, owner request after a playtest: greetings
+between NPCs and alerted enemies were heard "like they are stood right next to me"; "if
+the NPC is out of hearing range we shouldn't show the subtitle"). A line said outside
+the conversation with the player (SayTo, Say, hellos, lines between actors, detection
+barks) is heard from its speaker's place, 110 units above its feet [design]: full
+volume within 600 units of the player's eye, falling as 600 ÷ distance beyond it and
+faded to nothing at 2,000 (`voice::voice_gain`; the shape is `sfx.rs`'s for sound
+effects [design]), and panned to its side (`sfx::pan_gains`), both followed while it
+plays. The two distances are `fDialogMinDistance=600.00` and `fDialogMaxDistance=2000.00`
+of the [Audio] section of the install's `Fallout_default.ini` [observed; hypothesis:
+that they bound dialogue's attenuation, as the names say; nothing documents them]. A
+speaker in another cell space (another interior, or inside while the player is
+outside) is not heard. While a line is out of hearing (2,000 units or more, or another
+cell) it is silent and its subtitle is not shown (`voice::audible`,
+`script_hud.rs`); both come back if the two come nearer while it lasts. The
+conversation with the player stays flat and whole. Log: `voice: playing … at <d> units,
+gain <g>` and `[out of hearing, …]`; at exit `voice summary: … N started out of the
+player's hearing`. Checked: Violet's NormalToAlert from 3,018 units, the Fiends'
+lines near Cook-Cook from 2,268 units, no subtitle; from 1,596 units gain 0.11 and a
+subtitle (alert.md §8).
+
+Not done [decision]: the response's sound form (§6) and emotions; occlusion and reverb
+(`fDialogReverbAttenuation` is not used). Lip sync follows the voice from
 `engine/nvforever/src/lips.rs` (`VoiceState::spoken`; docs/spec-notes/lipsync.md §5),
 and holds with it.
 

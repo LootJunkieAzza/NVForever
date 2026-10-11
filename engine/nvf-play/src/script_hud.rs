@@ -30,7 +30,8 @@
 //!   the log's `subtitle:` lines too, but drawn by the dialogue menu
 //!   (`crate::dialogue_menu`). A radio's talk line heard loudly enough is subtitled too
 //!   (`crate::radio::RadioSubtitle`). Every text is shown without its acting notes in
-//!   braces (`crate::dialogue::shown_text`).
+//!   braces (`crate::dialogue::shown_text`). A line said where the player does not hear
+//!   it (another cell, or beyond `crate::voice::DIALOG_MAX_DISTANCE`) has no subtitle.
 
 use crate::interface::{amber, bc_supported, face, plain_font, set_line, u, Face};
 use crate::message_menu::{MessagePanel, PanelView};
@@ -174,7 +175,7 @@ pub fn box_buttons(b: &BoxMessage) -> Vec<String> {
 
 /// What the overlay shows this frame: the panel (a message box or a menu placeholder),
 /// the box on screen, and the subtitles.
-fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&crate::radio::RadioSubtitle>) -> (Option<PanelView>, Option<BoxMessage>, Subtitles) {
+fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&crate::radio::RadioSubtitle>, player: Option<&crate::player::Player>) -> (Option<PanelView>, Option<BoxMessage>, Subtitles) {
     let Some(rt) = script.rt.as_ref() else { return (None, None, Subtitles::default()) };
     let g = &rt.game;
     let front = match g.menu {
@@ -195,6 +196,10 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&cr
     let mut subs = Vec::new();
     let mut on_screen = Vec::new();
     for s in &g.speech {
+        // A line the player does not hear has no subtitle (`crate::voice::audible`).
+        if !crate::voice::audible(sim, player, s.speaker) {
+            continue;
+        }
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };
         let i = crate::voice::speech_response(g, sim, s);
         let Some(text) = texts.get(i).or_else(|| texts.last()) else { continue };
@@ -239,7 +244,7 @@ fn draw(
     mut shown: Local<Subtitles>,
     mut commands: Commands,
     areas: Query<Entity, With<SubtitleArea>>,
-    (radio, play): (Option<Res<crate::radio::RadioSubtitle>>, Res<crate::PlayWorld>),
+    (radio, play, player): (Option<Res<crate::radio::RadioSubtitle>>, Res<crate::PlayWorld>, Option<Res<crate::player::Player>>),
     (data, mut images, formats, mut font): (Option<Res<GameData>>, ResMut<Assets<Image>>, Option<Res<CompressedImageFormatSupport>>, Local<Option<Face>>),
 ) {
     if let Some((_, info, _)) = radio.as_deref().and_then(|r| r.0) {
@@ -247,7 +252,7 @@ fn draw(
             hud.remember_line(info, crate::script::responses(&play, info));
         }
     }
-    let (p, front, subs) = view(&hud, &script, &sim, radio.as_deref());
+    let (p, front, subs) = view(&hud, &script, &sim, radio.as_deref(), player.as_deref());
     hud.on_screen = front;
     if panel.view != p {
         panel.set(p);
