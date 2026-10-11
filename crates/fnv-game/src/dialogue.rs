@@ -193,7 +193,8 @@ impl<'a> Game<'a> {
 
     /// The line of `topic` that `speaker` says to `listener` now, for greetings, chosen
     /// topics, SayTo and Say alike:
-    /// 1. The topic's lines are taken with the lines of higher-priority quests first
+    /// 1. The topic's lines, its own and those it shares from other topics
+    ///    ([`GameData::lines_tried`]), are taken with the lines of higher-priority quests first
     ///    [documented: Quest Data Tab: priority decides whose dialogue wins, higher
     ///    wins; owner statement 2026-10-10].
     /// 2. Lines of quests of the same priority, and lines of one quest, keep their
@@ -222,7 +223,7 @@ impl<'a> Game<'a> {
     /// the speaker cannot say.
     pub(crate) fn select_line_where(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId, keep: impl Fn(&InfoDef) -> bool) -> Option<FormId> {
         let data = self.data;
-        let lines = data.lines_by_priority(topic);
+        let lines = data.lines_tried(topic);
         let flag = |i: &FormId, f: u16| data.infos.get(i).is_some_and(|d| d.has(f));
         let kept = |i: &FormId| data.infos.get(i).is_some_and(&keep);
         let mut at = 0;
@@ -496,16 +497,20 @@ impl<'a> Game<'a> {
     /// The list the player chooses from after the line `def`:
     /// - the line's choices (TCLT), if it has any, and nothing else
     ///   [documented: Category:Dialogue: top-level topics are "the ones that come up when
-    ///   an info isn't linked to anything in particular"; Quest and Dialogue Tutorial];
+    ///   an info isn't linked to anything in particular"; Quest and Dialogue Tutorial;
+    ///   owner statement 2026-10-11: a line linked by choices offers only the topics given
+    ///   as its choices]. When none of them can be said nothing is offered and the
+    ///   conversation ends [hypothesis; earlier the topic list stood in, which showed the
+    ///   top-level topics after lines whose choices only had shared lines];
     /// - otherwise the top-level topics and the topics the player knows (lines' Add
     ///   Topics lists and `AddTopic`) [documented: the same pages]; a known topic is
     ///   offered by every actor that can say a line of it [owner statement 2026-10-10;
     ///   not yet captured].
     ///
-    /// Each topic is offered only if the actor has a line of it to say now, and that
-    /// line is the one chosen later [hypothesis; the editor's filtered dialogue window
-    /// lists only what an actor qualifies to say, Category:Dialogue]. A line's choices
-    /// of which none can be said fall back to the topic list [hypothesis].
+    /// Each topic is offered only if the actor has a line of it to say now, its own or
+    /// one it shares ([`GameData::lines_tried`]), and that line is the one chosen later
+    /// [hypothesis; the editor's filtered dialogue window lists only what an actor
+    /// qualifies to say, Category:Dialogue].
     ///
     /// Order: topic priority (DIAL PNAM), highest first [documented: Category:Dialogue,
     /// "Priority"], then for a line's choices their order in the record [documented:
@@ -520,11 +525,10 @@ impl<'a> Game<'a> {
     pub fn build_choices(&mut self, actor: FormId, def: &InfoDef) -> Vec<Choice> {
         let data = self.data;
         let priority = |t: &FormId| data.topic_defs.get(t).map_or(50.0, |d| d.priority);
-        let mut linked = def.choices.clone();
-        linked.sort_by(|a, b| priority(b).total_cmp(&priority(a)));
-        let mut out = self.offer(actor, &linked);
-        if !out.is_empty() {
-            return out;
+        if !def.choices.is_empty() {
+            let mut linked = def.choices.clone();
+            linked.sort_by(|a, b| priority(b).total_cmp(&priority(a)));
+            return self.offer(actor, &linked);
         }
         let mut listed: Vec<FormId> = data.top_level.clone();
         let mut known: Vec<FormId> = self.player.topics.iter().copied().filter(|t| !listed.contains(t)).collect();
@@ -533,7 +537,7 @@ impl<'a> Game<'a> {
             let order = |t: &FormId| data.topic_defs.get(t).map_or((usize::MAX, 0), |d| d.order);
             listed.sort_by(|a, b| priority(b).total_cmp(&priority(a)).then(order(a).cmp(&order(b))));
         }
-        out = self.offer(actor, &listed);
+        let mut out = self.offer(actor, &listed);
         if !out.iter().any(|c| c.goodbye) {
             if let Some(bye) = data.goodbye.filter(|b| !out.iter().any(|c| c.topic == *b)) {
                 out.extend(self.offer(actor, &[bye]));

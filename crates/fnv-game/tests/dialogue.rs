@@ -56,6 +56,13 @@ const K_LAST: u32 = 0xF44;
 const HELLO: u32 = 0x93E;
 const K_HELLO_LINKED: u32 = 0xF45;
 const K_HELLO: u32 = 0xF46;
+const T_SOURCE: u32 = 0x950;
+const T_SHARED: u32 = 0x951;
+const T_LINKS: u32 = 0x952;
+const T_DEAD_END: u32 = 0x953;
+const S_LINE: u32 = 0xF51;
+const S_LINKS: u32 = 0xF52;
+const S_DEAD_END: u32 = 0xF53;
 const A_OFF: u32 = 0xA01;
 const A_FIRST: u32 = 0xA02;
 const A_HIGH: u32 = 0xA03;
@@ -165,7 +172,19 @@ fn info(l: L) -> Vec<u8> {
 }
 
 fn topic(id: u32, edid: &str, name: &str, ty: u8, flags: u8, priority: f32, lines: Vec<L>) -> Vec<u8> {
-    let dial = record(b"DIAL", 0, id, &[sub(b"EDID", z(edid)), sub(b"FULL", z(name)), sub(b"PNAM", f32b(priority)), sub(b"DATA", vec![ty, flags])]);
+    topic_sharing(id, edid, name, ty, flags, priority, &[], lines)
+}
+
+/// A topic that also lists lines stored under other topics: (quest, line, Info Index)
+/// as QSTI, INFC, INFX ("Shared Infos").
+#[allow(clippy::too_many_arguments)]
+fn topic_sharing(id: u32, edid: &str, name: &str, ty: u8, flags: u8, priority: f32, shared: &[(u32, u32, i32)], lines: Vec<L>) -> Vec<u8> {
+    let mut s = vec![sub(b"EDID", z(edid))];
+    for &(quest, line, index) in shared {
+        s.extend([sub(b"QSTI", u32b(quest)), sub(b"INFC", u32b(line)), sub(b"INFX", index.to_le_bytes().to_vec())]);
+    }
+    s.extend([sub(b"FULL", z(name)), sub(b"PNAM", f32b(priority)), sub(b"DATA", vec![ty, flags])]);
+    let dial = record(b"DIAL", 0, id, &s);
     let children: Vec<u8> = lines.into_iter().flat_map(info).collect();
     [dial, group(id.to_le_bytes(), 7, &children)].concat()
 }
@@ -430,6 +449,29 @@ fn plugin_bytes() -> Vec<u8> {
                 L { id: K_HELLO_LINKED, quest: QA, speaker: me, responses: one("Linked"), link_from: vec![T_ARGUE], ..L::default() },
                 L { id: K_HELLO, quest: QA, speaker: me, responses: one("Hi"), choices: vec![T_REPLY], ..L::default() },
             ],
+        ),
+        // Shared lines (INFC / INFX): TopicShared has no line of its own and shares
+        // TopicSource's. TopicLinks' line offers it and the hidden topic as its choices;
+        // TopicDeadEnd's only choice cannot be said.
+        topic(T_SOURCE, "TopicSource", "Where?", topic_type::TOPIC, 0, 50.0, vec![L { id: S_LINE, quest: QA, speaker: me, responses: one("Here"), ..L::default() }]),
+        topic_sharing(T_SHARED, "TopicShared", "Where?", topic_type::TOPIC, 0, 50.0, &[(QA, S_LINE, 0)], vec![]),
+        topic(
+            T_LINKS,
+            "TopicLinks",
+            "Links",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![L { id: S_LINKS, quest: QA, speaker: me, responses: one("Ask away"), choices: vec![T_HIDDEN, T_SHARED], ..L::default() }],
+        ),
+        topic(
+            T_DEAD_END,
+            "TopicDeadEnd",
+            "Dead end",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![L { id: S_DEAD_END, quest: QA, speaker: me, responses: one("Hmm"), choices: vec![T_HIDDEN], ..L::default() }],
         ),
     ]
     .concat();
@@ -711,6 +753,35 @@ fn a_lines_choices_are_offered_and_nothing_else_and_a_topic_without_a_line_is_hi
     assert!(g.choose(5).is_err());
     pick(&mut g, T_ASK);
     assert!(g.choose(0).is_err());
+}
+
+#[test]
+fn a_choice_with_only_a_shared_line_is_offered_and_says_that_line() {
+    let f = fixture();
+    // The shared line counts as a line of the topic that lists it, not of its own.
+    assert!(f.data.lines_by_priority(FormId(T_SHARED)).is_empty());
+    assert_eq!(f.data.lines_tried(FormId(T_SHARED)), vec![FormId(S_LINE)]);
+    assert_eq!(f.data.topics[&FormId(T_SOURCE)], vec![FormId(S_LINE)]);
+    let mut g = game(&f);
+    assert_eq!(g.start_dialogue(actor(), Some(FormId(T_LINKS))), Ok(FormId(S_LINKS)));
+    listen(&mut g);
+    // Only the line's choices: the hidden one has nothing to say, the shared one is
+    // offered with the topic's own name; no top-level topics, no GOODBYE.
+    assert_eq!(offered(&g), vec![T_SHARED]);
+    assert_eq!(g.choice_text(&g.dialogue_choices()[0]), "Where?");
+    assert_eq!(pick(&mut g, T_SHARED), FormId(S_LINE));
+}
+
+#[test]
+fn a_line_whose_choices_cannot_be_said_offers_nothing_else() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.start_dialogue(actor(), Some(FormId(T_DEAD_END))).unwrap();
+    listen(&mut g);
+    // Not the topic list: the conversation ends.
+    assert!(g.dialogue.is_none());
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "no_choices", .. })));
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::ChoicesOffered { .. })));
 }
 
 #[test]
