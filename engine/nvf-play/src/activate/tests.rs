@@ -119,6 +119,7 @@ fn boxed(half: f32) -> CollisionObject {
         restitution: 0.0,
         shape: Shape::Box { half_extents: [half; 3] },
         shell: 0.0,
+        material: None,
     }
 }
 

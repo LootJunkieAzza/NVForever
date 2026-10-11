@@ -107,6 +107,9 @@ pub struct RawCollision {
     /// Largest `radius` stored on a shell-bearing shape of the tree (stored units); see
     /// [`crate::shape::CollisionObject::shell`].
     pub shell: f32,
+    /// The material code of the first box, sphere, capsule, multi-sphere or
+    /// convex-vertices shape of the tree; see [`crate::shape::CollisionObject::material`].
+    pub convex_material: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -198,6 +201,8 @@ struct Walk<'a> {
     depth: usize,
     /// Largest stored `radius` of the box, convex-vertices and triangle-mesh shapes met.
     shell: f32,
+    /// Material of the first convex (sphere-rep) shape met.
+    convex_material: Option<u32>,
 }
 
 impl Walk<'_> {
@@ -225,6 +230,11 @@ impl Walk<'_> {
             if let Some(r) = s.float("radius").filter(|r| r.is_finite() && *r > 0.0) {
                 self.shell = self.shell.max(r);
             }
+        }
+        // Every sphere-rep shape stores one material [documented: nif.xml
+        // bhkSphereRepShape]; triangle meshes carry theirs per triangle.
+        if matches!(ty.as_str(), "bhkBoxShape" | "bhkSphereShape" | "bhkCapsuleShape" | "bhkMultiSphereShape" | "bhkConvexVerticesShape") && self.convex_material.is_none() {
+            self.convex_material = Some(material(s));
         }
         let out = match ty.as_str() {
             "bhkBoxShape" => {
@@ -444,6 +454,7 @@ pub fn extract(file: &NifFile, dec: &Decoded) -> Extracted {
             problems: Vec::new(),
             depth: 0,
             shell: 0.0,
+            convex_material: None,
         };
         let shape = body.block_ref("shape").and_then(|r| w.shape(r));
         if !phantom {
@@ -474,6 +485,7 @@ pub fn extract(file: &NifFile, dec: &Decoded) -> Extracted {
             compressed_vertices: w.compressed,
             mixed_subpart_triangles: w.mixed,
             shell: w.shell,
+            convex_material: w.convex_material,
         });
     }
     out
@@ -522,6 +534,7 @@ impl RawCollision {
             restitution: self.restitution.unwrap_or(0.0),
             shape: self.shape.scaled(f),
             shell: self.shell * f,
+            material: self.convex_material,
         }
     }
 
@@ -634,11 +647,13 @@ mod tests {
             compressed_vertices: false,
             mixed_subpart_triangles: 0,
             shell: 0.1,
+            convex_material: Some(24),
         };
         let plain = raw("bhkRigidBody").to_object();
         assert_eq!(plain.shape, Shape::Box { half_extents: [14.0, 28.0, 42.0] });
         assert_eq!(plain.body_transform, Iso::IDENTITY);
         assert!((plain.shell - 1.4).abs() < 1e-6, "shell scales like the shape: {}", plain.shell);
+        assert_eq!(plain.material, Some(24));
         assert_eq!(plain.root_bounds().min, [-14.0, -28.0, -42.0]);
         let t = raw("bhkRigidBodyT").to_object();
         assert_eq!(t.body_transform.translation, [14.0, 0.0, 0.0]);

@@ -503,6 +503,9 @@ pub struct Game<'a> {
     /// The idle animations actors were asked to play (`crate::idles::IdleRequest`), for
     /// the layer that animates actors to take.
     pub idle_requests: Vec<crate::idles::IdleRequest>,
+    /// The sounds scripts asked for (`crate::sound::SoundRequest`), for the engine to
+    /// take. Not part of the saved state.
+    pub sound_requests: Vec<crate::sound::SoundRequest>,
     /// Sleeping and waiting as scripts see and ask for them (`crate::rest`); the menu is
     /// the engine's. Not part of the saved state.
     pub rest: crate::rest::Rest,
@@ -665,6 +668,7 @@ impl<'a> Game<'a> {
             data,
             combat_requests: Vec::new(),
             idle_requests: Vec::new(),
+            sound_requests: Vec::new(),
             rest: Default::default(),
             world,
             cfg,

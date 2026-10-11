@@ -161,3 +161,166 @@ there, the background loop and the sound markers in reach.
 - What a controller's faction lists need (reputation, disguise?) and when battle and
   incidental sets play.
 - The per-second reading of Random Chance, and the hours of the four background loops.
+
+## 10. World and script sounds
+
+Owner request 2026-10-11: "the rest of the sounds in game", hits on walls and bottles
+first, and shot glass that sounds like glass. Code: `nvf_play::world_sounds` (knocks,
+items, containers, activators, message boxes, script sounds, the per-impact log),
+`nvf_play::combat` (impacts), `fnv_combat::fx`, `fnv_game::sound`. Counts are of the
+owner's load order (FalloutNV.esm and the DLC) [observed, `nvforever --play` start-up
+log] unless they say FalloutNV.esm.
+
+### 10.1 Shot impacts: surface → sound
+
+A shot's impact takes the IPCT its weapon's impact data set (IPDS) gives for the
+surface's impact material, and plays that IPCT's sounds (combat-rules.md §16).
+
+- **Finding** [observed 2026-10-11, the bottles of combat-rules.md §14]: shooting
+  Sunny's bottles played `FXBulletImpactEarth`, the dirt sound. A bottle's collision is
+  one convex shape, and only triangle meshes kept their Havok material; a hit without a
+  material counts as dirt. Every box, sphere, capsule and convex-vertices shape stores
+  one material [documented: nif.xml `bhkSphereRepShape`]; it is now read
+  (`CollisionObject::material`, the first such shape's when a body has several
+  [design]) and given to the body's convex colliders. The same bottles now play
+  `FXBulletImpactGlass` ("impacts by material: glass 3").
+- Walls were not silent: buildings are triangle meshes whose triangles carry materials
+  [observed: Goodsprings building 001055E0, triangles of 0 STONE and 17 SHEET_METAL].
+- **Material names.** `fnv_combat::fx::impact_material` maps the 32 Havok materials
+  (code mod 32) [documented: nif.xml `Fallout3HavokMaterial`] to the twelve IPDS
+  materials by their names [hypothesis]. Checked against the names: stone, heavy stone
+  and broken concrete → stone; cloth → cloth; dirt and sand → dirt; glass and bottle →
+  glass; grass → grass; organic and skin → organic; water → water; wood and heavy wood
+  → wood; hollow metal, sheet metal, vehicle body and hollow parts, barrel, soda can,
+  shopping cart, lunchbox → hollow metal; metal, heavy metal, chain, bottle cap,
+  elevator, solid vehicle parts, pistol, rifle, baby rattle and rubber ball → metal
+  (the last two by default, not by name). Terrain has no code and counts as dirt
+  [design].
+- **Actors** take their base's Impact Material Type (NPC_ and CREA `NAM4`, the same
+  twelve in the same order [documented: xEdit]), organic without one [design]. Read
+  [observed, load order]: organic 5,565, metal 487, organic bug 318, hollow metal 40,
+  organic glow 34, stone 8, grass 3. Before this every actor counted as organic.
+- Destructible and loose objects go through the same path as walls: the impact is
+  picked before the hit's damage or push [observed: the code and the bottles' log].
+
+The table: the ballistic impact data set 0x00019083, which the 10mm pistol, the Varmint
+rifle and the service rifle name (WEAP `INAM`) [observed: `fnvtool combat fx`]. Sound
+folders are under `sound\fx\fx\bullet\impact\`; dB is the SOUN's static attenuation.
+
+| Surface (example) | Havok material | Impact material | IPCT | Sound (folder, dB) |
+|---|---|---|---|---|
+| Sunset Sarsaparilla bottle (loose) | 24 BOTTLE, convex [observed] | glass | `BallisticGlassImpact` | `FXBulletImpactGlass` (`glass\`, 0) |
+| window glass | 3 GLASS | glass | `BallisticGlassImpact` | `FXBulletImpactGlass` |
+| concrete or stone wall | 0 STONE [observed: 001055E0] | stone | `BallisticStoneImpact` | `FXBulletImpactConc` (`concrete\`, 15.4) |
+| sheet metal wall, car body, barrel, can | 17, 20, 23, 25 [17 observed: 001055E0] | hollow metal | `BallisticMetalHollowImpact` | `FXBulletImpactMetalH` (`metalhollow\`, 7.9) |
+| solid metal, guns | 5, 11, 26, 27 | metal | `BallisticMetalImpact` | `FXBulletImpactMetalS` (`metalsolid\`, 10.1) |
+| wood | 9, 12 | wood | `BallisticWoodImpact` | `FXBulletImpactWood` (`newood\`, 12.8) |
+| terrain, dirt, sand | none, 2, 18 [observed: terrain] | dirt | `BalisticDirtImpact` | `FXBulletImpactEarth` (`earth\`, 8.4) |
+| grass | 4 | grass | `BalisticDirtImpact` | `FXBulletImpactEarth` |
+| water | 8 | water | `ImpactWaterSplashSm` | `FXBulletImpactWater` (`water\`, 0) |
+| cloth | 1 | cloth | none: the set names no IPCT [observed] | none |
+| human NPC | `NAM4` Organic [observed: a hit on 00109A39] | organic | `BallisticOrganicImpact` | `FXBulletImpactFlesh` (`flesh\`, 10.1) |
+| robot | `NAM4` Metal or Hollow Metal | metal, hollow metal | as metal, hollow metal above | `FXBulletImpactMetalS`, `…MetalH` |
+| insect (radscorpion, ant, …) | `NAM4` Organic Bug | organic bug | `BallisticOrganicBugImpact` | `FXBulletImpactFlesh` |
+| glowing one | `NAM4` Organic Glow | organic glow | `BallisticOrganicGlowImpact` | `FXBulletImpactFlesh` |
+
+Read [observed, load order]: 147 IPCT in 73 IPDS. The three organic kinds share the
+flesh sound; their effects differ.
+
+### 10.2 Loose objects knocking
+
+No record names what a loose body sounds like when it hits something. FalloutNV.esm
+has 51 SOUN named `PHY…` (files under `sound\fx\phy\<material>\`), most in pairs `…H`
+and `…L`, named after the Havok materials (`PHYBottleH`, `PHYBarrelL`, `PHYCanSodaH`,
+`PHYGenericMetalSheetSmall`, `PHYVehicleMetalBodyH`, `PHYChain`, `PHYRubberBall`, …),
+and `CWoodSmall`, `CWoodMedium`, `CWoodLarge` whose files are `fx\phy\wood\crate_*`
+[observed]. `world_sounds::phy_sound` takes the one named after the body's material
+[hypothesis]; H for a hard knock, L for a light one [hypothesis: hard and light];
+where a family comes in sizes, hard takes the larger [design]. Dirt, grass, water and
+sand have none.
+
+When [design]: a dynamic body (placed clutter, a dropped item) that loses at least 90
+units/s of its speed in a frame (`knock_speed`: the speed lost along the way it was
+going) knocks; from 300 units/s hard; at most every 0.12 s per body, and not in the
+first 1.5 s after its collision came (bodies settling when a cell loads). Gaining speed
+(falling, pushed by a shot) is no knock. A knock plays at the body.
+
+Seen [observed 2026-10-11, Goodsprings]: a shot bottle falling off the fence,
+`PHYBottleL` at 122 units/s and `PHYBottleH` at 322; tumbleweeds (`TumbleweedNV`,
+collision material 30 BABY_RATTLE) rolling, `PHYBabyRattle`. `PHYTumbleweed` exists but
+nothing links it to the tumbleweed (its MSTT has no `SNAM`) [observed].
+
+### 10.3 Items, containers, activators
+
+| Record | Fields [documented: xEdit] | Records | Naming a pick-up / drop sound [observed] |
+|---|---|---|---|
+| WEAP | `YNAM` Sound - Pick Up, `ZNAM` Sound - Drop | 496 | 221 / 221 |
+| ARMO | same | 489 | 427 / 425 |
+| AMMO | same | 145 | 144 / 144 |
+| MISC | same | 603 | 53 / 42 |
+| KEYM | same | 313 | 283 / 283 |
+| ALCH | same | 226 | 24 / 24 |
+| CHIP | same | 6 | 1 / 1 |
+| BOOK | same | 27 | 0 / 0 |
+| NOTE | same | 1,225 | 0 / 0 |
+| IMOD | same | 112 | 0 / 0 |
+| CCRD | same | 324 | 0 / 0 |
+| CMNY | same | 6 | 0 / 0 |
+
+- Played: the pick-up sound when an item leaves the world for an inventory (activated
+  by hand or by a script), the drop sound when a drop creates a reference, both at the
+  reference [hypothesis: where]; in a container menu, the pick-up sound for what the
+  player takes and the drop sound for what the player puts in, at the listener
+  [hypothesis]. A record without one plays `UIItemGenericUp` or `UIItemGenericDown`
+  [hypothesis: by the names; no record links them].
+- Seen [observed 2026-10-11, GSHouseInterior03]: the BB gun `ITMPistolUp`, an empty
+  bottle (no field) `UIItemGenericUp`, five kinds of food taken from the fridge
+  `UIItemGenericUp`, 10mm rounds put in `ITMAmmunitionDown`, the jumpsuit dropped
+  `UIItemsClothingDown`.
+- CONT `SNAM` Sound - Open and `QNAM` Sound - Close [documented: xEdit]: 1,249
+  containers name one or both [observed]; played when the container menu opens on the
+  container and when it closes, at the container. The fridge 00105658 names neither.
+- ACTI `VNAM` Sound - Activation [documented: xEdit]: 116 activators without a radio
+  station (`RNAM`) name one [observed]; played when the player activates one, at it.
+  Not seen in a run yet.
+
+### 10.4 Message boxes and other interface sounds
+
+- MESG has no sound field [documented: xEdit MESG], and `menus\message_menu.xml` names
+  none for opening [observed]. Its buttons include
+  `menus\prefabs\list_box_template.xml`, whose `clicksound` is `UIMenuOK` and
+  `mouseoversound` `UIMenuFocus` [observed].
+- Built: `UIPopUpMessageWindow` when a box opens [design: by its name;
+  `UIPopUpMessageGeneral` names the same file, `fx\ui\popup\ui_popup_messagewindow.wav`
+  [observed]], `UIMenuOK` when a button is picked (the box goes), `UIMenuFocus` when the
+  choice moves.
+- Named by the interface files and not built [observed: `clicksound` and
+  `mouseoversound` in `menus\*.xml`]: `UIMenuOK`, `UIMenuPrevNext`, `UIMenuCancel`,
+  `UIMenuFocus`, `UIPipboySelect`, `UIPipboyScroll`, `UIPipBoyMode`, `&nosound;`, and
+  the numbers 1, 2, 3 and 9 (what they stand for is not known). `globals.xml` sets
+  `_sound_button_click` to `UIMenuOK`.
+- Other UI SOUN in FalloutNV.esm, not built: `UIMenuMode`, `UIMenuTab`, `UIPipBoy…`
+  (access up and down, light, tabs, scroll, hum, radiation), `UIPopUpQuestNew`,
+  `UIPopUpQuestComplete`, `UIPopUpExperienceUp`, `UILevelUp`, `UIKarmaUp` and `…Down`,
+  `UIRepGood` and `…Bad`, `UIItemTakeAll`, and the lockpicking, hacking and VATS sounds.
+
+### 10.5 Scripts
+
+`PlaySound sound [SystemSound]` plays a SOUN not placed; `ref.PlaySound3D sound` plays
+it at the calling reference [documented: GECK wiki PlaySound, PlaySound3D, owner
+export]. The rules queue them (`Game::sound_requests`, traced `sound_asked`); the
+engine plays them. Without SystemSound a sound asked for in a menu waits for the game
+[documented: it "may be queued and not played until returning to GameMode"]. Seen
+[observed]: a DLC start-up script's `PlaySound` (0x03016173). `PlayMusic` is not built
+(the music's own controls are music.rs's).
+
+### 10.6 Checks and what is left
+
+Log: `impact: …` (debug: collision material, impact material, IPCT, sounds), `knock: …`
+(debug), `world sounds: …` for items, containers, activators, message boxes and
+scripts; at the end `world sounds summary: …`. Smoke tests in CLAUDE.md (the bottles,
+the house).
+
+Not built: an activator's looping sound (ACTI `SNAM`), a container's random or looping
+one (CONT `RNAM`), the casings' PHY sounds, two loose bodies knocking each other told
+apart from one on the ground, loudness by how hard a knock is, panning.

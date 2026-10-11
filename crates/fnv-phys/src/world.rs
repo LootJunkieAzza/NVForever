@@ -196,6 +196,8 @@ struct Material {
     friction: f32,
     restitution: f32,
     mass: f32,
+    /// Havok material code of the convex leaves (`CollisionObject::material`).
+    code: Option<u32>,
 }
 
 impl PreparedRef {
@@ -234,7 +236,7 @@ impl PreparedRef {
                 index: i as u16,
                 layer: o.layer,
                 motion: o.motion,
-                material: Material { friction: o.friction, restitution: o.restitution, mass: o.mass },
+                material: Material { friction: o.friction, restitution: o.restitution, mass: o.mass, code: o.material },
                 pose: body_pose,
                 leaves,
                 shell: o.shell * pose.scale,
@@ -280,7 +282,8 @@ pub struct PhysWorld {
     /// bodies is (`crate::ragdoll`).
     pub(crate) ragdolls: BTreeMap<u32, crate::ragdoll::RagdollBodies>,
     pub(crate) ragdoll_of: HashMap<RigidBodyHandle, (u32, u16)>,
-    /// Per-triangle material codes of triangle-mesh colliders.
+    /// Per-triangle material codes of triangle-mesh colliders; one code for a convex
+    /// collider.
     materials: HashMap<ColliderHandle, Vec<u32>>,
     /// Contact shells (game units) of reference colliders that have one
     /// (`CollisionObject::shell` times the reference's scale).
@@ -401,6 +404,9 @@ impl PhysWorld {
             let h = self.w.insert_collider(c, Some(body));
             if !leaf.materials.is_empty() {
                 self.materials.insert(h, leaf.materials);
+            } else if let Some(code) = o.code {
+                // A convex leaf: one material for the whole of it.
+                self.materials.insert(h, vec![code]);
             }
             if shell.is_finite() && shell > 0.0 {
                 self.shells.insert(h, shell);
@@ -579,6 +585,13 @@ impl PhysWorld {
     pub fn ref_center(&self, form_id: u32) -> Option<[f32; 3]> {
         let b = *self.refs.get(&form_id)?.first()?;
         Some(arr3(self.w.bodies.get(b)?.center_of_mass() / self.k))
+    }
+
+    /// The Havok material code of a reference's first collider that has one (a convex
+    /// collider's, or a triangle mesh's first triangle's); `None` without one.
+    pub fn ref_material(&self, form_id: u32) -> Option<u32> {
+        let bodies = self.refs.get(&form_id)?;
+        bodies.iter().filter_map(|&b| self.w.bodies.get(b)).flat_map(|b| b.colliders().iter()).find_map(|c| self.materials.get(c)?.first().copied())
     }
 
     /// Current state of each body of a reference, in object order.
@@ -761,9 +774,11 @@ impl PhysWorld {
         }
     }
 
-    /// Material code of triangle `triangle` of a triangle-mesh collider.
+    /// Material code of triangle `triangle` of a triangle-mesh collider, or of a convex
+    /// collider (which has one).
     pub(crate) fn material_of(&self, c: ColliderHandle, triangle: u32) -> Option<u32> {
-        self.materials.get(&c)?.get(triangle as usize).copied()
+        let m = self.materials.get(&c)?;
+        m.get(triangle as usize).or(if m.len() == 1 { m.first() } else { None }).copied()
     }
 }
 
