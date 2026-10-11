@@ -141,8 +141,23 @@ The state is the script runtime's (`fnv_game::functions::player`,
   So `DisablePlayerControls 1 1` seems to turn fighting off too, yet not POV, which the
   form without parameters turns off [hypothesis: a left-out parameter is not simply 0;
   the rule is not known, and the save may hold a state from before the scripts]. The
-  runtime is unchanged; `pc_controls` (§5.4) asks the game. In the opening the
-  difference lasts until VCG01 stage 0, three seconds later, which turns fighting off.
+  runtime is unchanged for `DisablePlayerControls`; `pc_controls` (§5.4) asks the game.
+  In the opening the difference lasts until VCG01 stage 0, three seconds later, which
+  turns fighting off.
+- **A left-out parameter of `EnablePlayerControls` enables its group** (since
+  2026-10-11) [hypothesis]. The opening turns sneaking off (VCG01 stages 0, 55 and 110,
+  each with all seven parameters); Doc's farewell line gives back `1 1 0 1 1 1 0`, and
+  the trigger outside his door, VCG01RemoveDocCarebearModeTriggerSCRIPT ("Doc never gets
+  mad at the player for fighting or stealing... until the player steps outside his
+  house", its source), gives back `EnablePlayerControls 1 1 1 1 1 1`: six parameters
+  [observed: the SCTX of FalloutNV.esm 0x0011E65E]. No other script of FalloutNV.esm
+  gives sneaking back after that (`fnvtool script decompile`: every
+  `EnablePlayerControls` whose seventh parameter is 1, or with no parameters, belongs to
+  another quest). Read with a left-out 0, the player could never sneak again after the
+  opening, which the playtest of 2026-10-11 met ("can no longer crouch with ctrl");
+  read as the form without parameters reads it, the trigger gives back everything. The
+  same rule makes `VULEnablePipBoyFailsafeTriggerSCRIPT`'s `0 1 1` give back the last
+  four groups too. `GetPlayerControlsDisabled`'s short lists keep a left-out 0.
 - The capture tools use `DisablePlayerControls 0 0 0 1 0 0 0` to force first person for
   reference screenshots; `IsPC1stPerson` read 1 with every picture taken that way
   (`tools/capture/capture_frames.py`; the view before the call was not recorded).
