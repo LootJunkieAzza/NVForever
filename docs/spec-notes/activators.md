@@ -226,9 +226,10 @@ script), and whether that base's model has a sequence named like the group.
   - an object not drawn keeps the latest request and shows it when drawn: a group played
     once at its end, a loop from its start [design]; meanwhile it is reported not
     playing;
-  - the group's material tracks (emissive, emittance, texture offset; §3) play with it;
-    a track on the model's root node is not applied, the root carrying the placement
-    [design]; visibility, alpha, particle and other controllers are not played;
+  - the group's material tracks (emissive, emittance, texture offset, alpha; §3, §6) and
+    visibility tracks (§6) play with it; a track on the model's root node is not
+    applied, the root carrying the placement [design]; particle, refraction and morph
+    controllers are not played (§6);
   - `Sound: <SOUN>` keys the group passes play where the object is (anim_sounds.rs).
 - Log: `playgroup: <ref> plays <group> (once|loop, <s> s), flag <n>`; `… not drawn, shown
   when it is`; `… drawn, shows <group> as asked while it was not`; `… its model has no
@@ -243,12 +244,180 @@ script), and whether that base's model has a sequence named like the group.
 
 ### 5.4 Not built, and questions for captures
 
-- Not built: `LoopGroup` (no opcode); PlayGroup on actors (an actor reference has no
-  `GroupRig`, so its requests are logged as not drawn; actors' idles are idles.md);
-  visibility (`NiVisController`), alpha, particle and refraction controllers in the
-  groups (the neon signs' alpha and visibility tracks); IsAnimPlaying's "sequence type"
-  grouping, if it is broader than the group; the bear trap's sound keys were not heard
-  in a run (no test case reaches a trap).
+- Not built: `LoopGroup` (no opcode); particle, refraction and morph controllers in the
+  groups (§6); IsAnimPlaying's "sequence type" grouping, if it is broader than the
+  group. PlayGroup on actors is §7; alpha and visibility tracks §6; the bear trap's sound
+  §8.
 - Capture questions: does a picked agave keep its picked pose after a save and reload
   (we show Forward's end through OnLoad)? Does the saloon's sign flicker at night and
-  stay steady by day? After a group played once, does an activator return to its idle?
+  stay steady by day? After a group played once, does an activator return to its idle,
+  and does `IsAnimPlaying <that group>` stay 1 while its end is held (§6.1)? Do
+  Goodsprings' house windows change at 19:30 and 6:30 (§6)? Does `PlayGroup Aim 1` on a
+  creature or NPC hold the aim until it moves (§7.3)?
+
+## 6. What else the sequences drive: alpha, visibility, particles, refraction
+
+Survey: `fnvtool sim activator-models` (ACTI and TACT bases of FalloutNV.esm, 274 models
+with sequences; `NVF_ARCHIVE_ORDER` set to the base archives) [observed]. Tracks by
+controller type, with the models, bases and references whose sequences have one:
+
+| Controller | Tracks | Models | Bases | Refs | Most in sequences |
+|---|---|---|---|---|---|
+| NiTransformController | 1,135 | 76 | 164 | 1,352 | Forward, Left, Backward, Right |
+| NiPSysEmitterCtlr | 860 | 13 | 21 | 60 | Forward, Left, Idle |
+| NiMaterialColorController | 484 | 76 | 147 | 901 | Left, Right, Forward |
+| NiAlphaController | 384 | 69 | 98 | 1,330 | Left 50, Right 50 (models) |
+| NiTextureTransformController | 360 | 37 | 52 | 161 | Forward, Right, Left |
+| NiPSysModifierActiveCtlr | 315 | 9 | 16 | 21 | Forward, Left, Idle |
+| BSMaterialEmittanceMultController | 279 | 46 | 50 | 654 | Left, Right |
+| BSRefractionStrength / FirePeriodController | 50 each | 13 | 13 | 450 | Left, Right |
+| NiVisController | 47 | 10 | 18 | 58 | Forward, Left, Backward |
+| NiGeomMorpherController | 46 | 5 | 6 | 48 | Idle, Forward |
+| NiPSysEmitterSpeedCtlr, …InitialRadiusCtlr | 5, 9 | 3, 1 | 4, 1 | 38, 1 | Forward |
+
+- **The neon signs and lit windows** fade with alpha. Script `0x0011B039` (41 targets:
+  the Strip's signs and window glows, Primm's `windowEm`, the Prospector Saloon's lights)
+  plays Left when `GetCurrentTime` is above 20 or below 6 and Right between 6 and 20,
+  each with flag 0 and only while `IsAnimPlaying` of that group is not 1. Across the 41
+  models Left and Right drive alpha (`NiAlphaController`), emissive colour and
+  multiplier, texture offsets and a few transforms; Gomorrah's lights also three
+  `NiVisController` tracks [observed].
+- `windowem01.nif` (`windowEm`, 18 refs in Primm): one quad `windowEm01:0` with an
+  `NiAlphaProperty` (flags 4333) and an `NiMaterialProperty` that stores alpha 0; the
+  controlled blocks name property type `NiMaterialProperty`, and the `NiAlphaController`
+  targets that property. Left (loop, 0.03 s) keys alpha 1, Right (clamp, 0.07 s) alpha 0,
+  SpecialIdle (the object's own idle, loop) alpha 1 [observed].
+- Goodsprings' house windows (`NVCraftsmanWindowExt`, script `0x001759FC`: Left after
+  19:30, Right after 6:30) key alpha 0 to 1 over Left's 0.27 s and 1 to 0 over Right's
+  0.33 s, with constant emittance, SELF_ILLUM, SPEC and refraction tracks; their shape
+  `Object01:0` has no `NiAlphaProperty` [observed], so the alpha track changes nothing we
+  draw [hypothesis: material alpha without an alpha property is not blended]. What makes
+  these windows look lit at night in the game is not known.
+- Particle controllers (`NiPSysEmitterCtlr` and the others) sit in 13 activator models
+  (the Hoover Dam sand storms `nvsandstormnight.nif`, the vertibirds' dust, sparks).
+
+### 6.1 Behaviour implemented
+
+- An `NiAlphaController` track replaces the shape's material alpha while its sequence
+  plays (`nvf_assets::anim_play::MaterialTarget::Alpha`) [hypothesis: as the emissive
+  tracks, the value replaces the stored one]; offset and alpha stay where a track last
+  left them when the next clip has no track for them [design]. It shows only on shapes
+  drawn blended or tested.
+- An `NiVisController` track shows (`Visibility::Inherited`) or hides the node it names
+  at the sequence time, keys stepping (`fnv_nif::anim::BoolTrack::at`) [hypothesis, as
+  for weapons, animation.md §9.7]. A shape the file hides is built anyway when a
+  visibility track of one of the rig's clips names it or an ancestor, and it starts
+  hidden; it is drawn by the rig only [design].
+- A model whose sequences only fade or show and hide its shapes now counts as animated:
+  it gets a rig and a `GroupRig` like any other.
+- Not built: particle-system controllers (no placed-object particle systems are drawn;
+  `nvforever::particles` serves add-on nodes such as muzzle flashes, not cheap to reuse
+  here), refraction (no refraction shader), `NiGeomMorpherController` (morph targets),
+  the `SPEC` colour and texture scale and rotation tracks.
+- Seen in a run [observed in NVForever, 2026-10-11]: Primm at 19:55, the player at
+  (-51300, -49430) facing east. The windows `0x000E532A` and `0x000EC9A6` play Right
+  (alpha 0, dark); when the game clock passes 20:00 their script asks for Left and they
+  light ("plays Left (loop, 0.03 s), flag 0"). Screenshots at 11 s and 19 s: the two
+  window regions' mean luminance 8.5 → 78.2 and 8.7 → 76.6, an unlit window beside them
+  9.5 → 9.5, the wall 40.5 → 40.4.
+- Seen on the way: by day the script asks for Right every frame in which it does not
+  play; a clamped Right is reported ended at its end, so it is asked for again and
+  replayed every 0.07 s (in a Primm run 2,002 Right asked in 18 s). The look does not
+  change (Right holds alpha 0), but it suggests that in the game a group played once and
+  held at its end still counts for `IsAnimPlaying` [hypothesis, against script
+  `0x000AE070`, which waits for `IsAnimPlaying Forward` to become 0 before playing Left;
+  a capture question, §5.4].
+
+## 7. PlayGroup on actors
+
+### 7.1 What FalloutNV.esm's scripts do [observed]
+
+- `fnvtool sim playgroup-calls` now lists the calls whose object it cannot name from the
+  unit (`unresolved`): 14 calls through reference variables in 6 scripts (`linkedRef`,
+  `myLink`, `rVidScreen`, `rPointer`: activators and placed markers), 75 in 19 object
+  scripts no base carries (trigger, button and sign scripts), 1 in a package's end
+  script. No call names a placed NPC or creature, and no script that an NPC_ or CREA base
+  carries calls PlayGroup.
+- The one actor call: package `CRHDDogNCRBuddyBomberAlertPackage` (`0x0013C6F7`, a
+  Follow package whose target is `VHDLegionAssassinBomberREF`) ends with `PlayGroup Aim
+  1`, run by the actor whose package ends (a dog, by the Editor ID). Who is given the
+  package was not traced.
+- `PlayGroup Idle 1` returns an actor to normal [documented: GECK wiki PlayGroup]; three
+  calls use Idle, all on objects.
+
+### 7.2 Which clip a group names on an actor [observed]
+
+`fnvtool nif anim` over `Fallout - Meshes.bsa` and `Update.bsa` (42 skeleton folders of
+`characters\` and `creatures\`), the sequences named like a group:
+
+- **Aim, Equip, Unequip**: per weapon stance prefix, `<prefix><group>.kf`; 35 folders
+  have an Aim clip, 27 of them as `h2haim.kf` (the unarmed stance); the other 8 only
+  under another prefix (the eyebot's `1hpaim.kf`, the sentry turret's `2haaim.kf` and
+  `2hraim.kf`, …). Equip and Unequip likewise (26 of 35). An armed NPC's are its
+  weapon's (`weapons.rs`).
+- **Idle**: `mtidle.kf` in 37 folders, `h2hidle.kf` in 4, `idle.kf` in 1.
+- **Movement and turning** (Forward … FastRight, TurnLeft, TurnRight): `mt<group>.kf` in
+  the folder or under `locomotion\` (and `locomotion\male\`, `\female\` for people):
+  found so in 30 of the 33 folders with a Forward clip and in all 32 with a TurnLeft
+  clip.
+- **SpecialIdle**: 1,287 clips under `idleanims\` whose sequence name begins with
+  SpecialIdle, many per folder (the dog's 19); no one clip is "the" SpecialIdle.
+- One misspelt file (`creatures\dog\mtbackrward.kf`, sequence Backward) is not found by
+  name.
+
+### 7.3 Behaviour implemented (nvforever `actor_groups.rs`)
+
+- A request for a reference whose base is an NPC_ or CREA (or a drawn actor) goes to the
+  actor side; one for an actor that is not drawn is dropped and reported not playing
+  [design, as idles].
+- The clip, in order: the actor's weapon stance clip of that name; its locomotion set's
+  move of that name; else `h2h<group>.kf`, `specialanims\h2h<group>.kf`, `<group>.kf`,
+  `mt<group>.kf`, `locomotion\mt<group>.kf` in its skeleton's folder, if the file's
+  sequence has the group's name [hypothesis: the names match, §7.2]. SpecialIdle plays
+  nothing [design]; `Idle` fades out what plays in the slot, so the actor's own
+  animation shows again [documented meaning; how is ours].
+- The clip plays in the actor's idle slot (idles.md §7, the top two blend layers) with
+  the fades of its text keys: a clamped clip once, a looping one until replaced, until
+  `PlayGroup Idle`, or until the actor walks [design]. A loop asked for again while it
+  plays goes on [design, as for objects]. Flag 0 waits for what plays in the slot (a
+  loop leaves its loop at the end of its pass); 1 and 2 start at once.
+- `IsAnimPlaying` sees the group from the call until the clip ends or is replaced, or it
+  cannot be played. A group is not an idle for `IsIdlePlaying`, and an actor's idles are
+  not groups for `IsAnimPlaying` [hypothesis].
+- Test aid: `NVF_PLAY_TEST_SCRIPT=<s>:play_group:<ref>:<group>[:<flag>]` calls the
+  reference's `PlayGroup` (fnv-game's function, so it is traced as `anim_asked`).
+- Log: `actor group: <actor> plays <group> from the <weapon stance|locomotion set|
+  skeleton folder>, once|loop, <s> s, flag <n>`; `… flag 0: after what it plays ends`;
+  `… its turn come`; `… plays Idle (flag n): back to its own animation`; `… no clip of
+  that name for its skeleton <path>`; `… the actor is not drawn`; at exit `actor group
+  summary: …` (the playgroup summary counts what it handed over).
+- Seen in a run [observed in NVForever, 2026-10-11]: Goodsprings at 12:00, the smoke
+  test of CLAUDE.md. `GoodspringsSettler01Ref` (armed) plays Equip (weapon stance, once,
+  0.37 s), then Aim (loop, 2.47 s) with flag 0 after it, then Unequip (0.47 s); the
+  big horner `0x0010706E` plays Aim from `creatures\nvbighorner\h2haim.kf` (loop, 6.67 s)
+  until `PlayGroup Idle 1`; SpecialIdle finds no clip; Easy Pete, in the saloon, is not
+  drawn.
+
+## 8. Sound keys of groups: a trap heard
+
+- The bear trap (`TrapBearTrap`, `beartrap01.nif`, 31 refs; script `0x0002CBA1`): on
+  activation by the player it shows `TrapBearDetectMsg` with "Leave it alone." and
+  "Disarm the Bear Trap."; with Repair at least `trapbearskillreq01` (23, set by stage 1
+  of quest `0x0002012B`, which every trap's OnLoad sets) button 1 disarms it and plays
+  Forward with flag 1. Forward (clamp, 0.1 s) carries `Sound: TRPBearFire` at 0.033 s;
+  Backward `Sound: TRPBearOpen` [observed]. Tripwires (`TrapTripwire01`, 31 refs) carry
+  `Sound: TRPTripwire` 0.00001 s into Forward; pressure plates `Sound: TRPPressurePlate`
+  likewise [observed].
+- Two faults found and fixed in `object_anims.rs`: the keys of a group's first frame
+  were skipped (a group started had no time of its last frame; the tripwire's key would
+  never sound), and a clamped group's keys were passed again on the frame it ended (its
+  cycle count went up past the end; the bear trap's sound played twice).
+- Seen in a run [observed in NVForever, 2026-10-11]: the player at (-68124, -17000) by the
+  trap `0x00165495`, `trapbearskillreq01` set to 0 by the test aid, the trap activated
+  at 15 s and button 1 picked at 15.1 s: "You have disarmed the trap.", "playgroup:
+  0x00165495 plays Forward (once, 0.10 s), flag 1", "passes the sound key TRPBearFire of
+  Forward at 0.033 s", and the sound `sound\fx\trp\bear\fire\trp_bear_fire_01.wav` played
+  at 217 units; "1 object group sounds" in the anim sounds summary.
+- A key's second word (`sound: OBJVaultGearConsoleUnlock SoundNode01`, the vertibirds'
+  `SoundNodeProps`) names a node of the model [hypothesis]; the sound is played where the
+  object is.

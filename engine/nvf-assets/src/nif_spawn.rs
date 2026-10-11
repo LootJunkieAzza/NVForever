@@ -137,6 +137,11 @@ impl Props {
         (self.emissive.unwrap_or([0.0; 3]), self.emissive_mult.unwrap_or(1.0).max(0.0))
     }
 
+    /// The stored material alpha (1 when none).
+    pub(crate) fn alpha_part(&self) -> f32 {
+        self.material_alpha.unwrap_or(1.0)
+    }
+
     pub(crate) fn is_helper(&self) -> bool {
         self.has_properties && !self.shader && self.textures.is_empty()
     }

@@ -537,6 +537,9 @@ pub enum ScriptAid {
     /// `say_to:<speaker>:<target>:<topic>[:<noTargetLookFlag>]`: the speaker's script
     /// calls `SayTo target topic 0 flag`.
     SayTo(String, String, String, bool),
+    /// `play_group:<reference>:<group>[:<flag>]`: a script calls `ref.PlayGroup group
+    /// flag` (the group by name, as source spells it, or by code; flag 0 when left out).
+    PlayGroup(String, String, i32),
 }
 
 /// When a test-aid step runs: `at` seconds after the start, or, with `after`, `at`
@@ -587,13 +590,15 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 ["message", m] => ScriptAid::Message(m.to_string()),
                 ["say_to", sp, t, topic] => ScriptAid::SayTo(sp.to_string(), t.to_string(), topic.to_string(), false),
                 ["say_to", sp, t, topic, flag] => ScriptAid::SayTo(sp.to_string(), t.to_string(), topic.to_string(), int(flag)? != 0),
+                ["play_group", r, g] => ScriptAid::PlayGroup(r.to_string(), g.to_string(), 0),
+                ["play_group", r, g, flag] => ScriptAid::PlayGroup(r.to_string(), g.to_string(), int(flag)?),
                 // The owner's name may hold a colon too (`var:scripted:<SCPT>:<variable>:<value>`).
                 ["var", of @ .., var, value] if !of.is_empty() => {
                     ScriptAid::Var(of.join(":"), var.to_string(), value.parse().map_err(|_| format!("{rest:?}: bad value {value:?}"))?)
                 }
                 _ => {
                     return Err(format!(
-                        "{rest:?}: expected start:, stop:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate: or say_to:"
+                        "{rest:?}: expected start:, stop:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate:, say_to: or play_group:"
                     ))
                 }
             };

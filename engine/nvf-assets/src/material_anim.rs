@@ -1,7 +1,8 @@
 //! Sequences that drive a shape's material: its glow (emissive colour, emissive
-//! multiplier) and its base texture's offset (docs/spec-notes/activators.md §2). The
-//! jukeboxes' Idle flickers their lights and scrolls the music notes and bubbles; the
-//! radios' Open and Close light and darken their dials.
+//! multiplier), its base texture's offset and its alpha (docs/spec-notes/activators.md
+//! §2, §6). The jukeboxes' Idle flickers their lights and scrolls the music notes and
+//! bubbles; the radios' Open and Close light and darken their dials; the neon signs' and
+//! lit windows' Left and Right fade them in and out.
 //!
 //! A rig whose clips have such tracks carries [`RigMaterials`] on its root: the shapes
 //! they drive, each given its own copy of its material when first bound
@@ -14,7 +15,9 @@
 //! multiplier, as for a stored material; a track replaces the member it drives, the
 //! others keep their stored value. A texture offset track moves the texture by its value
 //! (`uv + offset`) [hypothesis: the direction is not documented; the textures tile, so
-//! only the direction of the scroll depends on it].
+//! only the direction of the scroll depends on it]. An alpha track replaces the
+//! material's alpha [hypothesis]; it shows only on a shape drawn blended or tested (one
+//! with an `NiAlphaProperty`).
 
 use crate::anim_play::{MaterialTarget, MaterialTrack, Playing};
 use crate::nif_material::{multiply_emissive, NifMaterial};
@@ -35,14 +38,25 @@ pub struct MaterialSlot {
     /// Stored emissive colour and multiplier.
     pub emissive: [f32; 3],
     pub emissive_mult: f32,
-    /// What was last written: emissive colour, multiplier, texture offset.
-    last: Option<([f32; 3], f32, [f32; 2])>,
+    /// Stored material alpha.
+    pub alpha: f32,
+    /// What was last written.
+    last: Option<Look>,
 }
 
 impl MaterialSlot {
-    pub fn new(shape: String, entity: Entity, handle: Handle<NifMaterial>, emissive: [f32; 3], emissive_mult: f32) -> MaterialSlot {
-        MaterialSlot { shape, entity, handle, own: false, emissive, emissive_mult, last: None }
+    pub fn new(shape: String, entity: Entity, handle: Handle<NifMaterial>, emissive: [f32; 3], emissive_mult: f32, alpha: f32) -> MaterialSlot {
+        MaterialSlot { shape, entity, handle, own: false, emissive, emissive_mult, alpha, last: None }
     }
+}
+
+/// What the tracks give one shape's material.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Look {
+    pub colour: [f32; 3],
+    pub mult: f32,
+    pub uv: [f32; 2],
+    pub alpha: f32,
 }
 
 /// On the root of a rig whose clips drive materials.
@@ -57,23 +71,26 @@ pub struct RigMaterials {
 }
 
 /// The values of `tracks` at `t` for each slot; `dark` blacks out the emissive of
-/// every slot an emissive track drives. Per slot: emissive colour, multiplier, offset.
-pub fn sample(slots: &[MaterialSlot], tracks: &[MaterialTrack], t: f32, dark: bool) -> Vec<([f32; 3], f32, [f32; 2])> {
+/// every slot an emissive track drives (and leaves offsets and alpha where they are).
+/// A member no track drives keeps its stored value; offset and alpha stay where a
+/// track last left them.
+pub fn sample(slots: &[MaterialSlot], tracks: &[MaterialTrack], t: f32, dark: bool) -> Vec<Look> {
     slots
         .iter()
         .map(|s| {
-            let (mut colour, mut mult, mut uv) = (s.emissive, s.emissive_mult, s.last.map_or([0.0; 2], |l| l.2));
+            let mut l = Look { colour: s.emissive, mult: s.emissive_mult, uv: s.last.map_or([0.0; 2], |l| l.uv), alpha: s.last.map_or(s.alpha, |l| l.alpha) };
             for tr in tracks.iter().filter(|tr| tr.shape == s.shape) {
                 match tr.target {
-                    MaterialTarget::SelfIllum if dark => colour = [0.0; 3],
-                    MaterialTarget::EmissiveMult if dark => mult = 0.0,
+                    MaterialTarget::SelfIllum if dark => l.colour = [0.0; 3],
+                    MaterialTarget::EmissiveMult if dark => l.mult = 0.0,
                     _ if dark => {}
-                    MaterialTarget::SelfIllum => colour = tr.values.at(t).unwrap_or(colour),
-                    MaterialTarget::EmissiveMult => mult = tr.values.at(t).map_or(mult, |v| v[0].max(0.0)),
-                    MaterialTarget::UvOffset(axis) => uv[axis] = tr.values.at(t).map_or(uv[axis], |v| v[0]),
+                    MaterialTarget::SelfIllum => l.colour = tr.values.at(t).unwrap_or(l.colour),
+                    MaterialTarget::EmissiveMult => l.mult = tr.values.at(t).map_or(l.mult, |v| v[0].max(0.0)),
+                    MaterialTarget::UvOffset(axis) => l.uv[axis] = tr.values.at(t).map_or(l.uv[axis], |v| v[0]),
+                    MaterialTarget::Alpha => l.alpha = tr.values.at(t).map_or(l.alpha, |v| v[0].clamp(0.0, 1.0)),
                 }
             }
-            (colour, mult, uv)
+            l
         })
         .collect()
 }
@@ -87,10 +104,11 @@ impl RigMaterials {
                 continue;
             }
             let Some(mut m) = materials.get_mut(&slot.handle) else { continue };
-            let (colour, mult, uv) = v;
+            let Look { colour, mult, uv, alpha } = v;
             let value = |c: f32| if matches!(m.base.alpha_mode, AlphaMode::Multiply) { multiply_emissive(c * mult) } else { c * mult };
             m.base.emissive = LinearRgba::rgb(value(colour[0]), value(colour[1]), value(colour[2]));
             m.base.uv_transform = Affine2::from_translation(Vec2::from_array(uv));
+            m.base.base_color.set_alpha(alpha);
             slot.last = Some(v);
         }
     }
@@ -137,7 +155,7 @@ mod tests {
     }
 
     fn slot(name: &str) -> MaterialSlot {
-        MaterialSlot::new(name.into(), Entity::PLACEHOLDER, Handle::default(), [0.86; 3], 1.0)
+        MaterialSlot::new(name.into(), Entity::PLACEHOLDER, Handle::default(), [0.86; 3], 1.0, 0.0)
     }
 
     #[test]
@@ -157,13 +175,26 @@ mod tests {
         let slots = [slot("JukeBox01:0"), slot("Music"), slot("Other")];
         let tracks = [glow, notes];
         let v = sample(&slots, &tracks, 2.0, false);
-        assert!((v[0].0[0] - 0.349).abs() < 1e-5 && v[0].1 == 1.0 && v[0].2 == [0.0, 0.0]);
-        assert!((v[1].2[0] - 1.5).abs() < 1e-5 && v[1].0 == [0.86; 3]);
-        assert_eq!(v[2], ([0.86; 3], 1.0, [0.0, 0.0]));
+        assert!((v[0].colour[0] - 0.349).abs() < 1e-5 && v[0].mult == 1.0 && v[0].uv == [0.0, 0.0]);
+        assert!((v[1].uv[0] - 1.5).abs() < 1e-5 && v[1].colour == [0.86; 3]);
+        assert_eq!(v[2], Look { colour: [0.86; 3], mult: 1.0, uv: [0.0, 0.0], alpha: 0.0 });
         // Dark: the light goes out, the notes stay where they were.
         let d = sample(&slots, &tracks, 2.0, true);
-        assert_eq!(d[0].0, [0.0; 3]);
-        assert_eq!(d[1].0, [0.86; 3]);
-        assert_eq!(d[2].0, [0.86; 3]);
+        assert_eq!(d[0].colour, [0.0; 3]);
+        assert_eq!(d[1].colour, [0.86; 3]);
+        assert_eq!(d[2].colour, [0.86; 3]);
+    }
+
+    #[test]
+    fn an_alpha_track_fades_the_shape() {
+        // `windowem01.nif`: the window stores alpha 0; Left keys 1 (lit), Right 0.
+        let left = MaterialTrack {
+            shape: "windowEm01:0".into(),
+            target: MaterialTarget::Alpha,
+            values: Arc::new(ValueTrack::Float(Channel::Keys(keys(&[(0.0, [1.0]), (0.033, [1.0])])))),
+        };
+        let slots = [slot("windowEm01:0")];
+        assert_eq!(sample(&slots, &[], 0.0, false)[0].alpha, 0.0);
+        assert_eq!(sample(&slots, std::slice::from_ref(&left), 0.01, false)[0].alpha, 1.0);
     }
 }

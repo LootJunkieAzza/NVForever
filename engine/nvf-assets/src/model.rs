@@ -157,7 +157,8 @@ pub struct RigShape {
     pub skin: Option<(Handle<SkinnedMeshInverseBindposes>, Vec<usize>)>,
     /// A clip of the rig drives the shape's material (`crate::material_anim`): its name
     /// and stored emissive colour and multiplier.
-    pub animated: Option<(String, [f32; 3], f32)>,
+    /// (shape name, stored emissive colour, emissive multiplier, alpha).
+    pub animated: Option<(String, [f32; 3], f32, f32)>,
 }
 
 /// A door model's "Open" and "Close" sequences (docs/spec-notes/doors.md).
@@ -262,8 +263,8 @@ impl Rig {
             .shapes
             .iter()
             .filter_map(|s| {
-                let (name, emissive, mult) = s.animated.clone()?;
-                Some(MaterialSlot::new(name, entities[s.node], s.material.clone(), emissive, mult))
+                let (name, emissive, mult, alpha) = s.animated.clone()?;
+                Some(MaterialSlot::new(name, entities[s.node], s.material.clone(), emissive, mult, alpha))
             })
             .collect();
         if !slots.is_empty() {
@@ -396,8 +397,9 @@ impl ModelCtx<'_> {
         // least one node of this file.
         let seqs = sequences(&file, &dec);
         let has = |n: &str| objects.iter().any(|o| o.name.as_deref() == Some(n));
-        // A clip moves a node of this file, or drives the material of one of its shapes.
-        let moves = |c: &Clip| c.tracks.iter().any(|(n, _)| has(n)) || c.materials.iter().any(|m| has(&m.shape));
+        // A clip moves a node of this file, drives the material of one of its shapes, or
+        // shows and hides one of its nodes.
+        let moves = |c: &Clip| c.tracks.iter().any(|(n, _)| has(n)) || c.materials.iter().any(|m| has(&m.shape)) || c.visibility.iter().any(|(n, ..)| has(n));
         let named = |want: &str| {
             seqs.iter().filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(want))).map(Clip::from_sequence).find(&moves)
         };
@@ -417,7 +419,15 @@ impl ModelCtx<'_> {
             .iter()
             .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
             .chain(groups.iter())
-            .flat_map(|c| c.materials.iter().filter(|m| !matches!(m.target, MaterialTarget::UvOffset(_))).map(|m| m.shape.clone()))
+            .flat_map(|c| c.materials.iter().filter(|m| matches!(m.target, MaterialTarget::SelfIllum | MaterialTarget::EmissiveMult)).map(|m| m.shape.clone()))
+            .collect();
+        // Nodes a clip of the rig shows and hides (`NiVisController`): their shapes are
+        // built even when the file hides them, and spawn hidden in the rig.
+        let vis_nodes: HashSet<String> = idle
+            .iter()
+            .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
+            .chain(groups.iter())
+            .flat_map(|c| c.visibility.iter().map(|(n, ..)| n.clone()))
             .collect();
         // Rig nodes: the root first, then every object reachable from it.
         let animated = idle.is_some() || door.is_some() || !groups.is_empty();
@@ -457,7 +467,11 @@ impl ModelCtx<'_> {
             // Walk to the root: accumulate the transform below the root's own and look
             // for hidden ancestors.
             let mut t = if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY };
+            // Hidden in the file, and hidden for good: no visibility track of the rig
+            // shows the hidden node.
+            let shown_by_track = |b: usize| rig.is_some() && by_block.get(&b).and_then(|x| x.name.as_deref()).is_some_and(|n| vis_nodes.contains(n));
             let mut hidden = hidden_self(o.block);
+            let mut for_good = hidden && !shown_by_track(o.block);
             let mut ancestors = Vec::new();
             let mut cur = o.parent;
             let mut depth = 0;
@@ -468,13 +482,14 @@ impl ModelCtx<'_> {
                     ancestors.extend(po.name.clone());
                 }
                 hidden |= hidden_self(p);
+                for_good |= hidden_self(p) && !shown_by_track(p);
                 cur = po.parent;
                 depth += 1;
                 if depth > 512 {
                     break;
                 }
             }
-            if hidden {
+            if for_good {
                 continue;
             }
             let Ok(shape) = &dec.blocks[o.block] else { continue };
@@ -537,10 +552,14 @@ impl ModelCtx<'_> {
                     };
                     let animated = animated_shapes.contains(&shape_name).then(|| {
                         let (e, m) = props.emissive_parts();
-                        (shape_name.clone(), e, m)
+                        (shape_name.clone(), e, m, props.alpha_part())
                     });
                     r.shapes.push(RigShape { node, mesh, material: material.clone(), skin, animated });
                 }
+            }
+            // A shape only a visibility track shows is the rig's alone.
+            if hidden {
+                continue;
             }
             out.shapes.push(PreparedShape {
                 cpu,

@@ -255,6 +255,16 @@ run Goodsprings at night with a plant picked, with `NVF_PLAY_TEST_SCRIPT_MENUS=1
 (expect exit 0, `playgroup: 0x0016AF20 plays Forward (once, 0.47 s), flag 1`, a `playgroup:` line
 showing `0x0016B5E8` (the saloon's lights) Left, and `playgroup summary:` with about 50 asked
 (Backward, Forward, Left) and "0 without a sequence of that name").
+After changes to groups on actors, to alpha or visibility tracks or to groups' sound keys
+(`actor_groups.rs`, `object_anims.rs`, `nvf_assets::material_anim`; activators.md §6–§8), also
+run the actors' groups, with `NVF_PLAY_TEST_SCRIPT=11:play_group:GoodspringsSettler01Ref:Equip:1,11.2:play_group:GoodspringsSettler01Ref:Aim:0,12:play_group:0x0010706E:Aim:1,16:play_group:0x0010706E:Idle:1,17:play_group:GoodspringsSettler01Ref:SpecialIdle:1,18:play_group:EasyPeteRef:Unequip:0` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --hour 12 --no-voice --run-seconds 24`
+(expect exit 0 and "actor group summary: 6 asked (Aim 2, Equip 1, Idle 1, SpecialIdle 1, Unequip 1);
+3 started", "1 waited for what played, 1 back to normal by Idle", "1 for actors not drawn, 1 without a
+clip"), and the bear trap, with `NVF_PLAY_TEST_SCRIPT=11:var:0x0002012B:trapbearskillreq01:0,15:activate:0x00165495,15.1:button:1` set:
+`engine/target/release/nvforever --data <Data> --play --pos=-68124,-17000,9100 --hour 12 --no-voice --run-seconds 20`
+(expect exit 0, "playgroup: 0x00165495 passes the sound key TRPBearFire of Forward at 0.033 s" once
+and "1 object group sounds" in the anim sounds summary).
 
 After changes to who turns to whom while a line is said (`fnv_game::game::Game::facings`,
 nvforever `speech_look.rs`, `fnv_ai::social` `face_listeners`; docs/design/dialogue-play.md §9),

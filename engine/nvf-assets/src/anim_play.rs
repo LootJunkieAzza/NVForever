@@ -49,6 +49,12 @@ pub enum MaterialTarget {
     /// `NiTextureTransformController` `0-0-TT_TRANSLATE_U` (0) or `_V` (1): the base
     /// texture's offset [documented: nif.xml TransformMember; observed controller IDs].
     UvOffset(usize),
+    /// `NiAlphaController` on the shape's `NiMaterialProperty`: the material's alpha
+    /// [observed: the controlled blocks name property type NiMaterialProperty and the
+    /// controller targets that property (`windowem01.nif`); hypothesis: the value
+    /// replaces the stored alpha]. The neon signs and lit windows fade with it
+    /// (activators.md §6).
+    Alpha,
 }
 
 /// One track of a sequence on a shape's material, by shape name.
@@ -61,7 +67,7 @@ pub struct MaterialTrack {
 
 impl MaterialTrack {
     /// The material track of a sequence's track, if it drives a material member this
-    /// engine draws: emissive colour, emissive multiplier, base texture offset.
+    /// engine draws: emissive colour, emissive multiplier, base texture offset, alpha.
     pub fn of(t: &fnv_nif::anim::Track) -> Option<MaterialTrack> {
         let shape = t.node_name.clone()?;
         let values = t.values.clone()?;
@@ -69,6 +75,7 @@ impl MaterialTrack {
         let target = match (t.controller_type.as_deref()?, &values) {
             ("NiMaterialColorController", ValueTrack::Point3(_)) if id == "SELF_ILLUM" => MaterialTarget::SelfIllum,
             ("BSMaterialEmittanceMultController", ValueTrack::Float(_)) => MaterialTarget::EmissiveMult,
+            ("NiAlphaController", ValueTrack::Float(_)) => MaterialTarget::Alpha,
             ("NiTextureTransformController", ValueTrack::Float(_)) => match id {
                 "0-0-TT_TRANSLATE_U" => MaterialTarget::UvOffset(0),
                 "0-0-TT_TRANSLATE_V" => MaterialTarget::UvOffset(1),
