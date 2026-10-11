@@ -145,7 +145,9 @@ triangles, its door stops and the door that ends it.
   every recorded walk can be planned, and recorded walks stay a median 17.6 units from
   our planned paths.
 - In the game: `nvforever --npc-travel ACTOR=TARGET` (repeatable; target a reference or
-  "x,y,z"), `--npc-speed` (86.8 by default), `--follow-npc` (the free camera chases the
+  "x,y,z"), `--npc-speed` (86.8 by default; with a game running, `--play` or
+  `--npc-packages`, each traveller walks at this times its Speed Multiplier actor value
+  over 100, actor-values.md §6), `--follow-npc` (the free camera chases the
   first traveller and the renderer follows it through doors), `--show-navmesh` (outline
   red, cell seams cyan, ledges orange, preferred green, water blue, door triangles yellow,
   paths magenta). A traveller's root is moved by the walker, and its `Locomotion`

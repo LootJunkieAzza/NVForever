@@ -130,7 +130,9 @@ than 32 units [our choice]. Travel "stops at the edge of the destination radius"
 - **The path** is `fnv_nav`'s: across any number of interiors and worldspaces, doors
   included (navmesh.md). Everything the actor carries counts as a key for locked doors.
   Always Run packages run (344 units a second), others walk (86.8) [observed: the
-  player's speeds; NPC speeds are not captured].
+  player's speeds; NPC speeds are not captured]; each times the actor's Speed
+  Multiplier actor value over 100, read when the walk is planned [documented: GECK
+  wiki Stats Tab - NPC, "Speed Mult %"; actor-values.md §6].
 - **No way there** (no navmesh at either end, no chain of doors, a locked door without
   the key, or a location that names nothing): the package is set aside for one game
   hour (`Game::block_package`, `PackageCheck::Unreachable`) and the actor chooses again:

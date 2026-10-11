@@ -28,8 +28,9 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
 pub struct AiConfig {
-    /// Game units per second [observed: the player's walk and run, physics.md §6.3;
-    /// NPC speeds are not captured].
+    /// Game units per second at Speed Multiplier 100 [observed: the player's walk and
+    /// run, physics.md §6.3; NPC speeds are not captured]. An actor moves at this times
+    /// its Speed Multiplier over 100 (`Ai::speed`).
     pub walk_speed: f32,
     pub run_speed: f32,
     /// A place counts as reached within this distance even when the package's radius is
@@ -459,7 +460,7 @@ impl Ai {
     fn approach(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, talk: &Talk, target: Place, first: bool) {
         let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN));
         let params = self.path_params(game, actor);
-        let speed = if running { self.cfg.run_speed } else { self.cfg.walk_speed };
+        let speed = self.speed(game, actor, running);
         let a = self.agents.get_mut(&actor).expect("listed");
         a.walker.speed = speed;
         let from = Place { space: a.walker.space, pos: a.walker.feet };
@@ -591,6 +592,13 @@ impl Ai {
         }
     }
 
+    /// The speed `actor` travels at: the walking or running speed times its current
+    /// Speed Multiplier over 100 (`Game::speed_multiplier`, actor-values.md §6).
+    fn speed(&self, game: &mut Game, actor: FormId, running: bool) -> f32 {
+        let base = if running { self.cfg.run_speed } else { self.cfg.walk_speed };
+        base * game.speed_multiplier(actor) as f32
+    }
+
     /// Path parameters for `actor`: everything it carries may be a key [documented:
     /// locks name a key form].
     fn path_params(&self, game: &mut Game, actor: FormId) -> PathParams {
@@ -625,9 +633,10 @@ impl Ai {
             return;
         }
         let params = self.path_params(game, actor);
+        let speed = self.speed(game, actor, false);
         let to = choice.target.expect("checked");
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = self.cfg.walk_speed;
+        a.walker.speed = speed;
         match a.walker.go_to(nav, to, &params) {
             Ok(path) => {
                 let walk = path.length;
@@ -736,7 +745,7 @@ impl Ai {
     fn plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, to: Place, patrol_point: Option<FormId>) {
         let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN));
         let params = self.path_params(game, actor);
-        let speed = if running { self.cfg.run_speed } else { self.cfg.walk_speed };
+        let speed = self.speed(game, actor, running);
         let a = self.agents.get_mut(&actor).expect("listed");
         a.walker.speed = speed;
         match a.walker.go_to(nav, to, &params) {

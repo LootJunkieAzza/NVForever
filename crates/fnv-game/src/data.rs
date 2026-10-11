@@ -1320,7 +1320,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             out.form_list = Some(decoded.iter().filter(|(s, _)| *s == b"LNAM").filter_map(|(_, v)| fid(v)).collect());
         }
         b"NPC_" | b"CREA" => {
-            let mut a = ActorDef { sig, ..Default::default() };
+            // A record without ACBS moves at the standard speed [our choice].
+            let mut a = ActorDef { sig, speed_mult: 100, ..Default::default() };
             for (s, v) in &decoded {
                 match *s {
                     b"SNAM" => {

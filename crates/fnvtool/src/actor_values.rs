@@ -146,8 +146,13 @@ fn records(lo: &LoadOrder, schema: &Schema, g: &Game) -> Value {
     let (mut with_offsets, mut auto_with_offsets, mut offset_entries, mut over, mut value_over) = (0u64, 0u64, 0u64, 0u64, 0u64);
     let mut combat: BTreeMap<u8, u64> = BTreeMap::new();
     let mut stealth: BTreeMap<u8, u64> = BTreeMap::new();
+    // ACBS Speed Multiplier of the records that hold their own stats.
+    let mut speed: [BTreeMap<i64, u64>; 2] = Default::default();
     for d in g.data.actors.values() {
         attributes += d.attributes.is_some() as u64;
+        if !(d.template_stats && d.template.is_some()) {
+            *speed[(&d.sig == b"CREA") as usize].entry(d.speed_mult).or_default() += 1;
+        }
         if &d.sig == b"CREA" {
             creatures += 1;
             *combat.entry(d.combat_skill.unwrap_or(0)).or_default() += 1;
@@ -217,6 +222,10 @@ fn records(lo: &LoadOrder, schema: &Schema, g: &Game) -> Value {
         },
         "creature_combat_skill_distinct_values": combat.len(),
         "creature_stealth_skill": stealth.iter().map(|(k, n)| (k.to_string(), json!(n))).collect::<Map<String, Value>>(),
+        "speed_multiplier_of_records_with_their_own_stats": {
+            "npcs": speed[0].iter().map(|(k, n)| (k.to_string(), json!(n))).collect::<Map<String, Value>>(),
+            "creatures": speed[1].iter().map(|(k, n)| (k.to_string(), json!(n))).collect::<Map<String, Value>>(),
+        },
     })
 }
 

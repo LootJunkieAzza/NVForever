@@ -150,6 +150,8 @@ const R_LOOP: u32 = 0x884;
 const R_FOLLOW: u32 = 0x885;
 const R_HERE: u32 = 0x886;
 const R_RUN: u32 = 0x887;
+const N_FAST: u32 = 0x8E0;
+const R_FAST: u32 = 0x8E1;
 const DOOR_A: u32 = 0x8D1;
 const DOOR_B: u32 = 0x8D2;
 
@@ -204,6 +206,18 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_FOLLOW, "Follower", &[P_FOLLOW]),
         npc(N_HERE, "Stander", &[P_HERE]),
         npc(N_RUN, "Runner", &[P_RUN]),
+        // The Visitor's package at Speed Multiplier 200 (ACBS: flags, fatigue, barter
+        // gold, level, calc min and max, speed multiplier, karma, disposition, template
+        // flags).
+        record(
+            b"NPC_",
+            N_FAST,
+            &[
+                sub(b"EDID", z("FastVisitor")),
+                sub(b"ACBS", [vec![0u8; 14], 200u16.to_le_bytes().to_vec(), vec![0; 8]].concat()),
+                sub(b"PKID", P_RADIUS.to_le_bytes().to_vec()),
+            ],
+        ),
         npc(N_SB_ALL, "Idler", &[P_SB_ALL]),
         npc(N_SB_WANDER, "Wanderer", &[P_SB_WANDER]),
         npc(N_SB_OBJECTS, "Sitter", &[P_SB_OBJECTS]),
@@ -241,6 +255,7 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_FOLLOW, "FollowerRef", N_FOLLOW, START, None),
         placed(b"ACHR", R_HERE, "StanderRef", N_HERE, START, None),
         placed(b"ACHR", R_RUN, "RunnerRef", N_RUN, START, None),
+        placed(b"ACHR", R_FAST, "FastVisitorRef", N_FAST, START, None),
     ]
     .concat();
     let b_refs = placed(b"REFR", MARK_B, "MarkB", STAT, [5250.0, 5250.0, 50.0], None);
@@ -482,6 +497,19 @@ fn always_run_packages_run() {
     assert!(matches!(s.events(R_RUN)[1], AiEvent::Trip { running: true, .. }));
     // One second at 400 units a second against 100.
     assert!(dist(s.feet(R_RUN), START) > 3.0 * dist(s.feet(R_RADIUS), START));
+}
+
+/// An actor travels at the standard speed times its Speed Multiplier over 100
+/// (actor-values.md §6), as the value is when it sets off.
+#[test]
+fn the_speed_multiplier_scales_the_walk() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_FAST, R_RADIUS]);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&FormId(R_RADIUS)].walker.speed, 100.0);
+    assert_eq!(s.ai.agents[&FormId(R_FAST)].walker.speed, 200.0);
+    let (slow, fast) = (dist(s.feet(R_RADIUS), START), dist(s.feet(R_FAST), START));
+    assert!(slow > 10.0 && (fast - 2.0 * slow).abs() < 0.05 * fast, "{slow} {fast}");
 }
 
 #[test]

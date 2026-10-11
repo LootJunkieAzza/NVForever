@@ -48,7 +48,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Speed of the last steps to the entry point, game units per second (the travellers'
-/// walking speed, `nav::WALK_SPEED`).
+/// walking speed, `nav::WALK_SPEED`), at Speed Multiplier 100: an actor's is this times
+/// its Speed Multiplier over 100 (`nav::actor_speeds`).
 const APPROACH_SPEED: f32 = crate::nav::WALK_SPEED;
 /// The longest way an actor is moved to an entry point without a path, game units
 /// [design: an actor sent to furniture arrives next to it].
@@ -385,11 +386,13 @@ pub fn drive_actors(
                 let get_on = Arc::new(bind_clip(&rig.skel, plan.get_on.clone()));
                 let stay = plan.stay.clone().map(|c| Arc::new(bind_clip(&rig.skel, c)));
                 let from = Frame { pos: at.to_array(), heading: heading_of(t) };
+                // An actor that cannot move (Speed Multiplier 0) is still put on it.
+                let speed_mult = nav.as_deref().and_then(|n| n.speed_mults.get(&rig.reference)).copied().unwrap_or(1.0).max(0.05);
                 // Its body is the furniture's now: a conversation turns only its head.
                 commands.entity(e).insert(crate::dialogue_look::BodyHeld).insert(OnFurniture {
                     plan,
                     who,
-                    stage: Stage::Approach { from, t: 0.0, len: (d / APPROACH_SPEED).max(0.15) },
+                    stage: Stage::Approach { from, t: 0.0, len: (d / (APPROACH_SPEED * speed_mult)).max(0.15) },
                     pose: None,
                     get_on,
                     stay,

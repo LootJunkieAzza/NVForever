@@ -165,7 +165,7 @@ Settings]. A tagged skill gains `fAVDTagSkillBonus` (15) [documented].
 | 56 | Unarmed Damage | `fAVDUnarmedDamageBase` (0.5) + `fAVDUnarmedDamageMult` (0.05) × Unarmed | [documented: Weapon Damage Formula] |
 | 19 | Poison Resistance | (Endurance − 1) × 5 | "derived from Endurance" [documented: Stats Tab - NPC]; the figures [hypothesis: what the Pip-Boy shows; no setting in the masters] |
 | 20 | Rad Resistance | (Endurance − 1) × 2 | as Poison Resistance |
-| 21 | Speed Multiplier | ACBS "Speed Multiplier" (percent) | [documented: xEdit; Stats Tab pages, "Speed Mult %"] |
+| 21 | Speed Multiplier | ACBS "Speed Multiplier" (percent); NPC movement reads it (§6) | [documented: xEdit; Stats Tab pages, "Speed Mult %"] |
 | 22 | Fatigue | ACBS "Fatigue" | creatures [documented: Stats Tab - Creatures]; NPCs [hypothesis: the page calls the field unused] |
 | 23 | Karma | ACBS "Karma" of the actor's own record | [documented: xEdit; GetBaseKarma] |
 | 46 | Inventory Weight | the weight the actor carries | an actor value [documented: GetCalculatedMaxCarryWeight]; that it is the carried weight [hypothesis] |
@@ -203,8 +203,27 @@ gives one [documented], else the masters' value [observed].
   share is the DT and DR of the ARMO records, the actor value's share is effects, and no
   object effect of an armour of FalloutNV.esm changes either value [observed: the
   survey's "worn_object_effects"].
-- Not yet: NPC attacks, movement speed from Speed Multiplier, Action Points, poison and
-  radiation.
+- NPC and creature movement: an actor travels at the standard speed times its current
+  Speed Multiplier over 100 (`Game::speed_multiplier`, never below 0).
+  - "Speed Mult %" multiplies the standard movement speed; for a creature, the distance
+    its animation moves it [documented: Stats Tab - NPC, Stats Tab - Creatures].
+  - The standard speeds are the player's observed walk and run, 86.8 and 344 units a
+    second at Speed Multiplier 100 (physics.md §6.3) [observed for the player;
+    hypothesis for NPCs]. The settings of the wiki's Movement Settings page
+    (`fMoveBaseSpeed` 77, `fMoveRunMult` 4, the sneaking, holstered-weapon, crippled-leg
+    and armour factors) are not used: the formula that joins them is not documented.
+  - Who applies it: the package walks (`fnv-ai` `Ai::speed`, so `fnvtool ai run` and
+    the engine's residents), the engine's `--npc-travel` travellers and the walk up to
+    a piece of furniture (`nav::actor_speeds`, read from the game every half second).
+    Without a game (`--npc-travel` or `--npc-sit` alone) no actor value is known and
+    the standard speed is used.
+  - The masters [observed: the survey's "speed_multiplier_of_records_with_their_own_stats"]:
+    1,653 of the 1,719 NPC_ records holding their own stats have 100 (the others 110
+    to 180, and two have 1); 584 of the 763 such CREA records have 100, the others 25
+    to 300 (250 for 23, 150 for 44). Every Goodsprings resident of the smoke tests has
+    100, so those runs are unchanged.
+- Not yet: NPC attacks, the player's movement speed (its own Speed Multiplier is not
+  applied to the walk), Action Points, poison and radiation.
 
 ## 7. Tool
 

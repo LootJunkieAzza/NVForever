@@ -808,7 +808,7 @@ fn main() -> AppExit {
         let follow = n.follow;
         app.insert_resource(n).add_systems(Startup, nav::log_startup).add_systems(
             Update,
-            (nav::drive.after(world::stream), nav::follow_camera.after(fly::fly).before(world::stream), nav::draw.after(nav::drive)),
+            (nav::actor_speeds.before(nav::drive), nav::drive.after(world::stream), nav::follow_camera.after(fly::fly).before(world::stream), nav::draw.after(nav::drive)),
         ).add_systems(
             Last,
             nav::report,

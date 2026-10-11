@@ -267,6 +267,17 @@ impl<'a> Game<'a> {
         self.data.actors.get(&self.template_source(r, group)?)
     }
 
+    /// What an actor's standard movement speed is multiplied by: its current Speed
+    /// Multiplier (a percentage: ACBS "Speed Multiplier", changed by scripts and effects)
+    /// over 100, never below 0 [documented: GECK wiki Stats Tab - NPC and Stats Tab -
+    /// Creatures, "Speed Mult %"]. 1 for something that is no actor.
+    pub fn speed_multiplier(&mut self, r: FormId) -> f64 {
+        if self.stats_def(r).is_none() {
+            return 1.0;
+        }
+        actor::actor_value(self, r, SPEED_MULTIPLIER).map_or(1.0, |v| (v / 100.0).max(0.0))
+    }
+
     /// The definition supplying `r`'s stats (template flag "Stats").
     pub(crate) fn stats_def(&self, r: FormId) -> Option<&'a ActorDef> {
         self.def_following(r, template::STATS)

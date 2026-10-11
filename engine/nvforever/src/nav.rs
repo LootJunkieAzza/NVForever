@@ -25,10 +25,16 @@ use fnv_sim::RefTable;
 use nvf_assets::actor::{ActorCtx, ActorParts};
 use nvf_assets::model::ModelCtx;
 use nvf_play::RefVisual;
+use std::collections::HashMap;
 
-/// Walking speed of travellers, game units per second: the player's observed walking
-/// speed [observed: physics.md §6.3]; NPC speeds are not captured [hypothesis].
+/// Walking speed of travellers at Speed Multiplier 100, game units per second: the
+/// player's observed walking speed [observed: physics.md §6.3]; NPC speeds are not
+/// captured [hypothesis]. An actor walks at this times its Speed Multiplier over 100
+/// ([`actor_speeds`]).
 pub const WALK_SPEED: f32 = 86.8;
+
+/// How often the actors' Speed Multipliers are read again, seconds.
+const SPEED_REFRESH: f32 = 0.5;
 
 /// One NPC on its way.
 pub struct Traveller {
@@ -39,6 +45,8 @@ pub struct Traveller {
     pub label: String,
     pub target_label: String,
     pub walker: Walker,
+    /// Its walking speed at Speed Multiplier 100 (`--npc-speed`).
+    pub speed: f32,
     /// Drawn while its space is the one drawn: spawned (`true` once asked), and the
     /// actor's root entity once found.
     spawned: bool,
@@ -69,6 +77,9 @@ pub struct NavState {
     pub show: bool,
     pub follow: bool,
     pub lead: Option<Lead>,
+    /// What each actor's standard speed is multiplied by: its Speed Multiplier actor
+    /// value over 100, by reference ([`actor_speeds`]). An actor not listed moves at 1.
+    pub speed_mults: HashMap<u32, f32>,
     /// Smoothed chase-camera position, game space.
     cam: Option<Vec3>,
     /// The camera follows the first traveller into another space: travel asked for.
@@ -179,6 +190,7 @@ impl NavState {
                     label,
                     target_label,
                     walker,
+                    speed,
                     spawned: false,
                     root: None,
                     started: None,
@@ -188,7 +200,7 @@ impl NavState {
                 });
             }
         }
-        Ok(NavState { graph, travellers, show, follow, lead: None, cam: None, travel_asked: false, startup })
+        Ok(NavState { graph, travellers, show, follow, lead: None, speed_mults: HashMap::new(), cam: None, travel_asked: false, startup })
     }
 }
 
@@ -219,6 +231,51 @@ pub fn log_startup(mut nav: ResMut<NavState>) {
             info!("{line}");
         } else {
             warn!("{line}");
+        }
+    }
+}
+
+/// Read the Speed Multiplier of the travellers and of the actors drawn from the game
+/// (the one being played, else the residents' own) and set the travellers' speed by it:
+/// the standard speed times the actor value over 100 [documented: GECK wiki Stats Tab -
+/// NPC and Stats Tab - Creatures, "Speed Mult %"; actor-values.md §6]. Read again every
+/// half second and when an actor is first drawn. Without a game nothing is known of an
+/// actor's values and it moves at the standard speed.
+#[allow(clippy::too_many_arguments)]
+pub fn actor_speeds(
+    time: Res<Time>,
+    mut nav: ResMut<NavState>,
+    script: Option<ResMut<nvf_play::script::ScriptState>>,
+    sim: Option<ResMut<nvf_play::sim::SimState>>,
+    residents: Option<ResMut<crate::residents::Residents>>,
+    rigs: Query<&crate::limbs::ActorRig>,
+    added: Query<(), Added<crate::limbs::ActorRig>>,
+    mut next: Local<f32>,
+) {
+    let now = time.elapsed_secs();
+    if now < *next && added.is_empty() {
+        return;
+    }
+    *next = now + SPEED_REFRESH;
+    let nav = &mut *nav;
+    let wanted: Vec<u32> = nav.travellers.iter().map(|t| t.reference).chain(rigs.iter().map(|r| r.reference)).collect();
+    let read = |game: &mut fnv_game::game::Game| -> Vec<f32> { wanted.iter().map(|&r| game.speed_multiplier(fnv_sim::FormId(r)) as f32).collect() };
+    let mut residents = residents;
+    let mults = match (residents.as_deref_mut().and_then(|r| r.own_game()), script, sim) {
+        (Some(game), _, _) => read(game),
+        (None, Some(mut script), Some(mut sim)) => match script.rt.as_mut() {
+            Some(rt) => nvf_play::script::with_world(rt, &mut sim, |rt| read(&mut rt.game)),
+            None => return,
+        },
+        _ => return,
+    };
+    nav.speed_mults = wanted.iter().copied().zip(mults).collect();
+    for t in &mut nav.travellers {
+        let mult = nav.speed_mults.get(&t.reference).copied().unwrap_or(1.0);
+        let speed = t.speed * mult;
+        if (speed - t.walker.speed).abs() > 1e-3 {
+            info!("nav: {} walks at {speed:.1} units a second (Speed Multiplier {:.0})", t.label, mult * 100.0);
+            t.walker.speed = speed;
         }
     }
 }

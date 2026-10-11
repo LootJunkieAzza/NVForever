@@ -772,3 +772,23 @@ fn the_leveled_pick_is_the_one_the_appearance_makes() {
     // The appearance of an actor whose list is empty at level 1 cannot be made.
     assert!(resolver.group_source(FormId(NPC_LATE), FormId(LATE_REF), av::template::STATS).is_err());
 }
+
+/// Movement speed is the standard speed times the Speed Multiplier over 100
+/// [documented: GECK wiki Stats Tab - NPC, "Speed Mult %"].
+#[test]
+fn the_speed_multiplier_scales_movement() {
+    let f = fixture();
+    let mut g = game(&f);
+    // ACBS 110 and 150; the template's for the copy; the player's 100.
+    assert!(close(g.speed_multiplier(FormId(GUARD_REF)), 1.1));
+    assert!(close(g.speed_multiplier(FormId(COPY_REF)), 1.1));
+    assert!(close(g.speed_multiplier(FormId(CREA_REF)), 1.5));
+    assert!(close(g.speed_multiplier(FormId::PLAYER_REF), 1.0));
+    // The current value: scripts and damage count, and it does not go below nothing.
+    call(&mut g, MOD, GUARD_REF, &[code(av::SPEED_MULTIPLIER), n(-60.0)]);
+    assert!(close(g.speed_multiplier(FormId(GUARD_REF)), 0.5));
+    call(&mut g, DAMAGE, GUARD_REF, &[code(av::SPEED_MULTIPLIER), n(80.0)]);
+    assert_eq!(g.speed_multiplier(FormId(GUARD_REF)), 0.0);
+    // Something that is no actor.
+    assert_eq!(g.speed_multiplier(FormId(CONT_REF)), 1.0);
+}
