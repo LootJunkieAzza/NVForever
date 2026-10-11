@@ -26,6 +26,7 @@ pub mod land;
 pub mod lighting;
 pub mod loadscreen;
 pub mod placed;
+pub mod radio;
 pub mod sky;
 pub mod transform;
 

@@ -14,7 +14,7 @@
 //! lists every function with its evidence.
 
 pub(crate) mod actor;
-mod furniture;
+pub(crate) mod furniture;
 mod items;
 mod magic;
 pub(crate) mod misc;
@@ -439,7 +439,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x111E, "IsSneaking", Stub("movement (sneaking)")),
         (0x1032, "GetTalkedToPC", Impl(misc::get_talked_to_pc)),
         (0x1245, "ShowLoveTesterMenuParams", Impl(misc::show_love_tester_menu)),
-        (0x1173, "ShowBarterMenu", Stub("menus (barter)")),
+        (0x1173, "ShowBarterMenu", Impl(misc::show_barter_menu)),
         (0x1123, "PlayMagicShaderVisuals", Stub("rendering (effect shaders)")),
         (0x1129, "SetActorAlpha", Stub("rendering")),
         (0x10B2, "PlaySound3D", Stub("sound")),
@@ -494,7 +494,8 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x11EB, "SetVatsTarget", Stub("combat (VATS)")),
         (0x10EB, "GetVATSTargetHeight", Stub("combat (VATS)")),
         (0x10E0, "GetVATSMode", Stub("combat (VATS)")),
-        (0x102D, "GetDetected", Stub("detection")),
+        (0x102D, "GetDetected", Impl(crate::detection::get_detected)),
+        (0x10B4, "GetDetectionLevel", Impl(crate::detection::get_detection_level)),
         (0x101B, "GetLineOfSight", Stub("detection (line of sight)")),
         (0x115A, "SetAllVisible", Stub("detection")),
         (0x1068, "CreateDetectionEvent", Stub("detection")),

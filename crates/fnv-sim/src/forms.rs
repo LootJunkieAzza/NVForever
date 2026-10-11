@@ -81,6 +81,11 @@ pub struct Item {
     /// 2026-10-08]. Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub non_playable: bool,
+    /// ARMO BMDT general flags "Medium" and "Heavy" [documented: xEdit wbBMDT]: the
+    /// armour's class, light when neither is set. Detection's armour penalty reads it
+    /// (docs/spec-notes/actor-behaviour.md §2.1). Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub armor_class: ArmorClass,
     /// The record header's "Quest Item" flag, as `schemas/fnv` names it per record type
     /// (`header_flags`; bit 10 [documented: xEdit wbDefinitionsFNV.pas for WEAP, ARMO,
     /// ALCH, BOOK, KEYM, MISC, LIGH; GECK wiki IsQuestItem and GetFormFlag for AMMO and
@@ -89,6 +94,20 @@ pub struct Item {
     /// (`World::set_quest_object`). Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub quest_item: bool,
+    /// ICON: the picture the menus show of the item, a path under `textures\`
+    /// [documented: xEdit "Large Icon FileName"; observed: `interface\icons\pipboyimages\
+    /// items\...` on MISC, AMMO and ALCH records]. Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub icon: Option<String>,
+}
+
+/// The weight class of a piece of armour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+pub enum ArmorClass {
+    #[default]
+    Light,
+    Medium,
+    Heavy,
 }
 
 /// The name `schemas/fnv` gives the quest-item bit in `header_flags`.
@@ -370,7 +389,9 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         projectile: None,
                         health: None,
                         non_playable: false,
+                        armor_class: ArmorClass::Light,
                         quest_item: quest_flag(schema, r),
+                        icon: None,
                     }),
                 })),
                 None => Loaded::Skip,
@@ -505,9 +526,16 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
     };
     let non_playable = matches!(kind, ItemKind::Armor)
         && first(d, b"BMDT").and_then(|v| v.get("general_flags")).is_some_and(|f| has_flag(f, "Non-Playable"));
+    let general = matches!(kind, ItemKind::Armor).then(|| first(d, b"BMDT").and_then(|v| v.get("general_flags"))).flatten();
+    let armor_class = match general {
+        Some(f) if has_flag(f, "Heavy") => ArmorClass::Heavy,
+        Some(f) if has_flag(f, "Medium") => ArmorClass::Medium,
+        _ => ArmorClass::Light,
+    };
     Some(Item {
         kind,
         non_playable,
+        armor_class,
         quest_item: false, // from the record header, set by the caller
         value: value.map(|v| v as i32),
         weight: weight.map(|w| w as f32).filter(|w| w.is_finite()),
@@ -515,6 +543,7 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         // File-local here; made global by the caller.
         projectile: projectile.map(FormId),
         health,
+        icon: first(d, b"ICON").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string),
     })
 }
 
