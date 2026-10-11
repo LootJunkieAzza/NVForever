@@ -279,6 +279,58 @@ pub struct MessageDef {
     pub display_seconds: Option<u32>,
 }
 
+/// A terminal (TERM) [documented: xEdit wbDefinitionsFNV.pas TERM; schema
+/// `objects.json`; docs/spec-notes/hacking.md §1].
+#[derive(Debug, Clone, Default)]
+pub struct TerminalDef {
+    pub name: Option<String>,
+    /// DESC: the welcome text under the header.
+    pub welcome: String,
+    /// DNAM "Base Hacking Difficulty": 0 Very Easy … 4 Very Hard, 5 Requires Key
+    /// (`hacking::Difficulty::from_code`).
+    pub difficulty: u8,
+    /// DNAM flags ([`terminal_flag`]).
+    pub flags: u8,
+    /// DNAM "ServerType": 0 is "-Server 1-" … 9 "-Server 10-".
+    pub server: u8,
+    /// PNAM: the note that holds the password.
+    pub password_note: Option<FormId>,
+    pub items: Vec<TerminalItem>,
+}
+
+impl TerminalDef {
+    pub fn has(&self, flag: u8) -> bool {
+        self.flags & flag != 0
+    }
+}
+
+/// TERM DNAM flag bits [documented: xEdit wbDefinitionsFNV.pas TERM].
+pub mod terminal_flag {
+    pub const LEVELED: u8 = 0x01;
+    pub const UNLOCKED: u8 = 0x02;
+    pub const ALTERNATE_COLORS: u8 = 0x04;
+    pub const HIDE_WELCOME_WITH_IMAGE: u8 = 0x08;
+}
+
+/// One menu item of a terminal: ITXT and what follows it up to the next ITXT.
+#[derive(Debug, Clone, Default)]
+pub struct TerminalItem {
+    /// ITXT: the line in the menu.
+    pub text: String,
+    /// RNAM: the text shown when it is chosen.
+    pub result: String,
+    /// ANAM: 1 Add Note, 2 Force Redraw.
+    pub flags: u8,
+    /// INAM: the note it shows (and gives, with Add Note).
+    pub note: Option<FormId>,
+    /// TNAM: the terminal it opens as a sub menu.
+    pub submenu: Option<FormId>,
+    /// CTDA: the item is listed only while these hold.
+    pub conditions: Vec<Condition>,
+    /// The item's result script.
+    pub unit: Option<UnitId>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ActorDef {
     pub sig: [u8; 4],
@@ -470,6 +522,8 @@ pub struct GameData {
     /// Every PACK as typed data ([`crate::package`]).
     pub package_defs: HashMap<FormId, PackageDef>,
     pub messages: HashMap<FormId, MessageDef>,
+    /// Terminals (TERM), with their menu items' result scripts.
+    pub terminals: HashMap<FormId, TerminalDef>,
     pub form_lists: HashMap<FormId, Vec<FormId>>,
     /// MICN (Menu Icon) ICON: the icon's texture file as the record names it, under
     /// the textures folder [documented: GECK wiki, MenuIcon; corner-messages.md §3].
@@ -591,6 +645,7 @@ struct Read {
     info: Option<InfoDef>,
     topic: Option<TopicDef>,
     message: Option<MessageDef>,
+    terminal: Option<TerminalDef>,
     form_list: Option<Vec<FormId>>,
     menu_icon: Option<String>,
     actor: Option<ActorDef>,
@@ -615,7 +670,7 @@ struct Read {
     read_issues: ReadIssues,
 }
 
-const UNIT_SIGS: &[&[u8; 4]] = &[b"SCPT", b"QUST", b"INFO", b"PACK"];
+const UNIT_SIGS: &[&[u8; 4]] = &[b"SCPT", b"QUST", b"INFO", b"PACK", b"TERM"];
 
 impl GameData {
     /// Build from a load order. `functions` is the parsed `functions.json` (for the
@@ -650,6 +705,7 @@ impl GameData {
             packages: HashMap::new(),
             package_defs: HashMap::new(),
             messages: HashMap::new(),
+            terminals: HashMap::new(),
             form_lists: HashMap::new(),
             menu_icons: HashMap::new(),
             actors: HashMap::new(),
@@ -747,6 +803,17 @@ impl GameData {
                     let p = [unit(P::Begin), unit(P::End), unit(P::Change)];
                     if p.iter().any(Option::is_some) {
                         d.packages.insert(id, p);
+                    }
+                }
+                b"TERM" => {
+                    if let Some(mut t) = r.terminal {
+                        for (n, item) in t.items.iter_mut().enumerate() {
+                            item.unit = unit_of
+                                .get(&label(UnitOwner::Terminal { form: id.0, item: n as u32 }))
+                                .copied()
+                                .filter(|&u| d.units[u].unit.has_scda);
+                        }
+                        d.terminals.insert(id, t);
                     }
                 }
                 _ => {}
@@ -969,6 +1036,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"INFO"
             | b"DIAL"
             | b"MESG"
+            | b"TERM"
             | b"MICN"
             | b"FLST"
             | b"NPC_"
@@ -1298,6 +1366,43 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 }
             }
             out.message = Some(m);
+        }
+        b"TERM" => {
+            let mut t = TerminalDef::default();
+            let s = |v: &Option<Json>| v.as_ref().and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            for (sub, v) in &decoded {
+                match *sub {
+                    b"FULL" => t.name = Some(s(v)).filter(|n| !n.trim().is_empty()),
+                    b"DESC" => t.welcome = s(v),
+                    b"PNAM" => t.password_note = fid(v).filter(|f| f.0 != 0),
+                    b"DNAM" => {
+                        if let Some(v) = v {
+                            t.difficulty = match v.get("base_hacking_difficulty") {
+                                Some(Json::String(name)) => {
+                                    ["Very Easy", "Easy", "Average", "Hard", "Very Hard"].iter().position(|n| n == name).unwrap_or(5) as u8
+                                }
+                                Some(n) => n.as_u64().unwrap_or(5) as u8,
+                                None => 5,
+                            };
+                            t.flags = flag_bits(v.get("flags")) as u8;
+                            t.server = v.get("server_type").and_then(Json::as_u64).unwrap_or(0) as u8;
+                        }
+                    }
+                    b"ITXT" => t.items.push(TerminalItem { text: s(v), ..Default::default() }),
+                    b"RNAM" | b"ANAM" | b"INAM" | b"TNAM" | b"CTDA" => {
+                        let Some(item) = t.items.last_mut() else { continue };
+                        match *sub {
+                            b"RNAM" => item.result = s(v),
+                            b"ANAM" => item.flags = flag_bits(v.as_ref()) as u8,
+                            b"INAM" => item.note = fid(v).filter(|f| f.0 != 0),
+                            b"TNAM" => item.submenu = fid(v).filter(|f| f.0 != 0),
+                            _ => item.conditions.extend(cond(v, &mut out.issues)),
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            out.terminal = Some(t);
         }
         b"MICN" => {
             out.menu_icon = decoded.iter().find(|(s, _)| *s == b"ICON").and_then(|(_, v)| v.as_ref()?.as_str().map(str::to_string));
