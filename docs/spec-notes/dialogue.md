@@ -400,9 +400,9 @@ All of it is in `GameSnapshot`.
   are set by end scripts whenever the player clicks through; capture question §7.8].
   Nothing is skipped while a menu on top of the conversation holds it. No trace event
   of its own.
-- **Not modelled:** random conversations between NPCs (the Conversation tab's HELLO
-  started by the game itself, IdleChatter; scripted ones are §5.1), radio, combat and
-  detection barks, Low/High Intelligence lines and
+- **Not modelled:** IdleChatter (hellos and random conversations are §5.2, scripted
+  conversations between actors §5.1), radio, combat and detection barks, the reaction
+  topics (PLAYERFIREWEAPON and the rest), Low/High Intelligence lines and
   the Dumb Response, the quest flag "Allow Repeated Conversation Topics", the Fallout 3
   speech-challenge roll and the SpeechChallengeFailure topic, lip sync and emotions on
   faces.
@@ -479,6 +479,63 @@ three references enabled, the trigger entered) the runtime plays this through: J
 Cobb's line (8.80 s, its voice file's length), Trudy's answer (3.85 s), bArgumentOver 1,
 package 0010663E chosen, the conversation ended `no_links` after 2 lines. Before this
 section StartConversation with an actor was a stub, so the argument was never heard.
+
+### 5.2 Actors who talk on their own (`fnv_ai::social`)
+
+Two behaviours, each allowed by the actor's current package ("Enable Fallout Behavior":
+"Hellos to player: Allow the actor to say hello to the player"; "Random conversations:
+Allow the actor to participate in random conversations. (The packages that can initiate
+random conversations are Sandbox, Guard, Eat, and Patrol.)" [documented:
+Category:Packages]). Which packages allow them: packages.md §1, general bit 12 — without
+it the default allows both [hypothesis, from the data and the owner's Vault 3
+statement].
+
+**The topic is HELLO, not GREETING.** GREETING is "the default greeting an actor will use
+when spoken to" [documented: Topics Tab]; HELLO is the Conversation-tab topic that
+starts conversations between NPCs [documented: Conversation Tab; Quest and Dialogue
+Tutorial]. FalloutNV.esm's HELLO holds lines for both listeners [observed: `fnvtool
+dialogue lines --all`]: 1,074 lines (569 of type Topic, 505 Conversation; 1,014 Random,
+659 Goodbye; conditions mostly GetIsVoiceType, GetInFaction, GetGlobalValue, GetIsID; on
+the target GetInFaction 89, GetIsID 108, GetIsRace 32, GetIsSex 26). Some are for the
+player (Victor's "Howdy" line in VFreeformGoodsprings; Raul's lines with `target.GetIsID
+Player`), some for another actor. 1,047 are one line; 27 link on (Link To) into
+exchanges of 2 to 6 lines, e.g. GenericFiend's (two to four lines between Fiends) and
+a five-line exchange at Nellis. 1,065 have Link From blank, so can start one
+[documented: "The starting HELLO must have 'Link From' left blank"].
+
+- **A hello to the player** (`Game::say_hello`): the actor's HELLO line for the player as
+  the conditions' target, Link From blank, said in the world (`LineKind::Hello`): no
+  menu, no SayToDone, no Add Topics [hypothesis for these]. Lines that open an exchange
+  between actors are said to the player too, with no reply: "these lines can be spoken
+  at the player in base game just with no reply if it doesn't hook into a back and
+  forth; the fiend just goes back to what he was doing" [owner statement 2026-10-11].
+  In the engine in Vault 3 (Vault3a, 200 s, the player put by a Fiend) 6 hellos were
+  said, among them GenericFiend's openers 00175369 and 0017536A, and one random
+  conversation started (a one-line remark, 00175374, which links nowhere). When: the player within 300 units; again only
+  after the player has gone beyond 600; one hello at a time [stand-ins: no distance or
+  timer for hellos is documented, and none is set in the masters].
+- **A random conversation** (`Game::start_actor_conversation` with HELLO, then §5.1):
+  an actor whose package may start one (Sandbox, Guard, Eat, Patrol; the behaviour
+  allowed; not "No Conversation") looks for a partner after a time drawn between
+  `fAISocialTimerForConversationsMin` and `…Max` (30 and 60 s), and starts with a chance
+  of `fAISocialchanceForConversation` per cent (`…Interior` indoors; 25 both)
+  [observed: the values in FalloutNV.esm; hypothesis: what the settings mean, from
+  their names, which the wiki only lists]. The partner is the nearest actor whose
+  package lets it take part and to whom the starter has a HELLO line: within
+  `fAISocialRadiusToTriggerConversationInterior` (1000) indoors,
+  `fAISocialRadiusToTriggerConversation` outdoors (not in the masters: the indoor value
+  stands in), and within 384 units [stand-in: in the game they go up to each other,
+  "Conversation -- no duration, the behavior is done when the conversation is finished"
+  (Sandbox Package); here both must already stand close]. While they talk neither walks
+  on (the engine holds both) [hypothesis].
+- **Nobody talks** while asleep (a Sleep package), on its way, already talking, carrying
+  out a Dialogue package, dead or disabled, or while a menu or a conversation with the
+  player holds the game [hypothesis].
+- **Turning**: the one saying a hello turns to the player, and both of a conversation
+  between actors to each other, unless on furniture or on their way [hypothesis].
+- **Log**: `ai [hh:mm] <actor>: says hello to the player from N units, line …`,
+  `… starts a conversation with <partner> from N units, line …`, and at exit
+  `social summary: N hellos said to the player, M random conversations started`.
 
 ## 6. What scripts see
 
@@ -571,6 +628,12 @@ up to C and F):
     them; whether random conversations get a GOODBYE line added (a scripted one does
     not, owner statement); HELLO when no topic is named; SayToDone after their lines;
     refusal while either actor is talking.
+17. Hellos and random conversations (§5.2): the hello distance and when an actor says
+    hello again; whether the actor turns to the player; the meaning of the
+    fAISocial… settings (timer per actor? chance per cent?) and the outdoor radius;
+    the walk of the two towards each other; whether the player's presence matters for
+    random conversations; general bit 12 as the switch between the default and the
+    package's own Fallout behaviour (packages.md §1).
 
 ## 8. Tool contracts
 

@@ -110,6 +110,11 @@ pub enum AiEvent {
     TalkOver { package: FormId },
     /// It was to talk and did not (it has no line to say).
     NoTalk { package: FormId, why: String },
+    /// It said hello to the passing player, `away` units from it (`crate::social`).
+    Hello { line: FormId, away: f32 },
+    /// It started a random conversation with `partner`, `away` units from it
+    /// (`crate::social`); `line` is its first line.
+    Chat { partner: FormId, line: FormId, away: f32 },
 }
 
 /// How far an actor is with its Dialogue package ([`goal::Talk`]).
@@ -189,7 +194,7 @@ pub struct Agent {
     pub walker: Walker,
     pub activity: Activity,
     /// The package the actor was last seen with.
-    package: Option<FormId>,
+    pub(crate) package: Option<FormId>,
     goal: Option<Goal>,
     /// Index of the patrol point being walked to.
     route_at: usize,
@@ -217,6 +222,8 @@ pub struct Ai {
     pub events: Vec<Logged>,
     /// Furniture in use: the reference and its user.
     taken: BTreeMap<FormId, FormId>,
+    /// Hellos and random conversations ([`Ai::social`]).
+    pub(crate) social: crate::social::Social,
 }
 
 fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -225,7 +232,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default() }
     }
 
     /// Start looking after a placed actor, from where it is now.
@@ -290,7 +297,7 @@ impl Ai {
         self.plan(game, nav, actor, package, to, None);
     }
 
-    fn log(&mut self, game: &Game, actor: FormId, event: AiEvent) {
+    pub(crate) fn log(&mut self, game: &Game, actor: FormId, event: AiEvent) {
         let c = game.world.calendar().ok();
         self.events.push(Logged { time: game.time, days: c.map_or(0.0, |c| c.days_passed), hour: c.map_or(0.0, |c| c.hour), actor, event });
     }
@@ -571,7 +578,7 @@ impl Ai {
 
     /// Turn a standing actor towards a place for `dt` seconds, and tell the game its
     /// heading.
-    fn face(&mut self, game: &mut Game, actor: FormId, to: Place, dt: f32) {
+    pub(crate) fn face(&mut self, game: &mut Game, actor: FormId, to: Place, dt: f32) {
         let a = self.agents.get_mut(&actor).expect("listed");
         let d = [to.pos[0] - a.walker.feet[0], to.pos[1] - a.walker.feet[1]];
         if d[0].hypot(d[1]) < 1.0 {
