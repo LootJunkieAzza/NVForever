@@ -208,7 +208,7 @@ pub const OTHER_SIGS: &[&[u8; 4]] = &[b"GLOB", b"GMST"];
 /// Record types interpreted as base forms.
 pub const BASE_SIGS: &[&[u8; 4]] = &[
     b"WEAP", b"ARMO", b"AMMO", b"ALCH", b"BOOK", b"KEYM", b"MISC", b"NOTE", b"LIGH", b"IMOD", b"CHIP", b"CCRD",
-    b"CMNY", b"CONT", b"DOOR", b"ACTI", b"TACT", b"FURN", b"NPC_", b"CREA", b"LVLI", b"PROJ",
+    b"CMNY", b"CONT", b"DOOR", b"ACTI", b"TACT", b"FURN", b"NPC_", b"CREA", b"LVLI", b"PROJ", b"TERM",
 ];
 
 #[derive(Default)]
@@ -469,7 +469,9 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                     minimal_use: f.is_some_and(|f| has_flag(f, "Minimal Use")),
                 })
             }
-            b"ACTI" | b"TACT" => BaseData::Activator,
+            // A terminal activates like an activator; what it shows (its menu, the
+            // hacking game) is the engine's (docs/spec-notes/hacking.md §6).
+            b"ACTI" | b"TACT" | b"TERM" => BaseData::Activator,
             b"FURN" => BaseData::Furniture,
             b"LVLI" => BaseData::LeveledItem(leveled(lo, pi, id, &d, issues)),
             b"PROJ" => BaseData::Projectile { item: None },

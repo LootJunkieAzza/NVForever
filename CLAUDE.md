@@ -323,6 +323,14 @@ and `NVF_PLAY_TEST_PIPBOY=12:open,15:page=stats,17:close` set:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --play --no-voice --hour 12 --size 1280x720 --run-seconds 19`
 (expect exit 0, "pipboy: up, page ITEMS tab Weapons", "pipboy: the menus are on the model's
 screen", "pipboy: STATS Status" and "pipboy: down").
+After changes to terminals or the hacking game (`fnv_game::hacking`, `fnv_game::terminal`,
+`nvf-play` `terminal`; docs/spec-notes/hacking.md §9), run the Easy terminal, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
+`NVF_PLAY_TEST_TERMINAL=30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:back` set:
+`engine/target/release/nvforever --data <Data> --cell BisonSteve01 --play --no-voice --run-seconds 48`
+(expect exit 0, "hacking, Easy (Science 25): 20 words", "Exact match! access granted",
+`menu of DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"`, its
+"result script" line and "terminal summary: 1 opened (0 refused), 1 hacking games (1 hacked, 0 locked out)").
 
 ## Commits
 

@@ -49,6 +49,7 @@ pub mod script_trigger;
 pub mod settings;
 pub mod sim;
 pub mod space;
+pub mod terminal;
 mod test_aid;
 pub mod sfx;
 pub mod ui_sounds;
@@ -240,7 +241,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(ui_sounds::UiSoundsPlugin)
             .add_plugins(chargen::ChargenPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
-            .add_plugins(reticle::ReticlePlugin);
+            .add_plugins(terminal::TerminalPlugin);
         test_aid::setup(app);
     }
 }

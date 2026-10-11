@@ -56,6 +56,9 @@ const K_LAST: u32 = 0xF44;
 const HELLO: u32 = 0x93E;
 const K_HELLO_LINKED: u32 = 0xF45;
 const K_HELLO: u32 = 0xF46;
+const K_HELLO_PLAYER: u32 = 0xF48;
+const K_REPLY_TOPIC: u32 = 0xF49;
+const CONV: u8 = topic_type::CONVERSATION;
 const T_SOURCE: u32 = 0x950;
 const T_SHARED: u32 = 0x951;
 const T_LINKS: u32 = 0x952;
@@ -132,6 +135,8 @@ struct L {
     id: u32,
     quest: u32,
     flags: u16,
+    /// DATA type (`topic_type`; 0 Topic, the default).
+    ty: u8,
     /// DATA next speaker (0 Target, 1 Self, 2 Either).
     next: u8,
     speaker: Option<u32>,
@@ -158,7 +163,7 @@ fn result(value: Option<&str>) -> Vec<Subrecord> {
 }
 
 fn info(l: L) -> Vec<u8> {
-    let mut s = vec![sub(b"DATA", vec![0, l.next, l.flags as u8, (l.flags >> 8) as u8]), sub(b"QSTI", u32b(l.quest))];
+    let mut s = vec![sub(b"DATA", vec![l.ty, l.next, l.flags as u8, (l.flags >> 8) as u8]), sub(b"QSTI", u32b(l.quest))];
     s.extend(l.add.iter().map(|t| sub(b"NAME", u32b(*t))));
     for (number, text, emotion) in &l.responses {
         let trdt = [u32b(*emotion), u32b(50), vec![0; 4], vec![*number, 0, 0, 0], u32b(0), vec![0; 4]].concat();
@@ -407,6 +412,7 @@ fn plugin_bytes() -> Vec<u8> {
             vec![L {
                 id: K_OPEN,
                 quest: QA,
+                ty: CONV,
                 speaker: me,
                 responses: vec![(1, "Open", 0), (2, "Never said", 0)],
                 choices: vec![T_REPLY_NOT, T_REPLY],
@@ -422,7 +428,12 @@ fn plugin_bytes() -> Vec<u8> {
             topic_type::CONVERSATION,
             0,
             50.0,
-            vec![L { id: K_REPLY, quest: QA, next: 1, speaker: Some(NPC2), responses: one("Reply"), choices: vec![T_LAST], end: Some("32"), ..L::default() }],
+            vec![
+                // A Topic line the second actor could say, stored first: never said
+                // between actors.
+                L { id: K_REPLY_TOPIC, quest: QA, speaker: Some(NPC2), responses: one("For the player"), ..L::default() },
+                L { id: K_REPLY, quest: QA, ty: CONV, next: 1, speaker: Some(NPC2), responses: one("Reply"), choices: vec![T_LAST], end: Some("32"), ..L::default() },
+            ],
         ),
         topic(
             T_REPLY_NOT,
@@ -431,7 +442,7 @@ fn plugin_bytes() -> Vec<u8> {
             topic_type::CONVERSATION,
             0,
             50.0,
-            vec![L { id: K_NOT, quest: QA, speaker: Some(NPC2), conds: vec![gate(EQ, 99.0)], responses: one("Not said"), ..L::default() }],
+            vec![L { id: K_NOT, quest: QA, ty: CONV, speaker: Some(NPC2), conds: vec![gate(EQ, 99.0)], responses: one("Not said"), ..L::default() }],
         ),
         topic(
             T_LAST,
@@ -440,10 +451,11 @@ fn plugin_bytes() -> Vec<u8> {
             topic_type::CONVERSATION,
             0,
             50.0,
-            vec![L { id: K_LAST, quest: QA, flags: info_flag::GOODBYE, speaker: Some(NPC2), responses: one("Last"), choices: vec![T_REPLY], ..L::default() }],
+            vec![L { id: K_LAST, quest: QA, ty: CONV, flags: info_flag::GOODBYE, speaker: Some(NPC2), responses: one("Last"), choices: vec![T_REPLY], ..L::default() }],
         ),
-        // HELLO: a line with a Link From (cannot start anything), then one that starts
-        // the same exchange as TestArgue's reply.
+        // HELLO: a line with a Link From (cannot start anything); a Topic line for the
+        // player, said only when TestGate is 5; then a Conversation line that starts the
+        // same exchange as TestArgue's reply.
         topic(
             HELLO,
             "HELLO",
@@ -452,8 +464,9 @@ fn plugin_bytes() -> Vec<u8> {
             0,
             50.0,
             vec![
-                L { id: K_HELLO_LINKED, quest: QA, speaker: me, responses: one("Linked"), link_from: vec![T_ARGUE], ..L::default() },
-                L { id: K_HELLO, quest: QA, speaker: me, responses: one("Hi"), choices: vec![T_REPLY], ..L::default() },
+                L { id: K_HELLO_LINKED, quest: QA, ty: CONV, speaker: me, responses: one("Linked"), link_from: vec![T_ARGUE], ..L::default() },
+                L { id: K_HELLO_PLAYER, quest: QA, speaker: me, conds: vec![gate(EQ, 5.0)], responses: one("Hello, stranger"), ..L::default() },
+                L { id: K_HELLO, quest: QA, ty: CONV, speaker: me, responses: one("Hi"), choices: vec![T_REPLY], ..L::default() },
             ],
         ),
         // Shared lines (INFC / INFX): TopicShared has no line of its own and shares
@@ -1131,6 +1144,30 @@ fn two_actors_talk_to_each_other() {
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::ActorConversationEnded { speaker, target, reason: "goodbye", lines: 3 } if speaker == b && target == a)));
     assert_eq!(out(&g), 32.0);
     assert!(!g.in_actor_conversation(a) && g.dialogue.is_none());
+}
+
+#[test]
+fn actors_talk_to_each_other_only_with_conversation_lines() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (a, b) = (FormId(NPC1_REF), FormId(NPC2_REF));
+    // The Topic line for the player can be said now, and is stored before the
+    // Conversation line.
+    set_global(&mut g, G_GATE, 5.0);
+    assert_eq!(g.conversation_opener(a, b), Some(FormId(K_HELLO)));
+    call(&mut g, 0x1056, NPC1_REF, &[ArgValue::Value(Value::Ref(NPC2_REF))]);
+    assert_eq!(g.speech.iter().map(|s| s.info.0).collect::<Vec<_>>(), vec![K_HELLO]);
+    for _ in 0..20_000 {
+        if g.speech.is_empty() {
+            break;
+        }
+        g.tick();
+    }
+    // The reply skips the Topic line its topic holds for the player.
+    let said: Vec<u32> = g.events.iter().filter_map(|e| if let EventKind::LineStarted { info, .. } = e.kind { Some(info.0) } else { None }).collect();
+    assert_eq!(said, vec![K_HELLO, K_REPLY, K_LAST]);
+    // A hello to the player takes the Topic line.
+    assert_eq!(g.say_hello(a), Some(FormId(K_HELLO_PLAYER)));
 }
 
 #[test]

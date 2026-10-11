@@ -111,6 +111,19 @@ pub struct Conversation {
     pub lines: u32,
 }
 
+/// Whether a line may be said in a conversation between two actors: only Conversation
+/// lines (INFO DATA type Conversation, the Conversation tab), never the Topics tab's
+/// lines, which are said to the player [owner ruling 2026-10-11: "the dialogue between
+/// npcs should ONLY use the conversation options not the Topics", after Sunny Smiles was
+/// heard greeting another actor with lines for the player; documented: Conversation Tab,
+/// "A conversation is a series of infos that are played between two actors"; observed:
+/// HELLO holds 569 Topic lines and 505 Conversation lines in FalloutNV.esm]. Applies to
+/// the opening line, follow-ups and Link To lines; hellos to the player are not
+/// conversations between actors and take either kind.
+pub fn between_actors(d: &InfoDef) -> bool {
+    d.info_type == crate::data::topic_type::CONVERSATION
+}
+
 /// Why a conversation ended (trace `dialogue_ended`).
 pub mod ended {
     /// A line with the Goodbye flag finished.
@@ -707,8 +720,9 @@ impl<'a> Game<'a> {
         let hello = self.hello_topic();
         let topic = topic.or(hello).ok_or("the load order has no HELLO topic")?;
         // A conversation starts only with a HELLO line whose Link From is blank
-        // [documented: Conversation Tab].
-        let starts = |d: &InfoDef| Some(topic) != hello || d.link_from.is_empty();
+        // [documented: Conversation Tab], and only with a Conversation line
+        // ([`between_actors`]).
+        let starts = |d: &InfoDef| between_actors(d) && (Some(topic) != hello || d.link_from.is_empty());
         let Some(info) = self.select_line_where(speaker, Some(target), topic, starts) else {
             self.emit(EventKind::NoLine { speaker, topic });
             return Err(format!("{} has no line of {} to say to {}", data.name(speaker), data.name(topic), data.name(target)));
@@ -723,7 +737,7 @@ impl<'a> Game<'a> {
     /// for (`fnv_ai::social`). The line said when they meet is chosen again then.
     pub fn conversation_opener(&mut self, speaker: FormId, target: FormId) -> Option<FormId> {
         let topic = self.hello_topic()?;
-        self.select_line_where(speaker, Some(target), topic, |d| d.link_from.is_empty())
+        self.select_line_where(speaker, Some(target), topic, |d| between_actors(d) && d.link_from.is_empty())
     }
 
     /// The HELLO topic, when the load order has it.
@@ -793,7 +807,7 @@ impl<'a> Game<'a> {
         };
         let next = LineKind::Conversation(lines + 1);
         for &(who, to) in turns {
-            if let Some(&f) = def.follow_ups.iter().find(|&&f| self.can_say(who, Some(to), f)) {
+            if let Some(&f) = def.follow_ups.iter().find(|&&f| data.infos.get(&f).is_some_and(between_actors) && self.can_say(who, Some(to), f)) {
                 let topic = data.infos.get(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
                 self.say_line(who, Some(to), topic, f, next);
                 self.set_line_look(who, said.look);
@@ -802,7 +816,7 @@ impl<'a> Game<'a> {
             let mut linked: Vec<(FormId, FormId)> = Vec::new();
             for &t in &def.choices {
                 if !linked.iter().any(|(seen, _)| *seen == t) {
-                    if let Some(i) = self.select_line(who, Some(to), t) {
+                    if let Some(i) = self.select_line_where(who, Some(to), t, between_actors) {
                         linked.push((t, i));
                     }
                 }

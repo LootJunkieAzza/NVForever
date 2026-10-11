@@ -612,6 +612,8 @@ pub struct Game<'a> {
     /// What switched radio receivers on and off (`crate::radio`); the engine plays the
     /// stations. Not part of the saved state.
     pub radio: crate::radio::Radios,
+    /// Terminals hacked or locked out (`crate::terminal`).
+    pub terminals: crate::terminal::Terminals,
     pub world: World<'a>,
     pub cfg: GameConfig,
     pub quests: BTreeMap<FormId, QuestState>,
@@ -779,6 +781,7 @@ impl<'a> Game<'a> {
             detection: Default::default(),
             awareness: Default::default(),
             radio: Default::default(),
+            terminals: Default::default(),
             world,
             cfg,
             quests: BTreeMap::new(),

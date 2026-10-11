@@ -37,6 +37,7 @@ mod source;
 mod voice_cmd;
 mod world_audio;
 mod world_radio;
+mod world_terminals;
 mod world_cmd;
 
 use clap::{Args, Parser, Subcommand};
@@ -587,6 +588,32 @@ pub enum WorldCmd {
         /// Function catalogue (default: ../script/functions.json next to --schema).
         #[arg(long)]
         functions: Option<PathBuf>,
+    },
+    /// Terminals (fnv.world.terminals/1): hacking difficulty, flags, menu items, scripts,
+    /// password notes and placed references (docs/spec-notes/hacking.md).
+    Terminals {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Function catalogue (default: ../script/functions.json next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+    },
+    /// One terminal hacking game (fnv.world.hack/1) from the game's word list: the dump
+    /// as the screen shows it, the words and their likeness, and the log after `--pick`s.
+    Hack {
+        /// Data folder (its archives hold menusalloutdict.txt).
+        data_dir: PathBuf,
+        /// 0 Very Easy … 4 Very Hard, 5 Requires Key.
+        #[arg(long, default_value_t = 2)]
+        difficulty: u8,
+        /// The player's Science skill.
+        #[arg(long, default_value_t = 50.0)]
+        science: f32,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// Dump indices (column 1 rows 0-16 are 0-203, column 2 204-407) picked in order.
+        #[arg(long, value_delimiter = ',')]
+        pick: Vec<usize>,
     },
 }
 
