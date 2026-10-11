@@ -12,9 +12,10 @@
 //!   layout is drawn with Bevy's font and plain lines.
 
 use crate::script_hud::BoxButton;
-use bevy::image::{CompressedImageFormatSupport, CompressedImageFormats, ImageSampler};
+use crate::ui::{amber, at, bc_supported, face, plain_font, set_line, texture, u, Face};
+use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
-use fnv_font::{Font, Glyph, Line};
+use fnv_font::{Font, Line};
 use nvf_assets::GameData;
 
 // ---- the interface file's numbers [documented: menus\message_menu.xml, §2] -----------
@@ -55,15 +56,6 @@ const FRAME_PAD: f32 = 42.0;
 const FRAME_SHIFT: f32 = 2.5;
 /// How dark the box makes what is behind it (as the Wait menu's, wait-menu.md §2).
 const SHADE: f32 = 0.93;
-
-/// The interface's colour [observed: the screenshot's brightest text].
-const AMBER: [f32; 3] = [1.0, 182.0 / 255.0, 66.0 / 255.0];
-
-/// The interface's colour at a brightness (0 to 255, as the interface files give it).
-fn amber(brightness: f32) -> Color {
-    let b = brightness / 255.0;
-    Color::srgb(AMBER[0] * b, AMBER[1] * b, AMBER[2] * b)
-}
 
 /// What a box holds. `buttons` are the labels as drawn ("OK" for a box without any).
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -180,13 +172,6 @@ pub fn layout(view: &PanelView, body: &Font, title_font: &Font) -> Layout {
 
 // ---- the game's fonts and textures ----------------------------------------------------
 
-/// A font and its texture (the picture and its size in texels); without the texture the
-/// text is drawn with Bevy's font.
-struct Face {
-    font: Font,
-    image: Option<(Handle<Image>, Vec2)>,
-}
-
 /// What the box is drawn with. The font files are the game's defaults for font 2 (text
 /// and buttons) and font 6 (title) [documented: Fallout_default.ini `sFontFile_2`, `_6`;
 /// the interface file names the fonts by number].
@@ -200,48 +185,6 @@ struct Faces {
 
 const BODY_FONT: &str = "textures\\fonts\\monofonto_large.fnt";
 const TITLE_FONT: &str = "textures\\fonts\\glow_monofonto_vl_dialogs.fnt";
-
-/// A game texture for the interface: not repeated, so that a stretched picture's two
-/// ends do not run into each other.
-fn texture(path: &str, data: &GameData, images: &mut Assets<Image>, bc: bool) -> Option<(Handle<Image>, Vec2)> {
-    let bytes = data.read(path)?;
-    match nvf_assets::texture::dds_image(&bytes, true, bc) {
-        Ok(mut image) => {
-            image.sampler = ImageSampler::linear();
-            let size = image.size().as_vec2();
-            Some((images.add(image), size))
-        }
-        Err(e) => {
-            warn!("message box: {path}: {e}");
-            None
-        }
-    }
-}
-
-/// A stand-in font for measuring when the game's cannot be read: every character as wide
-/// as the next.
-fn plain_font(size: f32, advance: f32) -> Font {
-    let glyph = Glyph { after: advance, ..default() };
-    Font { size, texture: String::new(), glyphs: vec![glyph; 256] }
-}
-
-fn face(path: &str, stand_in: Font, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Face {
-    let read = data.and_then(|d| {
-        let font = match Font::parse(&d.read(path)?) {
-            Ok(f) => f,
-            Err(e) => {
-                warn!("message box: {path}: {e}");
-                return None;
-            }
-        };
-        let image = texture(&font.texture_path(), d, images, bc)?;
-        Some(Face { font, image: Some(image) })
-    });
-    read.unwrap_or_else(|| {
-        warn!("message box: drawn without the game's font {path}");
-        Face { font: stand_in, image: None }
-    })
-}
 
 fn load_faces(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Faces {
     let mut line = |name: &str| data.and_then(|d| texture(&format!("textures\\interface\\shared\\{name}.dds"), d, images, bc)).map(|t| t.0);
@@ -276,35 +219,9 @@ struct BoxRoot;
 #[derive(Component)]
 struct Frame(usize);
 
-/// A length of the interface (960 units high) as a part of the view's height.
-fn u(units: f32) -> Val {
-    Val::Vh(units / 9.6)
-}
-
-fn at(left: f32, top: f32, width: f32, height: f32) -> Node {
-    Node { position_type: PositionType::Absolute, left: u(left), top: u(top), width: u(width), height: u(height), ..default() }
-}
-
 /// Draw a line of text at `origin` (what its `x` and `base` are measured from).
 fn set_text(p: &mut ChildSpawnerCommands, face: &Face, set: &Set, origin: Vec2, color: Color) {
-    let (x, base) = (set.x - origin.x, set.base - origin.y);
-    let Some((image, size)) = &face.image else {
-        let text: String = set.line.glyphs.iter().map(|g| g.code as char).collect();
-        let size = face.font.size * 0.75;
-        p.spawn((
-            Node { position_type: PositionType::Absolute, left: u(x), top: u(base - size), ..default() },
-            children![(Text::new(text), TextFont { font_size: FontSize::Vh(size / 9.6), ..default() }, TextColor(color))],
-        ));
-        return;
-    };
-    for placed in &set.line.glyphs {
-        let g = face.font.glyph(placed.code);
-        if !g.drawn() {
-            continue;
-        }
-        let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
-        p.spawn((at(x + placed.x + g.before, base - g.ascent, g.width, g.height), ImageNode { rect: Some(rect), color, ..ImageNode::new(image.clone()) }));
-    }
+    set_line(p, face, &set.line, set.x - origin.x, set.base - origin.y, color);
 }
 
 fn spawn_box(commands: &mut Commands, view: &PanelView, faces: &Faces, selected: usize) {
@@ -401,8 +318,7 @@ fn draw(
         }
         if let Some(view) = &panel.view {
             let faces = faces.get_or_insert_with(|| {
-                let bc = formats.as_deref().is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
-                load_faces(data.as_deref(), &mut images, bc)
+                load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref()))
             });
             spawn_box(&mut commands, view, faces, panel.selected);
         }

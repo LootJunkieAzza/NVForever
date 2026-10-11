@@ -2183,3 +2183,50 @@ Branch `claude/item-condition`. Rules and sources: docs/spec-notes/combat-rules.
    Shoot the gun in a settler's hands about ten times with the 10mm Pistol.
 5. **Not done:** repair (you said later), jamming and slower fire of worn weapons, a
    worn item selling for less.
+
+## The HUD: health, compass, action points, condition, ammo (2026-10-11, session "hud")
+
+You asked for the other things on the screen to look like the original's, after your
+labelled Goodsprings screenshot. **That screenshot did not reach this session as a
+file** (only a description of it in words), so the HUD is built from the game's own
+interface files and pictures, and everything those files leave open is my guess until
+I can measure your picture. Please attach it again, or drop it in
+`C:\fnv-private\references\hud\`.
+
+1. **What you get.** In `--play`, at the bottom left: "HP", the health bar of small
+   upright ticks on the game's bracket, and under it the compass strip, which turns as
+   you turn. At the bottom right: the action points bar with "AP", and under it "CND"
+   with the weapon's condition bar and, right of the divider, the ammo as
+   loaded/carried. Brackets, ticks, compass strip and letters are the game's own
+   pictures and font, read from your install when the game runs (nothing of them is in
+   the repository). The old yellow "HP 100/100" and "13 / 37 9mm CND 60%" texts are
+   gone.
+2. **Where the numbers come from.** Health and action points are the player's real
+   values; the compass is the real heading; condition and ammo are the equipped
+   weapon's. Nothing spends action points yet (no V.A.T.S., no sprint), so that bar
+   stays full.
+3. **When it is shown.** While you walk around. It is off in every menu, in
+   conversations and behind loading screens (my choice: the game's file does not say),
+   and off while a script holds your movement, as the GECK wiki says of the original
+   (so not during the wake-up at Doc Mitchell's).
+4. **Guesses for you to judge** (all waiting for your screenshot):
+   - how far the two corners stand from the screen's edges (I took 40 and 30 of 960);
+   - the bars' length: the game's file says 300, but that runs over the label or past
+     the bracket, so I took 256 (32 ticks), ending at the bracket's small corner mark;
+   - where "HP", "AP", "CND" and the ammo stand;
+   - the compass's middle: I centred the heading in the window the file gives; the
+     bracket's small triangle is a little left of that;
+   - the action points bar emptying from the left, the health bar from the right;
+   - with bare hands: no "CND" and no ammo. With a melee weapon: "CND" but no ammo.
+     Your picture shows "0/0" - which weapon were you holding (or none)?
+   - everything at full brightness; the game may draw lines a little dimmer than text.
+5. **Not built:** markers on the compass (quests, places, people nearby) and its
+   faded ends; the original's crosshair, enemy health bar, sneak meter, the messages
+   and their icons at the top left, subtitles and the "E) Open" prompt in the game's
+   font, the XP and radiation meters, the crippled-limb picture (crippled limbs are
+   still a line of words), the ammo type's name, Hardcore mode's words, the HUD's
+   fading and glow.
+6. **To see it yourself:**
+   `nvforever --data <Data> --cell Goodsprings --play --size 1280x720 --no-overlay`,
+   press the view key for third person. Details and the test recipe:
+   `docs/spec-notes/hud.md`.

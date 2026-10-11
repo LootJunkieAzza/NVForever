@@ -91,10 +91,9 @@ const HUD_TEXTURES: &str = "textures\\interface\\hud\\";
 /// What the HUD shows.
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct HudView {
-    /// The HUD is on the screen at all (the player is in the world).
+    /// The HUD is on the screen: the player is in the world, and no script holds the
+    /// player's movement (§5).
     pub shown: bool,
-    /// The health piece is shown (a script that holds the player's movement hides it).
-    pub health_shown: bool,
     /// Health and action points, 0 to 1 of their full values.
     pub health: f32,
     pub action_points: f32,
@@ -105,7 +104,7 @@ pub struct HudView {
 
 impl Default for HudView {
     fn default() -> Self {
-        HudView { shown: false, health_shown: true, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default() }
+        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default() }
     }
 }
 
@@ -191,10 +190,10 @@ fn gather(
     mut sim: ResMut<SimState>,
     mut view: ResMut<HudView>,
 ) {
-    let mut now = HudView { shown: *state.get() == PlayState::Playing, ..view.clone() };
-    // [documented: GECK wiki DisablePlayerControls, the movement flag: "the health part
-    // of the HUD".]
-    now.health_shown = !locks.is_some_and(|l| l.movement);
+    // [documented: GECK wiki DisablePlayerControls, the movement flag: "HUD is partially
+    // disabled: Action Points, Health, Crosshair".]
+    let held = locks.is_some_and(|l| l.movement);
+    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held, ..view.clone() };
     if let Some(p) = &player {
         now.heading = p.heading.to_degrees();
     }
@@ -244,10 +243,6 @@ fn load_art(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Ar
 
 #[derive(Component)]
 struct HudRoot;
-
-/// The health piece (hidden apart from the rest).
-#[derive(Component)]
-struct HealthPiece;
 
 #[derive(Component, Clone, Copy, PartialEq)]
 enum Bar {
@@ -320,7 +315,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
     commands.spawn((HudRoot, screen, Visibility::Hidden, Pickable::IGNORE)).with_children(|root| {
         // Health and compass, bottom left.
         let piece = Node { position_type: PositionType::Absolute, left: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(HP_PANEL.x), height: u(HP_PANEL.y), ..default() };
-        root.spawn((HealthPiece, piece, Visibility::Inherited)).with_children(|p| {
+        root.spawn(piece).with_children(|p| {
             spawn_bracket(p, &art.left_bracket, &[LEFT_UPRIGHT], color);
             label(p, HP, places.hp_label, UPPER_BASE);
             spawn_meter(p, Bar::Health, places.hp_meter, places.meter_y, false, art, color);
@@ -369,9 +364,8 @@ fn draw(
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut art: Local<Option<Art>>,
     mut ammo_shown: Local<Option<String>>,
-    mut root: Query<&mut Visibility, (With<HudRoot>, Without<HealthPiece>, Without<ConditionRow>)>,
-    mut health: Query<&mut Visibility, (With<HealthPiece>, Without<HudRoot>, Without<ConditionRow>)>,
-    mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>, Without<HealthPiece>)>,
+    mut root: Query<&mut Visibility, (With<HudRoot>, Without<ConditionRow>)>,
+    mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>)>,
     mut bars: Query<(&Bar, &mut Node), Without<Strip>>,
     mut strip: Query<&mut Node, With<Strip>>,
     ammo: Query<Entity, With<AmmoText>>,
@@ -391,9 +385,6 @@ fn draw(
     }
     if !view.shown {
         return;
-    }
-    for mut v in &mut health {
-        v.set_if_neq(show(view.health_shown));
     }
     for mut v in &mut condition {
         v.set_if_neq(show(view.weapon.condition.is_some()));
