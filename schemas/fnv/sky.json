@@ -1546,6 +1546,14 @@
      "type": "formid",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas REGN sound data entry (repeated RDSB 'Battle MediaSets', MSET)"
+    },
+    "RDID": {
+     "name": "Imposters",
+     "type": {
+      "array": "formid"
+     },
+     "confidence": "observed",
+     "note": "The region's imposter list: the references with the REFR XSRF Imposter flag that are drawn always while the player is in the region [documented: GECK wiki 'Reference', owner's export]. Observed in FalloutNV.esm: present only after an RDAT of type 8, in 18 regions (StripImposter lists 222 references, StripImposterClose 10), each entry a REFR FormID; the subrecord name is not checked against xEdit"
     }
    }
   }
