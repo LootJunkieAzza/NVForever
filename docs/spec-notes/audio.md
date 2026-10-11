@@ -389,15 +389,7 @@ nothing links it to the tumbleweed (its MSTT has no `SNAM`) [observed].
   `UIPopUpMessageGeneral` names the same file, `fx\ui\popup\ui_popup_messagewindow.wav`
   [observed]], `UIMenuOK` when a button is picked (the box goes), `UIMenuFocus` when the
   choice moves.
-- Named by the interface files and not built [observed: `clicksound` and
-  `mouseoversound` in `menus\*.xml`]: `UIMenuOK`, `UIMenuPrevNext`, `UIMenuCancel`,
-  `UIMenuFocus`, `UIPipboySelect`, `UIPipboyScroll`, `UIPipBoyMode`, `&nosound;`, and
-  the numbers 1, 2, 3 and 9 (what they stand for is not known). `globals.xml` sets
-  `_sound_button_click` to `UIMenuOK`.
-- Other UI SOUN in FalloutNV.esm, not built: `UIMenuMode`, `UIMenuTab`, `UIPipBoy…`
-  (access up and down, light, tabs, scroll, hum, radiation), `UIPopUpQuestNew`,
-  `UIPopUpQuestComplete`, `UIPopUpExperienceUp`, `UILevelUp`, `UIKarmaUp` and `…Down`,
-  `UIRepGood` and `…Bad`, `UIItemTakeAll`, and the lockpicking, hacking and VATS sounds.
+- What the interface files name for the other menus, and what NVForever plays in them: §12.
 
 ### 11.5 Scripts
 
@@ -419,3 +411,111 @@ the house).
 Not built: an activator's looping sound (ACTI `SNAM`), a container's random or looping
 one (CONT `RNAM`), the casings' PHY sounds, two loose bodies knocking each other told
 apart from one on the ground, loudness by how hard a knock is, panning.
+
+## 12. Menu sounds
+
+Owner request 2026-10-11: build the sounds still missing; this part is the menus'. Code:
+`nvf_play::ui_sounds` (the table `sound_for`, the menus watched, the summary), with
+small hooks in `menu.rs` (a command's outcome), `pause.rs` (a switch flipped) and
+`world_sounds.rs` (Take All). Message boxes (§11.4) and the quest lines
+(quest-messages.md) play their own.
+
+### 12.1 What the interface files say
+
+A control of an interface file names a sound to play when it is clicked
+(`<clicksound>`) and when the pointer comes onto it (`<mouseoversound>`): the Editor ID of
+a SOUN [documented: GECK wiki Mouseoversound, owner export]; leaving it out is silence
+like `&nosound;` unless a parent gives one [documented: same page]. The wiki's
+interface guide calls `clicksound` "a numeric element" [documented: GECK wiki, Misc.xml
+export], and some files give numbers.
+
+Counted [observed 2026-10-11] over the 121 `.xml` files of `Fallout - Misc.bsa` (all of
+`menus\`; `Update.bsa` holds none): 89 `clicksound` and 19 `mouseoversound` in 28 files,
+and `globals.xml` sets `_sound_button_click` to `UIMenuOK`.
+
+| Value | clicksound | mouseoversound | Where |
+|---|---|---|---|
+| `UIMenuPrevNext` | 20 | | prev/next arrows (level up, character, tutorial, map), the settings' meters and toggles (start_menu.xml), the race menu's sliders |
+| `3` | 18 (2 more only off Xbox) | | every scroll bar prefab's arrows, sides and marker (vertical_scroll, vert_floating_scroll, horizontal_scroll, horiz_floating_scroll) |
+| `&nosound;` (`nosound` once) | 15 | 13 | the inventory, map, stats, repair, item mod and reputation lists; level-up and character items; the dialogue topics (click only) |
+| `UIMenuOK` | 9 | | list_box_template.xml rows; Continue, Done and the settings' buttons |
+| `UIMenuFocus` | | 6 | list_box_template.xml rows, text_box, super_text_box, tab_box, the race menu |
+| `UIPipboySelect` | 6 | | the stats page's CND, RAD, EFF, H2O, FOD and SLP buttons |
+| `1` | 6 | | the main menu's six entries |
+| `2` | 4 | | return buttons (select menu, save/load), the quest-added buttons |
+| `UIPipboyScroll`, `UIPipBoyMode` | 2, 2 | | the race menu's scroll arrows; its back and next buttons |
+| `UIMenuCancel` | 1 | | start_menu.xml `main_back_button` |
+| `9` | 1 | | the QuestAddedMenu itself |
+| copied | 3 | | book_menu.xml's pages from `BookMenu` `user8`; button_basic.xml from `gloabls()` `_sound_button_click` (spelt so) |
+
+- What the numbers stand for is not known; no file or wiki page maps them. They are not
+  played [design].
+- The files write `UIPipboySelect` and `UIPipboyScroll` where the records are
+  `UIPipBoySelect` and `UIPipBoyScroll` [observed]; Editor IDs are taken here as the
+  records spell them.
+- The menus NVForever draws, by their files: the container and barter rows and the
+  dialogue topics include `list_box_template.xml` (click `UIMenuOK`, pointer
+  `UIMenuFocus`), and the dialogue topics silence the click (`DM_Topic` `&nosound;`); the
+  inventory's rows silence both (`IM_InventoryListTemplateRect`); the container and
+  barter buttons (`text_box.xml`) name only `UIMenuFocus`; `sleep_wait_menu.xml`'s
+  scroll bar (`scrollbar_horiz.xml`) and buttons name no click; `message_menu.xml`
+  names none for opening; no menu file names a sound for opening or closing
+  [all observed].
+
+Files of the UI SOUN used [observed: FalloutNV.esm `FNAM`]: `UIMenuOK`
+`fx\ui\menu\ui_menu_ok.wav`, `UIMenuFocus` and `UIPipBoyScroll` both
+`fx\ui\menu\ui_menu_focus.wav`, `UIMenuPrevNext` `…\ui_menu_prevnext.wav`,
+`UIMenuCancel` `…\ui_menu_cancel.wav` (as `UIActivateNothing`), `UIMenuMode`
+`fx\ui\pipboy\ui_pipboy_mode.wav` (as `UIPipBoyMode` and `UICheckBox`), `UIMenuTab`
+`fx\xxx_placeholder_silence.wav` (a silent placeholder), `UIPipBoyAccessUp` / `…Down`
+`fx\ui\pipboy\ui_pipboy_access_up.wav` / `…_down.wav`, `UIItemTakeAll`
+`fx\ui\items\ui_items_takeall.wav`. 123 SOUN of FalloutNV.esm start with `UI`.
+
+**Aid items** name the sound of being used: ALCH `ENIT` bytes 16–19, Sound - Consume
+[documented: xEdit, schemas/fnv/objects.json]. FalloutNV.esm: 186 of 189 ALCH name one
+(`NPCHumanEatingFoodChewy` 93, `…Crunchy` 20, `NPCHumanDrinkingSoda` 19,
+`NPCHumanUsingComic` 15, the Stimpak `NPCHumanUsingStimpak`, …) [observed]; the owner's
+load order: 219 of 226 [observed, `nvforever --play` start-up].
+
+### 12.2 What plays
+
+| Menu | Event | Sound | Source |
+|---|---|---|---|
+| container, barter, dialogue, settings | the selection moves (keys, wheel, pointer; to the other list) | `UIMenuFocus` | [observed] the rows' mouse-over; [design] for the keys |
+| barter | an item put up or taken back | `UIMenuOK` | [observed] the rows' click |
+| dialogue | a choice answered | none | [observed] `DM_Topic` `&nosound;` |
+| settings page | chosen; a switch flipped; back | `UIMenuOK`; `UIMenuPrevNext`; `UIMenuCancel` | [observed] start_menu.xml rows, toggles, back button |
+| inventory | opened, closed (Tab) | `UIPipBoyAccessUp`, `…Down` | [design] Tab is the Pip-Boy's control; by name |
+| inventory | the selection moves | `UIPipBoyScroll` | [hypothesis] the file silences its rows; the Pip-Boy's scroll by name (the same file as `UIMenuFocus`) |
+| inventory | an item put on, taken off | the item's pick-up, drop sound (§11.3) | [design] |
+| inventory | an aid item used | its ALCH consume sound | [documented] the field; [hypothesis] that the menu plays it |
+| inventory | refused ("Cannot equip or use") | `UIMenuCancel` | [design] |
+| container | opened, closed | the CONT's own (§11.3) | [design] nothing more |
+| container | an item taken or put in | the item's own (§11.3) | |
+| container | Take All | `UIItemTakeAll`; the items' own held back | [hypothesis] by name |
+| container, barter | another category | `UIMenuPrevNext` | [design] as other menus' prev/next arrows |
+| barter | the trade made | the caps' pick-up sound when paid, their drop sound when paying; `UIMenuOK` when no caps move | [design] |
+| barter | refused (not enough caps, nothing to trade) | `UIMenuCancel` | [design] |
+| barter, Wait/Sleep, pause | opened | `UIMenuMode` | [design] by name |
+| barter, Wait/Sleep, pause | exit, cancel, resume | `UIMenuCancel` | [design] as the settings' back button |
+| Wait/Sleep | the slider moved | `UIMenuPrevNext` | [hypothesis] as the settings' meters; the menu's own scroll bar names none |
+| Wait/Sleep | the hours accepted | `UIMenuOK` | [design] the basic button's click (`_sound_button_click`) |
+| Wait/Sleep | closed after the last hour | none | [design] |
+
+All at the listener. The caps (MISC 0x0000000F `Caps001`) name no sound [observed in the
+run: a trade's caps fall back to `UIItemGenericUp` / `…Down`, §11.3]; `ITMBottlecapsUp`
+and `…Down` exist but nothing links them [observed].
+
+### 12.3 Checks and what is left
+
+Log: `ui sounds: <menu> <event>: <sound>` (moves of the selection at debug), at the end
+`ui sounds summary: …` (sounds played by Editor ID, events by menu, events without a
+sound and why, sounds not found, items held back for Take All). Smoke test in CLAUDE.md
+(Chet's barter, the cash register, the inventory, a stimpak, the Wait menu, the pause
+menu's settings) [observed 2026-10-11]: 24 played, 0 not found.
+
+Not built: the menus that do not exist yet (the Pip-Boy's pages, tabs, light, hum and
+radiation sounds; lockpicking, hacking, VATS, level up, perks, repair, surgery, the main
+menu, loading screens), the popups not drawn (`UIPopUpExperienceUp`, `UILevelUp`,
+`UIKarmaUp` / `…Down`, `UIRepGood` / `…Bad`, `UIPopUpMapMarkerAdded`), the numbered
+sounds 1, 2, 3 and 9, the quantity menu.
