@@ -237,7 +237,7 @@ impl Plugin for PlayPlugin {
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin, flashlight::FlashlightPlugin))
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin))
-            .add_plugins(world_sounds::WorldSoundsPlugin)
+            .add_plugins((world_sounds::WorldSoundsPlugin, reticle::ReticlePlugin))
             .add_plugins(ui_sounds::UiSoundsPlugin)
             .add_plugins(chargen::ChargenPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
@@ -256,6 +256,42 @@ mod tests {
 
     fn travel(world: Option<u32>, interior: Option<u32>) -> Travel {
         Travel { world, interior, feet: [0.0; 3], heading_deg: 0.0 }
+    }
+
+    /// Every plugin of this crate is added somewhere (here or by nvforever): the crosshair's
+    /// plugin was once written and never added, so the crosshair was not drawn (the
+    /// playtest of 2026-10-11).
+    #[test]
+    fn every_plugin_is_added() {
+        fn sources(dir: &std::path::Path, out: &mut Vec<String>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    sources(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push(std::fs::read_to_string(&p).unwrap());
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut texts = Vec::new();
+        sources(&root.join("src"), &mut texts);
+        sources(&root.join("../nvforever/src"), &mut texts);
+        let plugins: Vec<String> = texts
+            .iter()
+            .flat_map(|t| t.lines())
+            .filter_map(|l| l.trim().strip_prefix("impl Plugin for ").and_then(|r| r.split_whitespace().next()).map(str::to_string))
+            .collect();
+        assert!(plugins.len() > 30, "{plugins:?}");
+        let added = |p: &str| {
+            let word = |l: &str| l.split(|c: char| !c.is_alphanumeric() && c != '_').any(|w| w == p);
+            texts.iter().flat_map(|t| t.lines()).filter(|l| word(l)).any(|l| {
+                let l = l.trim();
+                !l.starts_with("impl Plugin for") && !l.starts_with("pub struct") && !l.starts_with("struct") && !l.starts_with("//")
+            })
+        };
+        let missing: Vec<&String> = plugins.iter().filter(|p| !added(p)).collect();
+        assert!(missing.is_empty(), "plugins never added: {missing:?}");
     }
 
     #[test]

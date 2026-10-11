@@ -104,9 +104,10 @@ const TITLE_BASE: f32 = 21.5;
 const LINE_PITCH: f32 = 35.0;
 /// The key hint stands this far right of its button's text ("Accept A)").
 const HINT_GAP: f32 = 16.0;
-/// How dark the picture behind the menu makes the world: about a third at its edge on
+/// How dark the original's picture behind the menu makes the world: about a third at its edge on
 /// the barter screenshot (the world behind is also blurred there; not built).
-const SHADE: f32 = 0.33;
+/// Ours is darker, the owner's wish ([`crate::interface::MENU_BACKING`]).
+const SHADE: f32 = crate::interface::MENU_BACKING;
 
 const BODY_FONT: &str = "textures\\fonts\\monofonto_large.fnt";
 const TITLE_FONT: &str = "textures\\fonts\\glow_monofonto_vl_dialogs.fnt";

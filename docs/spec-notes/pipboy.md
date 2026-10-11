@@ -385,12 +385,21 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   Space to equip, unequip or use, X to drop one, Shift+X the stack [design].
 - The pointer is followed onto the model: on the screen, it is passed to the menus as
   a pointer of their own (Bevy's picking, as its `render_ui_to_texture` example does); a
-  click on a button on the device shows its page. A tab and a row take clicks.
+  click on a button on the device shows its page. A tab and a row take clicks; the
+  pointer on a row selects it, a click on the selected row acts on it.
+- The pointer is found on the shapes as the arm's bones pose them, from CPU copies of
+  the screen's and the buttons' meshes (nvforever `pipboy_arm.rs`, `Posed`) [design].
+  Until 2026-10-11 Bevy's mesh ray cast was used, which sees neither the skinning nor a
+  mesh kept on the GPU only, so no click on the model did anything (the owner's
+  playtest). The button under the pointer glows as the page shown's does [design].
 
 ## 7. Checking it
 
 `NVF_PLAY_TEST_PIPBOY=<seconds>:<step>,...` with steps `open`, `close`,
-`page=stats|items|data`, `tab=<0-4>`, `key=down|up|use|drop`; screenshots with
+`page=stats|items|data`, `tab=<0-4>`, `key=down|up|use|drop`, and for the pointer
+`point=<x>:<y>` (the pointer on that canvas point, through the model's screen),
+`point=off`, `click=<x>:<y>` and `click=stats|items|data` (a click on the device's
+button; logged "pipboy: the STATS button pressed"); screenshots with
 `NVF_PLAY_TEST_SHOTS`. A new game's add-on message boxes come first: answer them with
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.05` and open after about 12 s:
 
@@ -401,6 +410,11 @@ NVF_PLAY_TEST_SCRIPT_MENUS=0.05 NVF_PLAY_TEST_PIPBOY="12:open,15:page=stats,17:c
 Expect "pipboy: up, page ITEMS tab Weapons", "pipboy: the menus are on the model's
 screen", "pipboy: STATS Status", "pipboy: down". Compare at 1280 × 720 with the owner's
 pictures.
+
+The mouse (2026-10-11): `NVF_PLAY_TEST_PIPBOY="12:open,14:click=320:650,16:click=stats,18:click=600:650"`
+gives "pipboy: ITEMS Apparel" (the second tab), "pipboy: the STATS button pressed",
+"pipboy: STATS Status" and "pipboy: STATS Perks"; `point=200:330` on ITEMS boxes the
+fourth row, and a click on a row equips what it selects.
 
 ## 8. Open
 

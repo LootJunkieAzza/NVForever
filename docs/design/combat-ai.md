@@ -126,6 +126,9 @@ StartCombat is called 938 times in the masters' scripts: quest fights now start 
   grenades; ammunition use.
 - OnStartCombat / OnCombatEnd blocks; crimes and assault making actors hostile.
 - The original's death camera and reloading the last save.
+- Aiming down the sights for NPCs at range, slowed to walking as the player is while
+  aiming (`nvf_play::player::aiming_walks`, the owner's wish of 2026-10-11; the owner's
+  list asks for it beyond 20 m, hip fire nearer).
 
 ## 9. How fighters look (step CA2)
 
