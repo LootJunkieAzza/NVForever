@@ -421,6 +421,21 @@ Joe Cobb and Trudy (below).
   and with several Link To topics "the game [selects] one … at random"; a line with the
   Goodbye flag ends it; "infos in conversations cannot have more than one response.
   Extra responses are ignored" [documented: Conversation Tab].
+- **Only Conversation lines** (`fnv_game::dialogue::between_actors`): every line said
+  between two actors (the first, follow-ups, Link To lines) has the INFO type
+  Conversation; Topic lines, the Topics tab's lines for the player, are passed over as
+  if they could not be said [owner ruling 2026-10-11: "the dialogue between npcs should
+  ONLY use the conversation options not the Topics", after a test run in which Sunny
+  Smiles greeted another actor with the player's lines]. Why it mattered: HELLO holds
+  569 Topic lines and 505 Conversation lines, and the topics HELLO links to 1,823 Topic
+  and 2,325 Conversation lines [observed: `fnvtool dialogue lines --all`]; Sunny has no
+  HELLO line of her own, and for each of 11 Goodsprings residents her first sayable
+  HELLO line was a Topic line, while each now opens with a Conversation line [observed:
+  `dialogue_data.rs`, `sunny_opens_conversations_with_conversation_lines`]. Of the 20
+  scripted StartConversation calls with an actor and a named topic, 19 name topics of
+  Conversation lines only; NellisArgyllPatientHealedDumb (SCPT 001009F2) holds one Topic
+  line, so that exchange is now silent [open: whether the rule should spare a topic a
+  script names; owner question].
 - **Start.** The speaker says the line of `topic` it can say with the target as the
   conditions' target (§4); HELLO without a topic [hypothesis, from the Conversation
   Tab: random conversations start with HELLO]. Nothing starts when either side is
@@ -514,6 +529,11 @@ a five-line exchange at Nellis. 1,065 have Link From blank, so can start one
   conversation started (a one-line remark, 00175374, which links nowhere). When: the player within 300 units; again only
   after the player has gone beyond 600; one hello at a time [stand-ins: no distance or
   timer for hellos is documented, and none is set in the masters].
+- **Which lines**: a hello to the player may be a Topic or a Conversation line (the
+  Fiends' openers are Conversation lines, owner statement above); a random
+  conversation uses Conversation lines only (§5.1). In the engine in Vault 3 (200 s)
+  the 12 lines of 4 random conversations were all Conversation lines [observed: the
+  script trace, `NVF_PLAY_SCRIPT_TRACE`].
 - **A random conversation** (`Game::start_actor_conversation` with HELLO, then §5.1):
   an actor whose package may start one (Sandbox, Guard, Eat, Patrol; the behaviour
   allowed; not "No Conversation") looks for a partner after a time drawn between
