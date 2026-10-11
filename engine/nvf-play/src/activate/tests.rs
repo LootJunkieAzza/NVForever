@@ -149,6 +149,7 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .add_message::<RefChanged>()
         .add_message::<crate::furniture::UseFurniture>()
         .add_message::<crate::world_sounds::Activated>()
+        .add_message::<crate::terminal::OpenTerminal>()
         .add_systems(Update, (find_target, activate, sync_visuals).chain());
     app
 }
