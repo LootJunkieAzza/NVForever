@@ -200,3 +200,20 @@ within a pixel in every one of these (§7).
   in both; the first line of text from 102 to 246 against 103 to 246.
 - `--no-overlay` matters for looking: nvforever's own status text is at the top left
   too and lies over the message.
+
+## 8. The subtitles
+
+Lines said out loud that are not the conversation with the player (SayTo, Say, a radio's
+talk; `engine/nvf-play/src/script_hud.rs`) are drawn at the bottom centre:
+
+- In the interface's colour (§2.1's `&hudmain;`) [documented: menus\main\hud_main_menu.xml,
+  the `Subtitles` rect has `systemcolor &hudmain;`, width 800, height 110].
+- In font 7, the font of the HUD's text templates [documented:
+  menus\prefabs\hudtemplates.xml]; centred, broken at the rect's width of 800.
+- The text alone, without the speaker's name [observed: the owner's screenshot,
+  2026-10-11]; the log's `subtitle:` lines keep "Speaker: text".
+- Where: the first line's base 633 units under the top of the view, the lines 38 apart,
+  centred across [observed: the same screenshot; it shows the G.O.A.T. classroom, so it
+  may be Fallout 3's HUD, taken as the same layout — hypothesis]. Where a single line
+  stands, and whether the text starts at the rect's top or ends at its bottom, is not
+  known [hypothesis: from the top].
