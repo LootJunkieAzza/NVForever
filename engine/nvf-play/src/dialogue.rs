@@ -2,8 +2,8 @@
 //! the checks: docs/design/dialogue-play.md). The conversation itself is the runtime's
 //! (`fnv_game::dialogue`, docs/spec-notes/dialogue.md §4–§6): this file shows
 //! `Game::dialogue` and turns keys and clicks into `Game::choose`, `Game::skip_response`
-//! and `Game::end_dialogue`. Layout and wording are NVForever's own and plain (Layer 7
-//! builds the real interface); nothing here imitates the original's screen.
+//! and `Game::end_dialogue`. The menu is drawn as the original's by
+//! `crate::dialogue_menu` (docs/spec-notes/dialogue-menu.md).
 //!
 //! - **Start.** E on an actor whose default action is to talk starts a conversation with
 //!   its greeting (`script::Runtime::talk_after`); so does a script's `Activate player`
@@ -31,16 +31,18 @@
 //!   that keeps what scripts see]. A message box a result script shows holds the
 //!   conversation until it is answered (the runtime's rule); Esc opens the pause menu,
 //!   which holds everything, the actor's voice included.
-//! - **The actor speaks.** The response being said is a subtitle, "Speaker: text"
-//!   ([`subtitle`], drawn by `crate::script_hud` with the other subtitles). Space, Enter,
-//!   Activate (E) or a click skip to the next response (`Game::skip_response`).
-//! - **The player chooses.** The offered choices are listed and numbered: 1–9 pick one,
-//!   Up / Down (W / S, the mouse wheel) move the selection, Enter, Space or Activate pick
-//!   the selected one, a click picks the one under the cursor. A choice the actor has
-//!   answered before is dimmed (`Choice::darkened`); a skill or perk line carries its tag.
+//! - **The actor speaks.** The response being said is shown on a dark band, the actor's
+//!   name at the top right (`crate::dialogue_menu`); the log's `subtitle:` line has it as
+//!   "Speaker: text" ([`subtitle`]). Space, Enter, Activate (E) or a click skip to the
+//!   next response (`Game::skip_response`).
+//! - **The player chooses.** The offered choices are listed between two brackets: 1–9
+//!   pick one by its place, Up / Down (W / S, the mouse wheel) move the selection, Enter,
+//!   Space or Activate pick the selected one, a click picks the one under the cursor. A
+//!   choice the actor has answered before is dimmed (`Choice::darkened`); a skill or perk
+//!   line carries its tag, and the frame of one the player falls short of is red.
 //! - **Leaving.** Tab says goodbye: it picks the offered Goodbye choice, so the actor
 //!   says its goodbye line and the conversation ends as the data ends it. Without such a
-//!   choice Tab is refused (a forced conversation).
+//!   choice Tab is refused (a forced conversation; a log line says so).
 //!
 //! Debug switch `NVF_PLAY_DEBUG_TALK_BREAK=1` (off unless set; a development tool, not
 //! for a release [owner decision 2026-10-10]): Shift+Tab breaks the conversation off at
@@ -75,6 +77,7 @@
 //! each thing the player or the aid did.
 
 use crate::bindings::{Control, ControlInput};
+use crate::dialogue_menu::{ChoiceRow, DialogueMenu, MenuView, TAG_GAP};
 use crate::menu::ActiveMenu;
 use crate::pause::{MenuPause, Paused};
 use crate::phys::PhysState;
@@ -89,8 +92,6 @@ use fnv_game::{Game, GameData};
 use fnv_sim::FormId;
 use std::collections::{HashMap, VecDeque};
 
-/// Choices shown at once; a longer list scrolls with the selection.
-pub const ROWS: usize = 10;
 /// Seconds the choices are on screen before the test aid picks one (so the list is
 /// drawn and logged first).
 pub const AID_CHOOSE_SECONDS: f32 = 0.25;
@@ -102,9 +103,6 @@ pub const UNATTENDED_CHOOSE_SECONDS: f32 = 1.0;
 /// Unattended runs: seconds after which any conversation is broken off (a chain of
 /// lines that never comes to a choice).
 pub const UNATTENDED_TALK_LIMIT: f32 = 600.0;
-/// Seconds a note ("cannot leave") stays on the panel.
-const NOTE_SECONDS: f32 = 3.0;
-
 // ---- the test aid's script (pure) -----------------------------------------------------
 
 /// One step of an `NVF_PLAY_TEST_TALK` script.
@@ -220,19 +218,6 @@ pub fn pick(step: &Step, offers: &[Offer]) -> Result<usize, String> {
     }
 }
 
-/// The first row shown so that `selected` is among the [`ROWS`] visible ones, moving the
-/// window (which starts at `first`) as little as possible.
-pub fn window_start(first: usize, selected: usize, len: usize) -> usize {
-    let first = first.min(len.saturating_sub(ROWS));
-    if selected < first {
-        selected
-    } else if selected >= first + ROWS {
-        selected + 1 - ROWS
-    } else {
-        first
-    }
-}
-
 /// The tag of a skill or perk line: "[Speech 40]", "[Speech 37/40]" when the player
 /// falls short, "[Speech]" when the line's conditions name no level
 /// [documented: GECK wiki Category:Dialogue "AV/Perk", as `fnv_game::dialogue::Challenge`
@@ -254,14 +239,20 @@ fn speaker_name(g: &Game, sim: &SimState, actor: FormId) -> String {
     sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(actor))
 }
 
-/// The subtitle of the response being said in the conversation: "Speaker: text".
-pub fn subtitle(g: &Game, sim: &SimState) -> Option<String> {
+/// The text of the response being said in the conversation, if it has any.
+fn response_text(g: &Game) -> Option<String> {
     let c = g.dialogue.as_ref()?;
     let l = c.line.as_ref()?;
     let def = g.data.infos.get(&l.info)?;
     let r = *def.response_order().get(l.response)?;
     let text = def.responses[r].text.trim();
-    (!text.is_empty()).then(|| format!("{}: {text}", speaker_name(g, sim, c.actor)))
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+/// The subtitle of the response being said in the conversation: "Speaker: text".
+pub fn subtitle(g: &Game, sim: &SimState) -> Option<String> {
+    let c = g.dialogue.as_ref()?;
+    response_text(g).map(|text| format!("{}: {text}", speaker_name(g, sim, c.actor)))
 }
 
 fn offers(g: &Game, choices: &[Choice]) -> Vec<Offer> {
@@ -271,20 +262,14 @@ fn offers(g: &Game, choices: &[Choice]) -> Vec<Offer> {
         .collect()
 }
 
-/// A row of the list: what it reads, and whether it is dimmed.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Row {
-    pub index: usize,
-    pub label: String,
-    pub darkened: bool,
-}
-
-fn row_label(index: usize, text: &str, fallback: &str, tag: Option<String>) -> String {
+/// What a choice reads: a check's tag and the line [observed: two spaces between them on
+/// the owner's screenshot]; a topic without a line shows its name.
+fn row_label(text: &str, fallback: &str, tag: Option<String>) -> String {
     let text = text.trim();
     let text = if text.is_empty() { format!("({fallback})") } else { text.to_string() };
     match tag {
-        Some(t) => format!("{}) {t} {text}", index + 1),
-        None => format!("{}) {text}", index + 1),
+        Some(t) => format!("{t}{TAG_GAP}{text}"),
+        None => text,
     }
 }
 
@@ -293,41 +278,28 @@ fn tag_of(g: &Game, sim: &SimState, c: &Challenge) -> String {
     challenge_tag(&name, c.needed, c.have)
 }
 
-/// What the panel shows.
-#[derive(Debug, Clone, PartialEq)]
-struct View {
-    speaker: String,
-    /// The visible rows (none while the actor speaks).
-    rows: Vec<Row>,
-    above: usize,
-    below: usize,
-    hint: String,
-    note: Option<String>,
-}
-
-fn view(g: &Game, sim: &SimState, sc: &DialogueScreen) -> Option<View> {
+/// What the menu shows.
+fn view(g: &Game, sim: &SimState) -> Option<MenuView> {
     let c = g.dialogue.as_ref()?;
-    // A message box or menu over the conversation takes the input: the panel goes.
+    // A message box or menu over the conversation takes the input: the menu goes.
     if held(g) {
         return None;
     }
     let speaker = speaker_name(g, sim, c.actor);
-    let note = sc.note.as_ref().map(|n| n.0.clone());
     if c.line.is_some() || c.choices.is_empty() {
-        return Some(View { speaker, rows: Vec::new(), above: 0, below: 0, hint: "Space, Enter, E or click: skip".into(), note });
+        return Some(MenuView { speaker, line: response_text(g), choices: Vec::new() });
     }
-    let len = c.choices.len();
-    let first = window_start(sc.first, sc.selected.min(len - 1), len);
-    let end = (first + ROWS).min(len);
-    let rows = (first..end)
-        .map(|i| {
-            let ch = &c.choices[i];
+    let choices = c
+        .choices
+        .iter()
+        .map(|ch| {
             let fallback = g.data.name(ch.topic);
-            Row { index: i, label: row_label(i, g.choice_text(ch), &fallback, ch.challenge.as_ref().map(|t| tag_of(g, sim, t))), darkened: ch.darkened }
+            let tag = ch.challenge.as_ref().map(|t| tag_of(g, sim, t));
+            let short = ch.challenge.as_ref().is_some_and(|t| matches!((t.needed, t.have), (Some(n), Some(h)) if h < n));
+            ChoiceRow { label: row_label(g.choice_text(ch), &fallback, tag), darkened: ch.darkened, short }
         })
         .collect();
-    let leave = if c.choices.iter().any(|ch| ch.goodbye) { "    Tab: goodbye" } else { "" };
-    Some(View { speaker, rows, above: first, below: len - end, hint: format!("1-9, Up/Down + Enter or E, click: choose{leave}"), note })
+    Some(MenuView { speaker, line: None, choices })
 }
 
 // ---- the log ----------------------------------------------------------------------------
@@ -434,12 +406,10 @@ impl TalkAid {
 /// The dialogue screen: the selection, the test aid and what is drawn.
 #[derive(Resource, Default)]
 pub struct DialogueScreen {
-    /// The selected choice and the first row shown.
+    /// The selected choice.
     selected: usize,
-    first: usize,
     /// The offered list the selection belongs to: the actor and the lines said so far.
     list: Option<(FormId, u32)>,
-    note: Option<(String, f32)>,
     aid: TalkAid,
     /// An unattended run: nobody is there to choose.
     unattended: bool,
@@ -452,7 +422,6 @@ pub struct DialogueScreen {
     talk_since: Option<f32>,
     choosing_since: Option<f32>,
     speaking: Option<((FormId, usize), f32)>,
-    drawn: Option<View>,
 }
 
 impl DialogueScreen {
@@ -471,8 +440,8 @@ impl DialogueScreen {
                 warn!("test aid NVF_PLAY_TEST_TALK: the conversation ended with {} steps unused: {:?}", d.steps.len(), d.steps);
             }
         }
-        (self.selected, self.first, self.list) = (0, 0, None);
-        (self.talk_since, self.choosing_since, self.speaking, self.note) = (None, None, None, None);
+        (self.selected, self.list) = (0, None);
+        (self.talk_since, self.choosing_since, self.speaking) = (None, None, None);
     }
 }
 
@@ -531,7 +500,8 @@ impl Plugin for DialoguePlugin {
             // also a choice), before the frame's scripts (a choice's line starts in the
             // frame it was made).
             .add_systems(Update, input.in_set(PlaySet::Scripts).after(crate::script_hud::menu_keys).before(crate::script::run_scripts))
-            .add_systems(Update, (sync_state, draw).chain().in_set(PlaySet::Ui));
+            .add_plugins(crate::dialogue_menu::DialogueMenuPlugin)
+            .add_systems(Update, (sync_state, draw).chain().in_set(PlaySet::Ui).before(crate::dialogue_menu::DrawMenu));
     }
 }
 
@@ -567,15 +537,8 @@ fn input(
     let st = &mut *script;
     // The aids' clock: it goes on while the picture stands still (`crate::pause`).
     let now = time.0.elapsed_secs();
-    let dt = time.1.delta_secs();
     let Some(rt) = st.rt.as_mut() else { return };
     let mut notes: Vec<serde_json::Value> = Vec::new();
-    if let Some((_, left)) = sc.note.as_mut() {
-        *left -= dt;
-        if *left <= 0.0 {
-            sc.note = None;
-        }
-    }
 
     // The aid's conversations whose time has come.
     if let Some(s) = sc.aid.due(&rt.game, now, rt.game.dialogue.is_none()) {
@@ -624,7 +587,7 @@ fn input(
     let choosing = speaking.is_none() && !conv.choices.is_empty();
     let key = (conv.actor, conv.lines);
     if sc.list != Some(key) {
-        (sc.list, sc.selected, sc.first) = (Some(key), 0, 0);
+        (sc.list, sc.selected) = (Some(key), 0);
     }
     sc.talk_since.get_or_insert(now);
     match speaking {
@@ -739,7 +702,6 @@ fn input(
                 }
             }
             sc.selected = selected;
-            sc.first = window_start(sc.first, selected, len);
             if let Some(i) = (0..9).find(|&i| keys.just_pressed(digits[i]) || keys.just_pressed(pads[i])).filter(|&i| i < len) {
                 act = Some((Act::Choose(i), "number key"));
             } else if let Some(i) = clicked.filter(|&i| i < len) {
@@ -769,10 +731,7 @@ fn input(
             })
         });
         match (&error, act) {
-            (Some(e), Act::Leave { .. }) => {
-                info!("dialogue: Tab refused: {e}");
-                sc.note = Some(("You cannot leave this conversation yet.".into(), NOTE_SECONDS));
-            }
+            (Some(e), Act::Leave { .. }) => info!("dialogue: Tab refused: {e}"),
             (Some(e), _) => warn!("dialogue: {op} by {by}: {e}"),
             (None, Act::BreakOff) => info!("dialogue: the conversation is broken off ({by})"),
             (None, _) => debug!("dialogue: {op} {index:?} by {by}"),
@@ -822,86 +781,19 @@ fn sync_state(
 
 // ---- drawing ----------------------------------------------------------------------------
 
-const PANEL: Color = Color::srgba(0.05, 0.05, 0.03, 0.90);
-/// Behind the hint while the actor speaks.
-const HINT_PANEL: Color = Color::srgba(0.05, 0.05, 0.03, 0.45);
-const TEXT: Color = Color::srgb(0.95, 0.95, 0.9);
-const DIM: Color = Color::srgb(0.55, 0.55, 0.50);
-const HINT: Color = Color::srgb(0.75, 0.75, 0.68);
-const ACCENT: Color = Color::srgb(1.0, 0.85, 0.4);
-const WARN: Color = Color::srgb(1.0, 0.45, 0.35);
-const SELECTED: Color = Color::srgba(0.30, 0.27, 0.12, 0.95);
-
-#[derive(Component)]
-struct ScreenRoot;
-
-/// A clickable choice (its index in the offered list).
+/// A clickable choice (its index in the offered list), drawn by `crate::dialogue_menu`.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ChoiceButton(pub usize);
 
-fn text(s: impl Into<String>, size: f32, color: Color) -> impl Bundle {
-    (Text::new(s), TextFont { font_size: FontSize::Px(size), ..default() }, TextColor(color))
-}
-
-/// Rebuild the panel when what it shows changed; the selection is a row's background.
-fn draw(
-    mut commands: Commands,
-    script: Option<Res<ScriptState>>,
-    sim: Res<SimState>,
-    mut screen: ResMut<DialogueScreen>,
-    roots: Query<Entity, With<ScreenRoot>>,
-    mut rows: Query<(&ChoiceButton, &mut BackgroundColor)>,
-) {
-    let v = script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| view(&rt.game, &sim, &screen));
-    let selected = screen.selected;
-    if v != screen.drawn {
-        for e in &roots {
-            commands.entity(e).despawn();
-        }
-        if let Some(v) = &v {
-            spawn_panel(&mut commands, v, selected);
-        }
-        screen.drawn = v;
+/// Hand the menu what it shows and the selection.
+fn draw(script: Option<Res<ScriptState>>, sim: Res<SimState>, screen: Res<DialogueScreen>, mut menu: ResMut<DialogueMenu>) {
+    let v = script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| view(&rt.game, &sim));
+    if menu.view != v {
+        menu.view = v;
     }
-    for (b, mut bg) in &mut rows {
-        bg.set_if_neq(BackgroundColor(if b.0 == selected { SELECTED } else { Color::NONE }));
+    if menu.selected != screen.selected {
+        menu.selected = screen.selected;
     }
-}
-
-fn spawn_panel(commands: &mut Commands, v: &View, selected: usize) {
-    let root = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), bottom: Val::Px(64.0), justify_content: JustifyContent::Center, ..default() };
-    commands.spawn((ScreenRoot, root, GlobalZIndex(90))).with_children(|root| {
-        let panel = Node {
-            flex_direction: FlexDirection::Column,
-            max_width: Val::Px(860.0),
-            padding: UiRect::axes(Val::Px(14.0), Val::Px(8.0)),
-            row_gap: Val::Px(3.0),
-            border: UiRect::all(Val::Px(1.0)),
-            ..default()
-        };
-        // While the actor speaks only a slim hint shows, under the subtitle.
-        let speaking = v.rows.is_empty();
-        root.spawn((panel, BackgroundColor(if speaking { HINT_PANEL } else { PANEL }), BorderColor::all(if speaking { Color::NONE } else { DIM }))).with_children(|p| {
-            if !speaking {
-                p.spawn(text(v.speaker.clone(), 19.0, ACCENT));
-                if v.above > 0 {
-                    p.spawn(text(format!("  ^ {} more", v.above), 12.0, DIM));
-                }
-                for r in &v.rows {
-                    let node = Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)), ..default() };
-                    let bg = BackgroundColor(if r.index == selected { SELECTED } else { Color::NONE });
-                    p.spawn((Button, ChoiceButton(r.index), node, bg)).with_child(text(r.label.clone(), 17.0, if r.darkened { DIM } else { TEXT }));
-                }
-                if v.below > 0 {
-                    p.spawn(text(format!("  v {} more", v.below), 12.0, DIM));
-                }
-            }
-            p.spawn(text(v.hint.clone(), 13.0, HINT));
-            if let Some(n) = &v.note {
-                p.spawn(text(n.clone(), 14.0, WARN));
-            }
-        });
-    });
 }
 
 #[cfg(test)]
@@ -977,28 +869,14 @@ mod tests {
     }
 
     #[test]
-    fn the_list_scrolls_with_the_selection() {
-        // A short list never scrolls.
-        assert_eq!(window_start(0, 3, 5), 0);
-        assert_eq!(window_start(4, 3, 5), 0);
-        // Fourteen choices, ten rows: the window follows the selection down and up.
-        assert_eq!(window_start(0, 9, 14), 0);
-        assert_eq!(window_start(0, 10, 14), 1);
-        assert_eq!(window_start(1, 13, 14), 4);
-        assert_eq!(window_start(4, 6, 14), 4);
-        assert_eq!(window_start(4, 3, 14), 3);
-        assert_eq!(window_start(9, 13, 14), 4);
-    }
-
-    #[test]
     fn rows_and_tags_read_as_documented() {
         assert_eq!(challenge_tag("Speech", Some(40.0), Some(52.0)), "[Speech 40]");
         assert_eq!(challenge_tag("Speech", Some(40.0), Some(37.0)), "[Speech 37/40]");
         assert_eq!(challenge_tag("Speech", Some(40.0), None), "[Speech 40]");
         assert_eq!(challenge_tag("Terrifying Presence", None, None), "[Terrifying Presence]");
-        assert_eq!(row_label(0, " Goodbye. ", "GOODBYE", None), "1) Goodbye.");
-        assert_eq!(row_label(2, "Trust me", "TopicSkill", Some("[Speech 40]".into())), "3) [Speech 40] Trust me");
+        assert_eq!(row_label(" Goodbye. ", "GOODBYE", None), "Goodbye.");
+        assert_eq!(row_label("Trust me", "TopicSkill", Some("[Speech 40]".into())), "[Speech 40]  Trust me");
         // A topic without a name still shows something to pick.
-        assert_eq!(row_label(1, "", "TopicNameless", None), "2) (TopicNameless)");
+        assert_eq!(row_label("", "TopicNameless", None), "(TopicNameless)");
     }
 }
