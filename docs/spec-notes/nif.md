@@ -389,6 +389,18 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   One kind of shape is cut by alpha without a NiAlphaProperty: object LOD blocks, whose
   shader sets BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]. The renderers
   alpha-test those at alpha above 128 [hypothesis; evidence in world.md §7 "Objects"].
+
+  **Shadows of see-through shapes** (2026-10-11). Shapes drawn blended, added or
+  multiplied (glass, light rays, glows, smoke) cast no shadows from any light, the sun
+  and the flashlight included; alpha-tested shapes, and blended ones with an alpha cut
+  (`blend_cut`), still do (`nvf_assets::nif_material::see_through`, which gives the mesh
+  `NotShadowCaster` when it gets its material) [design, owner's request after the
+  playtest: "anything see-through should not be generating a shadow"; the original casts
+  no sun shadows from the world at all, world.md §6]. Before, the depth-only shadow pass
+  drew every fragment of such a shape with alpha above 0.05, so the Prospector Saloon's
+  window rays threw dark wedges onto the wall under the flashlight [observed, `--play
+  --cell GSProspectorSaloonInterior`, flashlight on, facing the east windows; picture
+  `C:\fnv-private\references\playtest_world\flashlight_rays_before_after.png`].
 - **Skin shader type** [observed, `crates/fnv-nif/examples/skin_survey.rs` over
   `Fallout - Meshes.bsa`]: 255 visible shapes have BSShaderPPLightingProperty shader
   type 14 (`SHADER_SKIN` [documented: nif.xml BSShaderType]); the same 255 and no others
