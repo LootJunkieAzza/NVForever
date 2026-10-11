@@ -2591,3 +2591,27 @@ round the lantern). Branch `claude/light-rays`. Facts and measurements:
    they lost too much.
 5. **Seen on the way, not changed:** in your rays screenshot the frosted window panes are
    a light grey-yellow in the game and nearly white in ours.
+
+## The Pip-Boy (2026-10-11, session "pip-boy menu")
+
+Your fifteen Pip-Boy screenshots. Branch `claude/pipboy-menu`. Facts and measurements:
+`docs/spec-notes/pipboy.md`. Pictures: `C:\fnv-private\references\pipboy\`.
+
+1. **Built:** Tab raises the arm with the game's own clip and holds it before the eye;
+   the menus are drawn onto the model's screen, with STATS, ITEMS and DATA (the buttons
+   on the device, or F1–F3) and their five tabs each. The world stops and is blurred
+   behind it. ITEMS lists the inventory by tab; STATS and DATA show only their headings
+   so far.
+2. **The clip:** it both raises and lowers the Pip-Boy; the screen faces the eye at its
+   `Hit` key, so it is held there and played on when closing. Say if the original's
+   timing feels different.
+3. **Fitted to your ITEMS screenshot:** the size (the game's `fPipboy1stPersonFOV=47`),
+   the menu's place on the screen, the amber, and the scanlines' spacing. Ours now lines
+   up with it to a few pixels.
+4. **My choices, for you to judge:** the screen's glare is not drawn while the menus are
+   on (drawn, it was a pale haze yours does not have; yours shows only a faint lighter
+   patch, top right). Keys: F1–F3 pages, A/D or arrows tabs, X drop. The system's mouse
+   pointer, not the game's amber arrow.
+5. **Would help:** do you know the PC keys for switching pages and tabs in the original?
+   And a screenshot of the Pip-Boy being raised or put away mid-way would show whether
+   the clip is held where I hold it.

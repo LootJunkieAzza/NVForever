@@ -21,6 +21,7 @@ fnv-combat.workspace = true
 fnv-voice.workspace = true
 fnv-vfs.workspace = true
 fnv-font.workspace = true
+fnv-dds.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Music (MP3) and ambient loops (Ogg Vorbis, WAV) decoded as they play (music.rs,

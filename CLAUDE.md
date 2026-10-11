@@ -183,6 +183,13 @@ footsteps, reload and doors check, with `NVF_PLAY_TEST_EQUIP=0000434F`,
 "3 reload keys", "5 door sounds (2 from door records)" and "0 keys without a SOUN"; the
 actors' footsteps and rustles vary).
 
+After Pip-Boy changes (`nvf-play` `pipboy`, nvforever `pipboy_arm.rs`, the arms' Pip-Boy clip
+and field of view; docs/spec-notes/pipboy.md §7), run it with `NVF_PLAY_TEST_SCRIPT_MENUS=0.05`
+and `NVF_PLAY_TEST_PIPBOY=12:open,15:page=stats,17:close` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --no-voice --hour 12 --size 1280x720 --run-seconds 19`
+(expect exit 0, "pipboy: up, page ITEMS tab Weapons", "pipboy: the menus are on the model's
+screen", "pipboy: STATS Status" and "pipboy: down").
+
 ## Commits
 
 End commit messages with the session's attribution lines. Keep commits focused; write

@@ -31,6 +31,7 @@ mod locomotion;
 mod weapons;
 mod lodgen;
 mod nav;
+mod pipboy_arm;
 mod player_body;
 mod particles;
 mod shot_fx;
@@ -789,7 +790,7 @@ fn main() -> AppExit {
         app.add_plugins(head_look::HeadLookPlugin { enabled: !args.no_head_tracking, camera_is_player: args.head_track_camera, force_point });
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
-            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
             app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
             // The sounds clips and doors name (anim_sounds.rs).
             app.add_plugins(anim_sounds::AnimSoundsPlugin);

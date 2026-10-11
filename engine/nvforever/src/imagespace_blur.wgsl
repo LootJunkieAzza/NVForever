@@ -15,11 +15,28 @@ struct Grade {
     brightness: f32,
     blur: f32,
     time: f32,
+    sharp: f32,
 }
 
 @group(0) @binding(0) var screen: texture_2d<f32>;
 @group(0) @binding(1) var screen_sampler: sampler;
 @group(0) @binding(2) var<uniform> grade: Grade;
+#ifdef MULTISAMPLED
+@group(0) @binding(3) var depth: texture_depth_multisampled_2d;
+#else
+@group(0) @binding(3) var depth: texture_depth_2d;
+#endif
+
+// Whether the picture at `uv` is nearer than `grade.sharp` (reverse depth: larger is
+// nearer), so neither blurred nor blurred into what is behind it.
+fn near(uv: vec2<f32>) -> bool {
+    if grade.sharp <= 0.0 {
+        return false;
+    }
+    let dims = vec2<i32>(textureDimensions(depth));
+    let p = clamp(vec2<i32>(uv * vec2<f32>(dims)), vec2(0), dims - 1);
+    return textureLoad(depth, p, 0) > grade.sharp;
+}
 
 // A blur radius of 1 reaches this part of the screen height to each side [hypothesis:
 // the wiki gives 0 as none and 7 as the most; image-modifiers.md §5].
@@ -31,7 +48,7 @@ fn blur(uv: vec2<f32>, dir: vec2<f32>) -> vec4<f32> {
     let centre = textureSampleLevel(screen, screen_sampler, uv, 0.0);
     // The reach is two standard deviations of the Gaussian.
     let sigma = 0.5 * grade.blur * dims.y * REACH_PER_RADIUS;
-    if sigma < 0.25 {
+    if sigma < 0.25 || near(uv) {
         return centre;
     }
     let k = -0.5 / (sigma * sigma);
@@ -46,8 +63,11 @@ fn blur(uv: vec2<f32>, dir: vec2<f32>) -> vec4<f32> {
         let wb = exp(k * (a + 1.0) * (a + 1.0));
         let w = wa + wb;
         let off = dir * ((a * wa + (a + 1.0) * wb) / w) / dims;
-        acc += w * (textureSampleLevel(screen, screen_sampler, uv + off, 0.0).rgb + textureSampleLevel(screen, screen_sampler, uv - off, 0.0).rgb);
-        total += 2.0 * w;
+        // What is near is left out of the blur behind it.
+        let wp = select(w, 0.0, near(uv + off));
+        let wm = select(w, 0.0, near(uv - off));
+        acc += wp * textureSampleLevel(screen, screen_sampler, uv + off, 0.0).rgb + wm * textureSampleLevel(screen, screen_sampler, uv - off, 0.0).rgb;
+        total += wp + wm;
     }
     return vec4(acc / total, centre.a);
 }
