@@ -10,6 +10,7 @@ mod ai_run;
 mod actor_furniture;
 mod actor_locomotion;
 mod actor_tri;
+mod actor_factions;
 mod actor_values;
 mod actor_weapons;
 mod actor_cmd;
@@ -31,6 +32,7 @@ mod script_cmd;
 mod sim_cmd;
 mod source;
 mod voice_cmd;
+mod world_audio;
 mod world_cmd;
 
 use clap::{Args, Parser, Subcommand};
@@ -119,6 +121,24 @@ pub enum ActorCmd {
     /// formula fits the stored skills for each attribute, and the settings read
     /// (fnv.actor.values/1).
     Values {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Script function catalogue (default: `script/functions.json` next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// `player`, a placed actor, or an actor base (its first placed reference), by
+        /// Editor ID or load-order FormID (repeatable).
+        #[arg(long)]
+        actor: Vec<String>,
+        #[arg(long)]
+        survey: bool,
+    },
+    /// Factions of actors (docs/spec-notes/factions.md): for each named actor its
+    /// template chain, the factions the records give it and how it stands towards the
+    /// player; with --survey, the "Factions" template flag, templates that are leveled
+    /// lists, the two directions of faction reactions and the placed actors' stance
+    /// towards the player (fnv.actor.factions/1).
+    Factions {
         #[command(flatten)]
         w: WorldArgs,
         /// Script function catalogue (default: `script/functions.json` next to --schema).
@@ -494,6 +514,22 @@ pub enum WorldCmd {
         /// Worldspace to check (default: every worldspace).
         #[arg(long)]
         world: Option<String>,
+    },
+    /// Music and placed sounds (fnv.world.audio/1): music types, media sets and location
+    /// controllers, acoustic spaces; with --cell the audio markers and sound markers in
+    /// earshot of it, and with --at what is heard there.
+    Audio {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Cell Editor ID or load-order FormID (an exterior cell stands for its worldspace).
+        #[arg(long)]
+        cell: Option<String>,
+        /// Listener position "x,y,z" in world units (with --cell).
+        #[arg(long, allow_hyphen_values = true, requires = "cell")]
+        at: Option<String>,
+        /// Game hour for the day or night choice (with --at).
+        #[arg(long, default_value_t = 12.0)]
+        hour: f32,
     },
 }
 

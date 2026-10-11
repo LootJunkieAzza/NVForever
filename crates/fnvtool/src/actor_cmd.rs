@@ -20,6 +20,9 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
         ActorCmd::Values { w, functions, actor, survey } => {
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_values::run(lo, schema, data, refs, &actor, survey))
         }
+        ActorCmd::Factions { w, functions, actor, survey } => {
+            crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_factions::run(lo, schema, data, refs, &actor, survey))
+        }
         ActorCmd::Appearance { lo, schema, reference, cell, all, deterministic } => {
             let schema = Schema::load_dir(&schema).with_context(|| schema.display().to_string())?;
             let plugins = open_load_order(&lo)?;

@@ -37,6 +37,9 @@ pub fn run(cmd: WorldCmd) -> anyhow::Result<Value> {
         WorldCmd::Land { w, g, full } => with_world(&w, |lo, schema, ix| land(lo, schema, ix, &g, full)),
         WorldCmd::Heights { w, world } => with_world(&w, |lo, schema, ix| heights(lo, schema, ix, &world)),
         WorldCmd::Check { w, world } => with_world(&w, |lo, schema, ix| check(lo, schema, ix, world.as_deref())),
+        WorldCmd::Audio { w, cell, at, hour } => {
+            with_world(&w, |lo, schema, ix| crate::world_audio::audio(lo, schema, ix, cell.as_deref(), at.as_deref(), hour))
+        }
     }
 }
 

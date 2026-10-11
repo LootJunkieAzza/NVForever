@@ -421,6 +421,21 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// The actor a leveled list (LVLN or LVLC) stands for when it is the first list met
+    /// for `reference` (§2.1); `None` for a form that is no list or has nothing to pick.
+    /// For checks that other code reading the list picks the same entry
+    /// (`fnv_game::templates`).
+    pub fn first_pick(&self, list: FormId, reference: FormId) -> Option<FormId> {
+        let mut ch = Choices { rng: rng_for(reference), picks: HashMap::new(), random: false };
+        if self.actors.leveled.contains_key(&list) {
+            self.actor_base(list, &mut ch, 0).ok().map(|n| n.id)
+        } else if self.actors.leveled_creatures.contains_key(&list) {
+            self.creature_base(list, &mut ch, 0).ok().map(|c| c.id)
+        } else {
+            None
+        }
+    }
+
     /// An NPC_ base for `id`, resolving leveled NPCs (LVLN) once per actor.
     fn actor_base(&self, id: FormId, ch: &mut Choices, depth: u32) -> Result<&'a Npc, ResolveError> {
         if depth > MAX_DEPTH {

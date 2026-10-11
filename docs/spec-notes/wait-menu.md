@@ -3,7 +3,9 @@
 Tags as in `nif.md`: `[documented]` cites a page or file, `[observed]` says what was
 looked at, `[hypothesis]` is a reading that nothing has confirmed yet. `[design]` and
 `[engineering choice]` mark what is NVForever's own. Implementation:
-`engine/nvf-play/src/wait.rs` and `wait/model.rs`.
+`engine/nvf-play/src/wait.rs` and `wait/model.rs`; what scripts see and ask,
+`crates/fnv-game/src/rest.rs`; the people during a wait, `fnv_ai::Ai::pass_time` and
+`engine/nvforever/src/residents.rs`.
 
 ## 1. Sources
 
@@ -138,7 +140,35 @@ In the interface file [documented: `menus\sleep_wait_menu.xml` and the files it 
   names].
 - `GetSecondsPassed` "is unreliable" in an effect script during sleep, wait and fast
   travel [documented: GECK wiki GetSecondsPassed].
-- None of these functions is built in NVForever yet (they are counted as stubs).
+- How the game's own scripts use them [observed: `fnvtool script decompile`,
+  FalloutNV.esm]:
+  - `IsPCSleeping`: one script, the beds' (SCPT 0x000B5431, §8).
+  - `SetPCSleepHours`: three quest scripts (0x001446AE, 0x0013F374, 0x001672C8), each
+    in game mode, two of them right after setting the GameHour global themselves
+    ("set GameHour to 5", then `SetPCSleepHours 1`).
+  - `WakeUpPC`: one script (0x0014BDAF), every frame of its `MenuMode 1012` block and
+    once in game mode.
+  - `ShowSleepWaitMenu`, `GetPCSleepHours`, `IsTimePassing`: no script of FalloutNV.esm.
+- Opcodes [documented: the function catalogue, `schemas/script/functions.json`]:
+  `IsPCSleeping` 0x10AF, `WakeUpPC` 0x10AE, `SetPCSleepHours` 0x10BD,
+  `ShowSleepWaitMenu` 0x1279 (all four observed in compiled scripts), `IsTimePassing`
+  0x1109 (from its condition index). `GetPCSleepHours` has no opcode in the catalogue.
+- NVForever (`fnv_game::rest`):
+  - `IsPCSleeping` is 1 from the moment a sleep's hours are accepted until the menu
+    closes [hypothesis: nothing says when it starts; the beds' script reads it in menu
+    mode to learn that the player slept, which fits]. `IsTimePassing` is 1 for the same
+    time of a sleep or a wait (there is no fast travel yet).
+  - `SetPCSleepHours n`: the Sleep menu comes up with `n` hours already passing (at
+    most 24), wherever the player is, with the fade of a sleep; no refusal applies
+    [hypothesis: "forces the player to sleep" starts a sleep as if accepted in the
+    menu]. Called during a sleep, the count starts again at `n`.
+  - `WakeUpPC` stops a sleep as Cancel does; during a wait and outside the menu it
+    does nothing [documented].
+  - `ShowSleepWaitMenu isSleep [check]` opens the menu. With `check` set it is the
+    Sleep menu whatever `isSleep` says [documented: the wiki's note on the original]
+    and the refusals of §9 apply; without it they do not.
+  - `GetPCSleepHours` is not registered: its opcode is not known. Its value is kept
+    (`Rest::sleep_hours`).
 
 ## 6. Controls
 
@@ -185,9 +215,28 @@ In the interface file [documented: `menus\sleep_wait_menu.xml` and the files it 
     stand still, the running game clock stops (only the waited hours are added), and
     scripts run their MenuMode blocks (code 1012), not their GameMode blocks. Whether the
     picture stands still as well is the menu pause switch (`--menu-pause`).
-  - When the menu closes, the game goes on at the new hour. Actors living by their
-    packages choose again within the game's ten-second package interval and set off for
-    where the new hour has them; they are not moved there during the wait.
+  - The people (actors living by their packages, `--npc-packages`). They stand still
+    while the menu is up, like everything else. For each hour that passes in it:
+    1. every actor the periodic choice covers chooses its package for the new hour
+       (`Game::choose_packages_now`), with the old package's change script and the new
+       one's begin script, in that order, as in play;
+    2. each then walks for as long as an hour of game time lasts in play: 3600 seconds
+       over the TimeScale global, two real minutes at 30. The walk is headless, on the
+       navmesh, doors passed as if open (`fnv_ai::Ai::pass_time`); it ends as soon as
+       nobody is on the way. An arrival runs the package's end script.
+    So after a wait the actors are where their schedules have them, or as far on the
+    way as an hour took them, and scripts ran hour by hour in the order of play. Behind
+    the menu they change place from one hour to the next (a sleep's screen is black).
+    An actor that sat on furniture and is to be elsewhere is off it at once, without
+    the getting-up animation.
+  - What does not happen during a wait: nobody starts a conversation or says a Say To
+    line (a Dialogue package goes as far as its wait location and starts when the game
+    goes on); a sandboxing actor keeps what it was doing and a patrol stays at the
+    point it waits at (both count seconds of play, which stand still in a menu); a
+    message box a script shows waits for the menu to close (the runtime's rule for any
+    open menu).
+  - When the menu closes, the game goes on at the new hour, the actors from where the
+    wait left them.
   - The log has one line per hour passed, with the date line, GameHour and
     GameDaysPassed, and at exit a "wait summary" line.
 
@@ -221,11 +270,35 @@ top, and it comes back over one second when the menu closes [owner request 2026-
 for the fade out; the time, the menu staying visible and the fade back in are design;
 what the original shows while sleeping is not in any source read]. A wait does not
 fade. The fade is the image-space pass's fade to a colour (`nvf_play::wait::SleepFade`,
-`imagespace.rs`), over any fade a script has on the screen. Nothing else is built (§10). In the
-original, activating a bed opens the Sleep menu [hypothesis: the nine beds' script
-supports it, since it sets its flag on activation and then looks for the sleep menu; no
-capture]; in NVForever activating a bed lies the player down (furniture.md §7) and the
-menu is asked for with the Wait control.
+`imagespace.rs`), over any fade a script has on the screen.
+
+**Activating a bed.** The beds' script (SCPT 0x000B5431, on nine bed base objects)
+[observed]: when the player activates the bed it sets a variable to 1 and runs the
+bed's default activation; in any menu, if the variable is 1 and `IsPCSleeping` is 1, it
+sets it to 2; in game mode, if the variable is above 0, it casts the Well Rested spell
+on the player when it is 2, and sets it back to 0. A frame of play between the
+activation and the menu would clear the variable, so in the original the menu must
+come up with the activation [hypothesis: the default activation of a bed opens the
+Sleep menu at once; no capture].
+
+NVForever [engineering choice, put to the owner in docs/owner-review.md]: the player
+lies down first [owner request 2026-10-10], and the Sleep menu opens by itself once
+they lie. Cancel leaves them lying; the Wait control opens the menu again; a movement
+control or Activate gets them up, as before. Because seconds of play pass between the
+activation and the menu, a bed with an `OnActivate` block is told of the activation
+again as the Sleep menu opens (`Runtime::bed_activated_for_sleep`): the block runs with
+the player as the activator and its default activation does nothing (the player is on
+the bed already). A script's own `Activate` on furniture now uses it for the player,
+which it did not before (the nine scripted beds could not be lain on).
+
+**Well Rested** then needs nothing of its own: the script sees `IsPCSleeping` while
+the hours pass, casts the spell when the menu closes, and the spell's effect script
+shows its message, calls `ResetHealth` on the player (health and limbs) and adds the
+perk; when the spell's time is up it shows the end message and removes the perk. The
+three room scripts that cast the spell directly work the same way. The perk's own
+effect, 10% more experience, is the perk system's and is not applied yet.
+
+Not built, and why: see §10.
 
 ## 9. When the original refuses
 
@@ -247,18 +320,82 @@ the rules behind them was captured:
   GetPCHasSleepWaitOverride].
 - Being in the air, taking damage and trespassing are not named by any source read.
 
-NVForever refuses only what §6 says (a script's control lock, and while another menu,
-a conversation or a loading screen is up).
+More from the sources, read 2026-10-11:
+
+- The flag a script sets with `EnableFastTravel`'s `canWait` is the player's "can sleep
+  or wait" flag, and the text shown for it is `sNoWaitInCell` [documented: GECK wiki
+  SetPCHasSleepWaitOverride, GetPCHasSleepWaitOverride]. Cells have a flag of their own
+  for the same [documented: the same page]; which cell flag it is, is not said (the
+  list of cell flags on the GetCellFlag page has none by that name).
+- "Enemy actors are attacked on sight by Aggressive and Very Aggressive actors";
+  "Neutrals will be attacked by Very Aggressive actors"; allies and friends "cannot
+  attack each other" [documented: GECK wiki GetFactionCombatReaction].
+- Not found in any source read: the two distances' values; what "hostile" means to
+  that check (in combat with the player, or would attack); the rule for an owned bed
+  (whose owner, whether the cell's owner counts); what "under water" is; what an alarm
+  sounding is; whether each refusal applies to waiting, to sleeping or to both where the
+  setting's name names only one.
+
+NVForever (`nvf_play::wait::refusal`): a request by the player (the Wait control, lying
+down on a bed) or by a script that asks for the check is answered with a line on the
+screen instead of the menu, in this order [engineering choice: the order]:
+
+1. **A script turned waiting off** (`EnableFastTravel` with `canWait` 0): the
+   `sNoWaitInCell` line, for a sleep too [documented].
+2. **Swimming**: the `sNoWaitUnderWater` line [hypothesis: "under water" is the
+   character's swimming state].
+3. **A hostile actor near**: the "enemies are nearby" line for waiting or for sleeping
+   (the two texts FalloutNV.esm has). An actor is hostile when it is drawn, alive,
+   enabled, not a teammate, not unconscious or restrained, and, by its Aggression:
+   Aggressive and the player is an enemy of its factions; Very Aggressive and the
+   player is not an ally or a friend of its factions [documented rule of who attacks
+   whom, applied to the player as the one seen]; Frenzied [hypothesis: attacks
+   anyone]. Near is within 2048 units outdoors and 1024 indoors [engineering choice:
+   the two settings have no record and no source gives their values]; a plugin that
+   sets `fHostileActorExteriorDistance` or `fHostileActorInteriorDistance` is followed.
+   NVForever's actors do not fight on their own yet, so this is "would attack", not "is
+   attacking".
+4. **Someone else's bed** (sleeping only): the bed reference has an owner that is an
+   actor other than the player, or a faction the player is not in: the
+   `sNoSleepInOwnedBed` line [hypothesis: the reference's own owner, as `IsOwner` reads
+   it; the cell's owner is not looked at]. The player still lies down on it.
+
+Where a text's setting has no record (all but the two about enemies), the line is
+NVForever's own wording; a plugin that sets the setting is followed.
+
+Known gaps of rule 3 [observed 2026-10-11]: an actor whose factions come from its
+template (the template flag "Factions"; most creatures the wasteland spawns, whose
+template is a leveled list) has no factions in NVForever's game data, and the Fiend
+tested (FiendVioletRef) came out neutral to the player by its factions. Such actors
+refuse a wait only when Very Aggressive or Frenzied: two coyotes 300 units away
+(Aggressive) did not, the Fiend (Very Aggressive) did.
+
+Not built: `sNoWaitInCombat` and `sNoSleepCombat` (the player has no combat state: no
+actor fights on its own yet), `sNoWaitWhileAlarmSounding` (nothing says what the alarm
+is), the cells' own flag.
 
 ## 10. Not built
 
-- The refusals of §9.
-- Everything sleeping does besides passing time (§8): Well Rested, healing, limbs, the
-  hardcore sleep need, the "Times Slept" statistic, owned beds, being woken.
-- The script functions of §5 (`ShowSleepWaitMenu`, `IsPCSleeping`, `GetPCSleepHours`,
-  `SetPCSleepHours`, `WakeUpPC`, `IsTimePassing`). Well Rested needs `IsPCSleeping`.
-- Moving actors on through the waited hours (§7).
-- Opening the Sleep menu by activating a bed (§8).
+- Of the refusals (§9): in combat, an alarm sounding, the cells' own flag.
+- **Healing by plain sleep.** No source read says that a bed without the Well Rested
+  script heals, or by how much an hour: no game setting of FalloutNV.esm names sleep or
+  rest healing [observed: its GMST records], and the wiki export has no page on it.
+  Nothing is built. Proposal for the owner (docs/owner-review.md): leave it so until a
+  capture shows the original's health before and after an hour in a plain bed.
+- **The hardcore sleep need.** The records [observed: FalloutNV.esm]: an actor value
+  "Sleep Deprivation" (AVIF 0x000005F9), the setting `fHCSleepDeprivationRate` (50.0),
+  five spells for its stages (their names end in 200, 400, 600, 800 and 1000), magic
+  effects that restore and damage it, and three messages for it rising, falling and
+  ending. The need builds up "as game time passes" [documented: GECK wiki
+  ToggleHardcoreTracking]. Not in any source read: the unit of the rate, what the
+  stage numbers are compared with, and how much an hour of sleep takes off. NVForever
+  builds no hardcore need at all yet, so there is nothing for sleep to lower. Proposal
+  (docs/owner-review.md): build the three needs together, from captures of the actor
+  value over waited and slept hours.
+- The "Times Slept" statistic: the catalogue of statistic codes has no code for it.
+- Being woken (by an attack, by a script other than through `WakeUpPC`).
+- `GetPCSleepHours` as a script function (no opcode known, §5).
+- The perk's 10% more experience (§8).
 - The interface's own font, textures and sounds: the menu is drawn with NVForever's
   font and plain shapes after the screenshot's measures.
 
@@ -276,11 +413,35 @@ Unattended runs (`NVF_PLAY_TEST_WAIT`, wait.rs), each expecting exit 0:
   weekday and date changing at midnight, "wait menu: 22 hour(s) passed; closed", and
   "wait summary: the menu was opened 1 times (0 as sleep), 22 hours passed, 0 requests
   held by scripts".
-- On a bed: `NVF_PLAY_TEST_NEAR=00176ACE NVF_PLAY_TEST_ACTIVATE=16
-  NVF_PLAY_TEST_WAIT=22:open,23.5:hours=24,24.5:accept` with `--cell GSHouseInterior03
-  --play --hour 22 --run-seconds 40`: "wait menu: open as sleep (the player lies on a
-  bed) …", 24 "sleep: hour …" lines, the last at the opening's time of day one date
-  later.
+- On a bed (the sleep smoke test): `NVF_PLAY_TEST_NEAR=00176ACE
+  NVF_PLAY_TEST_ACTIVATE=16 NVF_PLAY_TEST_WAIT=23.5:hours=24,24.5:accept` with `--cell
+  GSHouseInterior03 --play --hour 22 --run-seconds 40`: the menu opens by itself once
+  the player lies ("furniture: the player is on 00176ACE", then "wait menu: open as
+  sleep (the player lies on a bed) …"), 24 "sleep: hour …" lines, the last at the
+  opening's time of day one date later.
+- A Well Rested bed: `NVF_PLAY_TEST_NEAR=000CEB03 NVF_PLAY_TEST_ACTIVATE=16
+  NVF_PLAY_TEST_WAIT=24:hours=3,25:accept` with `--cell NovacPlayersRoom --play --hour
+  22 --run-seconds 36`: "script: the player uses furniture 000CEB03 (a script's
+  Activate)", "wait menu: the bed 000CEB03 has a script: its OnActivate block ran for
+  this sleep", three "sleep: hour …" lines, then "on screen: You are now Well Rested!"
+  and "1 sleeps told to a bed's script" in the wait summary.
+- Someone else's bed: `NVF_PLAY_TEST_NEAR=0010B20D NVF_PLAY_TEST_ACTIVATE=16` with
+  `--cell GSHouseInterior02 --play --hour 22 --run-seconds 30`: the player lies down,
+  then "wait menu: refused (sleep): the bed belongs to GoodspringsFaction; on screen:
+  …".
+- Enemies near: `NVF_PLAY_TEST_WAIT=20:open,22:open,24:open,26:open` with `--cell
+  Goodsprings --play --pos -46700,64897,4600 --hour 12 --run-seconds 29` (beside the
+  Fiend Violet): "wait menu: refused (wait): FiendVioletRef is hostile and within 2048
+  units (outdoors); on screen: …" with the text of FalloutNV.esm, and "refused (… enemies
+  near)" in the wait summary.
+- The people through a wait: `NVF_PLAY_TEST_WAIT=30:open,31:hours=4,32:accept` with
+  `--cell Goodsprings --play --npc-packages
+  EasyPeteRef,GSChetRef,GoodspringsSettler04Ref --hour 18.5 --run-seconds 50`: four "ai
+  […] an hour passed in the wait menu: N of 3 residents walked" lines; with the fourth
+  (22:41) the three have their night packages, Easy Pete and the settler "used door …"
+  and "arrived", "furniture: 00104C80 is off 0010634A at once", and the ai summary ends
+  with "3 there, 0 on their way" and "4 hours passed in the wait menu (2 walks in
+  them)".
 - The mouse: `point=<x>:<y>`, `press` and `release` steps move a pointer through Bevy's
   own hit-testing (on a 1280 x 720 window, `17:point=0.4477:0.4722,17.3:press` is the
   9-hour mark, `0.7227:0.5764` the accept button, `0.7188:0.6292` cancel).
@@ -297,3 +458,15 @@ click and cancelled with a click after 3 hours. With three Goodsprings residents
 (`--npc-packages EasyPeteRef,GSChetRef,GoodspringsSettler04Ref --hour 18.5`, 4 hours
 waited at 18:37) all three chose their night packages within three game minutes of the
 menu closing at 22:37; two set off for their beds and the third was already at his.
+
+Results of 2026-10-11, second session (sleeping, refusals, people) [observed]: the five
+runs above as described. In the Novac room the sleep went from 22:06 to 1:06 and the
+Well Rested message came with the first frame of play after the menu. In the people's
+run the first three hours moved nobody (their evening packages held), and at the
+fourth Easy Pete walked 4275 units through one door to his bed 00176ACE and the settler
+6814 units through two doors to his, 0010B20D, both inside that hour's two minutes of
+walking; Chet was at his. Beside two coyotes (`--pos -59400,5654,8300`) the wait was
+not refused (§9, known gaps). Not run: swimming, a script's `EnableFastTravel` flag,
+`SetPCSleepHours`, `WakeUpPC` and `ShowSleepWaitMenu` from a real script (unit tests
+cover the menu's side of the last three, `a_script_can_make_the_player_sleep`, and the
+state scripts read, `fnv_game::rest`).

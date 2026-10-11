@@ -3,6 +3,9 @@
 //! drawn as the original's (`crate::message_menu`), and so are the short lines at the
 //! top left (`crate::corner_messages`: messages without the message-box flag, objectives
 //! shown or completed, quests completed, items a script gave or took).
+//! Script messages on screen. The lines and subtitles are a minimal overlay (layout and
+//! wording are NVForever's own, not a claim about the original's interface); the message
+//! box is drawn as the original's (`crate::message_menu`).
 //!
 //! - **Message boxes**: the runtime's queue (`fnv_game::Game::boxes`, scripts.md §7.7),
 //!   the first one in the middle of the view while the open menu is 1001, with the
@@ -117,6 +120,9 @@ impl Plugin for ScriptHudPlugin {
 }
 
 #[derive(Component)]
+struct NotesText;
+
+#[derive(Component)]
 struct SubtitleText;
 
 /// A clickable button of the message box (0-based).
@@ -184,12 +190,14 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<PanelV
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw(
+    time: Res<Time>,
     mut hud: ResMut<ScriptHud>,
     script: Res<ScriptState>,
     sim: Res<SimState>,
     mut panel: ResMut<MessagePanel>,
     mut shown: Local<String>,
-    mut subtitles: Query<&mut Text, With<SubtitleText>>,
+    mut notes: Query<&mut Text, (With<NotesText>, Without<SubtitleText>)>,
+    mut subtitles: Query<&mut Text, (With<SubtitleText>, Without<NotesText>)>,
 ) {
     let (p, front, subs) = view(&hud, &script, &sim);
     hud.on_screen = front;

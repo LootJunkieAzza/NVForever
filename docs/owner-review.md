@@ -2092,7 +2092,8 @@ NVForever's; `nvf-sleep.png` is the bed version).
    on which day and the earlier checks of the schedules were made with it. If you type
    `GetDayOfWeek` in the original's console with the wait menu's date line in view, one
    number settles it (0 is Sunday, 6 is Saturday).
-8. **Not built:**
+8. **Not built** (the first five points were taken up later the same day: see the next
+   entry, "Sleeping, refusals and people during a wait"):
    - **The original's refusals.** Its message list names these: enemies nearby, in
      combat, under water, an alarm sounding, a bed someone else owns, and places or
      quests that forbid waiting. I found the names, not the rules, so NVForever lets
@@ -2234,3 +2235,181 @@ Branch `claude/item-condition`. Rules and sources: docs/spec-notes/combat-rules.
    Shoot the gun in a settler's hands about ten times with the 10mm Pistol.
 5. **Not done:** repair (you said later), jamming and slower fire of worn weapons, a
    worn item selling for less.
+
+## The HUD: health, compass, action points, condition, ammo (2026-10-11, session "hud")
+
+You asked for the other things on the screen to look like the original's, after your
+labelled Goodsprings screenshot. **That screenshot did not reach this session as a
+file** (only a description of it in words), so the HUD is built from the game's own
+interface files and pictures, and everything those files leave open is my guess until
+I can measure your picture. Please attach it again, or drop it in
+`C:\fnv-private\references\hud\`.
+
+1. **What you get.** In `--play`, at the bottom left: "HP", the health bar of small
+   upright ticks on the game's bracket, and under it the compass strip, which turns as
+   you turn. At the bottom right: the action points bar with "AP", and under it "CND"
+   with the weapon's condition bar and, right of the divider, the ammo as
+   loaded/carried. Brackets, ticks, compass strip and letters are the game's own
+   pictures and font, read from your install when the game runs (nothing of them is in
+   the repository). The old yellow "HP 100/100" and "13 / 37 9mm CND 60%" texts are
+   gone.
+2. **Where the numbers come from.** Health and action points are the player's real
+   values; the compass is the real heading; condition and ammo are the equipped
+   weapon's. Nothing spends action points yet (no V.A.T.S., no sprint), so that bar
+   stays full.
+3. **When it is shown.** While you walk around. It is off in every menu, in
+   conversations and behind loading screens (my choice: the game's file does not say),
+   and off while a script holds your movement, as the GECK wiki says of the original
+   (so not during the wake-up at Doc Mitchell's).
+4. **Guesses for you to judge** (all waiting for your screenshot):
+   - how far the two corners stand from the screen's edges (I took 40 and 30 of 960);
+   - the bars' length: the game's file says 300, but that runs over the label or past
+     the bracket, so I took 256 (32 ticks), ending at the bracket's small corner mark;
+   - where "HP", "AP", "CND" and the ammo stand;
+   - the compass's middle: I centred the heading in the window the file gives; the
+     bracket's small triangle is a little left of that;
+   - the action points bar emptying from the left, the health bar from the right;
+   - with bare hands: no "CND" and no ammo. With a melee weapon: "CND" but no ammo.
+     Your picture shows "0/0" - which weapon were you holding (or none)?
+   - everything at full brightness; the game may draw lines a little dimmer than text.
+5. **Not built:** markers on the compass (quests, places, people nearby) and its
+   faded ends; the original's crosshair, enemy health bar, sneak meter, the messages
+   and their icons at the top left, subtitles and the "E) Open" prompt in the game's
+   font, the XP and radiation meters, the crippled-limb picture (crippled limbs are
+   still a line of words), the ammo type's name, Hardcore mode's words, the HUD's
+   fading and glow.
+6. **To see it yourself:**
+   `nvforever --data <Data> --cell Goodsprings --play --size 1280x720 --no-overlay`,
+   press the view key for third person. Details and the test recipe:
+   `docs/spec-notes/hud.md`.
+## Sleeping, refusals and people during a wait (2026-10-11, session "sleep effects")
+
+7. **Pressing E on a bed.** You lie down as before, and when you are lying the sleep
+   menu opens by itself. Cancel leaves you lying there; T opens the menu again; a
+   movement key or E gets you up.
+   - **For you to decide.** The original most likely opens the menu the moment you
+     press E, with no lying down (its bed script only works that way). You asked for
+     lying down earlier, so I kept it and put the menu after it. Say if you would rather
+     have (a) this, (b) the menu at once and no lying down, or (c) lying down only, with
+     T for the menu as it was.
+   - **A bug this fixed:** nine kinds of bed (safehouse beds, your hotel and Novac room
+     beds) did nothing at all when you pressed E, because they carry a script. They
+     work now.
+8. **Well Rested works.** Sleep in one of those nine kinds of bed and when you wake the
+   game says "You are now Well Rested!", your health and limbs are restored, and you
+   have the perk until its time runs out. I did not write any of that by hand: the
+   game's own bed script does it, now that it can ask "is the player asleep".
+   - The perk's actual bonus (10% more experience) is not applied yet. That belongs to
+     perks in general, which are not built.
+   - Quest scripts can now put you to sleep, wake you, and open the menu themselves.
+     Three quests use the first and one the second; I could not test them in a real
+     quest, only in small tests.
+9. **Healing in an ordinary bed: not built, on purpose.** Nothing I can read says an
+   ordinary bed heals you, or how much per hour. I would rather not make a number up.
+   If you sleep one hour in a plain bed in the original while hurt and tell me your
+   health before and after (and the same for eight hours), I can build it properly.
+10. **Hardcore sleep need: not built.** The game files have the need itself, its five
+   stages and a rate number (50), but not what the rate is measured in or how much an
+   hour of sleep takes off. NVForever does not build up any of the hardcore needs yet
+   (food, water, sleep), so there is nothing for sleep to lower. My proposal: build the
+   three needs together in their own piece of work, from numbers captured in the
+   original.
+11. **When you cannot wait or sleep.** Instead of the menu you now get a line on the
+   screen in these cases:
+   - **Enemies nearby**, with the original's own sentence (it is in the game files).
+   - **Someone else's bed**: you can lie on it, but not sleep.
+   - **Swimming.**
+   - **A quest has forbidden waiting.**
+   What I had to guess, since only the names of the original's messages are known:
+   - **How near is "nearby":** about 2000 units outdoors and 1000 indoors (roughly 30
+     and 15 metres). The original keeps these two numbers inside its program. If you
+     type `GetGS fHostileActorExteriorDistance` and `GetGS
+     fHostileActorInteriorDistance` in its console, I can put the real ones in.
+   - **Who is an enemy:** anyone alive in view range whose records say they would
+     attack you on sight. Nobody actually fights on their own in NVForever yet, so it
+     cannot be "is attacking you".
+   - **Whose bed:** I look at the bed's own owner. A bed with no owner of its own in an
+     owned house still lets you sleep.
+   - **The wording** of all lines except the enemies one is mine.
+   - **A weakness you will notice:** most wild animals do not count as enemies yet.
+     Standing next to two coyotes I could still wait; next to a Fiend I could not. The
+     reason is a gap elsewhere (animals get their faction from a template that
+     NVForever does not read yet). I have flagged it as its own task.
+   - **Not built:** "in combat" and "alarm sounding". Combat needs enemies that fight;
+     for the alarm I found no description of what it is.
+12. **People move on while you wait.** Before, everyone stood still during a wait and
+   walked to where they should be afterwards. Now, each hour that passes, everyone
+   picks what their schedule says for that hour and walks for as long as they would
+   have in an hour of normal play. After waiting from 18:41 to 22:41 in Goodsprings,
+   Easy Pete and a settler were already in their houses at their beds, and Chet at his.
+   - This is my design; I found nothing on what the original does.
+   - Behind the wait menu you can see people change place from one hour to the next.
+     During a sleep the screen is black, so you see nothing. Say if you want waiting to
+     hide it too.
+   - Nobody starts talking to you in the middle of a wait, and message boxes from
+     scripts hold until the menu closes.
+   - Someone who was sitting and has to be elsewhere is simply off the chair, without
+     the standing-up animation, since it happens behind the menu.
+   - People who were wandering about with nothing scheduled stay as they were until
+     the wait ends.
+13. **Still open from before:** the day-of-the-week question (item 7 of "Waiting and
+   sleeping: the T menu") is untouched. I did not change that rule.
+
+## Who is in which faction, and who is hostile to you (2026-10-11, session "actor factions")
+
+From the sleep work: "enemies nearby" could not be told, because many actors had no
+factions at all. Details: docs/spec-notes/factions.md.
+
+1. **Fixed:** an actor marked "use the template's factions" now gets them. 3,037 of the
+   6,385 actors placed in the game had no factions before, for example the coyotes at
+   Goodsprings.
+2. **Checked, not a bug:** the Fiend Violet reads as "neutral" to you. The game file
+   says so: the Fiends and you do not list each other. She attacks because she is
+   "Very Aggressive", and the editor's documentation says those attack neutrals. Most
+   dangerous animals work this way too (cazadores, fire geckos, radscorpions,
+   deathclaws). The sleep and wait refusal ("enemies nearby") already uses aggression
+   together with the relation, so it was right about her; with item 1 it now also
+   knows the factions of spawned animals.
+3. **My choice, for you to confirm:** where the template is a leveled list ("one of
+   these raiders"), the actor takes the factions of the same entry that is drawn for
+   it. That pick is ours (level 1, repeatable per actor), not the game's roll by your
+   level. For 192 actor types the pick changes the factions.
+4. **One question a capture would settle:** 618 placed animals are "Aggressive" (not
+   "Very") and neutral to you: bighorners, giant rats, coyotes, worker ants, bloatflies,
+   mole rats. By the documented rule they leave you alone until attacked. If you
+   remember a coyote or giant rat attacking on sight, the rule has a gap. Console, with
+   the animal selected, while walking up to it: `GetFactionRelation player`,
+   `GetAV Aggression`, `IsInCombat`.
+5. **Not done:** AI packages through a leveled-list template; the game's own leveled
+   pick by your level and the encounter zone.
+## Music, sound markers and background loops (2026-10-11, session "music")
+
+Docs: docs/spec-notes/audio.md. Start `--play` in Goodsprings to hear it.
+
+1. **What you should hear:** the desert exploration music in and around Goodsprings,
+   the day version from 06:00 and the night version from about midnight; the air
+   conditioners humming near the saloon and store; the string lights creaking now and
+   then; the desert background (wind, insects) changing at dawn, in the day, at dusk and
+   at night.
+2. **Guesses I had to make, for you to check by ear against the game:**
+   - **Layers.** Each place's music is three files of the same length ("low", "mid",
+     "high"). I play the low one anywhere inside the place's radius and add the mid and
+     high ones as you come nearer its centre (for Goodsprings: within 8,400 and 2,800
+     units of the marker by the saloon). If the game instead swaps one for another, or
+     the music near the saloon sounds too thin or too busy next to the game's, tell me.
+   - **Fades.** A layer comes in or goes over 9 seconds; so does the change between
+     day and night music and walking out of a place.
+   - **Overlapping places.** Where two places' radii overlap I play the one you are
+     deeper inside.
+   - **Random placed sounds** (creaks, cave wind, debris): each rolls its record's
+     chance once a second. If they come too often or too rarely, tell me which.
+   - **Background loop hours:** dawn 5–9, day 9–17, dusk 17–21, night otherwise.
+3. **Not built yet:** battle music, dungeon music (explore, suspense, battle), the short
+   incidental pieces, music that depends on a faction liking or hating you (I always
+   play the neutral one), the music scripts ask for (stingers such as the one on leaving
+   Doc Mitchell's house), main menu and death music; reverb indoors, left-right panning
+   of placed sounds, and the region sounds (distant gunfire, coyotes, hawks).
+4. **Side effect:** sound effects whose file is stored as Ogg are now found. They were
+   silently skipped before.
+5. **Cost:** reading every marker at the start takes about half a second on the main
+   thread before the first frame.

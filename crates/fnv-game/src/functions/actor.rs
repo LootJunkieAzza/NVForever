@@ -349,17 +349,19 @@ pub fn get_dead_count(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
     Ok(Value::Num(g.player.dead_count.get(&b).copied().unwrap_or(0) as f64))
 }
 
-/// Faction rank of an actor: a run-time change, else the base form's `SNAM`; −1 when not
-/// a member.
+/// The factions and ranks the records give an actor: its base's `SNAM` list, or its
+/// template's with the template flag "Factions" (docs/spec-notes/factions.md §2).
+fn base_factions<'d>(g: &'d Game, r: FormId) -> &'d [(FormId, i8)] {
+    base_of(g, r).map_or(&[], |b| g.data.base_factions(b, r))
+}
+
+/// Faction rank of an actor: a run-time change, else the records' ([`base_factions`]);
+/// −1 when not a member.
 pub fn faction_rank(g: &Game, r: FormId, f: FormId) -> i32 {
     if let Some(&rank) = g.extra.get(&r).and_then(|e| e.factions.get(&f)) {
         return rank as i32;
     }
-    base_of(g, r)
-        .and_then(|b| g.data.actors.get(&b))
-        .and_then(|a| a.factions.iter().find(|(x, _)| *x == f))
-        .map(|(_, rank)| *rank as i32)
-        .unwrap_or(-1)
+    base_factions(g, r).iter().find(|(x, _)| *x == f).map(|(_, rank)| *rank as i32).unwrap_or(-1)
 }
 
 pub fn get_in_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -527,10 +529,10 @@ pub fn is_killer(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     yes(g.extra.get(&r).and_then(|e| e.killer) == Some(k))
 }
 
-/// The factions an actor is in now: its base's (SNAM) unless removed, and those added
-/// at run time.
+/// The factions an actor is in now: the records' ([`base_factions`]) unless removed, and
+/// those added at run time.
 pub fn factions_of(g: &Game, r: FormId) -> Vec<FormId> {
-    let mut out: Vec<FormId> = actor_def(g, r).map(|d| d.factions.iter().map(|f| f.0).collect()).unwrap_or_default();
+    let mut out: Vec<FormId> = base_factions(g, r).iter().map(|f| f.0).collect();
     if let Some(e) = g.extra.get(&r) {
         out.extend(e.factions.keys().copied());
     }
@@ -554,21 +556,21 @@ pub fn get_faction_combat_reaction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result
     Ok(Value::Num(reaction(g, a.form(0)?, a.form(1)?) as f64))
 }
 
-/// `actor.GetFactionRelation other` (0 neutral, 1 enemy, 2 ally, 3 friend)
-/// [documented: GECK wiki GetFactionRelation]. How the factions combine is a
-/// [hypothesis]: the reactions of the caller's factions towards the other's factions,
-/// enemy first, then friend, then ally; the player counts as an enemy of a caller in a
+/// How actor `r` stands towards actor `o` by their factions (0 neutral, 1 enemy, 2 ally,
+/// 3 friend) [documented: GECK wiki GetFactionRelation]. One direction: the reactions
+/// of `r`'s factions towards `o`'s, which need not be those of `o`'s towards `r`'s
+/// [documented: GECK wiki SetEnemy, each faction has its own reaction list;
+/// docs/spec-notes/factions.md §4]. How several factions combine is a [hypothesis]:
+/// enemy first, then friend, then ally; the player counts as an enemy of an actor in a
 /// faction the player is a crime enemy of.
-pub fn get_faction_relation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let r = ctx.subject()?;
-    let o = a.form(0)?;
+pub fn faction_relation(g: &Game, r: FormId, o: FormId) -> i64 {
     let mine = factions_of(g, r);
     if o == FormId::PLAYER_REF && mine.iter().any(|f| g.player.enemy_of.contains(f)) {
-        return Ok(Value::Num(1.0));
+        return 1;
     }
     let theirs = factions_of(g, o);
     let all: Vec<i64> = mine.iter().flat_map(|&x| theirs.iter().map(move |&y| (x, y))).map(|(x, y)| reaction(g, x, y)).collect();
-    let v = if all.contains(&1) {
+    if all.contains(&1) {
         1
     } else if all.contains(&3) {
         3
@@ -576,8 +578,13 @@ pub fn get_faction_relation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
         2
     } else {
         0
-    };
-    Ok(Value::Num(v as f64))
+    }
+}
+
+/// `actor.GetFactionRelation other` ([`faction_relation`]).
+pub fn get_faction_relation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::Num(faction_relation(g, r, a.form(0)?) as f64))
 }
 
 /// `SetEnemy f1 f2 [flag12 flag21]`: each direction becomes enemy (flag 0, the default)

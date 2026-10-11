@@ -75,9 +75,33 @@ After actor value changes (`fnv-game` `actor_values`, `functions::actor`), run
 `fnvtool actor values --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor SunnyRef`
 and compare with docs/spec-notes/actor-values.md §3.1 (the fit table) and §7 (Sunny Smiles:
 Guns 35, Health 100; the player: every skill 15, Action Points 80); explain any change.
+After changes to the Wait and Sleep menu, to what sleeping does or to the people during
+a wait (`nvf-play` `wait`, `fnv-game` `rest`, `fnv-ai` `pass_time`, the engine's residents;
+docs/spec-notes/wait-menu.md §11), run the sleep smoke test, with
+`NVF_PLAY_TEST_NEAR=000CEB03`, `NVF_PLAY_TEST_ACTIVATE=16` and
+`NVF_PLAY_TEST_WAIT=24:hours=3,25:accept` set:
+`engine/target/release/nvforever --data <Data> --cell NovacPlayersRoom --play --hour 22 --run-seconds 36`
+(expect exit 0, "wait menu: open as sleep", three "sleep: hour" lines, "on screen: You are now
+Well Rested!" and "1 sleeps told to a bed's script" in the wait summary), and the wait with
+residents, with `NVF_PLAY_TEST_WAIT=30:open,31:hours=4,32:accept` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --npc-packages EasyPeteRef,GSChetRef,GoodspringsSettler04Ref --hour 18.5 --run-seconds 50`
+(expect exit 0, "3 there, 0 on their way" and "4 hours passed in the wait menu (2 walks in them)"
+in the ai summary).
+After changes to actor templates, leveled actor lists or faction functions (`fnv-game`
+`templates`, `functions::actor`), run
+`fnvtool actor factions --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor FiendVioletRef --actor 00157B36`
+and compare with docs/spec-notes/factions.md §2–§5 (the coyote 00157B36: factions source
+CrCoyote, four factions; the pick against the actor drawn: 3,003 same, 0 differ); explain any change.
 After furniture changes (docs/spec-notes/furniture.md §7), run the sitting smoke test:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-sit EasyPeteRef=0010634A:8 --follow-npc --run-seconds 45`
 (expect exit 0 and "furniture summary: 1 of 1 actors sat down, 1 got up again").
+After music, placed sound or background loop changes (docs/spec-notes/audio.md), run
+`fnvtool world audio <Data> FalloutNV.esm --schema schemas/fnv` (compare the counts with
+audio.md) and the music smoke test:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --pos=-69000,3500,8900 --hour 12 --run-seconds 40`
+(expect exit 0, "music: musSetLOCDesExplBothABC day started, layers outer+middle+inner",
+"music summary: 1 started, 0 changes of layers, 0 files not played" and "ambient summary:
+2 placed loops started, … 1 background loops started"; the count of random sounds varies).
 After changes to the player's controls or to what scripts lock of them (`nvf-play`
 `control::ControlLocks`, `script::sync_locks`; docs/spec-notes/controls.md §5), run the
 held-player smoke test, with `NVF_PLAY_TEST_SCRIPT_MENUS=1`, `NVF_PLAY_TEST_MOVE=1:1:0`,

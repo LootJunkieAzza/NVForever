@@ -281,8 +281,13 @@ pub struct MessageDef {
 #[derive(Debug, Clone, Default)]
 pub struct ActorDef {
     pub sig: [u8; 4],
-    /// SNAM entries: faction and rank.
+    /// SNAM entries: faction and rank. The record's own list: with
+    /// [`ActorDef::template_factions`] the actor's factions are its template's
+    /// ([`GameData::template_source`]).
     pub factions: Vec<(FormId, i8)>,
+    /// ACBS template flag "Factions": the template supplies the factions [documented:
+    /// xEdit ACBS template flags, bit 2; GECK wiki GetActorTemplateFlag, "Use Factions"].
+    pub template_factions: bool,
     pub voice: Option<FormId>,
     pub female: bool,
     pub essential: bool,
@@ -341,6 +346,15 @@ pub struct ActorDef {
     pub template_stats: bool,
     /// CREA ACBS "Invulnerable".
     pub invulnerable: bool,
+}
+
+/// A leveled actor list (LVLN, LVLC) [documented: xEdit; schema `gameplay.json`]: the
+/// flag "Calculate from all levels <= player's level" (LVLF) and the entries (LVLO) as
+/// (level, actor base or another list), in record order.
+#[derive(Debug, Clone, Default)]
+pub struct LeveledActorDef {
+    pub all_levels: bool,
+    pub entries: Vec<(u16, FormId)>,
 }
 
 /// A region's areas (REGN WNAM, RPLI/RPLD): each area a polygon of worldspace x, y
@@ -460,6 +474,9 @@ pub struct GameData {
     /// the textures folder [documented: GECK wiki, MenuIcon; corner-messages.md §3].
     pub menu_icons: HashMap<FormId, String>,
     pub actors: HashMap<FormId, ActorDef>,
+    /// Leveled actor lists (LVLN, LVLC): what a placed leveled actor or a `TPLT` naming a
+    /// list stands for ([`GameData::template_source`]).
+    pub leveled_actors: HashMap<FormId, LeveledActorDef>,
     /// SCRI of every winning record that has one (base forms, quests).
     pub form_script: HashMap<FormId, FormId>,
     /// Lower-case Editor ID → FormID (every winning record with an EDID).
@@ -573,6 +590,7 @@ struct Read {
     form_list: Option<Vec<FormId>>,
     menu_icon: Option<String>,
     actor: Option<ActorDef>,
+    leveled_actor: Option<LeveledActorDef>,
     package: Option<PackageDef>,
     reputation: Option<f32>,
     challenge: Option<u32>,
@@ -631,6 +649,7 @@ impl GameData {
             form_lists: HashMap::new(),
             menu_icons: HashMap::new(),
             actors: HashMap::new(),
+            leveled_actors: HashMap::new(),
             form_script: HashMap::new(),
             edids: HashMap::new(),
             edid_of: HashMap::new(),
@@ -742,6 +761,9 @@ impl GameData {
             }
             if let Some(a) = r.actor {
                 d.actors.insert(id, a);
+            }
+            if let Some(l) = r.leveled_actor {
+                d.leveled_actors.insert(id, l);
             }
             if let Some(p) = r.package {
                 d.package_defs.insert(id, p);
@@ -951,6 +973,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"FLST"
             | b"NPC_"
             | b"CREA"
+            | b"LVLN"
+            | b"LVLC"
             | b"PACK"
             | b"REPU"
             | b"CHAL"
@@ -1333,11 +1357,28 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.template_packages = has_flag(tf, "AI Packages");
                         a.template_stats = has_flag(tf, "Stats");
                         a.template_ai = has_flag(tf, "AI Data");
+                        a.template_factions = has_flag(tf, "Factions");
                     }
                     _ => {}
                 }
             }
             out.actor = Some(a);
+        }
+        b"LVLN" | b"LVLC" => {
+            let mut l = LeveledActorDef::default();
+            for (s, v) in &decoded {
+                match *s {
+                    b"LVLF" => l.all_levels = has_flag(v.as_ref(), "Calculate from all levels <= player's level"),
+                    b"LVLO" => {
+                        let level = v.as_ref().and_then(|v| v.get("level")).and_then(Json::as_u64).unwrap_or(0).min(u64::from(u16::MAX)) as u16;
+                        if let Some(f) = v.as_ref().and_then(|v| v.get("reference")).and_then(hexid).and_then(map) {
+                            l.entries.push((level, FormId(f)));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            out.leveled_actor = Some(l);
         }
         b"PACK" => {
             let code = |sub: &[u8; 4], field: &str, v: &Json| field_code(schema, &sig, sub, Some(field), v);
