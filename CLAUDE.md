@@ -202,6 +202,12 @@ dialogue, with `NVF_PLAY_TEST_TALK=10:GSChetRef=for sale|leave`, `NVF_PLAY_TEST_
 (expect exit 0, "menu: a script opens the barter menu with 0x00104C79", "stock in 0x00104C7A",
 "menu: Accept: Traded", "menu: close" and then the conversation's "Goodbye." choice).
 
+After changes to activation or the menus' keys (`nvf-play` `activate`, `menu` `menu_keys`,
+`FreshMenu`), open and close a container with the real E key, with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3`,
+`NVF_PLAY_TEST_NEAR=00105658` and `NVF_PLAY_TEST_KEYS=16:e,19:e` set:
+`engine/target/release/nvforever --data <Data> --cell GSHouseInterior03 --play --no-voice --run-seconds 21`
+(expect exit 0, `menu: open Container(0x00105658) "Refrigerator"` and 3 s later `menu: close`).
+
 After changes to the name, tag-skill or trait menus (`nvf-play` `chargen`, `chargen::lists`,
 `chargen::name`, `fnv_game::chargen`; docs/spec-notes/chargen.md §7), run the three, with
 `NVF_PLAY_TEST_SCRIPT_MENUS=off`, `NVF_PLAY_TEST_SCRIPT=3:menu:1051,8:menu:1048,13:menu:1084` and
