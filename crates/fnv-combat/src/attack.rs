@@ -16,6 +16,16 @@
 //! trigger, then at its rate for as long as the trigger stays held. Letting go during
 //! the spin-up fires nothing; every new pull, and firing on after a reload, spins up
 //! again [design].
+//!
+//! Round by round (docs/spec-notes/combat-rules.md §4): a weapon whose reload animation
+//! has an opening clip (`1hpreloadxstart.kf` beside `1hpreloadx.kf`: the .357 revolver,
+//! the lever-actions, the hunting shotgun) opens once, then loads one round per pass of
+//! the reload clip up to its `Hit` key and closes with the rest of that clip
+//! [hypothesis: the `Hit` key "also ends looping reloads", documented: GECK wiki
+//! NiTextKeyExtraData; observed: the sounds named after it are the `…ReloadEnd`, click
+//! and cock sounds]. A fresh pull of the trigger stops it after the round in hand: the
+//! weapon closes first, then fires [owner decision 2026-10-11], and the close plays
+//! every time [owner decision 2026-10-11].
 
 use serde::Serialize;
 
@@ -31,6 +41,10 @@ pub struct ClipTiming {
     pub hit_time: Option<f32>,
     /// Length of the reload clip, seconds.
     pub reload_len: Option<f32>,
+    /// Time of the reload clip's `Hit` key, seconds.
+    pub reload_hit: Option<f32>,
+    /// Length of the reload animation's opening clip (`…start.kf`), when it has one.
+    pub reload_open_len: Option<f32>,
     /// The attack clip has an internal loop (`Fire` and `Loop` keys): seconds from its
     /// start to the `Fire` key.
     pub spin_up: Option<f32>,
@@ -47,6 +61,27 @@ pub struct Timing {
     /// Seconds from a new pull of the trigger to the first shot of an automatic weapon
     /// that has to spin up; 0 for the others.
     pub spin_up: f32,
+    /// A reload that loads round by round; `None`: the whole magazine in one go.
+    pub rounds: Option<RoundReload>,
+}
+
+/// The parts of a round-by-round reload, seconds.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct RoundReload {
+    /// Opening the weapon: the opening clip.
+    pub open: f32,
+    /// One round: the reload clip up to its `Hit` key.
+    pub round: f32,
+    /// Closing it: the rest of the reload clip.
+    pub close: f32,
+}
+
+impl RoundReload {
+    /// From the clips: an opening clip, and a reload clip with a `Hit` key inside it.
+    pub fn of(clips: &ClipTiming) -> Option<RoundReload> {
+        let (open, hit, len) = (clips.reload_open_len?, clips.reload_hit?, clips.reload_len?);
+        (open >= 0.0 && hit > 0.0 && hit < len).then_some(RoundReload { open, round: hit, close: len - hit })
+    }
 }
 
 impl Timing {
@@ -68,7 +103,7 @@ impl Timing {
         // In clip seconds: the body plays the attack clip at its own speed, and the
         // shot should leave when the clip reaches its key.
         let spin_up = if w.automatic { clips.spin_up.unwrap_or(0.0).max(0.0) } else { 0.0 };
-        Timing { interval, fire_delay, reload, spin_up }
+        Timing { interval, fire_delay, reload, spin_up, rounds: RoundReload::of(clips) }
     }
 }
 
@@ -83,6 +118,14 @@ pub enum Phase {
     /// Between shots.
     Cooldown { left: f32 },
     Reloading { left: f32 },
+    /// Round by round: opening the weapon. `stop`: the trigger was pulled, so only the
+    /// first round goes in.
+    ReloadOpen { left: f32, stop: bool },
+    /// Round by round: one round goes in when `left` reaches 0; `taken` so far.
+    ReloadRound { left: f32, stop: bool, taken: u32 },
+    /// Round by round: closing the weapon. `fire`: the trigger was pulled, the shot
+    /// follows.
+    ReloadClose { left: f32, fire: bool, taken: u32 },
 }
 
 /// One tick's input.
@@ -105,7 +148,16 @@ pub enum Event {
     Fired { rounds: u32 },
     /// Trigger on an empty magazine with nothing to reload.
     DryFire,
+    /// A reload started: the reload clip, or the opening clip of a round-by-round one.
     ReloadStarted,
+    /// Round by round: the pass that loads one round starts (the reload clip from its
+    /// start).
+    ReloadRound,
+    /// Round by round: a round went into the magazine.
+    RoundLoaded,
+    /// Round by round: the weapon closes (the reload clip plays on past `Hit`);
+    /// `stopped`: by the trigger.
+    ReloadClosing { stopped: bool },
     /// Reload finished: `taken` rounds move from the inventory to the magazine.
     Reloaded { taken: u32 },
     /// A regenerating weapon gained a round.
@@ -160,6 +212,15 @@ impl Cycle {
         !self.no_ammo && self.regen.is_none() && self.magazine < self.clip_size && carried > 0
     }
 
+    /// The whole magazine, or round by round when the weapon's clips say so.
+    fn start_reload(&mut self) -> Phase {
+        self.spun = false;
+        match self.timing.rounds {
+            Some(r) => Phase::ReloadOpen { left: r.open, stop: false },
+            None => Phase::Reloading { left: self.timing.reload },
+        }
+    }
+
     pub fn step(&mut self, t: &CombatTuning, i: Input) -> Vec<Event> {
         let mut out = Vec::new();
         let fresh = i.trigger && !self.held;
@@ -181,13 +242,17 @@ impl Cycle {
             }
         }
         let mut dt = i.dt;
+        // A fresh pull stops a round-by-round reload, unless that pull started it.
+        let mut stop_pull = fresh;
+        // Rounds loaded this tick, not yet out of `i.carried`.
+        let mut loaded = 0;
         // Up to a few phase changes per tick, so short intervals at long ticks still fire.
         for _ in 0..8 {
             match self.phase {
                 Phase::Ready => {
                     if i.reload && self.can_reload(i.carried) {
-                        self.phase = Phase::Reloading { left: self.timing.reload };
-                        self.spun = false;
+                        self.phase = self.start_reload();
+                        stop_pull = false;
                         out.push(Event::ReloadStarted);
                     } else if pulled {
                         if self.has_round() {
@@ -198,8 +263,8 @@ impl Cycle {
                                 self.phase = Phase::WindUp { left: self.timing.fire_delay };
                             }
                         } else if t.auto_reload && self.can_reload(i.carried) {
-                            self.phase = Phase::Reloading { left: self.timing.reload };
-                            self.spun = false;
+                            self.phase = self.start_reload();
+                            stop_pull = false;
                             out.push(Event::ReloadStarted);
                         } else {
                             // One click per pull, also for automatic weapons.
@@ -260,6 +325,61 @@ impl Cycle {
                     out.push(Event::Reloaded { taken });
                     self.phase = Phase::Ready;
                     break;
+                }
+                Phase::ReloadOpen { left, stop } => {
+                    let stop = stop || stop_pull;
+                    if left > dt {
+                        self.phase = Phase::ReloadOpen { left: left - dt, stop };
+                        break;
+                    }
+                    dt -= left;
+                    // The first round always goes in, whatever stops the reload [design].
+                    let round = self.timing.rounds.map_or(0.0, |r| r.round);
+                    self.phase = Phase::ReloadRound { left: round, stop, taken: 0 };
+                    out.push(Event::ReloadRound);
+                }
+                Phase::ReloadRound { left, stop, taken } => {
+                    let stop = stop || stop_pull;
+                    if left > dt {
+                        self.phase = Phase::ReloadRound { left: left - dt, stop, taken };
+                        break;
+                    }
+                    dt -= left;
+                    let r = self.timing.rounds.unwrap_or(RoundReload { open: 0.0, round: 0.0, close: 0.0 });
+                    // The round in hand goes in, if one is still carried.
+                    let taken = if i.carried > loaded {
+                        self.magazine += 1;
+                        loaded += 1;
+                        out.push(Event::RoundLoaded);
+                        taken + 1
+                    } else {
+                        taken
+                    };
+                    if stop || self.magazine >= self.clip_size || i.carried <= loaded {
+                        self.phase = Phase::ReloadClose { left: r.close, fire: stop, taken };
+                        out.push(Event::ReloadClosing { stopped: stop });
+                    } else {
+                        self.phase = Phase::ReloadRound { left: r.round, stop: false, taken };
+                        out.push(Event::ReloadRound);
+                    }
+                }
+                Phase::ReloadClose { left, fire, taken } => {
+                    // A pull while it closes fires once it is closed too.
+                    let fire = fire || stop_pull;
+                    if left > dt {
+                        self.phase = Phase::ReloadClose { left: left - dt, fire, taken };
+                        break;
+                    }
+                    dt -= left;
+                    out.push(Event::Reloaded { taken });
+                    self.phase = Phase::Ready;
+                    // Closed first, then the shot the trigger asked for [owner decision
+                    // 2026-10-11], without a new pull [design].
+                    if fire && self.has_round() {
+                        self.phase = Phase::WindUp { left: self.timing.fire_delay };
+                    } else {
+                        break;
+                    }
                 }
             }
         }

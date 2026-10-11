@@ -38,6 +38,7 @@ use fnv_phys::{layers, Filter, Key, Owner};
 use fnv_sim::FormId;
 use fnv_world::grass::Coverage;
 use fnv_world::land::{load_land, LandParts};
+use nvf_assets::anim_blend::Mode;
 use nvf_assets::anim_play::{BlendPlayer, Clip};
 use nvf_play::doors::DoorSound;
 use nvf_play::phys::PhysState;
@@ -163,10 +164,13 @@ struct Heard<'a> {
 }
 
 /// The keys `clip` passed going to clip time `now` in role `playing`; `fresh` when the
-/// clip may have just started.
-fn keys_of<'a>(last: &HashMap<Playing, f32>, seen: &mut Vec<(Playing, f32)>, playing: Playing, clip: &'a Clip, now: f32) -> Vec<KeySound<'a>> {
+/// clip may have just started. A clip played `once` that went back has been started
+/// again (a round-by-round reload restarts its clip at `Hit` for the next round): heard
+/// from its start, not round its end.
+fn keys_of<'a>(last: &HashMap<Playing, f32>, seen: &mut Vec<(Playing, f32)>, playing: Playing, clip: &'a Clip, now: f32, once: bool) -> Vec<KeySound<'a>> {
     seen.push((playing, now));
     let from = match last.get(&playing) {
+        Some(&t) if once && now < t => None,
         Some(&t) => Some(t),
         None if now - clip.start <= JUST_STARTED => None,
         None => return Vec::new(),
@@ -315,7 +319,7 @@ fn player_keys(
     let mut heard: Vec<(&Clip, KeySound)> = Vec::new();
     for l in a.layers.iter().filter(|l| l.weight * l.ease >= HEARD_WEIGHT) {
         let playing = (who, Arc::as_ptr(&l.clip) as usize, l.tag);
-        for k in keys_of(&s.last, &mut seen, playing, &l.clip, l.sample_time(a.phase)) {
+        for k in keys_of(&s.last, &mut seen, playing, &l.clip, l.sample_time(a.phase), l.mode == Mode::Once) {
             heard.push((&l.clip, k));
         }
     }
@@ -366,7 +370,7 @@ fn actor_keys(
         for l in bp.layers.iter().flatten().filter(|l| l.weight >= HEARD_WEIGHT) {
             let clip = &l.clip.clip;
             let now = clip.start + l.phase.clamp(0.0, 1.0) * clip.length();
-            for k in keys_of(&s.last, &mut seen, (who, Arc::as_ptr(clip) as usize, 0), clip, now) {
+            for k in keys_of(&s.last, &mut seen, (who, Arc::as_ptr(clip) as usize, 0), clip, now, false) {
                 heard.push((clip, k));
             }
         }
@@ -517,16 +521,20 @@ mod tests {
         let p: Playing = (Who::Player(true), 1, 10);
         // Just started: heard from its start.
         let last = HashMap::new();
-        assert_eq!(keys_of(&last, &mut seen, p, &c, 0.05), vec![KeySound::Sound("A")]);
+        assert_eq!(keys_of(&last, &mut seen, p, &c, 0.05, false), vec![KeySound::Sound("A")]);
         // First seen part-way: nothing until the next frame.
-        assert!(keys_of(&last, &mut seen, p, &c, 0.5).is_empty());
+        assert!(keys_of(&last, &mut seen, p, &c, 0.5, false).is_empty());
         let last: HashMap<Playing, f32> = [(p, 0.3)].into();
-        assert_eq!(keys_of(&last, &mut seen, p, &c, 0.5), vec![KeySound::Foot(Side::Left)]);
+        assert_eq!(keys_of(&last, &mut seen, p, &c, 0.5, false), vec![KeySound::Foot(Side::Left)]);
         // Round the end of a loop.
         let last: HashMap<Playing, f32> = [(p, 0.8)].into();
-        assert_eq!(keys_of(&last, &mut seen, p, &c, 0.1), vec![KeySound::Sound("A"), KeySound::Foot(Side::Right)]);
+        assert_eq!(keys_of(&last, &mut seen, p, &c, 0.1, false), vec![KeySound::Sound("A"), KeySound::Foot(Side::Right)]);
         // Held at the end: nothing again.
         let last: HashMap<Playing, f32> = [(p, 1.0)].into();
-        assert!(keys_of(&last, &mut seen, p, &c, 1.0).is_empty());
+        assert!(keys_of(&last, &mut seen, p, &c, 1.0, false).is_empty());
+        // A clip played once, started again part-way (the next round of a reload): heard
+        // from its start, not round its end.
+        let last: HashMap<Playing, f32> = [(p, 0.6)].into();
+        assert_eq!(keys_of(&last, &mut seen, p, &c, 0.05, true), vec![KeySound::Sound("A")]);
     }
 }

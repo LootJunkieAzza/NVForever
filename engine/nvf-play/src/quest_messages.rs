@@ -124,10 +124,15 @@ pub struct QuestMessages {
 }
 
 impl QuestMessages {
-    /// Add a line behind those waiting. Objectives join a list that waits last; a line
+    /// Add a line behind those waiting. Objectives join a list of their own quest's that
+    /// waits last; a line
     /// that says what the last one says is left out, and so is any when too many wait.
     pub fn push(&mut self, n: QuestNotice) {
+        let quest = |l: &[Objective]| l.first().map(|o| o.quest);
         if let (QuestNotice::Objectives(more), Some(QuestNotice::Objectives(list))) = (&n, self.waiting.back_mut()) {
+            if quest(more) != quest(list) {
+                return self.queue(n);
+            }
             // One completed before its list was on screen is shown completed, once.
             for o in more {
                 match list.iter_mut().find(|e| e.text == o.text) {
@@ -137,6 +142,10 @@ impl QuestMessages {
             }
             return;
         }
+        self.queue(n);
+    }
+
+    fn queue(&mut self, n: QuestNotice) {
         let last = self.waiting.back().or(self.showing.as_ref().map(|s| &s.0));
         if last != Some(&n) && self.waiting.len() < MAX_WAITING {
             self.waiting.push_back(n);
@@ -356,7 +365,7 @@ mod tests {
     use super::*;
 
     fn objectives(list: &[(&str, bool)]) -> QuestNotice {
-        QuestNotice::Objectives(list.iter().map(|(t, c)| Objective { text: t.to_string(), completed: *c }).collect())
+        QuestNotice::Objectives(list.iter().map(|(t, c)| Objective { quest: 1, text: t.to_string(), completed: *c }).collect())
     }
 
     /// Letters 14 wide and lines of 36, about font 7; capitals 22 wide, about font 8.
@@ -435,10 +444,20 @@ mod tests {
         assert!(!q.step(LIST_SECONDS + LIST_SECONDS_MORE));
         assert!(q.step(FADE));
         assert_eq!(q.showing(), Some(&QuestNotice::Completed("Back in the Saddle".into())));
-        // An objective that comes while a list is on screen gets a list of its own.
+        // Another quest's objectives wait in a list of their own.
+        let other = QuestNotice::Objectives(vec![Objective { quest: 2, text: "Find the caravan master.".into(), completed: false }]);
+        q.push(other.clone());
         q.push(objectives(&[("Go and meet Trudy.", false)]));
-        assert_eq!(q.waiting(), 1);
+        assert_eq!(q.waiting(), 2);
         assert!(q.step(BANNER_SECONDS + FADE));
+        assert_eq!(q.showing(), Some(&other));
+        // An objective of the list on screen gets a list of its own.
+        q.push(other.clone());
+        assert_eq!(q.waiting(), 2);
+        assert!(q.step(LIST_SECONDS + FADE));
+        assert_eq!(q.showing(), Some(&objectives(&[("Go and meet Trudy.", false)])));
+        assert!(q.step(LIST_SECONDS + FADE));
+        assert_eq!(q.showing(), Some(&other));
         assert!(q.step(LIST_SECONDS + FADE));
         assert!(q.showing().is_none());
     }

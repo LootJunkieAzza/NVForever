@@ -74,6 +74,8 @@ pub enum QuestNotice {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Objective {
+    /// The quest's FormID: a waiting list takes only its own quest's objectives.
+    pub quest: u32,
     pub text: String,
     pub completed: bool,
 }
@@ -270,11 +272,11 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                         out.push(ScriptEffect::Quest(QuestNotice::Added(name)));
                     }
                 }
-                out.push(ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { text, completed: false }])));
+                out.push(ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: quest.0, text, completed: false }])));
             }
             EventKind::ObjectiveCompleted { quest, index, on: true } => {
                 if let Some(text) = ctx.objective_text(*quest, *index).filter(|t| !t.trim().is_empty()) {
-                    out.push(ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { text, completed: true }])));
+                    out.push(ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: quest.0, text, completed: true }])));
                 }
             }
             EventKind::QuestCompleted { quest } => out.extend(ctx.quest_title(*quest).map(|n| ScriptEffect::Quest(QuestNotice::Completed(n)))),
@@ -740,8 +742,8 @@ mod tests {
                 ScriptEffect::MessageBox(BoxMessage { message: 0xBB, text: "Old World Blues has been loaded.".into(), buttons: vec![] }),
                 ScriptEffect::MessageBox(BoxMessage { message: 0xCC, text: "Hardcore?".into(), buttons: vec!["No".into(), "Yes".into()] }),
                 // The quest was listed already: no "Quest added".
-                ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { text: "Use the Vit-o-matic Vigor Tester".into(), completed: false }])),
-                ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { text: "Talk to Sunny Smiles.".into(), completed: true }])),
+                ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: QUEST.0, text: "Use the Vit-o-matic Vigor Tester".into(), completed: false }])),
+                ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: QUEST.0, text: "Talk to Sunny Smiles.".into(), completed: true }])),
                 ScriptEffect::Quest(QuestNotice::Completed("Back in the Saddle".into())),
                 ScriptEffect::Notify("form 15169 removed".into()),
                 ScriptEffect::Notify("form 15169 (5) added".into()),
@@ -754,7 +756,7 @@ mod tests {
 
     #[test]
     fn the_first_objective_shown_adds_the_quest() {
-        let objective = |text: &str, completed| ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { text: text.into(), completed }]));
+        let objective = |text: &str, completed| ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: QUEST.0, text: text.into(), completed }]));
         // Objective 10 is the quest's first: "Quest added" comes before it, once, though
         // two are shown in the same frame. Objectives without text and quests without a
         // name show nothing.

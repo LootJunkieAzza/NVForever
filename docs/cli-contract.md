@@ -313,6 +313,10 @@ Lab comparator: **keyed** on `grid` for `/cells` (all fields, float tolerance 1e
   an exterior cell). With `--at`: `at`, the marker, set, layers and files chosen there
   at `--hour` (default 12), the background loop and the sound markers in reach
   (docs/spec-notes/audio.md §4–6).
+- `world radio [--functions F]` → `fnv.world.radio/1`: `counts` (talking activators by
+  header flags, placed station references by broadcast range, receivers by script, the
+  stations' lines and song files), `stations`, `receiver_bases` (with their placed
+  references) and `goodsprings_receivers`; no texts (docs/spec-notes/radio.md §7).
 
 ## `fnvtool phys ...` (Layer 4 physics)
 

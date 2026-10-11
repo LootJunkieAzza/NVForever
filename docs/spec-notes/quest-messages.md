@@ -109,9 +109,10 @@ of the second objective screenshot break at the same words.
   a name. SetStage's own "Quest Added" (for a stage added to the Pip-Boy) is not built:
   New Vegas's Pip-Boy lists objectives, and which stages count is not known.
 - **One at a time** [design]. Lines wait in the order they came. Objectives that come
-  before their list is on screen join that list (so a completed objective and the next
-  one show together, as in the screenshot); one completed while still waiting is shown
-  completed, once. A line that says what the one before it says is left out.
+  before their list is on screen join that list when it is the last one waiting and of
+  the same quest (so a completed objective and the next one show together, as in the
+  screenshot); one completed while still waiting is shown completed, once. Another
+  quest's objectives wait in a list of their own. A line that says what the one before it says is left out.
 - **Times** [design]. "Quest added" and its kind stay 4 seconds; a list 4 seconds, and
   1.5 more for each objective after the first. Each comes and goes over 0.25 seconds
   (the HUD menu's fade time); the name's letters come one after another over 0.6
@@ -141,10 +142,10 @@ of the second objective screenshot break at the same words.
 - Unit tests: `cargo test -p nvf-play quest_messages script_events` (in `engine`).
 - By eye and by measure, at the screenshots' size:
   `NVF_PLAY_TEST_SCRIPT_MENUS=0.3 NVF_PLAY_TEST_SCRIPT=3:objective:VCG02:3,9:objective_done:VCG02:3,9.1:objective:VCG02:5`
-  `nvforever --data <Data> --cell GSHouseInterior03 --play --no-voice --no-overlay --size 1280x720 --run-seconds 19`
+  `nvforever --data <Data> --cell GSHouseInterior03 --play --no-voice --no-overlay --size 1280x720 --run-seconds 45`
   with `NVF_PLAY_TEST_SHOTS=4.2:<a.png>,8:<b.png>,15:<c.png>`. The log has, in this order,
   `quest message on screen: Quest added: BACK IN THE SADDLE`,
   `quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.` and
   `quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny Smiles behind the Prospector Saloon.`
-  (the add-on packs' quests are added in between), and the sound summary counts their
-  sounds.
+  (the add-on packs' quests are added before, between or after them, each quest's lines
+  together), and the sound summary counts their sounds.

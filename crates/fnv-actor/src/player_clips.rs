@@ -264,6 +264,14 @@ pub fn reload_clips(stance: Stance, prefix: &str, reload: &str) -> Vec<String> {
     out
 }
 
+/// The opening clip of a reload that loads round by round (`ReloadX` →
+/// `1hpreloadxstart.kf`), sneaking first. Only `ReloadX` (`1hp`, `2hr`), `ReloadY` and
+/// `ReloadZ` (`2hr`) have one, in both rigs' folders [observed: the base meshes archive,
+/// 2026-10-11; docs/spec-notes/combat-rules.md §4].
+pub fn reload_open_clips(stance: Stance, prefix: &str, reload: &str) -> Vec<String> {
+    reload_clips(stance, prefix, &format!("{reload}start"))
+}
+
 /// In the air (`land` false: looped) or landing (`land` true: once), moving in `dir`.
 /// The weapon's clips first (`1hpjumploopforward.kf`), then the posture's
 /// (`sneakmtjumplandleft.kf`), then the plain unarmed ones (`mtjumploop.kf`).
@@ -482,6 +490,7 @@ mod tests {
         assert_eq!(c[0], "sneak2hrattack3.kf");
         assert!(c.contains(&"2hrattackright.kf".to_string()));
         assert_eq!(reload_clips(Stance::Stand, "1hp", "ReloadL"), vec!["1hpreloadl.kf".to_string()]);
+        assert_eq!(reload_open_clips(Stance::Sneak, "2hr", "ReloadZ"), vec!["sneak2hrreloadzstart.kf".to_string(), "2hrreloadzstart.kf".to_string()]);
         let k = ClipKeys::parse(&[(0.0, "Start".into()), (0.1, "Hit".into()), (0.3, "Fire".into())]);
         assert_eq!(k.hit, Some(0.1));
     }

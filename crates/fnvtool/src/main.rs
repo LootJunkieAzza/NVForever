@@ -10,6 +10,7 @@ mod ai_run;
 mod actor_furniture;
 mod actor_locomotion;
 mod actor_tri;
+mod actor_detect;
 mod actor_factions;
 mod actor_values;
 mod actor_weapons;
@@ -33,6 +34,7 @@ mod sim_cmd;
 mod source;
 mod voice_cmd;
 mod world_audio;
+mod world_radio;
 mod world_cmd;
 
 use clap::{Args, Parser, Subcommand};
@@ -150,6 +152,32 @@ pub enum ActorCmd {
         actor: Vec<String>,
         #[arg(long)]
         survey: bool,
+    },
+    /// Detection numbers (docs/design/detection.md §4): what one actor's records put
+    /// into the detection formula against a target, and the value and band (hidden,
+    /// noticed, detected) in a set of situations at several distances, with the farthest
+    /// distance of each band (fnv.actor.detect/1).
+    Detect {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Script function catalogue (default: `script/functions.json` next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// The actor detecting: a placed actor or an actor base, by Editor ID or FormID.
+        #[arg(long)]
+        detector: String,
+        /// The actor detected (default: the player).
+        #[arg(long, default_value = "player")]
+        target: String,
+        /// Measure as in an interior (the shorter reach).
+        #[arg(long)]
+        interior: bool,
+        /// The light level of a lit place, 0–100.
+        #[arg(long, default_value_t = 90.0)]
+        light: f64,
+        /// The light level of a dark place, 0–100.
+        #[arg(long, default_value_t = 10.0)]
+        dark: f64,
     },
     /// The parts list of placed NPCs: skeleton, race parts, hair, head parts, worn
     /// armour and FaceGen coefficients (fnv.actor.appearance/1).
@@ -530,6 +558,16 @@ pub enum WorldCmd {
         /// Game hour for the day or night choice (with --at).
         #[arg(long, default_value_t = 12.0)]
         hour: f32,
+    },
+    /// Radios (fnv.world.radio/1): radio stations (talking activators), their placed
+    /// references and broadcast range, the receivers (activators naming a station) and
+    /// the lines their quests give them (docs/spec-notes/radio.md).
+    Radio {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Function catalogue (default: ../script/functions.json next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
     },
 }
 

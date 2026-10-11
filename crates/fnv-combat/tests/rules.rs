@@ -269,6 +269,65 @@ fn a_spinning_weapon_fires_after_its_spin_up() {
     assert_eq!(shots(&run(&mut c, &t, 2, dt, |_| true, 0)), 1, "at once");
 }
 
+/// The .357 revolver's clips (`1hpreloadxstart.kf` 1.067 s; `1hpreloadx.kf` 1.767 s,
+/// `Hit` at 0.633 s): it opens, loads a round per pass up to `Hit`, and closes.
+#[test]
+fn a_revolver_loads_round_by_round() {
+    let t = CombatTuning::default();
+    let w = WeaponStats { clip_size: 6, ..gun(26) };
+    let clips = ClipTiming { reload_len: Some(1.767), reload_hit: Some(0.633), reload_open_len: Some(1.067), ..Default::default() };
+    let timing = Timing::of(&w, &clips, &t);
+    let r = timing.rounds.expect("round by round");
+    assert!(close(r.open, 1.067) && close(r.round, 0.633) && close(r.close, 1.134), "{r:?}");
+    // Without the opening clip, or without `Hit`: the whole magazine at once.
+    assert_eq!(Timing::of(&w, &ClipTiming { reload_open_len: None, ..clips }, &t).rounds, None);
+    assert_eq!(Timing::of(&w, &ClipTiming { reload_hit: None, ..clips }, &t).rounds, None);
+    let dt = 0.01;
+    let steps = |c: &mut Cycle, from: usize, ticks: usize, pull: &dyn Fn(usize) -> bool, carried: u32| -> Vec<Event> {
+        (from..from + ticks).flat_map(|k| c.step(&t, Input { trigger: pull(k), reload: k == 0, dt, carried })).collect()
+    };
+    let rounds = |ev: &[Event]| ev.iter().filter(|e| **e == Event::RoundLoaded).count();
+
+    // Four missing: open, four rounds, close: 1.067 + 4 × 0.633 + 1.134 = 4.73 s.
+    let mut c = Cycle::new(&w, timing, false, 2);
+    let ev = steps(&mut c, 0, 460, &|_| false, 20);
+    assert_eq!(c.magazine, 6);
+    assert!(!ev.iter().any(|e| matches!(e, Event::Reloaded { .. })), "closed too soon: {ev:?}");
+    let ev2 = steps(&mut c, 460, 20, &|_| false, 20);
+    assert_eq!(ev2, vec![Event::Reloaded { taken: 4 }]);
+    assert_eq!(&ev[..3], &[Event::ReloadStarted, Event::ReloadRound, Event::RoundLoaded]);
+    assert_eq!(rounds(&ev), 4);
+    assert_eq!(ev.last(), Some(&Event::ReloadClosing { stopped: false }));
+
+    // Empty, the trigger pulled 2 s in (the second round is in hand): it goes in, the
+    // revolver closes (to 3.47 s), then fires without another pull.
+    let mut c = Cycle::new(&w, timing, false, 0);
+    let ev = steps(&mut c, 0, 340, &|k| k == 200, 20);
+    assert_eq!(rounds(&ev), 2);
+    assert!(ev.contains(&Event::ReloadClosing { stopped: true }));
+    assert_eq!(shots(&ev), 0, "not before it is closed");
+    let ev = steps(&mut c, 340, 20, &|_| false, 20);
+    assert_eq!(ev, vec![Event::Reloaded { taken: 2 }, Event::Fired { rounds: 1 }]);
+    assert_eq!(c.magazine, 1);
+
+    // Pulled while it opens: the first round still goes in, then it closes.
+    let mut c = Cycle::new(&w, timing, false, 0);
+    let ev = steps(&mut c, 0, 300, &|k| k == 50, 20);
+    assert_eq!(rounds(&ev), 1);
+    assert_eq!(shots(&ev), 1);
+
+    // One round carried: it goes in and the revolver closes.
+    let mut c = Cycle::new(&w, timing, false, 0);
+    let ev = steps(&mut c, 0, 300, &|_| false, 1);
+    assert_eq!((rounds(&ev), c.magazine), (1, 1));
+    assert!(ev.contains(&Event::Reloaded { taken: 1 }));
+
+    // An empty pull starts the reload; that pull does not stop it.
+    let mut c = Cycle::new(&w, timing, false, 0);
+    let ev: Vec<Event> = (0..800).flat_map(|k| c.step(&t, Input { trigger: k < 3, reload: false, dt, carried: 20 })).collect();
+    assert_eq!((rounds(&ev), shots(&ev)), (6, 0));
+}
+
 /// Floor at z = 0, spherical actors, and an optional small-transparent fence at x = 500.
 struct Toy {
     actors: Vec<(ActorId, V3, f32)>,
