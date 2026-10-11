@@ -43,6 +43,7 @@ mod settings;
 mod imagespace;
 mod imposters;
 mod sky;
+mod speech_look;
 mod terrain;
 mod tree;
 mod treelod;
@@ -798,6 +799,8 @@ fn main() -> AppExit {
             app.add_plugins(anim_sounds::AnimSoundsPlugin);
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
+            // Who says a line to someone turns to them (speech_look.rs).
+            app.add_plugins(speech_look::SpeechLookPlugin);
             // Who perceives whom (detection.rs): the drawn actors and the player.
             app.add_plugins(detection::DetectionPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).

@@ -1,7 +1,7 @@
 //! Messages, time, globals and numbers.
 
 use super::{none, yes, Args, Ctx};
-use crate::game::{menus, Game, MessageBox};
+use crate::game::{menus, Game, LineLook, MessageBox};
 use crate::trace::EventKind;
 use fnv_script::vm::Value;
 use fnv_sim::clock;
@@ -149,12 +149,18 @@ pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     }))
 }
 
-/// `speaker.SayTo target topic`: the speaker says the topic's first line it can say to
-/// the target (`Game::say`, docs/spec-notes/scripts.md §7.7).
+/// `speaker.SayTo target topic [forceSubtitleFlag] [noTargetLookFlag]`: the speaker
+/// says the topic's first line it can say to the target (`Game::say`,
+/// docs/spec-notes/scripts.md §7.7). The two turn to each other while it is said; with
+/// `noTargetLookFlag` 1 the target is not made to look at the speaker [documented: GECK
+/// wiki SayTo, owner export] and only the speaker turns (`Game::facings`). The
+/// subtitle flag is not read (subtitles are always shown).
 pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let (target, topic) = (a.form(0)?, a.form(1)?);
-    g.say(speaker, Some(target), topic, true);
+    if g.say(speaker, Some(target), topic, true).is_some() && a.num_or(3, 0.0) != 0.0 {
+        g.set_line_look(speaker, LineLook::Speaker);
+    }
     none()
 }
 
@@ -175,13 +181,18 @@ pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// conversation is running, or when the speaker has no line to say, does nothing
 /// [hypothesis]. With another actor as the target the two talk to each other and the
 /// player overhears them (`Game::start_actor_conversation`, docs/spec-notes/dialogue.md
-/// §5.1); the location references, head-track and allow-movement parameters are not read.
+/// §5.1). There `headTrack` 0 turns nobody for the whole conversation [documented:
+/// "Enter 0 to disable" head tracking during the conversation; hypothesis: left out, it
+/// is on] (`Game::facings`); the location references and allow-movement are not read,
+/// nor is head-track in a conversation with the player.
 pub fn start_conversation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let target = a.form(0)?;
     if target != fnv_sim::FormId::PLAYER_REF {
         // Refusals are not errors of the script, as below.
-        let _ = g.start_actor_conversation(speaker, target, a.opt_form(1));
+        if g.start_actor_conversation(speaker, target, a.opt_form(1)).is_ok() && a.num_or(4, 1.0) == 0.0 {
+            g.set_line_look(speaker, LineLook::Nobody);
+        }
         return none();
     }
     // A disabled player (the speaker's side is checked by `Game::start_dialogue`).

@@ -189,6 +189,15 @@ footsteps, reload and doors check, with `NVF_PLAY_TEST_EQUIP=0000434F`,
 "3 reload keys", "5 door sounds (2 from door records)" and "0 keys without a SOUN"; the
 actors' footsteps and rustles vary).
 
+After changes to who turns to whom while a line is said (`fnv_game::game::Game::facings`,
+nvforever `speech_look.rs`, `fnv_ai::social` `face_listeners`; docs/design/dialogue-play.md §9),
+run Sunny's lines in the saloon, with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
+`NVF_PLAY_TEST_SCRIPT=14:say_to:0x00104E85:0x0010588E:GREETING,20:say_to:SunnyRef:player:GREETING,26:say_to:SunnyRef:0x0010588E:GREETING:1` set:
+`engine/target/release/nvforever --data <Data> --cell GSProspectorSaloonInterior --play --no-voice --run-seconds 34`
+(expect exit 0, "CheyenneREF listens to SunnyRef", each "line … over: SunnyRef has … off its front"
+within a few degrees of 0, no "listens" line for the last one, and "speech look summary: 3 lines";
+add `--no-npc-packages` to see "the body turns" by speech_look.rs itself).
+
 ## Commits
 
 End commit messages with the session's attribution lines. Keep commits focused; write
