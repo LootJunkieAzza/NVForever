@@ -1,0 +1,470 @@
+//! The character-creation menus the opening's scripts open (docs/spec-notes/chargen.md),
+//! drawn as the original's: the name menu (1051, [`name`]), the Vigor Tester's
+//! S.P.E.C.I.A.L. menu (1074, [`vigor`]), the tag-skill menu (1048) and the trait menu
+//! (1084, both [`lists`]). The rules (points, limits, what Done writes) are
+//! `fnv_game::chargen`'s; this module draws the menus and turns keys and clicks into
+//! changes of their sheets.
+//!
+//! - A menu opens when the runtime's open menu (`Game::menu`) becomes its code, and
+//!   reads the player as the game holds them then.
+//! - Done writes the sheet into the game ([`finish`]) and answers the menu
+//!   (`ScriptState::answer`), which closes it after the frame's scripts ran, as the
+//!   placeholder's Done did; the scripts then go on (the next stage's timer).
+//! - Keys of the tag-skill and trait menus: Up/Down (or W/S, the wheel) choose a row,
+//!   Page Up/Down a page, Enter or Space tags or takes the chosen row, R resets, A is
+//!   Done [observed: the hints "Reset R)" and "Done A)"; hypothesis: the others]. The
+//!   pointer chooses the row it is on, a click tags or takes it; Reset, Done and the
+//!   scroll arrows are clickable. Name menu: typing adds to the name, Backspace rubs
+//!   out, Enter or a click on Ok is Ok.
+//! - Unattended runs: `NVF_PLAY_TEST_SCRIPT_MENUS` still closes a menu left open, keeping
+//!   what the game holds (as before); `NVF_PLAY_TEST_CHARGEN=<seconds>:<op>[,...]` plays
+//!   the player: `type:<text>`, `clear` (rub the name out), `pick:<row name>` (choose a
+//!   row and tag or take it), `reset`, `done`.
+//! - The race menu (1036) keeps the placeholder panel (`crate::script_hud`).
+
+pub mod draw;
+pub mod lists;
+pub mod name;
+pub mod vigor;
+
+use crate::script::ScriptState;
+use crate::sim::SimState;
+use crate::PlaySet;
+use bevy::image::CompressedImageFormatSupport;
+use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use bevy::prelude::*;
+use fnv_game::chargen as rules;
+use fnv_game::game::menus;
+use fnv_game::Game;
+use lists::{ListButton, ListMenu, ListRow, ListView};
+use name::{NameMenu, OkButton};
+use nvf_assets::GameData;
+
+/// Whether a script's menu is drawn by this module (else by `crate::script_hud`).
+pub fn has_own_menu(code: u16) -> bool {
+    matches!(code, menus::NAME | menus::LOVE_TESTER | menus::TAG_SKILLS | menus::TRAITS)
+}
+
+/// The script menu open now, if any.
+pub fn open_code(script: &ScriptState) -> Option<u16> {
+    script.rt.as_ref().and_then(|rt| rt.game.menu)
+}
+
+/// Done in a character-creation menu: `apply` writes the sheet into the game (with the
+/// simulation's world in it), then the menu is answered with Done. Whether the menu was
+/// open to be answered.
+pub fn finish(script: &mut ScriptState, sim: &mut SimState, code: u16, how: &str, apply: impl FnOnce(&mut Game)) -> bool {
+    let Some(rt) = script.rt.as_mut() else { return false };
+    if rt.game.menu != Some(code) {
+        return false;
+    }
+    crate::script::with_world(rt, sim, |rt| apply(&mut rt.game));
+    script.answer(None, how)
+}
+
+/// Run `f` on the game with the simulation's world in it.
+fn with_game<R>(script: &mut ScriptState, sim: &mut SimState, f: impl FnOnce(&mut Game) -> R) -> Option<R> {
+    let rt = script.rt.as_mut()?;
+    Some(crate::script::with_world(rt, sim, |rt| f(&mut rt.game)))
+}
+
+/// The open menu drawn here.
+enum OpenMenu {
+    Name(NameMenu),
+    List(ListMenu),
+}
+
+impl OpenMenu {
+    fn code(&self) -> u16 {
+        match self {
+            OpenMenu::Name(_) => menus::NAME,
+            OpenMenu::List(m) => m.code,
+        }
+    }
+}
+
+#[derive(Resource, Default)]
+pub struct ChargenMenus {
+    open: Option<OpenMenu>,
+    /// Redraw on the next frame.
+    dirty: bool,
+    /// Done was pressed; the runtime closes the menu after this frame's scripts.
+    answered: bool,
+    kit: Option<draw::Kit>,
+}
+
+#[derive(Component)]
+struct ChargenRoot;
+
+/// A change asked for by keys, the pointer or the test aid.
+#[derive(Debug, Clone, PartialEq)]
+enum Op {
+    Type(String),
+    Backspace,
+    Clear,
+    Step(i32),
+    Select(usize),
+    Toggle,
+    Pick(String),
+    Scroll(i32),
+    Reset,
+    Done,
+}
+
+/// `NVF_PLAY_TEST_CHARGEN`: the steps still to take, by seconds since the start.
+#[derive(Resource, Default)]
+struct ChargenAid(Vec<(f32, Op)>);
+
+/// Read `NVF_PLAY_TEST_CHARGEN` (`<seconds>:<op>[,...]`).
+fn parse_aid(s: &str) -> Result<Vec<(f32, Op)>, String> {
+    let mut out = Vec::new();
+    for item in s.split(',').map(str::trim).filter(|i| !i.is_empty()) {
+        let (t, rest) = item.split_once(':').ok_or_else(|| format!("{item:?}: expected <seconds>:<op>"))?;
+        let t: f32 = t.trim().parse().map_err(|_| format!("{item:?}: bad seconds"))?;
+        let op = match rest.split_once(':') {
+            Some(("type", text)) => Op::Type(text.to_string()),
+            Some(("pick", row)) => Op::Pick(row.to_string()),
+            None if rest == "clear" => Op::Clear,
+            None if rest == "reset" => Op::Reset,
+            None if rest == "done" => Op::Done,
+            _ => return Err(format!("{item:?}: unknown step")),
+        };
+        out.push((t, op));
+    }
+    out.sort_by(|a, b| a.0.total_cmp(&b.0));
+    Ok(out)
+}
+
+pub struct ChargenPlugin;
+
+impl Plugin for ChargenPlugin {
+    fn build(&self, app: &mut App) {
+        let aid = match std::env::var("NVF_PLAY_TEST_CHARGEN") {
+            Ok(v) => parse_aid(&v).unwrap_or_else(|e| {
+                warn!("NVF_PLAY_TEST_CHARGEN: {e}");
+                Vec::new()
+            }),
+            Err(_) => Vec::new(),
+        };
+        app.init_resource::<ChargenMenus>()
+            .insert_resource(ChargenAid(aid))
+            .add_plugins(vigor::VigorPlugin)
+            .add_systems(Update, (sync, input, draw_menus).chain().in_set(PlaySet::Ui));
+    }
+}
+
+/// Open the menu the scripts opened, close the one they closed.
+fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>) {
+    let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
+    let code = open_code(&script).filter(|&c| has_own_menu(c) && c != menus::LOVE_TESTER);
+    if st.open.as_ref().map(OpenMenu::code) == code {
+        return;
+    }
+    if st.open.is_some() {
+        info!("chargen: menu closed");
+    }
+    st.open = None;
+    st.answered = false;
+    st.dirty = true;
+    let Some(code) = code else { return };
+    st.open = with_game(&mut script, &mut sim, |g| {
+        if code == menus::NAME {
+            let m = NameMenu::open(rules::name_offered(g));
+            info!("chargen: name menu open, offering \"{}\"", m.text);
+            OpenMenu::Name(m)
+        } else {
+            let m = ListMenu::open(code, g);
+            let what = if code == menus::TAG_SKILLS { "tag-skill menu open, tagged" } else { "trait menu open, taken" };
+            info!("chargen: {what}: {} ({} rows)", list_or_none(&m.chosen_names(g)), m.rows());
+            OpenMenu::List(m)
+        }
+    });
+}
+
+fn list_or_none(names: &[String]) -> String {
+    if names.is_empty() {
+        "none".into()
+    } else {
+        names.join(", ")
+    }
+}
+
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn input(
+    mut st: ResMut<ChargenMenus>,
+    mut aid: ResMut<ChargenAid>,
+    time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut typed: MessageReader<KeyboardInput>,
+    mut wheel: MessageReader<MouseWheel>,
+    rows: Query<(&Interaction, &ListRow), Changed<Interaction>>,
+    buttons: Query<(&Interaction, &ListButton), Changed<Interaction>>,
+    ok: Query<&Interaction, (Changed<Interaction>, With<OkButton>)>,
+    script: Option<ResMut<ScriptState>>,
+    sim: Option<ResMut<SimState>>,
+) {
+    use KeyCode::*;
+    let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
+    let wheel: f32 = wheel.read().map(|w| if w.unit == MouseScrollUnit::Line { w.y } else { w.y / 40.0 }).sum();
+    let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
+    if st.open.is_none() || st.answered {
+        return;
+    }
+    let mut ops: Vec<(Op, &str)> = Vec::new();
+    let now = time.elapsed_secs();
+    while aid.0.first().is_some_and(|(t, _)| *t <= now) {
+        let (_, op) = aid.0.remove(0);
+        info!("test aid: chargen {op:?}");
+        ops.push((op, "test aid NVF_PLAY_TEST_CHARGEN"));
+    }
+    let mut hover_ok = None;
+    let mut hover_button = Vec::new();
+    match st.open.as_ref() {
+        Some(OpenMenu::Name(_)) => {
+            for k in typed.iter().filter(|k| k.state.is_pressed()) {
+                match &k.logical_key {
+                    Key::Backspace => ops.push((Op::Backspace, "key")),
+                    Key::Enter => ops.push((Op::Done, "Enter")),
+                    _ => {
+                        if let Some(t) = k.text.as_deref().filter(|t| !t.is_empty() && t.chars().all(|c| !c.is_control())) {
+                            ops.push((Op::Type(t.to_string()), "key"));
+                        }
+                    }
+                }
+            }
+            for i in &ok {
+                hover_ok = Some(*i != Interaction::None);
+                if *i == Interaction::Pressed {
+                    ops.push((Op::Done, "click"));
+                }
+            }
+        }
+        Some(OpenMenu::List(m)) => {
+            let page = if m.code == menus::TAG_SKILLS { 14 } else { 13 };
+            for (k, op) in [
+                ([ArrowUp, KeyW], Op::Step(-1)),
+                ([ArrowDown, KeyS], Op::Step(1)),
+                ([PageUp, PageUp], Op::Step(-page)),
+                ([PageDown, PageDown], Op::Step(page)),
+                ([Enter, Space], Op::Toggle),
+                ([NumpadEnter, NumpadEnter], Op::Toggle),
+                ([KeyR, KeyR], Op::Reset),
+                ([KeyA, KeyA], Op::Done),
+            ] {
+                if keys.any_just_pressed(k) {
+                    ops.push((op, "key"));
+                }
+            }
+            if wheel.abs() >= 1.0 {
+                ops.push((Op::Scroll(-wheel.round() as i32), "wheel"));
+            }
+            for (i, r) in &rows {
+                match i {
+                    Interaction::Hovered => ops.push((Op::Select(r.0), "pointer")),
+                    Interaction::Pressed => {
+                        ops.push((Op::Select(r.0), "pointer"));
+                        ops.push((Op::Toggle, "click"));
+                    }
+                    Interaction::None => {}
+                }
+            }
+            for (i, b) in &buttons {
+                hover_button.push((*b, *i != Interaction::None));
+                if *i == Interaction::Pressed {
+                    let op = match b {
+                        ListButton::Reset => Op::Reset,
+                        ListButton::Done => Op::Done,
+                        ListButton::ScrollUp => Op::Scroll(-1),
+                        ListButton::ScrollDown => Op::Scroll(1),
+                    };
+                    ops.push((op, "click"));
+                }
+            }
+        }
+        None => {}
+    }
+    // The pointer over a button draws its box.
+    let st: &mut ChargenMenus = &mut st;
+    match st.open.as_mut() {
+        Some(OpenMenu::Name(m)) => {
+            if let Some(over) = hover_ok.filter(|&o| o != m.hover_ok) {
+                m.hover_ok = over;
+                st.dirty = true;
+            }
+        }
+        Some(OpenMenu::List(m)) => {
+            for (b, over) in hover_button {
+                let next = if over { Some(b) } else if m.hover == Some(b) { None } else { m.hover };
+                if next != m.hover {
+                    m.hover = next;
+                    st.dirty = true;
+                }
+            }
+        }
+        None => {}
+    }
+    for (op, how) in ops {
+        apply(st, &mut script, &mut sim, op, how);
+        if st.answered {
+            break;
+        }
+    }
+}
+
+/// Apply one change to the open menu.
+fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op: Op, how: &str) {
+    let Some(open) = st.open.as_mut() else { return };
+    let code = open.code();
+    match open {
+        OpenMenu::Name(m) => {
+            let changed = match op {
+                Op::Type(t) => m.type_text(&t),
+                Op::Backspace => m.backspace(),
+                Op::Clear => !std::mem::take(&mut m.text).is_empty(),
+                Op::Done if m.can_finish() => {
+                    let name = m.text.trim().to_string();
+                    if finish(script, sim, code, how, |g| rules::apply_name(g, &name)) {
+                        info!("chargen: done, name \"{name}\"");
+                        st.answered = true;
+                    }
+                    false
+                }
+                Op::Done => {
+                    info!("chargen: Ok refused: no name");
+                    false
+                }
+                _ => false,
+            };
+            st.dirty |= changed;
+        }
+        OpenMenu::List(m) => {
+            let before = m.clone();
+            match op {
+                Op::Step(by) => m.step(by),
+                Op::Select(i) => m.select(i),
+                Op::Scroll(by) => m.scroll_by(by),
+                Op::Reset => {
+                    m.reset();
+                    info!("chargen: reset");
+                }
+                Op::Toggle | Op::Pick(_) => {
+                    if let Op::Pick(name) = &op {
+                        let found = with_game(script, sim, |g| (0..m.rows()).find(|&i| m.row_name(g, i).is_some_and(|n| n.eq_ignore_ascii_case(name)))).flatten();
+                        match found {
+                            Some(i) => m.select(i),
+                            None => {
+                                warn!("test aid: chargen: no row {name:?}");
+                                return;
+                            }
+                        }
+                    }
+                    let i = m.selected;
+                    let ok = m.toggle();
+                    with_game(script, sim, |g| {
+                        let row = m.row_name(g, i).unwrap_or_default();
+                        let chosen = m.chosen_names(g);
+                        let what = if !ok {
+                            "refused"
+                        } else if chosen.contains(&row) {
+                            "chosen"
+                        } else {
+                            "given back"
+                        };
+                        info!("chargen: {row} {what}; chosen: {}", list_or_none(&chosen));
+                    });
+                }
+                Op::Done if m.can_finish() => {
+                    let sheet = m.sheet.clone();
+                    let names = with_game(script, sim, |g| m.chosen_names(g)).unwrap_or_default();
+                    let done = finish(script, sim, code, how, |g| match &sheet {
+                        lists::Sheet::Tags { now, .. } => now.apply(g),
+                        lists::Sheet::Traits { now, .. } => now.apply(g),
+                    });
+                    if done {
+                        let what = if code == menus::TAG_SKILLS { "tag skills" } else { "traits" };
+                        info!("chargen: done, {what}: {}", list_or_none(&names));
+                        st.answered = true;
+                    }
+                }
+                Op::Done => {
+                    if let lists::Sheet::Tags { now, .. } = &m.sheet {
+                        info!("chargen: Done refused: {} of {} skills tagged", now.tagged.len(), rules::TAG_COUNT);
+                    }
+                }
+                _ => {}
+            }
+            st.dirty |= *m != before;
+        }
+    }
+}
+
+enum View {
+    Name(NameMenu),
+    List(ListView),
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_menus(
+    mut commands: Commands,
+    mut st: ResMut<ChargenMenus>,
+    roots: Query<Entity, With<ChargenRoot>>,
+    script: Option<ResMut<ScriptState>>,
+    sim: Option<ResMut<SimState>>,
+    data: Option<Res<GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<CompressedImageFormatSupport>>,
+) {
+    if !st.dirty {
+        return;
+    }
+    st.dirty = false;
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
+    let view = match st.open.as_ref() {
+        None => return,
+        Some(OpenMenu::Name(m)) => View::Name(m.clone()),
+        Some(OpenMenu::List(m)) => match with_game(&mut script, &mut sim, |g| m.view(g)) {
+            Some(v) => View::List(v),
+            None => return,
+        },
+    };
+    let bc = crate::interface::bc_supported(formats.as_deref());
+    let st = st.into_inner();
+    let kit = st.kit.get_or_insert_with(|| draw::Kit::load(data.as_deref(), &mut images, bc));
+    let mut c = draw::Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let root = Node {
+        position_type: PositionType::Absolute,
+        width: Val::Percent(100.0),
+        height: Val::Percent(100.0),
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        ..default()
+    };
+    commands.spawn((root, GlobalZIndex(30), ChargenRoot)).with_children(|r| match &view {
+        View::Name(m) => name::spawn(r, m, &mut c),
+        View::List(v) => lists::spawn(r, v, &mut c),
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_test_aid_reads() {
+        let steps = parse_aid("5:pick:Four Eyes, 3:type:Six,4:clear,9:done,6:reset").unwrap();
+        assert_eq!(steps[0], (3.0, Op::Type("Six".into())));
+        assert_eq!(steps[2], (5.0, Op::Pick("Four Eyes".into())));
+        assert_eq!(steps.last().unwrap().1, Op::Done);
+        assert!(parse_aid("1:jump").is_err());
+    }
+
+    #[test]
+    fn the_own_menus() {
+        assert!(has_own_menu(menus::NAME) && has_own_menu(menus::TRAITS) && has_own_menu(menus::TAG_SKILLS) && has_own_menu(menus::LOVE_TESTER));
+        assert!(!has_own_menu(menus::RACE) && !has_own_menu(menus::MESSAGE));
+    }
+}

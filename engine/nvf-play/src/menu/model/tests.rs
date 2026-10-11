@@ -319,12 +319,18 @@ fn selection_scrolls_into_view() {
         m.apply(&mut w, Command::Down);
     }
     assert_eq!((m.selected[1], m.scroll[1]), (20, 20 + 1 - VISIBLE_ROWS));
-    assert_eq!(m.visible(Side::Player), 5..21);
+    assert_eq!(m.visible(Side::Player), 21 - VISIBLE_ROWS..21);
+    // A page down moves by a page less one row, and stops at the last row.
     m.apply(&mut w, Command::PageDown);
+    assert_eq!(m.selected[1], 20 + VISIBLE_ROWS - 1);
+    while m.selected[1] < 39 {
+        m.apply(&mut w, Command::PageDown);
+    }
     m.apply(&mut w, Command::PageDown);
     assert_eq!((m.selected[1], m.scroll[1]), (39, 40 - VISIBLE_ROWS));
     m.apply(&mut w, Command::Scroll(-30));
     assert_eq!((m.selected[1], m.scroll[1]), (9, 9));
+    m.apply(&mut w, Command::PageUp);
     m.apply(&mut w, Command::PageUp);
     assert_eq!((m.selected[1], m.scroll[1]), (0, 0));
 }

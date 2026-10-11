@@ -12,6 +12,8 @@
 mod activators;
 mod actor_groups;
 mod actors;
+mod attack_anims;
+mod alert;
 mod anim_sounds;
 mod deaths;
 mod detection;
@@ -31,10 +33,12 @@ mod limbs;
 mod lips;
 mod lod;
 mod locomotion;
+mod npc_combat;
 mod weapons;
 mod lodgen;
 mod nav;
 mod object_anims;
+mod pipboy_arm;
 mod player_body;
 mod particles;
 mod shot_fx;
@@ -809,7 +813,7 @@ fn main() -> AppExit {
         app.add_plugins(head_look::HeadLookPlugin { enabled: !args.no_head_tracking, camera_is_player: args.head_track_camera, force_point });
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
-            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
             app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
             // The sounds clips and doors name (anim_sounds.rs).
             app.add_plugins(anim_sounds::AnimSoundsPlugin);
@@ -819,6 +823,12 @@ fn main() -> AppExit {
             app.add_plugins(speech_look::SpeechLookPlugin);
             // Who perceives whom (detection.rs): the drawn actors and the player.
             app.add_plugins(detection::DetectionPlugin);
+            // Alerted actors draw their weapons and look at what alerted them (alert.rs).
+            app.add_plugins(alert::AlertPlugin);
+            // Actors in Combat attack their target (npc_combat.rs).
+            app.add_plugins(npc_combat::NpcCombatPlugin);
+            // How fighters aim, shoot and bite (attack_anims.rs).
+            app.add_plugins(attack_anims::AttackAnimsPlugin);
         }
     }
     if play.is_some() {

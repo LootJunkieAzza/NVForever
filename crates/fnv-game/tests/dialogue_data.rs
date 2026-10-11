@@ -84,6 +84,31 @@ fn counts(d: &GameData) {
     assert!(d.infos.values().all(|i| i.responses.len() == i.response_chars.len()));
     assert_eq!(d.infos.values().filter(|i| !i.choices.is_empty()).count(), 8_114);
     assert_eq!(d.infos.values().filter(|i| !i.follow_ups.is_empty()).count(), 1_759);
+    // Shared lines (dialogue.md §1.2): player lines with choices, and those whose choices
+    // all lack lines, counting a topic's own lines only and then its shared ones too.
+    let player: Vec<_> = d.infos.values().filter(|i| i.info_type == topic_type::TOPIC && !i.choices.is_empty()).collect();
+    let dead = |lines: &dyn Fn(FormId) -> Vec<FormId>| player.iter().filter(|i| i.choices.iter().all(|&c| lines(c).is_empty())).count();
+    assert_eq!((player.len(), dead(&|t| d.lines_by_priority(t)), dead(&|t| d.lines_tried(t))), (7_325, 257, 7));
+    // Red Lucy's "What's this place?" has no line of its own and shares the answer of
+    // the topic of the same name.
+    let lucy = d.by_edid("VMS38VMS38RedLucyTopic047").unwrap();
+    assert_eq!((d.lines_by_priority(lucy), d.lines_tried(lucy)), (vec![], vec![FormId(0x0013_4FC1)]));
+    assert_eq!(d.infos[&FormId(0x0013_4FC1)].topic, d.by_edid("VMS38VMS38RedLucyTopic004"));
+    // Link From turned round (dialogue.md §3.5): 185 links between player topics under
+    // 58 topics; 19 offer a topic that not every line of the named topic lists already.
+    let pairs: usize = d.linked_from.values().map(Vec::len).sum();
+    let new = d.linked_from.iter().flat_map(|(x, ts)| ts.iter().map(move |t| (*x, *t))).filter(|(x, t)| !d.lines_tried(*x).iter().all(|l| d.infos[l].choices.contains(t))).count();
+    assert_eq!((d.linked_from.len(), pairs, new), (58, 185, 19));
+    let ma = |n: &str| d.by_edid(&format!("VMS22MichaelAngeloTopic{n}")).unwrap();
+    assert_eq!(d.linked_from[&greeting], vec![ma("003"), ma("004")]);
+    // Michael Angelo's "Thank you for the offer…" lists 035, 042 and 004; the lines of
+    // 031, 032 and 033 name it in their Link From.
+    assert_eq!(d.infos[&FormId(0x0011_3C4E)].choices, vec![ma("035"), ma("042"), ma("004")]);
+    assert!(["031", "032", "033"].iter().all(|n| d.linked_from[&ma("034")].contains(&ma(n))));
+    // GREETING shares five lines; four of VMS07Greeting go in at indices 11–14.
+    let greeting_tried = d.lines_tried(greeting);
+    assert_eq!(greeting_tried.len(), 5_579 + 5);
+    assert_eq!(d.shared_lines[&greeting][11..15], [0x000F_378E, 0x000F_378F, 0x000F_3791, 0x000F_479B].map(FormId));
     assert_eq!(d.infos.values().filter(|i| i.challenge_form.is_some()).count(), 1_499);
     // Quests whose own conditions gate their lines (dialogue.md §4).
     let gated: Vec<FormId> = d.quests.values().filter(|q| !q.conditions.is_empty()).map(|q| q.form).collect();

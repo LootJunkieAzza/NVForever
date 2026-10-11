@@ -105,6 +105,10 @@ pub struct ActorBlocks {
     /// Fixed steps for which the player is not pushed: something held it when an actor
     /// last pushed it (`crate::player`).
     pub player_held: u32,
+    /// Actors playing an attack clip (nvforever `attack_anims`): their blocks stay where
+    /// they were when the attack began, so a lunge moves nobody [design; owner
+    /// 2026-10-11: a dog gets into range and bites, it does not push the player around].
+    pub attacking: std::collections::HashSet<u32>,
 }
 
 impl ActorBlocks {

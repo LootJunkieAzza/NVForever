@@ -143,6 +143,29 @@ pub struct HeldWeapon {
     pub weapon: fnv_sim::FormId,
 }
 
+/// The muzzle of the weapon drawn on an actor: an empty entity under the actor's `Weapon`
+/// node, where the weapon model's `ProjectileNode` is (the node shots are drawn from,
+/// animation.md §9.9, as the player's), so it moves with the weapon. Its node's place
+/// in the model at rest [design: the clips that move a weapon's `##` parts are not
+/// applied to it].
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Muzzle {
+    pub reference: u32,
+}
+
+/// The nodes shots leave from, by either of their names (animation.md §9.9).
+pub const MUZZLE_NODES: [&str; 2] = ["ProjectileNode", "##ProjectileNode"];
+
+/// Put a [`Muzzle`] under the actor's `Weapon` node where the weapon model's
+/// `ProjectileNode` is; nothing when the model has none.
+pub fn spawn_muzzle(commands: &mut Commands, actor: &SpawnedActor, weapon_node: usize, model: &nvf_assets::model::PreparedModel, reference: u32) -> Option<Entity> {
+    let path = nvf_assets::model::node_path(&model.nodes, &MUZZLE_NODES)?;
+    let at = path.iter().fold(model.root, |m, &i| m * model.nodes[i].local);
+    let e = commands.spawn((Name::new("Muzzle"), Muzzle { reference }, Transform::from_matrix(Mat4::from(at)), Visibility::Inherited)).id();
+    commands.entity(actor.nodes[weapon_node]).add_child(e);
+    Some(e)
+}
+
 /// A weapon that broke leaves its actor's hand (docs/spec-notes/combat-rules.md §17):
 /// its model is taken off the skeleton and the weapon clips stop. The weapon itself now
 /// lies on the ground as a dropped reference (`nvf_play::dropped` draws it).

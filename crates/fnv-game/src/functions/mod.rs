@@ -28,6 +28,8 @@ pub use reputation::{store as reputation_store, tiers as reputation_tiers};
 pub use actor::{actor_value, actor_value_capped, actor_value_parts, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
 pub use actor::{faction_rank, faction_relation, factions_of, factions_relation};
 pub use misc::clock_now;
+/// The level (0–3) of fame or infamy against a reputation's scale (the Pip-Boy's STATS page).
+pub use reputation::level as reputation_level;
 
 use crate::game::{Game, InstKey};
 use fnv_script::vm::{ArgValue, Value};
@@ -285,7 +287,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1100, "GetGameSetting", Impl(misc::get_game_setting)),
         (0x1221, "Abs", Impl(misc::abs)),
         // State that only Layer 6 changes; with no Layer 6 it reads "no".
-        (0x1121, "IsInCombat", Impl(misc::zero)),
+        (0x1121, "IsInCombat", Impl(crate::awareness::is_in_combat)),
         // The PC version [decision]: not a console.
         (0x1135, "IsXBox", Impl(misc::zero)),
         (0x120B, "IsPS3", Impl(misc::zero)),
@@ -399,8 +401,8 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1034, "SayTo", Impl(misc::say_to)),
         (0x1033, "Say", Impl(misc::say)),
         (0x1056, "StartConversation", Impl(misc::start_conversation)),
-        (0x1016, "StartCombat", Stub("combat")),
-        (0x1017, "StopCombat", Stub("combat")),
+        (0x1016, "StartCombat", Impl(crate::awareness::start_combat)),
+        (0x1017, "StopCombat", Impl(crate::awareness::stop_combat)),
         (0x1184, "SetDisposition", Stub("dialogue (disposition)")),
         (0x115C, "SendTrespassAlarm", Stub("crime")),
         (0x1013, "PlayGroup", Impl(crate::anims::play_group)),
@@ -444,7 +446,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1129, "SetActorAlpha", Stub("rendering")),
         (0x10B2, "PlaySound3D", Impl(crate::sound::play_sound_3d)),
         (0x1198, "GetVATSValue", Stub("combat (VATS)")),
-        (0x105A, "SetAlert", Stub("AI")),
+        (0x105A, "SetAlert", Impl(crate::awareness::set_alert)),
         (0x1042, "GetShouldAttack", Stub("combat")),
         (0x1275, "IncrementScriptedChallenge", Stub("challenges")),
         (0x1201, "ResetPipboyManager", Stub("Pip-Boy")),
@@ -460,7 +462,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x109F, "GetSitting", Impl(furniture::get_sitting)),
         (0x10A3, "IsCurrentFurnitureObj", Impl(furniture::is_current_furniture_obj)),
         (0x1031, "GetSleeping", Impl(furniture::get_sleeping)),
-        (0x105B, "GetIsAlerted", Stub("AI")),
+        (0x105B, "GetIsAlerted", Impl(crate::awareness::get_is_alerted)),
         (0x10F5, "ForceFlee", Stub("AI")),
         (0x115B, "SetNoAvoidance", Stub("AI")),
         (0x118B, "SetActorsAI", Stub("AI")),
@@ -478,7 +480,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10B1, "SetCombatStyle", Stub("combat")),
         (0x11A0, "GetGroupMemberCount", Stub("combat (groups)")),
         (0x11A1, "GetGroupTargetCount", Stub("combat (groups)")),
-        (0x10E8, "GetCombatTarget", Stub("combat")),
+        (0x10E8, "GetCombatTarget", Impl(crate::awareness::get_combat_target)),
         (0x1203, "IsCombatTarget", Stub("combat")),
         (0x11E2, "FireWeapon", Stub("combat")),
         (0x119C, "UseWeapon", Stub("combat")),
@@ -498,7 +500,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10B4, "GetDetectionLevel", Impl(crate::detection::get_detection_level)),
         (0x101B, "GetLineOfSight", Stub("detection (line of sight)")),
         (0x115A, "SetAllVisible", Stub("detection")),
-        (0x1068, "CreateDetectionEvent", Stub("detection")),
+        (0x1068, "CreateDetectionEvent", Impl(crate::awareness::create_detection_event)),
         (0x105F, "SendAssaultAlarm", Stub("crime")),
         (0x1090, "GetTrespassWarningLevel", Stub("crime")),
         (0x1091, "IsTrespassing", Stub("crime")),

@@ -35,8 +35,8 @@ group, the summary's `with_topic` = `lines`].
 |---|---|---|---|---|
 | EDID | Editor ID | string | e.g. `GREETING` | `TopicDef::edid` |
 | QSTI | Added Quest → Quest | FormID (QUST), repeated | a quest that has lines in this topic [documented: xEdit DIAL "Added Quests"] | `quests` |
-| INFC | Shared Info → Info Connection | FormID (INFO), after a QSTI | see §1.2 | `shared_infos` (raw) |
-| INFX | Shared Info → Info Index | signed 32-bit, after its INFC | see §1.2 | `shared_infos` (raw) |
+| INFC | Shared Info → Info Connection | FormID (INFO), after a QSTI | see §1.2 | `shared_infos`, `GameData::shared_lines` |
+| INFX | Shared Info → Info Index | signed 32-bit, after its INFC | see §1.2 | `shared_infos`, `GameData::shared_lines` |
 | QSTR | Removed Quest | FormID (QUST) | xEdit notes that New Vegas has none; none in the masters [observed: the summary's `subrecords`] | `removed_quests` |
 | FULL | Name | string | the text the player sees for the topic when the line has no prompt [documented: Category:Dialogue, "Prompt"] | `name` |
 | PNAM | Priority | float, xEdit default 50 | the topic's place in the list offered to the player; higher is nearer the top [documented: Category:Dialogue, "Priority"] | `priority` |
@@ -68,9 +68,28 @@ documented** in our sources. What the data shows:
 - Example: GREETING lists four lines that are stored under the topic `VMS07Greeting`,
   with indices 11–14 [observed: scratch parse].
 
-The runtime keeps the pairs raw and does not use them. Whether a line named this way
-also counts as a line of the listing topic (which would change who greets with what) is
-[hypothesis: no] and capture question 9.
+- Topics with no line of their own are the common case: their pairs' indices run 0,
+  1, 2 … (0 for 2,086 pairs, 1 for 433, 2 for 80 …); 332 pairs belong to topics that
+  have lines of their own. The topic the line is stored under has the same name (FULL)
+  in 756 of the 3,206 pairs [observed: scratch survey over the ten masters, 2026-10-11].
+- Example: Red Lucy's choice "What's this place?" (`VMS38VMS38RedLucyTopic047`) has no
+  line; its one pair names the line of `VMS38VMS38RedLucyTopic004`, a topic of the same
+  name, whose responses answer that question [observed: `fnvtool dialogue topics
+  --topic …`].
+- Of the 7,325 player lines (type Topic) with choices, 2,499 link to at least one
+  topic without a line of its own, and in 257 every choice is such a topic. Counting
+  shared lines, 59 and 7 remain [observed: the scratch survey; the real-data test
+  asserts 7,325 / 257 / 7].
+
+The runtime counts a shared line as a line of the topic that lists it
+(`GameData::lines_tried`): the topic's own lines with each shared line put in at its
+Info Index (a negative index or one past the end puts it last), then sorted by quest
+priority as in §4 [hypothesis, from the data above: otherwise those 257 lines would
+offer nothing they link to; the place given by the index is a hypothesis too]. A
+listing topic's line is said under that topic (the event's `topic`); the line keeps its
+own Choices, Add Topics and result scripts. GREETING shares five lines, four of them
+`VMS07Greeting`'s at indices 11–14, so those can now greet. Capture question 9 stays
+open for the in-game check.
 
 ### 1.3 Counts [observed: the summary]
 
@@ -244,12 +263,38 @@ hypothesis: the first sayable one when a line lists several].
 
 ### 3.5 Link From (TCLF)
 
-The wiki: lets many topics link to this one [documented: Category:Dialogue, "Edit Topic
-Links"]; for conversations between NPCs it chains HELLO → … → GOODBYE [documented:
-Conversation Tab]. In topics of type Topic, 170 of 185 link-from links repeat a choice
-link the other way round (the topic named already lists this one as a choice)
-[observed: scratch parse]. Runtime: read, not used [hypothesis: in player dialogue the
-choices alone decide; capture question 10].
+The wiki: "This can be used to allow many topics to link to this topic" [documented:
+Category:Dialogue, "Edit Topic Links"]; for conversations between NPCs it chains HELLO
+→ … → GOODBYE, and the starting HELLO must have it blank [documented: Conversation Tab].
+
+What the data shows (the ten masters) [observed: scratch survey 2026-10-11]:
+
+- 1,293 links on 924 lines. Most are radio (792) and NPC conversation chains; 431 name
+  the Conversation topic `ANY`.
+- Between player topics (a type-Topic line of a type-Topic topic naming a type-Topic
+  topic): 185 links under 58 named topics. In 166 of them every line of the named
+  topic already lists this one as a choice; 19 add something (the real-data test
+  asserts 58 / 185 / 19).
+- Michael Angelo (VMS22) uses it most. His "Bye" line (`VMS22MichaelAngeloTopic004`)
+  names all his topics and GREETING: an exit from anywhere. Topics 031, 032 and 034
+  name each other: a group of answers that each offer the others. GREETING is named by
+  his 003 and 004 only.
+- A per-line reading (the line with the Link From can be said only after the topics
+  it names) would contradict Choices links: 54 type-Topic lines (many of them Dead
+  Money's radio acts, which name `ANY`) are listed as a choice by a topic their Link From
+  leaves out, e.g. `VMS22MichaelAngeloTopic024`, a choice of
+  Topic006, whose only line names just Topic025. Doctor Medical's two identical
+  `DoctorMedical99YES` lines, one with Link From `DoctorMedicalSpeech` and one
+  without, change nothing under either reading, since both have the same condition.
+
+Runtime (player dialogue, `GameData::linked_from`, `Game::build_choices`): after a line
+said under topic X, the topics whose player lines name X in their Link From join the
+list the line offers. They join its choices if it has any; otherwise they join the
+topic list, by priority. They do not turn a line without choices into one with
+choices. A topic named this way is offered like a choice, by whichever of its lines the
+actor can say. [hypothesis for all three; documented that it adds links; capture
+question 10.] Not yet used in conversations between NPCs (except the blank-for-HELLO
+start rule, §5.1) or on the radio.
 
 ### 3.6 Run Immediately
 
@@ -369,12 +414,17 @@ All of it is in `GameSnapshot`.
   follow-up the actor can say is said (§3.4) [owner statement]; else choices are offered;
   with nothing to offer the conversation ends [hypothesis].
 - **Choices** (`Game::build_choices`). After a line with choices: those topics and
-  nothing else. Otherwise the top-level topics plus the known topics
-  [documented: Category:Dialogue, "Top-level"; Quest and Dialogue Tutorial]. A topic is
-  offered only if the actor has a line of it to say now, and that line is the one said
-  if it is chosen [hypothesis; the editor's filtered dialogue window lists only what an
-  actor qualifies to say]. If none of a line's choices can be said, the topic list is
-  offered instead [hypothesis]. Order: topic priority (DIAL PNAM), highest first
+  nothing else [documented; owner statement 2026-10-11: a line linked by choices offers
+  only the topics given as its choices]. Otherwise the top-level topics plus the known
+  topics [documented: Category:Dialogue, "Top-level"; Quest and Dialogue Tutorial]. A
+  topic is offered only if the actor has a line of it to say now, its own or a shared
+  one (§1.2), and that line is the one said if it is chosen [hypothesis; the editor's
+  filtered dialogue window lists only what an actor qualifies to say]. If none of a
+  line's choices can be said, nothing is offered and the conversation ends
+  [hypothesis]. (Until 2026-10-11 the topic list stood in there; with shared lines
+  ignored, that showed the top-level topics after 257 lines whose choices only had
+  shared lines, e.g. Red Lucy's greeting.) Topics whose lines name the line's topic in
+  their Link From join either list (§3.5) [documented; hypothesis on how]. Order: topic priority (DIAL PNAM), highest first
   [documented]; then, for a line's choices, their order in the record [documented:
   "Sorting order of links"], and for the topic list the topics' record order
   [hypothesis]. Quest priority plays no part in the order of the list.
@@ -618,15 +668,18 @@ up to C and F):
 4. Random pools, what the ruling leaves open: a Random End line the actor cannot say
    (does it still close the pool?), and a pool made of lines of two quests.
 5. Which topics are offered and in what order: hidden when the actor has no line; ties
-   of equal topic priority; the fallback to the topic list when no choice of a line can
-   be said; the conversation ending when nothing can be offered; GOODBYE appended.
+   of equal topic priority; the conversation ending when no choice of a line can be
+   said (no fallback to the topic list); the conversation ending when nothing can be offered; GOODBYE appended.
 6. Known topics: permanent for the whole game? When is an Add Topics list applied
    (line start or end)? (That they are offered by every actor: D.)
 7. Follow-up lines: the first qualifying of several (that they need no choice: E).
 8. Timing of the begin and end results against the sound; the end result when the
    player skips a line or leaves; Run Immediately on a chosen line.
-9. INFC/INFX: does a "shared" line count as a line of the listing topic?
-10. Link From in player dialogue: does it add a choice?
+9. INFC/INFX: a "shared" line is taken as a line of the listing topic (§1.2); check it
+   in game (Red Lucy's "What's this place?") and where the Info Index puts it.
+10. Link From in player dialogue: taken as adding the topic to the list after the named
+    topics' lines (§3.5); check in game with Michael Angelo (031/032/034, and 004 after a
+    greeting), and whether it is per line or per topic.
 11. The skill tag's numbers: taken from the line's condition? What is shown for a perk?
 12. Inside the pause (B): what `IsTalking` reads while the player chooses;
     `Begin MenuMode 1009` blocks and the MenuMode quest delay; whether magic effects

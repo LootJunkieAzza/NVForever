@@ -3,8 +3,10 @@
 //! [`model`] is the menu as plain data over the simulation (rows, selection, commands
 //! moving items through `fnv_sim::World`), unit-tested without Bevy; [`barter`] the
 //! prices. [`look`] draws the container and barter menus as the original does
-//! (docs/spec-notes/barter-menu.md); this file draws the inventory menu with `bevy_ui`
-//! in a plain look of our own, and turns keys and clicks into [`model::Command`]s.
+//! (docs/spec-notes/barter-menu.md); the inventory is the Pip-Boy's ITEMS page
+//! (`crate::pipboy`), which draws it and takes its keys. This file opens and closes the
+//! menus and turns the container and barter menus' keys and clicks into
+//! [`model::Command`]s.
 //!
 //! - `OpenContainer { container }` (Part A, or the F10 test aid) opens the container menu:
 //!   player | container, in `PlayState::Menu`.
@@ -14,16 +16,16 @@
 //!   (`crate::dialogue::held`) and goes on when it closes [hypothesis: the original
 //!   returns to the conversation; its BarterExit lines are not said yet].
 //! - Tab tapped while playing opens the player's inventory alone, when it is let go (a
-//!   hold switches the flashlight, `crate::flashlight`): equip/unequip (aid items are
-//!   used), drop, the encumbrance line.
+//!   hold switches the flashlight, `crate::flashlight`), and with it the Pip-Boy
+//!   (`crate::pipboy`): equip/unequip (aid items are used), drop.
 //! - Keys of the container menu: Up/Down (or W/S) select, Left/Right (or A/D) switch
 //!   list, Enter/Space take or store one, Shift+Enter/Space the whole stack, R take all, E,
 //!   Esc or Tab close [observed: the screenshot's "Take All R)" and "Exit E)"]. Barter:
 //!   the same, but Left/Right only, A accepts and X exits [observed: "Accept A)", "Exit
 //!   X)"]; Esc and Tab exit too. In both, `[` and `]` change the focused list's category
 //!   [design], the pointer selects the row it is on and a click acts on it, Shift+click
-//!   on the whole stack; the title arrows and the buttons are clickable. The inventory
-//!   menu's keys are listed in its footer ([`model::MenuModel::bindings`]). [hypothesis:
+//!   on the whole stack; the title arrows and the buttons are clickable. The inventory's
+//!   keys are the Pip-Boy's (`crate::pipboy::items`). [hypothesis:
 //!   the original's PC keys beyond the hints shown are not captured]
 //! - The cursor is shown and released on entering a menu; Part P grabs it again when
 //!   play resumes.
@@ -92,6 +94,10 @@ pub struct MenuInput(pub Command);
 #[derive(Message, Clone, Copy, Debug, Default)]
 pub struct OpenInventory;
 
+/// The menus' systems (the Pip-Boy follows what they opened or closed).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MenuSystems;
+
 /// Test aid: open the nearest container (F10, or `NVF_PLAY_TEST_MENU=nearest`).
 #[derive(Message, Clone, Copy, Debug, Default)]
 pub struct OpenNearestContainer;
@@ -130,7 +136,8 @@ impl Plugin for MenuPlugin {
                     draw,
                 )
                     .chain()
-                    .in_set(PlaySet::Ui),
+                    .in_set(PlaySet::Ui)
+                    .in_set(MenuSystems),
             )
             .add_systems(OnEnter(PlayState::Menu), release_cursor)
             .add_systems(OnExit(PlayState::Menu), close_menu);
@@ -291,13 +298,13 @@ fn close_menu(
 
 fn menu_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut out: MessageWriter<MenuInput>) {
     use KeyCode::*;
-    let Some(m) = active.0.as_ref() else { return };
+    let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory) else { return };
     let shift = keys.any_pressed([ShiftLeft, ShiftRight]);
     let mut send = |c| {
         out.write(MenuInput(c));
     };
     // The original's letters for the buttons (barter: A accept, X exit; container: R
-    // take all, E exit) and ours for the inventory.
+    // take all, E exit).
     let barter = matches!(m.mode, Mode::Barter(_));
     let close: &[KeyCode] = if barter { &[Escape, Tab, KeyX] } else { &[Escape, Tab, KeyE] };
     if keys.any_just_pressed(close.iter().copied()) {
@@ -327,7 +334,6 @@ fn menu_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut out: 
     match m.mode {
         Mode::Barter(_) if keys.just_pressed(KeyA) => send(Command::Accept),
         Mode::Container(_) if keys.just_pressed(KeyR) => send(Command::TakeAll),
-        Mode::Inventory if keys.just_pressed(KeyX) => send(if shift { Command::DropStack } else { Command::Drop }),
         _ => {}
     }
 }
@@ -346,8 +352,11 @@ fn menu_mouse(
     mut lines: Local<f32>,
     mut out: MessageWriter<MenuInput>,
 ) {
-    let Some(m) = active.0.as_ref() else { return };
-    let hover = m.mode != Mode::Inventory;
+    let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory) else {
+        wheel.clear();
+        return;
+    };
+    let hover = true;
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     // Only a pointer that moves takes the selection: a redrawn row under a resting
     // pointer leaves the keys' choice alone.
@@ -447,32 +456,6 @@ fn apply_input(
 
 // ---- drawing -----------------------------------------------------------------------
 
-const BACKDROP: Color = Color::srgba(0.0, 0.0, 0.0, 0.45);
-const PANEL: Color = Color::srgba(0.05, 0.08, 0.06, 0.94);
-const TEXT: Color = Color::srgb(0.85, 0.95, 0.80);
-const DIM: Color = Color::srgb(0.55, 0.65, 0.52);
-const ACCENT: Color = Color::srgb(1.0, 0.75, 0.30);
-const WARN: Color = Color::srgb(1.0, 0.40, 0.35);
-const SELECTED: Color = Color::srgba(0.35, 0.55, 0.30, 0.85);
-const SELECTED_UNFOCUSED: Color = Color::srgba(0.30, 0.38, 0.28, 0.6);
-const BUTTON: Color = Color::srgba(0.20, 0.28, 0.20, 0.9);
-
-const ROW_HEIGHT: f32 = 22.0;
-const NAME_WIDTH: f32 = 290.0;
-const NUMBER_WIDTH: f32 = 64.0;
-
-fn text(s: impl Into<String>, size: f32, color: Color) -> impl Bundle {
-    (Text::new(s), TextFont { font_size: FontSize::Px(size), ..default() }, TextColor(color))
-}
-
-fn cell(s: impl Into<String>, width: f32, color: Color) -> impl Bundle {
-    (Node { width: Val::Px(width), overflow: Overflow::clip(), ..default() }, children![text(s, 15.0, color)])
-}
-
-fn number(v: Option<impl std::fmt::Display>) -> String {
-    v.map_or("?".into(), |v| v.to_string())
-}
-
 /// The line under a container menu: the note for a container that refills.
 fn note(m: &MenuModel, sim: &SimState) -> Option<String> {
     let refused = m.status.as_deref().filter(|s| s.ends_with("enough caps.") || s.starts_with("Cannot"));
@@ -484,7 +467,8 @@ fn note(m: &MenuModel, sim: &SimState) -> Option<String> {
     matches!(sim.world.forms.get(base).map(|b| &b.data), Some(BaseData::Container(k)) if k.respawns).then(|| RESPAWN_NOTE.to_string())
 }
 
-/// Rebuild the menu's UI when the model changed.
+/// Rebuild the container or barter menu's UI when the model changed (the inventory is
+/// the Pip-Boy's).
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
@@ -502,25 +486,11 @@ fn draw(
     for e in &roots {
         commands.entity(e).despawn();
     }
-    let Some(m) = active.0.as_ref() else { return };
-    if m.mode != Mode::Inventory {
-        let bc = crate::interface::bc_supported(formats.as_deref());
-        let kit = kit.get_or_insert_with(|| look::Kit::load(data.as_deref(), &mut images, bc));
-        let note = note(m, &sim);
-        let screen = Node {
-            position_type: PositionType::Absolute,
-            width: Val::Percent(100.0),
-            height: Val::Percent(100.0),
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            ..default()
-        };
-        commands.spawn((MenuRoot, screen, GlobalZIndex(100))).with_children(|root| {
-            look::spawn(root, m, note.as_deref(), kit, data.as_deref(), &mut images, bc);
-        });
-        return;
-    }
-    let backdrop = Node {
+    let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory) else { return };
+    let bc = crate::interface::bc_supported(formats.as_deref());
+    let kit = kit.get_or_insert_with(|| look::Kit::load(data.as_deref(), &mut images, bc));
+    let note = note(m, &sim);
+    let screen = Node {
         position_type: PositionType::Absolute,
         width: Val::Percent(100.0),
         height: Val::Percent(100.0),
@@ -528,116 +498,7 @@ fn draw(
         align_items: AlignItems::Center,
         ..default()
     };
-    commands.spawn((MenuRoot, backdrop, BackgroundColor(BACKDROP), GlobalZIndex(100))).with_children(|root| {
-        let panel = Node {
-            flex_direction: FlexDirection::Column,
-            padding: UiRect::all(Val::Px(16.0)),
-            row_gap: Val::Px(8.0),
-            border: UiRect::all(Val::Px(1.0)),
-            ..default()
-        };
-        root.spawn((panel, BackgroundColor(PANEL), BorderColor::all(DIM))).with_children(|p| panel_contents(p, m));
-    });
-}
-
-fn panel_contents(p: &mut ChildSpawnerCommands, m: &MenuModel) {
-    p.spawn(text(m.title.clone(), 24.0, ACCENT));
-    p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(20.0), ..default() }).with_children(|row| {
-        let sides: &[Side] = match m.mode {
-            Mode::Container(_) | Mode::Barter(_) => &[Side::Container, Side::Player],
-            Mode::Inventory => &[Side::Player],
-        };
-        for &side in sides {
-            column(row, m, side);
-        }
-    });
-    let (enc, color) = match &m.encumbrance {
-        Ok(e) => (
-            format!("Carry weight {:.1} / {:.0}{}", e.weight, e.capacity, if e.over { "   OVER-ENCUMBERED" } else { "" }),
-            if e.over { WARN } else { TEXT },
-        ),
-        Err(e) => (format!("Carry weight unknown: {e}"), WARN),
-    };
-    p.spawn(text(enc, 16.0, color));
-    let status = m.status.clone().unwrap_or_default();
-    let color = if status.starts_with("Cannot") { WARN } else { ACCENT };
-    p.spawn(text(status, 16.0, color));
-    p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(10.0), ..default() }).with_children(|bar| {
-        let buttons: &[(&str, Command)] = match m.mode {
-            Mode::Container(_) | Mode::Barter(_) => &[
-                ("Move one (Enter)", Command::One),
-                ("Move stack (Shift+Enter)", Command::Stack),
-                ("Take all (R)", Command::TakeAll),
-                ("Close (E)", Command::Close),
-            ],
-            Mode::Inventory => &[
-                ("Equip / unequip (Enter)", Command::One),
-                ("Drop one (X)", Command::Drop),
-                ("Drop stack (Shift+X)", Command::DropStack),
-                ("Close (Tab)", Command::Close),
-            ],
-        };
-        for &(label, cmd) in buttons {
-            let node = Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() };
-            bar.spawn((Button, CmdButton(cmd), node, BackgroundColor(BUTTON))).with_child(text(label, 15.0, TEXT));
-        }
-    });
-    for line in m.bindings() {
-        p.spawn(text(line, 13.0, DIM));
-    }
-}
-
-fn column(parent: &mut ChildSpawnerCommands, m: &MenuModel, side: Side) {
-    let focused = m.focus == side;
-    let list = m.list(side);
-    let heading = match (side, m.mode) {
-        (Side::Container, _) => m.title.clone(),
-        (Side::Player, Mode::Container(_) | Mode::Barter(_)) => "You".into(),
-        (Side::Player, Mode::Inventory) => "Items".into(),
-    };
-    let node = Node {
-        flex_direction: FlexDirection::Column,
-        min_width: Val::Px(NAME_WIDTH + 3.0 * NUMBER_WIDTH + 14.0),
-        padding: UiRect::all(Val::Px(6.0)),
-        border: UiRect::all(Val::Px(1.0)),
-        row_gap: Val::Px(2.0),
-        ..default()
-    };
-    parent.spawn((node, BorderColor::all(if focused { ACCENT } else { DIM }))).with_children(|c| {
-        c.spawn(text(heading, 18.0, if focused { ACCENT } else { TEXT }));
-        c.spawn((
-            Node { flex_direction: FlexDirection::Row, ..default() },
-            children![
-                cell("  Item", NAME_WIDTH, DIM),
-                cell("Count", NUMBER_WIDTH, DIM),
-                cell("Weight", NUMBER_WIDTH, DIM),
-                cell("Value", NUMBER_WIDTH, DIM)
-            ],
-        ));
-        let range = m.visible(side);
-        let above = if range.start > 0 { format!("  ^ {} more", range.start) } else { String::new() };
-        c.spawn(text(above, 12.0, DIM));
-        if list.rows.is_empty() {
-            c.spawn(text("  (empty)", 15.0, DIM));
-        }
-        for i in range.clone() {
-            let r = &list.rows[i];
-            let bg = match (m.selected[side as usize] == i, focused) {
-                (true, true) => SELECTED,
-                (true, false) => SELECTED_UNFOCUSED,
-                _ => Color::NONE,
-            };
-            let name = format!("{}{} {}", if r.equipped { "*" } else { " " }, if r.quest { "Q" } else { " " }, r.name.clone() + &model::condition_note(r.kind, r.condition));
-            let node = Node { flex_direction: FlexDirection::Row, height: Val::Px(ROW_HEIGHT), align_items: AlignItems::Center, ..default() };
-            c.spawn((Button, RowButton(side, i), node, BackgroundColor(bg))).with_children(|row| {
-                row.spawn(cell(name, NAME_WIDTH, TEXT));
-                row.spawn(cell(r.count.to_string(), NUMBER_WIDTH, TEXT));
-                row.spawn(cell(number(r.weight), NUMBER_WIDTH, TEXT));
-                row.spawn(cell(number(r.value), NUMBER_WIDTH, TEXT));
-            });
-        }
-        let below = if range.end < list.rows.len() { format!("  v {} more", list.rows.len() - range.end) } else { String::new() };
-        c.spawn(text(below, 12.0, DIM));
-        c.spawn(text(format!("{} stacks   weight {:.1}   value {}", list.rows.len(), list.weight, list.value), 14.0, DIM));
+    commands.spawn((MenuRoot, screen, GlobalZIndex(100))).with_children(|root| {
+        look::spawn(root, m, note.as_deref(), kit, data.as_deref(), &mut images, bc);
     });
 }
