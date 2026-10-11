@@ -305,6 +305,14 @@ Lab comparator: **keyed** on `grid` for `/cells` (all fields, float tolerance 1e
 - `world check [--world W]` → `fnv.world.check/1`: the observational checks behind
   world.md (cell membership of references, shared LAND edges, normals against heights,
   base object types).
+- `world audio [--cell C [--at x,y,z] [--hour H]]` → `fnv.world.audio/1`: `counts` of
+  music types, media sets by type, controllers and acoustic spaces, and `music_types`.
+  Without `--cell`: `world`, statistics of every audio marker and sound marker of the load
+  order. With `--cell`: `cell` (music type, acoustic space with its sounds) and
+  `audio_markers`, `controllers` and `sound_markers` in earshot (the whole worldspace for
+  an exterior cell). With `--at`: `at`, the marker, set, layers and files chosen there
+  at `--hour` (default 12), the background loop and the sound markers in reach
+  (docs/spec-notes/audio.md §4–6).
 
 ## `fnvtool phys ...` (Layer 4 physics)
 

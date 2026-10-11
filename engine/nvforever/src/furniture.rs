@@ -343,8 +343,14 @@ pub fn seat_orders(mut commands: Commands, mut f: ResMut<Furnishings>, nav: Opti
     }
 }
 
+/// The actor is off its furniture at once, without the getting-off clip: game time
+/// passed in the Wait menu and its package has it elsewhere (`residents.rs`), which is
+/// where its owner puts it.
+#[derive(Component)]
+pub struct LeaveNow;
+
 /// What [`drive_actors`] reads and writes of an actor on furniture.
-type Seated = (Entity, &'static ActorRig, &'static mut Transform, &'static mut OnFurniture, Option<&'static mut Locomotion>, Has<GetUp>);
+type Seated = (Entity, &'static ActorRig, &'static mut Transform, &'static mut OnFurniture, Option<&'static mut Locomotion>, Has<GetUp>, Has<LeaveNow>);
 
 /// Start, advance and end the actors' uses; place their roots.
 #[allow(clippy::too_many_arguments)]
@@ -409,8 +415,20 @@ pub fn drive_actors(
         }
     }
 
-    for (e, rig, mut t, mut on, mut lo, get_up) in &mut using {
+    for (e, rig, mut t, mut on, mut lo, get_up, leave_now) in &mut using {
         let on = &mut *on;
+        if leave_now {
+            if let Some(lo) = lo.as_deref_mut() {
+                lo.velocity = [0.0; 2];
+                lo.turn = 0.0;
+            }
+            f.stats.stood += 1;
+            f.release(on.plan.furniture, on.who.reference);
+            info!("furniture: {:08X} is off {:08X} at once (hours passed in the wait menu)", on.who.reference, on.plan.furniture);
+            tell_scripts(&mut script, on.who.reference, None);
+            commands.entity(e).remove::<(OnFurniture, SitOn, GetUp, LeaveNow, crate::dialogue_look::BodyHeld)>();
+            continue;
+        }
         let scale = t.scale.x.max(1e-3);
         let mut place = |frame: Frame| {
             t.translation = Vec3::from_array(frame.pos) - on.origin;
@@ -575,7 +593,7 @@ pub fn drive_player(
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut script: Option<ResMut<ScriptState>>,
-    mut hud: ResMut<nvf_play::activate::HudMessage>,
+    (mut hud, mut rest): (ResMut<nvf_play::activate::HudMessage>, MessageWriter<nvf_play::wait::OpenWait>),
 ) {
     let Some(mut f) = f else { return };
     let dt = time.delta_secs().min(0.1);
@@ -589,7 +607,7 @@ pub fn drive_player(
             Some(_) => {}
             None => match f.plan(&world, &mut ctx, reference, player.feet, who, &|func, p| game_value(&script, func, p)) {
                 // Beds as seats: the player lies down as a sleeping actor does [owner
-                // request 2026-10-10; the original's sleep menu is not built].
+                // request 2026-10-10], and once lying the Sleep menu opens (below).
                 Ok(plan) => {
                     info!(
                         "furniture: the player {} {reference:08X} by marker {} (ID {}); clips {} / {}",
@@ -628,6 +646,12 @@ pub fn drive_player(
         st.serial += 1;
         info!("furniture: the player is on {:08X}", u.plan.furniture);
         tell_scripts(&mut script, who.reference, Some((&u.plan, state::ON)));
+        // Lying on a bed: the Sleep menu comes up by itself (wait-menu.md §8).
+        if u.usage.is_bed() {
+            seat.bed = true;
+            seat.on = Some(u.plan.furniture);
+            rest.write(nvf_play::wait::OpenWait::default());
+        }
     }
     if u.usage.phase == Phase::On && u.usage.leave_wanted && u.usage.leave() {
         let clip = f.get_off(&mut ctx, &u.plan, who, &|func, p| game_value(&script, func, p));
@@ -672,6 +696,7 @@ pub fn drive_player(
         Some(b) => {
             seat.hold = Some(b.pos);
             seat.bed = lying && u.usage.phase != Phase::GettingOff;
+            seat.on = Some(u.plan.furniture);
             body.0 = Some(b);
         }
         None => {
@@ -683,6 +708,7 @@ pub fn drive_player(
             phys.place_player(end.pos, 60.0, 200.0);
             seat.hold = None;
             seat.bed = false;
+            seat.on = None;
             body.0 = None;
             f.stats.player_stood += 1;
             f.release(u.plan.furniture, who.reference);

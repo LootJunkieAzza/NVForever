@@ -444,6 +444,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-font"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "fnv-game"
 version = "0.1.0"
 dependencies = [

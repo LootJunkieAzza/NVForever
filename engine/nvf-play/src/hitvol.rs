@@ -46,6 +46,9 @@ pub const MAX_RADIUS: f32 = 150.0;
 pub struct HitVolumes {
     pub count: usize,
     pub most: usize,
+    /// The living actors drawn now and where each one's feet are (game space), the
+    /// player not among them.
+    pub living: Vec<(u32, [f32; 3])>,
 }
 
 /// One segment of a body part, game space (step C8).
@@ -58,12 +61,19 @@ pub struct PartSegment {
     pub b: [f32; 3],
 }
 
+/// The part number of the weapon an actor holds drawn: one segment along the weapon,
+/// after the body parts (no BPTD part has this index). A hit on it wears the weapon, not
+/// the actor (`crate::combat`, docs/spec-notes/combat-rules.md §17).
+pub const WEAPON_PART: u8 = 254;
+
 /// An actor's body parts as posed last frame.
 #[derive(Debug, Clone)]
 pub struct PosedParts {
     /// The body part data (BPTD) the parts index.
     pub data: FormId,
     pub segments: Vec<PartSegment>,
+    /// The weapon in the actor's hand, when it has a [`WEAPON_PART`] segment.
+    pub weapon: Option<FormId>,
 }
 
 /// The posed body parts of drawn actors by reference FormID, published by the renderer
@@ -203,9 +213,13 @@ fn sync_volumes(
         phys.world.remove_actor_volume(id);
     }
     blocks.list.clear();
+    vols.living.clear();
     for (&id, &(lo, hi)) in &bounds {
         let dead = crate::combat::is_dead(script.as_deref(), id);
         let v = volume_for(lo, hi, dead);
+        if !dead && id != FormId::PLAYER_REF.0 {
+            vols.living.push((id, v.feet));
+        }
         let posed = posed.by_ref.get(&id).filter(|p| !p.segments.is_empty());
         // In the player's way where its body is now, unless the character controller
         // walks it (its block is where its character is, `crate::player`).

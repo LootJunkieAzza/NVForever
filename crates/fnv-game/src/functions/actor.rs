@@ -584,14 +584,18 @@ pub fn get_faction_combat_reaction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result
 /// faction the player is a crime enemy of.
 pub fn get_faction_relation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    let o = a.form(0)?;
+    Ok(Value::Num(faction_relation(g, r, a.form(0)?) as f64))
+}
+
+/// [`get_faction_relation`]'s value for actor `r` towards `o`.
+pub fn faction_relation(g: &Game, r: FormId, o: FormId) -> i64 {
     let mine = factions_of(g, r);
     if o == FormId::PLAYER_REF && mine.iter().any(|f| g.player.enemy_of.contains(f)) {
-        return Ok(Value::Num(1.0));
+        return 1;
     }
     let theirs = factions_of(g, o);
     let all: Vec<i64> = mine.iter().flat_map(|&x| theirs.iter().map(move |&y| (x, y))).map(|(x, y)| reaction(g, x, y)).collect();
-    let v = if all.contains(&1) {
+    if all.contains(&1) {
         1
     } else if all.contains(&3) {
         3
@@ -599,8 +603,7 @@ pub fn get_faction_relation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
         2
     } else {
         0
-    };
-    Ok(Value::Num(v as f64))
+    }
 }
 
 /// `SetEnemy f1 f2 [flag12 flag21]`: each direction becomes enemy (flag 0, the default)

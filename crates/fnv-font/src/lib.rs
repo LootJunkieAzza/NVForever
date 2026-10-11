@@ -1,0 +1,248 @@
+//! The interface's bitmap fonts, `.fnt` files (docs/spec-notes/fonts.md).
+//!
+//! A `.fnt` file is a table of 256 glyphs, one per character code, over one texture that
+//! holds their pictures (§2). [`Font::parse`] reads it; [`Font::lines`] sets a text in
+//! lines, wrapping at a width (§3). Lengths are in the interface's units, which are the
+//! texture's texels at the font's own size.
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum FontError {
+    #[error("font file is {found} bytes, expected {expected}")]
+    Size { found: usize, expected: usize },
+    #[error("font names {0} textures; only fonts with one are understood")]
+    Textures(u32),
+    #[error("font has no texture name")]
+    NoTexture,
+}
+
+/// Bytes before the glyph table: the size, two counts and the texture name's room (§2).
+const HEADER: usize = 12;
+const NAME_ROOM: usize = 284;
+const GLYPH: usize = 56;
+/// The size of every font file (§2).
+pub const FILE_SIZE: usize = HEADER + NAME_ROOM + 256 * GLYPH;
+
+/// One character's picture and measures (§2).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Glyph {
+    /// The picture's corners on the texture, each 0 to 1: left, top, right, bottom.
+    pub uv: [f32; 4],
+    pub width: f32,
+    pub height: f32,
+    /// Empty room before and after the picture; the next character starts at
+    /// `before + width + after` [observed, §3].
+    pub before: f32,
+    pub after: f32,
+    /// How far the picture's top is above the line the letters stand on.
+    pub ascent: f32,
+}
+
+impl Glyph {
+    pub fn advance(&self) -> f32 {
+        self.before + self.width + self.after
+    }
+
+    /// Whether there is a picture to draw (a space has none).
+    pub fn drawn(&self) -> bool {
+        self.width > 0.0 && self.height > 0.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Font {
+    /// The first number of the file: the height of one line of text (§2).
+    pub size: f32,
+    /// The texture's name as the file has it, without folder or extension.
+    pub texture: String,
+    /// By character code, 256 of them.
+    pub glyphs: Vec<Glyph>,
+}
+
+/// A character set in a line: its code and where its glyph's room starts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placed {
+    pub code: u8,
+    pub x: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Line {
+    pub glyphs: Vec<Placed>,
+    /// From the line's start to the end of its last character.
+    pub width: f32,
+}
+
+fn f32_at(b: &[u8], at: usize) -> f32 {
+    f32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]])
+}
+
+fn u32_at(b: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]])
+}
+
+/// The code of a character in the game's text (Windows-1252); `?` for one it lacks.
+pub fn code_of(c: char) -> u8 {
+    const HIGH: [(char, u8); 27] = [
+        ('\u{20AC}', 0x80), ('\u{201A}', 0x82), ('\u{0192}', 0x83), ('\u{201E}', 0x84), ('\u{2026}', 0x85), ('\u{2020}', 0x86),
+        ('\u{2021}', 0x87), ('\u{02C6}', 0x88), ('\u{2030}', 0x89), ('\u{0160}', 0x8A), ('\u{2039}', 0x8B), ('\u{0152}', 0x8C),
+        ('\u{017D}', 0x8E), ('\u{2018}', 0x91), ('\u{2019}', 0x92), ('\u{201C}', 0x93), ('\u{201D}', 0x94), ('\u{2022}', 0x95),
+        ('\u{2013}', 0x96), ('\u{2014}', 0x97), ('\u{02DC}', 0x98), ('\u{2122}', 0x99), ('\u{0161}', 0x9A), ('\u{203A}', 0x9B),
+        ('\u{0153}', 0x9C), ('\u{017E}', 0x9E), ('\u{0178}', 0x9F),
+    ];
+    match c as u32 {
+        n if n < 0x80 || (0xA0..0x100).contains(&n) => n as u8,
+        _ => HIGH.iter().find(|(h, _)| *h == c).map_or(b'?', |(_, b)| *b),
+    }
+}
+
+impl Font {
+    pub fn parse(bytes: &[u8]) -> Result<Font, FontError> {
+        if bytes.len() != FILE_SIZE {
+            return Err(FontError::Size { found: bytes.len(), expected: FILE_SIZE });
+        }
+        let textures = u32_at(bytes, 4);
+        if textures != 1 {
+            return Err(FontError::Textures(textures));
+        }
+        let name = &bytes[HEADER..HEADER + NAME_ROOM];
+        let end = name.iter().position(|&b| b == 0).unwrap_or(name.len());
+        if end == 0 {
+            return Err(FontError::NoTexture);
+        }
+        let texture = name[..end].iter().map(|&b| b as char).collect();
+        let glyphs = (0..256)
+            .map(|code| {
+                let at = HEADER + NAME_ROOM + code * GLYPH;
+                let f = |k: usize| f32_at(bytes, at + 4 * k);
+                // Numbers 1 to 8 are the four corners; the top left and bottom right say it all.
+                Glyph { uv: [f(1), f(2), f(7), f(8)], width: f(9), height: f(10), before: f(11), after: f(12), ascent: f(13) }
+            })
+            .collect();
+        Ok(Font { size: f32_at(bytes, 0), texture, glyphs })
+    }
+
+    /// The texture's path in the game's files.
+    pub fn texture_path(&self) -> String {
+        format!("textures\\fonts\\{}.dds", self.texture.to_ascii_lowercase())
+    }
+
+    pub fn glyph(&self, code: u8) -> &Glyph {
+        &self.glyphs[code as usize]
+    }
+
+    /// The width of a text set in one line.
+    pub fn width(&self, text: &str) -> f32 {
+        text.chars().map(|c| self.glyph(code_of(c)).advance()).sum()
+    }
+
+    /// Set a text in lines (§3): a line ends at a line break, and before the word that
+    /// would reach past `wrap`. The spaces a line is broken at are not set. A word wider
+    /// than `wrap` gets a line of its own and is not cut.
+    pub fn lines(&self, text: &str, wrap: Option<f32>) -> Vec<Line> {
+        let mut out = Vec::new();
+        for para in text.replace("\r\n", "\n").split('\n') {
+            let mut line = Line::default();
+            // Spaces met since the line's last word; set only if a word follows them.
+            let mut gap = 0.0;
+            for (i, word) in para.split(' ').enumerate() {
+                if i > 0 {
+                    gap += self.glyph(b' ').advance();
+                }
+                if word.is_empty() {
+                    continue;
+                }
+                let w = self.width(word);
+                if wrap.is_some_and(|max| !line.glyphs.is_empty() && line.width + gap + w > max) {
+                    out.push(std::mem::take(&mut line));
+                    gap = 0.0;
+                }
+                let mut x = line.width + gap;
+                for c in word.chars() {
+                    let code = code_of(c);
+                    line.glyphs.push(Placed { code, x });
+                    x += self.glyph(code).advance();
+                }
+                line.width = x;
+                gap = 0.0;
+            }
+            out.push(line);
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A font file where every letter is 10 wide with 1 after it and a space is 5.
+    fn file() -> Vec<u8> {
+        let mut b = vec![0u8; FILE_SIZE];
+        b[0..4].copy_from_slice(&31.0f32.to_le_bytes());
+        b[4..8].copy_from_slice(&1u32.to_le_bytes());
+        b[8..12].copy_from_slice(&1u32.to_le_bytes());
+        b[12..20].copy_from_slice(b"Test_Lod");
+        for code in 0..256usize {
+            let at = HEADER + NAME_ROOM + code * GLYPH;
+            let mut put = |k: usize, v: f32| b[at + 4 * k..at + 4 * k + 4].copy_from_slice(&v.to_le_bytes());
+            if code == b' ' as usize {
+                put(12, 5.0);
+            } else if code > 32 && code < 127 {
+                for (k, v) in [(1, 0.25), (2, 0.5), (3, 0.3), (4, 0.5), (5, 0.25), (6, 0.6), (7, 0.3), (8, 0.6), (9, 10.0), (10, 26.0), (12, 1.0), (13, 24.0)] {
+                    put(k, v);
+                }
+            }
+        }
+        b
+    }
+
+    #[test]
+    fn a_file_is_read() {
+        let f = Font::parse(&file()).unwrap();
+        assert_eq!(f.size, 31.0);
+        assert_eq!(f.texture, "Test_Lod");
+        assert_eq!(f.texture_path(), "textures\\fonts\\test_lod.dds");
+        let a = f.glyph(b'A');
+        assert_eq!(a.uv, [0.25, 0.5, 0.3, 0.6]);
+        assert_eq!((a.width, a.height, a.after, a.ascent), (10.0, 26.0, 1.0, 24.0));
+        assert_eq!(a.advance(), 11.0);
+        assert!(a.drawn() && !f.glyph(b' ').drawn());
+        assert_eq!(f.glyph(b' ').advance(), 5.0);
+    }
+
+    #[test]
+    fn a_wrong_file_is_refused() {
+        assert_eq!(Font::parse(&[0; 100]), Err(FontError::Size { found: 100, expected: FILE_SIZE }));
+        let mut b = file();
+        b[4] = 2;
+        assert_eq!(Font::parse(&b), Err(FontError::Textures(2)));
+        let mut b = file();
+        b[12] = 0;
+        assert_eq!(Font::parse(&b), Err(FontError::NoTexture));
+    }
+
+    #[test]
+    fn lines_wrap_at_words() {
+        let f = Font::parse(&file()).unwrap();
+        assert_eq!(f.width("ab cd"), 49.0);
+        let texts = |wrap: Option<f32>, s: &str| -> Vec<(String, f32)> {
+            f.lines(s, wrap).iter().map(|l| (l.glyphs.iter().map(|g| g.code as char).collect(), l.width)).collect()
+        };
+        assert_eq!(texts(None, "ab cd"), vec![("abcd".to_string(), 49.0)]);
+        // "ab cd" is 49 wide: it fits in 49 and not in 48.
+        assert_eq!(texts(Some(49.0), "ab cd ef"), vec![("abcd".to_string(), 49.0), ("ef".to_string(), 22.0)]);
+        assert_eq!(texts(Some(48.0), "ab cd"), vec![("ab".to_string(), 22.0), ("cd".to_string(), 22.0)]);
+        // Line breaks are kept, an empty line too; a word too wide is not cut.
+        assert_eq!(texts(Some(30.0), "ab\n\nabcdef g"), vec![("ab".to_string(), 22.0), (String::new(), 0.0), ("abcdef".to_string(), 66.0), ("g".to_string(), 11.0)]);
+        // The second word of a line starts after the space.
+        assert_eq!(f.lines("ab cd", None)[0].glyphs[2], Placed { code: b'c', x: 27.0 });
+    }
+
+    #[test]
+    fn characters_have_codes() {
+        assert_eq!(code_of('A'), 0x41);
+        assert_eq!(code_of('é'), 0xE9);
+        assert_eq!(code_of('\u{2019}'), 0x92);
+        assert_eq!(code_of('\u{4E2D}'), b'?');
+    }
+}

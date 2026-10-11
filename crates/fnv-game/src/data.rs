@@ -265,6 +265,8 @@ impl TopicDef {
 
 #[derive(Debug, Clone, Default)]
 pub struct MessageDef {
+    /// FULL: the title of a message box.
+    pub title: Option<String>,
     pub text: Option<String>,
     pub buttons: Vec<String>,
     pub message_box: bool,
@@ -1308,6 +1310,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             let mut m = MessageDef::default();
             for (s, v) in &decoded {
                 match *s {
+                    b"FULL" => m.title = v.as_ref().and_then(|v| v.as_str().map(str::to_string)).filter(|t| !t.trim().is_empty()),
                     b"DESC" => m.text = v.as_ref().and_then(|v| v.as_str().map(str::to_string)),
                     b"ITXT" => m.buttons.push(v.as_ref().and_then(|v| v.as_str()).unwrap_or_default().to_string()),
                     b"DNAM" => m.message_box = has_flag(v.as_ref(), "Message Box"),

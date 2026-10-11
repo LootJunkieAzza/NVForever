@@ -180,6 +180,11 @@ pub trait Mover {
     }
 }
 
+/// [`Ai::pass_time`]'s mover: the walker's own steps, every door open.
+struct Passed;
+
+impl Mover for Passed {}
+
 /// One actor the AI moves.
 pub struct Agent {
     pub walker: Walker,
@@ -315,6 +320,38 @@ impl Ai {
     /// [`Ai::update`] with the caller's [`Mover`]: its doors, and its own way of moving
     /// the actors it chooses to (the engine's character controller near the player).
     pub fn update_moved(&mut self, game: &mut Game, nav: &NavGraph, dt: f32, open: &mut dyn Mover) {
+        self.step(game, nav, dt, open, false)
+    }
+
+    /// Game time that passed while a menu held the game (an hour of a wait or a sleep,
+    /// docs/spec-notes/wait-menu.md §7): the actors take up the packages they have now
+    /// and walk for `seconds`, `step` seconds at a time, on the navmesh, doors that open
+    /// in place passed as if open; it ends early when nobody is on its way. Meanwhile
+    /// nobody starts talking (a Dialogue package waits for the game to go on), a
+    /// sandboxing actor does not choose something new and a patrol does not leave the
+    /// point it waits at: those go by [`Game::time`], which stands still in a menu.
+    /// Returns how many actors walked. [engineering choice: nothing read says what the
+    /// original's actors do while the player waits.]
+    pub fn pass_time(&mut self, game: &mut Game, nav: &NavGraph, seconds: f32, step: f32) -> usize {
+        let step = step.max(1e-3);
+        let mut walked: std::collections::BTreeSet<FormId> = Default::default();
+        let (mut left, mut still) = (seconds, 0);
+        // Two updates running with nobody on its way end it: one may only have set an
+        // unreachable package aside, and the next takes up the one chosen instead.
+        while left > 0.0 && still < 2 {
+            self.step(game, nav, step.min(left), &mut Passed, true);
+            left -= step;
+            let before = walked.len();
+            walked.extend(self.agents.iter().filter(|(_, a)| a.activity == Activity::Travelling).map(|(id, _)| *id));
+            let nobody = self.agents.values().all(|a| a.activity != Activity::Travelling);
+            still = if nobody && walked.len() == before { still + 1 } else { 0 };
+        }
+        walked.len()
+    }
+
+    /// One update: `quiet` is [`Ai::pass_time`]'s (no talking, no new sandbox behaviour,
+    /// no patrol leaving its point, nobody going back after a push).
+    fn step(&mut self, game: &mut Game, nav: &NavGraph, dt: f32, open: &mut dyn Mover, quiet: bool) {
         let actors: Vec<FormId> = self.agents.keys().copied().collect();
         for actor in actors {
             if !game.present(actor) || game.extra.get(&actor).is_some_and(|e| e.dead) {
@@ -338,12 +375,12 @@ impl Ai {
                     self.begin(game, nav, actor, p);
                 }
             }
-            if self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
+            if !quiet && self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
                 self.back_after_push(game, nav, actor);
             }
             match self.agents[&actor].activity {
                 Activity::Travelling => self.walk(game, nav, actor, dt, open),
-                Activity::There => {
+                Activity::There if !quiet => {
                     if self.agents[&actor].wait_until.is_some_and(|t| game.time >= t) {
                         self.agents.get_mut(&actor).expect("listed").wait_until = None;
                         self.patrol_on(game, nav, actor);
@@ -353,7 +390,7 @@ impl Ai {
                 }
                 _ => {}
             }
-            if self.agents[&actor].talk.is_some() {
+            if !quiet && self.agents[&actor].talk.is_some() {
                 self.talk_step(game, nav, actor, dt);
             }
         }
