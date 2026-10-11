@@ -421,6 +421,26 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// The actor base one template group (`records::template`, or any ACBS template flag
+    /// bit) of a placed actor's data comes from, with the leveled picks its appearance
+    /// is made with: the picks of [`Self::resolve`] or [`Self::resolve_creature`] are
+    /// made first, in their order, then the group's chain is followed. For checking
+    /// that other crates read an actor's data from the actor that is drawn.
+    pub fn group_source(&self, base: FormId, reference: FormId, group: u16) -> Result<FormId, ResolveError> {
+        let mut ch = Choices { rng: rng_for(reference), picks: HashMap::new(), random: false };
+        if matches!(self.actors.sigs.get(&base), Some(b"CREA") | Some(b"LVLC")) {
+            let crea = self.creature_base(base, &mut ch, 0)?;
+            self.creature_source(crea, template::MODEL_ANIMATION, &mut ch)?;
+            self.creature_source(crea, template::STATS, &mut ch)?;
+            return Ok(self.creature_source(crea, group, &mut ch)?.id);
+        }
+        let npc = self.actor_base(base, &mut ch, 0)?;
+        self.template_source(npc, template::TRAITS, &mut ch)?;
+        self.template_source(npc, template::MODEL_ANIMATION, &mut ch)?;
+        self.template_source(npc, template::INVENTORY, &mut ch)?;
+        Ok(self.template_source(npc, group, &mut ch)?.id)
+    }
+
     /// An NPC_ base for `id`, resolving leveled NPCs (LVLN) once per actor.
     fn actor_base(&self, id: FormId, ch: &mut Choices, depth: u32) -> Result<&'a Npc, ResolveError> {
         if depth > MAX_DEPTH {

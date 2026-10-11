@@ -44,6 +44,19 @@ const SPEL_PERK: u32 = 0x853;
 const ENCH_HAT: u32 = 0x858;
 const ARMO_HAT: u32 = 0x859;
 const ALCH_CHEM: u32 = 0x85A;
+// Actors whose template is a leveled list.
+const NPC_A: u32 = 0x870;
+const NPC_B: u32 = 0x871;
+const NPC_C: u32 = 0x872;
+const NPC_SPAWN: u32 = 0x873;
+const NPC_LATE: u32 = 0x874;
+const NPC_NESTED: u32 = 0x875;
+const LVLN_AB: u32 = 0x878;
+const LVLN_LATE: u32 = 0x879;
+const LVLN_OUTER: u32 = 0x87A;
+const SPAWN_REFS: std::ops::Range<u32> = 0x330..0x340;
+const LATE_REF: u32 = 0x340;
+const NESTED_REF: u32 = 0x341;
 
 const GET: u16 = 0x100E;
 const SET: u16 = 0x100F;
@@ -85,6 +98,23 @@ fn value_at_least(value: u16, at_least: f32) -> fnv_esm::raw::Subrecord {
     d.extend([0, 0]);
     d.extend(u32s(&[value as u32, 0, 0, 0]));
     sub(b"CTDA", d)
+}
+
+/// LVLN: entries of (level, actor base or list), picked from the highest level.
+fn lvln(fid: u32, edid: &str, entries: &[(u16, u32)]) -> Vec<u8> {
+    let mut subs = vec![sub(b"EDID", z(edid)), sub(b"LVLD", vec![0]), sub(b"LVLF", vec![0])];
+    for &(level, to) in entries {
+        subs.push(sub(b"LVLO", [level.to_le_bytes().to_vec(), vec![0; 2], to.to_le_bytes().to_vec(), 1u16.to_le_bytes().to_vec(), vec![0; 2]].concat()));
+    }
+    record(b"LVLN", 0, fid, &subs)
+}
+
+/// An NPC_ of the given Strength (the other attributes 1), with a template and its flags.
+fn leveled_npc(fid: u32, edid: &str, strength: u8, template: Option<(u32, u16)>) -> Vec<u8> {
+    let mut subs = vec![sub(b"EDID", z(edid)), acbs(0, 1, 100, 0.0, template.map_or(0, |t| t.1))];
+    subs.extend(template.map(|t| sub(b"TPLT", t.0.to_le_bytes().to_vec())));
+    subs.extend([npc_data(10, [strength, 1, 1, 1, 1, 1, 1]), dnam([strength; 14], [0; 14])]);
+    record(b"NPC_", 0, fid, &subs)
 }
 
 /// SPEL: an actor effect of the given SPIT type.
@@ -166,8 +196,19 @@ fn plugin_bytes() -> Vec<u8> {
                 dnam([1; 14], [0; 14]),
             ],
         ),
+        leveled_npc(NPC_A, "RaiderA", 9, None),
+        leveled_npc(NPC_B, "RaiderB", 7, None),
+        leveled_npc(NPC_C, "RaiderC", 3, None),
+        // Traits (bit 0) and Stats (bit 1) from a list of A and B at level 1, C at 5.
+        leveled_npc(NPC_SPAWN, "RaiderSpawn", 5, Some((LVLN_AB, 0x3))),
+        // A list with nothing at level 1.
+        leveled_npc(NPC_LATE, "RaiderLate", 5, Some((LVLN_LATE, 0x2))),
+        // A list of a list.
+        leveled_npc(NPC_NESTED, "RaiderNested", 5, Some((LVLN_OUTER, 0x2))),
     ]
     .concat();
+    let lists = [lvln(LVLN_AB, "RaidersAB", &[(1, NPC_A), (1, NPC_B), (5, NPC_C)]), lvln(LVLN_LATE, "RaidersLate", &[(5, NPC_C)]), lvln(LVLN_OUTER, "RaidersOuter", &[(1, LVLN_AB)])]
+        .concat();
     // CREA DATA: type, combat, magic and stealth skill, health, unused, damage, attributes.
     let crea_data = [vec![0u8, 65, 50, 40], 120i16.to_le_bytes().to_vec(), vec![0; 2], 9i16.to_le_bytes().to_vec(), vec![8, 7, 6, 2, 3, 4, 5]].concat();
     let crea = record(
@@ -237,12 +278,17 @@ fn plugin_bytes() -> Vec<u8> {
     );
     let cont = record(b"CONT", 0, CONT, &[sub(b"EDID", z("Box")), sub(b"DATA", [vec![0], 0f32.to_le_bytes().to_vec()].concat())]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let refs = [placed(b"ACHR", GUARD_REF, NPC_GUARD), placed(b"ACHR", COPY_REF, NPC_COPY), placed(b"ACRE", CREA_REF, CREA), placed(b"REFR", CONT_REF, CONT)].concat();
+    let mut refs = [placed(b"ACHR", GUARD_REF, NPC_GUARD), placed(b"ACHR", COPY_REF, NPC_COPY), placed(b"ACRE", CREA_REF, CREA), placed(b"REFR", CONT_REF, CONT)].concat();
+    for r in SPAWN_REFS {
+        refs.extend(placed(b"ACHR", r, NPC_SPAWN));
+    }
+    refs.extend([placed(b"ACHR", LATE_REF, NPC_LATE), placed(b"ACHR", NESTED_REF, NPC_NESTED)].concat());
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
     [
         tes4(),
         top(b"GMST", &gmsts),
         top(b"NPC_", &npcs),
+        top(b"LVLN", &lists),
         top(b"CREA", &crea),
         top(b"CONT", &cont),
         top(b"MGEF", &mgefs),
@@ -256,6 +302,8 @@ fn plugin_bytes() -> Vec<u8> {
 }
 
 struct Fixture {
+    plugins: Vec<Plugin>,
+    schema: Schema,
     data: GameData,
     forms: FormStore,
     refs: RefTable,
@@ -263,15 +311,18 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let plugins = vec![Plugin::parse(&plugin_bytes(), "ActorValues.esm".into()).unwrap()];
-    let lo = LoadOrder::new(&plugins).unwrap();
-    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
-    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
-    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
-    let table = FunctionTable::load(&p).unwrap();
-    let forms = FormStore::build(&lo, &schema);
-    let refs = RefTable::build(&lo, &schema);
-    let data = GameData::build(&lo, &schema, table, &j, &refs);
-    Fixture { data, forms, refs }
+    let (data, forms, refs, schema) = {
+        let lo = LoadOrder::new(&plugins).unwrap();
+        let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+        let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        let table = FunctionTable::load(&p).unwrap();
+        let forms = FormStore::build(&lo, &schema);
+        let refs = RefTable::build(&lo, &schema);
+        let data = GameData::build(&lo, &schema, table, &j, &refs);
+        (data, forms, refs, schema)
+    };
+    Fixture { plugins, schema, data, forms, refs }
 }
 
 fn game(f: &Fixture) -> Game<'_> {
@@ -663,4 +714,61 @@ fn an_ingestible_changes_values_for_its_duration_or_for_good() {
     call(&mut g, RESTORE, PLAYER, &[code(av::HEALTH), n(9.5)]);
     g.frames(180);
     assert!(close(get(&mut g, PLAYER, av::HEALTH), health));
+}
+
+/// An actor whose template is a leveled list has the stats of the entry picked for its
+/// reference: an entry of the highest level at or under 1, the same for every reading
+/// (actor-values.md §10).
+#[test]
+fn a_leveled_template_gives_the_stats_of_the_actor_picked_for_the_reference() {
+    let f = fixture();
+    let mut g = game(&f);
+    let lists = &f.data.leveled_actors;
+    assert_eq!(lists[&FormId(LVLN_AB)].entries, vec![(1, FormId(NPC_A)), (1, FormId(NPC_B)), (5, FormId(NPC_C))]);
+    assert_eq!(f.data.actors[&FormId(NPC_SPAWN)].template_flags, 0x3);
+    let mut seen = std::collections::BTreeSet::new();
+    for r in SPAWN_REFS {
+        let source = g.template_source(FormId(r), av::template::STATS).unwrap();
+        // Never C (level 5), never its own placeholder record.
+        assert!(source == FormId(NPC_A) || source == FormId(NPC_B), "{r:X}: {source}");
+        let strength = if source == FormId(NPC_A) { 9.0 } else { 7.0 };
+        assert_eq!(get(&mut g, r, av::STRENGTH), strength);
+        // Skills (DNAM), health (Endurance 1, level 1) and the level are the picked actor's.
+        assert_eq!(get(&mut g, r, av::GUNS), strength);
+        assert_eq!(get(&mut g, r, av::HEALTH), 10.0 + 5.0 + 5.0);
+        // The same again, and for the other groups that reach the list.
+        assert_eq!(g.template_source(FormId(r), av::template::STATS), Some(source));
+        assert_eq!(g.template_source(FormId(r), av::template::TRAITS), Some(source));
+        // A group the template does not supply stays with the record.
+        assert_eq!(g.template_source(FormId(r), av::template::AI_DATA), Some(FormId(NPC_SPAWN)));
+        seen.insert(source);
+    }
+    // The pick is per reference: sixteen references of one base do not all get the same.
+    assert_eq!(seen.len(), 2);
+    // A list with no entry at the level: the actor's own record.
+    assert_eq!(g.template_source(FormId(LATE_REF), av::template::STATS), Some(FormId(NPC_LATE)));
+    assert_eq!(get(&mut g, LATE_REF, av::STRENGTH), 5.0);
+    // A list of a list.
+    let nested = g.template_source(FormId(NESTED_REF), av::template::STATS).unwrap();
+    assert!(nested == FormId(NPC_A) || nested == FormId(NPC_B));
+    // Something that is no actor has no source.
+    assert_eq!(g.template_source(FormId(CONT_REF), av::template::STATS), None);
+}
+
+/// The stats come from the actor base the appearance is made from (`fnv_actor`).
+#[test]
+fn the_leveled_pick_is_the_one_the_appearance_makes() {
+    let f = fixture();
+    let g = game(&f);
+    let lo = LoadOrder::new(&f.plugins).unwrap();
+    let actors = fnv_actor::ActorForms::build(&lo, &f.schema);
+    let resolver = fnv_actor::Resolver { actors: &actors, forms: &f.forms };
+    for r in SPAWN_REFS.chain([NESTED_REF, GUARD_REF, COPY_REF]) {
+        let base = f.refs.get(FormId(r)).unwrap().base;
+        for group in [av::template::TRAITS, av::template::STATS, av::template::AI_DATA, av::template::MODEL_ANIMATION, av::template::INVENTORY] {
+            assert_eq!(g.template_source(FormId(r), group), resolver.group_source(base, FormId(r), group).ok(), "{r:X} group {group}");
+        }
+    }
+    // The appearance of an actor whose list is empty at level 1 cannot be made.
+    assert!(resolver.group_source(FormId(NPC_LATE), FormId(LATE_REF), av::template::STATS).is_err());
 }

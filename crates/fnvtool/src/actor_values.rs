@@ -62,6 +62,7 @@ pub fn run(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable, ac
     if survey {
         out["survey"] = records(lo, schema, &g);
         out["effects"] = effects(&g);
+        out["leveled_templates"] = leveled_templates(lo, schema, &forms, &g, refs);
         out["settings"] = SETTINGS.iter().map(|s| (s.to_string(), json!(forms.setting_f32(s)))).collect::<Map<String, Value>>().into();
     }
     Ok(out)
@@ -107,6 +108,9 @@ fn actor(g: &mut Game, refs: &RefTable, name: &str) -> anyhow::Result<Value> {
         "auto_calc": d.autocalc,
         "template": d.template.map(|t| g.data.name(t)),
         "stats_from_template": d.template_stats,
+        // The actor base the stats are read from: the template chain's end, a leveled
+        // list on the way picked as for the actor's appearance (actor-values.md §10).
+        "stats_source": g.template_source(r, av::template::STATS).map(|b| g.data.name(b)),
         "ai_data_from_template": d.template_ai,
         // The record's own DNAM bytes, Barter to Unarmed (NPCs).
         "stored_skill_values": d.skills,
@@ -314,4 +318,67 @@ fn effects(g: &Game) -> Value {
         "worn_object_effects": {"distinct": enchantments.len(), "by_kind": to_json(worn), "by_value": to_json(worn_values)},
         "ingestibles": {"records": ingestibles.len(), "by_kind": to_json(eaten), "by_value": to_json(eaten_values)},
     })
+}
+
+/// Placed actors whose stats come through a leveled list (actor-values.md §10): how many
+/// there are, and whether `fnv-game` reads them from the actor base `fnv-actor` makes
+/// the appearance from.
+fn leveled_templates(lo: &LoadOrder, schema: &Schema, forms: &FormStore, g: &Game, refs: &RefTable) -> Value {
+    let actors = fnv_actor::ActorForms::build(lo, schema);
+    let resolver = fnv_actor::Resolver { actors: &actors, forms };
+    let data = g.data;
+    // Whether the chain of `group` from `base` meets a leveled list.
+    let through_list = |base: FormId, group: u16| {
+        let mut cur = base;
+        for _ in 0..32 {
+            let Some(t) = data.actors.get(&cur).filter(|d| d.template_flags & group != 0).and_then(|d| d.template) else { return false };
+            if !data.actors.contains_key(&t) {
+                return data.leveled_actors.contains_key(&t);
+            }
+            cur = t;
+        }
+        false
+    };
+    let mut out = Map::new();
+    for (name, group) in [("stats", av::template::STATS), ("actor_effect_list", av::template::ACTOR_EFFECTS), ("ai_data", av::template::AI_DATA)] {
+        let (mut placed, mut listed, mut same, mut differ, mut unresolved, mut stays) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+        let mut examples: Vec<Value> = Vec::new();
+        let mut ids: Vec<FormId> = refs.refs.iter().filter(|(_, p)| data.actors.contains_key(&p.base)).map(|(r, _)| *r).collect();
+        ids.sort();
+        for r in ids {
+            let base = refs.refs[&r].base;
+            placed += 1;
+            if !through_list(base, group) {
+                continue;
+            }
+            listed += 1;
+            let ours = g.template_source(r, group);
+            stays += (ours == Some(base)) as u64;
+            match resolver.group_source(base, r, group) {
+                Ok(theirs) if Some(theirs) == ours => same += 1,
+                Ok(theirs) => {
+                    differ += 1;
+                    if examples.len() < 5 {
+                        examples.push(json!({"reference": r.to_string(), "fnv_game": ours.map(|b| data.name(b)), "fnv_actor": data.name(theirs)}));
+                    }
+                }
+                // The appearance cannot be made (a list with no entry at level 1, an
+                // actor of the other kind): nothing is drawn to agree with.
+                Err(_) => unresolved += 1,
+            }
+        }
+        out.insert(
+            name.to_string(),
+            json!({
+                "placed_actors": placed,
+                "through_a_leveled_list": listed,
+                "same_actor_base_as_the_appearance": same,
+                "another_actor_base": differ,
+                "appearance_not_resolved": unresolved,
+                "of_all_listed_left_at_their_own_record": stays,
+                "examples_of_another": examples,
+            }),
+        );
+    }
+    out.into()
 }

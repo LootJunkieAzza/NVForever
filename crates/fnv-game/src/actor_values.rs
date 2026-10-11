@@ -28,10 +28,98 @@
 //! damage) are `functions::actor`'s.
 
 use crate::combat::setting;
-use crate::data::ActorDef;
+use crate::data::{ActorDef, GameData};
 use crate::functions::{actor, base_of};
 use crate::game::Game;
 use fnv_sim::FormId;
+use rand_chacha::ChaCha8Rng;
+use rand_core::SeedableRng;
+use std::collections::HashMap;
+
+/// The groups of an actor's data its template can supply: the bits of the ACBS template
+/// flags [documented: xEdit].
+pub mod template {
+    pub const TRAITS: u16 = 1 << 0;
+    pub const STATS: u16 = 1 << 1;
+    pub const ACTOR_EFFECTS: u16 = 1 << 3;
+    pub const AI_DATA: u16 = 1 << 4;
+    pub const MODEL_ANIMATION: u16 = 1 << 6;
+    pub const INVENTORY: u16 = 1 << 8;
+    /// Every group, in flag order.
+    pub const GROUPS: u16 = 10;
+}
+
+/// The level a leveled actor list is resolved against: 1, as for the actor's appearance
+/// (actors.md §2.1) [our choice: the game uses the player's level when the actor is
+/// made, which nothing records here].
+const LEVELED_ACTOR_LEVEL: u16 = 1;
+
+/// The leveled actor lists picked for one reference: each list once (actor-values.md
+/// §10).
+struct Picks<'a> {
+    data: &'a GameData,
+    rng: ChaCha8Rng,
+    picked: HashMap<FormId, Option<FormId>>,
+}
+
+impl<'a> Picks<'a> {
+    /// The picks of a reference, made in the order the appearance makes them (`fnv_actor`
+    /// `Resolver`: Traits, Model/Animation, Inventory for an NPC; Model/Animation, Stats
+    /// for a creature), so that the stats are those of the actor that is drawn; then the
+    /// other groups in flag order.
+    fn of(data: &'a GameData, reference: FormId, base: FormId) -> Picks<'a> {
+        let mut p = Picks { data, rng: ChaCha8Rng::seed_from_u64(u64::from(reference.0)), picked: HashMap::new() };
+        let Some(start) = p.actor(base, 0) else { return p };
+        let first: &[u16] = if data.actors.get(&start).is_some_and(|d| &d.sig == b"CREA") {
+            &[template::MODEL_ANIMATION, template::STATS]
+        } else {
+            &[template::TRAITS, template::MODEL_ANIMATION, template::INVENTORY]
+        };
+        for group in first.iter().copied().chain((0..template::GROUPS).map(|b| 1 << b)) {
+            p.source(start, group);
+        }
+        p
+    }
+
+    /// The actor base `id` stands for: itself, or the entry picked from a list (followed
+    /// through nested lists). `None` for a list with no entry at the level.
+    fn actor(&mut self, id: FormId, depth: u32) -> Option<FormId> {
+        if self.data.actors.contains_key(&id) {
+            return Some(id);
+        }
+        let list = self.data.leveled_actors.get(&id).filter(|_| depth < 32)?;
+        let next = match self.picked.get(&id) {
+            Some(&p) => p,
+            None => {
+                // As the appearance picks: the entries at or under the level, of the
+                // highest such level unless the list calculates from all levels; one of
+                // them uniformly [observed for leveled items, simulation.md §4;
+                // hypothesis for actors]. Chance none is not applied.
+                let eligible = list.entries.iter().copied().filter(|e| e.0 <= LEVELED_ACTOR_LEVEL);
+                let top = eligible.clone().map(|e| e.0).max();
+                let pool: Vec<FormId> = eligible.filter(|e| list.all_levels || Some(e.0) == top).map(|e| e.1).collect();
+                let p = (!pool.is_empty()).then(|| pool[fnv_sim::leveled::below(&mut self.rng, pool.len() as u32) as usize]);
+                self.picked.insert(id, p);
+                p
+            }
+        };
+        self.actor(next?, depth + 1)
+    }
+
+    /// The actor base supplying one group of `start`'s data: the first along the
+    /// template chain whose flag for the group is clear, or whose template gives no actor.
+    fn source(&mut self, start: FormId, group: u16) -> FormId {
+        let mut cur = start;
+        for _ in 0..32 {
+            let next = self.data.actors.get(&cur).filter(|d| d.template_flags & group != 0).and_then(|d| d.template).and_then(|t| self.actor(t, 0));
+            match next {
+                Some(n) => cur = n,
+                None => break,
+            }
+        }
+        cur
+    }
+}
 
 pub const AGGRESSION: u16 = 0;
 pub const CONFIDENCE: u16 = 1;
@@ -151,24 +239,37 @@ pub fn capped(code: u16, v: f64) -> f64 {
 const CREATURE_COMBAT_SKILLS: [u16; 5] = [BIG_GUNS, ENERGY_WEAPONS, EXPLOSIVES, MELEE_WEAPONS, GUNS];
 
 impl<'a> Game<'a> {
-    /// The actor definition supplying one group of `r`'s data: its base, or the base's
-    /// template while `from_template` says the template supplies that group (followed a
-    /// few levels) [documented: xEdit template flags].
-    pub(crate) fn def_following(&self, r: FormId, from_template: fn(&ActorDef) -> bool) -> Option<&'a ActorDef> {
+    /// The actor base supplying one group ([`template`]) of `r`'s data: its base, or the
+    /// template's while the template flag of the group is set [documented: xEdit
+    /// template flags]. A template that is a leveled list (LVLN, LVLC) stands for the
+    /// entry picked for this reference, the same one its appearance is made from
+    /// (actor-values.md §10). `None` when `r` is no actor.
+    pub fn template_source(&self, r: FormId, group: u16) -> Option<FormId> {
         let data = self.data;
-        let mut def = data.actors.get(&base_of(self, r)?)?;
-        for _ in 0..8 {
-            match def.template.filter(|_| from_template(def)).and_then(|t| data.actors.get(&t)) {
-                Some(d) => def = d,
-                None => break,
+        let base = base_of(self, r).filter(|b| data.actors.contains_key(b))?;
+        // Most chains meet no list: walk them without picking anything.
+        let mut cur = base;
+        for _ in 0..32 {
+            let Some(t) = data.actors.get(&cur).filter(|d| d.template_flags & group != 0).and_then(|d| d.template) else { return Some(cur) };
+            if data.actors.contains_key(&t) {
+                cur = t;
+            } else if data.leveled_actors.contains_key(&t) {
+                return Some(Picks::of(data, r, base).source(base, group));
+            } else {
+                return Some(cur);
             }
         }
-        Some(def)
+        Some(cur)
+    }
+
+    /// The actor definition supplying one group of `r`'s data ([`Game::template_source`]).
+    pub(crate) fn def_following(&self, r: FormId, group: u16) -> Option<&'a ActorDef> {
+        self.data.actors.get(&self.template_source(r, group)?)
     }
 
     /// The definition supplying `r`'s stats (template flag "Stats").
     pub(crate) fn stats_def(&self, r: FormId) -> Option<&'a ActorDef> {
-        self.def_following(r, |d| d.template_stats)
+        self.def_following(r, template::STATS)
     }
 
     /// The current value of an actor value as the formulas read it: within its range, 0
@@ -267,7 +368,7 @@ impl<'a> Game<'a> {
             KARMA => base_of(self, r).and_then(|b| self.data.actors.get(&b)).map_or(0.0, |d| d.karma),
             // [documented: xEdit AIDT; hypothesis: the value is the enumeration's code.]
             AGGRESSION | CONFIDENCE | ENERGY | RESPONSIBILITY | MOOD | ASSISTANCE => {
-                let d = self.def_following(r, |d| d.template_ai);
+                let d = self.def_following(r, template::AI_DATA);
                 let v = match code {
                     AGGRESSION => d.and_then(|d| d.aggression),
                     CONFIDENCE => d.and_then(|d| d.confidence),

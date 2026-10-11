@@ -84,7 +84,7 @@ impl<'a> Game<'a> {
     /// The actor effect list of `r`'s record (the template's with the template flag
     /// "Actor Effect List").
     pub fn actor_effect_list(&self, r: FormId) -> &'a [FormId] {
-        self.def_following(r, |d| d.template_effects).map_or(&[], |d| d.actor_effects.as_slice())
+        self.def_following(r, crate::actor_values::template::ACTOR_EFFECTS).map_or(&[], |d| d.actor_effects.as_slice())
     }
 
     /// The object effects of what `r` wears: the ARMO EITM of each item marked as

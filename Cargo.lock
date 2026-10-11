@@ -447,6 +447,7 @@ dependencies = [
 name = "fnv-game"
 version = "0.1.0"
 dependencies = [
+ "fnv-actor",
  "fnv-esm",
  "fnv-script",
  "fnv-sim",

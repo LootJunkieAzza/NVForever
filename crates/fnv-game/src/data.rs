@@ -286,6 +286,10 @@ pub struct ActorDef {
     /// (ACBS template flag "AI Packages") [documented: xEdit; schema `gameplay.json`].
     pub template: Option<FormId>,
     pub template_packages: bool,
+    /// ACBS template flags as stored: bit n set = the template supplies group n (0
+    /// Traits, 1 Stats, 2 Factions, 3 Actor Effect List, 4 AI Data, 5 AI Packages, 6
+    /// Model/Animation, 7 Base Data, 8 Inventory, 9 Script) [documented: xEdit].
+    pub template_flags: u16,
     /// SPLO: the actor effect list, in record order, and whether the template supplies
     /// it (ACBS template flag "Actor Effect List") [documented: xEdit].
     pub actor_effects: Vec<FormId>,
@@ -337,6 +341,15 @@ pub struct ActorDef {
     pub template_stats: bool,
     /// CREA ACBS "Invulnerable".
     pub invulnerable: bool,
+}
+
+/// A leveled actor list (LVLN, LVLC): LVLF "Calculate from all levels <= player's
+/// level" and the LVLO entries (level, actor base or another list) [documented: xEdit;
+/// schema `gameplay.json`].
+#[derive(Debug, Clone, Default)]
+pub struct LeveledActors {
+    pub all_levels: bool,
+    pub entries: Vec<(u16, FormId)>,
 }
 
 /// A region's areas (REGN WNAM, RPLI/RPLD): each area a polygon of worldspace x, y
@@ -469,6 +482,8 @@ pub struct GameData {
     pub messages: HashMap<FormId, MessageDef>,
     pub form_lists: HashMap<FormId, Vec<FormId>>,
     pub actors: HashMap<FormId, ActorDef>,
+    /// LVLN and LVLC: the lists an actor's template can be.
+    pub leveled_actors: HashMap<FormId, LeveledActors>,
     /// SCRI of every winning record that has one (base forms, quests).
     pub form_script: HashMap<FormId, FormId>,
     /// Lower-case Editor ID → FormID (every winning record with an EDID).
@@ -586,6 +601,7 @@ struct Read {
     message: Option<MessageDef>,
     form_list: Option<Vec<FormId>>,
     actor: Option<ActorDef>,
+    leveled_actors: Option<LeveledActors>,
     package: Option<PackageDef>,
     reputation: Option<f32>,
     challenge: Option<u32>,
@@ -645,6 +661,7 @@ impl GameData {
             messages: HashMap::new(),
             form_lists: HashMap::new(),
             actors: HashMap::new(),
+            leveled_actors: HashMap::new(),
             form_script: HashMap::new(),
             edids: HashMap::new(),
             edid_of: HashMap::new(),
@@ -773,6 +790,9 @@ impl GameData {
             }
             if let Some(v) = r.effects {
                 d.effect_items.insert(id, v);
+            }
+            if let Some(v) = r.leveled_actors {
+                d.leveled_actors.insert(id, v);
             }
             if let Some(v) = r.spell_type {
                 d.spell_types.insert(id, v);
@@ -969,6 +989,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"FLST"
             | b"NPC_"
             | b"CREA"
+            | b"LVLN"
+            | b"LVLC"
             | b"PACK"
             | b"REPU"
             | b"CHAL"
@@ -1347,6 +1369,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         (a.fatigue, a.speed_mult) = (n("fatigue"), n("speed_multiplier"));
                         a.karma = v.as_ref().and_then(|v| v.get("karma")).and_then(Json::as_f64).unwrap_or(0.0);
                         let tf = v.as_ref().and_then(|v| v.get("template_flags"));
+                        a.template_flags = flag_bits(tf) as u16;
                         a.template_packages = has_flag(tf, "AI Packages");
                         a.template_stats = has_flag(tf, "Stats");
                         a.template_effects = has_flag(tf, "Actor Effect List");
@@ -1356,6 +1379,21 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 }
             }
             out.actor = Some(a);
+        }
+        b"LVLN" | b"LVLC" => {
+            let mut l = LeveledActors::default();
+            for (s, v) in &decoded {
+                match *s {
+                    b"LVLF" => l.all_levels = has_flag(v.as_ref(), "Calculate from all levels <= player's level"),
+                    b"LVLO" => {
+                        let level = v.as_ref().and_then(|v| v.get("level")).and_then(Json::as_i64).unwrap_or(0).clamp(0, u16::MAX as i64) as u16;
+                        let to = v.as_ref().and_then(|v| v.get("reference")).and_then(hexid).and_then(map).map(FormId);
+                        l.entries.extend(to.map(|t| (level, t)));
+                    }
+                    _ => {}
+                }
+            }
+            out.leveled_actors = Some(l);
         }
         b"PACK" => {
             let code = |sub: &[u8; 4], field: &str, v: &Json| field_code(schema, &sig, sub, Some(field), v);

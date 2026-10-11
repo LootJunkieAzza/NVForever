@@ -68,9 +68,9 @@ else, and the attributes of creatures (the world holds none for them), is in
   Endurance, Charisma, Intelligence, Agility, Luck [documented: xEdit].
 - All 3,816 NPC_ and all 1,578 CREA records of FalloutNV.esm have them [observed].
 - An actor whose ACBS template flag "Stats" is set takes them (and the rest of §3 and
-  §4) from its template when the template is an NPC_ or CREA [documented: xEdit flag
-  name]. A template that is a leveled list is not followed: the actor's own record is
-  read [hypothesis; such records hold placeholder values].
+  §4) from its template [documented: xEdit flag name]. A template that is a leveled
+  list (LVLN, LVLC) stands for the entry picked for the reference, the one its
+  appearance is made from (§10).
 - Auto-calculated NPCs keep the attributes their record stores. 2,124 of the 2,283 have
   exactly their class's attributes (CLAS ATTR) and 159 do not [observed]. How the GECK
   auto-calculates them from class and level [documented: Stats Tab - NPC, in words only]
@@ -214,10 +214,13 @@ fnvtool actor values --schema schemas/fnv <Data> FalloutNV.esm \
 ```
 
 - `--actor`: `player`, a placed actor, or an actor base (its first placed reference).
-  Prints the 77 base values in a game where nothing has happened (`fnv.actor.values/1`).
+  Prints the 77 base values in a game where nothing has happened (`fnv.actor.values/1`),
+  the actor base they are read from (`stats_source`, §10), the actor's effect list and
+  what its effects add (`modified_by_effects`, §9).
 - `--survey`: the counts of §2 and §3 (the fit table of §3.1, the offsets of §3.2, the
-  creature skills of §3.3) and the settings of §4 as the load order has them (`null`
-  where it has none).
+  creature skills of §3.3), the settings of §4 as the load order has them (`null`
+  where it has none), the effects of §9.3 (`effects`) and the placed actors whose
+  template is a leveled list (`leveled_templates`, §10).
 
 Checked with it on 2026-10-10 (FalloutNV.esm): Sunny Smiles has Guns, Melee Weapons and
 Sneak 35 and Health 100; Doc Mitchell has Medicine and Science 33 and Energy Weapons 50
@@ -247,9 +250,16 @@ actors, it answers:
 6. The pools: Barter after `ModActorValue 5` (current, base, permanent), and Carry
    Weight after Strength is modified.
 7. `SetActorValue` on a player skill: the number itself, or added to the formula (§1).
+8. Abilities as temporary modifier (§9): Sunny Smiles lists `PerkToughness`, so her
+   Damage Resistance should read 10 with `GetActorValue` and 0 with
+   `GetBaseActorValue`; `fnvtool actor values` prints what each of the eight actors'
+   effects add (`modified_by_effects`).
 
-Not covered: an NPC whose level follows the player's (§3.2), and the template rule for
-actors whose template is a leveled list (§2).
+Not covered: an NPC whose level follows the player's (§3.2); which entry of a leveled
+list the game picks for an actor and at what level (§10); worn object effects, the
+player's abilities and ingestibles (§9: the job starts no effect and equips nothing; a
+later job could read Strength and Health before, during and after a chem, and
+`GetPermanentActorValue` with a perk's ability).
 
 ## 9. Effects on actor values
 
@@ -338,4 +348,39 @@ of 1 and 2, so it cannot depend on itself.
   adds them; the archetypes Limb Condition, Turbo, Chameleon, Invisibility and
   Paralysis.
 - `GetActorValueModifier` (a script extender function) is not implemented.
+
+## 10. Templates that are leveled lists
+
+Code: `fnv_game::actor_values` (`Game::template_source`, `Picks`).
+
+- `TPLT` names an NPC_, a CREA, an LVLN or an LVLC [documented: xEdit]. Of the 6,385
+  placed actors of FalloutNV.esm, 3,373 take their stats through a leveled list, 3,434
+  their actor effect list and 2,884 their AI data [observed: `--survey`,
+  "leveled_templates"]. Their own records hold placeholders: `VSpawnTier4DeathclawMedNR`
+  stores every attribute at 5 and Health 50.
+- The list is resolved to one actor base **as the appearance does** (actors.md §2.1 and
+  §10), so the stats are those of the actor that is drawn:
+  - entries of level 1 or lower; of them those of the highest level, or all with
+    "Calculate from all levels"; one of the pool uniformly; nested lists are followed;
+    chance none is not applied [hypothesis for actors; the rule is observed for leveled
+    items, simulation.md §4];
+  - level 1 because nothing records the player's level at the time the game made the
+    actor [our choice, as for the appearance];
+  - the random stream is seeded with the reference's FormID, so the choice is the same
+    every time and differs between references of one base (repeatable, not the game's
+    roll);
+  - each list is picked once per reference. The picks are made in the order the
+    appearance makes them (an NPC: Traits, Model/Animation, Inventory; a creature:
+    Model/Animation, Stats), then the remaining template groups in flag order, so every
+    group that reaches a list sees the same actor.
+- A list with no entry at level 1 gives no actor: the chain stops and the actor's own
+  record is read (no placed actor of FalloutNV.esm is left that way [observed]).
+- Checked on 2026-10-10: for all placed actors of FalloutNV.esm and the three groups
+  above, the actor base `fnv-game` reads from is the one `fnv_actor::Resolver` makes the
+  appearance from (`Resolver::group_source`; 0 differ) [observed]. The Tier 4 deathclaw
+  spawn `VSpawnTier4DeathclawMedNR` reads `CrDeathClaw`: Health 500, Strength 7, and
+  Damage Threshold 15 from its `DeathclawDT` ability (§9).
+- Not done: the AI package list of such an actor still comes from its own record
+  (`Game::package_list`, actor-behaviour.md); the Layer 4 world's S.P.E.C.I.A.L. of an
+  NPC (the carry weight rule) reads the actor's own record.
 
