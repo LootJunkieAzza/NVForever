@@ -215,13 +215,20 @@ impl<'a> Game<'a> {
     /// The pick uses the game's seeded generator, and only when more than one line of
     /// the pool can be said.
     pub fn select_line(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId) -> Option<FormId> {
+        self.select_line_where(speaker, listener, topic, |_| true)
+    }
+
+    /// [`Game::select_line`] among the lines `keep` accepts: the others count as lines
+    /// the speaker cannot say.
+    pub(crate) fn select_line_where(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId, keep: impl Fn(&InfoDef) -> bool) -> Option<FormId> {
         let data = self.data;
         let lines = data.lines_by_priority(topic);
         let flag = |i: &FormId, f: u16| data.infos.get(i).is_some_and(|d| d.has(f));
+        let kept = |i: &FormId| data.infos.get(i).is_some_and(&keep);
         let mut at = 0;
         while at < lines.len() {
             if !flag(&lines[at], info_flag::RANDOM) {
-                if self.can_say(speaker, listener, lines[at]) {
+                if kept(&lines[at]) && self.can_say(speaker, listener, lines[at]) {
                     return Some(lines[at]);
                 }
                 at += 1;
@@ -237,7 +244,7 @@ impl<'a> Game<'a> {
                 }
             }
             let pool: Vec<FormId> = lines[at..end].to_vec();
-            let sayable: Vec<FormId> = pool.into_iter().filter(|i| self.can_say(speaker, listener, *i)).collect();
+            let sayable: Vec<FormId> = pool.into_iter().filter(|i| kept(i) && self.can_say(speaker, listener, *i)).collect();
             match sayable.len() {
                 0 => {}
                 1 => return Some(sayable[0]),
@@ -681,14 +688,43 @@ impl<'a> Game<'a> {
                 return Err(format!("{} is already in a conversation", data.name(who)));
             }
         }
-        let topic = topic.or_else(|| data.by_edid("HELLO").filter(|t| data.topic_defs.contains_key(t))).ok_or("the load order has no HELLO topic")?;
-        let Some(info) = self.select_line(speaker, Some(target), topic) else {
+        let hello = self.hello_topic();
+        let topic = topic.or(hello).ok_or("the load order has no HELLO topic")?;
+        // A conversation starts only with a HELLO line whose Link From is blank
+        // [documented: Conversation Tab].
+        let starts = |d: &InfoDef| Some(topic) != hello || d.link_from.is_empty();
+        let Some(info) = self.select_line_where(speaker, Some(target), topic, starts) else {
             self.emit(EventKind::NoLine { speaker, topic });
             return Err(format!("{} has no line of {} to say to {}", data.name(speaker), data.name(topic), data.name(target)));
         };
         self.emit(EventKind::ActorConversationStarted { speaker, target, topic });
         self.say_line(speaker, Some(target), topic, info, LineKind::Conversation(1));
         Ok(info)
+    }
+
+    /// The HELLO topic, when the load order has it.
+    pub fn hello_topic(&self) -> Option<FormId> {
+        let data = self.data;
+        data.by_edid("HELLO").filter(|t| data.topic_defs.contains_key(t))
+    }
+
+    /// `actor` says hello to the player as the player passes (docs/spec-notes/dialogue.md
+    /// §5.2): its line of HELLO for the player as the conditions' target, Link From blank
+    /// as for the start of a conversation [documented: Conversation Tab, HELLO; the
+    /// Topics-tab GREETING is what an actor says when spoken to, Topics Tab]. The line is
+    /// said in the world ([`LineKind::Hello`]): no conversation, no menu. A line that opens
+    /// an exchange between actors (Link To) is said to the player all the same, and its
+    /// links are not followed: nobody replies and the actor goes back to what it was doing
+    /// [owner statement 2026-10-11, of the Fiends' lines in Vault 3]. Returns the line;
+    /// none when the actor has no line for the player now. Whether to say hello at all
+    /// (the package's "Hellos to player", the distance) is the AI's
+    /// (`fnv_ai::social`).
+    pub fn say_hello(&mut self, actor: FormId) -> Option<FormId> {
+        let topic = self.hello_topic()?;
+        let listener = Some(FormId::PLAYER_REF);
+        let info = self.select_line_where(actor, listener, topic, |d| d.link_from.is_empty())?;
+        self.say_line(actor, listener, topic, info, LineKind::Hello);
+        Some(info)
     }
 
     /// Whether an actor is saying, or listening to, a line of a conversation between

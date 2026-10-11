@@ -9,7 +9,10 @@
 //! - the colour of a multiply-blended shape (tinted glass, shadow overlays) is a factor on
 //!   what lies behind it: its lit colour and emissive light are summed in display values
 //!   and held to 0..1, without fog or tonemapping ([`multiply_factor`],
-//!   docs/spec-notes/nif.md §6, "Multiply blend").
+//!   docs/spec-notes/nif.md §6, "Multiply blend");
+//! - an additive shape (light beams, glows, flames) adds about what it would add to
+//!   display values: its alpha is raised to a power ([`add_alpha`], nif.md §6
+//!   "Additive blend").
 //!
 //! And one change in the pipeline: shapes with a decal shader flag are drawn with a depth
 //! offset towards the camera ([`decal_bias`], docs/spec-notes/nif.md §6, "Decal flags").
@@ -313,6 +316,24 @@ pub fn multiply_emissive(value: f32) -> f32 {
     value.max(0.0).powf(MULTIPLY_GAMMA)
 }
 
+/// Power on the alpha of additive shapes ([`add_alpha`]; nif_material.wgsl has the same
+/// number) [hypothesis, fitted: docs/spec-notes/nif.md §6 "Additive blend"].
+pub const ADD_ALPHA_POWER: f32 = 1.5;
+
+/// The alpha an additive shape (NiAlphaProperty destination factor ONE, drawn as
+/// `AlphaMode::Add`) is drawn with, for its alpha `a` (CPU mirror of nif_material.wgsl).
+///
+/// The game adds colour × alpha to the frame's display values [hypothesis,
+/// docs/spec-notes/nif.md §6 "Additive blend"]; Bevy adds linear colour × alpha to linear
+/// light, which on a dark wall shows far brighter (0.1 added to black shows as 0.35). How
+/// much linear light a display-value sum needs depends on the frame behind, which a fixed
+/// blend cannot read: alpha^2.2 is exact on black and leaves faint shapes nearly invisible
+/// on a lit wall, alpha^1 is the old look. [`ADD_ALPHA_POWER`] is the power that brought
+/// the Prospector Saloon's window rays nearest to a display-value sum of the same rays.
+pub fn add_alpha(a: f32) -> f32 {
+    a.clamp(0.0, 1.0).powf(ADD_ALPHA_POWER)
+}
+
 pub struct NifMaterialPlugin;
 
 impl Plugin for NifMaterialPlugin {
@@ -447,5 +468,24 @@ mod tests {
         assert_eq!(multiply_emissive(1.0), 1.0);
         assert!((multiply_emissive(2.0) - 2f32.powf(2.2)).abs() < 1e-6);
         assert_eq!(multiply_emissive(-1.0), 0.0);
+    }
+
+    #[test]
+    fn additive_blend_alpha() {
+        let display = |v: f32| v.powf(1.0 / MULTIPLY_GAMMA);
+        let linear = |v: f32| v.powf(MULTIPLY_GAMMA);
+        // What a white shape of alpha `a` adds to a display value `behind`.
+        let adds = |behind: f32, a: f32| display(linear(behind) + add_alpha(a)) - behind;
+        // The Saloon's window rays (indfxlightrays01.nif): a white texture, vertex alpha
+        // 0.1 at most, so the game adds 0.1 at most. With the alpha as stored a ray added
+        // 0.35 on black and 0.15 on a wall of 0.3; now 0.21 and 0.05, between that and
+        // alpha^2.2 (0.1 on black, but 0.01 on the wall).
+        assert!((adds(0.0, 0.1) - 0.208).abs() < 0.001);
+        assert!((adds(0.3, 0.1) - 0.055).abs() < 0.001);
+        assert!((display(0.1) - 0.351).abs() < 0.001);
+        // Full and no alpha are unchanged.
+        assert_eq!(add_alpha(1.0), 1.0);
+        assert_eq!(add_alpha(0.0), 0.0);
+        assert_eq!(add_alpha(2.0), 1.0);
     }
 }
