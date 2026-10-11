@@ -663,7 +663,8 @@ impl<'a> Game<'a> {
     ///
     /// In the game the speaker first goes to the target ("no matter where the two NPCs
     /// are"); that walk needs AI packages, so here the conversation starts at once
-    /// [stand-in, as for `StartConversation player`]. Nothing starts when either side is
+    /// [stand-in, as for `StartConversation player`; Joe Cobb starts next to Trudy in the
+    /// owner's footage, owner statement 2026-10-11]. Nothing starts when either side is
     /// disabled [documented: StartConversation], dead or deleted [hypothesis], when either
     /// is already in a conversation, with the player or another actor [hypothesis], or
     /// when the speaker has no line to say [hypothesis].
@@ -710,9 +711,10 @@ impl<'a> Game<'a> {
     ///    to say, at random when there are several [documented: Conversation Tab: with
     ///    more than one Link To topic "the game [selects] one of the Link To topics at
     ///    random"; hypothesis: topics with no line it can say are passed over];
-    /// 5. else the conversation ends. A GOODBYE line is not added [hypothesis: the
-    ///    Conversation Tab says random conversations end with a GOODBYE unless a Goodbye
-    ///    line ends them; whether a scripted one does is a capture question, §7].
+    /// 5. else the conversation ends. A GOODBYE line is not added [owner statement
+    ///    2026-10-11: no goodbye follows Trudy's answer to Joe Cobb, a line that links
+    ///    nowhere; the Conversation Tab's GOODBYE rule is about random conversations,
+    ///    dialogue.md §5.1].
     pub(crate) fn next_conversation_line(&mut self, said: &Speech, lines: u32) {
         let data = self.data;
         let (speaker, Some(listener)) = (said.speaker, said.target) else { return };

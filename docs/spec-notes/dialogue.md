@@ -428,8 +428,10 @@ Joe Cobb and Trudy (below).
   (with the player or another actor), or when the speaker has no line [hypothesis for
   these]. In the game the speaker first goes to the target ("no matter where the two
   NPCs are currently"); the runtime starts at once [stand-in, as for
-  `StartConversation player`]. The location references, head-track and allow-movement
-  parameters are not read.
+  `StartConversation player`]. For Joe Cobb and Trudy no walk is needed: Joe Cobb
+  starts next to Trudy in all base-game footage the owner has seen [owner statement
+  2026-10-11]. The location references, head-track and allow-movement parameters are
+  not read.
 - **The lines** are said in the world as SayTo lines are (`Game::speech`,
   `Speech::conversation`): no menu, no pause, the player keeps control and overhears
   them [hypothesis]; the listener is the other actor (its listener idle plays); begin
@@ -444,9 +446,15 @@ Joe Cobb and Trudy (below).
   first follow-up (TCFU) it can say to the other [hypothesis, as in player dialogue],
   else a line of one of the Link To topics, at random among the topics it has a line of
   [documented: the random pick; hypothesis: topics with no line are passed over]. With
-  nothing to say the conversation ends; no GOODBYE line is added [hypothesis: the
-  Conversation Tab says random conversations end with GOODBYE unless a Goodbye line ends
-  them; capture question §7 item 16].
+  nothing to say the conversation ends; no GOODBYE line is added [owner statement
+  2026-10-11: no goodbye is heard after Trudy's line, which links nowhere and has no
+  Goodbye flag, in the footage of Joe Cobb and Trudy]. The Conversation Tab says
+  "all random conversations will end with a GOODBYE unless they are ended by another
+  info with the 'Goodbye' flag"; its own example reaches GOODBYE through a Link To, and
+  the scene above is scripted, not random. In FalloutNV.esm 9 Conversation lines link
+  to GOODBYE, and of the 1,965 Conversation lines that link nowhere (no Link To, no
+  follow-up) 959 carry the Goodbye flag [observed: `fnvtool dialogue lines --all`]. So
+  whether random conversations (not modelled) get a GOODBYE added stays open.
 - **Cut.** A line cut off (its speaker starts another line, is disabled or dies) ends
   the conversation without its end result [hypothesis, as for SayTo].
 - **Trace**: `actor_conversation_started` {speaker, target, topic}, then `line_started`
@@ -557,12 +565,12 @@ up to C and F):
     Say Once a Day counted from the line's start or end.
 14. Response order where numbers and stored order disagree.
 15. Whether SayTo and Say obey Random stacks like menu dialogue.
-16. Conversations between actors (§5.1): the walk to the target before the first line;
-    whether the player is free and the game runs on during them; what Target, Self and
-    Either mean; follow-ups in them; whether a scripted conversation ends with a GOODBYE
-    line when its last line links nowhere; HELLO when no topic is named; SayToDone after
-    their lines; refusal while either actor is talking. A capture of Joe Cobb and Trudy
-    (§5.1) would answer several at once.
+16. Conversations between actors (§5.1): the walk to the target before the first line
+    (not needed for Joe Cobb and Trudy, owner statement); whether the player is free
+    and the game runs on during them; what Target, Self and Either mean; follow-ups in
+    them; whether random conversations get a GOODBYE line added (a scripted one does
+    not, owner statement); HELLO when no topic is named; SayToDone after their lines;
+    refusal while either actor is talking.
 
 ## 8. Tool contracts
 
