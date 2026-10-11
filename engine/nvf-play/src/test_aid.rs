@@ -14,7 +14,8 @@
 //!   and back. Not a game behaviour.
 //! - `NVF_PLAY_TEST_LOOK=<seconds>:<heading deg>:<pitch deg>[,...]` turns the view (the
 //!   compass heading, 0 north, 90 east; the pitch, negative looks down) at those times,
-//!   as if the mouse had moved there.
+//!   as if the mouse had moved there (ignored, as the mouse is, while an animation
+//!   drives the view, `player::ViewDriven`).
 //! - `NVF_PLAY_TEST_GOTO=<seconds>:<x>:<y>:<z>[,...]` puts the player's feet on whatever
 //!   is under that point (game space, in the current cell or worldspace) at those times.
 //! - `NVF_PLAY_TEST_GIVE=<item FormID hex>[:<count>][,...]` adds items to the player's
@@ -610,6 +611,7 @@ fn goto_and_look(
     mut player: ResMut<Player>,
     locks: Res<crate::control::ControlLocks>,
     mut stats: ResMut<crate::control::LockStats>,
+    driven: Option<Res<crate::player::ViewDriven>>,
 ) {
     let now = time.elapsed_secs();
     if phys.player.is_some() {
@@ -634,6 +636,11 @@ fn goto_and_look(
         if locks.looking {
             info!("test aid: look heading {:.1} pitch {:.1} ignored: a script has disabled looking", h.to_degrees(), p.to_degrees());
             stats.held[crate::control::group::LOOKING] += 1;
+            continue;
+        }
+        // As the mouse, held while an animation drives the view (`ViewDriven`).
+        if driven.as_deref().is_some_and(|d| d.0) {
+            info!("test aid: look heading {:.1} pitch {:.1} ignored: an animation drives the view", h.to_degrees(), p.to_degrees());
             continue;
         }
         info!("test aid: look heading {:.1} pitch {:.1}", h.to_degrees(), p.to_degrees());
