@@ -353,7 +353,7 @@ actors standing still; the condition grouping of package conditions (quests-dial
 | 4 | Package conditions may Run on Target, the package's target (Category:Packages) | done 2026-10-10: the package's reference or linked-reference target is the conditions' target | `Game::package_target` |
 | 5 | Once Per Day, Must Complete, Continue if PC Near and the other flags | done 2026-10-10 for these three (`fnv_game::ai`); the other flags are read, not used yet | Layer 6 |
 | 6 | Begin result script, then topic and idle; End idle only with a done state | the runner's `package` input runs the result script and the OnPackage* blocks; order between them not documented | runner |
-| 7 | Detection formula, states, events | GetDetected, GetLineOfSight, CreateDetectionEvent and the other detection functions are stubs | scripts.md §7.3 |
+| 7 | Detection formula, states, events | the formula and its bands done 2026-10-11 (`fnv_game::detection`, measured in the engine; GetDetected and GetDetectionLevel read it); states, the target list, events, GetLineOfSight, CreateDetectionEvent and SetAllVisible not yet | docs/design/detection.md |
 | 8 | Faction disposition modifier; Track Crime; Evil (Karma); Allow Sell | not used (GetDisposition stub; crime only as flags) | Layer 6 |
 | 9 | Idle collections, idle markers, package idles | not read | Layer 6 |
 

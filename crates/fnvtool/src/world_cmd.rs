@@ -40,6 +40,7 @@ pub fn run(cmd: WorldCmd) -> anyhow::Result<Value> {
         WorldCmd::Audio { w, cell, at, hour } => {
             with_world(&w, |lo, schema, ix| crate::world_audio::audio(lo, schema, ix, cell.as_deref(), at.as_deref(), hour))
         }
+        WorldCmd::Radio { w, functions } => crate::world_radio::run(&w, functions.as_deref()),
     }
 }
 

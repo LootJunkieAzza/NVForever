@@ -2436,3 +2436,62 @@ Branch `claude/dialogue-menu`; note docs/spec-notes/dialogue-menu.md.
    - **The scroll marker** is 40 units long; your two pictures show about 30 and 43.
 3. **Not built yet:** the subtitles setting (lines always show), sounds on the list,
    dragging the marker or clicking the arrows.
+
+## Who sees you: detection (2026-10-11, session "detection")
+
+Docs: docs/design/detection.md. Every NPC and creature near you now works out, four
+times a second, how well it perceives you and the other actors near it, with the
+editor documentation's formula (Perception, distance, light, sound of movement and
+shots, and your Sneak, level and armour while you sneak). Nothing acts on it yet: it is
+the groundwork for combat encounters. Scripts' GetDetected now answers from it.
+
+1. **See the numbers without playing:**
+   `fnvtool actor detect --schema schemas/fnv <Data> FalloutNV.esm --detector SunnyRef`
+   lists, for 13 situations, the value at distances from 100 to 5,000 units and how far
+   out you are detected (above 0) and noticed (above −20). In the game the log shows each
+   change (`detection: GSSettlerAM 00104F0A → the player: hidden → noticed …`) and
+   your band as the sneak meter would show it (HIDDEN, CAUTION, DANGER).
+2. **Guesses for you to check against the game:**
+   - **Light.** The formula needs the light level at you (0–100) and no source says how
+     the game measures it. I take the ambient light plus sunlight by day (or the room's
+     light indoors) plus nearby lamps; at noon in Goodsprings that is 93. With it, Sunny
+     Smiles spots you sneaking in daylight out to about 1,840 units, and never sneaking
+     in the dark. If the game hides you much better in daylight, the light measure is
+     what to lower.
+   - **Field of view:** 95° either side of where the actor faces (the GetLineOfSight
+     notes say so for every NPC). Walls block sight; other people do not.
+   - **Sneak-running counts as running** (louder and more visible).
+   - **Lying on a bed counts as asleep** (−20 % perception).
+3. **Would help me tune:** a few `GetDetected` readings in the game with you standing,
+   walking, running and sneaking at set distances from one NPC, at noon and at
+   midnight, and the game's fSneak* settings (`GetNumericGameSetting`).
+4. **Not built yet:** the alert, combat and lost states with their timers (so bands can
+   flicker as an actor turns its head), noise events from explosions and
+   CreateDetectionEvent, NPCs sneaking, the sneak meter on the HUD, shade from the sun.
+
+## Reloading one round at a time (2026-10-11, session "looping reload")
+
+Docs: docs/spec-notes/combat-rules.md §4 ("Round by round"). Your rules (2026-10-11): a
+trigger pull closes the weapon first, then it fires; the close plays every time.
+
+1. **Which weapons:** none are listed in the code. A weapon loads round by round when
+   its reload animation has an opening clip in the game's files. That is true of the
+   .357 Magnum Revolver, Lucky, the Lever-Action Shotgun, the Hunting Shotgun, Dinner
+   Bell, the Cowboy Repeater, the Brush Gun, the Trail Carbine, and also the **Grenade
+   Launcher** (it shares the hunting shotgun's animation). If the grenade launcher
+   reloads all at once in the game, tell me.
+2. **How it runs:** the opening clip plays once (the .357's cylinder swings out:
+   1.07 s); each round is the reload clip from its start to its `Hit` key (0.63 s for
+   the .357, 0.47–0.5 s for the rifles and shotguns); after the last round the rest of
+   that clip closes the weapon (about 1.1 s). Please compare a full .357 reload
+   (2 missing: about 3.5 s) with the game.
+3. **Guesses I had to make:**
+   - The shot after a stopped reload follows by itself; you do not have to pull again.
+     A pull while it is closing also fires once it is closed.
+   - A pull while the weapon is still opening lets the first round go in, then closes.
+   - Each round's clip starts straight after the last without blending, so the hands
+     should not jump. If you see a jerk between rounds, tell me which weapon.
+4. **Try it:** equip the .357 (or another one above), fire two shots, press R, then
+   click partway through.
+5. **Not built:** NPCs reloading (they do not reload with animations yet), the Reload
+   Speed perks.

@@ -87,6 +87,11 @@ residents, with `NVF_PLAY_TEST_WAIT=30:open,31:hours=4,32:accept` set:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --play --npc-packages EasyPeteRef,GSChetRef,GoodspringsSettler04Ref --hour 18.5 --run-seconds 50`
 (expect exit 0, "3 there, 0 on their way" and "4 hours passed in the wait menu (2 walks in them)"
 in the ai summary).
+After detection changes (`fnv_game::detection`, the engine's `detection.rs`; docs/design/detection.md),
+run `fnvtool actor detect --schema schemas/fnv <Data> FalloutNV.esm --detector SunnyRef` and compare
+with the table in detection.md §4 (sneaking, lit: detected out to 1,840; sneaking, dark: never);
+explain any change. Then the in-game check of detection.md §5 (expect exit 0, a "hidden → noticed"
+line for GSSettlerAM 00104F0A while sneaking, the shot taking it to detected, and a "detection summary").
 After changes to actor templates, leveled actor lists or faction functions (`fnv-game`
 `templates`, `functions::actor`), run
 `fnvtool actor factions --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor FiendVioletRef --actor 00157B36`
@@ -102,6 +107,14 @@ audio.md) and the music smoke test:
 (expect exit 0, "music: musSetLOCDesExplBothABC day started, layers outer+middle+inner",
 "music summary: 1 started, 0 changes of layers, 0 files not played" and "ambient summary:
 2 placed loops started, … 1 background loops started"; the count of random sounds varies).
+After radio changes (`fnv_world::radio`, `fnv_game::radio`, `nvf-play` `radio`;
+docs/spec-notes/radio.md §6), run the saloon jukebox, switched off at 20 s and on at 28 s, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3`, `NVF_PLAY_TEST_NEAR=00107D73` and `NVF_PLAY_TEST_ACTIVATE=20,28` set:
+`engine/target/release/nvforever --data <Data> --cell GSProspectorSaloonInterior --play --no-voice --run-seconds 40`
+(expect exit 0, "00109087 (vCountryRadio) is destroyed: silent", "00107D73 tuned to vCountryRadio
+playing sound\songs\radionv\…_mono.ogg", "switched off", the same file again "from <s> s" (20–25 s, by frame rate) and
+"radio summary: 1 receivers heard, 1 songs started, 0 DJ lines, 0 lines without a file; receivers
+switched 3 times, 1 on at exit").
 After changes to the player's controls or to what scripts lock of them (`nvf-play`
 `control::ControlLocks`, `script::sync_locks`; docs/spec-notes/controls.md §5), run the
 held-player smoke test, with `NVF_PLAY_TEST_SCRIPT_MENUS=1`, `NVF_PLAY_TEST_MOVE=1:1:0`,

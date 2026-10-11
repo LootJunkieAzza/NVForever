@@ -12,6 +12,7 @@
 mod actors;
 mod anim_sounds;
 mod deaths;
+mod detection;
 mod dialogue_look;
 mod doors;
 mod emittance;
@@ -794,6 +795,8 @@ fn main() -> AppExit {
             app.add_plugins(anim_sounds::AnimSoundsPlugin);
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
+            // Who perceives whom (detection.rs): the drawn actors and the player.
+            app.add_plugins(detection::DetectionPlugin);
         }
     }
     if play.is_some() {
