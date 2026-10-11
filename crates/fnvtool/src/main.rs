@@ -10,6 +10,7 @@ mod ai_run;
 mod actor_furniture;
 mod actor_locomotion;
 mod actor_tri;
+mod actor_factions;
 mod actor_values;
 mod actor_weapons;
 mod actor_cmd;
@@ -119,6 +120,24 @@ pub enum ActorCmd {
     /// formula fits the stored skills for each attribute, and the settings read
     /// (fnv.actor.values/1).
     Values {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Script function catalogue (default: `script/functions.json` next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// `player`, a placed actor, or an actor base (its first placed reference), by
+        /// Editor ID or load-order FormID (repeatable).
+        #[arg(long)]
+        actor: Vec<String>,
+        #[arg(long)]
+        survey: bool,
+    },
+    /// Factions of actors (docs/spec-notes/factions.md): for each named actor its
+    /// template chain, the factions the records give it and how it stands towards the
+    /// player; with --survey, the "Factions" template flag, templates that are leveled
+    /// lists, the two directions of faction reactions and the placed actors' stance
+    /// towards the player (fnv.actor.factions/1).
+    Factions {
         #[command(flatten)]
         w: WorldArgs,
         /// Script function catalogue (default: `script/functions.json` next to --schema).

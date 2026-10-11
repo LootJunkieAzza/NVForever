@@ -33,6 +33,7 @@ pub mod intro;
 pub mod package;
 pub mod quest;
 pub mod runner;
+pub mod templates;
 pub mod trace;
 pub mod voice;
 

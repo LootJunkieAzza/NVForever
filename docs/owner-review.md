@@ -2144,3 +2144,30 @@ Branch `claude/item-condition`. Rules and sources: docs/spec-notes/combat-rules.
    Shoot the gun in a settler's hands about ten times with the 10mm Pistol.
 5. **Not done:** repair (you said later), jamming and slower fire of worn weapons, a
    worn item selling for less.
+
+## Who is in which faction, and who is hostile to you (2026-10-11, session "actor factions")
+
+From the sleep work: "enemies nearby" could not be told, because many actors had no
+factions at all. Details: docs/spec-notes/factions.md.
+
+1. **Fixed:** an actor marked "use the template's factions" now gets them. 3,037 of the
+   6,385 actors placed in the game had no factions before, for example the coyotes at
+   Goodsprings.
+2. **Checked, not a bug:** the Fiend Violet reads as "neutral" to you. The game file
+   says so: the Fiends and you do not list each other. She attacks because she is
+   "Very Aggressive", and the editor's documentation says those attack neutrals. Most
+   dangerous animals work this way too (cazadores, fire geckos, radscorpions,
+   deathclaws). The sleep check has to use aggression together with the relation; the
+   rule is in the note, §5. I did not change the sleep branch.
+3. **My choice, for you to confirm:** where the template is a leveled list ("one of
+   these raiders"), the actor takes the factions of the same entry that is drawn for
+   it. That pick is ours (level 1, repeatable per actor), not the game's roll by your
+   level. For 192 actor types the pick changes the factions.
+4. **One question a capture would settle:** 618 placed animals are "Aggressive" (not
+   "Very") and neutral to you: bighorners, giant rats, coyotes, worker ants, bloatflies,
+   mole rats. By the documented rule they leave you alone until attacked. If you
+   remember a coyote or giant rat attacking on sight, the rule has a gap. Console, with
+   the animal selected, while walking up to it: `GetFactionRelation player`,
+   `GetAV Aggression`, `IsInCombat`.
+5. **Not done:** AI packages through a leveled-list template; the game's own leveled
+   pick by your level and the encounter zone.

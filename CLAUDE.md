@@ -75,6 +75,11 @@ After actor value changes (`fnv-game` `actor_values`, `functions::actor`), run
 `fnvtool actor values --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor SunnyRef`
 and compare with docs/spec-notes/actor-values.md §3.1 (the fit table) and §7 (Sunny Smiles:
 Guns 35, Health 100; the player: every skill 15, Action Points 80); explain any change.
+After changes to actor templates, leveled actor lists or faction functions (`fnv-game`
+`templates`, `functions::actor`), run
+`fnvtool actor factions --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor FiendVioletRef --actor 00157B36`
+and compare with docs/spec-notes/factions.md §2–§5 (the coyote 00157B36: factions source
+CrCoyote, four factions; the pick against the actor drawn: 3,003 same, 0 differ); explain any change.
 After furniture changes (docs/spec-notes/furniture.md §7), run the sitting smoke test:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-sit EasyPeteRef=0010634A:8 --follow-npc --run-seconds 45`
 (expect exit 0 and "furniture summary: 1 of 1 actors sat down, 1 got up again").

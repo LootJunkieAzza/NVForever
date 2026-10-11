@@ -257,7 +257,10 @@ visual term, and the detector's skill minus the target's skill times a factor
   Aggression and Assistance are actor AI settings (the AI Window page, not in the export;
   AIDT in `gameplay.json`).
 - Runtime (scripts.md §7.6): reactions from FACT XNAM, SetEnemy/SetAlly overrides,
-  neutral when unlisted (agrees); faction ranks with −1 for a non-member [hypothesis];
+  neutral when unlisted (agrees); an actor's factions are its template's with the
+  template flag "Factions", through leveled lists, and a reaction is read from the
+  actor's factions towards the other's (factions.md §2–§5, which also has the counts of
+  who is an enemy of the player); faction ranks with −1 for a non-member [hypothesis];
   crime-enemy flags kept for GetActorFactionPlayerEnemy; GetDisposition is a stub.
   How several factions of one actor combine in GetFactionRelation (enemy, then friend,
   then ally) is a runtime [hypothesis] the documentation does not settle.
