@@ -1,5 +1,5 @@
 //! Sounds scripts ask for: `PlaySound` and `PlaySound3D` (docs/spec-notes/audio.md §11),
-//! and the music `PlayMusic` asks for (§12).
+//! and the music `PlayMusic` asks for (§13).
 //!
 //! The rules only record what is to be heard ([`SoundRequest`], taken from
 //! [`Game::sound_requests`] by whoever plays sounds) and trace it as `sound_asked`.
@@ -65,7 +65,7 @@ impl Game<'_> {
 
 /// `PlayMusic musicType`: play a music type (MUSC) [documented: GECK wiki PlayMusic, owner
 /// export; in New Vegas it "will not stop the currently playing music of a music
-/// marker"]. The engine plays it (docs/spec-notes/audio.md §12).
+/// marker"]. The engine plays it (docs/spec-notes/audio.md §13).
 pub fn play_music(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let music = a.form(0)?;
     g.ask_music(music);

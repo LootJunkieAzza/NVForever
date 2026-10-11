@@ -1,4 +1,4 @@
-//! Music in the game (docs/spec-notes/audio.md §4, §12): the music of the place the
+//! Music in the game (docs/spec-notes/audio.md §4, §13): the music of the place the
 //! player is in, battle music, incidental phrases and the music scripts ask for.
 //!
 //! - **Where.** Audio markers (references with `MMRK` data) give places a radius and a
@@ -31,7 +31,7 @@
 //!   Media Set field descriptions, "unverified" there].
 //! - **Incidental phrases**: where no music plays, the region's incidental set plays its
 //!   day or night sound after a random wait between its two times [hypothesis: minutes,
-//!   see audio.md §12.4].
+//!   see audio.md §13.4].
 //! - **Scripts** (`PlayMusic`, `fnv_game::sound`): the music type plays beside the
 //!   place's music [documented: GECK wiki PlayMusic, "will not stop the currently playing
 //!   music of a music marker"], once or looping by its `ANAM` sign; a type without a file
@@ -252,7 +252,7 @@ const CUE_INTERVAL: f32 = 0.25;
 const STOP_TIME: (&str, f32) = ("fCombatMusicStopTime", 3.0);
 const NEAR_COMBAT: (&str, f32) = ("fCombatMusicNearCombatOuterRadius", 2000.0);
 /// Seconds per unit of an incidental set's times [hypothesis: minutes; the GECK wiki
-/// says seconds, which would leave pauses shorter than the phrases, audio.md §12.4].
+/// says seconds, which would leave pauses shorter than the phrases, audio.md §13.4].
 pub const INCIDENTAL_UNIT: f32 = 60.0;
 /// Day for incidental sets, which have no controller: the hours every controller of
 /// FalloutNV.esm stores, 06:00 to 23:54 [observed].

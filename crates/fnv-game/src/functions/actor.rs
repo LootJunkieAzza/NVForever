@@ -569,7 +569,7 @@ pub fn faction_relation(g: &Game, r: FormId, o: FormId) -> i64 {
 
 /// How the factions `mine` together stand towards actor `o`, combined as
 /// [`faction_relation`] does (0 neutral, 1 enemy, 2 ally, 3 friend). A media location
-/// controller's conditional faction asks this of the player (docs/spec-notes/audio.md §12).
+/// controller's conditional faction asks this of the player (docs/spec-notes/audio.md §13).
 pub fn factions_relation(g: &Game, mine: &[FormId], o: FormId) -> i64 {
     if o == FormId::PLAYER_REF && mine.iter().any(|f| g.player.enemy_of.contains(f)) {
         return 1;

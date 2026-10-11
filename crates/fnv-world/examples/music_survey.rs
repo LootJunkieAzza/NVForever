@@ -1,4 +1,4 @@
-//! Evidence for the music the place does not choose (docs/spec-notes/audio.md §12):
+//! Evidence for the music the place does not choose (docs/spec-notes/audio.md §13):
 //! battle, dungeon and incidental media sets with their fields, the controllers with
 //! their delays, faction lists, battle lists and the raw bytes of the fields xEdit does
 //! not name, how many audio markers (and in interiors) use each kind, the music types,

@@ -231,6 +231,9 @@ pub struct WorldSoundStats {
     /// Items moved in a container menu: taken by the player, put in.
     pub taken: u32,
     pub put: u32,
+    /// Of those taken, by Take All: their sounds held back for `UIItemTakeAll`
+    /// (`crate::ui_sounds`).
+    pub taken_quietly: u32,
     pub boxes_opened: u32,
     pub boxes_closed: u32,
     pub container_opens: u32,
@@ -324,6 +327,14 @@ fn item_sound(ws: &mut WorldSounds, sfx: Option<&Sfx>, item: FormId, up: bool) -
     map.get(if up { "UIItemGenericUp" } else { "UIItemGenericDown" }).copied()
 }
 
+impl WorldSounds {
+    /// The sound an item makes when picked up (`up`) or put down, for the menus
+    /// (`crate::ui_sounds`): as [`item_sound`] picks it.
+    pub fn item_sound_of(&mut self, sfx: Option<&Sfx>, item: FormId, up: bool) -> Option<FormId> {
+        item_sound(self, sfx, item, up)
+    }
+}
+
 /// A SOUN's Editor ID for logs.
 fn sound_name(sfx: Option<&Sfx>, sound: Option<FormId>) -> String {
     match sound {
@@ -409,10 +420,13 @@ fn objects(
     player: Option<Res<Player>>,
     sfx: Option<Res<Sfx>>,
     panel: Option<Res<crate::message_menu::MessagePanel>>,
+    mut ui: MessageReader<crate::ui_sounds::UiSound>,
     mut out: MessageWriter<PlaySound>,
 ) {
     let ws = &mut *ws;
     let sfx = sfx.as_deref();
+    // Take All plays one sound of its own instead of every item's (`crate::ui_sounds`).
+    let take_all = ui.read().any(|u| u.event == crate::ui_sounds::UiEvent::TakeAll);
     for i in impacts.read() {
         *ws.stats.impacts.entry(i.material).or_default() += 1;
         ws.stats.impacts_no_material += i.no_material as u32;
@@ -467,8 +481,15 @@ fn objects(
             } else {
                 ws.stats.put += 1;
             }
-            info!("world sounds: {item} {} the container, sound {}", if taken { "taken from" } else { "put in" }, sound_name(sfx, sound));
-            if let Some(sound) = sound {
+            let quiet = take_all && taken;
+            ws.stats.taken_quietly += quiet as u32;
+            info!(
+                "world sounds: {item} {} the container, sound {}{}",
+                if taken { "taken from" } else { "put in" },
+                sound_name(sfx, sound),
+                if quiet { " (held back: Take All)" } else { "" }
+            );
+            if let Some(sound) = sound.filter(|_| !quiet) {
                 out.write(PlaySound { sound, at: None });
             }
         }
