@@ -771,6 +771,34 @@ fn condition_and_ownership_travel_with_items() {
 }
 
 #[test]
+fn a_broken_weapon_is_not_equipped() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    // At zero condition the weapon stays carried but cannot be equipped.
+    w.add_item_extra(p, id(PISTOL), 1, Extra { condition: Some(0.0), ..Extra::default() }).unwrap();
+    assert_eq!(w.equip(p, id(PISTOL)), Err(SimError::Broken(id(PISTOL))));
+    assert_eq!(w.item_count(p, id(PISTOL)).unwrap(), 1);
+    // A second, worn but working, one is equipped instead of the broken one.
+    w.add_item_extra(p, id(PISTOL), 1, Extra { condition: Some(0.3), ..Extra::default() }).unwrap();
+    w.equip(p, id(PISTOL)).unwrap();
+    let inv = w.peek(p).unwrap().inventory.clone().unwrap();
+    assert_eq!(inv.condition_in_use(id(PISTOL)), Some(0.3));
+    // Dropping the equipped one leaves the broken one carried; the reference on the
+    // ground keeps its condition and is not equipped.
+    let dropped = w.drop_equipped(p, id(PISTOL)).unwrap();
+    assert_eq!(dropped.len(), 1);
+    assert_eq!(w.peek(dropped[0]).unwrap().extra, Extra { condition: Some(0.3), ..Extra::default() });
+    assert_eq!(w.item_count(p, id(PISTOL)).unwrap(), 1);
+    assert_eq!(w.equip(p, id(PISTOL)), Err(SimError::Broken(id(PISTOL))));
+    assert!(w.drop_equipped(p, id(PISTOL)).unwrap().is_empty());
+    // Broken armour is still worn (only weapons are refused).
+    w.add_item_extra(p, id(SUIT), 1, Extra { condition: Some(0.0), ..Extra::default() }).unwrap();
+    w.equip(p, id(SUIT)).unwrap();
+}
+
+#[test]
 fn equipping_follows_slots() {
     let f = fixture();
     let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
