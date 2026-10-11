@@ -199,6 +199,38 @@ fn dynamic_clutter_settles_on_terrain() {
     assert_eq!((s.bodies_dynamic, s.steps), (1, 600));
 }
 
+/// Clutter placed resting on the terrain falls asleep and stays put, a stack included.
+/// With the terrain's contact skin larger than rapier's prediction distance, such bodies
+/// crept along the ground for ever, never asleep [observed: Goodsprings' motorcycles and
+/// crates outside the saloon, physics.md §4.3].
+#[test]
+fn clutter_on_the_terrain_shell_falls_asleep() {
+    let mut w = ground();
+    let shell = fnv_phys::TERRAIN_SHELL;
+    // Placed as a level designer leaves them: a little above where they rest.
+    let mut bike = object(boxed([60.0, 20.0, 30.0]), Motion::Dynamic);
+    (bike.mass, bike.restitution) = (600.0, 0.4);
+    w.add_ref(&RefPose { rotation: rz(0.4), ..at(1, [100.0, 100.0, 30.0 + shell + 0.5]) }, &[bike]);
+    let mut crate_ = object(boxed([40.0, 35.0, 18.0]), Motion::Dynamic);
+    (crate_.mass, crate_.restitution) = (20.0, 0.4);
+    w.add_ref(&at(2, [-200.0, -150.0, 18.0 + shell + 0.5]), std::slice::from_ref(&crate_));
+    w.add_ref(&RefPose { rotation: rz(0.1), ..at(3, [-198.0, -152.0, 54.0 + shell + 1.0]) }, &[crate_]);
+    for _ in 0..180 {
+        w.step();
+    }
+    let rested: Vec<BodyState> = (1..=3).map(|id| w.ref_bodies(id)[0]).collect();
+    for _ in 0..600 {
+        w.step();
+    }
+    for (id, before) in (1..=3).zip(rested) {
+        let b = w.ref_bodies(id)[0];
+        let moved = (0..3).map(|i| (b.translation[i] - before.translation[i]).powi(2)).sum::<f32>().sqrt();
+        assert!(b.sleeping && moved < 0.05, "ref {id}: moved {moved} in 10 s after settling, {b:?}");
+    }
+    let bike = w.ref_bodies(1)[0];
+    assert!((bike.translation[2] - (30.0 + shell)).abs() < 0.5, "{bike:?}");
+}
+
 #[test]
 fn fixed_bounds_cover_static_collision_only() {
     let mut w = PhysWorld::new(PhysParams::default());

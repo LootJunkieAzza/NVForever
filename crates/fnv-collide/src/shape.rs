@@ -172,6 +172,6 @@ pub struct CollisionObject {
     /// Havok material code of the body's convex shapes (box, sphere, capsule,
     /// convex vertices): the first one's when they differ [design], `None` when it has
     /// none. Triangle meshes keep one per triangle in the shape instead. What is hit, for
-    /// impact effects and sounds (docs/spec-notes/audio.md §10).
+    /// impact effects and sounds (docs/spec-notes/audio.md §11).
     pub material: Option<u32>,
 }

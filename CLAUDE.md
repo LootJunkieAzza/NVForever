@@ -142,9 +142,19 @@ After changes to the messages at the top left (`nvf-play` `corner_messages`, `in
 for 2 s, icon glow_message_vaultboy_ncr.dds` and `corner message: "You are now Well Rested!" for
 10 s, icon default`, about 2.25 s apart).
 
+After changes to the sounds animations and doors name (nvforever `anim_sounds.rs`,
+`fnv_actor::anim_sounds`, `nvf_play::doors` sounds; docs/spec-notes/audio.md §10), run the
+footsteps, reload and doors check, with `NVF_PLAY_TEST_EQUIP=0000434F`,
+`NVF_PLAY_TEST_GIVE=00004241:50`, `NVF_PLAY_TEST_MOVE=11:1:0,14:0:0` and
+`NVF_PLAY_TEST_CONTROL=15:weapon,17:fire,17.2:fire,18:reload` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --no-voice --open-doors --run-seconds 24`
+(expect exit 0 and an "anim sounds summary:" line with about 5 footsteps by the player,
+"3 reload keys", "5 door sounds (2 from door records)" and "0 keys without a SOUN"; the
+actors' footsteps and rustles vary).
+
 After changes to shot impacts, loose objects' knocks, item, container, activator, message-box or
 script sounds (`nvf-play` `world_sounds`, the impact part of `combat`, `fnv_combat::fx`, collision
-materials in `fnv-collide` / `fnv-phys`; docs/spec-notes/audio.md §10), shoot Sunny's bottles, with
+materials in `fnv-collide` / `fnv-phys`; docs/spec-notes/audio.md §11), shoot Sunny's bottles, with
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.3`, `NVF_PLAY_TEST_NO_SPREAD=1`, `NVF_PLAY_TEST_GOTO=1:-68375:4800:8600`,
 `NVF_PLAY_TEST_SCRIPT=3:start:VCG02,4:info:0x0010A1E6:SunnyRef` and
 `NVF_PLAY_TEST_CONTROL=7:weapon,10:aimref=0010A202,10.5:fire,10.7:fire,13:aimref=0010A203,13.5:fire,13.7:fire,16:aimref=0010A204,16.5:fire,16.7:fire` set:

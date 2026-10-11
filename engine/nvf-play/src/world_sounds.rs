@@ -1,4 +1,4 @@
-//! Sounds of the world's objects (docs/spec-notes/audio.md §10): what a shot's impact
+//! Sounds of the world's objects (docs/spec-notes/audio.md §11): what a shot's impact
 //! picks, loose objects knocking, items picked up and dropped, containers opened and
 //! closed, activators used, and the sounds scripts ask for.
 //!

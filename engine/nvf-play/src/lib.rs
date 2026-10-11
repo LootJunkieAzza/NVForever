@@ -20,6 +20,7 @@ pub mod control;
 pub mod corner_messages;
 pub mod dialogue;
 pub mod dialogue_look;
+pub mod dialogue_menu;
 pub mod doors;
 pub mod dropped;
 pub mod furniture;

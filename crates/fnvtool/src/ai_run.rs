@@ -357,7 +357,7 @@ pub fn reach(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable) 
     for actor in ids {
         actors += 1;
         let placed = &refs.refs[&actor];
-        let list = data.base_package_list(placed.base);
+        let list = data.base_package_list(placed.base, actor);
         if list.is_empty() {
             continue;
         }

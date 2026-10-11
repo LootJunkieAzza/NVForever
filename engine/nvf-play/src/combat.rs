@@ -1595,7 +1595,7 @@ fn fly(
         c.marks.push(Mark::at(p.point, 0.3, MarkKind::Impact));
         // The impact the weapon's data set names for what was hit: an actor's is its
         // base's Impact Material Type (NPC_ / CREA `NAM4`), organic without one
-        // [design]; anything else's its collision material (docs/spec-notes/audio.md §10).
+        // [design]; anything else's its collision material (docs/spec-notes/audio.md §11).
         if let Some(s) = sfx.as_deref() {
             let material = match p.actor {
                 Some(a) => sim.base_of(a as u32).and_then(|b| s.forms.actor_material(b)).unwrap_or("organic"),

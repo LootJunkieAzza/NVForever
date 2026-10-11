@@ -443,11 +443,11 @@ pub fn show(data: &GameData, refs: &RefTable, packages: &[String], actors: &[Str
         let id = find_form(data, refs, name).ok_or_else(|| anyhow::anyhow!("no form named {name}"))?;
         let placed = refs.get(id);
         let base = placed.map(|r| r.base).unwrap_or(id);
-        if !data.actors.contains_key(&base) {
+        if !data.actors.contains_key(&base) && !data.leveled_actors.contains_key(&base) {
             anyhow::bail!("{name} ({id}) is not an actor or a placed actor");
         }
         let linked = placed.and_then(|r| r.linked);
-        let list = data.base_package_list(base);
+        let list = data.base_package_list(base, id);
         let rows: Vec<Value> = list
             .iter()
             .map(|p| {
@@ -554,7 +554,7 @@ pub fn observed(lo: &LoadOrder, data: &GameData, forms: &FormStore, refs: &RefTa
     let (mut in_list, mut not_in_list) = ((0u64, 0u64), (0u64, 0u64));
     let mut outside: BTreeMap<String, u64> = BTreeMap::new();
     for ((actor, pkg), n) in &pairs {
-        let listed = refs.get(*actor).is_some_and(|r| data.base_package_list(r.base).contains(pkg));
+        let listed = refs.get(*actor).is_some_and(|r| data.base_package_list(r.base, *actor).contains(pkg));
         let c = if listed { &mut in_list } else { &mut not_in_list };
         c.0 += 1;
         c.1 += n;
@@ -621,7 +621,7 @@ fn schedules(data: &GameData, refs: &RefTable, rows: &[Seen]) -> Value {
         }
         let (list, has_link) = lists.entry(r.actor).or_insert_with(|| {
             let placed = refs.get(r.actor);
-            (placed.map(|p| data.base_package_list(p.base)).unwrap_or_default(), placed.is_some_and(|p| p.linked.is_some()))
+            (placed.map(|p| data.base_package_list(p.base, r.actor)).unwrap_or_default(), placed.is_some_and(|p| p.linked.is_some()))
         });
         if let Some(at) = list.iter().position(|p| *p == r.package) {
             // Earlier packages that nothing we can see keeps from running: no

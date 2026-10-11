@@ -307,6 +307,14 @@ impl PhysWorld {
         let mut w = PhysicsWorld::new();
         w.gravity = Vector::new(0.0, 0.0, -params.gravity * k);
         w.integration_parameters.dt = params.dt;
+        // Contacts are kept out to the prediction distance beyond the colliders' contact
+        // skins, but bodies resting on a skin wider than the prediction distance (rapier's
+        // default 0.02 m, 1.4 units) never fell asleep and crept along the ground at about
+        // 10 units a second [observed: the terrain's 3.5-unit skin under Goodsprings'
+        // motorcycles and crates; a skin of 1.4 rested, 2 crept; test
+        // `clutter_on_the_terrain_shell_falls_asleep`]. Why is not known; a prediction
+        // distance of the default plus the skin rests them (asleep within 2 s).
+        w.integration_parameters.normalized_prediction_distance += TERRAIN_SHELL * k;
         PhysWorld {
             params,
             w,

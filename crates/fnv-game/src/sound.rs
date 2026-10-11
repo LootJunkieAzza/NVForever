@@ -1,4 +1,4 @@
-//! Sounds scripts ask for: `PlaySound` and `PlaySound3D` (docs/spec-notes/audio.md §10).
+//! Sounds scripts ask for: `PlaySound` and `PlaySound3D` (docs/spec-notes/audio.md §11).
 //!
 //! The rules only record what is to be heard ([`SoundRequest`], taken from
 //! [`Game::sound_requests`] by whoever plays sounds) and trace it as `sound_asked`.
