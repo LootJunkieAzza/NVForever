@@ -115,6 +115,13 @@ pub enum AiEvent {
     /// It started a random conversation with `partner`, `away` units from it
     /// (`crate::social`); `line` is its first line.
     Chat { partner: FormId, line: FormId, away: f32 },
+    /// It sets off to `partner` for a random conversation: `away` units from it, a way of
+    /// `length` units.
+    ChatApproach { partner: FormId, away: f32, length: f32 },
+    /// It gave up the random conversation with `partner` before it began.
+    ChatGaveUp { partner: FormId, why: &'static str },
+    /// After a random conversation it goes back to its package's place, `away` units off.
+    ChatBack { package: FormId, away: f32 },
 }
 
 /// How far an actor is with its Dialogue package ([`goal::Talk`]).
@@ -198,8 +205,8 @@ pub struct Agent {
     goal: Option<Goal>,
     /// Index of the patrol point being walked to.
     route_at: usize,
-    trip_started: f64,
-    trip_from: f32,
+    pub(crate) trip_started: f64,
+    pub(crate) trip_from: f32,
     /// The door that opens in place the actor is standing at, waiting for it to open.
     pub waiting_at: Option<u32>,
     /// The furniture the actor uses, or is to use where it stands (a seat, a bed): the
@@ -213,6 +220,9 @@ pub struct Agent {
     pub talk: Option<Talking>,
     /// When it was last pushed aside (`Game::time`), until it has gone back or need not.
     pushed_at: Option<f64>,
+    /// A random conversation it is going to, waiting for or in (`crate::social`): its
+    /// package's own doings wait meanwhile.
+    pub chat: Option<crate::social::Chat>,
 }
 
 #[derive(Default)]
@@ -240,7 +250,7 @@ impl Ai {
         let place = goal::place_of_ref(game, actor).ok_or_else(|| format!("{actor} is in no cell"))?;
         let heading = game.world.peek(actor).map(|s| s.rot[2]).or_else(|| game.world.placed.get(actor).map(|p| p.rot[2])).unwrap_or(0.0);
         let walker = Walker::new(place.space, place.pos, heading, self.cfg.walk_speed);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None });
         Ok(())
     }
 
@@ -288,12 +298,20 @@ impl Ai {
     /// not captured]. A sandboxing actor goes on from where it is, a patrol from its
     /// next point.
     fn back_after_push(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
-        let a = self.agents.get_mut(&actor).expect("listed");
-        a.pushed_at = None;
+        self.agents.get_mut(&actor).expect("listed").pushed_at = None;
+        self.back_to_package(game, nav, actor, |package, away| AiEvent::PushedBack { package, away });
+    }
+
+    /// An actor taken out of its package's place (a push, a random conversation) goes back
+    /// there, unless it sandboxes (it goes on from where it is), waits at a patrol point
+    /// or carries out a Dialogue package. `why` is logged before the trip, with the
+    /// package and how far away its place is.
+    pub(crate) fn back_to_package(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, why: impl FnOnce(FormId, f32) -> AiEvent) {
+        let a = &self.agents[&actor];
         let (Some(package), Activity::There, None, None, None) = (a.package, a.activity, &a.sandbox, a.wait_until, a.talk) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
         let Some(to) = a.goal.clone().and_then(|g| self.way_to(feet, &g)) else { return };
-        self.log(game, actor, AiEvent::PushedBack { package, away: hdist(feet.pos, to.pos) });
+        self.log(game, actor, why(package, hdist(feet.pos, to.pos)));
         self.plan(game, nav, actor, package, to, None);
     }
 
@@ -375,18 +393,22 @@ impl Ai {
                 a.wait_until = None;
                 a.talk = None;
                 a.pushed_at = None;
+                // A random conversation is given up (`crate::social` lets the other
+                // one go).
+                a.chat = None;
                 self.set_using(game, actor, None);
                 self.taken.retain(|_, user| *user != actor);
                 if let Some(p) = current {
                     self.begin(game, nav, actor, p);
                 }
             }
-            if !quiet && self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
+            let chatting = self.agents[&actor].chat.is_some();
+            if !quiet && !chatting && self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
                 self.back_after_push(game, nav, actor);
             }
             match self.agents[&actor].activity {
                 Activity::Travelling => self.walk(game, nav, actor, dt, open),
-                Activity::There if !quiet => {
+                Activity::There if !quiet && !chatting => {
                     if self.agents[&actor].wait_until.is_some_and(|t| game.time >= t) {
                         self.agents.get_mut(&actor).expect("listed").wait_until = None;
                         self.patrol_on(game, nav, actor);
@@ -637,7 +659,7 @@ impl Ai {
 
     /// Path parameters for `actor`: everything it carries may be a key [documented:
     /// locks name a key form].
-    fn path_params(&self, game: &mut Game, actor: FormId) -> PathParams {
+    pub(crate) fn path_params(&self, game: &mut Game, actor: FormId) -> PathParams {
         let mut params = self.cfg.params.clone();
         if let Ok(s) = game.world.get(actor) {
             params.keys.extend(s.inventory.iter().flat_map(|inv| inv.iter()).map(|(item, _)| item.0));
@@ -847,6 +869,12 @@ impl Ai {
     fn arrived(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
         let a = self.agents.get_mut(&actor).expect("listed");
         a.walker.follower = None;
+        // The end of the way to a conversation partner: `crate::social` starts the
+        // conversation.
+        if a.chat.is_some() {
+            a.activity = Activity::There;
+            return;
+        }
         let Some(package) = a.package else { return };
         let (seconds, travelled) = (game.time - a.trip_started, a.walker.travelled - a.trip_from);
         // The end of a sandbox's own walk: the behaviour it chose begins.

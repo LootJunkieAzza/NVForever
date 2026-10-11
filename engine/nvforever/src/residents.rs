@@ -313,8 +313,9 @@ struct Core {
     sandbox: [usize; 6],
     /// Conversations and Say To lines started by Dialogue packages.
     talks: usize,
-    /// Hellos said to the player and random conversations started (`fnv_ai::social`).
-    social: [usize; 2],
+    /// Hellos said to the player, random conversations started, walks up to a partner,
+    /// walks given up (`fnv_ai::social`).
+    social: [usize; 4],
     /// Standing actors that had no room when pushed, and until when (elapsed seconds)
     /// each is left standing.
     no_room: HashMap<u32, f32>,
@@ -381,7 +382,7 @@ impl Residents {
             seats: [0; 2],
             sandbox: [0; 6],
             talks: 0,
-            social: [0; 2],
+            social: [0; 4],
             no_room: HashMap::new(),
             pushes: [0; 2],
             pushed_units: 0.0,
@@ -523,7 +524,7 @@ impl Core {
         // Whoever is on furniture, or getting off it, does not walk yet; nor do two actors
         // talking to each other (`fnv_ai::social`).
         let held: HashSet<u32> =
-            self.list.iter().filter(|r| matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_)) || game.in_actor_conversation(r.actor)).map(|r| r.actor.0).collect();
+            self.list.iter().filter(|r| matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_)) || game.in_actor_conversation(r.actor) || self.ai.holds_for_chat(r.actor)).map(|r| r.actor.0).collect();
         if !self.prepared {
             self.prepared = true;
             game.cfg.package_interval = Some(PACKAGE_INTERVAL);
@@ -609,7 +610,7 @@ impl Core {
         self.physics[1] += moved[1];
         self.physics[2] = self.physics[2].max(moved[0]);
         // Hellos to the player and random conversations.
-        self.ai.social(game, dt);
+        self.ai.social(game, &nav.graph, dt);
         // No character is kept for an actor that is not on its way.
         if let Some(p) = phys {
             let idle: Vec<u32> = p.npcs.keys().copied().filter(|id| self.ai.agents.get(&FormId(*id)).is_none_or(|a| a.activity != Activity::Travelling)).collect();
@@ -666,6 +667,8 @@ impl Core {
                 AiEvent::Talk { .. } => self.talks += 1,
                 AiEvent::Hello { .. } => self.social[0] += 1,
                 AiEvent::Chat { .. } => self.social[1] += 1,
+                AiEvent::ChatApproach { .. } => self.social[2] += 1,
+                AiEvent::ChatGaveUp { .. } => self.social[3] += 1,
                 AiEvent::Sandbox { doing, .. } => {
                     self.sandbox[match doing {
                         Doing::Standing => 0,
@@ -690,7 +693,10 @@ impl Core {
                 | AiEvent::NoTalk { .. }
                 | AiEvent::PushedBack { .. }
                 | AiEvent::Hello { .. }
-                | AiEvent::Chat { .. } => info!("{line}"),
+                | AiEvent::Chat { .. }
+                | AiEvent::ChatApproach { .. }
+                | AiEvent::ChatGaveUp { .. }
+                | AiEvent::ChatBack { .. } => info!("{line}"),
                 _ => debug!("{line}"),
             }
         }
@@ -795,6 +801,9 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
         AiEvent::Hello { line, away } => format!("says hello to the player from {away:.0} units, line {line}"),
         AiEvent::Chat { partner, line, away } => format!("starts a conversation with {} from {away:.0} units, line {line}", n(partner)),
+        AiEvent::ChatApproach { partner, away, length } => format!("walks up to {} to talk: {away:.0} units away, {length:.0} units to go", n(partner)),
+        AiEvent::ChatGaveUp { partner, why } => format!("gives up talking to {}: {why}", n(partner)),
+        AiEvent::ChatBack { package, away } => format!("has talked: back to the place of {}, {away:.0} units off", n(package)),
     }
 }
 
@@ -1027,5 +1036,8 @@ pub fn report(
         core.waited[1],
         each.join("; ")
     );
-    info!("social summary: {} hellos said to the player, {} random conversations started", core.social[0], core.social[1]);
+    info!(
+        "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up)",
+        core.social[0], core.social[1], core.social[2], core.social[3]
+    );
 }
