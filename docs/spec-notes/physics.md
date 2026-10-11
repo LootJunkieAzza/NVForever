@@ -537,6 +537,66 @@ for the same spot within 0.3 units, simulation.md §5) it came to rest on the gr
 8692.71, 30.9 lower. Repeated runs came to rest within 0.1 units of each other (the steps
 are fixed, but how many run per frame depends on frame times).
 
+### 4.3.1 Clutter at cell load: asleep, jointed objects held (`engine/nvf-play`, 2026-10-11)
+
+**The playtest.** Loading Chet's store (GSGeneralStore) threw the shelves' items about
+(owner's playtest of main, 2026-10-11). The test aid `NVF_PLAY_TEST_PHYS_TRACE=<s>[:<every>]`
+(`nvf-play` `phys/trace.rs`) logs every placed reference with a dynamic body for `s`
+seconds after its cell loads: its bodies' offsets, turns, speeds, and the overlaps its
+contacts had after the first step. Before the change [observed, owner's install, `--cell
+GSGeneralStore --play`, 2026-10-11], 53 of the 67 dynamic references there moved:
+
+- **Jointed objects flew apart.** Three references have two or more dynamic bodies, the
+  parts the model's constraints join: the globe on its stand (`clutter\school\globe01.nif`,
+  two bodies overlapping each other by 5.3 units, one limited-hinge constraint), the
+  bucket and its handle (`clutter\junk\bucket01.nif`) and a hanging office lamp
+  (`dungeons\office\lights\offrmlighthanging01.nif`, a static mount and two dynamic
+  parts with two constraints). Constraints are not modelled for placed references, so the
+  globe's parts pushed each other apart (one part ended 116 units away, turned 164°), the
+  lamp's parts fell 223 units from the ceiling, and they knocked the items beside them
+  (an iron and a paperweight were still sliding after 3.5 s). These references are drawn
+  where they were placed, whatever their bodies do (only references with one dynamic
+  body are drawn where physics puts them, `PhysState::placed_dynamic`), so the parts
+  were invisible. Of the 190 meshes in `Fallout - Meshes.bsa` outside skeletons with two
+  or more dynamic objects, 114 hold constraints [observed: `fnvtool collide objects` and
+  `fnvtool collide ragdoll`]; the others are weapons with moving parts, hulks and gore.
+- **Items with nothing under them fell.** Two books inside a display case
+  (`DisplayCase02`, whose collision is its outer shell: 86 triangles, top at 600, floor at
+  544) fell 31 units to the case's floor, a magazine 10 units onto the shelf's lowest
+  board; in the game they stand where they were placed [observed by the owner: they do
+  not fall].
+- **Piles settled with a jump.** Produce in a milk crate overlaps its neighbours by up to
+  4 units; rapier pushed the pile apart (turns up to 27°), and the rest of the clutter
+  dropped 0.3–5 units onto its shelves.
+
+**What the engine does now** [design; hypothesis about the original: a placed Havok
+object stays where it was placed, inactive, until something disturbs it — the books in the
+display case, and a resting dropped item not woken by `SetPos` (§4.3, `pc_drop_fall`)]:
+
+- Placed references' dynamic bodies are added **asleep** (`PreparedRef::asleep`), and so
+  are their keyframed bodies (a container's lid would otherwise keep what stands on it
+  awake). rapier wakes both sides of every contact that starts, so a body added asleep
+  woke as soon as its first contacts were found; `PhysWorld` finds the contacts of bodies
+  added asleep before the next step and puts them back to sleep (`update_queries`). They
+  wake when a body moves against them (the player, an actor, another item falling), when
+  they are struck (shots, explosions: `push_ref`, `push_dynamic`) or when a body they
+  touch is removed (an item picked up from under them) [observed: fnv-phys tests
+  `clutter_added_asleep_*`]. Dropped items (§4.3) are added awake, as before.
+- A placed reference with **two or more dynamic bodies keeps them keyframed** at its
+  placement (`hold_jointed` in `phys/prepare.rs`; tallied `jointed_held`): solid where it
+  is drawn, never moving [engineering choice until constraints are modelled for placed
+  references; then they would hang and swing as in the game].
+
+`fnvtool phys cell` keeps the shared rule (dynamic bodies awake, jointed parts dynamic):
+it simulates only its probes, and the parity lab's L4 scenarios are built on it.
+
+After the change [observed, the same runs, 2026-10-11]: GSGeneralStore 0 references moved
+by physics in 10 s (3 held as jointed), GSHouseInterior03 0 (was 7: cleaners on the oven,
+the lamp, Buffout, BB gun and BBs on the desk, all overlapping the containers' keyframed
+bodies by about 2 units), GSProspectorSaloonInterior 0; the trace's only motion in the
+store is the office fan (an MSTT) nudged 2 units. Shot bottles still fall: the CLAUDE.md
+world-sounds test knocked Sunny's three bottles 117–128 units ("impacts by material: glass 3").
+
 ## 5. Determinism and precision
 
 - The world advances only in fixed steps of `PhysParams::dt`; `Stepper` turns frame time

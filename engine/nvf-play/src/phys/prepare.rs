@@ -239,8 +239,25 @@ pub fn cell(src: &Source, job: &Job) -> Prepared {
     out
 }
 
+/// A placed reference with more than one dynamic collision object (a hanging lamp and its
+/// chain, a globe on its stand, a bucket and its handle: the parts the model's constraints
+/// join) keeps them keyframed where it was placed (physics.md §4.3.1): the constraints are
+/// not modelled, so the parts fell apart, and the reference is drawn where it was placed
+/// whatever its bodies do. Tallied as `jointed_held`.
+fn hold_jointed(objects: &mut [fnv_collide::CollisionObject], tallies: &mut Vec<&'static str>) {
+    use fnv_collide::Motion;
+    if objects.iter().filter(|o| o.motion == Motion::Dynamic).count() < 2 {
+        return;
+    }
+    for o in objects.iter_mut().filter(|o| o.motion == Motion::Dynamic) {
+        o.motion = Motion::Keyframed;
+    }
+    tallies.push("jointed_held");
+}
+
 /// Prepare one placed reference's collision (`fnv_phys::ref_collision`, the rule
-/// `fnvtool phys cell` uses).
+/// `fnvtool phys cell` uses), its dynamic bodies asleep and a jointed object's held
+/// ([`hold_jointed`]).
 pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShapes {
     let t0 = Instant::now();
     let before = *times;
@@ -263,9 +280,12 @@ pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShap
     );
     let in_models = (times.read - before.read) + (times.parse - before.parse) + (times.convert - before.convert);
     times.records += ms_since(t0) - in_models;
+    let mut rc = rc;
+    hold_jointed(&mut rc.objects, &mut tallies);
+    // Clutter starts asleep (physics.md §4.3.1).
     let prepared = (!rc.objects.is_empty()).then(|| {
         let t = Instant::now();
-        let p = PreparedRef::new(&src.params, &RefPose::from_placement(pl), &rc.objects);
+        let p = PreparedRef::new(&src.params, &RefPose::from_placement(pl), &rc.objects).asleep();
         times.shapes += ms_since(t);
         p
     });
