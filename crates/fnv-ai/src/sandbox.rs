@@ -116,10 +116,10 @@ pub struct Choice {
 /// A small deterministic generator (SplitMix64): a sandbox must not disturb the script
 /// runtime's random numbers, and runs must repeat.
 #[derive(Debug, Clone)]
-struct Rng(u64);
+pub(crate) struct Rng(pub(crate) u64);
 
 impl Rng {
-    fn next(&mut self) -> f32 {
+    pub(crate) fn next(&mut self) -> f32 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
@@ -127,7 +127,7 @@ impl Rng {
         ((z ^ (z >> 31)) >> 40) as f32 / (1u64 << 24) as f32
     }
 
-    fn range(&mut self, lo: f32, hi: f32) -> f32 {
+    pub(crate) fn range(&mut self, lo: f32, hi: f32) -> f32 {
         lo + (hi - lo) * self.next()
     }
 }

@@ -53,6 +53,9 @@ const K_OPEN: u32 = 0xF41;
 const K_REPLY: u32 = 0xF42;
 const K_NOT: u32 = 0xF43;
 const K_LAST: u32 = 0xF44;
+const HELLO: u32 = 0x93E;
+const K_HELLO_LINKED: u32 = 0xF45;
+const K_HELLO: u32 = 0xF46;
 const A_OFF: u32 = 0xA01;
 const A_FIRST: u32 = 0xA02;
 const A_HIGH: u32 = 0xA03;
@@ -124,6 +127,8 @@ struct L {
     responses: Vec<(u8, &'static str, u32)>,
     prompt: Option<&'static str>,
     choices: Vec<u32>,
+    /// TCLF ("Link From").
+    link_from: Vec<u32>,
     follow: Vec<u32>,
     add: Vec<u32>,
     /// Result scripts: the value TestOut is set to.
@@ -148,6 +153,7 @@ fn info(l: L) -> Vec<u8> {
     }
     s.extend(l.conds);
     s.extend(l.choices.iter().map(|t| sub(b"TCLT", u32b(*t))));
+    s.extend(l.link_from.iter().map(|t| sub(b"TCLF", u32b(*t))));
     s.extend(l.follow.iter().map(|t| sub(b"TCFU", u32b(*t))));
     s.extend(result(l.begin));
     s.push(sub(b"NEXT", vec![]));
@@ -410,6 +416,20 @@ fn plugin_bytes() -> Vec<u8> {
             0,
             50.0,
             vec![L { id: K_LAST, quest: QA, flags: info_flag::GOODBYE, speaker: Some(NPC2), responses: one("Last"), choices: vec![T_REPLY], ..L::default() }],
+        ),
+        // HELLO: a line with a Link From (cannot start anything), then one that starts
+        // the same exchange as TestArgue's reply.
+        topic(
+            HELLO,
+            "HELLO",
+            "HELLO",
+            topic_type::CONVERSATION,
+            0,
+            50.0,
+            vec![
+                L { id: K_HELLO_LINKED, quest: QA, speaker: me, responses: one("Linked"), link_from: vec![T_ARGUE], ..L::default() },
+                L { id: K_HELLO, quest: QA, speaker: me, responses: one("Hi"), choices: vec![T_REPLY], ..L::default() },
+            ],
         ),
     ]
     .concat();
@@ -947,10 +967,11 @@ fn start_conversation_and_the_dialogue_functions() {
     call(&mut h, 0x1056, NPC1_REF, &[player.clone(), ArgValue::Value(Value::Ref(T_BYE))]);
     assert_eq!(h.dialogue.as_ref().unwrap().line.as_ref().unwrap().info, FormId(C_BYE));
     // Two NPCs: no conversation with the player (`two_actors_talk_to_each_other`); with no
-    // topic and no HELLO in the load order nothing starts, and the call is no error.
+    // topic the speaker starts with HELLO, the first line whose Link From is blank.
     let mut k = game(&f);
     call(&mut k, 0x1056, NPC1_REF, &[ArgValue::Value(Value::Ref(NPC2_REF))]);
-    assert!(k.dialogue.is_none() && k.speech.is_empty());
+    assert!(k.dialogue.is_none());
+    assert_eq!(k.speech.iter().map(|s| (s.info.0, s.conversation)).collect::<Vec<_>>(), vec![(K_HELLO, Some(1))]);
     assert!(!k.events.iter().any(|e| matches!(&e.kind, EventKind::Stub { .. } | EventKind::CallFailed { .. })));
     // AddTopic: the topic is offered in the topic list.
     let mut a = game(&f);
@@ -995,6 +1016,29 @@ fn two_actors_talk_to_each_other() {
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::ActorConversationEnded { speaker, target, reason: "goodbye", lines: 3 } if speaker == b && target == a)));
     assert_eq!(out(&g), 32.0);
     assert!(!g.in_actor_conversation(a) && g.dialogue.is_none());
+}
+
+#[test]
+fn a_hello_to_the_player_is_one_line() {
+    let f = fixture();
+    let mut g = game(&f);
+    let a = FormId(NPC1_REF);
+    // The line with a Link From is passed over; the hello is no conversation and no menu.
+    assert_eq!(g.say_hello(a), Some(FormId(K_HELLO)));
+    assert!(g.dialogue.is_none() && !g.in_menu() && !g.in_actor_conversation(a));
+    let s = g.speech[0].clone();
+    assert_eq!((s.speaker, s.target, s.hello, s.conversation), (a, Some(FormId::PLAYER_REF), true, None));
+    for _ in 0..20_000 {
+        if g.speech.is_empty() {
+            break;
+        }
+        g.tick();
+    }
+    // Its links are not followed: nobody answers.
+    let lines = g.events.iter().filter(|e| matches!(e.kind, EventKind::LineStarted { .. })).count();
+    assert_eq!(lines, 1);
+    // An actor with no HELLO line says nothing.
+    assert_eq!(g.say_hello(FormId(NPC2_REF)), None);
 }
 
 #[test]
