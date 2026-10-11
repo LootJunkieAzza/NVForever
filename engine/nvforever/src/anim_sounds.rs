@@ -20,6 +20,21 @@
 //!     its own or its template's), at its chance.
 //! - **Doors** that open in place (`nvf_play::doors`): the sound keys their sequences
 //!   pass, else the DOOR record's open (SNAM) or close (ANAM) sound as they start.
+//! - **Creatures** (docs/spec-notes/audio.md §14): a creature whose record lists sounds
+//!   (CREA `CSDT`/`CSDI`/`CSDC`, its own, else those of the creature it inherits sounds
+//!   from, `CSCR`; of the creature a leveled list picked) hears its `Enum:` keys as those
+//!   types (`Left`, `Right`, `BackLeft`, `BackRight`, `Idle`, `Aware`, `Attack`,
+//!   `Auxiliary1`–`8`): one of the type's sounds, at its chance [hypothesis: the keys
+//!   name the types]. A hit plays its Hit sound and a death its Death sound
+//!   (`nvf_play::combat::ActorHit`); the `Enum: Hit` keys of hit clips are not played
+//!   again [design]. A living creature in earshot sounds its Conscious Loop, and while it
+//!   moves its Movement Loop, as `nvf_play::sfx::SoundSource`s (played by
+//!   `nvf_play::ambient`); the loop's chance is rolled once per creature [design]. A
+//!   creature without sounds steps like a person.
+//! - **The player's jumps and landings**: leaving the ground going up plays the ground's
+//!   `FST<family>Jump`, coming down after [`LAND_AIR`] seconds in the air its
+//!   `FST<family>Land` (Dirt's when the family has none) [hypothesis: by the names].
+//! - **Wading**: feet under the surface of water step as `FSTWater…` [design].
 //!
 //! The player's own sounds play at the listener, the others where the actor or door
 //! is. Actors more than [`ACTOR_RANGE`] from the player are not heard [design].
@@ -43,7 +58,10 @@ use nvf_assets::anim_play::{BlendPlayer, Clip};
 use nvf_play::doors::DoorSound;
 use nvf_play::phys::PhysState;
 use nvf_play::player::{Player, BodySet};
-use nvf_play::sfx::{PlaySound, Sfx};
+use nvf_play::combat::{is_dead, ActorHit};
+use nvf_play::script::ScriptState;
+use nvf_play::sfx::{PlaySound, Sfx, SoundSource};
+use fnv_actor::anim_sounds::{creature_key_type, creature_sound, creature_sound_type_name, creature_sounds, pick_creature_sound, CreatureSound};
 use nvf_play::sim::SimState;
 use nvf_play::{Location, PlayWorld};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -59,6 +77,21 @@ const HEARD_WEIGHT: f32 = 0.5;
 /// The shortest time between two footfalls (or two rustles) of one actor, seconds: two
 /// movement clips crossfading can pass their keys a frame or two apart [design].
 const MIN_STEP_GAP: f32 = 0.2;
+/// Seconds in the air after which coming down is a landing with a sound [design].
+pub const LAND_AIR: f32 = 0.4;
+/// Upward speed on leaving the ground that is a jump, units/s [design].
+const JUMP_SPEED: f32 = 100.0;
+/// How deep the feet must be under a water surface to wade, units [design].
+const WADE_DEPTH: f32 = 2.0;
+/// Speed above which a creature moves (its Movement Loop sounds), units/s [design].
+const MOVING: f32 = 20.0;
+/// [`AnimSounds::step_due`] channels besides the creature sound types: a person's
+/// footfall and rustle.
+const FOOT: u32 = 100;
+const RUSTLE: u32 = 101;
+/// [`SoundSource::key`] kinds: a creature's conscious and movement loops.
+const CONSCIOUS: u8 = 2;
+const MOVEMENT: u8 = 3;
 
 /// Whose clips: the player's rig (true: the first-person one) or an actor's.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -84,6 +117,15 @@ struct Counts {
     unknown_keys: u32,
     /// Footsteps by ground family.
     grounds: BTreeMap<&'static str, u32>,
+    /// Creatures' sounds by type, keys of a type the creature does not list, hits and
+    /// deaths with a sound.
+    creature: BTreeMap<&'static str, u32>,
+    creature_unlisted: u32,
+    creature_hits: u32,
+    creature_deaths: u32,
+    /// The player's jumps and landings with a sound.
+    jumps: u32,
+    landings: u32,
 }
 
 #[derive(Resource)]
@@ -103,7 +145,15 @@ pub struct AnimSounds {
     counts: Counts,
     /// Seconds since the start, this frame; the last footfall and rustle of each.
     now: f32,
-    steps: HashMap<(Who, bool), f32>,
+    steps: HashMap<(Who, u32), f32>,
+    /// Creatures' sounds by reference (`None`: not a creature; empty: none listed).
+    creatures: HashMap<u32, Option<Arc<Vec<CreatureSound>>>>,
+    /// Each creature's conscious loop, rolled against its chance once.
+    conscious: HashMap<u32, Option<FormId>>,
+    /// Where each creature was last frame.
+    last_pos: HashMap<Entity, Vec3>,
+    /// The player on the ground last frame, and seconds in the air then.
+    air: Option<(bool, f32)>,
 }
 
 impl Default for AnimSounds {
@@ -121,18 +171,28 @@ impl Default for AnimSounds {
             counts: Counts::default(),
             now: 0.0,
             steps: HashMap::new(),
+            creatures: HashMap::new(),
+            conscious: HashMap::new(),
+            last_pos: HashMap::new(),
+            air: None,
         }
     }
 }
 
 impl AnimSounds {
-    /// Whether a footfall (`foot`) or rustle of `who` may sound now; marks it if so.
-    fn step_due(&mut self, who: Who, foot: bool) -> bool {
-        if self.steps.get(&(who, foot)).is_some_and(|&t| self.now - t < MIN_STEP_GAP) {
+    /// Whether a footfall, a rustle or a creature sound (`channel`: [`FOOT`], [`RUSTLE`]
+    /// or the creature sound type) of `who` may sound now; marks it if so.
+    fn step_due(&mut self, who: Who, channel: u32) -> bool {
+        if self.steps.get(&(who, channel)).is_some_and(|&t| self.now - t < MIN_STEP_GAP) {
             return false;
         }
-        self.steps.insert((who, foot), self.now);
+        self.steps.insert((who, channel), self.now);
         true
+    }
+
+    /// The first of these SOUN editor IDs there is a record of.
+    fn first_of(&self, names: &[String]) -> Option<FormId> {
+        names.iter().find_map(|n| self.by_edid.get(&n.to_ascii_lowercase()).copied())
     }
 
     fn sound(&mut self, edid: &str) -> Option<FormId> {
@@ -167,7 +227,7 @@ struct Heard<'a> {
 /// clip may have just started. A clip played `once` that went back has been started
 /// again (a round-by-round reload restarts its clip at `Hit` for the next round): heard
 /// from its start, not round its end.
-fn keys_of<'a>(last: &HashMap<Playing, f32>, seen: &mut Vec<(Playing, f32)>, playing: Playing, clip: &'a Clip, now: f32, once: bool) -> Vec<KeySound<'a>> {
+fn keys_of<'a>(last: &HashMap<Playing, f32>, seen: &mut Vec<(Playing, f32)>, playing: Playing, clip: &'a Clip, now: f32, once: bool) -> Vec<&'a str> {
     seen.push((playing, now));
     let from = match last.get(&playing) {
         Some(&t) if once && now < t => None,
@@ -178,12 +238,16 @@ fn keys_of<'a>(last: &HashMap<Playing, f32>, seen: &mut Vec<(Playing, f32)>, pla
     if from == Some(now) {
         return Vec::new();
     }
-    passed(&clip.text_keys, clip.start, from, now).filter_map(parse).collect()
+    passed(&clip.text_keys, clip.start, from, now).collect()
 }
 
 /// What is underfoot at `feet` (game space): the footstep family, stairs, and a name for
 /// the report.
 fn ground(s: &mut AnimSounds, phys: &mut PhysState, d: &PlayWorld, world: u32, feet: [f32; 3], exclude: Vec<Key>) -> (&'static str, bool) {
+    // Wading: the feet under a water surface.
+    if phys.world.water_surface_for(feet).is_some_and(|w| w > feet[2] + WADE_DEPTH) {
+        return ("Water", false);
+    }
     let filter = Filter { exclude, exclude_layers: layers::character_ignores(), ..Default::default() };
     let from = [feet[0], feet[1], feet[2] + 30.0];
     let Some(hit) = phys.world.queries().ray(from, [0.0, 0.0, -1.0], 90.0, &filter) else { return ("Dirt", false) };
@@ -251,7 +315,7 @@ fn sound_heard(
             }
         }
         KeySound::Foot(side) => {
-            if !s.step_due(h.who, true) {
+            if !s.step_due(h.who, FOOT) {
                 return;
             }
             let gait = clip_gait(&h.clip.text_keys, &h.clip.name);
@@ -274,7 +338,7 @@ fn sound_heard(
         }
         KeySound::Foley { armor, gait } => {
             let Some(f) = foley_for(foley, armor, gait) else { return };
-            if !s.step_due(h.who, false) {
+            if !s.step_due(h.who, RUSTLE) {
                 return;
             }
             if f.chance < 100 && s.rng.next_f32() * 100.0 >= f32::from(f.chance) {
@@ -305,6 +369,7 @@ fn player_keys(
     let s = &mut *s;
     build(s, &sfx);
     s.now = time.elapsed_secs();
+    jumps_and_landings(s, &mut out, &mut phys, &d, location.world, &player);
     let Some((a, first, worn)) = body.heard() else { return };
     let foley = match s.worn.get(worn) {
         Some(f) => f.clone(),
@@ -319,7 +384,7 @@ fn player_keys(
     let mut heard: Vec<(&Clip, KeySound)> = Vec::new();
     for l in a.layers.iter().filter(|l| l.weight * l.ease >= HEARD_WEIGHT) {
         let playing = (who, Arc::as_ptr(&l.clip) as usize, l.tag);
-        for k in keys_of(&s.last, &mut seen, playing, &l.clip, l.sample_time(a.phase), l.mode == Mode::Once) {
+        for k in keys_of(&s.last, &mut seen, playing, &l.clip, l.sample_time(a.phase), l.mode == Mode::Once).into_iter().filter_map(parse) {
             heard.push((&l.clip, k));
         }
     }
@@ -351,27 +416,57 @@ fn actor_keys(
     location: Res<Location>,
     actor_world: Option<Res<crate::actors::ActorWorld>>,
     actors: Query<(Entity, &BlendPlayer, &GlobalTransform, Option<&ActorRig>)>,
+    script: Option<Res<ScriptState>>,
     mut out: MessageWriter<PlaySound>,
+    mut loops: MessageWriter<SoundSource>,
     mut seen: Local<Vec<(Playing, f32)>>,
 ) {
     let (Some(sfx), Some(player)) = (sfx, player) else { return };
     let s = &mut *s;
     build(s, &sfx);
     s.now = time.elapsed_secs();
+    let dt = time.delta_secs();
     seen.clear();
     let listener = Vec3::from_array(player.feet);
+    let mut moved: HashMap<Entity, Vec3> = HashMap::new();
     for (e, bp, gt, rig) in &actors {
         let feet = bevy_to_game(gt.translation());
         if feet.distance(listener) > ACTOR_RANGE {
             continue;
         }
         let who = Who::Actor(e);
+        // A creature's sounds, and its loops while it lives.
+        let creature = rig.and_then(|r| creature_list(s, &d, actor_world.as_deref(), r)).filter(|l| !l.is_empty());
+        let before = s.last_pos.get(&e).copied();
+        moved.insert(e, feet);
+        if let (Some(list), Some(r)) = (&creature, rig) {
+            if !is_dead(script.as_deref(), r.reference) {
+                let conscious = *s.conscious.entry(r.reference).or_insert_with(|| {
+                    let (pick, roll) = (s.rng.next_f32(), s.rng.next_f32());
+                    pick_creature_sound(list, creature_sound::CONSCIOUS_LOOP, pick, roll).map(FormId)
+                });
+                if let Some(sound) = conscious {
+                    loops.write(SoundSource { key: SoundSource::key(CONSCIOUS, r.reference), sound, at: feet.to_array() });
+                }
+                let speed = before.map_or(0.0, |b| b.distance(feet) / dt.max(1e-3));
+                if let (true, Some(m)) = (speed > MOVING, list.iter().find(|c| c.kind == creature_sound::MOVEMENT_LOOP)) {
+                    loops.write(SoundSource { key: SoundSource::key(MOVEMENT, r.reference), sound: FormId(m.sound), at: feet.to_array() });
+                }
+            }
+        }
         let mut heard: Vec<(&Clip, KeySound)> = Vec::new();
         for l in bp.layers.iter().flatten().filter(|l| l.weight >= HEARD_WEIGHT) {
             let clip = &l.clip.clip;
             let now = clip.start + l.phase.clamp(0.0, 1.0) * clip.length();
             for k in keys_of(&s.last, &mut seen, (who, Arc::as_ptr(clip) as usize, 0), clip, now, false) {
-                heard.push((clip, k));
+                // A creature with sounds hears its `Enum:` keys as its sound types.
+                if let (Some(list), Some(kind)) = (&creature, creature_key_type(k)) {
+                    creature_heard(s, &mut out, who, kind, list, feet.to_array());
+                    continue;
+                }
+                if let Some(k) = parse(k) {
+                    heard.push((clip, k));
+                }
             }
         }
         if heard.is_empty() {
@@ -404,6 +499,101 @@ fn actor_keys(
     }
     s.last.retain(|(w, _, _), _| matches!(w, Who::Player(_)));
     s.last.extend(seen.drain(..));
+    s.last_pos = moved;
+}
+
+/// The sounds a creature lists, by reference (see the module notes); `None` for one
+/// that is not a creature.
+fn creature_list(s: &mut AnimSounds, d: &PlayWorld, w: Option<&crate::actors::ActorWorld>, rig: &ActorRig) -> Option<Arc<Vec<CreatureSound>>> {
+    s.creatures
+        .entry(rig.reference)
+        .or_insert_with(|| {
+            let crea = fnv_world::fields::winner(d.lo, rig.base).is_some_and(|(_, r)| &r.header.sig == b"CREA");
+            if !crea {
+                return None;
+            }
+            // The creature a leveled list picked, else the one placed.
+            let picked = w.and_then(|w| w.resolve_creature(rig.base, rig.reference).ok()).map(|c| c.creature.0);
+            let mut list = picked.map(|c| creature_sounds(d.lo, d.schema, c).0).unwrap_or_default();
+            if list.is_empty() {
+                list = creature_sounds(d.lo, d.schema, rig.base).0;
+            }
+            debug!("anim sounds: creature {:08X} lists {} sounds", rig.reference, list.len());
+            Some(Arc::new(list))
+        })
+        .clone()
+}
+
+/// A creature's key of sound type `kind`: one of its sounds of that type, at its chance.
+fn creature_heard(s: &mut AnimSounds, out: &mut MessageWriter<PlaySound>, who: Who, kind: u32, list: &[CreatureSound], at: [f32; 3]) {
+    // Hits sound when the hit lands (`creature_hits`).
+    if kind == creature_sound::HIT || !s.step_due(who, kind) {
+        return;
+    }
+    if !list.iter().any(|c| c.kind == kind) {
+        s.counts.creature_unlisted += 1;
+        return;
+    }
+    let (pick, roll) = (s.rng.next_f32(), s.rng.next_f32());
+    let Some(sound) = pick_creature_sound(list, kind, pick, roll) else { return };
+    *s.counts.creature.entry(creature_sound_type_name(kind)).or_default() += 1;
+    debug!("anim sounds: {who:?} creature {}", creature_sound_type_name(kind));
+    out.write(PlaySound { sound: FormId(sound), at: Some(at) });
+}
+
+/// Creatures hit or killed: their Hit or Death sound.
+#[allow(clippy::too_many_arguments)]
+fn creature_hits(
+    mut s: ResMut<AnimSounds>,
+    mut hits: MessageReader<ActorHit>,
+    d: Res<PlayWorld>,
+    actor_world: Option<Res<crate::actors::ActorWorld>>,
+    actors: Query<(&ActorRig, &GlobalTransform)>,
+    mut out: MessageWriter<PlaySound>,
+) {
+    let s = &mut *s;
+    for h in hits.read() {
+        let Some((rig, gt)) = actors.iter().find(|(r, _)| r.reference == h.form_id) else { continue };
+        let Some(list) = creature_list(s, &d, actor_world.as_deref(), rig).filter(|l| !l.is_empty()) else { continue };
+        let kind = if h.died { creature_sound::DEATH } else { creature_sound::HIT };
+        let (pick, roll) = (s.rng.next_f32(), s.rng.next_f32());
+        let Some(sound) = pick_creature_sound(&list, kind, pick, roll) else { continue };
+        if h.died {
+            s.counts.creature_deaths += 1;
+        } else {
+            s.counts.creature_hits += 1;
+        }
+        debug!("anim sounds: creature {:08X} {}", h.form_id, creature_sound_type_name(kind));
+        out.write(PlaySound { sound: FormId(sound), at: Some(bevy_to_game(gt.translation()).to_array()) });
+    }
+}
+
+/// The player leaving the ground going up (a jump) or coming down after a while in the
+/// air (a landing): the ground's `FST…Jump` / `FST…Land` sound, at the listener.
+fn jumps_and_landings(s: &mut AnimSounds, out: &mut MessageWriter<PlaySound>, phys: &mut Option<ResMut<PhysState>>, d: &PlayWorld, world: u32, player: &Player) {
+    let Some(p) = phys.as_deref_mut() else { return };
+    let Some((grounded, vz, air, swimming, key)) = p.player.as_ref().map(|c| (c.grounded, c.vertical_speed, c.air_time, c.swimming, c.key())) else { return };
+    let was = s.air.replace((grounded, air));
+    let Some((was_grounded, was_air)) = was else { return };
+    let what = if was_grounded && !grounded && vz > JUMP_SPEED {
+        "Jump"
+    } else if !was_grounded && grounded && was_air >= LAND_AIR {
+        "Land"
+    } else {
+        return;
+    };
+    if swimming {
+        return;
+    }
+    let (family, _) = ground(s, p, d, world, player.feet, vec![key]);
+    let Some(sound) = s.first_of(&[format!("FST{family}{what}"), format!("FSTDirt{what}")]) else { return };
+    if what == "Jump" {
+        s.counts.jumps += 1;
+    } else {
+        s.counts.landings += 1;
+    }
+    debug!("anim sounds: the player {} on {family}", if what == "Jump" { "jumps" } else { "lands" });
+    out.write(PlaySound { sound, at: None });
 }
 
 /// Doors' sounds, where the door is drawn.
@@ -464,7 +654,7 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<AnimSounds>) {
     let mut unknown: Vec<&String> = s.unknown.iter().collect();
     unknown.sort();
     info!(
-        "anim sounds summary: {} footsteps ({} by the player, {} by actors; ground: {}), {} armour rustles, {} reload keys, {} other sound keys, {} door sounds ({} from door records), {} keys without a SOUN{}",
+        "anim sounds summary: {} footsteps ({} by the player, {} by actors; ground: {}), {} armour rustles, {} reload keys, {} other sound keys, {} door sounds ({} from door records), {} keys without a SOUN{}; creatures: {} sounds ({}), {} hits, {} deaths, {} keys of a type not listed; the player jumped {} and landed {} times",
         c.footsteps_player + c.footsteps_actors,
         c.footsteps_player,
         c.footsteps_actors,
@@ -475,7 +665,14 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<AnimSounds>) {
         c.door_sounds + c.door_record_sounds,
         c.door_record_sounds,
         c.unknown_keys,
-        if unknown.is_empty() { String::new() } else { format!(" ({})", unknown.iter().take(8).map(|u| u.as_str()).collect::<Vec<_>>().join(", ")) }
+        if unknown.is_empty() { String::new() } else { format!(" ({})", unknown.iter().take(8).map(|u| u.as_str()).collect::<Vec<_>>().join(", ")) },
+        c.creature.values().sum::<u32>(),
+        if c.creature.is_empty() { "-".to_string() } else { c.creature.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ") },
+        c.creature_hits,
+        c.creature_deaths,
+        c.creature_unlisted,
+        c.jumps,
+        c.landings
     );
 }
 
@@ -487,7 +684,7 @@ impl Plugin for AnimSoundsPlugin {
         app.init_resource::<AnimSounds>()
             .add_systems(
                 Update,
-                (player_keys.after(BodySet), actor_keys.after(crate::locomotion::drive), door_sounds.after(nvf_play::doors::DoorSystems)).chain(),
+                (player_keys.after(BodySet), actor_keys.after(crate::locomotion::drive), door_sounds.after(nvf_play::doors::DoorSystems), creature_hits).chain(),
             )
             .add_systems(Last, report);
     }
@@ -521,20 +718,23 @@ mod tests {
         let p: Playing = (Who::Player(true), 1, 10);
         // Just started: heard from its start.
         let last = HashMap::new();
-        assert_eq!(keys_of(&last, &mut seen, p, &c, 0.05, false), vec![KeySound::Sound("A")]);
+        fn parsed(v: Vec<&str>) -> Vec<KeySound<'_>> {
+            v.into_iter().filter_map(parse).collect()
+        }
+        assert_eq!(parsed(keys_of(&last, &mut seen, p, &c, 0.05, false)), vec![KeySound::Sound("A")]);
         // First seen part-way: nothing until the next frame.
         assert!(keys_of(&last, &mut seen, p, &c, 0.5, false).is_empty());
         let last: HashMap<Playing, f32> = [(p, 0.3)].into();
-        assert_eq!(keys_of(&last, &mut seen, p, &c, 0.5, false), vec![KeySound::Foot(Side::Left)]);
+        assert_eq!(parsed(keys_of(&last, &mut seen, p, &c, 0.5, false)), vec![KeySound::Foot(Side::Left)]);
         // Round the end of a loop.
         let last: HashMap<Playing, f32> = [(p, 0.8)].into();
-        assert_eq!(keys_of(&last, &mut seen, p, &c, 0.1, false), vec![KeySound::Sound("A"), KeySound::Foot(Side::Right)]);
+        assert_eq!(parsed(keys_of(&last, &mut seen, p, &c, 0.1, false)), vec![KeySound::Sound("A"), KeySound::Foot(Side::Right)]);
         // Held at the end: nothing again.
         let last: HashMap<Playing, f32> = [(p, 1.0)].into();
         assert!(keys_of(&last, &mut seen, p, &c, 1.0, false).is_empty());
         // A clip played once, started again part-way (the next round of a reload): heard
         // from its start, not round its end.
         let last: HashMap<Playing, f32> = [(p, 0.6)].into();
-        assert_eq!(keys_of(&last, &mut seen, p, &c, 0.05, true), vec![KeySound::Sound("A")]);
+        assert_eq!(parsed(keys_of(&last, &mut seen, p, &c, 0.05, true)), vec![KeySound::Sound("A")]);
     }
 }

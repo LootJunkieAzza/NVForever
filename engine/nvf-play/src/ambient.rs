@@ -12,13 +12,18 @@
 //!   names a looping sound for dawn, afternoon, dusk and night
 //!   (`AcousticSpace::loop_at`); it plays at the listener and gives way to the next
 //!   over [`BED_FADE`] seconds [design].
+//! - **Things that sound while they are there** ([`SoundSource`], sent every frame by
+//!   `crate::world_sounds` for activators', containers' and doors' looping sounds and by
+//!   nvforever for creatures' conscious and movement loops): played as a sound marker of
+//!   that sound at that place [design], following it as it moves.
 //! - Loops are decoded as they play (WAV or Ogg Vorbis, [`LayeredMusic`] with one file),
-//!   so a long one costs no more memory than its file.
+//!   so a long one costs no more memory than its file. Placed loops are panned
+//!   ([`crate::sfx::Panned`], as the sound effects are), the background loop is not.
 //! - The Esc pause menu and a loading screen hold the loops; other menus do not
 //!   [design].
 //! - Not built: sound markers that neither loop nor play at random (played by scripts
-//!   or once), Random Location, Start at Random Position, Mute When Submerged, panning,
-//!   an acoustic space's reverb environment, walla and region sounds (REGN `RDSD`).
+//!   or once), Random Location, Start at Random Position, Mute When Submerged, an
+//!   acoustic space's reverb environment, walla and region sounds (REGN `RDSD`).
 //!
 //! Switched off with the sound effects (`nvforever --no-sound`). An `ambient summary`
 //! line at the end.
@@ -26,10 +31,10 @@
 use crate::music::{cell_at, game_hour, AudioPlaces, LayeredMusic, Space};
 use crate::pause::Paused;
 use crate::player::Player;
-use crate::sfx::{distance_gain, one_shot, resolve, static_gain, PcmSound, Sfx, SfxSettings};
+use crate::sfx::{distance_gain, one_shot_heard, pan_gains, resolve, static_gain, Pan, Panned, PcmSound, Sfx, SfxSettings, SoundSource};
 use crate::sim::SimState;
 use crate::{Location, PlayState, PlayWorld};
-use bevy::audio::AudioSinkPlayback;
+use bevy::audio::{AddAudioSource, AudioSinkPlayback};
 use bevy::prelude::*;
 use fnv_sim::FormId;
 use fnv_world::audio;
@@ -57,10 +62,11 @@ pub fn in_hours(start: f32, stop: f32, hour: f32) -> bool {
     }
 }
 
-/// A loop being played: its entity and the level it is mixed at.
+/// A loop being played: its entity, the level it is mixed at and, at a place, its pan.
 struct Playing {
     entity: Entity,
     level: Arc<[AtomicU32; 3]>,
+    pan: Option<Pan>,
 }
 
 impl Playing {
@@ -85,10 +91,10 @@ struct AmbientSound;
 #[derive(Resource, Default)]
 pub struct Ambient {
     space: Option<Space>,
-    /// Looping markers that sound, by reference.
-    loops: HashMap<u32, Playing>,
-    /// Random markers: the real time until which each still sounds.
-    busy_until: HashMap<u32, f64>,
+    /// Looping markers that sound, by reference, and sources, by key.
+    loops: HashMap<u64, Playing>,
+    /// Random markers and sources: the real time until which each still sounds.
+    busy_until: HashMap<u64, f64>,
     next_roll: f64,
     /// CELL `XCAS` by cell.
     spaces: HashMap<u32, Option<u32>>,
@@ -99,14 +105,27 @@ pub struct Ambient {
     pub loops_started: u32,
     pub random_played: u32,
     pub beds_started: u32,
+    /// Of [`SoundSource`]s: loops started, random sounds played, sources heard.
+    pub source_loops_started: u32,
+    pub source_random_played: u32,
+    sources_heard: std::collections::HashSet<u64>,
+}
+
+/// A marker or a source in earshot, this frame.
+struct Heard {
+    key: u64,
+    sound: u32,
+    at: [f32; 3],
+    source: bool,
 }
 
 fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
 }
 
-/// Start a SOUN going round, silent; the record's static gain with it.
-fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, assets: &mut Assets<LayeredMusic>, sound: u32) -> Option<(Playing, f32)> {
+/// Start a SOUN going round, silent; the record's static gain with it. With `pan` it
+/// plays at a place.
+fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, assets: &mut Streams, sound: u32, pan: Option<Pan>) -> Option<(Playing, f32)> {
     let (s, name, path) = resolve(sfx, vfs, FormId(sound))?;
     let bytes = amb
         .files
@@ -130,9 +149,16 @@ fn start_loop(commands: &mut Commands, amb: &mut Ambient, sfx: &mut Sfx, vfs: &f
     };
     debug!("ambient: {name} {path} loops");
     let speed = (1.0 + s.frequency_adjust_percent / 100.0).clamp(0.25, 4.0);
-    let entity = commands.spawn((AudioPlayer::<LayeredMusic>(assets.add(music)), PlaybackSettings::DESPAWN.with_speed(speed), AmbientSound)).id();
-    Some((Playing { entity, level }, static_gain(&s)))
+    let playback = PlaybackSettings::DESPAWN.with_speed(speed);
+    let entity = match &pan {
+        Some(pan) => commands.spawn((AudioPlayer::<Panned<LayeredMusic>>(assets.1.add(Panned { inner: music, pan: pan.clone() })), playback, AmbientSound)).id(),
+        None => commands.spawn((AudioPlayer::<LayeredMusic>(assets.0.add(music)), playback, AmbientSound)).id(),
+    };
+    Some((Playing { entity, level, pan }, static_gain(&s)))
 }
+
+/// The loops' stream assets: as they are (background loops) and panned (placed ones).
+type Streams<'a> = (ResMut<'a, Assets<LayeredMusic>>, ResMut<'a, Assets<Panned<LayeredMusic>>>);
 
 #[allow(clippy::too_many_arguments)]
 fn play(
@@ -142,18 +168,19 @@ fn play(
     mut amb: ResMut<Ambient>,
     places: Option<Res<AudioPlaces>>,
     sfx: Option<ResMut<Sfx>>,
-    d: Res<PlayWorld>,
-    loc: Res<Location>,
-    sim: Res<SimState>,
-    state: Res<State<PlayState>>,
-    paused: Res<Paused>,
+    (d, loc, sim): (Res<PlayWorld>, Res<Location>, Res<SimState>),
+    (state, paused): (Res<State<PlayState>>, Res<Paused>),
     player: Option<Res<Player>>,
     data: Option<Res<nvf_assets::GameData>>,
     mut pcm: ResMut<Assets<PcmSound>>,
-    mut streams: ResMut<Assets<LayeredMusic>>,
+    mut streams: Streams,
+    mut sources: MessageReader<SoundSource>,
     sinks: Query<&AudioSink, With<AmbientSound>>,
 ) {
-    let (Some(places), Some(mut sfx), Some(player), Some(data)) = (places, sfx, player, data) else { return };
+    let (Some(places), Some(mut sfx), Some(player), Some(data)) = (places, sfx, player, data) else {
+        sources.clear();
+        return;
+    };
     let (amb, sfx) = (&mut *amb, &mut *sfx);
     let held = paused.0 || *state.get() == PlayState::Loading;
     let now = time.elapsed_secs_f64();
@@ -173,35 +200,66 @@ fn play(
     if roll {
         amb.next_roll = now + 1.0;
     }
+    // The markers of this place that are enabled, then the sources sent this frame (the
+    // last word for each key).
     let markers = if settings.play { places.sounds.get(&space).map_or(&[][..], Vec::as_slice) } else { &[] };
-    let mut sounding: Vec<u32> = Vec::new();
-    for m in markers {
+    let mut heard: Vec<Heard> = markers
+        .iter()
+        .filter(|m| sim.world.is_enabled(FormId(m.ref_id)).unwrap_or(!m.initially_disabled))
+        .map(|m| Heard { key: u64::from(m.ref_id), sound: m.sound, at: m.position, source: false })
+        .collect();
+    let mut sent: HashMap<u64, Heard> = HashMap::new();
+    for s in sources.read() {
+        sent.insert(s.key, Heard { key: s.key, sound: s.sound.0, at: s.at, source: true });
+    }
+    if settings.play {
+        let mut sent: Vec<Heard> = sent.into_values().collect();
+        sent.sort_by_key(|h| h.key);
+        heard.extend(sent);
+    }
+    let mut sounding: Vec<u64> = Vec::new();
+    for m in heard {
         let Some(s) = sfx.forms.sounds.get(&FormId(m.sound)) else { continue };
-        let dist = distance(m.position, eye);
-        let playing = amb.loops.contains_key(&m.ref_id);
+        let dist = distance(m.at, eye);
+        let playing = amb.loops.contains_key(&m.key);
         if s.max_distance <= 0.0 || dist >= s.max_distance * if playing { LEAVE } else { 1.0 } {
             continue;
         }
-        if !in_hours(s.start_hour, s.stop_hour, hour) || !sim.world.is_enabled(FormId(m.ref_id)).unwrap_or(!m.initially_disabled) {
+        if !in_hours(s.start_hour, s.stop_hour, hour) {
             continue;
+        }
+        if m.source && amb.sources_heard.insert(m.key) {
+            debug!("ambient: source {:X} sounds {} at {:?}", m.key, s.edid.as_deref().unwrap_or("?"), m.at);
         }
         if s.has("Loop") {
             let gain = static_gain(s) * distance_gain(s, dist) * volume;
-            sounding.push(m.ref_id);
-            if let Some(p) = amb.loops.get(&m.ref_id) {
+            sounding.push(m.key);
+            if let Some(p) = amb.loops.get(&m.key) {
                 p.set(gain);
+                if let Some(pan) = &p.pan {
+                    pan.set(pan_gains(eye, player.heading, m.at));
+                }
             } else if !held {
-                let Some((p, _)) = start_loop(&mut commands, amb, sfx, &data.vfs, &mut streams, m.sound) else { continue };
+                let pan = Pan::new(pan_gains(eye, player.heading, m.at));
+                let Some((p, _)) = start_loop(&mut commands, amb, sfx, &data.vfs, &mut streams, m.sound, Some(pan)) else { continue };
                 p.set(gain);
-                amb.loops.insert(m.ref_id, p);
-                amb.loops_started += 1;
+                amb.loops.insert(m.key, p);
+                if m.source {
+                    amb.source_loops_started += 1;
+                } else {
+                    amb.loops_started += 1;
+                }
             }
-        } else if s.has("Play At Random") && roll && amb.busy_until.get(&m.ref_id).is_none_or(|&t| now >= t) {
+        } else if s.has("Play At Random") && roll && amb.busy_until.get(&m.key).is_none_or(|&t| now >= t) {
             let chance = s.random_chance_percent / 100.0;
             if sfx.rng.next_f32() < chance {
-                if let Some(seconds) = one_shot(&mut commands, sfx, &data.vfs, &mut pcm, &settings, FormId(m.sound), Some(m.position), Some(eye)) {
-                    amb.busy_until.insert(m.ref_id, now + seconds as f64);
-                    amb.random_played += 1;
+                if let Some(seconds) = one_shot_heard(&mut commands, sfx, &data.vfs, &mut pcm, &settings, FormId(m.sound), Some(m.at), Some(&player)) {
+                    amb.busy_until.insert(m.key, now + seconds as f64);
+                    if m.source {
+                        amb.source_random_played += 1;
+                    } else {
+                        amb.random_played += 1;
+                    }
                 }
             }
         }
@@ -224,7 +282,7 @@ fn play(
             amb.beds_leaving.push(old);
         }
         if let Some(sound) = wanted {
-            let started = start_loop(&mut commands, amb, sfx, &data.vfs, &mut streams, sound);
+            let started = start_loop(&mut commands, amb, sfx, &data.vfs, &mut streams, sound, None);
             amb.beds_started += started.is_some() as u32;
             // A sound without a file is remembered too, so it is not asked for again.
             let gain = started.as_ref().map_or(0.0, |s| s.1);
@@ -261,7 +319,15 @@ fn play(
 
 fn report(mut exit: MessageReader<AppExit>, amb: Res<Ambient>) {
     if exit.read().last().is_some() {
-        info!("ambient summary: {} placed loops started, {} random sounds played, {} background loops started", amb.loops_started, amb.random_played, amb.beds_started);
+        info!(
+            "ambient summary: {} placed loops started, {} random sounds played, {} background loops started; things that sound (activators, containers, doors, creatures): {} heard, {} loops started, {} random sounds played",
+            amb.loops_started,
+            amb.random_played,
+            amb.beds_started,
+            amb.sources_heard.len(),
+            amb.source_loops_started,
+            amb.source_random_played
+        );
     }
 }
 
@@ -269,7 +335,10 @@ pub struct AmbientPlugin;
 
 impl Plugin for AmbientPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Ambient>().add_systems(Update, play.after(crate::PlaySet::Activation)).add_systems(Last, report);
+        app.init_resource::<Ambient>()
+            .add_audio_source::<Panned<LayeredMusic>>()
+            .add_systems(Update, play.after(crate::PlaySet::Activation))
+            .add_systems(Last, report);
     }
 }
 

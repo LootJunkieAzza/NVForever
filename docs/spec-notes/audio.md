@@ -121,7 +121,7 @@ outro sounds and `PlayMusic`: §13.
   and folders hold `.ogg` takes.
 
 Not built: markers that neither loop nor play at random, Random Location, Start at
-Random Position, Mute When Submerged, panning.
+Random Position, Mute When Submerged. Panning: §14.5.
 
 ## 6. Background loops
 
@@ -256,9 +256,9 @@ were not read.
   armour rustles, N reload keys, N other sound keys, N door sounds (N from door
   records), N keys without a SOUN`; per sound with
   `RUST_LOG=info,nvforever::anim_sounds=debug` (`trace` adds what is underfoot).
-- Not built: creature sound types (`Enum: BackLeft`, `Auxiliary…`, `Idle`, …; CREA
-  CSDT), landing and jumping (`FST…Land`/`Jump`), stairs on the landscape, wading
-  (ground under water), a door record's looping sound (BNAM), load doors' sounds.
+- Built since (§14): creature sound types, the player's landing and jumping, wading, a
+  door record's looping sound (BNAM), load doors' sounds. Stairs on the landscape: the
+  data has none (§14.2).
 
 ## 11. World and script sounds
 
@@ -411,9 +411,9 @@ Log: `impact: …` (debug: collision material, impact material, IPCT, sounds), `
 scripts; at the end `world sounds summary: …`. Smoke tests in CLAUDE.md (the bottles,
 the house).
 
-Not built: an activator's looping sound (ACTI `SNAM`), a container's random or looping
-one (CONT `RNAM`), the casings' PHY sounds, two loose bodies knocking each other told
-apart from one on the ground, loudness by how hard a knock is, panning.
+Not built: two loose bodies knocking each other told apart from one on the ground,
+loudness by how hard a knock is. Objects' own sounds (ACTI `SNAM`, CONT `RNAM`), the
+casings' sounds and panning: §14.
 
 ## 12. Menu sounds
 
@@ -677,3 +677,139 @@ Seen [observed 2026-10-11, `nvforever --play`, the owner's load order]:
   a group, and whether the original plays the intro before the loop or over it.
 - What a dungeon set's "suspense" answers to, and how a controller with both dungeon
   sets and a battle list chooses.
+
+## 14. Creatures, movement, objects' own sounds, placement
+
+Owner request 2026-10-11: the remaining "not built" sounds. Code:
+`fnv_actor::anim_sounds` (the creature records, key → type), nvforever `anim_sounds.rs`
+(creatures, jumps, landings, wading) and `shot_fx.rs` (casings), `nvf_play::world_sounds`
+(objects' own sounds, load doors), `nvf_play::ambient` (sources played like sound
+markers), `nvf_play::sfx` (panning). Survey: the example `fnv-actor
+creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r`,
+`--soun <prefix>`).
+
+### 14.1 Creatures
+
+- **The records** [documented: xEdit wbDefinitionsFNV.pas CREA, wbCSDT,
+  wbSoundTypeSounds; `schemas/fnv/gameplay.json`]: `CSDT` a sound type, then pairs of
+  `CSDI` a sound and `CSDC` its chance; `CSCR` "Inherits Sounds from" a creature. The
+  types: Left Foot, Right Foot, Left Back Foot, Right Back Foot, Idle, Aware, Attack, Hit,
+  Death, Weapon, Movement Loop, Conscious Loop, Auxiliary 1–8, then (xEdit lists
+  "Auxiliary 8" twice, numbering the rest one higher) Jump and PlayRandom/Loop.
+- **Counts** [observed]: 1,578 CREA. 86 list sounds themselves (most named
+  `AudioTemplate…`), 999 only inherit them (`CSCR`), none do both, 468 only have a
+  template (`TPLT`: 443 a leveled list, 25 a creature), 25 neither; 1,085 have sounds
+  after following `CSCR`. Every type a creature lists holds one sound (704 type lists).
+  Types listed (creatures): Left/Right Foot 72, Back feet 34, Idle 46, Aware 15, Attack
+  40, Hit 32, Death 66, Movement Loop 12, Conscious Loop 37, Auxiliary 1–8 45 to 16,
+  type 21 3; Weapon none, type 20 none. Chances: 100 on 541 of the 704, the rest 5–90.
+- **Type 21** holds `NPCSecuritronSiren` on the three Securitron templates [observed]:
+  a siren, not a jump; read with the observation that type 20 is never used, the game's
+  numbering is likely Auxiliary 8 = 19, Jump = 20, PlayRandom/Loop = 21 [hypothesis].
+  Not played.
+- **Examples** [observed]: `AudioTemplateGecko` Left/Right Foot `NPCGeckoFootLeft`/
+  `Right`, back feet `NPCGeckoFootRun…`, Attack `NPCGeckoSnarl` 50%, Hit
+  `NPCFeralGhoulInjured`, Death `NPCGeckoDeath`, Auxiliary 1–7 voices, swing, chomp,
+  jump; `AudioTemplateBigHorner` (Goodsprings' bighorners) feet `NPCBigHorner…FootL/R`,
+  Idle `NPCBrahminIdleBreathing` 50%, Hit and Aware `NPCBigHornerInjured`, Death
+  `NPCBighornerDeath`, Conscious Loop `NPCBigHornerConsciousLP` 50% (a folder, flagged
+  Play At Random), Auxiliary 1–4; `NVCrRaven` only Auxiliary 1 and 3 (take-off and fly
+  away); `AudioTemplateSecuritron` Movement Loop and Conscious Loop (files `…_lp.wav`).
+- **The keys** [observed, `kf_sound_keys` over `Fallout - Meshes.bsa`]: creature clips
+  carry `Enum: BackLeft` (136), `BackRight` (77), `Idle` (22), `Aware` (9), `Attack` (17,
+  and `attack` 11), `Hit` (3, the cazador's hit clips), `Auxiliary1`–`8` (54, 261, 51,
+  39, 39, 28, 23, 28; once `Auxiliary 3`), beside `Left`/`Right`. The bighorner's idle
+  clip has `BackLeft` at 4.5, 9.1, 11.1 and 14.0 s; its walk `Left`/`Right`; its run the
+  back feet and `Auxiliary2`; the raven's fly-away `Auxiliary1` at 0 s and `Auxiliary3`
+  at 2.4 s.
+- **As built**: the sounds are the creature's own list, else `CSCR`'s (followed up to
+  five times) [hypothesis: an own list wins; none has both], of the creature a leveled
+  list picked, else of the one placed. An `Enum:` key plays one of its type's sounds at
+  its chance (`fnv_actor::anim_sounds::creature_key_type`, `pick_creature_sound`)
+  [hypothesis: the keys name the types, one to one by name], at the creature, at most
+  once per 0.2 s per type [design]. Hit and Death play when combat reports a hit or a
+  death (`ActorHit`) [hypothesis]; `Enum: Hit` keys are not played again [design].
+  A living creature within 3,000 units sounds its Conscious Loop (the chance rolled once
+  per creature [design]) and while it moves (over 20 units/s) its Movement Loop, as
+  sources the ambient plays like sound markers (§14.3). A creature without sounds steps
+  like a person (§10.2). Not built: Aware (only through keys: nothing tells a creature
+  became aware yet; detection exists but combat AI does not), Attack beyond the keys
+  (creatures do not attack yet), Weapon, the type-21 sound.
+
+### 14.2 The player's movement
+
+- **Jumps and landings** [hypothesis: by the names]: `FST<family>Jump` when the player
+  leaves the ground going up faster than 100 units/s, `FST<family>Land` on touching
+  down after at least 0.4 s in the air [design: the thresholds], of the ground under the
+  feet (§10.2), else `FSTDirtJump`/`Land`; at the listener. Not while swimming.
+  `FSTDirtJump` names `fx\xxx_placeholder_silence.wav` [observed].
+- **Wading** [design]: feet more than 2 units under a water surface (the cell's water or
+  a placed water volume) step on Water (`FSTWaterWalkL`…, files `fx\fst\water\…`).
+- **Stairs on the landscape** do not exist in the data: the 89 landscape textures' Havok
+  materials are 0 (10), 2 (47), 4 (12), 10 (3), 18 (7) and 19 (10), none a stairs code
+  (64–127) [observed].
+- Not built: actors' jumps and landings (actors do not jump).
+
+### 14.3 Objects' own sounds
+
+- **The fields** [documented: xEdit]: ACTI `SNAM` Sound - Looping, CONT `RNAM` Sound -
+  Random/Looping, DOOR `BNAM` Sound - Looping. In FalloutNV.esm [observed]: 216 of 1,143
+  activators name one (Play At Random 164, Loop 49, neither 3), 144 of 2,478 containers
+  (Loop 86, Play At Random 39, neither 19), 3 of 320 doors (`EMTWoodFence`, Play At
+  Random); placed: 1,518 activators, 909 containers, 15 doors. Around Goodsprings: the
+  mailboxes and dumpsters (`EMTSandOnMetal`), the picket-fence gates (`EMTWoodFence`),
+  the saloon's exit triggers (`EMTWaterPressure`).
+- **As built** [design]: each such reference, while enabled, is a source at its place;
+  the ambient plays it as it plays a sound marker of that sound (§5: Loop goes round
+  within the sound's reach, Play At Random rolls its chance once a second, hours apply).
+  Sounds with neither flag are not played.
+- **Load doors** [hypothesis]: activating a door that leads elsewhere plays its open sound
+  (DOOR `SNAM`) at the listener as the player goes through.
+
+### 14.4 Shell casings
+
+FalloutNV.esm has `PHYCasingPistol`, `PHYCasingRifle` and `PHYCasingShotgun` (folders
+`fx\phy\weapon\casing_pistol\` …) and no field links them to a weapon [observed]. 78
+weapons name a casing model (WEAP `MOD2`): `assaultrifleshellcasing` 23, `grenadefrag`
+13, `45calcasing` 11 (the 10mm pistol's), `762mmcasing` 10, `shotgunshellcasing` 6,
+`eccellcasing` 6, others 1 or 2 [observed]. As built: the sound by the model's name
+(shotgun → Shotgun; .45, .357, .44, 10mm, 9mm, pistol and energy cells → Pistol; the rest
+Rifle) [hypothesis]; a bounce from 60 units/s plays it where the casing lands, up to
+three times a casing [design].
+
+### 14.5 Panning
+
+How the game places sounds in stereo is not known. As built [design]
+(`nvf_play::sfx::pan_gains`): a sound with a place is mixed to one channel and played in
+stereo; the ear facing it hears it whole, the other loses up to 0.7 of it by how far to
+the side it is (ahead, behind, above, below: both ears alike). The listener is the
+player's eye and heading, followed while the sound plays. Panned: effects at a place
+(impacts, knocks, actors' and creatures' sounds, doors, items, `PlaySound3D`), placed
+loops and random markers, objects' and creatures' sources, radios. Not panned: sounds at
+the listener (the player's own, interface), background loops, music, voices (a
+recorded decision: voice plays flat, voice.md).
+
+### 14.6 Reverb (not built)
+
+ASPC `ANAM` is an environment type [documented: xEdit]: None, Default, Generic, Padded
+Cell, Room, Bathroom, Livingroom, Stone Room, Auditorium, Concerthall, Cave, Arena,
+Hangar, Carpeted Hallway, Hallway, Stone Corridor, Alley, Forest, City, Mountains,
+Quarry, Plain, Parkinglot, Sewerpipe, Underwater, Small Room … Large Hall, Plate: the
+names of the I3DL2 / EAX reverb presets [hypothesis: the game hands the preset to its
+audio library]. Used in FalloutNV.esm [observed]: Small Room 26, Stone Corridor 25,
+Auditorium 23, Medium Room 15, Large Room 10, Cave 5, Medium Hall 3, Mountains 2,
+Livingroom, Sewerpipe, Stone Room and None 1 each. Not built: no reverb is applied; the
+preset values would need a documented source.
+
+### 14.7 Checks
+
+Log: the `anim sounds summary` ends `creatures: N sounds (<type> n, …), N hits, N deaths,
+N keys of a type not listed; the player jumped N and landed N times`; the `ambient
+summary` ends `things that sound (activators, containers, doors, creatures): N heard, N
+loops started, N random sounds played`; the `world sounds summary` ends `N load doors; N
+objects' own sounds in reach`; the `shot fx` line ends `N casing knocks heard`. Per
+sound with `RUST_LOG=info,nvforever::anim_sounds=debug,nvf_play::ambient=debug`. Seen
+[observed 2026-10-11, Goodsprings by the bighorner pen]: the bighorners' idle `Left Back
+Foot` (12 in 25 s), their conscious sound now and then, 4 hits and a death of
+00109A39 with its Hit and Death sounds, the player's jump and landing on dirt, 10
+casing knocks of 5 10mm casings. Smoke test in CLAUDE.md.

@@ -57,8 +57,9 @@
 //!   full level; by distance from a receiver or actor the radio template's (the station's
 //!   `INAM`, else the receiver's) minimum and maximum distance as
 //!   `crate::sfx::distance_gain` uses them; without either template 150 and 1800 units
-//!   (the AMLRadio template's). Not panned. A receiver is heard only within that maximum
-//!   distance.
+//!   (the AMLRadio template's). Receivers and actors are panned as the sound effects are
+//!   (`crate::sfx::Panned`, `SoundAt`); the Pip-Boy plays flat, at the listener. A
+//!   receiver is heard only within that maximum distance.
 //! - **Subtitles** [design]: the talk line (not a song) heard loudest, at a quarter of
 //!   full level or more, is shown with the station's name as the speaker
 //!   ([`RadioSubtitle`], drawn by `crate::script_hud`).
@@ -78,7 +79,7 @@ use crate::music::Space;
 use crate::pause::Paused;
 use crate::player::Player;
 use crate::script::{with_world, ScriptState};
-use crate::sfx::{distance_gain, static_gain, Sfx, SfxSettings};
+use crate::sfx::{distance_gain, static_gain, Panned, Sfx, SfxSettings, SoundAt};
 use crate::sim::SimState;
 use crate::voice::VoiceState;
 use crate::{Location, PlayState, PlayWorld};
@@ -643,6 +644,8 @@ struct Want {
     into: f64,
     /// A line's response: the line, the response, a song.
     response: Option<(FormId, usize, bool)>,
+    /// Where it is, for panning; `None`: flat (the Pip-Boy).
+    at: Option<[f32; 3]>,
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -659,8 +662,8 @@ fn play(
     (loc, state, paused, pw): (Res<Location>, Res<State<PlayState>>, Res<Paused>, Res<PlayWorld>),
     player: Option<Res<Player>>,
     data: Option<Res<nvf_assets::GameData>>,
-    (mut assets, mut subtitle): (ResMut<Assets<RadioSound>>, ResMut<RadioSubtitle>),
-    sinks: Query<&AudioSink, With<RadioEntity>>,
+    (mut assets, mut panned, mut subtitle): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>, ResMut<RadioSubtitle>),
+    (sinks, mut placed): (Query<&AudioSink, With<RadioEntity>>, Query<&mut SoundAt, With<RadioEntity>>),
 ) {
     let (Some(places), Some(sfx), Some(player), Some(data)) = (places, sfx, player, data) else { return };
     let Some(bank) = voice.bank.clone() else { return };
@@ -742,8 +745,9 @@ fn play(
         radio.logged_pipboy = Some(logged);
     }
 
-    // Everything that plays a station now: (key, station base, gain by distance, Pip-Boy).
-    let mut heard: Vec<(u32, u32, f32, bool)> = Vec::new();
+    // Everything that plays a station now: (key, station base, gain by distance, Pip-Boy,
+    // where it is: `None` for the Pip-Boy, which is not panned).
+    let mut heard: Vec<(u32, u32, f32, bool, Option<[f32; 3]>)> = Vec::new();
     let receivers = if settings.play { places.receivers.get(&space).map_or(&[][..], Vec::as_slice) } else { &[] };
     for r in receivers {
         let t = template(&places, &sfx, r.station, Some(r.base));
@@ -764,7 +768,7 @@ fn play(
         if !on || !sim.world.is_enabled(id).unwrap_or(!r.initially_disabled) || !places.station_ref.contains_key(&r.station) {
             continue;
         }
-        heard.push((r.ref_id, r.station, distance_gain(&t, d), false));
+        heard.push((r.ref_id, r.station, distance_gain(&t, d), false, Some(r.position)));
     }
     if settings.play {
         for (&actor, &station_ref) in &rt.game.radio.npc_radios {
@@ -783,10 +787,10 @@ fn play(
             if radio.npc_heard.insert(actor.0) {
                 info!("radio: {actor} plays {} (SetNPCRadio)", name(&places, base));
             }
-            heard.push((actor.0, base, distance_gain(&t, d), false));
+            heard.push((actor.0, base, distance_gain(&t, d), false, Some(s.pos)));
         }
         if let (Some((_, base)), Some(share)) = (pip_station, pip_share) {
-            heard.push((PIPBOY, base, 1.0 - share, true));
+            heard.push((PIPBOY, base, 1.0 - share, true, None));
         }
     }
 
@@ -884,7 +888,7 @@ fn play(
     // station's loop (the Pip-Boy: static).
     let mut wants: Vec<Want> = Vec::new();
     let loop_of = |st: u32| places.forms.stations.get(&st).and_then(|s| s.looping).and_then(|id| sfx.forms.sounds.get(&FormId(id))).cloned();
-    for &(key, st, dgain, pipboy) in &heard {
+    for &(key, st, dgain, pipboy, at) in &heard {
         let p = radio.programmes.get(&st);
         match p.and_then(|p| p.on_air.as_ref()) {
             Some(on) => {
@@ -898,13 +902,14 @@ fn play(
                     level: part.gain * dgain,
                     into: now - on.started,
                     response: Some((on.info, part.response, part.song)),
+                    at,
                 });
             }
             None if p.is_some_and(|p| p.quiet) => {
                 let s = if pipboy { static_sound.clone() } else { loop_of(st) };
                 let Some(s) = s else { continue };
                 let Some(path) = sound_path(&s) else { continue };
-                wants.push(Want { key, station: st, track: Track::Loop(path.clone()), path, level: static_gain(&s) * dgain, into: 0.0, response: None });
+                wants.push(Want { key, station: st, track: Track::Loop(path.clone()), path, level: static_gain(&s) * dgain, into: 0.0, response: None, at });
             }
             // Between two lines.
             None => {}
@@ -912,7 +917,7 @@ fn play(
     }
     if let (Some((_, base)), Some(share), Some(s)) = (pip_station, pip_share.filter(|&x| x > 0.0 && settings.play), static_sound.as_ref()) {
         if let Some(path) = sound_path(s) {
-            wants.push(Want { key: PIPBOY_STATIC, station: base, track: Track::Loop(path.clone()), path, level: static_gain(s) * share, into: 0.0, response: None });
+            wants.push(Want { key: PIPBOY_STATIC, station: base, track: Track::Loop(path.clone()), path, level: static_gain(s) * share, into: 0.0, response: None, at: None });
         }
     }
 
@@ -934,6 +939,12 @@ fn play(
         if let Some(p) = radio.playing.get(&w.key) {
             if p.track == w.track {
                 p.level.store(gain.to_bits(), Ordering::Relaxed);
+                // An actor playing a station moves.
+                if let (Some(at), Ok(mut s)) = (w.at, placed.get_mut(p.entity)) {
+                    if s.at != at {
+                        s.at = at;
+                    }
+                }
                 continue;
             }
             commands.entity(p.entity).try_despawn();
@@ -952,7 +963,15 @@ fn play(
             continue;
         };
         level.store(gain.to_bits(), Ordering::Relaxed);
-        let entity = commands.spawn((AudioPlayer::<RadioSound>(assets.add(sound)), PlaybackSettings::DESPAWN, RadioEntity)).id();
+        let entity = match w.at {
+            // Panned where the receiver or actor is (`crate::sfx`).
+            Some(at) => {
+                let at = SoundAt::new(at, Some(&player));
+                let handle = panned.add(Panned { inner: sound, pan: at.pan.clone() });
+                commands.spawn((AudioPlayer::<Panned<RadioSound>>(handle), PlaybackSettings::DESPAWN, at, RadioEntity)).id()
+            }
+            None => commands.spawn((AudioPlayer::<RadioSound>(assets.add(sound)), PlaybackSettings::DESPAWN, RadioEntity)).id(),
+        };
         let who = match w.key {
             PIPBOY => "the Pip-Boy".to_string(),
             PIPBOY_STATIC => "the Pip-Boy's static".to_string(),
@@ -1058,6 +1077,7 @@ impl Plugin for RadioPlugin {
         app.init_resource::<Radio>()
             .init_resource::<RadioSubtitle>()
             .add_audio_source::<RadioSound>()
+            .add_audio_source::<Panned<RadioSound>>()
             .add_systems(Startup, (init, load_aids))
             .add_systems(Update, (pipboy_controls, play).chain().after(crate::PlaySet::Scripts))
             .add_systems(Last, report);

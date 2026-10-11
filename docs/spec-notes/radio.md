@@ -231,7 +231,8 @@ conditions are run on.
   looked at); DJ voice files at full level. By distance: the station's radio template,
   else the receiver's, else 150 / 1800 units (AMLRadio's), as `sfx::distance_gain`
   (full within the minimum, falling as minimum ÷ distance, faded out at the maximum).
-  The template's own static attenuation is not applied. Not panned.
+  The template's own static attenuation is not applied. Receivers and actors are panned
+  as the sound effects are (`crate::sfx::Panned`, audio.md §14.5) [design].
 - Pause: the Esc menu and loading screens hold sounds and programmes, as for placed
   loops (audio.md §7).
 - Subtitles [design]: the talk line (no sound form) heard loudest at a quarter of full
@@ -346,8 +347,8 @@ No texts are printed.
 ## 11. Open and not built
 
 - Not built: a Pip-Boy screen (the radio is keys and the log), the filter on SetNPCRadio
-  lines, `SetRadioToDialogueOnlyMode`, the signal found / lost sounds, panning and
-  reverb (the shared sfx helpers will carry them), the INI levels of §10.
+  lines, `SetRadioToDialogueOnlyMode`, the signal found / lost sounds, reverb, the INI
+  levels of §10.
 - Capture questions for the owner: whether a scriptless jukebox starts off and one
   activation switches it on; whether the unnamed Tops speakers start on; whether a quiet
   station's receivers play its looping sound (Hanlon's speakers before his confession);
