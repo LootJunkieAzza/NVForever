@@ -226,7 +226,10 @@ every PACK and IDLM subrecord of the six masters decodes with nothing left over
 
 In `fnv-game` (`ai.rs`; the rules one by one with their sources:
 docs/design/actor-behaviour.md §3): a script package first; else the first package of
-the list that is in its schedule, has the linked reference it needs, is not a Once Per
+the list (the actor's own, or that of its "AI Packages" template, followed through
+templates and leveled actor lists with the pick the actor is drawn with, as its factions
+are: factions.md §3; before 2026-10-11 a leveled base or template gave no list, which
+left 450 placed actors of FalloutNV.esm without packages) that is in its schedule, has the linked reference it needs, is not a Once Per
 Day package chosen within the last 24 hours, and whose conditions pass (the actor as
 the subject, the package's target as the target); with none valid the actor keeps its
 current list package (§4). `EvaluatePackage` always chooses; the periodic choice leaves
