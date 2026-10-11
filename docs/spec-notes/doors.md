@@ -43,7 +43,7 @@ Design: docs/design/navmesh.md §6.1 (doors and actors following paths). Code:
   [observed]. Sound keys read `sound: <SOUN editor ID>` or `Sound: <editor ID> <node>`
   (586 keys; e.g. `sound: DRSMetalUtilitySmallOpen`, `Sound: DRSVaultGearOpenSteam01
   SoundNodeSteam`) [observed]; the trailing name looks like the node the sound comes
-  from [hypothesis].
+  from [hypothesis]. NVForever plays them as the door passes them (audio.md §10).
 - **Lengths**: "Open" is most often 1.00 s (102 models) or 1.67 s (80), "Close" 0.97 s
   (101) or 1.67 s (74); the range is 0.03–25 s (vault doors are long) [observed].
   `UtlDoor01`: both 1.67 s, 47 tracks [observed].
