@@ -4235,6 +4235,8 @@ dependencies = [
  "fnv-voice",
  "fnv-world",
  "nvf-assets",
+ "rand_chacha",
+ "rand_core 0.9.5",
  "rodio",
  "serde",
  "serde_json",

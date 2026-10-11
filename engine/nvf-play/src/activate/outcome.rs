@@ -31,6 +31,8 @@ pub enum Action {
     Search,
     /// Activators and furniture: the base form's script would run (Layer 5).
     Activate,
+    /// A terminal: its screen opens (`crate::terminal`).
+    Access,
     /// A placed explosive (PGRE).
     Disarm,
 }
@@ -65,6 +67,8 @@ impl Action {
             Action::Talk => "Talk".into(),
             Action::Search => "Search".into(),
             Action::Activate => "Activate".into(),
+            // [hypothesis, hacking.md §8: the original's word for a terminal]
+            Action::Access => "Access".into(),
             Action::Disarm => "Disarm".into(),
         }
     }

@@ -279,6 +279,19 @@ pub struct MessageDef {
     pub display_seconds: Option<u32>,
 }
 
+/// A note (NOTE): its type and, for a text note, its text [documented: xEdit
+/// wbDefinitionsFNV.pas NOTE].
+#[derive(Debug, Clone, Default)]
+pub struct NoteDef {
+    pub name: Option<String>,
+    /// DATA: 0 Sound, 1 Text, 2 Image, 3 Voice.
+    pub kind: u8,
+    /// TNAM of a text note.
+    pub text: Option<String>,
+    /// XNAM of an image note: a texture path.
+    pub texture: Option<String>,
+}
+
 /// A terminal (TERM) [documented: xEdit wbDefinitionsFNV.pas TERM; schema
 /// `objects.json`; docs/spec-notes/hacking.md §1].
 #[derive(Debug, Clone, Default)]
@@ -524,6 +537,8 @@ pub struct GameData {
     pub messages: HashMap<FormId, MessageDef>,
     /// Terminals (TERM), with their menu items' result scripts.
     pub terminals: HashMap<FormId, TerminalDef>,
+    /// Notes (NOTE).
+    pub notes: HashMap<FormId, NoteDef>,
     pub form_lists: HashMap<FormId, Vec<FormId>>,
     /// MICN (Menu Icon) ICON: the icon's texture file as the record names it, under
     /// the textures folder [documented: GECK wiki, MenuIcon; corner-messages.md §3].
@@ -646,6 +661,7 @@ struct Read {
     topic: Option<TopicDef>,
     message: Option<MessageDef>,
     terminal: Option<TerminalDef>,
+    note: Option<NoteDef>,
     form_list: Option<Vec<FormId>>,
     menu_icon: Option<String>,
     actor: Option<ActorDef>,
@@ -706,6 +722,7 @@ impl GameData {
             package_defs: HashMap::new(),
             messages: HashMap::new(),
             terminals: HashMap::new(),
+            notes: HashMap::new(),
             form_lists: HashMap::new(),
             menu_icons: HashMap::new(),
             actors: HashMap::new(),
@@ -821,6 +838,9 @@ impl GameData {
             if let Some(mut t) = r.topic {
                 t.form = id;
                 d.topic_defs.insert(id, t);
+            }
+            if let Some(n) = r.note {
+                d.notes.insert(id, n);
             }
             if let Some(m) = r.message {
                 d.messages.insert(id, m);
@@ -1037,6 +1057,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"DIAL"
             | b"MESG"
             | b"TERM"
+            | b"NOTE"
             | b"MICN"
             | b"FLST"
             | b"NPC_"
@@ -1366,6 +1387,27 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 }
             }
             out.message = Some(m);
+        }
+        b"NOTE" => {
+            let mut n = NoteDef::default();
+            for (sub, v) in &decoded {
+                match *sub {
+                    b"FULL" => n.name = v.as_ref().and_then(|v| v.as_str()).map(str::to_string),
+                    b"DATA" => {
+                        n.kind = match v.as_ref() {
+                            Some(Json::String(k)) => ["Sound", "Text", "Image", "Voice"].iter().position(|x| x == k).unwrap_or(0) as u8,
+                            Some(x) => x.as_u64().unwrap_or(0) as u8,
+                            None => 0,
+                        }
+                    }
+                    b"XNAM" => n.texture = v.as_ref().and_then(|v| v.as_str()).map(str::to_string).filter(|t| !t.is_empty()),
+                    _ => {}
+                }
+            }
+            if n.kind == 1 {
+                n.text = subs.iter().find(|s| &s.sig == b"TNAM").map(|s| fnv_util::cp1252::decode_z(&s.data));
+            }
+            out.note = Some(n);
         }
         b"TERM" => {
             let mut t = TerminalDef::default();

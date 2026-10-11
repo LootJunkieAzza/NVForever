@@ -1659,6 +1659,12 @@
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas NOTE record"
     },
+    "TNAM": {
+     "name": "Text / Topic",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NOTE record; xEdit union by note type: the note's text (a string, Text notes) or a topic (DIAL FormID, Voice notes); kept as bytes and read by type in fnv-game"
+    },
     "SNAM": {
      "name": "Sound / NPC",
      "type": "formid",

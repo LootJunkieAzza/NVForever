@@ -136,6 +136,7 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
             None => Action::Open,
         }),
         BaseData::Actor(_) => Action::Talk,
+        BaseData::Activator if &base.sig == b"TERM" => Action::Access,
         BaseData::Activator | BaseData::Furniture => {
             base.name.as_ref()?;
             Action::Activate
@@ -261,7 +262,7 @@ fn activate(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut changed: MessageWriter<RefChanged>,
-    (mut sit, mut sounds): (MessageWriter<crate::furniture::UseFurniture>, MessageWriter<crate::world_sounds::Activated>),
+    (mut sit, mut sounds, mut terminals): (MessageWriter<crate::furniture::UseFurniture>, MessageWriter<crate::world_sounds::Activated>, MessageWriter<crate::terminal::OpenTerminal>),
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     script: Option<ResMut<crate::script::ScriptState>>,
     locks: Option<Res<crate::control::ControlLocks>>,
@@ -323,6 +324,12 @@ fn activate(
     let furniture = sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)).is_some_and(|b| matches!(b.data, BaseData::Furniture));
     if furniture && matches!(a.outcome, Outcome::Activated) {
         sit.write(crate::furniture::UseFurniture { reference: t.form_id });
+        return;
+    }
+    // A terminal's default activation: its screen opens (`crate::terminal`).
+    let terminal = sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)).is_some_and(|b| &b.sig == b"TERM");
+    if terminal && matches!(a.outcome, Outcome::Activated) {
+        terminals.write(crate::terminal::OpenTerminal { reference: t.form_id });
         return;
     }
     let name_of = |id: FormId| sim.name(id).map_or_else(|| id.to_string(), str::to_string);

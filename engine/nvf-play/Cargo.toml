@@ -23,6 +23,10 @@ fnv-vfs.workspace = true
 fnv-font.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# A new hacking game on every visit to a terminal (terminal.rs); the generator
+# fnv-game's rules already use.
+rand_core = "0.9"
+rand_chacha = "0.9"
 # Music (MP3) and ambient loops (Ogg Vorbis, WAV) decoded as they play (music.rs,
 # ambient.rs), Ogg sound effects decoded whole (sfx.rs). The version Bevy's audio is built
 # on: no second copy (docs/design/dependencies.md).

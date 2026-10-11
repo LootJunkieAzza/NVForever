@@ -45,6 +45,7 @@ pub mod script_trigger;
 pub mod settings;
 pub mod sim;
 pub mod space;
+pub mod terminal;
 mod test_aid;
 pub mod sfx;
 pub mod ui_sounds;
@@ -233,7 +234,8 @@ impl Plugin for PlayPlugin {
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin))
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin))
             .add_plugins(world_sounds::WorldSoundsPlugin)
-            .add_plugins(ui_sounds::UiSoundsPlugin);
+            .add_plugins(ui_sounds::UiSoundsPlugin)
+            .add_plugins(terminal::TerminalPlugin);
         test_aid::setup(app);
     }
 }

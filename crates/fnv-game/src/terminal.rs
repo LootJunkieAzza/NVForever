@@ -53,8 +53,9 @@ pub fn has_password(g: &mut Game, t: &TerminalDef) -> bool {
     g.player.notes.contains(&note) || g.world.item_count(FormId::PLAYER_REF, note).is_ok_and(|n| n > 0)
 }
 
-/// What activating the terminal reference `reference` of base `base` does.
-pub fn opening(g: &mut Game, reference: FormId, base: FormId) -> Option<Opening> {
+/// What activating the terminal reference `reference` of base `base` does, for a player
+/// of Science skill `sci` ([`science`]).
+pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Option<Opening> {
     let t = g.data.terminals.get(&base)?;
     let unlocked = t.has(terminal_flag::UNLOCKED);
     // [hypothesis, hacking.md §6] The password note opens a terminal without hacking,
@@ -69,7 +70,6 @@ pub fn opening(g: &mut Game, reference: FormId, base: FormId) -> Option<Opening>
     // level is not documented [hacking.md §6].
     let difficulty = Difficulty::from_code(t.difficulty);
     let s = Settings::default();
-    let sci = science(g);
     Some(match hacking::may_hack(sci, difficulty, &s) {
         Err(r) => Opening::Refused(r),
         Ok(()) => Opening::Hack { difficulty, words: hacking::word_count(sci, difficulty, &s) },
