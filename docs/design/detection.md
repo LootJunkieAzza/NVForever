@@ -43,14 +43,14 @@ Each is also listed in the module notes of `detection.rs`.
 |---|---|---|
 | Distance | feet to feet | — |
 | Reach | fSneakMaxDistance, × fSneakExteriorDistanceMult outside | [documented] |
-| Line of sight | a ray through the collision world from the detector's eyes to the target's chest (¾ of its eye height); world shapes block it, actors and their capsules do not | [engineering choice] |
+| Line of sight | a ray through the collision world from the detector's eyes to the target's chest (¾ of its eye height); world shapes block it; actors and their capsules do not (the ray goes on past them), nor do the transparent layers, invisible walls, clutter, small debris and shell casings (docs/design/alert.md §7) | [engineering choice]; the layers: [hypothesis] |
 | Field of view | 95° either side of where the actor's body faces, horizontally | [documented: catalogue notes, GetLineOfSight]; using it for detection: [hypothesis] |
 | Light at the target, 0–100 | 100 × (luminance of the ambient colour + the sunlight's × daylight outdoors, or the cell's directional light indoors + each point or spot light that reaches the target × (1 − (d/r)²)), capped at 100. No shade from the sun | [hypothesis] |
 | Moving, running | from the distance moved since the last measurement: moving above 10 units/s; actors run above 215 units/s; the player runs when moving without holding Walk, sneaking or not | [engineering choice]; sneak-running counts as running: [hypothesis] |
 | Sneaking | the player's sneak toggle; actors never sneak (Always Sneak packages are not acted on) | — |
 | Action sound | the player's shots since the last measurement, at the weapon's VNAM sound level (100 / 50 / 10) | [documented] |
 | Detector asleep | lying on a bed (marker 1–10, state "on it") | [hypothesis] |
-| Detector alert or busy | never: there is no combat AI yet | — |
+| Detector alert or busy | alert in a combat state (Alert, Combat, Lost); busy in Combat with someone other than the target (docs/design/alert.md) | [documented] |
 | Interval | 0.25 s | [engineering choice] |
 
 Collision is loaded only around the player, so far from the player nothing blocks sight
@@ -101,10 +101,8 @@ The light level decides most of the visual term, and its measure is a hypothesis
 ## 6. Next and open
 
 - **Detection states** (Normal, Alert, Combat, Lost), the target list and its timers,
-  and detection events (CreateDetectionEvent, projectile impacts, explosions):
-  actor-behaviour.md §2.2–§2.3. They need hostility (`fnv_game::rest::hostile_to_player`
-  generalised to any two actors) and are the entry into combat AI. Until then bands can
-  flicker as an actor turns; the states' timers smooth that in the original.
+  and detection events: built 2026-10-11, docs/design/alert.md. Explosions are not
+  events yet; combat AI is next.
 - **Captures** to tune against (actor-behaviour.md §8 items 7 and 8): GetDetected for the
   player standing, walking, running and sneaking at set distances, lit and dark, and the
   game's values of the fSneak* settings (the masters may override the documented

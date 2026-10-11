@@ -15,6 +15,7 @@ pub mod activate;
 pub mod ambient;
 pub mod bindings;
 pub mod blocking;
+pub mod chargen;
 pub mod combat;
 pub mod control;
 pub mod corner_messages;
@@ -236,6 +237,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin))
             .add_plugins(world_sounds::WorldSoundsPlugin)
             .add_plugins(ui_sounds::UiSoundsPlugin)
+            .add_plugins(chargen::ChargenPlugin)
             .add_plugins(pipboy::PipBoyPlugin);
         test_aid::setup(app);
     }

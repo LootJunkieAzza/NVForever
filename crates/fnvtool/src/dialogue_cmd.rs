@@ -308,7 +308,7 @@ fn topic_row(l: &Loaded, t: &TopicDef, text: bool, detail: bool) -> Value {
     }
     if detail {
         row["removed_quests"] = names(l, &t.removed_quests);
-        row["line_forms"] = json!(d.lines_by_priority(t.form).iter().map(|i| i.to_string()).collect::<Vec<_>>());
+        row["line_forms"] = json!(d.lines_tried(t.form).iter().map(|i| i.to_string()).collect::<Vec<_>>());
         row["shared_info_list"] = json!(t
             .shared_infos
             .iter()
