@@ -65,6 +65,45 @@ fn the_masters_dialogue() {
     counts(&l.data);
     doc_mitchells_lines(&l.data);
     the_intro_walk_through_talks_its_way_to_the_end(&l);
+    sunny_opens_conversations_with_conversation_lines(&l);
+}
+
+/// Sunny Smiles opening a conversation with each Goodsprings resident takes a
+/// Conversation line of HELLO, never a Topic line for the player (dialogue.md §5.1,
+/// `fnv_game::dialogue::between_actors`) [owner report 2026-10-11: in a test run Sunny
+/// greeted another actor with the player's lines]. The selection without the rule, kept
+/// here for comparison, takes Topic lines for most of them.
+fn sunny_opens_conversations_with_conversation_lines(l: &Loaded) {
+    use fnv_game::game::{Game, GameConfig};
+    use fnv_sim::{SimConfig, World};
+    let world = World::new(&l.forms, &l.refs, SimConfig::default());
+    let mut g = Game::new(&l.data, world, GameConfig::default());
+    g.new_game();
+    let sunny = l.data.by_edid("SunnyRef").expect("SunnyRef");
+    let hello = g.hello_topic().expect("HELLO");
+    let names = [
+        "TrudyRef", "GSJoeCobbRef", "EasyPeteRef", "GSChetRef", "DocMitchellREF", "RingoRef", "GSVictorRef",
+        "GoodspringsSettler01Ref", "GoodspringsSettler02Ref", "GoodspringsSettler03Ref", "GoodspringsSettler04Ref",
+    ];
+    let (mut topic_before, mut partners, mut opened) = (0, 0, 0);
+    for name in names {
+        let Some(other) = l.data.by_edid(name) else { continue };
+        partners += 1;
+        // Before the rule: any HELLO line Sunny can say to this actor.
+        if let Some(i) = g.select_line(sunny, Some(other), hello) {
+            if l.data.infos[&i].info_type == topic_type::TOPIC {
+                topic_before += 1;
+            }
+        }
+        if let Some(i) = g.conversation_opener(sunny, other) {
+            opened += 1;
+            let d = &l.data.infos[&i];
+            assert_eq!(d.info_type, topic_type::CONVERSATION, "Sunny to {name}: line {i} is not a Conversation line");
+            assert!(d.link_from.is_empty(), "Sunny to {name}: line {i} has a Link From");
+        }
+    }
+    eprintln!("Sunny's HELLO to {partners} Goodsprings residents: {topic_before} would have been Topic lines without the rule; now {opened} open with a Conversation line, none with a Topic line");
+    assert!(partners >= 8, "the Goodsprings residents are in the masters");
 }
 
 /// The counts of docs/spec-notes/dialogue.md §2 [observed: these masters].
