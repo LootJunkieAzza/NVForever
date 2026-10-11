@@ -2642,3 +2642,28 @@ Your fifteen Pip-Boy screenshots. Branch `claude/pipboy-menu`. Facts and measure
 5. **Would help:** do you know the PC keys for switching pages and tabs in the original?
    And a screenshot of the Pip-Boy being raised or put away mid-way would show whether
    the clip is held where I hold it.
+
+## The Pip-Boy's STATS and DATA pages (2026-10-11, session "pip-boy menu")
+
+Built from the menu files and your screenshots; branch `claude/pipboy-menu` (PR #213).
+Details and what is guessed: `docs/spec-notes/pipboy.md` §5.1 (STATS) and §5.3 (DATA).
+
+1. **STATS:** Status (CND with the limb bars, RAD with the meter, EFF), S.P.E.C.I.A.L.,
+   Skills, Perks (picture and description from the records) and General (reputations;
+   the general statistics show "--": the game keeps no counters of its own yet).
+   Questions: should worn items' effects (Vault Jumpsuit: Speech +2) change the actor
+   values themselves, for scripts too? The page adds them for now. When does the box
+   round the selected row show in the original? Do the hints show "(0)", and when are
+   they bright? Which way round are "Dark Hero" and "Soft-Hearted Devil"?
+2. **DATA:** the place and date in the heading; Quests (running first, newest on top;
+   Enter makes one active), Misc (notes and their text), Radio (tuning from the list;
+   the wave is a still line, the original's is animated), World Map (markers you have
+   found, quest markers, drag and wheel), Local Map (doors and markers on an empty map:
+   the picture of the place from above is not drawn). Questions: how are quests ordered
+   and which is active by default? Which doors does the local map show (yours shows only
+   the gas station's, ours 17) and at what zoom? Where does the World Map open?
+3. **Would help:** screenshots of Perks and General, a crippled limb or rads on Status,
+   EFF with a chem taken, and the World Map right after opening it.
+4. **Not built yet:** using a Stimpak or RadAway from the hints, the hardcore buttons,
+   Place Marker, Challenges, the item picture and figures on ITEMS. The messages at the
+   top left (quest updates, corner messages) still draw over the Pip-Boy's edge.

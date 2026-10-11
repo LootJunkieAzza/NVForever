@@ -4,7 +4,7 @@ Tags as in `nif.md`: `[documented]` cites a page or file, `[observed]` says what
 looked at, `[hypothesis]` is a reading that nothing has confirmed yet. `[design]` marks
 what is NVForever's own. Implementation: `engine/nvf-play/src/pipboy.rs` (state, keys,
 pointer, the image the menus are drawn into), `pipboy/frame.rs` (what every page shares),
-`pipboy/items.rs`, `stats.rs`, `data.rs` (the pages), `pipboy/test_aid.rs`;
+`pipboy/items.rs`, `stats/`, `data.rs` and `data/` (the pages), `pipboy/test_aid.rs`;
 `engine/nvforever/src/pipboy_arm.rs` (the model's screen, glows and buttons),
 `player_body.rs` (the clip and the arms' field of view), `imagespace.rs` (the blur behind
 it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
@@ -133,7 +133,7 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   item's picture and figures (`item_stats_display.xml`), the buttons and their key hints
   ("Maintain R)", "Mod X)", "Repair R)"), the scroll bar.
 - **STATS** (`stats/`): §5.1.
-- **DATA** (`data.rs`): the title only.
+- **DATA** (`data.rs`, `data/`): §5.3.
 
 ### 5.1 STATS
 
@@ -249,6 +249,134 @@ is the top left 85 × 92 of `head.dds`) [observed].
   change the actor values themselves (then the page needs no sum of its own); the
   highlight box's rule; General's list height, order and right buffer, the reputation
   list's rule and second line, the karma titles, the misc statistics' codes.
+
+### 5.3 DATA
+
+`data.rs` (the page: state, input, what is shown and its drawing), `data/model.rs` (plain
+rules, tested), `data/read.rs` (records). Sources: `menus\main\map_menu.xml` (places, sizes,
+fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
+`NVF_PLAY_TEST_SHOTS` runs; px below are those screenshots' pixels, about 0.62 to a unit.
+
+- **Heading** [documented: map_menu.xml]: the title 70 in after a line of 50; a line from
+  180, 470 long; the place right-aligned at 630 and the date and time at 845, both 20 down
+  in font 2; lines fading down at 650 and at the end, a line from 660 to the end.
+  - The date: month, day, the year's last two digits, then the time, "10.25.81, 9:29"
+    [observed: the screenshots, on 25 October 2281]; no leading zeros and a 24-hour clock
+    as the wait menu's [hypothesis, wait-menu.md §4].
+  - The place: indoors the cell's name [hypothesis]; outdoors the map name (`REGN RDMP`)
+    of the regions the player's cell is in (`CELL XCLR`), the highest priority first, else
+    the worldspace's name [hypothesis: the screenshots show "Goodsprings", the map name
+    of `VMapGoodspringsRegion` (observed)].
+  - Right-aligned texts of the original end about 5 px further right than ours (the time,
+    "Show Location", "Place Marker") [observed]; not corrected.
+- **Lists** (Quests, Misc, Radio) [documented: map_menu.xml, list_box.xml]: 15 left of the
+  menus, 75 down, 400 × 468, the scroll bar of 32 on the left; a row's square of 25 at 15,
+  20 and its text 40 in and 20 down in font 2, broken at 310. A row is 54 high and a text's
+  further lines 34 lower [observed: fitted; rows 33.5 px apart, two-line rows 54.5 px];
+  the squares start at the same pixel as the original's [observed]. The selection box
+  starts 9 left of the row and ends 5 short of the list's edge [observed: the Radio
+  screenshot boxes from 448 px; documented: the 5]. The box shows while the pointer is
+  on a row or after Up/Down (W/S); a new tab starts without it [design: the screenshots
+  show it only under the pointer]. Hover selects, a click or Enter acts. The wheel scrolls
+  the list. The scroll bar: the file's arrows (32 × 16) at the ends and a line for the part
+  shown [hypothesis: the marker's look].
+- **Buttons at the right** [documented: map_menu.xml, text_box.xml]: right-aligned at
+  855, from 75 down, each its font-2 text with 20 across and 15 up and down, the text 10
+  under the middle of the spare height, a PC key's label 5 after the box. Their words are
+  game settings the masters do not hold (§1): "Place Marker", "Show Location", "Show
+  Active Quest Notes", "Challenges" with "R)" [observed]; "Show All Notes" [hypothesis:
+  the setting `sShowAllNotes`]. The hover box is not drawn.
+- **Quests**: the quests with a name and an objective shown or done (quest-messages.md §5);
+  running quests before those done (completed or failed), each part newest first, quests
+  first seen together by FormID from the highest [hypothesis: fits the screenshot's
+  order, the add-ons' quests (01…–04…) on top, "Back in the Saddle" (0010A214) before
+  "They Went That-a-Way" (000842DD), the completed "Ain't That a Kick in the Head" last].
+  "Newest" is when NVForever first saw the quest listed (looked at four times a second;
+  not saved). Done quests are drawn at half strength [hypothesis: greyed on the
+  screenshot]. The active quest's square is filled; a click or Enter on a running quest
+  makes it active [hypothesis: the PC's form of "Make Active Quest"]; until the player
+  picks one, the newest running quest is active [design]. When the page comes up the
+  active quest is selected [hypothesis: the screenshot shows its objectives with the
+  pointer elsewhere].
+  - Objectives at the right: 400 wide at the menus' right edge, under the buttons' place
+    (75 + 120) less a button's height, the scroll bar on the right [documented]; each
+    behind a square, filled and at half strength when done [hypothesis]; those to do
+    first, each part from the latest objective down [hypothesis].
+  - "Show Location" shows the World Map [design: the quest's place is not centred].
+- **Misc**: the player's notes (AddNote; `NOTE` records) by name [hypothesis]; "(6 of 6)"
+  is part of the note's name [observed: `VMQ01CourierNote` FULL "Mojave Express Delivery
+  Order (6 of 6)"]. A text note's text is `TNAM`, a NUL-ended string [observed; the schema
+  does not read `TNAM` of `NOTE`]: font 1, broken at 400, in a window 17 left of the item
+  data, 20 down, 400 × 385, scrolled 20 a wheel step [documented]; Page Up/Down scroll a
+  window [design]; arrows at its right when it is longer [documented]. The window reaches
+  10 over the first line so its letters are not cut [design]. Our lines break exactly as
+  the screenshot's [observed]. An image note shows its picture (`XNAM`) 360 square at the
+  right [documented]; sound and voice notes show the empty audio meter: they are not
+  played. "Show Active Quest Notes" keeps the notes whose quest (`ONAM`) is the active one.
+- **Radio**: the stations the Pip-Boy receives where the player is, by name (`crate::radio`,
+  radio.md); the one playing has its square filled; a click or Enter tunes to a station,
+  or turns the radio off on the one playing [hypothesis: "Tune"]. The waveform panel
+  [documented]: 500, 125, 350 square, the tick meters along its foot and right side, the
+  flat line (2 high, 5 short, 8 over the middle) while nothing plays [observed: the
+  screenshot, the radio off]; while one plays the original shows an animated model, here
+  a still sine wave [design].
+- **World Map**: the worldspace's picture `WRLD ICON`
+  (`interface\worldmap\wasteland_nv_1024_no_map.dds`), drawn 2048 square [documented:
+  `filewidth` 2048; `MNAM` usable 2048] at alpha 128 [documented]; the menu file names
+  `wasteland_1024_no_map.dds`, which the plugin does not use [observed]. Where cells fall on it: the cells from `MNAM`'s north-west cell to its
+  south-east cell (−35, 35 to 25, −25: 61 a side) fill the middle 0.7876 of the picture
+  from (0.108, 0.102) [observed: fitted to Goodsprings as the screenshot shows its roads,
+  the arc of Hoover Dam and the ring of Jacobstown, 309.8 units a texel, within 4 texels
+  each; corner to corner on the whole picture put Goodsprings 11,000 units off its
+  road]. The menu file keeps the picture's edges at most to the window's middle; it opens
+  centred on the player [hypothesis: the owner's view was elsewhere]; dragged it pans,
+  the wheel zooms 1.25 a step from 1 to 4 times [design].
+  - Map markers: references of the `MapMarker` STAT (0x10) with `XMRK`; name `FULL`, type
+    `TNAM` (0 None … 14 Vault [documented: xEdit; observed: vaults 14, a cave 5, Camp
+    McCarran 8, Hoover Dam 7]), flags `FNAM`, radius `XRDS`. Shown when the player has been
+    within the radius (`XRDS`, noted four times a second, not saved) with its type's
+    icon, or when ShowMap or the Visible flag made it known, with the undiscovered icon
+    [hypothesis]. Icons `interface\icons\world map\icon_map_<type>.dds`, the inverted form
+    under the highlight box [hypothesis: by the files' names]; 24 wide, 1.75 times and
+    brightness 255 (else 220) under the box [documented: the template's 1.75 and
+    brightness; observed: 24 fitted].
+  - The player's arrow: `glow_cursor.dds` [documented], 40 wide, 1.28 times as high,
+    turned by the heading [observed: fitted, the screenshot's triangle 25 px; hypothesis:
+    the turn's sense]. Drawn over the markers and under the highlighted one [documented:
+    depths 1, 7, 11].
+  - Quest markers: the targets (`QSTA`) of the active quest's objectives shown and not done,
+    where they are now; a target indoors at the door outdoors into its interior
+    [hypothesis: the screenshots' quest marker for Sunny Smiles stands by the saloon's
+    door]; the picture is the HUD compass's objective marker
+    `glow_hud_compass_objective_marker.dds` [hypothesis: the shape on the screenshots],
+    56 wide [observed: fitted], 1.25 times as high, 15 right and 5 down [documented]. The
+    targets' conditions are not tested.
+  - The highlight box [documented]: 160 square, corners of 40 with 15-long fading tips, a
+    dot of 8 (`waypoint_node.dds`) at its middle, the name in font 1 centred 180 down. It
+    follows the pointer over the map and takes a marker's place and name within 40
+    [hypothesis: the screenshots show it away from the middle, once round a door with
+    the door's place name]; at first it is at the window's middle.
+- **Local Map**: the same window, markers, arrow, quest markers (kept inside the window
+  [documented]) and highlight box, on an empty map at 28 game units to a unit [observed:
+  fitted, the gas station's door and the saloon's door 168 px apart on the screenshot; the
+  zoom then is not known]. Doors leading elsewhere (`XTEL`) in the 7 × 5 cells round the
+  view (or the interior) show `interface\icons\local map\icon_local_door.dds`, named by the
+  place their destination door stands in [observed: the screenshot's door is named
+  "Goodsprings Gas Station", the cell `GSGasStation`]. Not built: the picture of the place
+  from above (the original renders the area; the screenshot shows it dark save a few
+  shapes, as unexplored), which doors and markers the original shows (its screenshot shows
+  only the gas station's door), Place Marker.
+- Checking it: as §7 with `page=data` and `tab=<0-4>`; `key=down|up|use` steps move and
+  act on the DATA lists too. A run with a note, quests and the radio on:
+  `NVF_PLAY_TEST_SCRIPT=3:info:0x001057E8:DocMitchellREF,4:start:VCG02,4.5:objective:VCG02:3,5:objective_done:VCG02:3,5.1:objective:VCG02:5`
+  (Doc Mitchell's line whose result script adds the courier's note) and
+  `NVF_PLAY_TEST_RADIO=5:next`. Log: "pipboy data: N map markers", "map marker … found",
+  "local map: N doors leading elsewhere", "active quest …", "radio tuned to …".
+- Open: the quest list's order and the active quest's default; the objectives' order and
+  how done ones look; the hollow square's size (ours draws smaller than the original's,
+  about 9 px against 14); which doors and markers the local map shows and its zoom;
+  where the World Map opens; how the original turns the arrow; the radio's waveform model;
+  Place Marker, Challenges, audio notes, the buttons' hover boxes.
 
 ## 6. Keys and pointer [hypothesis unless marked]
 
