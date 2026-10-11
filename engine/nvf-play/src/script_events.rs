@@ -525,6 +525,10 @@ pub enum ScriptAid {
     /// `message:<MESG>`: the message is shown as ShowMessage shows it, for looking at a
     /// message box outside the script that shows it (no script reads its button).
     Message(String),
+    /// `menu:<code>`: the menu with that MenuMode code opens as a script's function opens
+    /// it (1051 name, 1074 S.P.E.C.I.A.L., 1048 tag skills, 1084 traits), for looking at a
+    /// character-creation menu outside the opening.
+    Menu(u16),
     /// `var:<quest or reference>:<variable>:<value>`: sets a script variable (the name
     /// may be `scripted:<SCPT>` or `placed:<base>`).
     Var(String, String, f64),
@@ -534,6 +538,8 @@ pub enum ScriptAid {
     /// `activate:<reference>`: the player activates the reference by hand (E), wherever
     /// the crosshair is.
     Activate(String),
+    /// `enable:<reference>`: the reference is enabled as a script's `Enable` does.
+    Enable(String),
     /// `say_to:<speaker>:<target>:<topic>[:<noTargetLookFlag>]`: the speaker's script
     /// calls `SayTo target topic 0 flag`.
     SayTo(String, String, String, bool),
@@ -576,6 +582,7 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 ["activate", _, ..] => ScriptAid::Activate(whole.unwrap_or_default()),
                 ["start", q] => ScriptAid::Start(q.to_string()),
                 ["combat", a, t] => ScriptAid::Combat(a.to_string(), t.to_string()),
+                ["enable", r] => ScriptAid::Enable(r.to_string()),
                 ["stop", q] => ScriptAid::Stop(q.to_string()),
                 ["stage", q, s] => ScriptAid::Stage(q.to_string(), int(s)?),
                 ["objective", q, i] => ScriptAid::Objective(q.to_string(), int(i)?),
@@ -585,6 +592,7 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 ["button", b] => ScriptAid::Button(int(b)?),
                 ["close"] => ScriptAid::Close,
                 ["message", m] => ScriptAid::Message(m.to_string()),
+                ["menu", c] => ScriptAid::Menu(c.parse().map_err(|_| format!("{item:?}: menu code"))?),
                 ["say_to", sp, t, topic] => ScriptAid::SayTo(sp.to_string(), t.to_string(), topic.to_string(), false),
                 ["say_to", sp, t, topic, flag] => ScriptAid::SayTo(sp.to_string(), t.to_string(), topic.to_string(), int(flag)? != 0),
                 // The owner's name may hold a colon too (`var:scripted:<SCPT>:<variable>:<value>`).
@@ -593,7 +601,7 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 }
                 _ => {
                     return Err(format!(
-                        "{rest:?}: expected start:, stop:, combat:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate: or say_to:"
+                        "{rest:?}: expected start:, stop:, combat:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate: or say_to:"
                     ))
                 }
             };
@@ -929,6 +937,7 @@ mod tests {
         assert!(parse_aids("3:var:bRunTimer:1").is_err());
         assert!(parse_aids("3:stage:VCG01").is_err());
         assert_eq!(parse_aids("2:message:VMS18VancesGunMessage").unwrap()[0].aid, ScriptAid::Message("VMS18VancesGunMessage".into()));
+        assert_eq!(parse_aids("3:menu:1074").unwrap()[0].aid, ScriptAid::Menu(1074));
         assert!(parse_aids("3:jump").is_err());
         assert!(parse_aids("x:start:VCG00").is_err());
         assert!(parse_aids("3@VCG01:close").is_err());

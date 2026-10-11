@@ -123,6 +123,15 @@ audio.md) and the music smoke test:
 (expect exit 0, "music: musSetLOCDesExplBothABC day started, layers outer+middle+inner",
 "music summary: 1 started, 0 changes of layers, 0 files not played" and "ambient summary:
 2 placed loops started, … 1 background loops started"; the count of random sounds varies).
+After changes to battle, dungeon, incidental or script music (`nvf-play` `music`, `PlayMusic`;
+audio.md §13), also run the trigger outside Doc Mitchell's door, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and `NVF_PLAY_TEST_SCRIPT=3:walk:placed:VCG01RemoveDocCarebearModeTrigger` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --no-voice --run-seconds 25`
+(expect exit 0, "music: a script plays musSCRGoodspringsStinger (once)" and in the music summary
+"1 script requests"), and the battle beside Violet:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --pos=-46800,65000,4600 --hour 12 --no-voice --run-seconds 40`
+(expect exit 0, "music: battle begins (0x000F570B has the player detected)", an "intro of" line,
+"battle over" and "1 battles (1 battle loops started), 2 intro and outro sounds" in the summary).
 After radio changes (`fnv_world::radio`, `fnv_game::radio`, `nvf-play` `radio`;
 docs/spec-notes/radio.md §6), run the saloon jukebox, switched off at 20 s and on at 28 s, with
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.3`, `NVF_PLAY_TEST_NEAR=00107D73` and `NVF_PLAY_TEST_ACTIVATE=20,28` set:
@@ -130,7 +139,21 @@ docs/spec-notes/radio.md §6), run the saloon jukebox, switched off at 20 s and 
 (expect exit 0, "00109087 (vCountryRadio) is destroyed: silent", "00107D73 tuned to vCountryRadio
 playing sound\songs\radionv\…_mono.ogg", "switched off", the same file again "from <s> s" (20–25 s, by frame rate) and
 "radio summary: 1 receivers heard, 1 songs started, 0 DJ lines, 0 lines without a file; receivers
-switched 3 times, 1 on at exit").
+switched 3 times, 1 on at exit"), and the Pip-Boy radio with a script-started broadcast, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3`,
+`NVF_PLAY_TEST_SCRIPT=2:enable:RNVTARef,2:enable:vNCREmergencyRadioTARef,2:start:vNCREmergencyRadio` and
+`NVF_PLAY_TEST_RADIO=4:next,12:next,20:previous,28:tune=vNCREmergencyRadioTA,52:off` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --run-seconds 60`
+(expect exit 0, "pipboy radio: on, tuned to vCountryRadio", "the Pip-Boy tuned to vCountryRadio playing
+sound\songs\radionv\…mp3", "vNCREmergencyRadioTA starts a conversation (StartRadioConversation)",
+"the Pip-Boy tuned to vNCREmergencyRadioTA playing sound\voice\…", a "subtitle: NCR Emergency Radio: …"
+line, "ends its conversation: silent", the static loop "ui_radio_static_lp.wav (loop" and "pipboy radio
+summary: off at exit" with 2 or more "conversations started by scripts"; radio.md §8).
+After changes to activators' on/off looks or to sequences on materials (nvforever `activators`,
+`nvf_assets::material_anim`; docs/spec-notes/activators.md §3), run the saloon radio test above and
+expect also "00107D73 (JukeBoxDirtyNVCountry) on: plays its idle", "off: holds its idle, lights
+dark", on again, "00109087 (GoodspringsRadio) off: keeps its stored look" and "activator summary:
+2 receivers drawn with an on/off look; switched on 1 times, off 1 times while drawn".
 After changes to the player's controls or to what scripts lock of them (`nvf-play`
 `control::ControlLocks`, `script::sync_locks`; docs/spec-notes/controls.md §5), run the
 held-player smoke test, with `NVF_PLAY_TEST_SCRIPT_MENUS=1`, `NVF_PLAY_TEST_MOVE=1:1:0`,
@@ -179,6 +202,25 @@ dialogue, with `NVF_PLAY_TEST_TALK=10:GSChetRef=for sale|leave`, `NVF_PLAY_TEST_
 (expect exit 0, "menu: a script opens the barter menu with 0x00104C79", "stock in 0x00104C7A",
 "menu: Accept: Traded", "menu: close" and then the conversation's "Goodbye." choice).
 
+After changes to the name, tag-skill or trait menus (`nvf-play` `chargen`, `chargen::lists`,
+`chargen::name`, `fnv_game::chargen`; docs/spec-notes/chargen.md §7), run the three, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=off`, `NVF_PLAY_TEST_SCRIPT=3:menu:1051,8:menu:1048,13:menu:1084` and
+`NVF_PLAY_TEST_CHARGEN=5:clear,5.1:done,5.2:type:Courier Six,6:done,10:pick:Lockpick,10.1:done,10.2:pick:Guns,10.3:pick:Speech,10.4:pick:Survival,10.5:pick:Lockpick,10.6:pick:Survival,11:done,15:pick:Four Eyes,15.2:pick:Early Bird,15.4:pick:Wild Wasteland,16:done` set:
+`engine/target/release/nvforever --data <Data> --cell GSDocMitchellHouse --play --no-voice --run-seconds 20`
+(expect exit 0 and, in this order, "Ok refused: no name", `done, name "Courier Six"`, "Done refused:
+1 of 3 skills tagged", "Survival refused", "done, tag skills: Guns, Speech, Survival", "Wild Wasteland
+refused" and "done, traits: Early Bird, Four Eyes"); with the owner's load order (Old World Blues
+in it) the trait menu has 16 rows. `fnvtool actor chargen` lists what the menus offer (§6).
+
+After changes to the Vigor Tester's S.P.E.C.I.A.L. menu (`nvf-play` `chargen::vigor`;
+docs/spec-notes/vigor-tester.md §7), run it, with `NVF_PLAY_TEST_SCRIPT_MENUS=off`,
+`NVF_PLAY_TEST_SCRIPT=3:menu:1074` and
+`NVF_PLAY_TEST_VIGOR=2:click:LookInside_Btn:0,4.5:raise,4.6:raise,4.7:done,5.5:page:review,8:select:luck,8.1:raise,8.2:raise:L,8.3:raise:endurance,8.5:click:P1_RT_Btn:0` set:
+`engine/target/release/nvforever --data <Data> --cell GSDocMitchellHouse --play --no-voice --run-seconds 20`
+(expect exit 0, "Done refused: points still to give out", "Endurance 6, 0 points remaining",
+"done, S.P.E.C.I.A.L. 7 5 6 5 5 5 7 (click)" and "vigor tester summary: opened 1 times, 5 changes,
+8 page turns, 2 clicks on its buttons, done 1 times").
+
 After changes to the quest lines at the left ("Quest added", objectives; `nvf-play`
 `quest_messages`, `script_events` `QuestNotice`; docs/spec-notes/quest-messages.md §7), run them,
 with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
@@ -189,6 +231,13 @@ with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
 `quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny
 Smiles behind the Prospector Saloon.`).
 
+After flashlight changes (`nvf-play` `flashlight`, nvforever `flashlight.rs`), run it on and off
+in a dark interior, with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
+`NVF_PLAY_TEST_CONTROL=2:flashlight,12:view,20:flashlight` set:
+`engine/target/release/nvforever --data <Data> --cell GSHouseInterior03 --play --hour 23 --no-voice --run-seconds 26`
+(expect exit 0, "flashlight: on" and later "flashlight: off"; add `--screenshot <png>
+--screenshot-delay 10` without the last two presses to see the cone and its shadows).
+
 After changes to the sounds animations and doors name (nvforever `anim_sounds.rs`,
 `fnv_actor::anim_sounds`, `nvf_play::doors` sounds; docs/spec-notes/audio.md §10), run the
 footsteps, reload and doors check, with `NVF_PLAY_TEST_EQUIP=0000434F`,
@@ -198,6 +247,56 @@ footsteps, reload and doors check, with `NVF_PLAY_TEST_EQUIP=0000434F`,
 (expect exit 0 and an "anim sounds summary:" line with about 5 footsteps by the player,
 "3 reload keys", "5 door sounds (2 from door records)" and "0 keys without a SOUN"; the
 actors' footsteps and rustles vary).
+
+After changes to shot impacts, loose objects' knocks, item, container, activator, message-box or
+script sounds (`nvf-play` `world_sounds`, the impact part of `combat`, `fnv_combat::fx`, collision
+materials in `fnv-collide` / `fnv-phys`; docs/spec-notes/audio.md §11), shoot Sunny's bottles, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3`, `NVF_PLAY_TEST_NO_SPREAD=1`, `NVF_PLAY_TEST_GOTO=1:-68375:4800:8600`,
+`NVF_PLAY_TEST_SCRIPT=3:start:VCG02,4:info:0x0010A1E6:SunnyRef` and
+`NVF_PLAY_TEST_CONTROL=7:weapon,10:aimref=0010A202,10.5:fire,10.7:fire,13:aimref=0010A203,13.5:fire,13.7:fire,16:aimref=0010A204,16.5:fire,16.7:fire` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --pos=-68375,4800,8700 --run-seconds 22`
+(expect exit 0 and in the "world sounds summary:" line "impacts by material: glass 3 (0 on collision
+without a material)" and some knocks; their count varies with the tumbleweeds), and handle items in
+a house, with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3`, `NVF_PLAY_TEST_SCRIPT=11:activate:0x001730E9,11.5:activate:0x001767B5`,
+`NVF_PLAY_TEST_MENU=00105658` and `NVF_PLAY_TEST_DELAY=18` set:
+`engine/target/release/nvforever --data <Data> --cell GSHouseInterior03 --play --no-voice --run-seconds 30`
+(expect exit 0, "001730E9 (0x00004323) picked up, sound ITMPistolUp", "dropped, sound UIItemsClothingDown"
+and in the summary "2 pick-ups, 1 drops; 5 items taken from and 1 put in containers; containers opened
+1 and closed 1 times").
+
+After changes to the menus' sounds (`nvf-play` `ui_sounds` and its hooks in `menu`, `pause` and
+`world_sounds`; docs/spec-notes/audio.md §12), run the menus one after the other, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3`, `NVF_PLAY_TEST_TALK=11:GSChetRef=for sale|leave`, `NVF_PLAY_TEST_BARTER=*`,
+`NVF_PLAY_TEST_BARTER_DELAY=6`, `NVF_PLAY_TEST_MENU=nearest`, `NVF_PLAY_TEST_DELAY=44`,
+`NVF_PLAY_TEST_GIVE=00015169:2`, `NVF_PLAY_TEST_DROP=58:00015169:use`,
+`NVF_PLAY_TEST_WAIT=61:open,62:hours=2,63:accept`, `NVF_PLAY_TEST_PAUSE=66:69` and
+`NVF_PLAY_TEST_SETTINGS=67:page,67.5:menu-pause,68:menu-pause` set:
+`engine/target/release/nvforever --data <Data> --cell GSGeneralStore --play --no-voice --run-seconds 72`
+(expect exit 0, "barter opened: UIMenuMode", "container take all: UIItemTakeAll", "inventory item used:
+NPCHumanUsingStimpak", "wait slider moved: UIMenuPrevNext" and "settings switch flipped: UIMenuPrevNext",
+and in the "ui sounds summary:" "24 played", "0 sounds not found" and one or more "items' own sounds held back
+for Take All"; the register's stacks vary).
+
+After changes to creatures' sounds, the player's jump and landing sounds, wading, objects' own
+sounds, casing sounds or panning (`fnv_actor::anim_sounds` creature part, nvforever `anim_sounds.rs`
+and `shot_fx.rs`, `nvf-play` `sfx`, `ambient`, `world_sounds`; docs/spec-notes/audio.md §14), jump
+and shoot a bighorner in its pen, with `NVF_PLAY_TEST_NO_SPREAD=1`, `NVF_PLAY_TEST_EQUIP=0000434F`,
+`NVF_PLAY_TEST_GIVE=00004241:50` and
+`NVF_PLAY_TEST_CONTROL=11:jump,14:weapon,16:aimactor,16.2:fire,16.4:fire,17:aimactor,17.2:fire,17.4:fire,18:aimactor,18.2:fire,18.4:fire,19:aimactor,19.2:fire,19.4:fire,20:aimactor,20.2:fire,20.4:fire,21:aimactor,21.2:fire,21.4:fire` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --no-voice --pos=-69850,5700,8650 --run-seconds 28`
+(expect exit 0, in the "anim sounds summary:" line "creatures: N sounds (Left Back Foot N)", "4 hits,
+1 deaths" and "the player jumped 1 and landed 1 times", in the "ambient summary:" line a source
+heard with some random sounds played, and "casing knocks heard" in the "shot fx:" line; the counts of
+steps, random sounds and knocks vary).
+
+After changes to scripts' animation groups on objects (`fnv-game` `anims`, nvforever
+`object_anims.rs`, the rigs' `groups` in `nvf_assets::model`; docs/spec-notes/activators.md §5),
+run Goodsprings at night with a plant picked, with `NVF_PLAY_TEST_SCRIPT_MENUS=1` and
+`NVF_PLAY_TEST_SCRIPT=12:activate:0x0016AF20` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --hour 21 --no-voice --run-seconds 25`
+(expect exit 0, `playgroup: 0x0016AF20 plays Forward (once, 0.47 s), flag 1`, a `playgroup:` line
+showing `0x0016B5E8` (the saloon's lights) Left, and `playgroup summary:` with about 50 asked
+(Backward, Forward, Left) and "0 without a sequence of that name").
 
 After changes to who turns to whom while a line is said (`fnv_game::game::Game::facings`,
 nvforever `speech_look.rs`, `fnv_ai::social` `face_listeners`; docs/design/dialogue-play.md §9),

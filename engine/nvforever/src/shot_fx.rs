@@ -29,7 +29,9 @@
 //!   normal, the projectile's direction or its reflection [documented: the IPCT fields;
 //!   hypothesis: that +z is the axis turned, from the impact models' add-on nodes
 //!   standing along +z].
-//! - **Shell casings.** [`CasingFx`]: the WEAP's casing model, falling and bouncing.
+//! - **Shell casings.** [`CasingFx`]: the WEAP's casing model, falling and bouncing; a
+//!   bounce from at least [`CASING_KNOCK`] units/s plays the casing's PHY sound
+//!   ([`casing_sound`]) where it lands, up to [`CASING_SOUNDS`] times a casing [design].
 //! - Not built: the controllers inside the flash and impact models (they grow and
 //!   fade), impact decals, explosion models, NPCs' shots.
 
@@ -39,7 +41,8 @@ use bevy::prelude::*;
 use nvf_assets::model::{ModelCtx, PreparedModel};
 use nvf_play::combat::{CasingFx, Combat, ImpactFx, ShotFired, ShotVisuals};
 use nvf_play::phys::PhysState;
-use nvf_play::sfx::Sfx;
+use fnv_sim::FormId;
+use nvf_play::sfx::{PlaySound, Sfx};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -61,6 +64,29 @@ struct Casing {
     spin: Vec3,
     left: f32,
     resting: bool,
+    /// Its knock (a PHYCasing SOUN) and how many times it has sounded.
+    sound: Option<FormId>,
+    knocks: u8,
+}
+
+/// The speed at which a casing's bounce is heard, units/s, and how many bounces of one
+/// casing are [design].
+pub const CASING_KNOCK: f32 = 60.0;
+pub const CASING_SOUNDS: u8 = 3;
+
+/// The PHY sound (SOUN editor ID) of a shell casing by its model's name [hypothesis: by
+/// the names; FalloutNV.esm has `PHYCasingPistol`, `PHYCasingRifle` and
+/// `PHYCasingShotgun` (files `fx\phy\weapon\casing_<kind>\`) and no record links them to
+/// a weapon or a casing model, audio.md §14].
+pub fn casing_sound(model: &str) -> &'static str {
+    let m = model.to_ascii_lowercase();
+    if m.contains("shotgun") {
+        "PHYCasingShotgun"
+    } else if ["45cal", "357", "44magnum", "10mm", "9mm", "pistol", "eccell"].iter().any(|k| m.contains(k)) {
+        "PHYCasingPistol"
+    } else {
+        "PHYCasingRifle"
+    }
 }
 
 /// The share of its speed a casing keeps when it bounces, and the speed below which it
@@ -91,6 +117,7 @@ struct ShotFx {
     projectiles: u32,
     no_model: u32,
     casings: u32,
+    casing_knocks: u32,
     impacts: u32,
 }
 
@@ -307,6 +334,7 @@ fn casings(
     mut fx: ResMut<ShotFx>,
     root: Query<Entity, With<WorldRoot>>,
     mut live: Query<(Entity, &mut Casing, &mut Transform)>,
+    mut knocks: MessageWriter<PlaySound>,
 ) {
     let dt = time.delta_secs();
     let gravity = phys.world.params.gravity;
@@ -327,6 +355,11 @@ fn casings(
             Some(h) => {
                 let n = Vec3::from_array(h.normal);
                 t.translation = Vec3::from_array(h.point) + n * 0.5;
+                if let (Some(sound), true) = (c.sound, c.velocity.length() >= CASING_KNOCK && c.knocks < CASING_SOUNDS) {
+                    c.knocks += 1;
+                    fx.casing_knocks += 1;
+                    knocks.write(PlaySound { sound, at: Some(h.point) });
+                }
                 c.velocity = (c.velocity - 2.0 * c.velocity.dot(n) * n) * CASING_BOUNCE;
                 c.spin *= CASING_BOUNCE;
                 c.resting = c.velocity.length() < CASING_REST;
@@ -348,7 +381,8 @@ fn casings(
         // It tumbles about an axis across its flight [design].
         let spin = velocity.cross(Vec3::Z).normalize_or(Vec3::X) * 12.0;
         let holder = spawn_model(&mut commands, world_root, &pm, Transform::from_translation(Vec3::from_array(c.point)));
-        commands.entity(holder).insert(Casing { velocity, spin, left: c.life.max(0.5), resting: false });
+        let sound = sfx.forms.sounds.iter().find(|(_, s)| s.edid.as_deref() == Some(casing_sound(model))).map(|(&id, _)| id);
+        commands.entity(holder).insert(Casing { velocity, spin, left: c.life.max(0.5), resting: false, sound, knocks: 0 });
         fx.casings += 1;
     }
 }
@@ -424,8 +458,8 @@ fn face_camera(
 fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
     if exit.read().last().is_some() && fx.flashes + fx.projectiles + fx.no_model > 0 {
         info!(
-            "shot fx: {} muzzle flashes ({} with a light), {} projectile models drawn, {} projectiles without a model, {} shell casings, {} impact effects",
-            fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings, fx.impacts
+            "shot fx: {} muzzle flashes ({} with a light), {} projectile models drawn, {} projectiles without a model, {} shell casings, {} impact effects, {} casing knocks heard",
+            fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings, fx.impacts, fx.casing_knocks
         );
     }
 }

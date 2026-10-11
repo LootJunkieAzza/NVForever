@@ -33,6 +33,7 @@ fn object(shape: Shape, motion: Motion) -> CollisionObject {
         restitution: 0.0,
         shape,
         shell: 0.0,
+        material: None,
     }
 }
 
@@ -141,6 +142,17 @@ fn trimesh_material_on_ray_hit() {
     // From below (back face).
     let up = w.queries().ray([20.0, 80.0, -50.0], [0.0, 0.0, 1.0], 100.0, &Filter::default()).unwrap();
     assert_eq!(up.material, Some(22));
+}
+
+#[test]
+fn convex_material_on_ray_hit() {
+    // A bottle's convex hull carries one material (24 BOTTLE); a box without one has none.
+    let mut w = PhysWorld::new(PhysParams::default());
+    let hull = Shape::ConvexHull { points: vec![[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0], [10.0, 10.0, 10.0]] };
+    w.add_ref(&at(9, [0.0; 3]), &[CollisionObject { material: Some(24), ..object(hull, Motion::Static) }]);
+    w.add_ref(&at(10, [50.0, 50.0, 0.0]), &[object(boxed([5.0; 3]), Motion::Static)]);
+    assert_eq!(down(&mut w, 5.0, 5.0).unwrap().material, Some(24));
+    assert_eq!(down(&mut w, 50.0, 50.0).unwrap().material, None);
 }
 
 #[test]

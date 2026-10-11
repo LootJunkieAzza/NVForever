@@ -15,6 +15,7 @@
 //! - [`detection`]: how well one actor perceives another (hidden, noticed, detected)
 //! - [`dialogue`]: conversations between the player and an actor (Layer 6, step D2)
 //! - [`idles`]: the idle animations scripts, packages and dialogue lines ask for
+//! - [`chargen`]: the character-creation menus' rules (name, S.P.E.C.I.A.L., tag skills, traits)
 //! - [`intro`]: the intro chain's units (coverage)
 //! - [`runner`]: `fnv.script.actions/1` → `fnv.script.trace/1`
 //! - [`voice`]: the hook that gives a dialogue response the length of its voice file
@@ -23,7 +24,9 @@
 
 pub mod actor_values;
 pub mod ai;
+pub mod anims;
 pub mod awareness;
+pub mod chargen;
 pub mod combat;
 pub mod cond;
 pub mod data;
@@ -37,6 +40,7 @@ pub mod package;
 pub mod quest;
 pub mod radio;
 pub mod rest;
+pub mod sound;
 pub mod runner;
 pub mod templates;
 pub mod trace;

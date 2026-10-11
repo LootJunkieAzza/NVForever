@@ -2,6 +2,7 @@
 //! document on stdout (schemas in docs/cli-contract.md) and diagnostics on stderr.
 //! Exit codes: 0 success, 1 the input could not be processed, 2 usage error.
 
+mod activator_models;
 mod actor_anims;
 mod ai_choice;
 mod ai_cmd;
@@ -13,6 +14,7 @@ mod actor_tri;
 mod actor_detect;
 mod actor_factions;
 mod actor_values;
+mod actor_chargen;
 mod actor_weapons;
 mod actor_cmd;
 mod bsa_cmd;
@@ -134,6 +136,23 @@ pub enum ActorCmd {
         actor: Vec<String>,
         #[arg(long)]
         survey: bool,
+    },
+    /// Character creation (docs/spec-notes/chargen.md §6): the name offered, the
+    /// S.P.E.C.I.A.L. sheet, the tag-skill list with values and the traits with their
+    /// requirement lines, as a new player sees them (fnv.actor.chargen/1).
+    Chargen {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Script function catalogue (default: `script/functions.json` next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// Seven attributes, Strength to Luck, comma-separated, applied before the
+        /// skills are listed (every point must be given out).
+        #[arg(long)]
+        special: Option<String>,
+        /// Skills to tag (repeatable, by actor value name).
+        #[arg(long)]
+        tag: Vec<String>,
     },
     /// Factions of actors (docs/spec-notes/factions.md): for each named actor its
     /// template chain, the factions the records give it and how it stands towards the
@@ -640,6 +659,31 @@ pub enum SimCmd {
         /// NIF schema directory (default: `<schema>/../nif`).
         #[arg(long)]
         nif_schema: Option<PathBuf>,
+    },
+    /// Every activator and talking activator base (radio receivers apart): the controller
+    /// sequences of its model and what their tracks drive (fnv.sim.activator_models/1).
+    ActivatorModels {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `<schema>/../nif`).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+    },
+    /// Scripts' PlayGroup and IsAnimPlaying calls: on which objects, with which groups and
+    /// flags, and whether the object's model has that sequence (fnv.sim.playgroup_calls/1).
+    PlaygroupCalls {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `<schema>/../nif`).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Function catalogue (default: `<schema>/../script/functions.json`).
+        #[arg(long)]
+        functions: Option<PathBuf>,
     },
 }
 

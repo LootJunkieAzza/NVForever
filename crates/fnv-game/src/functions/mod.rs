@@ -26,7 +26,7 @@ mod reputation;
 
 pub use reputation::{store as reputation_store, tiers as reputation_tiers};
 pub use actor::{actor_value, actor_value_capped, actor_value_parts, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
-pub use actor::{faction_rank, faction_relation, factions_of};
+pub use actor::{faction_rank, faction_relation, factions_of, factions_relation};
 pub use misc::clock_now;
 
 use crate::game::{Game, InstKey};
@@ -322,7 +322,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1212, "SetCriticalStage", Impl(objects::set_critical_stage)),
         (0x1213, "IsInCriticalStage", Impl(objects::is_in_critical_stage)),
         (0x11D5, "SetBroadcastState", Impl(objects::set_broadcast_state)),
-        (0x11D4, "GetBroadcastState", Impl(objects::get_broadcast_state)),
+        (0x11D4, "GetBroadcastState", Impl(crate::radio::get_broadcast_state)),
         (0x1171, "SetTalkingActivatorActor", Impl(objects::set_talking_activator_actor)),
         // Inventories (items.rs).
         (0x1249, "RemoveAllTypedItems", Impl(items::remove_all_typed_items)),
@@ -403,13 +403,13 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1017, "StopCombat", Impl(crate::awareness::stop_combat)),
         (0x1184, "SetDisposition", Stub("dialogue (disposition)")),
         (0x115C, "SendTrespassAlarm", Stub("crime")),
-        (0x1013, "PlayGroup", Stub("animation")),
+        (0x1013, "PlayGroup", Impl(crate::anims::play_group)),
         (0x1190, "PlayIdle", Impl(crate::idles::play_idle)),
         (0x105C, "Look", Stub("animation (head tracking)")),
         (0x105D, "StopLook", Stub("animation (head tracking)")),
         (0x11E4, "AgeRace", Stub("character appearance")),
-        (0x1026, "PlaySound", Stub("sound")),
-        (0x11FF, "PlayMusic", Stub("sound")),
+        (0x1026, "PlaySound", Impl(crate::sound::play_sound)),
+        (0x11FF, "PlayMusic", Impl(crate::sound::play_music)),
         (0x1114, "PlayBink", Stub("video")),
         (0x1191, "ApplyImageSpaceModifier", Impl(misc::apply_image_space_modifier)),
         (0x1192, "RemoveImageSpaceModifier", Impl(misc::remove_image_space_modifier)),
@@ -442,15 +442,15 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1173, "ShowBarterMenu", Impl(misc::show_barter_menu)),
         (0x1123, "PlayMagicShaderVisuals", Stub("rendering (effect shaders)")),
         (0x1129, "SetActorAlpha", Stub("rendering")),
-        (0x10B2, "PlaySound3D", Stub("sound")),
+        (0x10B2, "PlaySound3D", Impl(crate::sound::play_sound_3d)),
         (0x1198, "GetVATSValue", Stub("combat (VATS)")),
         (0x105A, "SetAlert", Impl(crate::awareness::set_alert)),
         (0x1042, "GetShouldAttack", Stub("combat")),
         (0x1275, "IncrementScriptedChallenge", Stub("challenges")),
         (0x1201, "ResetPipboyManager", Stub("Pip-Boy")),
-        (0x122C, "ForceRadioStationUpdate", Stub("radio")),
+        (0x122C, "ForceRadioStationUpdate", Impl(crate::radio::force_radio_station_update)),
         // Layer 6 systems added 2026-10-09 (function coverage round): recorded, no effect.
-        (0x1128, "IsAnimPlaying", Stub("animation")),
+        (0x1128, "IsAnimPlaying", Impl(crate::anims::is_anim_playing)),
         (0x10DB, "GetAnimAction", Stub("animation")),
         (0x1070, "IsIdlePlaying", Impl(crate::idles::is_idle_playing)),
         (0x1064, "PickIdle", Stub("animation")),
@@ -534,10 +534,10 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x103E, "IsRaining", Stub("weather")),
         (0x1095, "GetIsCurrentWeather", Stub("weather")),
         (0x11F7, "GetRadiationLevel", Stub("radiation (environment)")),
-        (0x11D6, "StartRadioConversation", Stub("radio")),
-        (0x1224, "PipBoyRadioOff", Stub("radio")),
-        (0x11A7, "PipBoyRadio", Stub("radio")),
-        (0x11C4, "SetNPCRadio", Stub("radio")),
+        (0x11D6, "StartRadioConversation", Impl(crate::radio::start_radio_conversation)),
+        (0x1224, "PipBoyRadioOff", Impl(crate::radio::pipboy_radio_off)),
+        (0x11A7, "PipBoyRadio", Impl(crate::radio::pipboy_radio)),
+        (0x11C4, "SetNPCRadio", Impl(crate::radio::set_npc_radio)),
         (0x11FB, "SetRumble", Stub("controller rumble")),
         (0x1189, "PurgeCellBuffers", Stub("memory (cell buffers)")),
         (0x1163, "PreloadMagicEffect", Stub("loading")),

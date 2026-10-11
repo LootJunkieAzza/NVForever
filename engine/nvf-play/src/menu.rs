@@ -13,7 +13,8 @@
 //!   choice's result script; then it opens over the conversation, which waits under it
 //!   (`crate::dialogue::held`) and goes on when it closes [hypothesis: the original
 //!   returns to the conversation; its BarterExit lines are not said yet].
-//! - Tab while playing opens the player's inventory alone: equip/unequip (aid items are
+//! - Tab tapped while playing opens the player's inventory alone, when it is let go (a
+//!   hold switches the flashlight, `crate::flashlight`): equip/unequip (aid items are
 //!   used), drop, the encumbrance line.
 //! - Keys of the container menu: Up/Down (or W/S) select, Left/Right (or A/D) switch
 //!   list, Enter/Space take or store one, Shift+Enter/Space the whole stack, R take all, E,
@@ -87,7 +88,7 @@ const RESPAWN_NOTE: &str = "This container respawns and is unsafe to store your 
 #[derive(Message, Clone, Copy, Debug)]
 pub struct MenuInput(pub Command);
 
-/// Open the player's inventory (Tab, or the test aid).
+/// Open the player's inventory (Tab tapped, `crate::flashlight`; or the test aid).
 #[derive(Message, Clone, Copy, Debug, Default)]
 pub struct OpenInventory;
 
@@ -118,7 +119,7 @@ impl Plugin for MenuPlugin {
             .add_systems(
                 Update,
                 (
-                    (tab_opens_inventory, f9_opens_nearest_container).run_if(in_state(PlayState::Playing)),
+                    f9_opens_nearest_container.run_if(in_state(PlayState::Playing)),
                     test_aid::run,
                     test_aid::run_drops,
                     test_aid::run_barter,
@@ -134,12 +135,6 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(PlayState::Menu), release_cursor)
             .add_systems(OnExit(PlayState::Menu), close_menu);
         test_aid::setup(app);
-    }
-}
-
-fn tab_opens_inventory(input: crate::bindings::ControlInput, mut out: MessageWriter<OpenInventory>) {
-    if input.just_pressed(crate::bindings::Control::MenuMode) {
-        out.write(OpenInventory);
     }
 }
 
@@ -405,11 +400,17 @@ fn apply_input(
     mut changed: MessageWriter<RefChanged>,
     mut used: MessageWriter<ItemUsed>,
     script: Option<ResMut<crate::script::ScriptState>>,
+    mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
 ) {
     let mut script = script.map(|s| s.into_inner());
     for &MenuInput(cmd) in input.read() {
         let Some(m) = active.0.as_mut() else { return };
+        let before = crate::ui_sounds::MenuBefore::of(m);
         let a = m.apply(&mut sim.world, cmd);
+        // What the command did, for its sound (`crate::ui_sounds`).
+        if let Some(event) = crate::ui_sounds::menu_event(cmd, &before, m, &a) {
+            sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event });
+        }
         let moves_items = matches!(cmd, Command::One | Command::Stack | Command::TakeAll | Command::Drop | Command::DropStack | Command::Accept);
         if moves_items || a.changed {
             if let Some(s) = m.status.as_deref().filter(|s| !s.is_empty()) {

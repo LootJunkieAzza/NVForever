@@ -23,6 +23,9 @@
 //!   NiTextKeyExtraData; observed: 931 `hit` keys in the clips, animation.md §3.2]; the
 //!   key's time is told to `npc_combat` ([`AttackTimes`]), which delays the blow's damage
 //!   by it. Shots leave at the start of their clip [design].
+//! - While an attack clip plays, the actor's body block keeps the place it had when the
+//!   attack began (`nvf_play::blocking::ActorBlocks::attacking`): a dog's lunge shoved
+//!   the player back 40 units each bite before [design; owner 2026-10-11].
 //! - An attack clip is laid on blend layers 4 and 5 (the idles' layers: an idle stops for
 //!   the attack) over the aim, by track priority (attack clips 55, aim 50,
 //!   animation.md §9.6); the aim's up or down form takes layer 3 when the weapon's draw
@@ -196,7 +199,15 @@ fn start(
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut rigs: Query<Rigs>,
+    blocks: Option<ResMut<nvf_play::blocking::ActorBlocks>>,
 ) {
+    // Who is in an attack now: their body blocks hold still (module notes).
+    if let Some(mut b) = blocks {
+        let now: std::collections::HashSet<u32> = rigs.iter().filter(|r| r.3.is_some_and(|p| p.attack.is_some())).map(|r| r.1.reference).collect();
+        if b.attacking != now {
+            b.attacking = now;
+        }
+    }
     let asked: Vec<PlayAttack> = asked.read().copied().collect();
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
     let clips = &mut *clips;

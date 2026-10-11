@@ -506,8 +506,13 @@ hit wears, and a weapon at zero is broken: docs/spec-notes/combat-rules.md §17.
   capsule along the swing within the reach (`fCombatDistance` × scale × the weapon's
   Reach; a creature's natural attack uses its attack reach). Each target is hit once
   per swing.
-- Power attack: holding Use charges a stronger, slower swing. Block (right mouse, already
-  bound) reduces incoming melee damage and staggers an attacker who hits it.
+- Power attack: holding Use starts a power attack whose clip follows the direction
+  moved (standing, forward, back, left, right) and whose damage is that direction's
+  `fDamagePowerAttack…Bonus`. Block (right mouse, already bound) reduces incoming melee
+  damage and staggers an attacker who hits it.
+- Combos: a press during a swing starts the next at the clip's `a:` key, playing the
+  attack group the key names (right, left, right…); built 2026-10-11 in
+  `fnv_combat::melee` (combat-rules.md §10).
 - Unarmed uses the same path, with fists and the UnarmedDamage actor value; a
   creature's natural attack uses its attack damage. The `A` key's interrupt time is
   when the next swing of a combo may start.

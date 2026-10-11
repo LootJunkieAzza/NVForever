@@ -20,11 +20,14 @@
 //!   (`fnv_combat::shot::leaving`; docs/design/combat.md §5.1).
 //! - **Projectiles** fly through the physics world (`fnv_phys` rays; actor hit volumes,
 //!   combat C3).
-//! - **Melee and unarmed** (step C6): a tap of Use swings, holding it
-//!   [`CombatTuning::power_hold`] makes a power attack (more damage, slower) [design]; the
-//!   swing strikes once at the attack clip's `Hit` key [documented: NiTextKeyExtraData]
-//!   with a fan of rays from the eye out to the reach (`damage::melee_reach`); holding Use
-//!   after a normal swing swings again. With no weapon equipped the player fights with the
+//! - **Melee and unarmed** (step C6, `fnv_combat::melee`): a tap of Use swings, and taps
+//!   during a swing chain the next at the clip's `a:` key (right, left, right… by the
+//!   keys); holding it [`CombatTuning::power_hold`] makes a power attack whose clip
+//!   follows the movement keys (standing, forward, back, left, right) and whose damage is
+//!   that direction's `fDamagePowerAttack…Bonus`. The body plays [`WeaponAnim::swing`]
+//!   and times it ([`WeaponAnim::timed`]); the swing strikes once at the clip's `Hit` key
+//!   [documented: NiTextKeyExtraData] with a fan of rays from the eye out to the reach
+//!   (`damage::melee_reach`). With no weapon equipped the player fights with the
 //!   Fists (WEAP `Fists`) [hypothesis: the game's unarmed weapon form]. Knockback force
 //!   is computed (documented formula) and logged; living actors are not pushed until they
 //!   move physically. Every shot and blow that lands on an actor also sends an
@@ -98,6 +101,7 @@ use bevy::prelude::*;
 use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
 use fnv_combat::condition::{self, Wear, Zone};
 use fnv_combat::damage::{self, Attacker, AttackKind, HitInput, HitPart, NoPerks, Target};
+use fnv_combat::melee::{Melee, MeleeEvent, MeleeInput, SwingTiming};
 use fnv_combat::data::AmmoEffect;
 use fnv_combat::projectile::{blast, ActorId, CombatWorld, Motion, ProjEvent, Projectile, WorldHit};
 use fnv_combat::rng::SplitMix;
@@ -117,7 +121,7 @@ use crate::control::PlayerControl;
 use crate::script::{with_world, ScriptState};
 use fnv_game::combat::{CombatRequest, DestructionChange, HitInfo, HitResult};
 use crate::phys::PhysState;
-use crate::player::{Player, MAX_PITCH};
+use crate::player::{MoveIntent, Player, MAX_PITCH};
 use crate::sim::SimState;
 use crate::{space, PlaySet, PlayState, PlayWorld};
 
@@ -145,8 +149,12 @@ pub struct WeaponAnim {
     /// Counted up by combat when a weapon starts to spin up: the body plays the attack
     /// clip from its start, and the first shot follows at the clip's `Fire` key.
     pub spin_ups: u32,
-    /// The last attack is a power attack (melee), for the body's clip choice.
-    pub power: bool,
+    /// Set by combat: the clip stem of the melee swing playing (`attackleft_b`,
+    /// `attackforwardpower`; `fnv_combat::melee`), for the body's clip choice; `None`:
+    /// the weapon's attack animation.
+    pub swing: Option<String>,
+    /// Set by the body: the attack stem whose clip [`Self::timing`] was read from.
+    pub timed: Option<String>,
     /// Set by the body each frame: where the muzzle of the weapon in hand is, in the rig
     /// in view (game space): the weapon model's `ProjectileNode` [hypothesis: that the
     /// node marks where projectiles and the muzzle flash start, from its name and its
@@ -428,6 +436,8 @@ pub struct CombatStats {
     pub xp: f64,
     pub swings: u32,
     pub power_attacks: u32,
+    /// Swings that went on from the last one's `a:` key (combos).
+    pub chained_swings: u32,
     pub melee_hits: u32,
     pub knockdowns: u32,
     /// Shots drawn from the weapon's muzzle, and shots that left it because something
@@ -448,15 +458,6 @@ pub struct CombatStats {
     pub player_hits: u32,
     pub player_damage: f32,
     pub player_died: bool,
-}
-
-/// A melee swing in progress (step C6).
-struct Swing {
-    t: f32,
-    hit_at: f32,
-    len: f32,
-    power: bool,
-    struck: bool,
 }
 
 /// A projectile in flight with where it left from, where it is drawn and whether it
@@ -579,15 +580,10 @@ pub struct Combat {
     self_ammo: bool,
     /// The weapon is melee or unarmed (no cycle; [`Swing`]s).
     melee: bool,
-    /// How long Use has been held for the next melee attack.
-    held: Option<f32>,
-    swing: Option<Swing>,
+    /// The melee swings (step C6).
+    swings: Melee,
     /// Explosions to set off this frame (impacts, detonations, destruction stages).
     boom: Vec<(FormId, V3)>,
-    /// Use was pressed during a swing: the next swing starts when it ends [design].
-    queued: bool,
-    /// The trigger last frame (for presses during a swing).
-    was_trigger: bool,
     cycle: Option<Cycle>,
     kick: Kick,
     flying: Vec<Flying>,
@@ -600,6 +596,8 @@ pub struct Combat {
     pending: Vec<Pending>,
     marks: Vec<Mark>,
     rng: SplitMix,
+    /// The melee swings' own rolls (variants), so they leave the hit rolls as they were.
+    swing_rng: SplitMix,
     time: f32,
     /// Test aid `NVF_PLAY_TEST_NO_SPREAD=1`: shots leave exactly along the view (no
     /// spread, no bloom), so an unattended check hits what it aims at.
@@ -692,10 +690,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         ammo: None,
         self_ammo: false,
         melee: false,
-        held: None,
-        swing: None,
-        queued: false,
-        was_trigger: false,
+        swings: Melee::default(),
         boom: Vec::new(),
         cycle: None,
         kick: Kick::default(),
@@ -706,6 +701,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         pending: Vec::new(),
         marks: Vec::new(),
         rng: SplitMix(1),
+        swing_rng: SplitMix(2),
         time: 0.0,
         no_spread: std::env::var_os("NVF_PLAY_TEST_NO_SPREAD").is_some_and(|v| v != "0"),
         tracer_hold,
@@ -739,8 +735,8 @@ fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut
     c.cycle = None;
     c.ammo = None;
     c.melee = false;
-    c.held = None;
-    c.swing = None;
+    c.swings.reset();
+    anim.swing = None;
     let Some(id) = weapon else {
         anim.attack = None;
         anim.reload = None;
@@ -1323,7 +1319,7 @@ fn melee(
     mut c: ResMut<Combat>,
     mut sim: ResMut<SimState>,
     mut phys: ResMut<PhysState>,
-    player: Res<Player>,
+    (player, intent): (Res<Player>, Res<MoveIntent>),
     control: Res<PlayerControl>,
     mut anim: ResMut<WeaponAnim>,
     mut stats: ResMut<CombatStats>,
@@ -1340,51 +1336,44 @@ fn melee(
     let c = &mut *c;
     let Some(id) = c.weapon.filter(|_| c.melee) else { return };
     if !anim.ready {
-        c.held = None;
-        c.swing = None;
+        c.swings.reset();
+        anim.swing = None;
         return;
     }
     let w = c.forms.weapons[&id].clone();
-    let pressed = control.trigger && !c.was_trigger;
-    c.was_trigger = control.trigger;
-    if c.swing.is_some() && pressed {
-        c.queued = true;
+    // The clip the body timed for the swing playing; a new swing runs on the weapon's
+    // own timing until the body has read its clip (the next frame).
+    let speed = w.attack_mult.max(0.01) * w.anim_mult.max(0.01);
+    if let Some(stem) = anim.timed.as_deref() {
+        let t = &anim.timing;
+        c.swings.set_timing(stem, SwingTiming::of(t.attack_len, t.hit_time, t.next_attack, speed, 1.0));
     }
-    // Start a swing: a tap on release, a power attack once held long enough, or the swing
-    // asked for during the last one.
-    if c.swing.is_none() {
-        let start = match (control.trigger, c.held) {
-            _ if std::mem::take(&mut c.queued) => Some(false),
-            (true, h) => {
-                let h = h.unwrap_or(0.0) + dt;
-                c.held = Some(h);
-                (h >= c.tuning.power_hold).then_some(true)
+    let fallback = Timing::of(&w, &ClipTiming::default(), &c.tuning).interval;
+    let first = fnv_actor::player_clips::attack_stem(anim.attack.as_deref());
+    let input = MeleeInput { trigger: control.trigger, dt, forward: intent.forward, right: intent.right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()] };
+    let mut strike = None;
+    for e in c.swings.tick(input, &c.tuning, SwingTiming::of(None, None, None, speed, fallback)) {
+        match e {
+            MeleeEvent::Started { stem, power, chained } => {
+                if power.is_some() {
+                    stats.power_attacks += 1;
+                    // Without a clip to time it, a power attack takes longer [design].
+                    if let Some(s) = c.swings.swing.as_mut() {
+                        s.timing = SwingTiming::of(None, None, None, speed, fallback * c.tuning.power_time);
+                    }
+                }
+                stats.swings += 1;
+                stats.chained_swings += u32::from(chained);
+                info!("combat: {} swing {stem}{}", w.edid.as_deref().unwrap_or("?"), if chained { " (chained)" } else { "" });
+                anim.swing = Some(stem);
+                anim.attacks += 1;
             }
-            (false, Some(_)) => Some(false),
-            (false, None) => None,
-        };
-        if let Some(power) = start {
-            c.held = if power { None } else { c.held.filter(|_| false) };
-            let timing = Timing::of(&w, &anim.timing, &c.tuning);
-            let k = if power { c.tuning.power_time } else { 1.0 };
-            let len = timing.interval * k;
-            let hit_at = if timing.fire_delay > 0.0 { timing.fire_delay * k } else { 0.4 * len };
-            c.swing = Some(Swing { t: 0.0, hit_at, len, power, struck: false });
-            anim.power = power;
-            anim.attacks += 1;
-            stats.swings += 1;
-            if power {
-                stats.power_attacks += 1;
-            }
-            debug!("combat: {} swing{}", w.edid.as_deref().unwrap_or("?"), if power { " (power)" } else { "" });
+            MeleeEvent::Strike { power } => strike = Some(power),
+            MeleeEvent::Ended => {}
         }
     }
-    let Some(s) = c.swing.as_mut() else { return };
-    s.t += dt;
-    let strike = !s.struck && s.t >= s.hit_at;
-    s.struck |= strike;
-    let (power, done) = (s.power, s.t >= s.len);
-    if strike {
+    if let Some(power) = strike {
+        let power_mult = power.map_or(1.0, |d| d.damage(&c.rules));
         let reach = damage::melee_reach(&c.rules, &w, 1.0);
         let eye = player.eye();
         let hits = {
@@ -1413,7 +1402,7 @@ fn melee(
             a.arm_condition = limbs.arm_condition();
             let bp = body_part(c, &parts, actor, hit.part);
             let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
-            let h = HitInput { weapon: &w, projectiles: 1, condition: weapon_condition, ammo_effects: &[], part, power: if power { c.tuning.power_damage } else { 1.0 } };
+            let h = HitInput { weapon: &w, projectiles: 1, condition: weapon_condition, ammo_effects: &[], part, power: power_mult };
             let roll = c.rng.next_f32();
             if hit.part == Some(WEAPON_PART) {
                 let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
@@ -1426,7 +1415,7 @@ fn melee(
             let location = bp.as_ref().map_or(0, BodyPart::location);
             let limb = limb_hit(bp.as_ref(), d.dealt, &w);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
-            pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power { POWER_PUSH } else { 1.0 }) });
+            pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power.is_some() { POWER_PUSH } else { 1.0 }) });
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages);
             if r.as_ref().is_none_or(|r| !r.immune) {
                 wear_armor(c, &mut sim, &mut stats, target, Zone::of(bp.as_ref()), d.raw);
@@ -1435,7 +1424,7 @@ fn melee(
                 Some(r) => info!(
                     "combat: {}{} hits {target} on {} for {:.1} (DT {:.0}{}), health {:.0}/{:.0}, knockback {push:.0}",
                     w.edid.as_deref().unwrap_or("?"),
-                    if power { " power attack" } else { "" },
+                    if power.is_some() { " power attack" } else { "" },
                     bp.as_ref().and_then(|b| b.name.as_deref()).unwrap_or("the body"),
                     r.dealt,
                     d.dt,
@@ -1446,9 +1435,6 @@ fn melee(
                 None => info!("combat: melee hit {target} for {:.1} (no script runtime: not applied)", d.dealt),
             }
         }
-    }
-    if done {
-        c.swing = None;
     }
 }
 
@@ -1510,6 +1496,10 @@ fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&Scri
     }
     out
 }
+
+/// What a shot sends out: sounds, impact effects, explosions, broken weapons, and what
+/// each impact picked (for `crate::world_sounds`).
+type ShotEffects<'w> = (MessageWriter<'w, PlaySound>, MessageWriter<'w, ImpactFx>, MessageWriter<'w, ExplosionFx>, MessageWriter<'w, WeaponBroken>, MessageWriter<'w, crate::world_sounds::ImpactPicked>);
 
 /// Fly the projectiles, deliver hits when due, set off explosions (and what they set
 /// off: destruction stages, detonations).
@@ -1612,7 +1602,7 @@ fn fly(
     mut visuals: ResMut<ShotVisuals>,
     anim: Res<WeaponAnim>,
     sfx: Option<Res<Sfx>>,
-    mut effects: (MessageWriter<PlaySound>, MessageWriter<ImpactFx>, MessageWriter<ExplosionFx>, MessageWriter<WeaponBroken>),
+    mut effects: ShotEffects,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -1813,20 +1803,26 @@ fn fly(
         let effect_ids = chain.map(|ch| ch.ammo_effects).unwrap_or_default();
         let shooter = p.by.actor;
         c.marks.push(Mark::at(p.point, 0.3, MarkKind::Impact));
-        // The impact the weapon's data set names for what was hit: an actor is organic
-        // [design: its creature type's kinds, bug and glow, are not told apart yet].
+        // The impact the weapon's data set names for what was hit: an actor's is its
+        // base's Impact Material Type (NPC_ / CREA `NAM4`), organic without one
+        // [design]; anything else's its collision material (docs/spec-notes/audio.md §11).
         if let Some(s) = sfx.as_deref() {
-            let material = if p.actor.is_some() { "organic" } else { fnv_combat::fx::impact_material(p.material) };
+            let material = match p.actor {
+                Some(a) => sim.base_of(a as u32).and_then(|b| s.forms.actor_material(b)).unwrap_or("organic"),
+                None => fnv_combat::fx::impact_material(p.material),
+            };
             let set = s.forms.weapons.get(&id).and_then(|w| w.impact_dataset);
-            if let Some(impact) = set.and_then(|set| s.forms.impact_id(set, material)) {
+            let impact = set.and_then(|set| s.forms.impact_id(set, material));
+            if let Some(impact) = impact {
                 effects.1.write(ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir });
                 if let Some(i) = s.forms.impacts.get(&impact) {
                     for sound in i.sound_1.into_iter().chain(i.sound_2) {
                         effects.0.write(PlaySound { sound, at: Some(p.point) });
                     }
                 }
-                debug!("combat: impact {} on {material} (collision material {:?})", s.forms.impacts.get(&impact).and_then(|i| i.edid.as_deref()).unwrap_or("?"), p.material);
             }
+            let hit = p.actor.map(|a| a as u32).or(p.object.map(|o| o as u32));
+            effects.4.write(crate::world_sounds::log_impact(s, hit, p.actor.is_some(), p.material, material, impact));
         }
         let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, shooter, w.skill.as_deref(), false);
@@ -1958,8 +1954,8 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
     if exit.read().last().is_some() {
         let s = &*stats;
         info!(
-            "combat: {} shots ({} drawn from the muzzle, {} from behind cover), {} projectiles, {} actor hits, {} world hits ({} objects' hit blocks, {} objects knocked away), {} explosions ({} knockdowns), {} swings ({} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
-            s.shots, s.muzzle_shots, s.covered_shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
+            "combat: {} shots ({} drawn from the muzzle, {} from behind cover), {} projectiles, {} actor hits, {} world hits ({} objects' hit blocks, {} objects knocked away), {} explosions ({} knockdowns), {} swings ({} chained, {} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
+            s.shots, s.muzzle_shots, s.covered_shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.chained_swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
         );
         info!(
             "condition summary: the player's weapons lost {:.1} health, {} hits on held weapons, {} weapons broken, armour lost {:.1} health, {} pieces worn to nothing",
@@ -2065,9 +2061,11 @@ fn update_hit_hud(
 
 /// The cycle's clip timing from the attack clip (length, `Hit` or `Fire` key, and
 /// whether a `Loop` key follows that key), the reload clip (length and `Hit` key) and the
-/// length of the reload's opening clip, as the player body reads them.
-pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32, Option<f32>)>, reload_open: Option<f32>) -> ClipTiming {
+/// length of the reload's opening clip, as the player body reads them; `next_attack`: the
+/// attack clip's `a:` key, its time and text (`fnv_actor::player_clips::ClipKeys`).
+pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32, Option<f32>)>, reload_open: Option<f32>, next_attack: Option<(f32, &str)>) -> ClipTiming {
     ClipTiming {
+        next_attack: next_attack.and_then(|(t, v)| fnv_combat::melee::NextAttack::parse(v).map(|n| (t, n))),
         attack_len: attack.map(|a| a.0).filter(|l| *l > 0.0),
         hit_time: attack.and_then(|a| a.1),
         reload_len: reload.map(|r| r.0).filter(|l| *l > 0.0),
