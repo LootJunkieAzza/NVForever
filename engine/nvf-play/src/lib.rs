@@ -40,6 +40,7 @@ pub mod pipboy;
 pub mod player;
 pub mod quest_messages;
 pub mod radio;
+pub mod reticle;
 pub mod script;
 pub mod script_draw;
 pub mod script_events;
@@ -238,7 +239,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(world_sounds::WorldSoundsPlugin)
             .add_plugins(ui_sounds::UiSoundsPlugin)
             .add_plugins(chargen::ChargenPlugin)
-            .add_plugins(pipboy::PipBoyPlugin);
+            .add_plugins(pipboy::PipBoyPlugin)
+            .add_plugins(reticle::ReticlePlugin);
         test_aid::setup(app);
     }
 }

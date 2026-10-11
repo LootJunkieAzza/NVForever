@@ -177,10 +177,10 @@ the compass the eight directions' letters in Bevy's font.
   the ammo's place, the brightness of lines against text.
 - Compass markers: quest targets, places, the player's own marker, actors nearby.
 - The compass's faded ends.
-- The crosshair of the original (`ReticleCenter`), the enemy's health, the sneak
-  meter, the messages at the top left with their icons, subtitles and the prompt in the
-  game's font, the XP bar, the radiation meter, the breath meter, the crippled-limb
+- The enemy's health, the sneak meter, the messages at the top left with their icons,
+  subtitles, the XP bar, the radiation meter, the breath meter, the crippled-limb
   picture, the armour-piercing icons, the ammo type's label, Hardcore mode's words.
+  (The crosshair and the prompt under it are drawn as the original's: `reticle.md`.)
   The developer's stand-ins for some of these (`activate.rs`, `combat.rs`,
   `script_hud.rs`) are unchanged; the crippled limbs stay a line of words.
 - The HUD's fading in and out, its opacity setting, and the glow the game adds over it

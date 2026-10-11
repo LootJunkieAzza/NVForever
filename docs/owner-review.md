@@ -2876,3 +2876,26 @@ Details and what is guessed: `docs/spec-notes/pipboy.md` §5.1 (STATS) and §5.3
 4. **Not built yet:** using a Stimpak or RadAway from the hints, the hardcore buttons,
    Place Marker, Challenges, the item picture and figures on ITEMS. The messages at the
    top left (quest updates, corner messages) still draw over the Pip-Boy's edge.
+
+## The crosshair and the prompt under it (2026-10-11, session "crosshair")
+
+Branch `claude/crosshair`; note docs/spec-notes/reticle.md.
+
+1. **What you should see:** the game's own crosshair, the two small arrows, and the
+   boxed `[> <]` one while something you can use is under it; under it "E) Take" (or
+   Talk, Open, ...) and the name on the next line, as on your four screenshots; for an
+   item, the line across with "WG" and the weight left of its stem and "VAL" and the
+   value right of it.
+2. **Measured:** at 1280x720 the crosshair, the letters of both lines, the line across
+   and the figures land on the same pixels as in your bottle cap and gun case pictures
+   (compared on a beer and the saloon's cash register).
+3. **Guesses I had to make, for you to check against the game:**
+   - **A door to another place** shows "E) Open" and the place's name under it.
+   - **Locked things** say "E) Locked (Average)" or "E) Unlock (key)": what does the
+     game write?
+   - **Weights** written as "2", "0.5", "0.25" (no trailing zeros); nothing as "--".
+   - **A stack** shows "Stimpak (3)" and the weight and value of one.
+4. **Not built:** the crosshair turning red on an enemy, the sneak words ("[HIDDEN]"),
+   extra lines such as a lock's level or "Steal" in red for owned things, weapon damage
+   and condition in the item row. Screenshots of a locked safe, an owned item, a load
+   door and a weapon on the floor would settle most of these.
