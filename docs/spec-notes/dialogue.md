@@ -484,8 +484,8 @@ Joe Cobb and Trudy (below).
   `dialogue_data.rs`, `sunny_opens_conversations_with_conversation_lines`]. Of the 20
   scripted StartConversation calls with an actor and a named topic, 19 name topics of
   Conversation lines only; NellisArgyllPatientHealedDumb (SCPT 001009F2) holds one Topic
-  line, so that exchange is now silent [open: whether the rule should spare a topic a
-  script names; owner question].
+  line, so that exchange is now silent [owner decision 2026-10-11: left as it is for
+  now; whether the rule should spare a topic a script names stays open].
 - **Start.** The speaker says the line of `topic` it can say with the target as the
   conditions' target (§4); HELLO without a topic [hypothesis, from the Conversation
   Tab: random conversations start with HELLO]. Nothing starts when either side is
