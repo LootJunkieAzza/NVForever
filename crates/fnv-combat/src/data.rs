@@ -332,12 +332,32 @@ pub struct BodyPartData {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ArmorStats {
     pub edid: Option<String>,
+    pub name: Option<String>,
+    /// DATA health: the maximum condition.
+    pub health: i32,
     /// DNAM DT.
     pub dt: f32,
     /// DNAM DR as stored (xEdit shows it ÷ 100; New Vegas armour stores 0, actors.md §1.1).
     pub dr_raw: i32,
     /// BMDT biped slots (bits).
     pub slots: u32,
+}
+
+impl ArmorStats {
+    /// The Upper Body biped slot [documented: xEdit's biped flag names, as schemas/fnv
+    /// decodes BMDT].
+    pub const UPPER_BODY: u32 = 1 << 2;
+    /// The slots on the head: Head, Hair, Headband, Hat, Eye Glasses, Mask [documented:
+    /// the same names; observed: a power armour helmet sets exactly these six].
+    pub const HEAD_SLOTS: u32 = 1 | 1 << 1 | 1 << 9 | 1 << 10 | 1 << 11 | 1 << 14;
+
+    pub fn covers_head(&self) -> bool {
+        self.slots & Self::HEAD_SLOTS != 0
+    }
+
+    pub fn covers_body(&self) -> bool {
+        self.slots & Self::UPPER_BODY != 0
+    }
 }
 
 /// One effect of an ENCH or SPEL (EFID + EFIT, then its conditions).
@@ -656,6 +676,8 @@ fn load_one(cx: &mut Ctx, sig: &[u8; 4], d: &[Decoded]) -> Loaded {
             let slots = first(d, b"BMDT").and_then(|b| b.get("biped_flags")).and_then(|f| num(f, "value")).unwrap_or(0.0) as u32;
             Loaded::Armor(ArmorStats {
                 edid: first(d, b"EDID").and_then(text),
+                name: first(d, b"FULL").and_then(text),
+                health: first(d, b"DATA").and_then(|v| int(v, "health")).unwrap_or(0) as i32,
                 dt: f(dnam, "dt"),
                 dr_raw: dnam.and_then(|v| int(v, "dr")).unwrap_or(0) as i32,
                 slots,
