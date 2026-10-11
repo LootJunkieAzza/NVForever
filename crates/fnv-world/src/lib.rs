@@ -1,6 +1,7 @@
 //! World data for Layer 3: worldspaces, cells, placed references and landscape,
 //! resolved across a load order. No engine dependencies; the renderer consumes this.
 //!
+//! - [`audio`]: music types, media sets, acoustic spaces, audio markers and sound markers
 //! - [`fields`]: schema-decoded access to one record's subrecords
 //! - [`image_modifier`]: image space modifiers as animated screen effects
 //! - [`imagespace`]: image spaces and the weather's adapters (the colour grade)
@@ -15,6 +16,7 @@
 //!
 //! Format facts and confidence tags: `docs/spec-notes/world.md`.
 
+pub mod audio;
 pub mod fields;
 pub mod grass;
 pub mod image_modifier;
