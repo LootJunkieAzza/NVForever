@@ -132,8 +132,123 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
   selected row boxed), 9 rows at once (51 a row in a list 468 high). Not built: the
   item's picture and figures (`item_stats_display.xml`), the buttons and their key hints
   ("Maintain R)", "Mod X)", "Repair R)"), the scroll bar.
-- **STATS** (`stats.rs`): the heading's places only.
+- **STATS** (`stats/`): §5.1.
 - **DATA** (`data.rs`): the title only.
+
+### 5.1 STATS
+
+Implementation: `pipboy/stats/mod.rs` (layout, keys, pointer, test aid), `model.rs` (the
+words and rules), `read.rs` (the records and the player's figures). Sources:
+`menus\main\stats_menu.xml` and the prefabs it includes (`list_box.xml`,
+`list_box_template.xml`, `super_text_box.xml`, `text_box.xml`, `meter.xml`,
+`scrollbar_vert.xml`, `box.xml`) [documented]; the owner's screenshots 1–5 (Status CND,
+RAD, EFF, S.P.E.C.I.A.L., Skills); none of Perks and General, which are laid out from the
+file alone. Compared side by side at 1280 × 720 with a new run (default stats): every
+tab with a screenshot stands within a few pixels of the original [observed].
+
+**Images in the file** [hypothesis, supported by the file's comment "filewidth/fileheight
+already adjusted for zoom"]: an image tile shows its file at the tile's zoom from the
+top left, cut off at its width and height, not stretched. The Vault Boy's pieces then
+fill exactly the parts of their files the file gives as their sizes (the head's outline
+is the top left 85 × 92 of `head.dds`) [observed].
+
+- **Heading** [documented: places, `stats_*_info`]: LVL (the player's level), HP and AP
+  as current/maximum (actor values 16 and 12: base and permanent modifier, less damage),
+  XP as experience/what the next level needs, (n − 1) × ((n − 2) / 2 × `iXPBumpBase` +
+  `iXPBase`) [documented: GECK wiki Settings; 200 at level 1, as the screenshots].
+  Without the scripts' game the figures are "--".
+- **Status** (`stats_status_container`, 50, 110, 855 × 482):
+  - CND, RAD, EFF down the left, 84 wide, 51 high (font 2 and 20), boxed when pointed
+    at, boxed and filled when chosen [documented]. The hardcore buttons (H2O, FOD, SLP)
+    under them are not built.
+  - Hints at the top right, right-aligned at 900, a slot 51 high each: "(9) Stimpak S)",
+    the controller's healing mode's slot empty, "(3) Doctor's Bag E)"; on RAD "RadAway
+    A)", "Rad-X X)" [documented: places, `_PCButton_*`; observed: the words; hypothesis:
+    the count is left out at 0 (the RAD screenshot has none), dim unless pointed at].
+    Using the items from here is not built (the keys are logged).
+  - CND: the Vault Boy at zoom 145, head 40 down and centred, face, torso, arms and legs
+    placed from it as the file gives; a bracket (`vats_*_divider.dds`, 38 high) with a
+    solid bar (77 × 14 at 25 or 51, 24) at each of six body parts, the bar as long as the
+    part's condition (actor values 25–30, current over permanent) [documented]. A part at
+    0 shows "Crippled" in place of its bracket [documented: the text's visibility;
+    hypothesis: the word] and its `*_broken.dds` piece [hypothesis: the name]. The face
+    is `face_00.dds` always [hypothesis; when 01–04 and 10 show is not known]. Under him
+    "<name> - Level <n>" centred on the area's foot [observed: "Loot - Level 1"].
+    Limb damage comes from combat's actor value damage; a new run's parts are whole.
+  - RAD (zoom 130): "RAD RESIST" and the value (actor value 20, "8%") in a window
+    showing the right end of `rad_effects_bracket.dds`, 360 down; the meter
+    (`rad_meter_bracket.dds`) beside it, its 0 at 186 and full at 482 of the picture,
+    "500" and "1000" over it, the arrow (`pointer_tail.dds`) at the player's rads (actor
+    value 54) [documented: places; observed: a maximum of 1000, and no "0" written at
+    the zero mark or at the arrow, so a 0 is not written (hypothesis)]. The radiation
+    effects list above (`stats_rad_effects_*`, hidden by the file) is not built.
+  - EFF: one line per source, 56 high, the name 20 in and the changes 300 to its right,
+    lines between [documented]; the list centred in the area [hypothesis: fitted, one
+    line at the middle on the screenshot]. Sources: the enchantment (ARMO `EITM`, ENCH
+    of type Apparel) of each worn piece of apparel, named by the enchantment's FULL
+    ("Vault Jumpsuit"), its Value Modifier effects written "Speech +2, Melee Weap. +2"
+    with the actor values' short names (AVIF `ANAM`) [observed: the screenshot and the
+    records]; then aid items (ALCH) with active effects. A detrimental effect (MGEF flag)
+    is written with a minus [hypothesis]. "No Effects" when there is none [hypothesis:
+    the words].
+- **Lists** (S.P.E.C.I.A.L., Skills, Perks): 35, 110, 325 / 350 / 420 wide (25 / 50 more
+  when a row is marked), nine rows of 51; the row 52 in (scroll bar 32 and 20), its name
+  15 in and 20 down, its number right-aligned 10 before a right buffer of 20 (55 when
+  marked), the mark 10 after [documented]. Skills are in name order [observed: Guns
+  between Explosives and Lockpick], Big Guns left out [observed: thirteen; its AVIF is
+  "Big Guns - OBSOLETE"]. A value shown is the current value plus worn apparel's changes
+  [design: the game does not apply worn enchantments to actor values yet], skills kept to
+  0–100; "(+)" or "(-)" when it differs from the permanent value [observed: "34 (+)";
+  hypothesis: "(-)"]. Perks: the player's perks, playable and not hidden by PERK DATA
+  [hypothesis: its bytes as trait, minimum level, ranks, playable, hidden], traits
+  included [hypothesis], in name order, the rank as the number when the perk has more
+  than one [hypothesis].
+  - Names, descriptions and pictures: AVIF FULL, DESC, ICON (the record of code c is
+    FormID 0x514 + c, 0x3E8 + c − 5, 0x44C + c − 12, 0x4B0 + c − 32 or 0x5DC + c − 46 by
+    range [observed in FalloutNV.esm]); PERK and REPU the same.
+  - The selected row is boxed and filled (alpha 40) after a key moved the selection or
+    while the pointer is on a row [hypothesis: neither screenshot shows a box, the
+    pointer on the tab line or off the screen].
+  - Scroll bar when the rows do not all show: arrows at the list's top and foot, the
+    marker 6 wide, as high as the track over (hidden rows + 2) [hypothesis: fitted to
+    the Skills screenshot; the file leaves these to code].
+  - Beside the list (`stats_display_rect`, from the list's right side to 905): the
+    picture at zoom 150 in 340 × 384, centred, 60 above; a line 22 in and 319 down with a
+    fading line down from its end; the description (font 2, lines 35 apart) 22 in, 333
+    down, 175 high, scrolled 20 a step with arrows at its right [documented]. It scrolls
+    when its lines take more than 175 [observed: five lines fit on the S.P.E.C.I.A.L.
+    screenshot, six do not on the Skills one].
+- **General** (`stats_genrep_container`, 20, 50): the reputations (the file's first mode)
+  or the statistics; R or the button "General R)" / "Reputation R)" at the top right
+  switches [documented: `_PCButton_R`; hypothesis: the button names the other list].
+  The list 500 wide from 40, 100, nine rows [hypothesis: the file's height, 542 from
+  100, would reach the tab line]. Reputations: those with fame or infamy [hypothesis],
+  the selected one's picture (REPU ICON, zoom 150) and its title by the levels of fame
+  and infamy (Accepted, Liked, Mixed …) [documented: GECK wiki GetReputationThreshold;
+  hypothesis: "Dark Hero" with more infamy, "Soft-Hearted Devil" with more fame], and
+  "Fame n, Infamy n" [design]. Statistics: the 43 New Vegas names [documented: GECK wiki
+  GetPCMiscStat, its order] with "--": the game's own counters are not kept, and
+  ModPCMiscStat's are kept by code, whose names are not known. Beside them the karma:
+  "Karma: <alignment>", the picture and the karma's number [hypothesis: alignments by
+  the globals `KarmaVeryEvil`, `KarmaEvil`, `KarmaGood`, `KarmaVeryGood`; pictures
+  `karma_evil`, `_bad`, `_neutral`, `_good`, `_saintly`; the original's karma titles are
+  not in the masters].
+- **Keys** [design]: the arrows choose CND, RAD, EFF (S, E, A, X are the hints' keys
+  there, logged only; A also steps the tab); Up/Down and W/S select in a list, Page
+  Up/Down scroll the description; the wheel scrolls the list, or the description when
+  the pointer is on it; R switches General. The pointer selects the row it moves onto
+  (not a row drawn under a pointer that has not moved) and clicks the buttons and arrows.
+- **Checking it**: `NVF_PLAY_TEST_PIPBOY_STATS=<seconds>:<step>,...` with `sub=<0-2>`,
+  `down`, `up`, `mode`, `desc=down|up`, and `perk=<FormID>` / `fame=<FormID>=<n>` to give
+  the player something to show; each step and each selection is logged ("pipboy stats:
+  Skills: Science 15 selected"), and a summary when a tab is drawn ("pipboy stats: LVL 1,
+  HP 200/200, AP 80/80, XP 0/200; 7 S.P.E.C.I.A.L., 13 skills, …").
+- **Open**: the game settings the page's words come from (`sStatsCrippled`,
+  `sStatsNoEffects`, `sPCMenuHint*`) are not in the masters; when each face shows;
+  whether the hints count 0 and when they are bright; whether worn enchantments should
+  change the actor values themselves (then the page needs no sum of its own); the
+  highlight box's rule; General's list height, order and right buffer, the reputation
+  list's rule and second line, the karma titles, the misc statistics' codes.
 
 ## 6. Keys and pointer [hypothesis unless marked]
 
