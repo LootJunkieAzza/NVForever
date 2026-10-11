@@ -109,6 +109,9 @@ pub struct ActorBlocks {
     /// they were when the attack began, so a lunge moves nobody [design; owner
     /// 2026-10-11: a dog gets into range and bites, it does not push the player around].
     pub attacking: std::collections::HashSet<u32>,
+    /// Actors that are in nobody's way: no block (perched birds, nvforever `residents`;
+    /// docs/design/actor-behaviour.md §5.8).
+    pub in_nobodys_way: std::collections::HashSet<u32>,
 }
 
 impl ActorBlocks {

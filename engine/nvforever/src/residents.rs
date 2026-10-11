@@ -275,6 +275,41 @@ struct Resident {
     /// Standing where its package has it, with nothing else to do: its package's idles
     /// may play (`idles.rs`). Inside: the base of the idle marker it stands at.
     stand: Option<Option<FormId>>,
+    /// Whether it cannot walk ([`cannot_walk`]), once looked up.
+    rooted: Option<bool>,
+    /// It cannot walk and its base has the Flies flag: a perched bird, in nobody's way
+    /// ([`flies`]).
+    perched: bool,
+}
+
+/// ACBS flag bit 5, "Flies" [documented: xEdit wbDefinitionsFNV.pas CREA ACBS, schema
+/// `gameplay.json`].
+const ACBS_FLIES: u32 = 1 << 5;
+
+/// Whether the base form's ACBS flags have "Flies".
+fn flies(world: &WorldData, base: u32) -> bool {
+    let Some((plugin, r)) = fnv_world::fields::winner(world.lo, base) else { return false };
+    let Ok(f) = fnv_world::fields::Fields::new(r, plugin, world.schema) else { return false };
+    f.raw(b"ACBS").and_then(|s| s.data.get(..4)).is_some_and(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) & ACBS_FLIES != 0)
+}
+
+/// A creature whose skeleton's folder has no movement animation (no `Forward` or
+/// `FastForward` clip of its stance) cannot walk: the AI keeps it where it is
+/// (`fnv_ai::Ai::root`). The game moves actors at their movement clips' speed
+/// [hypothesis: the clips' accumulation roots carry the movement, actors.md §8], so
+/// without one an actor has no way to move; the ravens outside Doc Mitchell's house
+/// (NVCrRaven, `creatures\nvraven`: an idle and its fly-away idle only) sandboxed about
+/// the editor location, sliding along the ground (owner's playtest, 2026-10-11).
+fn cannot_walk(world: &WorldData, data: &nvf_assets::GameData, base: u32) -> bool {
+    use fnv_actor::locomotion::{Body, LocomotionSet, Move};
+    let Some(skeleton) = fnv_world::placed::base_object(world.lo, world.schema, base).and_then(|b| b.model_path()) else { return false };
+    if !skeleton.to_ascii_lowercase().ends_with(".nif") {
+        return false;
+    }
+    let s = fnv_vfs::normalize(&skeleton);
+    let folder = s.rfind('\\').map_or("", |i| &s[..i]);
+    let set = LocomotionSet::find(folder, Body::Male, crate::locomotion::STANCE, |p| data.vfs.exists(p));
+    !set.clips.contains_key(&Move::Forward) && !set.clips.contains_key(&Move::FastForward)
 }
 
 /// A resident standing with nothing else to do ([`Residents::standing`]).
@@ -459,6 +494,20 @@ impl Residents {
 }
 
 impl Core {
+    /// Look up who of the listed creatures cannot walk ([`cannot_walk`]), before they are
+    /// handed to the AI.
+    fn check_rooted(&mut self, world: &WorldData, data: &nvf_assets::GameData) {
+        let mut by_base: HashMap<u32, (bool, bool)> = HashMap::new();
+        for r in self.list.iter_mut().filter(|r| r.rooted.is_none()) {
+            let (rooted, perched) = *by_base.entry(r.base).or_insert_with(|| {
+                let rooted = cannot_walk(world, data, r.base);
+                (rooted, rooted && flies(world, r.base))
+            });
+            r.rooted = Some(rooted);
+            r.perched = perched;
+        }
+    }
+
     fn add(&mut self, refs: &RefTable, id: FormId, name: Option<&str>) {
         let Some(placed) = refs.get(id) else { return };
         if !self.known.insert(id.0) {
@@ -483,6 +532,9 @@ impl Core {
             seat: Seat::None,
             stand: None,
             wants: None,
+            // Only creatures: people walk with the race's clips.
+            rooted: (&placed.sig != b"ACRE").then_some(false),
+            perched: false,
         });
     }
 
@@ -555,6 +607,9 @@ impl Core {
                     warn!("ai: {} cannot be handed to the AI: {e}", r.label);
                 }
                 r.failed = true;
+            } else if r.rooted == Some(true) {
+                self.ai.root(game, r.actor);
+                info!("ai: {} has no movement animations: it stays where it is{}", r.label, if r.perched { "; it flies, so it is in nobody's way" } else { "" });
             }
         }
         if own {
@@ -714,6 +769,10 @@ impl Core {
         for r in self.list.iter_mut() {
             r.present = r.joined && !r.failed && game.present(r.actor);
             let Some(agent) = self.ai.agents.get(&r.actor) else { continue };
+            // A perched bird is in nobody's way (actor-behaviour.md §5.8).
+            if let (Some(b), true) = (blocks.as_deref_mut(), r.perched) {
+                b.in_nobodys_way.insert(r.actor.0);
+            }
             // Drawn and standing: a walker pushes it aside (`nvf_play::blocking`).
             if let Some(b) = blocks.as_deref_mut() {
                 if r.present && r.spawned && r.seat == Seat::None && !held.contains(&r.actor.0) && !self.no_room.contains_key(&r.actor.0) && self.ai.stands(game, r.actor) {
@@ -888,6 +947,7 @@ pub fn drive(
             if all {
                 res.core.take_cells(&world, &streamer, game.world.placed);
             }
+            res.core.check_rooted(&world, &models.data);
             res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now, 0);
         }
         (None, Some(mut script), Some(mut sim)) => {
@@ -902,6 +962,7 @@ pub fn drive(
             if all {
                 res.core.take_cells(&world, &streamer, sim.refs);
             }
+            res.core.check_rooted(&world, &models.data);
             let core = &mut res.core;
             let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
             nvf_play::script::with_world(rt, &mut sim, |rt| core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now, waited));

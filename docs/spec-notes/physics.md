@@ -1868,7 +1868,9 @@ on it]. What the engine does is [design]:
   then moves the player as before, so walls still hold.
 - Blocks are not colliders: rays, shots, dynamic clutter and the walking actors'
   characters do not meet them, and they cannot wedge the character. The dead have none
-  (their ragdoll's bodies are in the world).
+  (their ragdoll's bodies are in the world), and neither have perched birds (creatures
+  that cannot walk and have the Flies flag, the ravens outside Doc Mitchell's house;
+  `ActorBlocks::in_nobodys_way`, actor-behaviour.md §5.8) [engineering choice, 2026-10-11].
 - **Characters are blocks too** (2026-10-10). An actor the character controller walks
   (`PhysState::npcs`) has its block where its character is, and so has the player for
   those actors; these blocks are made anew every fixed step (`nvf_play::player`), and
