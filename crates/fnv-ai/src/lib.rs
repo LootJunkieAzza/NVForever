@@ -17,3 +17,4 @@ pub mod social;
 pub use carry::{Activity, Agent, Ai, AiConfig, AiEvent, Logged, Mover, Talking};
 pub use goal::{Goal, Route, Talk, Trigger};
 pub use sandbox::{Allowed, Doing, Sandbox};
+pub use social::Chat;
