@@ -141,6 +141,10 @@ pub enum SimError {
     /// SetQuestObject: the player cannot drop or sell one].
     #[error("{0} is a quest item: the player cannot drop it")]
     QuestItem(FormId),
+    /// Every unequipped unit of the weapon is at zero condition
+    /// ([`World::equip`]) [design: the owner's rule, 2026-10-11].
+    #[error("{0} is broken: it cannot be equipped until it is repaired")]
+    Broken(FormId),
     #[error(transparent)]
     Leveled(#[from] LeveledError),
 }
@@ -518,6 +522,18 @@ impl<'a> World<'a> {
             return Err(SimError::BadCount(count));
         }
         let groups = unequipped(self.inventory(from)?.take(item, count));
+        self.drop_groups(from, item, groups)
+    }
+
+    /// Drop the equipped unit of `item` (a weapon that broke in an actor's hand), as
+    /// [`World::drop_item`]: the new reference keeps its condition. Nothing is dropped
+    /// when none is equipped.
+    pub fn drop_equipped(&mut self, from: FormId, item: FormId) -> Result<Vec<FormId>, SimError> {
+        let groups = unequipped(self.inventory(from)?.take_equipped(item));
+        self.drop_groups(from, item, groups)
+    }
+
+    fn drop_groups(&mut self, from: FormId, item: FormId, groups: Vec<(Extra, i32)>) -> Result<Vec<FormId>, SimError> {
         let holder = self.get(from)?.clone();
         // A z rotation turns clockwise seen from above and 0 faces +Y (world.md §4), so
         // the heading's direction is (sin z, cos z).
@@ -564,7 +580,9 @@ impl<'a> World<'a> {
     /// Equip one carried `item` on `actor`. Weapons replace the equipped weapon; armour
     /// replaces equipped armour that shares a body slot (BMDT biped flags); aid items
     /// are consumed (their effects are Layer 6). [hypothesis: in-game equip rules as the
-    /// GECK wiki describes `EquipItem`; to be captured]
+    /// GECK wiki describes `EquipItem`; to be captured] A weapon at zero condition is
+    /// broken and is refused with [`SimError::Broken`] until it is repaired [design: the
+    /// owner's rule, 2026-10-11]; a unit that is not broken is taken before a broken one.
     pub fn equip(&mut self, actor: FormId, item: FormId) -> Result<Equip, SimError> {
         let it = self.forms.item(item).ok_or(SimError::NotAnItem(item))?.clone();
         let forms = self.forms;
@@ -580,6 +598,9 @@ impl<'a> World<'a> {
         }
         if inv.count(item) == 0 {
             return Err(SimError::NotCarried { actor, item });
+        }
+        if it.kind == ItemKind::Weapon && !inv.has_sound(item) && !inv.is_equipped(item) {
+            return Err(SimError::Broken(item));
         }
         let clashes = |other: FormId| -> bool {
             let Some(o) = forms.item(other) else { return false };

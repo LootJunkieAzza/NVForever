@@ -21,7 +21,7 @@ them.
 | `dt_floor` | 0.2 | DT never removes more than 80 % of a hit |
 | `condition_min_mult` | 0.5 | damage at zero condition (linear to 1 at full) |
 | `headshot_unaware_crit` | true | a headshot on an unaware target is a critical |
-| `wear_per_attack` | 1.0 | condition points lost per attack |
+| `armor_condition_min_mult` | 0.5 | DT and DR of armour at zero condition (linear to 1 at full, §17) |
 | `bloom_per_shot`, `bloom_recovery`, `bloom_max` | 0.03 × Min Spread, 1.0 /s, 0.25 | spread added per shot (spread units) |
 | `jump_spread` | 0.3 | actor-spread penalty while airborne |
 | `recoil_base_deg`, `recoil_per_damage_deg`, `recoil_recovery_deg` | 0.4°, 0.03°/damage, 12°/s | view kick |
@@ -79,8 +79,7 @@ For one projectile (or one swing) that hits [documented unless marked]:
 8. **Child flag.** A target whose race has the Child flag takes nothing.
 
 Also in `damage.rs`:
-- Weapon wear per attack [design]: `wear_per_attack` × the damage-to-weapon override ×
-  the ammo's condition effects.
+- Weapon wear per attack moved to `condition.rs` and is now the masters' setting (§17).
 - Knockdown chance for explosions [documented: Explosion Knockdown Formula, with both
   health thresholds].
 - Melee knockback force [documented: Melee Knockback Formula].
@@ -877,3 +876,107 @@ docs/spec-notes/particles.md.
   combat packages, detection or combat styles; docs/design/combat.md §8). What a shot
   shows and sounds like is ready to be used by them: the messages carry places, not
   the player.
+
+## 17. Item condition: wear, armour, broken weapons
+
+Owner's request, 2026-10-11. Code: `fnv_combat::condition`, `fnv_sim::inventory`,
+`engine/nvf-play/src/combat.rs`.
+
+- **What condition is.** A fraction of the item's full health, kept with the carried
+  item (`Extra::condition`, simulation.md §3). Full health is the record's: WEAP and
+  ARMO `DATA` health [documented: xEdit, combat-data.md §1].
+- **Settings in FalloutNV.esm** [observed, `fnvtool esm decode`]:
+
+  | Setting | Value | Used |
+  |---|---|---|
+  | `fDamageToWeaponValue` | 0.2 | health a weapon loses per attack |
+  | `fDamageToArmorPercentage` | 0.35 | share of a hit's damage the armour loses |
+  | `fDamageToWeaponGunMult`, `…EnergyMult`, `…LauncherMult`, `…MeleeMult` | 0.03, 0.04, 0.06, 0.05 | no |
+  | `fVATSDamageToWeaponMult` | 1.0 | no |
+  | `fDamageGunWeapCondBase`, `fDamageGunWeapCondMult` | 0.66, 0.34 | no |
+  | `fWeaponConditionRateOfFire1`–`9` | 0.82 to 0.98 in steps of 0.02 | no |
+  | `fWeaponConditionJam1`–`4`, `fWeaponConditionSpread1`–`9` | 0 | no |
+
+  What each of them does in the original is not documented anywhere we can cite. The
+  two we use are read by `Rules` like the other settings.
+- **Weapon wear.** Each attack takes `fDamageToWeaponValue` health points, times the
+  record's Damage to Weapon Mult when its override flag is set, with the ammunition's
+  Weapon Condition effects applied (`condition::weapon_wear`).
+  - [hypothesis: the setting's role.] It fits the published figure the owner quoted:
+    "about 395 standard rounds, the equivalent of 33 reloads" for the 10mm Pistol from
+    full condition. Its record has health 80 and 12 rounds [observed]: 80 ÷ 0.2 = 400
+    shots, 33 full magazines.
+  - The figure is 5 shots short of 400, which is exactly one health point
+    (79 ÷ 0.2 = 395). [hypothesis, not built: the original may count a weapon with
+    less than one point as broken.] Ours breaks at zero.
+  - A shot wears the weapon whether it hits or not. A melee or unarmed swing wears it
+    only when it lands, once however many it strikes [design]. Thrown weapons are
+    spent, not worn. The Fists are not an item and do not wear.
+  - The per-class multipliers (gun, energy, launcher, melee) and the weapon's damage
+    play no part [hypothesis: with them the 10mm Pistol would not come out near 395].
+- **Armour wear.** A hit takes `fDamageToArmorPercentage` of its damage before armour
+  from the armour it lands on, as health points (`condition::armor_wear`)
+  [hypothesis: the setting's role, from its name].
+  - Where it lands [design: the owner's rule]: a hit on a head part (Head 1, Head 2,
+    Brain) wears what is worn on the head, any other hit what is worn on the upper
+    body, an explosion both (`condition::Zone`, `CombatForms::armor_struck`).
+  - "On the head" is any of the biped slots Head, Hair, Headband, Hat, Eye Glasses and
+    Mask; "on the upper body" is the Upper Body slot [documented: xEdit's slot names;
+    observed: a power armour helmet sets exactly those six, body armour sets Upper
+    Body].
+  - Pieces struck together share the loss evenly. A head hit on a bare head, or a body
+    hit on an actor with no body armour, wears nothing.
+  - A target that takes no damage (dead, a child, invulnerable) does not wear.
+- **A weapon that is hit** [design: the owner's rule]. An actor holding its weapon
+  drawn has a hit volume along the weapon (`hitvol::WEAPON_PART`: one capsule along the
+  longest side of the model's bounds, `nvforever::limbs::weapon_segment`).
+  - A shot or blow that lands there takes its damage before armour from the weapon's
+    health. The actor is not hurt, and its hit blocks do not run [design].
+  - A holstered weapon has no volume: a shot at the hip or the back hits the actor.
+  - The weapon is the one the renderer put in the hand. The simulation rolls an
+    actor's inventory on its own, so when it lacks that weapon one is added first
+    [design; the two choices should become one].
+- **What a worn item is worth** [design]:
+  - a weapon's damage falls from 100 % at full condition to `condition_min_mult`
+    (50 %) at zero, linearly (§2). The player's shots and blows now use the equipped
+    weapon's real condition (they used 1 before);
+  - a piece of armour gives its DT and DR times `condition::armor_mult`: 100 % at full
+    condition down to `armor_condition_min_mult` (50 %) at zero. Armour at zero stays
+    worn.
+- **A broken weapon** (zero condition) [design: the owner's rule]:
+  - the player's is unequipped at once and stays in the inventory. `World::equip`
+    refuses it (`SimError::Broken`) until it is repaired; a second, working one of the
+    same kind is equipped instead. The player falls back to the Fists;
+  - another actor's falls to the ground: its unit leaves the inventory as a dropped
+    reference at the point of the hit, keeping condition 0
+    (`World::drop_equipped`), and `WeaponBroken` makes the renderer take the model out
+    of the hand and stop the weapon clips. Picked up, it cannot be equipped.
+- **Which unit wears.** The equipped one. An NPC's weapon and armour are not marked
+  equipped in the simulation until they first wear; then one unit is (plain ones
+  first) and keeps the wear (`condition::wear_item`) [design].
+- **Shown.** The ammo line ends with the weapon's condition ("CND 95%"); the inventory
+  menu adds "(CND 46%)" or "(broken)" to a worn weapon or piece of armour; a message
+  names a weapon that breaks. The percentage reads 0 only when broken.
+- **Scripts.** `GetWeaponHealthPerc`, `SetWeaponHealthPerc`, `ModWeaponHealthPerc` and
+  `AddItemHealthPercent` read and write the same value. A script that sets the
+  player's weapon to 0 has it unequipped on the next frame; another actor's stays in
+  its hand until it is hit [not built].
+- **Test aids:** `condition=<percent>` (test_aid.rs) sets the condition of what the
+  player has equipped; `aimpart=254` aims at the weapon the nearest NPC holds drawn.
+- **Checked** [observed 2026-10-11, `nvforever --play` at Goodsprings, exit 0, "run
+  finished"]:
+  - 10mm Pistol set to 0.2 %: the first shot broke it ("the player's 10mm Pistol broke:
+    unequipped"), the player went to the Fists, and `equip=` was refused ("is broken:
+    it cannot be equipped until it is repaired").
+  - 21 shots took the 10mm Pistol to "CND 95%" on the HUD (21 × 0.2 of 80).
+  - `--actor-weapons drawn`, `aimpart=254`, the Goodsprings Settler 0x00104F0A's
+    Varmint Rifle (health 120): ten hits of 12.6 took it 100 → 89.5 → … → 5.7 → 0 %;
+    it "broke and fell" as reference 0xFF000000, which the dropped-item code drew.
+    The settler's health did not change. Seen in the log only: the settler was too far
+    off in the screenshot to see the empty hand.
+  - Torso hits on a settler: its Field Hand Outfit lost 4.4 points per hit (0.35 of
+    12.5), 100 → 95.6 → 91.3 → 86.9 → 82.6 %.
+- **Not built:** repair (the owner: later); NPCs' own shots wearing their weapons and
+  hits on the player's armour and weapon (NPCs do not attack yet; the code paths take
+  any actor); jamming, slower fire and wider spread of a worn weapon; a worn item's
+  lower value; armour worn to zero coming off; the per-class and VATS multipliers.

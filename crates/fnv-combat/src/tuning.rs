@@ -68,6 +68,11 @@ pub struct Rules {
     // Gun Shell Settings
     pub shell_eject_speed: f32,
     pub shell_lifetime: f32,
+    // Item condition (docs/spec-notes/combat-rules.md §17)
+    /// Health points a weapon loses per attack.
+    pub damage_to_weapon_value: f32,
+    /// The share of a hit's damage the armour struck loses as health points.
+    pub damage_to_armor_percentage: f32,
     /// Settings not found in the load order (their defaults were used).
     pub defaulted: Vec<&'static str>,
 }
@@ -76,6 +81,8 @@ pub struct Rules {
 /// Formula, Critical Hit Chance Formula, Gun Spread Formula (New Vegas), Explosion
 /// Knockdown Formula, Melee Knockback Formula, Gun Shell Settings, Armor (owner exports
 /// 2026-10-09). `fAVDUnarmedDamage*` have no default on the page; the masters set them.
+/// `fDamageToWeaponValue` and `fDamageToArmorPercentage` have no page: their defaults are
+/// FalloutNV.esm's values [observed].
 const SETTINGS: &[(&str, f32)] = &[
     ("fDamageWeaponMult", 1.0),
     ("fDamageSkillBase", 0.5),
@@ -121,6 +128,8 @@ const SETTINGS: &[(&str, f32)] = &[
     ("fKnockbackTime", 1.0),
     ("fGunShellEjectSpeed", 160.0),
     ("fGunShellLifetime", 5.0),
+    ("fDamageToWeaponValue", 0.2),
+    ("fDamageToArmorPercentage", 0.35),
 ];
 
 impl Rules {
@@ -192,6 +201,8 @@ impl Rules {
             knockback_time: n(),
             shell_eject_speed: n(),
             shell_lifetime: n(),
+            damage_to_weapon_value: n(),
+            damage_to_armor_percentage: n(),
             defaulted,
         }
     }
@@ -207,9 +218,9 @@ pub struct CombatTuning {
     pub condition_min_mult: f32,
     /// A headshot on a target that is unaware of the attacker is always a critical.
     pub headshot_unaware_crit: bool,
-    /// Condition points a weapon loses per shot or swing, before its damage-to-weapon
-    /// multiplier and ammo condition effects.
-    pub wear_per_attack: f32,
+    /// Share of its DT and DR that armour at zero condition still gives; full condition
+    /// gives all of it, linear between ([`crate::condition::armor_mult`]).
+    pub armor_condition_min_mult: f32,
     /// Spread added per shot, as a share of the weapon's Min Spread (in spread units).
     pub bloom_per_shot: f32,
     /// Bloom (spread units) recovered per second.
@@ -255,7 +266,7 @@ impl Default for CombatTuning {
             dt_floor: 0.2,
             condition_min_mult: 0.5,
             headshot_unaware_crit: true,
-            wear_per_attack: 1.0,
+            armor_condition_min_mult: 0.5,
             bloom_per_shot: 0.03,
             bloom_recovery: 1.0,
             bloom_max: 0.25,
