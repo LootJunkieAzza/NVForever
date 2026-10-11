@@ -145,6 +145,23 @@ pub mod ended {
 /// GetActorValue, GetBaseActorValue, GetPermanentActorValue.
 const ACTOR_VALUE_OPCODES: [u16; 3] = [0x100E, 0x1115, 0x11EF];
 
+/// Who says a line ([`Game::can_say_as`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Says {
+    Actor,
+    /// A radio station's placed reference (`crate::radio`).
+    Station,
+}
+
+/// A topic a line leads to ([`Game::links_after`]): by the line's own choices (TCLT,
+/// `from` none), or only by the Link From of the topic's lines naming `from`, the topic
+/// the line was said under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Link {
+    pub topic: FormId,
+    pub from: Option<FormId>,
+}
+
 impl<'a> Game<'a> {
     // ---- which line ---------------------------------------------------------------
 
@@ -174,6 +191,15 @@ impl<'a> Game<'a> {
     /// - the line's conditions pass with the speaker as subject and the listener as
     ///   target [documented: Category:Conditions, Run On].
     pub fn can_say(&mut self, speaker: FormId, listener: Option<FormId>, info: FormId) -> bool {
+        self.can_say_as(speaker, listener, info, Says::Actor)
+    }
+
+    /// [`Game::can_say`] for an actor or a radio station. A station is not held to a
+    /// line's fixed speaker: radio lines name the actor whose voice they are in
+    /// [documented: GECK wiki SetNPCRadio: a line an actor-radio is not the speaker of
+    /// "plays with a filter effect to indicate it's not him"; observed: Black Mountain
+    /// Radio's segment lines name Tabitha or Raul Tejada, radio.md §5].
+    pub(crate) fn can_say_as(&mut self, speaker: FormId, listener: Option<FormId>, info: FormId, says: Says) -> bool {
         let data = self.data;
         let Some(def) = data.infos.get(&info) else { return false };
         if def.say_once && self.said.contains(&(speaker, info)) {
@@ -186,7 +212,7 @@ impl<'a> Game<'a> {
                 }
             }
         }
-        if let Some(s) = def.speaker {
+        if let Some(s) = def.speaker.filter(|_| says == Says::Actor) {
             if s != speaker && Some(s) != crate::functions::base_of(self, speaker) {
                 return false;
             }
@@ -244,6 +270,11 @@ impl<'a> Game<'a> {
     /// [`Game::select_line`] among the lines `keep` accepts: the others count as lines
     /// the speaker cannot say.
     pub(crate) fn select_line_where(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId, keep: impl Fn(&InfoDef) -> bool) -> Option<FormId> {
+        self.select_line_as(speaker, listener, topic, keep, Says::Actor)
+    }
+
+    /// [`Game::select_line_where`] for an actor or a radio station ([`Game::can_say_as`]).
+    pub(crate) fn select_line_as(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId, keep: impl Fn(&InfoDef) -> bool, says: Says) -> Option<FormId> {
         let data = self.data;
         let lines = data.lines_tried(topic);
         let flag = |i: &FormId, f: u16| data.infos.get(i).is_some_and(|d| d.has(f));
@@ -251,7 +282,7 @@ impl<'a> Game<'a> {
         let mut at = 0;
         while at < lines.len() {
             if !flag(&lines[at], info_flag::RANDOM) {
-                if kept(&lines[at]) && self.can_say(speaker, listener, lines[at]) {
+                if kept(&lines[at]) && self.can_say_as(speaker, listener, lines[at], says) {
                     return Some(lines[at]);
                 }
                 at += 1;
@@ -267,7 +298,7 @@ impl<'a> Game<'a> {
                 }
             }
             let pool: Vec<FormId> = lines[at..end].to_vec();
-            let sayable: Vec<FormId> = pool.into_iter().filter(|i| kept(i) && self.can_say(speaker, listener, *i)).collect();
+            let sayable: Vec<FormId> = pool.into_iter().filter(|i| kept(i) && self.can_say_as(speaker, listener, *i, says)).collect();
             match sayable.len() {
                 0 => {}
                 1 => return Some(sayable[0]),
@@ -276,6 +307,47 @@ impl<'a> Game<'a> {
             at = end;
         }
         None
+    }
+
+    /// The topics a line said under `topic` leads to, in player dialogue, conversations
+    /// between actors and on the radio alike (dialogue.md §3.5): its choices (TCLT), in
+    /// record order, then the topics whose lines name `topic` in their Link From
+    /// ([`GameData::linked_from`]) that are not among its choices [documented:
+    /// Category:Dialogue: Link From "can be used to allow many topics to link to this
+    /// topic"; Conversation Tab: it chains a conversation's lines; hypothesis: the two
+    /// kinds of link make one list].
+    pub(crate) fn links_after(&self, topic: FormId, def: &InfoDef) -> Vec<Link> {
+        let mut out: Vec<Link> = Vec::new();
+        for &t in &def.choices {
+            if !out.iter().any(|l| l.topic == t) {
+                out.push(Link { topic: t, from: None });
+            }
+        }
+        for &t in self.data.linked_from.get(&topic).map(Vec::as_slice).unwrap_or_default() {
+            if !out.iter().any(|l| l.topic == t) {
+                out.push(Link { topic: t, from: Some(topic) });
+            }
+        }
+        out
+    }
+
+    /// The line `speaker` says to `listener` for a link ([`Game::links_after`]): for a
+    /// choice, the topic's line as [`Game::select_line`] picks it; for a topic linked only
+    /// by Link From, one of its lines whose Link From names the topic just said
+    /// [hypothesis: those are the replies written for it, e.g. the children's Goodbye
+    /// replies to HELLO in GenericKids, while their HELLO openers have it blank or `ANY`;
+    /// dialogue.md §3.5].
+    pub(crate) fn link_line(&mut self, speaker: FormId, listener: Option<FormId>, link: Link, says: Says) -> Option<FormId> {
+        self.link_line_where(speaker, listener, link, |_| true, says)
+    }
+
+    /// [`Game::link_line`] among the lines `keep` accepts (conversations between actors:
+    /// Conversation lines only, [`between_actors`]).
+    pub(crate) fn link_line_where(&mut self, speaker: FormId, listener: Option<FormId>, link: Link, keep: impl Fn(&InfoDef) -> bool, says: Says) -> Option<FormId> {
+        match link.from {
+            None => self.select_line_as(speaker, listener, link.topic, keep, says),
+            Some(x) => self.select_line_as(speaker, listener, link.topic, |d| keep(d) && d.link_from.contains(&x), says),
+        }
     }
 
     /// The speaker said the line: Say Once and Say Once a Day remember it per actor
@@ -551,14 +623,15 @@ impl<'a> Game<'a> {
     ///   not yet captured].
     ///
     /// Either list also holds the topics whose lines name `topic` in their Link From
-    /// ([`GameData::linked_from`]) [documented: Category:Dialogue: Link From "can be used
-    /// to allow many topics to link to this topic"; hypothesis: they join the list the
-    /// line offers, so a line without choices of its own still offers the topic list,
-    /// and they do not make it a line with choices; dialogue.md §3.5]. A topic named this
-    /// way is offered as a choice is, by any of its lines the actor can say [hypothesis:
-    /// not only the line that carries the Link From; reading it as a limit on that line
-    /// would hide choices that other lines list outright, e.g. Michael Angelo's
-    /// VMS22MichaelAngeloTopic024 after Topic006].
+    /// ([`Game::links_after`]) [documented: Category:Dialogue: Link From "can be used to
+    /// allow many topics to link to this topic"; hypothesis: they join the list the line
+    /// offers, so a line without choices of its own still offers the topic list, and
+    /// they do not make it a line with choices; dialogue.md §3.5]. Such a topic is
+    /// offered with one of its lines that names `topic` ([`Game::link_line`]); a topic
+    /// that is also a choice of the line, or in the topic list, with any of its lines.
+    /// Only player lines (type Topic) of topics of type Topic count here; the
+    /// Conversation and radio lines' Link From are for conversations between actors and
+    /// the radio [hypothesis, as before the three shared the links].
     ///
     /// Each topic is offered only if the actor has a line of it to say now, its own or
     /// one it shares ([`GameData::lines_tried`]), and that line is the one chosen later
@@ -582,39 +655,49 @@ impl<'a> Game<'a> {
     pub fn build_choices(&mut self, actor: FormId, topic: FormId, def: &InfoDef) -> Vec<Choice> {
         let data = self.data;
         let priority = |t: &FormId| data.topic_defs.get(t).map_or(50.0, |d| d.priority);
-        let linked_from = data.linked_from.get(&topic).map(Vec::as_slice).unwrap_or_default();
+        let mut links = self.links_after(topic, def);
         if !def.choices.is_empty() {
-            let mut linked = def.choices.clone();
-            linked.extend(linked_from.iter().filter(|t| !def.choices.contains(t)));
-            linked.sort_by(|a, b| priority(b).total_cmp(&priority(a)));
-            return self.offer(actor, &linked);
+            links.sort_by(|a, b| priority(&b.topic).total_cmp(&priority(&a.topic)));
+            return self.offer(actor, &links);
         }
-        let mut listed: Vec<FormId> = data.top_level.clone();
-        let mut known: Vec<FormId> = self.player.topics.iter().chain(linked_from).copied().filter(|t| !listed.contains(t)).collect();
+        let mut listed: Vec<Link> = data.top_level.iter().map(|&t| Link { topic: t, from: None }).collect();
+        let known = self.player.topics.iter().filter(|t| !data.top_level.contains(t)).map(|&t| Link { topic: t, from: None });
+        let mut known: Vec<Link> = known.collect();
+        links.retain(|l| !data.top_level.contains(&l.topic) && !self.player.topics.contains(&l.topic));
+        known.append(&mut links);
         if !known.is_empty() {
             listed.append(&mut known);
             let order = |t: &FormId| data.topic_defs.get(t).map_or((usize::MAX, 0), |d| d.order);
-            listed.sort_by(|a, b| priority(b).total_cmp(&priority(a)).then(order(a).cmp(&order(b))));
+            listed.sort_by(|a, b| priority(&b.topic).total_cmp(&priority(&a.topic)).then(order(&a.topic).cmp(&order(&b.topic))));
         }
         let mut out = self.offer(actor, &listed);
         if !out.iter().any(|c| c.goodbye && data.infos.get(&c.info).is_some_and(|d| d.end.is_none())) {
             if let Some(bye) = data.goodbye.filter(|b| !out.iter().any(|c| c.topic == *b)) {
-                out.extend(self.offer(actor, &[bye]));
+                out.extend(self.offer(actor, &[Link { topic: bye, from: None }]));
             }
         }
         out
     }
 
-    /// The entries for the topics of `topics` the actor has a line for, in that order.
-    fn offer(&mut self, actor: FormId, topics: &[FormId]) -> Vec<Choice> {
+    /// The entries for the topics of `links` the actor has a line for ([`Game::link_line`]),
+    /// in that order.
+    fn offer(&mut self, actor: FormId, links: &[Link]) -> Vec<Choice> {
         let data = self.data;
         let listener = Some(FormId::PLAYER_REF);
         let mut out: Vec<Choice> = Vec::new();
-        for &topic in topics {
+        for &link in links {
+            let topic = link.topic;
             if out.iter().any(|c| c.topic == topic) {
                 continue;
             }
-            let Some(info) = self.select_line(actor, listener, topic) else { continue };
+            // Link From reaches player dialogue only from the Topics tab: a player line
+            // (type Topic) of a topic of type Topic, as before conversations between actors
+            // and the radio shared [`GameData::linked_from`].
+            if link.from.is_some() && data.topic_defs.get(&topic).is_none_or(|d| d.topic_type != crate::data::topic_type::TOPIC) {
+                continue;
+            }
+            let player_line = |d: &InfoDef| link.from.is_none() || d.info_type == crate::data::topic_type::TOPIC;
+            let Some(info) = self.link_line_where(actor, listener, link, player_line, Says::Actor) else { continue };
             let def = &data.infos[&info];
             let challenge = def.challenge_form.map(|form| {
                 let (needed, have) = self.challenge_levels(def);
@@ -815,10 +898,14 @@ impl<'a> Game<'a> {
     ///    wbNextSpeaker, the names; hypothesis: what they mean, and the order for Either]
     ///    says the first of the line's follow-ups it can say to the other
     ///    [hypothesis, as in conversations with the player];
-    /// 4. else one of the line's Link To topics (the choices, TCLT) of which it has a line
-    ///    to say, at random when there are several [documented: Conversation Tab: with
-    ///    more than one Link To topic "the game [selects] one of the Link To topics at
-    ///    random"; hypothesis: topics with no line it can say are passed over];
+    /// 4. else one of the topics the line leads to ([`Game::links_after`]: its Link To
+    ///    topics, the choices (TCLT), and the topics whose lines name the line's topic in
+    ///    their Link From, then said with such a line, [`Game::link_line`]) of which it
+    ///    has a line to say, at random when there are several [documented: Conversation
+    ///    Tab: with more than one Link To topic "the game [selects] one of the Link To
+    ///    topics at random", and Link From chains a conversation; hypothesis: topics with
+    ///    no line it can say are passed over, and both kinds of link are one list,
+    ///    dialogue.md §3.5];
     /// 5. else the conversation ends. A GOODBYE line is not added [owner statement
     ///    2026-10-11: no goodbye follows Trudy's answer to Joe Cobb, a line that links
     ///    nowhere; the Conversation Tab's GOODBYE rule is about random conversations,
@@ -848,11 +935,9 @@ impl<'a> Game<'a> {
                 return;
             }
             let mut linked: Vec<(FormId, FormId)> = Vec::new();
-            for &t in &def.choices {
-                if !linked.iter().any(|(seen, _)| *seen == t) {
-                    if let Some(i) = self.select_line_where(who, Some(to), t, between_actors) {
-                        linked.push((t, i));
-                    }
+            for link in self.links_after(said.topic, def) {
+                if let Some(i) = self.link_line_where(who, Some(to), link, between_actors, Says::Actor) {
+                    linked.push((link.topic, i));
                 }
             }
             let (topic, info) = match linked.len() {

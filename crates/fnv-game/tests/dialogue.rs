@@ -72,6 +72,11 @@ const T_LF_TO: u32 = 0x956;
 const S_LF_FROM: u32 = 0xF54;
 const S_LF_PLAIN: u32 = 0xF55;
 const S_LF_TO: u32 = 0xF56;
+const T_CHAT: u32 = 0x957;
+const T_ANSWER: u32 = 0x958;
+const C_CHAT: u32 = 0xF57;
+const C_OPENER: u32 = 0xF58;
+const C_REPLY: u32 = 0xF59;
 const A_OFF: u32 = 0xA01;
 const A_FIRST: u32 = 0xA02;
 const A_HIGH: u32 = 0xA03;
@@ -512,6 +517,21 @@ fn plugin_bytes() -> Vec<u8> {
             0,
             50.0,
             vec![L { id: S_LF_TO, quest: QA, speaker: me, responses: one("To"), link_from: vec![T_LF_FROM, T_LF_PLAIN], ..L::default() }],
+        ),
+        // Between actors: TestChat's line links nowhere; TestAnswer's second line names
+        // TestChat in its Link From, its first (an opener) does not.
+        topic(T_CHAT, "TestChat", "TestChat", topic_type::CONVERSATION, 0, 50.0, vec![L { id: C_CHAT, quest: QA, ty: CONV, speaker: me, responses: one("Chat"), ..L::default() }]),
+        topic(
+            T_ANSWER,
+            "TestAnswer",
+            "TestAnswer",
+            topic_type::CONVERSATION,
+            0,
+            50.0,
+            vec![
+                L { id: C_OPENER, quest: QA, ty: CONV, flags: info_flag::GOODBYE, speaker: Some(NPC2), responses: one("Opener"), ..L::default() },
+                L { id: C_REPLY, quest: QA, ty: CONV, flags: info_flag::GOODBYE, speaker: Some(NPC2), responses: one("Reply"), link_from: vec![T_CHAT], ..L::default() },
+            ],
         ),
     ]
     .concat();
@@ -1185,6 +1205,25 @@ fn actors_talk_to_each_other_only_with_conversation_lines() {
     assert_eq!(said, vec![K_HELLO, K_REPLY, K_LAST]);
     // A hello to the player takes the Topic line.
     assert_eq!(g.say_hello(a), Some(FormId(K_HELLO_PLAYER)));
+}
+
+#[test]
+fn between_actors_a_link_from_reply_answers_a_line_that_links_nowhere() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (a, b) = (FormId(NPC1_REF), FormId(NPC2_REF));
+    let r = |id: u32| ArgValue::Value(Value::Ref(id));
+    call(&mut g, 0x1056, NPC1_REF, &[r(NPC2_REF), r(T_CHAT)]);
+    for _ in 0..20_000 {
+        if g.speech.is_empty() {
+            break;
+        }
+        g.tick();
+    }
+    // The answer is the line that names TestChat, not the topic's first line.
+    let lines: Vec<(FormId, u32)> = g.events.iter().filter_map(|e| if let EventKind::LineStarted { speaker, info, .. } = e.kind { Some((speaker, info.0)) } else { None }).collect();
+    assert_eq!(lines, vec![(a, C_CHAT), (b, C_REPLY)]);
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::ActorConversationEnded { reason: "goodbye", lines: 2, .. })));
 }
 
 #[test]

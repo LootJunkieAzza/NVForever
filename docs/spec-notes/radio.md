@@ -194,16 +194,31 @@ conditions are run on.
     listener: within a topic the dialogue rule of dialogue.md §4 picks the line
     (quest priority, stored order, Random pools, Say Once per speaker), and the line's
     begin and end result scripts run with the station as their reference [hypothesis:
-    the documented "like normal dialogue conversations"].
+    the documented "like normal dialogue conversations"]. A line's fixed speaker (ANAM)
+    does not keep the station from saying it; it names whose voice the line is in
+    [documented: SetNPCRadio: a line an actor-radio is not the speaker of "plays with a
+    filter effect to indicate it's not him"; observed: Black Mountain Radio's segment
+    lines name Tabitha or Raul Tejada, so before this rule the station never got past
+    RadioHello].
+  - Black Mountain Radio [observed: its lines]: RadioHello lines are songs (Random, a
+    begin script keeping the last three) listing segments 01–11 and 13 as choices; a
+    segment is one topic whose lines a quest variable walks through (each line's begin
+    script moves it on), each listing the same topic again, the last listing RadioHello;
+    RadioBMMusic lines name all segments in their Link From and are gated by another
+    variable.
   - The programme starts with RadioHello [documented]. After a line, of the topics it
-    links to, those with a line the station can say now; one of them at random
+    leads to (its Link To topics, and the topics whose lines name its topic in their
+    Link From, answered by such a line, dialogue.md §3.5), those with a line the station
+    can say now; one of them at random
     [hypothesis: how the game chooses among several links is not documented; taking the
     first would never play RNVMusicIntroSpecific]. With none (RNVMusic after three songs,
     a line without links), back to RadioHello [hypothesis].
   - Half a second of silence between two lines [design].
   - Checked headless (`crates/fnv-game/tests/radio_data.rs`, with game data): Mojave
     Music Radio plays 30 songs with no repeat within three; Radio New Vegas comes round
-    news → intro → one to three songs → RadioHello again.
+    news → intro → one to three songs → RadioHello again; Black Mountain Radio
+    alternates songs with whole segments (eight or more in 120 lines, each line once,
+    each ending with its line back to RadioHello), RadioBMSegment12 among them.
 
 ## 6. Playback (`nvforever --play`, `nvf-play` `radio.rs`)
 
@@ -225,7 +240,9 @@ conditions are run on.
   starts while a line is under way joins at the point reached (the file is sought to it)
   [design].
 - File: a song's `_mono.ogg` when the archives have it, else the file the SOUN names; a
-  DJ line's voice file in the station's voice type; a line with neither lasts its
+  DJ line's voice file in the voice type of the line's fixed speaker when it names one
+  (Tabitha's `CreatureUniqueTabitha` for her Black Mountain lines; the station has no
+  voice type), else the station's [observed: `fnvtool voice line`]; a line with neither lasts its
   fitted text length in silence. Length from the Ogg headers (voice.md §5).
 - Loudness [design]: the song SOUN's static attenuation (12.33 dB for the RNV songs
   looked at); DJ voice files at full level. By distance: the station's radio template,

@@ -133,11 +133,22 @@ fn counts(d: &GameData) {
     let lucy = d.by_edid("VMS38VMS38RedLucyTopic047").unwrap();
     assert_eq!((d.lines_by_priority(lucy), d.lines_tried(lucy)), (vec![], vec![FormId(0x0013_4FC1)]));
     assert_eq!(d.infos[&FormId(0x0013_4FC1)].topic, d.by_edid("VMS38VMS38RedLucyTopic004"));
-    // Link From turned round (dialogue.md §3.5): 185 links between player topics under
-    // 58 topics; 19 offer a topic that not every line of the named topic lists already.
-    let pairs: usize = d.linked_from.values().map(Vec::len).sum();
-    let new = d.linked_from.iter().flat_map(|(x, ts)| ts.iter().map(move |t| (*x, *t))).filter(|(x, t)| !d.lines_tried(*x).iter().all(|l| d.infos[l].choices.contains(t))).count();
-    assert_eq!((d.linked_from.len(), pairs, new), (58, 185, 19));
+    // Link From turned round (dialogue.md §3.5), by the linked topic's type, `ANY` (no
+    // lines) left out: (named topics, links, links not already a choice of every line of
+    // the named topic).
+    let pairs: Vec<(FormId, FormId)> = d.linked_from.iter().flat_map(|(x, ts)| ts.iter().map(move |t| (*x, *t))).collect();
+    let any = d.by_edid("ANY").unwrap();
+    let of_type = |want: u8| {
+        let p: Vec<&(FormId, FormId)> = pairs.iter().filter(|(x, t)| d.topic_defs[t].topic_type == want && *x != any).collect();
+        let named: std::collections::BTreeSet<FormId> = p.iter().map(|(x, _)| *x).collect();
+        let new = p.iter().filter(|(x, t)| !d.lines_tried(*x).iter().all(|l| d.infos[l].choices.contains(t))).count();
+        (named.len(), p.len(), new)
+    };
+    assert_eq!(of_type(topic_type::TOPIC), (58, 185, 19));
+    assert_eq!(of_type(topic_type::CONVERSATION), (65, 83, 32));
+    assert_eq!(of_type(topic_type::RADIO), (21, 54, 50));
+    assert_eq!((d.linked_from.len(), pairs.len(), d.linked_from[&any].len()), (150, 354, 26));
+    assert!(d.lines_tried(any).is_empty());
     let ma = |n: &str| d.by_edid(&format!("VMS22MichaelAngeloTopic{n}")).unwrap();
     assert_eq!(d.linked_from[&greeting], vec![ma("003"), ma("004")]);
     // Michael Angelo's "Thank you for the offer…" lists 035, 042 and 004; the lines of

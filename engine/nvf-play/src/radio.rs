@@ -51,8 +51,12 @@
 //!   song from a receiver its `_mono.ogg` beside the `.mp3` the record names [documented:
 //!   GECK wiki "Creating Radio Stations"; observed: all 48 songs have one in
 //!   `Fallout - Sound.bsa`], and the sound wins over a voice file [documented: GECK wiki
-//!   Radio Stations]; otherwise the response's voice file in the station's voice type;
-//!   with neither, the line lasts its fitted length in silence.
+//!   Radio Stations]; otherwise the response's voice file in the voice type of the
+//!   line's fixed speaker when it names one, else the station's [observed: Black
+//!   Mountain Radio's segment lines name Tabitha or Raul Tejada and their files are in
+//!   those voice types' folders; the station has no voice type; documented: GECK wiki
+//!   SetNPCRadio, a radio plays lines whose speaker is someone else]; with neither, the
+//!   line lasts its fitted length in silence.
 //! - **Loudness** [design]: the sound's static attenuation (songs, loops), DJ lines at
 //!   full level; by distance from a receiver or actor the radio template's (the station's
 //!   `INAM`, else the receiver's) minimum and maximum distance as
@@ -493,8 +497,9 @@ fn parts(radio: &mut Radio, g: &fnv_game::Game, sfx: &Sfx, bank: &fnv_voice::Voi
                 }
             }
         }
-        let path = bank.file(info.0, r, base);
-        let seconds = path.as_deref().and_then(|p| bank.seconds(p)).unwrap_or_else(|| g.response_seconds_as(Some(FormId(base)), info, r));
+        let voice = def.speaker.map_or(base, |s| s.0);
+        let path = bank.file(info.0, r, voice);
+        let seconds = path.as_deref().and_then(|p| bank.seconds(p)).unwrap_or_else(|| g.response_seconds_as(Some(FormId(voice)), info, r));
         out.push(Part { response: r, stereo: path.clone(), path, seconds, song: false, gain: 1.0 });
     }
     out
