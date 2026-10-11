@@ -134,7 +134,12 @@ pub fn menu_code(mode: Mode) -> u16 {
 /// the engine's container, inventory, barter and wait menus: the script overlay shows it
 /// and the player closes it there.
 pub fn is_script_menu(code: u16) -> bool {
-    code != MENU_CONTAINER && code != MENU_INVENTORY && code != MENU_SLEEP_WAIT && code != MENU_BARTER
+    code != MENU_CONTAINER
+        && code != MENU_INVENTORY
+        && code != MENU_SLEEP_WAIT
+        && code != MENU_BARTER
+        && code != crate::terminal::MENU_HACKING
+        && code != crate::terminal::MENU_TERMINAL
 }
 
 /// Default of `NVF_PLAY_TEST_SCRIPT_MENUS` in unattended runs, seconds.
@@ -1223,12 +1228,13 @@ fn hold_player(
     active: Res<ActiveMenu>,
     paused: Res<crate::pause::Paused>,
     wait: Res<crate::wait::WaitMenu>,
+    terminal: Res<crate::terminal::TerminalScreen>,
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
     // The pause menu is also a `PlayState::Menu` without an engine menu: it is its own.
-    // So is the wait menu (`crate::wait`).
-    if active.0.is_some() || paused.0 || wait.is_open() {
+    // So are the wait menu (`crate::wait`) and a terminal (`crate::terminal`).
+    if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() {
         return;
     }
     let held = script.rt.as_ref().and_then(|rt| rt.game.menu).is_some_and(is_script_menu);

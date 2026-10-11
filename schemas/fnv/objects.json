@@ -1659,6 +1659,12 @@
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas NOTE record"
     },
+    "TNAM": {
+     "name": "Text / Topic",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NOTE record; xEdit union by note type: the note's text (a string, Text notes) or a topic (DIAL FormID, Voice notes); kept as bytes and read by type in fnv-game"
+    },
     "SNAM": {
      "name": "Sound / NPC",
      "type": "formid",
@@ -2181,6 +2187,112 @@
      "type": "u32",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas CMNY record: wbInteger(DATA, 'Absolute Value', itU32)"
+    }
+   }
+  },
+  "TERM": {
+   "name": "Terminal",
+   "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "10": "Quest Item",
+     "16": "Random Anim Start"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(TERM) flag list"
+   },
+   "subrecords": {
+    "SNAM": {
+     "name": "Sound - Looping",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TERM record"
+    },
+    "PNAM": {
+     "name": "Password Note",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TERM record: a NOTE"
+    },
+    "DNAM": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "base_hacking_difficulty",
+        "type": {
+         "enum": "u8",
+         "values": {
+          "0": "Very Easy",
+          "1": "Easy",
+          "2": "Average",
+          "3": "Hard",
+          "4": "Very Hard",
+          "5": "Requires Key"
+         }
+        }
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "Leveled",
+          "1": "Unlocked",
+          "2": "Alternate Colors",
+          "3": "Hide Welcome Text when displaying Image"
+         }
+        }
+       },
+       {
+        "name": "server_type",
+        "type": "u8"
+       },
+       {
+        "name": "unused",
+        "type": "u8",
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TERM record DNAM; server_type 0-9 is '-Server 1-' to '-Server 10-'. 342 of 344 DNAM in FalloutNV.esm are 4 bytes, 2 are 3 bytes without the unused byte [observed: fnvtool esm survey]"
+    },
+    "ITXT": {
+     "name": "Item Text",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TERM record: starts a menu item"
+    },
+    "RNAM": {
+     "name": "Result Text",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TERM record menu item"
+    },
+    "ANAM": {
+     "name": "Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Add Note",
+       "1": "Force Redraw"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TERM record menu item"
+    },
+    "INAM": {
+     "name": "Display Note",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TERM record menu item: a NOTE"
+    },
+    "TNAM": {
+     "name": "Sub Menu",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TERM record menu item: a TERM"
     }
    }
   }

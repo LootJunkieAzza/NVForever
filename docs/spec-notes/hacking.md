@@ -1,0 +1,192 @@
+# Terminals and hacking
+
+How terminals work in NVForever: the record, the hacking game, and the terminal's own
+menu. Rules: `crates/fnv-game/src/hacking.rs` (the game), `crates/fnv-game/src/terminal.rs`
+(opening, items, choosing). Engine: `engine/nvf-play/src/terminal.rs` and
+`terminal/screen.rs`. Survey: `fnvtool world terminals`; one game laid out:
+`fnvtool world hack` (docs/cli-contract.md).
+
+Sources: xEdit `wbDefinitionsFNV.pas` (dev-4.1.6) for the record; the GECK wiki (the
+owner's export, `C:\fnv-private\geckwiki`) for the word count and lock levels; the game's
+own interface files `menus\hacking_menu.xml` and `menus\computers_menu.xml` and its word
+list `menus\falloutdict.txt` (base archive `Fallout - Misc.bsa`, extracted privately to
+`C:\fnv-private\menus-extract\hacking`); the owner's seven screenshots of an Easy terminal
+(2026-10-11, in the chat of session "hacking"); the owner's description of the rules
+(same day).
+
+## 1. The record (TERM)
+
+[documented: xEdit TERM; schema `schemas/fnv/objects.json`]
+
+| Field | What |
+|---|---|
+| FULL | name ("Terminal" on 156 of 344) |
+| DESC | welcome text under the header |
+| SNAM | looping sound |
+| PNAM | password note (NOTE) |
+| DNAM | base hacking difficulty (u8: 0 Very Easy … 4 Very Hard, 5 Requires Key), flags (Leveled, Unlocked, Alternate Colors, Hide Welcome Text when displaying Image), server type (0–9: "-Server 1-" … "-Server 10-"), one unused byte |
+| ITXT… | menu items, each: ITXT item text, RNAM result text, ANAM flags (Add Note, Force Redraw), INAM display note, TNAM sub menu (TERM), an embedded result script (SCHR …), CTDA conditions |
+
+[observed: `fnvtool world terminals`, FalloutNV.esm]: 344 terminals: 237 Very Easy, 19
+Easy, 44 Average, 21 Hard, 18 Very Hard, 5 Requires Key; 193 Unlocked, 11 Leveled; 23 with
+a password note. 895 items: 193 with a script, 542 with a note (19 Add Note), 86 with a
+sub menu (72 terminals are sub menus), 277 with conditions (244 run on the subject, 115
+on the linked reference, 46 on a reference). 219 placed; the 77 not Unlocked: 10 Very
+Easy, 17 Easy, 23 Average, 12 Hard, 11 Very Hard, 4 Requires Key. No placed terminal has
+lock data (XLOC). 342 DNAM are 4 bytes, 2 are 3 (no unused byte).
+
+NOTE: TNAM is the text of a text note (DATA 1) or a topic of a voice note [documented:
+xEdit union]; kept as bytes in the schema and read by type in `GameData::notes`.
+
+## 2. The hacking screen
+
+[documented: hacking_menu.xml] Font 5 (`fixedsys_comp_uniform_width`, every character
+17 wide [observed: its glyphs], line height 25), the terminal system colour, the Pip-Boy
+background. The area `hacking_depth_rect` 920 × 630 at (32, 48); a header 150 high; under
+it the dump: two columns 342 apart, 19 characters a column, 17 rows of 28; the log right
+of the dump (from 665), its prompt at 17, the entry 21 right of the prompt; log entries
+stand 3 + n rows up from the bottom (n = 0 the newest) and vanish above the top; attempt
+blocks 17 × 17, one block apart, starting one block after the text; a cursor block that
+blinks every 400 ms.
+
+[observed: the owner's screenshots]
+
+- Header: "ROBCO INDUSTRIES (TM) TERMLINK PROTOCOL", "ENTER PASSWORD NOW", a blank line,
+  "4 ATTEMPT(S) LEFT:" and four blocks. Lines at 1, 32 and 93 under the header's top.
+- Rows: an address "0xF650" (four hex digits), a space, 12 characters. Addresses go up
+  12 a row; column 2 goes on from column 1 (0xF710, then 0xF71C). The dump is one run of
+  408 characters: words run on across rows and from the last row of column 1 into the
+  first of column 2 ("GE" + "TTING").
+- The symbols are `! " # $ % ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ { | }` (no `&`, `~`
+  or backquote seen). Words are capitals.
+- 20 words of 7 letters; every dud shares 1 to 5 letters in place with the password
+  (MEETING): 3 share 5, 4 share 4, 4 share 3, 5 share 2, 4 share 1.
+- Picking LOOTING logs ">LOOTING", ">Entry denied", ">4/7 correct." and takes a block.
+  Likeness is letters equal at the same place (LOOTING / MEETING: T, I, N, G).
+- The pointer on a bracket pair lights the pair ("{[_}" in "|{[_})": the inner `[` has no
+  `]`), and the prompt shows it; picking it logged ">{[_}", ">Allowance", ">replenished."
+  and the four blocks came back. The pair's characters stay in the dump afterwards.
+- The pointer on a word lights the whole word, both parts when it runs on (ME + ETING),
+  and the prompt shows the word. With the pointer off the dump, nothing is lit and the
+  prompt shows only ">" (and the cursor).
+- The password logs ">MEETING", ">Exact match!", ">Please wait", ">while system", ">is
+  accessed.": log lines are 12 characters after the ">", broken between words.
+- One blank row between the newest log line and the prompt.
+- Then the terminal's menu (§6).
+- Colours on the screen (the monitor's light added): blocks and lit cells 63, 255, 152;
+  text strokes up to 88, 255, 160; the screen behind 16–23, 38–52, 15–32.
+
+## 3. The words
+
+[observed] `menus\falloutdict.txt` is one line of 4,710 upper-case words (4,709
+different), letters only: 4 letters 555, 5: 765, 6: 770, 7: 785, 8: 613, 9: 434, 10: 282,
+11: 141, 12: 73, 13: 46, 14: 12, 15: 3 (and a few shorter and one of 17). Every word of the
+owner's screenshots is in it. [hypothesis] The game draws its words from it; nothing else
+in the data looks like a word list.
+
+## 4. How many words, how long
+
+- **Count** [documented: GECK wiki "Hacking Word Count"]: `(1 - (Science - lock) / (100 -
+  lock)) × (iHackingMaxWords - iHackingMinWords) + iHackingMinWords`, lock = difficulty ×
+  `fHackLevelMult` × 100 = 0, 25, 50, 75, 100; where `100 - lock` is 0 (Very Hard) the
+  fraction is 0.5; never more than 20. Defaults 20, 5, 0.25 (none of the three is in the
+  plugins). Rounded down [hypothesis]. The owner's screenshot (20 words) fits Science
+  equal to the lock level.
+- **Science below the level** [hypothesis]: the player cannot hack; the terminal says so
+  (wording §8). Requires Key cannot be hacked at all.
+- **Length** [hypothesis, the owner: "the difficulty of the word is determined by the lock
+  strength"]: Very Easy 4–5, Easy 6–8, Average 9–10, Hard 11–12, Very Hard 13–15 (the
+  lengths players report for Fallout 3 and New Vegas). The owner's Easy terminal had 7.
+  NVForever draws a length among those with enough words (more than twice the count).
+- **Leveled** flag: not applied; how the level follows the player's level is not
+  documented.
+
+## 5. Picking
+
+- A word: the password opens the terminal; another costs an attempt and logs its
+  likeness [observed]. Four attempts [observed]. The last one gone: locked for good
+  [the owner; documented: GECK wiki Lock, "if player failed to hack terminal … will still
+  be locked out"]; the screen then shows `sHackingLockout3` / `sHackingLockout4`
+  [documented: hacking_menu.xml; their texts are not in the plugins, §8].
+- A bracket pair [the owner; observed]: an opening bracket `( [ { <` and the first matching
+  closing bracket later in the same row, with no letter between [hypothesis: the row
+  limit and the no-letter rule]. Picked at its opening bracket, once. It removes a dud
+  (the dud's letters become dots [hypothesis]) and logs "Dud removed." [hypothesis: the
+  text], or gives the attempts back ("Allowance replenished." [observed]). Which of the
+  two: one pair in five gives the attempts back, and every pair does once no dud is left
+  [hypothesis]. A used pair is a lone symbol afterwards.
+- A lone symbol: logged, then ">Error"; no attempt lost [hypothesis].
+- Leaving the game (Tab) before the end: nothing is kept; the next visit is a new dump
+  and password with all attempts [the owner].
+- Duds are spread evenly over 1 to length − 1 shared letters, never 0 unless too few
+  words [design, fitted to §2]. Words are laid one in each equal stretch of the dump, at a
+  random place in it, with a symbol either side [design, fitted to §2]. The first address
+  is random, four digits [design].
+
+## 6. Opening a terminal; its menu
+
+- Activating a placed terminal: an Unlocked terminal, one hacked before [documented: GECK
+  wiki Lock], or one whose password note the player holds (among the notes or carried)
+  [hypothesis: the note skips hacking, even after a lockout] opens at its menu; one locked
+  out shows the lockout screen; otherwise the hacking game, or a refusal (§4).
+- The menu [documented: computers_menu.xml; observed: the owner's screenshot]: centred
+  "ROBCO INDUSTRIES UNIFIED OPERATING SYSTEM", "COPYRIGHT 2075-2077 ROBCO INDUSTRIES", the
+  server line ("-Server 6-" for server type 5); the welcome text (DESC) at x 100, wrapped
+  at 600, 20 under the header; a line 10 under it as long as the text is wide; the list 10
+  under that, 700 wide, 12 rows, each "> " and the item's text; at the bottom 30 above the
+  edge a ">" prompt and, 34 right of it, the last result text.
+- Items listed: those whose conditions hold, run on the terminal reference with the
+  player as target [hypothesis: 244 of the conditions run on the subject, 115 on the
+  linked reference, which only makes sense from the terminal]. The list is read again
+  after every choice [design; "Force Redraw" says the game redraws on some].
+- Choosing an item: its result script runs on the terminal reference [hypothesis; the
+  default unlock terminals' script is `set myLink to getLinkedRef` / `myLink.unlock`], its
+  result text goes to the bottom line, an Add Note item gives its note, a note item shows
+  the note's text in the list's place (16 lines at most [documented]; Up / Down scroll),
+  a sub menu item lists the sub menu's items. Back (Tab) goes from a note to the list,
+  from a sub menu to its parent, else out [hypothesis].
+- Scripts see menu 1055 while hacking and 1057 in the menu [documented: GECK wiki
+  GetMenuTargetRef]. The world stands still.
+- Not built: a terminal whose script has an OnActivate block (20 terminals have a
+  script) runs the block instead of opening; ShowHackingMiniGame; Lock / Unlock and
+  GetLocked / GetLockLevel on terminals (they use the reference's lock data, which
+  terminals do not have); the hacking XP (`iXPRewardHackComputer*` are in the plugins);
+  sounds; the typing-out of text; image notes; the Alternate Colors and Hide Welcome
+  flags; saving which terminals were hacked.
+
+## 7. Drawing and keys
+
+- The original draws both screens into a texture shown on the monitor model
+  `meshes\terminals\terminalinterface01.nif` [documented: the XML's
+  `FORenderedTerminal` reference; Fallout_default.ini `[RenderedTerminal]`: FOV 0.15,
+  zoom 36, scanlines, VPos 0.38, a screen light]. NVForever draws the screen flat over the
+  darkened world, 960 × 720 interface units with its top 83 down [observed: the screen's
+  scale on the owner's screenshots is 0.99 of the interface's; design: the flat screen
+  until the model is drawn]. The colours are the measured ones of §2.
+- Keys [hypothesis]: arrows or W A S D move the hacking cursor a character or a row (a
+  word at once; from the end of a row of column 1 into column 2), Enter or E enters; Up /
+  Down choose a menu item, Enter or E takes it; Tab or Backspace go back; Esc leaves. The
+  pointer lights what it is on and a click enters it. The first key or the pointer shows
+  the cursor.
+- Times [design]: 2 s of "Please wait…" before the menu; 1.5 s before the lockout screen.
+
+## 8. Words not in the plugins
+
+From the owner's screenshots [observed]: the hacking header lines, "N ATTEMPT(S) LEFT:",
+"Entry denied", "N/L correct.", "Allowance replenished.", "Exact match!", "Please wait
+while system is accessed.", the menu's header lines. NVForever's until the original's
+are seen [hypothesis]: "Dud removed.", "Error", "!!! WARNING: LOCKOUT IMMINENT !!!" (on
+the last attempt), "TERMINAL LOCKED" / "PLEASE CONTACT AN ADMINISTRATOR", the refusals
+"You need a Science skill of N to hack this terminal." and "This terminal requires a
+password.", and the prompt word "Access".
+
+## 9. Checks
+
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
+`NVF_PLAY_TEST_TERMINAL=30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:back`:
+`nvforever --data <Data> --cell BisonSteve01 --play --no-voice --run-seconds 48` → "hacking,
+Easy (Science 25): 20 words", the entries, "Exact match! access granted", "menu of
+DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"", its result script
+and "terminal summary: … 1 hacked …". The lockout: `29:open:000D74D5,30:wrong,30.5:exit,
+31.5:open:000D74D5,32:wrong,32.5:wrong,33:wrong,33.5:wrong,36:back,37:open:000D74D5` →
+a new game after leaving, "locked for good", and "locked out for good" on return.

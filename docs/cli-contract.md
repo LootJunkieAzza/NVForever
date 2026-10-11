@@ -318,6 +318,15 @@ Lab comparator: **keyed** on `grid` for `/cells` (all fields, float tolerance 1e
   stations' lines and song files, stations on the Pip-Boy), `stations` (with `on_pipboy`
   and each placed reference's `broadcasts_from`), `receiver_bases` (with their placed
   references) and `goodsprings_receivers`; no texts (docs/spec-notes/radio.md §7).
+- `world terminals [--functions F]` → `fnv.world.terminals/1`: terminal records by hacking
+  difficulty, flag, server; menu items with scripts, notes, sub menus and conditions (by
+  run-on and function); placed terminals by level with examples; no texts
+  (docs/spec-notes/hacking.md §1).
+- `world hack <DATA_DIR> [--difficulty 0-5] [--science N] [--seed N] [--pick I,…]` →
+  `fnv.world.hack/1`: one hacking game from the game's word list: `word_count`,
+  `password`, `words` with their likeness, `pairs`, the 17 `rows` as the screen shows them,
+  and the `picks` and `log` after the picked dump indices (hacking.md §2–5). Prints words of
+  the game's word list: for the owner's console, not for committed files.
 
 ## `fnvtool phys ...` (Layer 4 physics)
 

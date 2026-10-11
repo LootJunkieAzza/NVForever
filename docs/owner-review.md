@@ -2876,3 +2876,35 @@ Details and what is guessed: `docs/spec-notes/pipboy.md` §5.1 (STATS) and §5.3
 4. **Not built yet:** using a Stimpak or RadAway from the hints, the hardcore buttons,
    Place Marker, Challenges, the item picture and figures on ITEMS. The messages at the
    top left (quest updates, corner messages) still draw over the Pip-Boy's edge.
+## Terminal hacking (2026-10-11, session "hacking")
+
+Your request: the hacking minigame, from your seven screenshots and rules. Branch
+`claude/hacking`; details in `docs/spec-notes/hacking.md`.
+
+1. **Built:** activating a locked terminal opens the hacking screen laid out from the
+   game's own `hacking_menu.xml` in its terminal font; the words come from the game's own
+   word list (`menus\falloutdict.txt`, every word of your screenshots is in it). Likeness,
+   four attempts, bracket pairs (dud removed or attempts back), the log at the right,
+   lockout for good after four wrong words, a new game with all attempts after leaving.
+   The right word opens the terminal's menu (from `computers_menu.xml`): items by their
+   conditions, result scripts (the default unlock terminals' "Disengage Lock" runs its
+   unlock), notes shown on the screen, sub menus.
+2. **Word count** follows the GECK wiki's formula from your Science and the lock level
+   (0/25/50/75/100, as you said): 20 words when Science equals the level, 5 at Science
+   100 on an Average terminal; Very Hard always about 12. Science below the level refuses.
+3. **Our guesses, please check:** word lengths per level (Very Easy 4–5, Easy 6–8,
+   Average 9–10, Hard 11–12, Very Hard 13–15; your Easy terminal had 7); how often a
+   bracket pair refills the attempts instead of removing a dud (one in five here); that a
+   removed dud turns into dots and logs "Dud removed."; that a lone symbol logs "Error"
+   and costs nothing; the last-attempt warning and the lockout screen's words; the refusal
+   line; the prompt word "Access"; that holding the password note skips hacking.
+   A screenshot of a dud being removed, of the last attempt, of a locked-out terminal and
+   of a refusal would settle most of these.
+4. **Looks:** drawn flat over a darkened world, with the colours measured on your
+   screenshots; the original shows it on a 3D monitor (`terminalinterface01.nif`). The
+   monitor, sounds, the typing-out of text and saving which terminals were hacked are not
+   built yet.
+5. **Try it:** any locked terminal with E, or the test aid
+   `NVF_PLAY_TEST_TERMINAL=30:science:25,31:open:000D74D5` with
+   `--cell BisonSteve01 --play` (an Easy terminal; keys: arrows/WASD and Enter, or the
+   mouse; Tab back, Esc out).
