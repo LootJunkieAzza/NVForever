@@ -242,8 +242,8 @@ below 30).
 ## 8. Not done, and questions for the owner
 
 1. The idle manager: `PickIdle`, fidgets, talking gestures, hit reactions from the tree.
-2. Sounds and other text keys of idle clips; animated objects (ANIO: the cigarette of a
-   smoking idle); the response flag "Use Emotion Animation" and facial emotions.
+2. Sounds and other text keys of idle clips; the response flag "Use Emotion Animation"
+   and facial emotions. (Animated objects: §10.)
 3. Package begin / end / change **topics** (TNAM), and the idles of actors that are not
    residents (not handed to `fnv_ai`).
 4. The per-type rules for when package idles play (actor-behaviour.md §1.5); ours is one
@@ -283,3 +283,41 @@ words, with where ours stands:
   speaker and by the listener each time a new line of a conversation is said; and at
   random times by the actor's energy level while its lower body is idle (low energy
   idles more often). None of these is built (§8 item 1).
+
+## 10. Animated objects (ANIO): props held while an idle plays
+
+- **The record** [documented: xEdit wbDefinitionsFNV.pas ANIO; schemas/fnv/placed.json]:
+  EDID, MODL (the model) and DATA "Animation", an IDLE.
+- **Counts** [observed, FalloutNV.esm with the owner's load order through NVForever's
+  reader]: 161 ANIO records, 141 with a model and a DATA that names a loaded IDLE, for
+  116 IDLEs; the other 20 include the 18 whose DATA lies outside the master list
+  (esm.md item 7).
+- **Nothing in the idle clip names the object** [observed]: `sweeping.kf`
+  (`SpecialIdle_Sweeping`) drives only `Bip01` nodes and has the text keys start,
+  StartLoop, five `Sound: NPCHumanSweep`, `Blend:10`, EndLoop, end. The link is the
+  ANIO's DATA: `aoSweepingBroom` (0x0008945D, `AnimObjectsoBroom.NIF`) names
+  `LooseSweeping` (0x0008945C, `sweeping.kf`); `aoSmokingStanding` (0x00083519) names
+  `NPCSmokingIdle` (0x00071EE3) and `aoLooseSmokingStanding` (0x00071F91) names
+  `LooseSmokingStanding` (0x00083518), two IDLEs that play the same
+  `smokingstanding.kf`, each with an ANIO of its own, both with `aoCigarette.NIF`
+  [observed]. Reading: an ANIO is drawn on the actor while the IDLE its DATA names plays
+  [hypothesis].
+- **Where it hangs** [observed]: the model's root (`AnimObjectRoot`, identity
+  transform) carries a `Prn` string extra data naming a skeleton bone, as worn rigid
+  parts do (actors.md §1.2): `aobroom.nif` `Bip01 L Hand`, `aocigarette.nif`
+  `Bip01 R Hand`. `aobroom.nif` also has a transform controller on its root (not played
+  here) and `BSPriority#50#` in its `UPB`.
+- **In the engine** (`engine/nvforever/src/anim_objects.rs`) [design, from the above]:
+  while an actor's idle slot plays an IDLE that has animated objects (until it has faded
+  out), each object's model is drawn rigid under its `Prn` bone; when another idle starts
+  or the idle is over, the objects are taken away. Log: `anim object: <actor> holds
+  <model> on <bone> (<ANIO>, idle <IDLE>)`, and `anim objects summary: … objects drawn
+  for … idles played, … could not be drawn` at the end.
+- Seen in NVForever, 2026-10-11 [observed in NVForever]: Chet (GSChetRef) at his
+  `GobSweep` idle marker in GSGeneralStore plays `LooseSweeping` and holds the broom in
+  both hands, its head on the floor; Sunny Smiles asked to play `NPCSmokingIdle` (test
+  aid `play_idle:SunnyRef:NPCSmokingIdle`) is given `aocigarette.nif` on `Bip01 R Hand`
+  (log; the frame taken shows her greeting the player, a dialogue idle having replaced
+  the smoking one and the cigarette gone with it).
+- Not done: the player's idles, the objects' own animation, and checking against the
+  game how long an object stays (the whole idle, as here, or only between keys).

@@ -166,6 +166,63 @@ pub fn meshes_path(model: &str) -> String {
     }
 }
 
+/// An animated object (ANIO): a model an actor holds while one idle plays (the broom of
+/// a sweeping idle, the cigarette of a smoking one) [documented: xEdit
+/// wbDefinitionsFNV.pas ANIO: EDID, MODL, DATA "Animation" (an IDLE)]. That the model is
+/// drawn on the actor while the IDLE its DATA names plays, hung from the bone its own
+/// `Prn` extra data names, is [hypothesis, docs/spec-notes/idles.md §10: the idle clips
+/// name no object (`sweeping.kf` has only body tracks and sound keys), while
+/// `aoSweepingBroom` names `LooseSweeping` (`sweeping.kf`) and the two IDLEs that play
+/// `smokingstanding.kf` each have an ANIO of their own naming them, both with
+/// `aoCigarette.nif`; `aobroom.nif` has `Prn` `Bip01 L Hand`, `aocigarette.nif`
+/// `Bip01 R Hand`].
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AnimObject {
+    pub id: FormId,
+    pub edid: Option<String>,
+    /// The model as a VFS path (`meshesnimobjects\…`).
+    pub model: Option<String>,
+    /// The IDLE it goes with.
+    pub idle: Option<FormId>,
+}
+
+/// Every winning, non-deleted ANIO of a load order, by FormID. A DATA FormID outside the
+/// plugin's master list is noted and left out (FalloutNV.esm has 18 such, esm.md item 7).
+pub fn anim_objects(lo: &LoadOrder, schema: &Schema, issues: &mut Issues) -> Vec<AnimObject> {
+    let mut out = Vec::new();
+    for (&g, defs) in &lo.index {
+        let Some(d) = defs.last() else { continue };
+        let r = lo.records[d.plugin as usize][d.ordinal as usize];
+        if &r.header.sig != b"ANIO" || r.header.flags & 0x20 != 0 {
+            continue;
+        }
+        let id = FormId(g);
+        let dec = match extract::decode(r, schema) {
+            Ok(d) => d,
+            Err(e) => {
+                issues.note("ANIO does not decode", || format!("{id}: {e}"));
+                continue;
+            }
+        };
+        let idle = match first(&dec, b"DATA").and_then(local_fid).map(|l| global(lo, d.plugin as usize, l)) {
+            Some(Ok(g)) => g,
+            Some(Err(l)) => {
+                issues.note("ANIO animation outside master list", || format!("{id} DATA 0x{l:08X}"));
+                None
+            }
+            None => None,
+        };
+        out.push(AnimObject {
+            id,
+            edid: first(&dec, b"EDID").and_then(text),
+            model: first(&dec, b"MODL").and_then(text).map(|m| meshes_path(m.trim())).filter(|m| m != "meshes\\"),
+            idle,
+        });
+    }
+    out.sort_by_key(|a| a.id);
+    out
+}
+
 /// Every winning, non-deleted IDLE of a load order.
 #[derive(Debug, Default)]
 pub struct Idles {
