@@ -215,15 +215,26 @@ pub fn drive(
             d.t = (d.t + dt).min(len);
             player.layers = Default::default();
             player.layers[0] = Some(Layer { clip, phase: (d.t / len).min(0.999), weight: 1.0 });
+            // A weapon still on the body stays where its stance hung it.
+            if let Some(w) = weapon.as_deref() {
+                w.weapon_layers(&mut player);
+            }
             cost.tracks += player.pose(&mut scratch, &mut transforms) as u64;
             n += 1;
             continue;
         }
         if let Some((clip, phase)) = seated.and_then(|s| s.pose.clone()) {
             // Getting onto, on, or getting off furniture (`furniture.rs`): its clip, and
-            // over it the idle the actor plays there (a seated speaker's gesture).
+            // over it the idle the actor plays there (a seated speaker's gesture). The
+            // weapon stays where its stance hangs it, following that bone.
             player.layers = Default::default();
             player.layers[0] = Some(Layer { clip, phase, weight: 1.0 });
+            if let Some(mut w) = weapon {
+                if !w.hold {
+                    w.step(dt);
+                }
+                w.weapon_layers(&mut player);
+            }
             if let Some(i) = idle {
                 i.layers(&mut player);
             }

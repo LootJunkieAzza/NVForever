@@ -1242,6 +1242,15 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
 - **Weapon model**: drawn as a rigid part under the actor's `Weapon` node, which is moved
   to the bone of §9.2 when it changes. The `##` part tracks are not played yet (the parts
   stay at their model pose).
+- **When the body plays a clip of its own** (on furniture, getting on and off it, and a
+  death pose), only the `Weapon` track of the weapon clips is laid over it
+  (`WeaponHold::weapon_layers`), so the weapon keeps its place under the bone it hangs
+  from and follows that bone. The seat clips have no `Weapon` track [observed:
+  `dynamicidle_chairsit.kf`, `dynamicidle_sitstool.kf`, `chair_forwardenter.kf`]: before,
+  the node went back to its bind transform (its place under the right hand) while hung
+  from the pelvis or spine, and a seated settler's holstered pistol was off his hip at a
+  wrong angle [observed in NVForever, owner's playtest 2026-10-11; fixed: the pistol is
+  at the hip on the stool 00106192].
 - **Flags**: `--actor-weapons none|holstered|drawn` (default `holstered`) and the test aid
   `--actor-weapon-test <s>` (draw, hold `<s>` seconds, holster, hold, repeat; each actor
   starts at its spread phase). With `--actor-pose-time t` the cycle is run from its start
