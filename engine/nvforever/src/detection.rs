@@ -21,7 +21,8 @@
 //!   100 × the luminance of the ambient light, plus the sunlight's times daylight outdoors
 //!   or the cell's directional light indoors, plus each point light that reaches the
 //!   target with the game's falloff 1 − (d/r)²; capped at 100. Shade from the sun is not
-//!   measured.
+//!   measured. The player's flashlight (flashlight.rs) is not counted [design: it is not
+//!   the game's; whether it should show the player is undecided].
 //! - **Moving and running**: from how far an actor went since the last measurement
 //!   [engineering choice]; the player runs when moving at the run gait (not holding Walk)
 //!   [hypothesis: a sneaking run counts as running]. Actors never sneak (packages' Always
@@ -207,7 +208,7 @@ fn measure(
     mut shots: MessageReader<ShotFired>,
     actors: Query<Watched>,
     point_lights: Query<(&PointLight, &GlobalTransform, &InheritedVisibility)>,
-    spot_lights: Query<(&SpotLight, &GlobalTransform, &InheritedVisibility)>,
+    spot_lights: Query<(&SpotLight, &GlobalTransform, &InheritedVisibility), Without<crate::flashlight::PlayerFlashlight>>,
 ) {
     let state = &mut *state;
     // The player's shots, heard at the next measurement.

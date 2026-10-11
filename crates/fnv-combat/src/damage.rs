@@ -144,7 +144,7 @@ pub struct HitInput<'a> {
     pub condition: f32,
     pub ammo_effects: &'a [&'a AmmoEffect],
     pub part: HitPart,
-    /// Extra multiplier on the base: power attacks ([`CombatTuning::power_damage`]), 1
+    /// Extra multiplier on the base: power attacks ([`crate::melee::PowerDir::damage`]), 1
     /// otherwise [design].
     pub power: f32,
 }

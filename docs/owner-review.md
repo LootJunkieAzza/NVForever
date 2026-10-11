@@ -2619,6 +2619,62 @@ one it speaks to. Your decision: the speaker turns head and body. Branch
    `NVF_PLAY_TEST_SCRIPT=8:say_to:SunnyRef:player:GREETING` with
    `--cell GSProspectorSaloonInterior --play`.
 
+
+## Flashlight (2026-10-11, session "flashlight")
+
+Your request: holding the inventory button for 1 to 2 seconds turns a flashlight on or
+off, a classic one that lights what is in front of the camera. Branch
+`claude/flashlight`; code in `engine/nvf-play/src/flashlight.rs` (the key) and
+`engine/nvforever/src/flashlight.rs` (the light).
+
+1. **Built:** Tab held for 1 second switches the light, at once, while the key is still
+   down; letting go after that opens nothing. A tap opens the inventory as before, but
+   on letting go of the key rather than on pressing it.
+2. **The light:** a warm white cone (30° from the middle to the edge, fully lit to 14°)
+   from just right of and under the eye, reaching about 40 m with the game's falloff.
+   It casts shadows, so walls stop it; your own arms, weapon and body cast none (in
+   third person nothing between the camera and a little past your head does).
+3. **Our choices, not the game's:** the original's hold of Tab works the Pip-Boy light,
+   a glow round the player; this is a flashlight as you asked. Scripts that lock the
+   Pip-Boy (the opening) do not lock the light. Detection ignores it for now; say if a
+   lit flashlight should make you easier to see.
+4. **Checked in pictures:** in the Goodsprings house at 23:00 the cone lights the bed and
+   wall with the bedpost's shadow on it; outside at 01:00 the house across the road
+   takes the warm light and the stop sign's shadow. Test aid:
+   `NVF_PLAY_TEST_CONTROL=2:flashlight` with `--play`.
+
+
+## Melee combos and power attacks (2026-10-11, session "melee combo")
+
+Your request: chained attacks (two punches go right hand then left hand) and power
+attacks by holding Use, with their own clip for standing still, forward, back, left and
+right. Branch `claude/melee-combo`; code in `crates/fnv-combat/src/melee.rs`, the
+engine's `melee` in `engine/nvf-play/src/combat.rs`, notes in
+docs/spec-notes/combat-rules.md §10.
+
+1. **Built from the clips themselves:** every right-hand attack clip of the fists and
+   melee weapons ends with a key naming the left one as the next attack, and the left
+   ones name the right, with a time from which the next swing may cut in. A press during
+   a swing now starts the next one at that time, so quick presses go right, left,
+   right, left. Power attacks pick the clip by the movement keys held when they start.
+2. **Checked in a run** (Goodsprings, fists): four taps played `attackright_a`,
+   `attackleft_b`, `attackright_a`, `attackleft_b` (three chained); holds played
+   `h2hattackpower`, `…forwardpower`, `…backpower`, `…leftpower`, `…rightpower` in both
+   views. Test aid: `NVF_PLAY_TEST_CONTROL=3:weapon,16:fire,16.1:fire,16.4:fire,16.5:fire`
+   with `--play` (taps before about 13 s fall inside the pre-order message boxes).
+3. **Guesses, please check against the game:**
+   - The `_a` and `_b` forms of each swing are picked at random.
+   - A press after a swing has fully ended starts over with the right hand.
+   - Holding Use for 0.4 s makes a power attack (you described about a second; say if
+     it should be longer).
+   - Power attack damage now uses the game's settings named
+     `fDamagePowerAttack{Stand,Forward,Back,Side}Bonus`: 3× standing, 2× moving, where
+     it was 1.5× for all. That they multiply damage is read from their names only.
+   - A movement key counts once it is past 30 %; forward/back wins over a side.
+4. **Not built:** the lunge of a moving power attack (the clips' root motion does not
+   move the player), the perk-only custom power attacks (`attackcustom1power` …), and
+   the `Attack3`–`Attack7` punch chains beyond what a weapon's own attack names.
+
 ## The Pip-Boy (2026-10-11, session "pip-boy menu")
 
 Your fifteen Pip-Boy screenshots. Branch `claude/pipboy-menu`. Facts and measurements:

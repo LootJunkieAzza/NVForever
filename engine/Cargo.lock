@@ -4222,6 +4222,7 @@ name = "nvf-play"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "fnv-actor",
  "fnv-collide",
  "fnv-combat",
  "fnv-dds",

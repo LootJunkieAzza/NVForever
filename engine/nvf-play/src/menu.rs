@@ -15,7 +15,8 @@
 //!   choice's result script; then it opens over the conversation, which waits under it
 //!   (`crate::dialogue::held`) and goes on when it closes [hypothesis: the original
 //!   returns to the conversation; its BarterExit lines are not said yet].
-//! - Tab while playing opens the player's inventory alone, and with it the Pip-Boy
+//! - Tab tapped while playing opens the player's inventory alone, when it is let go (a
+//!   hold switches the flashlight, `crate::flashlight`), and with it the Pip-Boy
 //!   (`crate::pipboy`): equip/unequip (aid items are used), drop.
 //! - Keys of the container menu: Up/Down (or W/S) select, Left/Right (or A/D) switch
 //!   list, Enter/Space take or store one, Shift+Enter/Space the whole stack, R take all, E,
@@ -89,7 +90,7 @@ const RESPAWN_NOTE: &str = "This container respawns and is unsafe to store your 
 #[derive(Message, Clone, Copy, Debug)]
 pub struct MenuInput(pub Command);
 
-/// Open the player's inventory (Tab, or the test aid).
+/// Open the player's inventory (Tab tapped, `crate::flashlight`; or the test aid).
 #[derive(Message, Clone, Copy, Debug, Default)]
 pub struct OpenInventory;
 
@@ -124,7 +125,7 @@ impl Plugin for MenuPlugin {
             .add_systems(
                 Update,
                 (
-                    (tab_opens_inventory, f9_opens_nearest_container).run_if(in_state(PlayState::Playing)),
+                    f9_opens_nearest_container.run_if(in_state(PlayState::Playing)),
                     test_aid::run,
                     test_aid::run_drops,
                     test_aid::run_barter,
@@ -141,12 +142,6 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(PlayState::Menu), release_cursor)
             .add_systems(OnExit(PlayState::Menu), close_menu);
         test_aid::setup(app);
-    }
-}
-
-fn tab_opens_inventory(input: crate::bindings::ControlInput, mut out: MessageWriter<OpenInventory>) {
-    if input.just_pressed(crate::bindings::Control::MenuMode) {
-        out.write(OpenInventory);
     }
 }
 
