@@ -122,6 +122,17 @@ pub enum AiEvent {
     ChatGaveUp { partner: FormId, why: &'static str },
     /// After a random conversation it goes back to its package's place, `away` units off.
     ChatBack { package: FormId, away: f32 },
+    /// In Alert or Lost it sets off to search at `to`, `away` units from it, a way of
+    /// `length` units, for what `about` did (`crate::alert`).
+    Search { about: FormId, to: [f32; 3], away: f32, length: f32 },
+    /// It looks about at `at` for `seconds`.
+    SearchLook { at: [f32; 3], seconds: f32 },
+    /// In Combat it stops and faces `target`, `away` units from it.
+    Hold { target: FormId, away: f32 },
+    /// It stops searching or holding (`why`).
+    SearchOver { why: &'static str },
+    /// After a search it goes back to its package's place, `away` units off.
+    SearchBack { package: FormId, away: f32 },
 }
 
 /// How far an actor is with its Dialogue package ([`goal::Talk`]).
@@ -215,7 +226,7 @@ pub struct Agent {
     /// The actor's sandbox, while it is in the area of a Sandbox or Wander package.
     pub sandbox: Option<Sandbox>,
     /// Waiting at a patrol point until this `Game::time`.
-    wait_until: Option<f64>,
+    pub(crate) wait_until: Option<f64>,
     /// Its Dialogue package's progress.
     pub talk: Option<Talking>,
     /// When it was last pushed aside (`Game::time`), until it has gone back or need not.
@@ -223,6 +234,9 @@ pub struct Agent {
     /// A random conversation it is going to, waiting for or in (`crate::social`): its
     /// package's own doings wait meanwhile.
     pub chat: Option<crate::social::Chat>,
+    /// What it does in a combat state (`crate::alert`): its package's own doings wait
+    /// meanwhile.
+    pub search: Option<crate::alert::Search>,
 }
 
 #[derive(Default)]
@@ -250,7 +264,7 @@ impl Ai {
         let place = goal::place_of_ref(game, actor).ok_or_else(|| format!("{actor} is in no cell"))?;
         let heading = game.world.peek(actor).map(|s| s.rot[2]).or_else(|| game.world.placed.get(actor).map(|p| p.rot[2])).unwrap_or(0.0);
         let walker = Walker::new(place.space, place.pos, heading, self.cfg.walk_speed);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None });
         Ok(())
     }
 
@@ -396,19 +410,22 @@ impl Ai {
                 // A random conversation is given up (`crate::social` lets the other
                 // one go).
                 a.chat = None;
+                a.search = None;
                 self.set_using(game, actor, None);
                 self.taken.retain(|_, user| *user != actor);
                 if let Some(p) = current {
                     self.begin(game, nav, actor, p);
                 }
             }
+            // A combat state comes before the package (`crate::alert`).
+            let alerted = !quiet && self.alert_step(game, nav, actor, dt);
             let chatting = self.agents[&actor].chat.is_some();
-            if !quiet && !chatting && self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
+            if !quiet && !chatting && !alerted && self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
                 self.back_after_push(game, nav, actor);
             }
             match self.agents[&actor].activity {
                 Activity::Travelling => self.walk(game, nav, actor, dt, open),
-                Activity::There if !quiet && !chatting => {
+                Activity::There if !quiet && !chatting && !alerted => {
                     if self.agents[&actor].wait_until.is_some_and(|t| game.time >= t) {
                         self.agents.get_mut(&actor).expect("listed").wait_until = None;
                         self.patrol_on(game, nav, actor);
@@ -418,7 +435,7 @@ impl Ai {
                 }
                 _ => {}
             }
-            if !quiet && self.agents[&actor].talk.is_some() {
+            if !quiet && !alerted && self.agents[&actor].talk.is_some() {
                 self.talk_step(game, nav, actor, dt);
             }
         }
@@ -627,7 +644,7 @@ impl Ai {
     }
 
     /// The furniture `actor` uses changes (to none: it gets up).
-    fn set_using(&mut self, game: &Game, actor: FormId, furniture: Option<FormId>) {
+    pub(crate) fn set_using(&mut self, game: &Game, actor: FormId, furniture: Option<FormId>) {
         let Some(a) = self.agents.get_mut(&actor) else { return };
         if a.using == furniture {
             return;
@@ -855,8 +872,9 @@ impl Ai {
         let reached = match (&a.goal, ev) {
             (_, WalkEvent::Arrived) => true,
             (_, WalkEvent::Idle) => a.walker.follower.is_none(),
-            // A sandbox's own walks end where they lead, not at the package's place.
-            _ if own_walk => false,
+            // A sandbox's own walks and searches end where they lead, not at the
+            // package's place.
+            _ if own_walk || a.search.is_some() => false,
             (Some(Goal::Near { place, radius }), _) => *radius > self.cfg.arrive && self.within(feet, *place, *radius),
             (Some(Goal::Inside { space, .. }), _) => feet.space == *space,
             _ => false,
@@ -872,6 +890,11 @@ impl Ai {
         // The end of the way to a conversation partner: `crate::social` starts the
         // conversation.
         if a.chat.is_some() {
+            a.activity = Activity::There;
+            return;
+        }
+        // The end of a search walk: `crate::alert` has it look about.
+        if a.search.is_some() {
             a.activity = Activity::There;
             return;
         }

@@ -92,6 +92,12 @@ run `fnvtool actor detect --schema schemas/fnv <Data> FalloutNV.esm --detector S
 with the table in detection.md §4 (sneaking, lit: detected out to 1,840; sneaking, dark: never);
 explain any change. Then the in-game check of detection.md §5 (expect exit 0, a "hidden → noticed"
 line for GSSettlerAM 00104F0A while sneaking, the shot taking it to detected, and a "detection summary").
+After detection state changes (`fnv_game::awareness`, `fnv_ai::alert`, the engine's `alert.rs`
+and `detection.rs`; docs/design/alert.md), run the Fiend check of alert.md §8:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --pos=-43900,64896,7000 --play --hour 12 --no-voice --npc-packages FiendVioletRef --run-seconds 45`
+(expect exit 0, "1EFiendViolet 000F570B Normal → Alert: noticed the player", her NormalToAlert
+line, "FiendVioletRef: searches for the player", "Alert → Combat: detects the player" at about
+2,650 units with no Combat ↔ Lost flicker after it, and "alert summary: 1 actors became Alert").
 After changes to actor templates, leveled actor lists or faction functions (`fnv-game`
 `templates`, `functions::actor`), run
 `fnvtool actor factions --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor FiendVioletRef --actor 00157B36`

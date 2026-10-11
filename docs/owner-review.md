@@ -2591,3 +2591,38 @@ round the lantern). Branch `claude/light-rays`. Facts and measurements:
    they lost too much.
 5. **Seen on the way, not changed:** in your rays screenshot the frosted window panes are
    a light grey-yellow in the game and nearly white in ours.
+
+## NPCs on alert: Normal, Alert, Combat, Lost (2026-10-11, session "alert")
+
+Your request: NPCs go on alert when they sense a threat (hear a hostile move, glimpse an
+enemy far off) before they have confirmed it, as the start of NPC combat. Branch
+`claude/detection-states`, design `docs/design/alert.md`.
+
+1. **Built:** the four detection states from the editor documentation. A hostile that is
+   noticed but not detected puts the NPC on Alert: it draws its weapon, turns its head
+   to where it noticed something, says its NormalToAlert line, and (if it is run on its
+   packages) walks there to search, saying AlertIdle lines. Detected: Combat (it stops
+   and faces you; nothing attacks yet). Lost sight in combat: Lost, it searches where
+   you were. Bullet impacts are heard: shoot near a Fiend from hiding and it searches
+   the impact.
+2. **Continue During Combat** (your note): an NPC whose current package has the flag
+   keeps doing its package through Alert, Combat and Lost; it still draws its weapon and
+   barks. No source describes the flag, so this follows its name; 399 of the game's
+   4,163 packages set it. **No Combat Alert** is read the same way: such an NPC never
+   goes to Alert (it can still go to Combat). Tell me if you know either to work
+   differently.
+3. **My guesses, to tune when you can compare with the game:** an alarm lasts 20 s after
+   the threat was last noticed; a target hidden for 10 s is forgotten; 3 s without
+   seeing its target turns Combat into Lost; a search looks about for 4 s per spot and
+   moves within 256 (indoors) or 512 (outdoors) units. A bullet's impact is as loud as
+   the gun. Actors with a faction in common, or of the same kind, never turn on each
+   other.
+4. **Scripts see it:** IsInCombat is 1 for an NPC on Alert, in Combat or Lost, and for
+   you while one hunts you (the documentation says so). This can change quest scripts
+   that test IsInCombat; nothing showed in the runs, but watch for it.
+5. **Fixed on the way:** detection's line of sight looked through hills when the NPC's own
+   body was in the way of the ray, and a small transparent fence hid you. Both changed
+   (`docs/design/alert.md` §7).
+6. **Would help:** in the game, `tdetect` off, stand in sight of a hostile at the edge
+   of its range and note how long it searches after you hide (GetDetected and IsInCombat
+   on it every second), to tune the timers.

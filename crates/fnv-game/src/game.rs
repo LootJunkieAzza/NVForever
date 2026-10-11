@@ -170,6 +170,10 @@ pub struct RefExtra {
     pub marked_for_delete: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub teammate: bool,
+    /// SetAlert's alerted animation state (weapon drawn) [documented: GECK wiki SetAlert,
+    /// savebaked].
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub alerted: bool,
     /// Faction rank changes: a rank, or −1 for "removed".
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub factions: BTreeMap<FormId, i8>,
@@ -550,6 +554,10 @@ pub struct Game<'a> {
     /// (`crate::detection`); GetDetected and GetDetectionLevel read it. Not part of the
     /// saved state: the engine measures again.
     pub detection: crate::detection::Detections,
+    /// Every actor's detection state (Normal, Alert, Combat, Lost), its alert and target
+    /// lists, and detection events waiting to be heard (`crate::awareness`). Not part of
+    /// the saved state: the engine measures again.
+    pub awareness: crate::awareness::Awarenesses,
     /// What switched radio receivers on and off (`crate::radio`); the engine plays the
     /// stations. Not part of the saved state.
     pub radio: crate::radio::Radios,
@@ -715,6 +723,7 @@ impl<'a> Game<'a> {
             barter_requests: Vec::new(),
             rest: Default::default(),
             detection: Default::default(),
+            awareness: Default::default(),
             radio: Default::default(),
             world,
             cfg,

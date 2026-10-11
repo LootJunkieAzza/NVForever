@@ -691,7 +691,11 @@ impl Core {
                 | AiEvent::Chat { .. }
                 | AiEvent::ChatApproach { .. }
                 | AiEvent::ChatGaveUp { .. }
-                | AiEvent::ChatBack { .. } => info!("{line}"),
+                | AiEvent::ChatBack { .. }
+                | AiEvent::Search { .. }
+                | AiEvent::Hold { .. }
+                | AiEvent::SearchOver { .. }
+                | AiEvent::SearchBack { .. } => info!("{line}"),
                 _ => debug!("{line}"),
             }
         }
@@ -799,6 +803,20 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::ChatApproach { partner, away, length } => format!("walks up to {} to talk: {away:.0} units away, {length:.0} units to go", n(partner)),
         AiEvent::ChatGaveUp { partner, why } => format!("gives up talking to {}: {why}", n(partner)),
         AiEvent::ChatBack { package, away } => format!("has talked: back to the place of {}, {away:.0} units off", n(package)),
+        AiEvent::Search { about, to, away, length } => format!(
+            "searches for {} at ({:.0}, {:.0}, {:.0}): {away:.0} units away, {length:.0} units to go",
+            if *about == FormId::PLAYER_REF { "the player".to_string() } else { n(about) },
+            to[0],
+            to[1],
+            to[2]
+        ),
+        AiEvent::SearchLook { seconds, .. } => format!("looks about for {seconds:.0}s"),
+        AiEvent::Hold { target, away } => format!(
+            "stops and faces {}, {away:.0} units away (no combat AI yet)",
+            if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) }
+        ),
+        AiEvent::SearchOver { why } => format!("stops searching: {why}"),
+        AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
     }
 }
 

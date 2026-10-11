@@ -10,6 +10,7 @@
 //! menu.
 
 mod actors;
+mod alert;
 mod anim_sounds;
 mod deaths;
 mod detection;
@@ -799,6 +800,8 @@ fn main() -> AppExit {
             app.add_plugins(dialogue_look::DialogueLookPlugin);
             // Who perceives whom (detection.rs): the drawn actors and the player.
             app.add_plugins(detection::DetectionPlugin);
+            // Alerted actors draw their weapons and look at what alerted them (alert.rs).
+            app.add_plugins(alert::AlertPlugin);
         }
     }
     if play.is_some() {
