@@ -75,10 +75,11 @@ all four record types decode over FalloutNV.esm with no bytes left over [observe
 1. **The marker** [design]: of the enabled markers whose radius reaches the player, the
    one the player is deepest inside (smallest distance over radius); the lower FormID on
    a tie. How the game ranks overlapping markers is not known.
-2. **The set** [design]: a controller with a conditional faction plays its neutral sets
-   (the player's standing with the faction is taken as neutral), any other its location
-   sets. One of the list is picked at random on entering the marker and kept while
-   inside. A controller without a set is silence.
+2. **The set** [design]: a controller with a conditional faction plays the list for the
+   faction's standing towards the player (§12.2), any other its location sets. One of
+   the list is picked at random on entering the marker and kept while inside (picked
+   again when the standing changes). A controller without a set is silence. A dungeon
+   set in the list plays as §12.2 says.
 3. **Day or night** by the controller's two hours.
 4. **Layers** [hypothesis]: the outer file sounds within its boundary percentage of the
    radius (100 on the sets looked at), the middle and inner ones are added inside
@@ -94,9 +95,8 @@ all four record types decode over FalloutNV.esm with no bytes left over [observe
 6. **No marker**: the cell's music type, else the worldspace's, if its file exists; as
    one track at 10^(−|ANAM| ÷ 20), looping when `ANAM` is positive [hypothesis].
 
-Not built: battle, dungeon and incidental sets; the ally, friend and enemy lists; the
-location and retrigger delays and the minimum time on; intro and outro sounds; the
-`PlayMusic` script function; menu and death music.
+Battle, dungeon and incidental sets, the faction lists, the minimum time on, intro and
+outro sounds and `PlayMusic`: §12.
 
 ## 5. Sound markers
 
@@ -139,8 +139,11 @@ Not built: the reverb environment, walla, and the region an acoustic space point
 - Music and loops are decoded while they play (rodio with symphonia: MP3, Ogg Vorbis,
   WAV); the three files of a set are mixed in one source so they cannot drift apart.
 - Log: `music: in marker …`, `music: <set> day|night started, layers …`,
-  `music: <set> layers …`, `music: <set> fades out`; at the end `music summary: …` and
-  `ambient summary: …`.
+  `music: <set> layers …`, `music: <set> fades out`, `music: battle begins …`,
+  `music: battle over …`, `music: intro|outro of …`, `music: a script plays …`,
+  `music: no music here; <set> plays a phrase in N s`; at the end `music summary: …`
+  (sets started, changes of layers, files not played, battles, battle loops, intro and
+  outro sounds, script requests, incidental phrases) and `ambient summary: …`.
 - Switches: `--no-music`, `--music-volume`; placed sounds and background loops go with
   `--no-sound`. The settings page has a Music switch.
 - Smoke test (CLAUDE.md): standing in Goodsprings, expect the desert exploration set
@@ -406,8 +409,8 @@ it at the calling reference [documented: GECK wiki PlaySound, PlaySound3D, owner
 export]. The rules queue them (`Game::sound_requests`, traced `sound_asked`); the
 engine plays them. Without SystemSound a sound asked for in a menu waits for the game
 [documented: it "may be queued and not played until returning to GameMode"]. Seen
-[observed]: a DLC start-up script's `PlaySound` (0x03016173). `PlayMusic` is not built
-(the music's own controls are music.rs's).
+[observed]: a DLC start-up script's `PlaySound` (0x03016173). `PlayMusic` queues a music
+type for music.rs (`Game::music_requests`, traced `music_asked`; §12).
 
 ### 11.6 Checks and what is left
 
@@ -419,3 +422,158 @@ the house).
 Not built: an activator's looping sound (ACTI `SNAM`), a container's random or looping
 one (CONT `RNAM`), the casings' PHY sounds, two loose bodies knocking each other told
 apart from one on the ground, loudness by how hard a knock is, panning.
+
+## 12. Battle, dungeon, incidental and script music
+
+Owner request 2026-10-11: build the music that was "not built". Code:
+`fnv_world::audio` (`RegionMusic`, `cell_regions`, `MediaController::sets_for`,
+`dungeon_tracks`), `nvf-play` `music.rs` (`MusicCues`, battles, dungeon layers,
+incidental phrases, script music), `fnv_game::sound::play_music`. Survey:
+`cargo run --release -p fnv-world --example music_survey -- schemas/fnv <FalloutNV.esm>`.
+Counts are of FalloutNV.esm alone [observed] unless they say otherwise.
+
+### 12.1 What the records say
+
+- **Field meanings by set type** [documented: xEdit `wbDefinitionsFNV.pas` field names,
+  `schemas/fnv/audio.json`; GECK wiki Media Set, owner export, a page marked incomplete
+  whose times are partly "unverified"]: a battle set's `NAM2` is its loop, `DNAM` the
+  wait before the intro, `ENAM` the loop's fade-out time, `FNAM` the recovery time
+  ("time before battle state completely ends and another music can start"),
+  `HNAM`/`INAM` an intro and an outro SOUN. A dungeon set's `NAM2` is battle, `NAM3`
+  explore, `NAM4` suspense ("while enemies are on alert"), `DNAM` minimum time on,
+  `ENAM` crossfade overlap, `FNAM` layer crossfade time, `HNAM`/`INAM` intro ("while
+  player starts combat") and outro ("when combat stops"). An incidental set's `HNAM`
+  and `INAM` are a day and a night SOUN, `DNAM`/`FNAM` the day's minimum and maximum
+  time, `ENAM`/`GNAM` the night's (the wiki: "Minimum time in seconds").
+- **Battle sets** (32): all store wait 1, fade-out 3, recovery 10 and −10 dB; 16 named
+  `…Perc` and 16 `…Full`, files `music\bttl\{good,evil}N\mus_bttl_lp_…`. Rural sets
+  name `musBTTLAllRuralIntro`/`…Outro`, city sets `musBTTLAllCityIntro`/`…Outro`: 2D
+  SOUN at 9 dB attenuation whose folders (`sound\fx\mus\bttl\allruralintro\` and the
+  like) hold 5 to 7 takes each. `PNAM` holds values above 63 on some (11111100 binary
+  on `musSetBTTLCityEvil1Perc`): the enable flags are a location set's.
+- **Dungeon sets** (23): `musSetDNGN1ABC`–`8ABC` put `…_3High` in battle, `…_1Low` in
+  explore and `…_2Mid` in suspense (`music\dngn\dungeonN\`), at −2.5, −4, −4 dB, with
+  the city intro and outro; the three files have one length to the byte (Dungeon1 and
+  2 looked at), as a location set's stems do. Two Hoover Dam sets do the same with
+  `loc\hooverdam\` files; 13 `musSetOldFO1…`/`FO2…` sets name one Fallout 1 or 2 piece
+  in all three. Times 6, 10, 6 (DNGN1–7) or 6, 15, 6.
+- **Location sets' times** (81): 6, 15, 9 on 66 and 6, 15, 6 on 15: a minimum time on
+  of 6 everywhere.
+- **Controllers' lists**: battle lists hold battle sets only (265 entries); location
+  lists 92 dungeon and 74 location entries; enemy lists 10 dungeon and 1 location
+  entries; neutral, ally and friend lists location sets but for one dungeon set each.
+  65 controllers have a battle list; their markers are 486 of the 572 (307 of them in
+  interiors). `musCtrlGoodsprings` (faction `GoodspringsFaction`): neutral, ally and
+  friend `musSetLOCDesExplBothABC`, enemy `musSetDNGN6ABC`, battle
+  `musSetBTTLRuralEvil2Full` and `…Evil1Full`.
+- **Delays and `NAM1`**: the location delay is 0 on all 89 controllers. The retrigger
+  delay is 0 on 17 and 805.0667 on 39; the rest store values such as 7.8e−44, 1.3e−18,
+  3.5e18, −10085 [observed], which look like bytes nobody set. `NAM1` (xEdit: "Flags and
+  Enums, messily combined") is four bytes, the last three 0, the first 0x40 (2), 0x44
+  (48), 0x45 (1), 0x54 (37) or 0x55 (1). 26 of the 34 controllers with more than one
+  location set have 0x10 set [observed; hypothesis: the "Random" looping option of the
+  GECK's dialog]. The GECK wiki's "Faction Not Found" and "Looping Options" choices are
+  presumably in it; not decoded.
+- **Regions** (REGN `RDMO` "Music", `RDSI` "Incidental MediaSet", `RDSB` "Battle
+  MediaSets" [documented: xEdit wbDefinitionsFNV.pas, now in `schemas/fnv/sky.json`]):
+  11 regions name music, none a music type; 10 an incidental set (`musSetINCDesert`,
+  `…Hostile`, `…Mountain`, `…Freeside`) and 10 four to eight battle sets. Cells reach
+  them two ways: through their acoustic space (ASPC `RDAT`, which xEdit calls "Use
+  Sound From Region (Interiors Only)"), as 15,728 exterior cells and 1 interior reach
+  `AudioExtDesertDefault` (incidental `musSetINCDesert`, eight rural battle sets), and
+  other `AudioExt…` regions the same way; and through their own region list (`XCLR`:
+  `AudioINCPrimm` 72 cells, `AudioExtNorthVegas` 278, `AudioINCMountain` 54). The
+  Goodsprings cell lists only `GSWeatherRegion` and `VMapGoodspringsRegion`; its
+  acoustic space gives it the desert region.
+- **Incidental sets** (4, named by regions only, never by a controller): times
+  (DNAM, ENAM, FNAM, GNAM) Desert 4, 6, 16, 12; Hostile and Mountain 6, 6, 10, 12;
+  Freeside 6, 3, 12, 8. Their sounds are folders of short phrases:
+  `musINCdesertday` (`fx\mus\inc\day\`, 121 Ogg files of 29 to 330 KB),
+  `musINCdesertNight` (`…\night\`, 134), `musINCCreepy` (86), `musINCPeacful` (54).
+- **Game settings**: `fCombatMusicNearCombatInnerRadius` 500,
+  `fCombatMusicNearCombatOuterRadius` 2000, `fCombatMusicPlayerTargetedThreatRatio` 100,
+  `fCombatMusicGroupThreatRatioMax` 4, `fCombatMusicStopTime` 3 [observed: the names
+  and values; their meanings are hypotheses from the names].
+- **Main menu** [observed: the install's `Fallout_default.ini`]:
+  `SMainMenuMusicTrack=special\maintitle.mp3`, `sTitleMusic=MainTitle`,
+  `fMainMenuMusicVolume=0.6`, `fDefaultMusicVolume=0.6`; `Data\Music\Special\MainTitle.mp3`
+  is shipped.
+- **Death**: the music type `DefaultDeath` names `special\death.mp3`, which is not
+  shipped; a SOUN `MUSDeath` exists, and `sound\fx\mus\mus_death.ogg` is in the sound
+  archive; `Data\Music\SCR\mus_SCR_DeathStinger.mp3` is shipped and no music type names
+  it [observed]. Which of these the game plays when the player dies is not known.
+- **`PlayMusic`** [observed: `fnvtool script decompile`]: 9 calls in FalloutNV.esm (7
+  scripts, a dialogue line's result script, a quest stage) naming 7 music types:
+  `musSCRGoodspringsStinger` (`VCG01RemoveDocCarebearModeTriggerSCRIPT`, the trigger
+  outside Doc Mitchell's door), `1NoMusic` (the opening quest's stage 0 and the
+  Vault 11 slideshow script), `musSCRVegasStinger`, `MUSKimbleSpeechHail` (a trigger
+  and a dialogue line), `EndSlideShow`, `EndTransitionStinger` and `Endgame01`.
+  The GECK wiki: "Will not stop the currently playing music of a music marker. NV
+  Only." [documented].
+
+### 12.2 What plays (as built)
+
+1. **A battle** [design: NVForever's actors do not fight on their own yet]: a living,
+   drawn, hostile actor (`fnv_game::rest::hostile_to_player`: aggression with the
+   factions' relation) within `fCombatMusicNearCombatOuterRadius` that has the player
+   detected (`nvforever` `detection.rs`) makes one; it ends `fCombatMusicStopTime`
+   seconds after the last such look [hypothesis: the settings' meanings]. Aggressive
+   actors neutral to the player (the coyotes east of Goodsprings) do not count, Very
+   Aggressive ones (Fiends) do.
+2. **Battle sets**: the marker's controller's battle list, else the region's (§12.1),
+   one picked at random per battle [design]. Its intro plays after the wait time and
+   its loop with it; the place's music fades out over the loop's fade-out time and the
+   loop fades in over it; at the end the outro plays, the loop fades out, and the
+   place's music starts again after the recovery time [documented meanings, unverified;
+   design: intro and loop together].
+3. **Dungeon sets** in a controller's list play as three stems in step: explore always,
+   suspense added while a hostile actor near has noticed (or detected) the player,
+   battle added in a battle [hypothesis]; in a battle at a dungeon set no battle set
+   plays, the set's intro and outro do [design]. The enable flags are not read.
+4. **Minimum time on**: a layer of a location or dungeon set that came in stays at
+   least the set's minimum time on (6 s) [hypothesis: "Minimum Time on Layer"].
+5. **Faction lists**: with a conditional faction, GetFactionRelation of that faction
+   towards the player picks enemy, ally, friend or neutral sets; an empty list falls
+   back to neutral, then location [design; GECK wiki: the lists' meanings]. Standing as
+   GetFactionRelation reads it (faction reactions, SetEnemy/SetAlly, crime enemies);
+   reputation is not consulted [hypothesis].
+6. **Incidental phrases**: where no music plays at all (no marker, no cell or
+   worldspace type, no battle), the region's incidental set plays its day (06:00 to
+   23:54, the hours every controller stores) or night sound after a random wait between
+   its two times, again and again [design]. **Unit: minutes** [hypothesis]: the GECK wiki
+   says seconds, which with the desert's 4 to 16 would leave gaps shorter than the
+   phrases themselves; `INCIDENTAL_UNIT` in music.rs is the one place to change it.
+7. **Script music** (`PlayMusic`): the music type plays beside the place's music, at
+   its `ANAM` level, once or looping by `ANAM`'s sign (§4.6), coming in at once; a new
+   request replaces the last; a type without a file (`1NoMusic`) fades it out
+   [hypothesis].
+8. Intro, outro and incidental sounds go through `crate::sfx` at the listener (the
+   effects volume) and are not played with music off [design].
+
+Seen [observed 2026-10-11, `nvforever --play`, the owner's load order]:
+- Standing next to Violet (`--cell Goodsprings --pos=-46800,65000,4600 --hour 12`):
+  `music: battle begins (0x000F570B has the player detected): musSetBTTLRuralGood3Perc
+  after 1.0 s, from 8 battle sets` (the desert region's list), the intro `0x0014E8DA` a
+  second later and the loop, then `battle over, 6.9 s after it began` when she lost
+  sight of the player, and the outro `0x0014E8DB`. Outside every marker there: `no
+  music here; musSetINCDesert plays a phrase in 650 s`.
+- Walking onto Doc Mitchell's door trigger (the smoke test in CLAUDE.md):
+  `music: a script plays musSCRGoodspringsStinger (once)` over the Goodsprings set.
+
+### 12.3 Not built
+
+- The main menu's music: NVForever has no main menu yet (the INI's track is above).
+- The death music: the player does not die yet, and which record it is is open.
+- The retrigger delay (its values look unset) and `NAM1`; the inner radius and threat
+  ratios of the combat music settings; the crossfade overlap time (sets loop by
+  starting their files again).
+- `IsMusicPlaying`, `SetMusicState` and the other NVSE music functions.
+
+### 12.4 Open
+
+- The incidental times' unit (§12.2 item 6), and whether phrases also play inside a
+  marker's reach.
+- Whether battle music needs the player to be the target, how the threat ratios weigh
+  a group, and whether the original plays the intro before the loop or over it.
+- What a dungeon set's "suspense" answers to, and how a controller with both dungeon
+  sets and a battle list chooses.

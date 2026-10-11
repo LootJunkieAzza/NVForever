@@ -535,6 +535,9 @@ pub struct Game<'a> {
     /// The sounds scripts asked for (`crate::sound::SoundRequest`), for the engine to
     /// take. Not part of the saved state.
     pub sound_requests: Vec<crate::sound::SoundRequest>,
+    /// The music types scripts asked for (`PlayMusic`, `crate::sound`), for the engine to
+    /// take. Not part of the saved state.
+    pub music_requests: Vec<FormId>,
     /// Barter menus scripts opened (ShowBarterMenu), for the engine to draw; the menu
     /// is open for scripts ([`menus::BARTER`]) until the engine closes it. Not part of
     /// the saved state.
@@ -709,6 +712,7 @@ impl<'a> Game<'a> {
             combat_requests: Vec::new(),
             idle_requests: Vec::new(),
             sound_requests: Vec::new(),
+            music_requests: Vec::new(),
             barter_requests: Vec::new(),
             rest: Default::default(),
             detection: Default::default(),

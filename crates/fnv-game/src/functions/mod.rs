@@ -26,7 +26,7 @@ mod reputation;
 
 pub use reputation::{store as reputation_store, tiers as reputation_tiers};
 pub use actor::{actor_value, actor_value_capped, actor_value_parts, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
-pub use actor::{faction_rank, faction_relation, factions_of};
+pub use actor::{faction_rank, faction_relation, factions_of, factions_relation};
 pub use misc::clock_now;
 
 use crate::game::{Game, InstKey};
@@ -409,7 +409,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x105D, "StopLook", Stub("animation (head tracking)")),
         (0x11E4, "AgeRace", Stub("character appearance")),
         (0x1026, "PlaySound", Impl(crate::sound::play_sound)),
-        (0x11FF, "PlayMusic", Stub("sound")),
+        (0x11FF, "PlayMusic", Impl(crate::sound::play_music)),
         (0x1114, "PlayBink", Stub("video")),
         (0x1191, "ApplyImageSpaceModifier", Impl(misc::apply_image_space_modifier)),
         (0x1192, "RemoveImageSpaceModifier", Impl(misc::remove_image_space_modifier)),

@@ -564,7 +564,13 @@ pub fn get_faction_combat_reaction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result
 /// enemy first, then friend, then ally; the player counts as an enemy of an actor in a
 /// faction the player is a crime enemy of.
 pub fn faction_relation(g: &Game, r: FormId, o: FormId) -> i64 {
-    let mine = factions_of(g, r);
+    factions_relation(g, &factions_of(g, r), o)
+}
+
+/// How the factions `mine` together stand towards actor `o`, combined as
+/// [`faction_relation`] does (0 neutral, 1 enemy, 2 ally, 3 friend). A media location
+/// controller's conditional faction asks this of the player (docs/spec-notes/audio.md §12).
+pub fn factions_relation(g: &Game, mine: &[FormId], o: FormId) -> i64 {
     if o == FormId::PLAYER_REF && mine.iter().any(|f| g.player.enemy_of.contains(f)) {
         return 1;
     }
