@@ -534,6 +534,9 @@ pub enum ScriptAid {
     Activate(String),
     /// `enable:<reference>`: the reference is enabled as a script's `Enable` does.
     Enable(String),
+    /// `say_to:<speaker>:<target>:<topic>[:<noTargetLookFlag>]`: the speaker's script
+    /// calls `SayTo target topic 0 flag`.
+    SayTo(String, String, String, bool),
 }
 
 /// When a test-aid step runs: `at` seconds after the start, or, with `after`, `at`
@@ -582,13 +585,15 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 ["button", b] => ScriptAid::Button(int(b)?),
                 ["close"] => ScriptAid::Close,
                 ["message", m] => ScriptAid::Message(m.to_string()),
+                ["say_to", sp, t, topic] => ScriptAid::SayTo(sp.to_string(), t.to_string(), topic.to_string(), false),
+                ["say_to", sp, t, topic, flag] => ScriptAid::SayTo(sp.to_string(), t.to_string(), topic.to_string(), int(flag)? != 0),
                 // The owner's name may hold a colon too (`var:scripted:<SCPT>:<variable>:<value>`).
                 ["var", of @ .., var, value] if !of.is_empty() => {
                     ScriptAid::Var(of.join(":"), var.to_string(), value.parse().map_err(|_| format!("{rest:?}: bad value {value:?}"))?)
                 }
                 _ => {
                     return Err(format!(
-                        "{rest:?}: expected start:, stop:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk: or activate:"
+                        "{rest:?}: expected start:, stop:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate: or say_to:"
                     ))
                 }
             };
