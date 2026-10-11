@@ -501,6 +501,71 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   alpha) is still drawn as a multiply by colour. The overlays are decals: see "Decal
   flags" below (an earlier version of this note had them in the plane of the surface
   under them and flickering against it; the survey there shows neither).
+- **Additive blend** (NiAlphaProperty with the blend bit and destination factor ONE;
+  1,730 SRC_ALPHA / ONE and 182 ONE / ONE shapes, see "Multiply blend"): the shape's
+  colour × alpha is added to the frame [documented: nif.xml AlphaFlags].
+
+  The Prospector Saloon (`GSProspectorSaloonInterior`) shows how much it adds
+  [observed, `fnvtool world refs`, `fnvtool nif decode`, textures decoded from the
+  archives]:
+  - 12 window rays (`IndFXLightRays01`, `IndFXLightRaysLeft01`,
+    `IndFXLightRaysNLeftSm01`, scale 0.34 to 0.42) along the window walls. In
+    `effects\ambient\industrial\indfxlightrays01.nif` the one drawn shape is
+    BSShaderNoLightingProperty (flags 0xA2000148: vertex alpha, falloff bit 6, external
+    emittance), SRC_ALPHA / ONE, texture `FXSoftGlowBeamMulti.dds` (128 × 4, white,
+    alpha 0 to 255 across the beam), falloff 0.985 → 0.174, opacity 1 → 0. Its 258
+    vertices are white with alpha 0 (172) or 0.1 (86): a ray adds at most a tenth of
+    white.
+  - 10 lamp glows (`FXBasicGlowBillboard`, scale 0.2 and 0.28) on the lanterns and
+    chandeliers. `effects\ambient\fxbasicglowbillboard.nif`: a billboard quad,
+    SRC_ALPHA / ONE, texture `FXPartTinyGlowy.dds` (64 × 64, grey 189 to 255, alpha 0 to
+    252, mean 20: a small bright core and a long faint tail), vertex colours white, no
+    falloff bit.
+  - In game at 8:00 (owner's screenshots, 2026-10-11): the rays are faint streaks, seen
+    near the jukebox window only; a lantern on a booth table has a small glow on its
+    glass and no ring on the table.
+
+  How the renderers add it [hypothesis]: the game adds colour × alpha to display values
+  (a DirectX 9 frame without sRGB blending is taken to hold display values; the same
+  reading as "Multiply blend"). Bevy adds to linear light, where 0.1 added to black
+  shows as 0.35 on the screen. The linear light a display-value sum needs depends on the
+  frame behind the shape: for a white ray of 0.1, 0.1^2.2 on black, 0.032 on a wall of
+  display value 0.15, 0.1 on one of about 0.45. A fixed blend cannot read the frame, so
+  the engine raises the alpha of additive shapes to a single power, 1.5
+  (`nif_material.wgsl` `add_alpha`, CPU mirror `nif_material::add_alpha`,
+  `ADD_ALPHA_POWER`); the colour is already linear. A ray of 0.1 then adds 0.21 on black
+  (game 0.1) and 0.05 on a wall of 0.3 (game 0.1). Power 2.2 would be exact on black but
+  add 0.01 on that wall.
+
+  The power is fitted [observed, `nvforever` screenshots from the owner's camera, and
+  the same view with `--hide indfxlightrays --hide fxbasicglow`]. Target: the view
+  without the shapes, plus, in display values, the linear light the shapes added when
+  drawn with their stored alpha (which is the shapes' colour × alpha: the game's sum).
+  In grey levels added to the frame (0 to 255, mean of the three channels), mean (max)
+  over the frame:
+
+  | view | stored alpha | alpha^1.5 | alpha^2.2 | display-value sum (target) |
+  |---|---|---|---|---|
+  | window rays, `--pos 179,-780,3575 --heading 15 --pitch -12` | 9.3 (83) | 2.0 (42) | 0.2 (20) | 2.8 (34) |
+  | booth table from above, inside the ray volumes, `--pos -333,-570,3577 --heading 270 --pitch -55` | 47.1 (129) | 14.5 (93) | 1.7 (65) | 10.8 (71) |
+  | the same, lantern glow only | 0.4 (114) | 0.2 (91) | — | 0.1 (55) |
+
+  The target frame of the rays matches the owner's game frame in look: faint streaks at
+  the jukebox window, no haze over the room. With the stored alpha the rays read as
+  solid shafts and a haze (8 or more grey levels on 31% of the frame; 10% with power
+  1.5, 14% for the target), and the lantern glow drew a ring about 80 pixels across on
+  the table, the edge of its texture's faint tail; with power 1.5 the streaks are there, and the lantern keeps a small halo on its
+  glass with no ring. Pictures: `C:\fnv-private\references\light_rays\`.
+
+  Open: an exact display-value sum (drawing additive shapes into a buffer of their own
+  and adding it to the frame in display values afterwards; additive shapes commute, so
+  the sum would be exact up to the blended shapes in front of them); whether the
+  game's streaks are as strong as ours (the owner's frame and ours differ in field of
+  view, so no pixel was compared); additive particles (flames, muzzle flashes) are drawn
+  by the same material and change the same way, and none was compared with the game;
+  SRC_ALPHA / INV_SRC_ALPHA shapes are still blended in linear light (they agree with
+  the game at alpha 0 and 1 and differ between); ONE / ONE shapes are drawn as
+  SRC_ALPHA / ONE, as before.
 - **Decal flags** (BSShaderFlags bit 26 `decal_single_pass` and bit 27
   `dynamic_decal_single_pass`; BSShaderFlags2 bit 21 `alpha_decal` [documented: nif.xml,
   schemas/nif/scene.json]). Survey of the visible shapes in `Fallout - Meshes.bsa`

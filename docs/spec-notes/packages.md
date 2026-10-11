@@ -73,6 +73,16 @@ Enumerations and flags:
 - **Fallout behaviour flags**: 0 Hellos To Player, 1 Random Conversations, 2 Observe
   Combat Behavior, 3 Unknown, 4 Reaction To Player Actions, 5 Friendly Fire Comments,
   6 Aggro Radius Behavior, 7 Allow Idle Chatter, 8 Avoid Radiation.
+  **They count only with general bit 12** [hypothesis, from the data and an owner
+  statement]: of the 4,163 packages of FalloutNV.esm, the 1,685 with bit 12 hold varied
+  behaviour flags (812 some, 873 none), while the 2,478 without it hold none (2,237) or
+  always the same 0x1CD (241) [observed: `fnvtool ai show` over every PACK]: an edited
+  set against an untouched default. Vault 3's Fiends, whose packages
+  (DefaultSandboxEditorLocation512, DefaultPatrolCasual) have bit 12 clear and no
+  behaviour flag, "talk a lot" [owner statement 2026-10-11]. So bit 12 ("Skip Fallout
+  Behavior" in xEdit; the GECK's "Enable Fallout Behavior" box, Category:Packages) means
+  the package replaces the default with its own flags, and without it the default
+  allows hellos and random conversations. Used by `fnv_ai::social` (dialogue.md §5.2).
 - **Type-specific flags**, by package type: Find, Escort, Eat: 8–10 Allow Buying / Killing
   / Stealing; Wander and Sandbox: 0–5 No Eating / Sleeping / Conversation / Idle Markers /
   Furniture / Wandering; Use Item At: 2 Sit Down plus 8–10; Ambush: 0 Hide While
