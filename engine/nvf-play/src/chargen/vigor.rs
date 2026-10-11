@@ -25,8 +25,8 @@
 //! - Done only with every point given out (`SpecialSheet::complete`); then the sheet is
 //!   written to the player and the menu answered (`chargen::finish`).
 //!
-//! Test aid `NVF_PLAY_TEST_VIGOR=<seconds>:<op>[,…]` (while the menu is open; an op due
-//! before it opens waits for it): `raise[:<attribute>]`, `lower[:<attribute>]`,
+//! Test aid `NVF_PLAY_TEST_VIGOR=<seconds>:<op>[,…]` (seconds after the menu opened;
+//! steps wait for it to open): `raise[:<attribute>]`, `lower[:<attribute>]`,
 //! `select:<attribute>`, `page:next`, `page:prev`, `page:<page>` (turning through the
 //! pages between), `done`, `click:<shape>` (a click at the middle of the shape's outline
 //! on the screen, e.g. `click:P1_RT_Btn:0`). Attributes by number 0–6, name or letter;
@@ -107,6 +107,8 @@ struct OpenMenu {
     keyed_row: bool,
     /// The camera's field of view before the menu set the original's.
     fov_before: Option<f32>,
+    /// When the test aid's clock started: the first frame the menu could take input.
+    aid_from: Option<f32>,
 }
 
 #[derive(Resource, Default)]
@@ -199,7 +201,7 @@ fn open_close(
         nodes.len()
     );
     stats.opened += 1;
-    menu.open = Some(OpenMenu { vigor, roots: [ra, rc], shade, nodes, flip, materials: HashMap::new(), shown: HashMap::new(), keyed_row: false, fov_before: None });
+    menu.open = Some(OpenMenu { vigor, roots: [ra, rc], shade, nodes, flip, materials: HashMap::new(), shown: HashMap::new(), keyed_row: false, fov_before: None, aid_from: None });
 }
 
 fn read_clips(data: &GameData) -> HashMap<String, Clip> {
@@ -275,10 +277,13 @@ fn input(
         }
     }
     // The test aid's steps due now.
+    // Its seconds count from the menu's first frame of input, so that a slow start
+    // (cells loading) cannot run every step in the frame the model appears.
     let now = time.elapsed_secs();
-    let mut due: Vec<(f32, AidOp)> = aid.0.iter().filter(|(t, _)| *t <= now).cloned().collect();
+    let since = now - *o.aid_from.get_or_insert(now);
+    let mut due: Vec<(f32, AidOp)> = aid.0.iter().filter(|(t, _)| *t <= since).cloned().collect();
     due.sort_by(|a, b| a.0.total_cmp(&b.0));
-    aid.0.retain(|(t, _)| *t > now);
+    aid.0.retain(|(t, _)| *t > since);
     for (_, step) in due {
         info!("test aid NVF_PLAY_TEST_VIGOR: {step:?}");
         match step {

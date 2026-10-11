@@ -167,14 +167,15 @@ the attribute pages].
   `vigor tester: Strength 6, 4 points remaining (…)`, `vigor tester: page Strength
   (sequence Forward, …)`, `vigor tester: … refused: …`, `vigor tester: done,
   S.P.E.C.I.A.L. …`, `vigor tester: closed`, and at exit `vigor tester summary: …`.
-- Test aid `NVF_PLAY_TEST_VIGOR` (module docs of `vigor.rs`).
+- Test aid `NVF_PLAY_TEST_VIGOR` (module docs of `vigor.rs`); its seconds count from the
+  menu's first frame, so a slow start does not run every step at once.
 
 ## 7. Check
 
 ```
 NVF_PLAY_TEST_SCRIPT_MENUS=off NVF_PLAY_TEST_SCRIPT=3:menu:1074 \
-NVF_PLAY_TEST_VIGOR="5.5:click:LookInside_Btn:0,8:raise,8.1:raise,8.2:done,9:page:review,11.5:select:luck,11.6:raise,11.7:raise:L,11.8:raise:endurance,12:click:P1_RT_Btn:0" \
-engine/target/release/nvforever --data <Data> --cell GSDocMitchellHouse --play --no-voice --size 1280x720 --run-seconds 16
+NVF_PLAY_TEST_VIGOR="2:click:LookInside_Btn:0,4.5:raise,4.6:raise,4.7:done,5.5:page:review,8:select:luck,8.1:raise,8.2:raise:L,8.3:raise:endurance,8.5:click:P1_RT_Btn:0" \
+engine/target/release/nvforever --data <Data> --cell GSDocMitchellHouse --play --no-voice --run-seconds 20
 ```
 
 Expect exit 0, "vigor tester: open, S.P.E.C.I.A.L. 5 5 5 5 5 5 5, 5 points remaining",

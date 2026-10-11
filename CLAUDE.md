@@ -173,6 +173,15 @@ After changes to the name, tag-skill or trait menus (`nvf-play` `chargen`, `char
 refused" and "done, traits: Early Bird, Four Eyes"); with the owner's load order (Old World Blues
 in it) the trait menu has 16 rows. `fnvtool actor chargen` lists what the menus offer (§6).
 
+After changes to the Vigor Tester's S.P.E.C.I.A.L. menu (`nvf-play` `chargen::vigor`;
+docs/spec-notes/vigor-tester.md §7), run it, with `NVF_PLAY_TEST_SCRIPT_MENUS=off`,
+`NVF_PLAY_TEST_SCRIPT=3:menu:1074` and
+`NVF_PLAY_TEST_VIGOR=2:click:LookInside_Btn:0,4.5:raise,4.6:raise,4.7:done,5.5:page:review,8:select:luck,8.1:raise,8.2:raise:L,8.3:raise:endurance,8.5:click:P1_RT_Btn:0` set:
+`engine/target/release/nvforever --data <Data> --cell GSDocMitchellHouse --play --no-voice --run-seconds 20`
+(expect exit 0, "Done refused: points still to give out", "Endurance 6, 0 points remaining",
+"done, S.P.E.C.I.A.L. 7 5 6 5 5 5 7 (click)" and "vigor tester summary: opened 1 times, 5 changes,
+8 page turns, 2 clicks on its buttons, done 1 times").
+
 After changes to the quest lines at the left ("Quest added", objectives; `nvf-play`
 `quest_messages`, `script_events` `QuestNotice`; docs/spec-notes/quest-messages.md §7), run them,
 with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and

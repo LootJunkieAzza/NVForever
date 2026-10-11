@@ -164,7 +164,7 @@ impl ListMenu {
         ListMenu { code, sheet, selected: 0, scroll: 0, hover: None }
     }
 
-    pub fn len(&self) -> usize {
+    pub fn rows(&self) -> usize {
         match &self.sheet {
             Sheet::Tags { now, .. } => now.skills.len(),
             Sheet::Traits { now, .. } => now.traits.len(),
@@ -177,7 +177,7 @@ impl ListMenu {
 
     /// Choose row `i` (pointer or keys), scrolling it into the list.
     pub fn select(&mut self, i: usize) {
-        if i >= self.len() {
+        if i >= self.rows() {
             return;
         }
         self.selected = i;
@@ -191,7 +191,7 @@ impl ListMenu {
 
     /// Move the choice by `by` rows, stopping at the ends.
     pub fn step(&mut self, by: i32) {
-        let n = self.len() as i32;
+        let n = self.rows() as i32;
         if n > 0 {
             self.select((self.selected as i32 + by).clamp(0, n - 1) as usize);
         }
@@ -199,7 +199,7 @@ impl ListMenu {
 
     /// Scroll the list by `by` rows (the wheel, the scroll bar's arrows).
     pub fn scroll_by(&mut self, by: i32) {
-        let most = self.len().saturating_sub(self.visible()) as i32;
+        let most = self.rows().saturating_sub(self.visible()) as i32;
         self.scroll = (self.scroll as i32 + by).clamp(0, most) as usize;
     }
 

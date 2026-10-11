@@ -2647,3 +2647,17 @@ the original's. Branch `claude/chargen-menus`; notes in `docs/spec-notes/chargen
    d. Names are at most 24 characters, no blank names, and no typing cursor is drawn.
 6. **Not built:** the blur of the world behind these menus, their sounds, and what each
    trait does once taken (its perk effects). The race menu is still a placeholder.
+7. **The Vigor Tester** is drawn from the game's own model of the machine, the one the
+   in-world tester uses, with its own page-flip animations. Its camera is fitted to your
+   screenshots. Arrows raise and lower, the lever's buttons and the arrows are
+   clickable, and Done works only with every point given out. Details are in
+   `vigor-tester.md`. Questions:
+   a. Which PC keys does it use? Ours: Left/Right lower and raise, Up/Down choose the
+      review row, Tab and Page Up/Down turn pages, Enter or E is Done.
+   b. Does it open on the "Rate Your… TRY IT NOW!" page? The model rests there, so ours
+      does.
+   c. On the review page, is the → itself Done, or does another button replace it once
+      every point is given out?
+   d. Does a row's ◄ disappear at 1?
+   e. Ours is drawn without the game's lighting, so the cabinet is flatter and the bulbs
+      glow less. Should it get real lighting and the blurred room behind it?

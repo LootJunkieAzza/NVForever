@@ -176,7 +176,7 @@ fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: 
         } else {
             let m = ListMenu::open(code, g);
             let what = if code == menus::TAG_SKILLS { "tag-skill menu open, tagged" } else { "trait menu open, taken" };
-            info!("chargen: {what}: {} ({} rows)", list_or_none(&m.chosen_names(g)), m.len());
+            info!("chargen: {what}: {} ({} rows)", list_or_none(&m.chosen_names(g)), m.rows());
             OpenMenu::List(m)
         }
     });
@@ -350,7 +350,7 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
                 }
                 Op::Toggle | Op::Pick(_) => {
                     if let Op::Pick(name) = &op {
-                        let found = with_game(script, sim, |g| (0..m.len()).find(|&i| m.row_name(g, i).is_some_and(|n| n.eq_ignore_ascii_case(name)))).flatten();
+                        let found = with_game(script, sim, |g| (0..m.rows()).find(|&i| m.row_name(g, i).is_some_and(|n| n.eq_ignore_ascii_case(name)))).flatten();
                         match found {
                             Some(i) => m.select(i),
                             None => {
