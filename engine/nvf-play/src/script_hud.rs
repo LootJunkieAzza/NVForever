@@ -15,11 +15,10 @@
 //!   presses. The buttons are clickable as the original's are [observed by the
 //!   coordinator playing the original, 2026-10-09]; the cursor is free while a box is
 //!   open (`PlayState::Menu`). The next queued box then opens (the runtime's rule).
-//! - **Menus scripts open** for character creation (name 1051, race 1036, S.P.E.C.I.A.L.
-//!   1074, tag skills 1048, traits 1084): a placeholder in the same box that names the
-//!   menu; Enter or a click on Done closes it as the player's Done would
-//!   (`Game::close_menu`). What the player chooses there is Layer 7; nothing is chosen
-//!   here.
+//! - **Menus scripts open** for character creation: the name, S.P.E.C.I.A.L., tag-skill
+//!   and trait menus are drawn by `crate::chargen`; the race menu (1036) is a
+//!   placeholder in the same box that names the menu, and Enter or a click on Done
+//!   closes it as the player's Done would (`Game::close_menu`); nothing is chosen there.
 //! - While a script's menu or box is open the player cannot move or look
 //!   (`PlayState::Menu`, `script::hold_player`), and script time stops (the runtime's
 //!   `Game::menu`).
@@ -166,7 +165,8 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<PanelV
             text: b.text.trim_end().to_string(),
             buttons: box_buttons(b),
         }),
-        Some(code) if crate::script::is_script_menu(code) => Some(menu_panel(code)),
+        // The name, S.P.E.C.I.A.L., tag-skill and trait menus draw themselves.
+        Some(code) if crate::script::is_script_menu(code) && !crate::chargen::has_own_menu(code) => Some(menu_panel(code)),
         _ => None,
     };
     let mut subs = Vec::new();
@@ -236,6 +236,9 @@ pub fn menu_keys(
     }
     let clicked = clicks.iter().find(|(i, _)| **i == Interaction::Pressed).map(|(_, b)| b.0);
     let enter = keys.any_just_pressed([Enter, NumpadEnter]);
+    if crate::chargen::has_own_menu(code) {
+        return;
+    }
     if code != MENU_MESSAGE {
         if enter || clicked.is_some() {
             script.answer(None, if enter { "Enter" } else { "click" });
