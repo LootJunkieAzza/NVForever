@@ -2677,3 +2677,23 @@ branch), design `docs/design/combat-ai.md`.
 5. **Not yet:** attack animations (they shoot and bite without moving the gun or the
    jaw), allies joining in (Violet's dogs stayed out of her fight: by their records they
    are not hostile to you), cover, fleeing, grenades, weapon choice, combat styles.
+
+## NPCs aim, fire and bite visibly (2026-10-11, session "alert", combat AI step CA2)
+
+Your request: attack animations. Branch `claude/attack-anims` (on top of the combat AI
+branch), `docs/design/combat-ai.md` §9.
+
+1. **Built:** NPCs bend their aim up or down to their target, play their weapon's attack
+   clip with every shot (Violet: `2hrattack3`, the bolt worked between shots) and swing
+   with every blow; creatures play their own bites and swipes in turn. A bite's damage
+   lands at the clip's Hit key, so the dog's jaws close when you are hurt.
+2. **Your note on Violet's shots:** they came from her face. Now each NPC weapon has a
+   marker at its model's ProjectileNode (as yours does) and the bullets, the muzzle flash
+   and the shot sound start there. The shot still goes where her eyes aim: from the gun
+   itself she hit the metal sheet in front of her every time, because her rifle is held
+   at the hip behind it while her eyes see over it.
+3. **Please look at:** whether the hip-height hold of the rifle is how Fiends hold it in
+   the game when they shoot, and whether the dogs' bites read right at their speed.
+4. **Not yet:** NPC reloads are not animated, NPCs that are not run on their packages do
+   not turn their bodies to you (only their heads), and the body does not bend while
+   running and shooting.

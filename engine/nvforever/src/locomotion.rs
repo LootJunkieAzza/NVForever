@@ -192,6 +192,7 @@ type ActorAnimParts = (
     Option<&'static Flinch>,
     Option<&'static crate::furniture::OnFurniture>,
     Option<&'static crate::idles::ActorIdle>,
+    Option<&'static mut crate::attack_anims::CombatPose>,
 );
 
 /// Choose, blend and pose every actor with a [`Locomotion`], with its weapon clips
@@ -206,7 +207,7 @@ pub fn drive(
     let t0 = std::time::Instant::now();
     let (dt, now) = (time.delta_secs(), time.elapsed_secs());
     let mut n = 0;
-    for (mut lo, mut player, weapon, dying, flinch, seated, idle) in &mut actors {
+    for (mut lo, mut player, weapon, dying, flinch, seated, idle, pose) in &mut actors {
         if let Some(mut d) = dying {
             // Dead: the death pose to its end and held; without one the pose stays.
             let Some(clip) = d.clip.clone() else { continue };
@@ -235,6 +236,7 @@ pub fn drive(
         }
         cost.turn_frames += u64::from(lo.blend.cur.mv.is_turn());
         lo.layers(&mut player);
+        let drawn = crate::attack_anims::drawn(weapon.as_deref());
         if let Some(mut w) = weapon {
             if !w.hold {
                 w.step(dt);
@@ -251,6 +253,10 @@ pub fn drive(
             if t < len {
                 player.layers[3] = Some(Layer { clip: f.clip.clone(), phase: t / len, weight: 1.0 });
             }
+        }
+        // A fighter's aim and attack (`attack_anims.rs`) over all of it.
+        if let Some(mut p) = pose {
+            p.layers(&mut player, drawn, dt);
         }
         let layers = player.layers.iter().flatten().count() as u64;
         cost.layer_frames += layers;

@@ -102,11 +102,12 @@ After combat AI changes (nvforever `npc_combat.rs`, `nvf_play::combat` `ActorFir
 `fnv_ai::alert` closing in; docs/design/combat-ai.md), run the two checks of combat-ai.md §7:
 `NVF_PLAY_TEST_GOD=1 NVF_PLAY_TEST_SCRIPT_MENUS=1 engine/target/release/nvforever --data <Data> --cell Goodsprings --pos=-43900,64896,7000 --play --hour 12 --no-voice --npc-packages FiendVioletRef --run-seconds 45`
 (expect exit 0, "fights the player with WeapHuntingRifle (gun)", "stops and faces the player" at about
-1,600 units and a dozen "Violet hits the player for 44.7"), and the dogs, with
+1,600 units, "shots are drawn from its weapon's muzzle", "2hrattack3.kf" in the "attack anims summary"
+and a dozen "Violet hits the player for 44.7"), and the dogs, with
 `NVF_PLAY_TEST_SCRIPT=3:combat:0x000F573F:player,3:combat:0x0013E5BB:player` added and
 `--pos=-45600,65000,7000 --npc-packages 000F573F,0013E5BB --run-seconds 30` (expect about 20 blows in the
-"npc combat summary" and only a few "runs at"/"stops and faces" lines: they stop at biting range, not
-against the player).
+"npc combat summary", the dog's `h2hattack…` clips in the "attack anims summary", and only a few
+"runs at"/"stops and faces" lines: they stop at biting range, not against the player).
 After changes to actor templates, leveled actor lists or faction functions (`fnv-game`
 `templates`, `functions::actor`), run
 `fnvtool actor factions --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor FiendVioletRef --actor 00157B36`

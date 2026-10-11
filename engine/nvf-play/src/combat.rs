@@ -173,8 +173,10 @@ pub struct ShotFired {
 }
 
 /// An actor other than the player fires its weapon once (combat AI, nvforever
-/// `npc_combat`): from `origin` along `aim` (a unit vector), inside a cone of `cone`
-/// degrees (its spread).
+/// `npc_combat`): aimed from its eyes (`origin`) along `aim` (a unit vector), inside a
+/// cone of `cone` degrees (its spread), drawn from its weapon's `muzzle` when it has one
+/// (as the player's first-person shots, `shot::leaving` without cover: the shot hits
+/// what the eyes see, so an actor fires over low cover its barrel is behind) [design].
 #[derive(Message, Clone, Copy, Debug)]
 pub struct ActorFire {
     pub shooter: FormId,
@@ -182,6 +184,7 @@ pub struct ActorFire {
     pub origin: V3,
     pub aim: V3,
     pub cone: f32,
+    pub muzzle: Option<V3>,
 }
 
 /// An actor other than the player strikes `target` within its reach (combat AI): with
@@ -1516,7 +1519,7 @@ fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&Scri
 fn actor_attacks(
     mut c: ResMut<Combat>,
     mut sim: ResMut<SimState>,
-    phys: Res<PhysState>,
+    mut phys: ResMut<PhysState>,
     mut stats: ResMut<CombatStats>,
     mut script: Option<ResMut<ScriptState>>,
     mut feedback: ResMut<HitFeedback>,
@@ -1533,23 +1536,30 @@ fn actor_attacks(
         let Some(chain) = c.forms.chain(s.weapon, ammo) else { continue };
         let Some(proj) = chain.projectile else { continue };
         stats.actor_shots += 1;
-        fired.write(ShotFired { projectile: proj, weapon: s.weapon, shooter: s.shooter, at: Some(s.origin) });
+        let range = c.forms.projectiles.get(&proj).map_or(0.0, |p| p.range);
+        let reach = if range > 0.0 { range } else { AIM_REACH };
+        let leaving = {
+            let world = view(&mut phys);
+            shot::leaving(&world, s.origin, s.aim, s.muzzle, reach, Some(s.shooter.0 as ActorId), false)
+        };
+        let seen_from = leaving.seen.at(leaving.origin, 0.0);
+        fired.write(ShotFired { projectile: proj, weapon: s.weapon, shooter: s.shooter, at: Some(seen_from) });
         // Heard where it is fired: the weapon's 3D shoot sound.
         if let Some(sound) = sfx.as_deref().and_then(|x| x.forms.weapons.get(&s.weapon)).and_then(|f| f.shoot_3d.or(f.shoot_2d)) {
-            sounds.write(PlaySound { sound, at: Some(s.origin) });
+            sounds.write(PlaySound { sound, at: Some(seen_from) });
         }
         let (tracer_chance, force) = c.forms.projectiles.get(&proj).map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
         let by = By { actor: s.shooter, weapon: s.weapon, ammo };
         let rng = &mut c.rng;
         let mut rand = || rng.next_f32();
-        let ps = shot::fire(&c.forms, &chain, s.origin, s.aim, s.cone, Some(s.shooter.0 as ActorId), gravity, &c.tuning, &mut rand);
+        let ps = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, s.cone, Some(s.shooter.0 as ActorId), gravity, &c.tuning, &mut rand);
         for p in ps {
-            let rolled = c.rng.next_f32() < tracer_chance;
+            let rolled = c.rng.next_f32() < tracer_chance || c.tracer_hold.is_some();
             let shown = rolled || DRAW_EVERY_PROJECTILE;
             let tracer = rolled || (shown && instant(&p));
             let dir = vec::normalize(p.vel);
             c.next_visual += 1;
-            c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle: false, origin: s.origin, seen: Seen::ON_PATH, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by });
+            c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle: s.muzzle.is_some(), origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by });
         }
         debug!("combat: {} fires {} (cone {:.1}°)", s.shooter, c.forms.weapons.get(&s.weapon).and_then(|w| w.edid.as_deref()).unwrap_or("?"), s.cone);
     }

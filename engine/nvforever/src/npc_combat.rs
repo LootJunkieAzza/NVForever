@@ -16,26 +16,33 @@
 //!   (`fnv_combat::attack::Cycle`: fire rate, magazine, reload) as the player's does;
 //!   the trigger is held for automatic weapons and pulled once a shot for the others
 //!   [design].
-//! - **Where it aims**: from its eyes (a little in front) at the target's chest, inside
-//!   its spread: the documented actor spread for its weapon skill, standing and not
-//!   aiming down the sights, plus an aim that settles over [`SETTLE_SECONDS`] of firing
-//!   at the same target [design]. Shots are not drawn from its weapon's muzzle yet.
+//! - **Where it aims**: from its eyes at the target's chest, the shot drawn from its
+//!   weapon's muzzle (the model's `ProjectileNode`, `weapons::Muzzle`) closing onto that
+//!   line, as the player's first-person shots (`ActorFire`; owner 2026-10-11: "the shots
+//!   were coming from Violet's face, not the gun"); without a muzzle node, from the eyes.
+//!   Inside its spread: the documented actor
+//!   spread for its weapon skill, standing and not aiming down the sights, plus an aim
+//!   that settles over [`SETTLE_SECONDS`] of firing at the same target [design].
+//! - **How it looks** (`attack_anims.rs`): each shot and blow asks for its attack clip
+//!   ([`PlayAttack`]); a blow's damage is dealt at its clip's `Hit` key
+//!   ([`AttackTimes`]), and lands if the target is still within reach then [design].
+//!   Each fighter's pitch to its target ([`Fighters::pitch`]) bends its aim.
 //! - **Melee**: it closes in until its body is [`MELEE_STOP_GAP`] from its target's
 //!   (the bodies as `nvf_play::blocking` has them: a long creature reaches out in front
 //!   of its feet), and strikes while the gap is within [`MELEE_HIT_GAP`] and it sees the
 //!   target, a blow every [`STRIKE_SECONDS`] (divided by the weapon's attack speed)
 //!   [design; owner 2026-10-11: a dog gets into range and bites, it does not push the
-//!   player around]. Without bodies to measure, its reach from its feet counts. No attack
-//!   clip is played yet.
+//!   player around]. Without bodies to measure, its reach from its feet counts.
 //!
 //! Whom it fights is the detection states' (its combat target); this module only
 //! attacks. Not built: attack animations, cover, fleeing, grenades, ammunition use,
 //! weapon choice among several, combat styles.
 
+use crate::attack_anims::{AttackTimes, PlayAttack, DEFAULT_HIT};
 use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
 use crate::ragdoll::Corpse;
-use crate::weapons::{HeldWeapon, WeaponHold};
+use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 use crate::world::bevy_to_game;
 use bevy::prelude::*;
 use fnv_actor::weapon::Stage;
@@ -76,7 +83,7 @@ pub const MELEE_STOP_GAP: f32 = 6.0;
 pub const MELEE_HIT_GAP: f32 = 24.0;
 /// A creature without a reach of its own reaches this far, game units [design].
 pub const CREATURE_REACH: f32 = 96.0;
-/// Shots leave this far in front of the eyes, game units [design].
+/// Without a muzzle node, shots leave this far in front of the eyes, game units [design].
 const MUZZLE_AHEAD: f32 = 24.0;
 /// The chest as a fraction of the eye height (as `detection.rs` aims its sight).
 const CHEST: f32 = 0.75;
@@ -113,12 +120,29 @@ struct Fighter {
     /// The trigger was pulled last frame (a semi-automatic weapon is let go between
     /// shots).
     pulled: bool,
+    /// Blows on their way: seconds until each lands, and the blow.
+    blows: Vec<(f32, ActorStrike)>,
 }
 
 #[derive(Resource, Default)]
 pub struct Fighters {
     fighters: HashMap<u32, Fighter>,
+    /// Each fighter's pitch to its target (radians, negative looks down) and the weapon
+    /// drawn on it, this frame.
+    poses: HashMap<u32, (f32, Option<FormId>)>,
     stats: Stats,
+}
+
+impl Fighters {
+    /// The pitch from a fighting actor's eyes to its target's chest, while it fights.
+    pub fn pitch(&self, actor: u32) -> Option<f32> {
+        self.poses.get(&actor).map(|p| p.0)
+    }
+
+    /// The weapon drawn on a fighting actor.
+    pub fn weapon(&self, actor: u32) -> Option<FormId> {
+        self.poses.get(&actor).and_then(|p| p.1)
+    }
 }
 
 #[derive(Default)]
@@ -127,6 +151,11 @@ struct Stats {
     shots: usize,
     strikes: usize,
     reloads: usize,
+    /// Blows whose target had moved out of reach by the time they landed.
+    missed: usize,
+    /// Shots from a weapon's muzzle, and from the eyes (no muzzle node).
+    from_muzzle: usize,
+    from_eyes: usize,
 }
 
 /// How near an actor fighting with a melee reach or a gun's max range wants to be, and
@@ -178,7 +207,9 @@ fn fight(
     (blocks, phys): (Option<Res<ActorBlocks>>, Option<Res<PhysState>>),
     actors: Query<Fought>,
     held: Query<&HeldWeapon>,
-    (mut fire, mut strike): (MessageWriter<ActorFire>, MessageWriter<ActorStrike>),
+    muzzles: Query<(&Muzzle, &GlobalTransform)>,
+    (mut fire, mut strike, mut anims): (MessageWriter<ActorFire>, MessageWriter<ActorStrike>, MessageWriter<PlayAttack>),
+    times: Res<AttackTimes>,
 ) {
     let dt = time.delta_secs();
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -187,6 +218,7 @@ fn fight(
     }
     let c = &*combat;
     let weapons: HashMap<u32, FormId> = held.iter().map(|h| (h.reference, h.weapon)).collect();
+    let muzzle_at: HashMap<u32, V3> = muzzles.iter().map(|(m, g)| (m.reference, bevy_to_game(g.translation()).to_array())).collect();
     // Where everyone is: feet and chest (game space), and size.
     let mut places: HashMap<u32, (V3, V3, f32)> = HashMap::new();
     for (rig, g, vis, _, dying, corpse) in &actors {
@@ -208,6 +240,7 @@ fn fight(
         Some(mine.room([tfeet[0], tfeet[1]], radius))
     };
     let f = &mut *fighters;
+    f.poses.clear();
     let mut still: Vec<u32> = Vec::new();
     with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
@@ -240,7 +273,7 @@ fn fight(
                 let name = g.data.name(me);
                 f.stats.fighters.insert(id, name.clone());
                 info!("npc combat: {name} {me} fights {} with {}", if target == FormId::PLAYER_REF { "the player".to_string() } else { g.data.name(target) }, describe(c, &arm));
-                f.fighters.insert(id, Fighter { target, arm: arm.clone(), seen_for: 0.0, firing_for: 0.0, cycle, strike_in: 0.0, pulled: false });
+                f.fighters.insert(id, Fighter { target, arm: arm.clone(), seen_for: 0.0, firing_for: 0.0, cycle, strike_in: 0.0, pulled: false, blows: Vec::new() });
             }
             let fighter = f.fighters.get_mut(&id).expect("inserted");
             // How near it wants to be.
@@ -266,6 +299,8 @@ fn fight(
             fighter.seen_for = if sees { fighter.seen_for + dt } else { 0.0 };
             let ready = sees && fighter.seen_for >= REACTION_SECONDS && hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
             let tchest = [tfeet[0], tfeet[1], tfeet[2] + (teyes[2] - tfeet[2]) * CHEST];
+            let pitch = (tchest[2] - eyes[2]).atan2((tchest[0] - eyes[0]).hypot(tchest[1] - eyes[1]));
+            f.poses.insert(id, (pitch, weapons.get(&id).copied()));
             match &arm {
                 Arm::Gun(w) => {
                     let Some(ws) = c.forms.weapons.get(w) else { continue };
@@ -279,15 +314,33 @@ fn fight(
                     for e in events {
                         match e {
                             Event::Fired { .. } => {
+                                // Aimed from the eyes, drawn from the muzzle when the weapon
+                                // has one (module notes).
+                                let muzzle = muzzle_at.get(&id).copied();
                                 let to = vec::sub(tchest, eyes);
                                 let len = vec::len(to).max(1.0);
                                 let aim = vec::scale(to, 1.0 / len);
                                 let origin = vec::add(eyes, vec::scale(aim, MUZZLE_AHEAD));
+                                let first = f.stats.from_muzzle + f.stats.from_eyes == 0 || fighter.firing_for <= dt;
+                                match muzzle {
+                                    Some(_) => f.stats.from_muzzle += 1,
+                                    None => f.stats.from_eyes += 1,
+                                }
+                                if first {
+                                    match muzzle {
+                                        Some(m) => {
+                                            let d = vec::sub(m, eyes);
+                                            info!("npc combat: {me} shots are drawn from its weapon's muzzle ({:.0} units from its eyes, {:.0} below them)", vec::len(d), -d[2]);
+                                        }
+                                        None => info!("npc combat: {me} shots are drawn from its eyes (its weapon has no muzzle node)"),
+                                    }
+                                }
                                 let skill = ws.skill.as_deref().and_then(fnv_game::functions::av_by_name).map_or(50.0, |code| fnv_game::functions::actor_value_capped(g, me, code)) as f32;
                                 let strength = fnv_game::functions::actor_value_capped(g, me, fnv_game::actor_values::STRENGTH) as f32;
                                 let stance = Stance { aiming: false, moving: false, running: false, sneaking: false, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled: false, right_arm_crippled: false };
                                 let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &stance), 0.0, ws, &[]) + settling(fighter.firing_for);
-                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone });
+                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle });
+                                anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false });
                                 f.stats.shots += 1;
                             }
                             Event::ReloadStarted => f.stats.reloads += 1,
@@ -298,6 +351,20 @@ fn fight(
                 Arm::Melee(_) | Arm::Creature(..) => {
                     fighter.strike_in = (fighter.strike_in - dt).max(0.0);
                     let near = gap.map_or(away <= reach, |gap| gap <= MELEE_HIT_GAP);
+                    // Blows whose clip has reached its `Hit` key land, if the target is
+                    // still within reach.
+                    for b in &mut fighter.blows {
+                        b.0 -= dt;
+                    }
+                    let (due, wait): (Vec<_>, Vec<_>) = std::mem::take(&mut fighter.blows).into_iter().partition(|b| b.0 <= 0.0);
+                    fighter.blows = wait;
+                    for (_, b) in due {
+                        if near {
+                            strike.write(ActorStrike { point: tchest, ..b });
+                        } else {
+                            f.stats.missed += 1;
+                        }
+                    }
                     if ready && near && (feet[2] - tfeet[2]).abs() < 128.0 && fighter.strike_in <= 0.0 {
                         let speed = match &arm {
                             Arm::Melee(w) => w.or(c.fists_id()).and_then(|w| c.forms.weapons.get(&w)).map_or(1.0, |w| w.attack_mult.max(0.25)),
@@ -310,7 +377,11 @@ fn fight(
                             Arm::Creature(d, _) => (None, Some(*d)),
                             Arm::Gun(_) => unreachable!(),
                         };
-                        strike.write(ActorStrike { attacker: me, target, weapon, creature_damage, point: tchest, dir });
+                        // The blow lands at its clip's `Hit` key (the last clip's, as the
+                        // next is chosen after this) [design].
+                        let delay = times.hit.get(&id).copied().unwrap_or(DEFAULT_HIT);
+                        fighter.blows.push((delay, ActorStrike { attacker: me, target, weapon, creature_damage, point: tchest, dir }));
+                        anims.write(PlayAttack { actor: id, weapon, melee: true });
                         f.stats.strikes += 1;
                     }
                 }
@@ -342,11 +413,14 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
     let s = &fighters.stats;
     let (hits, damage, died) = stats.map_or((0, 0.0, false), |c| (c.player_hits, c.player_damage, c.player_died));
     info!(
-        "npc combat summary: {} actors fought ({}); {} shots, {} blows, {} reloads; the player was hit {hits} times for {damage:.1}{}",
+        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes), {} blows ({} missed: out of reach when they landed), {} reloads; the player was hit {hits} times for {damage:.1}{}",
         s.fighters.len(),
         s.fighters.values().cloned().collect::<Vec<_>>().join(", "),
         s.shots,
+        s.from_muzzle,
+        s.from_eyes,
         s.strikes,
+        s.missed,
         s.reloads,
         if died { " and died" } else { "" },
     );
