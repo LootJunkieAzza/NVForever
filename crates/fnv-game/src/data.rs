@@ -515,6 +515,11 @@ pub struct GameData {
     pub idles: HashMap<FormId, IdleDef>,
     /// IMAD: how long each image space modifier plays.
     pub image_modifiers: HashMap<FormId, ImageModifierDef>,
+    /// PERK: perks and traits ([`PerkDef`]).
+    pub perks: HashMap<FormId, PerkDef>,
+    /// AVIF: the name, short name, description and icon of each actor value
+    /// ([`GameData::actor_value_info`]).
+    pub actor_value_infos: HashMap<FormId, ActorValueInfo>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
 }
@@ -550,6 +555,51 @@ impl IdleDef {
     pub fn has_file(&self) -> bool {
         self.model.as_deref().is_some_and(|m| m.to_ascii_lowercase().ends_with(".kf"))
     }
+}
+
+/// A perk or trait (PERK) as the character menus need it.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize)]
+pub struct PerkDef {
+    /// FULL, DESC, ICON (under the textures folder).
+    pub name: String,
+    pub description: String,
+    pub icon: Option<String>,
+    /// DATA [documented: xEdit wbDefinitionsFNV.pas PERK DATA: Trait, Min Level, Ranks,
+    /// Playable, Hidden, one byte each; observed: five bytes on every perk of the
+    /// masters, `01 01 01 01 00` on each of the sixteen traits, docs/spec-notes/chargen.md
+    /// §2].
+    pub is_trait: bool,
+    pub min_level: u8,
+    pub ranks: u8,
+    pub playable: bool,
+    pub hidden: bool,
+    /// The perk's requirements: the CTDA before its first effect; `None` when one of
+    /// them could not be read.
+    #[serde(skip)]
+    pub conditions: Option<Vec<Condition>>,
+}
+
+impl PerkDef {
+    /// The fields of the raw DATA (see the field notes); a missing byte reads 0.
+    pub fn from_data(data: Option<&[u8]>) -> PerkDef {
+        let byte = |i: usize| data.and_then(|d| d.get(i)).copied().unwrap_or(0);
+        PerkDef { is_trait: byte(0) != 0, min_level: byte(1), ranks: byte(2), playable: byte(3) != 0, hidden: byte(4) != 0, ..Default::default() }
+    }
+}
+
+/// An actor value's AVIF record: its FULL name, ANAM short name ("PER") [documented:
+/// xEdit wbDefinitionsFNV.pas AVIF "Short Name"], DESC and ICON.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize)]
+pub struct ActorValueInfo {
+    pub name: String,
+    pub short_name: String,
+    pub description: String,
+    pub icon: Option<String>,
+}
+
+/// A NUL-terminated string as stored.
+fn zstring(b: &[u8]) -> String {
+    String::from_utf8_lossy(b.split(|c| *c == 0).next().unwrap_or_default()).trim().to_string()
 }
 
 /// The timing of an image space modifier (IMAD DNAM) [documented: xEdit
@@ -607,6 +657,8 @@ struct Read {
     idle_marker: Option<crate::package::IdleCollection>,
     idle: Option<IdleDef>,
     image_modifier: Option<ImageModifierDef>,
+    perk: Option<PerkDef>,
+    av_info: Option<ActorValueInfo>,
     units: Vec<ScriptUnit>,
     issues: Issues,
     read_issues: ReadIssues,
@@ -670,6 +722,8 @@ impl GameData {
             idle_markers: HashMap::new(),
             idles: HashMap::new(),
             image_modifiers: HashMap::new(),
+            perks: HashMap::new(),
+            actor_value_infos: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
         };
@@ -811,6 +865,12 @@ impl GameData {
             if let Some(v) = r.image_modifier {
                 d.image_modifiers.insert(id, v);
             }
+            if let Some(v) = r.perk {
+                d.perks.insert(id, v);
+            }
+            if let Some(v) = r.av_info {
+                d.actor_value_infos.insert(id, v);
+            }
         }
         let (lines, order) = topic_lines(lo);
         d.topics = lines;
@@ -853,6 +913,22 @@ impl GameData {
 
     pub fn by_edid(&self, edid: &str) -> Option<FormId> {
         self.edids.get(&edid.to_ascii_lowercase()).copied()
+    }
+
+    /// The AVIF record of a S.P.E.C.I.A.L. or skill code. The masters' AVIF FormIDs run
+    /// in code order: 0x3E8–0x3EE for Strength to Luck, 0x4B0–0x4BD for Barter to
+    /// Unarmed [observed: each record's name is its code's, Guns under the Editor ID
+    /// AVSmallGuns and Survival under AVThrowing, docs/spec-notes/chargen.md §2].
+    pub fn actor_value_info(&self, code: u16) -> Option<&ActorValueInfo> {
+        use crate::actor_values::{BARTER, SKILLS, SPECIALS, STRENGTH};
+        let id = if SPECIALS.contains(&code) {
+            0x3E8 + u32::from(code - STRENGTH)
+        } else if SKILLS.contains(&code) {
+            0x4B0 + u32::from(code - BARTER)
+        } else {
+            return None;
+        };
+        self.actor_value_infos.get(&FormId(id))
     }
 
     pub fn name(&self, id: FormId) -> String {
@@ -985,6 +1061,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"WEAP"
             | b"IDLM"
             | b"IDLE"
+            | b"PERK"
+            | b"AVIF"
     ) || subs.iter().any(|s| &s.sig == b"DEST");
     if &sig == b"FURN" {
         let flags = subs.iter().find(|s| &s.sig == b"MNAM").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(u32::from_le_bytes);
@@ -1469,6 +1547,32 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     })
                     .collect(),
             );
+        }
+        b"PERK" => {
+            // The perk's own fields come before its first effect (PRKE); the CTDA and
+            // DATA after it belong to the effects [documented: xEdit wbDefinitionsFNV.pas
+            // PERK record order].
+            let head = decoded.iter().position(|(s, _)| *s == b"PRKE").unwrap_or(decoded.len());
+            let raw_data = subs[..head].iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice());
+            let mut unread = Issues::default();
+            let conds: Vec<Option<Condition>> = decoded[..head].iter().filter(|(s, _)| *s == b"CTDA").map(|(_, v)| cond(v, &mut unread)).collect();
+            let text = |sig: &[u8; 4]| decoded[..head].iter().find(|(s, _)| *s == sig).and_then(|(_, v)| v.as_ref()?.as_str().map(str::to_string));
+            let mut p = PerkDef::from_data(raw_data);
+            p.name = text(b"FULL").unwrap_or_default();
+            p.description = text(b"DESC").unwrap_or_default();
+            p.icon = text(b"ICON").filter(|i| !i.trim().is_empty());
+            p.conditions = conds.into_iter().collect();
+            out.perk = Some(p);
+        }
+        b"AVIF" => {
+            let text = |sig: &[u8; 4]| decoded.iter().find(|(s, _)| *s == sig).and_then(|(_, v)| v.as_ref()?.as_str().map(str::to_string));
+            let anam = subs.iter().find(|s| &s.sig == b"ANAM").map(|s| zstring(&s.data));
+            out.av_info = Some(ActorValueInfo {
+                name: text(b"FULL").unwrap_or_default(),
+                short_name: anam.unwrap_or_default(),
+                description: text(b"DESC").unwrap_or_default(),
+                icon: text(b"ICON").filter(|i| !i.trim().is_empty()),
+            });
         }
         b"IDLE" => {
             // A condition that cannot be read is no issue of the script data (some idle
