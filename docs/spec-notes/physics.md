@@ -517,6 +517,18 @@ hypothesis]. Statics keep no skin for dynamic bodies (no capture of clutter rest
 static yet). Parity-lab L4 results are identical with the skin (the player's controller
 does not use contact skins).
 
+The skin needs a wider contact prediction distance (since 2026-10-11; `PhysWorld::new`
+sets rapier's to its default 0.02 m plus `TERRAIN_SHELL`, 0.07 m): with the default,
+clutter resting on the terrain never fell asleep and crept about 10 units a second, the
+owner's "bikes and crates jittering" outside the Prospector Saloon [observed: in `fnvtool
+phys cell` around WastelandNV (−17, 0) the three Motorcycle01Static references, two
+NVGSCrateContainer (one stacked on the other) and an NVWoodBarrel were all awake after
+20 s, one motorcycle 52 units from where it was added; a terrain skin of 1.4 units rested
+them, 2 did not]. With the wider distance all were asleep within 2 s, 3.5 units higher
+than without the skin. Why a skin wider than the prediction distance keeps bodies moving
+is not known (rapier's narrow phase) [hypothesis: contacts dropping in and out of the
+solver at the skin's edge]. Test `clutter_on_the_terrain_shell_falls_asleep`.
+
 In our engine [observed, `nvforever --play`, 2026-10-08]: a stimpak (one dynamic Clutter
 object) dropped 30 units above Doc Mitchell's floor (z 7360) came to rest on its side at
 z 7360.97, 29.7 lower and 8.7 units from the drop point, 1.58 s after the menu closed
