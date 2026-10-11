@@ -28,6 +28,8 @@ pub use reputation::{store as reputation_store, tiers as reputation_tiers};
 pub use actor::{actor_value, actor_value_capped, actor_value_parts, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
 pub use actor::{faction_rank, faction_relation, factions_of, factions_relation};
 pub use misc::clock_now;
+/// The level (0–3) of fame or infamy against a reputation's scale (the Pip-Boy's STATS page).
+pub use reputation::level as reputation_level;
 
 use crate::game::{Game, InstKey};
 use fnv_script::vm::{ArgValue, Value};

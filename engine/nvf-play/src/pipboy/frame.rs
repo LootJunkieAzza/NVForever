@@ -390,6 +390,38 @@ pub fn draw(
     });
 }
 
+// ---- Added for the STATS page ------------------------------------------------------
+
+impl Ctx<'_> {
+    /// A picture's size in its file's pixels: its atlas piece's, or the whole file's.
+    pub fn picture_size(&mut self, path: &str) -> Option<Vec2> {
+        let (image, rect) = self.picture(path)?;
+        match rect {
+            Some(r) => Some(r.size()),
+            None => self.images.get(&image).map(|i| i.size().as_vec2()),
+        }
+    }
+
+    /// A picture as the menu files draw an image tile: the file at `zoom` (1 = one canvas
+    /// unit a pixel), shown from its top left over `w` × `h` and cut off beyond
+    /// [hypothesis: an image's width and height show a part of the file and do not
+    /// stretch it; `stats_menu.xml` sizes its pictures as "filewidth/fileheight already
+    /// adjusted for zoom", and the Vault Boy's pieces fill exactly the parts of their
+    /// files that the file gives as their sizes]. Returns the size drawn.
+    #[allow(clippy::too_many_arguments)]
+    pub fn image_cut(&mut self, p: &mut ChildSpawnerCommands, path: &str, x: f32, y: f32, w: f32, h: f32, zoom: f32, color: Color) -> Option<Vec2> {
+        let (image, rect) = self.picture(path)?;
+        let full = match rect {
+            Some(r) => r,
+            None => Rect::from_corners(Vec2::ZERO, self.images.get(&image)?.size().as_vec2()),
+        };
+        let cut = Rect::new(full.min.x, full.min.y, (full.min.x + w / zoom).min(full.max.x), (full.min.y + h / zoom).min(full.max.y));
+        let size = cut.size() * zoom;
+        p.spawn((at(x, y, size.x, size.y), ImageNode { rect: Some(cut), color, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }));
+        Some(size)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
