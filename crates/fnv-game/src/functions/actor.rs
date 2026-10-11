@@ -16,8 +16,12 @@
 //!   never past zero [documented: both pages; observed: Contreras' supplies restoring
 //!   100 of a head condition damaged by 40 left it at 100, `L5.quest.effect_start`,
 //!   layer5-captures.md §9.3 b]; combat's health and limb damage goes here;
-//! - the **temporary modifier** (active effects and worn enchantments): nothing feeds
-//!   it yet, so it is not kept.
+//! - the **temporary modifier**: what the effects active on the actor add while they
+//!   last (its record's abilities, worn object effects, consumed ingestibles and added
+//!   spells). It is not stored: `crate::effects` reads it off what is active when the
+//!   value is asked for. A negative one cannot take a skill or a S.P.E.C.I.A.L. value
+//!   below 0 [documented: GECK wiki ActorValue]. The player's abilities without
+//!   conditions count as permanent modifier instead [documented: the same page].
 //!
 //! The permanent value (base + permanent modifier) of S.P.E.C.I.A.L. lives in the Layer
 //! 4 world, where the carry weight rule and the menus read and write it; the override
@@ -99,9 +103,10 @@ fn base(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
     }
 }
 
-/// The permanent value: the base plus the permanent modifier.
+/// The permanent value: the base plus the permanent modifier (ModActorValue's, and what
+/// the player's abilities without conditions add).
 fn permanent(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
-    Ok(base(g, actor, code)? + modifier(g, actor, code))
+    Ok(base(g, actor, code)? + modifier(g, actor, code) + g.effect_modifiers(actor, code).permanent)
 }
 
 /// The permanent value of an actor value, 0 when it cannot be read.
@@ -120,7 +125,7 @@ pub fn damage(g: &Game, actor: FormId, code: u16) -> f64 {
     g.extra.get(&actor).and_then(|e| e.av_damage.get(&code)).copied().unwrap_or(0.0)
 }
 
-fn set_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
+pub(crate) fn set_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
     let e = g.extra.entry(actor).or_default();
     if d > 0.0 {
         e.av_damage.insert(code, d);
@@ -129,9 +134,10 @@ fn set_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
     }
 }
 
-/// The current value: the permanent value minus the damage.
+/// The current value: the permanent value plus the temporary modifier minus the damage.
 pub fn actor_value(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
-    Ok(permanent(g, actor, code)? - damage(g, actor, code))
+    let p = actor_value_parts(g, actor, code)?;
+    Ok(p.base + p.permanent + p.temporary - p.damage)
 }
 
 /// The current value within the range the game calculates with (S.P.E.C.I.A.L. 1–10,
@@ -141,9 +147,26 @@ pub fn actor_value_capped(g: &mut Game, actor: FormId, code: u16) -> f64 {
     crate::actor_values::capped(code, actor_value(g, actor, code).unwrap_or(0.0))
 }
 
-/// The value's parts: base, permanent modifier, damage (as GetActorValueInfo lists them).
-pub fn actor_value_parts(g: &mut Game, actor: FormId, code: u16) -> Result<[f64; 3], String> {
-    Ok([base(g, actor, code)?, modifier(g, actor, code), damage(g, actor, code)])
+/// The parts of an actor value (as GetActorValueInfo lists them): the current value is
+/// `base + permanent + temporary − damage`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ValueParts {
+    pub base: f64,
+    /// The permanent modifier.
+    pub permanent: f64,
+    /// The temporary modifier as it counts (a negative one is held back so that a skill
+    /// or a S.P.E.C.I.A.L. value stays at 0 or above).
+    pub temporary: f64,
+    pub damage: f64,
+}
+
+pub fn actor_value_parts(g: &mut Game, actor: FormId, code: u16) -> Result<ValueParts, String> {
+    let base = base(g, actor, code)?;
+    let effects = g.effect_modifiers(actor, code);
+    let permanent = modifier(g, actor, code) + effects.permanent;
+    let damage = damage(g, actor, code);
+    let temporary = crate::effects::limited_temporary(code, effects.temporary, base + permanent - damage);
+    Ok(ValueParts { base, permanent, temporary, damage })
 }
 
 /// Put `v` in the base's place (as SetActorValue). An attribute's permanent value goes

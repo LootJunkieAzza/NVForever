@@ -286,6 +286,10 @@ pub struct ActorDef {
     /// (ACBS template flag "AI Packages") [documented: xEdit; schema `gameplay.json`].
     pub template: Option<FormId>,
     pub template_packages: bool,
+    /// SPLO: the actor effect list, in record order, and whether the template supplies
+    /// it (ACBS template flag "Actor Effect List") [documented: xEdit].
+    pub actor_effects: Vec<FormId>,
+    pub template_effects: bool,
     /// CREA DATA creature type code (0 Animal … 7 Giant) [documented: xEdit
     /// wbCreatureTypeEnum; schema `gameplay.json`].
     pub creature_type: Option<i64>,
@@ -370,10 +374,23 @@ pub struct MagicEffectDef {
     pub archetype: i64,
     /// The associated script when the archetype is 1 (Script).
     pub script: Option<FormId>,
+    /// DATA actor value: the value a "Value Modifier" effect changes (`None` for −1).
+    pub actor_value: Option<u16>,
 }
 
 /// MGEF archetype "Script" [documented: xEdit wbArchtypeEnum].
 pub const ARCHETYPE_SCRIPT: i64 = 1;
+/// MGEF archetypes "Value Modifier" and "Value And Parts" [documented: xEdit
+/// wbArchtypeEnum; GECK wiki ActorValue names both as what changes actor values].
+pub const ARCHETYPE_VALUE_MODIFIER: i64 = 0;
+pub const ARCHETYPE_VALUE_AND_PARTS: i64 = 34;
+/// MGEF DATA flags [documented: xEdit MGEF, schema `gameplay.json`].
+pub const MGEF_RECOVER: u32 = 1 << 1;
+pub const MGEF_DETRIMENTAL: u32 = 1 << 2;
+pub const MGEF_USE_SKILL: u32 = 1 << 19;
+pub const MGEF_USE_ATTRIBUTE: u32 = 1 << 20;
+/// SPEL SPIT type "Ability" [documented: xEdit SPEL, schema `combat.json`].
+pub const SPELL_ABILITY: i64 = 4;
 
 /// One effect of a magic item (EFID + EFIT + its CTDA) on ALCH, SPEL, ENCH and INGR
 /// [documented: xEdit wbEffects; schema `common.json`].
@@ -384,6 +401,9 @@ pub struct EffectItem {
     pub area: u32,
     /// Seconds.
     pub duration: u32,
+    /// EFIT actor value (`None` for −1): the value changed when the base effect leaves
+    /// the choice to the effect item (its flags "Use skill" and "Use attribute").
+    pub actor_value: Option<u16>,
     pub conditions: Vec<Condition>,
 }
 
@@ -465,6 +485,11 @@ pub struct GameData {
     pub magic_effects: HashMap<FormId, MagicEffectDef>,
     /// The effects of every ALCH, SPEL, ENCH and INGR, in record order.
     pub effect_items: HashMap<FormId, Vec<EffectItem>>,
+    /// SPEL SPIT type (0 Actor Effect, 1 Disease, 2 Power, 3 Lesser Power, 4 Ability,
+    /// 5 Poison, 10 Addiction) [documented: xEdit SPEL, schema `combat.json`].
+    pub spell_types: HashMap<FormId, i64>,
+    /// ARMO EITM: the object effect (ENCH) an armour or clothing item carries.
+    pub enchantments: HashMap<FormId, FormId>,
     /// Races with the Child flag (RACE DATA).
     pub child_races: HashSet<FormId>,
     /// FACT XNAM: (other faction, group combat reaction 0 neutral, 1 enemy, 2 ally,
@@ -567,6 +592,8 @@ struct Read {
     region: Option<RegionDef>,
     magic_effect: Option<MagicEffectDef>,
     effects: Option<Vec<EffectItem>>,
+    spell_type: Option<i64>,
+    enchantment: Option<FormId>,
     child_race: bool,
     faction: Option<Vec<(FormId, i64)>>,
     destruction: Option<DestructionDef>,
@@ -628,6 +655,8 @@ impl GameData {
             regions: HashMap::new(),
             magic_effects: HashMap::new(),
             effect_items: HashMap::new(),
+            spell_types: HashMap::new(),
+            enchantments: HashMap::new(),
             child_races: HashSet::new(),
             faction_reactions: HashMap::new(),
             destructibles: HashMap::new(),
@@ -744,6 +773,12 @@ impl GameData {
             }
             if let Some(v) = r.effects {
                 d.effect_items.insert(id, v);
+            }
+            if let Some(v) = r.spell_type {
+                d.spell_types.insert(id, v);
+            }
+            if let Some(v) = r.enchantment {
+                d.enchantments.insert(id, v);
             }
             if r.child_race {
                 d.child_races.insert(id);
@@ -952,6 +987,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     if &sig == b"FURN" {
         let flags = subs.iter().find(|s| &s.sig == b"MNAM").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(u32::from_le_bytes);
         out.furniture = Some(flags.unwrap_or(0));
+    }
+    if &sig == b"ARMO" {
+        let local = subs.iter().find(|s| &s.sig == b"EITM").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(u32::from_le_bytes);
+        out.enchantment = local.filter(|&l| l != 0).and_then(map).map(FormId);
     }
     if &sig == b"IDLE" {
         out.idle = Some(IdleDef::from_raw(
@@ -1271,6 +1310,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"VTCK" => a.voice = fid(v),
                     b"PKID" => a.packages.extend(fid(v)),
                     b"TPLT" => a.template = fid(v),
+                    b"SPLO" => a.actor_effects.extend(fid(v)),
                     b"RNAM" if &sig == b"NPC_" => a.race = fid(v),
                     b"CNAM" if &sig == b"NPC_" => a.class = fid(v),
                     b"DATA" if &sig == b"CREA" => {
@@ -1309,6 +1349,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         let tf = v.as_ref().and_then(|v| v.get("template_flags"));
                         a.template_packages = has_flag(tf, "AI Packages");
                         a.template_stats = has_flag(tf, "Stats");
+                        a.template_effects = has_flag(tf, "Actor Effect List");
                         a.template_ai = has_flag(tf, "AI Data");
                     }
                     _ => {}
@@ -1362,6 +1403,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     flags: flag_bits(v.get("flags")),
                     archetype,
                     script: item.filter(|_| archetype == ARCHETYPE_SCRIPT),
+                    actor_value: v.get("actor_value").and_then(|t| field_code(schema, &sig, b"DATA", Some("actor_value"), t)).and_then(|c| u16::try_from(c).ok()),
                 });
             }
         }
@@ -1369,13 +1411,15 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             let mut list: Vec<EffectItem> = Vec::new();
             for (s, v) in &decoded {
                 match *s {
-                    b"EFID" => list.extend(fid(v).map(|effect| EffectItem { effect, magnitude: 0, area: 0, duration: 0, conditions: Vec::new() })),
+                    b"EFID" => list.extend(fid(v).map(|effect| EffectItem { effect, magnitude: 0, area: 0, duration: 0, actor_value: None, conditions: Vec::new() })),
                     b"EFIT" => {
                         if let (Some(e), Some(v)) = (list.last_mut(), v.as_ref()) {
                             let n = |k: &str| v.get(k).and_then(Json::as_u64).unwrap_or(0) as u32;
                             e.magnitude = n("magnitude");
                             e.area = n("area");
                             e.duration = n("duration");
+                            e.actor_value =
+                                v.get("actor_value").and_then(|t| field_code(schema, &sig, b"EFIT", Some("actor_value"), t)).and_then(|c| u16::try_from(c).ok());
                         }
                     }
                     b"CTDA" => {
@@ -1389,6 +1433,13 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 }
             }
             out.effects = Some(list);
+            if &sig == b"SPEL" {
+                out.spell_type = decoded
+                    .iter()
+                    .find(|(s, _)| *s == b"SPIT")
+                    .and_then(|(_, v)| v.as_ref()?.get("type"))
+                    .and_then(|t| field_code(schema, &sig, b"SPIT", Some("type"), t));
+            }
         }
         b"RACE" => {
             out.child_race = decoded

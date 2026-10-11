@@ -25,6 +25,25 @@ const COPY_REF: u32 = 0x321;
 const CREA_REF: u32 = 0x322;
 const CONT_REF: u32 = 0x323;
 const PLAYER: u32 = 0x14;
+// Base effects: value modifiers of one actor value each.
+const FX_DT: u32 = 0x840;
+const FX_DR: u32 = 0x841;
+const FX_LOWER_SPEECH: u32 = 0x842;
+const FX_FIRE: u32 = 0x843;
+const FX_HEALTH: u32 = 0x844;
+const FX_GUNS: u32 = 0x845;
+const FX_CHARISMA: u32 = 0x846;
+const FX_LOWER_AGILITY: u32 = 0x847;
+const FX_STRENGTH: u32 = 0x848;
+const FX_DAMAGE_HEALTH: u32 = 0x849;
+const FX_RESTORE_HEALTH: u32 = 0x84A;
+const SPEL_HIDE: u32 = 0x850;
+const SPEL_TOUCH: u32 = 0x851;
+const SPEL_GUARD: u32 = 0x852;
+const SPEL_PERK: u32 = 0x853;
+const ENCH_HAT: u32 = 0x858;
+const ARMO_HAT: u32 = 0x859;
+const ALCH_CHEM: u32 = 0x85A;
 
 const GET: u16 = 0x100E;
 const SET: u16 = 0x100F;
@@ -37,6 +56,42 @@ const GET_PERMANENT: u16 = 0x11EF;
 const RESET_HEALTH: u16 = 0x1150;
 const GET_HEALTH_PERCENTAGE: u16 = 0x11AF;
 const REWARD_KARMA: u16 = 0x1204;
+const ADD_SPELL: u16 = 0x101C;
+const REMOVE_SPELL: u16 = 0x101D;
+
+const RECOVER: u32 = 1 << 1;
+const DETRIMENTAL: u32 = 1 << 2;
+const ABILITY: u32 = 4;
+
+/// MGEF: a "Value Modifier" (archetype 0) of one actor value, with its flags.
+fn mgef(fid: u32, edid: &str, flags: u32, value: u16) -> Vec<u8> {
+    let f32b = |v: f32| v.to_le_bytes().to_vec();
+    let data = [u32s(&[flags]), f32b(0.0), u32s(&[0]), vec![0xFF; 8], vec![0; 8], f32b(1.0), vec![0; 32], u32s(&[0, value as u32])].concat();
+    assert_eq!(data.len(), 72);
+    record(b"MGEF", 0, fid, &[sub(b"EDID", z(edid)), sub(b"DATA", data)])
+}
+
+/// One effect of a magic item: EFID and EFIT (magnitude, area, duration, range Self, no
+/// actor value of its own).
+fn effect(base: u32, magnitude: u32, duration: u32) -> Vec<fnv_esm::raw::Subrecord> {
+    vec![sub(b"EFID", base.to_le_bytes().to_vec()), sub(b"EFIT", [u32s(&[magnitude, 0, duration, 0]), (-1i32).to_le_bytes().to_vec()].concat())]
+}
+
+/// CTDA on the subject: `GetActorValue value >= at_least`.
+fn value_at_least(value: u16, at_least: f32) -> fnv_esm::raw::Subrecord {
+    let mut d = vec![0x60u8, 0, 0, 0];
+    d.extend(at_least.to_le_bytes());
+    d.extend((GET - 0x1000).to_le_bytes());
+    d.extend([0, 0]);
+    d.extend(u32s(&[value as u32, 0, 0, 0]));
+    sub(b"CTDA", d)
+}
+
+/// SPEL: an actor effect of the given SPIT type.
+fn spel(fid: u32, edid: &str, ty: u32, effects: Vec<fnv_esm::raw::Subrecord>) -> Vec<u8> {
+    let spit = [u32s(&[ty, 0, 0]), vec![0; 4]].concat();
+    record(b"SPEL", 0, fid, &[vec![sub(b"EDID", z(edid)), sub(b"SPIT", spit)], effects].concat())
+}
 
 /// ACBS: flags, fatigue, barter gold, level, calc min/max, speed multiplier, karma,
 /// disposition, template flags.
@@ -90,19 +145,21 @@ fn plugin_bytes() -> Vec<u8> {
             &[
                 sub(b"EDID", z("Guard")),
                 acbs(150, 4, 110, -250.0, 0),
+                sub(b"SPLO", SPEL_GUARD.to_le_bytes().to_vec()),
                 aidt(1, 3, 40, 70, 5, 2),
                 npc_data(50, [6, 5, 4, 3, 7, 8, 2]),
                 dnam(GUARD_SKILLS, GUARD_OFFSETS),
             ],
         ),
-        // Stats (bit 1) and AI Data (bit 4) from the template; its own are not read.
+        // Stats (bit 1), Actor Effect List (bit 3) and AI Data (bit 4) from the template;
+        // its own are not read.
         record(
             b"NPC_",
             0,
             NPC_COPY,
             &[
                 sub(b"EDID", z("GuardCopy")),
-                acbs(20, 9, 90, 300.0, 0x12),
+                acbs(20, 9, 90, 300.0, 0x1A),
                 sub(b"TPLT", NPC_GUARD.to_le_bytes().to_vec()),
                 aidt(0, 0, 5, 5, 0, 0),
                 npc_data(10, [1; 7]),
@@ -113,7 +170,71 @@ fn plugin_bytes() -> Vec<u8> {
     .concat();
     // CREA DATA: type, combat, magic and stealth skill, health, unused, damage, attributes.
     let crea_data = [vec![0u8, 65, 50, 40], 120i16.to_le_bytes().to_vec(), vec![0; 2], 9i16.to_le_bytes().to_vec(), vec![8, 7, 6, 2, 3, 4, 5]].concat();
-    let crea = record(b"CREA", 0, CREA, &[sub(b"EDID", z("Gecko")), acbs(80, 3, 150, 0.0, 0), sub(b"DATA", crea_data)]);
+    let crea = record(
+        b"CREA",
+        0,
+        CREA,
+        &[
+            sub(b"EDID", z("Gecko")),
+            acbs(80, 3, 150, 0.0, 0),
+            sub(b"SPLO", SPEL_HIDE.to_le_bytes().to_vec()),
+            sub(b"SPLO", SPEL_TOUCH.to_le_bytes().to_vec()),
+            sub(b"DATA", crea_data),
+        ],
+    );
+    let mgefs = [
+        mgef(FX_DT, "IncreaseDamageThreshold", RECOVER, 76),
+        mgef(FX_DR, "IncreaseDamageResistance", RECOVER, 18),
+        mgef(FX_LOWER_SPEECH, "DecreaseSpeech", RECOVER | DETRIMENTAL, av::SPEECH),
+        mgef(FX_FIRE, "IncreaseFireResistance", RECOVER, 52),
+        mgef(FX_HEALTH, "IncreaseHealth", RECOVER, av::HEALTH),
+        mgef(FX_GUNS, "IncreaseGuns", RECOVER, av::GUNS),
+        mgef(FX_CHARISMA, "IncreaseCharisma", RECOVER, av::CHARISMA),
+        mgef(FX_LOWER_AGILITY, "DecreaseAgility", RECOVER | DETRIMENTAL, av::AGILITY),
+        mgef(FX_STRENGTH, "IncreaseStrength", RECOVER, av::STRENGTH),
+        mgef(FX_DAMAGE_HEALTH, "DamageHealth", DETRIMENTAL, av::HEALTH),
+        mgef(FX_RESTORE_HEALTH, "RestoreHealth", 0, av::HEALTH),
+    ]
+    .concat();
+    let spels = [
+        // The Gecko: Damage Threshold 5; Damage Resistance 10 from Strength 9 up; Speech
+        // lowered by 60.
+        spel(
+            SPEL_HIDE,
+            "GeckoHide",
+            ABILITY,
+            [effect(FX_DT, 5, 0), effect(FX_DR, 10, 0), vec![value_at_least(av::STRENGTH, 9.0)], effect(FX_LOWER_SPEECH, 60, 0)].concat(),
+        ),
+        // An actor effect that is no ability changes nothing by being listed.
+        spel(SPEL_TOUCH, "GeckoTouch", 0, effect(FX_DT, 100, 0)),
+        spel(SPEL_GUARD, "GuardTraining", ABILITY, effect(FX_FIRE, 20, 0)),
+        // A perk: Health 30 without a condition, Guns 10 with one.
+        spel(SPEL_PERK, "PerkAbility", ABILITY, [effect(FX_HEALTH, 30, 0), effect(FX_GUNS, 10, 0), vec![value_at_least(av::STRENGTH, 1.0)]].concat()),
+    ]
+    .concat();
+    let enit = [u32s(&[3, 0, 0]), vec![0; 4]].concat();
+    let ench = record(
+        b"ENCH",
+        0,
+        ENCH_HAT,
+        &[vec![sub(b"EDID", z("HatEffect")), sub(b"ENIT", enit)], effect(FX_CHARISMA, 1, 0), effect(FX_LOWER_AGILITY, 20, 0)].concat(),
+    );
+    let armo = record(b"ARMO", 0, ARMO_HAT, &[sub(b"EDID", z("Hat")), sub(b"EITM", ENCH_HAT.to_le_bytes().to_vec())]);
+    // A chem: Strength 2 for two seconds; 10 Health damage at once; 4 Health a second
+    // restored for two seconds.
+    let alch_enit = [u32s(&[5]), vec![0; 4], u32s(&[0]), 0f32.to_le_bytes().to_vec(), u32s(&[0])].concat();
+    let alch = record(
+        b"ALCH",
+        0,
+        ALCH_CHEM,
+        &[
+            vec![sub(b"EDID", z("Chem")), sub(b"DATA", 0.5f32.to_le_bytes().to_vec()), sub(b"ENIT", alch_enit)],
+            effect(FX_STRENGTH, 2, 2),
+            effect(FX_DAMAGE_HEALTH, 10, 0),
+            effect(FX_RESTORE_HEALTH, 4, 2),
+        ]
+        .concat(),
+    );
     let cont = record(b"CONT", 0, CONT, &[sub(b"EDID", z("Box")), sub(b"DATA", [vec![0], 0f32.to_le_bytes().to_vec()].concat())]);
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
     let refs = [placed(b"ACHR", GUARD_REF, NPC_GUARD), placed(b"ACHR", COPY_REF, NPC_COPY), placed(b"ACRE", CREA_REF, CREA), placed(b"REFR", CONT_REF, CONT)].concat();
@@ -124,6 +245,11 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"NPC_", &npcs),
         top(b"CREA", &crea),
         top(b"CONT", &cont),
+        top(b"MGEF", &mgefs),
+        top(b"SPEL", &spels),
+        top(b"ENCH", &ench),
+        top(b"ARMO", &armo),
+        top(b"ALCH", &alch),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
     ]
     .concat()
@@ -335,7 +461,11 @@ fn the_pools_are_kept_apart() {
     assert_eq!(call(&mut g, GET_PERMANENT, GUARD_REF, &[code(c)]), 40.0);
     call(&mut g, RESTORE, GUARD_REF, &[code(c), n(100.0)]);
     assert_eq!(get(&mut g, GUARD_REF, c), 40.0);
-    assert_eq!(fnv_game::functions::actor_value_parts(&mut g, FormId(GUARD_REF), c).unwrap(), [40.0, 0.0, 0.0]);
+    let parts = |g: &mut Game, r: FormId, c: u16| {
+        let p = fnv_game::functions::actor_value_parts(g, r, c).unwrap();
+        [p.base, p.permanent, p.temporary, p.damage]
+    };
+    assert_eq!(parts(&mut g, FormId(GUARD_REF), c), [40.0, 0.0, 0.0, 0.0]);
 
     // An attribute: the world holds the permanent value, so its carry weight rule sees it.
     let p = FormId::PLAYER_REF;
@@ -353,7 +483,7 @@ fn the_pools_are_kept_apart() {
     assert_eq!(call(&mut g, GET_BASE, PLAYER, &[code(av::STRENGTH)]), 4.0);
     // The runner's `given` leaves exactly the value.
     fnv_game::functions::set_actor_value_current(&mut g, p, av::STRENGTH, 3.0).unwrap();
-    assert_eq!(fnv_game::functions::actor_value_parts(&mut g, p, av::STRENGTH).unwrap(), [3.0, 0.0, 0.0]);
+    assert_eq!(parts(&mut g, p, av::STRENGTH), [3.0, 0.0, 0.0, 0.0]);
     assert_eq!(fnv_game::functions::actor_value_capped(&mut g, FormId(COPY_REF), av::ENERGY_WEAPONS), 42.0);
 }
 
@@ -386,4 +516,151 @@ fn something_that_is_no_actor_has_no_attributes() {
     assert!(fnv_game::functions::actor_value(&mut g, chest, av::STRENGTH).is_err());
     assert_eq!(fnv_game::functions::actor_value(&mut g, chest, av::BARTER).unwrap(), 0.0);
     assert_eq!(fnv_game::functions::actor_value(&mut g, chest, 25).unwrap(), 100.0);
+}
+
+fn r(x: u32) -> ArgValue {
+    ArgValue::Value(Value::Ref(x))
+}
+
+fn parts(g: &mut Game, on: u32, c: u16) -> [f64; 4] {
+    let p = fnv_game::functions::actor_value_parts(g, FormId(on), c).unwrap();
+    [p.base, p.permanent, p.temporary, p.damage]
+}
+
+#[test]
+fn the_effect_records_are_read() {
+    let f = fixture();
+    let d = &f.data;
+    assert_eq!(d.actors[&FormId(CREA)].actor_effects, vec![FormId(SPEL_HIDE), FormId(SPEL_TOUCH)]);
+    assert!(d.actors[&FormId(NPC_COPY)].template_effects && !d.actors[&FormId(NPC_GUARD)].template_effects);
+    assert_eq!((d.spell_types[&FormId(SPEL_HIDE)], d.spell_types[&FormId(SPEL_TOUCH)]), (4, 0));
+    assert_eq!(d.enchantments[&FormId(ARMO_HAT)], FormId(ENCH_HAT));
+    let fx = &d.magic_effects[&FormId(FX_LOWER_SPEECH)];
+    assert_eq!((fx.archetype, fx.actor_value, fx.flags), (0, Some(av::SPEECH), RECOVER | DETRIMENTAL));
+    let items = &d.effect_items[&FormId(SPEL_HIDE)];
+    assert_eq!(items.iter().map(|e| (e.magnitude, e.actor_value, e.conditions.len())).collect::<Vec<_>>(), vec![(5, None, 0), (10, None, 1), (60, None, 0)]);
+    let c = fnv_game::effects::value_change(d, &items[2], 60.0).unwrap();
+    assert_eq!((c.code, c.amount, c.recover), (av::SPEECH, -60.0, true));
+}
+
+/// The abilities of an actor's record are its temporary modifier [documented: GECK wiki
+/// ActorValue]: the base and the permanent value do not move.
+#[test]
+fn a_records_abilities_are_the_temporary_modifier() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Damage Threshold 5 from the ability; the listed effect that is no ability adds nothing.
+    assert_eq!(get(&mut g, CREA_REF, 76), 5.0);
+    assert_eq!(call(&mut g, GET_BASE, CREA_REF, &[code(76)]), 0.0);
+    assert_eq!(call(&mut g, GET_PERMANENT, CREA_REF, &[code(76)]), 0.0);
+    assert_eq!(parts(&mut g, CREA_REF, 76), [0.0, 0.0, 5.0, 0.0]);
+    // The other pools stay on top of it.
+    call(&mut g, MOD, CREA_REF, &[code(76), n(2.0)]);
+    call(&mut g, DAMAGE, CREA_REF, &[code(76), n(1.0)]);
+    assert_eq!(get(&mut g, CREA_REF, 76), 6.0);
+    assert_eq!(parts(&mut g, CREA_REF, 76), [0.0, 2.0, 5.0, 1.0]);
+    // An effect with a condition counts while the condition holds: Strength 8, then 9.
+    assert_eq!(get(&mut g, CREA_REF, 18), 0.0);
+    call(&mut g, MOD, CREA_REF, &[code(av::STRENGTH), n(1.0)]);
+    assert_eq!(get(&mut g, CREA_REF, 18), 10.0);
+    call(&mut g, DAMAGE, CREA_REF, &[code(av::STRENGTH), n(1.0)]);
+    assert_eq!(get(&mut g, CREA_REF, 18), 0.0);
+    // A negative modifier does not take a skill below 0: Speech 9 lowered by 60.
+    assert_eq!(call(&mut g, GET_BASE, CREA_REF, &[code(av::SPEECH)]), 9.0);
+    assert_eq!(get(&mut g, CREA_REF, av::SPEECH), 0.0);
+    assert_eq!(parts(&mut g, CREA_REF, av::SPEECH), [9.0, 0.0, -9.0, 0.0]);
+    call(&mut g, MOD, CREA_REF, &[code(av::SPEECH), n(70.0)]);
+    assert_eq!(get(&mut g, CREA_REF, av::SPEECH), 19.0);
+    // Another value is not held back.
+    assert_eq!(fnv_game::effects::limited_temporary(76, -60.0, 9.0), -60.0);
+    // The list of a template flagged for it.
+    assert_eq!(get(&mut g, GUARD_REF, 52), 20.0);
+    assert_eq!(get(&mut g, COPY_REF, 52), 20.0);
+    assert_eq!(g.actor_effect_list(FormId(COPY_REF)), [FormId(SPEL_GUARD)].as_slice());
+    assert_eq!(get(&mut g, PLAYER, 52), 0.0);
+    // Reading changes nothing: no effect was started, no event sent.
+    assert!(g.effects.is_empty());
+}
+
+/// For the player an ability's effect without conditions is permanent modifier, one
+/// with conditions temporary [documented: GECK wiki ActorValue].
+#[test]
+fn the_players_abilities_without_conditions_are_permanent() {
+    let f = fixture();
+    let mut g = game(&f);
+    let health = get(&mut g, PLAYER, av::HEALTH);
+    let guns = get(&mut g, PLAYER, av::GUNS);
+    call(&mut g, ADD_SPELL, PLAYER, &[r(SPEL_PERK)]);
+    assert_eq!(get(&mut g, PLAYER, av::HEALTH), health + 30.0);
+    assert_eq!(call(&mut g, GET_PERMANENT, PLAYER, &[code(av::HEALTH)]), health + 30.0);
+    assert_eq!(call(&mut g, GET_BASE, PLAYER, &[code(av::HEALTH)]), health);
+    assert_eq!(parts(&mut g, PLAYER, av::HEALTH), [health, 30.0, 0.0, 0.0]);
+    assert_eq!(get(&mut g, PLAYER, av::GUNS), guns + 10.0);
+    assert_eq!(call(&mut g, GET_PERMANENT, PLAYER, &[code(av::GUNS)]), guns);
+    assert_eq!(parts(&mut g, PLAYER, av::GUNS), [guns, 0.0, 10.0, 0.0]);
+    // On another actor both are temporary.
+    call(&mut g, ADD_SPELL, GUARD_REF, &[r(SPEL_PERK)]);
+    assert_eq!(parts(&mut g, GUARD_REF, av::HEALTH), [90.0, 0.0, 30.0, 0.0]);
+    // An ability the record lists and a script adds counts once.
+    call(&mut g, ADD_SPELL, GUARD_REF, &[r(SPEL_GUARD)]);
+    assert_eq!(get(&mut g, GUARD_REF, 52), 20.0);
+    call(&mut g, REMOVE_SPELL, PLAYER, &[r(SPEL_PERK)]);
+    assert_eq!(get(&mut g, PLAYER, av::HEALTH), health);
+    assert_eq!(get(&mut g, PLAYER, av::GUNS), guns);
+}
+
+/// The object effect of an equipped item counts while the item is equipped.
+#[test]
+fn a_worn_object_effect_lasts_while_the_item_is_equipped() {
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    g.world.add_item(p, FormId(ARMO_HAT), 1).unwrap();
+    assert_eq!(get(&mut g, PLAYER, av::CHARISMA), 4.0);
+    g.world.equip(p, FormId(ARMO_HAT)).unwrap();
+    assert_eq!(get(&mut g, PLAYER, av::CHARISMA), 5.0);
+    assert_eq!(call(&mut g, GET_PERMANENT, PLAYER, &[code(av::CHARISMA)]), 4.0);
+    // Agility 9 lowered by 20 stops at 0; the formulas follow (Action Points count it as 1).
+    assert_eq!(get(&mut g, PLAYER, av::AGILITY), 0.0);
+    assert_eq!(get(&mut g, PLAYER, av::ACTION_POINTS), 65.0 + 3.0);
+    // Speech follows Charisma: 2 + 2 × 5 + 2.
+    assert_eq!(get(&mut g, PLAYER, av::SPEECH), 14.0);
+    g.world.unequip(p, FormId(ARMO_HAT)).unwrap();
+    assert_eq!(get(&mut g, PLAYER, av::CHARISMA), 4.0);
+    assert_eq!(get(&mut g, PLAYER, av::AGILITY), 9.0);
+}
+
+/// A consumed ingestible: a Recover effect is temporary modifier for its duration; one
+/// without Recover damages or restores the value and that stays.
+#[test]
+fn an_ingestible_changes_values_for_its_duration_or_for_good() {
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    let health = get(&mut g, PLAYER, av::HEALTH);
+    g.world.add_item(p, FormId(ALCH_CHEM), 2).unwrap();
+    g.consume(p, FormId(ALCH_CHEM)).unwrap();
+    assert_eq!(parts(&mut g, PLAYER, av::STRENGTH), [5.0, 0.0, 2.0, 0.0]);
+    assert_eq!(get(&mut g, PLAYER, av::CARRY_WEIGHT), 150.0 + 10.0 * 7.0);
+    // The damage is done at once.
+    assert_eq!(get(&mut g, PLAYER, av::HEALTH), health - 10.0);
+    g.frames(60);
+    assert!(close(get(&mut g, PLAYER, av::HEALTH), health - 6.0), "{}", get(&mut g, PLAYER, av::HEALTH));
+    assert_eq!(get(&mut g, PLAYER, av::STRENGTH), 7.0);
+    g.frames(120);
+    // The effects ended: Strength is back, 8 of the 10 Health were restored.
+    assert!(g.effects.is_empty());
+    assert_eq!(get(&mut g, PLAYER, av::STRENGTH), 5.0);
+    assert!(close(get(&mut g, PLAYER, av::HEALTH), health - 2.0));
+    assert!(close(parts(&mut g, PLAYER, av::HEALTH)[3], 2.0));
+    // Restoring stops at the undamaged value.
+    call(&mut g, RESTORE, PLAYER, &[code(av::HEALTH), n(100.0)]);
+    g.consume(p, FormId(ALCH_CHEM)).unwrap();
+    g.frames(180);
+    assert!(close(get(&mut g, PLAYER, av::HEALTH), health - 2.0));
+    call(&mut g, RESTORE, PLAYER, &[code(av::HEALTH), n(1.0)]);
+    g.apply_magic_item(p, FormId(ALCH_CHEM), Some(p), false);
+    call(&mut g, RESTORE, PLAYER, &[code(av::HEALTH), n(9.5)]);
+    g.frames(180);
+    assert!(close(get(&mut g, PLAYER, av::HEALTH), health));
 }

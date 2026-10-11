@@ -572,6 +572,9 @@ pub struct Game<'a> {
     pub image_modifiers: Vec<ActiveImageModifier>,
     /// ScriptEffectElapsedSeconds inside a ScriptEffectUpdate block (0 elsewhere).
     pub effect_elapsed: f64,
+    /// Set while the conditions of an ability's or a worn object effect's item are
+    /// evaluated for an actor value ([`Game::effect_modifiers`]).
+    pub(crate) reading_effect_conditions: bool,
     depth: u32,
     /// A function asked the running script to stop as `Return` does (RemoveMe).
     stop_run: bool,
@@ -694,6 +697,7 @@ impl<'a> Game<'a> {
             next_effect: 1,
             image_modifiers: Vec::new(),
             effect_elapsed: 0.0,
+            reading_effect_conditions: false,
             depth: 0,
             stop_run: false,
             package_scan_due: 0.0,
@@ -1664,6 +1668,14 @@ impl<'a> Game<'a> {
             self.emit(EventKind::EffectStarted { id, target, source, effect: e.effect });
             started.push(id);
             self.effect_event(id, event::SCRIPT_EFFECT_START, 0.0);
+            // A value modifier without Recover and without a duration acts once, here; one
+            // with a duration acts while it lasts (`update_effects`). An ability's acts on
+            // nothing: there is no moment or duration to measure it by [hypothesis].
+            if !permanent && e.duration == 0 {
+                if let Some(c) = crate::effects::value_change(data, e, e.magnitude as f64) {
+                    self.apply_value_effect(target, c, e.magnitude as f64);
+                }
+            }
             if !permanent && e.duration == 0 && self.effects.iter().any(|x| x.id == id) {
                 self.finish_effect(id, true);
             }
@@ -1727,8 +1739,20 @@ impl<'a> Game<'a> {
         let ids: Vec<u32> = self.effects.iter().map(|e| e.id).collect();
         for id in ids {
             let Some(e) = self.effects.iter_mut().find(|x| x.id == id) else { continue };
+            let before = e.elapsed;
             e.elapsed += dt;
             let done = !e.permanent && e.elapsed + 1e-9 >= e.duration;
+            // A value modifier without Recover changes the value by its magnitude each
+            // second of its duration [hypothesis: the rate; the wiki's page of base
+            // effects is not in the owner's export].
+            if !e.permanent {
+                let (target, source, index, magnitude) = (e.target, e.source, e.index, e.magnitude as f64);
+                let seconds = e.elapsed.min(e.duration) - before.min(e.duration);
+                let item = self.data.effect_items.get(&source).and_then(|l| l.get(index));
+                if let Some(c) = item.and_then(|i| crate::effects::value_change(self.data, i, magnitude)) {
+                    self.apply_value_effect(target, c, magnitude * seconds);
+                }
+            }
             self.effect_event(id, event::SCRIPT_EFFECT_UPDATE, dt);
             if done {
                 self.finish_effect(id, true);

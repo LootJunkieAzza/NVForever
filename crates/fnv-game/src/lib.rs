@@ -26,6 +26,7 @@ pub mod combat;
 pub mod cond;
 pub mod data;
 pub mod dialogue;
+pub mod effects;
 pub mod functions;
 pub mod game;
 pub mod idles;

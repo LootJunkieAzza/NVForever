@@ -1,9 +1,10 @@
 # Spec notes: actor values
 
 What the 77 actor values of an NPC, a creature and the player start at, and how scripts
-change them. Code: `crates/fnv-game/src/actor_values.rs` (the base values) and
-`crates/fnv-game/src/functions/actor.rs` (the pools and the script functions). Tool:
-`fnvtool actor values` (§7).
+and effects change them. Code: `crates/fnv-game/src/actor_values.rs` (the base values),
+`crates/fnv-game/src/functions/actor.rs` (the pools and the script functions) and
+`crates/fnv-game/src/effects.rs` (what effects add, §9). Tool: `fnvtool actor values`
+(§7).
 
 Sources, and what each tag means here:
 
@@ -27,12 +28,17 @@ An actor value is a base value and three pools added to it [documented: ActorVal
 |---|---|---|
 | Base | the record or a formula (§2 to §5); `SetActorValue` puts a number in its place | `GetBaseActorValue` |
 | Permanent modifier | `ModActorValue`; `ForceActorValue` moves it so the current value is the number asked for; skill books; for the player, abilities without conditions | `GetPermanentActorValue` = base + this |
-| Temporary modifier | active effects and worn enchantments ("Value Modifier" effects with Recover) | — |
+| Temporary modifier | active effects and worn object effects ("Value Modifier" effects with Recover) | — |
 | Damage | `DamageActorValue`, `RestoreActorValue` (never past zero); combat's health and limb damage; effects without Recover | `GetActorValue` = base + both modifiers − damage |
 
-- NVForever keeps the base override, the permanent modifier and the damage. Nothing
-  applies effects to actor values yet, so there is no temporary modifier (and the
-  abilities in an actor's SPLO list change nothing).
+- NVForever stores the base override, the permanent modifier and the damage. The
+  temporary modifier is not stored: it is read off the effects active on the actor
+  each time a value is asked for (§9).
+- A negative temporary modifier cannot take a skill or a S.P.E.C.I.A.L. value below 0
+  [documented: ActorValue]. The game changes the effect's magnitude when it is applied
+  and does not update it afterwards [documented: the same page]; here the limit is
+  applied on reading, so it follows later changes of the other parts [our
+  simplification].
 - `SetActorValue` replaces the base only: a modifier and damage stay on top of the new
   number [documented: ActorValue, "the game uses this base value as a starting point …
   it then adds three pools"].
@@ -163,7 +169,7 @@ Settings]. A tagged skill gains `fAVDTagSkillBonus` (15) [documented].
 | 22 | Fatigue | ACBS "Fatigue" | creatures [documented: Stats Tab - Creatures]; NPCs [hypothesis: the page calls the field unused] |
 | 23 | Karma | ACBS "Karma" of the actor's own record | [documented: xEdit; GetBaseKarma] |
 | 46 | Inventory Weight | the weight the actor carries | an actor value [documented: GetCalculatedMaxCarryWeight]; that it is the carried weight [hypothesis] |
-| 18, 76 | Damage Resistance, Damage Threshold | 0 | worn armour is added by the engine's combat, outside the actor value |
+| 18, 76 | Damage Resistance, Damage Threshold | 0 | an actor's own come from its abilities (§9); worn armour is added by the engine's combat, outside the actor value |
 
 Settings not in the load order take the number in brackets: the wiki's default where it
 gives one [documented], else the masters' value [observed].
@@ -191,7 +197,12 @@ gives one [documented], else the masters' value [observed].
   Luck and Unarmed, and whatever Melee Damage, Unarmed Damage and Critical Chance hold
   above their formulas. Before this, the skill was a guess from the attribute.
 - Hits on an actor: its Agility for knockdown and knockback (creatures now have one),
-  and its own Damage Threshold and Damage Resistance on top of its armour.
+  and its own Damage Threshold and Damage Resistance on top of its armour
+  (`target_armor`). With §9 these two hold what the actor's abilities give: a
+  creature's hide, Sunny Smiles' Toughness. Nothing is counted twice: the armour's
+  share is the DT and DR of the ARMO records, the actor value's share is effects, and no
+  object effect of an armour of FalloutNV.esm changes either value [observed: the
+  survey's "worn_object_effects"].
 - Not yet: NPC attacks, movement speed from Speed Multiplier, Action Points, poison and
   radiation.
 
@@ -239,3 +250,92 @@ actors, it answers:
 
 Not covered: an NPC whose level follows the player's (§3.2), and the template rule for
 actors whose template is a leveled list (§2).
+
+## 9. Effects on actor values
+
+Code: `crates/fnv-game/src/effects.rs`. The wiki's pages of base effects, actor effects
+and object effects are not in the export; what is documented here comes from the
+ActorValue page and from xEdit's record definitions.
+
+### 9.1 Which effects, and which pool
+
+- A base effect (MGEF) of the archetype "Value Modifier" (0; "Value And Parts", 34, is
+  treated the same) changes one actor value by the magnitude of the effect item (EFIT)
+  that uses it [documented: ActorValue; xEdit for the archetypes].
+  - The value is MGEF DATA "actor value". The effect item has a field of the same name;
+    it is read only when the base effect has the flag "Use skill" or "Use attribute"
+    [hypothesis]. No base effect used by an ability, a worn object effect or an
+    ingestible of FalloutNV.esm sets either flag, and 9 of their effect items name
+    another value than their base effect [observed].
+  - A base effect with the flag Detrimental lowers the value, any other raises it
+    [hypothesis: the flag's name].
+- With the flag **Recover** the change lasts as long as the effect is active: the
+  temporary modifier [documented: ActorValue].
+- For the **player**, a Recover effect without conditions of an actor effect of type
+  Ability goes to the permanent modifier instead, so `GetPermanentActorValue` includes
+  it [documented: ActorValue, the Life Giver example].
+- **Without Recover** the change stays when the effect ends: it goes to the damage
+  pool, which "can only hold a negative modifier" [documented: ActorValue]. A
+  detrimental effect adds its magnitude to the damage, any other takes it off and never
+  past zero [hypothesis: the second half, from `RestoreActorValue`]. An effect with a
+  duration does that each second it lasts, one without a duration once [hypothesis:
+  the rate].
+
+### 9.2 What is active on an actor
+
+1. **The abilities of its record**: the SPEL records of type Ability in the SPLO list of
+   the NPC_ or CREA, or of its template when the ACBS template flag "Actor Effect List"
+   is set [documented: xEdit]. Entries of another type (26 of 1,414 in FalloutNV.esm,
+   all "Actor Effect") are things the actor can cast and change nothing by being listed
+   [hypothesis].
+2. **Worn object effects**: ARMO EITM names an ENCH; its effects count while the item is
+   marked as equipped in the actor's inventory [documented: ActorValue, "until you take
+   the armor off"].
+3. **Started effects** (`Game::effects`, scripts.md §7.6): a consumed ingestible, a
+   spell added with `AddSpell` or cast, for as long as each lasts. An ability a script
+   adds that the record also lists counts once [hypothesis].
+
+An effect item's conditions (CTDA) are evaluated with the actor as subject: for 1 and 2
+each time a value is read [hypothesis: the game re-evaluates them from time to time
+while the effect is on the actor], for 3 once, when the effect starts (as before). A
+condition that itself reads an actor value is evaluated without the conditioned effects
+of 1 and 2, so it cannot depend on itself.
+
+### 9.3 What the masters hold [observed: `fnvtool actor values --survey`, "effects"]
+
+- 191 NPC_ and 647 CREA records have a list of their own (1,414 entries, 49 distinct
+  SPELs: 1,388 abilities, 26 of type Actor Effect). 2,967 actors take the list from
+  their template; for 1,037 of them the template is a leveled list (§2).
+- The effects of the listed abilities: 41 Recover value modifiers, 3 without Recover
+  (Health twice, Rad Level), 4 Script effects; 3 have conditions. By value: Damage
+  Threshold 17, Damage Resistance 5, Critical Chance 3, Rad Resistance 3, Unarmed
+  Damage 3, Poison Resistance 2, Water Breathing 2, and one each of Bloody Mess, Fire
+  Resistance, Guns, Medicine, Melee Damage and Repair.
+- 186 ARMO records name one of 59 object effects: 100 Recover value modifiers (6
+  detrimental), 1 without Recover, 2 Script effects; 10 have conditions. They change
+  S.P.E.C.I.A.L., skills, Rad Resistance, Action Points and a few others, and neither
+  Damage Threshold nor Damage Resistance.
+- 189 ingestibles: 173 Recover value modifiers (41 detrimental), 395 without Recover
+  (132 detrimental; Health 139, Hunger 95, Rad Level 94, Dehydration 52), 26 Script
+  effects, 3 Limb Condition, 2 Chameleon; 260 value modifiers have conditions.
+- Checked on 2026-10-10: Sunny Smiles lists `PerkToughness` and reads Damage
+  Resistance 10 (base 0, temporary 10); her base values are those of §7.
+
+### 9.4 Not done
+
+- NPCs wear what the wearing rule picks from their inventory (actors.md §2.3,
+  `fnv_combat::CombatForms::worn_armor`), without an equipped mark, so their armour's
+  object effects do not count. The player's and what a script equips do.
+- An ability's effects without Recover (3 in the masters) act on nothing: there is no
+  moment or duration to measure them by.
+- A started effect's conditions are not looked at again after it started.
+- The player's permanent share of an ability on a S.P.E.C.I.A.L. value is added on
+  reading; the Layer 4 world's number, which its carry weight rule and the menus read,
+  does not hold it (§1).
+- The Medicine and Survival skills scaling an ingestible's effects [documented:
+  Ingestible, without the formula]; addiction and withdrawal; poisons; the object
+  effects of weapons on a hit; the abilities perks give (PERK records) unless a script
+  adds them; the archetypes Limb Condition, Turbo, Chameleon, Invisibility and
+  Paralysis.
+- `GetActorValueModifier` (a script extender function) is not implemented.
+

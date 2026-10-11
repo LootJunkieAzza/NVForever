@@ -962,7 +962,8 @@ fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimS
     let worn = c.forms.worn_armor(items);
     let (dt, dr) = c.forms.armor_values(&worn);
     // The actor's own Damage Threshold (76) and Damage Resistance (18) actor values:
-    // nothing until a script changes them (abilities are not applied yet).
+    // what its abilities give (a creature's hide) and what scripts changed
+    // (actor-values.md §9). The armour's DT and DR are not part of them.
     let own_dt = actor_av(script.as_deref_mut(), sim, target, 76).unwrap_or(0.0);
     let own_dr = actor_av(script, sim, target, 18).unwrap_or(0.0);
     (dt + own_dt, dr + own_dr)

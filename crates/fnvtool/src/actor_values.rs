@@ -61,6 +61,7 @@ pub fn run(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable, ac
     }
     if survey {
         out["survey"] = records(lo, schema, &g);
+        out["effects"] = effects(&g);
         out["settings"] = SETTINGS.iter().map(|s| (s.to_string(), json!(forms.setting_f32(s)))).collect::<Map<String, Value>>().into();
     }
     Ok(out)
@@ -87,9 +88,14 @@ fn actor(g: &mut Game, refs: &RefTable, name: &str) -> anyhow::Result<Value> {
     let base = if r == FormId::PLAYER_REF { FormId::PLAYER_BASE } else { refs.get(r).map(|p| p.base).unwrap_or(r) };
     let d = g.data.actors.get(&base).ok_or_else(|| anyhow::anyhow!("{name} ({r}) is not an actor"))?;
     let mut values = Map::new();
+    let mut modifiers = Map::new();
     for (code, av_name) in AV_NAMES.iter().enumerate() {
-        if let Ok([base, _, _]) = actor_value_parts(g, r, code as u16) {
-            values.insert(av_name.to_string(), json!(base));
+        if let Ok(p) = actor_value_parts(g, r, code as u16) {
+            values.insert(av_name.to_string(), json!(p.base));
+            // What the actor's abilities and worn object effects add (actor-values.md §9).
+            if p.temporary != 0.0 || p.permanent != 0.0 {
+                modifiers.insert(av_name.to_string(), json!({"permanent": p.permanent, "temporary": p.temporary, "current": p.base + p.permanent + p.temporary - p.damage}));
+            }
         }
     }
     Ok(json!({
@@ -106,6 +112,8 @@ fn actor(g: &mut Game, refs: &RefTable, name: &str) -> anyhow::Result<Value> {
         "stored_skill_values": d.skills,
         "stored_skill_offsets": d.skill_offsets,
         "values": values,
+        "modified_by_effects": modifiers,
+        "actor_effects": g.actor_effect_list(r).iter().map(|s| g.data.name(*s)).collect::<Vec<_>>(),
     }))
 }
 
@@ -205,5 +213,105 @@ fn records(lo: &LoadOrder, schema: &Schema, g: &Game) -> Value {
         },
         "creature_combat_skill_distinct_values": combat.len(),
         "creature_stealth_skill": stealth.iter().map(|(k, n)| (k.to_string(), json!(n))).collect::<Map<String, Value>>(),
+    })
+}
+
+/// What the records show about effects on actor values (actor-values.md §9): the
+/// actors' effect lists, and the "Value Modifier" effects of abilities, of worn object
+/// effects and of ingestibles, by the pool they go to.
+fn effects(g: &Game) -> Value {
+    use fnv_game::data as gd;
+    let data = g.data;
+    let bump = |m: &mut BTreeMap<String, u64>, k: String| *m.entry(k).or_default() += 1;
+    let spell_type = |t: Option<i64>| match t {
+        Some(0) => "Actor Effect".to_string(),
+        Some(1) => "Disease".into(),
+        Some(2) => "Power".into(),
+        Some(3) => "Lesser Power".into(),
+        Some(4) => "Ability".into(),
+        Some(5) => "Poison".into(),
+        Some(10) => "Addiction".into(),
+        Some(n) => n.to_string(),
+        None => "not a SPEL".into(),
+    };
+    // One magic item's effects, counted by what they do to actor values.
+    let count = |m: &mut BTreeMap<String, u64>, by_value: &mut BTreeMap<String, u64>, item: FormId| {
+        for e in data.effect_items.get(&item).into_iter().flatten() {
+            let Some(def) = data.magic_effects.get(&e.effect) else {
+                bump(m, "effects_without_a_base_effect".into());
+                continue;
+            };
+            if def.archetype != gd::ARCHETYPE_VALUE_MODIFIER && def.archetype != gd::ARCHETYPE_VALUE_AND_PARTS {
+                bump(m, format!("archetype_{}", def.archetype));
+                continue;
+            }
+            let recover = def.flags & gd::MGEF_RECOVER != 0;
+            let detrimental = def.flags & gd::MGEF_DETRIMENTAL != 0;
+            bump(m, format!("value_modifier{}{}", if recover { "_recover" } else { "_no_recover" }, if detrimental { "_detrimental" } else { "" }));
+            if !e.conditions.is_empty() {
+                bump(m, "value_modifier_with_conditions".into());
+            }
+            if def.flags & (gd::MGEF_USE_SKILL | gd::MGEF_USE_ATTRIBUTE) != 0 {
+                bump(m, "value_modifier_use_skill_or_attribute".into());
+            }
+            if e.actor_value != def.actor_value {
+                bump(m, "value_modifier_item_names_another_value".into());
+            }
+            let name = fnv_game::effects::effect_value(def, e).map_or("none".to_string(), |c| AV_NAMES.get(c as usize).map_or(c.to_string(), |n| n.to_string()));
+            bump(by_value, format!("{name}{}", if recover { "" } else { " (no recover)" }));
+        }
+    };
+    let (mut npcs, mut creatures, mut from_template, mut template_is_list) = (0u64, 0u64, 0u64, 0u64);
+    let mut types: BTreeMap<String, u64> = BTreeMap::new();
+    let mut listed: Vec<FormId> = Vec::new();
+    for d in data.actors.values() {
+        if d.template_effects && d.template.is_some() {
+            from_template += 1;
+            template_is_list += d.template.is_some_and(|t| !data.actors.contains_key(&t)) as u64;
+        }
+        if d.actor_effects.is_empty() {
+            continue;
+        }
+        if &d.sig == b"CREA" {
+            creatures += 1;
+        } else {
+            npcs += 1;
+        }
+        for &s in &d.actor_effects {
+            bump(&mut types, spell_type(data.spell_types.get(&s).copied()));
+            listed.push(s);
+        }
+    }
+    listed.sort();
+    listed.dedup();
+    let to_json = |m: BTreeMap<String, u64>| m.into_iter().map(|(k, n)| (k, json!(n))).collect::<Map<String, Value>>();
+    let (mut ability, mut ability_values) = (BTreeMap::new(), BTreeMap::new());
+    for &s in listed.iter().filter(|s| data.spell_types.get(s) == Some(&gd::SPELL_ABILITY)) {
+        count(&mut ability, &mut ability_values, s);
+    }
+    let (mut worn, mut worn_values) = (BTreeMap::new(), BTreeMap::new());
+    let mut enchantments: Vec<FormId> = data.enchantments.values().copied().collect();
+    enchantments.sort();
+    enchantments.dedup();
+    for &s in &enchantments {
+        count(&mut worn, &mut worn_values, s);
+    }
+    let (mut eaten, mut eaten_values) = (BTreeMap::new(), BTreeMap::new());
+    let mut ingestibles: Vec<FormId> = data.effect_items.keys().copied().filter(|i| data.sigs.get(i) == Some(b"ALCH")).collect();
+    ingestibles.sort();
+    for &s in &ingestibles {
+        count(&mut eaten, &mut eaten_values, s);
+    }
+    json!({
+        "npcs_with_actor_effects": npcs,
+        "creatures_with_actor_effects": creatures,
+        "actors_taking_the_list_from_a_template": from_template,
+        "of_them_template_is_a_leveled_list": template_is_list,
+        "listed_effects_by_type": to_json(types),
+        "distinct_listed_effects": listed.len(),
+        "ability_effects": {"by_kind": to_json(ability), "by_value": to_json(ability_values)},
+        "armour_with_an_object_effect": data.enchantments.len(),
+        "worn_object_effects": {"distinct": enchantments.len(), "by_kind": to_json(worn), "by_value": to_json(worn_values)},
+        "ingestibles": {"records": ingestibles.len(), "by_kind": to_json(eaten), "by_value": to_json(eaten_values)},
     })
 }
