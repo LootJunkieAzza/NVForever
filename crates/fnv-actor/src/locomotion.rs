@@ -469,6 +469,8 @@ mod tests {
             controller_type: None,
             priority: None,
             bools: None,
+            controller_id: None,
+            values: None,
             data: TrackData::Transform(TransformTrack { translation, rotation, euler: None, scale: Channel::Static(Some([1.0])) }),
         }
     }

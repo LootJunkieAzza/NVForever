@@ -29,7 +29,8 @@
 //!   or the length fitted to its text without one). The response being said in the
 //!   conversation with the player (`Game::dialogue`, `crate::dialogue::subtitle`) is in
 //!   the log's `subtitle:` lines too, but drawn by the dialogue menu
-//!   (`crate::dialogue_menu`).
+//!   (`crate::dialogue_menu`). A radio's talk line heard loudly enough is subtitled too
+//!   (`crate::radio::RadioSubtitle`).
 
 use crate::message_menu::{MessagePanel, PanelView};
 use crate::script::{ScriptState, MENU_MESSAGE};
@@ -152,7 +153,7 @@ pub fn box_buttons(b: &BoxMessage) -> Vec<String> {
 
 /// What the overlay shows this frame: the panel (a message box or a menu placeholder),
 /// the box on screen, and the subtitles.
-fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<PanelView>, Option<BoxMessage>, Subtitles) {
+fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&crate::radio::RadioSubtitle>) -> (Option<PanelView>, Option<BoxMessage>, Subtitles) {
     let Some(rt) = script.rt.as_ref() else { return (None, None, Subtitles::default()) };
     let g = &rt.game;
     let front = match g.menu {
@@ -178,6 +179,14 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<PanelV
         let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(s.speaker));
         subs.push(format!("{who}: {}", text.trim()));
     }
+    // A radio's talk line (`crate::radio::RadioSubtitle`), the station's name as the speaker.
+    if let Some((station, info, response)) = radio.and_then(|r| r.0) {
+        if let Some(text) = hud.lines.get(&info.0).and_then(|t| t.get(response)).filter(|t| !t.trim().is_empty()) {
+            let base = sim.base_of(station.0).unwrap_or(station);
+            let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(station));
+            subs.push(format!("{who}: {}", text.trim()));
+        }
+    }
     // The response being said in the conversation with the player: drawn by the dialogue
     // menu (`crate::dialogue_menu`), logged with the others.
     let on_screen = subs.join("\n");
@@ -200,8 +209,14 @@ fn draw(
     mut panel: ResMut<MessagePanel>,
     mut shown: Local<Subtitles>,
     mut subtitles: Query<&mut Text, With<SubtitleText>>,
+    (radio, play): (Option<Res<crate::radio::RadioSubtitle>>, Res<crate::PlayWorld>),
 ) {
-    let (p, front, subs) = view(&hud, &script, &sim);
+    if let Some((_, info, _)) = radio.as_deref().and_then(|r| r.0) {
+        if !hud.knows_line(info) {
+            hud.remember_line(info, crate::script::responses(&play, info));
+        }
+    }
+    let (p, front, subs) = view(&hud, &script, &sim, radio.as_deref());
     hud.on_screen = front;
     if panel.view != p {
         panel.set(p);

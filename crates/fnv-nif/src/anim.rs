@@ -360,6 +360,56 @@ pub struct Track {
     /// The on/off values of a `NiBoolInterpolator` track (`data` is then `Other`): under
     /// a `NiVisController`, whether the node is shown.
     pub bools: Option<BoolTrack>,
+    /// The controlled block's controller ID: which member of the target the controller
+    /// drives, e.g. `SELF_ILLUM` under a `NiMaterialColorController`, `0-0-TT_TRANSLATE_U`
+    /// under a `NiTextureTransformController` [observed: docs/spec-notes/activators.md §2].
+    pub controller_id: Option<String>,
+    /// The values of a `NiFloatInterpolator` or `NiPoint3Interpolator` track (`data` is
+    /// then `Other`): a colour, a texture offset, a multiplier.
+    pub values: Option<ValueTrack>,
+}
+
+/// A `NiFloatInterpolator` or `NiPoint3Interpolator` evaluated: its keys (`NiFloatData`,
+/// `NiPosData`), else its own value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ValueTrack {
+    Float(Channel<1>),
+    Point3(Channel<3>),
+}
+
+impl ValueTrack {
+    /// The value at `t`; a float track gives its value three times.
+    pub fn at(&self, t: f32) -> Option<[f32; 3]> {
+        match self {
+            ValueTrack::Float(c) => c.sample(t).map(|[v]| [v, v, v]),
+            ValueTrack::Point3(c) => c.sample(t),
+        }
+    }
+}
+
+/// The float or point3 interpolator at block `idx`, by its type name.
+pub fn value_track(dec: &Decoded, idx: i32, type_name: &str) -> Option<ValueTrack> {
+    let s = dec.get(idx)?;
+    // nif.xml marks an unset value with -FLT_MAX [documented].
+    let valid = |x: f32| x > -3.0e38;
+    let group = s.block_ref("data").and_then(|r| dec.get(r)).and_then(|d| d.strukt("data"));
+    match type_name {
+        "NiFloatInterpolator" => {
+            let keys = group.and_then(Keys::<1>::from_group).filter(|k| !k.is_empty());
+            Some(ValueTrack::Float(match keys {
+                Some(k) => Channel::Keys(k),
+                None => Channel::Static(s.float("value").filter(|v| valid(*v)).map(|v| [v])),
+            }))
+        }
+        "NiPoint3Interpolator" => {
+            let keys = group.and_then(Keys::<3>::from_group).filter(|k| !k.is_empty());
+            Some(ValueTrack::Point3(match keys {
+                Some(k) => Channel::Keys(k),
+                None => Channel::Static(s.floats("value").and_then(|v| <[f32; 3]>::try_from(v).ok()).filter(|v| v.iter().all(|x| valid(*x)))),
+            }))
+        }
+        _ => None,
+    }
 }
 
 /// A `NiBoolInterpolator` evaluated: its own value, or the step keys of its `NiBoolData`
@@ -585,12 +635,18 @@ pub fn sequences(file: &crate::NifFile, dec: &Decoded) -> Vec<Sequence> {
                 TrackData::Other(kind) if kind == "NiBoolInterpolator" => bool_track(dec, interp),
                 _ => None,
             };
+            let values = match &data {
+                TrackData::Other(kind) => value_track(dec, interp, kind),
+                _ => None,
+            };
             tracks.push(Track {
                 node_name: cb_string(dec, cb, "node_name"),
                 controller_type: cb_string(dec, cb, "controller_type"),
                 priority: cb.int("priority"),
                 data,
                 bools,
+                controller_id: cb_string(dec, cb, "controller_id"),
+                values,
             });
         }
         out.push(Sequence {

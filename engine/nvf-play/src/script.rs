@@ -61,6 +61,7 @@
 //!   `objective_done:<quest>:<n>`, `info:<INFO>[:<speaker>]`, `button:<n>`, `close`,
 //!   `message:<MESG>`,
 //!   `var:<form>:<variable>:<value>`, `walk:<reference>`, `activate:<reference>`,
+//!   `enable:<reference>`,
 //!   `say_to:<speaker>:<target>:<topic>[:<noTargetLookFlag>]`.
 //! - `NVF_PLAY_TEST_SCRIPT_MENUS=<seconds>|off`: every menu or message box a script opens
 //!   is closed (OK / Done, button 0) after it has been on screen that long. Unattended
@@ -712,6 +713,11 @@ impl Runtime {
                     debug!("test aid: activated {r}: {:?}", a.outcome);
                 }
             }
+            ScriptAid::Enable(r) => {
+                let r = resolve(g, r)?;
+                let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: 0x1021, on: Some(r), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+                g.call_function(&ctx, &[]);
+            }
             ScriptAid::SayTo(speaker, target, topic, no_look) => {
                 let (speaker, target, topic) = (resolve(g, speaker)?, resolve(g, target)?, resolve(g, topic)?);
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: SAY_TO, on: Some(speaker), self_ref: Some(speaker), action_ref: None, quest: None, inst: None, in_condition: false };
@@ -836,7 +842,8 @@ impl EffectCtx for PlayCtx<'_> {
 }
 
 /// The response texts (NAM1) of a dialogue line, in order.
-fn responses(play: &PlayWorld, info: FormId) -> Vec<String> {
+/// The response texts (NAM1) of a dialogue line, in the record's order.
+pub(crate) fn responses(play: &PlayWorld, info: FormId) -> Vec<String> {
     let Some((pi, rec)) = fnv_world::fields::winner(play.lo, info.0) else { return Vec::new() };
     let Ok(f) = fnv_world::fields::Fields::new(rec, pi, play.schema) else { return Vec::new() };
     f.subs.iter().filter(|s| &s.sig == b"NAM1").filter_map(|s| f.decode(s)).filter_map(|v| v.as_str().map(str::to_string)).collect()

@@ -261,7 +261,7 @@ fn activate(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut changed: MessageWriter<RefChanged>,
-    mut sit: MessageWriter<crate::furniture::UseFurniture>,
+    (mut sit, mut sounds): (MessageWriter<crate::furniture::UseFurniture>, MessageWriter<crate::world_sounds::Activated>),
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     script: Option<ResMut<crate::script::ScriptState>>,
     locks: Option<Res<crate::control::ControlLocks>>,
@@ -293,8 +293,12 @@ fn activate(
     // The actor's place before, to put back if a teleport cannot be followed.
     let before = sim.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot));
     let a = match crate::script::activate_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
-        Ok(crate::script::ByHand::Default(a)) => a,
+        Ok(crate::script::ByHand::Default(a)) => {
+            sounds.write(crate::world_sounds::Activated { reference: t.form_id });
+            a
+        }
         Ok(crate::script::ByHand::Script) => {
+            sounds.write(crate::world_sounds::Activated { reference: t.form_id });
             info!("activate 0x{:08X} {} ({}): its script's OnActivate ran", t.form_id, t.name, t.action.label());
             return;
         }

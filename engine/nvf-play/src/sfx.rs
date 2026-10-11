@@ -16,13 +16,24 @@
 //! - **Loudness** [design; the record's five-point attenuation curve is not used]: the
 //!   static attenuation is taken off (gain 10^(−dB ÷ 20)). A sound with a place is at
 //!   full gain within its minimum distance of the listener (the player's eye), falls as
-//!   minimum ÷ distance beyond it and fades to nothing at its maximum distance. It is
-//!   not panned.
+//!   minimum ÷ distance beyond it and fades to nothing at its maximum distance.
+//! - **Panning** [design; how the game places sounds is not known]: a sound with a place
+//!   is heard more on the side of the listener it is on ([`pan_gains`]): the ear facing
+//!   it hears it whole, the other ear loses up to [`PAN_DEPTH`] of it, by how far to the
+//!   side it is (straight ahead, behind, above or below: both ears alike). A panned sound
+//!   is played in stereo, its channels mixed to one first. The listener is the player's
+//!   eye, facing the player's heading; [`pan_sounds`] follows the listener while a sound
+//!   plays ([`SoundAt`]). Sounds at the listener (the player's own, interface sounds)
+//!   and the background loops are not panned. Other modules' positioned streams use
+//!   [`Panned`] (placed loops in [`crate::ambient`], radios in [`crate::radio`]).
 //! - **Pitch**: the frequency adjustment, and ±5% at random with the Random Frequency
 //!   Shift flag [design: the size of the shift].
 //! - **Loops.** A [`LoopSound`] starts a SOUN going round and stops it again (a
 //!   weapon's Shoot 3D Looping sound while it fires).
-//! - Not built: panning, reverb. The sounds animations and doors name in their text keys
+//! - **Things that sound while they are there** ([`SoundSource`]): a creature's conscious
+//!   loop, an activator's or a container's looping sound; sent every frame they should
+//!   sound and played by [`crate::ambient`] as it plays sound markers.
+//! - Not built: reverb. The sounds animations and doors name in their text keys
 //!   (reloads, footsteps, armour rustle, doors) are sent here by nvforever's
 //!   `anim_sounds.rs` (docs/spec-notes/audio.md §10). Placed sounds and the cells'
 //!   background loops are [`crate::ambient`]; music is [`crate::music`].
@@ -38,6 +49,7 @@ use fnv_combat::rng::SplitMix;
 use fnv_sim::FormId;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZero;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -73,26 +85,183 @@ pub struct LoopSound {
 #[derive(Component)]
 struct Looping(FormId);
 
+/// Something that sounds as long as it is there, at a place (game space): sent every
+/// frame it should sound; [`crate::ambient`] plays its SOUN as it plays a sound marker
+/// (looping, or now and then for Play At Random) while the listener is within reach.
+/// `key` tells one source from another ([`SoundSource::key`]).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct SoundSource {
+    pub key: u64,
+    pub sound: FormId,
+    pub at: [f32; 3],
+}
+
+impl SoundSource {
+    /// A key from a kind of source (one per sender and use) and a reference.
+    pub fn key(kind: u8, reference: u32) -> u64 {
+        (u64::from(kind) << 32) | u64::from(reference)
+    }
+}
+
+/// How much of a sound straight to one side the far ear loses [design].
+pub const PAN_DEPTH: f32 = 0.7;
+
+/// The left and right gains of a sound at `at` heard from `eye` facing the compass
+/// `heading` (radians, 0 north, π/2 east; game space, z up): see the module notes.
+pub fn pan_gains(eye: [f32; 3], heading: f32, at: [f32; 3]) -> [f32; 2] {
+    let d = [at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]];
+    let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if len < 1.0 {
+        return [1.0, 1.0];
+    }
+    // The listener's right: the heading turned a quarter clockwise.
+    let side = ((d[0] * heading.cos() - d[1] * heading.sin()) / len).clamp(-1.0, 1.0);
+    if side >= 0.0 {
+        [1.0 - PAN_DEPTH * side, 1.0]
+    } else {
+        [1.0, 1.0 + PAN_DEPTH * side]
+    }
+}
+
+/// Left and right gains shared with the audio thread while a sound plays.
+#[derive(Clone, Debug)]
+pub struct Pan(Arc<[AtomicU32; 2]>);
+
+impl Pan {
+    pub fn new(gains: [f32; 2]) -> Pan {
+        Pan(Arc::new([AtomicU32::new(gains[0].to_bits()), AtomicU32::new(gains[1].to_bits())]))
+    }
+
+    pub fn set(&self, gains: [f32; 2]) {
+        self.0[0].store(gains[0].to_bits(), Ordering::Relaxed);
+        self.0[1].store(gains[1].to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn get(&self) -> [f32; 2] {
+        [f32::from_bits(self.0[0].load(Ordering::Relaxed)), f32::from_bits(self.0[1].load(Ordering::Relaxed))]
+    }
+}
+
+/// A sound playing at a place: [`pan_sounds`] turns its [`Pan`] with the listener.
+#[derive(Component, Clone, Debug)]
+pub struct SoundAt {
+    pub at: [f32; 3],
+    pub pan: Pan,
+}
+
+impl SoundAt {
+    /// A sound at `at`, panned for the listener as it is now (centred without one).
+    pub fn new(at: [f32; 3], player: Option<&Player>) -> SoundAt {
+        let gains = player.map_or([1.0, 1.0], |p| pan_gains(p.eye(), p.heading, at));
+        SoundAt { at, pan: Pan::new(gains) }
+    }
+}
+
+/// One frame of `channels` samples mixed to one and placed by `pan`: the left sample
+/// and the right one; `None` when the input has ended.
+fn pan_frame(frame: impl Iterator<Item = Sample>, channels: usize, pan: &Pan) -> Option<(Sample, Sample)> {
+    let mut sum = 0.0;
+    let mut n = 0;
+    for s in frame.take(channels.max(1)) {
+        sum += s;
+        n += 1;
+    }
+    if n == 0 {
+        return None;
+    }
+    let m = sum / channels.max(1) as f32;
+    let [l, r] = pan.get();
+    Some((m * l, m * r))
+}
+
+/// Another module's sound played at a place: its source, mixed to one channel and
+/// panned, in stereo.
+#[derive(Asset, TypePath, Clone)]
+pub struct Panned<T: Decodable + TypePath + Clone> {
+    pub inner: T,
+    pub pan: Pan,
+}
+
+pub struct PanDecoder<S> {
+    input: S,
+    pan: Pan,
+    right: Option<Sample>,
+}
+
+impl<S: Source> Iterator for PanDecoder<S> {
+    type Item = Sample;
+
+    fn next(&mut self) -> Option<Sample> {
+        if let Some(r) = self.right.take() {
+            return Some(r);
+        }
+        let c = self.input.channels().get() as usize;
+        let (l, r) = pan_frame(&mut self.input, c, &self.pan)?;
+        self.right = Some(r);
+        Some(l)
+    }
+}
+
+impl<S: Source> Source for PanDecoder<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> ChannelCount {
+        NonZero::new(2).unwrap_or(NonZero::<u16>::MIN)
+    }
+
+    fn sample_rate(&self) -> SampleRate {
+        self.input.sample_rate()
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        self.input.total_duration()
+    }
+}
+
+impl<T: Decodable + TypePath + Clone> Decodable for Panned<T> {
+    type Decoder = PanDecoder<T::Decoder>;
+
+    fn decoder(&self) -> Self::Decoder {
+        PanDecoder { input: self.inner.decoder(), pan: self.pan.clone(), right: None }
+    }
+}
+
 /// Decoded samples of a sound file.
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct PcmSound {
     samples: Arc<[f32]>,
     channels: u16,
     rate: u32,
+    /// Played at a place: mixed to one channel and panned, in stereo.
+    pan: Option<Pan>,
 }
 
 pub struct PcmDecoder {
     sound: PcmSound,
     at: usize,
+    right: Option<Sample>,
 }
 
 impl Iterator for PcmDecoder {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Sample> {
-        let s = self.sound.samples.get(self.at).copied();
-        self.at += 1;
-        s
+        let Some(pan) = &self.sound.pan else {
+            let s = self.sound.samples.get(self.at).copied();
+            self.at += 1;
+            return s;
+        };
+        if let Some(r) = self.right.take() {
+            return Some(r);
+        }
+        let c = self.sound.channels.max(1) as usize;
+        let frame = self.sound.samples.get(self.at..self.at + c)?;
+        self.at += c;
+        let (l, r) = pan_frame(frame.iter().copied(), c, pan)?;
+        self.right = Some(r);
+        Some(l)
     }
 }
 
@@ -102,7 +271,8 @@ impl Source for PcmDecoder {
     }
 
     fn channels(&self) -> ChannelCount {
-        NonZero::new(self.sound.channels).unwrap_or(NonZero::<u16>::MIN)
+        let c = if self.sound.pan.is_some() { 2 } else { self.sound.channels };
+        NonZero::new(c).unwrap_or(NonZero::<u16>::MIN)
     }
 
     fn sample_rate(&self) -> SampleRate {
@@ -118,7 +288,7 @@ impl Decodable for PcmSound {
     type Decoder = PcmDecoder;
 
     fn decoder(&self) -> PcmDecoder {
-        PcmDecoder { sound: self.clone(), at: 0 }
+        PcmDecoder { sound: self.clone(), at: 0, right: None }
     }
 }
 
@@ -131,7 +301,7 @@ impl PcmSound {
     pub fn from_encoded(bytes: Vec<u8>) -> Result<PcmSound, String> {
         let d = rodio::Decoder::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
         let (channels, rate) = (d.channels().get(), d.sample_rate().get());
-        Ok(PcmSound { samples: d.collect::<Vec<f32>>().into(), channels, rate })
+        Ok(PcmSound { samples: d.collect::<Vec<f32>>().into(), channels, rate, pan: None })
     }
 
     /// Decode a WAV file: the `fmt ` and `data` chunks of a RIFF/WAVE file [documented:
@@ -170,7 +340,7 @@ impl PcmSound {
                     if channels == 0 || rate == 0 {
                         return Err("no channels or sample rate".into());
                     }
-                    return Ok(PcmSound { samples: samples.into(), channels, rate });
+                    return Ok(PcmSound { samples: samples.into(), channels, rate, pan: None });
                 }
                 _ => {}
             }
@@ -331,16 +501,24 @@ fn play(
             sfx.silent += 1;
         }
     }
-    let eye = player.as_deref().map(Player::eye);
     for r in requests.read() {
-        one_shot(&mut commands, sfx, &data.vfs, &mut assets, &settings, r.sound, r.at, eye);
+        one_shot_heard(&mut commands, sfx, &data.vfs, &mut assets, &settings, r.sound, r.at, player.as_deref());
+    }
+}
+
+/// Turn the sounds playing at a place with the listener.
+pub fn pan_sounds(player: Option<Res<Player>>, sounds: Query<&SoundAt>) {
+    let Some(p) = player else { return };
+    let (eye, heading) = (p.eye(), p.heading);
+    for s in &sounds {
+        s.pan.set(pan_gains(eye, heading, s.at));
     }
 }
 
 /// Play a SOUN once, at a place (heard from `eye`) or at the listener. The seconds it
 /// lasts as played, also when it is too quiet to be heard or sounds are switched off;
-/// `None` without a file we can play.
-#[allow(clippy::too_many_arguments)]
+/// `None` without a file we can play. Not panned: [`one_shot_heard`] pans.
+#[allow(clippy::too_many_arguments, dead_code)]
 pub(crate) fn one_shot(
     commands: &mut Commands,
     sfx: &mut Sfx,
@@ -350,6 +528,37 @@ pub(crate) fn one_shot(
     sound: FormId,
     at: Option<[f32; 3]>,
     eye: Option<[f32; 3]>,
+) -> Option<f32> {
+    one_shot_at(commands, sfx, vfs, assets, settings, sound, at, eye, None)
+}
+
+/// [`one_shot`] heard by the player: a sound with a place is panned for them.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn one_shot_heard(
+    commands: &mut Commands,
+    sfx: &mut Sfx,
+    vfs: &fnv_vfs::Vfs,
+    assets: &mut Assets<PcmSound>,
+    settings: &SfxSettings,
+    sound: FormId,
+    at: Option<[f32; 3]>,
+    player: Option<&Player>,
+) -> Option<f32> {
+    let placed = at.zip(player).map(|(at, p)| SoundAt::new(at, Some(p)));
+    one_shot_at(commands, sfx, vfs, assets, settings, sound, at, player.map(Player::eye), placed)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn one_shot_at(
+    commands: &mut Commands,
+    sfx: &mut Sfx,
+    vfs: &fnv_vfs::Vfs,
+    assets: &mut Assets<PcmSound>,
+    settings: &SfxSettings,
+    sound: FormId,
+    at: Option<[f32; 3]>,
+    eye: Option<[f32; 3]>,
+    placed: Option<SoundAt>,
 ) -> Option<f32> {
     let (s, name, path, handle) = source(sfx, vfs, assets, sound)?;
     let distance = at.zip(eye).map(|(at, e)| ((at[0] - e[0]).powi(2) + (at[1] - e[1]).powi(2) + (at[2] - e[2]).powi(2)).sqrt());
@@ -366,7 +575,16 @@ pub(crate) fn one_shot(
         return Some(seconds);
     }
     sfx.played += 1;
-    commands.spawn((AudioPlayer::<PcmSound>(handle), PlaybackSettings::DESPAWN.with_volume(Volume::Linear(gain)).with_speed(speed), SfxSound));
+    let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(gain)).with_speed(speed);
+    match placed.and_then(|p| assets.get(&handle).map(|pcm| (PcmSound { pan: Some(p.pan.clone()), ..pcm.clone() }, p))) {
+        // This playing's own asset: the samples are shared, the pan is its own.
+        Some((pcm, placed)) => {
+            commands.spawn((AudioPlayer::<PcmSound>(assets.add(pcm)), playback, placed, SfxSound));
+        }
+        None => {
+            commands.spawn((AudioPlayer::<PcmSound>(handle), playback, SfxSound));
+        }
+    }
     Some(seconds)
 }
 
@@ -386,8 +604,9 @@ impl Plugin for SfxPlugin {
             .add_audio_source::<PcmSound>()
             .add_message::<PlaySound>()
             .add_message::<LoopSound>()
+            .add_message::<SoundSource>()
             .add_systems(Startup, init)
-            .add_systems(Update, play.after(crate::PlaySet::Activation))
+            .add_systems(Update, (play.after(crate::PlaySet::Activation), pan_sounds).chain())
             .add_systems(Last, report);
     }
 }
@@ -426,6 +645,45 @@ mod tests {
         // ADPCM (tag 2) is named, not played as noise.
         assert!(PcmSound::from_wav(&wav(2, 1, 22050, 4, &[1, 2])).unwrap_err().contains("format tag 2"));
         assert!(PcmSound::from_wav(b"OggS").is_err());
+    }
+
+    #[test]
+    fn panned_by_side() {
+        // Facing north (heading 0): east is to the right, west to the left.
+        let eye = [0.0, 0.0, 0.0];
+        assert_eq!(pan_gains(eye, 0.0, [0.0, 500.0, 0.0]), [1.0, 1.0]);
+        assert_eq!(pan_gains(eye, 0.0, [0.0, -500.0, 0.0]), [1.0, 1.0]);
+        assert_eq!(pan_gains(eye, 0.0, [0.0, 0.0, 500.0]), [1.0, 1.0]);
+        let right = pan_gains(eye, 0.0, [500.0, 0.0, 0.0]);
+        assert!((right[0] - (1.0 - PAN_DEPTH)).abs() < 1e-5 && right[1] == 1.0);
+        let left = pan_gains(eye, 0.0, [-500.0, 0.0, 0.0]);
+        assert!(left[0] == 1.0 && (left[1] - (1.0 - PAN_DEPTH)).abs() < 1e-5);
+        // Facing east (π/2): a sound to the north is on the left.
+        let g = pan_gains(eye, std::f32::consts::FRAC_PI_2, [0.0, 500.0, 0.0]);
+        assert!(g[0] == 1.0 && g[1] < 0.5);
+        // At the listener: centred.
+        assert_eq!(pan_gains(eye, 1.0, [0.2, 0.0, 0.0]), [1.0, 1.0]);
+    }
+
+    #[test]
+    fn a_panned_sound_is_stereo() {
+        let pan = Pan::new([1.0, 0.5]);
+        let mono = PcmSound { samples: vec![0.8, -0.4].into(), channels: 1, rate: 22050, pan: Some(pan.clone()) };
+        let d = mono.decoder();
+        assert_eq!(d.channels().get(), 2);
+        assert_eq!(d.collect::<Vec<_>>(), vec![0.8, 0.4, -0.4, -0.2]);
+        // Stereo in: the two channels are mixed to one, then placed; a frame cut short
+        // at the end is dropped.
+        let stereo = PcmSound { samples: vec![0.2, 0.6, 1.0, 1.0, 0.5].into(), channels: 2, rate: 22050, pan: Some(pan.clone()) };
+        assert_eq!(stereo.decoder().collect::<Vec<_>>(), vec![0.4, 0.2, 1.0, 0.5]);
+        // Not placed: as it is.
+        let plain = PcmSound { pan: None, ..mono.clone() };
+        assert_eq!(plain.decoder().channels().get(), 1);
+        assert_eq!(plain.decoder().collect::<Vec<_>>(), vec![0.8, -0.4]);
+        // Another module's source, panned.
+        let other = Panned { inner: plain, pan };
+        assert_eq!(other.decoder().channels().get(), 2);
+        assert_eq!(other.decoder().collect::<Vec<_>>(), vec![0.8, 0.4, -0.4, -0.2]);
     }
 
     #[test]

@@ -119,6 +119,7 @@ fn boxed(half: f32) -> CollisionObject {
         restitution: 0.0,
         shape: Shape::Box { half_extents: [half; 3] },
         shell: 0.0,
+        material: None,
     }
 }
 
@@ -147,6 +148,7 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .add_message::<OpenContainer>()
         .add_message::<RefChanged>()
         .add_message::<crate::furniture::UseFurniture>()
+        .add_message::<crate::world_sounds::Activated>()
         .add_systems(Update, (find_target, activate, sync_visuals).chain());
     app
 }

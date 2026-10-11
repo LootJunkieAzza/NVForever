@@ -153,7 +153,8 @@ fn survey(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex, data: &GameData, vfs
             .map(|r| {
                 json!({"ref": fid(r.ref_id), "cell": cell_name(r.cell), "initially_disabled": r.initially_disabled,
                     "radio_data": r.radio.map(|(radius, range, statics, pos)| json!({"range_radius": radius, "range": format!("{range:?}"),
-                        "static_percent": statics, "position_ref": pos.map(fid)}))})
+                        "static_percent": statics, "position_ref": pos.map(fid)})),
+                    "broadcasts_from": radio::broadcast(lo, schema, ix, r).and_then(|b| b.exterior).map(|(w, p)| json!({"world": fid(w), "position": p}))})
             })
             .collect();
         let placed_receivers = receivers.iter().filter(|r| r.station == s.form_id || station_refs.iter().any(|sr| sr.ref_id == r.station && sr.base == s.form_id)).count();
@@ -162,7 +163,7 @@ fn survey(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex, data: &GameData, vfs
         }
         stations.push(json!({
             "form": fid(s.form_id), "edid": s.edid, "flags": format!("0x{:08X}", s.flags), "radio_station_flag": s.is_radio(),
-            "continuous_flag": s.continuous(), "voice_type": s.voice_type.map(fid), "voice_type_edid": s.voice_type.and_then(edid),
+            "continuous_flag": s.continuous(), "on_pipboy": s.on_pipboy(), "voice_type": s.voice_type.map(fid), "voice_type_edid": s.voice_type.and_then(edid),
             "template": sound(s.template), "looping": sound(s.looping), "refs": refs,
             "quests": quests.iter().map(|q| json!({"form": fid(q.0), "edid": edid(q.0)})).collect::<Vec<_>>(),
             "lines_conditioned_on_it": line_conditions_of.get(&s.form_id).copied().unwrap_or(0),
@@ -207,6 +208,7 @@ fn survey(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex, data: &GameData, vfs
             "talking_activators": forms.stations.len(),
             "talking_activators_with_radio_station_flag": forms.stations.values().filter(|s| s.is_radio()).count(),
             "talking_activators_with_continuous_flag": forms.stations.values().filter(|s| s.continuous()).count(),
+            "radio_stations_on_the_pipboy": forms.stations.values().filter(|s| s.on_pipboy()).count(),
             "talking_activator_flags": count(&flag_combos),
             "station_refs_placed": station_refs.len(),
             "station_ref_range_types": count(&range_types),

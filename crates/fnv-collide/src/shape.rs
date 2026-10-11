@@ -169,4 +169,9 @@ pub struct CollisionObject {
     /// actor rests about that much higher than on the bare geometry [hypothesis for the
     /// mechanism; the in-game rest heights it explains: physics.md §6.2].
     pub shell: f32,
+    /// Havok material code of the body's convex shapes (box, sphere, capsule,
+    /// convex vertices): the first one's when they differ [design], `None` when it has
+    /// none. Triangle meshes keep one per triangle in the shape instead. What is hit, for
+    /// impact effects and sounds (docs/spec-notes/audio.md §11).
+    pub material: Option<u32>,
 }

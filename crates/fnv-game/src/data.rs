@@ -515,6 +515,9 @@ pub struct GameData {
     pub idles: HashMap<FormId, IdleDef>,
     /// IMAD: how long each image space modifier plays.
     pub image_modifiers: HashMap<FormId, ImageModifierDef>,
+    /// TACT: the record-header flags of every talking activator (radio stations: the
+    /// Continuous Broadcast bit, `crate::radio`; docs/spec-notes/radio.md §2).
+    pub station_flags: HashMap<FormId, u32>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
 }
@@ -670,6 +673,7 @@ impl GameData {
             idle_markers: HashMap::new(),
             idles: HashMap::new(),
             image_modifiers: HashMap::new(),
+            station_flags: winners.iter().filter(|w| &w.2.header.sig == b"TACT").map(|w| (FormId(w.0), w.2.header.flags)).collect(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
         };

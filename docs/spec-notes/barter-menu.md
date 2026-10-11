@@ -183,7 +183,7 @@ screen's height):
   conversation].
 
 Not built: the quantity menu, the BarterExit lines merchants say when the menu closes
-(GECK wiki Service Tab), the sounds, the blur, the item tiles listed above, the
+(GECK wiki Service Tab), the blur, the item tiles listed above, the
 "Calculate Buy Price" perk entry point, repair at merchants, companions' inventories
 (OpenTeammateContainer).
 
@@ -193,6 +193,8 @@ Not built: the quantity menu, the BarterExit lines merchants say when the menu c
   merchant and makes one trade, logging the lists, prices and caps; with
   `NVF_PLAY_TEST_SHOT=<path.png>` it saves `<stem>-barter.png` and
   `<stem>-barter-trade.png`. With `*` it waits for a script to open one.
+  `NVF_PLAY_TEST_BARTER_DELAY` gives it a delay of its own (else `NVF_PLAY_TEST_DELAY`),
+  so that it can run beside the container check. Its sounds: audio.md §12.
 - The dialogue path, Chet in the Goodsprings General Store:
   `NVF_PLAY_TEST_TALK="10:GSChetRef=for sale|leave" NVF_PLAY_TEST_BARTER="*"
   NVF_PLAY_TEST_SCRIPT_MENUS=0.3 nvforever --data <Data> --cell GSGeneralStore --play
