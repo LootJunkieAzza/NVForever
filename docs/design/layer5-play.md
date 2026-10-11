@@ -173,8 +173,9 @@ engine does:
 | `item_added` / `item_removed` for the player | a line; four or more items at once collapse into one |
 | `image_modifier_applied` / `_removed` | none through the events: nvforever's grade pass reads `Game::image_modifiers` every frame and draws them (fade colour, blur, double vision, radial blur, grade changes; docs/spec-notes/image-modifiers.md §5–6) |
 
-**Subtitles** (round 2): each line being said (`Game::speech`) shows as "Speaker: text"
-at the bottom of the view, one response of the INFO at a time, each for as long as it
+**Subtitles** (round 2): each line being said (`Game::speech`) shows at the bottom of
+the view, its text alone in the HUD's amber and font 7 (docs/spec-notes/corner-messages.md
+§8; the log keeps "Speaker: text"), one response of the INFO at a time, each for as long as it
 lasts (its voice file's length, or the length fitted to its text when it has none,
 scripts.md §7.7), and goes when the runtime ends or cuts the line. The voice file is
 played (`voice.rs`, docs/spec-notes/voice.md §9; `--no-voice`, `--voice-volume`).
