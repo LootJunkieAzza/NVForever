@@ -429,7 +429,10 @@ pub fn drive_actors(
                     t.rotation = rotation(on.heading);
                     (Stage::Using(Use::begin(FormId(plan.furniture), FormId(plan.base), plan.entry, 0.0)), Some((get_on.clone(), 0.999)))
                 } else {
-                    (Stage::Approach { from, t: 0.0, len: (d / APPROACH_SPEED).max(0.15) }, None)
+                    // Long enough to walk there and to turn to the entry heading at the
+                    // standing turn rate (it does not whip round in a few frames).
+                    let turn = fnv_nav::follow::heading_delta(from.heading, plan.entry.heading).abs() / fnv_nav::follow::SPOT_TURN_RATE;
+                    (Stage::Approach { from, t: 0.0, len: (d / APPROACH_SPEED).max(turn).max(0.15) }, None)
                 };
                 // Its body is the furniture's now: a conversation turns only its head.
                 commands.entity(e).insert(crate::dialogue_look::BodyHeld).insert(OnFurniture {

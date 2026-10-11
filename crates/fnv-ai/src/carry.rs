@@ -240,6 +240,10 @@ pub struct Agent {
     /// What it does in a combat state (`crate::alert`): its package's own doings wait
     /// meanwhile.
     pub search: Option<crate::alert::Search>,
+    /// The heading it is to stand facing where it arrived (an idle marker's, a sandbox
+    /// spot's): turned to on the spot at the standing turn rate, not taken at once
+    /// [design; owner's playtest 2026-10-11: actors turned half about in a frame].
+    pub face_to: Option<f32>,
 }
 
 #[derive(Default)]
@@ -267,7 +271,7 @@ impl Ai {
         let place = goal::place_of_ref(game, actor).ok_or_else(|| format!("{actor} is in no cell"))?;
         let heading = game.world.peek(actor).map(|s| s.rot[2]).or_else(|| game.world.placed.get(actor).map(|p| p.rot[2])).unwrap_or(0.0);
         let walker = Walker::new(place.space, place.pos, heading, self.cfg.walk_speed);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None });
         Ok(())
     }
 
@@ -416,6 +420,7 @@ impl Ai {
                 // one go).
                 a.chat = None;
                 a.search = None;
+                a.face_to = None;
                 self.set_using(game, actor, None);
                 self.taken.retain(|_, user| *user != actor);
                 if let Some(p) = current {
@@ -431,6 +436,9 @@ impl Ai {
             match self.agents[&actor].activity {
                 Activity::Travelling => self.walk(game, nav, actor, dt, open),
                 Activity::There if !quiet && !chatting && !alerted => {
+                    if let Some(h) = self.agents[&actor].face_to {
+                        self.face_heading(game, actor, h, dt);
+                    }
                     if self.agents[&actor].wait_until.is_some_and(|t| game.time >= t) {
                         self.agents.get_mut(&actor).expect("listed").wait_until = None;
                         self.patrol_on(game, nav, actor);
@@ -620,6 +628,18 @@ impl Ai {
         game.package_goal_met(actor);
     }
 
+    /// Turn a standing actor towards the heading it was given on arriving
+    /// ([`Agent::face_to`]) for `dt` seconds, and tell the game its heading.
+    fn face_heading(&mut self, game: &mut Game, actor: FormId, heading: f32, dt: f32) {
+        let a = self.agents.get_mut(&actor).expect("listed");
+        if a.walker.face(heading, dt) {
+            a.face_to = None;
+        }
+        let (feet, heading) = (Place { space: a.walker.space, pos: a.walker.feet }, a.walker.heading);
+        let cell = goal::cell_of_place(game.world.placed, &feet);
+        let _ = game.set_actor_place(actor, cell, feet.pos, heading);
+    }
+
     /// Turn a standing actor towards a place for `dt` seconds, and tell the game its
     /// heading.
     pub(crate) fn face(&mut self, game: &mut Game, actor: FormId, to: Place, dt: f32) {
@@ -738,9 +758,7 @@ impl Ai {
         let a = self.agents.get_mut(&actor).expect("listed");
         a.activity = Activity::There;
         a.walker.follower = None;
-        if let Some(h) = choice.heading {
-            a.walker.heading = h;
-        }
+        a.face_to = choice.heading;
         if let Some(sb) = a.sandbox.as_mut() {
             sb.begin(game, &choice);
         }
@@ -854,6 +872,7 @@ impl Ai {
 
     fn walk(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, mover: &mut dyn Mover) {
         let a = self.agents.get_mut(&actor).expect("listed");
+        a.face_to = None;
         let ev = match mover.walk(actor, &mut a.walker, nav, dt) {
             Some(ev) => ev,
             None => a.walker.update_with(nav, dt, &mut |door| mover.open(actor, door)),

@@ -50,7 +50,7 @@ use bevy::prelude::*;
 use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Doing, Mover};
 use fnv_game::game::{Game, GameConfig};
 use fnv_game::GameData;
-use fnv_nav::follow::{heading_of, turn_towards, Advice, Unstuck};
+use fnv_nav::follow::{arc_step, heading_delta, heading_of, turn_towards, Advice, Unstuck};
 use fnv_nav::{NavGraph, Space, Steer, WalkEvent, Walker};
 use nvf_play::blocking::ActorBlocks;
 use nvf_play::phys::PhysState;
@@ -80,6 +80,10 @@ const LAST_STRETCH: f32 = 64.0;
 /// The length of one update of the walks of an hour passed in the Wait menu, seconds
 /// [our choice].
 const WAITED_STEP: f32 = 0.25;
+
+/// A drawn actor turning faster than this between two frames is counted in the turn
+/// summary (radians per second: one and a half times the walking turn rate).
+const SNAP_TURN: f32 = 1.5 * fnv_nav::follow::WALK_TURN_RATE;
 
 /// A standing actor that had no room to give way when it was pushed is not pushed again
 /// for this long, seconds: it stands in the way like a seated one [our choice].
@@ -168,6 +172,8 @@ impl Mover for PhysMover<'_> {
                 phys.remove_npc(id);
                 walker.travelled += (feet[0] - walker.feet[0]).hypot(feet[1] - walker.feet[1]);
                 walker.feet = feet;
+                walker.turning = false;
+                walker.moving = false;
                 return Some(WalkEvent::Arrived);
             }
             Steer::OpenDoor { door, .. } => {
@@ -198,11 +204,23 @@ impl Mover for PhysMover<'_> {
                 give_up(phys, walker, f);
                 return None;
             }
+            // Standing and facing away from the way to go: it turns on the spot first, as
+            // the walker does (not counted as being stuck).
+            Steer::Walk { dir, .. }
+                if dir != [0.0, 0.0] && (walker.turning || (!walker.moving && heading_delta(walker.heading, heading_of(dir)).abs() > walker.spot_turn_start)) =>
+            {
+                walker.turning = !walker.face(heading_of(dir), dt);
+                (WalkEvent::Turned, [0.0, 0.0])
+            }
             Steer::Walk { dir, remaining, .. } => match self.unstuck.entry(id).or_insert_with(|| Unstuck::new(walker.speed)).advise(remaining, dir, dt) {
                 Advice::Head(h) => {
-                    let speed = walker.speed.min(remaining / dt.max(1e-3));
+                    // The heading turns at the walking rate and the actor walks along it
+                    // (an arc round a corner), slowing while it is off the way to go
+                    // (fnv_nav::follow::arc_step).
                     walker.heading = turn_towards(walker.heading, heading_of(h), walker.turn_rate * dt);
-                    (WalkEvent::Moved, [h[0] * speed, h[1] * speed])
+                    let (along, slow) = arc_step(walker.heading, h);
+                    let speed = walker.speed.min(remaining / dt.max(1e-3)) * slow;
+                    (WalkEvent::Moved, [along[0] * speed, along[1] * speed])
                 }
                 // Stuck: the navmesh surface from here, for a while.
                 _ => {
@@ -219,6 +237,7 @@ impl Mover for PhysMover<'_> {
         walker.feet = feet;
         walker.tri = fnv_nav::graph::NONE;
         walker.follower = Some(f);
+        walker.moving = event == WalkEvent::Moved && velocity != [0.0, 0.0];
         if let Some(b) = phys.npcs.get_mut(&id) {
             b.velocity = velocity;
         }
@@ -276,6 +295,8 @@ struct Resident {
     /// Standing where its package has it, with nothing else to do: its package's idles
     /// may play (`idles.rs`). Inside: the base of the idle marker it stands at.
     stand: Option<Option<FormId>>,
+    /// The heading it was drawn with last frame (drawn, not on furniture), and where.
+    last_drawn: Option<(f32, [f32; 3])>,
 }
 
 /// A resident standing with nothing else to do ([`Residents::standing`]).
@@ -328,6 +349,10 @@ struct Core {
     pushing: HashMap<u32, Pushed>,
     /// Hours passed in the Wait menu, and the walks made in them.
     waited: [usize; 2],
+    /// The fastest turn of a drawn resident between two frames (radians per second, who),
+    /// and the frames in which one turned faster than [`SNAP_TURN`].
+    fastest_turn: (f32, String),
+    snaps: usize,
 }
 
 #[derive(Resource)]
@@ -389,6 +414,8 @@ impl Residents {
             pushed_units: 0.0,
             pushing: HashMap::new(),
             waited: [0; 2],
+            fastest_turn: (0.0, String::new()),
+            snaps: 0,
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -483,6 +510,7 @@ impl Core {
             last_feet: placed.pos,
             seat: Seat::None,
             stand: None,
+            last_drawn: None,
             wants: None,
         });
     }
@@ -965,9 +993,12 @@ pub fn drive(
             (Seat::Ordered(f, _), _) if on => Seat::Ordered(f, true),
             (Seat::Ordered(..) | Seat::GettingUp(_), None) => Seat::None,
             (Seat::GettingUp(_), Some(e)) if !on => {
-                // Up: the walk goes on from where the furniture left the actor.
+                // Up: the walk goes on from where the furniture left the actor, turned
+                // as it left it (its back to the furniture): the walker's heading was the
+                // one it sat down with, and the body snapped half about to it.
                 if let (Ok((t, _)), Some(a)) = (actors.get(e), core.ai.agents.get_mut(&r.actor)) {
                     a.walker.feet = t.translation.to_array();
+                    a.walker.heading = nav::tr_heading(t);
                     a.walker.tri = fnv_nav::graph::NONE;
                 }
                 Seat::None
@@ -985,6 +1016,23 @@ pub fn drive(
         }
         let moving = agent.activity == Activity::Travelling && (w.feet[0] - r.last_feet[0]).hypot(w.feet[1] - r.last_feet[1]) > 1e-4;
         r.last_feet = w.feet;
+        // How fast its drawn body turns (the turn summary): the AI's heading of an actor
+        // drawn in this frame and the last, not on furniture, not through a door.
+        let drawn_now = visible && r.spawned && !on;
+        r.last_drawn = match (r.last_drawn, drawn_now) {
+            (Some((h, at)), true) => {
+                if dt > 0.0 && (at[0] - w.feet[0]).hypot(at[1] - w.feet[1]) < 100.0 {
+                    let rate = fnv_nav::follow::heading_delta(h, w.heading).abs() / dt;
+                    if rate > core.fastest_turn.0 {
+                        core.fastest_turn = (rate, r.label.clone());
+                    }
+                    core.snaps += usize::from(rate > SNAP_TURN);
+                }
+                Some((w.heading, w.feet))
+            }
+            (None, true) => Some((w.heading, w.feet)),
+            (_, false) => None,
+        };
         let stage = (&mut r.spawned, &mut r.root);
         if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale }, stage, w, moving, dt) {
             if r.named {
@@ -1029,6 +1077,13 @@ pub fn report(
     crowd.sort_by(|a, b| core.ai.agents[&b.actor].walker.travelled.total_cmp(&core.ai.agents[&a.actor].walker.travelled));
     each.extend(crowd.into_iter().take(6).filter_map(one));
     let by = |a: Activity| core.ai.agents.values().filter(|x| x.activity == a).count();
+    info!(
+        "turn summary: the fastest turn of a drawn resident was {:.0}°/s{}; {} frames with a turn faster than {:.0}°/s",
+        core.fastest_turn.0.to_degrees(),
+        if core.fastest_turn.1.is_empty() { String::new() } else { format!(" ({})", core.fastest_turn.1) },
+        core.snaps,
+        SNAP_TURN.to_degrees()
+    );
     info!(
         "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; sandbox: {} wanders, {} seats, {} idle markers, {} sleeps, {} meals, {} times nothing to do; {} talks started by dialogue packages; physics moved actors in {} updates (at most {} at once), gave up {} times; standing actors pushed aside {} times ({:.0} units in all, {} times no room); {} hours passed in the wait menu ({} walks in them); {}",
         core.clock_text,
