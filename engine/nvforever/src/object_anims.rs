@@ -22,12 +22,20 @@
 //! - **Not drawn**: the request is kept and shown when the object is drawn: a group
 //!   played once at its end, a loop from its start [design].
 //! - **Sounds**: the `Sound: <editor ID>` text keys the playing group passes are played
-//!   where the object is (anim_sounds.rs, [`ObjectSound`]).
+//!   where the object is (anim_sounds.rs, [`ObjectSound`]), keys at the group's very
+//!   start included (a tripwire's sound key is 0.00001 s into its Forward).
+//! - **Shown and hidden nodes**: the visibility tracks (`NiVisController`) of the clip
+//!   playing show and hide the rig's nodes; its alpha tracks fade its shapes
+//!   (`nvf_assets::material_anim`) [activators.md §6].
+//! - **Actors**: a request for an actor (a reference to an NPC or a creature) is handed
+//!   to `actor_groups.rs`.
 //!
 //! A node track on the rig's root is not applied: the root carries the placement
 //! [design]. Log: `playgroup: <ref> plays <group> (once|loop, <s> s, flag n)`, and at
 //! exit `playgroup summary: …`.
 
+use crate::actor_groups::ActorGroups;
+use crate::limbs::ActorRig;
 use bevy::prelude::*;
 use fnv_game::anims::{AnimRequest, Start};
 use fnv_sim::FormId;
@@ -54,11 +62,13 @@ pub struct GroupRig {
     next: Option<(u16, usize)>,
     /// Sequence time and cycle count last seen, to find passed keys and cycle ends.
     last: Option<(f32, i64)>,
+    /// The visibility last written per node of the clip's visibility tracks.
+    shown: HashMap<String, bool>,
 }
 
 impl GroupRig {
     pub fn new(form_id: u32, model: Arc<PreparedModel>, source: &str, nodes: HashMap<String, Entity>) -> GroupRig {
-        GroupRig { form_id, model, source: source.to_string(), nodes, current: None, next: None, last: None }
+        GroupRig { form_id, model, source: source.to_string(), nodes, current: None, next: None, last: None, shown: HashMap::new() }
     }
 
     fn clip(&self, i: usize) -> Option<&Clip> {
@@ -97,6 +107,7 @@ struct Stats {
     shown_when_drawn: u32,
     no_sequence: u32,
     sounds: u32,
+    to_actors: u32,
     by_group: BTreeMap<String, u32>,
 }
 
@@ -112,10 +123,12 @@ fn start(commands: &mut Commands, root: Entity, rig: &mut GroupRig, group: u16, 
         m.idle = Arc::new(clip.materials.clone());
         m.dark = false;
     }
+    let clip_start = clip.start;
     commands.entity(root).insert(p);
     rig.current = Some((group, i));
     rig.next = None;
-    rig.last = None;
+    // From its start, keys at the start time included; shown at its end, none.
+    rig.last = (!at_end).then_some((clip_start - 1.0, 0));
 }
 
 fn describe(clip: &Clip) -> String {
@@ -124,13 +137,17 @@ fn describe(clip: &Clip) -> String {
 
 /// Take the game's requests and play them; follow each playing group's end, its queued
 /// successor and its sound keys.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn drive(
     mut commands: Commands,
     mut st: ResMut<ObjectAnims>,
     mut script: Option<ResMut<ScriptState>>,
     mut rigs: Query<(Entity, &mut GroupRig, Option<&Playing>, Option<&mut RigMaterials>, &GlobalTransform)>,
     mut sounds: MessageWriter<ObjectSound>,
+    actors: Query<&ActorRig>,
+    sim: Option<Res<nvf_play::sim::SimState>>,
+    mut for_actors: ResMut<ActorGroups>,
+    mut vis: Query<&mut Visibility>,
 ) {
     let st = &mut *st;
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -138,6 +155,11 @@ pub fn drive(
     game.anims.driven = true;
     let requests = std::mem::take(&mut game.anims.requests);
     let by_ref: HashMap<u32, Entity> = rigs.iter().map(|(e, r, ..)| (r.form_id, e)).collect();
+    let drawn_actors: std::collections::HashSet<u32> = actors.iter().map(|a| a.reference).collect();
+    let is_actor = |r: FormId| {
+        drawn_actors.contains(&r.0)
+            || sim.as_deref().and_then(|s| s.refs.refs.get(&r).and_then(|p| s.forms.sig(p.base))).is_some_and(|b| &b == b"NPC_" || &b == b"CREA")
+    };
     // Rigs started this frame: their new clip is on them from the next frame.
     let mut started: std::collections::HashSet<Entity> = std::collections::HashSet::new();
 
@@ -160,6 +182,11 @@ pub fn drive(
     }
 
     for r in requests {
+        if is_actor(r.on) && !by_ref.contains_key(&r.on.0) {
+            st.stats.to_actors += 1;
+            for_actors.queue.push(r);
+            continue;
+        }
         st.stats.asked += 1;
         let who = game.data.name(r.on);
         let group = r.name.clone().unwrap_or_else(|| format!("code {}", r.group));
@@ -213,20 +240,19 @@ pub fn drive(
     // Ends, queued groups and sound keys.
     for (root, mut rig, playing, mats, at) in &mut rigs {
         let Some(p) = playing.filter(|_| !started.contains(&root)) else { continue };
-        let len = (p.stop - p.start).max(1e-6);
-        let cycles = ((p.time - p.start) / len).floor() as i64;
+        let cycles = cycle_count(p.time, p.start, p.stop, p.cycle_type);
         let t = p.sequence_time();
         let ended = p.cycle_type == CLAMP && p.time >= p.stop;
         let wrapped = rig.last.is_some_and(|(_, c)| c != cycles);
         // Sound keys of the group playing, passed since last frame.
         if let (Some((_, i)), Some((t0, c0))) = (rig.current, rig.last) {
             if let Some(clip) = rig.clip(i) {
-                let from = if c0 != cycles { p.start - 1.0 } else { t0 };
                 for (kt, k) in &clip.text_keys {
-                    if *kt > from && *kt <= t {
+                    if passed(*kt, (t0, c0), (t, cycles), p.start) {
                         if let Some(key) = fnv_collide::anim::AnimSequence::sound_of(k) {
                             st.stats.sounds += 1;
                             let w = crate::world::bevy_to_game(at.translation()).to_array();
+                            info!("playgroup: {} passes the sound key {key} of {} at {kt:.3} s", game.data.name(FormId(rig.form_id)), clip.name);
                             sounds.write(ObjectSound { at: w, key: key.to_string() });
                         }
                     }
@@ -234,6 +260,24 @@ pub fn drive(
             }
         }
         rig.last = Some((t, cycles));
+        // Visibility tracks of the clip playing (the group, else the object's own idle).
+        let ci = rig.current.map(|(_, i)| i).or_else(|| rig.find(&p.name));
+        if let Some(clip) = ci.and_then(|i| rig.clip(i)).filter(|c| !c.visibility.is_empty()) {
+            let mut changes: Vec<(String, bool)> = Vec::new();
+            for (node, _, track) in &clip.visibility {
+                if let Some(on) = track.at(t) {
+                    if rig.shown.get(node) != Some(&on) {
+                        changes.push((node.clone(), on));
+                    }
+                }
+            }
+            for (node, on) in changes {
+                if let Some(mut v) = rig.nodes.get(&node).and_then(|e| vis.get_mut(*e).ok()) {
+                    *v = if on { Visibility::Inherited } else { Visibility::Hidden };
+                }
+                rig.shown.insert(node, on);
+            }
+        }
         if let Some((g, i)) = rig.next {
             if ended || wrapped {
                 start(&mut commands, root, &mut rig, g, i, false, mats.map(|m| m.into_inner()));
@@ -257,6 +301,23 @@ pub fn drive(
     }
 }
 
+/// How many cycles a group has begun since its start: a clamped one holds its end and
+/// begins no other (its keys are not passed again).
+fn cycle_count(time: f32, start: f32, stop: f32, cycle_type: i64) -> i64 {
+    if cycle_type == CLAMP {
+        return 0;
+    }
+    ((time - start) / (stop - start).max(1e-6)).floor() as i64
+}
+
+/// Whether a key at sequence time `kt` was passed between the last frame's (time, cycle)
+/// and this one's; a group just started has `(start - 1, 0)` as its last frame, so a key
+/// at its start time counts.
+fn passed(kt: f32, (t0, c0): (f32, i64), (t, c): (f32, i64), start: f32) -> bool {
+    let from = if c0 != c { start - 1.0 } else { t0 };
+    kt > from && kt <= t
+}
+
 /// `playgroup summary: …` at exit.
 pub fn report(mut exit: MessageReader<AppExit>, st: Res<ObjectAnims>) {
     if exit.read().last().is_none() {
@@ -265,7 +326,7 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<ObjectAnims>) {
     let s = &st.stats;
     let groups: Vec<String> = s.by_group.iter().map(|(g, n)| format!("{g} {n}")).collect();
     info!(
-        "playgroup summary: {} asked ({}); {} started, {} waited for the playing one, {} loops already playing, {} played once and ended, {} for objects not drawn ({} shown when drawn), {} without a sequence of that name; {} sound keys",
+        "playgroup summary: {} asked ({}); {} started, {} waited for the playing one, {} loops already playing, {} played once and ended, {} for objects not drawn ({} shown when drawn), {} without a sequence of that name; {} sound keys; {} for actors (actor group summary)",
         s.asked,
         if groups.is_empty() { "-".to_string() } else { groups.join(", ") },
         s.started,
@@ -275,7 +336,8 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<ObjectAnims>) {
         s.not_drawn,
         s.shown_when_drawn,
         s.no_sequence,
-        s.sounds
+        s.sounds,
+        s.to_actors
     );
 }
 
@@ -285,8 +347,33 @@ pub struct ObjectAnimsPlugin;
 impl Plugin for ObjectAnimsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ObjectAnims>()
+            .init_resource::<ActorGroups>()
             .add_message::<ObjectSound>()
             .add_systems(Update, drive.after(nvf_play::PlaySet::Scripts).before(crate::advance_animations))
-            .add_systems(Last, report);
+            // Actors' groups (actor_groups.rs): before their idles advance and they are posed.
+            .add_systems(Update, crate::actor_groups::drive.after(drive).before(crate::idles::drive).before(crate::locomotion::walk_test))
+            .add_systems(Last, (report, crate::actor_groups::report));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sound_keys_are_passed_once() {
+        // The tripwire's Forward: its sound key 0.00001 s in, the clip 0.5 s, clamped.
+        let (start, stop) = (0.0, 0.5);
+        let first = (start - 1.0, 0);
+        let t1 = 0.016;
+        assert!(passed(0.00001, first, (t1, cycle_count(t1, start, stop, CLAMP)), start));
+        // The bear trap's Forward (0.1 s, key at 0.033): passed on the frame that ends it,
+        // and not again while its end is held.
+        let (k, stop) = (0.0333, 0.1);
+        assert!(passed(k, (0.025, 0), (0.05, cycle_count(0.05, start, stop, CLAMP)), start));
+        assert!(!passed(k, (0.05, 0), (0.1, cycle_count(0.12, start, stop, CLAMP)), start));
+        // A loop passes its keys again in its next cycle.
+        assert_eq!(cycle_count(0.12, start, stop, 0), 1);
+        assert!(passed(k, (0.09, 0), (0.04, 1), start));
     }
 }

@@ -10,6 +10,7 @@
 //! menu.
 
 mod activators;
+mod actor_groups;
 mod actors;
 mod attack_anims;
 mod alert;

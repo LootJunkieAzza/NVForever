@@ -30,6 +30,8 @@ pub const WEAPON_NODE: &str = "Weapon";
 
 /// The clips of one weapon stance bound to one skeleton, shared by the actors using them.
 pub struct Stance {
+    /// The stance prefix (`2hr`, `1hp`, …).
+    pub prefix: String,
     pub clips: BTreeMap<EquipClip, Arc<BoundClip>>,
     pub facts: StanceFacts,
     pub holster: String,
@@ -72,7 +74,7 @@ impl Stance {
             clips.keys().collect::<Vec<_>>(),
             bones.len()
         );
-        Ok((Stance { clips, facts, holster, drawn, weapon_node, bones }, line))
+        Ok((Stance { prefix: prefix.to_string(), clips, facts, holster, drawn, weapon_node, bones }, line))
     }
 }
 
@@ -223,7 +225,7 @@ mod tests {
             (EquipClip::Unequip, f(0.5, "Bip01 Pelvis")),
         ]);
         let bones = HashMap::from([("Bip01 Pelvis".to_string(), 3), ("Bip01 R Hand".to_string(), 7)]);
-        Arc::new(Stance { clips: BTreeMap::new(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones })
+        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones })
     }
 
     #[test]

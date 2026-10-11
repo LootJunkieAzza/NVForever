@@ -2643,6 +2643,38 @@ off, a classic one that lights what is in front of the camera. Branch
    takes the warm light and the stop sign's shadow. Test aid:
    `NVF_PLAY_TEST_CONTROL=2:flashlight` with `--play`.
 
+## Groups on NPCs, fading neon and a trap heard (2026-10-11, session "object anims more")
+
+Your request: the three items left from PR #211. Branch `claude/object-anims-more`;
+details in `docs/spec-notes/activators.md` §6–§8.
+
+1. **PlayGroup on NPCs and creatures** now plays the actor's own clip of that group (its
+   weapon's Equip, Aim or Unequip; its walk and turn clips; else the unarmed `h2h` clip of
+   its skeleton's folder) and blends back to its normal animation when the clip ends,
+   when a script plays `Idle`, or when the actor walks. In FalloutNV.esm only one script
+   does this to an actor (a dog's package ends with `PlayGroup Aim 1`), so it was tried
+   with a test aid on a Goodsprings settler and a big horner. **Our guesses:** that a
+   looping group (Aim) holds until the actor moves, and that `SpecialIdle` on an actor
+   plays nothing (its clips are many, picked by the idle manager).
+2. **Neon signs and lit windows fade**: the alpha tracks of their Left and Right now play,
+   and the visibility tracks (Gomorrah's lights). Primm's windows light when the clock
+   passes 20:00 (two screenshots measured). Not built: the particle, refraction and morph
+   tracks. **Question:** Goodsprings' house windows have alpha tracks but no alpha
+   blending in their model, so we draw them the same day and night. Do they change in
+   the game at 19:30 and 6:30?
+3. **The bear trap's sound** is heard when you disarm it. Two faults stopped or doubled
+   such sounds: keys in a group's first frame were missed (the tripwire's would never
+   sound), and a group played once passed its keys again as it ended (the trap clacked
+   twice).
+4. **Seen on the way:** by day the neon script asks for Right again every time Right ends,
+   so Right replays every 0.07 s. Nothing shows, but it hints that in the game a group
+   played once still counts as playing while its last frame is held. A capture would
+   settle it.
+5. **A slip:** one survey command (`fnvtool actor anims`, which takes the Data folder)
+   opened the add-on archives too, holdout included. Its output was deleted unread
+   (only one base-game line was printed), and the surveys were redone on the base
+   archives by name.
+
 
 ## Melee combos and power attacks (2026-10-11, session "melee combo")
 

@@ -222,6 +222,10 @@ below 30).
   (a seated speaker's gesture), by track priority, on two more blend layers (the idle and
   the one it replaces while it fades in); `nvf_assets::anim_play::MAX_LAYERS` is 6.
 - The player: §4.
+- The same slot plays the animation groups scripts ask of actors with `PlayGroup`
+  (nvforever `actor_groups.rs`, activators.md §7): such a clip fades in and out as an
+  idle does, keeps the actor's collection waiting while it plays, and is not reported to
+  the rules as an idle (`IsIdlePlaying`); an idle asked for meanwhile replaces it.
 - Log lines: `idle: <actor> plays <idle> (<length>, loop <from>-<to>, fades <in> / <out>)
   (<source>)`; for the player also the rig, the place and the facing; at the end `idle
   summary: N idles asked for (… by scripts, … by packages' begin, end and change, … from

@@ -24,6 +24,8 @@
 //!   marker) that asked for it is no longer the actor's.
 //! - The rules are told what each actor plays (`Game::set_idle_playing`), which is what
 //!   `IsIdlePlaying` answers.
+//! - The slot also plays the animation groups scripts ask of actors (`PlayGroup`,
+//!   `actor_groups.rs`); those are not idles for `IsIdlePlaying`.
 //!
 //! Not done: the idle manager (idles chosen from the IDLE tree by their conditions:
 //! `PickIdle`, fidgets, talking gestures), the sounds and other text keys of idle clips,
@@ -61,7 +63,11 @@ const RETRY_SECONDS: f32 = 5.0;
 
 /// One idle playing, with the clip as its rig takes it.
 pub struct Playing<C> {
+    /// The IDLE record (0 for a group).
     pub idle: u32,
+    /// The animation group a script asked for with `PlayGroup` (`actor_groups.rs`)
+    /// instead of an idle.
+    pub group: Option<u16>,
     pub source: IdleSource,
     /// What asked for a package's or a marker's idle: the actor's package at the time,
     /// or the marker's base.
@@ -96,7 +102,17 @@ impl<C> IdleSlot<C> {
             self.prev = Some(old);
         }
         self.serial = self.serial.wrapping_add(1);
-        self.cur = Some(Playing { idle, source, owner, clip, play, serial: self.serial, fresh: true });
+        self.cur = Some(Playing { idle, group: None, source, owner, clip, play, serial: self.serial, fresh: true });
+    }
+
+    /// Play a script's animation group as an idle is played (`actor_groups.rs`); returns
+    /// its serial.
+    pub fn start_group(&mut self, group: u16, clip: C, play: IdlePlay) -> u32 {
+        self.start(0, IdleSource::Script, None, clip, play);
+        if let Some(c) = self.cur.as_mut() {
+            c.group = Some(group);
+        }
+        self.serial
     }
 
     /// Advance by `dt` seconds.
@@ -461,6 +477,8 @@ pub fn drive(
         let Some(mut idle) = idle else { continue };
         idle.0.advance(dt);
         match idle.0.playing() {
+            // A script's animation group is not an idle.
+            Some(p) if p.group.is_some() => {}
             Some(p) => {
                 now.insert(v.0, p.idle);
             }

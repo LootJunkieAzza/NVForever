@@ -103,6 +103,8 @@ use std::time::Instant;
 pub const MENU_MESSAGE: u16 = menus::MESSAGE;
 /// The SayTo function's opcode [observed: schemas/script/functions.json].
 const SAY_TO: u16 = 0x1034;
+/// `PlayGroup` [observed: activators.md §5].
+const PLAY_GROUP: u16 = 0x1013;
 /// The container menu [documented: GECK wiki MenuMode, as used in
 /// docs/spec-notes/xnvse-capture.md and simulation.md captures].
 pub const MENU_CONTAINER: u16 = 1008;
@@ -733,6 +735,17 @@ impl Runtime {
                 if !g.speech.iter().any(|s| s.speaker == speaker && s.target == Some(target)) {
                     return Err(format!("{} has no line of {} to say to {}", g.data.name(speaker), g.data.name(topic), g.data.name(target)));
                 }
+            }
+            ScriptAid::PlayGroup(r, group, flag) => {
+                let r = resolve(g, r)?;
+                let code = match group.parse::<u16>() {
+                    Ok(c) => c,
+                    Err(_) => (0..=u16::from(u8::MAX))
+                        .find(|c| g.anim_group_name(*c).is_some_and(|n| n.eq_ignore_ascii_case(group)))
+                        .ok_or_else(|| format!("{group} is not an animation group"))?,
+                };
+                let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: PLAY_GROUP, on: Some(r), self_ref: Some(r), action_ref: None, quest: None, inst: None, in_condition: false };
+                g.call_function(&ctx, &[ArgValue::Enum(code), ArgValue::Value(Value::Num(f64::from(*flag)))]);
             }
             ScriptAid::Walk(_) => unreachable!("handled by the caller"),
             ScriptAid::Var(of, var, value) => {

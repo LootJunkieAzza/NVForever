@@ -252,6 +252,9 @@ pub fn playgroup_calls(
     let mut by_target: BTreeMap<String, u64> = BTreeMap::new();
     let mut has_seq: BTreeMap<String, u64> = BTreeMap::new();
     let mut targets: BTreeMap<(u32, String), Value> = BTreeMap::new();
+    // Calls whose object the survey cannot name from the unit alone (a reference
+    // variable, a result script's subject, a script no base carries): listed for reading.
+    let mut unresolved: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut calls_n = 0u64;
     for u in &units {
         let d = fnv_script::decode(&u.bytes, table);
@@ -263,6 +266,17 @@ pub fn playgroup_calls(
             calls_n += 1;
             let g = group_name(c.group);
             let flag = c.flag.map(|f| f.to_string()).unwrap_or_else(|| "-".into());
+            let note = |why: &str, unresolved: &mut BTreeMap<String, Vec<String>>| {
+                let var = match c.on {
+                    Some(fnv_script::unit::RefSlot::Local(i)) => u.var(i).map(|v| format!("{}.", v.name)).unwrap_or_else(|| format!("local {i}.")),
+                    _ => String::new(),
+                };
+                let text = format!("{why}: {var}{} {g}{}", c.func, c.flag.map(|f| format!(" {f}")).unwrap_or_default());
+                let v = unresolved.entry(u.key()).or_default();
+                if !v.contains(&text) {
+                    v.push(text);
+                }
+            };
             *by_group.entry(format!("{} {g}", c.func)).or_default().entry(flag).or_default() += 1;
             // The objects the call runs on: (base, the reference named, if any).
             let on: Vec<(FormId, Option<FormId>)> = match (c.on, &u.owner) {
@@ -272,6 +286,7 @@ pub fn playgroup_calls(
                 },
                 (Some(_), _) => {
                     *by_target.entry("a reference variable".into()).or_default() += 1;
+                    note("a reference variable", &mut unresolved);
                     continue;
                 }
                 (None, fnv_script::unit::UnitOwner::Script { form }) => {
@@ -279,11 +294,13 @@ pub fn playgroup_calls(
                 }
                 (None, o) => {
                     *by_target.entry(format!("no reference ({})", o.sig())).or_default() += 1;
+                    note(&format!("the subject of a {} unit", o.sig()), &mut unresolved);
                     continue;
                 }
             };
             if on.is_empty() {
                 *by_target.entry("script carried by no base".into()).or_default() += 1;
+                note("script carried by no base", &mut unresolved);
             }
             for (base, r) in on {
                 let sig = forms.sig(base).map(|s| String::from_utf8_lossy(&s).to_string()).unwrap_or_else(|| "?".into());
@@ -332,5 +349,6 @@ pub fn playgroup_calls(
         "schema": "fnv.sim.playgroup_calls/1",
         "summary": {"calls": calls_n, "by_function_group_flag": by_group, "by_target": by_target, "sequence_found": has_seq, "targets": targets.len()},
         "targets": targets.into_values().collect::<Vec<_>>(),
+        "unresolved": unresolved,
     })
 }
