@@ -24,13 +24,15 @@ const SCAN_STEP: f64 = 0.25;
 
 impl Game<'_> {
     /// The AI package list of an actor reference: its base form's `PKID` list, or its
-    /// template's when the template supplies the AI packages (followed through
-    /// templates that are actors; a leveled-actor template is not resolved and the
-    /// base's own list is used) [documented: xEdit template flags; hypothesis on the
-    /// leveled case].
+    /// template's when the template supplies the AI packages, followed through
+    /// templates and leveled actor lists as the actor's factions are
+    /// ([`GameData::base_package_list`]) [documented: xEdit template flags; hypothesis:
+    /// which entry of a leveled list stands for the actor, `crate::templates::Picks`].
+    ///
+    /// [`GameData::base_package_list`]: crate::data::GameData::base_package_list
     pub fn package_list(&self, actor: FormId) -> Vec<FormId> {
         match functions::base_of(self, actor) {
-            Some(base) => self.data.base_package_list(base),
+            Some(base) => self.data.base_package_list(base, actor),
             None => Vec::new(),
         }
     }

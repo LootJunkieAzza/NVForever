@@ -1,5 +1,5 @@
 //! What the parts of the original's interface are drawn with, shared by the modules that
-//! draw one (`message_menu`, `corner_messages`, `hud`): lengths in the interface's units (960
+//! draw one (`message_menu`, `corner_messages`, `hud`, `dialogue_menu`): lengths in the interface's units (960
 //! to the height of the view), the interface's colour, the game's fonts and textures
 //! read from the owner's archives at run time, a line of text set as glyphs of the
 //! font's texture, and the index of the interface's texture atlas.
@@ -200,6 +200,50 @@ pub fn atlas_index(text: &str) -> HashMap<String, AtlasPiece> {
     out
 }
 
+/// The interface's texture atlas index [documented: corner-messages.md §2.2].
+pub const ATLAS_INDEX: &str = "textures\\interface\\interfaceshared.tai";
+
+/// The file name an atlas index knows a picture by.
+pub fn file_name(path: &str) -> String {
+    path.rsplit(['\\', '/']).next().unwrap_or(path).to_ascii_lowercase()
+}
+
+/// A picture: its texture and the part of it that is the picture (all of it for `None`).
+pub type Picture = (Handle<Image>, Option<Rect>);
+
+/// The interface's pictures as its files name them, read when first asked for.
+#[derive(Default)]
+pub struct Pictures {
+    atlas: HashMap<String, AtlasPiece>,
+    /// Textures read so far, by path; `None` for one that could not be read.
+    textures: HashMap<String, Option<(Handle<Image>, Vec2)>>,
+}
+
+impl Pictures {
+    pub fn load(data: Option<&GameData>) -> Pictures {
+        let atlas = data.and_then(|d| d.read(ATLAS_INDEX)).map(|b| atlas_index(&String::from_utf8_lossy(&b))).unwrap_or_default();
+        Pictures { atlas, textures: HashMap::new() }
+    }
+
+    fn texture(&mut self, path: String, data: &GameData, images: &mut Assets<Image>, bc: bool) -> Option<(Handle<Image>, Vec2)> {
+        self.textures.entry(path).or_insert_with_key(|p| texture(p, data, images, bc)).clone()
+    }
+
+    /// A picture named as the interface names it (under the textures folder): its
+    /// piece of the atlas when the index has its file name, else its own file.
+    pub fn picture(&mut self, path: &str, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Option<Picture> {
+        let data = data?;
+        if let Some(piece) = self.atlas.get(&file_name(path)).cloned() {
+            if let Some((image, size)) = self.texture(format!("textures\\interface\\{}", piece.atlas), data, images, bc) {
+                let [x, y, w, h] = piece.rect;
+                return Some((image, Some(Rect::new(x * size.x, y * size.y, (x + w) * size.x, (y + h) * size.y))));
+            }
+        }
+        let own = format!("textures\\{}", path.trim_start_matches(['\\', '/']).to_ascii_lowercase());
+        self.texture(own, data, images, bc).map(|(image, _)| (image, None))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,5 +254,11 @@ mod tests {
         let index = atlas_index(text);
         assert_eq!(index.len(), 1);
         assert_eq!(index["icon_a.dds"], AtlasPiece { atlas: "shared0.dds".into(), rect: [0.25, 0.5, 0.125, 0.0625] });
+    }
+
+    #[test]
+    fn a_pictures_file_name_is_what_the_atlas_knows_it_by() {
+        assert_eq!(file_name("Interface\\Icons\\Message Icons\\Glow_Message_Vaultboy_In_Pain.dds"), "glow_message_vaultboy_in_pain.dds");
+        assert_eq!(file_name("a.dds"), "a.dds");
     }
 }

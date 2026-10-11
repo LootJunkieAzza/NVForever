@@ -173,13 +173,15 @@ pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// is disabled]. In the game the speaker first walks up to the target; that needs AI
 /// packages, so here the conversation starts at once [stand-in]. A call while a
 /// conversation is running, or when the speaker has no line to say, does nothing
-/// [hypothesis]. A conversation between two NPCs (the Conversation tab's topics) is not
-/// modelled: the call is recorded and has no effect.
+/// [hypothesis]. With another actor as the target the two talk to each other and the
+/// player overhears them (`Game::start_actor_conversation`, docs/spec-notes/dialogue.md
+/// §5.1); the location references, head-track and allow-movement parameters are not read.
 pub fn start_conversation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let target = a.form(0)?;
     if target != fnv_sim::FormId::PLAYER_REF {
-        g.stub_note(ctx, a.0);
+        // Refusals are not errors of the script, as below.
+        let _ = g.start_actor_conversation(speaker, target, a.opt_form(1));
         return none();
     }
     // A disabled player (the speaker's side is checked by `Game::start_dialogue`).

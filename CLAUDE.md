@@ -150,6 +150,16 @@ dialogue, with `NVF_PLAY_TEST_TALK=10:GSChetRef=for sale|leave`, `NVF_PLAY_TEST_
 (expect exit 0, "menu: a script opens the barter menu with 0x00104C79", "stock in 0x00104C7A",
 "menu: Accept: Traded", "menu: close" and then the conversation's "Goodbye." choice).
 
+After changes to the sounds animations and doors name (nvforever `anim_sounds.rs`,
+`fnv_actor::anim_sounds`, `nvf_play::doors` sounds; docs/spec-notes/audio.md §10), run the
+footsteps, reload and doors check, with `NVF_PLAY_TEST_EQUIP=0000434F`,
+`NVF_PLAY_TEST_GIVE=00004241:50`, `NVF_PLAY_TEST_MOVE=11:1:0,14:0:0` and
+`NVF_PLAY_TEST_CONTROL=15:weapon,17:fire,17.2:fire,18:reload` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --no-voice --open-doors --run-seconds 24`
+(expect exit 0 and an "anim sounds summary:" line with about 5 footsteps by the player,
+"3 reload keys", "5 door sounds (2 from door records)" and "0 keys without a SOUN"; the
+actors' footsteps and rustles vary).
+
 ## Commits
 
 End commit messages with the session's attribution lines. Keep commits focused; write

@@ -79,8 +79,9 @@ pub struct InfoDef {
     pub record_flags: u32,
     /// DATA type code (0 Topic … 7 Radio, [`topic_type`]) [documented: xEdit INFO DATA].
     pub info_type: u8,
-    /// DATA next speaker (0 Target, 1 Self, 2 Either) [documented: xEdit wbNextSpeaker];
-    /// read, not used (conversations between NPCs).
+    /// DATA next speaker (0 Target, 1 Self, 2 Either) [documented: xEdit wbNextSpeaker]:
+    /// who says the next line of a conversation between actors
+    /// (`Game::next_conversation_line`).
     pub next_speaker: u8,
     /// DATA flags: the first flag byte in bits 0–7, the second in bits 8–15
     /// ([`info_flag`]) [documented: xEdit INFO DATA; the same combined value the GECK
@@ -869,18 +870,13 @@ impl GameData {
         self.quests.contains_key(&id)
     }
 
-    /// The AI package list of an actor base (NPC_, CREA): its own `PKID` list, or its
-    /// template's when the template supplies the AI packages
-    /// ([`crate::game::Game::package_list`]).
-    pub fn base_package_list(&self, mut base: FormId) -> Vec<FormId> {
-        for _ in 0..8 {
-            let Some(a) = self.actors.get(&base) else { break };
-            match a.template.filter(|t| a.template_packages && self.actors.contains_key(t)) {
-                Some(t) => base = t,
-                None => return a.packages.clone(),
-            }
-        }
-        self.actors.get(&base).map(|a| a.packages.clone()).unwrap_or_default()
+    /// The AI package list of `reference`, placed with `base` (NPC_, CREA, or a leveled
+    /// actor list): the `PKID` list of the "AI Packages" source of its template chain,
+    /// through leveled lists with the same pick as the drawn actor
+    /// ([`GameData::template_source`]; [`crate::game::Game::package_list`]). For a base
+    /// alone, pass the base as the reference.
+    pub fn base_package_list(&self, base: FormId, reference: FormId) -> Vec<FormId> {
+        self.template_source(base, reference, |d| d.template_packages).map(|(_, d)| d.packages.clone()).unwrap_or_default()
     }
 
     /// The priority of the quest a line belongs to (0 without a quest).

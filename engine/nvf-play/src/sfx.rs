@@ -22,9 +22,10 @@
 //!   Shift flag [design: the size of the shift].
 //! - **Loops.** A [`LoopSound`] starts a SOUN going round and stops it again (a
 //!   weapon's Shoot 3D Looping sound while it fires).
-//! - Not built: panning, reverb, the sounds animations name in their text keys (reloads,
-//!   footsteps). Placed sounds and the cells' background loops are [`crate::ambient`];
-//!   music is [`crate::music`].
+//! - Not built: panning, reverb. The sounds animations and doors name in their text keys
+//!   (reloads, footsteps, armour rustle, doors) are sent here by nvforever's
+//!   `anim_sounds.rs` (docs/spec-notes/audio.md §10). Placed sounds and the cells'
+//!   background loops are [`crate::ambient`]; music is [`crate::music`].
 //!
 //! [`SfxSettings`] turns them off (`nvforever --no-sound`) and sets the volume.
 

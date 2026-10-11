@@ -14,14 +14,14 @@
 //! - While a message box or a script's menu is open the area is hidden and its clock
 //!   stands still [design], so a message is not used up behind a box.
 
-use crate::interface::{amber, at, atlas_index, bc_supported, face, plain_font, set_text, texture, u, AtlasPiece, Face, Set};
+use crate::interface::{amber, at, bc_supported, face, file_name, plain_font, set_text, u, Face, Picture, Pictures, Set};
 use crate::message_menu::MessagePanel;
 use crate::script_events::Note;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use fnv_font::Font;
 use nvf_assets::GameData;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 // ---- the HUD menu file's numbers [documented: menus\prefabs\hudtemplates.xml, §2] ------
 
@@ -59,7 +59,6 @@ const MAX_WAITING: usize = 64;
 const BRACKET_FILE: &str = "interface\\icons\\mood\\glow_messages_seperator_left.dds";
 /// The icon of a message without one [documented: GECK wiki, Message].
 const DEFAULT_ICON: &str = "interface\\icons\\message icons\\glow_message_vaultboy_neutral.dds";
-const ATLAS_INDEX: &str = "textures\\interface\\interfaceshared.tai";
 /// Font 7 [documented: the file's text template; Fallout_default.ini `sFontFile_7`].
 const FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 
@@ -132,45 +131,21 @@ pub fn layout(text: &str, font: &Font) -> Vec<Set> {
     lines.into_iter().enumerate().map(|(i, line)| Set { line, x: TEXT_X, base: TEXT_BASE + pitch * i as f32 }).collect()
 }
 
-/// The file name an atlas index knows a picture by.
-fn file_name(path: &str) -> String {
-    path.rsplit(['\\', '/']).next().unwrap_or(path).to_ascii_lowercase()
-}
-
 // ---- the game's files -------------------------------------------------------------------
-
-type Picture = (Handle<Image>, Option<Rect>);
 
 /// What the area is drawn with, read when the first message comes.
 struct Kit {
     face: Face,
-    atlas: HashMap<String, AtlasPiece>,
-    /// Textures read so far, by path; `None` for one that could not be read.
-    textures: HashMap<String, Option<(Handle<Image>, Vec2)>>,
+    pictures: Pictures,
 }
 
 impl Kit {
     fn load(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Kit {
-        let atlas = data.and_then(|d| d.read(ATLAS_INDEX)).map(|b| atlas_index(&String::from_utf8_lossy(&b))).unwrap_or_default();
-        Kit { face: face(FONT, plain_font(36.0, 17.0), data, images, bc), atlas, textures: HashMap::new() }
+        Kit { face: face(FONT, plain_font(36.0, 17.0), data, images, bc), pictures: Pictures::load(data) }
     }
 
-    fn texture(&mut self, path: String, data: &GameData, images: &mut Assets<Image>, bc: bool) -> Option<(Handle<Image>, Vec2)> {
-        self.textures.entry(path).or_insert_with_key(|p| texture(p, data, images, bc)).clone()
-    }
-
-    /// A picture named as the interface names it (under the textures folder): its
-    /// piece of the atlas when the index has its file name, else its own file.
     fn picture(&mut self, path: &str, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Option<Picture> {
-        let data = data?;
-        if let Some(piece) = self.atlas.get(&file_name(path)).cloned() {
-            if let Some((image, size)) = self.texture(format!("textures\\interface\\{}", piece.atlas), data, images, bc) {
-                let [x, y, w, h] = piece.rect;
-                return Some((image, Some(Rect::new(x * size.x, y * size.y, (x + w) * size.x, (y + h) * size.y))));
-            }
-        }
-        let own = format!("textures\\{}", path.trim_start_matches(['\\', '/']).to_ascii_lowercase());
-        self.texture(own, data, images, bc).map(|(image, _)| (image, None))
+        self.pictures.picture(path, data, images, bc)
     }
 }
 
@@ -363,11 +338,5 @@ mod tests {
             c.push(note(&i.to_string(), None));
         }
         assert_eq!(c.waiting(), MAX_WAITING);
-    }
-
-    #[test]
-    fn a_pictures_file_name_is_what_the_atlas_knows_it_by() {
-        assert_eq!(file_name("Interface\\Icons\\Message Icons\\Glow_Message_Vaultboy_In_Pain.dds"), "glow_message_vaultboy_in_pain.dds");
-        assert_eq!(file_name("a.dds"), "a.dds");
     }
 }
