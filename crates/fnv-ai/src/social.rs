@@ -99,7 +99,7 @@ pub(crate) struct Social {
     next_chat: BTreeMap<FormId, f64>,
     /// Actors that said hello and wait for the player to go away.
     greeted: BTreeSet<FormId>,
-    rng: Rng,
+    pub(crate) rng: Rng,
 }
 
 impl Default for Social {
@@ -158,7 +158,7 @@ impl Ai {
         let mut free: Vec<Free> = Vec::new();
         for (&actor, a) in &self.agents {
             let Some(def) = a.package.and_then(|p| data.package_defs.get(&p)) else { continue };
-            let busy = a.activity == Activity::Travelling || a.talk.is_some() || a.chat.is_some() || def.ty == PackageType::Sleep;
+            let busy = a.activity == Activity::Travelling || a.talk.is_some() || a.chat.is_some() || a.search.is_some() || def.ty == PackageType::Sleep;
             if busy || !here(game, actor) || game.is_talking(actor) || game.in_actor_conversation(actor) {
                 continue;
             }

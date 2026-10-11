@@ -21,15 +21,28 @@
 //!   100 × the luminance of the ambient light, plus the sunlight's times daylight outdoors
 //!   or the cell's directional light indoors, plus each point light that reaches the
 //!   target with the game's falloff 1 − (d/r)²; capped at 100. Shade from the sun is not
-//!   measured.
+//!   measured. The player's flashlight (flashlight.rs) is not counted [design: it is not
+//!   the game's; whether it should show the player is undecided].
 //! - **Moving and running**: from how far an actor went since the last measurement
 //!   [engineering choice]; the player runs when moving at the run gait (not holding Walk)
 //!   [hypothesis: a sneaking run counts as running]. Actors never sneak (packages' Always
 //!   Sneak is not acted on yet).
-//! - **Action sound**: the player's last shot since the last measurement, at the
+//! - **Action sound**: an actor's (or the player's) loudest shot since the last
+//!   measurement, at the
 //!   weapon's sound level (WEAP VNAM: iSoundLevelLoud, Normal, Silent) [documented:
 //!   GECK wiki Category:Detection].
-//! - **Detector state**: asleep when lying on a bed; never alert or busy (no combat AI).
+//! - **Detector state**: asleep when lying on a bed; alert in a combat state, busy when
+//!   in Combat with someone other than the target (`fnv_game::awareness`).
+//!
+//! **Detection states** (docs/design/alert.md): each measurement goes to
+//! `Game::observe_threat`, which keeps those of actors the detector would attack; the
+//! impacts of shots and CreateDetectionEvent are detection events, owned by the shooter,
+//! measured like a target that makes the event's sound and cannot be seen
+//! (`Game::hear_event`); an actor that is hit is alarmed about whoever hit it
+//! (`Game::hurt_by`); then `Game::settle_awareness` changes states. Changes and
+//! Detection topic lines are logged here (`alert:` lines); how alerted actors look is
+//! `alert.rs`. [hypothesis: an impact sounds at the firing weapon's sound level; the
+//! original's is not documented.]
 
 use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
@@ -37,10 +50,11 @@ use crate::ragdoll::Corpse;
 use crate::sky::SkyState;
 use crate::world::bevy_to_game;
 use bevy::prelude::*;
+use fnv_game::awareness::{Change, DetectionEvent, EventType, State};
 use fnv_game::detection::{Band, Settings, Situation};
 use fnv_phys::{layers, Filter, Owner};
 use fnv_sim::FormId;
-use nvf_play::combat::{Combat, ShotFired};
+use nvf_play::combat::{ActorHit, Combat, ImpactFx, ShotFired};
 use nvf_play::control::PlayerControl;
 use nvf_play::phys::PhysState;
 use nvf_play::player::{MoveIntent, Player, EYE_HEIGHT};
@@ -60,6 +74,8 @@ const MOVING_SPEED: f32 = 10.0;
 const RUNNING_SPEED: f32 = 215.0;
 /// The chest, as a fraction of the eye height [engineering choice].
 const CHEST: f32 = 0.75;
+/// A line of sight passes at most this many actors' capsules.
+const PAST_ACTORS: usize = 8;
 
 pub struct DetectionPlugin;
 
@@ -89,6 +105,16 @@ struct Stats {
     shots_heard: usize,
     /// The lowest and highest value any actor had the player at.
     range: Option<(f64, f64)>,
+    /// State changes by (from, to); actors that were ever Alert; Detection topic lines
+    /// said, and asked for without a line; detection events raised and actors alarmed
+    /// by them; hits that alarmed.
+    changes: std::collections::BTreeMap<(State, State), usize>,
+    alerted: BTreeSet<u32>,
+    barks: usize,
+    barks_silent: usize,
+    events: usize,
+    events_heard: usize,
+    hurt_alarms: usize,
 }
 
 #[derive(Resource, Default)]
@@ -97,8 +123,14 @@ pub struct DetectionState {
     next: f32,
     /// Where each actor was at the last measurement, and when (elapsed seconds).
     last: HashMap<u32, ([f32; 3], f32)>,
-    /// The loudest shot the player fired since the last measurement.
-    shot: f64,
+    /// The loudest shot each shooter fired since the last measurement.
+    shots: HashMap<u32, f64>,
+    /// The sound level of each shooter's last shot: its impacts make that sound.
+    shot_levels: HashMap<u32, f64>,
+    /// Impacts of shots (where, whose), and actors hit (who, by whom), since the last
+    /// measurement.
+    impacts: Vec<([f32; 3], u32)>,
+    hits: Vec<(u32, u32)>,
     /// The player's highest band at the last measurement (the meter).
     meter: Option<Band>,
     stats: Stats,
@@ -166,6 +198,21 @@ fn light_at(sky: Option<&SkyState>, lights: &[([f32; 3], f32, f32)], at: [f32; 3
     (l as f64 * 100.0).clamp(0.0, 100.0)
 }
 
+/// Layers sight passes through: the transparent layers, invisible walls and small loose
+/// things [hypothesis: by the layers' names; a "Transparent Small" fence beside a Fiend's
+/// path hid the player from it in a test, 2026-10-11].
+fn see_through() -> layers::LayerSet {
+    layers::LayerSet::from_layers(&[
+        layers::TRANSPARENT,
+        layers::TRANSPARENT_SMALL,
+        layers::TRANSPARENT_SMALL_ANIM,
+        layers::INVISIBLE_WALL,
+        layers::CLUTTER,
+        layers::DEBRIS_SMALL,
+        layers::SHELL_CASING,
+    ])
+}
+
 /// Whether the collision world lets `from` see `to`.
 fn clear_sight(phys: Option<&mut PhysState>, from: [f32; 3], to: [f32; 3]) -> bool {
     let Some(phys) = phys else { return true };
@@ -175,13 +222,27 @@ fn clear_sight(phys: Option<&mut PhysState>, from: [f32; 3], to: [f32; 3]) -> bo
         return true;
     }
     let dir = d.map(|v| v / len);
-    let filter = Filter { exclude_layers: layers::character_ignores().union(layers::actor_volumes()), ..Default::default() };
-    match phys.ray(from, dir, len, filter) {
-        None => true,
-        // Other actors' capsules do not hide what is behind them.
-        Some(h) => matches!(h.owner, Owner::Actor { .. } | Owner::Character { .. }),
+    let filter = Filter { exclude_layers: layers::character_ignores().union(layers::actor_volumes()).union(see_through()), ..Default::default() };
+    // Actors' capsules (the detector's own included: the ray starts inside it) do not
+    // hide what is behind them: the ray goes on past them.
+    let mut at = 0.0;
+    for _ in 0..PAST_ACTORS {
+        let start = [from[0] + dir[0] * at, from[1] + dir[1] * at, from[2] + dir[2] * at];
+        match phys.ray(start, dir, len - at, filter.clone()) {
+            None => return true,
+            Some(h) if matches!(h.owner, Owner::Actor { .. } | Owner::Character { .. }) => at += h.distance + 1.0,
+            Some(_) => return false,
+        }
+        if at >= len {
+            return true;
+        }
     }
+    true
 }
+
+/// A band change: detector and target (indices into the people), distance, the band
+/// before, the detection, and how the target was in sight.
+type BandChange = (usize, usize, f64, Option<Band>, fnv_game::detection::Detection, &'static str);
 
 type Watched = (&'static ActorRig, &'static GlobalTransform, &'static InheritedVisibility, Has<Dying>, Has<Corpse>, Option<&'static Name>);
 
@@ -205,16 +266,27 @@ fn measure(
     mut phys: Option<ResMut<PhysState>>,
     (player, intent, control, location, combat, sky): Inputs,
     mut shots: MessageReader<ShotFired>,
+    (mut impacts, mut hits): (MessageReader<ImpactFx>, MessageReader<ActorHit>),
     actors: Query<Watched>,
     point_lights: Query<(&PointLight, &GlobalTransform, &InheritedVisibility)>,
-    spot_lights: Query<(&SpotLight, &GlobalTransform, &InheritedVisibility)>,
+    spot_lights: Query<(&SpotLight, &GlobalTransform, &InheritedVisibility), Without<crate::flashlight::PlayerFlashlight>>,
 ) {
     let state = &mut *state;
-    // The player's shots, heard at the next measurement.
+    // Shots, heard at the next measurement.
     for s in shots.read() {
         let level = combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon)).and_then(|w| w.sound_level.as_deref());
         let loud = level.map_or(0.0, |l| state.settings.unwrap_or_default().firing_sound(l));
-        state.shot = state.shot.max(loud);
+        let heard = state.shots.entry(s.shooter.0).or_default();
+        *heard = heard.max(loud);
+        state.shot_levels.insert(s.shooter.0, loud);
+    }
+    for i in impacts.read() {
+        state.impacts.push((i.point, i.shooter.0));
+    }
+    for h in hits.read() {
+        if let (false, Some(by)) = (h.died, h.by) {
+            state.hits.push((h.form_id, by.0));
+        }
     }
     let now = time.elapsed_secs();
     if now < state.next {
@@ -303,19 +375,27 @@ fn measure(
     let light: Vec<f64> = people.iter().map(|p| light_at(sky.as_deref(), &lights, p.chest())).collect();
 
     // Every detector against every target within reach.
-    let shot = std::mem::take(&mut state.shot);
-    if shot > 0.0 {
+    let shots = std::mem::take(&mut state.shots);
+    if shots.get(&FormId::PLAYER_REF.0).is_some_and(|s| *s > 0.0) {
         state.stats.shots_heard += 1;
     }
     let mut phys = phys.as_deref_mut();
-    let mut changes: Vec<(usize, usize, f64, Option<Band>, fnv_game::detection::Detection)> = Vec::new();
+    let mut changes: Vec<BandChange> = Vec::new();
     let mut player_bands: Vec<(usize, fnv_game::detection::Detection)> = Vec::new();
     let mut pairs = 0;
-    with_world(rt, sim, |rt| {
+    let impacts = std::mem::take(&mut state.impacts);
+    let hits = std::mem::take(&mut state.hits);
+    let shot_levels = state.shot_levels.clone();
+    let (mut events, mut hurt) = (0, 0);
+    let mut heard: Vec<(String, DetectionEvent, f64, f32)> = Vec::new();
+    let (alert_changes, barks) = with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         for (i, d) in people.iter().enumerate() {
             let Some(forward) = d.forward else { continue };
             let asleep = g.asleep(FormId(d.id));
+            let aware = g.awareness.get(FormId(d.id));
+            let alert = aware.is_some_and(|a| a.state.in_combat());
+            let fighting = aware.filter(|a| a.state == State::Combat).and_then(|a| a.combat_target()).map(|(t, _)| t);
             for (j, t) in people.iter().enumerate() {
                 if i == j {
                     continue;
@@ -334,22 +414,68 @@ fn measure(
                     moving: t.moving,
                     running: t.running,
                     sneaking: t.sneaking,
-                    action_sound: if j == 0 { shot } else { 0.0 },
-                    detector_alert: false,
+                    action_sound: shots.get(&t.id).copied().unwrap_or(0.0),
+                    detector_alert: alert,
                     detector_asleep: asleep,
-                    detector_busy: false,
+                    detector_busy: fighting.is_some_and(|f| f != FormId(t.id)),
                 };
                 let (det, before) = g.detect(&settings, FormId(d.id), FormId(t.id), &sit);
+                g.observe_threat(FormId(d.id), FormId(t.id), &det, t.feet);
                 pairs += 1;
                 if j == 0 {
                     player_bands.push((i, det));
                 }
                 if before != Some(det.band) {
-                    changes.push((i, j, dist as f64, before, det));
+                    let sight = match (sit.line_of_sight, sit.in_view) {
+                        (true, true) => "in sight",
+                        (false, _) => "out of sight (blocked)",
+                        (true, false) => "out of sight (out of view)",
+                    };
+                    changes.push((i, j, dist as f64, before, det, sight));
                 }
             }
         }
         g.detection.forget_older_than(g.time - 1.0);
+
+        // Detection events: the impacts of shots, CreateDetectionEvent.
+        for (at, by) in impacts {
+            let level = shot_levels.get(&by).copied().unwrap_or(0.0);
+            g.queue_detection_event(DetectionEvent { owner: FormId(by), at, level, kind: EventType::Bullet });
+        }
+        for ev in g.take_detection_events() {
+            events += 1;
+            for d in people.iter().filter(|d| d.forward.is_some()) {
+                let dist = distance(d.feet, ev.at);
+                if FormId(d.id) == ev.owner || dist > reach {
+                    continue;
+                }
+                let sit = Situation {
+                    distance: dist as f64,
+                    exterior,
+                    line_of_sight: clear_sight(phys.as_deref_mut(), d.eyes, ev.at),
+                    // An event is heard, not seen [hypothesis].
+                    in_view: false,
+                    sneaking: ev.owner == FormId::PLAYER_REF && people[0].sneaking,
+                    action_sound: ev.level,
+                    detector_alert: g.awareness.state(FormId(d.id)).in_combat(),
+                    detector_asleep: g.asleep(FormId(d.id)),
+                    ..Default::default()
+                };
+                let pair = g.detection_pair(FormId(d.id), ev.owner);
+                let det = settings.evaluate(&pair, &sit);
+                if g.hear_event(FormId(d.id), &ev, &det) {
+                    heard.push((d.label.clone(), ev, det.value, dist));
+                }
+            }
+        }
+        for (id, by) in hits {
+            let Some(at) = people.iter().find(|p| p.id == by).map(|p| p.feet) else { continue };
+            if g.hurt_by(FormId(id), FormId(by), at) {
+                hurt += 1;
+            }
+        }
+        g.settle_awareness();
+        (g.awareness.take_changes(), std::mem::take(&mut g.awareness.barks))
     });
 
     // The log and the counts.
@@ -357,7 +483,7 @@ fn measure(
     st.measurements += 1;
     st.pairs += pairs;
     st.most_pairs = st.most_pairs.max(pairs);
-    for (i, j, dist, before, det) in changes {
+    for (i, j, dist, before, det, sight) in changes {
         let (d, t) = (&people[i], &people[j]);
         let line = format!(
             "detection: {} → {}: {} → {} (value {:.1}: sound {:.1}, visual {:.1}, skills {:.1} against {:.1}; {:.0} units, {}, light {:.0}{}{})",
@@ -371,7 +497,7 @@ fn measure(
             det.detector_skill,
             det.target_skill,
             dist,
-            if det.seen { "in sight" } else { "out of sight" },
+            sight,
             light[j],
             if t.sneaking { ", sneaking" } else { "" },
             if t.running {
@@ -391,6 +517,7 @@ fn measure(
             debug!("{line}");
         }
     }
+    log_alerts(st, &people, &alert_changes, &barks, &heard, events, hurt);
     for (i, det) in &player_bands {
         let id = people[*i].id;
         st.watchers.insert(id);
@@ -417,6 +544,49 @@ fn measure(
     }
 }
 
+type Bark = (&'static str, FormId, Option<FormId>);
+
+/// The `alert:` log lines and their counts.
+fn log_alerts(st: &mut Stats, people: &[Person], changes: &[Change], barks: &[Bark], heard: &[(String, DetectionEvent, f64, f32)], events: usize, hurt: usize) {
+    let label = |id: FormId| people.iter().find(|p| p.id == id.0).map_or_else(|| format!("{:08X}", id.0), |p| p.label.clone());
+    st.events += events;
+    st.events_heard += heard.len();
+    st.hurt_alarms += hurt;
+    for (who, ev, value, dist) in heard {
+        info!("alert: {who} heard a {} event of {} (level {:.0}, value {value:.1}, {dist:.0} units away)", ev.kind.name(), label(ev.owner), ev.level);
+    }
+    for c in changes {
+        *st.changes.entry((c.from, c.to)).or_default() += 1;
+        if c.to == State::Alert {
+            st.alerted.insert(c.actor.0);
+        }
+        let what = match (c.about, c.cause) {
+            (Some(o), Some(cause)) => format!(": {} {}", cause.describe(), label(o)),
+            (Some(o), None) => format!(": detects {}", label(o)),
+            _ => String::new(),
+        };
+        let me = people.iter().find(|p| p.id == c.actor.0).map(|p| p.feet);
+        let away = match (me, c.at) {
+            (Some(f), Some(at)) => format!(", {:.0} units away", distance(f, at)),
+            _ => String::new(),
+        };
+        let value = c.value.map_or(String::new(), |v| format!(", value {v:.1}"));
+        info!("alert: {} {} → {}{what}{value}{away}", label(c.actor), c.from.name(), c.to.name());
+    }
+    for (topic, who, line) in barks {
+        match line {
+            Some(l) => {
+                st.barks += 1;
+                info!("alert: {} says {topic} line {:08X}", label(*who), l.0);
+            }
+            None => {
+                st.barks_silent += 1;
+                debug!("alert: {} has no {topic} line", label(*who));
+            }
+        }
+    }
+}
+
 fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
     if exit.read().next().is_none() {
         return;
@@ -439,6 +609,17 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
         s.meter_secs[2],
         s.shots_heard,
         s.range.map_or("none".into(), |(lo, hi)| format!("{lo:.1} to {hi:.1}")),
+    );
+    let changes: Vec<String> = s.changes.iter().map(|((f, t), n)| format!("{} → {} {n}", f.name(), t.name())).collect();
+    info!(
+        "alert summary: {} actors became Alert; changes: {}; {} detection events, heard {} times; {} hits alarmed; {} Detection topic lines said, {} asked for without a line",
+        s.alerted.len(),
+        if changes.is_empty() { "none".into() } else { changes.join(", ") },
+        s.events,
+        s.events_heard,
+        s.hurt_alarms,
+        s.barks,
+        s.barks_silent,
     );
 }
 

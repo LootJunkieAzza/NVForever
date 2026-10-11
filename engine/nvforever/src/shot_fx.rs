@@ -211,6 +211,7 @@ fn flash(
     mut models: ModelCtx,
     mut fx: ResMut<ShotFx>,
     mut flashes: Query<(Entity, &mut Flash)>,
+    root: Query<Entity, With<WorldRoot>>,
 ) {
     let dt = time.delta_secs();
     for (e, mut f) in &mut flashes {
@@ -222,10 +223,17 @@ fn flash(
     for shot in fired.read() {
         let Some(p) = combat.forms.projectiles.get(&shot.projectile) else { continue };
         let (true, Some(model)) = (p.has("Muzzle Flash"), p.muzzle_flash_model.as_deref()) else { continue };
-        // No muzzle to put it at (no body, no `ProjectileNode`): no flash.
-        let Some(muzzle) = body.as_deref().and_then(PlayerBody::muzzle_entity) else { continue };
+        // The player's at the held weapon's muzzle; another actor's where its shot left
+        // (game space, under the world root) [design: actors' weapons' muzzles are not
+        // found yet]. No muzzle to put it at (no body, no `ProjectileNode`): no flash.
+        let place = if shot.shooter == fnv_sim::FormId::PLAYER_REF {
+            body.as_deref().and_then(PlayerBody::muzzle_entity).map(|m| (m, Transform::IDENTITY))
+        } else {
+            shot.at.zip(root.single().ok()).map(|(at, r)| (r, Transform::from_translation(Vec3::from_array(at))))
+        };
+        let Some((parent, place)) = place else { continue };
         let Some(pm) = load(&mut models, &mut fx, "muzzle flash", model) else { continue };
-        let holder = spawn_model(&mut commands, muzzle, &pm, Transform::IDENTITY);
+        let holder = spawn_model(&mut commands, parent, &pm, place);
         // Made after this frame's flashes were aged: it is drawn this frame whatever
         // its duration, and goes in the first frame its time is up.
         commands.entity(holder).insert(Flash { left: p.muzzle_flash_duration });

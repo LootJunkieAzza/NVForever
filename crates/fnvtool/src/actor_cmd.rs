@@ -20,6 +20,9 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
         ActorCmd::Values { w, functions, actor, survey } => {
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_values::run(lo, schema, data, refs, &actor, survey))
         }
+        ActorCmd::Chargen { w, functions, special, tag } => crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| {
+            crate::actor_chargen::run(lo, schema, data, refs, special.as_deref(), &tag)
+        }),
         ActorCmd::Factions { w, functions, actor, survey } => {
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_factions::run(lo, schema, data, refs, &actor, survey))
         }

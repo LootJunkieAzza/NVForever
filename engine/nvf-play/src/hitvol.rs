@@ -212,6 +212,8 @@ fn sync_volumes(
     for id in stale {
         phys.world.remove_actor_volume(id);
     }
+    // The blocks of actors in an attack keep their place (`ActorBlocks::attacking`).
+    let held: HashMap<u32, blocking::Block> = blocks.list.iter().filter(|b| blocks.attacking.contains(&b.actor)).map(|b| (b.actor, *b)).collect();
     blocks.list.clear();
     vols.living.clear();
     for (&id, &(lo, hi)) in &bounds {
@@ -228,7 +230,7 @@ fn sync_volumes(
             // One that stands where it may be pushed is where its owner has it, with
             // the pushes still to come.
             let block = blocks.standing_now(id).map_or(block, |at| block.standing_at(at));
-            blocks.list.push(block);
+            blocks.list.push(held.get(&id).copied().unwrap_or(block));
         }
         match posed {
             Some(p) => {

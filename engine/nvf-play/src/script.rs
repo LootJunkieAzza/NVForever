@@ -59,7 +59,7 @@
 //!   `<seconds>@<quest>=<stage>`, seconds after the stage was first seen done):
 //!   `start:<quest>`, `stop:<quest>`, `stage:<quest>:<n>`, `objective:<quest>:<n>`,
 //!   `objective_done:<quest>:<n>`, `info:<INFO>[:<speaker>]`, `button:<n>`, `close`,
-//!   `message:<MESG>`,
+//!   `message:<MESG>`, `menu:<code>`,
 //!   `var:<form>:<variable>:<value>`, `walk:<reference>`, `activate:<reference>`,
 //!   `enable:<reference>`,
 //!   `say_to:<speaker>:<target>:<topic>[:<noTargetLookFlag>]`.
@@ -311,6 +311,8 @@ impl ScriptState {
     pub fn locks(&self) -> ControlLocks {
         match self.rt.as_ref() {
             _ if self.before_opening() => ControlLocks::ALL,
+            // The player is dead: nothing more to do [design] (`crate::combat`).
+            Some(rt) if rt.game.is_dead(FormId::PLAYER_REF) => ControlLocks::ALL,
             Some(rt) => ControlLocks::from_flags(rt.game.player.controls_disabled),
             None => ControlLocks::default(),
         }
@@ -667,6 +669,10 @@ impl Runtime {
                 let q = resolve(g, q)?;
                 g.start_quest(q);
             }
+            ScriptAid::Combat(a, t) => {
+                let (a, t) = (resolve(g, a)?, resolve(g, t)?);
+                g.start_combat(a, t);
+            }
             ScriptAid::Stop(q) => {
                 let q = resolve(g, q)?;
                 g.stop_quest(q);
@@ -707,6 +713,7 @@ impl Runtime {
                     g.show_box(m);
                 }
             }
+            ScriptAid::Menu(code) => g.open_menu(*code),
             ScriptAid::Activate(r) => {
                 let r = resolve(g, r)?;
                 if let ByHand::Default(a) = self.activate_as_player(r)? {
@@ -1165,6 +1172,10 @@ fn sync_locks(mut script: ResMut<ScriptState>, mut locks: ResMut<ControlLocks>, 
     let names = now.names();
     if script.before_opening() {
         info!("player controls: all held until the new game's opening starts");
+        return;
+    }
+    if script.rt.as_ref().is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF)) {
+        info!("player controls: all held, the player is dead");
         return;
     }
     stats.changes += 1;

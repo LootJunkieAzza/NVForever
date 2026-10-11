@@ -423,12 +423,45 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
 
 - **Swings** (`engine/nvf-play/src/combat.rs`, `melee`). Melee and unarmed weapons
   don't use the gun cycle.
-  - A tap of Use swings on release. Holding Use for `power_hold` (0.4 s) starts a power
-    attack: base × `power_damage` (1.5), `power_time` (1.3) × slower. A press made
-    during a swing queues the next one [design].
-  - The swing takes the attack clip's length ÷ (attack × animation multiplier), or
-    1 ÷ "Attack Shots/Sec" without a clip. It strikes once, at the clip's `Hit` key
-    [documented: NiTextKeyExtraData], or at 40 % of the swing without one [design].
+  - A tap of Use swings on release (`fnv_combat::melee`). Holding Use for `power_hold`
+    (0.4 s) starts a power attack [design].
+  - **Combos.** An attack clip's `a:` text key names the attack group to play next,
+    and its time is when the clip may be interrupted for it [documented: GECK wiki
+    NiTextKeyExtraData: `a:R` plays AttackRight, `a:7` Attack7, a blank key a random
+    attack]. In the base meshes archive every `AttackRight` clip of `h2h`, `1hm` and
+    `2hm` carries `a:L` and every `AttackLeft` clip `a:R`; `h2hattack3` names 4,
+    `h2hattack4` 3, `h2hattack5` itself, `h2hattack6` and `7` R; power clips have no
+    `a:` key [observed: both rigs, 2026-10-11]. Some times (third person, seconds):
+
+    | clip | Hit | `a:` | end |
+    |---|---|---|---|
+    | `h2hattackright_a` | 0.30 | L 0.63 | 1.43 |
+    | `h2hattackleft_a` | 0.33 | R 0.63 | 0.90 |
+    | `1hmattackright_a` | 0.30 | L 0.43 | 1.13 |
+    | `2hmattackright_a` | 0.57 | L 0.63 | 1.53 |
+
+    A press during a swing starts the next one at the `a:` key (or at once, if the key
+    has passed), playing the group the key names, so the fists alternate right and left.
+    A press after the swing has ended starts again from the weapon's own attack group
+    (`AttackRight` by default) [design: when the original resets a run is not known].
+  - **Variants.** The melee clips come as `_a` and `_b` (`h2hattackleft_a.kf`,
+    `…_b.kf`; `h2hattack5` only `_a`, `h2hattack6`/`7` neither) [observed]; each swing
+    picks one at random [hypothesis], falling back to the plain and `_a` forms.
+  - **Power attacks** play by the movement keys held when they start: `AttackPower`
+    standing, `AttackForwardPower`, `AttackBackPower`, `AttackLeftPower`,
+    `AttackRightPower` (an axis past 0.3; forward and back win a tie) [observed: those
+    clips for `h2h`, `1hm`, `2hm` in both rigs; owner's account of the original,
+    2026-10-11; thresholds design]. Sneaking, only the standing one has a sneak form.
+    Damage: base × `fDamagePowerAttackStandBonus` (3.0), `…ForwardBonus`,
+    `…BackBonus` or `…SideBonus` (2.0 each) [observed: FalloutNV.esm values;
+    hypothesis: that they multiply the damage, from their names]. `fDamagePowerAttackBonus`
+    (2.0) is not used. A power attack cannot be cut by a combo; a press during it
+    waits for its end.
+  - The swing takes its own clip's length ÷ (attack × animation multiplier), or
+    1 ÷ "Attack Shots/Sec" without a clip (× `power_time`, 1.3, for a power attack). It
+    strikes once, at the clip's `Hit` key [documented: NiTextKeyExtraData], or at 40 %
+    of the swing without one [design]. The body reports the timing of the clip it plays
+    for the swing (`WeaponAnim::timed`) a frame after the swing starts.
   - The strike is a fan of `melee_rays` rays over ±`melee_arc_deg` from the eye along
     the view, as long as the reach; each actor is hit once (`projectile::swing`).
 - **Reach** (`damage::melee_reach`) = `fCombatDistance` × scale × the WEAP Reach

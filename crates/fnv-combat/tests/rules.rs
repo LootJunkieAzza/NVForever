@@ -498,11 +498,13 @@ fn melee_reach_power_and_block() {
     assert!(close(damage::melee_reach(&r, &knife, 1.0), 0.5 * r.combat_distance));
     // A reach of 0 (the Fists) counts as 1.
     assert!(close(damage::melee_reach(&r, &fists, 1.0), r.combat_distance));
-    // A power attack multiplies the base before armour.
+    // A power attack multiplies the base before armour, by its direction's setting.
     let a = Attacker { strength: 10.0, ..skilled() };
-    let h = HitInput { weapon: &knife, projectiles: 1, condition: 1.0, ammo_effects: &[], part: HitPart::default(), power: t.power_damage };
+    let power = fnv_combat::melee::PowerDir::Stand.damage(&r);
+    assert!(close(power, 3.0) && close(fnv_combat::melee::PowerDir::Left.damage(&r), 2.0));
+    let h = HitInput { weapon: &knife, projectiles: 1, condition: 1.0, ammo_effects: &[], part: HitPart::default(), power };
     let d = damage::hit(&r, &t, &h, &a, &Target::default(), &NoPerks, &NoPerks, 0.99);
-    assert!(close(d.dealt, (10.0 + 5.0) * t.power_damage), "{d:?}");
+    assert!(close(d.dealt, (10.0 + 5.0) * power), "{d:?}");
     // Fists do the UnarmedDamage actor value; it is no miss.
     let h = HitInput { weapon: &fists, projectiles: 1, condition: 1.0, ammo_effects: &[], part: HitPart::default(), power: 1.0 };
     let d = damage::hit(&r, &t, &h, &Attacker { unarmed_skill: 40.0, ..Attacker::default() }, &Target::default(), &NoPerks, &NoPerks, 0.99);
