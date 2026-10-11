@@ -75,6 +75,18 @@ After actor value changes (`fnv-game` `actor_values`, `functions::actor`), run
 `fnvtool actor values --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor SunnyRef`
 and compare with docs/spec-notes/actor-values.md §3.1 (the fit table) and §7 (Sunny Smiles:
 Guns 35, Health 100; the player: every skill 15, Action Points 80); explain any change.
+After changes to the Wait and Sleep menu, to what sleeping does or to the people during
+a wait (`nvf-play` `wait`, `fnv-game` `rest`, `fnv-ai` `pass_time`, the engine's residents;
+docs/spec-notes/wait-menu.md §11), run the sleep smoke test, with
+`NVF_PLAY_TEST_NEAR=000CEB03`, `NVF_PLAY_TEST_ACTIVATE=16` and
+`NVF_PLAY_TEST_WAIT=24:hours=3,25:accept` set:
+`engine/target/release/nvforever --data <Data> --cell NovacPlayersRoom --play --hour 22 --run-seconds 36`
+(expect exit 0, "wait menu: open as sleep", three "sleep: hour" lines, "on screen: You are now
+Well Rested!" and "1 sleeps told to a bed's script" in the wait summary), and the wait with
+residents, with `NVF_PLAY_TEST_WAIT=30:open,31:hours=4,32:accept` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --npc-packages EasyPeteRef,GSChetRef,GoodspringsSettler04Ref --hour 18.5 --run-seconds 50`
+(expect exit 0, "3 there, 0 on their way" and "4 hours passed in the wait menu (2 walks in them)"
+in the ai summary).
 After changes to actor templates, leveled actor lists or faction functions (`fnv-game`
 `templates`, `functions::actor`), run
 `fnvtool actor factions --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor FiendVioletRef --actor 00157B36`

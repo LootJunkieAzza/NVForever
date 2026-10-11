@@ -24,6 +24,7 @@ pub mod furniture;
 pub mod hitvol;
 pub mod loading;
 pub mod menu;
+pub mod message_menu;
 pub mod moved;
 pub mod pause;
 pub mod phys;

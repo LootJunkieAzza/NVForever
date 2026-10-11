@@ -38,13 +38,15 @@ pub fn leveled_pool(list: &LeveledActorDef, level: u16) -> Vec<FormId> {
 /// encounter zone; the same seed, pool and order as the actor drawn for the reference,
 /// `fnv_actor::resolve`, so the two name the same entry].
 pub struct Picks {
-    rng: ChaCha8Rng,
+    reference: FormId,
+    /// Seeded at the first list: most chains meet none.
+    rng: Option<ChaCha8Rng>,
     picked: Vec<(FormId, FormId)>,
 }
 
 impl Picks {
     pub fn new(reference: FormId) -> Self {
-        Picks { rng: ChaCha8Rng::seed_from_u64(u64::from(reference.0)), picked: Vec::new() }
+        Picks { reference, rng: None, picked: Vec::new() }
     }
 
     fn pick(&mut self, id: FormId, list: &LeveledActorDef) -> Option<FormId> {
@@ -55,7 +57,8 @@ impl Picks {
         if pool.is_empty() {
             return None;
         }
-        let p = pool[leveled::below(&mut self.rng, pool.len() as u32) as usize];
+        let rng = self.rng.get_or_insert_with(|| ChaCha8Rng::seed_from_u64(u64::from(self.reference.0)));
+        let p = pool[leveled::below(rng, pool.len() as u32) as usize];
         self.picked.push((id, p));
         Some(p)
     }

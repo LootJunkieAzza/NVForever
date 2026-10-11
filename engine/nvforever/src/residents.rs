@@ -27,6 +27,14 @@
 //! its seats sat on, and at an idle marker the actor stands facing the marker's way
 //! (the marker's idles are not played yet).
 //!
+//! **Hours that pass in the Wait menu** (`nvf_play::wait`, docs/spec-notes/wait-menu.md
+//! §7). The menu holds the game, so nobody walks while it is up; for each hour that
+//! passes in it every actor chooses its package for the new hour (with the packages'
+//! begin, end and change scripts) and walks as far as it would have in an hour of play,
+//! headless on the navmesh ([`Core::pass_hours`]). When the menu closes the residents
+//! are where their packages have them; one that was on furniture and is to be elsewhere
+//! is off it at once. [engineering choice: what the original does is not sourced.]
+//!
 //! **Movement.** With `--play`, an actor walking where the collision world is loaded
 //! (around the player) is moved by the character controller ([`PhysMover`]): it steers
 //! along its path and physics decides where it ends up, so it goes round furniture and
@@ -34,7 +42,7 @@
 //! spaces, without `--play`), it moves on the navmesh surface (`fnv_nav::Walker`).
 
 use crate::actors::ActorWorld;
-use crate::furniture::{GetUp, OnFurniture, SitOn};
+use crate::furniture::{GetUp, LeaveNow, OnFurniture, SitOn};
 use crate::locomotion::Locomotion;
 use crate::nav::{self, Lead, NavState};
 use crate::world::{CellKey, Streamer, WorldData, WorldRoot};
@@ -68,6 +76,10 @@ const PHYSICS_RETRY: f32 = 8.0;
 
 /// The walker takes the last stretch of a walk, game units [our choice].
 const LAST_STRETCH: f32 = 64.0;
+
+/// The length of one update of the walks of an hour passed in the Wait menu, seconds
+/// [our choice].
+const WAITED_STEP: f32 = 0.25;
 
 /// A standing actor that had no room to give way when it was pushed is not pushed again
 /// for this long, seconds: it stands in the way like a seated one [our choice].
@@ -310,6 +322,8 @@ struct Core {
     pushed_units: f32,
     /// The pushes going on, by actor (for the log).
     pushing: HashMap<u32, Pushed>,
+    /// Hours passed in the Wait menu, and the walks made in them.
+    waited: [usize; 2],
 }
 
 #[derive(Resource)]
@@ -364,6 +378,7 @@ impl Residents {
             pushes: [0; 2],
             pushed_units: 0.0,
             pushing: HashMap::new(),
+            waited: [0; 2],
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -490,7 +505,7 @@ impl Core {
     /// One frame of the package choice and the walks in `game`. `own`: the game state is
     /// this module's (it is ticked here).
     #[allow(clippy::too_many_arguments)]
-    fn think(&mut self, game: &mut Game, own: bool, nav: &NavState, world: &WorldData, doors: &mut nvf_play::doors::Doors, mut phys: Option<&mut PhysState>, mut blocks: Option<&mut ActorBlocks>, dt: f32, now: f32) {
+    fn think(&mut self, game: &mut Game, own: bool, nav: &NavState, world: &WorldData, doors: &mut nvf_play::doors::Doors, mut phys: Option<&mut PhysState>, mut blocks: Option<&mut ActorBlocks>, dt: f32, now: f32, waited: u32) {
         // Who a walker pushed since the last frame, and (below) who may be pushed in
         // the next: nobody while the game is held.
         let pushed = blocks.as_deref_mut().map(|b| {
@@ -512,6 +527,10 @@ impl Core {
         if game.menu.is_some() || game.loading || game.dialogue.is_some() {
             for b in phys.iter_mut().flat_map(|p| p.npcs.values_mut()) {
                 b.velocity = [0.0, 0.0];
+            }
+            // Hours passed in the Wait menu: the residents go on with their days.
+            if waited > 0 && game.menu == Some(nvf_play::script::MENU_SLEEP_WAIT) && !self.ai.agents.is_empty() {
+                self.pass_hours(game, nav, world, waited, phys.as_deref_mut(), &held, now);
             }
             // Who started the conversation with its Dialogue package goes on turning
             // to the player.
@@ -590,7 +609,41 @@ impl Core {
         if own {
             game.events.clear();
         }
-        // What happened.
+        self.tell(game, world);
+        self.no_room.retain(|_, until| now < *until);
+        self.note(game, blocks, &held, now);
+    }
+
+    /// `hours` passed in the Wait menu (the calendar is already there): for each, every
+    /// actor chooses its package and walks for as long as an hour of game time lasts in
+    /// play, 3600 seconds over the TimeScale global (two real minutes at 30), on the
+    /// navmesh (`fnv_ai::Ai::pass_time`). Nobody is left to the character controller:
+    /// each goes on from where this put it.
+    #[allow(clippy::too_many_arguments)]
+    fn pass_hours(&mut self, game: &mut Game, nav: &NavState, world: &WorldData, hours: u32, phys: Option<&mut PhysState>, held: &HashSet<u32>, now: f32) {
+        let scale = game.world.forms.global_by_edid(clock::TIME_SCALE).map(|(id, authored)| game.world.global(id).unwrap_or(authored)).filter(|s| *s > 0.0).unwrap_or(30.0);
+        for _ in 0..hours {
+            game.choose_packages_now();
+            let walked = self.ai.pass_time(game, &nav.graph, 3600.0 / scale, WAITED_STEP);
+            self.waited[0] += 1;
+            self.waited[1] += walked;
+            info!("ai [{}] an hour passed in the wait menu: {walked} of {} residents walked", clock_text(game), self.ai.agents.len());
+            self.tell(game, world);
+        }
+        if let Some(p) = phys {
+            let ids: Vec<u32> = p.npcs.keys().copied().collect();
+            for id in ids {
+                p.remove_npc(id);
+            }
+        }
+        self.unstuck.clear();
+        self.skip_until.clear();
+        self.clock_text = clock_text(game);
+        self.note(game, None, held, now);
+    }
+
+    /// Count and log what the AI did since the last call.
+    fn tell(&mut self, game: &Game, world: &WorldData) {
         let hour = clock_text(game);
         for e in &self.ai.events {
             match e.event {
@@ -621,7 +674,11 @@ impl Core {
             }
         }
         self.ai.events.clear();
-        self.no_room.retain(|_, until| now < *until);
+    }
+
+    /// Each resident's state for whoever draws and seats it, after the AI's update.
+    fn note(&mut self, game: &Game, mut blocks: Option<&mut ActorBlocks>, held: &HashSet<u32>, now: f32) {
+        let hour = clock_text(game);
         for r in self.list.iter_mut() {
             r.present = r.joined && !r.failed && game.present(r.actor);
             let Some(agent) = self.ai.agents.get(&r.actor) else { continue };
@@ -753,8 +810,11 @@ pub fn drive(
     mut actors: Query<(&mut Transform, Option<&mut Locomotion>), Without<OnFurniture>>,
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, sim, mut phys, mut blocks): PlayState,
-    seated: Query<&RefVisual, With<OnFurniture>>,
+    (seated, hours): (Query<&RefVisual, With<OnFurniture>>, Option<MessageReader<nvf_play::wait::HourPassed>>),
 ) {
+    // Hours passed in the Wait menu since the last frame (`--play` only: without it
+    // there is no menu and no such message).
+    let waited = hours.map_or(0, |mut h| h.read().count() as u32);
     let Ok(root) = root.single() else { return };
     let dt = time.delta_secs().min(0.1);
     let now = time.elapsed_secs();
@@ -773,7 +833,7 @@ pub fn drive(
             if all {
                 res.core.take_cells(&world, &streamer, game.world.placed);
             }
-            res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now);
+            res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now, 0);
         }
         (None, Some(mut script), Some(mut sim)) => {
             let script = &mut *script;
@@ -789,7 +849,7 @@ pub fn drive(
             }
             let core = &mut res.core;
             let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
-            nvf_play::script::with_world(rt, &mut sim, |rt| core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now));
+            nvf_play::script::with_world(rt, &mut sim, |rt| core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now, waited));
         }
         _ => return,
     }
@@ -804,6 +864,26 @@ pub fn drive(
         let on = on_furniture.contains(&r.actor.0);
         let entity = r.root.filter(|_| r.spawned);
         let wants = r.wants;
+        // Hours passed in the Wait menu and its package has it elsewhere: it is off its
+        // furniture at once (the AI has walked it on already).
+        if let (true, Seat::Wanted(f) | Seat::Ordered(f, _) | Seat::GettingUp(f)) = (waited > 0, r.seat) {
+            if wants != Some(f) {
+                r.seat = Seat::None;
+                match entity {
+                    Some(e) if on => {
+                        commands.entity(e).insert(LeaveNow);
+                        core.seats[1] += 1;
+                        // Its visual stays for the furniture to let go of it; from the
+                        // next frame it is drawn where it is now, or not at all.
+                        continue;
+                    }
+                    Some(e) => {
+                        commands.entity(e).remove::<(SitOn, GetUp)>();
+                    }
+                    None => {}
+                }
+            }
+        }
         r.seat = match (r.seat, entity) {
             (Seat::None, _) => wants.map_or(Seat::None, Seat::Wanted),
             (Seat::Wanted(f), Some(e)) if wants == Some(f) => {
@@ -893,7 +973,7 @@ pub fn report(
     each.extend(crowd.into_iter().take(6).filter_map(one));
     let by = |a: Activity| core.ai.agents.values().filter(|x| x.activity == a).count();
     info!(
-        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; sandbox: {} wanders, {} seats, {} idle markers, {} sleeps, {} meals, {} times nothing to do; {} talks started by dialogue packages; physics moved actors in {} updates (at most {} at once), gave up {} times; standing actors pushed aside {} times ({:.0} units in all, {} times no room); {}",
+        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; sandbox: {} wanders, {} seats, {} idle markers, {} sleeps, {} meals, {} times nothing to do; {} talks started by dialogue packages; physics moved actors in {} updates (at most {} at once), gave up {} times; standing actors pushed aside {} times ({:.0} units in all, {} times no room); {} hours passed in the wait menu ({} walks in them); {}",
         core.clock_text,
         core.list.len(),
         core.counts[3],
@@ -920,6 +1000,8 @@ pub fn report(
         core.pushes[0],
         core.pushed_units,
         core.pushes[1],
+        core.waited[0],
+        core.waited[1],
         each.join("; ")
     );
 }

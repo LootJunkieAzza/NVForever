@@ -813,8 +813,8 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   SetSecuritronExpression, Reset3DState, AttachAshPile, SetCellImageSpace), weather
   (SetWeather, IsRaining, GetIsCurrentWeather), GetRadiationLevel, radio, menus
   (ForceTerminalBack, ShowCaravanMenu, OpenTeammateContainer, Add/SetSPECIALPoints,
-  AddTagSkills, the repair, recipe, casino, barber, surgeon, tutorial, sleep and loading
-  menus), ShowAllMapMarkers (map markers are not read), sleeping, GetIsLockBroken
+  AddTagSkills, the repair, recipe, casino, barber, surgeon, tutorial and loading
+  menus), ShowAllMapMarkers (map markers are not read), GetIsLockBroken
   (lockpicking), saving, ExitGame. AddScriptPackage and RemoveScriptPackage keep the
   actor's package list and also trace a stub.
 - **Unhandled (5 used opcodes, 35 uses)**: AddItemToLeveledList (20: run-time leveled

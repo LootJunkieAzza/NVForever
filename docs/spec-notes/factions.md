@@ -130,7 +130,8 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
   Very Aggressive, and Very Aggressive actors attack Neutrals [documented, §4]. Whoever
   asks "would this actor attack the player" has to use the aggression together with the
   relation: Enemy and aggression ≥ 1, or Neutral and aggression ≥ 2. Frenzied (3) is not
-  described in the export [hypothesis: attacks anyone].
+  described in the export [hypothesis: attacks anyone]. `fnv_game::rest::hostile_to_player`
+  (the wait and sleep refusal) reads it this way, so Violet counts as hostile.
 - This is how most hostile actors are set up. Placed actors by aggression (AI Data
   source) and their factions' reaction towards the player's [observed]:
 

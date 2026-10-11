@@ -2092,7 +2092,8 @@ NVForever's; `nvf-sleep.png` is the bed version).
    on which day and the earlier checks of the schedules were made with it. If you type
    `GetDayOfWeek` in the original's console with the wait menu's date line in view, one
    number settles it (0 is Sunday, 6 is Saturday).
-8. **Not built:**
+8. **Not built** (the first five points were taken up later the same day: see the next
+   entry, "Sleeping, refusals and people during a wait"):
    - **The original's refusals.** Its message list names these: enemies nearby, in
      combat, under water, an alarm sounding, a bed someone else owns, and places or
      quests that forbid waiting. I found the names, not the rules, so NVForever lets
@@ -2110,6 +2111,45 @@ NVForever's; `nvf-sleep.png` is the bed version).
      Well Rested beds need the first.
    - **The game's own font, slider picture and menu sounds.** The menu is drawn with
      NVForever's font and plain shapes, measured from your screenshot.
+
+## Message boxes drawn as the original's (2026-10-11, session "message box")
+
+You asked for the placeholder message boxes to be swapped for the game's own, like your
+"Vance's Gun" screenshot, with several buttons where a message has them.
+
+1. **What you get.** A message box is now laid out by the game's own menu file and
+   drawn with the game's own two fonts and line pictures, read from your install when
+   the game runs (nothing of them is in the repository): the title standing in the top
+   line, the text at the left, the buttons one under the other in the middle with a
+   frame around the chosen one, the bottom line, the short fading lines at the four
+   corners and the dark patch behind. Your screenshot's message comes out with the same
+   line breaks, and the box's measures match yours to within a pixel or two.
+2. **The pictures are not in `textures\interface\hud`.** That folder holds the compass,
+   crosshair and meters. The message box uses `textures\interface\shared` (the fading
+   lines and the black background) and `textures\fonts`. The font files had to be
+   worked out from their numbers; the note is `docs/spec-notes/fonts.md`.
+3. **How to answer a box.** Click a button; or Up and Down to move the frame and Enter
+   to press it. The pointer moves the frame to the button it is on. The number keys
+   still work as before (1 for the first button), but the numbers are no longer written
+   in front of the buttons. A box without buttons has OK, which Space also presses.
+4. **Guesses for you to judge** (details in `docs/spec-notes/message-menu.md` §3):
+   - **How dark the box is.** The game's file leaves that to the program. Your
+     screenshot is of a dark room, so it does not tell. I used the same darkness as the
+     Wait menu. A screenshot of a box outdoors in daylight would settle it.
+   - **The box's width for a short message.** Your screenshot is a full-width box. For
+     short texts I make the box as wide as the text needs, down to the file's minimum.
+   - **Which keys.** The menu file only describes the mouse and the gamepad.
+   - **A few spacings** (line spacing, where the first line sits) are fitted to your
+     one screenshot rather than read from a file.
+   - **The colour** is the amber of your screenshot. Your own HUD colour setting is not
+     read yet.
+5. **Not built:** the icon some boxes show beside the text, scrolling for a box with
+   more buttons than fit, the two menu sounds, the blur of the world behind the box.
+6. **Other menus use the same fonts.** The Wait menu, dialogue and the rest are still
+   in NVForever's stand-in font. The font reader is there now for them.
+7. **To look at any message:** set `NVF_PLAY_TEST_SCRIPT=20:message:PrimmMuseumPlaqueMessage`
+   and `NVF_PLAY_TEST_SCRIPT_MENUS=off` before starting with `--play` (the name is the
+   message's Editor ID).
 
 ## Weapon and armour condition (2026-10-11, session "item condition")
 
@@ -2144,6 +2184,82 @@ Branch `claude/item-condition`. Rules and sources: docs/spec-notes/combat-rules.
    Shoot the gun in a settler's hands about ten times with the 10mm Pistol.
 5. **Not done:** repair (you said later), jamming and slower fire of worn weapons, a
    worn item selling for less.
+## Sleeping, refusals and people during a wait (2026-10-11, session "sleep effects")
+
+Your four items left over from the T menu. Branch `claude/sleep-effects`. Facts and
+sources: `docs/spec-notes/wait-menu.md` (§5 scripts, §7 people, §8 sleeping, §9
+refusals, §10 what is not built, §11 the test runs).
+
+1. **Pressing E on a bed.** You lie down as before, and when you are lying the sleep
+   menu opens by itself. Cancel leaves you lying there; T opens the menu again; a
+   movement key or E gets you up.
+   - **For you to decide.** The original most likely opens the menu the moment you
+     press E, with no lying down (its bed script only works that way). You asked for
+     lying down earlier, so I kept it and put the menu after it. Say if you would rather
+     have (a) this, (b) the menu at once and no lying down, or (c) lying down only, with
+     T for the menu as it was.
+   - **A bug this fixed:** nine kinds of bed (safehouse beds, your hotel and Novac room
+     beds) did nothing at all when you pressed E, because they carry a script. They
+     work now.
+2. **Well Rested works.** Sleep in one of those nine kinds of bed and when you wake the
+   game says "You are now Well Rested!", your health and limbs are restored, and you
+   have the perk until its time runs out. I did not write any of that by hand: the
+   game's own bed script does it, now that it can ask "is the player asleep".
+   - The perk's actual bonus (10% more experience) is not applied yet. That belongs to
+     perks in general, which are not built.
+   - Quest scripts can now put you to sleep, wake you, and open the menu themselves.
+     Three quests use the first and one the second; I could not test them in a real
+     quest, only in small tests.
+3. **Healing in an ordinary bed: not built, on purpose.** Nothing I can read says an
+   ordinary bed heals you, or how much per hour. I would rather not make a number up.
+   If you sleep one hour in a plain bed in the original while hurt and tell me your
+   health before and after (and the same for eight hours), I can build it properly.
+4. **Hardcore sleep need: not built.** The game files have the need itself, its five
+   stages and a rate number (50), but not what the rate is measured in or how much an
+   hour of sleep takes off. NVForever does not build up any of the hardcore needs yet
+   (food, water, sleep), so there is nothing for sleep to lower. My proposal: build the
+   three needs together in their own piece of work, from numbers captured in the
+   original.
+5. **When you cannot wait or sleep.** Instead of the menu you now get a line on the
+   screen in these cases:
+   - **Enemies nearby**, with the original's own sentence (it is in the game files).
+   - **Someone else's bed**: you can lie on it, but not sleep.
+   - **Swimming.**
+   - **A quest has forbidden waiting.**
+   What I had to guess, since only the names of the original's messages are known:
+   - **How near is "nearby":** about 2000 units outdoors and 1000 indoors (roughly 30
+     and 15 metres). The original keeps these two numbers inside its program. If you
+     type `GetGS fHostileActorExteriorDistance` and `GetGS
+     fHostileActorInteriorDistance` in its console, I can put the real ones in.
+   - **Who is an enemy:** anyone alive in view range whose records say they would
+     attack you on sight. Nobody actually fights on their own in NVForever yet, so it
+     cannot be "is attacking you".
+   - **Whose bed:** I look at the bed's own owner. A bed with no owner of its own in an
+     owned house still lets you sleep.
+   - **The wording** of all lines except the enemies one is mine.
+   - **A weakness you will notice:** most wild animals do not count as enemies yet.
+     Standing next to two coyotes I could still wait; next to a Fiend I could not. The
+     reason is a gap elsewhere (animals get their faction from a template that
+     NVForever does not read yet). I have flagged it as its own task.
+   - **Not built:** "in combat" and "alarm sounding". Combat needs enemies that fight;
+     for the alarm I found no description of what it is.
+6. **People move on while you wait.** Before, everyone stood still during a wait and
+   walked to where they should be afterwards. Now, each hour that passes, everyone
+   picks what their schedule says for that hour and walks for as long as they would
+   have in an hour of normal play. After waiting from 18:41 to 22:41 in Goodsprings,
+   Easy Pete and a settler were already in their houses at their beds, and Chet at his.
+   - This is my design; I found nothing on what the original does.
+   - Behind the wait menu you can see people change place from one hour to the next.
+     During a sleep the screen is black, so you see nothing. Say if you want waiting to
+     hide it too.
+   - Nobody starts talking to you in the middle of a wait, and message boxes from
+     scripts hold until the menu closes.
+   - Someone who was sitting and has to be elsewhere is simply off the chair, without
+     the standing-up animation, since it happens behind the menu.
+   - People who were wandering about with nothing scheduled stay as they were until
+     the wait ends.
+7. **Still open from before:** the day-of-the-week question (item 7 of "Waiting and
+   sleeping: the T menu") is untouched. I did not change that rule.
 
 ## Who is in which faction, and who is hostile to you (2026-10-11, session "actor factions")
 
@@ -2157,8 +2273,9 @@ factions at all. Details: docs/spec-notes/factions.md.
    says so: the Fiends and you do not list each other. She attacks because she is
    "Very Aggressive", and the editor's documentation says those attack neutrals. Most
    dangerous animals work this way too (cazadores, fire geckos, radscorpions,
-   deathclaws). The sleep check has to use aggression together with the relation; the
-   rule is in the note, §5. I did not change the sleep branch.
+   deathclaws). The sleep and wait refusal ("enemies nearby") already uses aggression
+   together with the relation, so it was right about her; with item 1 it now also
+   knows the factions of spawned animals.
 3. **My choice, for you to confirm:** where the template is a leveled list ("one of
    these raiders"), the actor takes the factions of the same entry that is drawn for
    it. That pick is ours (level 1, repeatable per actor), not the game's roll by your
