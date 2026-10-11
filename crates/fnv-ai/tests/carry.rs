@@ -423,6 +423,35 @@ fn a_travel_package_walks_through_the_door_and_meets_its_goal() {
 }
 
 #[test]
+fn time_passed_in_a_menu_takes_the_actor_to_its_packages_place() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    // A menu holds the game (the Wait menu): no tick moves anyone, game time stands.
+    s.game.open_menu(1012);
+    let before = s.game.time;
+    s.game.choose_packages_now();
+    // Too little time: on its way, not there.
+    assert_eq!(s.ai.pass_time(&mut s.game, &s.nav, 2.0, 0.5), 1);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) > 100.0);
+    // An hour's worth: through the door and there, and it stops as soon as it is.
+    assert_eq!(s.ai.pass_time(&mut s.game, &s.nav, 120.0, 0.5), 1);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::There);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
+    let ev = s.events(R_TRAVEL);
+    assert!(matches!(ev[0], AiEvent::Package { package: Some(p) } if p.0 == P_TRAVEL_B));
+    assert!(matches!(ev[3], AiEvent::Arrived { .. }), "{:?}", ev);
+    // The game knows: its place, and the package's goal (its end script would have run).
+    assert_eq!(s.game.world.peek(actor).unwrap().cell, Some(FormId(CELL_B)));
+    assert!(s.game.extra[&actor].package_goal_met);
+    assert_eq!(s.game.time, before);
+    // Nobody left to walk: nothing more happens.
+    assert_eq!(s.ai.pass_time(&mut s.game, &s.nav, 120.0, 0.5), 0);
+    assert_eq!(s.events(R_TRAVEL).len(), 4);
+}
+
+#[test]
 fn a_place_that_cannot_be_reached_sets_the_package_aside() {
     let f = fixture();
     let mut s = sim(&f, &[R_TRAVEL]);

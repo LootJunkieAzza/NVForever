@@ -603,6 +603,30 @@ impl Runtime {
         done
     }
 
+    /// The Sleep menu opens for the player lying on `bed`: a bed with an OnActivate
+    /// block is activated by the player again, without its default action (the player
+    /// is on it already). Returns whether a block ran.
+    ///
+    /// [engineering choice] The game's bed script (FalloutNV.esm SCPT 0x000B5431) notes
+    /// the activation in a variable that its next GameMode frame clears, and gives Well
+    /// Rested only if it sees the player sleeping in a menu before that: in the original
+    /// the menu must therefore open with the activation [hypothesis]. In NVForever the
+    /// player lies down first and the menu opens seconds later, so the activation is
+    /// told again when it does (docs/spec-notes/wait-menu.md §8).
+    pub(crate) fn bed_activated_for_sleep(&mut self, bed: FormId) -> bool {
+        let g = &mut self.game;
+        if !g.ref_script(bed).and_then(|s| g.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE)) {
+            return false;
+        }
+        let from = g.events.len();
+        if let Err(e) = g.activate(FormId::PLAYER_REF, bed, ActMode::Hand) {
+            warn!("wait menu: the bed's OnActivate block: {e}");
+        }
+        let again = g.events.iter().enumerate().skip(from).filter(|(_, e)| matches!(&e.kind, EventKind::Activated { reference, .. } if *reference == bed)).map(|(i, _)| i);
+        self.skip.extend(again);
+        true
+    }
+
     /// Something the player does to the game between ticks (a choice on the dialogue
     /// screen, a skipped response): inventory changes the menus made are seen first, and
     /// what the action's scripts change is the scripts' own.
@@ -778,6 +802,10 @@ impl EffectCtx for PlayCtx<'_> {
     fn activation_effects(&self, a: &Activation, target: FormId) -> Vec<Effect> {
         outcome::effects(a, target.0, &self.display(target), self.index, |id| self.display(id))
     }
+
+    fn is_furniture(&self, r: FormId) -> bool {
+        self.sim.base_of(r.0).and_then(|b| self.sim.forms.get(b)).is_some_and(|b| matches!(b.data, fnv_sim::forms::BaseData::Furniture))
+    }
 }
 
 /// The response texts (NAM1) of a dialogue line, in order.
@@ -877,6 +905,7 @@ pub(crate) fn run_scripts(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut used: MessageReader<ItemUsed>,
+    mut sit: MessageWriter<crate::furniture::UseFurniture>,
     paused: Res<crate::pause::Paused>,
     loading: Res<crate::loading::Loading>,
 ) {
@@ -1073,6 +1102,10 @@ pub(crate) fn run_scripts(
             }
             ScriptEffect::Notify(text) => hud.notify(text),
             ScriptEffect::MessageBox(b) => hud.message_box(b),
+            ScriptEffect::UseFurniture(reference) => {
+                info!("script: the player uses furniture {reference:08X} (a script's Activate)");
+                sit.write(crate::furniture::UseFurniture { reference });
+            }
         }
     }
 }

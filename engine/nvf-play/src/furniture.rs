@@ -28,6 +28,8 @@ pub struct PlayerSeat {
     /// The furniture is a bed and the player lies on it (from lying down until getting
     /// up starts): the Wait menu is a Sleep menu meanwhile (`crate::wait`).
     pub bed: bool,
+    /// The furniture reference holding the player.
+    pub on: Option<u32>,
 }
 
 /// Tell the script runtime which furniture `actor` uses, so GetSitting and the other

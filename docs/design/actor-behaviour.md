@@ -194,6 +194,11 @@ package sends it through doors into other spaces, and stays until its package ch
   these actors to the module.
 - **Doors that open in place** are opened and waited for, as travellers do
   (`Ai::update_with`).
+- **Hours passed in the Wait menu** (`--play`; docs/spec-notes/wait-menu.md §7): for
+  each, every actor chooses its package (`Game::choose_packages_now`) and walks for an
+  hour of game time on the navmesh (`Ai::pass_time`: no talking, no new sandbox
+  behaviour, no patrol leaving its point); an actor on furniture that is to be
+  elsewhere is off it at once (`furniture::LeaveNow`). [engineering choice]
 - **The clock**: the package choice runs in a game state of its own, built at startup
   (about 6 seconds). Its clock starts at the sky's hour (`--hour`) and runs at the sky's
   `--time-scale`, or at `--npc-timescale` (default 30, the game's TimeScale) when the
