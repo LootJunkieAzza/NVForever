@@ -361,6 +361,12 @@ pub(crate) fn log_event(data: &GameData, e: &Event) {
         }
         EventKind::TopicAdded { topic, by } => info!("dialogue: topic {} added{}", n(*topic), by.map_or_else(String::new, |b| format!(" by line {}", n(b)))),
         EventKind::DialogueEnded { actor, reason, lines } => info!("dialogue: conversation with {} ended ({reason}, {lines} lines)", n(*actor)),
+        EventKind::ActorConversationStarted { speaker, target, topic } => {
+            info!("dialogue: conversation between {} and {} started (topic {})", n(*speaker), n(*target), n(*topic))
+        }
+        EventKind::ActorConversationEnded { speaker, target, reason, lines } => {
+            info!("dialogue: conversation between {} and {} ended ({reason}, {lines} lines)", n(*speaker), n(*target))
+        }
         EventKind::NoLine { speaker, topic } => debug!("dialogue: {} has no line of {} to say", n(*speaker), n(*topic)),
         _ => {}
     }

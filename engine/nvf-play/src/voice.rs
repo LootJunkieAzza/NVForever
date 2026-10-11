@@ -149,8 +149,12 @@ pub fn line_lengths(g: &Game, sim: &SimState, s: &Speech) -> Vec<f64> {
 
 /// Which response (index in record order) of a SayTo or Say line is being said: the
 /// responses follow one another in response-number order (`InfoDef::response_order`),
-/// each for its length.
+/// each for its length. A line of a conversation between actors is its first response
+/// only (`Speech::conversation`).
 pub fn speech_response(g: &Game, sim: &SimState, s: &Speech) -> usize {
+    if s.conversation.is_some() {
+        return g.data.infos.get(&s.info).and_then(|d| d.response_order().first().copied()).unwrap_or(0);
+    }
     let lengths = line_lengths(g, sim, s);
     let order = g.data.infos.get(&s.info).map(|d| d.response_order()).filter(|o| o.len() == lengths.len());
     let order = order.unwrap_or_else(|| (0..lengths.len()).collect());
