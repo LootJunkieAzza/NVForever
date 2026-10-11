@@ -238,6 +238,10 @@ fn clear_sight(phys: Option<&mut PhysState>, from: [f32; 3], to: [f32; 3]) -> bo
     true
 }
 
+/// A band change: detector and target (indices into the people), distance, the band
+/// before, the detection, and how the target was in sight.
+type BandChange = (usize, usize, f64, Option<Band>, fnv_game::detection::Detection, &'static str);
+
 type Watched = (&'static ActorRig, &'static GlobalTransform, &'static InheritedVisibility, Has<Dying>, Has<Corpse>, Option<&'static Name>);
 
 /// What the player is doing and where, the player's weapons and the sky.
@@ -373,7 +377,7 @@ fn measure(
         state.stats.shots_heard += 1;
     }
     let mut phys = phys.as_deref_mut();
-    let mut changes: Vec<(usize, usize, f64, Option<Band>, fnv_game::detection::Detection, &str)> = Vec::new();
+    let mut changes: Vec<BandChange> = Vec::new();
     let mut player_bands: Vec<(usize, fnv_game::detection::Detection)> = Vec::new();
     let mut pairs = 0;
     let impacts = std::mem::take(&mut state.impacts);
