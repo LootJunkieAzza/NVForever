@@ -241,8 +241,9 @@ pub struct Clock {
 enum Seat {
     #[default]
     None,
-    /// To use this furniture reference once the actor is drawn.
-    Wanted(u32),
+    /// To use this furniture reference once the actor is drawn; `true` when it was on
+    /// it already when its visual went away (it is put back on at once).
+    Wanted(u32, bool),
     /// Told to; `true` once it was seen on (or walking up to) the furniture.
     Ordered(u32, bool),
     /// Told to get up; the walk waits.
@@ -921,7 +922,7 @@ pub fn drive(
         let wants = r.wants;
         // Hours passed in the Wait menu and its package has it elsewhere: it is off its
         // furniture at once (the AI has walked it on already).
-        if let (true, Seat::Wanted(f) | Seat::Ordered(f, _) | Seat::GettingUp(f)) = (waited > 0, r.seat) {
+        if let (true, Seat::Wanted(f, _) | Seat::Ordered(f, _) | Seat::GettingUp(f)) = (waited > 0, r.seat) {
             if wants != Some(f) {
                 r.seat = Seat::None;
                 match entity {
@@ -940,15 +941,16 @@ pub fn drive(
             }
         }
         r.seat = match (r.seat, entity) {
-            (Seat::None, _) => wants.map_or(Seat::None, Seat::Wanted),
-            (Seat::Wanted(f), Some(e)) if wants == Some(f) => {
-                commands.entity(e).insert(SitOn { furniture: f, stay: None });
+            (Seat::None, _) => wants.map_or(Seat::None, |f| Seat::Wanted(f, false)),
+            (Seat::Wanted(f, at_once), Some(e)) if wants == Some(f) => {
+                commands.entity(e).insert(SitOn { furniture: f, stay: None, at_once });
                 core.seats[0] += 1;
                 Seat::Ordered(f, false)
             }
-            (Seat::Wanted(f), _) if wants != Some(f) => Seat::None,
-            // Its visual went away (its cell unloaded): sit again when it is back.
-            (Seat::Ordered(f, _), None) if wants == Some(f) => Seat::Wanted(f),
+            (Seat::Wanted(f, _), _) if wants != Some(f) => Seat::None,
+            // Its visual went away (its cell unloaded): sit again when it is back, at once
+            // when it was on the furniture (or walking up to it) then.
+            (Seat::Ordered(f, was_on), None) if wants == Some(f) => Seat::Wanted(f, was_on),
             (Seat::Ordered(f, _), Some(e)) if wants != Some(f) => {
                 if on {
                     commands.entity(e).insert(GetUp);
