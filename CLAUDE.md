@@ -163,6 +163,16 @@ dialogue, with `NVF_PLAY_TEST_TALK=10:GSChetRef=for sale|leave`, `NVF_PLAY_TEST_
 (expect exit 0, "menu: a script opens the barter menu with 0x00104C79", "stock in 0x00104C7A",
 "menu: Accept: Traded", "menu: close" and then the conversation's "Goodbye." choice).
 
+After changes to the name, tag-skill or trait menus (`nvf-play` `chargen`, `chargen::lists`,
+`chargen::name`, `fnv_game::chargen`; docs/spec-notes/chargen.md §7), run the three, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=off`, `NVF_PLAY_TEST_SCRIPT=3:menu:1051,8:menu:1048,13:menu:1084` and
+`NVF_PLAY_TEST_CHARGEN=5:clear,5.1:done,5.2:type:Courier Six,6:done,10:pick:Lockpick,10.1:done,10.2:pick:Guns,10.3:pick:Speech,10.4:pick:Survival,10.5:pick:Lockpick,10.6:pick:Survival,11:done,15:pick:Four Eyes,15.2:pick:Early Bird,15.4:pick:Wild Wasteland,16:done` set:
+`engine/target/release/nvforever --data <Data> --cell GSDocMitchellHouse --play --no-voice --run-seconds 20`
+(expect exit 0 and, in this order, "Ok refused: no name", `done, name "Courier Six"`, "Done refused:
+1 of 3 skills tagged", "Survival refused", "done, tag skills: Guns, Speech, Survival", "Wild Wasteland
+refused" and "done, traits: Early Bird, Four Eyes"); with the owner's load order (Old World Blues
+in it) the trait menu has 16 rows. `fnvtool actor chargen` lists what the menus offer (§6).
+
 After changes to the quest lines at the left ("Quest added", objectives; `nvf-play`
 `quest_messages`, `script_events` `QuestNotice`; docs/spec-notes/quest-messages.md §7), run them,
 with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
