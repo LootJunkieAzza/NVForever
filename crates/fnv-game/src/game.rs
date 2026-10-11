@@ -506,6 +506,10 @@ pub struct Game<'a> {
     /// Sleeping and waiting as scripts see and ask for them (`crate::rest`); the menu is
     /// the engine's. Not part of the saved state.
     pub rest: crate::rest::Rest,
+    /// The latest detection value of each (detector, target) pair the engine measured
+    /// (`crate::detection`); GetDetected and GetDetectionLevel read it. Not part of the
+    /// saved state: the engine measures again.
+    pub detection: crate::detection::Detections,
     pub world: World<'a>,
     pub cfg: GameConfig,
     pub quests: BTreeMap<FormId, QuestState>,
@@ -666,6 +670,7 @@ impl<'a> Game<'a> {
             combat_requests: Vec::new(),
             idle_requests: Vec::new(),
             rest: Default::default(),
+            detection: Default::default(),
             world,
             cfg,
             quests: BTreeMap::new(),

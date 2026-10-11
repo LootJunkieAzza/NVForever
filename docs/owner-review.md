@@ -2413,3 +2413,36 @@ Docs: docs/spec-notes/audio.md. Start `--play` in Goodsprings to hear it.
    silently skipped before.
 5. **Cost:** reading every marker at the start takes about half a second on the main
    thread before the first frame.
+
+## Who sees you: detection (2026-10-11, session "detection")
+
+Docs: docs/design/detection.md. Every NPC and creature near you now works out, four
+times a second, how well it perceives you and the other actors near it, with the
+editor documentation's formula (Perception, distance, light, sound of movement and
+shots, and your Sneak, level and armour while you sneak). Nothing acts on it yet: it is
+the groundwork for combat encounters. Scripts' GetDetected now answers from it.
+
+1. **See the numbers without playing:**
+   `fnvtool actor detect --schema schemas/fnv <Data> FalloutNV.esm --detector SunnyRef`
+   lists, for 13 situations, the value at distances from 100 to 5,000 units and how far
+   out you are detected (above 0) and noticed (above −20). In the game the log shows each
+   change (`detection: GSSettlerAM 00104F0A → the player: hidden → noticed …`) and
+   your band as the sneak meter would show it (HIDDEN, CAUTION, DANGER).
+2. **Guesses for you to check against the game:**
+   - **Light.** The formula needs the light level at you (0–100) and no source says how
+     the game measures it. I take the ambient light plus sunlight by day (or the room's
+     light indoors) plus nearby lamps; at noon in Goodsprings that is 93. With it, Sunny
+     Smiles spots you sneaking in daylight out to about 1,840 units, and never sneaking
+     in the dark. If the game hides you much better in daylight, the light measure is
+     what to lower.
+   - **Field of view:** 95° either side of where the actor faces (the GetLineOfSight
+     notes say so for every NPC). Walls block sight; other people do not.
+   - **Sneak-running counts as running** (louder and more visible).
+   - **Lying on a bed counts as asleep** (−20 % perception).
+3. **Would help me tune:** a few `GetDetected` readings in the game with you standing,
+   walking, running and sneaking at set distances from one NPC, at noon and at
+   midnight, and the game's fSneak* settings (`GetNumericGameSetting`).
+4. **Not built yet:** the alert, combat and lost states with their timers (so bands can
+   flicker as an actor turns its head), noise events from explosions and
+   CreateDetectionEvent, NPCs sneaking, the sneak meter on the HUD, shade from the sun.
+

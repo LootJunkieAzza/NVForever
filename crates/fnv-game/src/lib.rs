@@ -12,6 +12,7 @@
 //! - [`game`]: the game state, instances, dispatch, SetStage, activation, snapshots
 //! - [`functions`]: function implementations by opcode
 //! - [`trace`]: trace events
+//! - [`detection`]: how well one actor perceives another (hidden, noticed, detected)
 //! - [`dialogue`]: conversations between the player and an actor (Layer 6, step D2)
 //! - [`idles`]: the idle animations scripts, packages and dialogue lines ask for
 //! - [`intro`]: the intro chain's units (coverage)
@@ -25,6 +26,7 @@ pub mod ai;
 pub mod combat;
 pub mod cond;
 pub mod data;
+pub mod detection;
 pub mod dialogue;
 pub mod functions;
 pub mod game;

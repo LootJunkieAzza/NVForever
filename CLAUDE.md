@@ -87,6 +87,11 @@ residents, with `NVF_PLAY_TEST_WAIT=30:open,31:hours=4,32:accept` set:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --play --npc-packages EasyPeteRef,GSChetRef,GoodspringsSettler04Ref --hour 18.5 --run-seconds 50`
 (expect exit 0, "3 there, 0 on their way" and "4 hours passed in the wait menu (2 walks in them)"
 in the ai summary).
+After detection changes (`fnv_game::detection`, the engine's `detection.rs`; docs/design/detection.md),
+run `fnvtool actor detect --schema schemas/fnv <Data> FalloutNV.esm --detector SunnyRef` and compare
+with the table in detection.md §4 (sneaking, lit: detected out to 1,840; sneaking, dark: never);
+explain any change. Then the in-game check of detection.md §5 (expect exit 0, a "hidden → noticed"
+line for GSSettlerAM 00104F0A while sneaking, the shot taking it to detected, and a "detection summary").
 After changes to actor templates, leveled actor lists or faction functions (`fnv-game`
 `templates`, `functions::actor`), run
 `fnvtool actor factions --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor FiendVioletRef --actor 00157B36`
