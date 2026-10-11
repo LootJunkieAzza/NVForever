@@ -2675,3 +2675,44 @@ docs/spec-notes/combat-rules.md §10.
    move the player), the perk-only custom power attacks (`attackcustom1power` …), and
    the `Attack3`–`Attack7` punch chains beyond what a weapon's own attack names.
 
+## Character creation menus (2026-10-11, session "chargen")
+
+Your request: the trait menu, the tag-skill menu, the name menu and the Vigor Tester as
+the original's. Branch `claude/chargen-menus`; notes in `docs/spec-notes/chargen.md`
+(the Vigor Tester in `vigor-tester.md`).
+
+1. **Built:** the name, tag-skill and trait menus are drawn from the game's own menu
+   files with its fonts and pictures. Beside your screenshots, the rows, pictures,
+   texts, lines and buttons are within a few pixels. Done writes the name, the three
+   tags or the traits into the game. With your screenshot's S.P.E.C.I.A.L.
+   (5, 3, 7, 7, 5, 6, 7) every skill value in the tag menu matches yours.
+2. **The traits come from the load order:** sixteen with Old World Blues installed (ten
+   in the base game, six from the add-on), sorted by name as on your screenshots.
+3. **Words the game keeps inside the program** (not in its data files): "Reset", "Done",
+   "Ok", "Enter character name.", "R)", "A)", "TRAITS LEFT", "Req:", "Ranks:",
+   "Selected", "Tag 1 Skill". I took them from your screenshots. Our guesses, please
+   correct any you know: "1 TRAIT LEFT" with one left; "Tag 2 Skills" and "Tag 3 Skills".
+4. **Four Eyes' requirement:** the game data has two (Perception above 1 and below 10),
+   and your screenshot shows only "PER < 10". I leave out any "above 1" on a
+   S.P.E.C.I.A.L., but I don't know the original's rule.
+5. **Our guesses about behaviour:**
+   a. Reset goes back to what the menu opened with. It might clear everything instead.
+   b. A trait whose requirement you don't meet is drawn faint and can't be taken.
+   c. Keys: Up/Down choose, Enter or Space tags or takes, R resets, A is Done.
+   d. Names are at most 24 characters, no blank names, and no typing cursor is drawn.
+6. **Not built:** the blur of the world behind these menus, their sounds, and what each
+   trait does once taken (its perk effects). The race menu is still a placeholder.
+7. **The Vigor Tester** is drawn from the game's own model of the machine, the one the
+   in-world tester uses, with its own page-flip animations. Its camera is fitted to your
+   screenshots. Arrows raise and lower, the lever's buttons and the arrows are
+   clickable, and Done works only with every point given out. Details are in
+   `vigor-tester.md`. Questions:
+   a. Which PC keys does it use? Ours: Left/Right lower and raise, Up/Down choose the
+      review row, Tab and Page Up/Down turn pages, Enter or E is Done.
+   b. Does it open on the "Rate Your… TRY IT NOW!" page? The model rests there, so ours
+      does.
+   c. On the review page, is the → itself Done, or does another button replace it once
+      every point is given out?
+   d. Does a row's ◄ disappear at 1?
+   e. Ours is drawn without the game's lighting, so the cabinet is flatter and the bulbs
+      glow less. Should it get real lighting and the blurred room behind it?

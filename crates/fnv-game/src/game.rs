@@ -362,6 +362,9 @@ pub struct ActiveImageModifier {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayerState {
     pub xp: f64,
+    /// The name typed in the name menu (`crate::chargen`); `None` before it.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub perks: BTreeMap<FormId, u8>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
