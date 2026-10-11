@@ -18,7 +18,7 @@ use crate::control::ControlLocks;
 use crate::player::Player;
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
-use crate::ui::{amber, at, bc_supported, face, plain_font, set_line, texture, u, Face};
+use crate::interface::{amber, at, bc_supported, face, plain_font, set_line, texture, u, Face};
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;

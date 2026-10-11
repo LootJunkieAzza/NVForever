@@ -13,12 +13,8 @@
 //! - Fonts, textures and units are `crate::interface`'s, shared with the other parts of
 //!   the interface.
 
-use crate::interface::{amber, at, face, plain_font, set_text, texture, u, Face, Set};
+use crate::interface::{amber, at, bc_supported, face, plain_font, set_text, texture, u, Face, Set};
 use crate::script_hud::BoxButton;
-use bevy::image::{CompressedImageFormatSupport, CompressedImageFormats};
-
-use crate::script_hud::BoxButton;
-use crate::ui::{amber, at, bc_supported, face, plain_font, set_line, texture, u, Face};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use fnv_font::{Font, Line};
@@ -96,14 +92,6 @@ impl MessagePanel {
 }
 
 // ---- layout --------------------------------------------------------------------------
-
-/// A line of text: where it starts and the line its letters stand on.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Set {
-    pub line: Line,
-    pub x: f32,
-    pub base: f32,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ButtonRow {
@@ -225,11 +213,6 @@ struct BoxRoot;
 #[derive(Component)]
 struct Frame(usize);
 
-/// Draw a line of text at `origin` (what its `x` and `base` are measured from).
-fn set_text(p: &mut ChildSpawnerCommands, face: &Face, set: &Set, origin: Vec2, color: Color) {
-    set_line(p, face, &set.line, set.x - origin.x, set.base - origin.y, color);
-}
-
 fn spawn_box(commands: &mut Commands, view: &PanelView, faces: &Faces, selected: usize) {
     let l = layout(view, &faces.body.font, &faces.title.font);
     let screen = Node {
@@ -324,7 +307,6 @@ fn draw(
         }
         if let Some(view) = &panel.view {
             let faces = faces.get_or_insert_with(|| {
-                let bc = formats.as_deref().is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
                 load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref()))
             });
             spawn_box(&mut commands, view, faces, panel.selected);

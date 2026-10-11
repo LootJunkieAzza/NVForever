@@ -14,10 +14,10 @@
 //! - While a message box or a script's menu is open the area is hidden and its clock
 //!   stands still [design], so a message is not used up behind a box.
 
-use crate::interface::{amber, at, atlas_index, face, plain_font, set_text, texture, u, AtlasPiece, Face, Set};
+use crate::interface::{amber, at, atlas_index, bc_supported, face, plain_font, set_text, texture, u, AtlasPiece, Face, Set};
 use crate::message_menu::MessagePanel;
 use crate::script_events::Note;
-use bevy::image::{CompressedImageFormatSupport, CompressedImageFormats};
+use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
 use fnv_font::Font;
 use nvf_assets::GameData;
@@ -256,7 +256,7 @@ fn draw(
             commands.entity(e).despawn();
         }
         if let Some(note) = corner.showing() {
-            let bc = formats.as_deref().is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
+            let bc = bc_supported(formats.as_deref());
             let kit = kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
             info!(
                 "corner message: \"{}\" for {} s, icon {} ({} waiting)",

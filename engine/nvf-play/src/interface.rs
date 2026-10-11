@@ -1,5 +1,5 @@
 //! What the parts of the original's interface are drawn with, shared by the modules that
-//! draw one (`message_menu`, `corner_messages`): lengths in the interface's units (960
+//! draw one (`message_menu`, `corner_messages`, `hud`): lengths in the interface's units (960
 //! to the height of the view), the interface's colour, the game's fonts and textures
 //! read from the owner's archives at run time, a line of text set as glyphs of the
 //! font's texture, and the index of the interface's texture atlas.
@@ -7,7 +7,7 @@
 //! Without the game's files a font is stood in for by one whose characters are all as
 //! wide as each other, and its text is drawn with Bevy's font.
 
-use bevy::image::ImageSampler;
+use bevy::image::{CompressedImageFormatSupport, CompressedImageFormats, ImageSampler};
 use bevy::prelude::*;
 use fnv_font::{Font, Glyph, Line};
 use nvf_assets::GameData;
@@ -30,6 +30,11 @@ pub fn u(units: f32) -> Val {
 
 pub fn at(left: f32, top: f32, width: f32, height: f32) -> Node {
     Node { position_type: PositionType::Absolute, left: u(left), top: u(top), width: u(width), height: u(height), ..default() }
+}
+
+/// Whether the device can sample the block-compressed textures the game ships.
+pub fn bc_supported(formats: Option<&CompressedImageFormatSupport>) -> bool {
+    formats.is_none_or(|f| f.0.contains(CompressedImageFormats::BC))
 }
 
 /// A line of text: where it starts and the line its letters stand on.
@@ -93,16 +98,25 @@ pub fn face(path: &str, stand_in: Font, data: Option<&GameData>, images: &mut As
 /// Draw a line of text at `origin` (what its `x` and `base` are measured from). Every
 /// node that carries the colour also gets `mark`.
 pub fn set_text(p: &mut ChildSpawnerCommands, face: &Face, set: &Set, origin: Vec2, color: Color, mark: impl Bundle + Clone) {
-    let (x, base) = (set.x - origin.x, set.base - origin.y);
+    set_marked(p, face, &set.line, set.x - origin.x, set.base - origin.y, color, mark);
+}
+
+/// Draw a line of text that starts at `x` and stands on `base`, both from the parent's
+/// top left corner.
+pub fn set_line(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, base: f32, color: Color) {
+    set_marked(p, face, line, x, base, color, ());
+}
+
+fn set_marked(p: &mut ChildSpawnerCommands, face: &Face, line: &Line, x: f32, base: f32, color: Color, mark: impl Bundle + Clone) {
     let Some((image, size)) = &face.image else {
-        let text: String = set.line.glyphs.iter().map(|g| g.code as char).collect();
+        let text: String = line.glyphs.iter().map(|g| g.code as char).collect();
         let size = face.font.size * 0.75;
         p.spawn(Node { position_type: PositionType::Absolute, left: u(x), top: u(base - size), ..default() }).with_children(|n| {
             n.spawn((Text::new(text), TextFont { font_size: FontSize::Vh(size / 9.6), ..default() }, TextColor(color), mark));
         });
         return;
     };
-    for placed in &set.line.glyphs {
+    for placed in &line.glyphs {
         let g = face.font.glyph(placed.code);
         if !g.drawn() {
             continue;

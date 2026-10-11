@@ -44,7 +44,6 @@ pub mod sim;
 pub mod space;
 mod test_aid;
 pub mod sfx;
-pub mod ui;
 pub mod voice;
 pub mod wait;
 

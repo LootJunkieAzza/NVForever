@@ -3,7 +3,8 @@
 Tags as in `nif.md`: `[documented]` cites a page or file, `[observed]` says what was
 looked at, `[hypothesis]` is a reading that nothing has confirmed yet. `[design]` marks
 what is NVForever's own. Implementation: `engine/nvf-play/src/hud.rs` (the HUD),
-`ui.rs` (what it shares with the message box: units, colour, fonts, textures),
+`interface.rs` (what it shares with the message box and the corner messages: units,
+colour, fonts, textures),
 `combat.rs` `Combat::hud_weapon` (condition and ammo), `crates/fnv-font` (`fonts.md`).
 
 ## 1. Sources
