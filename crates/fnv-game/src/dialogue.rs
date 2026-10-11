@@ -14,10 +14,15 @@
 //! A conversation is a menu: while one runs the game is in menu mode
 //! ([`Game::in_menu`]) [owner statement 2026-10-10], and only the conversation's own
 //! lines go on, in real time ([`Game::update_dialogue`]).
+//!
+//! Conversations between two actors (`StartConversation` with an actor as the target,
+//! [`Game::start_actor_conversation`]) are no menu: their lines are said in the world as
+//! SayTo lines are ([`Game::speech`]), each line's Link To topics give the next one
+//! (dialogue.md §5.1).
 
 use crate::cond::{Operand, RunOn};
 use crate::data::{info_flag, InfoDef};
-use crate::game::{Game, RunCtx};
+use crate::game::{Game, LineKind, RunCtx, Speech};
 use crate::trace::EventKind;
 use fnv_sim::{clock, FormId};
 use rand_core::RngCore;
@@ -116,6 +121,12 @@ pub mod ended {
     pub const LEFT: &str = "left";
     /// The actor died, was disabled or deleted.
     pub const ACTOR_GONE: &str = "actor_gone";
+    /// Conversations between actors: the line just said links to nothing either side can
+    /// say.
+    pub const NO_LINKS: &str = "no_links";
+    /// Conversations between actors: a line was cut off (its speaker started another
+    /// line, or was disabled or died).
+    pub const CUT: &str = "cut";
 }
 
 /// GetActorValue, GetBaseActorValue, GetPermanentActorValue.
@@ -327,7 +338,7 @@ impl<'a> Game<'a> {
         };
         if Some(topic) == data.greeting && data.infos.get(&info).is_some_and(|d| d.goodbye) {
             self.extra.entry(actor).or_default().talked_to_pc = true;
-            self.say_line(actor, listener, topic, info, false, true);
+            self.say_line(actor, listener, topic, info, LineKind::Greeting);
             return Ok(info);
         }
         self.dialogue = Some(Conversation { actor, line: None, choices: Vec::new(), lines: 0 });
@@ -630,6 +641,118 @@ impl<'a> Game<'a> {
         }
         self.emit(EventKind::DialogueEnded { actor: c.actor, reason, lines: c.lines });
         true
+    }
+
+    // ---- conversations between actors (dialogue.md §5.1) --------------------------------
+
+    /// `speaker.StartConversation target [topic]` with an actor as the target: the two
+    /// talk to each other and the player overhears them [documented: GECK wiki
+    /// StartConversation: it "forces a conversation between two NPCs, optionally starting
+    /// with a specified topic"; Conversation Tab: a conversation is "a series of infos
+    /// that are played between two actors"]. The speaker says the line of `topic` it can
+    /// say to the target ([`Game::select_line`], the target as the conditions' target),
+    /// HELLO when `topic` is none [hypothesis, from the Conversation Tab: random
+    /// conversations start with HELLO]. Returns the line.
+    ///
+    /// The lines are said in the world as SayTo lines are ([`Game::say_line`],
+    /// [`LineKind::Conversation`]): no menu, nothing paused, the player stays free
+    /// [hypothesis: the player is not part of it], and only the first response of each
+    /// line is said [documented: Conversation Tab: "Infos in conversations cannot have
+    /// more than one response. Extra responses are ignored"]. When a line ends the next
+    /// one follows ([`Game::next_conversation_line`]).
+    ///
+    /// In the game the speaker first goes to the target ("no matter where the two NPCs
+    /// are"); that walk needs AI packages, so here the conversation starts at once
+    /// [stand-in, as for `StartConversation player`]. Nothing starts when either side is
+    /// disabled [documented: StartConversation], dead or deleted [hypothesis], when either
+    /// is already in a conversation, with the player or another actor [hypothesis], or
+    /// when the speaker has no line to say [hypothesis].
+    pub fn start_actor_conversation(&mut self, speaker: FormId, target: FormId, topic: Option<FormId>) -> Result<FormId, String> {
+        let data = self.data;
+        if speaker == target {
+            return Err(format!("{} cannot talk to itself", data.name(speaker)));
+        }
+        for who in [speaker, target] {
+            if !self.present(who) || self.extra.get(&who).is_some_and(|e| e.dead) {
+                return Err(format!("{} is not there to talk", data.name(who)));
+            }
+            if self.dialogue_actor() == Some(who) || self.in_actor_conversation(who) {
+                return Err(format!("{} is already in a conversation", data.name(who)));
+            }
+        }
+        let topic = topic.or_else(|| data.by_edid("HELLO").filter(|t| data.topic_defs.contains_key(t))).ok_or("the load order has no HELLO topic")?;
+        let Some(info) = self.select_line(speaker, Some(target), topic) else {
+            self.emit(EventKind::NoLine { speaker, topic });
+            return Err(format!("{} has no line of {} to say to {}", data.name(speaker), data.name(topic), data.name(target)));
+        };
+        self.emit(EventKind::ActorConversationStarted { speaker, target, topic });
+        self.say_line(speaker, Some(target), topic, info, LineKind::Conversation(1));
+        Ok(info)
+    }
+
+    /// Whether an actor is saying, or listening to, a line of a conversation between
+    /// actors.
+    pub fn in_actor_conversation(&self, actor: FormId) -> bool {
+        self.speech.iter().any(|s| s.conversation.is_some() && (s.speaker == actor || s.target == Some(actor)))
+    }
+
+    /// Line `lines` of a conversation between actors (`said`) is over and its end result
+    /// script has run: the next line, or the end of the conversation. In order:
+    /// 1. a line with the Goodbye flag ends it [documented: Conversation Tab: a
+    ///    conversation ends with an info with the Goodbye flag];
+    /// 2. so does either side being gone (dead, disabled, deleted) [hypothesis];
+    /// 3. the line's next speaker (INFO DATA: Target, the listener; Self, the speaker
+    ///    again; Either, the listener and else the speaker) [documented: xEdit
+    ///    wbNextSpeaker, the names; hypothesis: what they mean, and the order for Either]
+    ///    says the first of the line's follow-ups it can say to the other
+    ///    [hypothesis, as in conversations with the player];
+    /// 4. else one of the line's Link To topics (the choices, TCLT) of which it has a line
+    ///    to say, at random when there are several [documented: Conversation Tab: with
+    ///    more than one Link To topic "the game [selects] one of the Link To topics at
+    ///    random"; hypothesis: topics with no line it can say are passed over];
+    /// 5. else the conversation ends. A GOODBYE line is not added [hypothesis: the
+    ///    Conversation Tab says random conversations end with a GOODBYE unless a Goodbye
+    ///    line ends them; whether a scripted one does is a capture question, §7].
+    pub(crate) fn next_conversation_line(&mut self, said: &Speech, lines: u32) {
+        let data = self.data;
+        let (speaker, Some(listener)) = (said.speaker, said.target) else { return };
+        let end = |g: &mut Self, reason: &'static str| g.emit(EventKind::ActorConversationEnded { speaker, target: listener, reason, lines });
+        let Some(def) = data.infos.get(&said.info) else { return end(self, ended::NO_LINKS) };
+        if def.goodbye {
+            return end(self, ended::GOODBYE);
+        }
+        if [speaker, listener].iter().any(|&a| !self.present(a) || self.extra.get(&a).is_some_and(|e| e.dead)) {
+            return end(self, ended::ACTOR_GONE);
+        }
+        let turns: &[(FormId, FormId)] = match def.next_speaker {
+            1 => &[(speaker, listener)],
+            2 => &[(listener, speaker), (speaker, listener)],
+            _ => &[(listener, speaker)],
+        };
+        let next = LineKind::Conversation(lines + 1);
+        for &(who, to) in turns {
+            if let Some(&f) = def.follow_ups.iter().find(|&&f| self.can_say(who, Some(to), f)) {
+                let topic = data.infos.get(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
+                self.say_line(who, Some(to), topic, f, next);
+                return;
+            }
+            let mut linked: Vec<(FormId, FormId)> = Vec::new();
+            for &t in &def.choices {
+                if !linked.iter().any(|(seen, _)| *seen == t) {
+                    if let Some(i) = self.select_line(who, Some(to), t) {
+                        linked.push((t, i));
+                    }
+                }
+            }
+            let (topic, info) = match linked.len() {
+                0 => continue,
+                1 => linked[0],
+                n => linked[self.rng.next_u32() as usize % n],
+            };
+            self.say_line(who, Some(to), topic, info, next);
+            return;
+        }
+        end(self, ended::NO_LINKS)
     }
 
     /// The actor the player is in a conversation with.

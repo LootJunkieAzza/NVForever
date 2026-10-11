@@ -400,11 +400,77 @@ All of it is in `GameSnapshot`.
   are set by end scripts whenever the player clicks through; capture question §7.8].
   Nothing is skipped while a menu on top of the conversation holds it. No trace event
   of its own.
-- **Not modelled:** conversations between two NPCs (the Conversation tab: HELLO, link
-  to/from, GOODBYE), radio, combat and detection barks, Low/High Intelligence lines and
+- **Not modelled:** random conversations between NPCs (the Conversation tab's HELLO
+  started by the game itself, IdleChatter; scripted ones are §5.1), radio, combat and
+  detection barks, Low/High Intelligence lines and
   the Dumb Response, the quest flag "Allow Repeated Conversation Topics", the Fallout 3
   speech-challenge roll and the SpeechChallengeFailure topic, lip sync and emotions on
   faces.
+
+### 5.1 Conversations between two actors (`Game::start_actor_conversation`)
+
+`speaker.StartConversation target [topic]` with an actor as the target makes the two
+talk to each other [documented: GECK wiki StartConversation: it "forces a conversation
+between two NPCs, optionally starting with a specified topic"]. The masters call it 104
+times: 83 with the player as the target, 21 (in 16 script units) with another actor
+[observed: `fnvtool script decompile` over FalloutNV.esm]. One of them is Goodsprings'
+Joe Cobb and Trudy (below).
+
+- **What a conversation is**: "a series of infos that are played between two actors";
+  each line's Link To topics (TCLT, the choices of player dialogue) give the next one,
+  and with several Link To topics "the game [selects] one … at random"; a line with the
+  Goodbye flag ends it; "infos in conversations cannot have more than one response.
+  Extra responses are ignored" [documented: Conversation Tab].
+- **Start.** The speaker says the line of `topic` it can say with the target as the
+  conditions' target (§4); HELLO without a topic [hypothesis, from the Conversation
+  Tab: random conversations start with HELLO]. Nothing starts when either side is
+  disabled [documented: StartConversation], dead or deleted, already in a conversation
+  (with the player or another actor), or when the speaker has no line [hypothesis for
+  these]. In the game the speaker first goes to the target ("no matter where the two
+  NPCs are currently"); the runtime starts at once [stand-in, as for
+  `StartConversation player`]. The location references, head-track and allow-movement
+  parameters are not read.
+- **The lines** are said in the world as SayTo lines are (`Game::speech`,
+  `Speech::conversation`): no menu, no pause, the player keeps control and overhears
+  them [hypothesis]; the listener is the other actor (its listener idle plays); begin
+  result at the start, end result at the end, in game time; only the first response in
+  response order is said and timed [documented, above]; Say Once is kept as for SayTo.
+  No SayToDone block runs [hypothesis].
+- **The next line** (`Game::next_conversation_line`), when a line has ended and its end
+  result has run: a Goodbye line ends the conversation [documented]; so does either
+  side being gone [hypothesis]. Otherwise the line's next speaker says the next line:
+  Target is the other actor, Self the same one, Either the other and else the same one
+  [documented: xEdit wbNextSpeaker, the names; hypothesis: what they mean]. It says the
+  first follow-up (TCFU) it can say to the other [hypothesis, as in player dialogue],
+  else a line of one of the Link To topics, at random among the topics it has a line of
+  [documented: the random pick; hypothesis: topics with no line are passed over]. With
+  nothing to say the conversation ends; no GOODBYE line is added [hypothesis: the
+  Conversation Tab says random conversations end with GOODBYE unless a Goodbye line ends
+  them; capture question §7 item 16].
+- **Cut.** A line cut off (its speaker starts another line, is disabled or dies) ends
+  the conversation without its end result [hypothesis, as for SayTo].
+- **Trace**: `actor_conversation_started` {speaker, target, topic}, then `line_started`
+  (with `target`) / `line_ended` per line, and `actor_conversation_ended` {speaker,
+  target (of the last line), reason `goodbye` | `no_links` | `cut` | `actor_gone`,
+  lines}.
+
+**Joe Cobb and Trudy** [observed: FalloutNV.esm, `fnvtool script decompile`, `fnvtool
+dialogue lines --topic GSJoeCobbIntro`, `fnvtool esm decode`]. The end result of
+INFO 0015F8B6 enables TrudyRef (00104C6D), GSJoeCobbRef (00104C68) and the trigger
+volume 0010521E in GSProspectorSaloonInterior (three trigger scripts do the same in
+other orders of events). The trigger's script GSJoeCobbTriggerScript (SCPT 0010521F),
+on the player's OnTriggerEnter while Joe Cobb should not attack the player, calls
+`GSJoeCobbRef.StartConversation TrudyRef, GSJoeCobbIntro GSJoeCobbRef TrudyRef 0 0`, sets
+VMS16.bMetJoeCobb and disables and deletes itself. GSJoeCobbIntro (DIAL 00104DE7, type
+Conversation, quest VFreeformGoodsprings) has one line (INFO 00105219: Joe Cobb to
+Trudy, one response, next speaker Target, Link To GSTrudyToJoe); GSTrudyToJoe has one
+line (INFO 00105218: Trudy, one response, no links) whose end result sets
+VFreeformGoodsprings.bArgumentOver and re-evaluates Joe Cobb's packages; the quest's
+script then gives him script package 0010663E. Headless (`fnvtool script run`: the
+three references enabled, the trigger entered) the runtime plays this through: Joe
+Cobb's line (8.80 s, its voice file's length), Trudy's answer (3.85 s), bArgumentOver 1,
+package 0010663E chosen, the conversation ended `no_links` after 2 lines. Before this
+section StartConversation with an actor was a stub, so the argument was never heard.
 
 ## 6. What scripts see
 
@@ -419,7 +485,7 @@ All of it is in `GameSnapshot`.
 | `GetTalkedToPC` | 1 once a conversation with the player has started; SayTo lines do not count | [documented: GetTalkedToPC; hypothesis on SayTo] |
 | `GetDialogueEmotion` | the emotion type of the response being said, else 0 | [documented: GetDialogueEmotion for the codes] |
 | `StartConversation player [topic]` | starts the conversation at once; ignored while one runs or when the actor has no line; the walk to the player needs AI packages | [documented: StartConversation; stand-in for the walk] |
-| `StartConversation <npc>` | recorded, no effect (NPC conversations) | – |
+| `StartConversation <npc> [topic]` | the two actors talk to each other in the world (§5.1): no menu, the player overhears; `IsTalking` is 1 for the one saying a line | [documented: StartConversation, Conversation Tab; hypotheses in §5.1] |
 | `AddTopic` | the topic joins the known topics (trace `topic_added`) | [documented: catalogue; hypothesis, §5] |
 | `GetIsCurrentPackage` | unchanged. Dialogue packages are carried out by `fnv_ai` for actors handed to it (docs/design/actor-behaviour.md §5.6): the actor goes up to the player and the conversation starts as with `StartConversation player` | [documented: GECK wiki, Dialogue Package] |
 
@@ -491,6 +557,12 @@ up to C and F):
     Say Once a Day counted from the line's start or end.
 14. Response order where numbers and stored order disagree.
 15. Whether SayTo and Say obey Random stacks like menu dialogue.
+16. Conversations between actors (§5.1): the walk to the target before the first line;
+    whether the player is free and the game runs on during them; what Target, Self and
+    Either mean; follow-ups in them; whether a scripted conversation ends with a GOODBYE
+    line when its last line links nowhere; HELLO when no topic is named; SayToDone after
+    their lines; refusal while either actor is talking. A capture of Joe Cobb and Trudy
+    (§5.1) would answer several at once.
 
 ## 8. Tool contracts
 
