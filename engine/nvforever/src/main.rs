@@ -10,6 +10,7 @@
 //! menu.
 
 mod actors;
+mod attack_anims;
 mod alert;
 mod anim_sounds;
 mod deaths;
@@ -808,6 +809,8 @@ fn main() -> AppExit {
             app.add_plugins(alert::AlertPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
+            // How fighters aim, shoot and bite (attack_anims.rs).
+            app.add_plugins(attack_anims::AttackAnimsPlugin);
         }
     }
     if play.is_some() {

@@ -23,7 +23,7 @@ others give the player no hit marker, no kill XP and no HUD line.
 | `ActorStrike` | same | one melee blow: the weapon's damage (else the Fists'; a creature's own CREA DATA Damage in their place) against the target's armour, applied with `Game::hit` |
 
 Actors do not spend ammunition yet [design: until looting balance is looked at]. Their
-shots leave from the eyes, a little ahead, not yet from their weapon's muzzle.
+shots are aimed from the eyes and drawn from the weapon's muzzle (§9).
 
 ## 2. The player is a target
 
@@ -120,11 +120,54 @@ StartCombat is called 938 times in the masters' scripts: quest fights now start 
 
 ## 8. Next
 
-- Attack clips (aim, fire and recoil for guns; bites and swings), and shots from the
-  weapon's muzzle.
 - Combat groups: allies join (the Fiends' dogs did not, their records being neutral to
   the player), StartCombat's group case, Assistance.
 - Combat styles (CSTY): ranges, cover, strafing, flee by Confidence; weapon choice;
   grenades; ammunition use.
 - OnStartCombat / OnCombatEnd blocks; crimes and assault making actors hostile.
 - The original's death camera and reloading the last save.
+
+## 9. How fighters look (step CA2)
+
+Owner request 2026-10-11: "add attack animations so NPCs aim, fire and bite visibly".
+`engine/nvforever/src/attack_anims.rs`; the clip rules are the player body's
+(`fnv_actor::player_clips`, docs/spec-notes/animation.md §9.6).
+
+- **Aiming**: a fighting NPC with its weapon drawn mixes its stance's aim clip with the
+  up or down form (`2hraimup.kf`, `2hraimdown.kf`) by the pitch from its eyes to the
+  target's chest (`aim_weights`: the forms are the poses at ±90°) [hypothesis, as for
+  the player].
+- **Shots and blows**: each plays the weapon's attack clip, chosen as the player's
+  (`attack_stem` of the WEAP attack animation, then `attack_clips`: Violet's hunting rifle
+  plays `2hrattack3.kf`), with its own up or down form at the aim's weight; fists are
+  `h2h`.
+- **Creatures**: their own `h2hattack….kf` clips in the skeleton's folder, power and
+  forward attacks left out, taken in turn [design]. The dog has `h2hattackleft`,
+  `h2hattackleft_midbite`, `h2hattackright`, `h2hattackright__midbite`; the radscorpion
+  `h2hattackleft_mid`, `_high`, `_low` … [observed: the base meshes archive].
+- **When a blow lands**: at its clip's `Hit` text key [documented: NiTextKeyExtraData]
+  (the dog's `h2hattackleft.kf` at 0.50 s, `_midbite` at 0.27 s [observed]), if the
+  target is still within reach then; otherwise it misses [design]. Shots leave at the
+  start of their clip.
+- **Where shots come from** (owner 2026-10-11: "the shots were coming from Violet's
+  face, not the gun"): every drawn NPC weapon gets a marker at its model's
+  `ProjectileNode` under the actor's `Weapon` node (`weapons::Muzzle`), so it follows
+  the weapon. A shot is aimed from the eyes and drawn from the muzzle, closing onto the
+  eyes' line by the aim point, and the muzzle flash and shoot sound are there; this is
+  the player's first-person rule (`shot::leaving` without cover), so an NPC whose barrel
+  is behind low cover it sees over still hits what it sees [design]. Violet's
+  `ProjectileNode` is 89 units from her eyes and 64 below them [observed]; with shots
+  leaving the muzzle itself she hit the sheet of metal in front of her 8 times out of 8.
+- Layers: the attack clip and its form take blend layers 4 and 5 (the idles' layers: an
+  idle stops for an attack), the aim's form layer 3 when the draw cycle is not fading
+  there; attack clips win by track priority (55 over the aim's 50).
+- Checks [observed 2026-10-11]: the dogs' fight logs `attack anims: 000F573F plays
+  meshes\creatures\dog\h2hattackleft.kf (1.03 s, hit at 0.50 s)` and in about 30 s
+  `attack anims summary: … h2hattackleft.kf 4, h2hattackleft_midbite.kf 4,
+  h2hattackright.kf 3, h2hattackright__midbite.kf 3`; side-on frames 0.25 s apart show
+  the dog crouch and rear up at the player's upper body. Violet's: `2hrattack3.kf
+  (1.33 s)` per shot, `shots are drawn from its weapon's muzzle`, `9 shots (9 from a
+  muzzle, 0 from the eyes)`, 8 hits.
+- Not done: reload clips for NPCs, recoil of the `##` weapon parts on the muzzle node,
+  turning a standing NPC that is not run on its packages to face its target, aiming
+  while moving (the movement clips drive the spine above the aim, animation.md §9.6).
