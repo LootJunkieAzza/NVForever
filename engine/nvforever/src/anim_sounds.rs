@@ -113,6 +113,8 @@ struct Counts {
     other_keys: u32,
     door_sounds: u32,
     door_record_sounds: u32,
+    /// Sound keys of groups scripts play on objects.
+    object_sounds: u32,
     /// Keys naming a SOUN editor ID there is no record of.
     unknown_keys: u32,
     /// Footsteps by ground family.
@@ -634,6 +636,27 @@ fn door_sounds(
     }
 }
 
+/// The sound keys of animation groups scripts play on objects (object_anims.rs), where
+/// the object is.
+fn object_sounds(mut s: ResMut<AnimSounds>, sfx: Option<Res<Sfx>>, mut keys: MessageReader<crate::object_anims::ObjectSound>, mut out: MessageWriter<PlaySound>) {
+    let Some(sfx) = sfx else {
+        keys.clear();
+        return;
+    };
+    let s = &mut *s;
+    build(s, &sfx);
+    for k in keys.read() {
+        match s.sound(&k.key) {
+            Some(sound) => {
+                s.counts.object_sounds += 1;
+                debug!("anim sounds: object key {} at {:?}", k.key, k.at);
+                out.write(PlaySound { sound, at: Some(k.at) });
+            }
+            None => {}
+        }
+    }
+}
+
 /// A DOOR record's open (SNAM) or close (ANAM) sound [documented: xEdit
 /// wbDefinitionsFNV.pas DOOR, `schemas/fnv/objects.json`].
 fn door_record_sound(d: &PlayWorld, base: u32, opening: bool) -> Option<FormId> {
@@ -654,7 +677,7 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<AnimSounds>) {
     let mut unknown: Vec<&String> = s.unknown.iter().collect();
     unknown.sort();
     info!(
-        "anim sounds summary: {} footsteps ({} by the player, {} by actors; ground: {}), {} armour rustles, {} reload keys, {} other sound keys, {} door sounds ({} from door records), {} keys without a SOUN{}; creatures: {} sounds ({}), {} hits, {} deaths, {} keys of a type not listed; the player jumped {} and landed {} times",
+        "anim sounds summary: {} footsteps ({} by the player, {} by actors; ground: {}), {} armour rustles, {} reload keys, {} other sound keys, {} door sounds ({} from door records), {} object group sounds, {} keys without a SOUN{}; creatures: {} sounds ({}), {} hits, {} deaths, {} keys of a type not listed; the player jumped {} and landed {} times",
         c.footsteps_player + c.footsteps_actors,
         c.footsteps_player,
         c.footsteps_actors,
@@ -664,6 +687,7 @@ fn report(mut exit: MessageReader<AppExit>, s: Res<AnimSounds>) {
         c.other_keys,
         c.door_sounds + c.door_record_sounds,
         c.door_record_sounds,
+        c.object_sounds,
         c.unknown_keys,
         if unknown.is_empty() { String::new() } else { format!(" ({})", unknown.iter().take(8).map(|u| u.as_str()).collect::<Vec<_>>().join(", ")) },
         c.creature.values().sum::<u32>(),
@@ -685,6 +709,10 @@ impl Plugin for AnimSoundsPlugin {
             .add_systems(
                 Update,
                 (player_keys.after(BodySet), actor_keys.after(crate::locomotion::drive), door_sounds.after(nvf_play::doors::DoorSystems), creature_hits).chain(),
+            )
+            .add_systems(
+                Update,
+                object_sounds.after(crate::object_anims::drive).run_if(|m: Option<Res<crate::object_anims::ObjectAnims>>| m.is_some()),
             )
             .add_systems(Last, report);
     }

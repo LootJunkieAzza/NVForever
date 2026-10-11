@@ -179,6 +179,23 @@ pub struct Rig {
     /// A door's sequences, played when it opens or closes (nvf-play `doors`); the rig is
     /// drawn in its stored pose until then.
     pub door: Option<DoorClips>,
+    /// Every named sequence that moves a node or drives a material of this file, in file
+    /// order: the animation groups scripts play by name (PlayGroup, nvforever
+    /// `object_anims.rs`; docs/spec-notes/activators.md §5).
+    pub groups: Vec<Clip>,
+}
+
+impl Rig {
+    /// The sequence of animation group `name` (case-insensitive).
+    pub fn group(&self, name: &str) -> Option<&Clip> {
+        self.groups.iter().find(|c| c.name.eq_ignore_ascii_case(name))
+    }
+
+    /// Whether the model has a sequence besides those played by themselves or by doors
+    /// (Idle, SpecialIdle, Open, Close): one only a script plays.
+    pub fn has_script_groups(&self) -> bool {
+        self.groups.iter().any(|c| !["idle", "specialidle", "open", "close"].iter().any(|n| c.name.eq_ignore_ascii_case(n)))
+    }
 }
 
 impl Rig {
@@ -387,19 +404,23 @@ impl ModelCtx<'_> {
         let idle = named("idle").or_else(|| named("specialidle"));
         // A door's Open and Close, when both move nodes of this file.
         let door = named("open").zip(named("close")).map(|(open, close)| DoorClips { open, close });
+        // Every named sequence that animates this file (scripts' PlayGroup).
+        let groups: Vec<Clip> = seqs.iter().filter(|s| s.name.is_some()).map(Clip::from_sequence).filter(&moves).collect();
         // Shapes whose material a clip of the rig drives.
         let animated_shapes: HashSet<String> = idle
             .iter()
             .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
+            .chain(groups.iter())
             .flat_map(|c| c.materials.iter().map(|m| m.shape.clone()))
             .collect();
         let emissive_shapes: HashSet<String> = idle
             .iter()
             .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
+            .chain(groups.iter())
             .flat_map(|c| c.materials.iter().filter(|m| !matches!(m.target, MaterialTarget::UvOffset(_))).map(|m| m.shape.clone()))
             .collect();
         // Rig nodes: the root first, then every object reachable from it.
-        let animated = idle.is_some() || door.is_some();
+        let animated = idle.is_some() || door.is_some() || !groups.is_empty();
         let mut rig = animated
             .then(|| {
             let root = root?;
@@ -428,7 +449,7 @@ impl ModelCtx<'_> {
                     }
                 })
                 .collect();
-            Some((Rig { nodes, shapes: Vec::new(), idle, door }, index))
+            Some((Rig { nodes, shapes: Vec::new(), idle, door, groups }, index))
             })
             .flatten();
 

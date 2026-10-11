@@ -247,6 +247,15 @@ and shoot a bighorner in its pen, with `NVF_PLAY_TEST_NO_SPREAD=1`, `NVF_PLAY_TE
 heard with some random sounds played, and "casing knocks heard" in the "shot fx:" line; the counts of
 steps, random sounds and knocks vary).
 
+After changes to scripts' animation groups on objects (`fnv-game` `anims`, nvforever
+`object_anims.rs`, the rigs' `groups` in `nvf_assets::model`; docs/spec-notes/activators.md §5),
+run Goodsprings at night with a plant picked, with `NVF_PLAY_TEST_SCRIPT_MENUS=1` and
+`NVF_PLAY_TEST_SCRIPT=12:activate:0x0016AF20` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --hour 21 --no-voice --run-seconds 25`
+(expect exit 0, `playgroup: 0x0016AF20 plays Forward (once, 0.47 s), flag 1`, a `playgroup:` line
+showing `0x0016B5E8` (the saloon's lights) Left, and `playgroup summary:` with about 50 asked
+(Backward, Forward, Left) and "0 without a sequence of that name").
+
 ## Commits
 
 End commit messages with the session's attribution lines. Keep commits focused; write

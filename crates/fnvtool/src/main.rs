@@ -653,6 +653,20 @@ pub enum SimCmd {
         #[arg(long)]
         nif_schema: Option<PathBuf>,
     },
+    /// Scripts' PlayGroup and IsAnimPlaying calls: on which objects, with which groups and
+    /// flags, and whether the object's model has that sequence (fnv.sim.playgroup_calls/1).
+    PlaygroupCalls {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `<schema>/../nif`).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Function catalogue (default: `<schema>/../script/functions.json`).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]

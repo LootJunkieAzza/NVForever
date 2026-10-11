@@ -104,6 +104,8 @@ pub enum EventKind {
     SoundAsked { sound: FormId, #[serde(skip_serializing_if = "Option::is_none")] at: Option<FormId>, system: bool },
     /// A script asked for a music type (`PlayMusic`; `crate::sound`).
     MusicAsked { music: FormId },
+    /// A script asked a reference to play an animation group (`PlayGroup`; `crate::anims`).
+    AnimAsked { on: FormId, group: String, flag: i32 },
     /// An idle was asked for and cannot be played, and why.
     IdleNotPlayed { actor: FormId, idle: FormId, source: crate::idles::IdleSource, reason: &'static str },
     /// An image space modifier started playing on the screen (ApplyImageSpaceModifier).

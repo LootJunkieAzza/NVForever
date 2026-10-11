@@ -150,3 +150,187 @@ pub fn activator_models(lo: &LoadOrder, schema: &Schema, forms: &FormStore, refs
         "with_sequences": rows,
     })
 }
+
+/// One PlayGroup or IsAnimPlaying call found in a script unit.
+struct GroupCall {
+    /// "PlayGroup" or "IsAnimPlaying".
+    func: &'static str,
+    /// The animation group code (`None`: IsAnimPlaying without a group).
+    group: Option<u16>,
+    /// PlayGroup's init flag.
+    flag: Option<i32>,
+    /// The explicit calling reference (`Ref.PlayGroup`): a form, or a local variable.
+    on: Option<fnv_script::unit::RefSlot>,
+}
+
+/// The PlayGroup (0x1013) and IsAnimPlaying (0x1128) calls of one decoded unit, in
+/// statements and in expressions.
+fn group_calls(unit: &fnv_script::ScriptUnit, prog: &fnv_script::ir::Program) -> Vec<GroupCall> {
+    use fnv_script::ir::{Arg, Call, Stmt, Token};
+    fn of(unit: &fnv_script::ScriptUnit, c: &Call, out: &mut Vec<GroupCall>) {
+        let func = match c.opcode {
+            0x1013 => "PlayGroup",
+            0x1128 => "IsAnimPlaying",
+            _ => return,
+        };
+        let group = c.args.iter().find_map(|a| if let Arg::Enum(g) = a { Some(*g) } else { None });
+        let flag = c.args.iter().find_map(|a| match a {
+            Arg::Int(n) => Some(*n),
+            Arg::Float(x) => Some(*x as i32),
+            _ => None,
+        });
+        out.push(GroupCall { func, group, flag, on: c.on.and_then(|r| unit.slot(r)) });
+    }
+    fn expr(unit: &fnv_script::ScriptUnit, e: &fnv_script::ir::Expr, out: &mut Vec<GroupCall>) {
+        for t in &e.0 {
+            if let Token::Call { call } = t {
+                of(unit, call, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    prog.walk(&mut |s| match s {
+        Stmt::Call { call } => of(unit, call, &mut out),
+        Stmt::Set { expr: e, .. } => expr(unit, e, &mut out),
+        Stmt::If { arms, .. } => arms.iter().for_each(|a| expr(unit, &a.cond, &mut out)),
+        Stmt::Unmatched { cond: Some(e), .. } => expr(unit, e, &mut out),
+        _ => {}
+    });
+    out
+}
+
+/// A model's sequences: (name, cycle type, length in seconds).
+type SeqList = Vec<(String, i64, f32)>;
+
+/// `fnvtool sim playgroup-calls` (fnv.sim.playgroup_calls/1): which scripts call
+/// PlayGroup and IsAnimPlaying, on which objects (the explicit reference's base, else the
+/// bases that carry the script), with which groups and flags, and whether the object's
+/// model has a sequence of the group's name (docs/spec-notes/activators.md §5).
+#[allow(clippy::too_many_arguments)]
+pub fn playgroup_calls(
+    lo: &LoadOrder,
+    schema: &Schema,
+    forms: &FormStore,
+    refs: &RefTable,
+    vfs: &fnv_vfs::Vfs,
+    nif: &fnv_nif::Schema,
+    table: &fnv_script::FunctionTable,
+) -> Value {
+    let (units, _) = fnv_script::unit::read_load_order(lo, schema);
+    let mut placed: BTreeMap<FormId, Vec<FormId>> = BTreeMap::new();
+    for p in refs.refs.values() {
+        placed.entry(p.base).or_default().push(p.id);
+    }
+    // Bases by the script they carry.
+    let mut users: BTreeMap<u32, Vec<FormId>> = BTreeMap::new();
+    for b in forms.bases.values() {
+        if let Some(s) = b.script {
+            users.entry(s.0).or_default().push(b.id);
+        }
+    }
+    let group_name = |g: Option<u16>| match g {
+        None => "(any)".to_string(),
+        Some(g) => table.enum_name("anim_group", g).map(str::to_string).unwrap_or_else(|| format!("code {g}")),
+    };
+    let mut seq_cache: BTreeMap<String, Option<SeqList>> = BTreeMap::new();
+    let mut seqs_of = |path: &str| -> Option<SeqList> {
+        seq_cache
+            .entry(path.to_string())
+            .or_insert_with(|| {
+                model(vfs, nif, path).ok().map(|(s, _)| {
+                    s.iter()
+                        .map(|v| {
+                            let len = v["stop"].as_f64().unwrap_or(0.0) - v["start"].as_f64().unwrap_or(0.0);
+                            (v["name"].as_str().unwrap_or("?").to_string(), v["cycle_type"].as_i64().unwrap_or(-1), len as f32)
+                        })
+                        .collect()
+                })
+            })
+            .clone()
+    };
+    let mut by_group: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+    let mut by_target: BTreeMap<String, u64> = BTreeMap::new();
+    let mut has_seq: BTreeMap<String, u64> = BTreeMap::new();
+    let mut targets: BTreeMap<(u32, String), Value> = BTreeMap::new();
+    let mut calls_n = 0u64;
+    for u in &units {
+        let d = fnv_script::decode(&u.bytes, table);
+        let calls = group_calls(u, &d.program);
+        if calls.is_empty() {
+            continue;
+        }
+        for c in calls {
+            calls_n += 1;
+            let g = group_name(c.group);
+            let flag = c.flag.map(|f| f.to_string()).unwrap_or_else(|| "-".into());
+            *by_group.entry(format!("{} {g}", c.func)).or_default().entry(flag).or_default() += 1;
+            // The objects the call runs on: (base, the reference named, if any).
+            let on: Vec<(FormId, Option<FormId>)> = match (c.on, &u.owner) {
+                (Some(fnv_script::unit::RefSlot::Form(f)), _) => match refs.refs.get(&FormId(f)) {
+                    Some(p) => vec![(p.base, Some(p.id))],
+                    None => vec![(FormId(f), None)],
+                },
+                (Some(_), _) => {
+                    *by_target.entry("a reference variable".into()).or_default() += 1;
+                    continue;
+                }
+                (None, fnv_script::unit::UnitOwner::Script { form }) => {
+                    users.get(form).map(|v| v.iter().map(|b| (*b, None)).collect()).unwrap_or_default()
+                }
+                (None, o) => {
+                    *by_target.entry(format!("no reference ({})", o.sig())).or_default() += 1;
+                    continue;
+                }
+            };
+            if on.is_empty() {
+                *by_target.entry("script carried by no base".into()).or_default() += 1;
+            }
+            for (base, r) in on {
+                let sig = forms.sig(base).map(|s| String::from_utf8_lossy(&s).to_string()).unwrap_or_else(|| "?".into());
+                *by_target.entry(sig.clone()).or_default() += 1;
+                let obj = fnv_world::placed::base_object(lo, schema, base.0);
+                let path = obj.as_ref().and_then(|o| o.model_path());
+                let edid = obj.and_then(|o| o.edid);
+                let seqs = path.as_deref().and_then(&mut seqs_of);
+                let matched = match (&seqs, c.group) {
+                    (None, _) => "no model or unreadable",
+                    (Some(_), None) => "any group",
+                    (Some(s), Some(_)) if s.iter().any(|(n, _, _)| n.eq_ignore_ascii_case(&g)) => "sequence of that name",
+                    (Some(s), Some(_)) if s.is_empty() => "model without sequences",
+                    _ => "no sequence of that name",
+                };
+                *has_seq.entry(format!("{sig}: {matched}")).or_default() += 1;
+                let row = targets.entry((base.0, u.key())).or_insert_with(|| {
+                    let refs_of = placed.get(&base).cloned().unwrap_or_default();
+                    json!({
+                        "base": base.to_string(), "sig": sig, "edid": edid,
+                        "model": path, "unit": u.key(),
+                        "refs": refs_of.len(),
+                        "ref_samples": refs_of.iter().take(4).map(|r| {
+                            let p = &refs.refs[r];
+                            json!({"ref": r.to_string(), "edid": p.edid, "cell": p.cell.map(|c| c.to_string())})
+                        }).collect::<Vec<_>>(),
+                        "sequences": seqs.as_ref().map(|s| s.iter().map(|(n, ct, len)| json!([n, ct, len])).collect::<Vec<_>>()),
+                        "calls": [],
+                    })
+                });
+                let text = format!(
+                    "{}{} {g}{}",
+                    r.map(|r| format!("{r}.")).unwrap_or_default(),
+                    c.func,
+                    c.flag.map(|f| format!(" {f}")).unwrap_or_default()
+                );
+                if let Some(a) = row["calls"].as_array_mut() {
+                    if !a.iter().any(|v| v == &json!(text)) {
+                        a.push(json!(text));
+                    }
+                }
+            }
+        }
+    }
+    json!({
+        "schema": "fnv.sim.playgroup_calls/1",
+        "summary": {"calls": calls_n, "by_function_group_flag": by_group, "by_target": by_target, "sequence_found": has_seq, "targets": targets.len()},
+        "targets": targets.into_values().collect::<Vec<_>>(),
+    })
+}

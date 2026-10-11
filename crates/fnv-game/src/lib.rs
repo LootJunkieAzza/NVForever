@@ -23,6 +23,7 @@
 
 pub mod actor_values;
 pub mod ai;
+pub mod anims;
 pub mod combat;
 pub mod cond;
 pub mod data;

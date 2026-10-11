@@ -87,6 +87,19 @@ pub fn run(cmd: SimCmd) -> anyhow::Result<Value> {
             let refs = RefTable::build(&lo, &schema);
             Ok(crate::activator_models::activator_models(&lo, &schema, &forms, &refs, &vfs, &nif))
         }
+        SimCmd::PlaygroupCalls { lo: lo_args, schema: schema_dir, nif_schema, functions } => {
+            let tp = functions.unwrap_or_else(|| schema_dir.join("..").join("script").join("functions.json"));
+            let table = fnv_script::FunctionTable::load(&tp).with_context(|| tp.display().to_string())?;
+            let plugins = open_load_order(&lo_args)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema_dir)?;
+            let nif_dir = nif_schema.unwrap_or_else(|| schema_dir.parent().map(|p| p.join("nif")).unwrap_or_default());
+            let nif = fnv_nif::Schema::load_dir(&nif_dir).with_context(|| nif_dir.display().to_string())?;
+            let vfs = fnv_vfs::Vfs::open_default(&lo_args.data_dir).with_context(|| lo_args.data_dir.display().to_string())?;
+            let forms = FormStore::build(&lo, &schema);
+            let refs = RefTable::build(&lo, &schema);
+            Ok(crate::activator_models::playgroup_calls(&lo, &schema, &forms, &refs, &vfs, &nif, &table))
+        }
     }
 }
 

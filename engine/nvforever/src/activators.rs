@@ -17,8 +17,8 @@
 //!   jukebox to light up when on].
 //!
 //! Without the script runtime (no `--play`) nothing changes: idles play from load and
-//! Open/Close models keep their stored look. Other activators with sequences (Forward,
-//! Backward, Left, Right played by scripts' PlayGroup) are not driven yet.
+//! Open/Close models keep their stored look. The sequences scripts play by name
+//! (PlayGroup Forward, Left, …) are object_anims.rs.
 
 use bevy::prelude::*;
 use nvf_assets::anim_play::Playing;

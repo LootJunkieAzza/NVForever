@@ -403,7 +403,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1017, "StopCombat", Stub("combat")),
         (0x1184, "SetDisposition", Stub("dialogue (disposition)")),
         (0x115C, "SendTrespassAlarm", Stub("crime")),
-        (0x1013, "PlayGroup", Stub("animation")),
+        (0x1013, "PlayGroup", Impl(crate::anims::play_group)),
         (0x1190, "PlayIdle", Impl(crate::idles::play_idle)),
         (0x105C, "Look", Stub("animation (head tracking)")),
         (0x105D, "StopLook", Stub("animation (head tracking)")),
@@ -450,7 +450,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1201, "ResetPipboyManager", Stub("Pip-Boy")),
         (0x122C, "ForceRadioStationUpdate", Impl(crate::radio::force_radio_station_update)),
         // Layer 6 systems added 2026-10-09 (function coverage round): recorded, no effect.
-        (0x1128, "IsAnimPlaying", Stub("animation")),
+        (0x1128, "IsAnimPlaying", Impl(crate::anims::is_anim_playing)),
         (0x10DB, "GetAnimAction", Stub("animation")),
         (0x1070, "IsIdlePlaying", Impl(crate::idles::is_idle_playing)),
         (0x1064, "PickIdle", Stub("animation")),
