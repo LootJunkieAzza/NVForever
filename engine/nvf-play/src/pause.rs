@@ -162,12 +162,22 @@ pub struct Paused(pub bool);
 
 /// The page of the pause menu that is up; on the settings page, the row the keys are on.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
-enum Page {
+pub(crate) enum Page {
     #[default]
     Main,
     Settings {
         selected: usize,
     },
+}
+
+impl Page {
+    /// On the settings page, the chosen row (`crate::ui_sounds` hears it move).
+    pub(crate) fn settings_row(self) -> Option<usize> {
+        match self {
+            Page::Main => None,
+            Page::Settings { selected } => Some(selected),
+        }
+    }
 }
 
 #[derive(Component)]
@@ -368,6 +378,7 @@ fn choose(
     mut next: ResMut<NextState<PlayState>>,
     mut exit: MessageWriter<AppExit>,
     mut commands: Commands,
+    mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
 ) {
     if !paused.0 {
         return;
@@ -434,6 +445,7 @@ fn choose(
         }
     }
     for i in flips {
+        sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::Settings, event: crate::ui_sounds::UiEvent::Flipped });
         commands.queue(move |world: &mut World| {
             crate::settings::flip(world, i);
         });

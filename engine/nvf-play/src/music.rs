@@ -1,38 +1,67 @@
-//! Music in the game (docs/spec-notes/audio.md): the music of the place the player is in.
+//! Music in the game (docs/spec-notes/audio.md §4, §13): the music of the place the
+//! player is in, battle music, incidental phrases and the music scripts ask for.
 //!
 //! - **Where.** Audio markers (references with `MMRK` data) give places a radius and a
 //!   media location controller (ALOC), which names media sets (MSET). The marker the
 //!   player is deepest inside chooses (`fnv_world::audio::marker_at`); its controller's
-//!   set is picked once on entering it, at random among the list heard
-//!   (`MediaController::sets`).
+//!   set is picked on entering it, at random among the list heard: with a conditional
+//!   faction, the list for the faction's standing towards the player
+//!   (`MediaController::sets_for`, GetFactionRelation's rule), else its location sets.
+//!   A change of standing picks again.
 //! - **Layers.** A location set has three tracks for the day and three for the night,
 //!   files of one length under `music\`. All three play together from the start, mixed
 //!   in one source so they stay in step ([`LayeredMusic`]); the outer one sounds
 //!   anywhere inside the marker's radius and the middle and inner ones are faded in as
 //!   the player comes nearer the marker (`fnv_world::audio::layers`) [hypothesis: the
 //!   layers add up]. A layer fades over the set's layer crossfade time, and so does a
-//!   change of set or between day and night [design].
+//!   change of set or between day and night [design]. A layer that came in stays at
+//!   least the set's minimum time on [hypothesis: GECK wiki "Minimum Time on Layer"].
+//! - **Dungeon sets** in a controller's lists play their explore track, add the suspense
+//!   track while a hostile actor near has noticed the player and the battle track in a
+//!   battle [hypothesis: the GECK wiki's descriptions; the three files are stems of one
+//!   length like a location set's].
+//! - **Battle** ([`MusicCues`]): a living hostile actor (`fnv_game::rest::hostile_to_player`)
+//!   within `fCombatMusicNearCombatOuterRadius` that has the player detected
+//!   [hypothesis; NVForever's actors do not fight on their own yet, design]. A battle
+//!   set from the marker's controller's battle list, else from the region the cell's
+//!   acoustic space or the cell names, picked at random; its intro sound after its wait
+//!   time, its loop then, faded in and out over its loop fade-out time; the battle ends
+//!   `fCombatMusicStopTime` seconds after the last threat, its outro sound plays, and
+//!   the place's music comes back after the set's recovery time [documented: GECK wiki
+//!   Media Set field descriptions, "unverified" there].
+//! - **Incidental phrases**: where no music plays, the region's incidental set plays its
+//!   day or night sound after a random wait between its two times [hypothesis: minutes,
+//!   see audio.md §13.4].
+//! - **Scripts** (`PlayMusic`, `fnv_game::sound`): the music type plays beside the
+//!   place's music [documented: GECK wiki PlayMusic, "will not stop the currently playing
+//!   music of a music marker"], once or looping by its `ANAM` sign; a type without a file
+//!   (`1NoMusic`) stops it [hypothesis].
 //! - **Cells and worldspaces** name a music type (MUSC); it plays when no marker reaches
 //!   the player and its file exists [design]. The base game's cells name types whose
 //!   folders it does not ship, so nothing is heard from them [observed].
 //! - **Files** are MP3, decoded by rodio (symphonia) as they play; a set loops by
-//!   starting its files again.
+//!   starting its files again. Intro, outro and incidental sounds are SOUN records,
+//!   played by `crate::sfx` at the listener.
 //! - Music goes on in menus and behind loading screens [design].
-//! - Not built: battle, dungeon and incidental sets, the enemy, friend and ally sets of a
-//!   controller with a faction, the controllers' delays and a set's minimum time on,
-//!   the music scripts ask for (`PlayMusic`), the main menu's and the death music.
+//! - Not built: the main menu's music (no main menu yet; `SMainMenuMusicTrack`), the
+//!   death music (the player does not die yet), the controllers' retrigger delay and
+//!   `NAM1` (not understood), `IsMusicPlaying`-style queries.
 //!
 //! [`MusicSettings`] turns it off (`nvforever --no-music`) and sets the volume
-//! (`--music-volume`). One log line per set started and per change of layers; a
-//! `music summary` line at the end.
+//! (`--music-volume`). One log line per set started, per change of layers, per battle,
+//! per script request and per incidental phrase; a `music summary` line at the end.
 
+use crate::hitvol::HitVolumes;
 use crate::player::Player;
+use crate::script::{with_world, ScriptState};
+use crate::sfx::PlaySound;
 use crate::sim::SimState;
-use crate::{Location, PlayWorld};
+use crate::{Location, PlayState, PlayWorld};
 use bevy::audio::{AddAudioSource, ChannelCount, Decodable, Sample, SampleRate, Source};
 use bevy::prelude::*;
 use fnv_combat::rng::SplitMix;
-use fnv_world::audio::{self, AudioForms, AudioMarker, SoundMarker, LAYERS};
+use fnv_sim::FormId;
+use fnv_world::audio::{self, AudioForms, AudioMarker, MediaSetKind, SoundMarker};
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -178,10 +207,12 @@ impl Decodable for LayeredMusic {
     }
 }
 
-/// What is to be heard: a media set by day or by night, or a music type.
+/// What is to be heard: a location or dungeon set by day or by night, a battle set's
+/// loop, or a music type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
     Set { set: u32, night: bool },
+    Battle(u32),
     Type(u32),
 }
 
@@ -197,15 +228,56 @@ pub struct Wanted {
     pub on: [bool; 3],
     /// Seconds a layer takes to fade in or out.
     pub fade: f32,
+    /// Seconds a layer stays once it came in.
+    pub min_on: f32,
     pub looping: bool,
+    /// The layers' names for the log.
+    pub layers: [&'static str; 3],
 }
 
 /// Seconds a music type fades in and out over, and a set without a crossfade time
 /// [design].
 const DEFAULT_FADE: f32 = 3.0;
+/// Seconds music a script asks for takes to come in [design: at once, almost].
+const SCRIPT_FADE: f32 = 0.25;
+/// The names of the three layers of a dungeon set, quietest first, of a location set,
+/// and of one track.
+const DUNGEON_LAYERS: [&str; 3] = ["explore", "suspense", "battle"];
+const LOCATION_LAYERS: [&str; 3] = ["outer", "middle", "inner"];
+const ONE_LAYER: [&str; 3] = ["loop", "-", "-"];
+/// Seconds between two looks at the actors near the player [design].
+const CUE_INTERVAL: f32 = 0.25;
+/// The game settings battle music reads, with the values FalloutNV.esm stores
+/// [observed], used when a setting is missing.
+const STOP_TIME: (&str, f32) = ("fCombatMusicStopTime", 3.0);
+const NEAR_COMBAT: (&str, f32) = ("fCombatMusicNearCombatOuterRadius", 2000.0);
+/// Seconds per unit of an incidental set's times [hypothesis: minutes; the GECK wiki
+/// says seconds, which would leave pauses shorter than the phrases, audio.md §13.4].
+pub const INCIDENTAL_UNIT: f32 = 60.0;
+/// Day for incidental sets, which have no controller: the hours every controller of
+/// FalloutNV.esm stores, 06:00 to 23:54 [observed].
+const INCIDENTAL_DAY: (f32, f32) = (6.0, 23.906_25);
 
-/// The tracks of `set` for a listener `distance` units from `marker`.
-pub fn wanted_set(set: &audio::MediaSet, marker: &AudioMarker, distance: f32, day: bool) -> Wanted {
+/// The tracks of a location or dungeon `set` for a listener `distance` units from
+/// `marker`. A dungeon set plays its explore track, with the suspense track when
+/// `alert` and the battle track when `battle`.
+pub fn wanted_set(set: &audio::MediaSet, marker: &AudioMarker, distance: f32, day: bool, alert: bool, battle: bool) -> Wanted {
+    let min_on = set.times[0].max(0.0);
+    let fade = if set.times[2] > 0.0 { set.times[2] } else { DEFAULT_FADE };
+    if set.kind == MediaSetKind::Dungeon {
+        let tracks = audio::dungeon_tracks(set);
+        return Wanted {
+            key: Key::Set { set: set.form_id, night: false },
+            name: set.edid.clone().unwrap_or_else(|| format!("{:08X}", set.form_id)),
+            files: tracks.map(|t| t.map(str::to_string)),
+            db: [set.db[1], set.db[2], set.db[0]],
+            on: [true, alert || battle, battle],
+            fade,
+            min_on,
+            looping: true,
+            layers: DUNGEON_LAYERS,
+        };
+    }
     let l = audio::layers(set, marker, distance, day);
     let base = if day { 0 } else { 3 };
     Wanted {
@@ -214,8 +286,27 @@ pub fn wanted_set(set: &audio::MediaSet, marker: &AudioMarker, distance: f32, da
         files: [0, 1, 2].map(|k| set.track(base + k).map(str::to_string)),
         db: [0, 1, 2].map(|k| set.db[base + k]),
         on: l.on,
-        fade: if set.times[2] > 0.0 { set.times[2] } else { DEFAULT_FADE },
+        fade,
+        min_on,
         looping: true,
+        layers: LOCATION_LAYERS,
+    }
+}
+
+/// A battle set's loop (`NAM2`), faded over its loop fade-out time (`ENAM`) [documented:
+/// GECK wiki "Loop Fade Out Time"]; the enable flags are a location set's and are not
+/// read [observed: battle sets store values above 63 there].
+pub fn wanted_battle(set: &audio::MediaSet) -> Wanted {
+    Wanted {
+        key: Key::Battle(set.form_id),
+        name: set.edid.clone().unwrap_or_else(|| format!("{:08X}", set.form_id)),
+        files: [set.tracks[0].clone(), None, None],
+        db: [set.db[0], 0.0, 0.0],
+        on: [true, false, false],
+        fade: if set.times[1] > 0.0 { set.times[1] } else { DEFAULT_FADE },
+        min_on: 0.0,
+        looping: true,
+        layers: ONE_LAYER,
     }
 }
 
@@ -230,7 +321,9 @@ pub fn wanted_type(m: &audio::MusicType) -> Option<Wanted> {
         db: [-m.db.abs(), 0.0, 0.0],
         on: [true, false, false],
         fade: DEFAULT_FADE,
+        min_on: 0.0,
         looping: m.db > 0.0,
+        layers: ONE_LAYER,
     })
 }
 
@@ -239,6 +332,27 @@ pub fn wanted_type(m: &audio::MusicType) -> Option<Wanted> {
 pub fn fade_step(level: f32, target: f32, dt: f32, fade: f32) -> f32 {
     let step = if fade > 0.0 { dt / fade } else { 1.0 };
     level + (target - level).clamp(-step, step)
+}
+
+/// The layers that sound: those wanted, and those still within their minimum time on
+/// (`on_since`: when each came in, `now` the time).
+pub fn hold_layers(wanted: [bool; 3], playing: [bool; 3], on_since: [f32; 3], min_on: f32, now: f32) -> [bool; 3] {
+    [0, 1, 2].map(|k| wanted[k] || (playing[k] && now - on_since[k] < min_on))
+}
+
+/// Day for a set without a controller (an incidental set).
+fn incidental_day(hour: f32) -> bool {
+    hour >= INCIDENTAL_DAY.0 && hour < INCIDENTAL_DAY.1
+}
+
+/// The wait before an incidental phrase, seconds: `r` (0–1) of the way between the
+/// set's two times for the day or the night [documented: xEdit and GECK wiki, `DNAM`
+/// Daytime Min, `FNAM` Daytime Max, `ENAM` Nighttime Min, `GNAM` Nighttime Max], in
+/// [`INCIDENTAL_UNIT`]s.
+pub fn incidental_wait(set: &audio::MediaSet, day: bool, r: f32) -> f32 {
+    let (lo, hi) = if day { (set.times[0], set.times[2]) } else { (set.times[1], set.times[3]) };
+    let (lo, hi) = (lo.min(hi).max(0.0), lo.max(hi).max(0.0));
+    (lo + (hi - lo) * r) * INCIDENTAL_UNIT
 }
 
 /// Music being played.
@@ -254,10 +368,30 @@ struct Track {
     /// Linear gain of each layer when fully in.
     gain: [f32; 3],
     fade: f32,
+    min_on: f32,
+    /// When each layer last came in (real seconds).
+    on_since: [f32; 3],
+    layer_names: [&'static str; 3],
 }
 
 #[derive(Component)]
 struct MusicSound;
+
+/// A battle and the music it brought.
+#[derive(Default)]
+struct Battle {
+    active: bool,
+    /// When it began, when the last threat was seen, when it ended (real seconds).
+    since: f32,
+    last: f32,
+    ended: Option<f32>,
+    /// The battle set playing it; `None` when the place's dungeon set plays it, or no
+    /// set is named here.
+    set: Option<u32>,
+    /// The set whose intro and outro sound (the battle set, or the dungeon set).
+    stinger_set: Option<u32>,
+    intro_at: Option<f32>,
+}
 
 #[derive(Resource)]
 pub struct Music {
@@ -266,15 +400,29 @@ pub struct Music {
     folders: HashMap<String, Vec<String>>,
     /// CELL `XCMO` and WRLD `ZNAM` by FormID.
     types: HashMap<u32, Option<u32>>,
+    /// The region whose music a cell takes (through its acoustic space, else its own
+    /// region list), by cell.
+    regions: HashMap<u32, Option<u32>>,
     current: Option<Track>,
     leaving: Vec<Track>,
-    /// The marker the player is in and the set picked for it.
-    marker: Option<(u32, Option<u32>)>,
+    /// The music a script asked for.
+    script: Option<Track>,
+    /// The marker the player is in, the faction's standing towards the player there and
+    /// the set picked for it.
+    marker: Option<(u32, Option<i64>, Option<u32>)>,
+    battle: Battle,
+    /// When the next incidental phrase is due, and the region it is for.
+    incidental: Option<(u32, f32)>,
     reported: HashSet<String>,
     rng: SplitMix,
     pub started: u32,
     pub layer_changes: u32,
     pub failed: u32,
+    pub battles: u32,
+    pub battle_sets: u32,
+    pub script_requests: u32,
+    pub incidentals: u32,
+    pub stingers: u32,
 }
 
 impl Default for Music {
@@ -283,16 +431,40 @@ impl Default for Music {
             files: HashMap::new(),
             folders: HashMap::new(),
             types: HashMap::new(),
+            regions: HashMap::new(),
             current: None,
             leaving: Vec::new(),
+            script: None,
             marker: None,
+            battle: Battle::default(),
+            incidental: None,
             reported: HashSet::new(),
             rng: SplitMix(0x6d75_7369),
             started: 0,
             layer_changes: 0,
             failed: 0,
+            battles: 0,
+            battle_sets: 0,
+            script_requests: 0,
+            incidentals: 0,
+            stingers: 0,
         }
     }
+}
+
+/// What the game tells the music, measured by [`cues`]: whether a hostile actor near the
+/// player has it detected (a battle) or noticed, how each controller's faction stands
+/// towards the player, and the music types scripts asked for.
+#[derive(Resource, Default)]
+pub struct MusicCues {
+    pub combat: bool,
+    pub alert: bool,
+    /// The hostile actor that made the battle, for the log.
+    pub by: Option<u32>,
+    /// GetFactionRelation of each conditional faction towards the player.
+    pub relations: HashMap<u32, i64>,
+    requests: Vec<FormId>,
+    next: f32,
 }
 
 fn init(mut commands: Commands, d: Res<PlayWorld>) {
@@ -309,13 +481,73 @@ fn init(mut commands: Commands, d: Res<PlayWorld>) {
         places.sounds.entry(space(m.cell)).or_default().push(m);
     }
     info!(
-        "music: {} media sets, {} controllers, {} acoustic spaces, {n_audio} audio markers and {n_sounds} sound markers read in {:.0} ms",
+        "music: {} media sets, {} controllers, {} acoustic spaces, {} regions with music, {n_audio} audio markers and {n_sounds} sound markers read in {:.0} ms",
         places.forms.sets.len(),
         places.forms.controllers.len(),
         places.forms.spaces.len(),
+        places.forms.regions.len(),
         t.elapsed().as_secs_f64() * 1000.0
     );
     commands.insert_resource(places);
+}
+
+fn setting(sim: &SimState, (name, default): (&str, f32)) -> f32 {
+    match sim.forms.settings.get(&name.to_ascii_lowercase()) {
+        Some(fnv_sim::settings::Setting::Float(v)) => *v,
+        _ => default,
+    }
+}
+
+/// Take the music scripts asked for; a few times a second, look at the actors near the
+/// player and at how the controllers' factions stand towards the player.
+#[allow(clippy::too_many_arguments)]
+fn cues(
+    time: Res<Time<Real>>,
+    mut cues: ResMut<MusicCues>,
+    places: Option<Res<AudioPlaces>>,
+    script: Option<ResMut<ScriptState>>,
+    mut sim: ResMut<SimState>,
+    actors: Option<Res<HitVolumes>>,
+    player: Option<Res<Player>>,
+    state: Res<State<PlayState>>,
+) {
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    cues.requests.append(&mut rt.game.music_requests);
+    let now = time.elapsed_secs();
+    if now < cues.next || *state.get() != PlayState::Playing {
+        return;
+    }
+    cues.next = now + CUE_INTERVAL;
+    let (Some(places), Some(player)) = (places, player) else { return };
+    let reach = setting(&sim, NEAR_COMBAT);
+    let feet = player.feet;
+    let near: Vec<u32> = actors.map_or(Vec::new(), |a| {
+        a.living.iter().filter(|(_, p)| (0..3).map(|k| (p[k] - feet[k]).powi(2)).sum::<f32>() <= reach * reach).map(|(id, _)| *id).collect()
+    });
+    let factions: Vec<u32> = places.forms.controllers.values().filter_map(|c| c.faction).collect();
+    let cues = &mut *cues;
+    with_world(rt, &mut sim, |rt| {
+        let g = &mut rt.game;
+        let (mut combat, mut alert, mut by) = (None, false, None);
+        for &id in &near {
+            let Some(band) = g.detection.get(FormId(id), FormId::PLAYER_REF).map(|d| d.band) else { continue };
+            if band == fnv_game::detection::Band::Hidden || !fnv_game::rest::hostile_to_player(g, FormId(id)) {
+                continue;
+            }
+            if band == fnv_game::detection::Band::Detected {
+                combat = combat.or(Some(id));
+            } else {
+                alert = true;
+                by = by.or(Some(id));
+            }
+        }
+        cues.combat = combat.is_some();
+        cues.alert = alert || combat.is_some();
+        cues.by = combat.or(by);
+        for f in factions {
+            cues.relations.insert(f, fnv_game::functions::factions_relation(g, &[FormId(f)], FormId::PLAYER_REF));
+        }
+    });
 }
 
 impl Music {
@@ -359,7 +591,7 @@ impl Music {
     }
 
     /// Start what is wanted, silent, with its layers fading in.
-    fn start(&mut self, commands: &mut Commands, vfs: &fnv_vfs::Vfs, assets: &mut Assets<LayeredMusic>, w: &Wanted) -> Track {
+    fn start(&mut self, commands: &mut Commands, vfs: &fnv_vfs::Vfs, assets: &mut Assets<LayeredMusic>, w: &Wanted, now: f32) -> Track {
         let levels: Arc<[AtomicU32; 3]> = Arc::new([AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)]);
         let mut stems: Vec<(usize, Arc<[u8]>)> = Vec::new();
         let mut format: Option<(ChannelCount, SampleRate)> = None;
@@ -387,14 +619,55 @@ impl Music {
             commands.spawn((AudioPlayer::<LayeredMusic>(music), PlaybackSettings::DESPAWN, MusicSound)).id()
         });
         self.started += 1;
-        let layers: Vec<&str> = (0..3).filter(|&k| w.on[k] && w.files[k].is_some()).map(|k| LAYERS[k].trim_start_matches("day_")).collect();
+        let layers: Vec<&str> = (0..3).filter(|&k| w.on[k] && w.files[k].is_some()).map(|k| w.layers[k]).collect();
         match entity {
             Some(_) => info!("music: {} started, layers {}", w.name, layers.join("+")),
             None => info!("music: {}: none of its files can be played", w.name),
         }
-        Track { key: w.key, name: w.name.clone(), entity, levels, level: [0.0; 3], target: w.on.map(|on| on as u8 as f32), gain: w.db.map(|db| 10f32.powf(db / 20.0)), fade: w.fade }
+        Track {
+            key: w.key,
+            name: w.name.clone(),
+            entity,
+            levels,
+            level: [0.0; 3],
+            target: w.on.map(|on| on as u8 as f32),
+            gain: w.db.map(|db| 10f32.powf(db / 20.0)),
+            fade: w.fade,
+            min_on: w.min_on,
+            on_since: [now; 3],
+            layer_names: w.layers,
+        }
+    }
+
+    /// Pick one of `sets` at random.
+    fn pick(&mut self, sets: &[u32]) -> Option<u32> {
+        (!sets.is_empty()).then(|| sets[((self.rng.next_f32() * sets.len() as f32) as usize).min(sets.len() - 1)])
     }
 }
+
+/// The region whose music `cell` takes: the one its acoustic space names (`RDAT`, which
+/// xEdit calls "use sound from region (interiors only)"; exterior cells name it too
+/// [observed]), else the first of its own regions (`XCLR`) naming music [design].
+fn region_of(d: &PlayWorld, places: &AudioPlaces, cell: u32) -> Option<u32> {
+    let with_music = |r: &u32| places.forms.regions.contains_key(r);
+    let a = audio::cell_audio(d.lo, d.schema, cell);
+    a.acoustic_space.and_then(|s| places.forms.spaces.get(&s)?.region).filter(with_music).or_else(|| audio::cell_regions(d.lo, d.schema, cell).into_iter().find(with_music))
+}
+
+/// Play a SOUN of a media set (an intro, an outro, an incidental phrase) at the listener.
+fn stinger(sounds: &mut MessageWriter<PlaySound>, sound: Option<u32>, what: &str, set: &str) -> bool {
+    match sound {
+        Some(s) => {
+            info!("music: {what} of {set}: {}", FormId(s));
+            sounds.write(PlaySound { sound: FormId(s), at: None });
+            true
+        }
+        None => false,
+    }
+}
+
+/// The world the music reads: where the player is, the clock, the game files.
+type Where<'a> = (Res<'a, PlayWorld>, Res<'a, Location>, Res<'a, SimState>, Option<Res<'a, Player>>, Option<Res<'a, nvf_assets::GameData>>);
 
 #[allow(clippy::too_many_arguments)]
 fn play(
@@ -403,73 +676,216 @@ fn play(
     settings: Res<MusicSettings>,
     music: Option<ResMut<Music>>,
     places: Option<Res<AudioPlaces>>,
-    d: Res<PlayWorld>,
-    loc: Res<Location>,
-    sim: Res<SimState>,
-    player: Option<Res<Player>>,
-    data: Option<Res<nvf_assets::GameData>>,
+    (d, loc, sim, player, data): Where,
+    mut cues: ResMut<MusicCues>,
+    mut sounds: MessageWriter<PlaySound>,
+    state: Res<State<PlayState>>,
     mut assets: ResMut<Assets<LayeredMusic>>,
 ) {
     let (Some(mut music), Some(places), Some(player), Some(data)) = (music, places, player, data) else { return };
     let music = &mut *music;
+    let now = time.elapsed_secs();
     let eye = player.eye();
     let hour = game_hour(&sim);
-    // The marker the player is in, and the set picked when it was entered.
+    let audible = settings.play && settings.volume > 0.0;
+
+    // Music scripts asked for: beside the place's music.
+    for m in std::mem::take(&mut cues.requests) {
+        music.script_requests += 1;
+        let ty = places.forms.music.get(&m.0);
+        let name = ty.and_then(|t| t.edid.clone()).unwrap_or_else(|| m.to_string());
+        match ty.and_then(wanted_type) {
+            Some(mut w) => {
+                info!("music: a script plays {name} ({})", if w.looping { "looping" } else { "once" });
+                w.fade = SCRIPT_FADE;
+                if let Some(mut old) = music.script.take() {
+                    old.target = [0.0; 3];
+                    music.leaving.push(old);
+                }
+                let t = music.start(&mut commands, &data.vfs, &mut assets, &w, now);
+                music.script = Some(t);
+            }
+            None => {
+                info!("music: a script asks for {name}, which names no file: the script's music stops");
+                if let Some(mut old) = music.script.take() {
+                    old.target = [0.0; 3];
+                    old.fade = DEFAULT_FADE;
+                    music.leaving.push(old);
+                }
+            }
+        }
+    }
+
+    // The marker the player is in, and the set picked when it was entered (or when the
+    // faction's standing changed).
     let markers = places.audio.get(&Space::of(&loc)).map_or(&[][..], Vec::as_slice);
     let at = audio::marker_at(markers, eye, |m| sim.world.is_enabled(fnv_sim::FormId(m.ref_id)).unwrap_or(!m.initially_disabled));
     let controller = at.and_then(|(m, _)| places.forms.controllers.get(&m.controller?));
-    if music.marker.map(|m| m.0) != at.map(|(m, _)| m.ref_id) {
+    // A faction not yet measured counts as neutral.
+    let relation = controller.and_then(|c| c.faction.map(|f| cues.relations.get(&f).copied().unwrap_or(0)));
+    if music.marker.map(|m| (m.0, m.1)) != at.map(|(m, _)| (m.ref_id, relation)) {
+        let same_marker = music.marker.map(|m| m.0) == at.map(|(m, _)| m.ref_id);
         music.marker = at.map(|(m, _)| {
-            let sets = controller.map_or(&[][..], |c| c.sets());
-            let pick = (!sets.is_empty()).then(|| sets[((music.rng.next_f32() * sets.len() as f32) as usize).min(sets.len() - 1)]);
-            (m.ref_id, pick)
+            let sets = controller.map_or(&[][..], |c| c.sets_for(relation));
+            (m.ref_id, relation, music.pick(sets))
         });
+        let standing = |r: Option<i64>| match r {
+            Some(1) => "enemy",
+            Some(2) => "ally",
+            Some(3) => "friend",
+            _ => "neutral",
+        };
         match (at, controller) {
+            (Some(_), Some(c)) if same_marker => info!("music: {} now stands {} towards the player", c.edid.as_deref().unwrap_or("?"), standing(relation)),
             (Some((m, distance)), Some(c)) => info!(
-                "music: in marker {:08X} of {}, {distance:.0} of {:.0} units from it, {} sets to choose from",
+                "music: in marker {:08X} of {}, {distance:.0} of {:.0} units from it, {} sets to choose from{}",
                 m.ref_id,
                 c.edid.as_deref().unwrap_or("?"),
                 m.radius,
-                c.sets().len()
+                c.sets_for(relation).len(),
+                c.faction.map_or(String::new(), |f| format!(" (faction {} {})", FormId(f), standing(relation)))
             ),
             (Some((m, _)), None) => info!("music: in marker {:08X}, whose controller is not in the load order", m.ref_id),
             (None, _) => info!("music: outside every audio marker"),
         }
     }
-    let from_marker = at.zip(controller).and_then(|((m, distance), c)| {
-        let set = places.forms.sets.get(&music.marker?.1?)?;
-        Some(wanted_set(set, m, distance, c.is_day(hour)))
-    });
-    let wanted = from_marker.or_else(|| {
-        let cell = cell_at(&d, &loc, eye);
-        let of_cell = cell.and_then(|c| *music.types.entry(c).or_insert_with(|| audio::cell_audio(d.lo, d.schema, c).music));
-        let of_world = || loc.interior.is_none().then(|| *music.types.entry(loc.world).or_insert_with(|| audio::world_music(d.lo, d.schema, loc.world))).flatten();
-        wanted_type(places.forms.music.get(&of_cell.or_else(of_world)?)?)
-    });
-    // A change of music: what plays fades out, what is wanted starts.
+    let place_set = music.marker.and_then(|m| places.forms.sets.get(&m.2?));
+    let cell = cell_at(&d, &loc, eye);
+    let region = cell.and_then(|c| *music.regions.entry(c).or_insert_with(|| region_of(&d, &places, c))).and_then(|r| places.forms.regions.get(&r));
+
+    // Battle.
+    let in_game = *state.get() == PlayState::Playing;
+    if cues.combat && in_game {
+        music.battle.last = now;
+        if !music.battle.active {
+            let dungeon = place_set.filter(|s| s.kind == MediaSetKind::Dungeon);
+            let list = controller.map(|c| &c.battle[..]).filter(|l| !l.is_empty()).or(region.map(|r| &r.battle[..])).unwrap_or(&[]);
+            let set = if dungeon.is_some() { None } else { music.pick(list) };
+            let b = &mut music.battle;
+            b.active = true;
+            b.since = now;
+            b.ended = None;
+            b.set = set;
+            b.stinger_set = set.or(dungeon.map(|s| s.form_id));
+            let wait = set.and_then(|s| places.forms.sets.get(&s)).map_or(0.0, |s| s.times[0].max(0.0));
+            b.intro_at = Some(now + wait);
+            music.battles += 1;
+            let by = cues.by.map_or(String::new(), |a| format!(" ({} has the player detected)", FormId(a)));
+            match (set.and_then(|s| places.forms.sets.get(&s)), dungeon) {
+                (Some(s), _) => info!("music: battle begins{by}: {} after {wait:.1} s, from {} battle sets", s.edid.as_deref().unwrap_or("?"), list.len()),
+                (None, Some(s)) => info!("music: battle begins{by}: the battle layer of {}", s.edid.as_deref().unwrap_or("?")),
+                (None, None) => info!("music: battle begins{by}: no battle set here"),
+            }
+        }
+    } else if music.battle.active && now - music.battle.last >= setting(&sim, STOP_TIME) {
+        let b = &mut music.battle;
+        b.active = false;
+        b.ended = Some(now);
+        b.intro_at = None;
+        let s = b.stinger_set.and_then(|s| places.forms.sets.get(&s));
+        info!("music: battle over, {:.1} s after it began", now - b.since);
+        if audible && stinger(&mut sounds, s.and_then(|s| s.outro), "outro", s.and_then(|s| s.edid.as_deref()).unwrap_or("?")) {
+            music.stingers += 1;
+        }
+    }
+    if music.battle.intro_at.is_some_and(|t| now >= t) {
+        music.battle.intro_at = None;
+        let s = music.battle.stinger_set.and_then(|s| places.forms.sets.get(&s));
+        if audible && stinger(&mut sounds, s.and_then(|s| s.intro), "intro", s.and_then(|s| s.edid.as_deref()).unwrap_or("?")) {
+            music.stingers += 1;
+        }
+    }
+    let battle_set = music.battle.set.and_then(|s| places.forms.sets.get(&s));
+    let recovering = !music.battle.active && battle_set.is_some_and(|s| music.battle.ended.is_some_and(|e| now - e < s.times[2].max(0.0)));
+
+    // What is wanted: the battle loop, silence while a battle set recovers, else the
+    // place's music.
+    let battle_loop = music.battle.active && battle_set.is_some_and(|s| now >= music.battle.since + s.times[0].max(0.0));
+    let place = |music: &mut Music| -> Option<Wanted> {
+        let from_marker = at.zip(controller).and_then(|((m, distance), c)| {
+            let set = place_set?;
+            Some(wanted_set(set, m, distance, c.is_day(hour), cues.alert && in_game, music.battle.active))
+        });
+        from_marker.or_else(|| {
+            let of_cell = cell.and_then(|c| *music.types.entry(c).or_insert_with(|| audio::cell_audio(d.lo, d.schema, c).music));
+            let of_world = || loc.interior.is_none().then(|| *music.types.entry(loc.world).or_insert_with(|| audio::world_music(d.lo, d.schema, loc.world))).flatten();
+            wanted_type(places.forms.music.get(&of_cell.or_else(of_world)?)?)
+        })
+    };
+    let wanted = if battle_loop {
+        battle_set.map(wanted_battle)
+    } else if recovering {
+        None
+    } else {
+        // Also during a battle set's wait before its loop.
+        place(music)
+    };
+
+    // A change of music: what plays fades out, what is wanted starts. A battle loop
+    // takes over within its own fade time.
     if music.current.as_ref().map(|t| t.key) != wanted.as_ref().map(|w| w.key) {
         if let Some(mut old) = music.current.take() {
             old.target = [0.0; 3];
+            if let Some(w) = wanted.as_ref().filter(|w| matches!(w.key, Key::Battle(_))) {
+                old.fade = old.fade.min(w.fade);
+            }
             info!("music: {} fades out", old.name);
             music.leaving.push(old);
         }
         if let Some(w) = &wanted {
-            let t = music.start(&mut commands, &data.vfs, &mut assets, w);
+            if matches!(w.key, Key::Battle(_)) {
+                music.battle_sets += 1;
+            }
+            let t = music.start(&mut commands, &data.vfs, &mut assets, w, now);
             music.current = Some(t);
         }
     }
     if let (Some(t), Some(w)) = (music.current.as_mut(), &wanted) {
-        let target = w.on.map(|on| on as u8 as f32);
+        let playing = t.target.map(|x| x > 0.0);
+        let on = hold_layers(w.on, playing, t.on_since, t.min_on, now);
+        let target = on.map(|on| on as u8 as f32);
         if t.target != target {
+            for k in 0..3 {
+                if on[k] && !playing[k] {
+                    t.on_since[k] = now;
+                }
+            }
             t.target = target;
             music.layer_changes += 1;
-            let layers: Vec<&str> = (0..3).filter(|&k| w.on[k] && w.files[k].is_some()).map(|k| LAYERS[k].trim_start_matches("day_")).collect();
+            let layers: Vec<&str> = (0..3).filter(|&k| on[k] && w.files[k].is_some()).map(|k| t.layer_names[k]).collect();
             info!("music: {} layers {}", t.name, if layers.is_empty() { "none".to_string() } else { layers.join("+") });
         }
     }
+
+    // Incidental phrases where nothing plays.
+    let silent = music.current.is_none() && !music.battle.active && !recovering;
+    match region.and_then(|r| Some((r.form_id, places.forms.sets.get(&r.incidental?)?))).filter(|_| silent && in_game) {
+        Some((r, set)) => {
+            let day = incidental_day(hour);
+            match music.incidental {
+                Some((at_region, due)) if at_region == r => {
+                    if now >= due {
+                        let sound = if day { set.intro } else { set.outro };
+                        if audible && stinger(&mut sounds, sound, "incidental phrase", set.edid.as_deref().unwrap_or("?")) {
+                            music.incidentals += 1;
+                        }
+                        let wait = incidental_wait(set, day, music.rng.next_f32());
+                        music.incidental = Some((r, now + wait));
+                    }
+                }
+                _ => {
+                    let wait = incidental_wait(set, day, music.rng.next_f32());
+                    info!("music: no music here; {} plays a phrase in {wait:.0} s", set.edid.as_deref().unwrap_or("?"));
+                    music.incidental = Some((r, now + wait));
+                }
+            }
+        }
+        None => music.incidental = None,
+    }
+
     let dt = time.delta_secs();
     let volume = if settings.play { settings.volume.max(0.0) } else { 0.0 };
-    for t in music.current.iter_mut().chain(music.leaving.iter_mut()) {
+    for t in music.current.iter_mut().chain(music.script.iter_mut()).chain(music.leaving.iter_mut()) {
         for k in 0..3 {
             t.level[k] = fade_step(t.level[k], t.target[k], dt, t.fade);
             t.levels[k].store((t.level[k] * t.gain[k] * volume).to_bits(), Ordering::Relaxed);
@@ -486,7 +902,18 @@ fn play(
 
 fn report(mut exit: MessageReader<AppExit>, music: Option<Res<Music>>) {
     if let (Some(_), Some(m)) = (exit.read().last(), music) {
-        info!("music summary: {} started, {} changes of layers, {} files not played{}", m.started, m.layer_changes, m.failed, m.current.as_ref().map_or(String::new(), |t| format!("; playing {}", t.name)));
+        info!(
+            "music summary: {} started, {} changes of layers, {} files not played, {} battles ({} battle loops started), {} intro and outro sounds, {} script requests, {} incidental phrases{}",
+            m.started,
+            m.layer_changes,
+            m.failed,
+            m.battles,
+            m.battle_sets,
+            m.stingers,
+            m.script_requests,
+            m.incidentals,
+            m.current.as_ref().map_or(String::new(), |t| format!("; playing {}", t.name))
+        );
     }
 }
 
@@ -496,9 +923,10 @@ impl Plugin for MusicPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MusicSettings>()
             .init_resource::<Music>()
+            .init_resource::<MusicCues>()
             .add_audio_source::<LayeredMusic>()
             .add_systems(Startup, init)
-            .add_systems(Update, play.after(crate::PlaySet::Activation))
+            .add_systems(Update, (cues.after(crate::PlaySet::Scripts), play.after(crate::PlaySet::Activation)).chain())
             .add_systems(Last, report);
         crate::settings::add_setting(
             app,
@@ -528,6 +956,7 @@ mod tests {
         let set = MediaSet {
             form_id: 7,
             edid: Some("musSet".into()),
+            kind: MediaSetKind::Location,
             tracks: ["d1", "d2", "d3", "n1", "n2", "n3"].map(|s| Some(s.to_string())),
             db: [-6.0, -6.0, -6.0, -3.0, -3.0, -6.0],
             boundary_percent: [100.0, 60.0, 20.0, 100.0, 60.0, 20.0],
@@ -536,15 +965,62 @@ mod tests {
             times: [6.0, 15.0, 9.0, 0.0],
             ..Default::default()
         };
-        let w = wanted_set(&set, &marker(1000.0), 500.0, true);
+        let w = wanted_set(&set, &marker(1000.0), 500.0, true, false, false);
         assert_eq!(w.key, Key::Set { set: 7, night: false });
         assert_eq!(w.files, ["d1", "d2", "d3"].map(|s| Some(s.to_string())));
-        assert_eq!((w.on, w.fade, w.looping), ([true, true, false], 9.0, true));
-        let w = wanted_set(&set, &marker(1000.0), 100.0, false);
+        assert_eq!((w.on, w.fade, w.min_on, w.looping), ([true, true, false], 9.0, 6.0, true));
+        let w = wanted_set(&set, &marker(1000.0), 100.0, false, false, false);
         assert_eq!(w.key, Key::Set { set: 7, night: true });
         assert_eq!(w.files, [Some("n1".to_string()), Some("n2".to_string()), None]);
         assert_eq!((w.db, w.on), ([-3.0, -3.0, -6.0], [true, true, true]));
         assert_eq!(w.name, "musSet night");
+    }
+
+    #[test]
+    fn a_dungeon_set_by_threat() {
+        // As musSetDNGN1ABC stores it [observed]: battle, explore, suspense.
+        let set = MediaSet {
+            form_id: 8,
+            edid: Some("musSetDNGN".into()),
+            kind: MediaSetKind::Dungeon,
+            tracks: [Some("high".into()), Some("low".into()), Some("mid".into()), None, None, None],
+            db: [-2.5, -4.0, -4.0, 0.0, 0.0, 0.0],
+            enabled: 80,
+            times: [6.0, 10.0, 6.0, 0.0],
+            ..Default::default()
+        };
+        let w = wanted_set(&set, &marker(1000.0), 900.0, false, false, false);
+        assert_eq!(w.files, [Some("low".to_string()), Some("mid".to_string()), Some("high".to_string())]);
+        assert_eq!((w.on, w.db, w.key), ([true, false, false], [-4.0, -4.0, -2.5], Key::Set { set: 8, night: false }));
+        assert_eq!(wanted_set(&set, &marker(1000.0), 900.0, true, true, false).on, [true, true, false]);
+        assert_eq!(wanted_set(&set, &marker(1000.0), 900.0, true, false, true).on, [true, true, true]);
+        assert_eq!(w.layers, DUNGEON_LAYERS);
+    }
+
+    #[test]
+    fn a_battle_loop() {
+        let set = MediaSet { form_id: 9, edid: Some("musSetBTTL".into()), kind: MediaSetKind::Battle, tracks: [Some("bttl\\a.mp3".into()), None, None, None, None, None], db: [-10.0, 0.0, 0.0, 0.0, 0.0, 0.0], enabled: 0, times: [1.0, 3.0, 10.0, 0.0], ..Default::default() };
+        let w = wanted_battle(&set);
+        assert_eq!((w.key, w.files[0].as_deref(), w.db[0], w.fade, w.on), (Key::Battle(9), Some("bttl\\a.mp3"), -10.0, 3.0, [true, false, false]));
+    }
+
+    #[test]
+    fn layers_stay_their_minimum_time() {
+        // The middle layer came in at 10 s; the set keeps a layer 6 s.
+        assert_eq!(hold_layers([true, false, false], [true, true, false], [0.0, 10.0, 0.0], 6.0, 13.0), [true, true, false]);
+        assert_eq!(hold_layers([true, false, false], [true, true, false], [0.0, 10.0, 0.0], 6.0, 16.5), [true, false, false]);
+        // Coming in is never held back.
+        assert_eq!(hold_layers([true, true, true], [true, false, false], [0.0; 3], 6.0, 1.0), [true, true, true]);
+    }
+
+    #[test]
+    fn incidental_waits() {
+        // musSetINCDesert [observed]: day 4 to 16, night 6 to 12.
+        let set = MediaSet { kind: MediaSetKind::Incidental, times: [4.0, 6.0, 16.0, 12.0], ..Default::default() };
+        assert_eq!(incidental_wait(&set, true, 0.0), 4.0 * INCIDENTAL_UNIT);
+        assert_eq!(incidental_wait(&set, true, 1.0), 16.0 * INCIDENTAL_UNIT);
+        assert_eq!(incidental_wait(&set, false, 0.5), 9.0 * INCIDENTAL_UNIT);
+        assert!(incidental_day(12.0) && !incidental_day(3.0) && !incidental_day(23.95));
     }
 
     #[test]

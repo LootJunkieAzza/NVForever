@@ -117,6 +117,9 @@ pub struct FxForms {
     pub impacts: HashMap<FormId, Impact>,
     /// IPDS: the IPCT of each of [`IMPACT_MATERIALS`].
     pub impact_sets: HashMap<FormId, [Option<FormId>; 12]>,
+    /// NPC_ and CREA `NAM4` Impact Material Type, an index into [`IMPACT_MATERIALS`]
+    /// (the enumeration lists the same twelve in the same order) [documented: xEdit].
+    pub actor_impact: HashMap<FormId, usize>,
 }
 
 const SIGS: &[&[u8; 4]] = &[b"SOUN", b"WEAP", b"PROJ", b"EXPL", b"ADDN", b"IPCT", b"IPDS"];
@@ -166,7 +169,7 @@ impl FxForms {
                 Some((id, load_one(r, &d, edid, &fid, &field)?))
             })
             .collect();
-        let mut out = FxForms::default();
+        let mut out = FxForms { actor_impact: actor_impact_materials(lo), ..FxForms::default() };
         for (id, l) in loaded {
             match l {
                 Loaded::Sound(s) => {
@@ -200,10 +203,38 @@ impl FxForms {
         self.impacts.get(&self.impact_id(set, material)?)
     }
 
+    /// The impact material of an actor whose base is `base` (NPC_ or CREA `NAM4`).
+    pub fn actor_material(&self, base: FormId) -> Option<&'static str> {
+        self.actor_impact.get(&base).and_then(|&k| IMPACT_MATERIALS.get(k)).copied()
+    }
+
     pub fn impact_id(&self, set: FormId, material: &str) -> Option<FormId> {
         let k = IMPACT_MATERIALS.iter().position(|m| *m == material)?;
         self.impact_sets.get(&set)?[k]
     }
+}
+
+/// `NAM4` of every NPC_ and CREA, read from the raw subrecord (a `u32` enumeration,
+/// [documented: xEdit]); values outside the twelve are left out.
+fn actor_impact_materials(lo: &LoadOrder) -> HashMap<FormId, usize> {
+    let actors: Vec<(FormId, &Record)> = lo
+        .index
+        .iter()
+        .filter_map(|(&g, defs)| {
+            let d = defs.last()?;
+            let r = lo.records[d.plugin as usize][d.ordinal as usize];
+            (matches!(&r.header.sig, b"NPC_" | b"CREA") && r.header.flags & 0x20 == 0).then_some((FormId(g), r))
+        })
+        .collect();
+    actors
+        .par_iter()
+        .filter_map(|&(id, r)| {
+            let subs = r.subrecords().ok()?;
+            let s = subs.iter().find(|s| &s.sig == b"NAM4")?;
+            let v = u32::from_le_bytes(s.data.get(..4)?.try_into().ok()?) as usize;
+            (v < IMPACT_MATERIALS.len()).then_some((id, v))
+        })
+        .collect()
 }
 
 fn load_one(r: &Record, d: &[Decoded], edid: Option<String>, fid: &dyn Fn(Option<&Value>) -> Option<FormId>, field: &dyn Fn(Option<&Value>, &str) -> Option<FormId>) -> Option<Loaded> {

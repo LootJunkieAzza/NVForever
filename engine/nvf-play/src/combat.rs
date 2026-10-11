@@ -1388,6 +1388,10 @@ fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&Scri
     out
 }
 
+/// What a shot sends out: sounds, impact effects, explosions, broken weapons, and what
+/// each impact picked (for `crate::world_sounds`).
+type ShotEffects<'w> = (MessageWriter<'w, PlaySound>, MessageWriter<'w, ImpactFx>, MessageWriter<'w, ExplosionFx>, MessageWriter<'w, WeaponBroken>, MessageWriter<'w, crate::world_sounds::ImpactPicked>);
+
 /// Fly the projectiles, deliver hits when due, set off explosions (and what they set
 /// off: destruction stages, detonations).
 #[allow(clippy::too_many_arguments)]
@@ -1406,7 +1410,7 @@ fn fly(
     mut visuals: ResMut<ShotVisuals>,
     anim: Res<WeaponAnim>,
     sfx: Option<Res<Sfx>>,
-    mut effects: (MessageWriter<PlaySound>, MessageWriter<ImpactFx>, MessageWriter<ExplosionFx>, MessageWriter<WeaponBroken>),
+    mut effects: ShotEffects,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -1606,20 +1610,26 @@ fn fly(
     let effect_ids = chain.map(|ch| ch.ammo_effects).unwrap_or_default();
     for p in due {
         c.marks.push(Mark::at(p.point, 0.3, MarkKind::Impact));
-        // The impact the weapon's data set names for what was hit: an actor is organic
-        // [design: its creature type's kinds, bug and glow, are not told apart yet].
+        // The impact the weapon's data set names for what was hit: an actor's is its
+        // base's Impact Material Type (NPC_ / CREA `NAM4`), organic without one
+        // [design]; anything else's its collision material (docs/spec-notes/audio.md §11).
         if let Some(s) = sfx.as_deref() {
-            let material = if p.actor.is_some() { "organic" } else { fnv_combat::fx::impact_material(p.material) };
+            let material = match p.actor {
+                Some(a) => sim.base_of(a as u32).and_then(|b| s.forms.actor_material(b)).unwrap_or("organic"),
+                None => fnv_combat::fx::impact_material(p.material),
+            };
             let set = s.forms.weapons.get(&id).and_then(|w| w.impact_dataset);
-            if let Some(impact) = set.and_then(|set| s.forms.impact_id(set, material)) {
+            let impact = set.and_then(|set| s.forms.impact_id(set, material));
+            if let Some(impact) = impact {
                 effects.1.write(ImpactFx { impact, point: p.point, normal: p.normal, dir: p.dir });
                 if let Some(i) = s.forms.impacts.get(&impact) {
                     for sound in i.sound_1.into_iter().chain(i.sound_2) {
                         effects.0.write(PlaySound { sound, at: Some(p.point) });
                     }
                 }
-                debug!("combat: impact {} on {material} (collision material {:?})", s.forms.impacts.get(&impact).and_then(|i| i.edid.as_deref()).unwrap_or("?"), p.material);
             }
+            let hit = p.actor.map(|a| a as u32).or(p.object.map(|o| o as u32));
+            effects.4.write(crate::world_sounds::log_impact(s, hit, p.actor.is_some(), p.material, material, impact));
         }
         let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, w.skill.as_deref(), false);

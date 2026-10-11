@@ -7,6 +7,7 @@ use crate::water::{water_material, WaterCtx};
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use fnv_esm::{LoadOrder, Plugin as EsmPlugin, Schema as EsmSchema};
+use fnv_world::imposter::ImposterRegions;
 use fnv_world::placed::{base_object, placement, BaseObject, Placement};
 use fnv_world::transform::ref_rotation;
 use fnv_world::{cell_of, WorldIndex, CELL_SIZE};
@@ -34,6 +35,8 @@ pub struct WorldData {
     pub world: u32,
     /// The worldspace's persistent references by the grid square they stand in.
     pub persistent_by_grid: HashMap<(i32, i32), Vec<u32>>,
+    /// Regions with imposter lists (imposters.rs).
+    pub imposters: &'static ImposterRegions,
 }
 
 impl WorldData {
@@ -48,7 +51,8 @@ impl WorldData {
         let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).map_err(|e| e.to_string())?));
         let index: &'static WorldIndex = Box::leak(Box::new(WorldIndex::build(lo, schema)));
         let w = index.world_by_name(world).ok_or_else(|| format!("no worldspace {world}"))?;
-        let mut data = WorldData { lo, schema, index, world: w.form_id, persistent_by_grid: HashMap::new() };
+        let imposters: &'static ImposterRegions = Box::leak(Box::new(ImposterRegions::build(lo, schema)));
+        let mut data = WorldData { lo, schema, index, world: w.form_id, persistent_by_grid: HashMap::new(), imposters };
         data.set_world(w.form_id);
         Ok(data)
     }
@@ -162,6 +166,8 @@ pub struct StreamStats {
     pub refs_random_start: usize,
     /// Doors that open in place, drawn with their node hierarchy (`crate::doors`).
     pub refs_doors: usize,
+    /// Imposters met in loaded cells, left to `crate::imposters`.
+    pub refs_imposters: usize,
     pub water_planes: usize,
     pub lights: usize,
     /// Light sources of references not enabled at the start, spawned hidden.
@@ -349,7 +355,7 @@ pub fn travel(
     lod.set_enabled(&mut commands, t.interior.is_none() && !args.no_lod);
 }
 
-fn ref_affine(p: &Placement) -> Affine3A {
+pub fn ref_affine(p: &Placement) -> Affine3A {
     let m = Mat3::from_cols_array(&ref_rotation(p.rotation)).transpose(); // row-major
     Affine3A::from_mat3_translation(m * p.scale, Vec3::from_array(p.position))
 }
@@ -407,6 +413,12 @@ fn load_cell(
             continue;
         }
         let Some(p) = placement(world.lo, world.schema, r) else { continue };
+        // Imposters are drawn by the regions the camera is in, not by their cell
+        // (imposters.rs).
+        if p.imposter {
+            stats.refs_imposters += 1;
+            continue;
+        }
         if manage_actors && p.base.and_then(|b| base_object(world.lo, world.schema, b)).is_some_and(|b| matches!(&b.sig, b"NPC_" | b"CREA")) {
             continue;
         }
@@ -473,66 +485,85 @@ fn load_cell(
             stats.refs_speedtree += 1;
             continue;
         }
-        let Some(path) = base.world_model_path() else {
-            stats.refs_no_model += 1;
-            continue;
-        };
-        if hide.iter().any(|h| path.contains(h.as_str())) {
-            continue;
-        }
-        if is_marker(&path) {
-            stats.refs_skipped_type += 1;
-            *stats.skipped_types.entry("marker".into()).or_default() += 1;
-            continue;
-        }
-        let Some(model) = models.model(&path) else {
-            stats.refs_no_model += 1;
-            continue;
-        };
         // The reference transform replaces the model root's own (world.md §4).
-        let rt = to_cell * ref_affine(&p);
-        // A door that opens in place (no XTEL) and has Open/Close sequences: posed from
-        // its state in `nvf_play::doors` (doors.rs). Teleport doors stay static.
-        let door = model.rig.as_ref().filter(|rig| rig.door.is_some() && &base.sig == b"DOOR" && !p.teleport);
-        // An activator with Open/Close or an idle (a radio, a jukebox): its on and off
-        // looks follow its state (activators.rs).
-        let activator = model.rig.as_ref().filter(|rig| (rig.door.is_some() || rig.idle.is_some()) && &base.sig == b"ACTI");
-        if let Some(rig) = model.rig.as_ref().filter(|rig| rig.idle.is_some() || door.is_some() || activator.is_some()) {
-            // Animated (Idle sequence): its own node hierarchy per reference.
-            // "Random Anim Start" bases start their idle at a phase spread by reference
-            // (fnv_actor::anims::random_anim_start; animation.md §8).
-            let phase = if random_anim_start(world, base.form_id) { crate::actors::clip_phase(r) } else { 0.0 };
-            stats.refs_random_start += usize::from(phase > 0.0 && rig.idle.is_some());
-            let (root, drawn, nodes) = rig.spawn_nodes(commands, cell_e, Transform::from_matrix(Mat4::from(rt)), &path, phase);
-            commands.entity(root).insert(RefVisual(r));
-            for e in &drawn {
-                commands.entity(*e).insert(RefVisual(r));
-            }
-            if door.is_some() {
-                commands.entity(root).insert(crate::doors::DoorRig::new(r, model.clone(), &path, nodes, p.open_by_default));
-                stats.refs_doors += 1;
-            } else if activator.is_some() {
-                commands.entity(root).insert(crate::activators::ActivatorRig::new(r, base.form_id, model.clone(), &path, nodes));
-            }
-            stats.shapes += drawn.len();
-            stats.refs_drawn += 1;
-            stats.refs_animated += 1;
-            continue;
-        }
-        for s in &model.shapes {
-            let m = Mat4::from(rt * s.transform);
-            // External emittance: the reference's XEMI source drives the colour.
-            let material = p
-                .emittance
-                .filter(|_| s.external_emittance)
-                .and_then(|x| emittance.material(world, &mut models.materials, &s.material, x))
-                .unwrap_or_else(|| s.material.clone());
-            commands.entity(cell_e).with_child((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), RefVisual(r)));
-            stats.shapes += 1;
-        }
-        stats.refs_drawn += 1;
+        spawn_model(commands, cell_e, world, &p, r, &base, to_cell * ref_affine(&p), models, emittance, hide, stats);
     }
     cell_e
+}
+
+/// Draw a reference's model as children of `parent`, `rt` being the reference's
+/// transform in the parent's space: an exterior or interior cell, or the world root for
+/// imposters (`imposters.rs`).
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_model(
+    commands: &mut Commands,
+    parent: Entity,
+    world: &WorldData,
+    p: &Placement,
+    r: u32,
+    base: &BaseObject,
+    rt: Affine3A,
+    models: &mut ModelCtx,
+    emittance: &mut crate::emittance::EmittanceState,
+    hide: &[String],
+    stats: &mut StreamStats,
+) {
+    let Some(path) = base.world_model_path() else {
+        stats.refs_no_model += 1;
+        return;
+    };
+    if hide.iter().any(|h| path.contains(h.as_str())) {
+        return;
+    }
+    if is_marker(&path) {
+        stats.refs_skipped_type += 1;
+        *stats.skipped_types.entry("marker".into()).or_default() += 1;
+        return;
+    }
+    let Some(model) = models.model(&path) else {
+        stats.refs_no_model += 1;
+        return;
+    };
+    // A door that opens in place (no XTEL) and has Open/Close sequences: posed from
+    // its state in `nvf_play::doors` (doors.rs). Teleport doors stay static.
+    let door = model.rig.as_ref().filter(|rig| rig.door.is_some() && &base.sig == b"DOOR" && !p.teleport);
+    // An activator with Open/Close or an idle (a radio, a jukebox): its on and off
+    // looks follow its state (activators.rs).
+    let activator = model.rig.as_ref().filter(|rig| (rig.door.is_some() || rig.idle.is_some()) && &base.sig == b"ACTI");
+    if let Some(rig) = model.rig.as_ref().filter(|rig| rig.idle.is_some() || door.is_some() || activator.is_some()) {
+        // Animated (Idle sequence): its own node hierarchy per reference.
+        // "Random Anim Start" bases start their idle at a phase spread by reference
+        // (fnv_actor::anims::random_anim_start; animation.md §8).
+        let phase = if random_anim_start(world, base.form_id) { crate::actors::clip_phase(r) } else { 0.0 };
+        stats.refs_random_start += usize::from(phase > 0.0 && rig.idle.is_some());
+        let (root, drawn, nodes) = rig.spawn_nodes(commands, parent, Transform::from_matrix(Mat4::from(rt)), &path, phase);
+        commands.entity(root).insert(RefVisual(r));
+        for e in &drawn {
+            commands.entity(*e).insert(RefVisual(r));
+        }
+        if door.is_some() {
+            commands.entity(root).insert(crate::doors::DoorRig::new(r, model.clone(), &path, nodes, p.open_by_default));
+            stats.refs_doors += 1;
+        } else if activator.is_some() {
+            commands.entity(root).insert(crate::activators::ActivatorRig::new(r, base.form_id, model.clone(), &path, nodes));
+        }
+        stats.shapes += drawn.len();
+        stats.refs_drawn += 1;
+        stats.refs_animated += 1;
+        return;
+    }
+    for s in &model.shapes {
+        let m = Mat4::from(rt * s.transform);
+        // External emittance: the reference's XEMI source drives the colour.
+        let material = p
+            .emittance
+            .filter(|_| s.external_emittance)
+            .and_then(|x| emittance.material(world, &mut models.materials, &s.material, x))
+            .unwrap_or_else(|| s.material.clone());
+        commands.entity(parent).with_child((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), RefVisual(r)));
+        stats.shapes += 1;
+    }
+    stats.refs_drawn += 1;
 }
 
 /// Whether base form `fid` has the "Random Anim Start" record flag (fnv_actor::anims).
