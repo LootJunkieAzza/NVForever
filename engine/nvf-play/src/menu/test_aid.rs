@@ -26,7 +26,8 @@
 //! menu as opened (`<path stem>-barter.png`) and with the two rows put up
 //! (`<path stem>-barter-trade.png`). With `*` for the merchant nothing is opened: the
 //! steps wait for the next barter menu a script opens (a dialogue choice's
-//! `ShowBarterMenu`, e.g. with `NVF_PLAY_TEST_TALK`).
+//! `ShowBarterMenu`, e.g. with `NVF_PLAY_TEST_TALK`). `NVF_PLAY_TEST_BARTER_DELAY`, when
+//! set, is the barter check's delay instead, so it can run beside the container check.
 
 use super::model::{Command, MenuModel, Mode, Side};
 use super::{ActiveMenu, MenuInput, OpenBarter, OpenInventory, OpenNearestContainer};
@@ -70,7 +71,8 @@ fn setup_barter(app: &mut App) {
             return;
         }
     };
-    let delay = std::env::var("NVF_PLAY_TEST_DELAY").ok().and_then(|d| d.parse().ok()).unwrap_or(6.0);
+    // Its own delay, so that it can run beside the container check.
+    let delay = ["NVF_PLAY_TEST_BARTER_DELAY", "NVF_PLAY_TEST_DELAY"].iter().find_map(|k| std::env::var(k).ok().and_then(|d| d.parse().ok())).unwrap_or(6.0);
     let shot = std::env::var_os("NVF_PLAY_TEST_SHOT").map(PathBuf::from);
     app.insert_resource(BarterScript { merchant, discount, shot, delay, step: 0, next_at: None });
 }
