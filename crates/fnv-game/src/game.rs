@@ -461,11 +461,23 @@ pub mod menus {
     pub const LOVE_TESTER: u16 = 1074;
     /// The trait menu (ShowTraitMenu).
     pub const TRAITS: u16 = 1084;
+    /// The barter menu (ShowBarterMenu) [hypothesis: the GECK wiki's MenuMode list as
+    /// remembered; no shipped script reads it and the owner's export lacks the page].
+    pub const BARTER: u16 = 1053;
     /// The dialogue menu [documented: GECK wiki GetMenuTargetRef, owner export; not
     /// captured]. It is not kept in `Game::menu`: the conversation itself
     /// (`Game::dialogue`) is the open menu, under any other menu that opens during it
     /// (`Game::in_menu`, `Game::open_menu_code`, `Game::menu_open`).
     pub const DIALOGUE: u16 = crate::dialogue::DIALOGUE_MENU;
+}
+
+/// `merchant.ShowBarterMenu [discount]`: trade with this actor. `discount` is a percentage
+/// in -100 to 100 that lowers the prices the merchant sells at and raises those it buys
+/// at; 0 leaves them [documented: GECK wiki ShowBarterMenu, owner export].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BarterRequest {
+    pub merchant: FormId,
+    pub discount: i32,
 }
 
 /// A dialogue line being said outside a conversation (SayTo, Say, or a greeting with the
@@ -523,9 +535,17 @@ pub struct Game<'a> {
     /// The sounds scripts asked for (`crate::sound::SoundRequest`), for the engine to
     /// take. Not part of the saved state.
     pub sound_requests: Vec<crate::sound::SoundRequest>,
+    /// Barter menus scripts opened (ShowBarterMenu), for the engine to draw; the menu
+    /// is open for scripts ([`menus::BARTER`]) until the engine closes it. Not part of
+    /// the saved state.
+    pub barter_requests: Vec<BarterRequest>,
     /// Sleeping and waiting as scripts see and ask for them (`crate::rest`); the menu is
     /// the engine's. Not part of the saved state.
     pub rest: crate::rest::Rest,
+    /// The latest detection value of each (detector, target) pair the engine measured
+    /// (`crate::detection`); GetDetected and GetDetectionLevel read it. Not part of the
+    /// saved state: the engine measures again.
+    pub detection: crate::detection::Detections,
     /// What switched radio receivers on and off (`crate::radio`); the engine plays the
     /// stations. Not part of the saved state.
     pub radio: crate::radio::Radios,
@@ -689,7 +709,9 @@ impl<'a> Game<'a> {
             combat_requests: Vec::new(),
             idle_requests: Vec::new(),
             sound_requests: Vec::new(),
+            barter_requests: Vec::new(),
             rest: Default::default(),
+            detection: Default::default(),
             radio: Default::default(),
             world,
             cfg,

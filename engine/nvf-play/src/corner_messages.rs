@@ -3,7 +3,8 @@
 //!
 //! - What is shown: messages (MESG) that are not message boxes, with the icon and the
 //!   time their record gives, and the other short lines of `ScriptEffect::Notify`
-//!   (objectives, quests, items, default activations) with the default icon (§5).
+//!   (items, default activations) with the default icon (§5). Quests and objectives
+//!   are `crate::quest_messages`'.
 //! - One at a time, in the order they came, each for its record's Display Time [owner's
 //!   rule, 2026-10-11]; [`CornerMessages`] is the queue (pure, tested).
 //! - [`layout`] sets the text (pure, tested); the numbers are the HUD menu file's and

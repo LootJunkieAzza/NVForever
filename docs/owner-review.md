@@ -2436,3 +2436,132 @@ Branch `claude/dialogue-menu`; note docs/spec-notes/dialogue-menu.md.
    - **The scroll marker** is 40 units long; your two pictures show about 30 and 43.
 3. **Not built yet:** the subtitles setting (lines always show), sounds on the list,
    dragging the marker or clicking the arrows.
+
+## Who sees you: detection (2026-10-11, session "detection")
+
+Docs: docs/design/detection.md. Every NPC and creature near you now works out, four
+times a second, how well it perceives you and the other actors near it, with the
+editor documentation's formula (Perception, distance, light, sound of movement and
+shots, and your Sneak, level and armour while you sneak). Nothing acts on it yet: it is
+the groundwork for combat encounters. Scripts' GetDetected now answers from it.
+
+1. **See the numbers without playing:**
+   `fnvtool actor detect --schema schemas/fnv <Data> FalloutNV.esm --detector SunnyRef`
+   lists, for 13 situations, the value at distances from 100 to 5,000 units and how far
+   out you are detected (above 0) and noticed (above −20). In the game the log shows each
+   change (`detection: GSSettlerAM 00104F0A → the player: hidden → noticed …`) and
+   your band as the sneak meter would show it (HIDDEN, CAUTION, DANGER).
+2. **Guesses for you to check against the game:**
+   - **Light.** The formula needs the light level at you (0–100) and no source says how
+     the game measures it. I take the ambient light plus sunlight by day (or the room's
+     light indoors) plus nearby lamps; at noon in Goodsprings that is 93. With it, Sunny
+     Smiles spots you sneaking in daylight out to about 1,840 units, and never sneaking
+     in the dark. If the game hides you much better in daylight, the light measure is
+     what to lower.
+   - **Field of view:** 95° either side of where the actor faces (the GetLineOfSight
+     notes say so for every NPC). Walls block sight; other people do not.
+   - **Sneak-running counts as running** (louder and more visible).
+   - **Lying on a bed counts as asleep** (−20 % perception).
+3. **Would help me tune:** a few `GetDetected` readings in the game with you standing,
+   walking, running and sneaking at set distances from one NPC, at noon and at
+   midnight, and the game's fSneak* settings (`GetNumericGameSetting`).
+4. **Not built yet:** the alert, combat and lost states with their timers (so bands can
+   flicker as an actor turns its head), noise events from explosions and
+   CreateDetectionEvent, NPCs sneaking, the sneak meter on the HUD, shade from the sun.
+
+## Reloading one round at a time (2026-10-11, session "looping reload")
+
+Docs: docs/spec-notes/combat-rules.md §4 ("Round by round"). Your rules (2026-10-11): a
+trigger pull closes the weapon first, then it fires; the close plays every time.
+
+1. **Which weapons:** none are listed in the code. A weapon loads round by round when
+   its reload animation has an opening clip in the game's files. That is true of the
+   .357 Magnum Revolver, Lucky, the Lever-Action Shotgun, the Hunting Shotgun, Dinner
+   Bell, the Cowboy Repeater, the Brush Gun, the Trail Carbine, and also the **Grenade
+   Launcher** (it shares the hunting shotgun's animation). If the grenade launcher
+   reloads all at once in the game, tell me.
+2. **How it runs:** the opening clip plays once (the .357's cylinder swings out:
+   1.07 s); each round is the reload clip from its start to its `Hit` key (0.63 s for
+   the .357, 0.47–0.5 s for the rifles and shotguns); after the last round the rest of
+   that clip closes the weapon (about 1.1 s). Please compare a full .357 reload
+   (2 missing: about 3.5 s) with the game.
+3. **Guesses I had to make:**
+   - The shot after a stopped reload follows by itself; you do not have to pull again.
+     A pull while it is closing also fires once it is closed.
+   - A pull while the weapon is still opening lets the first round go in, then closes.
+   - Each round's clip starts straight after the last without blending, so the hands
+     should not jump. If you see a jerk between rounds, tell me which weapon.
+4. **Try it:** equip the .357 (or another one above), fire two shots, press R, then
+   click partway through.
+5. **Not built:** NPCs reloading (they do not reload with animations yet), the Reload
+   Speed perks.
+
+## Quest added, quest completed and objectives at the left (2026-10-11, session "quest messages")
+
+Branch `claude/quest-messages`; note docs/spec-notes/quest-messages.md.
+
+1. **What you should see:** "Quest added" (or "Quest completed", "Quest failed") with
+   the quest's name under it in large capitals, at the left a little above the middle,
+   as your Come Fly With Me and Ring-a-Ding-Ding pictures; objectives listed in the same
+   place behind a small square, filled and with "COMPLETED: " for a completed one, as
+   your Sierra Madre and Sunny Smiles pictures. These lines no longer appear in the
+   messages at the top left.
+2. **Measured:** at 1280x720 the words and the name sit on the same pixel rows and start
+   at the same column as in your picture; the Sunny Smiles objectives break their lines
+   at the same words.
+3. **Guesses I had to make, for you to check against the game:**
+   - **How long they stay:** 4 seconds for "Quest added" and the name, 4 for a list of
+     objectives and 1.5 more for each further one; 0.25 s to come and go.
+   - **The name comes in letter by letter from the left** over 0.6 s. Your Come Fly
+     With Me picture shows "WITH ME" fainter than "COME FLY"; it might instead be the
+     name going out from the right.
+   - **One thing at a time:** "Quest added" first, then its objective; objectives that
+     arrive while something else is on screen are gathered into one list.
+   - **Sounds** by their record names: UIPopUpQuestNew for "Quest added",
+     UIPopUpQuestComplete for "Quest completed", UIQuestUpdate for objectives; none for
+     "Quest failed".
+   - **The words "Quest failed"**: I have not seen it in the game.
+   - **Where long objectives break:** at 570 units (your pictures put it between 557
+     and 590).
+4. **Please put your two objective screenshots** (the Sierra Madre and the Sunny Smiles
+   ones) in `C:\fnv-private\references\quest_messages\`: they only reached me as
+   pictures, so the objective list's place is read by eye (to about a pixel).
+5. **Not built:** "Location discovered", and the "Quest Added" that SetStage gives for a
+   stage added to the Pip-Boy.
+
+## Barter and container menus drawn as the original's (2026-10-11, session "barter menu")
+
+Docs: docs/spec-notes/barter-menu.md. Talk to Chet in the Goodsprings General Store and
+pick "Show me what you have for sale."; or open any container.
+
+1. **What you should see:** the layout of your screenshots, built from the game's own
+   menu files: your items at the left, the merchant's or container's at the right,
+   "Caps" (barter) or "Wg" (container) at the top right of a list, prices in the barter
+   lists, the item's picture with WG and VAL under the lists, "Accept A)" / "Exit X)"
+   or "Take All R)" / "Exit E)", and the caps arrow between the lists while a trade is
+   put together. Items you put up move to the other list, first, with an open square.
+2. **Prices** follow the GECK wiki formula with the settings in FalloutNV.esm; at Barter
+   100 they give exactly the prices on your screenshots (Gold Bar 9492, Hydra 50,
+   .308 AP 10 and so on). A Barter skill of 15, a new character's, makes buying dear and
+   selling cheap.
+3. **Guesses I had to make, for you to check against the game:**
+   - **Keys.** I used the letters on the screen: A accepts, X exits (barter); R takes
+     all, E exits (container); Esc and Tab also leave; `[` and `]` change a list's
+     category. A click acts on the row under the pointer at once (one unit),
+     Shift+click on the whole stack. The game asks "how many?" in a quantity box for a
+     stack; that box is not built.
+   - **Categories.** I only saw "ITEMS" and "MISC" as list titles; I added WEAPONS,
+     APPAREL, AID and AMMO in that order. What does the merchant's list title say when
+     it shows only weapons?
+   - **Not enough caps.** I refuse with "You don't have enough caps." (or "Chet doesn't
+     have enough caps.") under the menu. What does the game do and say?
+   - **After the barter menu closes** I go back to the conversation. In the game, does
+     the merchant say something then (the "BarterExit" lines)?
+   - **The merchant's own pockets:** I only offer what is in the merchant's vendor
+     chest, not what the merchant carries.
+   - **Quest items** are hidden from the barter lists.
+   - **The world behind** is darkened by about a third, as measured on your screenshot,
+     but not blurred.
+4. **Would help:** a screenshot of the barter menu with the cursor on a weapon (to see
+   the damage, condition and strength figures, which I have not drawn), and one of the
+   "how many?" box.

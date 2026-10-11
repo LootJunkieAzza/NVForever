@@ -157,11 +157,11 @@ within a pixel in every one of these (§7).
 - **Behind a message box or a script's menu** [design]. The area is hidden and its clock
   stands still while one is open, so a message is not used up unseen.
 - **The other short lines** [design; nothing documents where the original shows them].
-  NVForever's own lines for an objective shown or completed, a quest completed or
-  failed, items a script added or removed, and a default activation's message ("Gate is
-  locked") go through the same area, with the default icon and the 2 seconds. The
-  wording of these lines is NVForever's. The HUD file has other areas that may be where
-  the original shows some of them (one is named "QuestAdded"); those are not built.
+  NVForever's own lines for items a script added or removed and a default activation's
+  message ("Gate is locked") go through the same area, with the default icon and the 2
+  seconds. The wording of these lines is NVForever's. Quests added, completed or failed
+  and objectives shown or completed have their own place, as in the original
+  (`quest-messages.md`); they no longer come here.
 - **Icons.** A message's icon is its Menu Icon's file, from the atlas if the index has
   its file name, else the file itself, stretched to 160 by 160. Without an icon, or if
   the file cannot be read, the default icon.
@@ -179,8 +179,8 @@ within a pixel in every one of these (§7).
   message-shaped texts the game's own code shows (experience, karma, "You cannot fast
   travel", item pick-ups by the player's hand): only what reaches `ScriptEffect::Notify`
   is shown.
-- The original's other HUD text areas (quest added, objective, location and region
-  names, the experience bar).
+- The original's other HUD text areas (location and region names, the experience
+  bar). Quests and objectives: `quest-messages.md`.
 - The format arguments of `ShowMessage` are whatever the script runtime already fills
   in; nothing was added here.
 

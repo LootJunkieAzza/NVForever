@@ -514,7 +514,8 @@ fn objects(
     // The container menu.
     let open = menu.as_ref().and_then(|m| m.0.as_ref()).and_then(|m| match m.mode {
         Mode::Container(c) => Some(c.0),
-        Mode::Inventory => None,
+        // A merchant is an actor, not a container: no container sound [design].
+        Mode::Inventory | Mode::Barter(_) => None,
     });
     if open != ws.container {
         let sound_of = |c: u32, opening: bool| {

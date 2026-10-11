@@ -127,6 +127,56 @@ each the identity by default. Reading PERK records is a later step.
   body's clip (docs/spec-notes/animation.md §9.8).
 - **Reload.** Takes the reload clip's length; the animation multiplier does not speed
   it up [documented]. Without a clip length, `fallback_reload`.
+- **Round by round** (`Timing::rounds`, `RoundReload`). Some reloads load one round at
+  a time and can be stopped:
+  - The clips [observed: the base meshes archive, 2026-10-11]. Three reload
+    animations have an opening clip beside the reload clip, in both the first-person and
+    the third-person folders (with sneak forms): `ReloadX` (`1hp` and `2hr`), `ReloadY`
+    and `ReloadZ` (`2hr`). No other reload has one.
+
+    | clip | length | text keys (s) |
+    |---|---|---|
+    | `1hpreloadxstart.kf` | 1.067 | sound `WPN357RevolverReloadStart` 0, `WPN357RevolverReloadClick` 0.667 |
+    | `1hpreloadx.kf` | 1.767 | sound `WPN357RevolverReloadLoop` 0, `hit` 0.633, `WPN357RevolverReloadClick` 0.917, `WPN357RevolverCock` 1.467 |
+    | `2hrreloadxstart.kf` | 0.933 | sound `WPNLeverActShotgunReloadStart` 0.033 |
+    | `2hrreloadx.kf` | 1.900 | sound `WPNLeverActShotgunReload` 0.033, `Hit` 0.5, `WPNLeverActShotgunReloadEnd` 0.667 |
+    | `2hrreloadystart.kf` | 0.667 | sound `WPNHuntingSGReloadStart` 0.015 |
+    | `2hrreloady.kf` | 1.533 | sound `WPNHuntingSGReload` 0.097, `Hit` 0.467, `WPNHuntingSGReloadEnd` 0.502 |
+    | `2hrreloadzstart.kf` | 0.333 | sound `WPNCowboyReloadStart` 0.033 |
+    | `2hrreloadz.kf` | 1.667 | sound `WPNCowboyReload` 0.033, `Hit` 0.5, `WPNCowboyReloadEnd` 0.6 |
+
+    (First-person files; the third-person ones have the same lengths, `2hrreloadx.kf`
+    its end sound at 0.533, and two openings a `Blend:` key.)
+  - The weapons [observed: FalloutNV.esm WEAP reload animation, 2026-10-11]: `ReloadX`
+    the .357 Magnum Revolver, Lucky and the Lever-Action Shotgun; `ReloadY` the Hunting
+    Shotgun, Dinner Bell and the Grenade Launcher; `ReloadZ` the Cowboy Repeater, the
+    Brush Gun and the Trail Carbine. The owner's list (the hunting shotgun, the
+    lever-actions, the cowboy repeater, the brush gun, the trail carbine and the .357)
+    agrees; the Grenade Launcher and the two uniques come with their animations. No
+    list of weapons is kept: the clips decide.
+  - The rule [hypothesis: the reload clip's `Hit` "also ends looping reloads",
+    documented: GECK wiki NiTextKeyExtraData; the sounds after `Hit` are the
+    `…ReloadEnd`, click and cock sounds]: the opening clip plays once; the reload
+    clip from its start to `Hit` loads one round, and repeats while rounds are missing
+    and carried; after the last round the clip plays on from `Hit` to its end, which
+    closes the weapon. The close plays every time [owner decision 2026-10-11].
+  - Stopping: a fresh pull of the trigger stops it after the round in hand; the weapon
+    closes first, then fires [owner decision 2026-10-11]. The shot needs no second pull,
+    and a pull during the close fires once it is closed too [design]. A pull while it
+    opens still lets the first round go in [design]. The pull that starts a reload on
+    an empty magazine does not stop it.
+  - Events: `ReloadStarted` (the opening clip), `ReloadRound` (the reload clip from its
+    start), `RoundLoaded`, `ReloadClosing { stopped }`, `Reloaded { taken }`.
+  - **Checked** [observed 2026-10-11, `nvforever --cell GSHouseInterior03 --play`, exit
+    0, "run finished"]: the .357 revolver with 2 missing opened, loaded one round
+    0.63 s after the other and closed (`reloading round by round (opens 1.07 s, 0.63 s
+    a round, closes 1.13 s)`, `a round in, magazine 5`, `… 6`, `closing`, `reloaded 2`);
+    with 3 missing and the trigger pulled with the second round in hand, that round
+    went in, it closed (`closing (the trigger was pulled)`) and fired 1.2 s later,
+    magazine 3 → 5 → 4. The Cowboy Repeater (0.33 / 0.50 / 1.17 s) and, in third
+    person, the Hunting Shotgun (0.67 / 0.47 / 1.07 s) loaded the same way. Screenshots
+    during the revolver's reload show the cylinder out, the left hand at it, then
+    closed.
 - **Trigger.** A semi-automatic weapon needs a fresh pull per shot; an automatic one
   fires while the trigger is held.
 - **Empty magazine.** Pulling the trigger on an empty magazine reloads when ammo is
@@ -251,7 +301,9 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     view. The attack clip is `{prefix}{attack}{is}.kf` from the
     WEAP attack animation; the reload clip is `{prefix}reload{x}.kf`
     (`fnv_actor::player_clips`).
-  - The body plays the clip once each time combat counts an attack or a reload.
+  - The body plays the clip once each time combat counts an attack or a reload; for a
+    round-by-round reload the opening clip (`{prefix}reload{x}start.kf`) on the reload
+    count and the reload clip from its start on each round's count (§4).
 - **Shots.**
   - They leave the eye along the view, inside the cone from §3. The stance is taken
     from the controls and the character: aiming, sneaking, moving, airborne.
