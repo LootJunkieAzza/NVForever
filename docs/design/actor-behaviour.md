@@ -110,7 +110,8 @@ periodic choice.
 | Patrol located near a reference, or near the actor's linked reference | walk that reference and the chain of references linked from it [documented; observed: Victor] |
 | Patrol with another location | go to that location [hypothesis] |
 | Dialogue | wait at location 1, go up to the target, talk (§5.6); a conversation between two actors is not carried out |
-| Follow, Accompany, Escort, Use Weapon, Find, Use Item At, Ambush, Flee Not Combat | not carried out yet: the actor stays where it is |
+| Follow, Accompany | keep within the target's count / distance of the target (256 when 0), wherever it goes, through doors too; stand while it stands (since 2026-10-11, below) [documented: "Follow/Escort/Accompany: Idles play while not moving but waiting for target to move"; hypothesis: the distance] |
+| Escort, Use Weapon, Find, Use Item At, Ambush, Flee Not Combat | not carried out yet: the actor stays where it is |
 
 | Location | Meaning |
 |---|---|
@@ -124,6 +125,23 @@ periodic choice.
 A place counts as reached within the package's radius, and never needs more precision
 than 32 units [our choice]. Travel "stops at the edge of the destination radius"
 [documented]: the walk is planned to the centre and ends when the radius is entered.
+
+**Follow and Accompany** (`goal::Follow`, `Ai::follow_step`; owner playtest
+2026-10-11: Sunny Smiles's dog Cheyenne, whose CheyenneAccompany package targets
+SunnyRef at 128 units, stayed behind when Sunny went to the wells and was missing from
+the saloon afterwards, because the package type was not carried out). The actor stands
+while its target is within the distance plus 64 units [our choice]; farther, it sets off
+after the target (through the doors between, if the target is in another cell), walking,
+or running when the package says Always Run or the target is more than 512 units away
+[our choice]; the way is planned again when the target has moved 64 units, at most twice
+a second, and the actor stops once within the distance. A target that is gone or dead
+is not followed. The goal counts as met at once (`package_goal_met`), so the periodic
+choice may replace the package as it may any other. The target being attacked, the
+Wait/StopWaiting functions and a follower's own combat are not built. `fnvtool ai
+reach`: 256 of the 265 follow-type actor-package pairs of FalloutNV.esm are now
+"follows: goes after its target from where it is"; 5 name no reference (not carried
+out) and 4 are Escort; every other verdict is unchanged. Log: `ai [h] <actor>: walks
+after <target> (<package>): <n> units away, …` and `: has caught up with <target>`.
 
 ### 5.2 Getting there
 

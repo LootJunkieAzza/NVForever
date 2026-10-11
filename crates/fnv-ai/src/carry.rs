@@ -108,6 +108,11 @@ pub enum AiEvent {
     },
     /// The conversation it started is over, or its greeting is said.
     TalkOver { package: FormId },
+    /// A Follow or Accompany package: it sets off after `target`, `away` units from it
+    /// (`None`: in another space), a way of `length` units through `doors`.
+    Follow { package: FormId, target: FormId, away: Option<f32>, length: f32, doors: Vec<FormId>, running: bool },
+    /// It has caught up with the one it follows and stands.
+    CaughtUp { package: FormId, target: FormId },
     /// It was to talk and did not (it has no line to say).
     NoTalk { package: FormId, why: String },
     /// It said hello to the passing player, `away` units from it (`crate::social`).
@@ -161,6 +166,12 @@ pub enum Talking {
 fn greets(game: &Game, actor: FormId) -> bool {
     game.speech.iter().any(|s| s.greeting && s.speaker == actor)
 }
+
+/// A follower stands until its target is this much farther than its distance, so that
+/// it does not set off at every step the target takes, game units [our choice].
+pub const FOLLOW_SLACK: f32 = 64.0;
+/// A follower whose target is farther than this runs, game units [our choice].
+pub const FOLLOW_RUN_FROM: f32 = 512.0;
 
 /// A target that has moved this far from where the way to it was planned to is planned
 /// for again, and not more often than every [`REPLAN_SECONDS`] [our choice].
@@ -240,6 +251,9 @@ pub struct Agent {
     /// What it does in a combat state (`crate::alert`): its package's own doings wait
     /// meanwhile.
     pub search: Option<crate::alert::Search>,
+    /// A Follow or Accompany package: where the target was when the way to it was last
+    /// planned, and from when (`Game::time`) it may be planned again.
+    following: Option<(Place, f64)>,
 }
 
 #[derive(Default)]
@@ -267,7 +281,7 @@ impl Ai {
         let place = goal::place_of_ref(game, actor).ok_or_else(|| format!("{actor} is in no cell"))?;
         let heading = game.world.peek(actor).map(|s| s.rot[2]).or_else(|| game.world.placed.get(actor).map(|p| p.rot[2])).unwrap_or(0.0);
         let walker = Walker::new(place.space, place.pos, heading, self.cfg.walk_speed);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, following: None });
         Ok(())
     }
 
@@ -313,6 +327,7 @@ impl Ai {
         a.pushed_at = None;
         a.chat = None;
         a.search = None;
+        a.following = None;
         self.taken.retain(|_, user| *user != actor);
     }
 
@@ -461,6 +476,7 @@ impl Ai {
                 // one go).
                 a.chat = None;
                 a.search = None;
+                a.following = None;
                 self.set_using(game, actor, None);
                 self.taken.retain(|_, user| *user != actor);
                 if let Some(p) = current {
@@ -487,6 +503,9 @@ impl Ai {
             }
             if !quiet && !alerted && self.agents[&actor].talk.is_some() {
                 self.talk_step(game, nav, actor, dt);
+            }
+            if !alerted && !chatting && matches!(self.agents[&actor].goal, Some(Goal::Follow(_))) {
+                self.follow_step(game, nav, actor);
             }
         }
     }
@@ -598,6 +617,77 @@ impl Ai {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// One update of a Follow or Accompany package ([`Goal::Follow`]): an actor that
+    /// stands sets off after its target once the target is more than its distance away
+    /// (in another space: through the doors between), and the way is planned again when
+    /// the target has moved [`REPLAN_DISTANCE`] since, at most every
+    /// [`REPLAN_SECONDS`]; it stops once within the distance. It runs when the package
+    /// says Always Run or the target is more than [`FOLLOW_RUN_FROM`] away, else walks
+    /// [our choice]. A target that is gone or dead is not followed: the actor stands.
+    /// Without a way to the target the package is set aside like any other that cannot
+    /// be reached.
+    fn follow_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
+        let a = &self.agents[&actor];
+        let (Some(package), Some(Goal::Follow(f))) = (a.package, a.goal.clone()) else { return };
+        let feet = Place { space: a.walker.space, pos: a.walker.feet };
+        let travelling = a.activity == Activity::Travelling;
+        let target = goal::place_of_ref(game, f.target).filter(|_| game.present(f.target) && !game.extra.get(&f.target).is_some_and(|e| e.dead));
+        let Some(target) = target else {
+            if travelling {
+                let a = self.agents.get_mut(&actor).expect("listed");
+                (a.walker.follower, a.activity, a.following) = (None, Activity::There, None);
+            }
+            return;
+        };
+        let away = if feet.space == target.space { hdist(feet.pos, target.pos) } else { f32::INFINITY };
+        let keep = f.distance.max(self.cfg.arrive);
+        if travelling {
+            if away <= keep && (feet.pos[2] - target.pos[2]).abs() <= 256.0 {
+                let a = self.agents.get_mut(&actor).expect("listed");
+                (a.walker.follower, a.activity, a.following) = (None, Activity::There, None);
+                self.log(game, actor, AiEvent::CaughtUp { package, target: f.target });
+                return;
+            }
+            let Some((to, replan)) = self.agents[&actor].following else { return };
+            let moved = to.space != target.space || goal::dist(to.pos, target.pos) > REPLAN_DISTANCE;
+            if moved && game.time >= replan {
+                self.follow_plan(game, nav, actor, package, f, target, away, false);
+            }
+            return;
+        }
+        if self.agents[&actor].activity == Activity::There && away > keep + FOLLOW_SLACK {
+            self.follow_plan(game, nav, actor, package, f, target, away, true);
+        }
+    }
+
+    /// Plan the way after the one `actor` follows.
+    #[allow(clippy::too_many_arguments)]
+    fn follow_plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, f: goal::Follow, target: Place, away: f32, first: bool) {
+        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || away > FOLLOW_RUN_FROM;
+        let params = self.path_params(game, actor);
+        let a = self.agents.get_mut(&actor).expect("listed");
+        a.walker.speed = if running { self.cfg.run_speed } else { self.cfg.walk_speed };
+        match a.walker.go_to(nav, target, &params) {
+            Ok(path) => {
+                let (length, doors) = (path.length, path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect());
+                if a.activity != Activity::Travelling {
+                    a.trip_started = game.time;
+                    a.trip_from = a.walker.travelled;
+                }
+                a.activity = Activity::Travelling;
+                a.following = Some((target, game.time + REPLAN_SECONDS));
+                if first {
+                    let away = away.is_finite().then_some(away);
+                    self.log(game, actor, AiEvent::Follow { package, target: f.target, away, length, doors, running });
+                }
+            }
+            Err(e) => {
+                a.following = None;
+                self.unreachable(game, actor, package, e.to_string());
+            }
         }
     }
 
@@ -860,6 +950,11 @@ impl Ai {
                     a.activity = Activity::There;
                 }
             },
+            // `follow_step` sets off after the target when it is away.
+            Goal::Follow(_) => {
+                self.agents.get_mut(&actor).expect("listed").activity = Activity::There;
+                game.package_goal_met(actor);
+            }
             Goal::NotCarriedOut(why) => {
                 self.agents.get_mut(&actor).expect("listed").activity = Activity::Staying;
                 self.log(game, actor, AiEvent::NotCarriedOut { package, why });
@@ -963,6 +1058,13 @@ impl Ai {
         // The end of a search walk: `crate::alert` has it look about.
         if a.search.is_some() {
             a.activity = Activity::There;
+            return;
+        }
+        // The end of the way to the one it follows: it stands until the target is away
+        // again (`follow_step`).
+        if matches!(a.goal, Some(Goal::Follow(_))) {
+            a.activity = Activity::There;
+            a.following = None;
             return;
         }
         let Some(package) = a.package else { return };

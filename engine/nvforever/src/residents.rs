@@ -725,6 +725,7 @@ impl Core {
                 AiEvent::Trip { .. }
                 | AiEvent::Unreachable { .. }
                 | AiEvent::Approach { .. }
+                | AiEvent::Follow { .. }
                 | AiEvent::Talk { .. }
                 | AiEvent::NoTalk { .. }
                 | AiEvent::PushedBack { .. }
@@ -839,6 +840,15 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::Talk { package, target, line, away, say_to: false, greeting: true } => format!("greets {} from {away:.0} units without a conversation ({}), line {line}", n(target), n(package)),
         AiEvent::Talk { package, target, line, away, say_to: true, .. } => format!("says line {line} to {} from {away:.0} units ({})", n(target), n(package)),
         AiEvent::TalkOver { package } => format!("has talked ({})", n(package)),
+        AiEvent::Follow { package, target, away, length, doors, running } => format!(
+            "{} after {} ({}): {}{length:.0} units to go, {} doors",
+            if *running { "runs" } else { "walks" },
+            n(target),
+            n(package),
+            away.map(|a| format!("{a:.0} units away, ")).unwrap_or_else(|| "in another cell, ".into()),
+            doors.len()
+        ),
+        AiEvent::CaughtUp { target, .. } => format!("has caught up with {}", n(target)),
         AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
         AiEvent::Hello { line, away } => format!("says hello to the player from {away:.0} units, line {line}"),
         AiEvent::Chat { partner, line, away } => format!("starts a conversation with {} from {away:.0} units, line {line}", n(partner)),

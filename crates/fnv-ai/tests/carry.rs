@@ -62,6 +62,17 @@ fn pack_with(id: u32, edid: &str, general: u32, ty: u8, specific: u16, location:
     record(b"PACK", id, &subs)
 }
 
+/// An Accompany package (type 7) whose target is a reference, kept within `distance`.
+fn accompany(id: u32, edid: &str, target: u32, distance: i32) -> Vec<u8> {
+    let subs = [
+        sub(b"EDID", z(edid)),
+        sub(b"PKDT", [&0u32.to_le_bytes()[..], &[7, 0, 0, 0], &[0; 4]].concat()),
+        sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()),
+        sub(b"PTDT", [0i32.to_le_bytes(), target.to_le_bytes(), distance.to_le_bytes()].concat()),
+    ];
+    record(b"PACK", id, &subs)
+}
+
 fn npc(fid: u32, edid: &str, packages: &[u32]) -> Vec<u8> {
     let mut subs = vec![sub(b"EDID", z(edid))];
     subs.extend(packages.iter().map(|p| sub(b"PKID", p.to_le_bytes().to_vec())));
@@ -105,6 +116,7 @@ const P_SB_NOTHING: u32 = 0x82C;
 const P_TO_CHAIR: u32 = 0x82D;
 const P_SLEEP_C: u32 = 0x82E;
 const P_STEADY: u32 = 0x82F;
+const P_ACCOMPANY: u32 = 0x830;
 // Bases.
 const N_TRAVEL: u32 = 0x840;
 const N_IN: u32 = 0x841;
@@ -121,6 +133,7 @@ const N_SB_NOTHING: u32 = 0x84B;
 const N_TO_CHAIR: u32 = 0x84C;
 const N_SLEEP_C: u32 = 0x84D;
 const N_STEADY: u32 = 0x84E;
+const N_DOG: u32 = 0x84F;
 // Cells and references.
 const CELL_A: u32 = 0x860;
 const CELL_B: u32 = 0x861;
@@ -153,6 +166,7 @@ const R_FOLLOW: u32 = 0x885;
 const R_HERE: u32 = 0x886;
 const R_RUN: u32 = 0x887;
 const R_STEADY: u32 = 0x888;
+const R_DOG: u32 = 0x889;
 const DOOR_A: u32 = 0x8D1;
 const DOOR_B: u32 = 0x8D2;
 
@@ -196,6 +210,7 @@ fn plugin_bytes() -> Vec<u8> {
         pack(P_TO_CHAIR, "TravelToChair", 0, TRAVEL, (0, CHAIR_C, 0), None),
         pack(P_SLEEP_C, "SleepInC", 0, SLEEP, (1, CELL_C, 0), None),
         pack(P_STEADY, "TravelToBInCombat", flags::MUST_REACH_LOCATION | flags::CONTINUE_DURING_COMBAT, TRAVEL, (0, MARK_B, 0), None),
+        accompany(P_ACCOMPANY, "AccompanyTheTraveller", R_TRAVEL, 128),
     ]
     .concat();
     let npcs = [
@@ -215,6 +230,7 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_TO_CHAIR, "ChairUser", &[P_TO_CHAIR]),
         npc(N_SLEEP_C, "Sleeper", &[P_SLEEP_C]),
         npc(N_STEADY, "Courier", &[P_STEADY]),
+        npc(N_DOG, "Dog", &[P_ACCOMPANY]),
     ]
     .concat();
     // Furniture: a chair (marker flags bit 30) and a bed (bit 31); an idle marker with
@@ -247,6 +263,7 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_HERE, "StanderRef", N_HERE, START, None),
         placed(b"ACHR", R_RUN, "RunnerRef", N_RUN, START, None),
         placed(b"ACHR", R_STEADY, "CourierRef", N_STEADY, START, None),
+        placed(b"ACHR", R_DOG, "DogRef", N_DOG, [150.0, 50.0, 0.0], None),
     ]
     .concat();
     let b_refs = placed(b"REFR", MARK_B, "MarkB", STAT, [5250.0, 5250.0, 50.0], None);
@@ -566,6 +583,33 @@ fn packages_that_are_not_carried_out_leave_the_actor_where_it_is() {
     assert_eq!(s.ai.agents[&FormId(R_HERE)].activity, Activity::There);
     assert!(matches!(s.events(R_HERE)[1], AiEvent::AlreadyThere { .. }));
     assert!(s.game.extra[&FormId(R_HERE)].package_goal_met);
+}
+
+/// An Accompany package: the actor keeps near its target wherever it goes, through the
+/// door into the other cell too, and stands while the target stands (`goal::Follow`;
+/// the owner's playtest of 2026-10-11: Sunny Smiles's dog stayed behind).
+#[test]
+fn an_accompanying_actor_follows_its_target_through_a_door() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL, R_DOG]);
+    s.run(1.0);
+    // Within its distance of the target at first: it stands.
+    assert_eq!(s.ai.agents[&FormId(R_DOG)].activity, Activity::There);
+    assert!(matches!(s.events(R_DOG)[..], [AiEvent::Package { .. }]), "{:?}", s.events(R_DOG));
+    // The traveller walks off to cell B; the dog sets off after it and goes through.
+    s.run(40.0);
+    let ev = s.events(R_DOG);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Follow { target, .. } if target.0 == R_TRAVEL)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Door { door, .. } if door.0 == DOOR_A)), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::CaughtUp { .. })), "{ev:?}");
+    assert_eq!(s.ai.agents[&FormId(R_DOG)].walker.space, B);
+    assert!(dist(s.feet(R_DOG), s.feet(R_TRAVEL)) <= 128.0 + 64.0 + 1.0, "{:?} {:?}", s.feet(R_DOG), s.feet(R_TRAVEL));
+    assert_eq!(s.ai.agents[&FormId(R_DOG)].activity, Activity::There);
+    assert_eq!(s.game.world.peek(FormId(R_DOG)).unwrap().cell, Some(FormId(CELL_B)));
+    // The traveller stands at its marker: so does the dog, and it does not start over.
+    let follows = ev.iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count();
+    s.run(20.0);
+    assert_eq!(s.events(R_DOG).iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count(), follows);
 }
 
 // ---- patrol waits, package furniture, sandboxes -------------------------------------------
