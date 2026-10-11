@@ -22,20 +22,21 @@
 //! - **Loudness** [design]: the sound's static attenuation, and by distance from the
 //!   receiver the radio template's (the station's `INAM`, else the receiver's) minimum and
 //!   maximum distance as `crate::sfx::distance_gain` uses them; without either template
-//!   150 and 1800 units (the AMLRadio template's). Not panned. A receiver is heard only
+//!   150 and 1800 units (the AMLRadio template's); panned as the sound effects are
+//!   (`crate::sfx::Panned`). A receiver is heard only
 //!   within that maximum distance.
 //! - The Esc pause menu and a loading screen hold the receivers and the programmes, as
 //!   for the placed loops (`crate::ambient`).
 //! - Log: `radio: <receiver> tuned to <station> playing <file>` when a receiver starts a
 //!   response; `radio summary: …` at the end.
 //! - Not built: the Pip-Boy radio, a station's broadcast range (it decides what a Pip-Boy
-//!   receives, radio.md §2), static, StartRadioConversation, SetNPCRadio, panning.
+//!   receives, radio.md §2), static, StartRadioConversation, SetNPCRadio.
 
 use crate::music::Space;
 use crate::pause::Paused;
 use crate::player::Player;
 use crate::script::{with_world, ScriptState};
-use crate::sfx::{distance_gain, static_gain, Sfx, SfxSettings};
+use crate::sfx::{distance_gain, static_gain, Panned, Sfx, SfxSettings, SoundAt};
 use crate::sim::SimState;
 use crate::voice::VoiceState;
 use crate::{Location, PlayState, PlayWorld};
@@ -348,7 +349,7 @@ fn play(
     (loc, state, paused): (Res<Location>, Res<State<PlayState>>, Res<Paused>),
     player: Option<Res<Player>>,
     data: Option<Res<nvf_assets::GameData>>,
-    mut assets: ResMut<Assets<RadioSound>>,
+    mut assets: ResMut<Assets<Panned<RadioSound>>>,
     sinks: Query<&AudioSink, With<RadioEntity>>,
 ) {
     let (Some(places), Some(sfx), Some(player), Some(data)) = (places, sfx, player, data) else { return };
@@ -506,7 +507,9 @@ fn play(
             continue;
         };
         level.store(gain.to_bits(), Ordering::Relaxed);
-        let entity = commands.spawn((AudioPlayer::<RadioSound>(assets.add(sound)), PlaybackSettings::DESPAWN, RadioEntity)).id();
+        // Panned where the receiver is (`crate::sfx`).
+        let at = SoundAt::new(r.position, Some(&player));
+        let entity = commands.spawn((AudioPlayer::<Panned<RadioSound>>(assets.add(Panned { inner: sound, pan: at.pan.clone() })), PlaybackSettings::DESPAWN, at, RadioEntity)).id();
         info!(
             "radio: {:08X} tuned to {} playing {path}{} (response {}, gain {gain:.3})",
             r.ref_id,
@@ -559,7 +562,7 @@ pub struct RadioPlugin;
 impl Plugin for RadioPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Radio>()
-            .add_audio_source::<RadioSound>()
+            .add_audio_source::<Panned<RadioSound>>()
             .add_systems(Startup, init)
             .add_systems(Update, play.after(crate::PlaySet::Scripts))
             .add_systems(Last, report);

@@ -30,9 +30,17 @@
 //! - **Scripts** (`fnv_game::sound`): `PlaySound` at the listener, `PlaySound3D` at the
 //!   calling reference. Without its SystemSound flag a `PlaySound` asked for in a menu
 //!   waits until the game is back [documented: GECK wiki PlaySound].
-//! - Not built: an activator's looping sound (`SNAM`), a container's random/looping one
-//!   (`RNAM`), the casings' PHY sounds, a knock between two loose objects told apart from
-//!   one on the ground (both play the moving body's sound).
+//! - **Objects' own sounds** [documented: xEdit ACTI `SNAM` Sound - Looping, CONT `RNAM`
+//!   Sound - Random/Looping, DOOR `BNAM` Sound - Looping]: every placed activator,
+//!   container and door whose base names one is a [`SoundSource`] where it stands, while
+//!   it is enabled; `crate::ambient` plays it as a sound marker of that sound (a Loop
+//!   sound goes round, a Play At Random one sounds now and then) [design: the records'
+//!   sounds carry either flag, audio.md §12].
+//! - **Load doors** [hypothesis]: activating a door that leads elsewhere plays its open
+//!   sound (DOOR `SNAM`), at the listener, as the player goes through.
+//! - Not built: a knock between two loose objects told apart from one on the ground
+//!   (both play the moving body's sound). The casings' sounds are nvforever's
+//!   (`shot_fx.rs`).
 //!
 //! A `world sounds summary` line at the end.
 
@@ -40,7 +48,7 @@ use crate::menu::model::Mode;
 use crate::menu::ActiveMenu;
 use crate::phys::PhysState;
 use crate::player::Player;
-use crate::sfx::{PlaySound, Sfx};
+use crate::sfx::{PlaySound, Sfx, SoundSource};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState, PlayWorld, RefChanged};
 use bevy::prelude::*;
@@ -160,6 +168,12 @@ pub struct SoundForms {
     pub containers: HashMap<FormId, (Option<FormId>, Option<FormId>)>,
     /// Activators without a radio station: their activation sound.
     pub activators: HashMap<FormId, FormId>,
+    /// Activators' (SNAM), containers' (RNAM) and doors' (BNAM) own sounds.
+    pub object_sounds: HashMap<FormId, FormId>,
+    /// … how many records of each kind name one.
+    pub object_sound_counts: [u32; 3],
+    /// Doors' open sounds (SNAM), for load doors.
+    pub door_open: HashMap<FormId, FormId>,
 }
 
 const ITEM_SIGS: [&[u8; 4]; 12] = [b"MISC", b"KEYM", b"WEAP", b"ARMO", b"AMMO", b"ALCH", b"BOOK", b"NOTE", b"IMOD", b"CHIP", b"CCRD", b"CMNY"];
@@ -200,9 +214,28 @@ impl SoundForms {
                 if open.is_some() || close.is_some() {
                     out.containers.insert(id, (open, close));
                 }
-            } else if sig == b"ACTI" && raw_fid(lo, pi, r, b"RNAM").is_none() {
+                if let Some(l) = raw_fid(lo, pi, r, b"RNAM") {
+                    out.object_sounds.insert(id, l);
+                    out.object_sound_counts[1] += 1;
+                }
+            } else if sig == b"ACTI" {
+                if let Some(l) = raw_fid(lo, pi, r, b"SNAM") {
+                    out.object_sounds.insert(id, l);
+                    out.object_sound_counts[0] += 1;
+                }
+                if raw_fid(lo, pi, r, b"RNAM").is_some() {
+                    continue;
+                }
                 if let Some(v) = raw_fid(lo, pi, r, b"VNAM") {
                     out.activators.insert(id, v);
+                }
+            } else if sig == b"DOOR" {
+                if let Some(l) = raw_fid(lo, pi, r, b"BNAM") {
+                    out.object_sounds.insert(id, l);
+                    out.object_sound_counts[2] += 1;
+                }
+                if let Some(o) = raw_fid(lo, pi, r, b"SNAM") {
+                    out.door_open.insert(id, o);
                 }
             }
         }
@@ -236,6 +269,11 @@ pub struct WorldSoundStats {
     pub container_opens: u32,
     pub container_closes: u32,
     pub activations: u32,
+    /// Load doors gone through with an open sound.
+    pub load_doors: u32,
+    /// Placed objects with a sound of their own, and those in reach (sent to the ambient).
+    pub object_sources: usize,
+    pub object_sources_sent: HashSet<u32>,
     pub script_2d: u32,
     pub script_3d: u32,
     /// Script sounds held while a menu was open.
@@ -265,6 +303,9 @@ pub struct WorldSounds {
     dropped: HashSet<u32>,
     container: Option<u32>,
     held: Vec<SoundRequest>,
+    /// Placed objects with a sound of their own, by the space they are in: (reference,
+    /// sound); found the first frame.
+    sources: Option<HashMap<crate::music::Space, Vec<(u32, FormId)>>>,
     pub stats: WorldSoundStats,
 }
 
@@ -297,10 +338,13 @@ fn init(mut commands: Commands, d: Res<PlayWorld>) {
     let t = std::time::Instant::now();
     let forms = SoundForms::build(d.lo);
     info!(
-        "world sounds: items (records, with a pick-up sound, with a drop sound): {}; {} containers with open or close sounds, {} activators with an activation sound, read in {:.0} ms",
+        "world sounds: items (records, with a pick-up sound, with a drop sound): {}; {} containers with open or close sounds, {} activators with an activation sound; sounds of their own: {} activators (SNAM), {} containers (RNAM), {} doors (BNAM); read in {:.0} ms",
         forms.counts.iter().map(|(s, c)| format!("{s} {} {} {}", c[0], c[1], c[2])).collect::<Vec<_>>().join(", "),
         forms.containers.len(),
         forms.activators.len(),
+        forms.object_sound_counts[0],
+        forms.object_sound_counts[1],
+        forms.object_sound_counts[2],
         t.elapsed().as_secs_f64() * 1000.0
     );
     commands.insert_resource(WorldSounds { forms, ..Default::default() });
@@ -544,6 +588,14 @@ fn objects(
     }
 
     for &Activated { reference } in activated.read() {
+        // A load door: its open sound as the player goes through [hypothesis].
+        let leads_away = sim.refs.get(FormId(reference)).is_some_and(|p| p.teleport.is_some());
+        if let Some(&sound) = sim.base_of(reference).and_then(|b| ws.forms.door_open.get(&b)).filter(|_| leads_away) {
+            ws.stats.load_doors += 1;
+            info!("world sounds: load door {reference:08X} used, sound {}", sound_name(sfx, Some(sound)));
+            out.write(PlaySound { sound, at: None });
+            continue;
+        }
         let Some(&sound) = sim.base_of(reference).and_then(|b| ws.forms.activators.get(&b)) else { continue };
         ws.stats.activations += 1;
         info!("world sounds: activator {reference:08X} used, sound {}", sound_name(sfx, Some(sound)));
@@ -581,12 +633,43 @@ fn objects(
     ws.held = held;
 }
 
+/// Placed objects' own sounds near the listener, sent to the ambient every frame (see
+/// the module notes).
+fn object_sources(mut ws: ResMut<WorldSounds>, sim: Res<SimState>, loc: Res<crate::Location>, player: Option<Res<Player>>, sfx: Option<Res<Sfx>>, mut out: MessageWriter<SoundSource>) {
+    let (Some(player), Some(sfx)) = (player, sfx) else { return };
+    let ws = &mut *ws;
+    if ws.sources.is_none() {
+        let mut by: HashMap<crate::music::Space, Vec<(u32, FormId)>> = HashMap::new();
+        for p in sim.refs.refs.values() {
+            let (Some(&sound), Some(cell)) = (ws.forms.object_sounds.get(&p.base), p.cell) else { continue };
+            let space = sim.refs.cell_world.get(&cell).map_or(crate::music::Space::Interior(cell.0), |w| crate::music::Space::World(w.0));
+            by.entry(space).or_default().push((p.id.0, sound));
+        }
+        ws.stats.object_sources = by.values().map(Vec::len).sum();
+        info!("world sounds: {} placed activators, containers and doors with a sound of their own", ws.stats.object_sources);
+        ws.sources = Some(by);
+    }
+    let eye = player.eye();
+    let space = crate::music::Space::of(&loc);
+    let Some(list) = ws.sources.as_ref().and_then(|s| s.get(&space)) else { return };
+    for &(id, sound) in list {
+        let Some(reach) = sfx.forms.sounds.get(&sound).map(|s| s.max_distance * 1.1) else { continue };
+        let Some(at) = ref_pos(&sim, id) else { continue };
+        let d2 = (at[0] - eye[0]).powi(2) + (at[1] - eye[1]).powi(2) + (at[2] - eye[2]).powi(2);
+        if d2 > reach * reach || !sim.world.is_enabled(FormId(id)).unwrap_or(false) {
+            continue;
+        }
+        ws.stats.object_sources_sent.insert(id);
+        out.write(SoundSource { key: SoundSource::key(1, id), sound, at });
+    }
+}
+
 fn report(mut exit: MessageReader<AppExit>, ws: Option<Res<WorldSounds>>) {
     let (Some(_), Some(ws)) = (exit.read().last(), ws) else { return };
     let s = &ws.stats;
     let impacts: Vec<String> = s.impacts.iter().map(|(m, n)| format!("{m} {n}")).collect();
     info!(
-        "world sounds summary: impacts by material: {} ({} on collision without a material); {} knocks ({} hard, {} of a material without a sound); {} pick-ups, {} drops; {} items taken from and {} put in containers; containers opened {} and closed {} times; {} activator sounds; {} message boxes opened, {} closed; scripts played {} sounds and {} placed",
+        "world sounds summary: impacts by material: {} ({} on collision without a material); {} knocks ({} hard, {} of a material without a sound); {} pick-ups, {} drops; {} items taken from and {} put in containers; containers opened {} and closed {} times; {} activator sounds; {} message boxes opened, {} closed; scripts played {} sounds and {} placed; {} load doors; {} objects' own sounds in reach",
         if impacts.is_empty() { "none".to_string() } else { impacts.join(", ") },
         s.impacts_no_material,
         s.knocks,
@@ -602,7 +685,9 @@ fn report(mut exit: MessageReader<AppExit>, ws: Option<Res<WorldSounds>>) {
         s.boxes_opened,
         s.boxes_closed,
         s.script_2d,
-        s.script_3d
+        s.script_3d,
+        s.load_doors,
+        s.object_sources_sent.len()
     );
 }
 
@@ -611,7 +696,7 @@ pub struct WorldSoundsPlugin;
 impl Plugin for WorldSoundsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init)
-            .add_systems(Update, (knocks, objects).in_set(PlaySet::Sync))
+            .add_systems(Update, (knocks, objects, object_sources).in_set(PlaySet::Sync))
             .add_systems(Last, report);
     }
 }
