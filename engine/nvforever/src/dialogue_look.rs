@@ -5,8 +5,9 @@
 //! `nvf_play::dialogue_look`, which this file tells where the face is
 //! ([`SpeakerFace`]).
 //!
-//! Only conversations (`Game::dialogue`). A line an actor just says (SayTo, Say) turns
-//! nobody [owner request 2026-10-10].
+//! Only conversations (`Game::dialogue`). A line an actor says to someone outside one
+//! (SayTo, a hello, a conversation between actors) is `speech_look.rs`'s
+//! (dialogue-play.md §9).
 //!
 //! - **Head.** The head bone is turned on top of the frame's animation (after
 //!   `locomotion::drive` has posed the skeleton), towards the player's eye, eased in over
@@ -359,7 +360,7 @@ fn head_rig(rig: &ActorRig, combat: Option<&Combat>) -> Result<HeadRig, String> 
 }
 
 /// The compass heading (degrees) a root's rotation faces.
-fn heading_deg(rotation: Quat) -> f32 {
+pub(crate) fn heading_deg(rotation: Quat) -> f32 {
     let f = rotation * Vec3::Y;
     f.x.atan2(f.y).to_degrees().rem_euclid(360.0)
 }

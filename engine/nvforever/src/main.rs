@@ -40,7 +40,9 @@ mod residents;
 mod ripples;
 mod settings;
 mod imagespace;
+mod imposters;
 mod sky;
+mod speech_look;
 mod terrain;
 mod tree;
 mod treelod;
@@ -715,6 +717,7 @@ fn main() -> AppExit {
     .insert_resource(lod::LodState::new(&world, lod_settings(&args), !args.no_lod && interior.is_none(), lodgen))
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
     .init_resource::<TerrainCache>()
+    .init_resource::<imposters::Imposters>()
     .insert_resource(Streamer {
         radius: args.radius,
         loaded: Default::default(),
@@ -746,7 +749,7 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
     .add_plugins(nvf_play::doors::DoorsPlugin)
@@ -795,6 +798,8 @@ fn main() -> AppExit {
             app.add_plugins(anim_sounds::AnimSoundsPlugin);
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
+            // Who says a line to someone turns to them (speech_look.rs).
+            app.add_plugins(speech_look::SpeechLookPlugin);
             // Who perceives whom (detection.rs): the drawn actors and the player.
             app.add_plugins(detection::DetectionPlugin);
         }

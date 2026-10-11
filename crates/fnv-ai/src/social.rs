@@ -45,11 +45,12 @@
 //! back to its package's place, a sandboxing actor going on from where it is
 //! (`Ai::back_to_package`, as after a push) [hypothesis].
 //!
-//! While two actors talk, and while an actor says hello, they turn to whom they talk to
-//! [hypothesis]; the engine keeps whoever waits or talks where it stands
+//! While two actors talk, and while an actor says hello or a SayTo line, they turn to
+//! whom they talk to (`Game::facings`, which says who turns; [hypothesis] for hellos and
+//! conversations); the engine keeps whoever waits or talks where it stands
 //! ([`Ai::holds_for_chat`]).
 
-use crate::carry::{Activity, Ai, AiEvent};
+use crate::carry::{Activity, Ai, AiEvent, Talking};
 use crate::goal::{self, dist};
 use crate::sandbox::Rng;
 use fnv_game::game::Game;
@@ -338,24 +339,20 @@ impl Ai {
         self.back_to_package(game, nav, actor, |package, away| AiEvent::ChatBack { package, away });
     }
 
-    /// Who says a hello, or a line of a conversation between actors, turns to its
-    /// listener, and the listener of a conversation to the speaker; who waits for a
-    /// partner turns to it as it comes. Not on furniture or on its way.
+    /// Who says a line to someone turns its body to the listener, and the listener of a
+    /// conversation between actors to the speaker (`Game::facings`: SayTo lines, hellos,
+    /// conversations; not a line whose script asked for no turning); who waits for a
+    /// partner turns to it as it comes. Not on furniture, on its way, or turning with its
+    /// Dialogue package already.
     fn face_listeners(&mut self, game: &mut Game, dt: f32) {
-        let mut pairs: Vec<(FormId, FormId)> = game
-            .speech
-            .iter()
-            .filter(|s| s.hello || s.conversation.is_some())
-            .filter_map(|s| s.target.map(|t| (s.speaker, t)))
-            .flat_map(|(a, b)| [(a, b), (b, a)])
-            .collect();
+        let mut pairs: Vec<(FormId, FormId)> = game.facings().into_iter().filter(|f| f.body).map(|f| (f.who, f.to)).collect();
         pairs.extend(self.agents.iter().filter_map(|(id, a)| match a.chat {
             Some(Chat::Waiting { starter }) => Some((*id, starter)),
             _ => None,
         }));
         for (who, to) in pairs {
             let Some(a) = self.agents.get(&who) else { continue };
-            if a.using.is_some() || a.activity == Activity::Travelling {
+            if a.using.is_some() || a.activity == Activity::Travelling || a.talk == Some(Talking::Speaking) {
                 continue;
             }
             if let Some(at) = goal::place_of_ref(game, to) {

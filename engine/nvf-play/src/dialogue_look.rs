@@ -5,8 +5,9 @@
 //! is ([`SpeakerFace`]).
 //!
 //! Only conversations (`Game::dialogue`: E on an actor, a script's StartConversation).
-//! A line an actor just says (SayTo, Say) sets no conversation and turns nobody [owner
-//! request 2026-10-10].
+//! A line an actor just says (SayTo, Say) sets no conversation and does not turn the
+//! view [owner request 2026-10-10]; one said to someone turns the speaker (the engine's
+//! `speech_look.rs`, dialogue-play.md §9).
 //!
 //! - **Opening.** When a conversation starts the view eases onto the actor's face over
 //!   [`OPEN_SECONDS`] ([`smooth`], no snap).
