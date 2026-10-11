@@ -20,7 +20,8 @@
 //! between the hand and the holster bone at the clips' `Attach`/`Detach` keys. Attacks
 //! and reloads (combat step C4, `nvf_play::combat`): the body tells combat when the weapon
 //! is out and how long the attack and reload clips run (`WeaponAnim`), and plays the clip
-//! once each time combat counts an attack or a reload up.
+//! once each time combat counts an attack or a reload up (a round-by-round reload: the
+//! opening clip, then the reload clip again for each round).
 //!
 //! The weapon model keeps its node tree under the `Weapon` node, and the clips move its
 //! parts by name as they move bones: the slide, hammer and trigger of a pistol in its
@@ -71,7 +72,7 @@ use bevy::prelude::*;
 use fnv_actor::first_person::{self, is_first_person_shape, shape_shows, Show};
 use fnv_actor::player_clips::{
     aim_clips, aim_variant, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
-    move_clips, reload_clips, turn_clips, Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
+    move_clips, reload_clips, reload_open_clips, turn_clips, Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
 };
 use fnv_actor::weapon::AnimType;
 use fnv_actor::Appearance;
@@ -222,6 +223,8 @@ enum ClipKey {
     Attack(Stance, &'static str, &'static str, bool),
     /// Weapon prefix, WEAP reload animation (`ReloadL`).
     Reload(Stance, &'static str, &'static str),
+    /// The opening clip of a round-by-round reload (`ReloadX` → `1hpreloadxstart.kf`).
+    ReloadOpen(Stance, &'static str, &'static str),
 }
 
 impl ClipKey {
@@ -237,6 +240,7 @@ impl ClipKey {
             ClipKey::Turn(s, w, left) => turn_clips(s, w, left),
             ClipKey::Attack(s, p, a, sights) => attack_clips(s, p, a, sights),
             ClipKey::Reload(s, p, r) => reload_clips(s, p, r),
+            ClipKey::ReloadOpen(s, p, r) => reload_open_clips(s, p, r),
         }
     }
 }
@@ -470,9 +474,10 @@ struct Motion {
     seat_facing: Option<f32>,
     /// Lying on a bed in first person: where the view looks in the body's own frame.
     lying: Option<LyingView>,
-    /// The attack, reload and spin-up counts last acted on (`WeaponAnim`).
+    /// The attack, reload, reload round and spin-up counts last acted on (`WeaponAnim`).
     attacks_seen: u32,
     reloads_seen: u32,
+    reload_rounds_seen: u32,
     spin_ups_seen: u32,
     /// Interned clip names (attack stems, reload names) for the clip keys.
     names: HashMap<String, &'static str>,
@@ -508,6 +513,7 @@ impl Default for Motion {
             lying: None,
             attacks_seen: 0,
             reloads_seen: 0,
+            reload_rounds_seen: 0,
             spin_ups_seen: 0,
             names: HashMap::new(),
         }
@@ -887,6 +893,8 @@ struct Frame {
     reload: Option<&'static str>,
     attack_now: bool,
     reload_now: bool,
+    /// A round-by-round reload starts on a round: the reload clip plays from its start.
+    reload_round_now: bool,
     /// The weapon starts to spin up this frame: its attack clip plays from the start.
     spin_now: bool,
 }
@@ -1044,9 +1052,19 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             }
         }
     }
-    if f.hands.in_hand && f.reload_now {
-        if let Some(c) = f.reload.and_then(|r| rig.clip(ctx, ClipKey::Reload(f.stance, f.prefix, r))) {
-            rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, c.fade());
+    // A reload: its clip, or the opening clip of one that loads round by round; then the
+    // reload clip from its start for each round, running on past its `Hit` key to close
+    // the weapon after the last (`fnv_combat::attack`).
+    if f.hands.in_hand && (f.reload_now || f.reload_round_now) {
+        let open = f.reload_now && !f.reload_round_now;
+        let key = |r| if open { ClipKey::ReloadOpen(f.stance, f.prefix, r) } else { ClipKey::Reload(f.stance, f.prefix, r) };
+        let found = f.reload.and_then(|r| rig.clip(ctx, key(r)).or_else(|| rig.clip(ctx, ClipKey::Reload(f.stance, f.prefix, r))));
+        if let Some(c) = found {
+            // A round follows straight on from the opening clip or the last round: no
+            // fade back through the held pose [hypothesis: the clips are made to chain,
+            // the opening's end and the round's `Hit` close to its start pose].
+            let fade = if f.reload_round_now { 0.0 } else { c.fade() };
+            rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, fade);
             debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
         }
     }
@@ -1461,16 +1479,20 @@ fn drive_body(
     let reload = anim.reload.clone().map(|r| m.intern(r));
     let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, control.aiming));
     let reload_clip = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, r)));
+    let reload_open = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::ReloadOpen(stance, prefix, r)));
     anim.timing = nvf_play::combat::clip_timing(
         attack_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit, c.keys.hit.zip(c.keys.loop_end).is_some_and(|(fire, back)| fire < back))),
-        reload_clip.as_ref().map(|c| c.clip.length()),
+        reload_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit)),
+        reload_open.as_ref().map(|c| c.clip.length()),
     );
     anim.ready = m.hands.phase == WeaponPhase::Drawn && m.hands.in_hand;
     let attack_now = anim.attacks != m.attacks_seen;
     let reload_now = anim.reloads != m.reloads_seen;
+    let reload_round_now = anim.reload_rounds != m.reload_rounds_seen;
     let spin_now = anim.spin_ups != m.spin_ups_seen;
     m.attacks_seen = anim.attacks;
     m.reloads_seen = anim.reloads;
+    m.reload_rounds_seen = anim.reload_rounds;
     m.spin_ups_seen = anim.spin_ups;
 
     let frame = Frame {
@@ -1493,6 +1515,7 @@ fn drive_body(
         reload,
         attack_now,
         reload_now,
+        reload_round_now,
         spin_now,
     };
     let root = Transform { translation: Vec3::from_array(feet), rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };

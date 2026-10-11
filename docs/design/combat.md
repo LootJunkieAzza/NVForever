@@ -529,6 +529,10 @@ engine:
   decision 2026-10-10; combat-rules.md §4].
 - Ammo comes from the inventory (`fnv-sim`); a magazine holds the clip size. Reloading
   takes the reload clip's length; a reload cancelled partway keeps the old magazine.
+  A weapon whose reload animation has an opening clip (the .357, the lever-actions,
+  the hunting shotgun) opens, loads one round per pass of the reload clip up to `Hit`
+  and closes; a trigger pull stops it after the round in hand, closes and fires [owner
+  decisions 2026-10-11; combat-rules.md §4].
 - The loaded ammo is the first of the weapon's acceptable ammo list the actor carries
   (combat-data.md §2). Ammo Swap (hotkey 2) steps down the list to the next carried
   type. Jamming comes later.
