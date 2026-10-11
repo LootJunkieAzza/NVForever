@@ -932,11 +932,28 @@ fn a_goodbye_greeting_is_said_at_the_player_without_a_conversation() {
     assert_eq!(g.start_dialogue(actor(), None), Ok(FormId(A_BARK)));
     assert_eq!(g.speech.len(), 1);
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: true, .. } if info == FormId(A_BARK))));
-    // StartConversation without a topic is the same greeting.
+    // StartConversation without a topic is the same greeting, but the actor starts it:
+    // a force greet holds the player in a conversation until the line is over, and the
+    // Goodbye flag ends it then (`Game::force_greet`).
     let mut h = game(&f);
     set_global(&mut h, G_GATE, 7.0);
     call(&mut h, 0x1056, NPC1_REF, &[ArgValue::Value(Value::Ref(FormId::PLAYER_REF.0))]);
-    assert!(h.dialogue.is_none() && h.speech.len() == 1);
+    assert!(h.dialogue.as_ref().is_some_and(|c| c.line.as_ref().is_some_and(|l| l.info == FormId(A_BARK))) && h.speech.is_empty());
+    assert!(h.in_menu() && h.menu_open(1009));
+    for _ in 0..20_000 {
+        if h.dialogue.is_none() {
+            break;
+        }
+        h.tick();
+    }
+    assert!(h.dialogue.is_none());
+    assert!(h.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", lines: 1, .. })));
+    assert_eq!(out(&h), 4.0);
+    // So does a force greet by a Dialogue package (`fnv_ai`).
+    let mut m = game(&f);
+    set_global(&mut m, G_GATE, 7.0);
+    assert_eq!(m.force_greet(actor(), None), Ok(FormId(A_BARK)));
+    assert!(m.dialogue.is_some() && m.speech.is_empty());
     // A greeting without the flag is a conversation as before.
     let mut k = game(&f);
     k.start_dialogue(actor(), None).unwrap();

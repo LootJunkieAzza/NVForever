@@ -9,9 +9,12 @@
 //!   its greeting (`script::Runtime::talk_after`); so does a script's `Activate player`
 //!   on an actor, and scripts start conversations themselves with StartConversation. An
 //!   actor with nothing to say starts none (the line "… has nothing to say" and a log
-//!   line). Nor does an actor whose greeting has the Goodbye flag: it says the line at
-//!   the player (a subtitle and its voice, like a SayTo line) and the player is never
-//!   held [owner statement 2026-10-10; the runtime's rule, `Game::start_dialogue`].
+//!   line). Nor does an actor whose greeting has the Goodbye flag when the player talks
+//!   to it: it says the line at the player (a subtitle and its voice, like a SayTo line)
+//!   and the player is not held [owner statement 2026-10-10; the runtime's rule,
+//!   `Game::start_dialogue`]. When the actor force-greets (StartConversation, a Dialogue
+//!   package) it is a conversation of that one line, which holds the player until it is
+//!   said [owner statement 2026-10-11; `Game::force_greet`].
 //! - **State and pausing** (docs/design/dialogue.md, Pausing). While a conversation runs
 //!   the game is in [`PlayState::Dialogue`]. Game logic stands still as in the container
 //!   and inventory menus and under a script's message box: the player cannot move or

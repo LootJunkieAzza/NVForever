@@ -1,8 +1,8 @@
 //! Dialogue packages carried out (`fnv_ai`, docs/design/actor-behaviour.md §5.6) on a
 //! plugin and a navmesh built in memory (no game data): one room, a greeting, a trigger
 //! box, and actors with one Dialogue package each. The rules are the GECK wiki's
-//! (Dialogue Package, "Behavior"). The greeting opens a conversation; with the Goodbye
-//! flag (`fixture_with`) it is said at the player without one.
+//! (Dialogue Package, "Behavior"). The greeting opens a conversation, also with the
+//! Goodbye flag (`fixture_with`): the package's force greet holds the player.
 
 use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Talking};
 use fnv_esm::raw::{write_subrecords, Subrecord};
@@ -411,36 +411,35 @@ fn a_player_within_the_activate_distance_is_greeted_on_the_spot() {
     assert!((s.game.world.peek(FormId(R_GREET)).unwrap().rot[2] - heading).abs() < 1e-4);
 }
 
-/// A greeting with the Goodbye flag is said at the player and opens no conversation
-/// (`Game::start_dialogue`; docs/spec-notes/dialogue.md §5): the actor talks, and turns
-/// to the player, for as long as the line lasts, and its package is done when the line
-/// is.
+/// A greeting with the Goodbye flag, started by the actor's Dialogue package, is a force
+/// greet: it opens a conversation that holds the player until the line is over, and the
+/// Goodbye flag ends it then (`Game::force_greet`; docs/spec-notes/dialogue.md §5). The
+/// actor turns to the player meanwhile and its package is done when the conversation is.
 #[test]
-fn a_goodbye_greeting_is_said_at_the_player_and_the_package_lasts_as_long_as_the_line() {
+fn a_goodbye_greeting_of_a_dialogue_package_holds_the_player_until_it_is_said() {
     let f = fixture_with(GOODBYE);
     let mut s = sim(&f, R_GREET, [750.0, 1050.0, 0.0]);
     s.run(1.0);
     let ev = s.events();
-    assert!(matches!(ev[1], AiEvent::Talk { package, line, say_to: false, greeting: true, .. } if package.0 == P_GREET && line.0 == I_HELLO), "{ev:?}");
+    assert!(matches!(ev[1], AiEvent::Talk { package, line, say_to: false, greeting: false, .. } if package.0 == P_GREET && line.0 == I_HELLO), "{ev:?}");
     assert_eq!(ev.len(), 2, "{ev:?}");
-    // No conversation and no menu: the game goes on while the line is said.
-    assert!(s.game.dialogue.is_none());
-    assert!(!s.game.in_menu());
-    assert!(s.game.is_talking(FormId(R_GREET)));
+    // A conversation: menu mode, the line being said in it, nothing said outside it.
+    assert_eq!(s.game.dialogue.as_ref().map(|c| c.actor), Some(FormId(R_GREET)));
+    assert!(s.game.in_menu());
+    assert!(s.game.speech.is_empty());
     assert_eq!(s.agent(R_GREET).talk, Some(Talking::Speaking));
     assert!(!s.game.extra[&FormId(R_GREET)].package_goal_met);
-    assert_eq!(s.game.package_held(FormId(R_GREET)), Some("must complete"));
     // It has turned to the player (heading 45 degrees) where it stood.
     assert_eq!(s.agent(R_GREET).walker.feet, GREETER);
     let heading = s.agent(R_GREET).walker.heading;
     assert!((heading - std::f32::consts::FRAC_PI_4).abs() < 0.1, "{heading}");
-    // The line is over (12 characters: under two seconds): so is the package, once.
+    // The line is over (12 characters: under two seconds): the Goodbye flag ends the
+    // conversation, and the package is done, once.
     s.run(2.0);
-    assert!(!s.game.is_talking(FormId(R_GREET)));
+    assert!(s.game.dialogue.is_none());
     assert!(matches!(s.events()[2], AiEvent::TalkOver { package } if package.0 == P_GREET), "{:?}", s.events()[2]);
     assert_eq!(s.agent(R_GREET).talk, Some(Talking::Done));
     assert!(s.game.extra[&FormId(R_GREET)].package_goal_met);
-    assert_eq!(s.game.package_held(FormId(R_GREET)), None);
     assert!(s.game.extra[&FormId(R_GREET)].talked_to_pc);
     s.run(30.0);
     assert_eq!(s.talks(), 1);

@@ -386,7 +386,7 @@ wait location, the trigger location, the topic, Say To or conversation) and
 | `ToWait` | walks to location 1, if the package has one and the actor is not there | [documented] |
 | `Waiting` | stands. Without a trigger location it sets off at once (case 3). With one, it sets off when the target is in it (case 1). With one and a wait radius of 0 it talks as soon as the target is within the activate distance (case 2), and also sets off when the target is in the trigger location | [documented: cases 1 to 3; **hypothesis**: setting off in case 2] |
 | `Approaching` | walks (runs with Always Run) to where the target is, through doors if need be; the way is planned again when the target has moved 64 units, at most twice a second | [documented: "begin moving towards the target"; the numbers are ours] |
-| (start) | within the activate distance it stops: a conversation with the player starts (`Game::start_dialogue`, the package's topic or GREETING), or the Say To line is said (`Game::say`). A GREETING line with the Goodbye flag is said at the player and opens no conversation | [documented]; the Goodbye greeting: [owner statement 2026-10-10, docs/spec-notes/dialogue.md §5] |
+| (start) | within the activate distance it stops: a conversation with the player starts (`Game::force_greet`, the package's topic or GREETING), or the Say To line is said (`Game::say`). A GREETING line with the Goodbye flag opens a conversation too: the force greet holds the player until the line is over (since 2026-10-11; before, it was said without one) | [documented]; the Goodbye greeting: [owner statement 2026-10-11, docs/spec-notes/dialogue.md §5] |
 | `Speaking` | for as long as the conversation lasts, or the greeting said without one: turns to the target at the standing turn rate (120° a second), unless "No Headtracking" | [documented: they are "forced to look at each other"; observed: Sunny turned from 90° to 178° towards the player; the rate is ours; **hypothesis**: a greeting said without a conversation holds the package for the length of the line] |
 | `Done` | the conversation is over, or the greeting is said: the package's goal is met (`package_goal_met`), so a Must Complete package can be replaced and the end script runs. The actor does not start over while it keeps the package | [documented: Must Complete; ours: no starting over] |
 
@@ -411,7 +411,11 @@ wait location, the trigger location, the topic, Say To or conversation) and
   [our choice; otherwise the actor would try every frame].
 - **A held game** (a menu, another conversation): the start waits; nobody walks.
 - **A greeting with the Goodbye flag** (3,023 of GREETING's 5,579 lines,
-  docs/spec-notes/dialogue.md §5): `Game::start_dialogue` says it at the player as a
+  docs/spec-notes/dialogue.md §5). **Since 2026-10-11 a Dialogue package's force greet
+  (`Game::force_greet`) opens a conversation with it like with any other line** [owner
+  statement 2026-10-11, Sunny Smiles's gecko line]; what follows describes the way it
+  was said before, which is now only the player's own activation's:
+  `Game::start_dialogue` says it at the player as a
   `Speech` and leaves `Game::dialogue` empty, so the game is not held and `Ai::update`
   goes on. The actor is `Speaking` while `Game::speech` holds its greeting and `Done`
   when the line is over; `AiEvent::Talk` carries `greeting: true`. Until 2026-10-10

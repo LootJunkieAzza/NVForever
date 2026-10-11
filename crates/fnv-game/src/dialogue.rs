@@ -327,7 +327,9 @@ impl<'a> Game<'a> {
     /// cuts the line and starts the greeting afresh [hypothesis, as for a second
     /// SayTo]. A Goodbye line of a topic named by StartConversation still opens a
     /// conversation that ends with it [hypothesis: the statement is about GREETING;
-    /// capture question, dialogue.md §7].
+    /// capture question, dialogue.md §7]. That rule is for the player talking to the
+    /// actor: when the actor starts it ([`Game::force_greet`]) a Goodbye greeting is a
+    /// conversation too.
     ///
     /// An actor with no line to say cannot be talked to: nothing starts
     /// [hypothesis]. Neither does a dead, disabled or deleted actor [documented for
@@ -344,6 +346,25 @@ impl<'a> Game<'a> {
     /// GameMode scripts, as any menu does. [`Game::menu`] stays as it is: the
     /// conversation is the menu ([`Game::in_menu`], dialogue.md §6).
     pub fn start_dialogue(&mut self, actor: FormId, topic: Option<FormId>) -> Result<FormId, String> {
+        self.open_dialogue(actor, topic, false)
+    }
+
+    /// The actor starts the conversation with the player: a force greet, by
+    /// StartConversation or by its Dialogue package (not Say To). As
+    /// [`Game::start_dialogue`], except that **a greeting with the Goodbye flag opens a
+    /// conversation too**: the player is held, as in any conversation, until the line is
+    /// over, and the Goodbye flag then ends it [owner statement 2026-10-11, of Sunny
+    /// Smiles's "Hear that up on the ridge…" (INFO 0010A1ED, a Goodbye greeting said by
+    /// her Dialogue package VCG02SunnySmilesDialogueSneakStart): it "needs to lock the
+    /// player into dialogue even though there are no responses from the player";
+    /// documented: StartConversation's allowMovement, "Enter 1 to enable movement
+    /// during conversation", so by default the player does not move; hypothesis: the
+    /// same for a Dialogue package; docs/spec-notes/dialogue.md §5].
+    pub fn force_greet(&mut self, actor: FormId, topic: Option<FormId>) -> Result<FormId, String> {
+        self.open_dialogue(actor, topic, true)
+    }
+
+    fn open_dialogue(&mut self, actor: FormId, topic: Option<FormId>, forced: bool) -> Result<FormId, String> {
         let data = self.data;
         if let Some(c) = &self.dialogue {
             return Err(format!("a conversation with {} is running", data.name(c.actor)));
@@ -357,7 +378,7 @@ impl<'a> Game<'a> {
             self.emit(EventKind::NoLine { speaker: actor, topic });
             return Err(format!("{} has no line of {} to say", data.name(actor), data.name(topic)));
         };
-        if Some(topic) == data.greeting && data.infos.get(&info).is_some_and(|d| d.goodbye) {
+        if !forced && Some(topic) == data.greeting && data.infos.get(&info).is_some_and(|d| d.goodbye) {
             self.extra.entry(actor).or_default().talked_to_pc = true;
             self.say_line(actor, listener, topic, info, LineKind::Greeting);
             return Ok(info);

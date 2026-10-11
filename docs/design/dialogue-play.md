@@ -24,9 +24,13 @@ original unless it carries a tag.
    (docs/design/actor-behaviour.md §5.6).
    An actor with nothing to say starts nothing: the line "… has nothing to say" shows as
    before and the log says why (`dialogue: no conversation: …`).
-   **An actor whose greeting has the Goodbye flag starts no conversation either**: it
-   says the line at the player and the player stays free to move, look and act
-   [owner statement 2026-10-10; the runtime's rule, dialogue.md §5]. The line is heard
+   **An actor whose greeting has the Goodbye flag starts no conversation either** when
+   the player talks to it: it says the line at the player and the player stays free to
+   move, look and act [owner statement 2026-10-10; the runtime's rule, dialogue.md §5].
+   **When the actor force-greets** (StartConversation, its Dialogue package) such a
+   greeting is a conversation of one line: the screen opens and holds the player until
+   the line is over (`Game::force_greet`) [owner statement 2026-10-11, Sunny Smiles's
+   gecko line]. The line is heard
    and shown as a SayTo line is (the subtitle of `script_hud.rs`, the voice of
    `voice.rs`); the state stays `Playing`, nothing pauses and the view is not turned
    (§8 is for conversations). Log: `dialogue: <actor> says its greeting <line> at the

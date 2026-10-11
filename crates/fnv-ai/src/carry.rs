@@ -5,9 +5,9 @@
 //!
 //! A Dialogue package ([`goal::Talk`]) is carried out here too: the actor waits where
 //! the package has it wait, goes up to its target when the target is where the package
-//! says, and starts the conversation with the player (`Game::start_dialogue`: the force
-//! greet; a greeting with the Goodbye flag is said at the player without one) or says
-//! its line (`Game::say`); docs/design/actor-behaviour.md §5.6.
+//! says, and starts the conversation with the player (`Game::force_greet`: a greeting
+//! with the Goodbye flag is a conversation too) or says its line (`Game::say`);
+//! docs/design/actor-behaviour.md §5.6.
 //!
 //! Movement here is `fnv_nav::Walker` (on the navmesh surface, no physics): the engine
 //! moves actors near the player with collision instead and uses this for the rest.
@@ -594,7 +594,9 @@ impl Ai {
         if game.in_menu() || game.loading {
             return;
         }
-        match game.start_dialogue(actor, talk.topic) {
+        // The force greet: a conversation also for a greeting with the Goodbye flag
+        // (`Game::force_greet`).
+        match game.force_greet(actor, talk.topic) {
             Ok(line) => {
                 self.agents.get_mut(&actor).expect("listed").talk = Some(Talking::Speaking);
                 let greeting = greets(game, actor);
