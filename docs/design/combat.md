@@ -506,8 +506,13 @@ hit wears, and a weapon at zero is broken: docs/spec-notes/combat-rules.md §17.
   capsule along the swing within the reach (`fCombatDistance` × scale × the weapon's
   Reach; a creature's natural attack uses its attack reach). Each target is hit once
   per swing.
-- Power attack: holding Use charges a stronger, slower swing. Block (right mouse, already
-  bound) reduces incoming melee damage and staggers an attacker who hits it.
+- Power attack: holding Use starts a power attack whose clip follows the direction
+  moved (standing, forward, back, left, right) and whose damage is that direction's
+  `fDamagePowerAttack…Bonus`. Block (right mouse, already bound) reduces incoming melee
+  damage and staggers an attacker who hits it.
+- Combos: a press during a swing starts the next at the clip's `a:` key, playing the
+  attack group the key names (right, left, right…); built 2026-10-11 in
+  `fnv_combat::melee` (combat-rules.md §10).
 - Unarmed uses the same path, with fists and the UnarmedDamage actor value; a
   creature's natural attack uses its attack damage. The `A` key's interrupt time is
   when the next swing of a combo may start.
@@ -680,7 +685,7 @@ Each step is a branch and a PR, reviewed before the next starts.
 | C7 | Explosions, thrown weapons, mines, destructible objects (DEST stages) | C5 |
 | C8 | Limb hits (§5.9): a hit volume per body part, part multipliers, limb condition and crippling, their effects on spread, movement and the HUD | C5; skeleton bones posed per frame |
 | later | perk entry points (the combat ones listed in §4.2); fatigue and knockdown (fatigue ammo effects included, which do nothing in the original); weapon mods; ammo swap and jamming; impact effects (IPDS → IPCT by collision material: decals, effect models); severed and exploded limbs; ragdolls; audio; VATS or a replacement | |
-| Layer 6 AI | NPCs fight back: combat AI using the same attack cycle, detection, factions and hostility, combat styles (CSTY) | C5; actor-behaviour.md |
+| Layer 6 AI | NPCs fight back: combat AI using the same attack cycle, detection, factions and hostility, combat styles (CSTY). Detection states: docs/design/alert.md; CA1 (actors in Combat shoot and strike, the player can die): docs/design/combat-ai.md, 2026-10-11 | C5; actor-behaviour.md |
 
 ## 9. Owner questions
 

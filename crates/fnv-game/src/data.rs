@@ -95,8 +95,9 @@ pub struct InfoDef {
     /// TCLT, in record order: the topics offered after this line ("Choices" in the
     /// editor; xEdit calls the list "Link To") [documented: xEdit INFO; Category:Dialogue].
     pub choices: Vec<FormId>,
-    /// TCLF, in record order ("Link From") [documented: xEdit INFO]. Read, not used
-    /// (dialogue.md §5).
+    /// TCLF, in record order ("Link From") [documented: xEdit INFO]: the topics after
+    /// whose lines this line's topic is offered to the player ([`GameData::linked_from`],
+    /// dialogue.md §3.5); a HELLO line with one cannot start a conversation.
     pub link_from: Vec<FormId>,
     /// TCFU, in record order: follow-up lines (INFO) [documented: xEdit INFO "Follow Up"].
     pub follow_ups: Vec<FormId>,
@@ -219,8 +220,9 @@ pub struct TopicDef {
     pub quests: Vec<FormId>,
     /// QSTR ("Removed Quests"); none in the masters.
     pub removed_quests: Vec<FormId>,
-    /// INFC / INFX pairs ("Shared Infos") with the QSTI they follow. What the game does
-    /// with them is not documented; they are kept raw and not used (dialogue.md §1.2).
+    /// INFC / INFX pairs ("Shared Infos") with the QSTI they follow: lines stored under
+    /// another topic that count as lines of this one ([`GameData::lines_tried`],
+    /// dialogue.md §1.2).
     pub shared_infos: Vec<SharedInfo>,
     /// TDUM "Dumb Response" [documented: xEdit DIAL]; not used.
     pub dumb_response: Option<String>,
@@ -387,6 +389,10 @@ pub struct ActorDef {
     /// Creatures].
     pub combat_skill: Option<u8>,
     pub stealth_skill: Option<u8>,
+    /// CREA DATA Damage, the creature's own attack damage, and RNAM Attack Reach
+    /// [documented: xEdit field names].
+    pub attack_damage: Option<i64>,
+    pub attack_reach: Option<u8>,
     /// ACBS Fatigue, Speed Multiplier (percent) and Karma [documented: xEdit].
     pub fatigue: i64,
     pub speed_mult: i64,
@@ -521,6 +527,15 @@ pub struct GameData {
     /// plugin adds follow the earlier plugins' [hypothesis: the masters' INFOs carry no
     /// PNAM ordering, so file order stands for the editor's list order].
     pub topics: HashMap<FormId, Vec<FormId>>,
+    /// The topics with shared lines (INFC / INFX, [`TopicDef::shared_infos`]): their own
+    /// lines with the shared ones put in at their Info Index, the order
+    /// [`GameData::lines_tried`] starts from (dialogue.md §1.2).
+    pub shared_lines: HashMap<FormId, Vec<FormId>>,
+    /// Link From turned round, for player dialogue: for a topic X, the topics of type
+    /// Topic with a player line (type Topic) whose Link From names X, in topic record
+    /// order ([`TopicDef::order`]). They are offered after a line of X as its choices are
+    /// (`Game::build_choices`, dialogue.md §3.5).
+    pub linked_from: HashMap<FormId, Vec<FormId>>,
     /// Every topic (DIAL) from its winning record.
     pub topic_defs: HashMap<FormId, TopicDef>,
     /// The top-level topics of type Topic, in the order they are offered: priority,
@@ -587,6 +602,11 @@ pub struct GameData {
     /// TACT: the record-header flags of every talking activator (radio stations: the
     /// Continuous Broadcast bit, `crate::radio`; docs/spec-notes/radio.md §2).
     pub station_flags: HashMap<FormId, u32>,
+    /// PERK: perks and traits ([`PerkDef`]).
+    pub perks: HashMap<FormId, PerkDef>,
+    /// AVIF: the name, short name, description and icon of each actor value
+    /// ([`GameData::actor_value_info`]).
+    pub actor_value_infos: HashMap<FormId, ActorValueInfo>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
 }
@@ -622,6 +642,51 @@ impl IdleDef {
     pub fn has_file(&self) -> bool {
         self.model.as_deref().is_some_and(|m| m.to_ascii_lowercase().ends_with(".kf"))
     }
+}
+
+/// A perk or trait (PERK) as the character menus need it.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize)]
+pub struct PerkDef {
+    /// FULL, DESC, ICON (under the textures folder).
+    pub name: String,
+    pub description: String,
+    pub icon: Option<String>,
+    /// DATA [documented: xEdit wbDefinitionsFNV.pas PERK DATA: Trait, Min Level, Ranks,
+    /// Playable, Hidden, one byte each; observed: five bytes on every perk of the
+    /// masters, `01 01 01 01 00` on each of the sixteen traits, docs/spec-notes/chargen.md
+    /// §2].
+    pub is_trait: bool,
+    pub min_level: u8,
+    pub ranks: u8,
+    pub playable: bool,
+    pub hidden: bool,
+    /// The perk's requirements: the CTDA before its first effect; `None` when one of
+    /// them could not be read.
+    #[serde(skip)]
+    pub conditions: Option<Vec<Condition>>,
+}
+
+impl PerkDef {
+    /// The fields of the raw DATA (see the field notes); a missing byte reads 0.
+    pub fn from_data(data: Option<&[u8]>) -> PerkDef {
+        let byte = |i: usize| data.and_then(|d| d.get(i)).copied().unwrap_or(0);
+        PerkDef { is_trait: byte(0) != 0, min_level: byte(1), ranks: byte(2), playable: byte(3) != 0, hidden: byte(4) != 0, ..Default::default() }
+    }
+}
+
+/// An actor value's AVIF record: its FULL name, ANAM short name ("PER") [documented:
+/// xEdit wbDefinitionsFNV.pas AVIF "Short Name"], DESC and ICON.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize)]
+pub struct ActorValueInfo {
+    pub name: String,
+    pub short_name: String,
+    pub description: String,
+    pub icon: Option<String>,
+}
+
+/// A NUL-terminated string as stored.
+fn zstring(b: &[u8]) -> String {
+    String::from_utf8_lossy(b.split(|c| *c == 0).next().unwrap_or_default()).trim().to_string()
 }
 
 /// The timing of an image space modifier (IMAD DNAM) [documented: xEdit
@@ -681,6 +746,8 @@ struct Read {
     idle_marker: Option<crate::package::IdleCollection>,
     idle: Option<IdleDef>,
     image_modifier: Option<ImageModifierDef>,
+    perk: Option<PerkDef>,
+    av_info: Option<ActorValueInfo>,
     units: Vec<ScriptUnit>,
     issues: Issues,
     read_issues: ReadIssues,
@@ -714,6 +781,8 @@ impl GameData {
             quests: BTreeMap::new(),
             infos: HashMap::new(),
             topics: HashMap::new(),
+            shared_lines: HashMap::new(),
+            linked_from: HashMap::new(),
             topic_defs: HashMap::new(),
             top_level: Vec::new(),
             greeting: None,
@@ -747,6 +816,8 @@ impl GameData {
             idles: HashMap::new(),
             image_modifiers: HashMap::new(),
             station_flags: winners.iter().filter(|w| &w.2.header.sig == b"TACT").map(|w| (FormId(w.0), w.2.header.flags)).collect(),
+            perks: HashMap::new(),
+            actor_value_infos: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
         };
@@ -902,6 +973,12 @@ impl GameData {
             if let Some(v) = r.image_modifier {
                 d.image_modifiers.insert(id, v);
             }
+            if let Some(v) = r.perk {
+                d.perks.insert(id, v);
+            }
+            if let Some(v) = r.av_info {
+                d.actor_value_infos.insert(id, v);
+            }
         }
         let (lines, order) = topic_lines(lo);
         d.topics = lines;
@@ -915,6 +992,8 @@ impl GameData {
         for (id, t) in d.topic_defs.iter_mut() {
             t.order = order.get(id).copied().unwrap_or((usize::MAX, 0));
         }
+        d.shared_lines = shared_lines(&d.topics, &d.topic_defs, &d.infos);
+        d.linked_from = linked_from(&d.topic_defs, &d.infos);
         let mut top: Vec<&TopicDef> = d.topic_defs.values().filter(|t| t.top_level() && t.topic_type == topic_type::TOPIC).collect();
         top.sort_by(|a, b| b.priority.total_cmp(&a.priority).then(a.order.cmp(&b.order)));
         d.top_level = top.into_iter().map(|t| t.form).collect();
@@ -944,6 +1023,22 @@ impl GameData {
 
     pub fn by_edid(&self, edid: &str) -> Option<FormId> {
         self.edids.get(&edid.to_ascii_lowercase()).copied()
+    }
+
+    /// The AVIF record of a S.P.E.C.I.A.L. or skill code. The masters' AVIF FormIDs run
+    /// in code order: 0x3E8–0x3EE for Strength to Luck, 0x4B0–0x4BD for Barter to
+    /// Unarmed [observed: each record's name is its code's, Guns under the Editor ID
+    /// AVSmallGuns and Survival under AVThrowing, docs/spec-notes/chargen.md §2].
+    pub fn actor_value_info(&self, code: u16) -> Option<&ActorValueInfo> {
+        use crate::actor_values::{BARTER, SKILLS, SPECIALS, STRENGTH};
+        let id = if SPECIALS.contains(&code) {
+            0x3E8 + u32::from(code - STRENGTH)
+        } else if SKILLS.contains(&code) {
+            0x4B0 + u32::from(code - BARTER)
+        } else {
+            return None;
+        };
+        self.actor_value_infos.get(&FormId(id))
     }
 
     pub fn name(&self, id: FormId) -> String {
@@ -986,6 +1081,19 @@ impl GameData {
         lines
     }
 
+    /// The lines an actor can say for `topic`, in the order they are tried: its own lines
+    /// and the lines it shares from other topics (INFC / INFX, [`GameData::shared_lines`])
+    /// [observed: Red Lucy's choice "What's this place?" (VMS38VMS38RedLucyTopic047) has
+    /// no line of its own and shares the answer of the topic of the same name; of the 257
+    /// player lines whose choices all lack lines of their own, 250 get a choice with
+    /// lines this way, dialogue.md §1.2], sorted as [`GameData::lines_by_priority`].
+    pub fn lines_tried(&self, topic: FormId) -> Vec<FormId> {
+        let Some(merged) = self.shared_lines.get(&topic) else { return self.lines_by_priority(topic) };
+        let mut lines = merged.clone();
+        lines.sort_by_key(|i| std::cmp::Reverse(self.line_priority(*i)));
+        lines
+    }
+
     /// The text the player sees for a topic whose line would be `info`: the line's
     /// prompt, else the topic's name, else nothing [documented: GECK wiki
     /// Category:Dialogue, "Prompt"].
@@ -995,6 +1103,56 @@ impl GameData {
             None => self.topic_defs.get(&topic).and_then(|t| t.name.as_deref()).unwrap_or(""),
         }
     }
+}
+
+/// [`GameData::shared_lines`]: for each topic whose INFC / INFX pairs name a line, its
+/// own lines with each shared line put in at its Info Index (pairs in index order; an
+/// index past the end, or negative, puts it last) [hypothesis: the index is the line's
+/// place in the topic's list; in topics with no line of their own the indices run
+/// 0, 1, 2 … as a list's would, observed, dialogue.md §1.2]. A line already in
+/// the list is not added twice.
+fn shared_lines(topics: &HashMap<FormId, Vec<FormId>>, defs: &HashMap<FormId, TopicDef>, infos: &HashMap<FormId, InfoDef>) -> HashMap<FormId, Vec<FormId>> {
+    let mut out = HashMap::new();
+    for (id, t) in defs {
+        let mut pairs: Vec<(i32, FormId)> =
+            t.shared_infos.iter().filter_map(|s| s.info.filter(|i| infos.contains_key(i)).map(|i| (s.index.unwrap_or(-1), i))).collect();
+        if pairs.is_empty() {
+            continue;
+        }
+        pairs.sort_by_key(|&(x, _)| if x < 0 { i32::MAX } else { x });
+        let mut lines = topics.get(id).cloned().unwrap_or_default();
+        for (x, i) in pairs {
+            if lines.contains(&i) {
+                continue;
+            }
+            let at = usize::try_from(x).map_or(lines.len(), |x| x.min(lines.len()));
+            lines.insert(at, i);
+        }
+        out.insert(*id, lines);
+    }
+    out
+}
+
+/// [`GameData::linked_from`]: each player line (type Topic, of a topic of type Topic)
+/// with a Link From list puts its topic under every topic the list names, once, in the
+/// topics' record order.
+fn linked_from(defs: &HashMap<FormId, TopicDef>, infos: &HashMap<FormId, InfoDef>) -> HashMap<FormId, Vec<FormId>> {
+    let mut out: HashMap<FormId, Vec<FormId>> = HashMap::new();
+    let player_topic = |t: &FormId| defs.get(t).is_some_and(|d| d.topic_type == topic_type::TOPIC);
+    for i in infos.values().filter(|i| i.info_type == topic_type::TOPIC && !i.link_from.is_empty()) {
+        let Some(t) = i.topic.filter(player_topic) else { continue };
+        for &x in &i.link_from {
+            let list = out.entry(x).or_default();
+            if !list.contains(&t) {
+                list.push(t);
+            }
+        }
+    }
+    let order = |t: &FormId| defs.get(t).map_or((usize::MAX, 0), |d| d.order);
+    for list in out.values_mut() {
+        list.sort_by_key(|t| (order(t), t.0));
+    }
+    out
 }
 
 /// Every topic's dialogue lines in topic order ([`GameData::topics`]), and where each
@@ -1078,6 +1236,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"WEAP"
             | b"IDLM"
             | b"IDLE"
+            | b"PERK"
+            | b"AVIF"
     ) || subs.iter().any(|s| &s.sig == b"DEST");
     if &sig == b"FURN" {
         let flags = subs.iter().find(|s| &s.sig == b"MNAM").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(u32::from_le_bytes);
@@ -1466,6 +1626,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"PKID" => a.packages.extend(fid(v)),
                     b"TPLT" => a.template = fid(v),
                     b"RNAM" if &sig == b"NPC_" => a.race = fid(v),
+                    b"RNAM" if &sig == b"CREA" => a.attack_reach = v.as_ref().and_then(Json::as_u64).map(|n| n.min(255) as u8),
                     b"CNAM" if &sig == b"NPC_" => a.class = fid(v),
                     b"DATA" if &sig == b"CREA" => {
                         a.creature_type =
@@ -1474,6 +1635,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.attributes = v.as_ref().and_then(|v| v.get("attributes")).and_then(attributes);
                         let skill = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_u64).map(|n| n.min(255) as u8);
                         (a.combat_skill, a.stealth_skill) = (skill("combat_skill"), skill("stealth_skill"));
+                        a.attack_damage = v.as_ref().and_then(|v| v.get("damage")).and_then(Json::as_i64);
                     }
                     b"DATA" if &sig == b"NPC_" => {
                         a.base_health = v.as_ref().and_then(|v| v.get("base_health")).and_then(Json::as_i64).unwrap_or(0);
@@ -1620,6 +1782,32 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     })
                     .collect(),
             );
+        }
+        b"PERK" => {
+            // The perk's own fields come before its first effect (PRKE); the CTDA and
+            // DATA after it belong to the effects [documented: xEdit wbDefinitionsFNV.pas
+            // PERK record order].
+            let head = decoded.iter().position(|(s, _)| *s == b"PRKE").unwrap_or(decoded.len());
+            let raw_data = subs[..head].iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice());
+            let mut unread = Issues::default();
+            let conds: Vec<Option<Condition>> = decoded[..head].iter().filter(|(s, _)| *s == b"CTDA").map(|(_, v)| cond(v, &mut unread)).collect();
+            let text = |sig: &[u8; 4]| decoded[..head].iter().find(|(s, _)| *s == sig).and_then(|(_, v)| v.as_ref()?.as_str().map(str::to_string));
+            let mut p = PerkDef::from_data(raw_data);
+            p.name = text(b"FULL").unwrap_or_default();
+            p.description = text(b"DESC").unwrap_or_default();
+            p.icon = text(b"ICON").filter(|i| !i.trim().is_empty());
+            p.conditions = conds.into_iter().collect();
+            out.perk = Some(p);
+        }
+        b"AVIF" => {
+            let text = |sig: &[u8; 4]| decoded.iter().find(|(s, _)| *s == sig).and_then(|(_, v)| v.as_ref()?.as_str().map(str::to_string));
+            let anam = subs.iter().find(|s| &s.sig == b"ANAM").map(|s| zstring(&s.data));
+            out.av_info = Some(ActorValueInfo {
+                name: text(b"FULL").unwrap_or_default(),
+                short_name: anam.unwrap_or_default(),
+                description: text(b"DESC").unwrap_or_default(),
+                icon: text(b"ICON").filter(|i| !i.trim().is_empty()),
+            });
         }
         b"IDLE" => {
             // A condition that cannot be read is no issue of the script data (some idle

@@ -236,10 +236,22 @@ pub fn attack_stem(attack: Option<&str>) -> String {
 /// and fists have `_a`/`_b` variants, `1hmattackright_a.kf`) [observed: the
 /// `_1stperson` and `_male` file lists]: sneaking first when crouched, then the sights
 /// form, then the plain one, then the `_a` variant, then `AttackRight` as a fallback.
-/// `attack` is [`attack_stem`]'s result.
+/// `attack` is [`attack_stem`]'s result, or a melee swing's stem with its variant
+/// (`attackleft_b`, `fnv_combat::melee`): that form first, then the group's as above
+/// (`h2hattack5_b` falls back to `h2hattack5_a.kf`, `h2hattack6_a` to `h2hattack6.kf`).
 pub fn attack_clips(stance: Stance, prefix: &str, attack: &str, sights: bool) -> Vec<String> {
     let mut out = Vec::new();
-    for a in [attack, "attackright"] {
+    let group = match attack.rsplit_once('_') {
+        Some((g, "a" | "b")) => {
+            if stance == Stance::Sneak {
+                out.push(format!("sneak{prefix}{attack}.kf"));
+            }
+            out.push(format!("{prefix}{attack}.kf"));
+            g
+        }
+        _ => attack,
+    };
+    for a in [group, "attackright"] {
         for is in if sights { &["is", ""][..] } else { &[""][..] } {
             if stance == Stance::Sneak {
                 out.push(format!("sneak{prefix}{a}{is}.kf"));
@@ -248,7 +260,8 @@ pub fn attack_clips(stance: Stance, prefix: &str, attack: &str, sights: bool) ->
         }
         out.push(format!("{prefix}{a}_a.kf"));
     }
-    out.dedup();
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|c| seen.insert(c.clone()));
     out
 }
 
@@ -337,6 +350,11 @@ pub struct ClipKeys {
     /// archives' `2hhattackspin.kf` the minigun's barrel speeds up until `Fire`, turns at
     /// one speed from there to `Loop` and slows down after it; animation.md §9.8].
     pub loop_end: Option<f32>,
+    /// `a:<group>`: the attack group to play next (`L`, `R`, `7`, or blank) and, by its
+    /// time, from when the clip may be cut for it [documented: GECK wiki
+    /// NiTextKeyExtraData; observed: `a:L` on the melee `AttackRight` clips, `a:R` on the
+    /// `AttackLeft` ones; `fnv_combat::melee`].
+    pub next_attack: Option<(f32, String)>,
 }
 
 impl ClipKeys {
@@ -361,6 +379,8 @@ impl ClipKeys {
                     out.hit.get_or_insert(*t);
                 } else if lower == "loop" {
                     out.loop_end.get_or_insert(*t);
+                } else if let Some(v) = lower.strip_prefix("a:") {
+                    out.next_attack.get_or_insert((*t, v.trim().to_string()));
                 }
             }
         }
@@ -486,6 +506,10 @@ mod tests {
         assert_eq!(attack_stem(None), "attackright");
         let c = attack_clips(Stance::Stand, "1hp", "attackright", true);
         assert_eq!(c[..3], ["1hpattackrightis.kf".to_string(), "1hpattackright.kf".to_string(), "1hpattackright_a.kf".to_string()]);
+        let c = attack_clips(Stance::Stand, "h2h", "attack5_b", false);
+        assert_eq!(c[..3], ["h2hattack5_b.kf".to_string(), "h2hattack5.kf".to_string(), "h2hattack5_a.kf".to_string()]);
+        assert_eq!(attack_clips(Stance::Stand, "1hm", "attackforwardpower", false)[0], "1hmattackforwardpower.kf");
+        assert_eq!(attack_clips(Stance::Sneak, "h2h", "attackpower", false)[..2], ["sneakh2hattackpower.kf".to_string(), "h2hattackpower.kf".to_string()]);
         let c = attack_clips(Stance::Sneak, "2hr", "attack3", false);
         assert_eq!(c[0], "sneak2hrattack3.kf");
         assert!(c.contains(&"2hrattackright.kf".to_string()));
@@ -493,6 +517,9 @@ mod tests {
         assert_eq!(reload_open_clips(Stance::Sneak, "2hr", "ReloadZ"), vec!["sneak2hrreloadzstart.kf".to_string(), "2hrreloadzstart.kf".to_string()]);
         let k = ClipKeys::parse(&[(0.0, "Start".into()), (0.1, "Hit".into()), (0.3, "Fire".into())]);
         assert_eq!(k.hit, Some(0.1));
+        // h2hattackright_a.kf's keys [observed].
+        let k = ClipKeys::parse(&[(0.0, "start".into()), (0.3, "Hit".into()), (0.3, "Decal: 0".into()), (0.633, "a:L".into()), (1.433, "end".into())]);
+        assert_eq!((k.hit, k.next_attack), (Some(0.3), Some((0.633, "l".to_string()))));
     }
 
     #[test]

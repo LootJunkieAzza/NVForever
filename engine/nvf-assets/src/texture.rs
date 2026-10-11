@@ -78,8 +78,23 @@ pub fn dds_image(bytes: &[u8], srgb: bool, bc_supported: bool) -> Result<Image, 
     Ok(img)
 }
 
+/// The PC's own form of a texture a model names in a console's folder: the same path
+/// with `\pc\` for `\xbox\`, when that file exists. [observed: the Pip-Boy models
+/// (`pipboy3000\pipboyarm.nif` and the rest) name `textures\pipboy3000\xbox\english\
+/// PipBoyArm01.dds`, whose buttons are labelled with the console's LT and RT, and
+/// `pipboy3000\pc\english\pipboyarm01.dds` lies beside it, as do `ps3` and `ps3o`
+/// forms; the owner's screenshots of the PC game show no such labels. hypothesis: the
+/// PC game reads the `pc` folder's file; docs/spec-notes/pipboy.md §1]
+pub fn pc_texture(path: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
+    let lower = path.to_ascii_lowercase();
+    let i = lower.find("\\xbox\\")?;
+    let pc = format!("{}\\pc\\{}", &path[..i], &path[i + "\\xbox\\".len()..]);
+    exists(&pc).then_some(pc)
+}
+
 impl TextureCache {
-    /// Load (once) the texture at a NIF texture path.
+    /// Load (once) the texture at a NIF texture path (the PC's own form of it, if any:
+    /// [`pc_texture`]).
     pub fn get(
         &mut self,
         raw_path: &str,
@@ -89,6 +104,7 @@ impl TextureCache {
         formats: Option<&CompressedImageFormatSupport>,
     ) -> Option<Handle<Image>> {
         let path = fnv_vfs::texture_path(raw_path);
+        let path = pc_texture(&path, |p| data.vfs.exists(p)).unwrap_or(path);
         if let Some(h) = self.map.get(&(path.clone(), srgb)) {
             return h.clone();
         }

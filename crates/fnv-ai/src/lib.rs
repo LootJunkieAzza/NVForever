@@ -3,12 +3,14 @@
 //! (`fnv_nav`). Headless; no Bevy. Design: docs/design/actor-behaviour.md §5; facts and
 //! confidence tags: docs/spec-notes/packages.md.
 //!
+//! - [`alert`]: actors in a combat state search, or stand facing their target
 //! - [`goal`]: where a package sends its actor
 //! - [`carry`]: the actors the AI moves: reachability, the walk, arrival
 //! - [`sandbox`]: what a sandboxing actor does in its area
 //! - [`social`]: actors who talk on their own: hellos to the player, random
 //!   conversations
 
+pub mod alert;
 pub mod carry;
 pub mod goal;
 pub mod sandbox;

@@ -92,6 +92,22 @@ run `fnvtool actor detect --schema schemas/fnv <Data> FalloutNV.esm --detector S
 with the table in detection.md §4 (sneaking, lit: detected out to 1,840; sneaking, dark: never);
 explain any change. Then the in-game check of detection.md §5 (expect exit 0, a "hidden → noticed"
 line for GSSettlerAM 00104F0A while sneaking, the shot taking it to detected, and a "detection summary").
+After detection state changes (`fnv_game::awareness`, `fnv_ai::alert`, the engine's `alert.rs`
+and `detection.rs`; docs/design/alert.md), run the Fiend check of alert.md §8:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --pos=-43900,64896,7000 --play --hour 12 --no-voice --npc-packages FiendVioletRef --run-seconds 45`
+(expect exit 0, "1EFiendViolet 000F570B Normal → Alert: noticed the player", her NormalToAlert
+line, "FiendVioletRef: searches for the player", "Alert → Combat: detects the player" at about
+2,650 units with no Combat ↔ Lost flicker after it, and "alert summary: 1 actors became Alert").
+After combat AI changes (nvforever `npc_combat.rs`, `nvf_play::combat` `ActorFire`/`ActorStrike`/`By`,
+`fnv_ai::alert` closing in; docs/design/combat-ai.md), run the two checks of combat-ai.md §7:
+`NVF_PLAY_TEST_GOD=1 NVF_PLAY_TEST_SCRIPT_MENUS=1 engine/target/release/nvforever --data <Data> --cell Goodsprings --pos=-43900,64896,7000 --play --hour 12 --no-voice --npc-packages FiendVioletRef --run-seconds 45`
+(expect exit 0, "fights the player with WeapHuntingRifle (gun)", "stops and faces the player" at about
+1,600 units, "shots are drawn from its weapon's muzzle", "2hrattack3.kf" in the "attack anims summary"
+and a dozen "Violet hits the player for 44.7"), and the dogs, with
+`NVF_PLAY_TEST_SCRIPT=3:combat:0x000F573F:player,3:combat:0x0013E5BB:player` added and
+`--pos=-45600,65000,7000 --npc-packages 000F573F,0013E5BB --run-seconds 30` (expect about 20 blows in the
+"npc combat summary", the dog's `h2hattack…` clips in the "attack anims summary", and only a few
+"runs at"/"stops and faces" lines: they stop at biting range, not against the player).
 After changes to actor templates, leveled actor lists or faction functions (`fnv-game`
 `templates`, `functions::actor`), run
 `fnvtool actor factions --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor FiendVioletRef --actor 00157B36`
@@ -186,6 +202,25 @@ dialogue, with `NVF_PLAY_TEST_TALK=10:GSChetRef=for sale|leave`, `NVF_PLAY_TEST_
 (expect exit 0, "menu: a script opens the barter menu with 0x00104C79", "stock in 0x00104C7A",
 "menu: Accept: Traded", "menu: close" and then the conversation's "Goodbye." choice).
 
+After changes to the name, tag-skill or trait menus (`nvf-play` `chargen`, `chargen::lists`,
+`chargen::name`, `fnv_game::chargen`; docs/spec-notes/chargen.md §7), run the three, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=off`, `NVF_PLAY_TEST_SCRIPT=3:menu:1051,8:menu:1048,13:menu:1084` and
+`NVF_PLAY_TEST_CHARGEN=5:clear,5.1:done,5.2:type:Courier Six,6:done,10:pick:Lockpick,10.1:done,10.2:pick:Guns,10.3:pick:Speech,10.4:pick:Survival,10.5:pick:Lockpick,10.6:pick:Survival,11:done,15:pick:Four Eyes,15.2:pick:Early Bird,15.4:pick:Wild Wasteland,16:done` set:
+`engine/target/release/nvforever --data <Data> --cell GSDocMitchellHouse --play --no-voice --run-seconds 20`
+(expect exit 0 and, in this order, "Ok refused: no name", `done, name "Courier Six"`, "Done refused:
+1 of 3 skills tagged", "Survival refused", "done, tag skills: Guns, Speech, Survival", "Wild Wasteland
+refused" and "done, traits: Early Bird, Four Eyes"); with the owner's load order (Old World Blues
+in it) the trait menu has 16 rows. `fnvtool actor chargen` lists what the menus offer (§6).
+
+After changes to the Vigor Tester's S.P.E.C.I.A.L. menu (`nvf-play` `chargen::vigor`;
+docs/spec-notes/vigor-tester.md §7), run it, with `NVF_PLAY_TEST_SCRIPT_MENUS=off`,
+`NVF_PLAY_TEST_SCRIPT=3:menu:1074` and
+`NVF_PLAY_TEST_VIGOR=2:click:LookInside_Btn:0,4.5:raise,4.6:raise,4.7:done,5.5:page:review,8:select:luck,8.1:raise,8.2:raise:L,8.3:raise:endurance,8.5:click:P1_RT_Btn:0` set:
+`engine/target/release/nvforever --data <Data> --cell GSDocMitchellHouse --play --no-voice --run-seconds 20`
+(expect exit 0, "Done refused: points still to give out", "Endurance 6, 0 points remaining",
+"done, S.P.E.C.I.A.L. 7 5 6 5 5 5 7 (click)" and "vigor tester summary: opened 1 times, 5 changes,
+8 page turns, 2 clicks on its buttons, done 1 times").
+
 After changes to the quest lines at the left ("Quest added", objectives; `nvf-play`
 `quest_messages`, `script_events` `QuestNotice`; docs/spec-notes/quest-messages.md §7), run them,
 with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
@@ -195,6 +230,13 @@ with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
 `quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.` and
 `quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny
 Smiles behind the Prospector Saloon.`).
+
+After flashlight changes (`nvf-play` `flashlight`, nvforever `flashlight.rs`), run it on and off
+in a dark interior, with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
+`NVF_PLAY_TEST_CONTROL=2:flashlight,12:view,20:flashlight` set:
+`engine/target/release/nvforever --data <Data> --cell GSHouseInterior03 --play --hour 23 --no-voice --run-seconds 26`
+(expect exit 0, "flashlight: on" and later "flashlight: off"; add `--screenshot <png>
+--screenshot-delay 10` without the last two presses to see the cone and its shadows).
 
 After changes to the sounds animations and doors name (nvforever `anim_sounds.rs`,
 `fnv_actor::anim_sounds`, `nvf_play::doors` sounds; docs/spec-notes/audio.md §10), run the
@@ -265,6 +307,12 @@ run Sunny's lines in the saloon, with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
 within a few degrees of 0, no "listens" line for the last one, and "speech look summary: 3 lines";
 add `--no-npc-packages` to see "the body turns" by speech_look.rs itself).
 
+After Pip-Boy changes (`nvf-play` `pipboy`, nvforever `pipboy_arm.rs`, the arms' Pip-Boy clip
+and field of view; docs/spec-notes/pipboy.md §7), run it with `NVF_PLAY_TEST_SCRIPT_MENUS=0.05`
+and `NVF_PLAY_TEST_PIPBOY=12:open,15:page=stats,17:close` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --no-voice --hour 12 --size 1280x720 --run-seconds 19`
+(expect exit 0, "pipboy: up, page ITEMS tab Weapons", "pipboy: the menus are on the model's
+screen", "pipboy: STATS Status" and "pipboy: down").
 After changes to terminals or the hacking game (`fnv_game::hacking`, `fnv_game::terminal`,
 `nvf-play` `terminal`; docs/spec-notes/hacking.md §9), run the Easy terminal, with
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and

@@ -39,9 +39,9 @@ use fnv_sim::world::{Encumbrance, SimError};
 use fnv_sim::{FormId, RefTable, World};
 use std::collections::BTreeMap;
 
-/// Rows the inventory menu shows at once; the list scrolls to keep the selection
-/// visible.
-pub const VISIBLE_ROWS: usize = 16;
+/// Rows the inventory (the Pip-Boy's ITEMS list) shows at once; the list scrolls to keep
+/// the selection visible. Its list is 468 high and a row 51 (`pipboy::items`).
+pub const VISIBLE_ROWS: usize = 9;
 /// Rows the container and barter lists show at once: the list is 365 high and a row 51
 /// (docs/spec-notes/barter-menu.md §2).
 pub const LIST_ROWS: usize = 7;
@@ -260,6 +260,8 @@ pub enum Command {
     Hover(Side, usize),
     /// Show the next (1) or previous (-1) category of a column.
     Category(Side, i32),
+    /// Show this category in a column (the Pip-Boy's ITEMS tabs).
+    SetCategory(Side, Category),
     /// Container menu: move one unit of the selected stack to the other column (take
     /// from the container, store from the player). Barter: put one unit up, or take one
     /// back. Inventory: equip or unequip it (aid items are used).
@@ -590,6 +592,18 @@ impl MenuModel {
                 self.focus = side;
                 self.selected[side as usize] = idx;
                 self.ensure_visible(side);
+            }
+            Command::SetCategory(side, cat) => {
+                let i = side as usize;
+                if !self.columns().contains(&side) || self.category[i] == cat {
+                    return out;
+                }
+                self.category[i] = cat;
+                self.selected[i] = 0;
+                self.scroll[i] = 0;
+                if let Err(e) = self.refresh(world) {
+                    self.status = Some(format!("Cannot list the inventories: {e}"));
+                }
             }
             Command::Category(side, by) => {
                 if self.mode == Mode::Inventory || !self.columns().contains(&side) {

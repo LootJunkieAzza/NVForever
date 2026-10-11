@@ -185,6 +185,15 @@ impl Game<'_> {
         d.invulnerable || d.race.is_some_and(|race| self.data.child_races.contains(&race))
     }
 
+    /// A creature's own attack: its damage (CREA DATA Damage) and its reach (RNAM Attack
+    /// Reach) [documented: xEdit field names], from the actor that supplies its stats
+    /// (template flag Stats) [hypothesis for the reach: which template group RNAM belongs
+    /// to is not checked]. `None` for an NPC.
+    pub fn creature_attack(&self, r: FormId) -> Option<(f64, Option<f64>)> {
+        let d = self.stats_def(r)?;
+        (&d.sig == b"CREA").then(|| (d.attack_damage.unwrap_or(0) as f64, d.attack_reach.map(f64::from)))
+    }
+
     /// The actor dies: dead flag, killer, GetDeadCount, OnDeath (KillActor's effect).
     /// False when it was already dead.
     pub fn kill(&mut self, r: FormId, killer: Option<FormId>) -> bool {

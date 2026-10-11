@@ -1,5 +1,5 @@
-//! Script messages on screen. The subtitles are a minimal overlay (layout and wording
-//! are NVForever's own, not a claim about the original's interface); the message box is
+//! Script messages on screen. The subtitles are drawn in the interface's colour and the
+//! HUD's font (docs/spec-notes/corner-messages.md §8); the message box is
 //! drawn as the original's (`crate::message_menu`), and so are the short lines at the
 //! top left (`crate::corner_messages`: messages without the message-box flag, objectives
 //! shown or completed, quests completed, items a script gave or took).
@@ -15,16 +15,15 @@
 //!   presses. The buttons are clickable as the original's are [observed by the
 //!   coordinator playing the original, 2026-10-09]; the cursor is free while a box is
 //!   open (`PlayState::Menu`). The next queued box then opens (the runtime's rule).
-//! - **Menus scripts open** for character creation (name 1051, race 1036, S.P.E.C.I.A.L.
-//!   1074, tag skills 1048, traits 1084): a placeholder in the same box that names the
-//!   menu; Enter or a click on Done closes it as the player's Done would
-//!   (`Game::close_menu`). What the player chooses there is Layer 7; nothing is chosen
-//!   here.
+//! - **Menus scripts open** for character creation: the name, S.P.E.C.I.A.L., tag-skill
+//!   and trait menus are drawn by `crate::chargen`; the race menu (1036) is a
+//!   placeholder in the same box that names the menu, and Enter or a click on Done
+//!   closes it as the player's Done would (`Game::close_menu`); nothing is chosen there.
 //! - While a script's menu or box is open the player cannot move or look
 //!   (`PlayState::Menu`, `script::hold_player`), and script time stops (the runtime's
 //!   `Game::menu`).
-//! - **Subtitles**: the dialogue lines being said (`Game::speech`), bottom centre, as
-//!   "Speaker: text", one response of the INFO at a time in response-number order, each
+//! - **Subtitles**: the dialogue lines being said (`Game::speech`), bottom centre, the
+//!   text alone on screen and "Speaker: text" in the log, one response of the INFO at a time in response-number order, each
 //!   for as long as it lasts (`crate::voice::speech_response`: its voice file's length,
 //!   or the length fitted to its text without one). The response being said in the
 //!   conversation with the player (`Game::dialogue`, `crate::dialogue::subtitle`) is in
@@ -32,13 +31,17 @@
 //!   (`crate::dialogue_menu`). A radio's talk line heard loudly enough is subtitled too
 //!   (`crate::radio::RadioSubtitle`).
 
+use crate::interface::{amber, bc_supported, face, plain_font, set_line, u, Face};
 use crate::message_menu::{MessagePanel, PanelView};
 use crate::script::{ScriptState, MENU_MESSAGE};
 use crate::script_events::BoxMessage;
 use crate::sim::SimState;
+use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use fnv_font::{Font, Line};
 use fnv_game::game::menus;
 use fnv_sim::FormId;
+use nvf_assets::GameData;
 use std::collections::HashMap;
 
 #[derive(Resource, Default)]
@@ -118,27 +121,44 @@ impl Plugin for ScriptHudPlugin {
     }
 }
 
+/// The subtitles' area, a column as wide as the text may be, centred in the view.
 #[derive(Component)]
-struct SubtitleText;
+struct SubtitleArea;
+
+// ---- the subtitles (corner-messages.md §8) -----------------------------------------------
+
+/// The text may be as wide as the HUD's Subtitles rect [documented:
+/// menus\main\hud_main_menu.xml, `Subtitles` width 800].
+const SUBTITLE_WIDTH: f32 = 800.0;
+/// The first line's base under the view's top [observed: the owner's screenshot].
+const SUBTITLE_BASE: f32 = 633.0;
+/// Lines are the font's size and this much apart [observed: 38 units on the screenshot].
+const SUBTITLE_LEADING: f32 = 2.0;
+/// Font 7, the HUD's text templates' [documented: menus\prefabs\hudtemplates.xml].
+const SUBTITLE_FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
+
+/// The subtitles' lines, each centred in the area: the line, its start and its base, from
+/// the area's top left. Every text starts a line of its own.
+pub fn subtitle_layout(texts: &[String], font: &Font) -> Vec<(Line, f32, f32)> {
+    let pitch = font.size + SUBTITLE_LEADING;
+    let lines = texts.iter().flat_map(|t| font.lines(t.trim(), Some(SUBTITLE_WIDTH)));
+    lines
+        .enumerate()
+        .map(|(i, l)| {
+            let x = ((SUBTITLE_WIDTH - l.width) / 2.0).max(0.0);
+            (l, x, pitch * i as f32)
+        })
+        .collect()
+}
 
 /// A clickable button of the message box (0-based).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct BoxButton(pub usize);
 
 fn spawn(mut commands: Commands) {
-    let font = |size: f32| TextFont { font_size: FontSize::Px(size), ..default() };
     commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            width: Val::Percent(100.0),
-            bottom: Val::Px(110.0),
-            justify_content: JustifyContent::Center,
-            ..default()
-        },
-        children![(
-            Node { max_width: Val::Px(760.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() },
-            children![(Text::new(""), font(18.0), TextColor(Color::srgb(0.95, 0.95, 0.9)), TextLayout::justify(Justify::Center), SubtitleText)],
-        )],
+        Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), top: u(0.0), justify_content: JustifyContent::Center, ..default() },
+        children![(Node { width: u(SUBTITLE_WIDTH), ..default() }, SubtitleArea)],
     ));
 }
 
@@ -167,10 +187,12 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&cr
             text: b.text.trim_end().to_string(),
             buttons: box_buttons(b),
         }),
-        Some(code) if crate::script::is_script_menu(code) => Some(menu_panel(code)),
+        // The name, S.P.E.C.I.A.L., tag-skill and trait menus draw themselves.
+        Some(code) if crate::script::is_script_menu(code) && !crate::chargen::has_own_menu(code) => Some(menu_panel(code)),
         _ => None,
     };
     let mut subs = Vec::new();
+    let mut on_screen = Vec::new();
     for s in &g.speech {
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };
         let i = crate::voice::speech_response(g, sim, s);
@@ -178,6 +200,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&cr
         let base = sim.base_of(s.speaker.0).unwrap_or(s.speaker);
         let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(s.speaker));
         subs.push(format!("{who}: {}", text.trim()));
+        on_screen.push(text.trim().to_string());
     }
     // A radio's talk line (`crate::radio::RadioSubtitle`), the station's name as the speaker.
     if let Some((station, info, response)) = radio.and_then(|r| r.0) {
@@ -185,20 +208,21 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&cr
             let base = sim.base_of(station.0).unwrap_or(station);
             let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(station));
             subs.push(format!("{who}: {}", text.trim()));
+            on_screen.push(text.trim().to_string());
         }
     }
     // The response being said in the conversation with the player: drawn by the dialogue
     // menu (`crate::dialogue_menu`), logged with the others.
-    let on_screen = subs.join("\n");
     subs.extend(crate::dialogue::subtitle(g, sim));
     (panel, front, Subtitles { logged: subs.join("\n"), on_screen })
 }
 
-/// The subtitles: all of them for the log, those drawn here for the screen.
+/// The subtitles: all of them for the log ("Speaker: text"), those drawn here for the
+/// screen (the text alone).
 #[derive(Default, PartialEq)]
 struct Subtitles {
     logged: String,
-    on_screen: String,
+    on_screen: Vec<String>,
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -208,8 +232,10 @@ fn draw(
     sim: Res<SimState>,
     mut panel: ResMut<MessagePanel>,
     mut shown: Local<Subtitles>,
-    mut subtitles: Query<&mut Text, With<SubtitleText>>,
+    mut commands: Commands,
+    areas: Query<Entity, With<SubtitleArea>>,
     (radio, play): (Option<Res<crate::radio::RadioSubtitle>>, Res<crate::PlayWorld>),
+    (data, mut images, formats, mut font): (Option<Res<GameData>>, ResMut<Assets<Image>>, Option<Res<CompressedImageFormatSupport>>, Local<Option<Face>>),
 ) {
     if let Some((_, info, _)) = radio.as_deref().and_then(|r| r.0) {
         if !hud.knows_line(info) {
@@ -225,8 +251,16 @@ fn draw(
         if subs.logged != shown.logged && !subs.logged.is_empty() {
             info!("subtitle: {}", subs.logged.replace('\n', " / "));
         }
-        for mut t in &mut subtitles {
-            t.0.clone_from(&subs.on_screen);
+        if subs.on_screen != shown.on_screen {
+            let face = font.get_or_insert_with(|| face(SUBTITLE_FONT, plain_font(36.0, 17.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
+            let lines = subtitle_layout(&subs.on_screen, &face.font);
+            for area in &areas {
+                commands.entity(area).despawn_related::<Children>().with_children(|a| {
+                    for (line, x, base) in &lines {
+                        set_line(a, face, line, *x, SUBTITLE_BASE + *base, amber(255.0));
+                    }
+                });
+            }
         }
         *shown = subs;
     }
@@ -251,6 +285,9 @@ pub fn menu_keys(
     }
     let clicked = clicks.iter().find(|(i, _)| **i == Interaction::Pressed).map(|(_, b)| b.0);
     let enter = keys.any_just_pressed([Enter, NumpadEnter]);
+    if crate::chargen::has_own_menu(code) {
+        return;
+    }
     if code != MENU_MESSAGE {
         if enter || clicked.is_some() {
             script.answer(None, if enter { "Enter" } else { "click" });
@@ -274,5 +311,23 @@ pub fn menu_keys(
         }
     } else if let Some(i) = picked.filter(|&i| i < buttons) {
         script.answer(Some(i as i32), "key");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subtitles_are_centred_lines_of_the_hud_rect() {
+        // Every character 17 wide: 47 fit the rect's 800.
+        let font = plain_font(36.0, 17.0);
+        let long = "a".repeat(30) + " " + &"b".repeat(30);
+        let l = subtitle_layout(&[long, "Hi.".into()], &font);
+        assert_eq!(l.len(), 3);
+        assert_eq!((l[0].0.width, l[0].1, l[0].2), (510.0, 145.0, 0.0));
+        assert_eq!((l[1].1, l[1].2), (145.0, 38.0));
+        // A second speaker's text starts a line of its own.
+        assert_eq!((l[2].0.width, l[2].1, l[2].2), (51.0, 374.5, 76.0));
     }
 }

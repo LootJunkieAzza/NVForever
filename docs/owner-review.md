@@ -2620,6 +2620,230 @@ one it speaks to. Your decision: the speaker turns head and body. Branch
    `--cell GSProspectorSaloonInterior --play`.
 
 
+## Flashlight (2026-10-11, session "flashlight")
+
+Your request: holding the inventory button for 1 to 2 seconds turns a flashlight on or
+off, a classic one that lights what is in front of the camera. Branch
+`claude/flashlight`; code in `engine/nvf-play/src/flashlight.rs` (the key) and
+`engine/nvforever/src/flashlight.rs` (the light).
+
+1. **Built:** Tab held for 1 second switches the light, at once, while the key is still
+   down; letting go after that opens nothing. A tap opens the inventory as before, but
+   on letting go of the key rather than on pressing it.
+2. **The light:** a warm white cone (30° from the middle to the edge, fully lit to 14°)
+   from just right of and under the eye, reaching about 40 m with the game's falloff.
+   It casts shadows, so walls stop it; your own arms, weapon and body cast none (in
+   third person nothing between the camera and a little past your head does).
+3. **Our choices, not the game's:** the original's hold of Tab works the Pip-Boy light,
+   a glow round the player; this is a flashlight as you asked. Scripts that lock the
+   Pip-Boy (the opening) do not lock the light. Detection ignores it for now; say if a
+   lit flashlight should make you easier to see.
+4. **Checked in pictures:** in the Goodsprings house at 23:00 the cone lights the bed and
+   wall with the bedpost's shadow on it; outside at 01:00 the house across the road
+   takes the warm light and the stop sign's shadow. Test aid:
+   `NVF_PLAY_TEST_CONTROL=2:flashlight` with `--play`.
+
+
+## Melee combos and power attacks (2026-10-11, session "melee combo")
+
+Your request: chained attacks (two punches go right hand then left hand) and power
+attacks by holding Use, with their own clip for standing still, forward, back, left and
+right. Branch `claude/melee-combo`; code in `crates/fnv-combat/src/melee.rs`, the
+engine's `melee` in `engine/nvf-play/src/combat.rs`, notes in
+docs/spec-notes/combat-rules.md §10.
+
+1. **Built from the clips themselves:** every right-hand attack clip of the fists and
+   melee weapons ends with a key naming the left one as the next attack, and the left
+   ones name the right, with a time from which the next swing may cut in. A press during
+   a swing now starts the next one at that time, so quick presses go right, left,
+   right, left. Power attacks pick the clip by the movement keys held when they start.
+2. **Checked in a run** (Goodsprings, fists): four taps played `attackright_a`,
+   `attackleft_b`, `attackright_a`, `attackleft_b` (three chained); holds played
+   `h2hattackpower`, `…forwardpower`, `…backpower`, `…leftpower`, `…rightpower` in both
+   views. Test aid: `NVF_PLAY_TEST_CONTROL=3:weapon,16:fire,16.1:fire,16.4:fire,16.5:fire`
+   with `--play` (taps before about 13 s fall inside the pre-order message boxes).
+3. **Guesses, please check against the game:**
+   - The `_a` and `_b` forms of each swing are picked at random.
+   - A press after a swing has fully ended starts over with the right hand.
+   - Holding Use for 0.4 s makes a power attack (you described about a second; say if
+     it should be longer).
+   - Power attack damage now uses the game's settings named
+     `fDamagePowerAttack{Stand,Forward,Back,Side}Bonus`: 3× standing, 2× moving, where
+     it was 1.5× for all. That they multiply damage is read from their names only.
+   - A movement key counts once it is past 30 %; forward/back wins over a side.
+4. **Not built:** the lunge of a moving power attack (the clips' root motion does not
+   move the player), the perk-only custom power attacks (`attackcustom1power` …), and
+   the `Attack3`–`Attack7` punch chains beyond what a weapon's own attack names.
+
+## Character creation menus (2026-10-11, session "chargen")
+
+Your request: the trait menu, the tag-skill menu, the name menu and the Vigor Tester as
+the original's. Branch `claude/chargen-menus`; notes in `docs/spec-notes/chargen.md`
+(the Vigor Tester in `vigor-tester.md`).
+
+1. **Built:** the name, tag-skill and trait menus are drawn from the game's own menu
+   files with its fonts and pictures. Beside your screenshots, the rows, pictures,
+   texts, lines and buttons are within a few pixels. Done writes the name, the three
+   tags or the traits into the game. With your screenshot's S.P.E.C.I.A.L.
+   (5, 3, 7, 7, 5, 6, 7) every skill value in the tag menu matches yours.
+2. **The traits come from the load order:** sixteen with Old World Blues installed (ten
+   in the base game, six from the add-on), sorted by name as on your screenshots.
+3. **Words the game keeps inside the program** (not in its data files): "Reset", "Done",
+   "Ok", "Enter character name.", "R)", "A)", "TRAITS LEFT", "Req:", "Ranks:",
+   "Selected", "Tag 1 Skill". I took them from your screenshots. Our guesses, please
+   correct any you know: "1 TRAIT LEFT" with one left; "Tag 2 Skills" and "Tag 3 Skills".
+4. **Four Eyes' requirement:** the game data has two (Perception above 1 and below 10),
+   and your screenshot shows only "PER < 10". I leave out any "above 1" on a
+   S.P.E.C.I.A.L., but I don't know the original's rule.
+5. **Our guesses about behaviour:**
+   a. Reset goes back to what the menu opened with. It might clear everything instead.
+   b. A trait whose requirement you don't meet is drawn faint and can't be taken.
+   c. Keys: Up/Down choose, Enter or Space tags or takes, R resets, A is Done.
+   d. Names are at most 24 characters, no blank names, and no typing cursor is drawn.
+6. **Not built:** the blur of the world behind these menus, their sounds, and what each
+   trait does once taken (its perk effects). The race menu is still a placeholder.
+7. **The Vigor Tester** is drawn from the game's own model of the machine, the one the
+   in-world tester uses, with its own page-flip animations. Its camera is fitted to your
+   screenshots. Arrows raise and lower, the lever's buttons and the arrows are
+   clickable, and Done works only with every point given out. Details are in
+   `vigor-tester.md`. Questions:
+   a. Which PC keys does it use? Ours: Left/Right lower and raise, Up/Down choose the
+      review row, Tab and Page Up/Down turn pages, Enter or E is Done.
+   b. Does it open on the "Rate Your… TRY IT NOW!" page? The model rests there, so ours
+      does.
+   c. On the review page, is the → itself Done, or does another button replace it once
+      every point is given out?
+   d. Does a row's ◄ disappear at 1?
+   e. Ours is drawn without the game's lighting, so the cabinet is flatter and the bulbs
+      glow less. Should it get real lighting and the blurred room behind it?
+
+## NPCs on alert: Normal, Alert, Combat, Lost (2026-10-11, session "alert")
+
+Your request: NPCs go on alert when they sense a threat (hear a hostile move, glimpse an
+enemy far off) before they have confirmed it, as the start of NPC combat. Branch
+`claude/detection-states`, design `docs/design/alert.md`.
+
+1. **Built:** the four detection states from the editor documentation. A hostile that is
+   noticed but not detected puts the NPC on Alert: it draws its weapon, turns its head
+   to where it noticed something, says its NormalToAlert line, and (if it is run on its
+   packages) walks there to search, saying AlertIdle lines. Detected: Combat (it stops
+   and faces you; nothing attacks yet). Lost sight in combat: Lost, it searches where
+   you were. Bullet impacts are heard: shoot near a Fiend from hiding and it searches
+   the impact.
+2. **Continue During Combat** (your note): an NPC whose current package has the flag
+   keeps doing its package through Alert, Combat and Lost; it still draws its weapon and
+   barks. No source describes the flag, so this follows its name; 399 of the game's
+   4,163 packages set it. **No Combat Alert** is read the same way: such an NPC never
+   goes to Alert (it can still go to Combat). Tell me if you know either to work
+   differently.
+3. **My guesses, to tune when you can compare with the game:** an alarm lasts 20 s after
+   the threat was last noticed; a target hidden for 10 s is forgotten; 3 s without
+   seeing its target turns Combat into Lost; a search looks about for 4 s per spot and
+   moves within 256 (indoors) or 512 (outdoors) units. A bullet's impact is as loud as
+   the gun. Actors with a faction in common, or of the same kind, never turn on each
+   other.
+4. **Scripts see it:** IsInCombat is 1 for an NPC on Alert, in Combat or Lost, and for
+   you while one hunts you (the documentation says so). This can change quest scripts
+   that test IsInCombat; nothing showed in the runs, but watch for it.
+5. **Fixed on the way:** detection's line of sight looked through hills when the NPC's own
+   body was in the way of the ray, and a small transparent fence hid you. Both changed
+   (`docs/design/alert.md` §7).
+6. **Would help:** in the game, `tdetect` off, stand in sight of a hostile at the edge
+   of its range and note how long it searches after you hide (GetDetected and IsInCombat
+   on it every second), to tune the timers.
+
+## NPCs in Combat attack (2026-10-11, session "alert", combat AI step CA1)
+
+Your request: NPCs in Combat attack. Branch `claude/combat-ai` (on top of the alert
+branch), design `docs/design/combat-ai.md`.
+
+1. **Built:** an NPC in Combat shoots with the gun drawn on it (its fire rate, magazine
+   and reloads, the same projectiles and damage as yours) or strikes with its melee
+   weapon or fists; a creature bites with its own damage and reach. It attacks only what
+   it sees. NPCs run on packages run up to where they can attack: a gun to 80 % of its
+   range, a dog until its body is just clear of yours (your note about the dogs pushing
+   you around is fixed: they stop at biting range and bite).
+2. **You can be hurt and die**: their shots hit you, your armour counts. At 0 health
+   every control stops and the screen says "You are dead."; no death camera or reload yet.
+   `NVF_PLAY_TEST_GOD=1` makes you take no damage for test runs.
+3. **StartCombat / StopCombat work now** (938 calls in the game's scripts): quest
+   fights start for real. A test aid uses it: `NVF_PLAY_TEST_SCRIPT=3:combat:<actor>:player`.
+4. **My choices, for you to tune:** reaction time 0.6 s; first shots 4° wider, settling
+   over 3 s; a blow every 1.2 s; NPCs do not use up ammunition; their shots leave from the
+   eyes, not the gun's muzzle. Violet's hunting rifle hit 12 of 15 at 1,600 units, which
+   may be too deadly; the spread is the documented one for her Guns skill.
+5. **Not yet:** attack animations (they shoot and bite without moving the gun or the
+   jaw), allies joining in (Violet's dogs stayed out of her fight: by their records they
+   are not hostile to you), cover, fleeing, grenades, weapon choice, combat styles.
+
+## NPCs aim, fire and bite visibly (2026-10-11, session "alert", combat AI step CA2)
+
+Your request: attack animations. Branch `claude/attack-anims` (on top of the combat AI
+branch), `docs/design/combat-ai.md` §9.
+
+1. **Built:** NPCs bend their aim up or down to their target, play their weapon's attack
+   clip with every shot (Violet: `2hrattack3`, the bolt worked between shots) and swing
+   with every blow; creatures play their own bites and swipes in turn. A bite's damage
+   lands at the clip's Hit key, so the dog's jaws close when you are hurt.
+2. **Your note on Violet's shots:** they came from her face. Now each NPC weapon has a
+   marker at its model's ProjectileNode (as yours does) and the bullets, the muzzle flash
+   and the shot sound start there. The shot still goes where her eyes aim: from the gun
+   itself she hit the metal sheet in front of her every time, because her rifle is held
+   at the hip behind it while her eyes see over it.
+3. **Please look at:** whether the hip-height hold of the rifle is how Fiends hold it in
+   the game when they shoot, and whether the dogs' bites read right at their speed.
+4. **Not yet:** NPC reloads are not animated, NPCs that are not run on their packages do
+   not turn their bodies to you (only their heads), and the body does not bend while
+   running and shooting.
+
+## The Pip-Boy (2026-10-11, session "pip-boy menu")
+
+Your fifteen Pip-Boy screenshots. Branch `claude/pipboy-menu`. Facts and measurements:
+`docs/spec-notes/pipboy.md`. Pictures: `C:\fnv-private\references\pipboy\`.
+
+1. **Built:** Tab raises the arm with the game's own clip and holds it before the eye;
+   the menus are drawn onto the model's screen, with STATS, ITEMS and DATA (the buttons
+   on the device, or F1–F3) and their five tabs each. The world stops and is blurred
+   behind it. ITEMS lists the inventory by tab; STATS and DATA show only their headings
+   so far.
+2. **The clip:** it both raises and lowers the Pip-Boy; the screen faces the eye at its
+   `Hit` key, so it is held there and played on when closing. Say if the original's
+   timing feels different.
+3. **Fitted to your ITEMS screenshot:** the size (the game's `fPipboy1stPersonFOV=47`),
+   the menu's place on the screen, the amber, and the scanlines' spacing. Ours now lines
+   up with it to a few pixels.
+4. **My choices, for you to judge:** the screen's glare is not drawn while the menus are
+   on (drawn, it was a pale haze yours does not have; yours shows only a faint lighter
+   patch, top right). Keys: F1–F3 pages, A/D or arrows tabs, X drop. The system's mouse
+   pointer, not the game's amber arrow.
+5. **Would help:** do you know the PC keys for switching pages and tabs in the original?
+   And a screenshot of the Pip-Boy being raised or put away mid-way would show whether
+   the clip is held where I hold it.
+
+## The Pip-Boy's STATS and DATA pages (2026-10-11, session "pip-boy menu")
+
+Built from the menu files and your screenshots; branch `claude/pipboy-menu` (PR #213).
+Details and what is guessed: `docs/spec-notes/pipboy.md` §5.1 (STATS) and §5.3 (DATA).
+
+1. **STATS:** Status (CND with the limb bars, RAD with the meter, EFF), S.P.E.C.I.A.L.,
+   Skills, Perks (picture and description from the records) and General (reputations;
+   the general statistics show "--": the game keeps no counters of its own yet).
+   Questions: should worn items' effects (Vault Jumpsuit: Speech +2) change the actor
+   values themselves, for scripts too? The page adds them for now. When does the box
+   round the selected row show in the original? Do the hints show "(0)", and when are
+   they bright? Which way round are "Dark Hero" and "Soft-Hearted Devil"?
+2. **DATA:** the place and date in the heading; Quests (running first, newest on top;
+   Enter makes one active), Misc (notes and their text), Radio (tuning from the list;
+   the wave is a still line, the original's is animated), World Map (markers you have
+   found, quest markers, drag and wheel), Local Map (doors and markers on an empty map:
+   the picture of the place from above is not drawn). Questions: how are quests ordered
+   and which is active by default? Which doors does the local map show (yours shows only
+   the gas station's, ours 17) and at what zoom? Where does the World Map open?
+3. **Would help:** screenshots of Perks and General, a crippled limb or rads on Status,
+   EFF with a chem taken, and the World Map right after opening it.
+4. **Not built yet:** using a Stimpak or RadAway from the hints, the hardcore buttons,
+   Place Marker, Challenges, the item picture and figures on ITEMS. The messages at the
+   top left (quest updates, corner messages) still draw over the Pip-Boy's edge.
 ## Terminal hacking (2026-10-11, session "hacking")
 
 Your request: the hacking minigame, from your seven screenshots and rules. Branch

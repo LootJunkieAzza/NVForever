@@ -103,6 +103,33 @@ const TAG_EQUIP: u32 = 60;
 const TAG_ATTACK: u32 = 70; // + 0 level, + 1 up, + 2 down
 const TAG_RELOAD: u32 = 75;
 const TAG_FURNITURE: u32 = 80;
+/// The Pip-Boy coming up (`pipboy_arm.rs`).
+const TAG_PIPBOY: u32 = 90;
+/// The Pip-Boy clip fades in over its first 8 frames [observed: its `Blend: 8` key;
+/// hypothesis: frames at 30 a second, as for idles] and out over its last 8 going down
+/// [design].
+const PIPBOY_BLEND: f32 = 8.0 / 30.0;
+
+/// The field of view the first-person arms are drawn with while the Pip-Boy is up,
+/// degrees, as the game's field-of-view setting counts them (across a 4:3 picture)
+/// [documented: `Fallout_default.ini` `fPipboy1stPersonFOV=47.0`, and the owner's
+/// `Fallout.ini` the same].
+pub const PIPBOY_FOV: f32 = 47.0;
+
+/// How much of the Pip-Boy clip shows at `t` seconds into it: up over its first
+/// [`PIPBOY_BLEND`], down over its last (smoothstep).
+pub fn pipboy_ease(t: f32) -> f32 {
+    let e = (t.min(nvf_play::pipboy::CLIP_SECONDS - t) / PIPBOY_BLEND).clamp(0.0, 1.0);
+    e * e * (3.0 - 2.0 * e)
+}
+
+/// How much bigger the arms are drawn so that they look as through a view of `arms_fov`
+/// (the game's degrees across 4:3) inside the view's own vertical field of view
+/// `view_vfov` (radians): the ratio of the two views' half-widths.
+pub fn arms_magnification(view_vfov: f32, arms_fov: f32) -> f32 {
+    let arms_vfov_half = ((arms_fov.to_radians() / 2.0).tan() * 3.0 / 4.0).atan();
+    (view_vfov / 2.0).tan() / arms_vfov_half.tan()
+}
 /// Idles (`idles.rs`): one role per idle started, so an idle keeps its layer while the
 /// next one fades in over it.
 const TAG_SPECIAL: u32 = 1000;
@@ -225,6 +252,8 @@ enum ClipKey {
     Reload(Stance, &'static str, &'static str),
     /// The opening clip of a round-by-round reload (`ReloadX` → `1hpreloadxstart.kf`).
     ReloadOpen(Stance, &'static str, &'static str),
+    /// The Pip-Boy coming up (first person); a woman's.
+    PipBoy(bool),
 }
 
 impl ClipKey {
@@ -241,6 +270,12 @@ impl ClipKey {
             ClipKey::Attack(s, p, a, sights) => attack_clips(s, p, a, sights),
             ClipKey::Reload(s, p, r) => reload_clips(s, p, r),
             ClipKey::ReloadOpen(s, p, r) => reload_open_clips(s, p, r),
+            // [observed: `_1stperson\locomotion\female\pipboyfemale.kf` beside the
+            // male one]
+            ClipKey::PipBoy(female) => {
+                let own = if female { vec!["locomotion\\female\\pipboyfemale.kf".to_string()] } else { Vec::new() };
+                own.into_iter().chain(["locomotion\\male\\pipboy.kf".to_string()]).collect()
+            }
         }
     }
 }
@@ -305,6 +340,9 @@ struct WeaponPart {
 struct Rig {
     view: View,
     root: Entity,
+    /// First person: the nodes above the root that draw the rig bigger about the eye
+    /// ([`place_lens`]).
+    lens: Option<[Entity; 2]>,
     /// The skeleton's folder (`meshes\characters\_male\`).
     folder: String,
     animator: Animator,
@@ -533,6 +571,11 @@ pub struct PlayerBody {
 }
 
 impl PlayerBody {
+    /// Whether the first-person rig is drawn (`pipboy_arm.rs`).
+    pub fn first_person_drawn(&self) -> bool {
+        self.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true))
+    }
+
     /// Whether the body drawn is a woman's; `None` without a body.
     pub fn female(&self) -> Option<bool> {
         self.body.as_ref().map(|b| b.female)
@@ -632,7 +675,7 @@ fn ensure_body(
         if let Some(old) = state.body.take() {
             commands.entity(old.third.root).despawn();
             if let Some(f) = old.first {
-                commands.entity(f.root).despawn();
+                commands.entity(f.lens.map_or(f.root, |[outer, _]| outer)).despawn();
             }
         }
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
@@ -826,6 +869,14 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
             u.materials = (u.part.shapes.iter().enumerate()).map(|(i, s)| arms_material(&mut ctx.models.materials, u.materials.get(i).unwrap_or(&s.material))).collect();
         }
     }
+    // The first-person rig hangs under two nodes that can draw it bigger about the eye
+    // ([`place_lens`]).
+    let lens = (view == View::First).then(|| {
+        let outer = commands.spawn((Name::new("Arms lens"), Transform::IDENTITY, Visibility::Inherited, ChildOf(parent))).id();
+        let inner = commands.spawn((Transform::IDENTITY, Visibility::Inherited, ChildOf(outer))).id();
+        [outer, inner]
+    });
+    let parent = lens.map_or(parent, |[_, inner]| inner);
     let spawned = spawn_actor(commands, parent, Transform::from_scale(Vec3::splat(a.race_height as f32)), &skel, &uses);
     commands.entity(spawned.root).insert(Name::new(format!("Player body ({view:?} person)")));
     let drawn = (spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of))
@@ -836,6 +887,11 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         // player's.
         for e in &spawned.drawn {
             commands.entity(*e).insert(RenderLayers::layer(ARMS_LAYER));
+        }
+        for ((&e, &p), &s) in spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of) {
+            if let Some(part) = uses[p].part.shapes[s].name.as_deref().and_then(crate::pipboy_arm::part) {
+                commands.entity(e).insert(part);
+            }
         }
     }
     let folder = a.skeleton.rfind('\\').map_or(String::new(), |i| a.skeleton[..=i].to_string());
@@ -853,6 +909,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
     Ok(Rig {
         view,
         root: spawned.root,
+        lens,
         folder,
         animator,
         clips: HashMap::new(),
@@ -917,6 +974,8 @@ struct Posed<'a> {
     look_pitch: f32,
     /// The idles the rig plays (`idles.rs`).
     special: &'a IdleSlot<Arc<Clip>>,
+    /// The Pip-Boy shows: seconds into its clip (first person).
+    pipboy: Option<f32>,
 }
 
 /// Pose `rig` for the frame, apply the weapon events, place it at its root; returns the
@@ -929,7 +988,8 @@ struct Posed<'a> {
 /// would do by itself [hypothesis: the clips of the opening share track priorities with
 /// the standing idle, so both cannot play; idles.md §4].
 fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
-    let Posed { root, look_pitch, special } = posed;
+    let Posed { root, look_pitch, special, pipboy } = posed;
+    let pipboy = pipboy.filter(|_| rig.view == View::First).and_then(|t| Some((rig.clip(ctx, ClipKey::PipBoy(f.female))?, t)));
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
     let put_away = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, false));
     let holster = rig.clip(ctx, ClipKey::Holster(f.stance, f.prefix));
@@ -1114,6 +1174,13 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
         }
         view_driven |= rig.camera.is_some() && p.clip.tracks.iter().any(|(n, _)| n == crate::idles::CAMERA_NODE);
     }
+    // The Pip-Boy: its clip at the time the Pip-Boy is at, over the rest (its tracks'
+    // priority is above the others' [observed: 98]); it does not turn the view.
+    if let Some((c, t)) = &pipboy {
+        let i = a.want(&c.clip, TAG_PIPBOY, 1.0, Mode::Once, 0.0);
+        let l = &mut a.layers[i];
+        (l.rate, l.time) = (0.0, *t);
+    }
     a.end();
     // Movement clips play at the speed the character actually moves [hypothesis: the
     // game matches the clip's root motion to the ground speed].
@@ -1125,6 +1192,11 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
     if let Some((from, to)) = rig.attack_loop.filter(|_| rig.since_attack <= LOOP_HOLD) {
         for l in a.layers.iter_mut().filter(|l| (TAG_ATTACK..TAG_ATTACK + 3).contains(&l.tag)) {
             l.time = loop_time(l.time, from, to);
+        }
+    }
+    if let Some((_, t)) = pipboy {
+        for l in a.layers.iter_mut().filter(|l| l.tag == TAG_PIPBOY) {
+            (l.weight, l.ease) = (1.0, pipboy_ease(t));
         }
     }
     a.pose();
@@ -1145,6 +1217,23 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             (m.translation.into(), view_driven.then(|| m.to_scale_rotation_translation().1))
         }),
         View::Third => rig.head.map(|h| ((root_m * a.model_space(h)).transform_point3(rig.eye_local), None)),
+    }
+}
+
+/// Draw the first-person rig `k` times as big across the view about the eye (along the
+/// view it keeps its depth): what a view of a narrower field of view gives, without a
+/// second camera [design]. The rig's root keeps the place [`pose_rig`] gave it, under
+/// the lens nodes: the outer node stands at the eye looking along `forward`, the inner
+/// one scales across that look.
+fn place_lens(rig: &Rig, eye: Vec3, forward: Vec3, k: f32, transforms: &mut Query<&mut Transform>) {
+    let Some([outer, inner]) = rig.lens else { return };
+    let Ok(root) = transforms.get(rig.root).copied() else { return };
+    let at = Transform { translation: eye, rotation: Quat::from_rotation_arc(Vec3::Y, forward.normalize_or(Vec3::Y)), scale: Vec3::ONE };
+    let local = Transform::from_matrix(at.to_matrix().inverse() * root.to_matrix());
+    for (e, t) in [(outer, at), (inner, Transform::from_scale(Vec3::new(k, 1.0, k))), (rig.root, local)] {
+        if let Ok(mut m) = transforms.get_mut(e) {
+            *m = t;
+        }
     }
 }
 
@@ -1334,7 +1423,7 @@ fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&m
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn drive_body(
     mut commands: Commands,
     time: Res<Time>,
@@ -1350,7 +1439,13 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat): (Res<crate::furniture::BodyOverride>, ResMut<PlayerIdles>, ResMut<nvf_play::furniture::PlayerSeat>),
+    (furniture, mut idles, mut seat, pip, cams): (
+        Res<crate::furniture::BodyOverride>,
+        ResMut<PlayerIdles>,
+        ResMut<nvf_play::furniture::PlayerSeat>,
+        Res<nvf_play::pipboy::PipBoy>,
+        Query<&Projection, With<nvf_play::PlayerCamera>>,
+    ),
 ) {
     let state = &mut *state;
     player.body_view = None;
@@ -1486,7 +1581,12 @@ fn drive_body(
 
     // Attacks and reloads (combat): the clips of the weapon, their timing in the rig in
     // view, and whether combat started one since the last frame.
-    let attack = if anim.power { m.intern("attackpower".to_string()) } else { m.intern(attack_stem(anim.attack.as_deref())) };
+    // A melee swing plays the clip combat chose (a combo's next group, a power attack's
+    // direction; `fnv_combat::melee`), else the weapon's attack animation.
+    let attack = match anim.swing.clone() {
+        Some(stem) => m.intern(stem),
+        None => m.intern(attack_stem(anim.attack.as_deref())),
+    };
     let reload = anim.reload.clone().map(|r| m.intern(r));
     let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, control.aiming));
     let reload_clip = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, r)));
@@ -1495,7 +1595,9 @@ fn drive_body(
         attack_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit, c.keys.hit.zip(c.keys.loop_end).is_some_and(|(fire, back)| fire < back))),
         reload_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit)),
         reload_open.as_ref().map(|c| c.clip.length()),
+        attack_clip.as_ref().and_then(|c| c.keys.next_attack.as_ref()).map(|(t, v)| (*t, v.as_str())),
     );
+    anim.timed = Some(attack.to_string());
     anim.ready = m.hands.phase == WeaponPhase::Drawn && m.hands.in_hand;
     let attack_now = anim.attacks != m.attacks_seen;
     let reload_now = anim.reloads != m.reloads_seen;
@@ -1530,7 +1632,7 @@ fn drive_body(
         spin_now,
     };
     let root = Transform { translation: Vec3::from_array(feet), rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
-    let third = Posed { root, look_pitch: player.pitch, special: &idles.third };
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e);
     // While an idle turns the first-person view, its rig keeps the heading the idle
     // started at, and the view's own turning since then (to the side, and up or down)
@@ -1544,9 +1646,23 @@ fn drive_body(
         // The character stays where the scene plays (and collides with nothing there).
         seat.hold = Some(h.feet);
     }
-    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first };
+    let pipboy = pip.shown().then_some(pip.clip_time);
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy };
     let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
     let first_eye = first.map(|(e, _)| e);
+    // While the Pip-Boy shows, the arms are drawn as through its narrower view.
+    if let (Some(f), Some(eye)) = (body.first.as_ref(), first_eye) {
+        let vfov = cams.single().ok().and_then(|p| match p {
+            Projection::Perspective(p) => Some(p.fov),
+            _ => None,
+        });
+        let k = match (pip.shown(), vfov) {
+            (true, Some(v)) => 1.0 + (arms_magnification(v, PIPBOY_FOV) - 1.0) * pipboy_ease(pip.clip_time),
+            _ => 1.0,
+        };
+        let forward = Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch));
+        place_lens(f, eye, forward, k, &mut transforms);
+    }
     match first.and_then(|(_, v)| v) {
         Some(v) => {
             let v = Quat::from_rotation_z(held - player.heading) * v;

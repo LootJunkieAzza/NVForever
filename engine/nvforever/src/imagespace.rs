@@ -25,7 +25,8 @@ use bevy::ecs::system::BoxedSystem;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::render::extract_component::{ComponentUniforms, DynamicUniformIndex, ExtractComponent};
-use bevy::render::render_resource::binding_types::{sampler, texture_2d, uniform_buffer};
+use bevy::core_pipeline::prepass::ViewPrepassTextures;
+use bevy::render::render_resource::binding_types::{sampler, texture_2d, texture_depth_2d, texture_depth_2d_multisampled, uniform_buffer};
 use bevy::render::render_resource::{
     BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, CachedRenderPipelineId, ColorTargetState, ColorWrites, FilterMode, FragmentState,
     Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor,
@@ -56,6 +57,10 @@ pub struct ImageSpaceGrade {
     pub blur: f32,
     /// Seconds, for the swing of double vision.
     pub time: f32,
+    /// The blur leaves alone what is nearer than this depth (the depth prepass's value,
+    /// larger nearer) and does not take it into the blur of what is behind: 0 for none.
+    /// The Pip-Boy keeps itself sharp over the blurred world so.
+    pub sharp: f32,
 }
 
 impl Default for ImageSpaceGrade {
@@ -71,6 +76,7 @@ impl Default for ImageSpaceGrade {
             brightness: 1.0,
             blur: 0.0,
             time: 0.0,
+            sharp: 0.0,
         }
     }
 }
@@ -174,6 +180,17 @@ fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&
 /// choice: by eye against the owner's screenshot of the original menu].
 const WAIT_MENU_BLUR: f32 = 3.0;
 
+/// The blur of the world behind the Pip-Boy, in the same units [documented:
+/// `Fallout_default.ini` `[Pipboy] fBlurRadiusPipboy=3.5`; hypothesis: the same units as
+/// a modifier's blur radius; its `fBlurIntensityPipboy=0.25` is not used, what it scales
+/// is not known]. Eased in and out with the Pip-Boy's clip.
+const PIPBOY_BLUR: f32 = 3.5;
+
+/// While the Pip-Boy shows, what is nearer to the eye than this (game units) is the
+/// player's own arms and is not blurred [engineering choice: the Pip-Boy is about 11 in
+/// front of the eye; the nearest world the player can stand against is further].
+const PIPBOY_SHARP: f32 = 40.0;
+
 /// Copy the sky's grade, with the modifiers on the screen, onto every graded camera.
 #[allow(clippy::too_many_arguments)]
 fn update_grade(
@@ -184,6 +201,7 @@ fn update_grade(
     new_game: Option<Res<nvf_play::script::NewGame>>,
     wait: Option<Res<nvf_play::wait::WaitMenu>>,
     sleep: Option<Res<nvf_play::wait::SleepFade>>,
+    (pip, projections): (Option<Res<nvf_play::pipboy::PipBoy>>, Query<&Projection, With<nvf_play::PlayerCamera>>),
     mut mods: ResMut<ScreenModifiers>,
     mut grades: Query<&mut ImageSpaceGrade>,
 ) {
@@ -213,6 +231,16 @@ fn update_grade(
         }
         mods.shown = forms;
     }
+    // The world behind the Pip-Boy is blurred, the Pip-Boy is not.
+    let near = projections.single().ok().and_then(|p| match p {
+        Projection::Perspective(p) => Some(p.near),
+        _ => None,
+    });
+    let pipboy = pip.filter(|p| p.shown()).map_or(0.0, |p| crate::player_body::pipboy_ease(p.clip_time));
+    let (pip_blur, sharp) = match near {
+        Some(n) if pipboy > 0.0 => (PIPBOY_BLUR * pipboy, n / PIPBOY_SHARP),
+        _ => (0.0, 0.0),
+    };
     let c = graded(&sky.cinematic(), &effect);
     let r = &effect.radial;
     let g = ImageSpaceGrade {
@@ -225,93 +253,101 @@ fn update_grade(
         contrast_avg_lum: c.contrast_avg_lum,
         brightness: c.brightness,
         // The world behind the wait menu is blurred (docs/spec-notes/wait-menu.md §2).
-        blur: effect.blur_radius.max(if wait.is_some_and(|w| w.is_open()) { WAIT_MENU_BLUR } else { 0.0 }),
+        blur: effect.blur_radius.max(if wait.is_some_and(|w| w.is_open()) { WAIT_MENU_BLUR } else { 0.0 }).max(pip_blur),
         time: now,
+        sharp,
     };
     for mut grade in &mut grades {
         *grade = g;
     }
 }
 
-/// The blur passes' pipelines: across and down, per target format.
+/// The blur passes' pipelines: across and down, per target format and whether the
+/// view's depth is multisampled (the depth is read to keep what is near sharp).
 #[derive(Resource)]
 struct BlurPipelines {
-    layout: BindGroupLayoutDescriptor,
+    /// The layouts with a single-sampled and a multisampled depth.
+    layouts: [BindGroupLayoutDescriptor; 2],
     sampler: Sampler,
     base: RenderPipelineDescriptor,
-    by_format: HashMap<TextureFormat, [CachedRenderPipelineId; 2]>,
+    by_format: HashMap<(TextureFormat, bool), [CachedRenderPipelineId; 2]>,
 }
 
-/// The blur pipelines of a view.
+/// The blur pipelines of a view, and whether its depth is multisampled.
 #[derive(Component)]
-struct BlurPipelineIds([CachedRenderPipelineId; 2]);
+struct BlurPipelineIds([CachedRenderPipelineId; 2], bool);
 
 fn init_blur(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>) {
-    let layout = BindGroupLayoutDescriptor::new(
-        "imagespace_blur_layout",
-        &BindGroupLayoutEntries::sequential(
-            ShaderStages::FRAGMENT,
-            (texture_2d(TextureSampleType::Float { filterable: true }), sampler(SamplerBindingType::Filtering), uniform_buffer::<ImageSpaceGrade>(true)),
-        ),
-    );
+    let screen = || (texture_2d(TextureSampleType::Float { filterable: true }), sampler(SamplerBindingType::Filtering), uniform_buffer::<ImageSpaceGrade>(true));
+    let (a, b, c) = screen();
+    let single = BindGroupLayoutDescriptor::new("imagespace_blur_layout", &BindGroupLayoutEntries::sequential(ShaderStages::FRAGMENT, (a, b, c, texture_depth_2d())));
+    let (a, b, c) = screen();
+    let multi = BindGroupLayoutDescriptor::new("imagespace_blur_layout_ms", &BindGroupLayoutEntries::sequential(ShaderStages::FRAGMENT, (a, b, c, texture_depth_2d_multisampled())));
     // Filtered: each sample of the blur reads two pixels at once.
     let sampler = device.create_sampler(&SamplerDescriptor { mag_filter: FilterMode::Linear, min_filter: FilterMode::Linear, ..default() });
     let base = RenderPipelineDescriptor {
         label: Some("imagespace_blur_pipeline".into()),
-        layout: vec![layout.clone()],
+        layout: vec![single.clone()],
         vertex: fullscreen.to_vertex_state(),
         fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/imagespace_blur.wgsl"), ..default() }),
         ..default()
     };
-    commands.insert_resource(BlurPipelines { layout, sampler, base, by_format: HashMap::default() });
+    commands.insert_resource(BlurPipelines { layouts: [single, multi], sampler, base, by_format: HashMap::default() });
 }
 
 fn prepare_blur(
     mut commands: Commands,
     cache: Res<PipelineCache>,
     mut pipelines: ResMut<BlurPipelines>,
-    views: Query<(Entity, &ExtractedView), With<ImageSpaceGrade>>,
+    views: Query<(Entity, &ExtractedView, &Msaa), With<ImageSpaceGrade>>,
 ) {
-    for (entity, view) in &views {
+    for (entity, view, msaa) in &views {
         let format = view.target_format;
-        let ids = match pipelines.by_format.get(&format) {
+        let multi = msaa.samples() > 1;
+        let ids = match pipelines.by_format.get(&(format, multi)) {
             Some(ids) => *ids,
             None => {
                 let ids = ["blur_across", "blur_down"].map(|entry| {
                     let mut d = pipelines.base.clone();
+                    d.layout = vec![pipelines.layouts[multi as usize].clone()];
                     if let Some(f) = d.fragment.as_mut() {
                         f.entry_point = Some(entry.into());
                         f.targets = vec![Some(ColorTargetState { format, blend: None, write_mask: ColorWrites::ALL })];
+                        if multi {
+                            f.shader_defs.push("MULTISAMPLED".into());
+                        }
                     }
                     cache.queue_render_pipeline(d)
                 });
-                pipelines.by_format.insert(format, ids);
+                pipelines.by_format.insert((format, multi), ids);
                 ids
             }
         };
-        commands.entity(entity).insert(BlurPipelineIds(ids));
+        commands.entity(entity).insert(BlurPipelineIds(ids, multi));
     }
 }
 
-/// Blur the picture across and then down, while a modifier blurs.
+/// Blur the picture across and then down, while a modifier blurs (a view without a depth
+/// prepass is not blurred).
 fn blur_pass(
-    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<ImageSpaceGrade>, &ImageSpaceGrade, &BlurPipelineIds)>,
+    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<ImageSpaceGrade>, &ImageSpaceGrade, &BlurPipelineIds, &ViewPrepassTextures)>,
     pipelines: Res<BlurPipelines>,
     cache: Res<PipelineCache>,
     uniforms: Res<ComponentUniforms<ImageSpaceGrade>>,
     device: Res<RenderDevice>,
     mut ctx: RenderContext,
 ) {
-    let (target, index, grade, ids) = view.into_inner();
+    let (target, index, grade, ids, prepass) = view.into_inner();
     if grade.blur <= 0.0 {
         return;
     }
+    let Some(depth) = prepass.depth_view() else { return };
     let (Some(across), Some(down)) = (cache.get_render_pipeline(ids.0[0]), cache.get_render_pipeline(ids.0[1])) else { return };
     let Some(binding) = uniforms.uniforms().binding() else { return };
-    let layout = cache.get_bind_group_layout(&pipelines.layout);
+    let layout = cache.get_bind_group_layout(&pipelines.layouts[ids.1 as usize]);
     for pipeline in [across, down] {
         let post = target.post_process_write();
-        let bind_group = device.create_bind_group("imagespace_blur_bind_group", &layout, &BindGroupEntries::sequential((post.source, &pipelines.sampler, binding.clone())));
+        let bind_group = device.create_bind_group("imagespace_blur_bind_group", &layout, &BindGroupEntries::sequential((post.source, &pipelines.sampler, binding.clone(), depth)));
         let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
             label: Some("imagespace_blur_pass"),
             color_attachments: &[Some(RenderPassColorAttachment { view: post.destination, depth_slice: None, resolve_target: None, ops: Operations::default() })],

@@ -15,6 +15,7 @@ pub mod activate;
 pub mod ambient;
 pub mod bindings;
 pub mod blocking;
+pub mod chargen;
 pub mod combat;
 pub mod control;
 pub mod corner_messages;
@@ -23,6 +24,7 @@ pub mod dialogue_look;
 pub mod dialogue_menu;
 pub mod doors;
 pub mod dropped;
+pub mod flashlight;
 pub mod furniture;
 pub mod hitvol;
 pub mod interface;
@@ -34,6 +36,7 @@ pub mod moved;
 pub mod music;
 pub mod pause;
 pub mod phys;
+pub mod pipboy;
 pub mod player;
 pub mod quest_messages;
 pub mod radio;
@@ -88,7 +91,7 @@ pub struct PlayData {
 
 /// The controls in `--play`, for nvforever's help line.
 pub const HELP: &str =
-    "WASD move  Shift walk  Caps Lock always run  Ctrl sneak  Q auto move  Space jump  mouse look  E use  Tab inventory  T wait  Esc pause  [ ] hour  F12 screenshot";
+    "WASD move  Shift walk  Caps Lock always run  Ctrl sneak  Q auto move  Space jump  mouse look  E use  Tab inventory (hold: flashlight)  T wait  Esc pause  [ ] hour  F12 screenshot";
 
 /// [`PlayData`] as a resource, for systems that read the plugins.
 #[derive(Resource, Clone, Copy, Deref)]
@@ -231,10 +234,12 @@ impl Plugin for PlayPlugin {
             .add_message::<ui_sounds::UiSound>()
             .init_resource::<furniture::PlayerSeat>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
-            .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin))
+            .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin, flashlight::FlashlightPlugin))
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin))
             .add_plugins(world_sounds::WorldSoundsPlugin)
             .add_plugins(ui_sounds::UiSoundsPlugin)
+            .add_plugins(chargen::ChargenPlugin)
+            .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin);
         test_aid::setup(app);
     }
