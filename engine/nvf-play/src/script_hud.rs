@@ -111,7 +111,7 @@ pub struct ScriptHudPlugin;
 impl Plugin for ScriptHudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ScriptHud>()
-            .add_plugins((crate::message_menu::MessageMenuPlugin, crate::corner_messages::CornerMessagesPlugin))
+            .add_plugins((crate::message_menu::MessageMenuPlugin, crate::corner_messages::CornerMessagesPlugin, crate::quest_messages::QuestMessagesPlugin))
             .add_systems(Startup, spawn)
             .add_systems(Update, draw.in_set(crate::PlaySet::Ui).before(crate::message_menu::DrawBox));
     }

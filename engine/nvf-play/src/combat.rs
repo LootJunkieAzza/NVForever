@@ -127,6 +127,9 @@ pub struct WeaponAnim {
     /// clip when it sees a new count.
     pub attacks: u32,
     pub reloads: u32,
+    /// Counted up by combat when a round-by-round reload starts on a round: the body
+    /// plays the reload clip from its start (a reload count plays the opening clip).
+    pub reload_rounds: u32,
     /// Counted up by combat when a weapon starts to spin up: the body plays the attack
     /// clip from its start, and the first shot follows at the clip's `Fire` key.
     pub spin_ups: u32,
@@ -148,6 +151,8 @@ pub struct WeaponAnim {
 #[derive(Message, Clone, Copy, Debug)]
 pub struct ShotFired {
     pub projectile: FormId,
+    /// The weapon that fired it (nvforever `detection` hears its sound level).
+    pub weapon: FormId,
 }
 
 /// One projectile to draw this frame.
@@ -883,7 +888,7 @@ fn fire(
                     debug!("combat: {} fires no projectile", w.edid.as_deref().unwrap_or("?"));
                     continue;
                 };
-                fired.write(ShotFired { projectile: proj });
+                fired.write(ShotFired { projectile: proj, weapon: id });
                 // A casing for each shot of a weapon with a casing model, from its
                 // `ShellCasingNode` at the game's eject speed (`fGunShellEjectSpeed`)
                 // [hypothesis: one a shot, at the shot; the game's timing is not known].
@@ -979,7 +984,15 @@ fn fire(
             }
             Event::ReloadStarted => {
                 anim.reloads += 1;
-                debug!("combat: reloading");
+                match cycle.timing.rounds {
+                    Some(r) => info!("combat: reloading round by round (opens {:.2} s, {:.2} s a round, closes {:.2} s)", r.open, r.round, r.close),
+                    None => debug!("combat: reloading"),
+                }
+            }
+            Event::ReloadRound => anim.reload_rounds += 1,
+            Event::RoundLoaded => info!("combat: a round in, magazine {}", cycle.magazine),
+            Event::ReloadClosing { stopped } => {
+                info!("combat: closing{}", if stopped { " (the trigger was pulled)" } else { "" });
             }
             Event::Reloaded { taken } => {
                 stats.reloads += 1;
@@ -1842,13 +1855,15 @@ fn update_hit_hud(
 }
 
 /// The cycle's clip timing from the attack clip (length, `Hit` or `Fire` key, and
-/// whether a `Loop` key follows that key) and the reload clip's length, as the player
-/// body reads them.
-pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<f32>) -> ClipTiming {
+/// whether a `Loop` key follows that key), the reload clip (length and `Hit` key) and the
+/// length of the reload's opening clip, as the player body reads them.
+pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32, Option<f32>)>, reload_open: Option<f32>) -> ClipTiming {
     ClipTiming {
         attack_len: attack.map(|a| a.0).filter(|l| *l > 0.0),
         hit_time: attack.and_then(|a| a.1),
-        reload_len: reload.filter(|l| *l > 0.0),
+        reload_len: reload.map(|r| r.0).filter(|l| *l > 0.0),
+        reload_hit: reload.and_then(|r| r.1),
+        reload_open_len: reload_open,
         spin_up: attack.filter(|a| a.2).and_then(|a| a.1),
     }
 }

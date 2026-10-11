@@ -754,6 +754,7 @@ struct PlayCtx<'a> {
     data: &'a GameData,
     index: &'a WorldIndex,
     children: &'a HashMap<FormId, Vec<FormId>>,
+    quests: &'a std::collections::BTreeMap<FormId, fnv_game::quest::QuestState>,
 }
 
 impl PlayCtx<'_> {
@@ -768,13 +769,17 @@ impl EffectCtx for PlayCtx<'_> {
         self.display(form)
     }
 
-    fn quest_name(&self, quest: FormId) -> String {
-        let q = self.data.quests.get(&quest);
-        q.and_then(|q| q.name.clone().or_else(|| q.edid.clone())).unwrap_or_else(|| quest.to_string())
-    }
-
     fn objective_text(&self, quest: FormId, index: i32) -> Option<String> {
         self.data.quests.get(&quest)?.objectives.get(&index)?.text.clone()
+    }
+
+    fn quest_title(&self, quest: FormId) -> Option<String> {
+        self.data.quests.get(&quest)?.name.clone().filter(|n| !n.trim().is_empty())
+    }
+
+    fn quest_listed(&self, quest: FormId, besides: &[i32]) -> bool {
+        let Some(q) = self.quests.get(&quest) else { return false };
+        q.objectives.iter().any(|(i, o)| (o.displayed || o.completed) && !besides.contains(i))
     }
 
     fn is_message_box(&self, message: FormId) -> bool {
@@ -912,6 +917,7 @@ pub(crate) fn run_scripts(
     mut script: ResMut<ScriptState>,
     mut hud: ResMut<ScriptHud>,
     mut corner: ResMut<crate::corner_messages::CornerMessages>,
+    mut quest_lines: ResMut<crate::quest_messages::QuestMessages>,
     mut changed: MessageWriter<RefChanged>,
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
@@ -1055,7 +1061,7 @@ pub(crate) fn run_scripts(
     let events = std::mem::take(&mut rt.game.events);
     let skip = std::mem::take(&mut rt.skip);
     rt.stats.events += events.len() as u64;
-    let ctx = PlayCtx { sim: &sim, data: rt.game.data, index: play.index, children: &rt.children };
+    let ctx = PlayCtx { sim: &sim, data: rt.game.data, index: play.index, children: &rt.children, quests: &rt.game.quests };
     let mut effects = script_events::effects(&events, &skip, &ctx);
     for r in marked {
         info!("script: {r} marked for delete");
@@ -1114,6 +1120,10 @@ pub(crate) fn run_scripts(
             ScriptEffect::Notify(note) => {
                 info!("on screen: {}", note.text.trim().replace('\n', " / "));
                 corner.push(note);
+            }
+            ScriptEffect::Quest(n) => {
+                info!("quest message: {}", crate::quest_messages::describe(&n));
+                quest_lines.push(n);
             }
             ScriptEffect::MessageBox(b) => hud.message_box(b),
             ScriptEffect::UseFurniture(reference) => {
