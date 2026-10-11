@@ -446,15 +446,30 @@ impl Ai {
         }
     }
 
-    /// While a conversation holds the game (nobody walks, [`Ai::update`] is not
-    /// called): the actor that started it with its Dialogue package goes on turning to
-    /// the one it talks to.
+    /// While a conversation with the player holds the game (nobody walks, [`Ai::update`]
+    /// is not called): the actor in it turns to the player on the spot and keeps facing
+    /// the player for the whole conversation, however it started (the player's
+    /// activation, StartConversation, its Dialogue package) [documented for a Dialogue
+    /// package: speaker and target are "forced to look at each other"; design for the
+    /// others: the owner's playtest of 2026-10-11 found an actor talked to turning back
+    /// to its old heading after its first turn, because the engine drew it at this
+    /// walker's heading]. The heading is the walker's, and the game's, so it stays
+    /// after the conversation until a package turns the actor. Not turned: an actor on
+    /// furniture (its head turns, the engine's), a dead one, one in another space, one
+    /// whose Dialogue package says No Headtracking.
     pub fn update_held(&mut self, game: &mut Game, dt: f32) {
         let Some(actor) = game.dialogue.as_ref().map(|c| c.actor) else { return };
         let Some(a) = self.agents.get(&actor) else { return };
-        let (Some(Goal::Talk(talk)), Some(Talking::Speaking)) = (a.goal.clone(), a.talk) else { return };
+        if a.using.is_some() || game.extra.get(&actor).is_some_and(|e| e.dead) {
+            return;
+        }
+        if let (Some(Goal::Talk(talk)), Some(Talking::Speaking)) = (&a.goal, a.talk) {
+            if talk.no_headtracking {
+                return;
+            }
+        }
         let space = a.walker.space;
-        if let (Some(t), false) = (goal::place_of_ref(game, talk.target).filter(|t| t.space == space), talk.no_headtracking) {
+        if let Some(t) = goal::place_of_ref(game, FormId::PLAYER_REF).filter(|t| t.space == space) {
             self.face(game, actor, t, dt);
         }
     }

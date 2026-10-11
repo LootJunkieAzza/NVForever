@@ -409,7 +409,19 @@ original's values, unless a line carries another tag. What is known of the origi
   the conversation ends [design: AI packages will take over later]. Only the drawn
   actor turns: the simulation's reference keeps its angle (what `GetAngle` reads), as
   actors' drawn poses are the engine's own until AI exists (`moved.rs`).
+- **Bodies of actors the AI runs** (`--play`: every actor of the loaded cells;
+  `--npc-packages`) are turned by `fnv_ai::Ai::update_held`, on the spot at the
+  standing turn rate, for the whole conversation however it started (the player's
+  activation, StartConversation, a Dialogue package), in the walker's heading, which the
+  engine draws and the game keeps; so the actor still faces the player after the
+  conversation until a package turns it. `dialogue_look.rs` turns only their heads
+  ("the AI turns its body to the player (fnv_ai)"). Until 2026-10-11 this file turned
+  the drawn body of such an actor too, and the next frame's drawing at the walker's
+  heading undid it: the owner saw the actor turn on its greeting and turn back
+  (playtest 2026-10-11). Not turned: an actor on furniture, one whose Dialogue package
+  has No Headtracking.
 - **Head only**, the body left alone, for an actor whose body something else places:
+  - an actor the AI runs (above);
   - a `--npc-travel` traveller (its heading is its walker's; it stands while the
     conversation holds the world, turns its head, and walks on afterwards);
   - an actor under the walk test (`--actor-walk-test`);

@@ -548,3 +548,33 @@ fn an_actor_waits_for_a_player_who_is_nowhere() {
     assert_eq!(ai.agents[&FormId(R_COME)].walker.feet, CORNER);
     assert_eq!(ai.events.len(), 1);
 }
+
+/// A conversation the player starts (activation, not the actor's package) holds the
+/// game: the actor turns its body to the player on the spot while it lasts
+/// (`Ai::update_held`), in the walker's heading, which the game is told and keeps after
+/// the conversation (the owner's playtest of 2026-10-11: the actor turned back).
+#[test]
+fn an_actor_talked_to_turns_to_the_player_and_keeps_facing_the_player() {
+    let f = fixture();
+    // The player stands outside the greeter's trigger box: its package waits.
+    let mut s = sim(&f, R_GREET, CORNER);
+    s.run(0.5);
+    assert_eq!(s.agent(R_GREET).talk, Some(Talking::Waiting));
+    let before = s.agent(R_GREET).walker.heading;
+    s.game.start_dialogue(FormId(R_GREET), None).unwrap();
+    let want = fnv_nav::follow::heading_of([CORNER[0] - GREETER[0], CORNER[1] - GREETER[1]]);
+    let off = |h: f32| (h - want + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+    assert!(off(before).abs() > 1.0, "it starts facing away: {before} against {want}");
+    // The game is held (nobody walks); the actor turns where it stands.
+    for _ in 0..20 {
+        s.ai.update_held(&mut s.game, 0.25);
+    }
+    let heading = s.agent(R_GREET).walker.heading;
+    assert!(off(heading).abs() < 0.05, "{heading} against {want}");
+    assert_eq!(s.agent(R_GREET).walker.feet, GREETER);
+    assert!((s.game.world.peek(FormId(R_GREET)).unwrap().rot[2] - heading).abs() < 1e-4);
+    // The conversation is over: nothing turns it back.
+    assert!(s.game.end_dialogue());
+    s.ai.update_held(&mut s.game, 0.25);
+    assert_eq!(s.agent(R_GREET).walker.heading, heading);
+}
