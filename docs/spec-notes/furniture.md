@@ -196,7 +196,7 @@ in the engine: §7.
     not lie down [hypothesis from how the game is played]. Here the player lies down on
     a bed as a sleeping actor does [owner request 2026-10-10; not the original's]: the
     same markers, clips and frames as an actor on that bed, by the rules of a seat (§7).
-    The sleep menu is not built and no game time passes.
+    Once lying, the Sleep menu opens (wait-menu.md §8).
 
 A capture can answer 1, 3 and 4: an NPC sent to `Chair01F`, `Chair01L` and a bench from
 different sides with the observer logging GetSitting and GetFurnitureMarkerID per frame.
@@ -275,8 +275,8 @@ Code: `engine/nvforever/src/furniture.rs` (actors and the player), `nvf_play::fu
   (§4), so blending two of them would swing the body [design].
 - **Not done**: work spots (marker 22: no getting-on clip), fidgets, eating and talking
   idles while seated (value 3 of §3), the fast exits (nothing sets alerted or attacked),
-  children, checking the entry point against the navmesh, the sleep menu and passing
-  game time on a bed (the player only lies down), a bed's owner or a sleeper already on
+  children, checking the entry point against the navmesh, a bed's owner for lying
+  down (only sleeping in it is refused, wait-menu.md §9) or a sleeper already on
   it (the bed is then "in use"), and actors choosing furniture by themselves (AI
   packages).
 

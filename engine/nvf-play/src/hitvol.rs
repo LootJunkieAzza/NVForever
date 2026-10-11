@@ -46,6 +46,9 @@ pub const MAX_RADIUS: f32 = 150.0;
 pub struct HitVolumes {
     pub count: usize,
     pub most: usize,
+    /// The living actors drawn now and where each one's feet are (game space), the
+    /// player not among them.
+    pub living: Vec<(u32, [f32; 3])>,
 }
 
 /// One segment of a body part, game space (step C8).
@@ -203,9 +206,13 @@ fn sync_volumes(
         phys.world.remove_actor_volume(id);
     }
     blocks.list.clear();
+    vols.living.clear();
     for (&id, &(lo, hi)) in &bounds {
         let dead = crate::combat::is_dead(script.as_deref(), id);
         let v = volume_for(lo, hi, dead);
+        if !dead && id != FormId::PLAYER_REF.0 {
+            vols.living.push((id, v.feet));
+        }
         let posed = posed.by_ref.get(&id).filter(|p| !p.segments.is_empty());
         // In the player's way where its body is now, unless the character controller
         // walks it (its block is where its character is, `crate::player`).
