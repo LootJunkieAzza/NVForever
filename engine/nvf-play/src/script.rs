@@ -59,6 +59,7 @@
 //!   `<seconds>@<quest>=<stage>`, seconds after the stage was first seen done):
 //!   `start:<quest>`, `stop:<quest>`, `stage:<quest>:<n>`, `objective:<quest>:<n>`,
 //!   `objective_done:<quest>:<n>`, `info:<INFO>[:<speaker>]`, `button:<n>`, `close`,
+//!   `message:<MESG>`,
 //!   `var:<form>:<variable>:<value>`, `walk:<reference>`, `activate:<reference>`.
 //! - `NVF_PLAY_TEST_SCRIPT_MENUS=<seconds>|off`: every menu or message box a script opens
 //!   is closed (OK / Done, button 0) after it has been on screen that long. Unattended
@@ -662,6 +663,15 @@ impl Runtime {
             ScriptAid::Close => {
                 if !self.answer(None) {
                     return Err("no script menu or message box is open".into());
+                }
+            }
+            ScriptAid::Message(m) => {
+                let m = resolve(g, m)?;
+                let def = g.data.messages.get(&m).ok_or_else(|| format!("{} is not a message", g.data.name(m)))?;
+                let (text, buttons, is_box) = (def.text.clone(), def.buttons.clone(), def.message_box);
+                g.emit(EventKind::MessageShown { message: m, text, buttons: buttons.clone() });
+                if is_box || !buttons.is_empty() {
+                    g.show_box(m);
                 }
             }
             ScriptAid::Activate(r) => {

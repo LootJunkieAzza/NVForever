@@ -20,5 +20,6 @@ fnv-game.workspace = true
 fnv-combat.workspace = true
 fnv-voice.workspace = true
 fnv-vfs.workspace = true
+fnv-font.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
