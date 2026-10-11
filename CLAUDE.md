@@ -102,6 +102,14 @@ audio.md) and the music smoke test:
 (expect exit 0, "music: musSetLOCDesExplBothABC day started, layers outer+middle+inner",
 "music summary: 1 started, 0 changes of layers, 0 files not played" and "ambient summary:
 2 placed loops started, … 1 background loops started"; the count of random sounds varies).
+After radio changes (`fnv_world::radio`, `fnv_game::radio`, `nvf-play` `radio`;
+docs/spec-notes/radio.md §6), run the saloon jukebox, switched off at 20 s and on at 28 s, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3`, `NVF_PLAY_TEST_NEAR=00107D73` and `NVF_PLAY_TEST_ACTIVATE=20,28` set:
+`engine/target/release/nvforever --data <Data> --cell GSProspectorSaloonInterior --play --no-voice --run-seconds 40`
+(expect exit 0, "00109087 (vCountryRadio) is destroyed: silent", "00107D73 tuned to vCountryRadio
+playing sound\songs\radionv\…_mono.ogg", "switched off", the same file again "from 20.… s" and
+"radio summary: 1 receivers heard, 1 songs started, 0 DJ lines, 0 lines without a file; receivers
+switched 3 times, 1 on at exit").
 After changes to the player's controls or to what scripts lock of them (`nvf-play`
 `control::ControlLocks`, `script::sync_locks`; docs/spec-notes/controls.md §5), run the
 held-player smoke test, with `NVF_PLAY_TEST_SCRIPT_MENUS=1`, `NVF_PLAY_TEST_MOVE=1:1:0`,

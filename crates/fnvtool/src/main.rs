@@ -33,6 +33,7 @@ mod sim_cmd;
 mod source;
 mod voice_cmd;
 mod world_audio;
+mod world_radio;
 mod world_cmd;
 
 use clap::{Args, Parser, Subcommand};
@@ -530,6 +531,16 @@ pub enum WorldCmd {
         /// Game hour for the day or night choice (with --at).
         #[arg(long, default_value_t = 12.0)]
         hour: f32,
+    },
+    /// Radios (fnv.world.radio/1): radio stations (talking activators), their placed
+    /// references and broadcast range, the receivers (activators naming a station) and
+    /// the lines their quests give them (docs/spec-notes/radio.md).
+    Radio {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Function catalogue (default: ../script/functions.json next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
     },
 }
 

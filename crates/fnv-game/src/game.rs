@@ -506,6 +506,9 @@ pub struct Game<'a> {
     /// Sleeping and waiting as scripts see and ask for them (`crate::rest`); the menu is
     /// the engine's. Not part of the saved state.
     pub rest: crate::rest::Rest,
+    /// What switched radio receivers on and off (`crate::radio`); the engine plays the
+    /// stations. Not part of the saved state.
+    pub radio: crate::radio::Radios,
     pub world: World<'a>,
     pub cfg: GameConfig,
     pub quests: BTreeMap<FormId, QuestState>,
@@ -666,6 +669,7 @@ impl<'a> Game<'a> {
             combat_requests: Vec::new(),
             idle_requests: Vec::new(),
             rest: Default::default(),
+            radio: Default::default(),
             world,
             cfg,
             quests: BTreeMap::new(),
@@ -1533,6 +1537,9 @@ impl<'a> Game<'a> {
         };
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v.clone()) });
+        if matches!(act.outcome, Outcome::Activated) {
+            self.radio_activated(target);
+        }
         match act.outcome {
             Outcome::PickedUp { item, count, .. } => {
                 self.emit(EventKind::ItemAdded { to: actor, item, count });
