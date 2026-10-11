@@ -2653,3 +2653,27 @@ enemy far off) before they have confirmed it, as the start of NPC combat. Branch
 6. **Would help:** in the game, `tdetect` off, stand in sight of a hostile at the edge
    of its range and note how long it searches after you hide (GetDetected and IsInCombat
    on it every second), to tune the timers.
+
+## NPCs in Combat attack (2026-10-11, session "alert", combat AI step CA1)
+
+Your request: NPCs in Combat attack. Branch `claude/combat-ai` (on top of the alert
+branch), design `docs/design/combat-ai.md`.
+
+1. **Built:** an NPC in Combat shoots with the gun drawn on it (its fire rate, magazine
+   and reloads, the same projectiles and damage as yours) or strikes with its melee
+   weapon or fists; a creature bites with its own damage and reach. It attacks only what
+   it sees. NPCs run on packages run up to where they can attack: a gun to 80 % of its
+   range, a dog until its body is just clear of yours (your note about the dogs pushing
+   you around is fixed: they stop at biting range and bite).
+2. **You can be hurt and die**: their shots hit you, your armour counts. At 0 health
+   every control stops and the screen says "You are dead."; no death camera or reload yet.
+   `NVF_PLAY_TEST_GOD=1` makes you take no damage for test runs.
+3. **StartCombat / StopCombat work now** (938 calls in the game's scripts): quest
+   fights start for real. A test aid uses it: `NVF_PLAY_TEST_SCRIPT=3:combat:<actor>:player`.
+4. **My choices, for you to tune:** reaction time 0.6 s; first shots 4° wider, settling
+   over 3 s; a blow every 1.2 s; NPCs do not use up ammunition; their shots leave from the
+   eyes, not the gun's muzzle. Violet's hunting rifle hit 12 of 15 at 1,600 units, which
+   may be too deadly; the spread is the documented one for her Guns skill.
+5. **Not yet:** attack animations (they shoot and bite without moving the gun or the
+   jaw), allies joining in (Violet's dogs stayed out of her fight: by their records they
+   are not hostile to you), cover, fleeing, grenades, weapon choice, combat styles.

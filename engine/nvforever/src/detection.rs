@@ -26,7 +26,8 @@
 //!   [engineering choice]; the player runs when moving at the run gait (not holding Walk)
 //!   [hypothesis: a sneaking run counts as running]. Actors never sneak (packages' Always
 //!   Sneak is not acted on yet).
-//! - **Action sound**: the player's last shot since the last measurement, at the
+//! - **Action sound**: an actor's (or the player's) loudest shot since the last
+//!   measurement, at the
 //!   weapon's sound level (WEAP VNAM: iSoundLevelLoud, Normal, Silent) [documented:
 //!   GECK wiki Category:Detection].
 //! - **Detector state**: asleep when lying on a bed; alert in a combat state, busy when
@@ -34,13 +35,13 @@
 //!
 //! **Detection states** (docs/design/alert.md): each measurement goes to
 //! `Game::observe_threat`, which keeps those of actors the detector would attack; the
-//! impacts of the player's shots and CreateDetectionEvent are detection events, measured
-//! like a target that makes the event's sound and cannot be seen (`Game::hear_event`);
-//! an actor the player hits is alarmed (`Game::hurt_by`); then `Game::settle_awareness`
-//! changes states. Changes and Detection topic lines are logged here (`alert:` lines);
-//! how alerted actors look is `alert.rs`. [hypothesis: an impact sounds at the firing
-//! weapon's sound level; the original's is not documented.] Only the player fires, so
-//! the player owns every impact and hit [engineering choice until actors shoot].
+//! impacts of shots and CreateDetectionEvent are detection events, owned by the shooter,
+//! measured like a target that makes the event's sound and cannot be seen
+//! (`Game::hear_event`); an actor that is hit is alarmed about whoever hit it
+//! (`Game::hurt_by`); then `Game::settle_awareness` changes states. Changes and
+//! Detection topic lines are logged here (`alert:` lines); how alerted actors look is
+//! `alert.rs`. [hypothesis: an impact sounds at the firing weapon's sound level; the
+//! original's is not documented.]
 
 use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
@@ -121,14 +122,14 @@ pub struct DetectionState {
     next: f32,
     /// Where each actor was at the last measurement, and when (elapsed seconds).
     last: HashMap<u32, ([f32; 3], f32)>,
-    /// The loudest shot the player fired since the last measurement.
-    shot: f64,
-    /// The sound level of the player's last shot: its impacts make that sound.
-    shot_level: f64,
-    /// Impacts of the player's shots, and actors the player hit, since the last
+    /// The loudest shot each shooter fired since the last measurement.
+    shots: HashMap<u32, f64>,
+    /// The sound level of each shooter's last shot: its impacts make that sound.
+    shot_levels: HashMap<u32, f64>,
+    /// Impacts of shots (where, whose), and actors hit (who, by whom), since the last
     /// measurement.
-    impacts: Vec<[f32; 3]>,
-    hits: Vec<u32>,
+    impacts: Vec<([f32; 3], u32)>,
+    hits: Vec<(u32, u32)>,
     /// The player's highest band at the last measurement (the meter).
     meter: Option<Band>,
     stats: Stats,
@@ -270,19 +271,20 @@ fn measure(
     spot_lights: Query<(&SpotLight, &GlobalTransform, &InheritedVisibility)>,
 ) {
     let state = &mut *state;
-    // The player's shots, heard at the next measurement.
+    // Shots, heard at the next measurement.
     for s in shots.read() {
         let level = combat.as_deref().and_then(|c| c.forms.weapons.get(&s.weapon)).and_then(|w| w.sound_level.as_deref());
         let loud = level.map_or(0.0, |l| state.settings.unwrap_or_default().firing_sound(l));
-        state.shot = state.shot.max(loud);
-        state.shot_level = loud;
+        let heard = state.shots.entry(s.shooter.0).or_default();
+        *heard = heard.max(loud);
+        state.shot_levels.insert(s.shooter.0, loud);
     }
     for i in impacts.read() {
-        state.impacts.push(i.point);
+        state.impacts.push((i.point, i.shooter.0));
     }
     for h in hits.read() {
-        if !h.died {
-            state.hits.push(h.form_id);
+        if let (false, Some(by)) = (h.died, h.by) {
+            state.hits.push((h.form_id, by.0));
         }
     }
     let now = time.elapsed_secs();
@@ -372,8 +374,8 @@ fn measure(
     let light: Vec<f64> = people.iter().map(|p| light_at(sky.as_deref(), &lights, p.chest())).collect();
 
     // Every detector against every target within reach.
-    let shot = std::mem::take(&mut state.shot);
-    if shot > 0.0 {
+    let shots = std::mem::take(&mut state.shots);
+    if shots.get(&FormId::PLAYER_REF.0).is_some_and(|s| *s > 0.0) {
         state.stats.shots_heard += 1;
     }
     let mut phys = phys.as_deref_mut();
@@ -382,7 +384,7 @@ fn measure(
     let mut pairs = 0;
     let impacts = std::mem::take(&mut state.impacts);
     let hits = std::mem::take(&mut state.hits);
-    let shot_level = state.shot_level;
+    let shot_levels = state.shot_levels.clone();
     let (mut events, mut hurt) = (0, 0);
     let mut heard: Vec<(String, DetectionEvent, f64, f32)> = Vec::new();
     let (alert_changes, barks) = with_world(rt, sim, |rt| {
@@ -411,7 +413,7 @@ fn measure(
                     moving: t.moving,
                     running: t.running,
                     sneaking: t.sneaking,
-                    action_sound: if j == 0 { shot } else { 0.0 },
+                    action_sound: shots.get(&t.id).copied().unwrap_or(0.0),
                     detector_alert: alert,
                     detector_asleep: asleep,
                     detector_busy: fighting.is_some_and(|f| f != FormId(t.id)),
@@ -434,9 +436,10 @@ fn measure(
         }
         g.detection.forget_older_than(g.time - 1.0);
 
-        // Detection events: the impacts of the player's shots, CreateDetectionEvent.
-        for at in impacts {
-            g.queue_detection_event(DetectionEvent { owner: FormId::PLAYER_REF, at, level: shot_level, kind: EventType::Bullet });
+        // Detection events: the impacts of shots, CreateDetectionEvent.
+        for (at, by) in impacts {
+            let level = shot_levels.get(&by).copied().unwrap_or(0.0);
+            g.queue_detection_event(DetectionEvent { owner: FormId(by), at, level, kind: EventType::Bullet });
         }
         for ev in g.take_detection_events() {
             events += 1;
@@ -464,8 +467,9 @@ fn measure(
                 }
             }
         }
-        for id in hits {
-            if g.hurt_by(FormId(id), FormId::PLAYER_REF, people[0].feet) {
+        for (id, by) in hits {
+            let Some(at) = people.iter().find(|p| p.id == by).map(|p| p.feet) else { continue };
+            if g.hurt_by(FormId(id), FormId(by), at) {
                 hurt += 1;
             }
         }

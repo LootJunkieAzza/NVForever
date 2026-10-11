@@ -29,6 +29,7 @@ mod limbs;
 mod lips;
 mod lod;
 mod locomotion;
+mod npc_combat;
 mod weapons;
 mod lodgen;
 mod nav;
@@ -805,6 +806,8 @@ fn main() -> AppExit {
             app.add_plugins(detection::DetectionPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
+            // Actors in Combat attack their target (npc_combat.rs).
+            app.add_plugins(npc_combat::NpcCombatPlugin);
         }
     }
     if play.is_some() {

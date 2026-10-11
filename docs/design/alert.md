@@ -116,8 +116,8 @@ yet.
   ring's radius; the Combat Search page is not in the export]. It walks. A walk that has
   not arrived after 30 s ends where it is. [engineering choice for the times and
   distances.]
-- **Combat**: it stops and faces its target. Attacking, cover and fleeing are the combat
-  AI's, not built.
+- **Combat**: it closes in to where it can attack and faces its target; the attacks are
+  the combat AI's (docs/design/combat-ai.md). Cover and fleeing are not built.
 - **Continue During Combat** (package flag 26, owner's request 2026-10-11): an actor
   whose current package has it carries its package out in every combat state as if
   nothing had happened: no search, no stand [hypothesis: the flag's name; no source

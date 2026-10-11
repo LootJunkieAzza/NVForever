@@ -699,6 +699,7 @@ impl Core {
                 | AiEvent::ChatBack { .. }
                 | AiEvent::Search { .. }
                 | AiEvent::Hold { .. }
+                | AiEvent::Close { .. }
                 | AiEvent::SearchOver { .. }
                 | AiEvent::SearchBack { .. } => info!("{line}"),
                 _ => debug!("{line}"),
@@ -817,7 +818,11 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         ),
         AiEvent::SearchLook { seconds, .. } => format!("looks about for {seconds:.0}s"),
         AiEvent::Hold { target, away } => format!(
-            "stops and faces {}, {away:.0} units away (no combat AI yet)",
+            "stops and faces {}, {away:.0} units away",
+            if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) }
+        ),
+        AiEvent::Close { target, away, length, .. } => format!(
+            "runs at {}, {away:.0} units away, {length:.0} units to go",
             if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) }
         ),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),

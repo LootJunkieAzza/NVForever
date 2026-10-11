@@ -129,6 +129,9 @@ pub enum AiEvent {
     SearchLook { at: [f32; 3], seconds: f32 },
     /// In Combat it stops and faces `target`, `away` units from it.
     Hold { target: FormId, away: f32 },
+    /// In Combat it runs up to `target`, `away` units off, a way of `length` units to
+    /// `to` (`crate::alert`).
+    Close { target: FormId, to: [f32; 3], away: f32, length: f32 },
     /// It stops searching or holding (`why`).
     SearchOver { why: &'static str },
     /// After a search it goes back to its package's place, `away` units off.
@@ -270,7 +273,8 @@ impl Ai {
 
     /// Whether `actor` stands where an actor walking into it pushes it aside: it is in
     /// the world and alive, not on its way, not on furniture or about to use some, not
-    /// waiting at a door and not in a conversation it started.
+    /// waiting at a door, not in a conversation it started and not fighting (in Combat it
+    /// stands its ground, `crate::alert`) [design].
     pub fn stands(&self, game: &Game, actor: FormId) -> bool {
         let Some(a) = self.agents.get(&actor) else { return false };
         game.present(actor)
@@ -279,6 +283,7 @@ impl Ai {
             && a.using.is_none()
             && a.waiting_at.is_none()
             && a.talk != Some(Talking::Speaking)
+            && !matches!(a.search, Some(crate::alert::Search::Holding { .. } | crate::alert::Search::Closing { .. }))
     }
 
     /// Push a standing actor `by` (x, y), game units: it moves over the navmesh as far

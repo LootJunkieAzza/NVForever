@@ -372,6 +372,14 @@ pub struct Awarenesses {
     /// Detection topic lines said: the change's or idle topic, the speaker and the line.
     pub barks: Vec<(&'static str, FormId, Option<FormId>)>,
     pub timers: Option<Timers>,
+    /// How close each actor wants to be to its target, and how far it may be before it
+    /// has to close in again (its weapon's range, its reach), game units: the engine's
+    /// combat AI says, the AI that moves actors closes in (`fnv_ai::alert`). Not set: it
+    /// holds its ground.
+    pub engage: BTreeMap<FormId, (f32, f32)>,
+    /// (actor, target) pairs StartCombat made hostile whatever the records say, until
+    /// StopCombat.
+    pub forced: std::collections::BTreeSet<(FormId, FormId)>,
     rng: u64,
 }
 
@@ -435,6 +443,9 @@ impl Game<'_> {
         let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.unconscious || e.restrained);
         if out(self, actor) || out(self, other) || self.is_dead(other) {
             return false;
+        }
+        if self.awareness.forced.contains(&(actor, other)) {
+            return true;
         }
         if other == FormId::PLAYER_REF {
             if self.extra.get(&actor).is_some_and(|e| e.teammate) {
@@ -599,6 +610,58 @@ impl Game<'_> {
         let line = self.say(actor, about, t, false);
         self.awareness.barks.push((topic, actor, line));
     }
+}
+
+impl Game<'_> {
+    /// `actor.StartCombat target`: the actor fights `target` from now on, whatever the
+    /// records say of hostility, until StopCombat [documented: catalogue notes, "Forces
+    /// the calling actor to start combat with a target actor"]. It counts as detecting the
+    /// target at once (Combat); one it cannot see it loses and searches for, as any
+    /// other (`Awareness::settle`) [engineering choice]. The target's combat group (the
+    /// catalogue's second case) is not built: there are no combat groups yet.
+    pub fn start_combat(&mut self, actor: FormId, target: FormId) {
+        if actor == FormId::PLAYER_REF || actor == target || self.is_dead(actor) || self.is_dead(target) {
+            return;
+        }
+        self.awareness.forced.insert((actor, target));
+        let t = self.awareness_timers();
+        let now = self.time;
+        let at = position(self, target).unwrap_or_default();
+        let a = self.awareness.actors.entry(actor).or_default();
+        a.targets.insert(target, Target { band: Band::Detected, value: 100.0, at, detected: Some(now), hidden_since: None });
+        if let Some(c) = a.settle(actor, now, &t, true) {
+            self.awareness.changes.push(c);
+            if let Some(topic) = c.from.topic_to(c.to) {
+                self.detection_bark(actor, Some(target), topic);
+            }
+        }
+    }
+
+    /// `actor.StopCombat`: the actor leaves its combat state [documented: catalogue
+    /// notes, "Ends the calling actor's combat state so it stops fighting"]; what
+    /// StartCombat forced on it is undone. It may start again on what it perceives next.
+    pub fn stop_combat(&mut self, actor: FormId) {
+        self.awareness.forced.retain(|(a, _)| *a != actor);
+        if let Some(a) = self.awareness.actors.remove(&actor) {
+            if a.state != State::Normal {
+                self.awareness.changes.push(Change { actor, from: a.state, to: State::Normal, time: self.time, about: None, cause: None, at: None, value: None });
+            }
+        }
+    }
+}
+
+/// `actor.StartCombat target` ([`Game::start_combat`]).
+pub fn start_combat(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.start_combat(r, a.form(0)?);
+    none()
+}
+
+/// `actor.StopCombat` ([`Game::stop_combat`]).
+pub fn stop_combat(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.stop_combat(r);
+    none()
 }
 
 /// `actor.IsInCombat`: 1 in a combat state (Alert, Combat, Lost) [documented: GECK wiki
