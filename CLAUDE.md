@@ -201,7 +201,7 @@ and in the summary "2 pick-ups, 1 drops; 5 items taken from and 1 put in contain
 
 After changes to creatures' sounds, the player's jump and landing sounds, wading, objects' own
 sounds, casing sounds or panning (`fnv_actor::anim_sounds` creature part, nvforever `anim_sounds.rs`
-and `shot_fx.rs`, `nvf-play` `sfx`, `ambient`, `world_sounds`; docs/spec-notes/audio.md §12), jump
+and `shot_fx.rs`, `nvf-play` `sfx`, `ambient`, `world_sounds`; docs/spec-notes/audio.md §14), jump
 and shoot a bighorner in its pen, with `NVF_PLAY_TEST_NO_SPREAD=1`, `NVF_PLAY_TEST_EQUIP=0000434F`,
 `NVF_PLAY_TEST_GIVE=00004241:50` and
 `NVF_PLAY_TEST_CONTROL=11:jump,14:weapon,16:aimactor,16.2:fire,16.4:fire,17:aimactor,17.2:fire,17.4:fire,18:aimactor,18.2:fire,18.4:fire,19:aimactor,19.2:fire,19.4:fire,20:aimactor,20.2:fire,20.4:fire,21:aimactor,21.2:fire,21.4:fire` set:

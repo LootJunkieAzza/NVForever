@@ -121,7 +121,7 @@ location and retrigger delays and the minimum time on; intro and outro sounds; t
   and folders hold `.ogg` takes.
 
 Not built: markers that neither loop nor play at random, Random Location, Start at
-Random Position, Mute When Submerged. Panning: §12.5.
+Random Position, Mute When Submerged. Panning: §14.5.
 
 ## 6. Background loops
 
@@ -253,9 +253,9 @@ were not read.
   armour rustles, N reload keys, N other sound keys, N door sounds (N from door
   records), N keys without a SOUN`; per sound with
   `RUST_LOG=info,nvforever::anim_sounds=debug` (`trace` adds what is underfoot).
-- Built since (§12): creature sound types, the player's landing and jumping, wading, a
+- Built since (§14): creature sound types, the player's landing and jumping, wading, a
   door record's looping sound (BNAM), load doors' sounds. Stairs on the landscape: the
-  data has none (§12.2).
+  data has none (§14.2).
 
 ## 11. World and script sounds
 
@@ -418,9 +418,9 @@ the house).
 
 Not built: two loose bodies knocking each other told apart from one on the ground,
 loudness by how hard a knock is. Objects' own sounds (ACTI `SNAM`, CONT `RNAM`), the
-casings' sounds and panning: §12.
+casings' sounds and panning: §14.
 
-## 12. Creatures, movement, objects' own sounds, placement
+## 14. Creatures, movement, objects' own sounds, placement
 
 Owner request 2026-10-11: the remaining "not built" sounds. Code:
 `fnv_actor::anim_sounds` (the creature records, key → type), nvforever `anim_sounds.rs`
@@ -430,7 +430,7 @@ markers), `nvf_play::sfx` (panning). Survey: the example `fnv-actor
 creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r`,
 `--soun <prefix>`).
 
-### 12.1 Creatures
+### 14.1 Creatures
 
 - **The records** [documented: xEdit wbDefinitionsFNV.pas CREA, wbCSDT,
   wbSoundTypeSounds; `schemas/fnv/gameplay.json`]: `CSDT` a sound type, then pairs of
@@ -473,12 +473,12 @@ creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r
   death (`ActorHit`) [hypothesis]; `Enum: Hit` keys are not played again [design].
   A living creature within 3,000 units sounds its Conscious Loop (the chance rolled once
   per creature [design]) and while it moves (over 20 units/s) its Movement Loop, as
-  sources the ambient plays like sound markers (§12.3). A creature without sounds steps
+  sources the ambient plays like sound markers (§14.3). A creature without sounds steps
   like a person (§10.2). Not built: Aware (only through keys: nothing tells a creature
   became aware yet; detection exists but combat AI does not), Attack beyond the keys
   (creatures do not attack yet), Weapon, the type-21 sound.
 
-### 12.2 The player's movement
+### 14.2 The player's movement
 
 - **Jumps and landings** [hypothesis: by the names]: `FST<family>Jump` when the player
   leaves the ground going up faster than 100 units/s, `FST<family>Land` on touching
@@ -492,7 +492,7 @@ creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r
   (64–127) [observed].
 - Not built: actors' jumps and landings (actors do not jump).
 
-### 12.3 Objects' own sounds
+### 14.3 Objects' own sounds
 
 - **The fields** [documented: xEdit]: ACTI `SNAM` Sound - Looping, CONT `RNAM` Sound -
   Random/Looping, DOOR `BNAM` Sound - Looping. In FalloutNV.esm [observed]: 216 of 1,143
@@ -508,7 +508,7 @@ creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r
 - **Load doors** [hypothesis]: activating a door that leads elsewhere plays its open sound
   (DOOR `SNAM`) at the listener as the player goes through.
 
-### 12.4 Shell casings
+### 14.4 Shell casings
 
 FalloutNV.esm has `PHYCasingPistol`, `PHYCasingRifle` and `PHYCasingShotgun` (folders
 `fx\phy\weapon\casing_pistol\` …) and no field links them to a weapon [observed]. 78
@@ -519,7 +519,7 @@ weapons name a casing model (WEAP `MOD2`): `assaultrifleshellcasing` 23, `grenad
 Rifle) [hypothesis]; a bounce from 60 units/s plays it where the casing lands, up to
 three times a casing [design].
 
-### 12.5 Panning
+### 14.5 Panning
 
 How the game places sounds in stereo is not known. As built [design]
 (`nvf_play::sfx::pan_gains`): a sound with a place is mixed to one channel and played in
@@ -531,7 +531,7 @@ loops and random markers, objects' and creatures' sources, radios. Not panned: s
 the listener (the player's own, interface), background loops, music, voices (a
 recorded decision: voice plays flat, voice.md).
 
-### 12.6 Reverb (not built)
+### 14.6 Reverb (not built)
 
 ASPC `ANAM` is an environment type [documented: xEdit]: None, Default, Generic, Padded
 Cell, Room, Bathroom, Livingroom, Stone Room, Auditorium, Concerthall, Cave, Arena,
@@ -543,7 +543,7 @@ Auditorium 23, Medium Room 15, Large Room 10, Cave 5, Medium Hall 3, Mountains 2
 Livingroom, Sewerpipe, Stone Room and None 1 each. Not built: no reverb is applied; the
 preset values would need a documented source.
 
-### 12.7 Checks
+### 14.7 Checks
 
 Log: the `anim sounds summary` ends `creatures: N sounds (<type> n, …), N hits, N deaths,
 N keys of a type not listed; the player jumped N and landed N times`; the `ambient

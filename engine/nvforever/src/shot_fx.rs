@@ -77,7 +77,7 @@ pub const CASING_SOUNDS: u8 = 3;
 /// The PHY sound (SOUN editor ID) of a shell casing by its model's name [hypothesis: by
 /// the names; FalloutNV.esm has `PHYCasingPistol`, `PHYCasingRifle` and
 /// `PHYCasingShotgun` (files `fx\phy\weapon\casing_<kind>\`) and no record links them to
-/// a weapon or a casing model, audio.md §12].
+/// a weapon or a casing model, audio.md §14].
 pub fn casing_sound(model: &str) -> &'static str {
     let m = model.to_ascii_lowercase();
     if m.contains("shotgun") {

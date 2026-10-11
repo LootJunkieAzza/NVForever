@@ -20,7 +20,7 @@
 //!     its own or its template's), at its chance.
 //! - **Doors** that open in place (`nvf_play::doors`): the sound keys their sequences
 //!   pass, else the DOOR record's open (SNAM) or close (ANAM) sound as they start.
-//! - **Creatures** (docs/spec-notes/audio.md §12): a creature whose record lists sounds
+//! - **Creatures** (docs/spec-notes/audio.md §14): a creature whose record lists sounds
 //!   (CREA `CSDT`/`CSDI`/`CSDC`, its own, else those of the creature it inherits sounds
 //!   from, `CSCR`; of the creature a leveled list picked) hears its `Enum:` keys as those
 //!   types (`Left`, `Right`, `BackLeft`, `BackRight`, `Idle`, `Aware`, `Attack`,
@@ -718,7 +718,9 @@ mod tests {
         let p: Playing = (Who::Player(true), 1, 10);
         // Just started: heard from its start.
         let last = HashMap::new();
-        let parsed = |v: Vec<&str>| v.into_iter().filter_map(parse).collect::<Vec<_>>();
+        fn parsed(v: Vec<&str>) -> Vec<KeySound<'_>> {
+            v.into_iter().filter_map(parse).collect()
+        }
         assert_eq!(parsed(keys_of(&last, &mut seen, p, &c, 0.05, false)), vec![KeySound::Sound("A")]);
         // First seen part-way: nothing until the next frame.
         assert!(keys_of(&last, &mut seen, p, &c, 0.5, false).is_empty());

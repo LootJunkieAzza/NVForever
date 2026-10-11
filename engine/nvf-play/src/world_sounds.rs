@@ -35,7 +35,7 @@
 //!   container and door whose base names one is a [`SoundSource`] where it stands, while
 //!   it is enabled; `crate::ambient` plays it as a sound marker of that sound (a Loop
 //!   sound goes round, a Play At Random one sounds now and then) [design: the records'
-//!   sounds carry either flag, audio.md §12].
+//!   sounds carry either flag, audio.md §14].
 //! - **Load doors** [hypothesis]: activating a door that leads elsewhere plays its open
 //!   sound (DOOR `SNAM`), at the listener, as the player goes through.
 //! - Not built: a knock between two loose objects told apart from one on the ground

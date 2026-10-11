@@ -1,4 +1,4 @@
-//! Evidence for creatures' sounds (docs/spec-notes/audio.md §12): how many CREA records
+//! Evidence for creatures' sounds (docs/spec-notes/audio.md §14): how many CREA records
 //! list sounds (`CSDT`/`CSDI`/`CSDC`), inherit them (`CSCR`) or only have a template
 //! (`TPLT`); the types listed and their chances; with `--show <edid>` (repeatable) one
 //! creature's list with the SOUN editor IDs and files.
