@@ -27,7 +27,7 @@ fn using(g: &Game, ctx: &Ctx) -> Result<Option<FurnitureUse>, String> {
 
 /// Marker IDs 1 to 10 are beds [documented: GECK wiki GetFurnitureMarkerID, catalogue
 /// notes]: their users sleep, the others sit.
-fn bed(u: &FurnitureUse) -> bool {
+pub(crate) fn bed(u: &FurnitureUse) -> bool {
     (1..=10).contains(&u.marker_id)
 }
 

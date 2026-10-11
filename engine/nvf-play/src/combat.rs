@@ -151,6 +151,8 @@ pub struct WeaponAnim {
 #[derive(Message, Clone, Copy, Debug)]
 pub struct ShotFired {
     pub projectile: FormId,
+    /// The weapon that fired it (nvforever `detection` hears its sound level).
+    pub weapon: FormId,
 }
 
 /// One projectile to draw this frame.
@@ -886,7 +888,7 @@ fn fire(
                     debug!("combat: {} fires no projectile", w.edid.as_deref().unwrap_or("?"));
                     continue;
                 };
-                fired.write(ShotFired { projectile: proj });
+                fired.write(ShotFired { projectile: proj, weapon: id });
                 // A casing for each shot of a weapon with a casing model, from its
                 // `ShellCasingNode` at the game's eject speed (`fGunShellEjectSpeed`)
                 // [hypothesis: one a shot, at the shot; the game's timing is not known].

@@ -54,7 +54,7 @@ fn faction_list(data: &GameData, list: &[(FormId, i8)]) -> Value {
 }
 
 /// A placed actor from a name, as `fnvtool actor values` reads it.
-fn resolve(g: &Game, refs: &RefTable, name: &str) -> anyhow::Result<FormId> {
+pub(crate) fn resolve(g: &Game, refs: &RefTable, name: &str) -> anyhow::Result<FormId> {
     if name.eq_ignore_ascii_case("player") {
         return Ok(FormId::PLAYER_REF);
     }

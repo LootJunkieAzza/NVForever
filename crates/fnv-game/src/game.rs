@@ -523,6 +523,10 @@ pub struct Game<'a> {
     /// Sleeping and waiting as scripts see and ask for them (`crate::rest`); the menu is
     /// the engine's. Not part of the saved state.
     pub rest: crate::rest::Rest,
+    /// The latest detection value of each (detector, target) pair the engine measured
+    /// (`crate::detection`); GetDetected and GetDetectionLevel read it. Not part of the
+    /// saved state: the engine measures again.
+    pub detection: crate::detection::Detections,
     /// What switched radio receivers on and off (`crate::radio`); the engine plays the
     /// stations. Not part of the saved state.
     pub radio: crate::radio::Radios,
@@ -686,6 +690,7 @@ impl<'a> Game<'a> {
             combat_requests: Vec::new(),
             idle_requests: Vec::new(),
             rest: Default::default(),
+            detection: Default::default(),
             radio: Default::default(),
             world,
             cfg,
