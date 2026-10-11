@@ -1,5 +1,5 @@
-//! The factions of templated and leveled actors on a synthetic plugin (no game data).
-//! docs/spec-notes/factions.md §2 and §3.
+//! The factions and AI package lists of templated and leveled actors on a synthetic
+//! plugin (no game data). docs/spec-notes/factions.md §2 and §3.
 
 mod common;
 
@@ -32,6 +32,9 @@ const LIST_WOLF: u32 = 0x850;
 const LIST_MIXED: u32 = 0x851;
 const LIST_HIGH: u32 = 0x852;
 const LIST_NESTED: u32 = 0x853;
+const PACK_WOLF: u32 = 0x860;
+const PACK_RAT: u32 = 0x861;
+const PACK_OWN: u32 = 0x862;
 
 const CELL: u32 = 0x200;
 const LEADER_REF: u32 = 0x320;
@@ -50,9 +53,10 @@ const GET_IN_FACTION: u16 = 0x1047;
 const GET_FACTION_RANK: u16 = 0x1049;
 const GET_FACTION_RELATION: u16 = 0x11C2;
 
-/// Template flags: Factions (bit 2) and AI Data (bit 4).
+/// Template flags: Factions (bit 2), AI Data (bit 4) and AI Packages (bit 5).
 const FACTIONS: u16 = 0x4;
 const AI_DATA: u16 = 0x10;
+const AI_PACKAGES: u16 = 0x20;
 
 fn acbs(template_flags: u16) -> fnv_esm::raw::Subrecord {
     let mut d = 0u32.to_le_bytes().to_vec();
@@ -67,6 +71,10 @@ fn acbs(template_flags: u16) -> fnv_esm::raw::Subrecord {
 
 fn snam(faction: u32, rank: u8) -> fnv_esm::raw::Subrecord {
     sub(b"SNAM", [faction.to_le_bytes().to_vec(), vec![rank, 0, 0, 0]].concat())
+}
+
+fn pkid(package: u32) -> fnv_esm::raw::Subrecord {
+    sub(b"PKID", package.to_le_bytes().to_vec())
 }
 
 fn tplt(template: u32) -> fnv_esm::raw::Subrecord {
@@ -115,12 +123,12 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let creatures = [
-        record(b"CREA", 0, WOLF, &[sub(b"EDID", z("Wolf")), acbs(0), snam(RAIDERS, 0), aidt(2)]),
-        record(b"CREA", 0, RAT, &[sub(b"EDID", z("Rat")), acbs(0), snam(RATS, 0), aidt(0)]),
-        record(b"CREA", 0, SPAWN, &[sub(b"EDID", z("Spawn")), acbs(FACTIONS | AI_DATA), tplt(LIST_NESTED), aidt(0)]),
-        record(b"CREA", 0, SPAWN_MIXED, &[sub(b"EDID", z("SpawnMixed")), acbs(FACTIONS | AI_DATA), tplt(LIST_MIXED), aidt(1)]),
+        record(b"CREA", 0, WOLF, &[sub(b"EDID", z("Wolf")), acbs(0), snam(RAIDERS, 0), aidt(2), pkid(PACK_WOLF)]),
+        record(b"CREA", 0, RAT, &[sub(b"EDID", z("Rat")), acbs(0), snam(RATS, 0), aidt(0), pkid(PACK_RAT)]),
+        record(b"CREA", 0, SPAWN, &[sub(b"EDID", z("Spawn")), acbs(FACTIONS | AI_DATA | AI_PACKAGES), tplt(LIST_NESTED), aidt(0)]),
+        record(b"CREA", 0, SPAWN_MIXED, &[sub(b"EDID", z("SpawnMixed")), acbs(FACTIONS | AI_DATA | AI_PACKAGES), tplt(LIST_MIXED), aidt(1)]),
         // Its list has nothing for a level-1 player: it keeps its own.
-        record(b"CREA", 0, SPAWN_HIGH, &[sub(b"EDID", z("SpawnHigh")), acbs(FACTIONS), snam(RATS, 3), tplt(LIST_HIGH)]),
+        record(b"CREA", 0, SPAWN_HIGH, &[sub(b"EDID", z("SpawnHigh")), acbs(FACTIONS | AI_PACKAGES), snam(RATS, 3), pkid(PACK_OWN), tplt(LIST_HIGH)]),
     ]
     .concat();
     let lists = [
@@ -254,4 +262,23 @@ fn a_leveled_list_stands_for_the_entry_picked() {
     }
     assert!(wolves > 0 && wolves < MIXED_REFS.len() as u32, "{wolves} wolves");
     assert_eq!(f.data.template_sources_any_pick(FormId(SPAWN_MIXED), |d| d.template_factions), vec![FormId(WOLF), FormId(RAT)]);
+}
+
+#[test]
+fn the_package_list_comes_from_the_same_source() {
+    let f = fixture();
+    let g = game(&f);
+    // Through a nested list, and a list placed directly: the wolf's packages.
+    for r in [SPAWN_REF, LIST_REF] {
+        assert_eq!(g.package_list(FormId(r)), vec![FormId(PACK_WOLF)], "{r:#x}");
+    }
+    // A list with nothing at the level: the actor's own.
+    assert_eq!(g.package_list(FormId(SPAWN_HIGH_REF)), vec![FormId(PACK_OWN)]);
+    // Two actors to pick from: the packages of the one whose factions the reference has.
+    for r in MIXED_REFS {
+        let wolf = f.data.base_factions(FormId(SPAWN_MIXED), FormId(r)) == [(FormId(RAIDERS), 0)];
+        assert_eq!(g.package_list(FormId(r)), vec![FormId(if wolf { PACK_WOLF } else { PACK_RAT })]);
+    }
+    // Without a template for the packages, an actor's own list (empty here).
+    assert!(g.package_list(FormId(MEMBER_REF)).is_empty());
 }

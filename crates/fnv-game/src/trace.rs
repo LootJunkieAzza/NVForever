@@ -68,8 +68,8 @@ pub enum EventKind {
     /// A menu opened (`menu` code; a message box is 1001) or was closed.
     MenuOpened { menu: u16 },
     MenuClosed { menu: u16 },
-    /// A dialogue line started (SayTo, Say): who says it to whom, the topic and the line
-    /// (INFO), and how long it lasts in seconds of game time.
+    /// A dialogue line started (SayTo, Say, a line of a conversation): who says it to
+    /// whom, the topic and the line (INFO), and how long it lasts in seconds of game time.
     LineStarted { speaker: FormId, #[serde(skip_serializing_if = "Option::is_none")] target: Option<FormId>, topic: FormId, info: FormId, seconds: f64 },
     /// A dialogue line ended (its end result script runs next) or was cut off (`cut`:
     /// the speaker started another line, or was disabled or died).
@@ -92,6 +92,12 @@ pub enum EventKind {
     TopicAdded { topic: FormId, #[serde(skip_serializing_if = "Option::is_none")] by: Option<FormId> },
     /// The conversation ended: `goodbye`, `no_choices`, `left` or `actor_gone`.
     DialogueEnded { actor: FormId, reason: &'static str, lines: u32 },
+    /// A conversation between two actors started (StartConversation with an actor as the
+    /// target): `speaker` says a line of `topic` to `target` (`line_started` follows).
+    ActorConversationStarted { speaker: FormId, target: FormId, topic: FormId },
+    /// A conversation between two actors ended after `lines` lines: `goodbye`, `no_links`,
+    /// `cut` or `actor_gone`; `speaker` and `target` are those of its last line.
+    ActorConversationEnded { speaker: FormId, target: FormId, reason: &'static str, lines: u32 },
     /// An actor is to play an idle animation, and what asked for it (`crate::idles`).
     IdleAsked { actor: FormId, idle: FormId, source: crate::idles::IdleSource },
     /// An idle was asked for and cannot be played, and why.

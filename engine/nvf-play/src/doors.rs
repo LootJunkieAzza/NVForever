@@ -10,8 +10,10 @@
 //! written back to it. Without the simulation, a door starts as its placement says (ONAM
 //! "Open by Default").
 //!
-//! Sounds: the sequences' `sound:` text keys and the DOOR record's SNAM/ANAM name them;
-//! NVForever has no sound playback yet, so passing a sound key is logged.
+//! Sounds: the sequences' `sound:` text keys name them; passing one sends a [`DoorSound`],
+//! which nvforever plays at the door (`anim_sounds.rs`). A sequence without sound keys
+//! asks for the DOOR record's open (SNAM) or close (ANAM) sound as it starts [design;
+//! docs/spec-notes/audio.md §10].
 
 use crate::sim::SimState;
 use bevy::prelude::*;
@@ -109,9 +111,8 @@ impl Doors {
         self.map.is_empty()
     }
 
-    /// Advance every moving door by `dt` seconds; returns the sounds passed (door,
-    /// SOUN editor ID).
-    pub fn advance(&mut self, dt: f32) -> Vec<(u32, String)> {
+    /// Advance every moving door by `dt` seconds; returns the sounds asked for.
+    pub fn advance(&mut self, dt: f32) -> Vec<DoorSound> {
         let mut sounds = Vec::new();
         for (&id, d) in self.map.iter_mut() {
             let (opening, _) = d.motion.pose();
@@ -119,7 +120,10 @@ impl Doors {
             let list = if opening { &d.timing.open_sounds } else { &d.timing.close_sounds };
             // A key at the very start is passed by the first step.
             let from = if before <= 0.0 { -1.0 } else { before };
-            sounds.extend(list.iter().filter(|(t, _)| *t > from && *t <= d.motion.time).map(|(_, s)| (id, s.clone())));
+            sounds.extend(list.iter().filter(|(t, _)| *t > from && *t <= d.motion.time).map(|(_, s)| DoorSound { door: id, opening, key: Some(s.clone()) }));
+            if list.is_empty() && before <= 0.0 {
+                sounds.push(DoorSound { door: id, opening, key: None });
+            }
             if !matches!(d.motion.phase, fnv_collide::anim::DoorPhase::Opening | fnv_collide::anim::DoorPhase::Closing) {
                 debug!("door 0x{id:08X} {:?}", d.motion.phase);
             }
@@ -127,6 +131,17 @@ impl Doors {
         sounds.sort();
         sounds
     }
+}
+
+/// A sound a moving door asks for: at the door, by nvforever.
+#[derive(Message, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DoorSound {
+    pub door: u32,
+    /// Opening, else closing.
+    pub opening: bool,
+    /// The SOUN editor ID a sequence's sound key names; `None`: the sequence names none
+    /// and the DOOR record's open or close sound is meant.
+    pub key: Option<String>,
 }
 
 /// Runs before physics, so a door's bodies and nodes are posed from this frame's time.
@@ -139,6 +154,7 @@ pub struct DoorsPlugin;
 impl Plugin for DoorsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Doors>()
+            .add_message::<DoorSound>()
             .configure_sets(Update, DoorSystems.before(crate::PlaySet::Physics))
             .add_systems(Update, (sync_sim.run_if(resource_exists::<SimState>), advance).chain().in_set(DoorSystems));
     }
@@ -169,10 +185,10 @@ fn sync_sim(mut doors: ResMut<Doors>, mut sim: ResMut<SimState>) {
     }
 }
 
-fn advance(time: Res<Time>, mut doors: ResMut<Doors>) {
-    for (id, sound) in doors.advance(time.delta_secs()) {
-        // No sound playback yet: the text key's sound is logged.
-        info!("door 0x{id:08X} sound {sound} (not played: no sound playback)");
+fn advance(time: Res<Time>, mut doors: ResMut<Doors>, mut out: MessageWriter<DoorSound>) {
+    for s in doors.advance(time.delta_secs()) {
+        debug!("door 0x{:08X} sound {:?}", s.door, s.key);
+        out.write(s);
     }
 }
 
@@ -211,13 +227,20 @@ mod tests {
         assert_eq!(doors.is_open(8), None);
         assert!(doors.set_open(7, true));
         assert!(!doors.set_open(7, true));
-        assert_eq!(doors.advance(0.5), vec![(7, "DRSOpen".to_string())]);
+        let key = |opening, k: &str| DoorSound { door: 7, opening, key: Some(k.to_string()) };
+        assert_eq!(doors.advance(0.5), vec![key(true, "DRSOpen")]);
         assert_eq!(doors.is_open(7), Some(false));
         assert!(doors.advance(1.0).is_empty());
         assert_eq!(doors.is_open(7), Some(true));
         doors.set_open(7, false);
         assert!(doors.advance(0.5).is_empty());
-        assert_eq!(doors.advance(0.5), vec![(7, "DRSClose".to_string())]);
+        assert_eq!(doors.advance(0.5), vec![key(false, "DRSClose")]);
         assert_eq!(doors.get(7).unwrap().motion.phase, fnv_collide::anim::DoorPhase::Closed);
+        // A door whose sequences name no sound asks for its record's as it starts.
+        let silent = DoorTiming::new((0.0, 1.0, &[]), (0.0, 1.0, &[]));
+        doors.register(9, false, silent);
+        doors.set_open(9, true);
+        assert_eq!(doors.advance(0.1), vec![DoorSound { door: 9, opening: true, key: None }]);
+        assert!(doors.advance(0.1).is_empty());
     }
 }

@@ -2414,6 +2414,29 @@ Docs: docs/spec-notes/audio.md. Start `--play` in Goodsprings to hear it.
 5. **Cost:** reading every marker at the start takes about half a second on the main
    thread before the first frame.
 
+## Dialogue menu as the original's (2026-10-11, session "dialogue menu")
+
+Branch `claude/dialogue-menu`; note docs/spec-notes/dialogue-menu.md.
+
+1. **What you should see:** while someone speaks, their line on a dark band without a
+   frame and their name at the top right (as your Bruce Isaac picture); while you choose,
+   the choices between two brackets, the selected one framed, said-before ones dim, an
+   up and down arrow with a marker at the left when not all fit (as Trudy and Veronica).
+   No numbers before the choices and no key hint any more; the number keys still work.
+2. **Guesses I had to make, for you to check against the game:**
+   - **The red frame.** In the Trudy picture the selected "[Sneak 17/25]" line is
+     framed in red. I frame a selected check you fall short of in red, every other one
+     in amber. If the game turns red for some other reason, tell me.
+   - **How many choices show at once.** The list grows to 290 units (about five
+     one-line choices) and then scrolls; the game's file leaves this to its code.
+   - **The rows sit 7 units higher** inside the brackets than the file puts them, as
+     the Trudy picture shows.
+   - **The band's darkness** is measured from your pictures (about 0.87), not taken
+     from the file, whose number would make it nearly see-through.
+   - **The scroll marker** is 40 units long; your two pictures show about 30 and 43.
+3. **Not built yet:** the subtitles setting (lines always show), sounds on the list,
+   dragging the marker or clicking the arrows.
+
 ## Reloading one round at a time (2026-10-11, session "looping reload")
 
 Docs: docs/spec-notes/combat-rules.md §4 ("Round by round"). Your rules (2026-10-11): a

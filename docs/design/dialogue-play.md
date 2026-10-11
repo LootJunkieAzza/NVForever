@@ -7,9 +7,9 @@ turning to each other in a conversation (step D7) on `claude/dialogue-facing`, �
 (`crates/fnv-game/src/dialogue.rs`, docs/spec-notes/dialogue.md §4–§6). This note is the
 engine side: `engine/nvf-play/src/dialogue.rs`.
 
-The screen's layout, wording and keys are NVForever's own and plain. Layer 7 builds the
-real interface; nothing here imitates the original's art, and nothing here is a claim
-about the original unless it carries a tag.
+The keys are NVForever's own. The menu is drawn as the original's since 2026-10-11
+(`dialogue_menu.rs`, docs/spec-notes/dialogue-menu.md); nothing here is a claim about the
+original unless it carries a tag.
 
 ## 1. What happens
 
@@ -36,17 +36,18 @@ about the original unless it carries a tag.
    said 0x0015D8AF (2.21 s) with no `conversation … started` line and the run went on;
    Easy Pete's conversation then started and ended by Goodbye (2 lines); exit 0, "run
    finished".
-2. **The actor speaks.** The response being said is a subtitle, "Speaker: text", in the
-   same place as the subtitles of SayTo lines (`script_hud.rs`), for as long as the
-   runtime says it (its voice file's length; `voice.rs` plays the file). Under it a hint
-   line names the keys.
+2. **The actor speaks.** The response being said is shown on a dark band, the actor's
+   name at the top right, for as long as the runtime says it (its voice file's length;
+   `voice.rs` plays the file); the log has it as a `subtitle: Speaker: text` line, as
+   the subtitles of SayTo lines (`script_hud.rs`).
 3. **The player chooses.** When the actor has finished, the offered choices are listed
-   in a panel, numbered from 1, at most ten at a time (a longer list scrolls with the
-   selection). A choice the actor has answered before is dimmed (`Choice::darkened`:
+   between two brackets, as many as fit (a longer list scrolls with the selection; the
+   number keys pick by place in the whole list). A choice the actor has answered before is dimmed (`Choice::darkened`:
    the runtime's rule [documented: GECK wiki Category:Dialogue, Info Refusal and Always
    Darken]). A skill or perk line carries its tag, "[Speech 40]", or "[Speech 37/40]"
    when the player falls short [documented: Category:Dialogue "AV/Perk"; where the two
-   numbers come from is the runtime's hypothesis, dialogue.md §3.3].
+   numbers come from is the runtime's hypothesis, dialogue.md §3.3]; the frame of one
+   the player falls short of is red (dialogue-menu.md §3).
 4. **The end.** A Goodbye line ends the conversation when it has been said; so does an
    actor with nothing more to offer (the runtime's rules).
 
@@ -73,7 +74,7 @@ about the original unless it carries a tag.
   chooses (§3) [owner decision 2026-10-10].
 - A message box a result script shows during a conversation takes the keys first: it is
   drawn and answered as any other box (`script_hud.rs`), the conversation's lines wait
-  for it (the runtime's rule), and the panel is hidden meanwhile.
+  for it (the runtime's rule), and the dialogue menu is hidden meanwhile.
 - Skipping: the response ends at once and the next one starts; the voice of the
   skipped response stops (`voice.rs` stops a sound whose line moved on). The end result
   script still runs when the last response is skipped [hypothesis:
@@ -325,7 +326,7 @@ shown one after the other, so the picture moves by that much between them (§7).
   camera (no zoom, no change of the field of view; §8.5), and the eyes do not move in
   the head. The mouth moves since step D6 (docs/spec-notes/lipsync.md); the head turns
   a `.lip` file asks for are still not applied (their unit is unknown, lipsync.md §3.3).
-- The panel does not show the player's own line being said, nor the actor's last line
+- The menu does not show the player's own line being said, nor the actor's last line
   while choosing.
 - A choice's skill tag names the actor value by display name when the simulation knows
   one, else by Editor ID.

@@ -396,7 +396,7 @@ Text keys (each key's text may hold several lines; spelling and spaces vary):
   0.133 s), `Detach` on unequip clips (`1hpunequip.kf` 0.233 s, `h2hunequip.kf` 0.167 s).
 - `Enum: Equip` / `Enum: Unequip`, `Enum: Left` / `Right`, `Enum: ArmorWalk`,
   `FoleyWalk`, `ArmorRun`, `FoleyRun`, `ArmorSneak`, `FoleySneak`, `m:L` / `m:R`
-  (footsteps and sounds; not used here).
+  (footsteps and sounds; played as audio.md §10 says).
 
 The skeleton (`characters\_male\skeleton.nif`) has a `Weapon` node under `Bip01 R Hand`
 (translation 6.17, 1.99, 0.76) and a `Camera3rd` node under the root at (0, −3.74,

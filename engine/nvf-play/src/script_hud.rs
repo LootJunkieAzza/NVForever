@@ -26,9 +26,10 @@
 //! - **Subtitles**: the dialogue lines being said (`Game::speech`), bottom centre, as
 //!   "Speaker: text", one response of the INFO at a time in response-number order, each
 //!   for as long as it lasts (`crate::voice::speech_response`: its voice file's length,
-//!   or the length fitted to its text without one); and the response being said in the
-//!   conversation with the player (`Game::dialogue`, `crate::dialogue::subtitle`), for as
-//!   long as the runtime says it.
+//!   or the length fitted to its text without one). The response being said in the
+//!   conversation with the player (`Game::dialogue`, `crate::dialogue::subtitle`) is in
+//!   the log's `subtitle:` lines too, but drawn by the dialogue menu
+//!   (`crate::dialogue_menu`).
 
 use crate::message_menu::{MessagePanel, PanelView};
 use crate::script::{ScriptState, MENU_MESSAGE};
@@ -151,8 +152,8 @@ pub fn box_buttons(b: &BoxMessage) -> Vec<String> {
 
 /// What the overlay shows this frame: the panel (a message box or a menu placeholder),
 /// the box on screen, and the subtitles.
-fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<PanelView>, Option<BoxMessage>, String) {
-    let Some(rt) = script.rt.as_ref() else { return (None, None, String::new()) };
+fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<PanelView>, Option<BoxMessage>, Subtitles) {
+    let Some(rt) = script.rt.as_ref() else { return (None, None, Subtitles::default()) };
     let g = &rt.game;
     let front = match g.menu {
         Some(MENU_MESSAGE) => g.boxes.first().map(|&m| hud.box_view(m, script)),
@@ -177,9 +178,18 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<PanelV
         let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(s.speaker));
         subs.push(format!("{who}: {}", text.trim()));
     }
-    // The response being said in the conversation with the player (`crate::dialogue`).
+    // The response being said in the conversation with the player: drawn by the dialogue
+    // menu (`crate::dialogue_menu`), logged with the others.
+    let on_screen = subs.join("\n");
     subs.extend(crate::dialogue::subtitle(g, sim));
-    (panel, front, subs.join("\n"))
+    (panel, front, Subtitles { logged: subs.join("\n"), on_screen })
+}
+
+/// The subtitles: all of them for the log, those drawn here for the screen.
+#[derive(Default, PartialEq)]
+struct Subtitles {
+    logged: String,
+    on_screen: String,
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -188,7 +198,7 @@ fn draw(
     script: Res<ScriptState>,
     sim: Res<SimState>,
     mut panel: ResMut<MessagePanel>,
-    mut shown: Local<String>,
+    mut shown: Local<Subtitles>,
     mut subtitles: Query<&mut Text, With<SubtitleText>>,
 ) {
     let (p, front, subs) = view(&hud, &script, &sim);
@@ -197,11 +207,11 @@ fn draw(
         panel.set(p);
     }
     if subs != *shown {
-        if !subs.is_empty() {
-            info!("subtitle: {}", subs.replace('\n', " / "));
+        if subs.logged != shown.logged && !subs.logged.is_empty() {
+            info!("subtitle: {}", subs.logged.replace('\n', " / "));
         }
         for mut t in &mut subtitles {
-            t.0.clone_from(&subs);
+            t.0.clone_from(&subs.on_screen);
         }
         *shown = subs;
     }
