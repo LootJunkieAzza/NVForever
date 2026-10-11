@@ -196,6 +196,13 @@ with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
 `quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny
 Smiles behind the Prospector Saloon.`).
 
+After flashlight changes (`nvf-play` `flashlight`, nvforever `flashlight.rs`), run it on and off
+in a dark interior, with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
+`NVF_PLAY_TEST_CONTROL=2:flashlight,12:view,20:flashlight` set:
+`engine/target/release/nvforever --data <Data> --cell GSHouseInterior03 --play --hour 23 --no-voice --run-seconds 26`
+(expect exit 0, "flashlight: on" and later "flashlight: off"; add `--screenshot <png>
+--screenshot-delay 10` without the last two presses to see the cone and its shadows).
+
 After changes to the sounds animations and doors name (nvforever `anim_sounds.rs`,
 `fnv_actor::anim_sounds`, `nvf_play::doors` sounds; docs/spec-notes/audio.md §10), run the
 footsteps, reload and doors check, with `NVF_PLAY_TEST_EQUIP=0000434F`,
