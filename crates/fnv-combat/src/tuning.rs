@@ -73,6 +73,12 @@ pub struct Rules {
     pub damage_to_weapon_value: f32,
     /// The share of a hit's damage the armour struck loses as health points.
     pub damage_to_armor_percentage: f32,
+    // Power attacks (crate::melee): the damage multiplier of a power attack standing,
+    // moving forward, back and to a side [hypothesis: the setting names].
+    pub power_attack_stand: f32,
+    pub power_attack_forward: f32,
+    pub power_attack_back: f32,
+    pub power_attack_side: f32,
     /// Settings not found in the load order (their defaults were used).
     pub defaulted: Vec<&'static str>,
 }
@@ -81,8 +87,8 @@ pub struct Rules {
 /// Formula, Critical Hit Chance Formula, Gun Spread Formula (New Vegas), Explosion
 /// Knockdown Formula, Melee Knockback Formula, Gun Shell Settings, Armor (owner exports
 /// 2026-10-09). `fAVDUnarmedDamage*` have no default on the page; the masters set them.
-/// `fDamageToWeaponValue` and `fDamageToArmorPercentage` have no page: their defaults are
-/// FalloutNV.esm's values [observed].
+/// `fDamageToWeaponValue`, `fDamageToArmorPercentage` and the `fDamagePowerAttack…Bonus`
+/// settings have no page: their defaults are FalloutNV.esm's values [observed].
 const SETTINGS: &[(&str, f32)] = &[
     ("fDamageWeaponMult", 1.0),
     ("fDamageSkillBase", 0.5),
@@ -130,6 +136,10 @@ const SETTINGS: &[(&str, f32)] = &[
     ("fGunShellLifetime", 5.0),
     ("fDamageToWeaponValue", 0.2),
     ("fDamageToArmorPercentage", 0.35),
+    ("fDamagePowerAttackStandBonus", 3.0),
+    ("fDamagePowerAttackForwardBonus", 2.0),
+    ("fDamagePowerAttackBackBonus", 2.0),
+    ("fDamagePowerAttackSideBonus", 2.0),
 ];
 
 impl Rules {
@@ -203,6 +213,10 @@ impl Rules {
             shell_lifetime: n(),
             damage_to_weapon_value: n(),
             damage_to_armor_percentage: n(),
+            power_attack_stand: n(),
+            power_attack_forward: n(),
+            power_attack_back: n(),
+            power_attack_side: n(),
             defaulted,
         }
     }
@@ -247,10 +261,9 @@ pub struct CombatTuning {
     pub auto_reload: bool,
     /// Reload time when no reload clip length is known, seconds.
     pub fallback_reload: f32,
-    /// Melee (step C6): holding Use this long starts a power attack; a power attack does
-    /// this much more damage and takes this much longer.
+    /// Melee (step C6): holding Use this long starts a power attack (`crate::melee`); a
+    /// power attack with no clip to time it takes this much longer than a swing.
     pub power_hold: f32,
-    pub power_damage: f32,
     pub power_time: f32,
     /// Share of a melee hit a block stops.
     pub block: f32,
@@ -282,7 +295,6 @@ impl Default for CombatTuning {
             auto_reload: true,
             fallback_reload: 2.0,
             power_hold: 0.4,
-            power_damage: 1.5,
             power_time: 1.3,
             block: 0.6,
             stagger_cooldown: 3.0,

@@ -2643,6 +2643,38 @@ off, a classic one that lights what is in front of the camera. Branch
    takes the warm light and the stop sign's shadow. Test aid:
    `NVF_PLAY_TEST_CONTROL=2:flashlight` with `--play`.
 
+
+## Melee combos and power attacks (2026-10-11, session "melee combo")
+
+Your request: chained attacks (two punches go right hand then left hand) and power
+attacks by holding Use, with their own clip for standing still, forward, back, left and
+right. Branch `claude/melee-combo`; code in `crates/fnv-combat/src/melee.rs`, the
+engine's `melee` in `engine/nvf-play/src/combat.rs`, notes in
+docs/spec-notes/combat-rules.md §10.
+
+1. **Built from the clips themselves:** every right-hand attack clip of the fists and
+   melee weapons ends with a key naming the left one as the next attack, and the left
+   ones name the right, with a time from which the next swing may cut in. A press during
+   a swing now starts the next one at that time, so quick presses go right, left,
+   right, left. Power attacks pick the clip by the movement keys held when they start.
+2. **Checked in a run** (Goodsprings, fists): four taps played `attackright_a`,
+   `attackleft_b`, `attackright_a`, `attackleft_b` (three chained); holds played
+   `h2hattackpower`, `…forwardpower`, `…backpower`, `…leftpower`, `…rightpower` in both
+   views. Test aid: `NVF_PLAY_TEST_CONTROL=3:weapon,16:fire,16.1:fire,16.4:fire,16.5:fire`
+   with `--play` (taps before about 13 s fall inside the pre-order message boxes).
+3. **Guesses, please check against the game:**
+   - The `_a` and `_b` forms of each swing are picked at random.
+   - A press after a swing has fully ended starts over with the right hand.
+   - Holding Use for 0.4 s makes a power attack (you described about a second; say if
+     it should be longer).
+   - Power attack damage now uses the game's settings named
+     `fDamagePowerAttack{Stand,Forward,Back,Side}Bonus`: 3× standing, 2× moving, where
+     it was 1.5× for all. That they multiply damage is read from their names only.
+   - A movement key counts once it is past 30 %; forward/back wins over a side.
+4. **Not built:** the lunge of a moving power attack (the clips' root motion does not
+   move the player), the perk-only custom power attacks (`attackcustom1power` …), and
+   the `Attack3`–`Attack7` punch chains beyond what a weapon's own attack names.
+
 ## Character creation menus (2026-10-11, session "chargen")
 
 Your request: the trait menu, the tag-skill menu, the name menu and the Vigor Tester as
