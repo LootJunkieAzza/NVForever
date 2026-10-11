@@ -137,7 +137,7 @@ fn describe(clip: &Clip) -> String {
 
 /// Take the game's requests and play them; follow each playing group's end, its queued
 /// successor and its sound keys.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn drive(
     mut commands: Commands,
     mut st: ResMut<ObjectAnims>,

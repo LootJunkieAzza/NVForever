@@ -88,11 +88,14 @@ pub struct ActorGroups {
     /// The group each actor was last started on, by the serial of its slot entry.
     told: HashMap<u32, (u16, u32)>,
     /// Clips found, by skeleton, stance prefix and group (`None`: none found).
-    found: HashMap<(String, String, u16), Option<(Arc<BoundClip>, &'static str)>>,
+    found: HashMap<(String, String, u16), Option<Found>>,
     /// The last request logged per actor (a script repeating it is not logged again).
     logged: HashMap<u32, (u16, i32)>,
     stats: Stats,
 }
+
+/// A clip found for a group, with where it came from.
+type Found = (Arc<BoundClip>, &'static str);
 
 /// The clip of `group` for an actor (module docs), with where it came from.
 fn find_clip(
@@ -101,7 +104,7 @@ fn find_clip(
     weapon: Option<&WeaponHold>,
     lo: Option<&Locomotion>,
     group: &str,
-) -> Option<(Arc<BoundClip>, &'static str)> {
+) -> Option<Found> {
     if let Some(c) = weapon.and_then(|w| w.stance.clips.values().find(|c| c.clip.name.eq_ignore_ascii_case(group))) {
         return Some((c.clone(), "weapon stance"));
     }
