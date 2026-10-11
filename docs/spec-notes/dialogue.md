@@ -521,21 +521,39 @@ a five-line exchange at Nellis. 1,065 have Link From blank, so can start one
   of `fAISocialchanceForConversation` per cent (`…Interior` indoors; 25 both)
   [observed: the values in FalloutNV.esm; hypothesis: what the settings mean, from
   their names, which the wiki only lists]. The partner is the nearest actor whose
-  package lets it take part and to whom the starter has a HELLO line: within
+  package lets it take part, to whom the starter has a HELLO line
+  (`Game::conversation_opener`) and a way over the navmesh: within
   `fAISocialRadiusToTriggerConversationInterior` (1000) indoors,
   `fAISocialRadiusToTriggerConversation` outdoors (not in the masters: the indoor value
-  stands in), and within 384 units [stand-in: in the game they go up to each other,
-  "Conversation -- no duration, the behavior is done when the conversation is finished"
-  (Sandbox Package); here both must already stand close]. While they talk neither walks
-  on (the engine holds both) [hypothesis].
+  stands in).
+- **The walk up to the partner** (`fnv_ai::Chat`): the starter walks to the partner,
+  who waits where it stands and turns to it; the conversation starts when the starter
+  is within 150 units, or where the way ends if it ends further off [documented:
+  Sandbox Package, "Conversation -- no duration, the behavior is done when the
+  conversation is finished"; StartConversation: "The calling actor will seek out the
+  target actor in order to have a conversation"; 150: the standard Activate Distance of
+  a Dialogue package, `iActivatePickLength` (Dialogue Package); hypothesis: the same
+  distance for random conversations, and that the partner waits]. A seated starter
+  does not get up for it (it talks only to someone within 150). The walk is given up
+  when it takes over 30 s, when either is gone, or when the partner is busy (talking,
+  or its package changed) [stand-in]. While they walk, wait and talk, neither does what
+  its package has it do (no sandbox choice, no patrol), and the engine keeps whoever
+  waits or talks where it stands; afterwards each goes back to its package's place, a
+  sandboxing actor going on from where it is, as after a push [hypothesis]. Both
+  actors' timers start over when a conversation ends [hypothesis: without it, in the
+  engine in Vault 3 the same two Fiends started a second conversation the moment the
+  first ended].
 - **Nobody talks** while asleep (a Sleep package), on its way, already talking, carrying
   out a Dialogue package, dead or disabled, or while a menu or a conversation with the
   player holds the game [hypothesis].
 - **Turning**: the one saying a hello turns to the player, and both of a conversation
   between actors to each other, unless on furniture or on their way [hypothesis].
 - **Log**: `ai [hh:mm] <actor>: says hello to the player from N units, line …`,
-  `… starts a conversation with <partner> from N units, line …`, and at exit
-  `social summary: N hellos said to the player, M random conversations started`.
+  `… walks up to <partner> to talk: N units away, M units to go`, `… starts a
+  conversation with <partner> from N units, line …`, `… gives up talking to <partner>:
+  <why>`, `… has talked: back to the place of <package>, N units off`, and at exit
+  `social summary: N hellos said to the player, M random conversations started, W walks
+  up to a partner (G given up)`.
 
 ## 6. What scripts see
 
@@ -631,7 +649,8 @@ up to C and F):
 17. Hellos and random conversations (§5.2): the hello distance and when an actor says
     hello again; whether the actor turns to the player; the meaning of the
     fAISocial… settings (timer per actor? chance per cent?) and the outdoor radius;
-    the walk of the two towards each other; whether the player's presence matters for
+    the walk towards each other (does the partner wait, or do both walk? the distance
+    they talk from; how long the starter tries); whether the player's presence matters for
     random conversations; general bit 12 as the switch between the default and the
     package's own Fallout behaviour (packages.md §1).
 

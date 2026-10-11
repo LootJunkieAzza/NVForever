@@ -702,6 +702,14 @@ impl<'a> Game<'a> {
         Ok(info)
     }
 
+    /// The HELLO line `speaker` would open a conversation with `target` with now (Link
+    /// From blank), without saying it: whether there is anything to go up to `target`
+    /// for (`fnv_ai::social`). The line said when they meet is chosen again then.
+    pub fn conversation_opener(&mut self, speaker: FormId, target: FormId) -> Option<FormId> {
+        let topic = self.hello_topic()?;
+        self.select_line_where(speaker, Some(target), topic, |d| d.link_from.is_empty())
+    }
+
     /// The HELLO topic, when the load order has it.
     pub fn hello_topic(&self) -> Option<FormId> {
         let data = self.data;
