@@ -216,7 +216,9 @@ fn shade_light(
     let on = arms_drawn && sun_light.shadow_maps_enabled;
     let illuminance = sun_light.illuminance * ARMS_SHADE_SHARE;
     if let Ok((mut light, mut v)) = shade.single_mut() {
-        v.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
+        if v.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden }) {
+            debug!("arms shade light {}", if on { "on" } else { "off" });
+        }
         if on && (light.color != sun_light.color || light.illuminance != illuminance) {
             light.color = sun_light.color;
             light.illuminance = illuminance;
@@ -1414,11 +1416,13 @@ fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&m
             commands.entity(p.entity).insert(Seen::layer(seen.weapon_part(p)));
         }
         third.seen = Some(seen);
+        debug!("player body: the camera sees {seen:?} of the body");
     }
     if let Some(f) = body.first.as_mut().filter(|f| f.shown != Some(first)) {
         if let Ok(mut v) = visibility.get_mut(f.root) {
             *v = if first { Visibility::Inherited } else { Visibility::Hidden };
         }
+        debug!("player body: first-person rig {}", if first { "shown" } else { "hidden" });
         f.shown = Some(first);
     }
 }
