@@ -24,6 +24,7 @@
 
 pub mod actor_values;
 pub mod ai;
+pub mod anims;
 pub mod chargen;
 pub mod combat;
 pub mod cond;
@@ -38,6 +39,7 @@ pub mod package;
 pub mod quest;
 pub mod radio;
 pub mod rest;
+pub mod sound;
 pub mod runner;
 pub mod templates;
 pub mod trace;

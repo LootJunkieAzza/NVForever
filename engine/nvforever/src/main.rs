@@ -9,6 +9,7 @@
 //! `settings.rs` and `nvf_play::settings` list while the game runs) and closes the open
 //! menu.
 
+mod activators;
 mod actors;
 mod anim_sounds;
 mod deaths;
@@ -18,6 +19,7 @@ mod doors;
 mod emittance;
 mod fade;
 mod facegen;
+mod flashlight;
 mod fly;
 mod furniture;
 mod grass;
@@ -31,6 +33,7 @@ mod locomotion;
 mod weapons;
 mod lodgen;
 mod nav;
+mod object_anims;
 mod player_body;
 mod particles;
 mod shot_fx;
@@ -752,6 +755,15 @@ fn main() -> AppExit {
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
+    .init_resource::<activators::ActivatorStats>()
+    .add_systems(
+        Update,
+        (nvf_assets::material_anim::bind_rig_materials, activators::drive, nvf_assets::material_anim::animate_rig_materials)
+            .chain()
+            .after(advance_animations)
+            .after(nvf_play::PlaySet::Scripts),
+    )
+    .add_systems(Last, activators::report)
     .add_plugins(nvf_play::doors::DoorsPlugin)
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
@@ -780,6 +792,10 @@ fn main() -> AppExit {
             .add_systems(Update, (worldspace::switch, world::travel).chain().after(nvf_play::PlaySet::Input).before(world::stream))
             .add_systems(Update, world::loading_gate.after(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
+        // Animation groups scripts play on objects (object_anims.rs).
+        app.add_plugins(object_anims::ObjectAnimsPlugin);
+        // The flashlight's light on the player's camera (flashlight.rs).
+        app.add_plugins(flashlight::FlashlightPlugin);
     }
     if let Some(a) = actor_world {
         app.insert_resource(a);
@@ -1165,8 +1181,8 @@ fn screenshot_and_exit(
         *ready_at = Some(*elapsed);
         let s = &streamer.stats;
         info!(
-            "cells loaded in {:.2}s ({:.0} ms loading): refs drawn {} (animated {}, doors {}), disabled {}, not drawn {} {:?}, no model {}, shapes {}",
-            *elapsed, s.load_ms, s.refs_drawn, s.refs_animated, s.refs_doors, s.refs_skipped_disabled, s.refs_skipped_type, s.skipped_types, s.refs_no_model, s.shapes
+            "cells loaded in {:.2}s ({:.0} ms loading): refs drawn {} (animated {}, doors {}, with named sequences {}), disabled {}, not drawn {} {:?}, no model {}, shapes {}",
+            *elapsed, s.load_ms, s.refs_drawn, s.refs_animated, s.refs_doors, s.refs_group_rigs, s.refs_skipped_disabled, s.refs_skipped_type, s.skipped_types, s.refs_no_model, s.shapes
         );
     }
     let Some(r) = *ready_at else { return };

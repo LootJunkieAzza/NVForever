@@ -581,6 +581,15 @@ pub struct Game<'a> {
     /// The idle animations actors were asked to play (`crate::idles::IdleRequest`), for
     /// the layer that animates actors to take.
     pub idle_requests: Vec<crate::idles::IdleRequest>,
+    /// The sounds scripts asked for (`crate::sound::SoundRequest`), for the engine to
+    /// take. Not part of the saved state.
+    pub sound_requests: Vec<crate::sound::SoundRequest>,
+    /// The music types scripts asked for (`PlayMusic`, `crate::sound`), for the engine to
+    /// take. Not part of the saved state.
+    pub music_requests: Vec<FormId>,
+    /// Animation groups scripts asked objects to play, and what the engine reports they
+    /// play (`crate::anims`). Not part of the saved state.
+    pub anims: crate::anims::ObjectAnims,
     /// Barter menus scripts opened (ShowBarterMenu), for the engine to draw; the menu
     /// is open for scripts ([`menus::BARTER`]) until the engine closes it. Not part of
     /// the saved state.
@@ -754,6 +763,9 @@ impl<'a> Game<'a> {
             data,
             combat_requests: Vec::new(),
             idle_requests: Vec::new(),
+            sound_requests: Vec::new(),
+            music_requests: Vec::new(),
+            anims: Default::default(),
             barter_requests: Vec::new(),
             rest: Default::default(),
             detection: Default::default(),

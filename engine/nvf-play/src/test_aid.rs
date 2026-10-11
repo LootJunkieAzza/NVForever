@@ -40,6 +40,7 @@
 //!   equip it, as `NVF_PLAY_TEST_EQUIP`) and `condition=<percent>` (set the condition of
 //!   everything the player has equipped, e.g. a weapon about to break). `aimpart=254`
 //!   aims at the weapon the nearest NPC holds drawn (`hitvol::WEAPON_PART`).
+//!   `flashlight` switches the flashlight as a hold of Menu Mode does (`crate::flashlight`).
 //!
 //! The aids that stand in for the keys and the mouse (`NVF_PLAY_TEST_MOVE`,
 //! `NVF_PLAY_TEST_CONTROL`'s presses, `NVF_PLAY_TEST_LOOK`, `NVF_PLAY_TEST_ACTIVATE`) are
@@ -152,6 +153,7 @@ enum Press {
     AimRef(u32),
     Equip(FormId),
     Condition(f32),
+    Flashlight,
 }
 
 fn press(rest: &str) -> Result<Press, String> {
@@ -164,6 +166,7 @@ fn press(rest: &str) -> Result<Press, String> {
         "release" => Press::Release,
         "fire" => Press::Fire,
         "reload" => Press::Reload,
+        "flashlight" => Press::Flashlight,
         "swap" => Press::Swap,
         "aimactor" => Press::AimActor,
         "aimcorpse" => Press::AimCorpse,
@@ -343,6 +346,7 @@ fn keys_and_controls(
     mut player: ResMut<Player>,
     play: Res<crate::PlayWorld>,
     mut sim: ResMut<SimState>,
+    mut flashlight: ResMut<crate::flashlight::Flashlight>,
 ) {
     let now = time.elapsed_secs();
     for m in take_due(&mut aids.moves, now) {
@@ -368,6 +372,7 @@ fn keys_and_controls(
             Press::Fire => aids.fire_held = !aids.fire_held,
             Press::Reload => control.reload = true,
             Press::Swap => control.ammo_swap = true,
+            Press::Flashlight => flashlight.toggle(),
             Press::AimActor => aim_at_nearest_actor(&phys, &mut player, |_| true, None),
             Press::AimCorpse => aim_at_nearest_corpse(&phys, &mut player),
             Press::AimNpc => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), None),

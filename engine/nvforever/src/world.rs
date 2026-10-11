@@ -166,6 +166,8 @@ pub struct StreamStats {
     pub refs_random_start: usize,
     /// Doors that open in place, drawn with their node hierarchy (`crate::doors`).
     pub refs_doors: usize,
+    /// Drawn references whose model has named sequences scripts can play (object_anims.rs).
+    pub refs_group_rigs: usize,
     /// Imposters met in loaded cells, left to `crate::imposters`.
     pub refs_imposters: usize,
     pub water_planes: usize,
@@ -527,7 +529,13 @@ pub fn spawn_model(
     // A door that opens in place (no XTEL) and has Open/Close sequences: posed from
     // its state in `nvf_play::doors` (doors.rs). Teleport doors stay static.
     let door = model.rig.as_ref().filter(|rig| rig.door.is_some() && &base.sig == b"DOOR" && !p.teleport);
-    if let Some(rig) = model.rig.as_ref().filter(|rig| rig.idle.is_some() || door.is_some()) {
+    // An activator with Open/Close or an idle (a radio, a jukebox): its on and off
+    // looks follow its state (activators.rs).
+    let activator = model.rig.as_ref().filter(|rig| (rig.door.is_some() || rig.idle.is_some()) && &base.sig == b"ACTI");
+    // A sequence only scripts play (PlayGroup Forward, Left, …): its own node hierarchy
+    // too, so a script can play it (object_anims.rs).
+    let scripted = model.rig.as_ref().is_some_and(|rig| rig.has_script_groups());
+    if let Some(rig) = model.rig.as_ref().filter(|rig| rig.idle.is_some() || door.is_some() || activator.is_some() || scripted) {
         // Animated (Idle sequence): its own node hierarchy per reference.
         // "Random Anim Start" bases start their idle at a phase spread by reference
         // (fnv_actor::anims::random_anim_start; animation.md §8).
@@ -539,8 +547,14 @@ pub fn spawn_model(
             commands.entity(*e).insert(RefVisual(r));
         }
         if door.is_some() {
-            commands.entity(root).insert(crate::doors::DoorRig::new(r, model.clone(), &path, nodes, p.open_by_default));
+            commands.entity(root).insert(crate::doors::DoorRig::new(r, model.clone(), &path, nodes.clone(), p.open_by_default));
             stats.refs_doors += 1;
+        } else if activator.is_some() {
+            commands.entity(root).insert(crate::activators::ActivatorRig::new(r, base.form_id, model.clone(), &path, nodes.clone()));
+        }
+        if !rig.groups.is_empty() {
+            commands.entity(root).insert(crate::object_anims::GroupRig::new(r, model.clone(), &path, nodes));
+            stats.refs_group_rigs += 1;
         }
         stats.shapes += drawn.len();
         stats.refs_drawn += 1;

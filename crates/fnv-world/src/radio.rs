@@ -21,6 +21,13 @@ pub mod station_flags {
     /// The GECK's "Continuous Broadcast" box: the station's broadcast state at the start
     /// [hypothesis: radio.md §2].
     pub const CONTINUOUS: u32 = 0x4000_0000;
+    /// "Non-Pipboy": the station is not on the Pip-Boy's list [documented: GECK wiki
+    /// GetFormFlag and GetFlagsHigh, the record-header flag table adapted from FNVEdit:
+    /// bit 28 "Non-Pipboy / Reflected by Auto Water"; radio.md §2: set on the casino
+    /// radios, the Tops performers, Hanlon's and Lily's recordings, EDE and Repcon, not
+    /// on Radio New Vegas, Mojave Music Radio, Black Mountain Radio, Camp Guardian or the
+    /// NCR Emergency Radio].
+    pub const NON_PIPBOY: u32 = 0x1000_0000;
 }
 
 /// A talking activator (TACT).
@@ -47,6 +54,11 @@ impl Station {
     /// Broadcasting when the game starts [hypothesis, see [`station_flags::CONTINUOUS`]].
     pub fn continuous(&self) -> bool {
         self.flags & station_flags::CONTINUOUS != 0
+    }
+
+    /// A radio station the Pip-Boy lists (see [`station_flags::NON_PIPBOY`]).
+    pub fn on_pipboy(&self) -> bool {
+        self.is_radio() && self.flags & station_flags::NON_PIPBOY == 0
     }
 }
 
@@ -208,6 +220,99 @@ pub fn placed(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex, forms: &RadioFor
     (stations, receivers)
 }
 
+/// Where a placed station broadcasts from, for a listener's reception ([`reception`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Broadcast {
+    pub range: BroadcastRange,
+    pub radius: f32,
+    /// Percentage of the radius, at its edge, over which static is heard.
+    pub static_percent: f32,
+    /// The station reference's own cell.
+    pub cell: u32,
+    /// Interior cells have none.
+    pub world: Option<u32>,
+    /// Where the station is in a worldspace: its own position outdoors, else its
+    /// exterior position reference's ("for radio stations in interiors, you can select an
+    /// exterior reference where the station appears to broadcast from" [documented: GECK
+    /// wiki Reference, Broadcast Range Type]).
+    pub exterior: Option<(u32, [f32; 3])>,
+}
+
+/// The station reference `s` as a [`Broadcast`]; `None` without `XRDO`.
+pub fn broadcast(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex, s: &StationRef) -> Option<Broadcast> {
+    let (radius, range, static_percent, pos_ref) = s.radio?;
+    let world_of = |cell: u32| ix.cells.get(&cell).and_then(|c| c.world);
+    let world = world_of(s.cell);
+    let exterior = match world {
+        Some(w) => Some((w, s.position)),
+        None => pos_ref.and_then(|r| {
+            let w = world_of(ix.refs.get(&r)?.cell)?;
+            Some((w, placement(lo, schema, r)?.position))
+        }),
+    };
+    Some(Broadcast { range, radius, static_percent, cell: s.cell, world, exterior })
+}
+
+/// Where the one listening is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Listener {
+    /// The worldspace played, or inside an interior the one last walked in.
+    pub world: u32,
+    pub interior: Option<u32>,
+    /// The position in `world`: outdoors the listener's own, inside an interior the last
+    /// one outdoors.
+    pub position: [f32; 3],
+}
+
+/// Whether a station is received where `l` is, and how much static there is then (0
+/// clear … 1 only static). The range types [documented: GECK wiki Reference, Broadcast
+/// Range Type: Everywhere "always available"; Worldspace "available at full strength
+/// throughout the worldspace and connected interiors"; Connected interior cells "in all
+/// connected interior cells", "only valid for station refs in interiors"; Radius "within
+/// the specified radius", static "over this percentage of the radius"]. Where the wiki
+/// says no more [design]:
+/// - the interiors "connected" to a worldspace are those the listener walked into from
+///   it; doors are not followed for Linked Interiors, which is the station's own cell;
+/// - Current Cell outdoors is the 4096-unit grid square the station stands in;
+/// - Radius is measured in three dimensions from the station's exterior position, from
+///   the listener's last position outdoors while inside; static rises evenly from none
+///   where the static part of the radius begins to all of it at the edge;
+/// - a station in an interior without an exterior position reference is received in its
+///   own cell only (Radius and Worldspace).
+pub fn reception(b: &Broadcast, l: &Listener) -> Option<f32> {
+    let own_cell = l.interior == Some(b.cell);
+    let received = match b.range {
+        BroadcastRange::Everywhere => true,
+        BroadcastRange::WorldspaceAndLinkedInteriors => match b.world.or(b.exterior.map(|e| e.0)) {
+            Some(w) => l.world == w || own_cell,
+            None => own_cell,
+        },
+        BroadcastRange::LinkedInteriors => own_cell,
+        BroadcastRange::CurrentCell => match b.world {
+            None => own_cell,
+            Some(w) => {
+                let grid = |p: [f32; 3]| crate::cell_of(p[0], p[1]);
+                l.interior.is_none() && l.world == w && b.exterior.is_some_and(|(_, p)| grid(p) == grid(l.position))
+            }
+        },
+        BroadcastRange::Radius => {
+            let Some((w, p)) = b.exterior else { return own_cell.then_some(0.0) };
+            if l.world != w {
+                return None;
+            }
+            let d = ((p[0] - l.position[0]).powi(2) + (p[1] - l.position[1]).powi(2) + (p[2] - l.position[2]).powi(2)).sqrt();
+            if d > b.radius {
+                return None;
+            }
+            let band = b.radius * (b.static_percent / 100.0).clamp(0.0, 1.0);
+            let inner = b.radius - band;
+            return Some(if band <= 0.0 || d <= inner { 0.0 } else { ((d - inner) / band).clamp(0.0, 1.0) });
+        }
+        BroadcastRange::Other(_) => false,
+    };
+    received.then_some(0.0)
+}
+
 /// An enum field as the decoder gives it: the schema's name of the value, or the number
 /// when the schema has no name for it.
 fn enum_code(v: &Value) -> u32 {
@@ -234,6 +339,54 @@ mod tests {
         let s = Station { flags: 0x1002_0000, ..Station::default() };
         assert!(s.is_radio() && !s.continuous());
         assert!(!Station::default().is_radio());
+    }
+
+    #[test]
+    fn non_pipboy_bit() {
+        assert!(!Station { flags: 0x5002_0000, ..Station::default() }.on_pipboy());
+        assert!(Station { flags: 0x4002_0000, ..Station::default() }.on_pipboy());
+        assert!(!Station { flags: 0x4000_0000, ..Station::default() }.on_pipboy());
+    }
+
+    #[test]
+    fn reception_by_range() {
+        let out = |world, x: f32| Listener { world, interior: None, position: [x, 0.0, 0.0] };
+        let inside = |world, cell| Listener { world, interior: Some(cell), position: [0.0; 3] };
+        let b = |range, radius, static_percent, cell, world: Option<u32>, exterior| Broadcast { range, radius, static_percent, cell, world, exterior };
+        // Everywhere: anywhere at all.
+        let e = b(BroadcastRange::Everywhere, 0.0, 0.0, 7, None, None);
+        assert_eq!(reception(&e, &inside(1, 99)), Some(0.0));
+        // Radius 50,000 with 5 % static (Black Mountain Radio's numbers, radio.md §2).
+        let r = b(BroadcastRange::Radius, 50_000.0, 5.0, 10, Some(1), Some((1, [0.0; 3])));
+        assert_eq!(reception(&r, &out(1, 40_000.0)), Some(0.0));
+        assert_eq!(reception(&r, &out(1, 47_500.0)), Some(0.0));
+        assert!((reception(&r, &out(1, 48_750.0)).unwrap() - 0.5).abs() < 1e-4);
+        assert_eq!(reception(&r, &out(1, 50_000.5)), None);
+        assert_eq!(reception(&r, &out(2, 0.0)), None);
+        // Inside, from the last position outdoors.
+        assert_eq!(reception(&r, &Listener { world: 1, interior: Some(5), position: [1000.0, 0.0, 0.0] }), Some(0.0));
+        // An interior station with an exterior position reference (Camp Guardian's shape).
+        let g = b(BroadcastRange::Radius, 5000.0, 50.0, 20, None, Some((1, [10_000.0, 0.0, 0.0])));
+        assert_eq!(reception(&g, &out(1, 0.0)), None);
+        assert!((reception(&g, &out(1, 6250.0)).unwrap() - 0.5).abs() < 1e-4);
+        // Without one, only its own cell.
+        let n = b(BroadcastRange::Radius, 5000.0, 0.0, 20, None, None);
+        assert_eq!(reception(&n, &inside(1, 20)), Some(0.0));
+        assert_eq!(reception(&n, &out(1, 0.0)), None);
+        // Worldspace and linked interiors: the worldspace, and interiors entered from it.
+        let w = b(BroadcastRange::WorldspaceAndLinkedInteriors, 0.0, 0.0, 30, Some(1), Some((1, [0.0; 3])));
+        assert_eq!(reception(&w, &out(1, 1e6)), Some(0.0));
+        assert_eq!(reception(&w, &inside(1, 5)), Some(0.0));
+        assert_eq!(reception(&w, &out(2, 0.0)), None);
+        // Linked interiors: the station's own cell.
+        let li = b(BroadcastRange::LinkedInteriors, 0.0, 0.0, 40, None, None);
+        assert_eq!(reception(&li, &inside(1, 40)), Some(0.0));
+        assert_eq!(reception(&li, &inside(1, 41)), None);
+        // Current cell outdoors: the grid square.
+        let c = b(BroadcastRange::CurrentCell, 0.0, 0.0, 50, Some(1), Some((1, [100.0, 100.0, 0.0])));
+        assert_eq!(reception(&c, &out(1, 4000.0)), Some(0.0));
+        assert_eq!(reception(&c, &out(1, 4100.0)), None);
+        assert_eq!(reception(&b(BroadcastRange::Other(9), 0.0, 0.0, 1, None, None), &inside(1, 1)), None);
     }
 
     #[test]

@@ -1529,6 +1529,24 @@
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas REGN RDWT: weather, chance, global (as CLMT WLST)"
     },
+    "RDMO": {
+     "name": "Music",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas REGN sound data entry (RDMO, MUSC)"
+    },
+    "RDSI": {
+     "name": "Incidental MediaSet",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas REGN sound data entry (RDSI, MSET)"
+    },
+    "RDSB": {
+     "name": "Battle MediaSet",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas REGN sound data entry (repeated RDSB 'Battle MediaSets', MSET)"
+    },
     "RDID": {
      "name": "Imposters",
      "type": {

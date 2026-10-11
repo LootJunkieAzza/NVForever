@@ -109,6 +109,11 @@ pub(crate) struct Props {
     /// BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]: object LOD block
     /// geometry, cut out by its atlas's alpha (`shape_alpha_mode`).
     lod_building: bool,
+    /// A sequence of the model drives the shape's emissive colour or multiplier
+    /// (`crate::material_anim`): its glow map is loaded even when the stored colour is
+    /// black, as the radios' dials store black and light up by their "Open" sequence
+    /// (docs/spec-notes/activators.md §2).
+    pub(crate) animated_emissive: bool,
     /// Some property is attached (to the shape or an ancestor).
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
@@ -125,6 +130,11 @@ impl Props {
     /// Goodsprings flag]. Shapes with no properties at all (landscape LOD) are drawn.
     pub(crate) fn external_emittance(&self) -> bool {
         self.external_emittance
+    }
+
+    /// The stored emissive colour (black when none) and multiplier (1 when none).
+    pub(crate) fn emissive_parts(&self) -> ([f32; 3], f32) {
+        (self.emissive.unwrap_or([0.0; 3]), self.emissive_mult.unwrap_or(1.0).max(0.0))
     }
 
     pub(crate) fn is_helper(&self) -> bool {
@@ -441,7 +451,10 @@ pub(crate) fn shape_material(
     // Emitted light × glow map, or uniform without a glow map. Not scaled by the camera
     // exposure (Bevy's default emissive_exposure_weight 0).
     let emissive = shape_emissive(props, alpha_mode);
-    let glow = emissive.and(props.glow.as_deref()).and_then(|t| textures.get(t, true, data, images, formats));
+    let glow = (emissive.is_some() || props.animated_emissive)
+        .then_some(props.glow.as_deref())
+        .flatten()
+        .and_then(|t| textures.get(t, true, data, images, formats));
     let (reflectance, masked) = specular(props, normal.is_some());
     let material = StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
