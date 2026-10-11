@@ -29,15 +29,22 @@
 //!   more weakly than NVForever does [hypothesis; open, docs/owner-review.md]. The
 //!   screen's own material and the glass come back when the Pip-Boy is down.
 //! - While the Pip-Boy is up only the page's button glows [observed: the owner's
-//!   screenshots: the button of the page shown is bright, the other two dimmer]; down,
-//!   all three glow, as before (owner, 2026-10-10).
+//!   screenshots: the button of the page shown is bright, the other two dimmer], and the
+//!   one the pointer is on [design]; down, all three glow, as before (owner, 2026-10-10).
+//! - The pointer is followed onto the shapes as the arm's bones pose them, from CPU
+//!   copies of their meshes ([`PartMesh`], [`Posed`]): the drawn meshes are kept on the
+//!   GPU only and are skinned, so Bevy's mesh ray casts found nothing and clicks on the
+//!   screen and the buttons did nothing (the owner's playtest, 2026-10-11).
 
 use crate::player_body::PlayerBody;
+use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
+use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use nvf_assets::nif_material::NifMaterial;
-use nvf_play::pipboy::{Page, PipBoy, PipBoyInput, PipBoyScreen, CANVAS, TARGET};
+use nvf_play::pipboy::{AidTarget, Page, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen, CANVAS, TARGET};
 use nvf_play::PlayerCamera;
+use std::sync::Arc;
 
 /// The part of the screen's texture the canvas fills [observed, module docs].
 pub const UV_EXTENT: f32 = 0.8;
@@ -88,7 +95,8 @@ pub struct PipBoyArmPlugin;
 
 impl Plugin for PipBoyArmPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (show_screen, follow_pointer).chain().after(nvf_play::player::BodySet).before(nvf_play::PlaySet::Ui));
+        app.init_resource::<Hovered>()
+            .add_systems(Update, (follow_pointer, show_screen).chain().after(nvf_play::player::BodySet).before(nvf_play::PlaySet::Ui));
     }
 }
 
@@ -109,6 +117,7 @@ fn show_screen(
     mut visibility: Query<&mut Visibility>,
     mut materials: ResMut<Assets<NifMaterial>>,
     mut swapped: Local<Swapped>,
+    hovered: Res<Hovered>,
 ) {
     let Some(mut screen) = screen else { return };
     let shown = pip.shown() && body.first_person_drawn();
@@ -147,7 +156,7 @@ fn show_screen(
     // glass is not drawn while the menus are on the screen.
     for (e, p, _) in &parts {
         let shown = match *p {
-            PipBoyPart::Glow(page) => !pip.shown() || page == pip.page,
+            PipBoyPart::Glow(page) => !pip.shown() || page == pip.page || hovered.0 == Some(page),
             PipBoyPart::Glass => !screen.on_model,
             _ => continue,
         };
@@ -160,20 +169,127 @@ fn show_screen(
     }
 }
 
+/// A Pip-Boy part's mesh as loaded (positions, texture coordinates, joints), kept on the
+/// CPU: the drawn mesh lives on the GPU only, and Bevy's mesh ray casts do not skin.
+#[derive(Component, Clone)]
+pub struct PartMesh(pub Arc<Mesh>);
+
+/// A shape posed in the world: its triangles' corners and texture coordinates.
+pub struct Posed {
+    pub points: Vec<Vec3>,
+    pub uvs: Vec<Vec2>,
+    pub triangles: Vec<[usize; 3]>,
+}
+
+impl Posed {
+    /// Pose `mesh`: skinned by `joints` (each joint's world matrix times its inverse bind
+    /// pose, as Bevy's skinning does), else placed by `world`.
+    pub fn new(mesh: &Mesh, joints: Option<&[Mat4]>, world: Mat4) -> Option<Posed> {
+        let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { return None };
+        let uvs: Vec<Vec2> = match mesh.attribute(Mesh::ATTRIBUTE_UV_0) {
+            Some(VertexAttributeValues::Float32x2(uv)) => uv.iter().map(|u| Vec2::from_array(*u)).collect(),
+            _ => return None,
+        };
+        let skin = joints.and_then(|j| match (mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX), mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)) {
+            (Some(VertexAttributeValues::Uint16x4(ji)), Some(VertexAttributeValues::Float32x4(jw))) => Some((j, ji, jw)),
+            _ => None,
+        });
+        let points = pos
+            .iter()
+            .enumerate()
+            .map(|(v, p)| {
+                let p = Vec3::from_array(*p);
+                match skin {
+                    Some((j, ji, jw)) => {
+                        let mut m = Mat4::ZERO;
+                        for k in 0..4 {
+                            if let Some(joint) = j.get(ji[v][k] as usize) {
+                                m += *joint * jw[v][k];
+                            }
+                        }
+                        m.transform_point3(p)
+                    }
+                    None => world.transform_point3(p),
+                }
+            })
+            .collect();
+        let triangles = match mesh.indices() {
+            Some(i) => {
+                let i: Vec<usize> = i.iter().collect();
+                i.chunks_exact(3).map(|t| [t[0], t[1], t[2]]).collect()
+            }
+            None => (0..pos.len() / 3).map(|t| [3 * t, 3 * t + 1, 3 * t + 2]).collect(),
+        };
+        Some(Posed { points, uvs, triangles })
+    }
+
+    /// The nearest triangle the ray meets, both faces: the distance along the ray and the
+    /// texture coordinates there.
+    pub fn hit(&self, origin: Vec3, dir: Vec3) -> Option<(f32, Vec2)> {
+        let mut best: Option<(f32, Vec2)> = None;
+        for &[a, b, c] in &self.triangles {
+            let (pa, pb, pc) = (self.points[a], self.points[b], self.points[c]);
+            let (e1, e2) = (pb - pa, pc - pa);
+            let h = dir.cross(e2);
+            let det = e1.dot(h);
+            if det.abs() < 1e-9 {
+                continue;
+            }
+            let s = origin - pa;
+            let u = s.dot(h) / det;
+            let q = s.cross(e1);
+            let v = dir.dot(q) / det;
+            let t = e2.dot(q) / det;
+            if u < 0.0 || v < 0.0 || u + v > 1.0 || t <= 0.0 || best.is_some_and(|(d, _)| d <= t) {
+                continue;
+            }
+            best = Some((t, self.uvs[a] * (1.0 - u - v) + self.uvs[b] * u + self.uvs[c] * v));
+        }
+        best
+    }
+
+    /// The point of the shape at texture coordinates `uv`, if some triangle covers them.
+    pub fn at_uv(&self, uv: Vec2) -> Option<Vec3> {
+        self.triangles.iter().find_map(|&[a, b, c]| {
+            let (ta, tb, tc) = (self.uvs[a], self.uvs[b], self.uvs[c]);
+            let (e1, e2, p) = (tb - ta, tc - ta, uv - ta);
+            let det = e1.perp_dot(e2);
+            if det.abs() < 1e-12 {
+                return None;
+            }
+            let u = p.perp_dot(e2) / det;
+            let v = e1.perp_dot(p) / det;
+            (u >= 0.0 && v >= 0.0 && u + v <= 1.0).then(|| self.points[a] * (1.0 - u - v) + self.points[b] * u + self.points[c] * v)
+        })
+    }
+
+    /// The middle of the shape's corners.
+    pub fn middle(&self) -> Option<Vec3> {
+        (!self.points.is_empty()).then(|| self.points.iter().sum::<Vec3>() / self.points.len() as f32)
+    }
+}
+
 /// Follow the window's pointer onto the model: where it lies on the screen goes to the
-/// menus (`PipBoyScreen::pointer`); a click on a button shows its page.
+/// menus (`PipBoyScreen::pointer`); a click on a button shows its page, and the pointer
+/// on a button lights it ([`Hovered`]). The shapes are posed as the arm's bones hold
+/// them this frame. The test aid's target (`PipBoyAid`) stands in for the window's
+/// pointer.
 #[allow(clippy::too_many_arguments)]
 fn follow_pointer(
     pip: Res<PipBoy>,
     screen: Option<ResMut<PipBoyScreen>>,
     cams: Query<(&Camera, &GlobalTransform), With<PlayerCamera>>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    parts: Query<&PipBoyPart>,
+    parts: Query<(&PipBoyPart, &PartMesh, &GlobalTransform, Option<&SkinnedMesh>)>,
+    globals: Query<&GlobalTransform>,
+    binds: Res<Assets<SkinnedMeshInverseBindposes>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    mut ray_cast: MeshRayCast,
+    mut aid: ResMut<PipBoyAid>,
+    mut hovered: ResMut<Hovered>,
     mut out: MessageWriter<PipBoyInput>,
 ) {
     let Some(mut screen) = screen else { return };
+    hovered.0 = None;
     if !screen.on_model {
         return;
     }
@@ -182,18 +298,53 @@ fn follow_pointer(
         return;
     }
     let (Ok((cam, at)), Ok(window)) = (cams.single(), windows.single()) else { return };
-    let Some(ray) = window.cursor_position().and_then(|c| cam.viewport_to_world(at, c).ok()) else { return };
-    let ours = |e: Entity| parts.contains(e);
-    let settings = MeshRayCastSettings::default().with_visibility(RayCastVisibility::Any).with_filter(&ours);
-    let Some((e, hit)) = ray_cast.cast_ray(ray, &settings).first() else { return };
-    match parts.get(*e) {
-        Ok(PipBoyPart::Screen) => screen.pointer = hit.uv.and_then(canvas_point),
-        Ok(PipBoyPart::Button(page)) if mouse.just_pressed(MouseButton::Left) => {
-            out.write(PipBoyInput::Page(*page));
+    let posed: Vec<(PipBoyPart, Posed)> = parts
+        .iter()
+        .filter(|(p, ..)| matches!(p, PipBoyPart::Screen | PipBoyPart::Button(_)))
+        .filter_map(|(p, mesh, gt, skin)| {
+            let joints: Option<Vec<Mat4>> = skin.and_then(|s| {
+                let inv = binds.get(&s.inverse_bindposes)?;
+                s.joints.iter().zip(inv.iter()).map(|(j, ib)| globals.get(*j).ok().map(|g| g.to_matrix() * *ib)).collect()
+            });
+            Some((*p, Posed::new(&mesh.0, joints.as_deref(), gt.to_matrix())?))
+        })
+        .collect();
+    // Where the pointer is: the test aid's target, else the window's pointer.
+    let target = aid.target.and_then(|t| {
+        let world = match t {
+            AidTarget::Button(page) => posed.iter().find(|(p, _)| *p == PipBoyPart::Button(page)).and_then(|(_, s)| s.middle()),
+            AidTarget::Canvas(c) => posed.iter().find(|(p, _)| *p == PipBoyPart::Screen).and_then(|(_, s)| s.at_uv(c / CANVAS * UV_EXTENT)),
+        }?;
+        cam.world_to_viewport(at, world).ok()
+    });
+    if aid.target.is_some() && target.is_none() {
+        warn!("test aid: pipboy target {:?} is not in view", aid.target);
+    }
+    let cursor = if aid.target.is_some() { target } else { window.cursor_position() };
+    let Some(ray) = cursor.and_then(|c| cam.viewport_to_world(at, c).ok()) else { return };
+    let (origin, dir) = (ray.origin, Vec3::from(ray.direction));
+    let hit = posed.iter().filter_map(|(p, s)| s.hit(origin, dir).map(|(t, uv)| (t, *p, uv))).min_by(|a, b| a.0.total_cmp(&b.0));
+    let clicked = mouse.just_pressed(MouseButton::Left) || (aid.click == 3 && matches!(aid.target, Some(AidTarget::Button(_))));
+    match hit {
+        Some((_, PipBoyPart::Screen, uv)) => screen.pointer = canvas_point(uv),
+        Some((_, PipBoyPart::Button(page), _)) => {
+            hovered.0 = Some(page);
+            if clicked {
+                info!("pipboy: the {} button pressed", page.title());
+                out.write(PipBoyInput::Page(page));
+                if aid.click == 3 {
+                    aid.click = 0;
+                }
+            }
         }
         _ => {}
     }
 }
+
+/// The page whose button the pointer is on: its glow is lit as the page shown's is
+/// [design: the original's buttons are not known to light under the pointer].
+#[derive(Resource, Default)]
+pub struct Hovered(pub Option<Page>);
 
 #[cfg(test)]
 mod tests {
@@ -208,6 +359,28 @@ mod tests {
         assert_eq!(part("ScreenLit:8"), Some(PipBoyPart::Glass));
         assert_eq!(part("glare:0"), Some(PipBoyPart::Glass));
         assert_eq!(part("PipBoyArm:0"), None);
+    }
+
+    #[test]
+    fn a_posed_shape_is_hit_and_found_by_its_texture_coordinates() {
+        // A square 2 x 2 at z = 5 facing the origin, uv 0..1, moved up by `world`.
+        let mut m = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::default());
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0], [-1.0, 1.0, 0.0]]);
+        m.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]);
+        m.insert_indices(bevy::mesh::Indices::U16(vec![0, 1, 2, 0, 2, 3]));
+        let s = Posed::new(&m, None, Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0))).unwrap();
+        let (t, uv) = s.hit(Vec3::ZERO, Vec3::new(0.5, 0.0, 5.0).normalize()).unwrap();
+        assert!((uv - Vec2::new(0.75, 0.5)).length() < 1e-4, "{uv}");
+        assert!((t - Vec3::new(0.5, 0.0, 5.0).length()).abs() < 1e-4);
+        assert!(s.hit(Vec3::ZERO, Vec3::new(3.0, 0.0, 5.0).normalize()).is_none());
+        let p = s.at_uv(Vec2::new(0.75, 0.5)).unwrap();
+        assert!((p - Vec3::new(0.5, 0.0, 5.0)).length() < 1e-4);
+        // Skinned: one joint moving everything 2 to the side.
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(vec![[0, 0, 0, 0]; 4]));
+        m.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[1.0f32, 0.0, 0.0, 0.0]; 4]);
+        let joint = [Mat4::from_translation(Vec3::new(2.0, 0.0, 5.0))];
+        let s = Posed::new(&m, Some(&joint), Mat4::IDENTITY).unwrap();
+        assert!((s.middle().unwrap() - Vec3::new(2.0, 0.0, 5.0)).length() < 1e-4);
     }
 
     #[test]

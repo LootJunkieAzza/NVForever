@@ -322,7 +322,11 @@ and field of view; docs/spec-notes/pipboy.md §7), run it with `NVF_PLAY_TEST_SC
 and `NVF_PLAY_TEST_PIPBOY=12:open,15:page=stats,17:close` set:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --play --no-voice --hour 12 --size 1280x720 --run-seconds 19`
 (expect exit 0, "pipboy: up, page ITEMS tab Weapons", "pipboy: the menus are on the model's
-screen", "pipboy: STATS Status" and "pipboy: down").
+screen", "pipboy: STATS Status" and "pipboy: down"). After changes to the Pip-Boy's pointer
+(`pipboy_arm.rs` `follow_pointer`, `pipboy::drive_pointer`), also click with
+`NVF_PLAY_TEST_PIPBOY=12:open,14:click=320:650,16:click=stats,18:click=600:650` and
+`--run-seconds 21` (expect "pipboy: ITEMS Apparel", "pipboy: the STATS button pressed" and
+"pipboy: STATS Perks").
 After changes to terminals or the hacking game (`fnv_game::hacking`, `fnv_game::terminal`,
 `nvf-play` `terminal`; docs/spec-notes/hacking.md §9), run the Easy terminal, with
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and

@@ -889,8 +889,11 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
             commands.entity(*e).insert(RenderLayers::layer(ARMS_LAYER));
         }
         for ((&e, &p), &s) in spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of) {
-            if let Some(part) = uses[p].part.shapes[s].name.as_deref().and_then(crate::pipboy_arm::part) {
-                commands.entity(e).insert(part);
+            let shape = &uses[p].part.shapes[s];
+            if let Some(part) = shape.name.as_deref().and_then(crate::pipboy_arm::part) {
+                // The CPU copy: the pointer is followed onto the posed shape
+                // (`pipboy_arm::follow_pointer`).
+                commands.entity(e).insert((part, crate::pipboy_arm::PartMesh(shape.cpu.clone())));
             }
         }
     }
