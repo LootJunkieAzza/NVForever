@@ -77,9 +77,10 @@
 //!   unequipped and stays in the inventory, broken; another actor's falls to the ground
 //!   ([`WeaponBroken`]). A worn weapon hits for less and worn armour protects less.
 //! - **Feedback** [design, until impact effects and audio exist]: a marker at each impact,
-//!   a line from the muzzle along each hitscan shot, an ammo counter, a hit marker at the
+//!   a line from the muzzle along each hitscan shot, a hit marker at the
 //!   crosshair (red on a kill), the last target's health for a few seconds, the player's
-//!   health, and a line for kills with their XP.
+//!   crippled limbs, and a line for kills with their XP. Health, condition and ammo are
+//!   on the HUD proper (`crate::hud`, [`Combat::hud_weapon`]).
 
 use bevy::prelude::*;
 use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
@@ -561,12 +562,12 @@ impl Plugin for CombatPlugin {
             .add_message::<ActorHit>()
             .add_message::<ActorPush>()
             .add_message::<WeaponBroken>()
-            .add_systems(Startup, (init_combat, spawn_hud, spawn_hit_hud))
+            .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
                 (track_limbs, weapon_state, equip_sync, weapon_sounds, fire, melee, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
-            .add_systems(Update, (draw_marks, update_hud, update_hit_hud).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (draw_marks, update_hit_hud).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -1705,35 +1706,29 @@ fn draw_marks(time: Res<Time>, mut c: ResMut<Combat>, anim: Res<WeaponAnim>, mut
     c.marks.retain(|m| m.age < m.life);
 }
 
-#[derive(Component)]
-struct AmmoText;
-
-fn spawn_hud(mut commands: Commands) {
-    commands.spawn((
-        Node { position_type: PositionType::Absolute, right: Val::Px(24.0), bottom: Val::Px(20.0), ..default() },
-        Text::new(""),
-        TextFont { font_size: FontSize::Px(20.0), ..default() },
-        TextColor(Color::srgb(1.0, 0.85, 0.4)),
-        AmmoText,
-    ));
+/// What the HUD shows of the weapon the player has equipped.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct HudWeapon {
+    /// The equipped weapon's condition, 0 to 1 (§17); `None` with bare hands.
+    pub condition: Option<f32>,
+    /// Rounds in the magazine and rounds carried besides, for a weapon that uses ammo;
+    /// a weapon that spends itself (thrown) has its count first and 0 besides.
+    pub ammo: Option<(u32, u32)>,
 }
 
-/// The ammo counter: rounds in the magazine / rounds carried besides, and the ammo's
-/// abbreviation (the game's HUD layout is not copied; ours [design]).
-fn update_hud(state: Res<State<PlayState>>, c: Res<Combat>, sim: Res<SimState>, control: Res<PlayerControl>, mut text: Query<&mut Text, With<AmmoText>>) {
-    let Ok(mut t) = text.single_mut() else { return };
-    let line = match (c.weapon, c.cycle.as_ref()) {
-        (Some(_), Some(cy)) if *state.get() == PlayState::Playing && control.weapon_out && !cy.no_ammo => {
-            let total = player_count(&sim, c.ammo);
-            let abbrev = c.ammo.and_then(|a| c.forms.ammo.get(&a)).and_then(|a| a.abbrev.clone().or(a.short_name.clone())).unwrap_or_default();
-            let cnd = c.equipped.flatten().map_or(String::new(), |id| format!("   CND {}%", condition::percent(item_condition(&sim, FormId::PLAYER_REF, id))));
-            format!("{} / {}  {}{cnd}", cy.magazine.min(total), total.saturating_sub(cy.magazine), abbrev)
-        }
-        (Some(id), Some(_)) if *state.get() == PlayState::Playing && control.weapon_out && c.self_ammo => format!("{}", player_count(&sim, Some(id))),
-        _ => String::new(),
-    };
-    if t.0 != line {
-        t.0 = line;
+impl Combat {
+    /// The equipped weapon as the HUD shows it (docs/spec-notes/hud.md §5).
+    pub fn hud_weapon(&self, sim: &SimState) -> HudWeapon {
+        let condition = self.equipped.flatten().map(|id| item_condition(sim, FormId::PLAYER_REF, id));
+        let ammo = match (self.equipped.flatten(), self.cycle.as_ref()) {
+            (Some(_), Some(cy)) if !cy.no_ammo => {
+                let total = player_count(sim, self.ammo);
+                Some((cy.magazine.min(total), total.saturating_sub(cy.magazine)))
+            }
+            (Some(id), Some(_)) if self.self_ammo => Some((player_count(sim, Some(id)), 0)),
+            _ => None,
+        };
+        HudWeapon { condition, ammo }
     }
 }
 
@@ -1757,8 +1752,9 @@ struct HitMarker;
 #[derive(Component)]
 struct TargetText;
 
+/// The player's crippled limbs, in words (the original's picture of them is not built).
 #[derive(Component)]
-struct PlayerHealthText;
+struct CrippledText;
 
 fn spawn_hit_hud(mut commands: Commands) {
     // The hit marker: a small square ring around the crosshair.
@@ -1782,27 +1778,25 @@ fn spawn_hit_hud(mut commands: Commands) {
     ))
     .with_child((Text::new(""), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::srgb(1.0, 0.85, 0.4)), TargetText));
     commands.spawn((
-        Node { position_type: PositionType::Absolute, left: Val::Px(24.0), bottom: Val::Px(20.0), ..default() },
+        Node { position_type: PositionType::Absolute, left: Val::Vh(4.0), bottom: Val::Vh(17.0), ..default() },
         Text::new(""),
-        TextFont { font_size: FontSize::Px(20.0), ..default() },
+        TextFont { font_size: FontSize::Px(16.0), ..default() },
         TextColor(Color::srgb(1.0, 0.85, 0.4)),
-        PlayerHealthText,
+        CrippledText,
     ));
 }
 
-/// The hit marker, the last target's health and the player's health [design]. The
-/// player's health is hidden while a script has the player's movement off [documented:
-/// GECK wiki DisablePlayerControls, MovementFlag: the health part of the HUD].
+/// The hit marker, the last target's health and the player's crippled limbs [design].
+/// The player's health is `crate::hud`'s; the limbs go with it while a script has the
+/// player's movement off (docs/spec-notes/hud.md §5).
 #[allow(clippy::too_many_arguments)]
 fn update_hit_hud(
     time: Res<Time>,
     state: Res<State<PlayState>>,
     mut fb: ResMut<HitFeedback>,
-    mut script: Option<ResMut<ScriptState>>,
-    mut sim: ResMut<SimState>,
     mut marker: Query<&mut BorderColor, With<HitMarker>>,
-    mut target: Query<&mut Text, (With<TargetText>, Without<PlayerHealthText>)>,
-    mut health: Query<&mut Text, (With<PlayerHealthText>, Without<TargetText>)>,
+    mut target: Query<&mut Text, (With<TargetText>, Without<CrippledText>)>,
+    mut health: Query<&mut Text, (With<CrippledText>, Without<TargetText>)>,
     limbs: Res<PlayerLimbs>,
     locks: Option<Res<crate::control::ControlLocks>>,
 ) {
@@ -1836,17 +1830,8 @@ fn update_hit_hud(
             t.0 = line;
         }
     }
-    let hp = match script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
-        Some(rt) if health_shown => with_world(rt, &mut sim, |rt| {
-            let max = rt.game.max_health(FormId::PLAYER_REF);
-            let now = fnv_game::functions::actor_health(&mut rt.game, FormId::PLAYER_REF).unwrap_or(max);
-            let crippled = limbs.crippled_names();
-            if crippled.is_empty() {
-                format!("HP {:.0}/{:.0}", now, max)
-            } else {
-                format!("HP {:.0}/{:.0}  crippled: {}", now, max, crippled.join(", "))
-            }
-        }),
+    let hp = match limbs.crippled_names() {
+        names if health_shown && !names.is_empty() => format!("crippled: {}", names.join(", ")),
         _ => String::new(),
     };
     if let Ok(mut t) = health.single_mut() {
