@@ -24,9 +24,12 @@ pub enum ScriptEffect {
     Travel(Travel),
     /// A scripted activation opened a container for the player.
     OpenContainer(u32),
-    /// A short line on screen (a message without the message-box flag, an objective,
-    /// items a script gave the player, a default activation's message).
+    /// A short line on screen (a message without the message-box flag, items a script
+    /// gave the player, a default activation's message).
     Notify(Note),
+    /// A quest added, completed or failed, or objectives shown or completed: drawn at
+    /// the left of the view (`crate::quest_messages`).
+    Quest(QuestNotice),
     /// A message box (`MESG` flagged "Message Box", or one with buttons).
     MessageBox(BoxMessage),
     /// A script's `Activate` ran a piece of furniture's default activation for the
@@ -58,6 +61,23 @@ impl From<&str> for Note {
     }
 }
 
+/// What the quest area at the left of the view shows (docs/spec-notes/quest-messages.md).
+#[derive(Debug, Clone, PartialEq)]
+pub enum QuestNotice {
+    /// "Quest added" over the quest's name: its first objective was shown.
+    Added(String),
+    Completed(String),
+    Failed(String),
+    /// Objectives shown or completed, in the order it happened.
+    Objectives(Vec<Objective>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Objective {
+    pub text: String,
+    pub completed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BoxMessage {
     pub message: u32,
@@ -76,8 +96,12 @@ impl BoxMessage {
 pub trait EffectCtx {
     /// Display name of a base form or reference, for messages.
     fn name(&self, form: FormId) -> String;
-    fn quest_name(&self, quest: FormId) -> String;
     fn objective_text(&self, quest: FormId, index: i32) -> Option<String>;
+    /// The quest's name (FULL) when it has one.
+    fn quest_title(&self, quest: FormId) -> Option<String>;
+    /// Whether an objective of the quest other than those in `besides` is shown or
+    /// completed: the quest is in the player's list already.
+    fn quest_listed(&self, quest: FormId, besides: &[i32]) -> bool;
     /// `MESG` DNAM "Message Box" flag.
     fn is_message_box(&self, message: FormId) -> bool;
     /// The icon file and the seconds of a message that is not a box, as [`Note`] has
@@ -173,6 +197,16 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
     let mut out = Vec::new();
     let mut added: Vec<(FormId, i32)> = Vec::new();
     let player = FormId::PLAYER_REF;
+    // Objectives this batch shows, by quest: the game's state already has them, so
+    // whether a quest was listed before is asked without them.
+    let shown = |q: FormId| -> Vec<i32> {
+        let on = |e: &Event| match e.kind {
+            EventKind::ObjectiveDisplayed { quest, index, on: true } if quest == q => Some(index),
+            _ => None,
+        };
+        events.iter().filter_map(on).collect()
+    };
+    let mut announced = BTreeSet::new();
     let changed = |out: &mut Vec<ScriptEffect>, r: FormId| {
         out.push(ScriptEffect::RefChanged(r.0));
         for c in ctx.enable_children(r) {
@@ -226,16 +260,25 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                     out.push(ScriptEffect::Notify(Note { text, icon, seconds }));
                 }
             }
+            // The first objective of a quest to be shown adds the quest [documented: GECK
+            // wiki SetObjectiveDisplayed]; an objective without text or a quest without a
+            // name is not shown [hypothesis] (quest-messages.md §5).
             EventKind::ObjectiveDisplayed { quest, index, on: true } => {
-                let t = ctx.objective_text(*quest, *index).unwrap_or_else(|| format!("{} objective {index}", ctx.quest_name(*quest)));
-                out.push(ScriptEffect::Notify(format!("Objective: {t}").into()));
+                let Some(text) = ctx.objective_text(*quest, *index).filter(|t| !t.trim().is_empty()) else { continue };
+                if announced.insert(*quest) && !ctx.quest_listed(*quest, &shown(*quest)) {
+                    if let Some(name) = ctx.quest_title(*quest) {
+                        out.push(ScriptEffect::Quest(QuestNotice::Added(name)));
+                    }
+                }
+                out.push(ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { text, completed: false }])));
             }
             EventKind::ObjectiveCompleted { quest, index, on: true } => {
-                let t = ctx.objective_text(*quest, *index).unwrap_or_else(|| format!("{} objective {index}", ctx.quest_name(*quest)));
-                out.push(ScriptEffect::Notify(format!("Completed: {t}").into()));
+                if let Some(text) = ctx.objective_text(*quest, *index).filter(|t| !t.trim().is_empty()) {
+                    out.push(ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { text, completed: true }])));
+                }
             }
-            EventKind::QuestCompleted { quest } => out.push(ScriptEffect::Notify(format!("Quest completed: {}", ctx.quest_name(*quest)).into())),
-            EventKind::QuestFailed { quest } => out.push(ScriptEffect::Notify(format!("Quest failed: {}", ctx.quest_name(*quest)).into())),
+            EventKind::QuestCompleted { quest } => out.extend(ctx.quest_title(*quest).map(|n| ScriptEffect::Quest(QuestNotice::Completed(n)))),
+            EventKind::QuestFailed { quest } => out.extend(ctx.quest_title(*quest).map(|n| ScriptEffect::Quest(QuestNotice::Failed(n)))),
             EventKind::ItemAdded { to, item, count } if *to == player => match added.iter_mut().find(|(i, _)| i == item) {
                 Some((_, n)) => *n += count,
                 None => added.push((*item, *count)),
@@ -569,11 +612,20 @@ mod tests {
         fn name(&self, form: FormId) -> String {
             format!("form {:X}", form.0)
         }
-        fn quest_name(&self, quest: FormId) -> String {
-            format!("quest {:X}", quest.0)
-        }
         fn objective_text(&self, quest: FormId, index: i32) -> Option<String> {
-            (quest == QUEST && index == 30).then(|| "Use the Vit-o-matic Vigor Tester".to_string())
+            match (quest, index) {
+                (QUEST, 10) => Some("Talk to Sunny Smiles.".into()),
+                (QUEST, 30) => Some("Use the Vit-o-matic Vigor Tester".into()),
+                (QUEST, 35) => Some("Follow Sunny.".into()),
+                _ => None,
+            }
+        }
+        fn quest_title(&self, quest: FormId) -> Option<String> {
+            (quest == QUEST).then(|| "Back in the Saddle".into())
+        }
+        fn quest_listed(&self, quest: FormId, besides: &[i32]) -> bool {
+            // Objective 10 was shown before this batch.
+            quest == QUEST && !besides.contains(&10)
         }
         fn is_message_box(&self, message: FormId) -> bool {
             message.0 == 0x0BB
@@ -687,9 +739,10 @@ mod tests {
                 ScriptEffect::Notify(Note { text: "To jump, press Space.".into(), icon: Some("icons\\pain.dds".into()), seconds: Some(10.0) }),
                 ScriptEffect::MessageBox(BoxMessage { message: 0xBB, text: "Old World Blues has been loaded.".into(), buttons: vec![] }),
                 ScriptEffect::MessageBox(BoxMessage { message: 0xCC, text: "Hardcore?".into(), buttons: vec!["No".into(), "Yes".into()] }),
-                ScriptEffect::Notify("Objective: Use the Vit-o-matic Vigor Tester".into()),
-                ScriptEffect::Notify("Completed: quest 104C1C objective 10".into()),
-                ScriptEffect::Notify("Quest completed: quest 104C1C".into()),
+                // The quest was listed already: no "Quest added".
+                ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { text: "Use the Vit-o-matic Vigor Tester".into(), completed: false }])),
+                ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { text: "Talk to Sunny Smiles.".into(), completed: true }])),
+                ScriptEffect::Quest(QuestNotice::Completed("Back in the Saddle".into())),
                 ScriptEffect::Notify("form 15169 removed".into()),
                 ScriptEffect::Notify("form 15169 (5) added".into()),
             ]
@@ -697,6 +750,25 @@ mod tests {
         // Many items at once: one line.
         let many: Vec<EventKind> = (0..10).map(|i| EventKind::ItemAdded { to: FormId::PLAYER_REF, item: FormId(0x100 + i), count: 2 }).collect();
         assert_eq!(run(many), vec![ScriptEffect::Notify("10 items added (20 in all)".into())]);
+    }
+
+    #[test]
+    fn the_first_objective_shown_adds_the_quest() {
+        let objective = |text: &str, completed| ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { text: text.into(), completed }]));
+        // Objective 10 is the quest's first: "Quest added" comes before it, once, though
+        // two are shown in the same frame. Objectives without text and quests without a
+        // name show nothing.
+        let e = run(vec![
+            EventKind::ObjectiveDisplayed { quest: QUEST, index: 10, on: true },
+            EventKind::ObjectiveDisplayed { quest: QUEST, index: 35, on: true },
+            EventKind::ObjectiveDisplayed { quest: QUEST, index: 99, on: true },
+            EventKind::ObjectiveDisplayed { quest: FormId(0x77), index: 10, on: true },
+            EventKind::QuestFailed { quest: FormId(0x77) },
+        ]);
+        assert_eq!(e, vec![ScriptEffect::Quest(QuestNotice::Added("Back in the Saddle".into())), objective("Talk to Sunny Smiles.", false), objective("Follow Sunny.", false)]);
+        // Shown again later, with 10 listed before: no "Quest added".
+        let e = run(vec![EventKind::ObjectiveDisplayed { quest: QUEST, index: 35, on: true }, EventKind::QuestFailed { quest: QUEST }]);
+        assert_eq!(e, vec![objective("Follow Sunny.", false), ScriptEffect::Quest(QuestNotice::Failed("Back in the Saddle".into()))]);
     }
 
     #[test]

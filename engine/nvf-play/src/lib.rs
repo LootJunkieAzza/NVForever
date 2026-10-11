@@ -35,6 +35,7 @@ pub mod music;
 pub mod pause;
 pub mod phys;
 pub mod player;
+pub mod quest_messages;
 pub mod script;
 pub mod script_draw;
 pub mod script_events;

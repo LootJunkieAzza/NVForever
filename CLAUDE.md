@@ -142,6 +142,16 @@ After changes to the messages at the top left (`nvf-play` `corner_messages`, `in
 for 2 s, icon glow_message_vaultboy_ncr.dds` and `corner message: "You are now Well Rested!" for
 10 s, icon default`, about 2.25 s apart).
 
+After changes to the quest lines at the left ("Quest added", objectives; `nvf-play`
+`quest_messages`, `script_events` `QuestNotice`; docs/spec-notes/quest-messages.md §7), run them,
+with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
+`NVF_PLAY_TEST_SCRIPT=3:objective:VCG02:3,9:objective_done:VCG02:3,9.1:objective:VCG02:5` set:
+`engine/target/release/nvforever --data <Data> --cell GSHouseInterior03 --play --no-voice --run-seconds 19`
+(expect exit 0 and, in this order, `quest message on screen: Quest added: BACK IN THE SADDLE`,
+`quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.` and
+`quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny
+Smiles behind the Prospector Saloon.`).
+
 After changes to the sounds animations and doors name (nvforever `anim_sounds.rs`,
 `fnv_actor::anim_sounds`, `nvf_play::doors` sounds; docs/spec-notes/audio.md §10), run the
 footsteps, reload and doors check, with `NVF_PLAY_TEST_EQUIP=0000434F`,
