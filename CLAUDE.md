@@ -107,6 +107,15 @@ audio.md) and the music smoke test:
 (expect exit 0, "music: musSetLOCDesExplBothABC day started, layers outer+middle+inner",
 "music summary: 1 started, 0 changes of layers, 0 files not played" and "ambient summary:
 2 placed loops started, … 1 background loops started"; the count of random sounds varies).
+After changes to battle, dungeon, incidental or script music (`nvf-play` `music`, `PlayMusic`;
+audio.md §13), also run the trigger outside Doc Mitchell's door, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and `NVF_PLAY_TEST_SCRIPT=3:walk:placed:VCG01RemoveDocCarebearModeTrigger` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --no-voice --run-seconds 25`
+(expect exit 0, "music: a script plays musSCRGoodspringsStinger (once)" and in the music summary
+"1 script requests"), and the battle beside Violet:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --pos=-46800,65000,4600 --hour 12 --no-voice --run-seconds 40`
+(expect exit 0, "music: battle begins (0x000F570B has the player detected)", an "intro of" line,
+"battle over" and "1 battles (1 battle loops started), 2 intro and outro sounds" in the summary).
 After radio changes (`fnv_world::radio`, `fnv_game::radio`, `nvf-play` `radio`;
 docs/spec-notes/radio.md §6), run the saloon jukebox, switched off at 20 s and on at 28 s, with
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.3`, `NVF_PLAY_TEST_NEAR=00107D73` and `NVF_PLAY_TEST_ACTIVATE=20,28` set:
@@ -198,6 +207,19 @@ a house, with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3`, `NVF_PLAY_TEST_SCRIPT=11:activat
 (expect exit 0, "001730E9 (0x00004323) picked up, sound ITMPistolUp", "dropped, sound UIItemsClothingDown"
 and in the summary "2 pick-ups, 1 drops; 5 items taken from and 1 put in containers; containers opened
 1 and closed 1 times").
+
+After changes to the menus' sounds (`nvf-play` `ui_sounds` and its hooks in `menu`, `pause` and
+`world_sounds`; docs/spec-notes/audio.md §12), run the menus one after the other, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3`, `NVF_PLAY_TEST_TALK=11:GSChetRef=for sale|leave`, `NVF_PLAY_TEST_BARTER=*`,
+`NVF_PLAY_TEST_BARTER_DELAY=6`, `NVF_PLAY_TEST_MENU=nearest`, `NVF_PLAY_TEST_DELAY=44`,
+`NVF_PLAY_TEST_GIVE=00015169:2`, `NVF_PLAY_TEST_DROP=58:00015169:use`,
+`NVF_PLAY_TEST_WAIT=61:open,62:hours=2,63:accept`, `NVF_PLAY_TEST_PAUSE=66:69` and
+`NVF_PLAY_TEST_SETTINGS=67:page,67.5:menu-pause,68:menu-pause` set:
+`engine/target/release/nvforever --data <Data> --cell GSGeneralStore --play --no-voice --run-seconds 72`
+(expect exit 0, "barter opened: UIMenuMode", "container take all: UIItemTakeAll", "inventory item used:
+NPCHumanUsingStimpak", "wait slider moved: UIMenuPrevNext" and "settings switch flipped: UIMenuPrevNext",
+and in the "ui sounds summary:" "24 played", "0 sounds not found" and one or more "items' own sounds held back
+for Take All"; the register's stacks vary).
 
 After changes to creatures' sounds, the player's jump and landing sounds, wading, objects' own
 sounds, casing sounds or panning (`fnv_actor::anim_sounds` creature part, nvforever `anim_sounds.rs`
