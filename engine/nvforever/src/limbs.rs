@@ -14,14 +14,23 @@
 //!   `NonAccum` node: `Bip01`, the torso's node in `DefaultBodyPartData`, stands at the
 //!   feet [observed: posed segments, 2026-10-09], so the torso starts at the next joint
 //!   (the pelvis). Joints closer than [`MIN_SEGMENT`] to the last one kept are merged.
+//! - **The weapon in the hand** (docs/spec-notes/combat-rules.md §17) [design]: an actor
+//!   with its weapon drawn also gets one segment along the weapon model's longest side
+//!   ([`weapon_segment`]), numbered `hitvol::WEAPON_PART`, so a shot can strike the
+//!   weapon. A holstered weapon has none: a shot at the hip or the back hits the actor.
 
+use bevy::camera::primitives::Aabb;
+use bevy::math::Affine3A;
 use bevy::prelude::*;
 use fnv_combat::data::Limb;
 use fnv_sim::FormId;
 use nvf_assets::actor::PreparedSkeleton;
 use nvf_play::combat::Combat;
-use nvf_play::hitvol::{ActorParts, PartSegment, PosedParts};
+use nvf_play::hitvol::{ActorParts, PartSegment, PosedParts, WEAPON_PART};
+use std::collections::HashMap;
 use std::sync::Arc;
+
+use crate::weapons::{HeldWeapon, WeaponHold};
 
 /// Joints closer than this to the previous kept joint are merged, game units [design].
 pub const MIN_SEGMENT: f32 = 4.0;
@@ -49,7 +58,7 @@ pub struct LimbsPlugin;
 
 impl Plugin for LimbsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, rig_limbs.run_if(resource_exists::<Combat>)).add_systems(
+        app.add_systems(Update, (rig_limbs, crate::weapons::drop_broken).run_if(resource_exists::<Combat>)).add_systems(
             PostUpdate,
             publish_limbs.after(bevy::transform::TransformSystems::Propagate).run_if(resource_exists::<ActorParts>),
         );
@@ -126,6 +135,37 @@ pub fn part_chains(names: &[Option<String>], parents: &[Option<usize>], bind: &[
     out
 }
 
+/// One drawn shape of a weapon model: its transform and its local bounds (centre, half
+/// extents).
+pub type ShapeBox = (Affine3A, Vec3, Vec3);
+
+/// The segment along a weapon model: the ends of the longest side of the box around
+/// its shapes, through the box's middle. The box is taken in the first shape's frame
+/// (the shapes of one model hang rigidly from one node). `None` without shapes.
+pub fn weapon_segment(shapes: &[ShapeBox]) -> Option<(Vec3, Vec3)> {
+    let frame = shapes.first()?.0;
+    let inv = frame.inverse();
+    let (mut lo, mut hi) = (Vec3::MAX, Vec3::MIN);
+    for (m, c, h) in shapes {
+        let to = inv * *m;
+        for i in 0..8 {
+            let sign = Vec3::new(if i & 1 == 0 { -1.0 } else { 1.0 }, if i & 2 == 0 { -1.0 } else { 1.0 }, if i & 4 == 0 { -1.0 } else { 1.0 });
+            let p = to.transform_point3(*c + *h * sign);
+            lo = lo.min(p);
+            hi = hi.max(p);
+        }
+    }
+    let (c, h) = ((lo + hi) / 2.0, (hi - lo) / 2.0);
+    let axis = if h.x >= h.y && h.x >= h.z {
+        Vec3::X * h.x
+    } else if h.y >= h.z {
+        Vec3::Y * h.y
+    } else {
+        Vec3::Z * h.z
+    };
+    Some((frame.transform_point3(c - axis), frame.transform_point3(c + axis)))
+}
+
 /// Match spawned actors' skeletons to their body part data, once.
 fn rig_limbs(mut commands: Commands, combat: Res<Combat>, rigs: Query<(Entity, &ActorRig), Without<LimbRig>>) {
     for (e, rig) in &rigs {
@@ -146,19 +186,35 @@ fn rig_limbs(mut commands: Commands, combat: Res<Combat>, rigs: Query<(Entity, &
 }
 
 /// Publish every rigged actor's posed parts (game space) for the hit volumes.
-fn publish_limbs(mut out: ResMut<ActorParts>, rigs: Query<(&ActorRig, &LimbRig, &InheritedVisibility)>, nodes: Query<&GlobalTransform>) {
+fn publish_limbs(
+    mut out: ResMut<ActorParts>,
+    rigs: Query<(&ActorRig, &LimbRig, &InheritedVisibility, Option<&WeaponHold>)>,
+    nodes: Query<&GlobalTransform>,
+    held: Query<(&HeldWeapon, &GlobalTransform, &Aabb)>,
+) {
     out.by_ref.clear();
-    for (rig, limb, vis) in &rigs {
+    // The shapes of the weapons in hand, by actor.
+    let mut weapons: HashMap<u32, (FormId, Vec<ShapeBox>)> = HashMap::new();
+    for (h, g, aabb) in &held {
+        weapons.entry(h.reference).or_insert_with(|| (h.weapon, Vec::new())).1.push((g.affine(), Vec3::from(aabb.center), Vec3::from(aabb.half_extents)));
+    }
+    for (rig, limb, vis, hold) in &rigs {
         if !vis.get() || limb.chains.is_empty() {
             continue;
         }
-        let mut posed = PosedParts { data: limb.data, segments: Vec::new() };
+        let mut posed = PosedParts { data: limb.data, segments: Vec::new(), weapon: None };
         for (part, kind, chain) in &limb.chains {
             let pts: Vec<[f32; 3]> = chain.iter().filter_map(|&e| nodes.get(e).ok()).map(|g| nvf_play::space::to_game(g.translation())).collect();
             match pts.len() {
                 0 => {}
                 1 => posed.segments.push(PartSegment { part: *part, limb: *kind, a: pts[0], b: pts[0] }),
                 _ => posed.segments.extend(pts.windows(2).map(|w| PartSegment { part: *part, limb: *kind, a: w[0], b: w[1] })),
+            }
+        }
+        if let Some((weapon, shapes)) = weapons.get(&rig.reference).filter(|_| hold.is_some_and(|h| h.drawn)) {
+            if let Some((a, b)) = weapon_segment(shapes) {
+                posed.segments.push(PartSegment { part: WEAPON_PART, limb: Limb::Other, a: nvf_play::space::to_game(a), b: nvf_play::space::to_game(b) });
+                posed.weapon = Some(*weapon);
             }
         }
         out.by_ref.insert(rig.reference, posed);
@@ -203,6 +259,21 @@ mod tests {
         // the head to its top (Head merged, too close to Neck1); the arm to the hand (Weapon
         // is no bone); the leg to the foot. The missing right thigh has no chain.
         assert_eq!(chains, vec![(0, vec![3, 7, 8]), (1, vec![9, 11]), (2, vec![12, 13, 14]), (3, vec![4, 5, 6])]);
+    }
+
+    #[test]
+    fn a_weapon_segment_runs_along_the_model() {
+        // A barrel 20 long on local Y and a grip below it, hanging from a node moved to
+        // (100, 0, 0) and turned a quarter turn about Z (local Y to world -X).
+        let node = Affine3A::from_rotation_translation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2), Vec3::new(100.0, 0.0, 0.0));
+        let barrel = (node, Vec3::new(0.0, 10.0, 0.0), Vec3::new(1.0, 10.0, 1.0));
+        let grip = (node * Affine3A::from_translation(Vec3::new(0.0, 0.0, -4.0)), Vec3::ZERO, Vec3::new(1.0, 2.0, 3.0));
+        let (a, b) = weapon_segment(&[barrel, grip]).unwrap();
+        // The box spans local y from -2 (the grip's back) to 20 and z from -7 to 1: the
+        // segment runs along y through z = -3.
+        assert!(a.distance(Vec3::new(102.0, 0.0, -3.0)) < 1e-3, "{a}");
+        assert!(b.distance(Vec3::new(80.0, 0.0, -3.0)) < 1e-3, "{b}");
+        assert_eq!(weapon_segment(&[]), None);
     }
 
     #[test]

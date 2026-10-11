@@ -35,6 +35,12 @@ impl Extra {
     fn unequipped(self) -> Extra {
         Extra { equipped: false, ..self }
     }
+
+    /// At zero condition: a broken weapon cannot be equipped until it is repaired
+    /// ([`crate::World::equip`]).
+    pub fn broken(&self) -> bool {
+        self.condition.is_some_and(|c| c <= 0.0)
+    }
 }
 
 /// One base item's groups, each (extra data, count > 0), in arrival order with the
@@ -206,14 +212,31 @@ impl Inventory {
         self.items.get(&item).is_some_and(|s| s.groups.iter().any(|g| g.0.equipped))
     }
 
-    /// Mark one unequipped unit of `item` as equipped (plain units first). Returns false
-    /// when there is none.
+    /// The unequipped unit [`Inventory::set_equipped`] takes: plain units first, broken
+    /// ones last.
+    fn next_to_equip(s: &Stack) -> Option<usize> {
+        (0..s.groups.len()).filter(|&i| !s.groups[i].0.equipped).min_by_key(|&i| (s.groups[i].0.broken(), !s.groups[i].0.is_plain()))
+    }
+
+    /// Whether an unequipped unit of `item` that is not broken is carried.
+    pub fn has_sound(&self, item: FormId) -> bool {
+        self.items.get(&item).is_some_and(|s| s.groups.iter().any(|g| !g.0.equipped && !g.0.broken()))
+    }
+
+    /// The condition (a fraction, 1 when undamaged) of the unit of `item` in use: the
+    /// equipped one, else the one [`Inventory::set_equipped`] would take. `None` when
+    /// none is carried.
+    pub fn condition_in_use(&self, item: FormId) -> Option<f32> {
+        let s = self.items.get(&item)?;
+        let i = s.groups.iter().position(|g| g.0.equipped).or_else(|| Self::next_to_equip(s))?;
+        Some(s.groups[i].0.condition.unwrap_or(1.0))
+    }
+
+    /// Mark one unequipped unit of `item` as equipped (plain units first, broken ones
+    /// last). Returns false when there is none.
     pub fn set_equipped(&mut self, item: FormId) -> bool {
         let Some(s) = self.items.get_mut(&item) else { return false };
-        let Some(i) = (0..s.groups.len())
-            .filter(|&i| !s.groups[i].0.equipped)
-            .min_by_key(|&i| !s.groups[i].0.is_plain())
-        else {
+        let Some(i) = Self::next_to_equip(s) else {
             return false;
         };
         let e = s.groups[i].0;
@@ -250,6 +273,18 @@ impl Inventory {
             s.add(e.unequipped(), n);
         }
         true
+    }
+
+    /// Remove the equipped units of `item`; returns the groups removed (still marked
+    /// equipped).
+    pub fn take_equipped(&mut self, item: FormId) -> Vec<(Extra, i32)> {
+        let Some(s) = self.items.get_mut(&item) else { return Vec::new() };
+        let out: Vec<(Extra, i32)> = s.groups.iter().copied().filter(|g| g.0.equipped).collect();
+        s.groups.retain(|g| !g.0.equipped);
+        if s.groups.is_empty() {
+            self.items.remove(&item);
+        }
+        out
     }
 
     /// Weight and value. Ammunition weighs nothing outside Hardcore mode [observed in
@@ -295,6 +330,22 @@ pub fn unequipped(groups: Vec<(Extra, i32)>) -> Vec<(Extra, i32)> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn broken_units_are_equipped_last() {
+        let mut inv = Inventory::new();
+        let id = FormId(0x10);
+        inv.add_extra(id, 1, Extra { condition: Some(0.0), ..Extra::default() });
+        assert!(!inv.has_sound(id));
+        assert_eq!(inv.condition_in_use(id), Some(0.0));
+        inv.add_extra(id, 1, Extra { condition: Some(0.4), ..Extra::default() });
+        assert!(inv.has_sound(id));
+        assert_eq!(inv.condition_in_use(id), Some(0.4));
+        assert!(inv.set_equipped(id));
+        assert_eq!(inv.condition_in_use(id), Some(0.4));
+        assert!(!inv.has_sound(id));
+        assert_eq!(inv.condition_in_use(FormId(0x11)), None);
+    }
 
     #[test]
     fn add_remove_count() {

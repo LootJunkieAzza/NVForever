@@ -58,12 +58,19 @@ pub struct PartSegment {
     pub b: [f32; 3],
 }
 
+/// The part number of the weapon an actor holds drawn: one segment along the weapon,
+/// after the body parts (no BPTD part has this index). A hit on it wears the weapon, not
+/// the actor (`crate::combat`, docs/spec-notes/combat-rules.md §17).
+pub const WEAPON_PART: u8 = 254;
+
 /// An actor's body parts as posed last frame.
 #[derive(Debug, Clone)]
 pub struct PosedParts {
     /// The body part data (BPTD) the parts index.
     pub data: FormId,
     pub segments: Vec<PartSegment>,
+    /// The weapon in the actor's hand, when it has a [`WEAPON_PART`] segment.
+    pub weapon: Option<FormId>,
 }
 
 /// The posed body parts of drawn actors by reference FormID, published by the renderer

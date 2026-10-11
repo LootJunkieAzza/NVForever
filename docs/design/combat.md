@@ -496,7 +496,8 @@ applied on top of these steps once perks are read (a later step). Our multiplier
 the starting value that the entry points modify.
 
 The weapon's condition goes down per shot (WEAP `DATA` health is its maximum).
-`GetWeaponHealthPerc` reads it.
+`GetWeaponHealthPerc` reads it. Armour wears with the hits it takes, a weapon that is
+hit wears, and a weapon at zero is broken: docs/spec-notes/combat-rules.md §17.
 
 ### 5.4 Melee and unarmed
 
