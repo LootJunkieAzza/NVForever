@@ -60,7 +60,9 @@
 //!   `start:<quest>`, `stop:<quest>`, `stage:<quest>:<n>`, `objective:<quest>:<n>`,
 //!   `objective_done:<quest>:<n>`, `info:<INFO>[:<speaker>]`, `button:<n>`, `close`,
 //!   `message:<MESG>`,
-//!   `var:<form>:<variable>:<value>`, `walk:<reference>`, `activate:<reference>`.
+//!   `var:<form>:<variable>:<value>`, `walk:<reference>`, `activate:<reference>`,
+//!   `enable:<reference>`,
+//!   `say_to:<speaker>:<target>:<topic>[:<noTargetLookFlag>]`.
 //! - `NVF_PLAY_TEST_SCRIPT_MENUS=<seconds>|off`: every menu or message box a script opens
 //!   is closed (OK / Done, button 0) after it has been on screen that long. Unattended
 //!   runs (any `NVF_PLAY_TEST_*` variable, or `--auto-walk`) default to
@@ -82,7 +84,7 @@ use bevy::prelude::*;
 use fnv_game::game::{event, menus, ActMode};
 use fnv_game::trace::{Event, EventKind};
 use fnv_game::{Game, GameConfig, GameData, InstKey};
-use fnv_script::vm::Value;
+use fnv_script::vm::{ArgValue, Value};
 use fnv_script::FunctionTable;
 use fnv_sim::world::{Activation, Outcome};
 use fnv_sim::{FormId, RefTable, World};
@@ -99,6 +101,8 @@ use std::time::Instant;
 /// SCPT 0x00105236, the Goodsprings chemistry set] as well as in GameMode (SCPT
 /// 0x0011F291).
 pub const MENU_MESSAGE: u16 = menus::MESSAGE;
+/// The SayTo function's opcode [observed: schemas/script/functions.json].
+const SAY_TO: u16 = 0x1034;
 /// The container menu [documented: GECK wiki MenuMode, as used in
 /// docs/spec-notes/xnvse-capture.md and simulation.md captures].
 pub const MENU_CONTAINER: u16 = 1008;
@@ -709,6 +713,20 @@ impl Runtime {
                     debug!("test aid: activated {r}: {:?}", a.outcome);
                 }
             }
+            ScriptAid::Enable(r) => {
+                let r = resolve(g, r)?;
+                let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: 0x1021, on: Some(r), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+                g.call_function(&ctx, &[]);
+            }
+            ScriptAid::SayTo(speaker, target, topic, no_look) => {
+                let (speaker, target, topic) = (resolve(g, speaker)?, resolve(g, target)?, resolve(g, topic)?);
+                let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: SAY_TO, on: Some(speaker), self_ref: Some(speaker), action_ref: None, quest: None, inst: None, in_condition: false };
+                let flag = if *no_look { 1.0 } else { 0.0 };
+                g.call_function(&ctx, &[ArgValue::Value(Value::Ref(target.0)), ArgValue::Value(Value::Ref(topic.0)), ArgValue::Value(Value::Num(0.0)), ArgValue::Value(Value::Num(flag))]);
+                if !g.speech.iter().any(|s| s.speaker == speaker && s.target == Some(target)) {
+                    return Err(format!("{} has no line of {} to say to {}", g.data.name(speaker), g.data.name(topic), g.data.name(target)));
+                }
+            }
             ScriptAid::Walk(_) => unreachable!("handled by the caller"),
             ScriptAid::Var(of, var, value) => {
                 let f = resolve(g, of)?;
@@ -824,7 +842,8 @@ impl EffectCtx for PlayCtx<'_> {
 }
 
 /// The response texts (NAM1) of a dialogue line, in order.
-fn responses(play: &PlayWorld, info: FormId) -> Vec<String> {
+/// The response texts (NAM1) of a dialogue line, in the record's order.
+pub(crate) fn responses(play: &PlayWorld, info: FormId) -> Vec<String> {
     let Some((pi, rec)) = fnv_world::fields::winner(play.lo, info.0) else { return Vec::new() };
     let Ok(f) = fnv_world::fields::Fields::new(rec, pi, play.schema) else { return Vec::new() };
     f.subs.iter().filter(|s| &s.sig == b"NAM1").filter_map(|s| f.decode(s)).filter_map(|v| v.as_str().map(str::to_string)).collect()

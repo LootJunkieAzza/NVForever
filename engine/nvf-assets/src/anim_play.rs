@@ -7,7 +7,7 @@
 //! own [`Playing`] component, advanced by [`advance_instances`].
 
 use bevy::prelude::*;
-use fnv_nif::anim::{BoolTrack, Sequence, TrackData, TransformTrack};
+use fnv_nif::anim::{BoolTrack, Sequence, TrackData, TransformTrack, ValueTrack};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -32,6 +32,52 @@ pub struct Clip {
     /// Visibility tracks (`NiVisController`): node name, priority, shown over time
     /// (docs/spec-notes/animation.md §9.7).
     pub visibility: Vec<(String, i32, BoolTrack)>,
+    /// Tracks on a shape's material: its glow and texture offset (`crate::material_anim`,
+    /// docs/spec-notes/activators.md §2).
+    pub materials: Vec<MaterialTrack>,
+}
+
+/// What a material track drives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaterialTarget {
+    /// `NiMaterialColorController` with controller ID `SELF_ILLUM`: the emissive colour
+    /// [documented: nif.xml MaterialColor TC_SELF_ILLUM; observed controller ID].
+    SelfIllum,
+    /// `BSMaterialEmittanceMultController`: the emissive multiplier [hypothesis from the
+    /// name; observed on blinking lights and slot machines].
+    EmissiveMult,
+    /// `NiTextureTransformController` `0-0-TT_TRANSLATE_U` (0) or `_V` (1): the base
+    /// texture's offset [documented: nif.xml TransformMember; observed controller IDs].
+    UvOffset(usize),
+}
+
+/// One track of a sequence on a shape's material, by shape name.
+#[derive(Debug, Clone)]
+pub struct MaterialTrack {
+    pub shape: String,
+    pub target: MaterialTarget,
+    pub values: Arc<ValueTrack>,
+}
+
+impl MaterialTrack {
+    /// The material track of a sequence's track, if it drives a material member this
+    /// engine draws: emissive colour, emissive multiplier, base texture offset.
+    pub fn of(t: &fnv_nif::anim::Track) -> Option<MaterialTrack> {
+        let shape = t.node_name.clone()?;
+        let values = t.values.clone()?;
+        let id = t.controller_id.as_deref().unwrap_or("");
+        let target = match (t.controller_type.as_deref()?, &values) {
+            ("NiMaterialColorController", ValueTrack::Point3(_)) if id == "SELF_ILLUM" => MaterialTarget::SelfIllum,
+            ("BSMaterialEmittanceMultController", ValueTrack::Float(_)) => MaterialTarget::EmissiveMult,
+            ("NiTextureTransformController", ValueTrack::Float(_)) => match id {
+                "0-0-TT_TRANSLATE_U" => MaterialTarget::UvOffset(0),
+                "0-0-TT_TRANSLATE_V" => MaterialTarget::UvOffset(1),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        Some(MaterialTrack { shape, target, values: Arc::new(values) })
+    }
 }
 
 impl Clip {
@@ -40,7 +86,9 @@ impl Clip {
         let mut priorities = Vec::new();
         let mut skipped = 0;
         let mut visibility = Vec::new();
+        let mut materials = Vec::new();
         for t in &seq.tracks {
+            materials.extend(MaterialTrack::of(t));
             if let (Some(n), Some(b), Some("NiVisController")) = (&t.node_name, &t.bools, t.controller_type.as_deref()) {
                 visibility.push((n.clone(), t.priority.unwrap_or(0) as i32, b.clone()));
             }
@@ -64,6 +112,7 @@ impl Clip {
             accum_root: seq.accum_root_name.clone().filter(|n| !n.is_empty()),
             text_keys: seq.text_keys.clone(),
             visibility,
+            materials,
         }
     }
 
@@ -117,6 +166,9 @@ pub struct Playing {
     /// rule of [`BlendPlayer`], docs/spec-notes/actors.md §8.2). Set by
     /// [`Playing::in_place`]; world objects leave it unset.
     pub root_motion: Option<(usize, Vec3)>,
+    /// Held where it is: [`advance_instances`] does not move it on (a radio switched
+    /// off, docs/spec-notes/activators.md §3).
+    pub held: bool,
 }
 
 impl Playing {
@@ -141,6 +193,7 @@ impl Playing {
             tracks,
             unmatched,
             root_motion: None,
+            held: false,
         }
     }
 
@@ -513,7 +566,8 @@ pub fn advance(time: Res<Time>, mut state: ResMut<AnimState>, mut transforms: Qu
 pub fn advance_instances(time: Res<Time>, mut playing: Query<&mut Playing>, mut transforms: Query<&mut Transform>) {
     let dt = time.delta_secs();
     for mut p in &mut playing {
-        p.step(dt, false, &mut transforms);
+        let held = p.held;
+        p.step(dt, held, &mut transforms);
     }
 }
 
@@ -529,6 +583,8 @@ mod tests {
             controller_type: None,
             priority: None,
             bools: None,
+            controller_id: None,
+            values: None,
             data: TrackData::Transform(TransformTrack {
                 translation: Channel::Static(Some([0.0, -0.296, 66.33])),
                 rotation: Channel::Static(None),
@@ -601,6 +657,7 @@ mod tests {
             accum_root: Some("Bip01".into()),
             text_keys: Vec::new(),
             visibility: Vec::new(),
+            materials: Vec::new(),
         })
     }
 

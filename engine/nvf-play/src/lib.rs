@@ -48,8 +48,10 @@ pub mod sim;
 pub mod space;
 mod test_aid;
 pub mod sfx;
+pub mod ui_sounds;
 pub mod voice;
 pub mod wait;
+pub mod world_sounds;
 
 use bevy::prelude::*;
 use fnv_esm::{LoadOrder, Schema};
@@ -224,10 +226,16 @@ impl Plugin for PlayPlugin {
             .add_message::<RefChanged>()
             .add_message::<ItemUsed>()
             .add_message::<furniture::UseFurniture>()
+            .add_message::<world_sounds::Activated>()
+            .add_message::<world_sounds::ImpactPicked>()
+            .add_message::<ui_sounds::UiSound>()
             .init_resource::<furniture::PlayerSeat>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin))
-            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, pipboy::PipBoyPlugin));
+            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin))
+            .add_plugins(world_sounds::WorldSoundsPlugin)
+            .add_plugins(ui_sounds::UiSoundsPlugin)
+            .add_plugins(pipboy::PipBoyPlugin);
         test_aid::setup(app);
     }
 }

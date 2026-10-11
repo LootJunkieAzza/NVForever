@@ -9,6 +9,7 @@
 //! `settings.rs` and `nvf_play::settings` list while the game runs) and closes the open
 //! menu.
 
+mod activators;
 mod actors;
 mod anim_sounds;
 mod deaths;
@@ -31,6 +32,7 @@ mod locomotion;
 mod weapons;
 mod lodgen;
 mod nav;
+mod object_anims;
 mod pipboy_arm;
 mod player_body;
 mod particles;
@@ -41,7 +43,9 @@ mod residents;
 mod ripples;
 mod settings;
 mod imagespace;
+mod imposters;
 mod sky;
+mod speech_look;
 mod terrain;
 mod tree;
 mod treelod;
@@ -716,6 +720,7 @@ fn main() -> AppExit {
     .insert_resource(lod::LodState::new(&world, lod_settings(&args), !args.no_lod && interior.is_none(), lodgen))
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
     .init_resource::<TerrainCache>()
+    .init_resource::<imposters::Imposters>()
     .insert_resource(Streamer {
         radius: args.radius,
         loaded: Default::default(),
@@ -747,9 +752,18 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
+    .init_resource::<activators::ActivatorStats>()
+    .add_systems(
+        Update,
+        (nvf_assets::material_anim::bind_rig_materials, activators::drive, nvf_assets::material_anim::animate_rig_materials)
+            .chain()
+            .after(advance_animations)
+            .after(nvf_play::PlaySet::Scripts),
+    )
+    .add_systems(Last, activators::report)
     .add_plugins(nvf_play::doors::DoorsPlugin)
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
@@ -778,6 +792,8 @@ fn main() -> AppExit {
             .add_systems(Update, (worldspace::switch, world::travel).chain().after(nvf_play::PlaySet::Input).before(world::stream))
             .add_systems(Update, world::loading_gate.after(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
+        // Animation groups scripts play on objects (object_anims.rs).
+        app.add_plugins(object_anims::ObjectAnimsPlugin);
     }
     if let Some(a) = actor_world {
         app.insert_resource(a);
@@ -796,6 +812,8 @@ fn main() -> AppExit {
             app.add_plugins(anim_sounds::AnimSoundsPlugin);
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
+            // Who says a line to someone turns to them (speech_look.rs).
+            app.add_plugins(speech_look::SpeechLookPlugin);
             // Who perceives whom (detection.rs): the drawn actors and the player.
             app.add_plugins(detection::DetectionPlugin);
         }
@@ -1161,8 +1179,8 @@ fn screenshot_and_exit(
         *ready_at = Some(*elapsed);
         let s = &streamer.stats;
         info!(
-            "cells loaded in {:.2}s ({:.0} ms loading): refs drawn {} (animated {}, doors {}), disabled {}, not drawn {} {:?}, no model {}, shapes {}",
-            *elapsed, s.load_ms, s.refs_drawn, s.refs_animated, s.refs_doors, s.refs_skipped_disabled, s.refs_skipped_type, s.skipped_types, s.refs_no_model, s.shapes
+            "cells loaded in {:.2}s ({:.0} ms loading): refs drawn {} (animated {}, doors {}, with named sequences {}), disabled {}, not drawn {} {:?}, no model {}, shapes {}",
+            *elapsed, s.load_ms, s.refs_drawn, s.refs_animated, s.refs_doors, s.refs_group_rigs, s.refs_skipped_disabled, s.refs_skipped_type, s.skipped_types, s.refs_no_model, s.shapes
         );
     }
     let Some(r) = *ready_at else { return };

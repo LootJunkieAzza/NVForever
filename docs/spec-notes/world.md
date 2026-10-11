@@ -66,6 +66,23 @@ entry in the schemas.
   billboard texture with the same stem, `textures\trees\billboards\<stem>.dds` (square,
   256 or 512 px, DXT3/DXT5) [observed], and TREE `BNAM` gives the billboard width and
   height in game units (WastelandShrub01: 175 × 175) [documented: xEdit; observed].
+- **Imposters**: a reference with bit 1 (0x2) of `XSRF` "Special Rendering Flags" set
+  is an imposter [documented: xEdit wbDefinitionsFNV.pas REFR]; it "is displayed always
+  when the player is in the region" whose imposter list names it [documented: GECK wiki
+  "Reference", owner's export]. The list is the region's `RDID`, a list of REFR FormIDs
+  after an `RDAT` of type 8 [documented: xEdit wbRegionDataEntries type 8; observed: 18
+  REGN records in FalloutNV.esm have one]. The other `XSRF` bits vary with no pattern
+  and `XSRD` is mostly 0 or 4 [observed: the 301 references with `XSRF`]. Outside every
+  region that lists it an imposter is not drawn, also when its cell is loaded
+  [hypothesis: WastelandNV's imposters (`architecture\strip\imposter\*.nif`, flat
+  stand-ins for the Strip walls, hotels and the South Vegas buildings, persistent)
+  stand on the full buildings they replace, e.g. Bldg03Imposter02 0015EFBC on the BLD11
+  pieces south-east of the Poseidon gas station; StripImposter, StripImposterBlackMountain
+  and StripImposterJacobstown, far vantage points, list them, while StripImposterClose,
+  which covers the ground near Vegas, lists only near versions of the Strip's light
+  glows. Drawn there, they hid the ruins behind flat blocks: owner's screenshot,
+  2026-10-11]. The renderer takes the camera's position for the player's
+  (`engine/nvforever/src/imposters.rs`).
 - **Engine-defined base objects** [observed]: 102 WastelandNV references name a base
   FormID below 0x800 that no master defines (e.g. 0x17 on references carrying portal /
   occlusion box data in XPRM/XOCP). These are built into the engine [hypothesis] and are

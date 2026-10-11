@@ -512,10 +512,49 @@ pub struct Speech {
     /// topic is added [hypothesis for both].
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hello: bool,
+    /// Who the line turns to whom ([`Game::facings`]).
+    #[serde(default, skip_serializing_if = "LineLook::is_both")]
+    pub look: LineLook,
     /// Position (in the order the responses are said) of the response whose idles were
     /// last asked for (`crate::idles`); not part of the saved state.
     #[serde(skip)]
     pub response: usize,
+}
+
+/// Who a line said to someone ([`Speech::target`]) turns to whom ([`Game::facings`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LineLook {
+    /// The speaker turns to the listener and the listener looks at the speaker.
+    #[default]
+    Both,
+    /// The listener is not made to look at the speaker: SayTo's `noTargetLookFlag`
+    /// [documented: GECK wiki SayTo, owner export: with the flag set "Joe is not forced
+    /// to look at the speaker during the SayTo"].
+    Speaker,
+    /// Nobody turns: a conversation between actors started with `headTrack` 0
+    /// [documented: GECK wiki StartConversation: "Enter 0 to disable" head tracking
+    /// during the conversation].
+    Nobody,
+}
+
+impl LineLook {
+    pub fn is_both(&self) -> bool {
+        *self == LineLook::Both
+    }
+}
+
+/// One actor turning to another while a line is said ([`Game::facings`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Facing {
+    /// Who turns, and to whom (either may be the player).
+    pub who: FormId,
+    pub to: FormId,
+    /// The body turns too, where it stands free (else the head only).
+    pub body: bool,
+    /// `who` says the line (else it listens).
+    pub speaking: bool,
+    /// The line (INFO).
+    pub info: FormId,
 }
 
 /// What a line said outside a conversation with the player is ([`Speech`]).
@@ -539,6 +578,15 @@ pub struct Game<'a> {
     /// The idle animations actors were asked to play (`crate::idles::IdleRequest`), for
     /// the layer that animates actors to take.
     pub idle_requests: Vec<crate::idles::IdleRequest>,
+    /// The sounds scripts asked for (`crate::sound::SoundRequest`), for the engine to
+    /// take. Not part of the saved state.
+    pub sound_requests: Vec<crate::sound::SoundRequest>,
+    /// The music types scripts asked for (`PlayMusic`, `crate::sound`), for the engine to
+    /// take. Not part of the saved state.
+    pub music_requests: Vec<FormId>,
+    /// Animation groups scripts asked objects to play, and what the engine reports they
+    /// play (`crate::anims`). Not part of the saved state.
+    pub anims: crate::anims::ObjectAnims,
     /// Barter menus scripts opened (ShowBarterMenu), for the engine to draw; the menu
     /// is open for scripts ([`menus::BARTER`]) until the engine closes it. Not part of
     /// the saved state.
@@ -712,6 +760,9 @@ impl<'a> Game<'a> {
             data,
             combat_requests: Vec::new(),
             idle_requests: Vec::new(),
+            sound_requests: Vec::new(),
+            music_requests: Vec::new(),
+            anims: Default::default(),
             barter_requests: Vec::new(),
             rest: Default::default(),
             detection: Default::default(),
@@ -1330,6 +1381,41 @@ impl<'a> Game<'a> {
         Some(info)
     }
 
+    /// Set who the line `speaker` is saying turns to whom ([`LineLook`]).
+    pub fn set_line_look(&mut self, speaker: FormId, look: LineLook) {
+        if let Some(s) = self.speech.iter_mut().find(|s| s.speaker == speaker) {
+            s.look = look;
+        }
+    }
+
+    /// Who turns to whom while the lines outside a conversation with the player are
+    /// said (docs/design/dialogue-play.md §9). Each line said to someone (SayTo, a hello
+    /// or a Goodbye greeting at the player, a line of a conversation between actors):
+    /// - the speaker turns its head and body to the listener [owner decision
+    ///   2026-10-11: "speaker turns head and body"];
+    /// - the listener looks at the speaker [documented: GECK wiki SayTo: the target is
+    ///   "forced to look at the speaker" unless `noTargetLookFlag`]: its head only for a
+    ///   SayTo line [design], head and body in a conversation between actors, where it
+    ///   speaks next [design, as `fnv_ai` has turned both since it started them];
+    /// - nobody, when the line's [`LineLook`] says so.
+    ///
+    /// A line said to nobody (Say) turns nobody. Whether the engine can turn a body (one
+    /// on furniture or on its way cannot) is the engine's.
+    pub fn facings(&self) -> Vec<Facing> {
+        let mut out = Vec::new();
+        for s in &self.speech {
+            let Some(to) = s.target.filter(|t| *t != s.speaker) else { continue };
+            if s.look == LineLook::Nobody {
+                continue;
+            }
+            out.push(Facing { who: s.speaker, to, body: true, speaking: true, info: s.info });
+            if s.look == LineLook::Both {
+                out.push(Facing { who: to, to: s.speaker, body: s.conversation.is_some(), speaking: false, info: s.info });
+            }
+        }
+        out
+    }
+
     /// The speaker starts saying the line `info` outside a conversation with the player:
     /// a line it was saying stops, the line is remembered for Say Once, and its begin
     /// result script runs ([`Game::say`]; [`LineKind`]). A line of a conversation
@@ -1349,7 +1435,7 @@ impl<'a> Game<'a> {
         };
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
         let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, hello, response: 0 });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, hello, look: LineLook::Both, response: 0 });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }

@@ -47,6 +47,10 @@ const CONT_REF: u32 = 0x301;
 const CHILD_REF: u32 = 0x320;
 const ADULT_REF: u32 = 0x321;
 const CREA_REF: u32 = 0x322;
+const TACT_ON: u32 = 0x890;
+const TACT_OFF: u32 = 0x891;
+const STATION_ON: u32 = 0x330;
+const STATION_OFF: u32 = 0x331;
 
 const SCRIPT_EFFECT_ELAPSED_SECONDS: u16 = 0x10BA;
 
@@ -158,6 +162,13 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"IMAD", 0, IMAD_WHITE, &[sub(b"EDID", z("WhiteTest")), imad_dnam(0, 1.0)]),
     ]
     .concat();
+    // Radio stations: Radio Station and Continuous Broadcast, and Radio Station with
+    // Non-Pipboy (the header bits of radio.md §2).
+    let tact = [
+        record(b"TACT", 0x4002_0000, TACT_ON, &[sub(b"EDID", z("StationOn"))]),
+        record(b"TACT", 0x1002_0000, TACT_OFF, &[sub(b"EDID", z("StationOff"))]),
+    ]
+    .concat();
     let wrld = record(b"WRLD", 0, WRLD, &[sub(b"EDID", z("TestWorld"))]);
     let ext = record(b"CELL", 0, EXT_CELL, &[sub(b"EDID", z("TestExterior")), sub(b"XCLC", [0i32.to_le_bytes(), 0i32.to_le_bytes()].concat())]);
     let world_children = group(WRLD.to_le_bytes(), 1, &group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &ext)));
@@ -168,6 +179,8 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", CHILD_REF, NPC_CHILD, [0.0; 3]),
         placed(b"ACHR", ADULT_REF, NPC_ADULT, [0.0; 3]),
         placed(b"ACRE", CREA_REF, CREA, [0.0; 3]),
+        placed(b"REFR", STATION_ON, TACT_ON, [0.0; 3]),
+        placed(b"REFR", STATION_OFF, TACT_OFF, [0.0; 3]),
     ]
     .concat();
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
@@ -190,6 +203,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"CONT", &cont),
         top(b"REGN", &regn),
         top(b"IMAD", &imad),
+        top(b"TACT", &tact),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
         top(b"WRLD", &[wrld, world_children].concat()),
     ]
@@ -629,4 +643,60 @@ fn image_space_modifiers_play_end_and_are_removed() {
     g.call_function(&ctx, &[r(MISC)]);
     assert!(matches!(&g.events.last().unwrap().kind, EventKind::CallFailed { name, .. } if name == "ApplyImageSpaceModifier"));
     assert!(g.image_modifiers.is_empty());
+}
+
+fn s(text: &str) -> ArgValue {
+    ArgValue::Str(text.into())
+}
+
+/// Radio functions (docs/spec-notes/radio.md §5, §8, §9): the broadcast state from the
+/// Continuous Broadcast bit until set, conversations kept for the engine, the Pip-Boy
+/// radio's commands and SetNPCRadio's on, off and "turn off first" rule.
+#[test]
+fn radio_functions() {
+    const GET_BROADCAST: u16 = 0x11D4;
+    const SET_BROADCAST: u16 = 0x11D5;
+    const START_CONVERSATION: u16 = 0x11D6;
+    const PIPBOY_RADIO: u16 = 0x11A7;
+    const PIPBOY_RADIO_OFF: u16 = 0x1224;
+    const SET_NPC_RADIO: u16 = 0x11C4;
+    const FORCE_UPDATE: u16 = 0x122C;
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(call(&mut g, GET_BROADCAST, Some(STATION_ON), &[]), 1.0);
+    assert_eq!(call(&mut g, GET_BROADCAST, Some(STATION_OFF), &[]), 0.0);
+    call(&mut g, SET_BROADCAST, Some(STATION_ON), &[n(0.0)]);
+    call(&mut g, SET_BROADCAST, Some(STATION_OFF), &[n(1.0)]);
+    assert_eq!(call(&mut g, GET_BROADCAST, Some(STATION_ON), &[]), 0.0);
+    assert!(g.broadcasting(FormId(STATION_OFF)));
+
+    call(&mut g, START_CONVERSATION, Some(STATION_OFF), &[r(0x126)]);
+    call(&mut g, START_CONVERSATION, Some(STATION_ON), &[]);
+    assert_eq!(g.take_radio_conversations(), vec![(FormId(STATION_OFF), Some(FormId(0x126))), (FormId(STATION_ON), None)]);
+    assert!(g.take_radio_conversations().is_empty());
+
+    // Tune does nothing while the radio is off; 1 with a station turns it on and asks for it.
+    call(&mut g, PIPBOY_RADIO, None, &[s("tune"), r(STATION_ON)]);
+    assert_eq!((g.radio.pipboy.on, g.radio.pipboy.tune), (false, None));
+    call(&mut g, PIPBOY_RADIO, None, &[s("1"), r(STATION_ON)]);
+    assert_eq!((g.radio.pipboy.on, g.radio.pipboy.tune), (true, Some(FormId(STATION_ON))));
+    g.radio.pipboy.tune = None;
+    call(&mut g, PIPBOY_RADIO, None, &[s("tune"), r(STATION_OFF)]);
+    assert_eq!(g.radio.pipboy.tune, Some(FormId(STATION_OFF)));
+    call(&mut g, PIPBOY_RADIO, None, &[n(0.0)]);
+    assert!(!g.radio.pipboy.on);
+    call(&mut g, PIPBOY_RADIO, None, &[n(1.0)]);
+    assert!(g.radio.pipboy.on);
+    call(&mut g, PIPBOY_RADIO_OFF, None, &[]);
+    assert!(!g.radio.pipboy.on);
+    assert_eq!(g.radio.pipboy.script_calls, 6);
+
+    call(&mut g, SET_NPC_RADIO, Some(ADULT_REF), &[n(1.0), r(STATION_ON)]);
+    // A second station is not taken until the first is turned off.
+    call(&mut g, SET_NPC_RADIO, Some(ADULT_REF), &[n(1.0), r(STATION_OFF)]);
+    assert_eq!(g.radio.npc_radios.get(&FormId(ADULT_REF)), Some(&FormId(STATION_ON)));
+    call(&mut g, SET_NPC_RADIO, Some(ADULT_REF), &[n(0.0), r(STATION_OFF)]);
+    assert!(g.radio.npc_radios.is_empty());
+    call(&mut g, FORCE_UPDATE, None, &[]);
+    assert_eq!(g.radio.force_updates, 1);
 }

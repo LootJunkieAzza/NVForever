@@ -365,7 +365,8 @@ Built on `claude/dialogue-facing`: `engine/nvforever/src/dialogue_look.rs` (the 
 `engine/nvf-play/src/dialogue_look.rs` (the player's view). Both act only while a
 conversation is open (`Game::dialogue` is set: E on an actor, a script's
 `StartConversation`; the dialogue screen is up). A line an actor just says (SayTo, Say)
-sets no conversation and turns nobody.
+sets no conversation. Since 2026-10-11 a line said *to someone* (SayTo, a hello, a line
+between two actors) turns the speaker to its listener: §9.
 
 **The angles and timings in §8.1–8.3 are NVForever's design choices**, not the
 original's values, unless a line carries another tag. What is known of the original is
@@ -661,3 +662,93 @@ and turned away by `NVF_PLAY_TEST_LOOK`.
 - Head tracking outside conversations (actors looking at the player or each other as
   they pass) is not built: it is AI.
 - The `.lip` files' own head and look channels are still not applied (lipsync.md §3.3).
+
+## 9. Turning to whom a line is said (2026-10-11, `claude/sayto-facing`)
+
+Owner request 2026-10-11: "when an actor is saying something to an npc or character i
+need them to turn and face the actor they are speaking to"; owner decision the same day:
+"speaker turns head and body". This widens §8, which covered only conversations with the
+player; §8's note that lines said out loud turn nobody now holds only for lines said to
+nobody (Say).
+
+### 9.1 What the original says
+
+- **SayTo** takes `targetActor topic [forceSubtitleFlag] [noTargetLookFlag]`. With the
+  last flag set "Joe is not forced to look at the speaker during the SayTo"
+  [documented: GECK wiki SayTo, owner export `functions.xml`]: so by default the target
+  is made to look at the speaker. Whether the speaker turns to the target is not
+  written.
+- **StartConversation** takes `[headTrack]` after the two location references: "Enter 1
+  to enable head tracking during conversation. Enter 0 to disable" [documented: GECK
+  wiki StartConversation]. What it does when left out is not written.
+- **Say** has no listener (topic, subtitles, an actor, 2D, voice) [documented: GECK wiki
+  Say].
+- The dialogue lines themselves carry no look setting: INFO's Speaker (ANAM) only limits
+  who may say the line, SNAM/LNAM are the speaker's and listener's idles
+  (docs/spec-notes/dialogue.md §2).
+
+### 9.2 The rule (`fnv_game::game::Game::facings`)
+
+For each line being said outside a conversation with the player that has a listener
+(SayTo, a hello to the player, a Goodbye greeting at the player, a line of a
+conversation between actors):
+
+- the **speaker** turns its head and body to the listener [owner decision 2026-10-11];
+- the **listener** looks at the speaker [documented for SayTo, §9.1]: head only for a
+  SayTo line [design]; head and body in a conversation between actors, where it speaks
+  next [design: `fnv_ai::social` already turned both bodies];
+- SayTo with `noTargetLookFlag` 1: only the speaker turns (`LineLook::Speaker`);
+- StartConversation with `headTrack` 0: nobody turns, for every line of that
+  conversation (`LineLook::Nobody`, carried from line to line) [hypothesis: left out, it
+  is on];
+- Say turns nobody. The player is never turned (the view is the player's own).
+
+`headTrack` of a StartConversation with the player is not read: §8 applies there.
+
+### 9.3 Who turns the actors
+
+- **Heads**: the engine (`engine/nvforever/src/speech_look.rs`) gives each turning actor
+  a forced head-tracking target (`head_look::LookOverride`: the listener's eyes or the
+  player's) for as long as the line lasts; head tracking turns the head within its
+  usual limits and eases it back afterwards. `--no-head-tracking` turns no head.
+- **Bodies of NPCs the AI runs** (with `--play` every actor of the loaded cells, or
+  `--npc-packages`): `fnv_ai` turns them on the spot (`Ai::face`, from `Ai::social`), as
+  it did for hellos and conversations; not on furniture, not on its way, not when a
+  Dialogue package is already turning it.
+- **Other bodies** (`--no-npc-packages`): turned on the spot by `speech_look.rs` with
+  §8.1's `BodyTurn` (same speed and turn clips), once per line, when the NPC stands in
+  its idle and is not in furniture, travelling, under the walk test, dead or a creature.
+  The body keeps its heading afterwards.
+- `--no-dialogue-look` switches §9 off along with §8.
+
+Log: `speech look:` lines per actor and line (what turns; why not the body; at the end
+of the line how far the listener is off its front), and `speech look summary:` at exit.
+Test aid `NVF_PLAY_TEST_SCRIPT=<t>:say_to:<speaker>:<target>:<topic>[:<flag>]` calls
+SayTo from the speaker's script.
+
+### 9.4 Checks (2026-10-11)
+
+- `cargo test -p fnv-game --test dialogue lines_said_to_someone_turn_the_two_to_each_other`:
+  SayTo with and without the flag, Say, a conversation between actors with and without
+  `headTrack` 0 (and its reply).
+- Prospector Saloon, `--play`, Sunny Smiles (`SunnyRef`) saying GREETING lines by the test
+  aid: to Cheyenne 157° behind her, the AI turned her body and the line ended with
+  Cheyenne +0° off her front; Cheyenne (a dog) was given Sunny as her head's target
+  (-67° off, beyond a head's reach; a SayTo listener's body stays). Whether a dog's head
+  turns depends on its skeleton and was not checked. The same with `--no-npc-packages`: `speech_look.rs`
+  turned her -160° in 1.06 s, ending at +0°. To the player 96° off: ended at +0°. With
+  `noTargetLookFlag` 1 to GoodspringsSettler04Ref and to Cheyenne: only Sunny turned
+  (ended at -1° and +0°).
+- The unattended opening (`--new-game`): Doc Mitchell's 13 SayTo lines to the player in
+  the first 90 s turn his head; while he sits on his chair (001059B0) the body stays, as
+  §8.1 has it for sitting actors. The opening's idle summary and stage 55 are as before.
+- Not looked at in a picture: the turns were checked in the log's angles only.
+
+### 9.5 Open
+
+- Whether the original turns the speaker's body (or only its head) is not known; the
+  owner chose head and body.
+- What `headTrack` left out means, and what it does in a conversation with the player.
+- A listener's body stays for SayTo lines: with the speaker behind it, its head stops
+  at its limit (60°).
+

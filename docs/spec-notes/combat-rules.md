@@ -893,8 +893,10 @@ docs/spec-notes/particles.md.
   - the collision material of the triangle hit [documented: nif.xml
     `Fallout3HavokMaterial`, 32 materials repeated as platforms and stairs] is mapped
     to one of the twelve by its name [hypothesis: `fnv_combat::fx::impact_material`];
-    terrain, which has no code, counts as dirt [design]; an actor counts as organic
-    [design: bug and glow are not told apart];
+    terrain, which has no code, counts as dirt [design]; an actor takes its base's
+    Impact Material Type (NPC_ / CREA `NAM4`) [documented: xEdit], organic without one
+    [design]; convex shapes' materials are read too since 2026-10-11 (bottles had
+    counted as dirt; audio.md §11.1 has the table by surface);
   - `nvforever::shot_fx` shows the IPCT's model at the point for its effect duration,
     its +z along the orientation the IPCT names [hypothesis: +z, from the impact
     models' add-on nodes standing along +z]. The model's add-on nodes emit dust and

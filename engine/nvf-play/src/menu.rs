@@ -414,11 +414,17 @@ fn apply_input(
     mut changed: MessageWriter<RefChanged>,
     mut used: MessageWriter<ItemUsed>,
     script: Option<ResMut<crate::script::ScriptState>>,
+    mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
 ) {
     let mut script = script.map(|s| s.into_inner());
     for &MenuInput(cmd) in input.read() {
         let Some(m) = active.0.as_mut() else { return };
+        let before = crate::ui_sounds::MenuBefore::of(m);
         let a = m.apply(&mut sim.world, cmd);
+        // What the command did, for its sound (`crate::ui_sounds`).
+        if let Some(event) = crate::ui_sounds::menu_event(cmd, &before, m, &a) {
+            sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event });
+        }
         let moves_items = matches!(cmd, Command::One | Command::Stack | Command::TakeAll | Command::Drop | Command::DropStack | Command::Accept);
         if moves_items || a.changed {
             if let Some(s) = m.status.as_deref().filter(|s| !s.is_empty()) {

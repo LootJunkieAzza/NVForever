@@ -2592,6 +2592,33 @@ round the lantern). Branch `claude/light-rays`. Facts and measurements:
 5. **Seen on the way, not changed:** in your rays screenshot the frosted window panes are
    a light grey-yellow in the game and nearly white in ours.
 
+## NPCs turn to whom they talk to (2026-10-11, session "SayTo facing")
+
+Your request: when an actor says something to an NPC or to you, it turns and faces the
+one it speaks to. Your decision: the speaker turns head and body. Branch
+`claude/sayto-facing`; details in `docs/design/dialogue-play.md` §9.
+
+1. **Built:** a line said to someone outside the dialogue screen (a script's SayTo, a
+   hello to you, a line of a conversation between two NPCs) turns the speaker's head and
+   body to the listener, and the listener's head to the speaker. In a conversation
+   between two NPCs both turn their bodies, as before. A line said to nobody (Say) turns
+   nobody.
+2. **From the game's own data, as you pointed out:** SayTo has a "no target look" flag.
+   When a script sets it, the listener is not made to look at the speaker (only the
+   speaker turns). StartConversation between two NPCs has a "head track" setting; 0
+   turns nobody for the whole conversation.
+3. **Our guesses:** whether the original turns the speaker's body at all (the wiki only
+   says the listener looks), and that a SayTo listener turns its head only. The speeds
+   are the dialogue screen's (§8): a body more than 30° off turns at about 150° a
+   second and keeps its new heading.
+4. **Sitting NPCs** turn their heads only (Doc Mitchell on his chair during the
+   opening).
+5. **Checked by the logged angles only, not in pictures:** Sunny Smiles in the saloon
+   turned about 160° to face the dog and 96° to face you, and finished each line facing
+   them. Please watch one by hand. Test aid:
+   `NVF_PLAY_TEST_SCRIPT=8:say_to:SunnyRef:player:GREETING` with
+   `--cell GSProspectorSaloonInterior --play`.
+
 ## The Pip-Boy (2026-10-11, session "pip-boy menu")
 
 Your fifteen Pip-Boy screenshots. Branch `claude/pipboy-menu`. Facts and measurements:

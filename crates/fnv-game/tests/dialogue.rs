@@ -1053,6 +1053,48 @@ fn say_to_uses_the_same_selection() {
 }
 
 #[test]
+fn lines_said_to_someone_turn_the_two_to_each_other() {
+    let f = fixture();
+    let (a, b, player) = (FormId(NPC1_REF), FormId(NPC2_REF), FormId::PLAYER_REF);
+    let r = |id: u32| ArgValue::Value(Value::Ref(id));
+    let n = |x: f64| ArgValue::Value(Value::Num(x));
+    let turns = |g: &Game| g.facings().iter().map(|f| (f.who, f.to, f.body, f.speaking)).collect::<Vec<_>>();
+    // SayTo: the speaker turns head and body, the target looks back (head only).
+    let mut g = game(&f);
+    set_global(&mut g, G_GATE, 5.0);
+    call(&mut g, 0x1034, NPC1_REF, &[r(player.0), r(GREETING)]);
+    assert_eq!(turns(&g), vec![(a, player, true, true), (player, a, false, false)]);
+    assert!(g.facings().iter().all(|f| f.info == FormId(A_HIGH)));
+    // noTargetLookFlag 1: the target is not made to look; the speaker still turns.
+    let mut g = game(&f);
+    set_global(&mut g, G_GATE, 5.0);
+    call(&mut g, 0x1034, NPC1_REF, &[r(player.0), r(GREETING), n(0.0), n(1.0)]);
+    assert_eq!(turns(&g), vec![(a, player, true, true)]);
+    // Say has no listener: nobody turns.
+    let mut g = game(&f);
+    set_global(&mut g, G_GATE, 5.0);
+    call(&mut g, 0x1033, NPC1_REF, &[r(GREETING)]);
+    assert!(g.is_talking(a) && turns(&g).is_empty());
+    // A conversation between actors: both turn head and body, line after line.
+    let mut g = game(&f);
+    call(&mut g, 0x1056, NPC1_REF, &[r(NPC2_REF), r(T_ARGUE)]);
+    assert_eq!(turns(&g), vec![(a, b, true, true), (b, a, true, false)]);
+    // headTrack 0: nobody turns, in the replies too.
+    let mut g = game(&f);
+    call(&mut g, 0x1056, NPC1_REF, &[r(NPC2_REF), r(T_ARGUE), r(0), r(0), n(0.0)]);
+    assert!(g.in_actor_conversation(a) && turns(&g).is_empty());
+    let first = g.speech[0].info;
+    for _ in 0..20_000 {
+        if g.speech.first().is_none_or(|s| s.info != first) {
+            break;
+        }
+        g.tick();
+    }
+    assert_eq!(g.speech.first().map(|s| s.speaker), Some(b), "the reply is said");
+    assert!(turns(&g).is_empty());
+}
+
+#[test]
 fn a_conversation_survives_a_snapshot() {
     let f = fixture();
     let mut g = at_topic_list(&f);

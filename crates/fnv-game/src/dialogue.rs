@@ -702,6 +702,14 @@ impl<'a> Game<'a> {
         Ok(info)
     }
 
+    /// The HELLO line `speaker` would open a conversation with `target` with now (Link
+    /// From blank), without saying it: whether there is anything to go up to `target`
+    /// for (`fnv_ai::social`). The line said when they meet is chosen again then.
+    pub fn conversation_opener(&mut self, speaker: FormId, target: FormId) -> Option<FormId> {
+        let topic = self.hello_topic()?;
+        self.select_line_where(speaker, Some(target), topic, |d| d.link_from.is_empty())
+    }
+
     /// The HELLO topic, when the load order has it.
     pub fn hello_topic(&self) -> Option<FormId> {
         let data = self.data;
@@ -772,6 +780,7 @@ impl<'a> Game<'a> {
             if let Some(&f) = def.follow_ups.iter().find(|&&f| self.can_say(who, Some(to), f)) {
                 let topic = data.infos.get(&f).and_then(|d| d.topic).unwrap_or(FormId(0));
                 self.say_line(who, Some(to), topic, f, next);
+                self.set_line_look(who, said.look);
                 return;
             }
             let mut linked: Vec<(FormId, FormId)> = Vec::new();
@@ -788,6 +797,7 @@ impl<'a> Game<'a> {
                 n => linked[self.rng.next_u32() as usize % n],
             };
             self.say_line(who, Some(to), topic, info, next);
+            self.set_line_look(who, said.look);
             return;
         }
         end(self, ended::NO_LINKS)

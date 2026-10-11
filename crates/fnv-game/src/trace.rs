@@ -100,6 +100,12 @@ pub enum EventKind {
     ActorConversationEnded { speaker: FormId, target: FormId, reason: &'static str, lines: u32 },
     /// An actor is to play an idle animation, and what asked for it (`crate::idles`).
     IdleAsked { actor: FormId, idle: FormId, source: crate::idles::IdleSource },
+    /// A script asked for a sound (`PlaySound`, `PlaySound3D`; `crate::sound`).
+    SoundAsked { sound: FormId, #[serde(skip_serializing_if = "Option::is_none")] at: Option<FormId>, system: bool },
+    /// A script asked for a music type (`PlayMusic`; `crate::sound`).
+    MusicAsked { music: FormId },
+    /// A script asked a reference to play an animation group (`PlayGroup`; `crate::anims`).
+    AnimAsked { on: FormId, group: String, flag: i32 },
     /// An idle was asked for and cannot be played, and why.
     IdleNotPlayed { actor: FormId, idle: FormId, source: crate::idles::IdleSource, reason: &'static str },
     /// An image space modifier started playing on the screen (ApplyImageSpaceModifier).
