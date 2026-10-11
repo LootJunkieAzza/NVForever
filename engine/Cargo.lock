@@ -4225,6 +4225,7 @@ dependencies = [
  "fnv-actor",
  "fnv-collide",
  "fnv-combat",
+ "fnv-dds",
  "fnv-esm",
  "fnv-font",
  "fnv-game",

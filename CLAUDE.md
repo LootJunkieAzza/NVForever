@@ -307,6 +307,13 @@ run Sunny's lines in the saloon, with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
 within a few degrees of 0, no "listens" line for the last one, and "speech look summary: 3 lines";
 add `--no-npc-packages` to see "the body turns" by speech_look.rs itself).
 
+After Pip-Boy changes (`nvf-play` `pipboy`, nvforever `pipboy_arm.rs`, the arms' Pip-Boy clip
+and field of view; docs/spec-notes/pipboy.md §7), run it with `NVF_PLAY_TEST_SCRIPT_MENUS=0.05`
+and `NVF_PLAY_TEST_PIPBOY=12:open,15:page=stats,17:close` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --no-voice --hour 12 --size 1280x720 --run-seconds 19`
+(expect exit 0, "pipboy: up, page ITEMS tab Weapons", "pipboy: the menus are on the model's
+screen", "pipboy: STATS Status" and "pipboy: down").
+
 ## Commits
 
 End commit messages with the session's attribution lines. Keep commits focused; write

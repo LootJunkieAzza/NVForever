@@ -18,6 +18,7 @@ struct Grade {
     brightness: f32,
     blur: f32,
     time: f32,
+    sharp: f32,
 }
 
 @group(0) @binding(0) var screen: texture_2d<f32>;

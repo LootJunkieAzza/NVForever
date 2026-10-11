@@ -2795,3 +2795,52 @@ branch), `docs/design/combat-ai.md` §9.
 4. **Not yet:** NPC reloads are not animated, NPCs that are not run on their packages do
    not turn their bodies to you (only their heads), and the body does not bend while
    running and shooting.
+
+## The Pip-Boy (2026-10-11, session "pip-boy menu")
+
+Your fifteen Pip-Boy screenshots. Branch `claude/pipboy-menu`. Facts and measurements:
+`docs/spec-notes/pipboy.md`. Pictures: `C:\fnv-private\references\pipboy\`.
+
+1. **Built:** Tab raises the arm with the game's own clip and holds it before the eye;
+   the menus are drawn onto the model's screen, with STATS, ITEMS and DATA (the buttons
+   on the device, or F1–F3) and their five tabs each. The world stops and is blurred
+   behind it. ITEMS lists the inventory by tab; STATS and DATA show only their headings
+   so far.
+2. **The clip:** it both raises and lowers the Pip-Boy; the screen faces the eye at its
+   `Hit` key, so it is held there and played on when closing. Say if the original's
+   timing feels different.
+3. **Fitted to your ITEMS screenshot:** the size (the game's `fPipboy1stPersonFOV=47`),
+   the menu's place on the screen, the amber, and the scanlines' spacing. Ours now lines
+   up with it to a few pixels.
+4. **My choices, for you to judge:** the screen's glare is not drawn while the menus are
+   on (drawn, it was a pale haze yours does not have; yours shows only a faint lighter
+   patch, top right). Keys: F1–F3 pages, A/D or arrows tabs, X drop. The system's mouse
+   pointer, not the game's amber arrow.
+5. **Would help:** do you know the PC keys for switching pages and tabs in the original?
+   And a screenshot of the Pip-Boy being raised or put away mid-way would show whether
+   the clip is held where I hold it.
+
+## The Pip-Boy's STATS and DATA pages (2026-10-11, session "pip-boy menu")
+
+Built from the menu files and your screenshots; branch `claude/pipboy-menu` (PR #213).
+Details and what is guessed: `docs/spec-notes/pipboy.md` §5.1 (STATS) and §5.3 (DATA).
+
+1. **STATS:** Status (CND with the limb bars, RAD with the meter, EFF), S.P.E.C.I.A.L.,
+   Skills, Perks (picture and description from the records) and General (reputations;
+   the general statistics show "--": the game keeps no counters of its own yet).
+   Questions: should worn items' effects (Vault Jumpsuit: Speech +2) change the actor
+   values themselves, for scripts too? The page adds them for now. When does the box
+   round the selected row show in the original? Do the hints show "(0)", and when are
+   they bright? Which way round are "Dark Hero" and "Soft-Hearted Devil"?
+2. **DATA:** the place and date in the heading; Quests (running first, newest on top;
+   Enter makes one active), Misc (notes and their text), Radio (tuning from the list;
+   the wave is a still line, the original's is animated), World Map (markers you have
+   found, quest markers, drag and wheel), Local Map (doors and markers on an empty map:
+   the picture of the place from above is not drawn). Questions: how are quests ordered
+   and which is active by default? Which doors does the local map show (yours shows only
+   the gas station's, ours 17) and at what zoom? Where does the World Map open?
+3. **Would help:** screenshots of Perks and General, a crippled limb or rads on Status,
+   EFF with a chem taken, and the World Map right after opening it.
+4. **Not built yet:** using a Stimpak or RadAway from the hints, the hardcore buttons,
+   Place Marker, Challenges, the item picture and figures on ITEMS. The messages at the
+   top left (quest updates, corner messages) still draw over the Pip-Boy's edge.

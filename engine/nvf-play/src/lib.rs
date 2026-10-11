@@ -36,6 +36,7 @@ pub mod moved;
 pub mod music;
 pub mod pause;
 pub mod phys;
+pub mod pipboy;
 pub mod player;
 pub mod quest_messages;
 pub mod radio;
@@ -236,7 +237,8 @@ impl Plugin for PlayPlugin {
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin))
             .add_plugins(world_sounds::WorldSoundsPlugin)
             .add_plugins(ui_sounds::UiSoundsPlugin)
-            .add_plugins(chargen::ChargenPlugin);
+            .add_plugins(chargen::ChargenPlugin)
+            .add_plugins(pipboy::PipBoyPlugin);
         test_aid::setup(app);
     }
 }
