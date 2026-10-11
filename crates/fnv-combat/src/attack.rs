@@ -48,6 +48,9 @@ pub struct ClipTiming {
     /// The attack clip has an internal loop (`Fire` and `Loop` keys): seconds from its
     /// start to the `Fire` key.
     pub spin_up: Option<f32>,
+    /// The attack clip's `a:` key: its time and the attack it names next (melee combos,
+    /// [`crate::melee`]).
+    pub next_attack: Option<(f32, crate::melee::NextAttack)>,
 }
 
 /// The intervals the cycle runs on.
