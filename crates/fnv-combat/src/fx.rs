@@ -169,8 +169,7 @@ impl FxForms {
                 Some((id, load_one(r, &d, edid, &fid, &field)?))
             })
             .collect();
-        let mut out = FxForms::default();
-        out.actor_impact = actor_impact_materials(lo);
+        let mut out = FxForms { actor_impact: actor_impact_materials(lo), ..FxForms::default() };
         for (id, l) in loaded {
             match l {
                 Loaded::Sound(s) => {

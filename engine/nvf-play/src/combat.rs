@@ -1375,6 +1375,10 @@ fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&Scri
     out
 }
 
+/// What a shot sends out: sounds, impact effects, explosions, broken weapons, and what
+/// each impact picked (for `crate::world_sounds`).
+type ShotEffects<'w> = (MessageWriter<'w, PlaySound>, MessageWriter<'w, ImpactFx>, MessageWriter<'w, ExplosionFx>, MessageWriter<'w, WeaponBroken>, MessageWriter<'w, crate::world_sounds::ImpactPicked>);
+
 /// Fly the projectiles, deliver hits when due, set off explosions (and what they set
 /// off: destruction stages, detonations).
 #[allow(clippy::too_many_arguments)]
@@ -1393,7 +1397,7 @@ fn fly(
     mut visuals: ResMut<ShotVisuals>,
     anim: Res<WeaponAnim>,
     sfx: Option<Res<Sfx>>,
-    mut effects: (MessageWriter<PlaySound>, MessageWriter<ImpactFx>, MessageWriter<ExplosionFx>, MessageWriter<WeaponBroken>, MessageWriter<crate::world_sounds::ImpactPicked>),
+    mut effects: ShotEffects,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
