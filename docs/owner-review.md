@@ -2219,5 +2219,5 @@ refusals, §10 what is not built, §11 the test runs).
      the standing-up animation, since it happens behind the menu.
    - People who were wandering about with nothing scheduled stay as they were until
      the wait ends.
-7. **Still open from before:** the day-of-the-week question (item 7 of the entry above)
-   is untouched. I did not change that rule.
+7. **Still open from before:** the day-of-the-week question (item 7 of "Waiting and
+   sleeping: the T menu") is untouched. I did not change that rule.
