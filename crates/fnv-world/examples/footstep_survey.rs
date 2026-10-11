@@ -116,7 +116,7 @@ fn main() {
 
     if let Some(path) = keys {
         let text = std::fs::read_to_string(path).unwrap();
-        let names: BTreeSet<String> = text.lines().map(|l| l.trim().split_whitespace().next().unwrap_or("").to_string()).filter(|l| !l.is_empty()).collect();
+        let names: BTreeSet<String> = text.lines().map(|l| l.split_whitespace().next().unwrap_or("").to_string()).filter(|l| !l.is_empty()).collect();
         let missing: Vec<&String> = names.iter().filter(|n| !by_edid.contains_key(&n.to_ascii_lowercase())).collect();
         println!("\n{} distinct sound keys: {} name a SOUN record, {} do not: {}", names.len(), names.len() - missing.len(), missing.len(), missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
     }
