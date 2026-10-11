@@ -146,6 +146,19 @@ than 32 units [our choice]. Travel "stops at the edge of the destination radius"
 - **Movement** is `fnv_nav::Walker` (on the navmesh surface, no physics), and the
   actor's cell and position in the game are kept up to date as it walks, so scripts and
   conditions (GetInCell, GetDistance) see it.
+- **Put somewhere by a script** (MoveTo, MoveToMarkerWithFade; `Game::teleported`,
+  `Ai::moved_by_scripts`, since 2026-10-11): the walker starts again where the game has
+  the actor now, facing the marker's way, and takes up its package afresh (its walk,
+  furniture, sandbox, search or random conversation are given up) [design]. In the
+  engine the resident gets off its furniture at once and loses its character; with
+  `--play` an actor moved into a cell from one that was never loaded becomes a resident
+  there (`residents.rs` `take_moved`). Log: `ai [h] <actor>: put at (x, y, z) in <cell>
+  by a script (MoveTo): goes on from there` (or `: a resident from there`). Before, the
+  walker kept the old place, so the actor stayed drawn where it had stood and went on
+  from there: Sunny Smiles stayed in the Prospector Saloon after Ringo's "All right,
+  I'm ready." (INFO 0x00105CC2, whose end script moves her to SunnySpawnMarker in the
+  gas station and gives her SunnyTriggerGunfightDialoguePackage) [owner playtest
+  2026-10-11].
 
 ### 5.3 What the checks show
 

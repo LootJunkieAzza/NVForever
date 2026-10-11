@@ -271,6 +271,51 @@ impl Ai {
         Ok(())
     }
 
+    /// The references a script put somewhere since the last call (MoveTo,
+    /// `Game::take_teleported`): each actor the AI looks after goes on from where it was
+    /// put ([`Ai::relocate`]). Returns them all, each with whether the AI looks after it,
+    /// so the caller can hand over the others if it wants (an actor moved into the cells
+    /// around the player from somewhere else).
+    pub fn moved_by_scripts(&mut self, game: &mut Game) -> Vec<(FormId, bool)> {
+        let mut out = Vec::new();
+        for r in game.take_teleported() {
+            let ours = self.agents.contains_key(&r);
+            if ours {
+                self.relocate(game, r);
+            }
+            out.push((r, ours));
+        }
+        out
+    }
+
+    /// `actor` was put somewhere by a script: its walker starts again where the game has
+    /// it now, facing the way the game has it, and it takes up its package afresh (the
+    /// way it was on is gone; furniture, a sandbox, a search or a random conversation
+    /// are given up) [design: until 2026-10-11 the walker kept the old place, so the
+    /// actor was drawn, and went on, where it had stood: Sunny Smiles stayed in the
+    /// Prospector Saloon after VMS16's MoveTo to the gas station, owner playtest].
+    pub fn relocate(&mut self, game: &mut Game, actor: FormId) {
+        let Some(place) = goal::place_of_ref(game, actor) else { return };
+        let heading = game.world.peek(actor).map_or(0.0, |s| s.rot[2]);
+        self.set_using(game, actor, None);
+        let Some(a) = self.agents.get_mut(&actor) else { return };
+        let w = &mut a.walker;
+        (w.space, w.feet, w.heading, w.tri) = (place.space, place.pos, heading, fnv_nav::graph::NONE);
+        (w.follower, w.turning, w.moving) = (None, false, false);
+        a.activity = Activity::None;
+        // A package seen afresh: `step` begins it again from here.
+        a.package = None;
+        a.goal = None;
+        a.sandbox = None;
+        a.wait_until = None;
+        a.waiting_at = None;
+        a.talk = None;
+        a.pushed_at = None;
+        a.chat = None;
+        a.search = None;
+        self.taken.retain(|_, user| *user != actor);
+    }
+
     /// Whether `actor` stands where an actor walking into it pushes it aside: it is in
     /// the world and alive, not on its way, not on furniture or about to use some, not
     /// waiting at a door, not in a conversation it started and not fighting (in Combat it
