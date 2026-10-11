@@ -1486,7 +1486,12 @@ fn drive_body(
 
     // Attacks and reloads (combat): the clips of the weapon, their timing in the rig in
     // view, and whether combat started one since the last frame.
-    let attack = if anim.power { m.intern("attackpower".to_string()) } else { m.intern(attack_stem(anim.attack.as_deref())) };
+    // A melee swing plays the clip combat chose (a combo's next group, a power attack's
+    // direction; `fnv_combat::melee`), else the weapon's attack animation.
+    let attack = match anim.swing.clone() {
+        Some(stem) => m.intern(stem),
+        None => m.intern(attack_stem(anim.attack.as_deref())),
+    };
     let reload = anim.reload.clone().map(|r| m.intern(r));
     let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, control.aiming));
     let reload_clip = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, r)));
@@ -1495,7 +1500,9 @@ fn drive_body(
         attack_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit, c.keys.hit.zip(c.keys.loop_end).is_some_and(|(fire, back)| fire < back))),
         reload_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit)),
         reload_open.as_ref().map(|c| c.clip.length()),
+        attack_clip.as_ref().and_then(|c| c.keys.next_attack.as_ref()).map(|(t, v)| (*t, v.as_str())),
     );
+    anim.timed = Some(attack.to_string());
     anim.ready = m.hands.phase == WeaponPhase::Drawn && m.hands.in_hand;
     let attack_now = anim.attacks != m.attacks_seen;
     let reload_now = anim.reloads != m.reloads_seen;
