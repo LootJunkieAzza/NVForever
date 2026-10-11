@@ -2110,3 +2110,42 @@ NVForever's; `nvf-sleep.png` is the bed version).
      Well Rested beds need the first.
    - **The game's own font, slider picture and menu sounds.** The menu is drawn with
      NVForever's font and plain shapes, measured from your screenshot.
+
+## Message boxes drawn as the original's (2026-10-11, session "message box")
+
+You asked for the placeholder message boxes to be swapped for the game's own, like your
+"Vance's Gun" screenshot, with several buttons where a message has them.
+
+1. **What you get.** A message box is now laid out by the game's own menu file and
+   drawn with the game's own two fonts and line pictures, read from your install when
+   the game runs (nothing of them is in the repository): the title standing in the top
+   line, the text at the left, the buttons one under the other in the middle with a
+   frame around the chosen one, the bottom line, the short fading lines at the four
+   corners and the dark patch behind. Your screenshot's message comes out with the same
+   line breaks, and the box's measures match yours to within a pixel or two.
+2. **The pictures are not in `textures\interface\hud`.** That folder holds the compass,
+   crosshair and meters. The message box uses `textures\interface\shared` (the fading
+   lines and the black background) and `textures\fonts`. The font files had to be
+   worked out from their numbers; the note is `docs/spec-notes/fonts.md`.
+3. **How to answer a box.** Click a button; or Up and Down to move the frame and Enter
+   to press it. The pointer moves the frame to the button it is on. The number keys
+   still work as before (1 for the first button), but the numbers are no longer written
+   in front of the buttons. A box without buttons has OK, which Space also presses.
+4. **Guesses for you to judge** (details in `docs/spec-notes/message-menu.md` §3):
+   - **How dark the box is.** The game's file leaves that to the program. Your
+     screenshot is of a dark room, so it does not tell. I used the same darkness as the
+     Wait menu. A screenshot of a box outdoors in daylight would settle it.
+   - **The box's width for a short message.** Your screenshot is a full-width box. For
+     short texts I make the box as wide as the text needs, down to the file's minimum.
+   - **Which keys.** The menu file only describes the mouse and the gamepad.
+   - **A few spacings** (line spacing, where the first line sits) are fitted to your
+     one screenshot rather than read from a file.
+   - **The colour** is the amber of your screenshot. Your own HUD colour setting is not
+     read yet.
+5. **Not built:** the icon some boxes show beside the text, scrolling for a box with
+   more buttons than fit, the two menu sounds, the blur of the world behind the box.
+6. **Other menus use the same fonts.** The Wait menu, dialogue and the rest are still
+   in NVForever's stand-in font. The font reader is there now for them.
+7. **To look at any message:** set `NVF_PLAY_TEST_SCRIPT=20:message:PrimmMuseumPlaqueMessage`
+   and `NVF_PLAY_TEST_SCRIPT_MENUS=off` before starting with `--play` (the name is the
+   message's Editor ID).
