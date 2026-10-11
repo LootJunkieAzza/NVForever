@@ -2495,3 +2495,36 @@ trigger pull closes the weapon first, then it fires; the close plays every time.
    click partway through.
 5. **Not built:** NPCs reloading (they do not reload with animations yet), the Reload
    Speed perks.
+
+## Quest added, quest completed and objectives at the left (2026-10-11, session "quest messages")
+
+Branch `claude/quest-messages`; note docs/spec-notes/quest-messages.md.
+
+1. **What you should see:** "Quest added" (or "Quest completed", "Quest failed") with
+   the quest's name under it in large capitals, at the left a little above the middle,
+   as your Come Fly With Me and Ring-a-Ding-Ding pictures; objectives listed in the same
+   place behind a small square, filled and with "COMPLETED: " for a completed one, as
+   your Sierra Madre and Sunny Smiles pictures. These lines no longer appear in the
+   messages at the top left.
+2. **Measured:** at 1280x720 the words and the name sit on the same pixel rows and start
+   at the same column as in your picture; the Sunny Smiles objectives break their lines
+   at the same words.
+3. **Guesses I had to make, for you to check against the game:**
+   - **How long they stay:** 4 seconds for "Quest added" and the name, 4 for a list of
+     objectives and 1.5 more for each further one; 0.25 s to come and go.
+   - **The name comes in letter by letter from the left** over 0.6 s. Your Come Fly
+     With Me picture shows "WITH ME" fainter than "COME FLY"; it might instead be the
+     name going out from the right.
+   - **One thing at a time:** "Quest added" first, then its objective; objectives that
+     arrive while something else is on screen are gathered into one list.
+   - **Sounds** by their record names: UIPopUpQuestNew for "Quest added",
+     UIPopUpQuestComplete for "Quest completed", UIQuestUpdate for objectives; none for
+     "Quest failed".
+   - **The words "Quest failed"**: I have not seen it in the game.
+   - **Where long objectives break:** at 570 units (your pictures put it between 557
+     and 590).
+4. **Please put your two objective screenshots** (the Sierra Madre and the Sunny Smiles
+   ones) in `C:\fnv-private\references\quest_messages\`: they only reached me as
+   pictures, so the objective list's place is read by eye (to about a pixel).
+5. **Not built:** "Location discovered", and the "Quest Added" that SetStage gives for a
+   stage added to the Pip-Boy.
