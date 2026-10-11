@@ -353,7 +353,7 @@ fn placed_gains(sim: &SimState, player: Option<&Player>, speaker: FormId) -> [f3
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn play(
     mut commands: Commands,
     time: Res<Time<Real>>,

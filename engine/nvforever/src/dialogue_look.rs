@@ -371,7 +371,7 @@ pub(crate) fn heading_deg(rotation: Quat) -> f32 {
 
 /// Turn the conversation's actor to the player, and ease back the ones whose
 /// conversation is over (the module notes).
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn turn_speaker(
     time: Res<Time>,
     settings: Res<LookSettings>,
