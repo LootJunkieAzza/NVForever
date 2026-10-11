@@ -170,13 +170,20 @@ fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&
     (combine(&effects), forms)
 }
 
+/// The blur behind the open wait menu, in the modifiers' blur radius units [engineering
+/// choice: by eye against the owner's screenshot of the original menu].
+const WAIT_MENU_BLUR: f32 = 3.0;
+
 /// Copy the sky's grade, with the modifiers on the screen, onto every graded camera.
+#[allow(clippy::too_many_arguments)]
 fn update_grade(
     time: Res<Time>,
     sky: Res<SkyState>,
     world: Option<Res<WorldData>>,
     script: Option<Res<nvf_play::script::ScriptState>>,
     new_game: Option<Res<nvf_play::script::NewGame>>,
+    wait: Option<Res<nvf_play::wait::WaitMenu>>,
+    sleep: Option<Res<nvf_play::wait::SleepFade>>,
     mut mods: ResMut<ScreenModifiers>,
     mut grades: Query<&mut ImageSpaceGrade>,
 ) {
@@ -190,6 +197,14 @@ fn update_grade(
     // [engineering choice: the script data loads while the room is already drawn].
     if new_game.is_some() && script.as_deref().is_some_and(|s| s.rt.is_none() && s.off.is_none()) {
         effect.fade = [1.0; 4];
+    }
+    // Sleeping fades the world to black under the menu (`nvf_play::wait`): black over
+    // whatever fade is on the screen already.
+    if let Some(f) = sleep.map(|s| s.0).filter(|f| *f > 0.0) {
+        let a = effect.fade[3].clamp(0.0, 1.0);
+        let covered = a + (1.0 - a) * f;
+        let keep = if covered > 0.0 { a * (1.0 - f) / covered } else { 0.0 };
+        effect.fade = [effect.fade[0] * keep, effect.fade[1] * keep, effect.fade[2] * keep, covered];
     }
     if forms != mods.shown {
         if let Some(w) = &world {
@@ -209,7 +224,8 @@ fn update_grade(
         contrast: c.contrast,
         contrast_avg_lum: c.contrast_avg_lum,
         brightness: c.brightness,
-        blur: effect.blur_radius.max(0.0),
+        // The world behind the wait menu is blurred (docs/spec-notes/wait-menu.md §2).
+        blur: effect.blur_radius.max(if wait.is_some_and(|w| w.is_open()) { WAIT_MENU_BLUR } else { 0.0 }),
         time: now,
     };
     for mut grade in &mut grades {

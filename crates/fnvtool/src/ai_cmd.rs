@@ -120,7 +120,7 @@ fn functions_path(w: &WorldArgs, functions: Option<PathBuf>) -> PathBuf {
 
 /// Open the load order and build the game data (Layer 5's static data, which holds the
 /// typed packages) and the reference table.
-fn with_data(
+pub(crate) fn with_data(
     w: &WorldArgs,
     functions: Option<PathBuf>,
     f: impl FnOnce(&LoadOrder, &Schema, &fnv_game::GameData, &fnv_sim::RefTable, &HashMap<u32, String>) -> anyhow::Result<Value>,
@@ -199,7 +199,7 @@ fn fid(v: u32) -> String {
 
 /// The winning definition of every record of these types: (load-order FormID →
 /// plugin index, record).
-fn winners<'a>(lo: &LoadOrder<'a>, sigs: &[&[u8; 4]]) -> BTreeMap<u32, (usize, &'a Record)> {
+pub(crate) fn winners<'a>(lo: &LoadOrder<'a>, sigs: &[&[u8; 4]]) -> BTreeMap<u32, (usize, &'a Record)> {
     let mut out = BTreeMap::new();
     for (pi, recs) in lo.records.iter().enumerate() {
         for r in recs {

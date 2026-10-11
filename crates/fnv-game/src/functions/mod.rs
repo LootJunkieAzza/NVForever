@@ -25,7 +25,7 @@ mod refs;
 mod reputation;
 
 pub use reputation::{store as reputation_store, tiers as reputation_tiers};
-pub use actor::{actor_value, av_code, set_current as set_actor_value_current, weapon_anim_code};
+pub use actor::{actor_value, actor_value_capped, actor_value_parts, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
 pub use misc::clock_now;
 
 use crate::game::{Game, InstKey};
@@ -219,7 +219,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1181, "DamageActorValue", Impl(actor::damage_actor_value)),
         (0x1182, "RestoreActorValue", Impl(actor::restore_actor_value)),
         (0x1115, "GetBaseActorValue", Impl(actor::get_base_actor_value)),
-        (0x11EF, "GetPermanentActorValue", Impl(actor::get_base_actor_value)),
+        (0x11EF, "GetPermanentActorValue", Impl(actor::get_permanent_actor_value)),
         (0x102E, "GetDead", Impl(actor::get_dead)),
         (0x108B, "KillActor", Impl(actor::kill_actor)),
         (0x108C, "ResurrectActor", Impl(actor::resurrect_actor)),

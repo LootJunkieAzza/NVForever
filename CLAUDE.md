@@ -48,7 +48,7 @@ add `--pos -69500,2500,13400 --pitch -89.5` for the aerial view):
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --play --hour 17 --time-scale 1.2 --run-seconds 26`
 (expect exit 0, "run finished" and 24+ hourly samples).
 After image space modifier changes (`fnv_world::image_modifier`, the `fnv-game` functions,
-`imagespace.rs` and its shaders), run the opening for half a minute:
+`imagespace.rs` and its shaders; a sleep's fade to black is drawn there too), run the opening for half a minute:
 `NVF_PLAY_TEST_SCRIPT_MENUS=1 engine/target/release/nvforever --data <Data> --play --new-game --run-seconds 32`
 (expect exit 0 and the "image space modifiers on the screen:" lines in this order: WhiteISFX,
 MQ08AllBlackedOutISFX; VCG01FadeInFromBlackISFX; that with VCG01PlayerStrainISFX;
@@ -71,6 +71,10 @@ docs/design/actor-behaviour.md §5.6), also run the force-greet smoke test, with
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --play --npc-packages SunnyRef --no-voice --run-seconds 45`
 (expect exit 0, "SunnyRef: walks up to 0x00000014 to talk", "dialogue: conversation with SunnyRef started
 (topic GREETING)" and "1 talks started by dialogue packages" in the ai summary).
+After actor value changes (`fnv-game` `actor_values`, `functions::actor`), run
+`fnvtool actor values --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor SunnyRef`
+and compare with docs/spec-notes/actor-values.md §3.1 (the fit table) and §7 (Sunny Smiles:
+Guns 35, Health 100; the player: every skill 15, Action Points 80); explain any change.
 After furniture changes (docs/spec-notes/furniture.md §7), run the sitting smoke test:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-sit EasyPeteRef=0010634A:8 --follow-npc --run-seconds 45`
 (expect exit 0 and "furniture summary: 1 of 1 actors sat down, 1 got up again").
@@ -95,6 +99,15 @@ After idle animation changes (docs/spec-notes/idles.md §7: `fnv-game` `idles`, 
 4 by packages' begin, end and change, 1 from collections, 4 by dialogue lines); 5 started on actors,
 5 on the player; 0 for actors not drawn, 0 without a usable clip", and Doc Mitchell getting off his
 chair "by clip SpecialIdle_DocSitLeftExit" in the "furniture:" lines).
+
+After changes to the wait and sleep menu (`nvf-play` `wait`, docs/spec-notes/wait-menu.md
+§11) or to the play clock it advances (`fnv_sim::World::advance_hours`, `sky_follows_game`),
+run the sleep smoke test, with `NVF_PLAY_TEST_NEAR=00176ACE`, `NVF_PLAY_TEST_ACTIVATE=16`
+and `NVF_PLAY_TEST_WAIT=22:open,23.5:hours=24,24.5:accept` set:
+`engine/target/release/nvforever --data <Data> --cell GSHouseInterior03 --play --hour 22 --run-seconds 40`
+(expect exit 0, "wait menu: open as sleep (the player lies on a bed)", 24 "sleep: hour N of 24
+passed:" lines ending one date later at the time of day the menu opened at, and "wait summary:
+the menu was opened 1 times (1 as sleep), 24 hours passed, 0 requests held by scripts").
 
 ## Commits
 

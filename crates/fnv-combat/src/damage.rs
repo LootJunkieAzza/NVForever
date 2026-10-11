@@ -322,22 +322,3 @@ pub fn explosion_damage(t: &CombatTuning, damage: f32, radius: f32, distance: f3
     damage * (1.0 - k * (1.0 - t.explosion_edge))
 }
 
-/// The S.P.E.C.I.A.L. attribute behind a combat skill, as the ActorValue names them
-/// [hypothesis: the base game's pairing; the owner's GECK exports do not list it].
-pub fn governing_special(skill: &str) -> Option<&'static str> {
-    Some(match skill {
-        "Guns" => "Agility",
-        "Energy Weapons" | "Explosives" => "Perception",
-        "Melee Weapons" => "Strength",
-        "Unarmed" | "Big Guns" | "Survival" => "Endurance",
-        _ => return None,
-    })
-}
-
-/// A skill derived from its attribute and Luck before any points are spent:
-/// `fAVDSkill<Name>Base` (2) + attribute × `fAVDSkillPrimaryBonusMult` (2) +
-/// ⌈Luck × `fAVDSkillLuckBonusMult` (0.5)⌉ [documented: GECK wiki Derived Skill Settings,
-/// defaults; tag skills add 15].
-pub fn derived_skill(attribute: f32, luck: f32, tagged: bool) -> f32 {
-    (2.0 + attribute * 2.0 + (luck * 0.5).ceil() + if tagged { 15.0 } else { 0.0 }).clamp(0.0, 100.0)
-}

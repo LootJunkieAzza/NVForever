@@ -63,7 +63,7 @@ Layer 6 work (§8). Requests 3 and 4 make combat the first system in the project
 | NPC weapons, holstered and drawn | `fnv_actor::weapon` (`AnimType`, stance prefixes) | NPC attack clips use the same prefixes |
 | WEAP reader (models, animation type, base damage) | `fnv_actor::records::Weapon` | visuals only; §4 adds the combat stats |
 | Record layouts: WEAP `DATA`, `CRDT`, `VATS`, sounds; AMMO `DATA`, `DAT2`, `RCIL`; IPCT, IPDS; MGEF, IMOD; ARMO DT and DR | `schemas/fnv/objects.json`, `placed.json`, `gameplay.json` | §4 |
-| Actor values, with a permanent part and a damage part | `crates/fnv-game/src/functions/actor.rs` | health and damage, as the scripts see them; derived values (max health from Endurance and level) not computed yet |
+| Actor values: base from the record or formula, permanent modifier, damage | `crates/fnv-game/src/actor_values.rs`, `functions/actor.rs` (docs/spec-notes/actor-values.md) | health and damage, as the scripts see them; skills, Strength, Luck, Agility and the derived damage values for the formulas |
 | Inventory, ammo items | `crates/fnv-sim` (`ItemKind::Ammo`) | ammo use |
 | Physics rays | `fnv_phys::World::ray`, `ray_all` (world.rs), `Filter` with Havok layers (`fnv_phys::layers`: BIPED 8, DEAD_BIP 29, PROJECTILE 6, …) | shots, line of sight, melee sweeps |
 | Crosshair ray from the eye | `Player::eye` (player-body.md §1.4) | where the shot starts |
