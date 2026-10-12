@@ -20,8 +20,8 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
         ActorCmd::Values { w, functions, actor, survey } => {
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_values::run(lo, schema, data, refs, &actor, survey))
         }
-        ActorCmd::Aid { w, functions, item, uses, damage, seconds, hardcore } => {
-            let o = crate::actor_aid::Options { items: item, uses, damage, seconds, hardcore };
+        ActorCmd::Aid { w, functions, item, uses, damage, seconds, hardcore, perk, wait, sleep, set, perks } => {
+            let o = crate::actor_aid::Options { items: item, uses, damage, seconds, hardcore, perks: perk, wait, sleep, set, list_perks: perks };
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, names| {
                 let forms = FormStore::build(lo, schema);
                 crate::actor_aid::run(data, &forms, refs, names, &o)
@@ -32,6 +32,9 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
         }),
         ActorCmd::Factions { w, functions, actor, survey } => {
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_factions::run(lo, schema, data, refs, &actor, survey))
+        }
+        ActorCmd::Karma { w, functions, actor, cell, survey } => {
+            crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_karma::run(lo, schema, data, refs, &actor, &cell, survey))
         }
         ActorCmd::Detect { w, functions, detector, target, interior, light, dark } => {
             let o = crate::actor_detect::Options { detector, target, interior, light, dark };

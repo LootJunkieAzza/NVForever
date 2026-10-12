@@ -16,13 +16,15 @@
 use crate::functions::actor::actor_value_capped;
 use crate::game::Game;
 use fnv_sim::FormId;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 /// The Bobby Pin: MISC `Lockpick`, FULL "Bobby Pin" [observed: FalloutNV.esm 0x0000000A].
 pub const BOBBY_PIN: FormId = FormId(0x0000_000A);
 
 /// The help message the original shows the first time (MESG `HelpLockpicking`, "Message
-/// Box" and "Auto Display") [observed: FalloutNV.esm 0x0000017C]. Not shown yet.
+/// Box" and "Auto Display") [observed: FalloutNV.esm 0x0000017C; the owner's screenshot
+/// shows it over the menu the first time, as a tutorial box titled "Lockpicking"].
 pub const HELP_MESSAGE: FormId = FormId(0x0000_017C);
 
 /// The lock level of a door or container that only its key opens [documented: GECK wiki
@@ -136,8 +138,9 @@ pub struct Settings {
     /// skill, and the seconds more for every point of Lockpick above it [design].
     pub pin_seconds: f32,
     pub pin_seconds_per_point: f32,
-    /// After a pin breaks, seconds until the next is in [design: about the length of the
-    /// pin model's `Forward` sequence, 1.0 s, observed].
+    /// After a pin breaks, seconds until the next goes in [hypothesis: the length of the
+    /// pin model's break, its `Backward` (0.97 s, the pin twisting) and `Left` (0.47 s, the
+    /// long piece flying off) sequences, observed in `bobbypin01.nif`; lockpicking.md §2.1].
     pub new_pin_seconds: f32,
     /// The chance to force the lock: this many percent a point of Lockpick above what
     /// the lock needs, at most `force_max` [hypothesis: fits the one value seen, "Force
@@ -157,7 +160,7 @@ impl Default for Settings {
             return_speed: 240.0,
             pin_seconds: 1.0,
             pin_seconds_per_point: 0.02,
-            new_pin_seconds: 1.0,
+            new_pin_seconds: 1.45,
             force_per_point: 3.0,
             force_max: 95.0,
         }
@@ -422,10 +425,35 @@ impl Picking {
     }
 }
 
-/// Locks broken by forcing them. Not part of the saved state yet.
-#[derive(Debug, Clone, Default, PartialEq)]
+/// Lockpicking's part of the game state, kept in the snapshot ([`crate::game::GameSnapshot`]
+/// `locks`): the locks broken by forcing them, which stay broken (only their key opens them
+/// [documented: the help message]), and whether the help message has been shown.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Locks {
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub broken: BTreeSet<FormId>,
+    /// The help message ([`HELP_MESSAGE`]) has been shown: it comes the first time the menu
+    /// opens only [hypothesis: "Auto Display" shows a help message once per game].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub help_shown: bool,
+}
+
+impl Locks {
+    pub fn is_empty(&self) -> bool {
+        self.broken.is_empty() && !self.help_shown
+    }
+}
+
+/// The help message to show as the menu opens: its title and text the first time (and it
+/// counts as shown from then on), else `None`. `None` too without the message record.
+pub fn first_help(g: &mut Game) -> Option<(String, String)> {
+    if g.locks.help_shown {
+        return None;
+    }
+    let m = g.data.messages.get(&HELP_MESSAGE)?;
+    let text = m.text.clone()?;
+    g.locks.help_shown = true;
+    Some((m.title.clone().unwrap_or_default(), text))
 }
 
 /// What activating a locked door or container offers the player.
@@ -496,12 +524,11 @@ pub fn broke(g: &mut Game, reference: FormId) {
     pin_broke(g);
 }
 
-/// Who owns a door or container: its own owner (XOWN), else its cell's as a script set it
-/// (SetCellOwnership) [documented: GECK wiki ownership of references and cells]. A cell's
-/// own XOWN is not read yet [design: the crime workstream reads it].
+/// Who owns a door or container: its own owner (XOWN), else its cell's (its record's, or
+/// SetCellOwnership's) [documented: GECK wiki ownership of references and cells;
+/// `crate::crime::Game::ownership`].
 pub fn owner(g: &Game, reference: FormId) -> Option<FormId> {
-    let placed = g.world.placed.get(reference);
-    placed.and_then(|p| p.owner).or_else(|| placed.and_then(|p| p.cell).and_then(|c| g.forms.cell_owners.get(&c).copied()))
+    g.ownership(reference).map(|o| o.owner)
 }
 
 #[cfg(test)]
@@ -631,7 +658,7 @@ mod tests {
         // Not before its time, even with torque held.
         let ev = run(&mut p, 0.5, true);
         assert!(!ev.contains(&Event::NewPin));
-        let ev = run(&mut p, 0.6, false);
+        let ev = run(&mut p, 1.0, false);
         assert!(ev.contains(&Event::NewPin));
         assert_eq!((p.phase, p.health, p.pins), (Phase::Picking, PIN_HEALTH, 1));
         // The last pin breaks: out of pins.
@@ -652,6 +679,18 @@ mod tests {
             let p = Picking::new(Level::VeryEasy, 100.0, 1, spot, s());
             assert!(p.sweet - p.half >= -1e-4 && p.sweet + p.half <= PIN_RANGE + 1e-4, "{spot}: {} ± {}", p.sweet, p.half);
         }
+    }
+
+    #[test]
+    fn broken_locks_and_the_help_are_kept_in_the_snapshot_form() {
+        let mut l = Locks::default();
+        assert!(l.is_empty());
+        assert_eq!(serde_json::to_string(&l).unwrap(), "{}");
+        l.broken.insert(FormId(0x0010_B2D4));
+        l.help_shown = true;
+        let back: Locks = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
+        assert_eq!(back, l);
+        assert!(!back.is_empty());
     }
 
     #[test]

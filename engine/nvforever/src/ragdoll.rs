@@ -62,6 +62,10 @@ pub struct Ragdolls {
     pub rested: usize,
     pub lifted: usize,
     pub pushes: usize,
+    /// Corpses given the pose their reference stores (`XRGD`, `deaths.rs`), and those
+    /// whose stored pose did not fit their skeleton.
+    pub authored: usize,
+    pub authored_skipped: usize,
 }
 
 impl Ragdolls {
@@ -344,8 +348,8 @@ fn report(mut exit: MessageReader<AppExit>, ragdolls: Res<Ragdolls>, phys: Optio
     }
     let (live, asleep) = phys.map_or((0, 0), |p| (p.world.ragdolls().count(), p.world.ragdolls().filter(|&id| p.world.ragdoll_asleep(id)).count()));
     info!(
-        "ragdolls: {} started, {} put back at rest, {} came to rest, {} shoved by hits, {} lifted back above the terrain; {live} in the world at exit ({asleep} at rest)",
-        ragdolls.started, ragdolls.restored, ragdolls.rested, ragdolls.pushes, ragdolls.lifted
+        "ragdolls: {} started, {} put back at rest, {} came to rest, {} shoved by hits, {} lifted back above the terrain; {live} in the world at exit ({asleep} at rest); {} laid in the pose their reference stores ({} stored poses did not fit)",
+        ragdolls.started, ragdolls.restored, ragdolls.rested, ragdolls.pushes, ragdolls.lifted, ragdolls.authored, ragdolls.authored_skipped
     );
 }
 

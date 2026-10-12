@@ -35,6 +35,11 @@ use std::collections::BTreeSet;
 /// Eye height above the feet, game units [hypothesis: placeholder for a standing human at
 /// about 70 units per metre; not captured].
 pub const EYE_HEIGHT: f32 = 112.0;
+/// Test aid `NVF_PLAY_TEST_NEAR`: how far the first-person body's eye stands above
+/// [`EYE_HEIGHT`] [observed: 121 above the feet, GSGasStation 2026-10-12], and the reach
+/// kept to spare when choosing the spot [engineering choice].
+const NEAR_EYE_ABOVE: f32 = 9.0;
+const NEAR_REACH_SPARE: f32 = 5.0;
 
 /// FalloutNV.esm's `fMoveBaseSpeed` and `fMoveRunMult` [observed: GMST records, physics.md
 /// §6], used when the loaded plugins lack them.
@@ -399,6 +404,7 @@ fn grab_cursor(
     unattended: Option<Res<crate::test_aid::Unattended>>,
     hud: Option<Res<crate::script_hud::ScriptHud>>,
     look: Option<Res<crate::dialogue::FreeLook>>,
+    over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
@@ -414,9 +420,11 @@ fn grab_cursor(
         (true, true) => CursorGrabMode::Confined,
         (true, false) => CursorGrabMode::Locked,
     };
-    if cursor.grab_mode != mode || cursor.visible == grab {
+    // The lockpicking menu hides the pointer over the lock (`crate::lockpick`).
+    let visible = !grab && !over_lock.is_some_and(|o| o.0);
+    if cursor.grab_mode != mode || cursor.visible != visible {
         cursor.grab_mode = mode;
-        cursor.visible = !grab;
+        cursor.visible = visible;
     }
 }
 
@@ -533,7 +541,11 @@ fn place_initial(mut phys: ResMut<PhysState>, mut player: ResMut<Player>, mut ne
         return;
     }
     if let (Some(id), Some(pos)) = (near.target, near.pos.take()) {
-        match safe::reach_spot(&mut phys, player.eye_height, id, pos, crate::activate::pick::REACH) {
+        // The view's eye is the first-person body's head once the body is drawn, above
+        // `eye_height` [observed: 121 above the feet in GSGasStation, where a spot chosen
+        // with 112 at 147 units from Ringo's floor safe left it 154 away, out of reach];
+        // the spot is chosen with that eye and a few units to spare.
+        match safe::reach_spot(&mut phys, player.eye_height + NEAR_EYE_ABOVE, id, pos, crate::activate::pick::REACH - NEAR_REACH_SPARE) {
             Some((feet, heading, pitch)) => {
                 info!(
                     "test aid NVF_PLAY_TEST_NEAR: standing at ({:.0}, {:.0}, {:.1}) facing {id:08X} at ({:.0}, {:.0}, {:.0}), heading {:.0}°, pitch {:.0}°",

@@ -437,6 +437,7 @@ fn apply_input(
     mut used: MessageWriter<ItemUsed>,
     script: Option<ResMut<crate::script::ScriptState>>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
+    mut taken: MessageWriter<crate::crime::ItemsTaken>,
 ) {
     let mut script = script.map(|s| s.into_inner());
     for &MenuInput(cmd) in input.read() {
@@ -455,6 +456,10 @@ fn apply_input(
         }
         if let Some(item) = a.used {
             used.write(ItemUsed { item: item.0 });
+        }
+        // Taking owned items is theft (`crate::crime`).
+        if let (Mode::Container(c), false) = (m.mode, a.taken.is_empty()) {
+            taken.write(crate::crime::ItemsTaken { container: c, items: a.taken.clone() });
         }
         // A dropped item starts turned as its holder faces (GetAngle Z of the new reference
         // equals the player's, X and Y 0 [observed: capture pc_drop_fall, physics.md

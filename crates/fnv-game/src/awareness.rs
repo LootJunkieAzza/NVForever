@@ -506,6 +506,10 @@ impl Game<'_> {
             if self.extra.get(&actor).is_some_and(|e| e.teammate) {
                 return false;
             }
+            // The player's crimes (`crate::crime`).
+            if self.crime_enemy(actor) {
+                return true;
+            }
         } else {
             if !self.world.is_enabled(other).unwrap_or(false) {
                 return false;
@@ -734,6 +738,7 @@ impl Game<'_> {
     pub fn stop_combat(&mut self, actor: FormId) {
         self.awareness.forced.retain(|(a, _)| *a != actor);
         self.provocations.calm(actor);
+        self.forgive_crimes(actor);
         if let Some(a) = self.awareness.actors.remove(&actor) {
             if a.state != State::Normal {
                 self.awareness.changes.push(Change { actor, from: a.state, to: State::Normal, time: self.time, about: None, cause: None, at: None, value: None });

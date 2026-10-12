@@ -4,9 +4,14 @@
 //! monitor, addiction) and the log tells what it did to the player's actor values.
 //!
 //! Log lines: `aid: the player used <item> (potency p): <changes>; <value> a → b, …`
-//! when an item is used, `aid: <item>'s effects on the player ended: <value> v, …` when
-//! the last effect of an item ends, `aid: the player is addicted to <item> (<spell>)`,
-//! `aid: <spell> cured`, and at exit `aid summary: …`.
+//! when an item is used (with `; perks: …` when perk entry points changed the use, and
+//! Carry Weight among the values when Strength is), `aid: <item>'s effects on the
+//! player ended: <value> v, …` when the last effect of an item ends, `aid: the player is
+//! addicted to <item> (<spell>)`, `aid: <spell> cured`, `needs: <value> <level>: <stage
+//! effect>` (or `: no stage`) when the player's stage of rads or of a Hardcore need
+//! changes, `wait: hour <n> passed for the player (<seconds> s of effects): …` for each
+//! hour waited or slept (aid-items.md §6, §11), and at exit
+//! `aid summary: …`.
 
 use crate::script::{with_world, Runtime, ScriptState};
 use crate::sim::SimState;
@@ -18,6 +23,8 @@ use fnv_sim::FormId;
 use std::collections::{BTreeMap, BTreeSet};
 
 const P: FormId = FormId::PLAYER_REF;
+const STRENGTH: u16 = 5;
+const CARRY_WEIGHT: u16 = 13;
 
 /// What the player's aid items did this run.
 #[derive(Debug, Default, Clone)]
@@ -28,6 +35,10 @@ pub struct AidStats {
     pub effects_ended: u32,
     pub addicted: Vec<String>,
     pub cured: u32,
+    /// Changes of the player's stage of rads or of a need.
+    pub stages: u32,
+    /// Hours waited or slept that passed for the player's effects and needs.
+    pub hours: u32,
     /// Actor values the items touched (for the summary).
     pub codes: BTreeSet<u16>,
     /// Items with effects on the player that last (modifiers, by the second), and the
@@ -58,7 +69,7 @@ fn change_text(c: &ValueChange, duration: f64) -> String {
 pub fn use_item(rt: &mut Runtime, item: FormId) -> Ingested {
     let data = rt.game.data;
     // The values the item's effects may touch, before.
-    let codes: BTreeSet<u16> = data
+    let mut codes: BTreeSet<u16> = data
         .effect_items
         .get(&item)
         .into_iter()
@@ -66,7 +77,13 @@ pub fn use_item(rt: &mut Runtime, item: FormId) -> Ingested {
         .filter_map(|e| data.magic_effects.get(&e.effect).and_then(|m| fnv_game::aid::value_change(m, e, 1.0, false)))
         .map(|c| c.code)
         .collect();
+    // Strength carries the carry weight with it (aid-items.md §12).
+    if codes.contains(&STRENGTH) {
+        codes.insert(CARRY_WEIGHT);
+    }
     let before: Vec<(u16, f64)> = codes.iter().map(|&c| (c, value(rt, c))).collect();
+    let capacity = |rt: &mut Runtime| rt.game.world.encumbrance(P).ok().map(|e| e.capacity);
+    let capacity_before = capacity(rt);
     let r = rt.game.ingest(P, item);
     let changes: Vec<String> = r
         .applied
@@ -91,6 +108,14 @@ pub fn use_item(rt: &mut Runtime, item: FormId) -> Ingested {
     if let Some((chance, hit)) = r.addiction {
         extra.push_str(&format!("; addiction chance {chance:.2}{}", if hit { ", addicted" } else { "" }));
     }
+    if !r.perks.is_empty() {
+        let perks: Vec<String> = r.perks.iter().map(|(p, point)| format!("{} (entry point {point})", data.name(*p))).collect();
+        extra.push_str(&format!("; perks: {}", perks.join(", ")));
+    }
+    // What the menus' weight line reads (`fnv_sim::World::encumbrance`).
+    if let (true, Some(a), Some(b)) = (codes.contains(&CARRY_WEIGHT), capacity_before, capacity(rt)) {
+        extra.push_str(&format!("; carry capacity {} → {}", whole(a), whole(b)));
+    }
     info!(
         "aid: the player used {name} (potency {:.2}): {}{extra}; {}",
         r.potency,
@@ -99,7 +124,11 @@ pub fn use_item(rt: &mut Runtime, item: FormId) -> Ingested {
     );
     let s = &mut rt.aid;
     for c in r.applied.iter().filter_map(|a| a.change).filter(|c| c.kind != ChangeKind::Once) {
-        s.lasting.entry(item).or_default().insert(c.code);
+        let lasting = s.lasting.entry(item).or_default();
+        lasting.insert(c.code);
+        if c.code == STRENGTH {
+            lasting.insert(CARRY_WEIGHT);
+        }
     }
     *s.used.entry(name).or_default() += 1;
     s.effects_started += r.effects.len() as u32;
@@ -137,6 +166,11 @@ pub fn after_tick(rt: &mut Runtime, from: usize) {
                 lines.push(format!("aid: {} cured", data.name(*spell)));
                 rt.aid.cured += 1;
             }
+            EventKind::NeedStage { actor, value, level, spell, .. } if *actor == P => {
+                let stage = spell.map_or_else(|| "no stage".to_string(), |s| data.name(s));
+                lines.push(format!("needs: {} {}: {stage}", av_name(*value), whole(*level)));
+                rt.aid.stages += 1;
+            }
             _ => {}
         }
     }
@@ -154,28 +188,56 @@ pub fn after_tick(rt: &mut Runtime, from: usize) {
     }
 }
 
+/// An hour of a wait or a sleep has passed on the clock (world swapped in): it passes for
+/// the player's effects and needs too (`fnv_game::Game::pass_hours`), and the log says
+/// what changed.
+pub fn hour_passed(rt: &mut Runtime, sleeping: bool, hour: u32) {
+    let from = rt.game.events.len();
+    let p = rt.game.pass_hours(1.0, sleeping);
+    rt.aid.hours += 1;
+    let needs: Vec<String> = p.needs.iter().map(|&(c, a, b)| format!("{} {} → {}", av_name(c), whole(a), whole(b))).collect();
+    info!(
+        "wait: hour {hour} passed for the player ({:.0} s of effects): {} effect(s) ended{}",
+        p.seconds,
+        p.effects_ended,
+        if needs.is_empty() { String::new() } else { format!("; {}", needs.join(", ")) }
+    );
+    after_tick(rt, from);
+}
+
 /// At exit, when the player used an aid item: `aid summary: …`.
 pub fn report(mut exit: MessageReader<AppExit>, mut script: ResMut<ScriptState>, mut sim: ResMut<SimState>) {
     if exit.read().next().is_none() {
         return;
     }
     let Some(rt) = script.rt.as_mut() else { return };
-    if rt.aid.used.is_empty() {
+    if rt.aid.used.is_empty() && rt.aid.stages == 0 && rt.aid.hours == 0 {
         return;
     }
     let used: Vec<String> = rt.aid.used.iter().map(|(n, c)| format!("{n} {c}")).collect();
     let total: u32 = rt.aid.used.values().sum();
-    let codes: Vec<u16> = rt.aid.codes.iter().copied().collect();
+    let mut codes: Vec<u16> = rt.aid.codes.iter().copied().collect();
+    let hardcore = with_world(rt, &mut sim, |rt| rt.game.hardcore());
+    if hardcore {
+        for (c, _, _) in fnv_game::needs::NEEDS {
+            if !codes.contains(&c) {
+                codes.push(c);
+            }
+        }
+    }
     let values = with_world(rt, &mut sim, |rt| codes.iter().map(|&c| format!("{} {}", av_name(c), whole(value(rt, c)))).collect::<Vec<_>>());
     let addictions: Vec<String> = rt.game.addictions(P).iter().map(|s| rt.game.data.name(*s)).collect();
     let s = &rt.aid;
     info!(
-        "aid summary: {total} items used ({}), {} effects started, {} ended; addictions: {}; {} cured; the player at exit: {}",
+        "aid summary: {total} items used ({}), {} effects started, {} ended; addictions: {}; {} cured; {} stage changes; {} hours waited for effects{}; the player at exit: {}",
         used.join(", "),
         s.effects_started,
         s.effects_ended,
         if addictions.is_empty() { "none".to_string() } else { addictions.join(", ") },
         s.cured,
+        s.stages,
+        s.hours,
+        if hardcore { " (Hardcore)" } else { "" },
         values.join(", ")
     );
 }

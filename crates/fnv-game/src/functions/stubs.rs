@@ -36,7 +36,6 @@ pub const FOLLOWERS: &str = "H followers";
 
 /// Stubs whose system another workstream is building now or next.
 pub const ASSIGNED: &[(u16, &str)] = &[
-    (0x105F, COMBAT), // SendAssaultAlarm (assault rules)
     (0x10B1, COMBAT), // SetCombatStyle
     (0x11A0, COMBAT), // GetGroupMemberCount
     (0x11A1, COMBAT), // GetGroupTargetCount
@@ -52,11 +51,6 @@ pub const ASSIGNED: &[(u16, &str)] = &[
     (0x1051, COMBAT), // GetArmorRating
     (0x11AC, COMBAT), // GetPlantedExplosive
     (0x119F, COMBAT), // Exists (combat dialogue)
-    (0x115C, CRIME),  // SendTrespassAlarm
-    (0x1090, CRIME),  // GetTrespassWarningLevel
-    (0x1091, CRIME),  // IsTrespassing
-    (0x103D, CRIME),  // GetAlarmed
-    (0x1075, CRIME),  // GetMajorCrimeCount
     (0x124E, CRIME),  // GetOwnerLastTarget
     (0x11C8, FOLLOWERS), // OpenTeammateContainer
 ];
@@ -112,7 +106,7 @@ mod tests {
     fn every_stub_has_a_status() {
         let a = audit();
         assert!(a.iter().any(|(_, n, s)| *n == "SetRumble" && s.key() == "no_op"));
-        assert!(a.iter().any(|(_, n, s)| *n == "SendTrespassAlarm" && *s == Status::Assigned(CRIME)));
+        assert!(a.iter().any(|(_, n, s)| *n == "GetOwnerLastTarget" && *s == Status::Assigned(CRIME)));
         assert!(a.iter().all(|(op, ..)| !super::super::implemented(*op) || matches!(lookup(*op), Some(Kind::NoOp(_)))));
     }
 }
