@@ -1,6 +1,8 @@
 //! `fnvtool actor aid`: the aid items (ALCH) of a load order with their decoded effects,
 //! counts over them, and, with `--use`, what using some of them does to the player in the
-//! authored game (docs/spec-notes/aid-items.md §8).
+//! authored game, then `--seconds` of play and `--wait` hours (docs/spec-notes/
+//! aid-items.md §8). `--perks` lists the perks' entry point effects and the stages of rads
+//! and needs (§10, §11).
 
 use fnv_game::aid::{self, ChangeKind};
 use fnv_game::data::{MagicEffectDef, ARCHETYPE_SCRIPT};
@@ -17,6 +19,11 @@ pub struct Options {
     pub damage: Vec<String>,
     pub seconds: f64,
     pub hardcore: bool,
+    pub perks: Vec<String>,
+    pub wait: f64,
+    pub sleep: bool,
+    pub set: Vec<String>,
+    pub list_perks: bool,
 }
 
 /// MGEF archetype names [documented: xEdit wbArchtypeEnum, `schemas/fnv/gameplay.json`].
@@ -218,10 +225,79 @@ pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, names: &HashMap<
         "withdrawal_spells": withdrawal_spells,
         "items": items,
     });
-    if !o.uses.is_empty() {
+    if o.list_perks {
+        out["perks"] = perk_list(data);
+        out["need_stages"] = need_stages(data);
+    }
+    if !o.uses.is_empty() || o.wait > 0.0 {
         out["use"] = simulate(data, forms, refs, o)?;
     }
     Ok(out)
+}
+
+/// Every perk with entry point effects: per effect the rank, priority, entry point code,
+/// function, number and conditions by tab (aid-items.md §10).
+fn perk_list(data: &GameData) -> Value {
+    use fnv_game::data::PerkEffect;
+    let mut ids: Vec<FormId> = data.perks.iter().filter(|(_, p)| p.entries.iter().any(|e| matches!(e.effect, PerkEffect::EntryPoint(_)))).map(|(id, _)| *id).collect();
+    ids.sort();
+    let mut by_point: BTreeMap<u8, u64> = BTreeMap::new();
+    let list: Vec<Value> = ids
+        .iter()
+        .map(|id| {
+            let p = &data.perks[id];
+            let entries: Vec<Value> = p
+                .entries
+                .iter()
+                .filter_map(|e| match &e.effect {
+                    PerkEffect::EntryPoint(ep) => {
+                        *by_point.entry(ep.point).or_default() += 1;
+                        Some(json!({
+                            "rank": e.rank,
+                            "priority": e.priority,
+                            "entry_point": ep.point,
+                            "function": ep.function,
+                            "value": ep.value,
+                            "condition_tabs": ep.conditions.as_ref().map(|c| c.iter().map(|(t, _)| *t).collect::<Vec<_>>()),
+                        }))
+                    }
+                    _ => None,
+                })
+                .collect();
+            json!({"perk": id.to_string(), "edid": data.edid_of.get(id), "name": p.name, "entries": entries})
+        })
+        .collect();
+    json!({"count": list.len(), "entries_by_entry_point": by_point, "list": list})
+}
+
+/// The stages of rads and needs by actor value: threshold and actor effect.
+fn need_stages(data: &GameData) -> Value {
+    let mut codes: Vec<u16> = data.need_stages.keys().copied().collect();
+    codes.sort();
+    let m: Map<String, Value> = codes
+        .iter()
+        .map(|c| {
+            let stages: Vec<Value> = data.need_stages[c]
+                .iter()
+                .map(|s| json!({"stage": data.name(s.stage), "threshold": s.threshold, "spell": data.name(s.spell)}))
+                .collect();
+            (AV_NAMES[*c as usize].to_string(), json!(stages))
+        })
+        .collect();
+    Value::Object(m)
+}
+
+fn find_perk(data: &GameData, name: &str) -> anyhow::Result<FormId> {
+    let id = data
+        .edids
+        .get(&name.to_ascii_lowercase())
+        .copied()
+        .or_else(|| u32::from_str_radix(name.trim_start_matches("0x"), 16).ok().map(FormId))
+        .ok_or_else(|| anyhow::anyhow!("no form named {name}"))?;
+    if !data.perks.contains_key(&id) {
+        anyhow::bail!("{name} ({id}) is not a perk (PERK)");
+    }
+    Ok(id)
 }
 
 /// The player in the authored game: damage, then each item used in turn, then
@@ -231,6 +307,18 @@ fn simulate(data: &GameData, forms: &FormStore, refs: &RefTable, o: &Options) ->
     let p = FormId::PLAYER_REF;
     g.player.hardcore = Some(o.hardcore);
     let mut codes: BTreeSet<u16> = BTreeSet::new();
+    for name in &o.perks {
+        *g.player.perks.entry(find_perk(data, name)?).or_default() += 1;
+    }
+    for s in &o.set {
+        let (name, v) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--set {s:?}: expected <actor value>:<value>"))?;
+        let code = fnv_game::functions::av_by_name(name).ok_or_else(|| anyhow::anyhow!("no actor value {name:?}"))?;
+        fnv_game::functions::set_actor_value_current(&mut g, p, code, v.parse()?).map_err(|e| anyhow::anyhow!(e))?;
+        codes.insert(code);
+    }
+    if o.hardcore {
+        codes.extend(fnv_game::needs::NEEDS.iter().map(|n| n.0));
+    }
     let mut damaged = Vec::new();
     for d in &o.damage {
         let (name, amount) = d.split_once(':').ok_or_else(|| anyhow::anyhow!("--damage {d:?}: expected <actor value>:<amount>"))?;
@@ -248,7 +336,17 @@ fn simulate(data: &GameData, forms: &FormStore, refs: &RefTable, o: &Options) ->
             }
         }
     }
-    let values = |g: &mut Game| -> Map<String, Value> { codes.iter().map(|&c| (AV_NAMES[c as usize].to_string(), json!(actor_value(g, p, c).ok()))).collect() };
+    // Strength carries the carry weight (aid-items.md §12).
+    if codes.contains(&5) {
+        codes.insert(13);
+    }
+    let values = |g: &mut Game| -> Map<String, Value> {
+        let mut m: Map<String, Value> = codes.iter().map(|&c| (AV_NAMES[c as usize].to_string(), json!(actor_value(g, p, c).ok()))).collect();
+        if let Ok(e) = g.world.encumbrance(p) {
+            m.insert("carry_capacity".into(), json!(e.capacity));
+        }
+        m
+    };
     let before = values(&mut g);
     let mut steps = Vec::new();
     for &item in &items {
@@ -264,6 +362,9 @@ fn simulate(data: &GameData, forms: &FormStore, refs: &RefTable, o: &Options) ->
         steps.push(json!({
             "item": data.name(item),
             "potency": r.potency,
+            "duration_mult": r.mods.duration,
+            "rads_mult": r.mods.rads,
+            "perks": r.perks.iter().map(|(perk, point)| json!({"perk": data.name(*perk), "entry_point": point})).collect::<Vec<_>>(),
             "usage": r.usage,
             "addiction": r.addiction.map(|(chance, hit)| json!({"chance": chance, "addicted": hit})),
             "changes": active,
@@ -273,6 +374,26 @@ fn simulate(data: &GameData, forms: &FormStore, refs: &RefTable, o: &Options) ->
     let frames = (o.seconds / g.cfg.frame_seconds).round() as u64;
     g.frames(frames);
     let after = values(&mut g);
+    // The hours one at a time, as the Wait menu passes them.
+    let mut hours = Vec::new();
+    let mut left = o.wait;
+    while left > 1e-9 {
+        let h = left.min(1.0);
+        let passed = g.pass_hours(h, o.sleep);
+        hours.push(json!({"hours": h, "seconds": passed.seconds, "effects_ended": passed.effects_ended}));
+        left -= h;
+    }
+    let after_wait = values(&mut g);
+    let stages: Vec<Value> = g
+        .events
+        .iter()
+        .filter_map(|e| match &e.kind {
+            fnv_game::trace::EventKind::NeedStage { value, level, spell, .. } => {
+                Some(json!({"actor_value": AV_NAMES[*value as usize], "level": level, "spell": spell.map(|s| data.name(s))}))
+            }
+            _ => None,
+        })
+        .collect();
     let still: Vec<Value> = g
         .effects
         .iter()
@@ -286,6 +407,8 @@ fn simulate(data: &GameData, forms: &FormStore, refs: &RefTable, o: &Options) ->
         "uses": steps,
         "seconds_after": o.seconds,
         "values_after": after,
+        "wait": {"hours": o.wait, "sleep": o.sleep, "steps": hours, "values_after": after_wait},
+        "stage_changes": stages,
         "effects_active_after": still,
         "addictions": g.addictions(p).iter().map(|s| data.name(*s)).collect::<Vec<_>>(),
     }))

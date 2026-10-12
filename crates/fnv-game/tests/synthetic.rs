@@ -473,12 +473,17 @@ fn snapshots_round_trip() {
     g.new_game();
     g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
     g.frames(10);
+    // A lock broken by forcing it stays broken, and the lockpicking help stays shown.
+    g.locks.broken.insert(FormId(ACT_REF));
+    g.locks.help_shown = true;
     let s = g.snapshot();
     let text = serde_json::to_string(&s).unwrap();
     let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
     assert_eq!(back, s);
     let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
     let mut h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    assert_eq!(h.locks, g.locks);
+    assert!(text.contains("\"locks\""), "{text}");
     g.frames(90);
     h.frames(90);
     assert_eq!(g.quests, h.quests);

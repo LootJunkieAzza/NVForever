@@ -11,6 +11,19 @@
 //! unlocked and the menu closes; the player activates the door or container again to use
 //! it [hypothesis, §4].
 //!
+//! The first time the menu opens the help message `HelpLockpicking` comes up over it, as
+//! the original's tutorial box (`help`); E closes it [observed: the owner's screenshot,
+//! "Close E)"]. Whether it has been shown is kept in the game state
+//! (`fnv_game::lockpick::Locks`), as are the locks broken by forcing them. Over the lock
+//! (the menu file's `LPM_DetectArea`) the mouse pointer is hidden ([`PointerOverLock`]).
+//! When the game ends or the player leaves, the menu fades out ([`LEAVE_SECONDS`]); a pin
+//! pulled out on leaving goes back the way it came in, a broken pin twists and its long
+//! piece flies off (`lockpick_view.rs`).
+//!
+//! Debug switch `NVF_PLAY_DEBUG_LOCKPICK=1` (off unless set; a development aid, not part of
+//! a release): the menu file's debug meter, the sweet spot, the ring around it and the
+//! pin's place on a bar, the pin's health and the two tuning values.
+//!
 //! It is a `PlayState::Menu`: the world and the game clock stand still. To scripts it is
 //! menu 1014 [documented: GECK wiki GetMenuTargetRef]. What is on the screen besides the
 //! lock (`screen`) follows `menus\lockpick_menu.xml`; the lock itself is the game's model,
@@ -22,20 +35,22 @@
 //! held; F forces the lock; E leaves (Esc and Tab too [design]). The buttons can be
 //! clicked.
 //!
-//! A picked lock is a crime when the door or container is owned: that is the karma and
-//! crime workstream's; here a [`LockOpened`] message names the owner and a line is
-//! logged ("crime hook").
+//! A picked lock is a crime when the door or container is owned: a [`LockOpened`]
+//! message names the owner and a line is logged ("crime hook"); `crate::crime` judges it
+//! (`fnv_game::Game::player_opened_lock`).
 //!
 //! Test aid `NVF_PLAY_TEST_LOCKPICK=<seconds>:<step>[,…]`: `open:<reference hex>` as if
 //! the player had activated that locked reference, `skill:<n>` makes the player's Lockpick
 //! that for locks, `pin:<degrees>` puts the pin there, `spot` in the middle of the sweet
 //! spot, `off:<degrees>` that far beyond the sweet spot's edge, `torque:<seconds>` holds
 //! torque that long, `force` presses Force Lock (`force:<roll>`: with that roll, 0 to
-//! 100), `exit` leaves. At exit, when the menu was asked for: "lockpick summary: …".
+//! 100), `help` closes the help message, `exit` leaves. At exit, when the menu was asked
+//! for: "lockpick summary: …".
 
+pub mod help;
 pub mod screen;
 
-use crate::bindings::{Control, ControlInput};
+use crate::bindings::{Bindings, Control, ControlInput};
 use crate::pause::{AidTime, Paused};
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
@@ -43,6 +58,7 @@ use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::{PlaySet, PlayState};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use fnv_game::lockpick::{self as rules, Opening, Phase, Picking, Refusal, Settings, PIN_RANGE};
 use fnv_sim::FormId;
 use rand_chacha::ChaCha8Rng;
@@ -56,9 +72,13 @@ pub const MENU_LOCKPICK: u16 = fnv_game::game::menus::LOCKPICK;
 pub const MOUSE_DEGREES: f32 = 0.3;
 /// Degrees a second the arrow keys turn the pin [design].
 pub const KEY_DEGREES: f32 = 90.0;
-/// After the lock opened, broke, or the last pin broke: seconds until the menu closes
-/// [design: long enough to see the lock turned and read the line].
+/// After the lock opened, broke, or the last pin broke: seconds until the menu starts to
+/// leave [design: long enough to see the lock turned and read the line].
 pub const END_SECONDS: f32 = 1.5;
+/// Seconds the menu takes to fade out as it closes; a pin pulled out on leaving goes back
+/// in this time [design; observed: the owner's screenshot of an opened lock shows the HUD
+/// coming back over the lock still drawn, turned all the way].
+pub const LEAVE_SECONDS: f32 = 0.5;
 /// The pin's movement sound plays once for this many degrees of travel [design].
 pub const MOVE_SOUND_DEGREES: f32 = 8.0;
 
@@ -68,9 +88,8 @@ pub struct OpenLockpick {
     pub reference: u32,
 }
 
-/// A lock was picked or forced open: the hook for the crime workstream (nothing reads it
-/// yet). `owner`: the door's or container's owner, or its cell's
-/// (`fnv_game::lockpick::owner`).
+/// A lock was picked or forced open: the crime hook (`crate::crime` reads it). `owner`:
+/// the door's or container's owner, or its cell's (`fnv_game::lockpick::owner`).
 #[derive(Message, Clone, Copy, Debug)]
 pub struct LockOpened {
     pub reference: u32,
@@ -89,6 +108,27 @@ pub struct LockView {
 #[derive(Resource, Default)]
 pub struct LockpickScreen(pub Option<Session>);
 
+/// The bobby pin model's sequence being played (`bobbypin01.nif`, lockpicking.md §2.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PinClip {
+    /// `Forward`: a new pin goes in.
+    In,
+    /// `Backward` then `Left`: the pin twists and its long piece (`Pin2`) flies off; the
+    /// short piece stays in the keyhole until the next pin [hypothesis: by the sequences'
+    /// keys, the 0.97-s twist ends where the 0.47-s flight starts; observed: a short piece
+    /// in the keyhole after a break on the owner's screenshot].
+    Break,
+    /// `Forward` played backwards: the pin is pulled out as the player leaves [design].
+    Out,
+}
+
+/// The help message over the menu.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Help {
+    pub title: String,
+    pub text: String,
+}
+
 pub struct Session {
     pub reference: FormId,
     pub name: String,
@@ -96,12 +136,17 @@ pub struct Session {
     /// The status line (a pin broke, the lock opened …) [documented: the menu file's
     /// `LPM_StatusText`, "message on pick break / success"; the words are NVForever's].
     pub status: Option<String>,
-    /// Aid seconds when the menu opened (the lock's model comes in from then) and when
-    /// the current pin went in.
+    /// Aid seconds when the menu opened (the lock's model comes in from then).
     pub opened: f32,
-    pub pin_in: f32,
+    /// The pin's sequence and the aid seconds it started.
+    pub pin_clip: PinClip,
+    pub pin_since: f32,
     /// Aid seconds when the game ended (opened, broken, out of pins).
     pub ended: Option<f32>,
+    /// The help message, while it is up (the first time the menu opens).
+    pub help: Option<Help>,
+    /// The menu is leaving: since when (aid seconds) and why.
+    pub leaving: Option<(f32, &'static str)>,
     /// Degrees the pin moved since its last movement sound.
     moved: f32,
     /// The test aid holds torque until then (aid seconds).
@@ -113,7 +158,35 @@ impl Session {
         // [observed: "Force Lock [15%]", the owner's screenshots as noted 2026-10-11]
         format!("Force Lock [{:.0}%]", self.game.force_chance())
     }
+
+    /// How much of the menu is drawn: 1, down to 0 as it leaves.
+    pub fn fade(&self, now: f32) -> f32 {
+        self.leaving.map_or(1.0, |(since, _)| (1.0 - (now - since) / LEAVE_SECONDS).clamp(0.0, 1.0))
+    }
+
+    fn begin_leaving(&mut self, now: f32, why: &'static str) {
+        if self.leaving.is_none() {
+            info!("lockpick: leaving ({why})");
+            self.leaving = Some((now, why));
+            self.help = None;
+        }
+    }
+
+    fn pin(&mut self, clip: PinClip, now: f32) {
+        self.pin_clip = clip;
+        self.pin_since = now;
+    }
 }
+
+/// Whether the mouse pointer is over the lock, where the menu hides it [documented: the
+/// menu file's `LPM_DetectArea`, "Cursor is invisible in this area"]; read by
+/// `player::grab_cursor`.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
+pub struct PointerOverLock(pub bool);
+
+/// Debug switch `NVF_PLAY_DEBUG_LOCKPICK`: the menu's debug meter (`screen`).
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
+pub struct LockpickDebug(pub bool);
 
 /// A command for the open menu.
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
@@ -130,6 +203,8 @@ pub enum LockpickInput {
     Torque(f32),
     /// Force Lock, with the roll given or a random one.
     Force(Option<f32>),
+    /// Close the help message.
+    CloseHelp,
     Exit,
 }
 
@@ -177,7 +252,8 @@ fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
                 "force" if arg.is_empty() => AidStep::Input(LockpickInput::Force(None)),
                 "force" => AidStep::Input(LockpickInput::Force(Some(num("roll")?))),
                 "exit" => AidStep::Input(LockpickInput::Exit),
-                _ => return Err(format!("{what:?}: expected open:, skill:, pin:, spot, off:, torque:, force or exit")),
+                "help" => AidStep::Input(LockpickInput::CloseHelp),
+                _ => return Err(format!("{what:?}: expected open:, skill:, pin:, spot, off:, torque:, force, help or exit")),
             };
             Ok((t, step))
         })
@@ -196,15 +272,21 @@ impl Plugin for LockpickPlugin {
             }
             Err(_) => Vec::new(),
         };
+        let debug = crate::dialogue::debug_switch(std::env::var("NVF_PLAY_DEBUG_LOCKPICK").ok().as_deref());
+        if debug {
+            info!("debug switch NVF_PLAY_DEBUG_LOCKPICK: the lockpicking menu shows its debug meter");
+        }
         app.init_resource::<LockpickScreen>()
             .init_resource::<LockpickStats>()
+            .init_resource::<PointerOverLock>()
+            .insert_resource(LockpickDebug(debug))
             .insert_resource(LockpickAid { steps, skill: None })
             .add_message::<OpenLockpick>()
             .add_message::<LockpickInput>()
             .add_message::<LockOpened>()
             .add_systems(
                 Update,
-                (run_aid, open, (keys, buttons, apply, step).chain().run_if(in_state(PlayState::Menu)), screen::draw)
+                (run_aid, open, (keys, buttons, apply, step).chain().run_if(in_state(PlayState::Menu)), pointer, screen::draw, screen::draw_debug, screen::fade)
                     .chain()
                     .after(crate::menu::open_menus)
                     .in_set(PlaySet::Ui),
@@ -270,7 +352,7 @@ fn open(
     mut script: Option<ResMut<ScriptState>>,
     aid: Res<LockpickAid>,
     time: AidTime,
-    (mut stats, mut hud, mut sounds): (ResMut<LockpickStats>, ResMut<crate::activate::HudMessage>, MessageWriter<UiSound>),
+    (mut stats, mut hud, mut sounds, bindings): (ResMut<LockpickStats>, ResMut<crate::activate::HudMessage>, MessageWriter<UiSound>, Res<Bindings>),
 ) {
     let Some(asked) = requests.read().last().copied() else { return };
     stats.asked += 1;
@@ -310,7 +392,24 @@ fn open(
                 game.force_chance()
             );
             rt.game.open_menu(MENU_LOCKPICK);
-            screen.0 = Some(Session { reference, name, game, status: None, opened: now, pin_in: now, ended: None, moved: 0.0, aid_torque_until: None });
+            let help = rules::first_help(&mut rt.game).map(|(title, text)| Help { title, text: help::expand_keys(&text, &bindings) });
+            if let Some(h) = &help {
+                info!("lockpick: help message {} {:?} shown (first use): {:?}", rules::HELP_MESSAGE, h.title, h.text.lines().next().unwrap_or(""));
+            }
+            screen.0 = Some(Session {
+                reference,
+                name,
+                game,
+                status: None,
+                opened: now,
+                pin_clip: PinClip::In,
+                pin_since: now,
+                ended: None,
+                help,
+                leaving: None,
+                moved: 0.0,
+                aid_torque_until: None,
+            });
             sounds.write(UiSound { menu: UiMenu::Lockpick, event: UiEvent::Opened });
             next.set(PlayState::Menu);
         }
@@ -326,7 +425,15 @@ fn keys(
     over_button: Query<&Interaction, With<screen::LockButton>>,
     mut out: MessageWriter<LockpickInput>,
 ) {
-    if screen.0.is_none() {
+    let Some(s) = screen.0.as_ref() else { return };
+    if s.leaving.is_some() {
+        return;
+    }
+    // The help box is on top: E closes it (Enter, Esc and Tab too [design]).
+    if s.help.is_some() {
+        if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab, KeyCode::Enter]) {
+            out.write(LockpickInput::CloseHelp);
+        }
         return;
     }
     if keys.any_just_pressed([KeyCode::KeyE, KeyCode::Escape, KeyCode::Tab]) {
@@ -372,6 +479,17 @@ fn buttons(screen: Res<LockpickScreen>, pressed: Query<(&Interaction, &screen::L
     }
 }
 
+/// Whether the pointer is over the lock: the menu open, no help box up, not leaving, and
+/// the pointer in the menu file's detect area (`screen::in_detect_area`).
+fn pointer(screen: Res<LockpickScreen>, windows: Query<&Window, With<PrimaryWindow>>, mut over: ResMut<PointerOverLock>) {
+    let picking = screen.0.as_ref().is_some_and(|s| s.help.is_none() && s.leaving.is_none());
+    let hide = picking
+        && windows.single().ok().and_then(|w| Some(screen::in_detect_area(w.cursor_position()?, Vec2::new(w.width(), w.height())))).unwrap_or(false);
+    if over.0 != hide {
+        over.0 = hide;
+    }
+}
+
 /// Close the menu: back to the world.
 fn leave(next: &mut NextState<PlayState>, why: &str) {
     info!("lockpick: closed ({why})");
@@ -382,7 +500,6 @@ fn leave(next: &mut NextState<PlayState>, why: &str) {
 fn apply(
     mut input: MessageReader<LockpickInput>,
     mut screen: ResMut<LockpickScreen>,
-    mut next: ResMut<NextState<PlayState>>,
     mut sim: ResMut<SimState>,
     mut script: Option<ResMut<ScriptState>>,
     time: AidTime,
@@ -395,14 +512,25 @@ fn apply(
         let Some(s) = screen.0.as_mut() else { return };
         let g = &mut s.game;
         match cmd {
-            LockpickInput::Exit => {
-                if s.ended.is_none() {
-                    stats.left += 1;
+            LockpickInput::CloseHelp => {
+                if s.help.take().is_some() {
+                    info!("lockpick: help message closed");
                 }
-                leave(&mut next, if s.ended.is_some() { "after the game" } else { "the player left" });
-                return;
             }
-            _ if s.ended.is_some() => {}
+            _ if s.leaving.is_some() => {}
+            LockpickInput::Exit => {
+                if s.ended.is_some() {
+                    s.begin_leaving(now, "after the game");
+                } else {
+                    stats.left += 1;
+                    if g.phase == Phase::Picking {
+                        s.pin(PinClip::Out, now);
+                    }
+                    s.begin_leaving(now, "the player left");
+                }
+            }
+            // The help box is on top of the menu until it is closed.
+            _ if s.ended.is_some() || s.help.is_some() => {}
             LockpickInput::Turn(d) => {
                 let at = g.pin;
                 if g.set_pin(at + d) {
@@ -450,6 +578,7 @@ fn apply(
                         info!("lockpick: Force Lock ({chance:.0}%, roll {roll:.1}): {reference} broken for good, the pin with it ({} left)", g.pins);
                         s.status = Some("The lock is broken".into());
                         s.ended = Some(now);
+                        s.pin(PinClip::Break, now);
                         sounds.write(UiSound { menu: UiMenu::Lockpick, event: UiEvent::ForceFailed });
                     }
                     None => {}
@@ -461,7 +590,7 @@ fn apply(
 
 fn crime_hook(out: &mut MessageWriter<LockOpened>, reference: FormId, owner: Option<FormId>, forced: bool) {
     match owner {
-        Some(o) => info!("lockpick: crime hook: {reference} is owned by {o} ({}; no crime rules yet)", if forced { "forced" } else { "picked" }),
+        Some(o) => info!("lockpick: crime hook: {reference} is owned by {o} ({}; judged by `crate::crime`)", if forced { "forced" } else { "picked" }),
         None => info!("lockpick: crime hook: {reference} has no owner"),
     }
     out.write(LockOpened { reference: reference.0, owner: owner.map(|o| o.0), forced });
@@ -481,12 +610,25 @@ fn step(
 ) {
     let Some(s) = screen.0.as_mut() else { return };
     let now = time.elapsed_secs();
+    let dt = time.delta_secs_f64() as f32;
+    if let Some((since, why)) = s.leaving {
+        if now - since >= LEAVE_SECONDS {
+            leave(&mut next, why);
+        }
+        s.game.step(dt, false);
+        return;
+    }
     if let Some(end) = s.ended {
         if now - end >= END_SECONDS {
-            leave(&mut next, "the game is over");
+            s.begin_leaving(now, "the game is over");
         }
         // The lock springs back and a broken pin's wait runs on, without torque.
-        s.game.step(time.delta_secs_f64() as f32, false);
+        s.game.step(dt, false);
+        return;
+    }
+    // Nothing is picked while the help box is up.
+    if s.help.is_some() {
+        s.game.step(dt, false);
         return;
     }
     let mut ui = |event| {
@@ -503,7 +645,7 @@ fn step(
     let torque = torque_held(&input) || aid;
     let strained = s.game.stopped;
     let reference = s.reference;
-    let events = s.game.step(time.delta_secs_f64() as f32, torque);
+    let events = s.game.step(dt, torque);
     for e in events {
         match e {
             rules::Event::Turning => {
@@ -524,6 +666,7 @@ fn step(
                 info!("lockpick: the bobby pin broke, {left} left");
                 ui(UiEvent::Strain { on: false });
                 ui(UiEvent::PinBroke);
+                s.pin(PinClip::Break, now);
                 if left == 0 {
                     stats.out_of_pins += 1;
                     s.status = Some("You have no bobby pins left".into());
@@ -534,7 +677,7 @@ fn step(
             }
             rules::Event::NewPin => {
                 info!("lockpick: a new bobby pin is in");
-                s.pin_in = now;
+                s.pin(PinClip::In, now);
                 s.status = None;
             }
             rules::Event::Opened => {
@@ -590,7 +733,8 @@ mod tests {
 
     #[test]
     fn the_aid_reads_its_steps() {
-        let s = parse_aid("1:skill:30,2:open:0010B2D4,3:off:20,4:torque:2.5,5:spot,6:pin:45,7:force,8:force:99,9:exit").unwrap();
+        let s = parse_aid("1:skill:30,2:open:0010B2D4,3:off:20,4:torque:2.5,5:spot,6:pin:45,7:force,8:force:99,9:exit,10:help").unwrap();
+        assert_eq!(s[9], (10.0, AidStep::Input(LockpickInput::CloseHelp)));
         assert_eq!(s[0], (1.0, AidStep::Skill(30.0)));
         assert_eq!(s[1], (2.0, AidStep::Open(0x0010B2D4)));
         assert_eq!(s[2], (3.0, AidStep::Input(LockpickInput::Off(20.0))));

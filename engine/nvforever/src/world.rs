@@ -131,6 +131,8 @@ pub struct Streamer {
     /// `--npc-packages all`): cells spawn none.
     pub manage_actors: bool,
     pub stats: StreamStats,
+    /// The cells drawn most recently, for the AI's process levels (`cell_buffer.rs`).
+    pub buffer: crate::cell_buffer::CellBuffer,
 }
 
 impl Streamer {

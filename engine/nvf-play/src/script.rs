@@ -56,7 +56,9 @@
 //!   (default: the repository's `schemas/script/functions.json`).
 //! - `NVF_PLAY_TEST_SCRIPT=<when>:<op>[,...]`: stand-ins for Layer 6 and the player
 //!   ([`crate::script_events::ScriptAid`]; `<when>` is seconds after the start, or
-//!   `<seconds>@<quest>=<stage>`, seconds after the stage was first seen done):
+//!   `<seconds>@<quest>=<stage>`, seconds after the stage was first seen done; when the
+//!   scripts first run after the first timed step's time, the timed steps all come that
+//!   much later, [`script_events::delay_late_aids`]):
 //!   `start:<quest>`, `stop:<quest>`, `stage:<quest>:<n>`, `objective:<quest>:<n>`,
 //!   `objective_done:<quest>:<n>`, `info:<INFO>[:<speaker>]`, `button:<n>`, `close`,
 //!   `message:<MESG>`, `menu:<code>`,
@@ -204,6 +206,9 @@ pub struct ScriptState {
     pub off: Option<String>,
     trace: Option<TraceLog>,
     aids: Vec<TimedAid>,
+    /// The timed aids were looked at in a frame the scripts ran
+    /// ([`script_events::delay_late_aids`] then).
+    aids_started: bool,
     /// Gated aids: when each (quest, stage) was first seen done (seconds since start).
     gates: HashMap<(String, i32), f32>,
     /// `NVF_PLAY_TEST_SCRIPT_MENUS`: close a script's menu after this many seconds.
@@ -308,7 +313,7 @@ impl ScriptState {
             }
         });
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, used: Vec::new() }
+        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, used: Vec::new() }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -757,6 +762,13 @@ impl Runtime {
                     debug!("test aid: activated {r}: {:?}", a.outcome);
                 }
             }
+            ScriptAid::Kill(r) => {
+                let r = resolve(g, r)?;
+                if !g.kill(r, Some(FormId::PLAYER_REF)) {
+                    return Err(format!("{r} is dead already"));
+                }
+                info!("test aid: the player killed {r}");
+            }
             ScriptAid::Enable(r) => {
                 let r = resolve(g, r)?;
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: 0x1021, on: Some(r), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
@@ -812,6 +824,24 @@ impl Runtime {
                 fnv_game::functions::add_actor_value_damage(g, r, code, *amount);
                 let now = fnv_game::functions::actor_value(g, r, code)?;
                 info!("test aid: {} {value} damaged by {amount}: now {now:.1}", g.data.name(r));
+            }
+            ScriptAid::SetAv(r, value, v) => {
+                let r = resolve(g, r)?;
+                let code = fnv_game::functions::av_code(g, value)?;
+                fnv_game::functions::set_actor_value_current(g, r, code, *v)?;
+                info!("test aid: {} {value} set to {v}", g.data.name(r));
+            }
+            ScriptAid::Hardcore(on) => {
+                g.player.hardcore = Some(*on);
+                info!("test aid: Hardcore mode {}", if *on { "on" } else { "off" });
+            }
+            ScriptAid::Perk(p) => {
+                let p = resolve(g, p)?;
+                if !g.data.perks.contains_key(&p) {
+                    return Err(format!("{} is not a perk", g.data.name(p)));
+                }
+                *g.player.perks.entry(p).or_default() += 1;
+                info!("test aid: the player has the perk {}", g.data.name(p));
             }
             ScriptAid::Walk(_) => unreachable!("handled by the caller"),
             ScriptAid::Var(of, var, value) => {
@@ -984,6 +1014,13 @@ impl Plugin for ScriptPlugin {
 /// first seen done.
 fn due_aids(st: &mut ScriptState, now: f32) -> Vec<ScriptAid> {
     let Some(rt) = st.rt.as_ref() else { return Vec::new() };
+    // The first frame the scripts run: steps already due then (the script data took
+    // long to load) keep their distances instead of all running in this frame.
+    if !std::mem::replace(&mut st.aids_started, true) {
+        if let Some(late) = script_events::delay_late_aids(&mut st.aids, now) {
+            info!("test aid: the scripts run from {now:.1} s on, after the first script step's time: the timed script steps come {late:.1} s later, as far apart as asked");
+        }
+    }
     let g = &rt.game;
     for a in &st.aids {
         if let Some(gate) = &a.after {

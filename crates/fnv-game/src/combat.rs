@@ -229,6 +229,10 @@ impl Game<'_> {
         if self.is_dead(r) {
             return false;
         }
+        // Karma and murder are judged while the victim still lives (`crate::crime`).
+        if killer == Some(FormId::PLAYER_REF) {
+            self.player_kills(r);
+        }
         let e = self.extra.entry(r).or_default();
         e.dead = true;
         e.killer = killer;

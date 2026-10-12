@@ -230,7 +230,7 @@ pub struct Agent {
     pub activity: Activity,
     /// The package the actor was last seen with.
     pub(crate) package: Option<FormId>,
-    goal: Option<Goal>,
+    pub(crate) goal: Option<Goal>,
     /// Index of the patrol point being walked to.
     route_at: usize,
     pub(crate) trip_started: f64,
@@ -280,6 +280,10 @@ pub struct Ai {
     pub(crate) low: BTreeMap<FormId, Option<f32>>,
     /// Updates given to actors out of the high process, and changes of level.
     pub process_stats: crate::process::ProcessStats,
+    /// Of the actors out of the high process, those in the original's Low level (cells
+    /// neither loaded nor buffered): updated every [`crate::process::FAR_PROCESS_SECONDS`]
+    /// instead of [`crate::process::LOW_PROCESS_SECONDS`] ([`crate::process`]).
+    pub(crate) far: std::collections::BTreeSet<FormId>,
 }
 
 fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -288,7 +292,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default() }
     }
 
     /// Start looking after a placed actor, from where it is now.

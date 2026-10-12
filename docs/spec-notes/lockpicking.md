@@ -17,11 +17,18 @@ torque, wear, Force Lock, what opening and breaking do). Engine:
   pins (misc items) are needed to try; torque while not in the sweet spot, once the lock
   has stopped turning, drains the pin's health; a pin without health breaks; with pins
   left a new one goes in; the lock's difficulty sets how small the sweet spot is.
-- **The owner's screenshots** of the menu with its tutorial (2026-10-11), read by the
-  session that wrote the first rules: "Lock Level  Easy", "Force Lock [15%]" at Lockpick
-  30, the pin upright as the menu opens, the keyhole lying flat as the lock opens. They
-  were not on the machine this note was finished on (2026-10-12); what they show is
-  carried over as that session noted it.
+- **The owner's screenshots** of the menu with its tutorial (2026-10-11, ten frames in the
+  owner's private references folder, looked at again 2026-10-12): the rows "Lockpick
+  Skill 30", "Bobby Pins 7", "Lock Level Easy"; "Force Lock [15%] F)" and "Exit E)"; the
+  pin coming in from the top and upright as the menu opens; the screwdriver coming in from
+  the lower right; the lock turning part way and all the way (the keyhole lying flat)
+  while the pin stays at the angle the player gave it; the room dim behind the lock; the
+  mouse pointer shown at the screen's left edge but never over the lock; the help
+  message in a tutorial box ("Lockpicking", "VDSG MANUAL", "Close E)") with the keys
+  written "WSAD" and "F"; after a break a short piece of the pin in the keyhole and one
+  pin fewer; after the lock opened, the HUD coming back over the lock still drawn.
+- **The tutorial menu file** `menus\tutorial_menu.xml` (`Fallout - Misc.bsa`), read the
+  same way: the box the help message is shown in.
 - **The menu file** `menus\lockpick_menu.xml` (`Fallout - Misc.bsa`; read with `fnvtool
   bsa extract` into the private scratch folder, not shipped).
 - **The models** `meshes\terminals\lockinterface01.nif` and `meshes\terminals\bobbypin01.nif`
@@ -49,8 +56,8 @@ torque, wear, Force Lock, what opening and breaking do). Engine:
   the player's skill (`&-sLockpickSkillText;`), the picks left (`&-sPicksRemainingText;`)
   and the lock's level (`&-sLockLevelText;`), titles on the left, values right-aligned
   at 80 short of the box's width. The three strings are the executable's own settings,
-  not in the plugins [observed: no such GMST in FalloutNV.esm]; NVForever writes
-  "Lockpick", "Bobby Pins" and "Lock Level" [hypothesis; "Lock Level" observed].
+  not in the plugins [observed: no such GMST in FalloutNV.esm]; NVForever writes them as
+  the screenshots show them: "Lockpick Skill", "Bobby Pins", "Lock Level" [observed].
 - The buttons: right-aligned 50 from the main rectangle's right, the first 72 under the
   information box's top; Force Lock (its text set by the code: "Force Lock [15%]"
   [observed]) and Exit under it (`&-sExit;`). Each is `text_box.xml` with a vertical
@@ -60,13 +67,48 @@ torque, wear, Force Lock, what opening and breaking do). Engine:
   it: "Displays message on pick break / success". The words are NVForever's: "Your bobby
   pin broke", "Lock picked", "Lock forced open", "The lock is broken", "You have no bobby
   pins left" [hypothesis].
-- A detect area in the middle of the screen in which the pointer is not shown, and a
-  debugging meter (sweet spot, concentric ring, the pin's place) shown only in debug mode
-  with the tuning buttons "Sweet Spot" and "Concentric". NVForever hides neither the
-  pointer nor builds the debug parts [design]; the two tuning names are why the rules
-  have a sweet spot and a ring around it (§3).
+- A detect area in which the pointer is not shown ("Cursor is invisible in this area"):
+  as wide as the main rectangle, placed 30 into it (the file centres it on the screen's
+  width inside the main rectangle, so it reaches the screen's right edge), from 80 above
+  the main rectangle's top for 720. NVForever hides the pointer there while picking (not
+  under the help box, not while the menu leaves) [documented; observed: the pointer at
+  the screen's left edge on a screenshot, never over the lock].
+- Debug displays, shown only in debug mode: a meter 50 down the main rectangle, as wide,
+  10 high at alpha 64, in which the code draws the sweet spot areas ("colored rectangle
+  showing area in which the lock turns", a template of the file); an arrow (the XP bar's
+  pointer, 38 x 24, 20 down) over the pin's place; the pin's health (font 7,
+  right-aligned with the buttons, 240 down); a tuning box at (10, 100), 350 wide, with
+  "Sweet Spot" and "Concentric" and buttons to raise and lower them. NVForever shows them
+  with the debug switch `NVF_PLAY_DEBUG_LOCKPICK=1` (off unless set): the sweet spot
+  bright, the ring around it dim, the arrow at the pin's angle, "Pin health ...%" with how
+  far the lock can turn, and the two values without their buttons [design: colours,
+  words, read-only values]. The two tuning names are why the rules have a sweet spot and
+  a ring around it (§3).
 
-The lock itself is not in the menu file: the game draws the two models (§2.1) behind it.
+The lock itself is not in the menu file: the game draws the two models (§2.1) behind it,
+the room dim behind them [observed: screenshots]. NVForever draws the lock on black: a
+see-through shade let the interface under the menu (corner and quest messages) show
+through [design; open].
+
+### 2.0 The help message the first time
+
+The first time the menu opens, the message `HelpLockpicking` (§1) comes up over it in the
+tutorial box [observed: screenshot; documented: tutorial_menu.xml], and E closes it
+("Close E)"); while it is up nothing is picked. NVForever keeps whether it has been shown
+in the game state (`Locks::help_shown`, saved with the snapshot) and shows it once per
+game [hypothesis: "Auto Display" shows a help message once]. The box [documented:
+tutorial_menu.xml]: 0.8 of the screen, centred, black at the globals' fill alpha 32;
+corners 48 in and 96 down (a 50-long line and a 60-long line fading down), the title in
+font 6 after the left corner, a line on to the right corner; the text in the default font
+from the title's left plus 5, 21 under the corners' fading lines; at the bottom the same
+corners fading up, the VDSG symbol, "VDSG MANUAL" and the line on; Close right-aligned 81
+from the right. The message's text writes keys as executable strings: `&-sUActnForward;`
+and the other three movement controls, `&sKBF;`; NVForever writes the key bound to each
+control and the letter after `sKB` ("WSAD", "F" with the default keys, as the screenshot
+shows them) [observed]. "VDSG MANUAL" and "Close" are the executable's strings, written as
+the screenshot shows them [observed]. The width of the Next/Previous column (175) and the
+VDSG symbol file's width (128) are [hypothesis], fitted so the text wraps and "VDSG MANUAL"
+stands where the screenshot has them.
 
 ### 2.1 The models [observed: `fnvtool nif decode`]
 
@@ -77,14 +119,29 @@ The lock itself is not in the menu file: the game draws the two models (§2.1) b
   (2.97 s), each moving `frame`, `lock` and `screwdriver`.
 - `bobbypin01.nif`: `bobbypin` with a child `Pin2`; sequences `Forward` (1.0 s), `Backward`
   (0.97 s) and `Left` (0.47 s), each moving both.
-- NVForever plays the lock's `Forward` as the menu opens and holds its end, plays the
-  pin's `Forward` as each pin goes in, and hides the pin while none is in [hypothesis:
-  by the names; `Backward` and `Left` are not played]. The cylinder and the screwdriver
-  turn by the lock's angle, the pin by its own angle from upright plus the lock's, about
-  the files' +Y axis through the cylinder's origin, clockwise as seen [hypothesis]. A
-  camera of its own looks along +Y from 45 units in front of the cylinder with a 55°
-  field of view and two lights of its own [design: the original's camera and its use of
-  the files' lights are not known].
+- The sequences' keys [observed: `fnvtool nif decode`]: the lock's `Forward` slides the
+  plate 23 units towards the viewer and brings the screwdriver in; its `Backward` (looped)
+  holds the plate, turns the cylinder 90° about its axis over 2.97 s and wiggles the
+  screwdriver: a lock opening. The pin's `Forward` brings it from above into the keyhole;
+  its `Backward` (0.97 s) twists `bobbypin` back and forth by up to about 80° and ends
+  where `Left` (0.47 s) starts; `Left` holds `bobbypin` and sends `Pin2` off sideways and
+  towards the viewer, turning it.
+- NVForever plays the lock's `Forward` as the menu opens and holds its end; the pin's
+  `Forward` as each pin goes in; for a broken pin `Backward` then `Left`, hiding `Pin2`
+  at the end and leaving `bobbypin`, the short piece, in the keyhole until the next pin
+  [hypothesis: by the keys; observed: a short piece in the keyhole after a break on a
+  screenshot]; and the pin's `Forward` backwards in 0.5 s when the player leaves with a
+  pin in [design]. As the menu ends (opened, broken, out of pins: 1.5 s after) or the
+  player leaves, everything fades out in 0.5 s [design; observed: the HUD coming back
+  over the opened lock still drawn]. The lock's `Backward` is not played (the cylinder
+  is turned by the game). The cylinder and the screwdriver turn by the lock's angle, the
+  pin by its own angle from upright only, about the files' +Y axis through the
+  cylinder's origin, clockwise as seen [observed: the pin stays put while the lock turns,
+  screenshots; hypothesis: the axis and direction]. A camera of its own looks along +Y
+  from 70 units in front of the cylinder, aimed 0.7 under its centre, with a 17° field of
+  view, and two lights of its own [design: fitted by eye so the cylinder fills about 0.72
+  of the view's height as on the screenshots; the original's camera and its use of the
+  files' lights are not known]; the picture is clear where nothing is drawn.
 
 ## 3. The rules
 
@@ -101,7 +158,7 @@ The lock itself is not in the menu file: the game draws the two models (§2.1) b
 | The pin moves | only with no torque held and the lock back at rest | [design] |
 | Pin health | 1.0 new | [documented: SetBobbyPinHealth] |
 | Wear | only while torque is held against a stopped lock: a pin lasts 1 s at the lock's own skill, +0.02 s per point above | [design]; the owner: strain once it stops |
-| Broken pin | taken from the inventory; the next goes in after 1 s (the pin's `Forward`); none left: the menu ends | the owner; [design] the second |
+| Broken pin | taken from the inventory; the next goes in after 1.45 s (the pin's break sequences, 0.97 + 0.47 s); none left: the menu ends | the owner; [hypothesis] the second |
 | Force Lock | chance = 3 % per point of Lockpick above what the lock needs, at most 95 %; success opens, failure breaks the lock for good and the pin in it | [hypothesis: fits "Force Lock [15%]" at 30 on an Easy lock]; [documented: help message] for the breaking |
 | Level classes | 0 Very Easy, 1–25 Easy, 26–50 Average, 51–75 Hard, 76–100 Very Hard, above Requires Key | [documented: GECK wiki GetLockLevel, the levels the editor offers]; [hypothesis] for levels between (placed locks use only the six, simulation.md §5) |
 | Skill needed | 0, 25, 50, 75, 100 | [documented: GECK wiki "Non-NPC population" (Fallout 3)]; the owner |
@@ -119,11 +176,13 @@ The lock itself is not in the menu file: the game draws the two models (§2.1) b
   NVForever's, the original's are executable settings: §2]. `DRSLocked` plays
   [hypothesis].
 - When the lock turns all the way (or is forced open) it is unlocked for good
-  (`World::unlock`; as with a key, [hypothesis] for a picked lock) and the menu closes
-  1.5 s later [design]. The door or container is not opened: the player activates it
-  again [hypothesis].
+  (`World::unlock`; as with a key, [hypothesis] for a picked lock) and the menu starts to
+  leave 1.5 s later [design]. The door or container is not opened: the player activates
+  it again [hypothesis].
 - A broken lock stays locked: only its key opens it [documented: the help message].
-  Broken locks are not in the saved state yet.
+  Broken locks are kept in the game state (`fnv_game::lockpick::Locks`), which is part of
+  the save-agnostic snapshot (`GameSnapshot.locks`, absent when empty); NVForever has no
+  save files yet, so today they last the session and go into any snapshot taken of it.
 - **Crime hook.** Picking or forcing an owned lock is a crime in the original; NVForever
   sends `LockOpened { reference, owner, forced }` and logs "lockpick: crime hook: …"
   with the owner (the reference's XOWN, else its cell's as `SetCellOwnership` set it).
@@ -135,8 +194,8 @@ The lock itself is not in the menu file: the game draws the two models (§2.1) b
   GetMenuTargetRef, "The door/container being picked"].
 - `GetLocked` reads 2 for a lock broken by forcing [documented: GECK wiki GetLocked,
   "locked out"]; `GetIsLockBroken` reads 1 for it [documented: GECK wiki].
-- `ShowLockPickMenu` (console only), the NVSE events `OnLockpickSuccess`,
-  `OnLockpickBroken`, `OnLockBroken` and the help message's first display are not built.
+- `ShowLockPickMenu` (console only) and the NVSE events `OnLockpickSuccess`,
+  `OnLockpickBroken`, `OnLockBroken` are not built.
 
 ## 6. Sounds
 
@@ -159,6 +218,28 @@ given three bobby pins and standing at it: at Lockpick 30 the activation is refu
 sweet spot, opens the lock; the safe then opens on activation. Expected: the refusal
 line, "the bobby pin broke, 2 left", "picked open (Average lock, 40 XP)", the crime hook
 line, "lockpick summary: 2 asked, 1 opened (1 refused); 1 picked, …" and the container
-menu. (Ringo's floor safe in the gas station, level 25, was the first choice: the
-crosshair does not find it from where `NVF_PLAY_TEST_NEAR` stands, a targeting matter
-outside lockpicking.)
+menu; the help message the first time, closed with the aid's `help`.
+
+The scenario `lockpick-floor-safe`: Ringo's floor safe 0x0010B2D4 in GSGasStation (level
+25): targeted from where `NVF_PLAY_TEST_NEAR` stands, opened with the help message, left
+with the pin pulled out, opened again without the help, a Force Lock roll of 99 breaks it,
+and the next activation is refused ("This lock is broken ...").
+
+### 7.1 Ringo's floor safe and the crosshair
+
+The first session found that the crosshair did not find this safe from where the test
+aid stood. Its collision is whole [observed: `fnvtool phys cell --ray`, a ray from above
+hits its door (AnimStatic, 4.3 above its position)]. The safe lies with its east half
+under the edge of a floor mattress (0x0010ABA5, its top 13 above the floor) between the
+checkout counter and the wall [observed: vertical rays around it]; the floor between
+counter and mattress is narrower than the player's capsule, so the player stands on the
+mattress or on the safe. From the mattress the eye is about 131 above the safe's door,
+leaving a narrow cone within the 150-unit reach; looking steeper hits the mattress
+first. The test aid chose a spot at 147.7 from a 112-unit eye, but the first-person
+body's eye stands about 121 above the feet [observed], so the view's ray reached 154 and
+missed. In play the safe is targeted standing on it (123 straight down) or at the
+mattress's edge looking 65° down (145) [observed: engine runs 2026-10-12]. The aid now
+chooses with the body's eye and 5 units to spare, and stands on a target it can stand on
+when no ring spot reaches it. Whether the original lets the crosshair through the
+mattress, or measures its reach differently (physics.md §6, the pick sphere), is not
+known.

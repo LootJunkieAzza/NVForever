@@ -1,0 +1,264 @@
+# Spec note: karma, ownership and crime
+
+Tags as in `nif.md`: `[documented]` cites a page or file, `[observed]` says what was
+looked at, `[hypothesis]` is a reading nothing has confirmed yet, `[design]` marks what is
+NVForever's own. Owner's requests (playtest list 2, 2026-10-12): karma for killing evil
+and good actors and for crimes such as stealing and breaking into owned places; ownership
+of cells and items so that stealing, trespassing and murder are hostile acts against the
+owners and the victims' allies.
+
+Code: `crates/fnv-game/src/crime.rs` (the rules, the script functions), the records in
+`fnv_game::data` (`cells`, `faction_flags`, `owner_ranks`), the hooks in
+`Game::kill` (combat.rs), `Game::attacked_by` (provocation.rs), `Game::would_attack` and
+`Game::stop_combat` (awareness.rs). Engine: `engine/nvf-play/src/crime.rs`, the prompt in
+`activate.rs` and `reticle.rs`, taken items in `menu.rs`. Survey: `fnvtool actor karma`
+(§8).
+
+## 1. Sources
+
+- **GECK wiki** (owner's export, `C:\fnv-private\geckwiki`): Category:Factions (the
+  flags Evil and Track Crime, "Crime Gold Multiplier … Unused in Fallout"), Reference
+  (ownership, "Faction Rank"), Container (owners of items in a container), Guard Package
+  (warnings), Combat Tab (the topics Steal, Murder, GuardTrespass, Assault and their
+  NoCrime forms), Reputation, and the functions RewardKarma, GetIsAlignment, IsOwner,
+  SetOwnership, ClearOwnership, SetCellOwnership, SetCellPublicFlag, IsCellOwner,
+  IsInMyOwnedCell, GetOwnerOfCell, IsTrespassing, GetTrespassWarningLevel,
+  SendTrespassAlarm, SendAssaultAlarm, SendStealingAlarm (an NVSE plugin's),
+  GetMinor/MajorCrimeCount, GetActorCrimePlayerEnemy, GetActorFactionPlayerEnemy,
+  SetPCEnemyOfFaction, ClearFactionPlayerEnemyFlag, IgnoreCrime, IsActorAVictim,
+  IsPCAMurderer, GetFactionFlags (an NVSE plugin's: the flag numbers), IsCrimeOrEnemy and
+  HudBarSetSystemColor (NVSE plugins': the crime colour of the prompt). The page
+  Category:Crime itself is not in the export.
+- **The game's own help** [documented: FalloutNV.esm MESG `HelpCrime` 0x0007234D and
+  `HelpKarma` 0x0006B250, read with `fnvtool esm decode`; paraphrased here]. HelpCrime:
+  crimes are minor or major. Minor crimes make only the victim hostile: *theft* (the
+  owner who sees it tries to take the item back, attacks or runs for help if the player
+  escapes or goes on stealing) and *trespass* (the owner who sees the player open a
+  locked door, container or computer attacks at once). Major crimes make the victim and
+  the victim's friends hostile: *assault* (attacking without provocation, or fighting
+  back against someone who attacks for a minor crime) and *murder* (witnesses who care
+  about the victim turn hostile). Holstering is a yield. HelpKarma: karma starts
+  neutral, goes up to Good and Very Good or down to Evil and Very Evil; killing a
+  particularly saintly or terrible enemy changes it; most people go by reputation, not
+  karma.
+- **FalloutNV.esm** [observed 2026-10-12, `fnvtool actor karma --survey`, §8]: the
+  settings and globals of §2, actor karma, faction flags, owned cells and references.
+- **xEdit** through the schemas [documented: `schemas/fnv/world.json` CELL DATA flags,
+  `common.json` XOWN/XRNK, `gameplay.json` FACT DATA and ACBS karma].
+- **Fallout_default.ini** in the game folder [observed]: `iSystemColorHUDAlt*` 255, 67, 42.
+
+## 2. Records and settings
+
+| What | Where | Value in FalloutNV.esm |
+|---|---|---|
+| Karma | actor value 23; NPC_/CREA ACBS `karma` (f32) [documented: schema] | the player 0 |
+| Alignment bounds | globals `KarmaVeryEvil`, `KarmaEvil`, `KarmaGood`, `KarmaVeryGood` | −750, −250, 250, 750 [observed] |
+| Kill of an evil actor | GMST `fKarmaModKillingEvilActor` | 100 [observed] |
+| Stealing | GMST `fKarmaModStealing` | −5 [observed] |
+| Trespass warnings | GMST `iGuardWarnings` | 2 [observed] |
+| Seconds between warnings | GMST `fAITrespassWarningTimer` | not in the plugin; 5 by the wiki [documented: Guard Package] |
+| Karma limits | GMST `iKarmaMin`, `iKarmaMax` [documented: RewardKarma] | not in the plugin: no limit applied [observed] |
+| Messages | GMST `sKarmaMajorGained`, `sKarmaMinorGained` ("You've gained Karma!"), `sKarmaMajorLost`, `sKarmaMinorLost` ("You've lost Karma!") and their `…Image` icons (`glow_karma_saintly`, `_good`, `_evil`, `_bad`) | [observed] |
+| Sounds | SOUN `UIKarmaUp` 0x0005B53F (`fx\ui\ui_karma_up.wav`), `UIKarmaDown` 0x0005B540 | [observed] |
+| Crime dialogue | global `GenericCrimeKarmaDialogueChance` | 25 [observed]; not used |
+
+- Only these karma and crime settings are in FalloutNV.esm (18 GMSTs name karma, crime,
+  stealing, trespass, guards or pickpocketing) [observed]. Settings the executable keeps
+  for itself (other kills, murder) cannot be read: its code is encrypted (charter).
+- **Alignment** [documented: GetIsAlignment's names VeryGood, Good, Neutral, Evil,
+  VeryEvil]: karma at or beyond a bound is that side [hypothesis: the globals' names; the
+  Pip-Boy's karma line uses them too, pipboy.md]. Records by their own karma [observed]:
+  NPC_ 30 Very Evil, 568 Evil, 2,979 Neutral, 229 Good, 10 Very Good; CREA 398 Evil, 1,168
+  Neutral, 12 Good. Placed NPCs: 15 Very Evil (Cook-Cook, the Jackal and Viper bosses,
+  Vulpes Inculta), 236 Evil, 3,026 Neutral, 99 Good, 10 Very Good (Sunny Smiles, Julie
+  Farkas, Keely). Violet (`1EFiendViolet`) −500, Evil; Doc Mitchell 500, Good; Chet and
+  Easy Pete 0, Neutral.
+- **GetIsAlignment's code** in conditions: 0 Good, 1 Neutral, 2 Evil, 3 Very Good, 4 Very
+  Evil [hypothesis: xEdit's enumeration as remembered]. The three conditions in
+  FalloutNV.esm fit it [observed]: code 3 on a respectful answer and code 4 on a
+  contemptuous one of the same speaker, both run on the player.
+- **Faction flags** [documented: xEdit FACT DATA; numbering GetFactionFlags]: 1 Hidden, 2
+  Evil, 4 Special Combat, 256 Track Crime, 512 Allow Sell. 682 factions: 44 Evil, 188
+  Track Crime, 11 both [observed]; many are Fallout 3's, left in the plugin.
+- **Ownership** [documented: xEdit XOWN (a FACT or NPC_) and XRNK; GECK wiki Reference,
+  "Faction Rank: Faction rank required to own the reference"]. References with their own
+  owner [observed]: 2,711 items, 773 containers, 64 doors, 461 furniture, 293 activators;
+  43 with a rank. Through their cell: 8,971 items, 2,077 containers, 721 doors.
+- **Cells** [documented: xEdit CELL DATA "Public place" 0x20, XOWN, XRNK; GECK wiki
+  GetFormFlag, form flag 17 "Off limits (Interior cell)"]: 158 owned interiors (128 by a
+  faction, 30 by an NPC), 204 public interiors, 23 owned and not public (Primm's and North
+  Vegas's houses, Novac's motel rooms …), 1 Off Limits [observed]. Goodsprings' general
+  store, saloon, Doc Mitchell's house and the homes are public [observed]; the store is
+  owned by Chet (`GSChet`) and the saloon by `0x00104C6C`.
+
+## 3. Crimes
+
+### 3.1 Theft
+
+- Taking an item someone else owns: a placed item picked up, or an item taken out of a
+  container in the container menu [documented: GECK wiki Container, "Stealing the object
+  is considered an act of aggression against the NPC / the faction"].
+- Who owns it (`Game::ownership`): the reference's own owner (as scripts left it:
+  SetOwnership, ClearOwnership), else its cell's (SetCellOwnership, else the CELL's XOWN)
+  [documented: IsOwner, "This only checks actual ownership on the reference not the
+  inherited ownership from the cell"]. A container's items are its owner's; the items'
+  own owners (COED) are not read [design]. A dead actor's inventory is nobody's
+  [hypothesis]. A reference made at run time (a dropped item) inherits nothing [design].
+- The player is an owner when the owner is the player's base (SetOwnership's default),
+  or a faction the player is in at the rank asked for [documented: Reference, HasOwnership].
+- Karma: `fKarmaModStealing` (−5) per item or stack taken [hypothesis: per take], unless
+  the owner is an Evil faction or a faction that does not track crime [documented:
+  Category:Factions, "Evil: … stealing from members of this faction will not incur Karma
+  loss"; "Track Crime: … Karma modifiers are also awarded when a faction is flagged to
+  track crime"], or an owning NPC of Evil alignment [hypothesis: the Reference page's
+  "karma gain/loss is affected by the karma level of the owning actor"]. Seen or not: an
+  unseen theft costs karma too [documented: SendStealingAlarm, "If the actor is not being
+  detected by the owner of an item, it will result in a karma loss"].
+- Seen by the owner (the owning NPC, or a member of the owning faction when it tracks
+  crime [hypothesis: any rank]): that witness turns on the player and says **Steal**
+  [documented: Combat Tab]. Others who see it do nothing (a minor crime). The game's
+  owner first "tries to take it back"; NVForever goes straight to the fight [design: the
+  take-back is not built].
+
+### 3.2 Opening an owned lock ("trespass" in the game's help)
+
+Picking or forcing the lock of an owned door or container (the lockpicking menu's crime
+hook, lockpicking.md §4): the owner's witnesses attack at once [documented: HelpCrime],
+with no line of their own (their NormalToCombat line is said). Karma as for theft
+[design: the owner asked for breaking in to cost karma]. Hacking an owned terminal is
+the same crime in the help; it is not hooked yet.
+
+### 3.3 Trespassing in a cell
+
+- The player trespasses while in an owned cell that is not public and that the player
+  does not own [documented: SetCellPublicFlag, "Cells which are public cannot have
+  trespassing"; hypothesis: owned and not public is the whole rule; the Off Limits flag
+  is not used, one cell has it]. IsTrespassing reads it.
+- An owner's witness warns (GuardTrespass) and warns again after `fAITrespassWarningTimer`
+  until it has warned `iGuardWarnings` times; the next time it attacks [documented: Guard
+  Package, "warn … wait 5 seconds … either issue another warning (iGuardWarnings) or
+  enter combat"; Combat Tab, GuardTrespass "when the player is trespassing"; hypothesis:
+  the same count for owned cells]. GetTrespassWarningLevel reads the warnings. Leaving
+  the cell clears them [design].
+- SendTrespassAlarm turns the actor at once ("all the way to fully trespassed on one
+  call") [documented: notes].
+- The doors' "No Alarm" flag [documented: Reference page] is not read.
+
+### 3.4 Murder
+
+- The player kills a non-Evil NPC (not a creature) that was not attacking the player of
+  its own accord [documented: IsPCAMurderer, "murdered a non-Evil NPC"; HelpCrime, assault
+  is "without provocation"]. Self-defence: it was hostile by its records, StartCombat or
+  SetPCEnemyOfFaction; a fight the player started (an assault grudge) or a crime of the
+  player's is no defence [design].
+- IsPCAMurderer becomes 1. Witnesses (they see the player) who care about the victim —
+  an ally or friend of it, a member of one of its factions or of its base
+  (`Game::reaction_to`) — turn on the player and say **Murder** [documented: HelpCrime,
+  Combat Tab].
+- A murder such a witness saw makes the player an enemy of the victim's crime-tracking
+  factions [documented: SetPCEnemyOfFaction, "the enemy flag … when the player commits a
+  major crime against a crime-tracking faction"; hypothesis: when a witness saw it]:
+  every member attacks on sight (GetActorFactionPlayerEnemy), until
+  ClearFactionPlayerEnemyFlag.
+
+### 3.5 Assault
+
+The player's hit turning an actor on the player (combat-ai.md §10.1) is a major crime
+against it (GetMajorCrimeCount) [documented: HelpCrime]. Its friends join through
+assistance (§10.3); the faction enemy flag is **not** set for an assault [design: one
+punch would make a whole town hostile everywhere; owner to decide]. SendAssaultAlarm
+turns the named victim (or, with the player named, the first present member of the
+faction given) on the player and makes it say Assault [documented].
+
+### 3.6 Who sees, and what turning means
+
+- A witness is an actor that has the player detected (band Detected, measured within the
+  last second, `fnv_game::detection`), alive, conscious, not the player's teammate, not
+  ignoring crime [documented: Steal "if they notice you stealing", HelpCrime "sees";
+  IgnoreCrime; hypothesis: "sees" is the band Detected].
+- An actor that turns becomes a **crime enemy** (GetActorCrimePlayerEnemy): it attacks the
+  player whatever its aggression and whatever the faction reactions say [design, as an
+  assaulted actor's grudge]. Unaggressive owners fight too; fleeing for help is combat
+  AI's (not built here). StopCombat ends it [design, as for grudges]; a crime is not
+  yieldable [design: the wiki's Yielding speaks of actors the player attacked].
+- IgnoreCrime 1: the actor neither turns nor attacks for crimes [documented].
+- GetAlarmed reads 1 for a crime enemy [hypothesis: the wiki says only "alarmed"].
+  IsActorAVictim is the latest crime's victim [documented: "one NPC at a time"].
+  GetMinorCrimeCount and GetMajorCrimeCount count per actor; a theft nobody saw counts
+  against the owning base or faction [design].
+
+## 4. Karma
+
+- Every change: the corner message with the game's string and icon, minor or major by
+  its size (major from `fKarmaModKillingEvilActor`, 100, up) [hypothesis: the split], and
+  `UIKarmaUp` or `UIKarmaDown` [hypothesis: by their names]; RewardKarma does the same
+  [documented: "A corner message is shown in game indicating the change"].
+- Killing [documented for evil: the setting's name; hypothesis: the amount]: an Evil or
+  Very Evil NPC +`fKarmaModKillingEvilActor` (+100); a Good or Very
+  Good one −100 [design: the same setting]; a Neutral NPC murdered (§3.4) −25, a quarter
+  [design: the owner asked that killing innocents cost karma; HelpKarma says only
+  saintly or terrible enemies count]; a Neutral actor in a fight it started 0. Only kills
+  by the player count; the share of damage (kill XP's rule) is not asked [design].
+  Creatures give none [design: their karma values include plain animals, a dead radroach
+  placed in FalloutNV.esm is Evil, observed].
+- Stealing and opening owned locks: §3.1, §3.2.
+- Limits: iKarmaMin/iKarmaMax when a plugin defines them [documented]; FalloutNV.esm does
+  not.
+
+## 5. Bounties and reputation
+
+- There are no bounties: "Crime Gold Multiplier … Unused in Fallout" [documented:
+  Category:Factions]; none of the Oblivion crime-gold functions are in the catalogue
+  [observed: `schemas/script/functions.json`].
+- New Vegas tracks **reputation** (REPU: fame and infamy per reputation, ranks Accepted …
+  Vilified) [documented: GECK wiki Reputation]; it "has no actual impact on the combat
+  reactions of actors". The reputation functions are built (`functions/reputation.rs`);
+  scripts change reputation, the engine's crime rules do not [hypothesis: nothing in the
+  sources ties a crime to a reputation change].
+
+## 6. In play (`nvf-play` `crime.rs`)
+
+- Theft: an item reference that leaves the world as the player picks it up, and items
+  taken in the container menu; the lock hook; trespass checked four times a second.
+- The crosshair and its prompt are drawn in the crime colour over an owned item,
+  container or lock, and an owned item's action reads **Steal** [documented: IsCrimeOrEnemy,
+  "red color of the crosshair or the activation prompt"; HudBarSetSystemColor, the
+  "Crime" system colour of the prompt; hypothesis: the colour is the HUD's alternative
+  one, 255, 67, 42 (Fallout_default.ini), and the word "Steal"].
+- Log: `crime: …` per crime, warning, faction made enemy and karma change; `crime
+  summary: …` at exit.
+- The Pip-Boy's STATS General page already shows the karma (pipboy.md).
+
+## 7. Script functions
+
+Built (crime.rs): RewardKarma, GetIsAlignment, IsPCAMurderer, GetMinorCrimeCount,
+GetMajorCrimeCount, GetActorCrimePlayerEnemy, GetAlarmed, IsActorAVictim, IsCellOwner,
+IsInMyOwnedCell, IsTrespassing, GetTrespassWarningLevel, SendTrespassAlarm,
+SendAssaultAlarm. Already built before: SetOwnership, ClearOwnership, IsOwner,
+SetCellOwnership, SetCellPublicFlag, SetPCEnemyOfFaction, GetPCEnemyOfFaction,
+ClearFactionPlayerEnemyFlag, GetActorFactionPlayerEnemy, IgnoreCrime, GetIgnoreCrime.
+Without an opcode in the catalogue (not callable): GetOwner, GetParentCellOwner,
+GetOwnerOfCell, HasOwnership, SetIsPCAMurderer, ClearActorsFactionsPlayerEnemyFlag.
+
+## 8. Checks
+
+- `fnvtool actor karma --schema schemas/fnv <Data> FalloutNV.esm --survey --actor
+  FiendVioletRef --actor SunnyRef --actor GSChetRef --cell GSGeneralStore`
+  (`fnv.actor.karma/1`): the settings of §2, the rules' numbers, per actor its karma,
+  alignment and what a kill does, per cell its owner and owned references, and the survey
+  counts of §2. Smoke scenario `karma-survey`.
+- Unit tests: `crates/fnv-game/tests/crime.rs` (records, ownership through the cell and
+  ranks, unseen and seen theft, kills and murder with the faction flag, trespass
+  warnings, RewardKarma).
+- In play, smoke scenarios `crime-steal` (a carton of cigarettes taken in front of Chet in
+  his store: "crime: theft against GSChet … turned on the player: [GSChetRef …]", the
+  karma line and his fight) and `karma-fiend` (Violet shot dead: "crime: karma +100 for
+  killing 1EFiendViolet (Evil)").
+
+## 9. Not built
+
+Taking a stolen item back, running for help; pickpocketing; items' own owners in
+containers (COED); hacking an owned terminal as a crime; the doors' No Alarm flag and
+alarms on entering through a door; the Off Limits flag; guard packages' warnings;
+"NoCrime" topics; crimes by actors other than the player; stolen items marked in the
+inventory; the karma title; saving the trespass warnings.
