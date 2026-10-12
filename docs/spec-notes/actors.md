@@ -1086,7 +1086,8 @@ only in the walk test and on the player's body. All rules here are engine choice
   teleport door) and whose way lies more than 20° off its heading
   (`SPOT_TURN_START`) turns on the spot until it faces the way, then sets off; its
   updates return `WalkEvent::Turned` meanwhile. Smaller differences, and every corner
-  met while walking, are steered at the walking turn rate as before (720°/s). The feet
+  met while walking, are steered at the walking turn rate (720°/s then; 180°/s since
+  2026-10-11, below). The feet
   do not move during the turn, so path following is unchanged; a trip takes up to 1.5 s
   longer per standing start.
 - **Standing with nowhere to go**: `Walker::face(heading, dt)` turns a walker-moved
@@ -1108,6 +1109,34 @@ only in the walk test and on the player's body. All rules here are engine choice
   degrees in all`. Not with `--actor-walk-test`; `--npc-travel` travellers are turned by
   their walker, which overrides it. The `--run-seconds` summary gains the line `actor
   turns: N actor frames playing a turn-on-the-spot clip`.
+- **Turning while walking** (added 2026-10-11, owner's playtest: "they are able to make
+  a complete 180 degree turn in a frame or two") [design]. The walking turn rate is
+  180°/s (`fnv_nav::follow::WALK_TURN_RATE`, was 720°/s). The game's characters turn
+  at the setting `fCharacterDefaultTurningSpeed` [documented: GECK wiki, Settings
+  list]; it is not in FalloutNV.esm, so its value is the executable's and unknown.
+  Creatures carry their own, CREA `TNAM` "Turning Speed" [documented: xEdit CREA]: 100
+  (mole rat), 90 (mantis), 75 (sentry bot), 50 (Protectron), 45 (giant ant), 40
+  (bighorner), 0 on templated ones [observed, a sample of 12 of 1,578 records]; read as
+  degrees per second [hypothesis]; not used yet. While its heading catches up with the
+  way to go the actor slows down: it keeps `0.3 + 0.7 × max(cos off, 0)` of its speed
+  (`turn_slowdown`; a right-angle corner costs about half a second). Actors moved by
+  the character controller (near the player, `residents.rs`) walk along their heading
+  while it is within a quarter turn of the way, so they round a corner in an arc
+  (`arc_step`); on the navmesh (`Walker`, off-screen and the last steps to a place) the
+  feet keep to the path. Actors moved by the character controller now also turn on
+  the spot before setting off, as the walker does (§8.9 above); they did not.
+- **Other turns made gradual** (2026-10-11) [design]: an actor arriving at an idle
+  marker or a sandbox spot turns to its heading on the spot at 120°/s (`fnv_ai::Agent::
+  face_to`; was set at once); an actor walking the last steps to furniture takes at
+  least as long as turning to the entry heading at 120°/s needs (`furniture.rs`; was
+  as little as 0.15 s); an actor getting off furniture keeps the heading the getting-off
+  clip left it with (its back to the furniture) when its walk goes on (`residents.rs`;
+  the walker kept the heading it sat down with and the body snapped half about in one
+  frame). The conversation turn (`dialogue_look.rs`, `speech_look.rs`) is unchanged
+  (eased, about 150°/s).
+- **Measured** [observed in NVForever, the residents smoke test, `turn summary` line]:
+  the fastest turn of a drawn resident between two frames was 720°/s with 2 frames over
+  270°/s before, 180°/s with none after.
 - **Not done**: weapon-stance turn clips (`1hpturnleft.kf`, …; the player's body picks
   them, `fnv_actor::player_clips::turn_clips`, NPCs play `mt` only); creature turns
   (§10.3: their turn clips sit in the skeleton's folder and are found by
@@ -1242,6 +1271,15 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
 - **Weapon model**: drawn as a rigid part under the actor's `Weapon` node, which is moved
   to the bone of §9.2 when it changes. The `##` part tracks are not played yet (the parts
   stay at their model pose).
+- **When the body plays a clip of its own** (on furniture, getting on and off it, and a
+  death pose), only the `Weapon` track of the weapon clips is laid over it
+  (`WeaponHold::weapon_layers`), so the weapon keeps its place under the bone it hangs
+  from and follows that bone. The seat clips have no `Weapon` track [observed:
+  `dynamicidle_chairsit.kf`, `dynamicidle_sitstool.kf`, `chair_forwardenter.kf`]: before,
+  the node went back to its bind transform (its place under the right hand) while hung
+  from the pelvis or spine, and a seated settler's holstered pistol was off his hip at a
+  wrong angle [observed in NVForever, owner's playtest 2026-10-11; fixed: the pistol is
+  at the hip on the stool 00106192].
 - **Flags**: `--actor-weapons none|holstered|drawn` (default `holstered`) and the test aid
   `--actor-weapon-test <s>` (draw, hold `<s>` seconds, holster, hold, repeat; each actor
   starts at its spread phase). With `--actor-pose-time t` the cycle is run from its start

@@ -60,6 +60,10 @@ pub struct SitOn {
     pub furniture: u32,
     /// Get up by itself after this many seconds on it.
     pub stay: Option<f32>,
+    /// Already on it: no walk to the entry point and no getting-on clip. For an actor
+    /// that was on this furniture when its cell was left and is drawn again
+    /// (`residents.rs`) [design: coming back finds it as it was].
+    pub at_once: bool,
 }
 
 /// The actor is to get off the furniture it is on.
@@ -212,7 +216,8 @@ impl Furnishings {
         // One user per reference, except where every marker is a seat of its own
         // (benches, stools around a table) [design, furniture.md §5].
         let seats = points.len() > 1 && points.iter().all(|p| matches!(p.marker_id, 14 | 15));
-        let taken = self.users.get(&furniture).cloned().unwrap_or_default();
+        // Its own earlier use does not count (an actor drawn again).
+        let taken: Vec<(usize, u32)> = self.users.get(&furniture).into_iter().flatten().copied().filter(|(_, u)| *u != who.reference).collect();
         if !seats && !taken.is_empty() {
             return Err("in use".into());
         }
@@ -237,7 +242,21 @@ impl Furnishings {
     }
 
     fn take(&mut self, plan: &Plan, user: u32) {
+        self.release(plan.furniture, user);
         self.users.entry(plan.furniture).or_default().push((plan.entry.index, user));
+    }
+
+    /// Uses whose actor is gone: its visual was taken away while on the furniture (its
+    /// cell was left) or the use ended without getting off. `live` are the actors on
+    /// furniture now. Returns (furniture, user) of each use let go of.
+    fn forget_gone(&mut self, live: &std::collections::HashSet<u32>) -> Vec<(u32, u32)> {
+        let player = FormId::PLAYER_REF.0;
+        let gone: Vec<(u32, u32)> =
+            self.users.iter().flat_map(|(f, us)| us.iter().map(move |(_, u)| (*f, *u))).filter(|(_, u)| *u != player && !live.contains(u)).collect();
+        for (f, u) in &gone {
+            self.release(*f, *u);
+        }
+        gone
     }
 
     fn release(&mut self, furniture: u32, user: u32) {
@@ -336,7 +355,7 @@ pub fn seat_orders(mut commands: Commands, mut f: ResMut<Furnishings>, nav: Opti
             continue;
         }
         if let Some((e, _)) = actors.iter().find(|(_, v)| v.0 == tr.reference) {
-            commands.entity(e).insert(SitOn { furniture: o.furniture, stay: o.stay });
+            commands.entity(e).insert(SitOn { furniture: o.furniture, stay: o.stay, at_once: false });
             o.asked = true;
         }
     }
@@ -361,26 +380,35 @@ pub fn drive_actors(
     actor_world: Option<Res<ActorWorld>>,
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
-    starting: Query<(Entity, &ActorRig, &Transform, &GlobalTransform, &SitOn), Without<OnFurniture>>,
+    mut starting: Query<(Entity, &ActorRig, &mut Transform, &GlobalTransform, &SitOn), Without<OnFurniture>>,
     mut using: Query<Seated>,
     mut script: Option<ResMut<ScriptState>>,
     mut nav: Option<ResMut<NavState>>,
 ) {
     let dt = time.delta_secs().min(0.1);
+    // Actors no longer drawn leave their furniture free: drawn again, they are put back
+    // on it (`SitOn::at_once`) or go elsewhere [fix of the owner's playtest 2026-10-11:
+    // the stool stayed "in use" by its own sitter, who then stood in it].
+    let live: std::collections::HashSet<u32> = using.iter().map(|(_, _, _, on, ..)| on.who.reference).collect();
+    for (furniture, user) in f.forget_gone(&live) {
+        info!("furniture: {user:08X} is off {furniture:08X} unseen (no longer drawn)");
+        tell_scripts(&mut script, user, None);
+    }
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-    for (e, rig, t, global, sit) in &starting {
+    for (e, rig, mut t, global, sit) in &mut starting {
         let at = to_game(global.translation());
         let female = actor_world.as_deref().and_then(|w| w.actors.npcs.get(&FormId(rig.base))).is_some_and(|n| n.female);
         let who = Who { reference: rig.reference, base: rig.base, female };
         let plan = f.plan(&world, &mut ctx, sit.furniture, at.to_array(), who, &|func, p| game_value(&script, func, p)).and_then(|p| {
             let d = Vec3::from_array(p.entry.pos).distance(at);
-            if d > APPROACH_MAX { Err(format!("{d:.0} units from its entry point")) } else { Ok((p, d)) }
+            if d > APPROACH_MAX && !sit.at_once { Err(format!("{d:.0} units from its entry point")) } else { Ok((p, d)) }
         });
         match plan {
             Ok((plan, d)) => {
                 info!(
-                    "furniture: {:08X} goes to {:08X} by marker {} (ID {}), {d:.0} units away; clips {} / {}",
+                    "furniture: {:08X} {} {:08X} by marker {} (ID {}), {d:.0} units away; clips {} / {}",
                     rig.reference,
+                    if sit.at_once { "is back on" } else { "goes to" },
                     plan.furniture,
                     plan.entry.index,
                     plan.entry.marker_id,
@@ -390,17 +418,32 @@ pub fn drive_actors(
                 f.take(&plan, rig.reference);
                 let get_on = Arc::new(bind_clip(&rig.skel, plan.get_on.clone()));
                 let stay = plan.stay.clone().map(|c| Arc::new(bind_clip(&rig.skel, c)));
-                let from = Frame { pos: at.to_array(), heading: heading_of(t) };
+                let from = Frame { pos: at.to_array(), heading: heading_of(&t) };
+                let origin = at - t.translation;
+                // Back on it at once: a use whose getting-on takes no time, so the next
+                // update has the actor on, in the loop (scripts are told as for any use).
+                let (stage, pose) = if sit.at_once {
+                    tell_scripts(&mut script, rig.reference, Some((&plan, state::GETTING_ON)));
+                    let on = if plan.stay.is_some() { plan.frames.on } else { Frame { pos: plan.frames.clip.point(plan.travel.to_array()), heading: plan.frames.clip.heading } };
+                    t.translation = Vec3::from_array(on.pos) - origin;
+                    t.rotation = rotation(on.heading);
+                    (Stage::Using(Use::begin(FormId(plan.furniture), FormId(plan.base), plan.entry, 0.0)), Some((get_on.clone(), 0.999)))
+                } else {
+                    // Long enough to walk there and to turn to the entry heading at the
+                    // standing turn rate (it does not whip round in a few frames).
+                    let turn = fnv_nav::follow::heading_delta(from.heading, plan.entry.heading).abs() / fnv_nav::follow::SPOT_TURN_RATE;
+                    (Stage::Approach { from, t: 0.0, len: (d / APPROACH_SPEED).max(turn).max(0.15) }, None)
+                };
                 // Its body is the furniture's now: a conversation turns only its head.
                 commands.entity(e).insert(crate::dialogue_look::BodyHeld).insert(OnFurniture {
                     plan,
                     who,
-                    stage: Stage::Approach { from, t: 0.0, len: (d / APPROACH_SPEED).max(0.15) },
-                    pose: None,
+                    stage,
+                    pose,
                     get_on,
                     stay,
                     get_off: None,
-                    origin: at - t.translation,
+                    origin,
                     stay_left: sit.stay,
                 });
             }
@@ -737,6 +780,23 @@ pub fn report(mut exit: MessageReader<AppExit>, f: Res<Furnishings>) {
 mod tests {
     use super::*;
     use std::f32::consts::{FRAC_PI_2, PI, TAU};
+
+    #[test]
+    fn uses_of_actors_no_longer_drawn_are_let_go() {
+        let mut f = Furnishings { bases: HashMap::new(), tree: UseIdles::default(), markers: HashMap::new(), orders: Vec::new(), users: HashMap::new(), stats: Stats::default(), startup: Vec::new() };
+        let player = FormId::PLAYER_REF.0;
+        f.users.insert(0x0010_6192, vec![(0, 0x0010_4F08)]);
+        f.users.insert(0x0010_634A, vec![(2, 0x0010_4C80)]);
+        f.users.insert(0x0017_6ACE, vec![(0, player)]);
+        // Easy Pete is still on his chair; the settler's visual went away; the player's
+        // use is the player's module's.
+        let live = std::collections::HashSet::from([0x0010_4C80]);
+        assert_eq!(f.forget_gone(&live), vec![(0x0010_6192, 0x0010_4F08)]);
+        assert!(!f.users.contains_key(&0x0010_6192));
+        assert_eq!(f.users[&0x0010_634A], vec![(2, 0x0010_4C80)]);
+        assert_eq!(f.users[&0x0017_6ACE], vec![(0, player)]);
+        assert!(f.forget_gone(&live).is_empty());
+    }
 
     #[test]
     fn furniture_references_are_hex_form_ids() {

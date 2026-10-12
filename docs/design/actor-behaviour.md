@@ -387,7 +387,8 @@ on [documented: Idle Markers, Patrol Data]; the furniture a package gives its ac
 
 **Checks**: 17 tests in `crates/fnv-ai/tests/carry.rs` (only-wander stays inside its
 radius and uses nothing; no-wander alternates chair and idle marker; all off stands; the
-night's bed and the meal's chair at the rolled hours; an idle marker's heading; two
+night's bed and the meal's chair at the rolled hours; an idle marker's heading (turned to
+on the spot at 120°/s since 2026-10-11, `Agent::face_to`, actors.md §8.9); two
 sandboxers never on one chair; the same run twice; the patrol wait). `fnvtool ai run
 --actor GSChetRef --start-hour 9`: a meal on a chair, an idle marker, a wander, a seat,
 in his store. In `nvforever`: Chet walks about his store and sits down (screenshots);

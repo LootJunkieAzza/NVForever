@@ -3030,3 +3030,49 @@ actor-behaviour.md §5.1–§5.2, alert.md §4 and §8.
 Seen on the way, not fixed (not mine): in the Fiend check (alert.md §8) Violet becomes
 Alert but barely moves and never reaches Combat, on main as well; Cook-Cook's fiends switch
 Combat ↔ Lost every few seconds.
+
+## Playtest fixes: NPCs on furniture, turning and anim objects (2026-10-11, session "pt-npcs")
+
+Branch `claude/playtest-npcs`; notes in docs/spec-notes/furniture.md §7, actors.md §8.9
+and §9.4, idles.md §10.
+
+1. **The saloon settler standing in his stool after you come back** (and **Easy Pete
+   not sitting on the porch chair after coming out of the saloon**): one cause. When you
+   left the cell the actor's body was taken away while seated, but the stool stayed
+   booked to him, so on your return the stool refused him as "in use" (by himself). Now
+   the seat is freed when the body goes, and a resident that was seated is put straight
+   back on it when you return, already sitting (no walk-up and sit-down clip again).
+   *Decision:* coming back finds him seated, not sitting down again. *Check:* leave the
+   saloon and come back; with Pete, enter the saloon while he sits on the porch, wait
+   two hours inside, come out at 14:00.
+2. **Holstered weapons floating on seated NPCs**: the seat clips don't move the weapon,
+   so it fell back to its "in the hand" position while hung from the hip. Now only the
+   weapon's own holster track is kept over the seat clip (and over a death pose), so the
+   gun stays on the hip or back and follows it. *Check:* a seated settler's pistol at his
+   hip; the rifle on the back of a seated rifleman.
+3. **Turning speed** (guessed values, nothing in the data gives an NPC's turn speed;
+   the game has a setting `fCharacterDefaultTurningSpeed` whose value is built into the
+   game, and creatures have a "Turning Speed" field of 40–100 that we don't use yet):
+   - walking: at most **180°/s** (was 720°/s); standing turns stay **120°/s**;
+   - an actor slows while turning: it keeps 30% of its speed when its way is a quarter
+     turn or more off, full speed when facing it (a right-angle corner costs about half a
+     second);
+   - near you (where actors walk with physics) they walk an arc round corners and turn
+     on the spot before setting off, like elsewhere;
+   - arriving at an idle marker they now turn to its heading at 120°/s (it was instant);
+     walking the last steps to a chair they take as long as the turn needs; getting up
+     from a chair no longer snaps them half about in one frame.
+   *Measured:* the fastest turn between two frames in the residents test went from
+   720°/s (2 frames above 270°/s) to 180°/s (none). Turn-on-the-spot clips already
+   exist and play (`mtturnleft/right.kf`); weapon-stance and creature turn clips are not
+   used by NPCs yet. The conversation turn was left as it was (another session works on
+   dialogue facing). *Check:* do 180°/s and the slow-down feel right? Should creatures
+   use their own "Turning Speed" field?
+4. **Props in idles (Chet's broom)**: the game links a prop to an idle through an
+   "animated object" record that names the idle; the prop's model names the hand it goes
+   in. Now while an NPC plays such an idle the prop is drawn in that hand, and taken
+   away when the idle ends. Chet sweeps with his broom; a smoking idle gets a cigarette.
+   *Guess:* the prop shows for the whole idle (including its fade-out); the prop's own
+   small animation (the broom has one) isn't played. *Check:* Chet sweeping; anyone
+   smoking, drinking or eating at a table. New test aid `play_idle:<ref>:<idle>` in
+   `NVF_PLAY_TEST_SCRIPT`.

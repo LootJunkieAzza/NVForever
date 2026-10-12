@@ -86,7 +86,9 @@ triangles, its door stops and the door that ends it.
   each way (0.6 s each); detours count as having helped only after half a second's walk
   of real progress past where the actor got stuck; then replan; give up after 5 replans.
 - `Walker` moves an actor along the path on the navmesh surface (height from the
-  triangle under it), turning at up to 720°/s, through doors by teleport to the arrival.
+  triangle under it), turning at up to 180°/s (`WALK_TURN_RATE`; 720°/s before
+  2026-10-11) and slowing while its heading is off the way (`turn_slowdown`; actors.md
+  §8.9), through doors by teleport to the arrival.
   Standing with its way more than 20° off its heading it first turns on the spot at
   120°/s (`WalkEvent::Turned`; docs/spec-notes/actors.md §8.9); `Walker::face` turns a
   standing walker to a heading the same way.
