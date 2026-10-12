@@ -1051,20 +1051,24 @@ expect = [
 
 [[scenario]]
 name = "lockpick"
-source = "docs/spec-notes/lockpicking.md §7: the wall safe in GSHouseInterior02 (level 50, its key not carried), refused at Lockpick 30, picked at 55 after a pin breaks"
+source = "docs/spec-notes/lockpicking.md §7: the wall safe in GSHouseInterior02 (level 50, its key not carried), refused at Lockpick 30, picked at 55 after a pin breaks; the help message the first time"
 areas = ["lockpick"]
-paths = ["crates/fnv-game/src/lockpick.rs", "engine/nvf-play/src/lockpick*", "engine/nvforever/src/lockpick_view.rs", "engine/nvf-play/src/activate.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105229", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_ACTIVATE = "12,15,32", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:skill:55,17:off:20,17.5:torque:2,24:spot,24.5:torque:2" }
+paths = ["crates/fnv-game/src/lockpick.rs", "engine/nvf-play/src/lockpick*", "engine/nvf-play/src/lockpick/**", "engine/nvforever/src/lockpick_view.rs", "engine/nvf-play/src/activate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105229", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_ACTIVATE = "12,15,32", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:skill:55,16:help,17:off:20,17.5:torque:2,24:spot,24.5:torque:2" }
 args = ["--cell", "GSHouseInterior02", "--play", "--no-voice"]
 run_seconds = 36
 order = [[
   'lockpick: 0x00105229 Safe refused (Lockpick 30): on screen: "You need a Lockpick skill of 50 to pick this lock."',
   "lockpick: open 0x00105229 Safe: Average lock (Lockpick 55, 3 bobby pins)",
+  'lockpick: help message 0x0000017C "Lockpicking" shown (first use): "WSAD: Apply torque with the screwdriver"',
   "lockpick view: the lock drawn",
+  "lockpick: help message closed",
   "lockpick: the bobby pin broke, 2 left",
   "lockpick: a new bobby pin is in",
   "picked open (Average lock, 40 XP)",
   "lockpick: crime hook: 0x00105229",
+  "lockpick: leaving (the game is over)",
+  "lockpick: closed (the game is over)",
   "menu: open Container(0x00105229)",
 ]]
 expect = [
@@ -1072,6 +1076,34 @@ expect = [
   "ui sounds: lockpick pin broke: UILockpickingPickBreak",
   "ui sounds: lockpick lock opened: UILockpickingUnlock",
   "lockpick summary: 2 asked, 1 opened (1 refused); 1 picked, 0 forced, 0 broken by forcing; 2 torque tries, 1 pins broken, 0 times out of pins; 0 left before the end",
+]
+
+[[scenario]]
+name = "lockpick-floor-safe"
+source = "docs/spec-notes/lockpicking.md §7: Ringo's floor safe in GSGasStation (level 25, half under a mattress) targeted from where NVF_PLAY_TEST_NEAR stands; the help the first time only, leaving with the pin pulled out, a failed Force Lock breaks it for good and the next activation is refused"
+areas = ["lockpick"]
+paths = ["crates/fnv-game/src/lockpick.rs", "engine/nvf-play/src/lockpick*", "engine/nvf-play/src/lockpick/**", "engine/nvforever/src/lockpick_view.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/**", "engine/nvf-play/src/player/safe.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0010B2D4", NVF_PLAY_TEST_GIVE = "0000000A:2", NVF_PLAY_TEST_ACTIVATE = "12,18.5,23", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:help,15:pin:60,15.5:torque:0.6,17:exit,19:force:99" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice"]
+run_seconds = 26
+order = [[
+  "target 0x0010B2D4 Floor Safe (Locked (Easy)) by Collision",
+  "lockpick: open 0x0010B2D4 Floor Safe: Easy lock (Lockpick 30, 2 bobby pins)",
+  'lockpick: help message 0x0000017C "Lockpicking" shown (first use)',
+  "lockpick: help message closed",
+  "lockpick: torque on, pin at 60.0°",
+  "lockpick: leaving (the player left)",
+  "lockpick: closed (the player left)",
+  "lockpick: open 0x0010B2D4 Floor Safe: Easy lock (Lockpick 30, 2 bobby pins)",
+  "lockpick: Force Lock (15%, roll 99.0): 0x0010B2D4 broken for good, the pin with it (1 left)",
+  "lockpick: leaving (the game is over)",
+  "lockpick: closed (the game is over)",
+  'lockpick: 0x0010B2D4 Floor Safe refused (Lockpick 30): on screen: "This lock is broken. It can only be opened with a key."',
+]]
+expect = [
+  { text = "lockpick: help message 0x0000017C", count = 1 },
+  "ui sounds: lockpick lock broken by forcing: UILockpickingForceFail",
+  "lockpick summary: 3 asked, 2 opened (1 refused); 0 picked, 0 forced, 1 broken by forcing; 1 torque tries, 0 pins broken, 0 times out of pins; 1 left before the end",
 ]
 
 # ------------------------------------------------------------------ converted 2026-10-12 (prose added on main by PR #226)

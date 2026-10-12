@@ -3714,3 +3714,74 @@ aid --perks --perk P --set AV:v --wait H [--sleep]`; smoke scenarios `aid-perks-
    (taken again by their owner). If another session's run of 2026-10-12 about 18:03
    overlapped a launch, that may be why. Later runs used a wrapper that only removes
    locks it made.
+
+## Lockpicking leftovers (2026-10-12, session "lockpick-2")
+
+Item 4 of the handoff list (leftovers of #232). Your ten screenshots in
+`C:\fnv-private\references\Lockpicking` were on this machine and were compared with ours
+(docs/spec-notes/lockpicking.md §1, §2, §2.0, §2.1, §7.1).
+
+1. **Help message the first time.** *Decision:* the game's own message `HelpLockpicking`
+   (FalloutNV.esm 0x0000017C, title "Lockpicking", its text unchanged) comes up over the
+   menu the first time it opens, in the tutorial box laid out by `tutorial_menu.xml`
+   (VDSG symbol, "VDSG MANUAL", "Close E)"); E (also Enter, Esc, Tab) or a click on Close
+   shuts it; nothing is picked while it is up; the lock behind is drawn at about half
+   brightness. The key names in its text are the keys bound now ("WSAD", "F").
+   *Guess:* once per game (kept in the game state, see 5); the Next/Previous column width
+   (120) and VDSG symbol width (128) fitted so the text wraps and the words sit as on your
+   screenshot; Close's brightness. *Check:* that the game shows it only once, and whether
+   Esc/Enter should close it.
+2. **Debug meter.** *Decision:* behind the off-by-default debug switch
+   `NVF_PLAY_DEBUG_LOCKPICK=1` only: the menu file's meter bar with the sweet spot (bright)
+   and the ring around it (dim), the arrow over the pin's angle, "Pin health …% Lock …° of
+   90°", and the Sweet Spot / Concentric values (shown, not adjustable). *Guess:* the
+   colours and words (the file leaves them to the code).
+3. **Pointer over the lock.** *Decision:* hidden inside the menu file's detect area
+   (taken literally: from 60 units in to the right edge, from the top down to two thirds
+   of the screen), shown elsewhere and over the help box, as on your screenshot (pointer
+   at the left edge). *Check:* that the pointer never shows over the lock and comes back
+   at the left edge and over the buttons.
+4. **Exit animations.** *Decision:* the model files' sequences are now used:
+   - a broken pin plays the pin's `Backward` (it twists) then `Left` (the long piece flies
+     off); the short piece stays in the keyhole until the next pin, as on your screenshot
+     after a break; the next pin now comes 1.45 s after a break (was 1 s) so the break
+     plays out;
+   - once the lock is in, it is posed by the lock model's `Backward` sequence at the time
+     its turn has reached: the cylinder turns and the screwdriver follows with a twist of
+     the wrist. This matches your 40° and fully-turned screenshots (screwdriver nearly
+     level at 40°, pointing down when open), where turning everything rigidly did not;
+   - the pin no longer turns with the lock (your screenshots: it stays where you put it);
+   - leaving (E) pulls the pin out (its `Forward` backwards, 0.5 s) while the menu fades;
+     after opening, breaking or running out of pins the menu holds 1.5 s, then fades out in
+     0.5 s over the world (your screenshot of an opened lock shows the HUD coming back over
+     the lock still drawn).
+   *Guess:* the 0.5 s fade and pull-out. *Check:* the break and the leaving in game.
+5. **Broken locks saved.** *Decision:* broken locks (and whether the help was shown) are
+   part of the game state's snapshot (`GameSnapshot.locks`, written only when not empty).
+   NVForever has no save files yet, so today a broken lock stays broken for the session
+   and in any snapshot; it will be saved when saving is built.
+6. **Ringo's floor safe.** *Finding:* not a collision fault: the safe's collision is
+   whole and the crosshair finds it (standing on it 123 units straight down, or from the
+   mattress's edge looking 65° down at 145). The safe lies half under the edge of the
+   floor mattress, and the floor beside it is narrower than the player, so the player
+   stands on the mattress or on the safe; from the mattress the safe's door is 131 below
+   the eye and only a narrow cone is within the 150 reach. The test aid
+   `NVF_PLAY_TEST_NEAR` had chosen a spot 147.7 away assuming a 112-unit eye, while the
+   first-person body puts the eye at about 121, so the view ray needed 154 and missed.
+   *Fix:* the aid now chooses with the body's eye and 5 units to spare, and tries closer
+   spots aimed at points of the target; the new smoke scenario `lockpick-floor-safe` uses
+   the safe. *Check (in game):* can you target this safe from the mattress? If the
+   original lets the crosshair pass the mattress or reaches further downwards, tell us
+   which (physics.md §6 has the pick-sphere question).
+7. **Compared with your screenshots and changed:** "Lockpick Skill" (was "Lockpick");
+   the lock's size and place (camera 70 units away with a 17° view, the cylinder about
+   0.72 of the screen's height, a little above the middle; was 45 units / 55°, the lock
+   less than half that size); the pin not turning with the lock; the screwdriver's
+   motion (4); the help box (1). *Left as it is:* the room dim behind the lock on your
+   screenshots: our lock stays on black, because a see-through shade let quest and
+   corner messages show through the menu; the pin's and screwdriver's colours (ours
+   coppery and red, yours brass and brown: lighting). *Check:* the look against your
+   screenshots.
+8. *Smoke:* `lockpick` now closes the help and checks the help line and the leaving lines;
+   new `lockpick-floor-safe` (help once, leaving with the pin pulled out, a failed Force
+   Lock breaking the safe, the next activation refused).

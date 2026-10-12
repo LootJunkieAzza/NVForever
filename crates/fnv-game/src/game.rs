@@ -773,6 +773,9 @@ pub struct GameSnapshot {
     pub next_effect: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub image_modifiers: Vec<ActiveImageModifier>,
+    /// Broken locks and the lockpicking help's first display (`crate::lockpick::Locks`).
+    #[serde(default, skip_serializing_if = "crate::lockpick::Locks::is_empty")]
+    pub locks: crate::lockpick::Locks,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
@@ -2212,6 +2215,7 @@ impl<'a> Game<'a> {
             effects: self.effects.clone(),
             next_effect: self.next_effect,
             image_modifiers: self.image_modifiers.clone(),
+            locks: self.locks.clone(),
         }
     }
 
@@ -2242,6 +2246,7 @@ impl<'a> Game<'a> {
         g.effects = s.effects.clone();
         g.next_effect = s.next_effect.max(1);
         g.image_modifiers = s.image_modifiers.clone();
+        g.locks = s.locks.clone();
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)
