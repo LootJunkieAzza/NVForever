@@ -185,6 +185,12 @@ impl Game<'_> {
         placed.is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE")) && self.stats_def(r).is_some_and(|d| d.zero_health)
     }
 
+    /// Whether `r`'s base has "No Low Level Processing": its AI is not updated outside
+    /// the loaded area [documented: GECK wiki Category:NPC].
+    pub fn no_low_level_processing(&self, r: FormId) -> bool {
+        self.def_following(r, |_| false).is_some_and(|d| d.no_low_level)
+    }
+
     /// Lay out the corpses of a new game: every placed actor that starts dead
     /// ([`Game::starts_dead`]) is dead from the start, without a killer, an OnDeath or a
     /// count in GetDeadCount [hypothesis: nobody killed it]. Returns how many.

@@ -418,6 +418,10 @@ pub struct ActorDef {
     pub template_stats: bool,
     /// CREA ACBS "Invulnerable".
     pub invulnerable: bool,
+    /// ACBS flag "No Low Level Processing": the actor's AI is not updated outside the
+    /// loaded area [documented: GECK wiki Category:NPC]. Read from the record itself, as
+    /// Essential is (whether the template flag Base Data passes it on is not checked).
+    pub no_low_level: bool,
     /// The record has a DATA whose Base Health (NPC_) or Health (CREA) is 0: its placed
     /// actors start the game as corpses ([`crate::game::Game::starts_dead`]).
     pub zero_health: bool,
@@ -1661,6 +1665,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.female = has_flag(f, "Female");
                         a.essential = has_flag(f, "Essential");
                         a.invulnerable = has_flag(f, "Invulnerable");
+                        a.no_low_level = has_flag(f, "No Low Level Processing");
                         a.pc_level_mult = has_flag(f, "PC Level Mult");
                         a.autocalc = &sig == b"NPC_" && has_flag(f, "Auto-calc stats");
                         let n = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_i64).unwrap_or(0);

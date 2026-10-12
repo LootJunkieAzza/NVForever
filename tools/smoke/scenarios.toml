@@ -1062,6 +1062,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "far-actors"
+source = "owner's playtest 2026-10-11 (Fiends heard talking far away): process levels, docs/design/actor-behaviour.md §5.9"
+areas = ["ai", "residents"]
+paths = ["crates/fnv-ai/src/process.rs", "crates/fnv-ai/src/social.rs", "crates/fnv-ai/src/carry.rs"]
+# Every actor of Goodsprings lives by its packages; the camera flies north out of the
+# loaded area, so they leave the high process and get a low-process update every 18 s.
+args = ["--cell", "Goodsprings", "--npc-packages", "all", "--hour", "12", "--auto-fly", "1500"]
+run_seconds = 60
+expect = [
+  { re = 'process summary: .* (?P<n>\d+) left the loaded area', range = [10, 100000], label = "process summary: ten or more left the loaded area" },
+  { re = 'process summary: .* (?P<n>\d+) low-process updates every 18 s', range = [10, 1000000], label = "process summary: low-process updates" },
+]
+
+[[scenario]]
 name = "dead-on-spawn"
 source = "owner's playtest 2026-10-11 (the tribal village's corpses stand up): Base Health 0 starts dead, docs/spec-notes/dead-on-spawn.md"
 areas = ["combat", "deaths"]
