@@ -1508,6 +1508,8 @@ run_seconds = 24
 expect = [
   { re = 'crime: karma \+100 for killing .*\(Evil\), now 100', label = "karma +100 for killing Violet" },
   { re = 'crime summary: .* 0 murders', label = "no murder" },
+]
+
 [[scenario]]
 name = "floating-troopers"
 source = "docs/spec-notes/floating-actors.md: Camp Golf's tower trooper and Mags stood 66 units above their roots (2ha Holster clip's Bip01 height over the idle's pelvis); playtest list 1 item 24"
