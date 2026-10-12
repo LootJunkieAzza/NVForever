@@ -508,3 +508,54 @@ fn a_shared_faction_does_not_make_enemies_kin() {
     assert!(!g.kin(a, b));
     assert!(g.would_attack(a, b) && !g.would_attack(b, a));
 }
+
+#[test]
+fn a_teammate_reacts_as_if_in_the_player_faction() {
+    // docs/design/followers.md §3 [documented: GECK wiki SetPlayerTeammate]. The loafer
+    // (an idler, kin to the bandit) is made the player's teammate: the bandit, a raider
+    // that would attack the player, now attacks it, and it attacks the bandit; it never
+    // attacks the player, and leaves alone whoever leaves the player alone.
+    let f = fixture();
+    let mut g = game(&f);
+    let (bandit, loafer, own, player) = (FormId(BANDIT_REF), FormId(LOAFER_REF), FormId(OWN_REF), FormId::PLAYER_REF);
+    assert!(g.would_attack(bandit, player));
+    assert!(!g.would_attack(bandit, loafer) && !g.would_attack(loafer, bandit));
+    g.extra.entry(loafer).or_default().teammate = true;
+    assert!(g.is_teammate(loafer) && g.teammates() == vec![loafer]);
+    assert!(g.would_attack(bandit, loafer) && g.would_attack(loafer, bandit));
+    assert!(!g.would_attack(loafer, player) && !g.would_attack(loafer, own) && !g.would_attack(own, loafer));
+    // A neutral the player hits holds a grudge against the player: the teammate's foe.
+    assert!(g.attacked_by(own, player));
+    assert!(g.would_attack(loafer, own) && g.would_attack(own, loafer));
+    // Its fights: only once it perceives the player, an alarm at each actor fighting it.
+    fighting(&mut g, OWN_REF, PLAYER);
+    assert_eq!(g.teammates_assist(), 0);
+    g.detection.pairs.insert((loafer, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
+    assert_eq!(g.teammates_assist(), 1);
+    assert!(g.awareness.get(loafer).is_some_and(|a| a.alarms.iter().any(|x| x.owner == own && x.cause == Cause::Ally)));
+    assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::Assists { helper, victim, attacker } if *helper == loafer && *victim == player && *attacker == own)));
+    assert_eq!(g.teammates_assist(), 0, "once");
+    // Friendly fire: an ally of the player; with SetIgnoreFriendlyHits every hit passes.
+    g.extra.entry(loafer).or_default().ignore_friendly_hits = true;
+    for _ in 0..10 {
+        g.time += 1.0;
+        assert!(!g.attacked_by(loafer, player));
+    }
+    assert!(!g.would_attack(loafer, player));
+}
+
+#[test]
+fn open_teammate_container_asks_for_the_teammates_inventory() {
+    // [documented: GECK wiki OpenTeammateContainer] only on teammates unless the flag is 1.
+    const OPEN_TEAMMATE_CONTAINER: u16 = 0x11C8;
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, OPEN_TEAMMATE_CONTAINER, LOAFER_REF, &[]);
+    assert!(g.teammate_containers.is_empty());
+    call(&mut g, OPEN_TEAMMATE_CONTAINER, LOAFER_REF, &[ArgValue::Value(Value::Num(1.0))]);
+    assert_eq!(g.teammate_containers, vec![FormId(LOAFER_REF)]);
+    g.teammate_containers.clear();
+    g.extra.entry(FormId(LOAFER_REF)).or_default().teammate = true;
+    call(&mut g, OPEN_TEAMMATE_CONTAINER, LOAFER_REF, &[]);
+    assert_eq!(g.teammate_containers, vec![FormId(LOAFER_REF)]);
+}

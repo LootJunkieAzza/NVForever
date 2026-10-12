@@ -78,6 +78,21 @@ pub struct OpenBarter {
     pub discount: i32,
 }
 
+/// The teammates' inventories scripts asked for (OpenTeammateContainer,
+/// `fnv_game::followers`), as [`OpenContainer`] once no conversation holds the game: the
+/// calls are in result scripts of companions' lines [design: the container menu opens
+/// only while playing, so it waits for the conversation to end].
+fn scripts_open_teammate_containers(state: Res<State<PlayState>>, script: Option<ResMut<crate::script::ScriptState>>, mut out: MessageWriter<OpenContainer>) {
+    if *state.get() != PlayState::Playing {
+        return;
+    }
+    let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
+    for r in std::mem::take(&mut rt.game.teammate_containers) {
+        info!("menu: a script opens {}'s inventory (OpenTeammateContainer)", rt.game.data.name(r));
+        out.write(OpenContainer { container: r.0 });
+    }
+}
+
 /// The player's Barter skill when the script runtime cannot say (no scripts): every
 /// skill of a new character [observed: actor-values.md §7, the player's skills all 15].
 const DEFAULT_BARTER_SKILL: f32 = 15.0;
@@ -138,6 +153,7 @@ impl Plugin for MenuPlugin {
                     test_aid::run_drops,
                     test_aid::run_barter,
                     scripts_open_barter,
+                    scripts_open_teammate_containers,
                     open_menus,
                     keep_menu_state,
                     (menu_keys, menu_mouse, apply_input).chain().run_if(menu_open),

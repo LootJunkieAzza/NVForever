@@ -381,7 +381,8 @@ impl Game<'_> {
                 }
             }
         }
-        joined
+        // The player's teammates take up the player's fights (`crate::followers`).
+        joined + self.teammates_assist()
     }
 }
 

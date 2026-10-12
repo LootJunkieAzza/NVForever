@@ -504,6 +504,23 @@ impl Game<'_> {
         if self.awareness.forced.contains(&(actor, other)) || self.provocations.holds(actor, other) {
             return true;
         }
+        // The player's teammates "act and react as if in the player faction for the
+        // purposes of combat. Other actors will treat the actor as if he were in the
+        // player faction" [documented: GECK wiki SetPlayerTeammate]: a teammate never
+        // attacks the player or another teammate; others attack a teammate when they would
+        // attack the player; a teammate attacks whoever would attack the player, and
+        // whoever its own records say [design: the companion keeps its own enmities, as
+        // Boone's for the Legion] (`crate::followers`).
+        let (mate, other_mate) = (self.is_teammate(actor), self.is_teammate(other));
+        if mate && (other_mate || other == FormId::PLAYER_REF) {
+            return false;
+        }
+        if other_mate {
+            return self.would_attack(actor, FormId::PLAYER_REF);
+        }
+        if mate && self.would_attack(other, FormId::PLAYER_REF) {
+            return true;
+        }
         if other == FormId::PLAYER_REF {
             if self.extra.get(&actor).is_some_and(|e| e.teammate) {
                 return false;

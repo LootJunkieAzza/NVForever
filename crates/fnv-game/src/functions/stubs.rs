@@ -52,7 +52,6 @@ pub const ASSIGNED: &[(u16, &str)] = &[
     (0x11AC, COMBAT), // GetPlantedExplosive
     (0x119F, COMBAT), // Exists (combat dialogue)
     (0x124E, CRIME),  // GetOwnerLastTarget
-    (0x11C8, FOLLOWERS), // OpenTeammateContainer
 ];
 
 /// Stubs whose system exists, left for a later round; the text says what is missing.

@@ -563,7 +563,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1223, "ForceTerminalBack", Impl(ui::force_terminal_back)),
         (0x125A, "ShowCaravanMenu", Stub("menus (Caravan)")),
         (0x125B, "AddCardToPlayer", Stub("Caravan")),
-        (0x11C8, "OpenTeammateContainer", Stub("menus (companion inventory)")),
+        (0x11C8, "OpenTeammateContainer", Impl(crate::followers::open_teammate_container)),
         (0x1219, "AddSPECIALPoints", Impl(ui::add_special_points)),
         (0x1218, "SetSPECIALPoints", Impl(ui::set_special_points)),
         (0x117A, "ShowRepairMenu", Stub("menus (repair)")),

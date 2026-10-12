@@ -117,6 +117,7 @@ const P_TO_CHAIR: u32 = 0x82D;
 const P_SLEEP_C: u32 = 0x82E;
 const P_STEADY: u32 = 0x82F;
 const P_ACCOMPANY: u32 = 0x830;
+const P_WITH_PLAYER: u32 = 0x831;
 // Bases.
 const N_TRAVEL: u32 = 0x840;
 const N_IN: u32 = 0x841;
@@ -134,6 +135,7 @@ const N_TO_CHAIR: u32 = 0x84C;
 const N_SLEEP_C: u32 = 0x84D;
 const N_STEADY: u32 = 0x84E;
 const N_DOG: u32 = 0x84F;
+const N_COMPANION: u32 = 0x850;
 // Cells and references.
 const CELL_A: u32 = 0x860;
 const CELL_B: u32 = 0x861;
@@ -167,6 +169,7 @@ const R_HERE: u32 = 0x886;
 const R_RUN: u32 = 0x887;
 const R_STEADY: u32 = 0x888;
 const R_DOG: u32 = 0x889;
+const R_COMPANION: u32 = 0x89B;
 const DOOR_A: u32 = 0x8D1;
 const DOOR_B: u32 = 0x8D2;
 
@@ -211,6 +214,7 @@ fn plugin_bytes() -> Vec<u8> {
         pack(P_SLEEP_C, "SleepInC", 0, SLEEP, (1, CELL_C, 0), None),
         pack(P_STEADY, "TravelToBInCombat", flags::MUST_REACH_LOCATION | flags::CONTINUE_DURING_COMBAT, TRAVEL, (0, MARK_B, 0), None),
         accompany(P_ACCOMPANY, "AccompanyTheTraveller", R_TRAVEL, 128),
+        accompany(P_WITH_PLAYER, "AccompanyThePlayer", 0x14, 256),
     ]
     .concat();
     let npcs = [
@@ -232,6 +236,7 @@ fn plugin_bytes() -> Vec<u8> {
         // ACBS flag "No Low Level Processing" (bit 9).
         record(b"NPC_", N_STEADY, &[sub(b"EDID", z("Courier")), sub(b"ACBS", [0x200u32.to_le_bytes().to_vec(), vec![0; 20]].concat()), sub(b"PKID", P_STEADY.to_le_bytes().to_vec())]),
         npc(N_DOG, "Dog", &[P_ACCOMPANY]),
+        npc(N_COMPANION, "Companion", &[P_WITH_PLAYER]),
     ]
     .concat();
     // Furniture: a chair (marker flags bit 30) and a bed (bit 31); an idle marker with
@@ -265,6 +270,7 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_RUN, "RunnerRef", N_RUN, START, None),
         placed(b"ACHR", R_STEADY, "CourierRef", N_STEADY, START, None),
         placed(b"ACHR", R_DOG, "DogRef", N_DOG, [150.0, 50.0, 0.0], None),
+        placed(b"ACHR", R_COMPANION, "CompanionRef", N_COMPANION, [250.0, 50.0, 0.0], None),
     ]
     .concat();
     let b_refs = placed(b"REFR", MARK_B, "MarkB", STAT, [5250.0, 5250.0, 50.0], None);
@@ -611,6 +617,44 @@ fn an_accompanying_actor_follows_its_target_through_a_door() {
     let follows = ev.iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count();
     s.run(20.0);
     assert_eq!(s.events(R_DOG).iter().filter(|e| matches!(e, AiEvent::Follow { .. })).count(), follows);
+}
+
+/// The player's teammate is brought along when the player changes cells (SetPlayerTeammate,
+/// "Changing cells will teleport the teammate to the player"; docs/design/followers.md).
+#[test]
+fn a_teammate_following_the_player_is_brought_along_to_another_cell() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_COMPANION]);
+    let (mate, player) = (FormId(R_COMPANION), FormId::PLAYER_REF);
+    {
+        let p = s.game.world.get(player).unwrap();
+        (p.cell, p.pos, p.rot) = (Some(FormId(CELL_A)), [100.0, 50.0, 0.0], [0.0; 3]);
+    }
+    s.run(1.0);
+    assert!(s.game.follows_player(mate));
+    let move_to = |s: &mut Sim, marker: u32| {
+        let opcode = s.game.data.table.by_name("MoveTo").unwrap();
+        let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode, on: Some(player), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        s.game.call_function(&ctx, &[fnv_script::vm::ArgValue::Value(fnv_script::vm::Value::Ref(marker))]);
+    };
+    // Not a teammate: it stays (and its package sends it after the player on foot).
+    move_to(&mut s, MARK_B);
+    assert_eq!(s.game.world.peek(mate).map_or(Some(FormId(CELL_A)), |m| m.cell), Some(FormId(CELL_A)));
+    assert!(s.game.brought_along.is_empty());
+    // A teammate: put beside the player in cell B, and the AI takes it up from there.
+    s.game.extra.entry(mate).or_default().teammate = true;
+    move_to(&mut s, MARK_B);
+    let st = s.game.world.peek(mate).unwrap();
+    assert_eq!(st.cell, Some(FormId(CELL_B)));
+    assert!((dist(st.pos, [5250.0, 5250.0, 50.0]) - fnv_game::followers::BESIDE).abs() < 1.0, "{:?}", st.pos);
+    assert!(s.game.brought_along.contains(&mate));
+    s.ai.moved_by_scripts(&mut s.game);
+    assert_eq!(s.ai.agents[&mate].walker.space, B);
+    s.run(2.0);
+    assert!(s.game.follows_player(mate));
+    // Dead, it is no teammate any more and stays where it fell.
+    s.game.kill(mate, None);
+    assert!(!s.game.is_teammate(mate) && !s.game.extra[&mate].teammate);
 }
 
 // ---- patrol waits, package furniture, sandboxes -------------------------------------------
