@@ -1171,6 +1171,62 @@ expect = [
   { re = 'ragdolls: (?P<n>\d+) started', range = [9, 1000], label = "ragdolls: the village's nine corpses or more dropped" },
 ]
 
+# ------------------------------------------------------------------ script stubs
+
+[[scenario]]
+name = "script-stubs"
+kind = "tool"
+source = "docs/design/script-stubs.md §1-§2: the audit of the stubbed script functions over the ten masters"
+areas = ["scripts", "stubs"]
+paths = ["crates/fnv-game/src/functions/mod.rs", "crates/fnv-game/src/functions/stubs.rs", "crates/fnvtool/src/script_cmd.rs"]
+commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"]]
+# The counts of script-stubs.md §1 (a function implemented later lowers them: update the
+# doc's tables and these together). Karma and crime (claude/karma-crime) implemented six
+# stubs (SendAssaultAlarm, SendTrespassAlarm, GetTrespassWarningLevel, IsTrespassing,
+# GetAlarmed, GetMajorCrimeCount: 100 calls, 32 condition uses) and the unregistered GetIsAlignment.
+expect = [
+  { json = "summary.stubs", equals = 88 },
+  { json = "summary.by_status.assigned", equals = 17 },
+  { json = "summary.by_status.implementable", equals = 10 },
+  { json = "summary.by_status.needs_system", equals = 61 },
+  { json = "summary.by_status.no_op", equals = 4 },
+  { json = "summary.by_workstream.E2 combat AI", equals = 15 },
+  { json = "summary.by_workstream.J karma and crime", equals = 1 },
+  { json = "summary.by_workstream.H followers", equals = 1 },
+  { json = "summary.stub_calls", equals = 1452 },
+  { json = "summary.stub_condition_uses", equals = 623 },
+  { json = "summary.unhandled_used", equals = 4 },
+]
+
+[[scenario]]
+name = "script-stubs-play"
+source = "docs/design/script-stubs.md §3: Look and StopLook on Sunny (10 s apart), a held SetWeather and its release, ForceActiveQuest on the Pip-Boy (the test aid call:)"
+areas = ["scripts", "stubs", "weather", "pipboy"]
+paths = [
+  "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-game/src/functions/ui.rs",
+  "crates/fnv-game/src/weather.rs", "engine/nvforever/src/script_look.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:SunnyRef:Look:player,8:call:-:SetWeather:0x000E3792:1,10:call:-:ReleaseWeatherOverride,14:call:SunnyRef:StopLook,15:objective:VCG02:3,15.5:call:-:ForceActiveQuest:VCG02", NVF_PLAY_TEST_PIPBOY = "22:open,23:page=data,25:close" }
+# --no-messages: the add-on start-up boxes, late on a loaded machine, kept the Pip-Boy
+# from coming up once.
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 28
+# StopLook comes 10 s after Look: aids due while the start-up loading screen is up run
+# together in its first frame (a loaded machine kept it up past 10 s once), and a Look
+# taken back in the same frame is never drawn.
+order = [
+  [
+    { re = 'script look: .* looks at ', label = "script look: Sunny looks at the player" },
+    { re = 'script look: .* stops looking', label = "script look: Sunny stops looking" },
+  ],
+  [
+    { re = 'weather: \S+ by a script \(fading in, held until released\)', label = "weather: SetWeather 0x000E3792 1, held" },
+    "weather: a script releases its weather",
+    { re = 'pipboy data: active quest .* \(ForceActiveQuest\)', label = "pipboy data: VCG02 made the active quest" },
+  ],
+]
+expect = ["script look summary: 1 looks started, 1 stopped"]
+
 # ------------------------------------------------------------------ aid items (docs/spec-notes/aid-items.md)
 
 [[scenario]]

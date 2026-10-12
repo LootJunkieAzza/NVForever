@@ -389,7 +389,7 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
                 }
                 Op::Done => {
                     if let lists::Sheet::Tags { now, .. } = &m.sheet {
-                        info!("chargen: Done refused: {} of {} skills tagged", now.tagged.len(), rules::TAG_COUNT);
+                        info!("chargen: Done refused: {} of {} skills tagged", now.tagged.len(), now.count);
                     }
                 }
                 _ => {}

@@ -28,6 +28,9 @@ pub enum Access {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Terminals {
     pub access: BTreeMap<FormId, Access>,
+    /// ForceTerminalBack was called by the result script running now
+    /// ([`choose`] hands it on as [`Chosen::back`]).
+    pub back: bool,
 }
 
 /// What activating a terminal does.
@@ -105,6 +108,9 @@ pub struct Chosen {
     pub submenu: Option<FormId>,
     /// INAM, the note shown in the screen.
     pub note: Option<FormId>,
+    /// The item's result script called ForceTerminalBack: the terminal goes back one
+    /// level, or closes from its top level [documented: GECK wiki ForceTerminalBack].
+    pub back: bool,
 }
 
 /// The player chooses item `item` of terminal `base` at reference `reference`: its result
@@ -113,6 +119,7 @@ pub struct Chosen {
 pub fn choose(g: &mut Game, reference: FormId, base: FormId, item: usize) -> Option<Chosen> {
     let data = g.data;
     let it = data.terminals.get(&base)?.items.get(item)?;
+    g.terminals.back = false;
     if let Some(u) = it.unit {
         g.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(reference) });
         g.run_result(u, RunCtx { self_ref: Some(reference), action_ref: Some(FormId::PLAYER_REF), quest: None });
@@ -122,7 +129,8 @@ pub fn choose(g: &mut Game, reference: FormId, base: FormId, item: usize) -> Opt
             g.player.notes.insert(n);
         }
     }
-    Some(Chosen { result: it.result.clone(), submenu: it.submenu, note: it.note })
+    let back = std::mem::take(&mut g.terminals.back);
+    Some(Chosen { result: it.result.clone(), submenu: it.submenu, note: it.note, back })
 }
 
 /// The server line of the header: "-Server 1-" to "-Server 10-" [documented: xEdit
