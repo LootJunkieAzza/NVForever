@@ -60,7 +60,8 @@ pub struct ScriptHud {
 impl ScriptHud {
     /// A message box was shown: remember its text for when it reaches the front.
     pub fn message_box(&mut self, b: BoxMessage) {
-        info!("message box shown: {} {:?}", b.text.replace('\n', " / "), b.buttons);
+        // One log line: the text's CR LF line ends (MESG DESC) would split it.
+        info!("message box shown: {} {:?}", b.text.replace("\r\n", "\n").replace(['\r', '\n'], " / "), b.shown().iter().map(|(_, t)| *t).collect::<Vec<_>>());
         self.shown.insert(b.message, b);
     }
 
@@ -74,6 +75,7 @@ impl ScriptHud {
             message: message.0,
             text: def.and_then(|d| d.text.clone()).unwrap_or_else(|| format!("(message {message})")),
             buttons: def.map(|d| d.buttons.clone()).unwrap_or_default(),
+            hidden: Vec::new(),
         }
     }
 
@@ -164,12 +166,13 @@ fn spawn(mut commands: Commands) {
     ));
 }
 
-/// The box's buttons as drawn: its own, or OK for a box without any.
+/// The box's buttons as drawn: its own whose conditions held, or OK for a box without
+/// any.
 pub fn box_buttons(b: &BoxMessage) -> Vec<String> {
     if b.buttons.is_empty() {
         vec!["OK".into()]
     } else {
-        b.buttons.clone()
+        b.shown().into_iter().map(|(_, t)| t.to_string()).collect()
     }
 }
 
@@ -316,12 +319,14 @@ pub fn menu_keys(
     let pads = [Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, Numpad8, Numpad9];
     let picked = (0..9).find(|&i| keys.just_pressed(digits[i]) || keys.just_pressed(pads[i])).or(clicked).or(enter.then_some(panel.selected));
     let Some(front) = script.rt.as_ref().and_then(|rt| rt.game.boxes.first().copied()) else { return };
-    let buttons = hud.box_view(front, &script).buttons.len();
-    if buttons == 0 {
+    // The drawn buttons are those whose conditions held: the n-th drawn one answers with
+    // its index in the record (GetButtonPressed).
+    let view = hud.box_view(front, &script);
+    if view.buttons.is_empty() {
         if picked == Some(0) || keys.just_pressed(Space) {
             script.answer(None, "OK");
         }
-    } else if let Some(i) = picked.filter(|&i| i < buttons) {
+    } else if let Some((i, _)) = picked.and_then(|p| view.shown().get(p).copied()) {
         script.answer(Some(i as i32), "key");
     }
 }

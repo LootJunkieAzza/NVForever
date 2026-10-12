@@ -766,7 +766,8 @@ impl Runtime {
                 let m = resolve(g, m)?;
                 let def = g.data.messages.get(&m).ok_or_else(|| format!("{} is not a message", g.data.name(m)))?;
                 let (text, buttons, is_box) = (def.text.clone(), def.buttons.clone(), def.message_box);
-                g.emit(EventKind::MessageShown { message: m, text, buttons: buttons.clone() });
+                let hidden = g.hidden_buttons(m, None);
+                g.emit(EventKind::MessageShown { message: m, text, buttons: buttons.clone(), hidden });
                 if is_box || !buttons.is_empty() {
                     g.show_box(m);
                 }
@@ -1401,8 +1402,9 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::QuestStopped { quest } => debug!("script: quest {} stopped", n(*quest)),
         EventKind::ObjectiveDisplayed { quest, index, on } => info!("script: {} objective {index} displayed {on}", n(*quest)),
         EventKind::ObjectiveCompleted { quest, index, on } => info!("script: {} objective {index} completed {on}", n(*quest)),
-        EventKind::MessageShown { message, text, buttons } => {
-            info!("script: message {} {:?}{}", n(*message), text.as_deref().unwrap_or(""), if buttons.is_empty() { String::new() } else { format!(" buttons {buttons:?}") })
+        EventKind::MessageShown { message, text, buttons, hidden } => {
+            let hidden = if hidden.is_empty() { String::new() } else { format!(" (hidden by their conditions: {hidden:?})") };
+            info!("script: message {} {:?}{}{hidden}", n(*message), text.as_deref().unwrap_or(""), if buttons.is_empty() { String::new() } else { format!(" buttons {buttons:?}") })
         }
         EventKind::RefEnabled { reference } => info!("script: {} enabled", n(*reference)),
         EventKind::RefDisabled { reference } => info!("script: {} disabled", n(*reference)),

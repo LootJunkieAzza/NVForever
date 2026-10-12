@@ -14,11 +14,12 @@ pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     let m = a.form(0)?;
     let def = g.data.messages.get(&m).ok_or_else(|| format!("{} is not a message", g.data.name(m)))?;
     let (text, buttons, is_box) = (def.text.clone(), def.buttons.clone(), def.message_box);
+    let hidden = g.hidden_buttons(m, ctx.self_ref);
     if !buttons.is_empty() {
         let owner = Some(MessageBox::owner_of(ctx.inst, &ctx.unit));
         g.message_box = Some(MessageBox { message: m, buttons: buttons.len(), pressed: None, owner });
     }
-    g.emit(EventKind::MessageShown { message: m, text, buttons: buttons.clone() });
+    g.emit(EventKind::MessageShown { message: m, text, buttons: buttons.clone(), hidden });
     // A message box (MESG flag Message Box, or buttons) is a menu until the player closes
     // it [observed: MenuMode 1001 while the pack plugins' boxes were open,
     // layer5-captures.md §10.1]; other messages are corner notifications.

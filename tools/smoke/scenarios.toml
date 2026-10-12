@@ -1654,3 +1654,44 @@ forbid = [
   { re = 'npc combat: CraigBooneREF \S+ fights the player', label = "Boone fights the player" },
   { re = 'provocation: CraigBooneREF .*fights back', label = "Boone turns on the player" },
 ]
+
+# ------------------------------------------------------------------ playtest list 4: dialogue and message boxes
+
+[[scenario]]
+name = "voice-opening"
+source = "owner playtest list 4 item 1: Doc Mitchell's opening lines are voiced (docs/spec-notes/voice.md; nvf-play voice.rs speaker_place)"
+areas = ["voice", "dialogue"]
+paths = ["engine/nvf-play/src/voice.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--play", "--new-game"]
+run_seconds = 30
+expect = [
+  { re = 'voice: playing \S+vcg01_vcg01intro_00104bee_1\.ogg \([\d.]+ s\) DocMitchellREF line 0x00104BEE response 1 at \d+ units, gain [\d.]+$', label = "Doc Mitchell's first opening line heard where he stands" },
+  { re = 'voice summary: \d+ responses started with a file, \d+ without one, 0 started out of the player.s hearing' },
+]
+
+[[scenario]]
+name = "message-button-conditions"
+source = "owner playtest list 4 item 4: message box buttons whose conditions fail are not shown (Doc Mitchell's chemistry set and broken 9mm SMG need Science / Repair 25; the player has 15)"
+areas = ["messages", "menus"]
+paths = ["crates/fnv-game/src/functions/misc.rs", "engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/script_events.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.5", NVF_PLAY_TEST_SCRIPT = "3:activate:scripted:GSChemistrySetScript,6:activate:scripted:GSBrokenSMGScript" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 12
+order = [[
+  { re = 'script: message GSChemistrySetMsg .* \(hidden by their conditions: \[1, 2\]\)' },
+  { re = 'message box shown: .* \["Leave it alone\."\]$' },
+  { re = 'script: message GSBrokenSMGMsg .* \(hidden by their conditions: \[1\]\)' },
+]]
+
+[[scenario]]
+name = "goodbye-after-caravan"
+kind = "tool"
+source = "owner playtest list 4 item 22: Johnson Nash's topic list ends with a Goodbye; a Goodbye line with an end script (CaravanOffer) does not hold the generic GOODBYE back (fnv-game dialogue.rs build_choices)"
+areas = ["dialogue"]
+paths = ["crates/fnv-game/src/dialogue.rs"]
+commands = [["dialogue", "talk", "--schema", "schemas/fnv", "--actions", "tools/smoke/actions/nash-goodbye.actions.json", "{data}", "FalloutNV.esm"]]
+expect = [
+  { json = "events.?kind=choices_offered.choices.*.topic_edid", equals = "CaravanOffer" },
+  { json = "events.?kind=choices_offered.choices.*.topic_edid", equals = "GOODBYE" },
+]
