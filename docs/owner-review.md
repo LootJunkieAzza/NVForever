@@ -3869,3 +3869,183 @@ lockpick, cook-cook-camp, dead-on-spawn), except `house-items` and `ui-sounds`: 
 their container or inventory step fell while an add-on's start-up message box was open
 ("menu request ignored: a menu is already open"), a different step each run; not caused by
 these changes (they only add a message after a container command).
+
+## Far-world leftovers: corpses respawning, their stored poses, the Low process level (2026-10-12, session "far-world-2")
+
+Handoff item 5 (docs/handoff/playtest-2026-10-12.md §4), the leftovers of PR #233.
+
+1. **Corpses' Respawn flag.** Built as a cell reset (`fnv_game::respawn`,
+   docs/spec-notes/dead-on-spawn.md §4): when a cell comes back into the loaded cells
+   after `iHoursToRespawnCell` (72 h) away, its dead actors whose base has Respawn are
+   recreated alive at their authored place. The village's seven Fiends and the burned
+   bodies around it have the flag and come back. Scenario `corpse-respawn`.
+   *Decision:* "recreated" read as starting again as authored: actor values, damage,
+   killer, script-set factions and packages dropped; inventory rolled again.
+   *Decision:* the wiki says such a corpse "will respawn alive after 3 days with 0 HP";
+   they come back with full health (alive at 0 health means nothing here).
+   *Decision:* the visit is the game's loaded cells (the player's cell and the 5 × 5 around
+   it); the clock starts when a cell leaves them. *Decision:* respawning containers in a
+   reset cell refill too (the `fnv_sim` code for it existed and was never called).
+   *Guess:* killed leveled-spawn creatures with the flag come back too (cazadors at the
+   village did in the test run). *Not done:* encounter zones' "Never Resets", removing the
+   bodies of killed non-respawning actors at a reset, ResetInterior.
+   *Check:* kill the village Fiends' neighbours or leave the corpses, go far away (more
+   than two cells), wait or sleep three days, come back: the Fiends stand again; a corpse
+   without the flag (e.g. `DeadGhoul2`) stays dead.
+
+2. **The poses the designers left the bodies in.** Found: placed corpses carry `XRGD`
+   "Ragdoll Bones", the pose the GECK's Havok Sim left (dead-on-spawn.md §5 says how each
+   entry maps to a bone and which rotation convention fits, all observed on the 278 human
+   corpses of FalloutNV.esm). A corpse laid out by a new game is now put in that pose at
+   rest instead of falling from its death pose; in the village 16 bodies lay in their
+   stored pose, flat on the ground next to their blood decals. *Guess:* the root entry's
+   rotation is relative to the reference's (the reading under which most bodies fell
+   backwards; the alternatives put heads every way or all to one side). *Not checked:* no
+   capture of the original's bodies was taken (the owner is away); creature corpses use
+   the same rule untested beyond the entry count; clutter skeletons' `XRGD` (REFR) are not
+   posed. *Check:* the tribal village and other placed corpses (Forlorn Hope's dead
+   troopers, the dead brahmin): do they lie as in the original?
+
+3. **The 120 s Low process level.** The AI now has three levels (`fnv_ai::process`,
+   actor-behaviour.md §5.9): the loaded area (every frame), the **cell buffer** (every
+   18 s) and beyond it (every 120 s). *Guess:* the buffer is the 36 exterior cells drawn
+   most recently (the 25 drawn now among them) and the 3 interiors visited last, from your
+   Fallout_default.ini (`uExterior Cell Buffer=36`, `uInterior Cell Buffer=3`); how the
+   original fills and empties it is not documented. *Decision:* the original's Mid-Low
+   (interiors behind the doors of the drawn exterior cells: Chet's store, the saloon seen
+   from Goodsprings) has an "unknown" rate; here they get the Mid-High 18 s.
+   *Decision:* an actor walking out of the loaded area (or on into another cell) takes
+   that cell into the buffer, and a follower is kept at Mid-High while its leader is at
+   Mid-High or above: without this Sunny, running to the wells through cells never drawn,
+   fell to 120 s updates at once and Cheyenne was left 1,066 units behind (`sunny-wells`). Scenarios `far-actors` (now flying at 400 units/s: at 1500 the cells leave
+   the buffer within seconds) and `far-actors-low`. *Check:* nothing visible should change;
+   after a long trip, residents of far places are where their packages would have them.
+## Smoke failures on main explained (2026-10-12, workstream "fixes")
+
+All four were timing on a loaded machine (3-4 agents building, the game at 5-15 frames a
+second), not a feature broken by the merges #225-#236. Runs: `C:\fnv-private\scratch\fixes\`.
+
+1. **detection-game** (detection.md §5). *Cause [observed]:* not a regression: the build of
+   dfb60896 (the merge that added detection) fails the same way here, as do 3570ebfc and
+   main ec6aaaf0. The settler GSSettlerAM 00104F0A turns into sight at about 12:04-12:05 game
+   time; the shot is at 22 s on the test aids' clock. Two things held the game clock back
+   against that clock: the add-on packs' twelve start-up message boxes (with
+   `NVF_PLAY_TEST_SCRIPT_MENUS=1` each holds the game about 1 s) and, below 7.5 frames a
+   second, two frame caps: physics ran at most 8 steps of 1/60 s a frame and the residents'
+   AI capped its frame at 0.1 s, so actors walked and turned slower than the game clock
+   passed. The shot then fell at about 12:02-12:03 and the settler noticed only after it.
+   *Fixed:* play now runs physics steps for a whole frame of the virtual clock (0.25 s,
+   `nvf_play::phys::play_params`) and the residents use the frame time up to the same 0.25 s
+   (engine bug since 2026-10-10); the scenario passes `--no-messages` (#241), so the
+   start-up boxes close on the frame they open. Passes now; mark removed.
+   *Decision:* furniture.rs, idles.rs and nav.rs (travellers) still cap at 0.1 s; left as
+   they are (animation and the headless travel walk). *Check:* NPCs walk at their speed
+   when the frame rate is low.
+2. **quest-messages.** *Cause [observed]:* the scripts were ready 10-20 s after launch, so
+   the steps at 3, 9 and 9.1 s all ran in the scripts' first frame; the objective was
+   completed while still waiting to be shown (shown once, completed: quest-messages.md §5,
+   by design, not a queue bug). *Fixed:* when the scripts first run after the first timed
+   `NVF_PLAY_TEST_SCRIPT` step, every timed step comes that much later, keeping their
+   distances (`script_events::delay_late_aids`, unit-tested); steps gated on a quest stage
+   are left alone, nothing moves when the scripts are ready in time. Passes; marks removed.
+3. **ui-sounds "24 played".** *Cause [observed]:* the 24 of 2026-10-11 (rebuilt b5ff0244 and
+   ran it: 24) include the `NVF_PLAY_TEST_MENU` aid's inventory pass (open, a row selected:
+   UIPipBoyScroll, a jumpsuit put on, close). On a loaded machine that pass ran into the
+   start-up boxes ("menu request ignored: a menu is already open") and its four sounds were
+   lost (20 played). *Fixed:* the menu aid's steps that open a menu wait while a script's
+   box is up or the scripts load, and ask for the inventory again if it did not open; the
+   scenario passes `--no-messages`. Now 23 with every step done: one UIPipBoyScroll short,
+   because since the Pip-Boy ITEMS page (#213) the pass sees the Weapons tab, whose first row
+   (the weapon it puts on) is already selected, so no selection move is heard.
+   *Decision:* kept known-failing with that reason (not changed to 23). *Check:* whether the
+   expectation should become 23.
+4. **house-items** (from the coordinator, same family): the container step met an add-on
+   box. Now `--no-messages` and its own launch (corner-messages keeps the boxes). Its older
+   known failure (the BB Gun dropped, not clothing) is unchanged.
+5. **Grading varies between launches:** *Observed:* the "warm" frame `gs-day-van.png` was
+   taken with the overlay text on; below the text (rows 120-720) its mean colour equals the
+   other two frames' to 0.1 (92.6, 83.7, 64.9) and a difference picture shows only clouds,
+   grass and a bird moving. No nondeterminism found in the weather choice (highest chance,
+   ties to the first). No further runs made (owner asked to cut usage).
+6. **ai-packages / ai-reach figures:** not done. *Hypothesis:* most of the +1,332 pairs come
+   from c830f7ee (#190, package lists through leveled actor lists: its own message counts
+   +837 pairs on FalloutNV.esm alone); not measured.
+
+Tests: nvf-play unit tests (261), engine clippy; smoke (one pass, final build):
+detection-game PASS, quest-messages PASS, house-items KNOWN, ui-sounds KNOWN; an earlier pass
+on this branch: residents, sleep-novac, wait-residents, held-player, corner-messages,
+sunny-wells, sunny-gas-station, aid-items, push, npc-travel all PASS.
+## Combat AI: fleeing, cover, groups and searching (2026-10-12, session "e2")
+
+List 2's combat item ("fight, flee, take cover, assist allies … fights between NPCs at
+scale … work together … spreading out to find the enemy, alerting their friends").
+Details and sources: docs/design/combat-ai.md §12. The GECK wiki's points come first; what
+is our own design is said so.
+
+1. **Fleeing** (wiki: Confidence, Combat Flee). A hurt fighter checks now and then
+   whether its side is outmatched (its group's health × damage per second against the
+   foes', and its own when its combat style says "personal survival"), against its
+   confidence. Failing, it says its Flee line and runs: through a door near it, to cover
+   away from the attacker, or straight away. At the spot it waits; hurt again or cornered
+   (an enemy within 512 units) its confidence goes up a level and it fights or flees on.
+   Frenzied actors never flee. *Guess:* after fCombatFleeWaitTime (30 s) at the spot it
+   checks again (the wiki lists the setting without saying what it does); the choice among
+   several doors or covers is nearest first; armour is not counted in the strengths yet.
+   *Check:* shoot a Goodsprings bighorner once: it runs off behind cover and stays there;
+   walk up to it: it should turn on you or run on.
+2. **Cover** (wiki: Combat Style cover chance and timers). Every 10 s a gunman rolls its
+   style's Take Cover Chance; using cover, it finds a spot behind something its target is
+   beyond (navmesh cover edges, checked with a sight ray), hides for the style's Wait
+   Timer, steps out to a peek point, fires for the Fire Timer, and ducks back.
+   *Decision:* never more than 1,024 units from where it stands (the styles' radii had
+   troopers run 2,000 units mid-fight). *Guess:* what the navmesh's cover field means
+   (we use the cover triangles' outer edges and confirm with a ray; the cover height is not
+   read, and NPCs do not crouch). *Check:* in the NCR–Fiend fight below, troopers should
+   run behind rocks and pop out to shoot; tell me if they look silly (too far, wrong side).
+3. **Groups working together** (our design on the wiki's combat groups). Gunmen of one side
+   fighting one target spread round it (flank places 35° apart), and nobody fires while a
+   comrade stands in the line of fire: it steps aside. *Decision:* bystanders (brahmin)
+   do not stop a shot, only comrades and the player. *Check:* the troopers should fan out,
+   not queue in a line.
+4. **Alerting friends** (wiki: Confidence, Alarms; our design on top). An actor that starts
+   fighting calls its comrades within 2,048 units, unless its side clearly outmatches the
+   foe (the wiki's alarm confidence; its multiplier 3 is the wiki's example, no game
+   setting names it). *Decision:* an actor that only notices a hostile also calls them (your
+   "alerting their friends when they sense an enemy presence"); an alarm passed on is not
+   passed on again; the 2,048 units are my choice. *Check:* at Cook-Cook's camp, once one
+   Fiend notices you the whole camp goes on alert.
+5. **Searching together** (wiki: Combat Search). A hostile only glimpsed is searched for
+   midway between the searcher and it (the wiki's rule; before it was at the hostile).
+   Comrades searching for the same thing split the circle round it into sectors, three
+   search points each; after two complete searches (FalloutNV.esm's
+   iCombatTargetLostRemoveSearchCount) they give up unless they still glimpse you.
+   *Decision:* sectors stand in for the wiki's split of the navmesh by what each cannot
+   see. *Check:* sneak and fire near the camp: the Fiends should fan out, not walk to one
+   spot together.
+6. **NPC against NPC.** A hit by another actor now makes the victim fight back as your hits
+   do, except stray hits between comrades and between two actors both fighting someone
+   else (your exception from list 1, for everyone).
+   **Changed rule, please confirm:** actors sharing a faction never fight each other (an
+   earlier engineering choice). The NCR and the Fiends both sit in GeneralIdleFaction, so
+   they were at peace; their own factions do not name each other at all (neutral both
+   ways in FalloutNV.esm), and the Fiends are Very Aggressive, so the game has them attack
+   NCR on sight. *Decision:* a shared faction no longer counts when either side's
+   factions name the other an enemy, and a shared faction that names no reactions (a
+   utility faction such as GeneralIdleFaction) only counts when one of the two has no
+   faction that does. *Check:* NCR patrols near Fiend ground should fight them; no new
+   fights among townsfolk and their animals.
+7. **Watching fights at scale.** Test aids: `NVF_PLAY_TEST_SCRIPT=<s>:moveto:<ref>:player:x:y:z`
+   moves any actor next to you; `NVF_PLAY_TEST_UNSEEN=1` makes you invisible to everyone.
+   Every fight logs `battle: X killed by Y`, `battle over after … s` and a `battle summary`
+   (sides, hits, kills, flights, cover, flanks, alarms, searches, time). Smoke scenarios
+   `battle-ncr-fiends`, `combat-cover`, `allies-alerted` (one run: six NCR troopers moved
+   by Cook-Cook's camp), `combat-flee`, `group-search`. One run: 11 actors on 2 sides,
+   the Fiends won (3 of 5 standing, all six troopers dead), 61 and 33 hits, resolved in
+   62.5 s.
+8. **Hook for the crime workstream:** `Game::attacked_by` (provocation.rs) now hands hits
+   by actors other than the player to `Game::attacked_by_actor` (combat_group.rs), and
+   `reaction_to` uses the new `Game::kin`. Nothing else in provocation.rs changed.
+
+Not done (combat-ai.md §12.10): grenades and avoiding threats, NPC blocking, dodging and
+power attacks, combat barks other than Flee, Combat Radius and targeting FOV, healing in
+combat, cover on a Continue During Combat walk, armour in the threat ratio.

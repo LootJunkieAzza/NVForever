@@ -42,12 +42,12 @@
 //!   lets them fight each other].
 //!
 //! A grudge ends when its holder goes back to Normal, on StopCombat, and on an accepted
-//! yield. Hits by actors other than the player start no grudge (NPC-against-NPC fights
-//! are a later workstream; assistance covers allies of a victim).
+//! yield. Hits by actors other than the player go to `Game::attacked_by_actor`
+//! (`crate::combat_group`, NPC against NPC).
 
 use crate::awareness::{Cause, State};
 use crate::detection::Band;
-use crate::functions::actor::{actor_value, faction_relation, factions_of};
+use crate::functions::actor::{actor_value, faction_relation};
 use crate::game::Game;
 use fnv_sim::FormId;
 use std::collections::BTreeMap;
@@ -229,12 +229,7 @@ impl Game<'_> {
         if relation != NEUTRAL || actor == FormId::PLAYER_REF || other == FormId::PLAYER_REF {
             return relation;
         }
-        let base = |r: FormId| self.world.placed.get(r).map(|p| p.base);
-        if base(actor).is_some() && base(actor) == base(other) {
-            return ALLY;
-        }
-        let mine = factions_of(self, actor);
-        if !mine.is_empty() && factions_of(self, other).iter().any(|f| mine.contains(f)) {
+        if self.kin(actor, other) {
             return ALLY;
         }
         NEUTRAL
@@ -248,7 +243,11 @@ impl Game<'_> {
             return false;
         }
         self.provocations.attacked.insert(actor);
-        if by != FormId::PLAYER_REF || self.provocations.holds(actor, by) || self.would_attack(actor, by) {
+        // Hits by other actors: `crate::combat_group` (NPC against NPC).
+        if by != FormId::PLAYER_REF {
+            return self.attacked_by_actor(actor, by);
+        }
+        if self.provocations.holds(actor, by) || self.would_attack(actor, by) {
             return false;
         }
         let s = self.provocation_settings();

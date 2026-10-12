@@ -23,6 +23,7 @@
 //! - [`chargen`]: the character-creation menus' rules (name, S.P.E.C.I.A.L., tag skills, traits)
 //! - [`intro`]: the intro chain's units (coverage)
 //! - [`runner`]: `fnv.script.actions/1` → `fnv.script.trace/1`
+//! - [`respawn`]: cell resets: respawning actors back alive after `iHoursToRespawnCell`
 //! - [`voice`]: the hook that gives a dialogue response the length of its voice file
 //! - [`weather`]: the weather scripts ask for and the one the sky shows
 //!
@@ -35,6 +36,7 @@ pub mod anims;
 pub mod awareness;
 pub mod chargen;
 pub mod combat;
+pub mod combat_group;
 pub mod combat_style;
 pub mod cond;
 pub mod crime;
@@ -53,6 +55,7 @@ pub mod perks;
 pub mod provocation;
 pub mod quest;
 pub mod radio;
+pub mod respawn;
 pub mod rest;
 pub mod sound;
 pub mod runner;

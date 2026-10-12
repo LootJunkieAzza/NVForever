@@ -56,12 +56,14 @@
 //!   (default: the repository's `schemas/script/functions.json`).
 //! - `NVF_PLAY_TEST_SCRIPT=<when>:<op>[,...]`: stand-ins for Layer 6 and the player
 //!   ([`crate::script_events::ScriptAid`]; `<when>` is seconds after the start, or
-//!   `<seconds>@<quest>=<stage>`, seconds after the stage was first seen done):
+//!   `<seconds>@<quest>=<stage>`, seconds after the stage was first seen done; when the
+//!   scripts first run after the first timed step's time, the timed steps all come that
+//!   much later, [`script_events::delay_late_aids`]):
 //!   `start:<quest>`, `stop:<quest>`, `stage:<quest>:<n>`, `objective:<quest>:<n>`,
 //!   `objective_done:<quest>:<n>`, `info:<INFO>[:<speaker>]`, `button:<n>`, `close`,
 //!   `message:<MESG>`, `menu:<code>`,
 //!   `var:<form>:<variable>:<value>`, `walk:<reference>`, `activate:<reference>`,
-//!   `enable:<reference>`,
+//!   `enable:<reference>`, `combat:<actor>:<target>`, `moveto:<reference>:<marker>[:x:y:z]`,
 //!   `say_to:<speaker>:<target>:<topic>[:<noTargetLookFlag>]`.
 //! - `NVF_PLAY_TEST_SCRIPT_MENUS=<seconds>|off`: every menu or message box a script opens
 //!   is closed (OK / Done, button 0) after it has been on screen that long. Unattended
@@ -106,6 +108,8 @@ use std::time::Instant;
 pub const MENU_MESSAGE: u16 = menus::MESSAGE;
 /// The SayTo function's opcode [observed: schemas/script/functions.json].
 const SAY_TO: u16 = 0x1034;
+/// `MoveTo` [observed: schemas/script/functions.json, 0x109E].
+const MOVE_TO: u16 = 0x109E;
 /// `PlayGroup` [observed: activators.md §5].
 const PLAY_GROUP: u16 = 0x1013;
 /// The container menu [documented: GECK wiki MenuMode, as used in
@@ -204,6 +208,9 @@ pub struct ScriptState {
     pub off: Option<String>,
     trace: Option<TraceLog>,
     aids: Vec<TimedAid>,
+    /// The timed aids were looked at in a frame the scripts ran
+    /// ([`script_events::delay_late_aids`] then).
+    aids_started: bool,
     /// Gated aids: when each (quest, stage) was first seen done (seconds since start).
     gates: HashMap<(String, i32), f32>,
     /// `NVF_PLAY_TEST_SCRIPT_MENUS`: close a script's menu after this many seconds.
@@ -308,7 +315,7 @@ impl ScriptState {
             }
         });
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, used: Vec::new() }
+        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, used: Vec::new() }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -710,6 +717,12 @@ impl Runtime {
                 let (a, t) = (resolve(g, a)?, resolve(g, t)?);
                 g.start_combat(a, t);
             }
+            ScriptAid::MoveTo(r, m, off) => {
+                let (r, m) = (resolve(g, r)?, resolve(g, m)?);
+                let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: MOVE_TO, on: Some(r), self_ref: Some(r), action_ref: None, quest: None, inst: None, in_condition: false };
+                let args: Vec<ArgValue> = std::iter::once(ArgValue::Value(Value::Ref(m.0))).chain(off.iter().map(|v| ArgValue::Value(Value::Num(f64::from(*v))))).collect();
+                g.call_function(&ctx, &args);
+            }
             ScriptAid::Stop(q) => {
                 let q = resolve(g, q)?;
                 g.stop_quest(q);
@@ -1028,6 +1041,13 @@ fn time_multiplier(script: Res<ScriptState>, mut clock: ResMut<Time<Virtual>>) {
 /// first seen done.
 fn due_aids(st: &mut ScriptState, now: f32) -> Vec<ScriptAid> {
     let Some(rt) = st.rt.as_ref() else { return Vec::new() };
+    // The first frame the scripts run: steps already due then (the script data took
+    // long to load) keep their distances instead of all running in this frame.
+    if !std::mem::replace(&mut st.aids_started, true) {
+        if let Some(late) = script_events::delay_late_aids(&mut st.aids, now) {
+            info!("test aid: the scripts run from {now:.1} s on, after the first script step's time: the timed script steps come {late:.1} s later, as far apart as asked");
+        }
+    }
     let g = &rt.game;
     for a in &st.aids {
         if let Some(gate) = &a.after {

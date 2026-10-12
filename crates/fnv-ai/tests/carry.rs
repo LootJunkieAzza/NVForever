@@ -860,16 +860,20 @@ fn an_alerted_actor_searches_where_the_alarm_is_and_goes_back_after() {
     let mut s = sim(&f, &[R_RADIUS]);
     s.run(30.0);
     assert_eq!(s.ai.agents[&FormId(R_RADIUS)].activity, Activity::There);
+    let stood = s.feet(R_RADIUS);
     alert(&mut s, R_RADIUS, [150.0, 100.0, 0.0]);
     s.run(1.0);
     assert!(s.events(R_RADIUS).iter().any(|e| matches!(e, AiEvent::Search { about, .. } if *about == FormId::PLAYER_REF)));
     s.run(8.0);
-    // It looked about where the alarm is, then searched on around it.
+    // It looked about midway between where it stood and the hostile it only noticed
+    // [documented: GECK wiki Combat Search; until 2026-10-12 at the alarm itself], then
+    // searched on around there.
     let looked = s.events(R_RADIUS).into_iter().find_map(|e| match e {
         AiEvent::SearchLook { at, .. } => Some(*at),
         _ => None,
     });
-    assert!(looked.is_some_and(|at| dist(at, [150.0, 100.0, 0.0]) < 40.0), "{looked:?}");
+    let midway = [(stood[0] + 150.0) / 2.0, (stood[1] + 100.0) / 2.0, 0.0];
+    assert!(looked.is_some_and(|at| dist(at, midway) < 40.0), "{looked:?} {midway:?}");
     assert!(s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::Search { .. })).count() >= 2);
     // Back to Normal: the search ends and the actor goes back to its package's place.
     s.game.awareness.actors.remove(&FormId(R_RADIUS));
@@ -936,6 +940,116 @@ fn an_actor_in_combat_closes_in_on_a_target_it_cannot_see() {
     s.run(2.0);
     assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Close { target, .. } if *target == FormId::PLAYER_REF)), "{:?}", s.events(R_TRAVEL));
     assert!(dist(s.feet(R_TRAVEL), target) < 280.0, "it moved towards the target");
+}
+
+/// Put `actor` in Combat with the player at `at`, detected.
+fn fighting(s: &mut Sim, actor: u32, at: [f32; 3]) {
+    let (now, t) = (s.game.time, Timers::default());
+    let a = s.game.awareness.actors.entry(FormId(actor)).or_default();
+    a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, at, now, &t);
+    a.settle(FormId(actor), now, &t, true);
+    assert_eq!(a.state, State::Combat);
+}
+
+#[test]
+fn a_fleeing_actor_runs_away_and_stays_at_its_spot() {
+    // Combat Flee (combat-ai.md §12.2): no door or cover near, so it runs straight away
+    // from the player; the flee distance shortened to fit cell C (1,000 units square).
+    use fnv_game::combat_group::{FleeBy, Flight, GroupSettings};
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let threat = [10450.0, 10150.0, 0.0];
+    s.game.awareness.tactics.settings = Some(GroupSettings { flee_normal: 400.0, ..GroupSettings::default() });
+    fighting(&mut s, R_SB_NOTHING, threat);
+    let now = s.game.time;
+    s.game.awareness.tactics.flights.insert(FormId(R_SB_NOTHING), Flight { from: FormId::PLAYER_REF, from_at: threat, since: now, spot: None, arrived: None });
+    let before = dist(s.feet(R_SB_NOTHING), threat);
+    s.run(4.0);
+    let ev = s.events(R_SB_NOTHING);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Flee { how: FleeBy::Away, .. })), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::FleeArrived { .. })), "{ev:?}");
+    let fled = s.feet(R_SB_NOTHING);
+    assert!(dist(fled, threat) > before + 300.0, "{fled:?}");
+    assert!(s.game.awareness.tactics.flights[&FormId(R_SB_NOTHING)].arrived.is_some());
+    // It stays at its spot.
+    s.run(5.0);
+    assert!(dist(s.feet(R_SB_NOTHING), fled) < 1.0);
+}
+
+#[test]
+fn a_fleeing_actor_takes_a_door_near_it() {
+    // Combat Flee's first try: a door within fCombatFleeMaxDoorDistance, not nearer the
+    // attacker than the actor is. The traveller in cell A has the door to B 400 units off.
+    use fnv_game::combat_group::{FleeBy, Flight};
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(0.5);
+    let threat = [0.0, 0.0, 0.0];
+    fighting(&mut s, R_TRAVEL, threat);
+    let now = s.game.time;
+    s.game.awareness.tactics.flights.insert(FormId(R_TRAVEL), Flight { from: FormId::PLAYER_REF, from_at: threat, since: now, spot: None, arrived: None });
+    s.run(1.0);
+    let ev = s.events(R_TRAVEL);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Flee { how: FleeBy::Door { door }, .. } if door.0 == DOOR_A)), "{ev:?}");
+}
+
+#[test]
+fn a_fighter_goes_to_its_post_and_faces_its_target() {
+    // A post (combat-ai.md §12.1): the combat AI wants it on its target's flank.
+    use fnv_game::combat_group::{Post, PostKind};
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let target = [10500.0, 10900.0, 0.0];
+    fighting(&mut s, R_SB_NOTHING, target);
+    s.game.awareness.engage.insert(FormId(R_SB_NOTHING), (2000.0, 2500.0));
+    let post = [10200.0, 10600.0, 0.0];
+    s.game.awareness.tactics.posts.insert(FormId(R_SB_NOTHING), Post { at: post, kind: PostKind::Flank, run: true });
+    s.run(3.0);
+    let ev = s.events(R_SB_NOTHING);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Post { post: PostKind::Flank, .. })), "{ev:?}");
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::AtPost { post: PostKind::Flank, .. })), "{ev:?}");
+    assert!(dist(s.feet(R_SB_NOTHING), post) < 40.0);
+    // A post it cannot reach is dropped.
+    s.game.awareness.tactics.posts.insert(FormId(R_SB_NOTHING), Post { at: [20000.0, 20000.0, 0.0], kind: PostKind::Cover, run: true });
+    s.run(1.0);
+    assert!(s.events(R_SB_NOTHING).iter().any(|e| matches!(e, AiEvent::NoPost { post: PostKind::Cover })));
+    assert!(!s.game.awareness.tactics.posts.contains_key(&FormId(R_SB_NOTHING)));
+}
+
+#[test]
+fn a_search_party_splits_the_circle() {
+    // Combat Search (combat-ai.md §12.5): two sitters placed from one base form, alarmed
+    // by the same shot, search together, each its own half of the circle round it.
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_OBJECTS, R_SB_OBJECTS_2]);
+    s.run(1.0);
+    let t = Timers::default();
+    for a in [R_SB_OBJECTS, R_SB_OBJECTS_2] {
+        let now = s.game.time;
+        let x = s.game.awareness.actors.entry(FormId(a)).or_default();
+        x.alarm(FormId::PLAYER_REF, MIDDLE_C, -5.0, Cause::Event(fnv_game::awareness::EventType::Bullet), now, &t);
+        x.settle(FormId(a), now, &t, true);
+    }
+    assert_eq!(s.game.search_party(FormId(R_SB_OBJECTS), FormId::PLAYER_REF), (0, 2));
+    assert_eq!(s.game.search_party(FormId(R_SB_OBJECTS_2), FormId::PLAYER_REF), (1, 2));
+    s.run(18.0);
+    let points = |a: u32| -> Vec<[f32; 3]> {
+        s.events(a)
+            .into_iter()
+            .filter_map(|e| match e {
+                AiEvent::Search { to, .. } => Some(*to),
+                _ => None,
+            })
+            .skip(1)
+            .collect()
+    };
+    let (first, second) = (points(R_SB_OBJECTS), points(R_SB_OBJECTS_2));
+    assert!(!first.is_empty() && !second.is_empty(), "{first:?} {second:?}");
+    // Index 0 searches the half north of the centre, index 1 the half south.
+    assert!(first.iter().all(|p| p[1] >= MIDDLE_C[1] - 1.0), "{first:?}");
+    assert!(second.iter().all(|p| p[1] <= MIDDLE_C[1] + 1.0), "{second:?}");
 }
 
 #[test]
@@ -1047,4 +1161,51 @@ fn an_actor_with_no_low_level_processing_stands_still_out_of_the_loaded_area() {
     s.ai.set_high(&s.game, actor, true);
     s.run(30.0);
     assert!(dist(s.feet(R_STEADY), [5250.0, 5250.0, 50.0]) < 5.0);
+}
+
+#[test]
+fn an_actor_out_of_the_cell_buffer_is_updated_every_two_minutes() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    let actor = FormId(R_TRAVEL);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Low));
+    assert!(!s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Low), "no change");
+    assert_eq!(s.ai.level(actor), fnv_ai::ProcessLevel::Low);
+    assert_eq!((s.ai.process_counts(), s.ai.far_count()), ((0, 1), 1));
+    // Its first update comes within the interval (spread by its share of it), and walks
+    // it all the way; the next one an interval later.
+    let mut waited = 0;
+    while s.ai.process_stats.far_updates == 0 {
+        s.run(1.0);
+        waited += 1;
+        assert!(waited <= 121, "an update within {} s", fnv_ai::FAR_PROCESS_SECONDS);
+    }
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0, "one update took it there");
+    s.run(f64::from(fnv_ai::FAR_PROCESS_SECONDS) - 2.0);
+    assert_eq!(s.ai.process_stats.far_updates, 1, "not before {} s", fnv_ai::FAR_PROCESS_SECONDS);
+    s.run(3.0);
+    assert_eq!((s.ai.process_stats.fell_far, s.ai.process_stats.far_updates), (1, 2));
+    assert_eq!(s.ai.process_stats.low_updates, 2, "no Mid-High update in between");
+    // Back up to Mid-High, then into the loaded area.
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::MidHigh));
+    assert_eq!((s.ai.level(actor), s.ai.far_count()), (fnv_ai::ProcessLevel::MidHigh, 0));
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::High));
+    assert_eq!(s.ai.process_counts(), (1, 0));
+}
+
+#[test]
+fn a_follower_is_processed_at_least_as_often_as_its_leader() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL, R_DOG]);
+    s.run(1.0);
+    let (leader, dog) = (FormId(R_TRAVEL), FormId(R_DOG));
+    // The leader is in the loaded area: the dog beyond the buffer is kept at Mid-High.
+    assert!(s.ai.set_level(&s.game, dog, fnv_ai::ProcessLevel::Low));
+    assert_eq!(s.ai.level(dog), fnv_ai::ProcessLevel::MidHigh);
+    // The leader beyond the buffer too: so is the dog.
+    assert!(s.ai.set_level(&s.game, leader, fnv_ai::ProcessLevel::Low));
+    assert!(s.ai.set_level(&s.game, dog, fnv_ai::ProcessLevel::Low));
+    assert_eq!(s.ai.level(dog), fnv_ai::ProcessLevel::Low);
 }

@@ -427,6 +427,15 @@ pub struct ActorDef {
     /// The record has a DATA whose Base Health (NPC_) or Health (CREA) is 0: its placed
     /// actors start the game as corpses ([`crate::game::Game::starts_dead`]).
     pub zero_health: bool,
+    /// ACBS flag "Respawn": "References of this NPC in the world will be recreated after
+    /// three days" [documented: GECK wiki Category:NPC, Configuration]; with the template
+    /// flag "Base Data" the template's flag counts ([`ActorDef::template_base`]).
+    pub respawn: bool,
+    /// ACBS template flag "Base Data": the template supplies the base data, the Respawn
+    /// flag among it [documented: GECK wiki Category:NPC, Template Data: "Base Data does
+    /// not include the Quest Item, No Knockdowns, No VATS Melee, Is CharGen Face Preset,
+    /// or Can Be All Races flags"].
+    pub template_base: bool,
 }
 
 /// A leveled actor list (LVLN, LVLC) [documented: xEdit; schema `gameplay.json`]: the
@@ -882,6 +891,15 @@ pub struct CombatStyleDef {
     pub combat_radius: f32,
     /// Flag "Flee Based on Personal Survival".
     pub flee_personal_survival: bool,
+    /// Simple, cover: how far cover is looked for; the chance (0–100) to use cover for the
+    /// next 10 seconds; how long to stay behind it, to stand out of it looking for targets,
+    /// and to fire out of it once they are seen, seconds (min, max) [documented: GECK wiki
+    /// Combat Style].
+    pub cover_search_radius: f32,
+    pub take_cover_chance: f32,
+    pub wait_timer: (f32, f32),
+    pub wait_to_fire_timer: (f32, f32),
+    pub fire_timer: (f32, f32),
 }
 
 /// Everything read from one winning record.
@@ -1870,6 +1888,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 max_targeting_fov: n(simple, "max_targeting_fov", 0.0),
                 combat_radius: n(simple, "combat_radius", 0.0),
                 flee_personal_survival: has_flag(std.and_then(|v| v.get("flags")), "Flee Based on Personal Survival"),
+                cover_search_radius: n(simple, "cover_search_radius", 0.0),
+                take_cover_chance: n(simple, "take_cover_chance", 0.0),
+                wait_timer: (n(simple, "wait_timer_min", 0.0), n(simple, "wait_timer_max", 0.0)),
+                wait_to_fire_timer: (n(simple, "wait_to_fire_timer_min", 0.0), n(simple, "wait_to_fire_timer_max", 0.0)),
+                fire_timer: (n(simple, "fire_timer_min", 0.0), n(simple, "fire_timer_max", 0.0)),
             });
         }
         b"MICN" => {
@@ -1926,6 +1949,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.essential = has_flag(f, "Essential");
                         a.invulnerable = has_flag(f, "Invulnerable");
                         a.no_low_level = has_flag(f, "No Low Level Processing");
+                        a.respawn = has_flag(f, "Respawn");
                         a.pc_level_mult = has_flag(f, "PC Level Mult");
                         a.autocalc = &sig == b"NPC_" && has_flag(f, "Auto-calc stats");
                         let n = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_i64).unwrap_or(0);
@@ -1937,6 +1961,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.template_stats = has_flag(tf, "Stats");
                         a.template_ai = has_flag(tf, "AI Data");
                         a.template_factions = has_flag(tf, "Factions");
+                        a.template_base = has_flag(tf, "Base Data");
                     }
                     _ => {}
                 }

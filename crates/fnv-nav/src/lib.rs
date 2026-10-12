@@ -22,7 +22,7 @@ pub mod record;
 
 pub use follow::{Follower, Steer, WalkEvent, Walker};
 pub use doors::InPlaceDoor;
-pub use graph::{NavGraph, Space};
+pub use graph::{CoverEdge, NavGraph, Space};
 pub use load::NavRecords;
 pub use path::{DoorStop, Leg, Path, PathError, PathParams, Place};
 pub use record::{DoorLink, EdgeLink, NavInfoMap, NavMeshRecord, Triangle};

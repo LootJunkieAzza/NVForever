@@ -638,12 +638,31 @@ impl Core {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             let (space, feet) = (a.walker.space, a.walker.feet);
             let high = drawn(world, streamer, space, feet);
-            if self.ai.set_high(game, r.actor, high) {
+            // Out of the loaded area: Mid-High in the cell buffer, Low beyond (`cell_buffer.rs`).
+            // Walking out of the loaded area, or on into another cell, takes the cell along.
+            let new_cell = fnv_world::cell_of(r.last_feet[0], r.last_feet[1]) != fnv_world::cell_of(feet[0], feet[1]);
+            let carries = !high && !streamer.buffer.holds(space, feet) && (self.ai.is_high(r.actor) || (new_cell && self.ai.level(r.actor) == fnv_ai::ProcessLevel::MidHigh));
+            if carries {
+                streamer.buffer.carry(space, feet);
+            }
+            let level = match (high, streamer.buffer.holds(space, feet)) {
+                (true, _) => fnv_ai::ProcessLevel::High,
+                (false, true) => fnv_ai::ProcessLevel::MidHigh,
+                (false, false) => fnv_ai::ProcessLevel::Low,
+            };
+            let was_high = self.ai.is_high(r.actor);
+            if self.ai.set_level(game, r.actor, level) {
                 let line = format!(
-                    "ai [{}] {}: {} the loaded area at ({:.0}, {:.0}, {:.0}) in {}",
+                    "ai [{}] {}: {} at ({:.0}, {:.0}, {:.0}) in {}",
                     self.clock_text,
                     r.label,
-                    if high { "back in" } else { "out of" },
+                    match level {
+                        fnv_ai::ProcessLevel::High => "back in the loaded area",
+                        fnv_ai::ProcessLevel::MidHigh if was_high => "out of the loaded area",
+                        fnv_ai::ProcessLevel::MidHigh => "back in the cell buffer (low process every 18 s)",
+                        fnv_ai::ProcessLevel::Low if was_high => "out of the loaded area and the cell buffer (low process every 120 s)",
+                        fnv_ai::ProcessLevel::Low => "out of the cell buffer (low process every 120 s)",
+                    },
                     feet[0],
                     feet[1],
                     feet[2],
@@ -852,6 +871,11 @@ impl Core {
                 | AiEvent::Hold { .. }
                 | AiEvent::Close { .. }
                 | AiEvent::Pace { .. }
+                | AiEvent::Post { .. }
+                | AiEvent::NoPost { .. }
+                | AiEvent::Flee { .. }
+                | AiEvent::FleeArrived { .. }
+                | AiEvent::Cornered { .. }
                 | AiEvent::SearchOver { .. }
                 | AiEvent::SearchBack { .. } => info!("{line}"),
                 _ => debug!("{line}"),
@@ -997,6 +1021,34 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             if *aiming { "walks on, aiming down the sights at" } else { "runs on, sights lowered, at" },
             if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) }
         ),
+        AiEvent::Post { post, target, to, away, length } => format!(
+            "goes to {} against {} at ({:.0}, {:.0}, {:.0}): {away:.0} units away, {length:.0} units to go",
+            post.name(),
+            if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) },
+            to[0],
+            to[1],
+            to[2]
+        ),
+        AiEvent::AtPost { post, off, .. } => format!("is at {} ({off:.0} units off)", post.name()),
+        AiEvent::NoPost { post } => format!("has no way to {}: closes in instead", post.name()),
+        AiEvent::Flee { from, how, to, away, length } => format!(
+            "flees from {} {}: to ({:.0}, {:.0}, {:.0}), {} from it, {length:.0} units to go",
+            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) },
+            match how {
+                fnv_game::combat_group::FleeBy::Door { door } => format!("through door {door}"),
+                fnv_game::combat_group::FleeBy::Cover => "to cover".to_string(),
+                fnv_game::combat_group::FleeBy::Away => "away".to_string(),
+            },
+            to[0],
+            to[1],
+            to[2],
+            if away.is_finite() { format!("{away:.0} units") } else { "in another cell".to_string() }
+        ),
+        AiEvent::FleeArrived { from, seconds, off } => format!(
+            "reached its flee spot from {} after {seconds:.1}s ({off:.0} units off): stays there",
+            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }
+        ),
+        AiEvent::Cornered { from } => format!("is cornered by {}: nowhere to flee, stands", if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
     }
@@ -1043,7 +1095,11 @@ pub fn drive(
     // there is no menu and no such message).
     let waited = hours.map_or(0, |mut h| h.read().count() as u32);
     let Ok(root) = root.single() else { return };
-    let dt = time.delta_secs().min(0.1);
+    // The frame's time, at most a whole frame of the virtual clock (as physics,
+    // `nvf_play::phys::play_params`). It was capped at 0.1 s: below 10 frames a second the
+    // actors walked and turned slower than the game's clock passed (Goodsprings at 6
+    // frames a second: the settler of detection.md §5 came into view after the shot).
+    let dt = time.delta_secs().min(nvf_play::phys::MAX_FRAME_SECONDS);
     let now = time.elapsed_secs();
     let res = &mut *res;
     // Start once the world around the camera has loaded (the actors can be seen).
@@ -1277,14 +1333,19 @@ pub fn report(
     );
     let p = &core.ai.process_stats;
     let (high, low) = core.ai.process_counts();
+    let far = core.ai.far_count();
     info!(
-        "process summary: {high} residents in the loaded area (high process) and {low} out of it at the end, at most {} and {}; {} left the loaded area, {} came back; {} low-process updates every {:.0} s ({} walking steps); {} conversations or searches ended by leaving",
+        "process summary: {high} residents in the loaded area (high process) and {low} out of it at the end ({far} of them beyond the cell buffer), at most {}, {} and {}; {} left the loaded area, {} came back; {} fell out of the cell buffer; {} low-process updates every {:.0} s and {} every {:.0} s ({} walking steps); {} conversations or searches ended by leaving",
         p.most_high,
         p.most_low,
+        p.most_far,
         p.left,
         p.came_back,
-        p.low_updates,
+        p.fell_far,
+        p.low_updates - p.far_updates,
         fnv_ai::LOW_PROCESS_SECONDS,
+        p.far_updates,
+        fnv_ai::FAR_PROCESS_SECONDS,
         p.low_steps,
         p.dropped
     );

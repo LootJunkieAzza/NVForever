@@ -14,6 +14,9 @@ mod anim_objects;
 mod actor_groups;
 mod actors;
 mod attack_anims;
+mod authored_pose;
+mod cell_buffer;
+mod cell_resets;
 mod alert;
 mod anim_sounds;
 mod crash;
@@ -37,6 +40,7 @@ mod lips;
 mod lockpick_view;
 mod lod;
 mod locomotion;
+mod combat_tactics;
 mod npc_combat;
 mod provoked;
 mod weapons;
@@ -810,6 +814,7 @@ fn main() -> AppExit {
             .collect(),
         manage_actors: residents.as_ref().is_some_and(|r| r.all),
         stats: Default::default(),
+        buffer: Default::default(),
     })
     .insert_resource(world)
     .init_resource::<nvf_assets::actor::ActorParts>()
@@ -825,6 +830,7 @@ fn main() -> AppExit {
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, imposters::update, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
+    .add_systems(Update, cell_buffer::remember.after(world::stream))
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
     .init_resource::<activators::ActivatorStats>()
@@ -888,6 +894,7 @@ fn main() -> AppExit {
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
+            app.add_plugins(cell_resets::CellResetsPlugin);
             app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
             // The sounds clips and doors name (anim_sounds.rs).
             app.add_plugins(anim_sounds::AnimSoundsPlugin);
@@ -903,6 +910,7 @@ fn main() -> AppExit {
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
+            app.add_plugins(combat_tactics::CombatTacticsPlugin);
             // Fights started by hits; the player's yield (provoked.rs).
             app.add_plugins(provoked::ProvokedPlugin);
             // How fighters aim, shoot and bite (attack_anims.rs).
