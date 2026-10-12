@@ -128,6 +128,23 @@ fn set_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
     } else {
         e.av_damage.remove(&code);
     }
+    sync_carry(g, actor, code);
+}
+
+/// The world's carry capacity (the menus' weight line, `fnv_sim::World::encumbrance`)
+/// follows the actor's current Carry Weight: its formula reads the current Strength,
+/// temporary modifiers included (Buffout's +2), and Carry Weight's own modifiers add to
+/// it [documented: GECK wiki GetCalculatedMaxCarryWeight, "CarryWeight … Actor Values";
+/// hypothesis: the current, not the permanent, Strength; aid-items.md §12]. Called when
+/// Strength or Carry Weight changes.
+fn sync_carry(g: &mut Game, actor: FormId, code: u16) {
+    use crate::actor_values::{CARRY_WEIGHT, STRENGTH};
+    if code != STRENGTH && code != CARRY_WEIGHT {
+        return;
+    }
+    let Ok(formula) = g.world.formula_capacity(actor) else { return };
+    let Ok(capacity) = actor_value(g, actor, CARRY_WEIGHT) else { return };
+    g.world.set_carry_bonus(actor, capacity - formula as f64);
 }
 
 /// The temporary modifier of an actor value (active effects).
@@ -144,6 +161,7 @@ pub(crate) fn add_temporary(g: &mut Game, actor: FormId, code: u16, d: f64) {
     } else {
         e.av_temporary.remove(&code);
     }
+    sync_carry(g, actor, code);
 }
 
 /// Take up to `amount` (0 or more) off an actor value's damage, as RestoreActorValue.
@@ -176,10 +194,12 @@ fn set_base(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String
         // Something that has no attributes takes none.
         base(g, actor, code)?;
         if g.world.set_actor_value(actor, name, (v + modifier(g, actor, code)) as f32).is_ok() {
+            sync_carry(g, actor, code);
             return Ok(());
         }
     }
     g.extra.entry(actor).or_default().actor_values.insert(code, v);
+    sync_carry(g, actor, code);
     Ok(())
 }
 
@@ -198,6 +218,7 @@ pub(crate) fn add_modifier(g: &mut Game, actor: FormId, code: u16, d: f64) -> Re
         // record's and the modifier is added on reading.
         let _ = g.world.set_actor_value(actor, name, (before + d) as f32);
     }
+    sync_carry(g, actor, code);
     Ok(())
 }
 
@@ -266,9 +287,17 @@ pub fn mod_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
 
 /// `DamageActorValue`: the damage grows by the amount [documented: catalogue summary; a
 /// negative amount heals at most the damage taken, hypothesis].
+///
+/// Rads and Hardcore's needs grow the other way: damage raises them, restoring lowers
+/// them, never below 0 [hypothesis: as their aid effects, aid-items.md §3; the Cannibal
+/// perk's script restores Hunger 50 with the health it gives].
 pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let code = a.code(0)?;
+    if crate::aid::grows(code) {
+        shift_growing(g, r, code, a.num(1)?)?;
+        return none();
+    }
     let d = damage(g, r, code) + a.num(1)?;
     set_damage(g, r, code, d);
     none()
@@ -280,9 +309,20 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
 pub fn restore_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let code = a.code(0)?;
+    if crate::aid::grows(code) {
+        shift_growing(g, r, code, -a.num(1)?.max(0.0))?;
+        return none();
+    }
     let d = damage(g, r, code) - a.num(1)?.max(0.0);
     set_damage(g, r, code, d);
     none()
+}
+
+/// Move a value that grows (rads, needs) by `by`, never below 0.
+fn shift_growing(g: &mut Game, r: FormId, code: u16, by: f64) -> Result<(), String> {
+    let now = actor_value(g, r, code)?;
+    let to = (now + by).max(0.0);
+    shift_base(g, r, code, to - now)
 }
 
 pub fn get_dead(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {

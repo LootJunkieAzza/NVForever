@@ -1270,11 +1270,97 @@ expect = [
   "inventory item used: NPCHumanUsingStimpak",
   "aid: the player used Stimpak (potency 1.30): Health +39.0 at once, limbs too; Health 140 → 179",
   "aid: the player used WaterPurified (potency 1.30): Health +2.6 a second for 5 s",
-  "aid: the player used Buffout (potency 1.00): Strength +2.0 while it lasts (240 s), Endurance +3.0 while it lasts (240 s), Health +60.0 while it lasts (240 s); usage 30; addiction chance 0.00; Strength 5 → 7, Endurance 5 → 8",
+  "aid: the player used Buffout (potency 1.00): Strength +2.0 while it lasts (240 s), Endurance +3.0 while it lasts (240 s), Health +60.0 while it lasts (240 s); usage 30; addiction chance 0.00; carry capacity 200 → 220; Strength 5 → 7, Endurance 5 → 8, Carry Weight 200 → 220",
   # When Buffout comes in the 5 s of the water depends on the message boxes; the sum not.
   "aid: WaterPurified's effects on the player ended: Health ",
-  "aid summary: 3 items used (Buffout 1, Stimpak 1, WaterPurified 1), 6 effects started, 2 ended; addictions: none; 0 cured; the player at exit: Strength 7, Endurance 8, Health 252",
+  "aid summary: 3 items used (Buffout 1, Stimpak 1, WaterPurified 1), 6 effects started, 2 ended; addictions: none; 0 cured; 0 stage changes; 0 hours waited for effects; the player at exit: Strength 7, Endurance 8, Carry Weight 220, Health 252",
 ]
+
+[[scenario]]
+name = "aid-perks-needs-survey"
+kind = "tool"
+source = "aid leftovers (docs/spec-notes/aid-items.md §6, §10-§12): the masters' perk entry points and need stages; three Buffouts with Chemist and Chem Resistant then a five-hour wait; Hardcore needs over three hours slept"
+areas = ["aid", "perks", "hardcore"]
+paths = ["crates/fnv-game/src/perks.rs", "crates/fnv-game/src/needs.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs", "crates/fnvtool/src/actor_aid.rs"]
+commands = [
+  ["actor", "aid", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--item", "Buffout", "--perks", "--use", "Buffout", "--use", "Buffout", "--use", "Buffout", "--perk", "Chemist", "--perk", "ChemResistant", "--seconds", "1", "--wait", "5"],
+  ["actor", "aid", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--item", "WaterPurified", "--hardcore", "--set", "Dehydration:195", "--set", "SleepDeprivation:250", "--use", "WaterPurified", "--use", "NukaCola", "--seconds", "1", "--wait", "3", "--sleep"],
+]
+# §10: 109 perks with entry point effects; one Chem Resistant (23), Chemist and the chem
+# challenge perk (25), Lead Belly (44). §11: five stages per need. Chemist doubles 240 s
+# to 480 s; usage 90 gives 0.2, Chem Resistant halves it; Buffout's +20 capacity outlasts
+# 5 hours (600 s) of a 1,440 s effect. Hardcore: 3 hours slept take Sleep Deprivation 235
+# to 0 and add 3 x 4.8 Hunger.
+expect = [
+  { json = "perks.count", equals = 109 },
+  { json = "perks.entries_by_entry_point.23", equals = 1 },
+  { json = "perks.entries_by_entry_point.25", equals = 2 },
+  { json = "perks.entries_by_entry_point.44", equals = 1 },
+  { json = "need_stages.Dehydration.#", equals = 5 },
+  { json = "use.uses.*.changes.*.duration", equals = 480.0, count = 3, label = "the first Buffout's three effects last 480 s" },
+  { json = "use.uses.?item=Buffout.addiction.chance", range = [0.0999, 0.1001], label = "the third Buffout's addiction chance 0.1" },
+  { json = "use.wait.values_after.carry_capacity", equals = 220.0 },
+  { json = "use.stage_changes.*.spell", equals = "SleepDeprivation200" },
+  { json = "use.wait.values_after.Sleep Deprivation", equals = 0.0 },
+  { json = "use.wait.values_after.Hunger", range = [14.43, 14.45] },
+]
+
+[[scenario]]
+name = "aid-wait-perks"
+source = "aid leftovers (docs/spec-notes/aid-items.md §6, §10, §12): Buffout with Chemist and Chem Resistant raises the carry capacity, and wears off during a five-hour wait"
+areas = ["aid", "wait", "perks"]
+paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/perks.rs", "crates/fnv-game/src/needs.rs", "crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/aid.rs", "engine/nvf-play/src/wait.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00015163:1", NVF_PLAY_TEST_SCRIPT = "3:perk:Chemist,3.5:perk:ChemResistant", NVF_PLAY_TEST_DROP = "6:00015163:use", NVF_PLAY_TEST_WAIT = "14:open,15:hours=5,16:accept" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 26
+expect = [
+  "test aid: the player has the perk Chemist",
+  "aid: the player used Buffout (potency 1.00): Strength +2.0 while it lasts (480 s), Endurance +3.0 while it lasts (480 s), Health +60.0 while it lasts (480 s); usage 30; addiction chance 0.00; perks: Chemist (entry point 25); carry capacity 200 → 220",
+  # 480 s of Buffout, a few seconds of it played before the wait: it ends in hour 4.
+  { re = 'wait: hour 3 passed for the player \(120 s of effects\): 0 effect\(s\) ended' },
+  { re = 'wait: hour 4 passed for the player \(120 s of effects\): 3 effect\(s\) ended' },
+  "aid: Buffout's effects on the player ended: Strength 5, Endurance 5, Carry Weight 200, Health 200",
+  { re = 'wait summary: .*\b5 hours passed' },
+]
+
+[[scenario]]
+name = "aid-hardcore"
+source = "aid leftovers (docs/spec-notes/aid-items.md §11): Hardcore needs, their stage effects, water lowering dehydration and a sleep lowering sleep deprivation"
+areas = ["aid", "wait", "hardcore"]
+paths = ["crates/fnv-game/src/needs.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs", "engine/nvf-play/src/aid.rs", "engine/nvf-play/src/wait.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00176ACE", NVF_PLAY_TEST_GIVE = "000151A3:1", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1,3.2:set_av:player:Dehydration:205,3.4:set_av:player:SleepDeprivation:250", NVF_PLAY_TEST_DROP = "8:000151A3:use", NVF_PLAY_TEST_ACTIVATE = "16", NVF_PLAY_TEST_WAIT = "22:open,23.5:hours=3,24.5:accept" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "22", "--no-voice"]
+run_seconds = 32
+expect = [
+  "test aid: Hardcore mode on",
+  { re = 'needs: Dehydration 20\d: Dehydration200' },
+  { re = 'needs: Sleep Deprivation 25\d: SleepDeprivation200' },
+  # Minor Dehydration's Endurance -1 lowers Survival, so the water's potency is under 1.3.
+  { re = 'aid: the player used WaterPurified .*Dehydration \+6\d\.\d at once' },
+  { re = 'needs: Dehydration 1[34]\d[\d.]*: no stage' },
+  "wait menu: open as sleep",
+  { re = 'wait: hour 1 passed for the player \(120 s of effects\): \d+ effect\(s\) ended; Dehydration [\d.]+ → [\d.]+, Hunger [\d.]+ → [\d.]+, Sleep Deprivation 2\d\d[\d.]* → 1\d\d' },
+  { re = 'needs: Sleep Deprivation 1\d\d[\d.]*: no stage' },
+  { re = 'aid summary: .*\(Hardcore\); the player at exit: .*Sleep Deprivation 0' },
+]
+
+[[scenario]]
+name = "aid-stealth-boy"
+source = "aid leftovers (docs/spec-notes/aid-items.md §2): the sneaking player is noticed by a settler in Goodsprings at noon; a Stealth Boy hides the player (no visual term) and draws the body see-through"
+areas = ["aid", "detection"]
+paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/detection.rs", "engine/nvforever/src/stealth_field.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00043E94:1", NVF_PLAY_TEST_CONTROL = "6:view,10:sneak", NVF_PLAY_TEST_DROP = "21:00043E94:use" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 32
+expect = [
+  { re = 'stealth field: on \(Chameleon 75\): [1-9]\d* meshes see-through' },
+]
+order = [[
+  { re = 'detection: GSSettlerAM 00104F0A → the player: hidden → noticed .*sneaking' },
+  "aid: the player used StealthBoy (potency 1.00): Chameleon +75.0 while it lasts (120 s), Sneak +100.0 while it lasts (120 s)",
+  { re = 'detection: GSSettlerAM 00104F0A → the player: (noticed|detected) → hidden \(value -?[\d.]+: sound [\d.]+, visual 0\.0, .*sneaking' },
+]]
+manual = "a shot after 22 s shows the player's body faint and bluish (third person)"
 
 [[scenario]]
 name = "no-messages"

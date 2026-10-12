@@ -813,6 +813,24 @@ impl Runtime {
                 let now = fnv_game::functions::actor_value(g, r, code)?;
                 info!("test aid: {} {value} damaged by {amount}: now {now:.1}", g.data.name(r));
             }
+            ScriptAid::SetAv(r, value, v) => {
+                let r = resolve(g, r)?;
+                let code = fnv_game::functions::av_code(g, value)?;
+                fnv_game::functions::set_actor_value_current(g, r, code, *v)?;
+                info!("test aid: {} {value} set to {v}", g.data.name(r));
+            }
+            ScriptAid::Hardcore(on) => {
+                g.player.hardcore = Some(*on);
+                info!("test aid: Hardcore mode {}", if *on { "on" } else { "off" });
+            }
+            ScriptAid::Perk(p) => {
+                let p = resolve(g, p)?;
+                if !g.data.perks.contains_key(&p) {
+                    return Err(format!("{} is not a perk", g.data.name(p)));
+                }
+                *g.player.perks.entry(p).or_default() += 1;
+                info!("test aid: the player has the perk {}", g.data.name(p));
+            }
             ScriptAid::Walk(_) => unreachable!("handled by the caller"),
             ScriptAid::Var(of, var, value) => {
                 let f = resolve(g, of)?;

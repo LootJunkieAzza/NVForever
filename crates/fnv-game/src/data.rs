@@ -496,6 +496,10 @@ pub const ARCHETYPE_VALUE_MODIFIER: i64 = 0;
 pub const ARCHETYPE_SCRIPT: i64 = 1;
 /// MGEF archetype "Dispel" [documented: xEdit wbArchtypeEnum].
 pub const ARCHETYPE_DISPEL: i64 = 2;
+/// MGEF archetype "Invisibility" [documented: xEdit wbArchtypeEnum].
+pub const ARCHETYPE_INVISIBILITY: i64 = 11;
+/// MGEF archetype "Chameleon" [documented: xEdit wbArchtypeEnum].
+pub const ARCHETYPE_CHAMELEON: i64 = 12;
 /// MGEF archetype "Cure Addiction" [documented: xEdit wbArchtypeEnum].
 pub const ARCHETYPE_CURE_ADDICTION: i64 = 31;
 /// MGEF archetype "Value And Parts" [documented: xEdit wbArchtypeEnum].
@@ -673,6 +677,9 @@ pub struct GameData {
     /// AVIF: the name, short name, description and icon of each actor value
     /// ([`GameData::actor_value_info`]).
     pub actor_value_infos: HashMap<FormId, ActorValueInfo>,
+    /// RADS, DEHY, HUNG, SLPD: the stages of rads and of Hardcore's needs by actor value
+    /// code, lowest threshold first (`crate::needs`).
+    pub need_stages: HashMap<u16, Vec<NeedStage>>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
 }
@@ -710,6 +717,17 @@ impl IdleDef {
     }
 }
 
+/// A stage of rads or of a Hardcore need (RADS, DEHY, HUNG, SLPD).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NeedStage {
+    /// The stage record.
+    pub stage: FormId,
+    /// The value from which it holds.
+    pub threshold: u32,
+    /// Its actor effect (SPEL).
+    pub spell: FormId,
+}
+
 /// A perk or trait (PERK) as the character menus need it.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize)]
 pub struct PerkDef {
@@ -730,6 +748,50 @@ pub struct PerkDef {
     /// them could not be read.
     #[serde(skip)]
     pub conditions: Option<Vec<Condition>>,
+    /// Its effects (PRKE … PRKF), in record order (`crate::perks`).
+    #[serde(skip)]
+    pub entries: Vec<PerkEntry>,
+}
+
+/// One effect of a perk (PRKE header, then its DATA and parameters, up to PRKF)
+/// [documented: xEdit wbDefinitionsFNV.pas PERK, the header's type, rank and priority,
+/// `schemas/fnv/gameplay.json`; observed: the DATA and EPFD layouts, docs/spec-notes/
+/// aid-items.md §10].
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PerkEntry {
+    /// The perk rank it belongs to, 0 for the first.
+    pub rank: u8,
+    pub priority: u8,
+    pub effect: PerkEffect,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum PerkEffect {
+    /// Type 1: the spell is the owner's while it has the perk.
+    Ability(FormId),
+    /// Type 2.
+    EntryPoint(EntryPointDef),
+    /// Type 0 (quest and stage), or a DATA that could not be read.
+    #[default]
+    Other,
+}
+
+/// An entry point effect: which entry point, which function, its number, and its
+/// conditions by tab.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct EntryPointDef {
+    /// DATA byte 0 [observed: the code identifies the entry point, e.g. 23 on Chem
+    /// Resistant alone, aid-items.md §10].
+    pub point: u8,
+    /// DATA byte 1 [observed: 1 with 0/1 flags (Light Step, Computer Whiz), 2 with
+    /// additions (Educated +2, Toughness +3), 3 with factors (Chem Resistant 0.5, Chemist
+    /// 2.0): hypothesis Set, Add, Multiply].
+    pub function: u8,
+    /// EPFD as one float when EPFT is 1 [observed: Chem Resistant `0000003F` = 0.5].
+    pub value: Option<f32>,
+    /// The CTDA with the PRKC tab before them (0 the perk owner); `None` when one could
+    /// not be read.
+    pub conditions: Option<Vec<(i8, Condition)>>,
 }
 
 impl PerkDef {
@@ -848,6 +910,7 @@ struct Read {
     image_modifier: Option<ImageModifierDef>,
     perk: Option<PerkDef>,
     av_info: Option<ActorValueInfo>,
+    need_stage: Option<(u16, u32, FormId)>,
     units: Vec<ScriptUnit>,
     issues: Issues,
     read_issues: ReadIssues,
@@ -922,6 +985,7 @@ impl GameData {
             station_flags: winners.iter().filter(|w| &w.2.header.sig == b"TACT").map(|w| (FormId(w.0), w.2.header.flags)).collect(),
             perks: HashMap::new(),
             actor_value_infos: HashMap::new(),
+            need_stages: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
         };
@@ -1093,6 +1157,12 @@ impl GameData {
             if let Some(v) = r.av_info {
                 d.actor_value_infos.insert(id, v);
             }
+            if let Some((code, threshold, spell)) = r.need_stage {
+                d.need_stages.entry(code).or_default().push(NeedStage { stage: id, threshold, spell });
+            }
+        }
+        for stages in d.need_stages.values_mut() {
+            stages.sort_by_key(|s| (s.threshold, s.stage));
         }
         let (lines, order) = topic_lines(lo);
         d.topics = lines;
@@ -1363,6 +1433,23 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             subs.iter().find(|s| &s.sig == b"MODL").map(|s| s.data.as_slice()),
             subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()),
         ));
+    }
+    // A stage of a need: the value from which it holds, and its actor effect [observed:
+    // DATA is 8 bytes, a u32 of 200, 400 … 1000 and a SPEL FormID named for that number
+    // (Water1: 200, Dehydration200), docs/spec-notes/aid-items.md §11].
+    let need = match &sig {
+        b"RADS" => Some(crate::aid::RAD_LEVEL),
+        b"DEHY" => Some(crate::aid::DEHYDRATION),
+        b"HUNG" => Some(crate::aid::HUNGER),
+        b"SLPD" => Some(crate::aid::SLEEP_DEPRIVATION),
+        _ => None,
+    };
+    if let Some(code) = need {
+        let data = subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()).unwrap_or_default();
+        let word = |o: usize| data.get(o..o + 4).and_then(|b| <[u8; 4]>::try_from(b).ok()).map(u32::from_le_bytes);
+        if let (Some(threshold), Some(spell)) = (word(0), word(4).and_then(map)) {
+            out.need_stage = Some((code, threshold, FormId(spell)));
+        }
     }
     if &sig == b"IMAD" {
         let word = |o: usize| subs.iter().find(|s| &s.sig == b"DNAM").and_then(|s| <[u8; 4]>::try_from(s.data.get(o..o + 4)?).ok());
@@ -1968,6 +2055,55 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             p.description = text(b"DESC").unwrap_or_default();
             p.icon = text(b"ICON").filter(|i| !i.trim().is_empty());
             p.conditions = conds.into_iter().collect();
+            let mut entry: Option<PerkEntry> = None;
+            let mut tab: i8 = 0;
+            let mut epft: Option<u8> = None;
+            for (i, s) in subs.iter().enumerate().skip(head) {
+                match &s.sig {
+                    b"PRKE" => {
+                        let b = |k: usize| s.data.get(k).copied().unwrap_or(0);
+                        let effect = match b(0) {
+                            1 => PerkEffect::Ability(FormId(0)),
+                            2 => PerkEffect::EntryPoint(EntryPointDef { conditions: Some(Vec::new()), ..Default::default() }),
+                            _ => PerkEffect::Other,
+                        };
+                        entry = Some(PerkEntry { rank: b(1), priority: b(2), effect });
+                        tab = 0;
+                        epft = None;
+                    }
+                    b"DATA" => {
+                        let Some(e) = entry.as_mut() else { continue };
+                        e.effect = match &e.effect {
+                            PerkEffect::Ability(_) => match <[u8; 4]>::try_from(s.data.as_slice()).ok().map(u32::from_le_bytes).and_then(map) {
+                                Some(g) => PerkEffect::Ability(FormId(g)),
+                                None => PerkEffect::Other,
+                            },
+                            PerkEffect::EntryPoint(ep) if s.data.len() >= 2 => {
+                                PerkEffect::EntryPoint(EntryPointDef { point: s.data[0], function: s.data[1], ..ep.clone() })
+                            }
+                            _ => PerkEffect::Other,
+                        };
+                    }
+                    b"PRKC" => tab = s.data.first().map_or(0, |&b| b as i8),
+                    b"CTDA" => {
+                        if let Some(PerkEffect::EntryPoint(ep)) = entry.as_mut().map(|e| &mut e.effect) {
+                            let c = cond(&decoded[i].1, &mut unread);
+                            match (ep.conditions.as_mut(), c) {
+                                (Some(list), Some(c)) => list.push((tab, c)),
+                                _ => ep.conditions = None,
+                            }
+                        }
+                    }
+                    b"EPFT" => epft = s.data.first().copied(),
+                    b"EPFD" => {
+                        if let (Some(PerkEffect::EntryPoint(ep)), Some(1)) = (entry.as_mut().map(|e| &mut e.effect), epft) {
+                            ep.value = <[u8; 4]>::try_from(s.data.as_slice()).ok().map(f32::from_le_bytes);
+                        }
+                    }
+                    b"PRKF" => p.entries.extend(entry.take()),
+                    _ => {}
+                }
+            }
             out.perk = Some(p);
         }
         b"AVIF" => {
