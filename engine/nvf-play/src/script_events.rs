@@ -830,7 +830,7 @@ mod tests {
             vec![
                 // A message's line has its record's icon and time; the others have neither.
                 ScriptEffect::Notify(Note { text: "To jump, press Space.".into(), icon: Some("icons\\pain.dds".into()), seconds: Some(10.0) }),
-                ScriptEffect::MessageBox(BoxMessage { message: 0xBB, text: "Old World Blues has been loaded.".into(), buttons: vec![] }),
+                ScriptEffect::MessageBox(BoxMessage { message: 0xBB, text: "Old World Blues has been loaded.".into(), buttons: vec![], hidden: vec![] }),
                 ScriptEffect::MessageBox(BoxMessage { message: 0xCC, text: "Hardcore?".into(), buttons: vec!["No".into(), "Yes".into()], hidden: vec![] }),
                 // The quest was listed already: no "Quest added".
                 ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: QUEST.0, text: "Use the Vit-o-matic Vigor Tester".into(), completed: false }])),
