@@ -16,8 +16,9 @@
 //!   never past zero [documented: both pages; observed: Contreras' supplies restoring
 //!   100 of a head condition damaged by 40 left it at 100, `L5.quest.effect_start`,
 //!   layer5-captures.md §9.3 b]; combat's health and limb damage goes here;
-//! - the **temporary modifier** (active effects and worn enchantments): nothing feeds
-//!   it yet, so it is not kept.
+//! - the **temporary modifier**: the Value Modifier effects with the Recover flag active
+//!   on the actor (aid items, spells; `crate::aid`, docs/spec-notes/aid-items.md §3).
+//!   Worn enchantments do not feed it yet (the Pip-Boy adds them itself).
 //!
 //! The permanent value (base + permanent modifier) of S.P.E.C.I.A.L. lives in the Layer
 //! 4 world, where the carry weight rule and the menus read and write it; the override
@@ -110,7 +111,7 @@ pub(crate) fn actor_value_base(g: &mut Game, actor: FormId, code: u16) -> f64 {
 }
 
 /// Add `d` to an actor value's damage part (as DamageActorValue).
-pub(crate) fn add_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
+pub fn add_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
     let total = damage(g, actor, code) + d.max(0.0);
     set_damage(g, actor, code, total);
 }
@@ -129,9 +130,31 @@ fn set_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
     }
 }
 
-/// The current value: the permanent value minus the damage.
+/// The temporary modifier of an actor value (active effects).
+pub fn temporary(g: &Game, actor: FormId, code: u16) -> f64 {
+    g.extra.get(&actor).and_then(|e| e.av_temporary.get(&code)).copied().unwrap_or(0.0)
+}
+
+/// Add `d` to the temporary modifier.
+pub(crate) fn add_temporary(g: &mut Game, actor: FormId, code: u16, d: f64) {
+    let e = g.extra.entry(actor).or_default();
+    let m = e.av_temporary.get(&code).copied().unwrap_or(0.0) + d;
+    if m.abs() > 1e-9 {
+        e.av_temporary.insert(code, m);
+    } else {
+        e.av_temporary.remove(&code);
+    }
+}
+
+/// Take up to `amount` (0 or more) off an actor value's damage, as RestoreActorValue.
+pub(crate) fn restore(g: &mut Game, actor: FormId, code: u16, amount: f64) {
+    let d = damage(g, actor, code) - amount.max(0.0);
+    set_damage(g, actor, code, d);
+}
+
+/// The current value: the permanent value and the temporary modifier, minus the damage.
 pub fn actor_value(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
-    Ok(permanent(g, actor, code)? - damage(g, actor, code))
+    Ok(permanent(g, actor, code)? + temporary(g, actor, code) - damage(g, actor, code))
 }
 
 /// The current value within the range the game calculates with (S.P.E.C.I.A.L. 1–10,
@@ -161,7 +184,7 @@ fn set_base(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String
 }
 
 /// Add `d` to the permanent modifier (as ModActorValue).
-fn add_modifier(g: &mut Game, actor: FormId, code: u16, d: f64) -> Result<(), String> {
+pub(crate) fn add_modifier(g: &mut Game, actor: FormId, code: u16, d: f64) -> Result<(), String> {
     let before = permanent(g, actor, code)?;
     let e = g.extra.entry(actor).or_default();
     let m = e.av_permanent.get(&code).copied().unwrap_or(0.0) + d;

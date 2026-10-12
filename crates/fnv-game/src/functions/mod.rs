@@ -25,7 +25,7 @@ mod refs;
 mod reputation;
 
 pub use reputation::{store as reputation_store, tiers as reputation_tiers};
-pub use actor::{actor_value, actor_value_capped, actor_value_parts, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
+pub use actor::{actor_value, actor_value_capped, actor_value_parts, temporary as actor_value_temporary, add_damage as add_actor_value_damage, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
 pub use actor::{faction_rank, faction_relation, factions_of, factions_relation};
 pub use misc::clock_now;
 /// The level (0–3) of fame or infamy against a reputation's scale (the Pip-Boy's STATS page).
@@ -345,6 +345,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1148, "DispelAllSpells", Impl(magic::dispel_all_spells)),
         (0x10DF, "IsSpellTarget", Impl(magic::is_spell_target)),
         (0x10D6, "HasMagicEffect", Impl(magic::has_magic_effect)),
+        (0x122B, "GetSpellUsageNum", Impl(magic::get_spell_usage_num)),
         (0x10BA, "ScriptEffectElapsedSeconds", Impl(magic::script_effect_elapsed_seconds)),
         // Actors and factions.
         (0x116D, "IsChild", Impl(actor::is_child)),
