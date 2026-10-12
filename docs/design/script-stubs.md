@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -92,6 +92,35 @@ not built. Also registered there: GetMinorCrimeCount, GetActorCrimePlayerEnemy,
 IsActorAVictim, IsPCAMurderer, IsCellOwner, IsInMyOwnedCell, and RewardKarma with its
 corner message.
 
+### 3.2 Second round (claude/script-stubs-2, 2026-10-12)
+
+The implementable stubs of §4 and the unregistered functions of §6. Evidence tags are on
+each function; call sites are from `fnvtool script decompile` over the ten masters
+[observed].
+
+| Function | Opcode | Calls | Conditions | Over | Engine hook |
+|---|---|---|---|---|---|
+| SetPackDuration | 0x1122 | 12 | 0 | `RefExtra::package_ends`: the current package ends that many game minutes after the call (counts as done, end script, then the actor chooses again) [hypothesis: from the call; what it ends into] | none (`Game::end_timed_packages` in the periodic choice) |
+| IsPlayerMovingIntoNewSpace | 0x1166 | 6 | 8 | `Game::loading` (the travel's loading screen) | `nvf_play::script` sets it already |
+| SetGlobalTimeMultiplier | 0x1186 | 7 | 0 | `UiRequests::time_multiplier`; ≤ 0 refused | `nvf_play::script::time_multiplier`: `Time<Virtual>` relative speed; sound speed unchanged |
+| Rotate | 0x1004 | 4 | 0 | one call turns the reference for one frame (speed × frame time), the frame's last call counts [hypothesis, from the wiki's note and the GameMode callers] | `moved.rs`, `script_draw.rs` redraw `Game::turned` |
+| SetActorsAI | 0x118B | 3 | 0 | `RefExtra::ai_off`: no periodic package choice | `fnv_ai` does not step the actor; `detection.rs` skips it as a detector; animation and collision not stopped |
+| ShowAllMapMarkers | 0x11F8 | 2 | 0 | `PlayerState::all_markers` (show, travel kept, skip hidden); `Game::map_marker_shown` | the Pip-Boy world map (FNAM bit 4 "Show All" Hidden) |
+| IsTurning | 0x101A | 0 | 1 | `Motion::turning` | `detection.rs`: heading change over 0.5 rad/s (left 1, right 2) [hypothesis: threshold] |
+| AddItemToLeveledList | 0x1236 | 20 | 0 | `fnv_sim::World::add_to_leveled_list`: entries added after the authored ones, in snapshots; health not kept | containers and AddItem through `leveled::resolve_with`; actors' drawn equipment (`fnv-actor`) does not see them |
+| IsDLCInstalled | 0x126F | 8 | 0 | a load-order plugin whose name matches, spaces, case and extension ignored [hypothesis: "tribal pack" ↔ TribalPack.esm] | none |
+| GetXPForNextLevel | 0x1215 | 3 | 0 | the next level's total, (n − 1)((n − 2)/2 · iXPBumpBase + iXPBase) [documented: GECK wiki Experience Settings], less the player's XP [hypothesis: remaining, from the Here and Now perk's stage] | none (levelling up is not built) |
+
+Left, with the reason (§4): PushActorAway (ragdolls are for corpses only; a live
+knockdown and getting up is not built, with GetKnockedState), SetForceSneak (actors
+other than the player have no sneaking stance or animations), AutoDisplayObjectives
+(objectives already show as scripts set them; what the switch adds is not documented
+beyond the summary), GetIsObjectType (its condition parameter is a form type code, and
+the code table is not in the local GECK wiki export; one condition use).
+
+The test aid `call:` also takes `x`/`y`/`z` (an axis) and `"text"` (a string). Smoke:
+`script-stubs-2-play` (the time multiplier and ShowAllMapMarkers on the Pip-Boy map).
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is
@@ -116,7 +145,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | IsFacingUp | 0x106A | 0 | 41 | needs a system not built yet | animation (ragdoll) |
 | GetKnockedState | 0x106B | 5 | 35 | assigned to workstream | assigned to workstream E2 combat AI |
 | SetSecuritronExpression | 0x1248 | 37 | 0 | needs a system not built yet | rendering |
-| PushActorAway | 0x118A | 35 | 0 | implementable, left for later | the engine has ragdolls; a scripted push is missing |
+| PushActorAway | 0x118A | 35 | 0 | needs a system not built yet | physics: ragdolls are for corpses only; a live actor knocked down and getting up is not built |
 | PurgeCellBuffers | 0x1189 | 32 | 0 | deliberately no-op | memory: the original's cell buffers; cells here load and unload by distance |
 | ShowCaravanMenu | 0x125A | 29 | 0 | needs a system not built yet | menus (Caravan) |
 | OpenTeammateContainer | 0x11C8 | 26 | 0 | assigned to workstream | assigned to workstream H followers |
@@ -128,9 +157,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetDisposition | 0x104C | 0 | 15 | needs a system not built yet | dialogue (disposition) |
 | ShowRepairMenu | 0x117A | 15 | 0 | needs a system not built yet | menus (repair) |
 | ShowRecipeMenu | 0x1250 | 15 | 0 | needs a system not built yet | menus (crafting) |
-| IsPlayerMovingIntoNewSpace | 0x1166 | 6 | 8 | implementable, left for later | the engine's load doors and fast travel would tell it |
 | UseWeapon | 0x119C | 13 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
-| SetPackDuration | 0x1122 | 12 | 0 | implementable, left for later | the package model has durations; a per-actor override is missing |
 | Reset3DState | 0x1146 | 12 | 0 | needs a system not built yet | rendering |
 | GetShouldAttack | 0x1042 | 7 | 4 | assigned to workstream | assigned to workstream E2 combat AI |
 | HasBeenEaten | 0x107F | 6 | 4 | needs a system not built yet | AI (Cannibal perk) |
@@ -139,7 +166,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | TriggerScreenSplatter | 0x1240 | 8 | 0 | needs a system not built yet | image space |
 | IsSwimming | 0x10B9 | 0 | 7 | needs a system not built yet | movement (swimming) |
 | GetVATSTargetHeight | 0x10EB | 0 | 7 | needs a system not built yet | combat (VATS) |
-| SetGlobalTimeMultiplier | 0x1186 | 7 | 0 | implementable, left for later | the engine has a time scale; the game crate does not ask for one |
 | GetRadiationLevel | 0x11F7 | 0 | 7 | needs a system not built yet | radiation (environment) |
 | IsCombatTarget | 0x1203 | 6 | 1 | assigned to workstream | assigned to workstream E2 combat AI |
 | GetIsUsedItemType | 0x10F7 | 0 | 6 | needs a system not built yet | AI (used items) |
@@ -150,7 +176,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetOwnerLastTarget | 0x124E | 5 | 0 | assigned to workstream | assigned to workstream J karma and crime |
 | ShowSlotMachineMenuParams | 0x1252 | 5 | 0 | needs a system not built yet | menus (casino) |
 | SystemSave | 0x127B | 5 | 0 | needs a system not built yet | saving |
-| Rotate | 0x1004 | 4 | 0 | implementable, left for later | references move (SetAngle); a per-frame turn is missing |
 | StartCannibal | 0x107E | 4 | 0 | needs a system not built yet | AI (Cannibal perk) |
 | GetVATSMode | 0x10E0 | 2 | 2 | needs a system not built yet | combat (VATS) |
 | PlayBink | 0x1114 | 4 | 0 | needs a system not built yet | video |
@@ -159,10 +184,9 @@ exists; the note says what is missing); **deliberately no-op**.
 | ResetPipboyManager | 0x1201 | 4 | 0 | needs a system not built yet | Pip-Boy |
 | AttachAshPile | 0x1211 | 4 | 0 | needs a system not built yet | rendering (death effects) |
 | AddCardToPlayer | 0x125B | 4 | 0 | needs a system not built yet | Caravan |
-| SetForceSneak | 0x10D3 | 3 | 0 | implementable, left for later | the player's sneak exists; NPCs never sneak yet |
+| SetForceSneak | 0x10D3 | 3 | 0 | needs a system not built yet | movement: actors other than the player have no sneaking stance or animations |
 | GetUsedItemActivate | 0x1103 | 0 | 3 | needs a system not built yet | AI (used items) |
 | SetNoAvoidance | 0x115B | 3 | 0 | needs a system not built yet | AI |
-| SetActorsAI | 0x118B | 3 | 0 | implementable, left for later | the residents and the AI could skip an actor; the switch is missing |
 | GetGroupTargetCount | 0x11A1 | 0 | 3 | assigned to workstream | assigned to workstream E2 combat AI |
 | PlaceAtReticle | 0x1263 | 3 | 0 | needs a system not built yet | HUD (reticle) |
 | GetArmorRating | 0x1051 | 1 | 1 | assigned to workstream | assigned to workstream E2 combat AI |
@@ -178,13 +202,11 @@ exists; the note says what is missing); **deliberately no-op**.
 | ShowTutorialMenu | 0x11E3 | 2 | 0 | needs a system not built yet | menus (tutorial) |
 | AgeRace | 0x11E4 | 2 | 0 | needs a system not built yet | character appearance |
 | ShowPlasticSurgeonMenu | 0x11F2 | 2 | 0 | needs a system not built yet | menus (appearance) |
-| ShowAllMapMarkers | 0x11F8 | 2 | 0 | implementable, left for later | the Pip-Boy map reads markers; the game crate has no marker list |
 | ForceSave | 0x1217 | 2 | 0 | needs a system not built yet | saving |
-| AutoDisplayObjectives | 0x1225 | 2 | 0 | implementable, left for later | quest messages exist; the switch for when the Pip-Boy is away is missing |
+| AutoDisplayObjectives | 0x1225 | 2 | 0 | implementable, left for later | objectives already show at the left as scripts set them; what the switch adds is not documented beyond the summary |
 | SetScreenSplatterFade | 0x1243 | 2 | 0 | needs a system not built yet | image space |
 | GetForceHitReaction | 0x1259 | 0 | 2 | assigned to workstream | assigned to workstream E2 combat AI |
 | EnableLoadingMenu | 0x1270 | 2 | 0 | needs a system not built yet | menus (loading) |
-| IsTurning | 0x101A | 0 | 1 | implementable, left for later | the engine knows the turn rate; it does not tell the game yet |
 | StartMisterSandman | 0x107C | 1 | 0 | needs a system not built yet | AI (Mister Sandman perk) |
 | GetCannibal | 0x10E3 | 0 | 1 | needs a system not built yet | AI (Cannibal perk) |
 | trapUpdate | 0x110C | 1 | 0 | needs a system not built yet | physics (traps) |
@@ -210,8 +232,8 @@ Notes on the most used:
 - **IsActorTalkingThroughActivator** (92 conditions): conversations through talking
   activators (intercoms, radios) are not built; with none, 0 is the right answer.
 - **Autosave / SystemSave / ForceSave** (81): there is no saved game yet.
-- **PushActorAway** (35, implementable): the engine has ragdolls (`ragdoll.rs`); a scripted
-  push that starts one with an impulse is missing.
+- **PushActorAway** (35): the engine's ragdolls (`ragdoll.rs`) are for corpses; a pushed
+  live actor has to be knocked down and get up again (GetKnockedState), not built.
 
 ## 5. Deliberately no-op
 
@@ -227,10 +249,9 @@ Notes on the most used:
 
 | Function | Opcode | Calls | Conditions | Note |
 |---|---|---|---|---|
-| AddItemToLeveledList | 0x1236 | 20 | 0 | run-time changes to leveled lists; `crate::templates` reads the lists, there is no change store yet |
-| IsDLCInstalled | 0x126F | 8 | 0 | no catalogue page or summary: left unregistered rather than guessed |
-| GetXPForNextLevel | 0x1215 | 3 | 0 | levelling is not built |
-| GetIsObjectType | 0x11B1 | 0 | 1 | a form type by name; one condition |
+| GetIsObjectType | 0x11B1 | 0 | 1 | a form type by code (xEdit `ptFormType`); the Form Type IDs table is not in the local GECK wiki export |
+
+AddItemToLeveledList, IsDLCInstalled and GetXPForNextLevel were registered in §3.2.
 
 ## 7. Checks
 
@@ -238,6 +259,8 @@ Notes on the most used:
   `audited_stubs_answer_from_the_engine_state_and_leave_requests`, `package_choice.rs`
   `reset_ai_drops_the_script_package_and_the_codes_follow_the_package`, the `chargen.rs`
   unit tests for added points and tags, and the `functions::stubs` tests (the tables name
-  stubs only; every stub has a status).
+  stubs only; every stub has a status); for §3.2 `functions.rs` `second_round_stubs`,
+  `package_choice.rs` `set_pack_duration_ends_the_package_and_set_actors_ai_stops_the_choice`
+  and `fnv-sim` `synthetic.rs` `entries_added_to_a_leveled_list_count_and_persist`.
 - `python tools/smoke run`: `script-stubs` (the survey's counts) and `script-stubs-play`
-  (Look and the weather in Goodsprings).
+  (Look and the weather in Goodsprings), `script-stubs-2-play` (§3.2).
