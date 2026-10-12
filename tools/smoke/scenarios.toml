@@ -1204,9 +1204,11 @@ paths = [
   "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-game/src/functions/ui.rs",
   "crates/fnv-game/src/weather.rs", "engine/nvforever/src/script_look.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs",
 ]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:SunnyRef:Look:player,8:call:-:SetWeather:0x000E3792:1,10:call:-:ReleaseWeatherOverride,14:call:SunnyRef:StopLook,15:objective:VCG02:3,15.5:call:-:ForceActiveQuest:VCG02", NVF_PLAY_TEST_PIPBOY = "17:open,18:page=data,20:close" }
-args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
-run_seconds = 23
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:SunnyRef:Look:player,8:call:-:SetWeather:0x000E3792:1,10:call:-:ReleaseWeatherOverride,14:call:SunnyRef:StopLook,15:objective:VCG02:3,15.5:call:-:ForceActiveQuest:VCG02", NVF_PLAY_TEST_PIPBOY = "22:open,23:page=data,25:close" }
+# --no-messages: the add-on start-up boxes, late on a loaded machine, kept the Pip-Boy
+# from coming up once.
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 28
 # StopLook comes 10 s after Look: aids due while the start-up loading screen is up run
 # together in its first frame (a loaded machine kept it up past 10 s once), and a Look
 # taken back in the same frame is never drawn.
