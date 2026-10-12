@@ -129,6 +129,21 @@ impl Ai {
         }
     }
 
+    /// An actor following another one (a Follow or Accompany package) out of the loaded
+    /// area is processed at least as often as its leader, up to Mid-High [design,
+    /// coordinator 2026-10-12: teleports (fast travel, MoveTo) can leave a follower
+    /// beyond the cell buffer while its leader is near: Cheyenne after Sunny Smiles].
+    fn with_leader(&self, actor: FormId, level: ProcessLevel) -> ProcessLevel {
+        let leader = match self.agents.get(&actor).and_then(|a| a.goal.as_ref()) {
+            Some(crate::goal::Goal::Follow(f)) if self.agents.contains_key(&f.target) => f.target,
+            _ => return level,
+        };
+        match (level, self.level(leader)) {
+            (ProcessLevel::Low, ProcessLevel::High | ProcessLevel::MidHigh) => ProcessLevel::MidHigh,
+            _ => level,
+        }
+    }
+
     /// How many of the actors the AI looks after are at the Low level.
     pub fn far_count(&self) -> usize {
         self.far.iter().filter(|a| self.agents.contains_key(a)).count()
@@ -138,6 +153,7 @@ impl Ai {
     /// levels out of the loaded area only the rate changes, and the share of its
     /// interval it is owed.
     pub fn set_level(&mut self, game: &Game, actor: FormId, level: ProcessLevel) -> bool {
+        let level = self.with_leader(actor, level);
         if !self.agents.contains_key(&actor) || level == self.level(actor) {
             return false;
         }

@@ -608,6 +608,10 @@ Now (`fnv_ai::process`, the residents' `process_levels`):
     ("accessible through teleport doors within player's loaded cell grid", and once
     there "it never seems to go back to Low") count as buffered, every 18 s [design: the
     original's rate is "unknown"; 18 s is what those actors had before].
+  - An actor walking out of the loaded area, or on into another cell while at Mid-High,
+    takes that cell into the buffer [hypothesis: it keeps its surroundings in memory],
+    and a follower (Follow or Accompany package) out of the buffer is kept at Mid-High
+    while its leader is processed at Mid-High or above [design].
   - **Low**, every 120 s: anywhere else ("neither currently loaded nor buffered").
 
   Moving between the two keeps the share of the interval the actor is owed.

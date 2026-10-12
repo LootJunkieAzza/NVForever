@@ -639,6 +639,12 @@ impl Core {
             let (space, feet) = (a.walker.space, a.walker.feet);
             let high = drawn(world, streamer, space, feet);
             // Out of the loaded area: Mid-High in the cell buffer, Low beyond (`cell_buffer.rs`).
+            // Walking out of the loaded area, or on into another cell, takes the cell along.
+            let new_cell = fnv_world::cell_of(r.last_feet[0], r.last_feet[1]) != fnv_world::cell_of(feet[0], feet[1]);
+            let carries = !high && !streamer.buffer.holds(space, feet) && (self.ai.is_high(r.actor) || (new_cell && self.ai.level(r.actor) == fnv_ai::ProcessLevel::MidHigh));
+            if carries {
+                streamer.buffer.carry(space, feet);
+            }
             let level = match (high, streamer.buffer.holds(space, feet)) {
                 (true, _) => fnv_ai::ProcessLevel::High,
                 (false, true) => fnv_ai::ProcessLevel::MidHigh,

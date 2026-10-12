@@ -21,6 +21,11 @@
 //!   GetActorProcessingLevel]: here such an interior counts as buffered, every 18 s
 //!   [design: the rate those actors had before the Low level existed]. The interiors are
 //!   the destinations of the load doors placed in the exterior cells drawn this session.
+//! - An actor walking out of the loaded area (or, already out, into another cell) takes
+//!   the cell it walks into into the buffer, as if drawn then [hypothesis: an actor being
+//!   processed keeps its surroundings in memory; design: otherwise an actor walking out
+//!   of the grid into cells never drawn would drop at once to the 120 s rate, which left
+//!   Sunny Smiles's dog behind her]. Such a cell leaves the buffer like any other.
 
 use bevy::prelude::*;
 use fnv_nav::Space;
@@ -36,7 +41,7 @@ pub const EXTERIOR_CELLS: usize = 36;
 pub const INTERIOR_CELLS: usize = 3;
 
 /// The cells drawn most recently (module notes).
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct CellBuffer {
     /// Exterior cells (worldspace, grid square) and interior cells, with the frame each
     /// was last drawn in.
@@ -47,6 +52,9 @@ pub struct CellBuffer {
     /// and the exterior cells whose doors were looked at.
     behind_doors: HashSet<u32>,
     doors_seen: HashSet<(u32, (i32, i32))>,
+    /// Cells actors walked into this frame ([`CellBuffer::carry`]), taken in at the next
+    /// [`CellBuffer::remember`].
+    carried: std::sync::Mutex<Vec<Key>>,
 }
 
 impl CellBuffer {
@@ -54,6 +62,13 @@ impl CellBuffer {
     /// worldspace `world`.
     pub fn remember(&mut self, world: u32, interior: Option<u32>, exterior: impl Iterator<Item = (i32, i32)>) {
         self.frame += 1;
+        let carried = self.carried.get_mut().map(std::mem::take).unwrap_or_default();
+        for k in carried {
+            match k {
+                Key::Exterior(w, c) => self.exterior.insert((w, c), self.frame),
+                Key::Interior(i) => self.interior.insert(i, self.frame),
+            };
+        }
         match interior {
             Some(i) => {
                 self.interior.insert(i, self.frame);
@@ -66,6 +81,14 @@ impl CellBuffer {
         }
         keep_newest(&mut self.exterior, EXTERIOR_CELLS);
         keep_newest(&mut self.interior, INTERIOR_CELLS);
+    }
+
+    /// An actor walked into the cell at `feet` in `space`: the cell counts as buffered
+    /// from now (module notes).
+    pub fn carry(&self, space: Space, feet: [f32; 3]) {
+        if let Ok(mut c) = self.carried.lock() {
+            c.push(key(space, feet));
+        }
     }
 
     /// Note the interiors the load doors of the drawn exterior cells of `world` lead to
@@ -89,6 +112,9 @@ impl CellBuffer {
     /// Whether the cell at `feet` in `space` is in the buffer (or an interior behind the
     /// doors of the cells drawn so far, module notes).
     pub fn holds(&self, space: Space, feet: [f32; 3]) -> bool {
+        if self.carried.lock().is_ok_and(|c| c.contains(&key(space, feet))) {
+            return true;
+        }
         match space {
             Space::Interior(c) => self.interior.contains_key(&c) || self.behind_doors.contains(&c),
             Space::World(w) => self.exterior.contains_key(&(w, fnv_world::cell_of(feet[0], feet[1]))),
@@ -98,6 +124,20 @@ impl CellBuffer {
     #[cfg(test)]
     fn len(&self) -> (usize, usize) {
         (self.exterior.len(), self.interior.len())
+    }
+}
+
+/// A cell of the buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Key {
+    Exterior(u32, (i32, i32)),
+    Interior(u32),
+}
+
+fn key(space: Space, feet: [f32; 3]) -> Key {
+    match space {
+        Space::Interior(c) => Key::Interior(c),
+        Space::World(w) => Key::Exterior(w, fnv_world::cell_of(feet[0], feet[1])),
     }
 }
 
@@ -159,6 +199,21 @@ mod tests {
         assert!(!b.holds(Space::World(7), feet((0, -2))), "pushed out");
         assert!(b.holds(Space::World(7), feet((0, 0))), "a row left later is still in");
         assert!(!b.holds(Space::World(8), feet((0, 3))), "another worldspace");
+    }
+
+    #[test]
+    fn a_cell_an_actor_walks_into_is_buffered_until_newer_ones_push_it_out() {
+        let mut b = CellBuffer::default();
+        b.remember(7, None, grid(0, 0));
+        assert!(!b.holds(Space::World(7), feet((0, -3))));
+        b.carry(Space::World(7), feet((0, -3)));
+        assert!(b.holds(Space::World(7), feet((0, -3))), "at once");
+        b.remember(7, None, grid(0, 0));
+        assert!(b.holds(Space::World(7), feet((0, -3))), "kept");
+        for y in 1..=4 {
+            b.remember(7, None, grid(0, y));
+        }
+        assert!(!b.holds(Space::World(7), feet((0, -3))), "pushed out");
     }
 
     #[test]

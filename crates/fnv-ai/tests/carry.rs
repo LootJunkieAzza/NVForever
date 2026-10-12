@@ -1080,3 +1080,18 @@ fn an_actor_out_of_the_cell_buffer_is_updated_every_two_minutes() {
     assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::High));
     assert_eq!(s.ai.process_counts(), (1, 0));
 }
+
+#[test]
+fn a_follower_is_processed_at_least_as_often_as_its_leader() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL, R_DOG]);
+    s.run(1.0);
+    let (leader, dog) = (FormId(R_TRAVEL), FormId(R_DOG));
+    // The leader is in the loaded area: the dog beyond the buffer is kept at Mid-High.
+    assert!(s.ai.set_level(&s.game, dog, fnv_ai::ProcessLevel::Low));
+    assert_eq!(s.ai.level(dog), fnv_ai::ProcessLevel::MidHigh);
+    // The leader beyond the buffer too: so is the dog.
+    assert!(s.ai.set_level(&s.game, leader, fnv_ai::ProcessLevel::Low));
+    assert!(s.ai.set_level(&s.game, dog, fnv_ai::ProcessLevel::Low));
+    assert_eq!(s.ai.level(dog), fnv_ai::ProcessLevel::Low);
+}

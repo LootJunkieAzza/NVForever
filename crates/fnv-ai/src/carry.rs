@@ -230,7 +230,7 @@ pub struct Agent {
     pub activity: Activity,
     /// The package the actor was last seen with.
     pub(crate) package: Option<FormId>,
-    goal: Option<Goal>,
+    pub(crate) goal: Option<Goal>,
     /// Index of the patrol point being walked to.
     route_at: usize,
     pub(crate) trip_started: f64,
