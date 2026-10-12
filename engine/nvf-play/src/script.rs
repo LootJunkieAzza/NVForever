@@ -68,6 +68,9 @@
 //!   runs (any `NVF_PLAY_TEST_*` variable, or `--auto-walk`) default to
 //!   [`UNATTENDED_MENU_SECONDS`], so a check that does not answer the boxes is not held by
 //!   them [decision]; other runs to off.
+//! - `nvforever --play --no-messages` ([`NoMessages`]): a message box that asks nothing
+//!   (an OK button only) closes as soon as it is on screen, as OK would; a box with two
+//!   or more buttons stays for the player [decision: the flag never chooses an answer].
 
 use crate::activate::outcome::{self, Destination, Effect};
 use crate::control::ControlLocks;
@@ -149,6 +152,11 @@ pub const UNATTENDED_MENU_SECONDS: f32 = 0.25;
 /// The game's periodic package choice, seconds [documented: GECK wiki; packages.md §3].
 pub const PACKAGE_INTERVAL: f64 = 10.0;
 
+/// `nvforever --play --no-messages`: message boxes that ask nothing close at once
+/// (inserted before the play plugin).
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct NoMessages;
+
 /// `nvforever --play --new-game`: the game starts as a new game does (inserted before
 /// the play plugin).
 #[derive(Resource, Clone, Copy, Debug, Default)]
@@ -200,6 +208,8 @@ pub struct ScriptState {
     gates: HashMap<(String, i32), f32>,
     /// `NVF_PLAY_TEST_SCRIPT_MENUS`: close a script's menu after this many seconds.
     auto_close: Option<f32>,
+    /// `--no-messages`: close a message box without a choice at once.
+    no_messages: bool,
     /// The script menu on screen (code, front box) and since when (seconds).
     on_screen: Option<(u16, Option<FormId>, f32)>,
     /// `walk:` test aids due: where to put the player's feet.
@@ -258,7 +268,7 @@ pub struct TickStats {
 }
 
 impl ScriptState {
-    fn new(d: PlayData, refs: &'static RefTable, new_game: bool, unattended: bool) -> ScriptState {
+    fn new(d: PlayData, refs: &'static RefTable, new_game: bool, unattended: bool, no_messages: bool) -> ScriptState {
         let off = match std::env::var("NVF_PLAY_SCRIPTS").as_deref() {
             Ok("0") | Ok("off") | Ok("false") => Some("NVF_PLAY_SCRIPTS=0".to_string()),
             _ => None,
@@ -287,6 +297,9 @@ impl ScriptState {
         if let Some(s) = auto_close {
             info!("test aid: menus and message boxes that scripts open close themselves after {s} s");
         }
+        if no_messages {
+            info!("--no-messages: message boxes without a choice close at once");
+        }
         let trace = std::env::var_os("NVF_PLAY_SCRIPT_TRACE").map(PathBuf::from).and_then(|p| match TraceLog::create(&p) {
             Ok(t) => Some(t),
             Err(e) => {
@@ -295,7 +308,7 @@ impl ScriptState {
             }
         });
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids, gates: HashMap::new(), auto_close, on_screen: None, walks: Vec::new(), new_game, used: Vec::new() }
+        ScriptState { loader, rt: None, off, trace, aids, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, used: Vec::new() }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -941,7 +954,8 @@ impl Plugin for ScriptPlugin {
         let refs = app.world().resource::<SimState>().refs;
         let new_game = app.world().contains_resource::<NewGame>();
         let unattended = crate::test_aid::Unattended::from_env().0;
-        app.insert_resource(ScriptState::new(d, refs, new_game, unattended))
+        let no_messages = app.world().contains_resource::<NoMessages>();
+        app.insert_resource(ScriptState::new(d, refs, new_game, unattended, no_messages))
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
             .add_systems(Update, (crate::script_hud::menu_keys, run_scripts, sync_locks, walk_player, hold_player).chain().in_set(PlaySet::Scripts))
             .add_systems(Last, (crate::aid::report, write_final));
@@ -1052,6 +1066,13 @@ pub(crate) fn run_scripts(
         (Some((m, f)), Some((m0, f0, _))) if (m, f) == (m0, f0) => {}
         (Some((m, f)), _) => st.on_screen = Some((m, f, now)),
         (None, _) => st.on_screen = None,
+    }
+    if let (true, Some((MENU_MESSAGE, Some(front), _))) = (st.no_messages, st.on_screen) {
+        let buttons = st.rt.as_ref().and_then(|rt| rt.game.data.messages.get(&front)).map_or(0, |m| m.buttons.len());
+        if buttons <= 1 && st.answer(None, "--no-messages") {
+            info!("--no-messages: closed message box {front}");
+            st.on_screen = None;
+        }
     }
     if let (Some(limit), Some((m, _, since))) = (st.auto_close, st.on_screen) {
         if now - since >= limit && st.answer(None, "test aid NVF_PLAY_TEST_SCRIPT_MENUS") {
