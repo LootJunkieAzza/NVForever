@@ -1060,3 +1060,16 @@ expect = [
   { re = 'panic on thread .nvf-test-panic. at .*test panic \(NVF_PLAY_TEST_PANIC\); where: WastelandNV cell -?\d+,-?\d+.*position .*crash report written to .*crash-\d{8}-\d{6}-\d+\.txt', label = "the panic logged with its thread, place and crash report" },
   "run log: the game exited normally",
 ]
+
+[[scenario]]
+name = "dead-on-spawn"
+source = "owner's playtest 2026-10-11 (the tribal village's corpses stand up): Base Health 0 starts dead, docs/spec-notes/dead-on-spawn.md"
+areas = ["combat", "deaths"]
+paths = ["crates/fnv-game/src/combat.rs", "crates/fnv-game/src/data.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1" }
+args = ["--play", "--pos=-73500,29700,8000", "--heading", "300", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'new game: (?P<n>\d+) placed actors start dead \(Base Health 0\)', range = [800, 1000], label = "new game: about 889 placed actors start dead" },
+  { re = 'ragdolls: (?P<n>\d+) started', range = [9, 1000], label = "ragdolls: the village's nine corpses or more dropped" },
+]

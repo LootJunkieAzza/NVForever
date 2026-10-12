@@ -425,6 +425,9 @@ impl Runtime {
             rt.game.new_game();
             rt.snapshot_inventory();
         });
+        // Placed actors with Base Health 0 lie dead from the start (docs/spec-notes/dead-on-spawn.md).
+        let corpses = rt.game.extra.values().filter(|e| e.dead).count();
+        info!("new game: {corpses} placed actors start dead (Base Health 0)");
         rt
     }
 

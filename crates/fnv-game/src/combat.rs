@@ -174,6 +174,29 @@ impl Game<'_> {
         self.extra.get(&r).is_some_and(|e| e.dead)
     }
 
+    /// Whether the placed actor `r` starts the game as a corpse: the actor that supplies
+    /// its stats (its base, or the template while the template flag "Stats" is set) has
+    /// a Base Health of 0 (NPC_), or a Health of 0 (CREA) [documented for NPCs: GECK wiki
+    /// Stats Tab - NPC and Category:NPC, "If Base Health is set to 0 the actor will spawn
+    /// as a corpse"; hypothesis for creatures, whose DATA Health stands where an NPC's
+    /// Base Health does; docs/spec-notes/dead-on-spawn.md].
+    pub fn starts_dead(&self, r: FormId) -> bool {
+        let placed = self.world.placed.get(r);
+        placed.is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE")) && self.stats_def(r).is_some_and(|d| d.zero_health)
+    }
+
+    /// Lay out the corpses of a new game: every placed actor that starts dead
+    /// ([`Game::starts_dead`]) is dead from the start, without a killer, an OnDeath or a
+    /// count in GetDeadCount [hypothesis: nobody killed it]. Returns how many.
+    pub fn lay_out_corpses(&mut self) -> usize {
+        let placed = self.world.placed;
+        let dead: Vec<FormId> = placed.refs.keys().copied().filter(|&r| self.starts_dead(r)).collect();
+        for &r in &dead {
+            self.extra.entry(r).or_default().dead = true;
+        }
+        dead.len()
+    }
+
     fn is_essential(&self, r: FormId) -> bool {
         self.extra.get(&r).and_then(|e| e.essential).unwrap_or_else(|| base_of(self, r).and_then(|b| self.data.actors.get(&b)).is_some_and(|d| d.essential))
     }
