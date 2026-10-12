@@ -2980,6 +2980,158 @@ Branch `claude/playtest-controls`. One commit per item.
    finishes closing within 0.25 s of that press, it fires; otherwise the press is
    dropped and you press again. **Check:** whether 0.25 s feels right.
 
+## Playtest fixes: Sunny, dialogue and voices by distance (2026-10-11, session "pt-dialogue")
+
+Branch `claude/playtest-dialogue`; notes in docs/spec-notes/dialogue.md §5,
+dialogue-menu.md §4, voice.md §9, docs/design/dialogue-play.md §1 and §8.1,
+actor-behaviour.md §5.1–§5.2, alert.md §4 and §8.
+
+1. **Sunny's gecko line holds you.** "Hear that up on the ridge…" is a greeting with the
+   Goodbye flag, said by her Dialogue package. **Rule now:** when an actor starts the
+   conversation (StartConversation with the player, or its Dialogue package), a Goodbye
+   greeting is a conversation of one line: the dialogue screen holds you until it is
+   said, then ends. When **you** talk to an actor, a Goodbye greeting is still just
+   said at you (your rule of 2026-10-10). Please check in the game whether a
+   force-greet's Goodbye line zooms in like this for other NPCs too.
+2. **No `{…}` in lines.** Acting notes in braces are left out of the dialogue line, the
+   choices and the subtitles ("{questioning}" and the like; 5,634 lines carry one).
+   **Kept:** square brackets ("[SUCCEEDED]", "[FAILED]", "[You hear static.]"), because
+   the original shows those. Four lines close a note with ")" by mistake ("{KAI-zar)
+   Caesar awaits!"); the note ends there. Angle-bracket prompts ("<Log Off>", "<lie>")
+   are shown as written: tell me if the game hides those.
+3. **Facing in conversations.** The NPC now turns its whole body to you on the spot and
+   keeps facing you for the whole conversation, however it started, and still faces you
+   afterwards until its package moves it (before, the drawing put it back). Turn speed is
+   the standing turn rate (120° a second). Someone sitting turns only the head.
+4. **Sunny at the gas station.** Cause: a script's MoveTo (Ringo's "All right, I'm
+   ready." moves her to the gas station) did not reach the AI, which kept her where she
+   stood in the saloon. Now an actor put somewhere by a script goes on from there and
+   takes up its package anew. Checked in the gas station: she appears and says "Time to
+   look alive" with the conversation open. Please play it from Ringo's line once.
+5. **Cheyenne.** Her package is "accompany Sunny" (128 units); that package type was not
+   carried out, so she stayed behind. Follow and Accompany packages are carried out now:
+   she stands while Sunny is within 128 + 64 units, else walks after her (runs when Sunny
+   is more than 512 away), through doors too. Guessed: the 64-unit slack, the 512 run
+   distance, 256 units for packages that give no distance. Escort is still not carried
+   out.
+6. **Voices by distance.** NPC lines you are not in a conversation with are full volume
+   within 600 units, quieter beyond, silent from 2,000, and panned left/right; another
+   cell is silent. 600 and 2,000 are `fDialogMinDistance` / `fDialogMaxDistance` from
+   the game's `Fallout_default.ini` (the names fit; nothing documents them). **No
+   subtitle** while the speaker is 2,000 units or more away or in another cell. Your own
+   conversation stays full volume. Please listen to a hello at about 10 m and 25 m.
+7. **Fewer barks.** After one actor says a detection line (spotting you, losing you,
+   searching), nobody of its group within 4,096 units (one cell) says a line of the same
+   kind for 15 s. Group = same NPC type or a shared faction. "Same kind": the three
+   "starts fighting" topics count as one, the three "gives up" topics as one, the two
+   search idles as one. 15 s is the longest idle-bark wait in the ESM; 4,096 is my
+   choice. At Cook-Cook's camp: 12 lines in 45 s before, 4 after.
+
+Seen on the way, not fixed (not mine): in the Fiend check (alert.md §8) Violet becomes
+Alert but barely moves and never reaches Combat, on main as well; Cook-Cook's fiends switch
+Combat ↔ Lost every few seconds.
+
+## Playtest fixes: NPCs on furniture, turning and anim objects (2026-10-11, session "pt-npcs")
+
+Branch `claude/playtest-npcs`; notes in docs/spec-notes/furniture.md §7, actors.md §8.9
+and §9.4, idles.md §10.
+
+1. **The saloon settler standing in his stool after you come back** (and **Easy Pete
+   not sitting on the porch chair after coming out of the saloon**): one cause. When you
+   left the cell the actor's body was taken away while seated, but the stool stayed
+   booked to him, so on your return the stool refused him as "in use" (by himself). Now
+   the seat is freed when the body goes, and a resident that was seated is put straight
+   back on it when you return, already sitting (no walk-up and sit-down clip again).
+   *Decision:* coming back finds him seated, not sitting down again. *Check:* leave the
+   saloon and come back; with Pete, enter the saloon while he sits on the porch, wait
+   two hours inside, come out at 14:00.
+2. **Holstered weapons floating on seated NPCs**: the seat clips don't move the weapon,
+   so it fell back to its "in the hand" position while hung from the hip. Now only the
+   weapon's own holster track is kept over the seat clip (and over a death pose), so the
+   gun stays on the hip or back and follows it. *Check:* a seated settler's pistol at his
+   hip; the rifle on the back of a seated rifleman.
+3. **Turning speed** (guessed values, nothing in the data gives an NPC's turn speed;
+   the game has a setting `fCharacterDefaultTurningSpeed` whose value is built into the
+   game, and creatures have a "Turning Speed" field of 40–100 that we don't use yet):
+   - walking: at most **180°/s** (was 720°/s); standing turns stay **120°/s**;
+   - an actor slows while turning: it keeps 30% of its speed when its way is a quarter
+     turn or more off, full speed when facing it (a right-angle corner costs about half a
+     second);
+   - near you (where actors walk with physics) they walk an arc round corners and turn
+     on the spot before setting off, like elsewhere;
+   - arriving at an idle marker they now turn to its heading at 120°/s (it was instant);
+     walking the last steps to a chair they take as long as the turn needs; getting up
+     from a chair no longer snaps them half about in one frame.
+   *Measured:* the fastest turn between two frames in the residents test went from
+   720°/s (2 frames above 270°/s) to 180°/s (none). Turn-on-the-spot clips already
+   exist and play (`mtturnleft/right.kf`); weapon-stance and creature turn clips are not
+   used by NPCs yet. The conversation turn was left as it was (another session works on
+   dialogue facing). *Check:* do 180°/s and the slow-down feel right? Should creatures
+   use their own "Turning Speed" field?
+4. **Props in idles (Chet's broom)**: the game links a prop to an idle through an
+   "animated object" record that names the idle; the prop's model names the hand it goes
+   in. Now while an NPC plays such an idle the prop is drawn in that hand, and taken
+   away when the idle ends. Chet sweeps with his broom; a smoking idle gets a cigarette.
+   *Guess:* the prop shows for the whole idle (including its fade-out); the prop's own
+   small animation (the broom has one) isn't played. *Check:* Chet sweeping; anyone
+   smoking, drinking or eating at a table. New test aid `play_idle:<ref>:<idle>` in
+   `NVF_PLAY_TEST_SCRIPT`.
+
+## Playtest fixes: loose items, ravens, shadows and shine (2026-10-11, session "pt-world")
+
+Branch `claude/playtest-world`. Pictures: `C:\fnv-private\references\playtest_world\`.
+
+1. **Loose items in Chet's store** (physics.md §4.3.1). Fixed. A new test aid
+   (`NVF_PLAY_TEST_PHYS_TRACE`) logged every loose item after the store loaded: 53 of 67
+   moved. Three causes: (a) objects made of parts joined by hinges (the globe on its
+   stand, the bucket and handle, a hanging office lamp) flew apart and fell from the
+   ceiling, because we do not model those joints, and knocked their neighbours; (b) two
+   books inside the glass display case and a magazine have nothing under them in the
+   collision (the case's collision is only its outer shell), so they dropped; (c) piles of
+   produce in a crate overlap and were pushed apart. Now every placed loose item starts
+   at rest and stays exactly where it was placed until something touches it (you, an
+   NPC, a shot, an explosion, something falling on it, or an item under it being picked
+   up); jointed objects stay fixed where they are drawn. After: 0 items move in the
+   store, Sunny's house (GSHouseInterior03) and the saloon; shot bottles still fall.
+   - My choice: "stays put until disturbed" is my reading of the original (the books in
+     the display case would have fallen otherwise). Check: walk into a shelf and shoot
+     things: they should react as before.
+   - Not done: the hanging lamp, globe and bucket no longer move at all, even when shot
+     (their joints would need modelling).
+2. **Ravens outside Doc Mitchell's** (actor-behaviour.md §5.8). Fixed. They are
+   creatures with a "sandbox around where placed" AI package but no walking animations,
+   so our AI slid them around. Their fly-off is their own script: when you come within
+   512 units (or shoot one) it plays the fly-away animation and disappears about 4.5 s
+   later; that already worked. Now creatures with no walking animations stay where they
+   are, and perched birds (those plus the "Flies" flag) no longer block you.
+   - My choice: no-collision applies to "can't walk and flies" creatures only; anything
+     else that can't walk (e.g. turrets) still blocks. Check: walk out of Doc's door;
+     the two ravens should sit still, then fly off as you approach, and never block you.
+3. **Shadow flicker after leaving an interior** (player-body.md §1.6). Not reproduced.
+   I left the saloon by the front door in first person at 15:00 and took bursts of
+   frames on the porch, walking into the sun and standing with the .357 out: nothing
+   flickered, and the extra "arms shade" light and the arms/body visibility never
+   switched. I left debug log lines for it. Please tell me the time of day, which door,
+   whether "Body in first person" was on, and what flickered (the arms, the ground, your
+   own shadow); a short video would settle it.
+4. **Flashlight shadows from light rays and lanterns** (nif.md §6). Fixed. Anything
+   drawn see-through (glass, light rays, glows, smoke) now casts no shadow from any
+   light, the sun and the flashlight included. Before/after:
+   `flashlight_rays_before_after.png` (saloon, flashlight on, facing the east windows:
+   the rays' dark wedges on the wall are gone). Cut-out textures (fences, leaves) still
+   cast. Check: glass bottles and windows no longer throw a sun shadow either; say if
+   you want the windows' frames-only shadow some other way.
+5. **Too shiny: Doc's bed, the gas station's Sunset Sarsaparilla machine and door**
+   (nif.md §6 "Specular"). Fixed in the material path for all objects of this kind. All
+   three use a normal map without an alpha channel (DXT1, 425 of the game's 3,428 normal
+   maps); we read the missing alpha as "full shine", seven times the shine of a typical
+   surface, which looked like wet paint and turned mirror-like at shallow angles. Now
+   such objects get the typical (median) shine of the other normal maps.
+   - Before/after: `shine_gas_station_before_after.png`, `shine_doc_bed_before_after.png`.
+   - Guessed constant: the median mask, 35 of 255. Check: the bed when you wake up and
+     the vending machine and door at noon. A game screenshot of the vending machine in
+     sun from the side would tell whether the original gives these objects any shine.
+
 ## Smoke tests reworked (2026-10-11, session "pt-smoke")
 
 Your request (todo 3): stop wasting time and usage on redundant smoke testing. The ~40 prose

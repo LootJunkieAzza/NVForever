@@ -176,6 +176,8 @@ pub struct PreparedRef {
     objects: Vec<PreparedObject>,
     /// Conversion errors, in the order [`PhysWorld::add_ref`] reports them.
     errors: Vec<ConvertError>,
+    /// Its dynamic bodies are added asleep ([`PreparedRef::asleep`]).
+    asleep: bool,
 }
 
 struct PreparedObject {
@@ -209,7 +211,7 @@ impl PreparedRef {
 
     /// With `k` metres per game unit.
     fn build(k: f32, pose: &RefPose, objects: &[CollisionObject]) -> PreparedRef {
-        let mut out = PreparedRef { form_id: pose.form_id, objects: Vec::new(), errors: Vec::new() };
+        let mut out = PreparedRef { form_id: pose.form_id, objects: Vec::new(), errors: Vec::new(), asleep: false };
         let ref_rot = match convert::rotation(&pose.rotation) {
             Ok(r) => r,
             Err(e) => {
@@ -243,6 +245,16 @@ impl PreparedRef {
             });
         }
         out
+    }
+
+    /// Add its dynamic bodies asleep: they stay where they were put, whatever is (or is
+    /// not) under them, until something wakes them — a body moving against them, a push
+    /// ([`PhysWorld::push_ref`], [`PhysWorld::push_dynamic`]) or a body they touch being
+    /// removed. Its keyframed bodies are added asleep too, until they are first moved.
+    /// For clutter placed in a cell (physics.md §4.3.1).
+    pub fn asleep(mut self) -> PreparedRef {
+        self.asleep = true;
+        self
     }
 
     /// Colliders it will add.
@@ -296,6 +308,9 @@ pub struct PhysWorld {
     /// setting their position ([`PhysWorld::body_placed`]) since the last step (see
     /// [`PhysWorld::update_queries`]).
     struck: Vec<RigidBodyHandle>,
+    /// Dynamic bodies added asleep ([`PreparedRef::asleep`]) whose contacts have not been
+    /// found yet (see [`PhysWorld::update_queries`]).
+    pending_sleep: Vec<RigidBodyHandle>,
     steps: u64,
     /// Water: cell surfaces by area and placed volumes (`crate::water`).
     pub(crate) water: crate::water::Waters,
@@ -329,6 +344,7 @@ impl PhysWorld {
             dirty: false,
             new_bodies: Vec::new(),
             struck: Vec::new(),
+            pending_sleep: Vec::new(),
             steps: 0,
             water: Default::default(),
         }
@@ -382,12 +398,19 @@ impl PhysWorld {
             let builder = match o.motion {
                 Motion::Static => RigidBodyBuilder::fixed(),
                 Motion::Keyframed => RigidBodyBuilder::kinematic_position_based(),
-                Motion::Dynamic => RigidBodyBuilder::dynamic(),
+                Motion::Dynamic => RigidBodyBuilder::dynamic().sleeping(p.asleep),
             };
+            // A keyframed body that has not moved yet would keep the clutter touching
+            // it awake (a cleaner bottle on a container's lid): asleep too.
+            let hold = p.asleep && o.motion != Motion::Static;
+            let builder = if hold { builder.sleeping(true) } else { builder };
             let body = self.insert_body(builder.pose(o.pose).user_data(owner.encode()));
             report.colliders += self.attach(body, owner, &o.material, o.leaves, o.shell);
             if o.motion == Motion::Dynamic {
                 self.set_mass(body, o.material.mass);
+            }
+            if hold {
+                self.pending_sleep.push(body);
             }
             handles.push(body);
         }
@@ -607,6 +630,33 @@ impl PhysWorld {
         self.refs.get(&form_id).into_iter().flatten().map(|&b| body_state(&self.w.bodies[b], self.k)).collect()
     }
 
+    /// Angular velocity (radians a second) of each body of a reference, in object order;
+    /// `None` for a body that is not dynamic (diagnostics).
+    pub fn ref_spins(&self, form_id: u32) -> Vec<Option<[f32; 3]>> {
+        let spin = |b: &RigidBody| b.is_dynamic().then(|| arr3(b.angvel()));
+        self.refs.get(&form_id).into_iter().flatten().map(|&b| spin(&self.w.bodies[b])).collect()
+    }
+
+    /// The deepest contact of each pair the reference's colliders are in, as of the last
+    /// narrow-phase update: the index of the reference's body, what the other collider
+    /// belongs to and the contact's distance in game units (negative: overlapping by that
+    /// much). Diagnostics: an overlap at placement shows what pushes a body apart.
+    pub fn ref_contacts(&self, form_id: u32) -> Vec<(usize, Option<Owner>, f32)> {
+        let mut out = Vec::new();
+        for (i, &b) in self.refs.get(&form_id).into_iter().flatten().enumerate() {
+            let Some(body) = self.w.bodies.get(b) else { continue };
+            for &c in body.colliders() {
+                for pair in self.w.contact_pairs_with(c) {
+                    let other = if pair.collider1 == c { pair.collider2 } else { pair.collider1 };
+                    let Some((_, contact)) = pair.find_deepest_contact() else { continue };
+                    let owner = self.w.colliders.get(other).and_then(|o| Owner::decode(o.user_data));
+                    out.push((i, owner, contact.dist / self.k));
+                }
+            }
+        }
+        out
+    }
+
     pub(crate) fn insert_body(&mut self, b: impl Into<RigidBody>) -> RigidBodyHandle {
         let h = self.w.insert_body(b);
         self.new_bodies.push(h);
@@ -623,6 +673,11 @@ impl PhysWorld {
 
     /// Advance one fixed step.
     pub fn step(&mut self) {
+        if !self.pending_sleep.is_empty() {
+            // Find the contacts of bodies added asleep first (`update_queries`).
+            self.dirty = true;
+            self.update_queries();
+        }
         self.step_world();
         self.dirty = false;
         self.new_bodies.clear();
@@ -648,6 +703,17 @@ impl PhysWorld {
                 if let Some(b) = self.w.bodies.get_mut(h) {
                     let p = *b.position();
                     b.set_position(p, false);
+                }
+            }
+            // A body added asleep wakes when its first contacts are found: rapier wakes
+            // both sides of every contact that starts [rapier 0.36.0, `NarrowPhase`'s
+            // pair transitions], so clutter placed on a shelf, touching it or its
+            // neighbours, woke at once and was pushed about. Its contacts have been found
+            // now; put it back to sleep, so it rests until something new touches it
+            // [observed: test `clutter_added_asleep_on_a_shelf_it_overlaps_stays_asleep`].
+            for h in self.pending_sleep.drain(..) {
+                if let Some(b) = self.w.bodies.get_mut(h) {
+                    b.sleep();
                 }
             }
             // The same loses the wake-up of a sleeping body struck since the last step:
@@ -745,6 +811,7 @@ impl PhysWorld {
             dirty: self.dirty,
             new_bodies: self.new_bodies.clone(),
             struck: self.struck.clone(),
+            pending_sleep: self.pending_sleep.clone(),
             steps: self.steps,
             water: self.water.clone(),
         }

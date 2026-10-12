@@ -226,6 +226,20 @@ porch chair `00106349`, with and without §1.5, the picture is as before. On the
 Mead pier (cell 13,9) the water and its reflections differ only by the ripples.
 Switching to third person and back keeps the right parts seen.
 
+**Flicker after leaving an interior** (owner's playtest, 2026-10-11: "strange flickering on
+shadows noticed 2 times after exiting interior cell", first person only). Not reproduced
+[observed, owner's install, 2026-10-11]: `--play --cell GSProspectorSaloonInterior
+--no-npc-packages --hour 15`, `NVF_PLAY_TEST_NEAR=0010618E NVF_PLAY_TEST_ACTIVATE=10`
+(the front door), then bursts of 20–40 frames 0.05–0.1 s apart right after the loading
+screen: on the porch, walking off it and standing in the sun with the .357 out. Frames of
+a still view differ by at most a few hundred pixels (the idle's sway); no shadow comes
+and goes. With `RUST_LOG=nvforever::player_body=debug` the arms shade light, the
+first-person rig and what the camera sees of the body never switched through the door
+(debug lines "arms shade light on/off", "first-person rig shown/hidden", "the camera sees
+… of the body", kept for the next look). What the owner should say: the hour, which door,
+whether "Body in first person" was on, and what flickered (the arms, the ground, the
+body's own shadow).
+
 ## 2. Code
 
 | Item | Where | Notes |

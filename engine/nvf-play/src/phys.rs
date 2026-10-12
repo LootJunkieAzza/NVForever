@@ -26,15 +26,17 @@
 //! collision at the simulation's pose (`prepare::Job::poses`), `crate::moved` draws them
 //! there, and snapshots keep it. They stay in their placed cell (the cell lists come from
 //! the plugins) [engineering choice]. That the game keeps a pushed item where it came to
-//! rest is [hypothesis]. Some clutter settles by more than those thresholds (mostly
-//! turning) when its cell loads (54 references in a Goodsprings walk); it is written back
-//! too, so it is drawn where its collision rests (`debug` log).
+//! rest is [hypothesis]. Placed clutter is added asleep, so it stays where it was placed
+//! until something disturbs it, and a reference with more than one dynamic body (the
+//! parts of a jointed object) keeps them keyframed (docs/spec-notes/physics.md §4.3.1;
+//! `NVF_PLAY_TEST_PHYS_TRACE`, `phys/trace.rs`, logs what moves after a cell loads).
 
 pub mod cells;
 mod loader;
 pub mod prepare;
 #[cfg(test)]
 mod tests;
+mod trace;
 
 use crate::dropped;
 use crate::player::Player;
@@ -939,11 +941,15 @@ pub struct PhysPlugin;
 
 impl Plugin for PhysPlugin {
     fn build(&self, app: &mut App) {
+        if let Some(t) = trace::PhysTrace::from_env() {
+            app.insert_resource(t);
+        }
         app.init_resource::<PhysState>()
             .init_resource::<FrameTimes>()
             .add_systems(Startup, init_phys)
             .add_systems(Last, (frame_times, report).chain())
-            .add_systems(Update, (travel, ref_changed, stream, pose_doors).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics));
+            .add_systems(Update, (travel, ref_changed, stream, pose_doors).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics))
+            .add_systems(PostUpdate, trace::trace);
     }
 }
 

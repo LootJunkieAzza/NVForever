@@ -44,7 +44,6 @@ python -m unittest discover -s tools/smoke/tests
 
 With game data available (owner's install, read-only): build `fnvtool`, set
 `parity-lab/lab.local.json`, run `python -m fnvlab run` and report the summary.
-
 ## Smoke tests: `tools/smoke` (game runs and fnvtool checks as data)
 
 Every smoke test is a scenario in `tools/smoke/scenarios.toml`: the files that call for it,
@@ -70,6 +69,29 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
 - **Adding a feature worth a smoke test: add a `[[scenario]]` to the file**, not prose here
   (expectation syntax: `tools/smoke/smoke/expect.py`). Never loosen an expectation to make
   a run pass; mark it `known_failing` with the reason instead.
+
+### Smoke tests still to convert into tools/smoke/scenarios.toml
+
+Added to CLAUDE.md on main while the runner was being built (PR #226); convert each into a
+scenario (same env, args and expectations) and delete it from here.
+
+After changes to force greets, Follow/Accompany packages or MoveTo of actors (`fnv_game::Game::force_greet`,
+`fnv_ai` `goal::Follow`, `Ai::relocate`, the engine's residents; actor-behaviour.md §5.1–§5.2), run Sunny's
+walk to the wells with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3`,
+`NVF_PLAY_TEST_SCRIPT=14:activate:ProspectorSaloonDoor,1@VCG02=10:stage:VCG02:25,3@VCG02=10:activate:0x0010618E`,
+`NVF_PLAY_TEST_TALK=0:*=VFreeformGoodspringsGSSunnySmilesTopic019` and `NVF_PLAY_TEST_GOTO=90:-67150:-9100:7650` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --no-voice --hour 10 --run-seconds 150`
+(expect exit 0, "CheyenneREF: walks after SunnyRef (CheyenneAccompany)", "SunnyRef: starts a conversation …
+(VCG02SunnySmilesDialogueSneakStart), line 0x0010A1ED" and "conversation with SunnyRef ended (goodbye, 1 lines)"),
+and the gas station, with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and `NVF_PLAY_TEST_SCRIPT=3:start:VMS16,4:info:0x00105CC2:0x00104C7D`:
+`engine/target/release/nvforever --data <Data> --cell GSGasStation --play --no-voice --hour 12 --run-seconds 30`
+(expect exit 0, "SunnyRef: put at (512, -5971, 7554) in GSGasStation by a script (MoveTo)" and her "Time to look alive" line).
+After changes to Detection lines or voices by distance (`fnv_game::awareness` barks, `nvf-play` `voice`; alert.md §4,
+voice.md §9), run Cook-Cook's camp with `NVF_PLAY_TEST_GOD=1 NVF_PLAY_TEST_SCRIPT_MENUS=1`:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --pos=-43200,73000,7000 --play --hour 12 --no-voice --run-seconds 45`
+(expect exit 0, a few "alert: … says" lines, "held back by the group cooldown" above 0 in the alert summary, and
+"voice: playing … [out of hearing" for lines from 2,000 units or more, with no subtitle for them).
+
 
 ## Commits
 

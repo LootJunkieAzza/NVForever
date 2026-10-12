@@ -200,8 +200,9 @@ pub fn start_conversation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
         return none();
     }
     // Refusals (a conversation is running, the speaker is gone or has no line) are not
-    // errors of the script.
-    let _ = g.start_dialogue(speaker, a.opt_form(1));
+    // errors of the script. The speaker starts it: a force greet, which holds the player
+    // also for a Goodbye greeting (`Game::force_greet`).
+    let _ = g.force_greet(speaker, a.opt_form(1));
     none()
 }
 

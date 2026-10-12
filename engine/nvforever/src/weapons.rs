@@ -33,6 +33,9 @@ pub struct Stance {
     /// The stance prefix (`2hr`, `1hp`, …).
     pub prefix: String,
     pub clips: BTreeMap<EquipClip, Arc<BoundClip>>,
+    /// The same clips with only their `Weapon` track: where the weapon hangs while the
+    /// body plays something else entirely (a seat's clip, [`WeaponHold::weapon_layers`]).
+    pub weapon_only: BTreeMap<EquipClip, Arc<BoundClip>>,
     pub facts: StanceFacts,
     pub holster: String,
     pub drawn: String,
@@ -74,8 +77,14 @@ impl Stance {
             clips.keys().collect::<Vec<_>>(),
             bones.len()
         );
-        Ok((Stance { prefix: prefix.to_string(), clips, facts, holster, drawn, weapon_node, bones }, line))
+        let weapon_only = clips.iter().map(|(c, b)| (*c, Arc::new(weapon_track_only(b, weapon_node)))).collect();
+        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, bones }, line))
     }
+}
+
+/// `clip` with only the track of the `Weapon` node (index `weapon_node`).
+pub fn weapon_track_only(clip: &BoundClip, weapon_node: usize) -> BoundClip {
+    BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.iter().filter(|(i, ..)| *i == weapon_node).cloned().collect(), root: None, root_track: None }
 }
 
 /// An armed actor's weapon state (on the actor's root, beside its `Locomotion`).
@@ -124,6 +133,21 @@ impl WeaponHold {
         let st = &self.stance;
         let [a, b] = self.anim.layers(&st.facts);
         let layer = |l: Option<(EquipClip, f32, f32)>| l.and_then(|(c, phase, weight)| Some(Layer { clip: st.clips.get(&c)?.clone(), phase, weight }));
+        player.layers[2] = layer(a);
+        player.layers[3] = layer(b);
+    }
+
+    /// Only where the weapon hangs, as player layers 2 and 3: for an actor whose body plays
+    /// a clip of its own over everything (on furniture). The stance's clips hold the
+    /// `Weapon` node's place under the bone it hangs from (the holster clip: on the hip
+    /// or the back); without them the node went back to its bind transform, which is its
+    /// place under the right hand, and the holstered weapon floated off the seated body
+    /// at a wrong angle [observed in NVForever, owner's playtest 2026-10-11; the seat
+    /// clips have no `Weapon` track: `dynamicidle_chairsit.kf`, `chair_forwardenter.kf`].
+    pub fn weapon_layers(&self, player: &mut BlendPlayer) {
+        let st = &self.stance;
+        let [a, b] = self.anim.layers(&st.facts);
+        let layer = |l: Option<(EquipClip, f32, f32)>| l.and_then(|(c, phase, weight)| Some(Layer { clip: st.weapon_only.get(&c)?.clone(), phase, weight }));
         player.layers[2] = layer(a);
         player.layers[3] = layer(b);
     }
@@ -225,7 +249,7 @@ mod tests {
             (EquipClip::Unequip, f(0.5, "Bip01 Pelvis")),
         ]);
         let bones = HashMap::from([("Bip01 Pelvis".to_string(), 3), ("Bip01 R Hand".to_string(), 7)]);
-        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones })
+        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones })
     }
 
     #[test]

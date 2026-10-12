@@ -193,7 +193,7 @@ impl NavState {
 }
 
 /// The compass heading a root transform faces (its rotation about z, clockwise).
-fn tr_heading(t: &Transform) -> f32 {
+pub(crate) fn tr_heading(t: &Transform) -> f32 {
     let f = t.rotation * Vec3::Y;
     f.x.atan2(f.y)
 }

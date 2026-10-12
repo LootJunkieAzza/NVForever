@@ -752,6 +752,12 @@ impl Runtime {
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: PLAY_GROUP, on: Some(r), self_ref: Some(r), action_ref: None, quest: None, inst: None, in_condition: false };
                 g.call_function(&ctx, &[ArgValue::Enum(code), ArgValue::Value(Value::Num(f64::from(*flag)))]);
             }
+            ScriptAid::PlayIdle(r, idle) => {
+                let (r, idle) = (resolve(g, r)?, resolve(g, idle)?);
+                if !g.ask_idle(r, idle, fnv_game::idles::IdleSource::Script) {
+                    return Err(format!("{} does not play {}", g.data.name(r), g.data.name(idle)));
+                }
+            }
             ScriptAid::Walk(_) => unreachable!("handled by the caller"),
             ScriptAid::Var(of, var, value) => {
                 let f = resolve(g, of)?;

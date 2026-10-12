@@ -29,7 +29,8 @@
 //!
 //! Not done: the idle manager (idles chosen from the IDLE tree by their conditions:
 //! `PickIdle`, fidgets, talking gestures), the sounds and other text keys of idle clips,
-//! animated objects (ANIO), and package idles of actors that are not residents.
+//! and package idles of actors that are not residents. The props idles hold (ANIO) are
+//! drawn by `anim_objects.rs`.
 
 use crate::limbs::ActorRig;
 use crate::locomotion::Locomotion;
