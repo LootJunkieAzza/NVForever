@@ -21,12 +21,17 @@ impl Plugin for CellResetsPlugin {
     }
 }
 
+/// A drawn actor: its entity and reference.
+type Shown = (Entity, &'static RefVisual);
+/// Drawn dead: in its death pose or a ragdoll.
+type ShownDead = Or<(With<Dying>, With<Corpse>)>;
+
 fn show_resets(
     mut commands: Commands,
     script: Option<ResMut<ScriptState>>,
     mut ragdolls: ResMut<Ragdolls>,
     mut phys: Option<ResMut<PhysState>>,
-    corpses: Query<(Entity, &RefVisual), Or<(With<Dying>, With<Corpse>)>>,
+    corpses: Query<Shown, ShownDead>,
 ) {
     let Some(mut script) = script else { return };
     let Some(rt) = script.rt.as_mut() else { return };

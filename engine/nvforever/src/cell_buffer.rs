@@ -75,7 +75,7 @@ fn keep_newest<K: Copy + Eq + std::hash::Hash>(m: &mut HashMap<K, u64>, n: usize
         return;
     }
     let mut by_age: Vec<(u64, K)> = m.iter().map(|(k, f)| (*f, *k)).collect();
-    by_age.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    by_age.sort_unstable_by_key(|e| std::cmp::Reverse(e.0));
     for (_, k) in &by_age[n..] {
         m.remove(k);
     }
