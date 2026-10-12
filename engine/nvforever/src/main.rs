@@ -36,6 +36,7 @@ mod lips;
 mod lockpick_view;
 mod lod;
 mod locomotion;
+mod combat_tactics;
 mod npc_combat;
 mod provoked;
 mod weapons;
@@ -840,6 +841,7 @@ fn main() -> AppExit {
             app.add_plugins(alert::AlertPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
+            app.add_plugins(combat_tactics::CombatTacticsPlugin);
             // Fights started by hits; the player's yield (provoked.rs).
             app.add_plugins(provoked::ProvokedPlugin);
             // How fighters aim, shoot and bite (attack_anims.rs).

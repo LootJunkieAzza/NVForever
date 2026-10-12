@@ -507,6 +507,10 @@ pub enum ScriptAid {
     Start(String),
     /// `combat:<actor>:<target>`: actor.StartCombat target (`player` for the player).
     Combat(String, String),
+    /// `moveto:<reference>:<marker>[:<x>:<y>:<z>]`: the reference's script calls
+    /// `MoveTo marker x y z` (offsets 0 when left out; `player` for the player as the
+    /// marker): to put actors where a fight can be watched (docs/design/combat-ai.md §12.7).
+    MoveTo(String, String, [f32; 3]),
     /// `stop:<quest>`: StopQuest.
     Stop(String),
     /// `stage:<quest>:<stage>`: SetStage.
@@ -588,6 +592,11 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 ["activate", _, ..] => ScriptAid::Activate(whole.unwrap_or_default()),
                 ["start", q] => ScriptAid::Start(q.to_string()),
                 ["combat", a, t] => ScriptAid::Combat(a.to_string(), t.to_string()),
+                ["moveto", r, m] => ScriptAid::MoveTo(r.to_string(), m.to_string(), [0.0; 3]),
+                ["moveto", r, m, x, y, z] => {
+                    let f = |s: &str| s.parse::<f32>().map_err(|_| format!("{rest:?}: bad offset {s:?}"));
+                    ScriptAid::MoveTo(r.to_string(), m.to_string(), [f(x)?, f(y)?, f(z)?])
+                }
                 ["enable", r] => ScriptAid::Enable(r.to_string()),
                 ["stop", q] => ScriptAid::Stop(q.to_string()),
                 ["stage", q, s] => ScriptAid::Stage(q.to_string(), int(s)?),
@@ -610,7 +619,7 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 }
                 _ => {
                     return Err(format!(
-                        "{rest:?}: expected start:, stop:, combat:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate:, say_to: or play_group:"
+                        "{rest:?}: expected start:, stop:, combat:, moveto:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate:, say_to: or play_group:"
                     ))
                 }
             };

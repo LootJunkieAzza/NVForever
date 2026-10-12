@@ -61,7 +61,7 @@
 //!   `objective_done:<quest>:<n>`, `info:<INFO>[:<speaker>]`, `button:<n>`, `close`,
 //!   `message:<MESG>`, `menu:<code>`,
 //!   `var:<form>:<variable>:<value>`, `walk:<reference>`, `activate:<reference>`,
-//!   `enable:<reference>`,
+//!   `enable:<reference>`, `combat:<actor>:<target>`, `moveto:<reference>:<marker>[:x:y:z]`,
 //!   `say_to:<speaker>:<target>:<topic>[:<noTargetLookFlag>]`.
 //! - `NVF_PLAY_TEST_SCRIPT_MENUS=<seconds>|off`: every menu or message box a script opens
 //!   is closed (OK / Done, button 0) after it has been on screen that long. Unattended
@@ -103,6 +103,8 @@ use std::time::Instant;
 pub const MENU_MESSAGE: u16 = menus::MESSAGE;
 /// The SayTo function's opcode [observed: schemas/script/functions.json].
 const SAY_TO: u16 = 0x1034;
+/// `MoveTo` [observed: schemas/script/functions.json, 0x109E].
+const MOVE_TO: u16 = 0x109E;
 /// `PlayGroup` [observed: activators.md §5].
 const PLAY_GROUP: u16 = 0x1013;
 /// The container menu [documented: GECK wiki MenuMode, as used in
@@ -683,6 +685,12 @@ impl Runtime {
             ScriptAid::Combat(a, t) => {
                 let (a, t) = (resolve(g, a)?, resolve(g, t)?);
                 g.start_combat(a, t);
+            }
+            ScriptAid::MoveTo(r, m, off) => {
+                let (r, m) = (resolve(g, r)?, resolve(g, m)?);
+                let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: MOVE_TO, on: Some(r), self_ref: Some(r), action_ref: None, quest: None, inst: None, in_condition: false };
+                let args: Vec<ArgValue> = std::iter::once(ArgValue::Value(Value::Ref(m.0))).chain(off.iter().map(|v| ArgValue::Value(Value::Num(f64::from(*v))))).collect();
+                g.call_function(&ctx, &args);
             }
             ScriptAid::Stop(q) => {
                 let q = resolve(g, q)?;
