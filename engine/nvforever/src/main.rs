@@ -16,6 +16,7 @@ mod actors;
 mod attack_anims;
 mod alert;
 mod anim_sounds;
+mod crash;
 mod deaths;
 mod detection;
 mod dialogue_look;
@@ -37,6 +38,7 @@ mod lockpick_view;
 mod lod;
 mod locomotion;
 mod npc_combat;
+mod provoked;
 mod weapons;
 mod lodgen;
 mod nav;
@@ -487,8 +489,11 @@ fn lodgen_job(args: &Args, world: &WorldData, game: &GameData) -> Result<lodgen:
 
 fn main() -> AppExit {
     let args = Args::parse();
+    // The run log and crash reports in NVForever's home (crash.rs).
+    crash::install(&args.data);
     let fail = |e: String| {
         eprintln!("error: {e}");
+        crash::early_exit(&e);
         AppExit::error()
     };
     let game = match GameData::open(&args.data, &args.nif_schema) {
@@ -723,6 +728,8 @@ fn main() -> AppExit {
                     ..ImageSamplerDescriptor::linear()
                 },
             })
+            // The console's lines go to the run log too (crash.rs).
+            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, ..default() })
             .set(WindowPlugin {
                 // Scale factor 1 so screenshots are exactly --size pixels on any display.
                 primary_window: Some(Window {
@@ -798,7 +805,9 @@ fn main() -> AppExit {
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
-    .add_systems(Update, timelapse.after(sky::update_sky));
+    .add_systems(Update, timelapse.after(sky::update_sky))
+    .add_systems(Startup, crash::report_start)
+    .add_systems(Last, (crash::note_place, crash::report_exit));
     if let Some(radius) = args.actor_turn_test {
         app.insert_resource(locomotion::TurnTest { radius, started: 0, finished: 0, degrees: 0.0 })
             .add_systems(Update, locomotion::turn_test.before(locomotion::turn_to))
@@ -854,6 +863,8 @@ fn main() -> AppExit {
             app.add_plugins(alert::AlertPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
+            // Fights started by hits; the player's yield (provoked.rs).
+            app.add_plugins(provoked::ProvokedPlugin);
             // How fighters aim, shoot and bite (attack_anims.rs).
             app.add_plugins(attack_anims::AttackAnimsPlugin);
         }

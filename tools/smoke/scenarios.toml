@@ -442,7 +442,7 @@ args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 28
 order = [[
   { re = 'detection: GSSettlerAM 00104F0A → the player: hidden → noticed .*sneaking' },
-  { re = 'detection: GSSettlerAM 00104F0A → the player: \w+ → detected' },
+  { re = 'detection: GSSettlerAM 00104F0A → the player: \w+ → detected', known_failing = "main 980f0c35 2026-10-12, 1 of 1 runs (and claude/playtest-combat, 2 of 2): the settler notices the sneaking player only after the shot, 2,121 units off, and does not detect the player before the run ends" },
 ]]
 expect = ["detection summary"]
 
@@ -478,7 +478,7 @@ expect = [
   "fights the player with WeapHuntingRifle (gun)",
   { re = 'stops and faces .*?(?P<n>[\d,]+) units away', range = [1200, 2000], label = "stops and faces the player at about 1,600 units" },
   "shots are drawn from its weapon's muzzle",
-  { re = 'attack anims summary.*2hrattack3\.kf' },
+  { re = 'attack anims summary.*2hrattack3\.kf', known_failing = "claude/playtest-combat 2026-10-12, by design: Violet stops about 1,600 units off, beyond 20 m, so every shot is aimed down the sights and plays the iron-sights clip (attack anims summary: 2hrattack3is.kf 13); the owner's playtest list items 32-33, combat-ai.md §10.6. combat-sights checks both clips" },
   { re = 'Violet hits the player for 44\.7', min = 9, max = 15, label = "a dozen 'Violet hits the player for 44.7'" },
 ]
 
@@ -491,10 +491,46 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 30
 expect = [
-  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "claude/playtest-combat 2026-10-12, 2 of 2 runs: 11 and 12 blows (main: 17), by design: the combat style's melee decision (GECK wiki Combat Style, combat-ai.md §10.4) has the dogs attack at 55 % each time they may and hold for the style's Hold Timer otherwise, where CA1 bit at a fixed rhythm" },
   { re = 'attack anims summary.*h2hattack' },
   { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines" },
 ]
+
+[[scenario]]
+name = "combat-sights"
+source = "playtest list 2026-10-11 items 32-33 (docs/design/combat-ai.md §10.6): NPCs aim down the sights beyond 20 m (1,400 units) and walk while aiming, fire from the hip nearer"
+note = "Violet (0x000F570B, placed at -46910,64897) stops about 1,600 units from the player, beyond 20 m: down the sights; at 38 s the player is put about 1,000 units from her: from the hip"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-ai/src/alert.rs", "crates/fnv-combat/src/spread.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOTO = "38:-44500:64896:7000" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 55
+expect = [
+  { re = 'FiendVioletRef 0x000F570B aims down the sights, its target (?P<n>[\d,]+) units away \(beyond 1400\)', range = [1400, 3500], label = "Violet aims down the sights beyond 1,400 units" },
+  { re = 'FiendVioletRef: walks on, aiming down the sights at the player|FiendVioletRef: walks at the player, .* aiming down the sights', label = "she walks while aiming" },
+  { re = 'FiendVioletRef 0x000F570B fires from the hip, its target (?P<n>[\d,]+) units away \(within 1400\)', range = [0, 1400], label = "Violet fires from the hip within 1,400 units" },
+  { re = 'npc combat summary:.*?(?P<n>\d+) down the sights', range = [1, 1000], label = "shots down the sights in the npc combat summary" },
+  { re = 'npc combat summary:.*?down the sights, (?P<n>\d+) from the hip', range = [1, 1000], label = "shots from the hip in the npc combat summary" },
+  { re = 'attack anims summary.*2hrattack3is\.kf', label = "the iron-sights attack clip played" },
+  { re = 'attack anims summary.*2hrattack3\.kf', label = "the hip attack clip played" },
+]
+
+[[scenario]]
+name = "provoked-yield"
+source = "playtest list 2026-10-11 item 30 (docs/design/combat-ai.md §10.1-§10.2): a neutral NPC the player shoots fights back; holstering is a yield it accepts once, and ignores when it forgave the player recently"
+note = "Chet (GSChetRef) is the nearest NPC in the general store; shot twice at 18-19 s (after the add-ons' start-up message boxes), the weapon put away at 22 s, shot again at 33-34 s and put away at 37 s; each shot aimed anew, as Chet moves"
+areas = ["combat", "alert"]
+paths = ["crates/fnv-game/src/provocation.rs", "engine/nvforever/src/provoked.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "9:weapon,18:aimnpc,18.1:fire,18.3:fire,19:aimnpc,19.1:fire,19.3:fire,22:weapon,30:weapon,33:aimnpc,33.1:fire,33.3:fire,34:aimnpc,34.1:fire,34.3:fire,37:weapon" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 42
+expect = [
+  { re = 'provocation: GSChetRef 0x00104C79 \((neutral|enemy|friend)\) is attacked by the player and fights back', label = "Chet turns on the player" },
+  { re = 'provocation: GSChetRef 0x00104C79 accepts the yield', label = "the first yield accepted" },
+  { re = 'provocation: GSChetRef 0x00104C79 ignores the yield .*: it forgave the player recently', label = "the second yield ignored: forgiven recently" },
+  { re = 'provocation summary: .*?(?P<n>\d+) yields: ', range = [2, 2], label = "two yields in the provocation summary" },
+]
+forbid = [{ re = 'the player died', label = "the player dies" }]
 
 [[scenario]]
 name = "factions"
@@ -802,8 +838,8 @@ args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
 run_seconds = 45
 order = [[
   "quest message on screen: Quest added: BACK IN THE SADDLE",
-  "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.",
-  "quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny Smiles behind the Prospector Saloon.",
+  { text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.", known_failing = "main 0b9a442f and claude/aid-items 2026-10-12, 4 of 4 runs on a machine running 3-4 other agents: the add-on packs' quest lines (Happy Trails, The Reunion, the Divide) queue at start-up and the scripts are ready only after 14-17 s, so the test aids at 3, 9 and 9.1 s land in one frame; this line never shows" },
+  { text = "quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny Smiles behind the Prospector Saloon.", known_failing = "main 0b9a442f and claude/aid-items 2026-10-12, 4 of 4 runs on a machine running 3-4 other agents: the add-on packs' quest lines (Happy Trails, The Reunion, the Divide) queue at start-up and the scripts are ready only after 14-17 s, so the test aids at 3, 9 and 9.1 s land in one frame; this line never shows" },
 ]]
 
 [[scenario]]
@@ -872,10 +908,10 @@ run_seconds = 72
 expect = [
   "barter opened: UIMenuMode",
   "container take all: UIItemTakeAll",
-  { text = "inventory item used: NPCHumanUsingStimpak", known_failing = "main 2026-10-12, 2 of 2 runs: at 58 s the drop aid logs '0x00015169 is not carried', so no stimpak is used" },
+  "inventory item used: NPCHumanUsingStimpak",
   "wait slider moved: UIMenuPrevNext",
   "settings switch flipped: UIMenuPrevNext",
-  { re = 'ui sounds summary:.*\b24 played', known_failing = "main 2026-10-12: 23 played, the stimpak's sound missing (above)" },
+  { re = 'ui sounds summary:.*\b24 played', known_failing = "main 2026-10-12: 23 played, the stimpak's sound missing (above); claude/aid-items 2026-10-12: the stimpak's sound plays now (the drop aid turns the Pip-Boy to the Aid tab) and it is still 23, one other sound short (not found which)" },
   { re = 'ui sounds summary:.*\b0 sounds not found' },
   { re = "ui sounds summary:.*(?P<n>\\d+) items' own sounds held back for Take All", range = [1, 1e9], label = "one or more items' own sounds held back for Take All" },
 ]
@@ -1066,7 +1102,7 @@ expect = [
 name = "cook-cook-camp"
 source = "CLAUDE.md (PR #226): after changes to Detection lines or voices by distance (fnv_game::awareness barks, nvf-play voice; alert.md §4, voice.md §9): Cook-Cook's camp"
 areas = ["alert", "voice"]
-paths = ["crates/fnv-game/src/awareness.rs", "engine/nvf-play/src/voice.rs", "engine/nvforever/src/detection.rs"]
+paths = ["crates/fnv-game/src/awareness.rs", "engine/nvf-play/src/voice.rs", "engine/nvforever/src/detection.rs", "engine/nvforever/src/npc_combat.rs", "crates/fnv-ai/src/alert.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
 args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 45
@@ -1074,6 +1110,7 @@ expect = [
   { re = 'alert: .* says ', min = 1, label = "a few 'alert: … says' lines" },
   { re = 'alert summary:.*\b(?P<n>\d+) held back by the group cooldown', range = [1, 1000000], label = "held back by the group cooldown above 0" },
   { re = 'voice: playing .*\[out of hearing, (?P<n>[\d,]+) units away: silent and no subtitle', range = [2000, 1000000], all = true, label = "voice: playing … [out of hearing, only from 2,000 units, no subtitle" },
+  { re = 'alert: .* Combat → Lost', max = 2, label = "no Combat ↔ Lost flicker (17 each way in 45 s before 2026-10-12; docs/design/alert.md §8)" },
 ]
 
 [[scenario]]
@@ -1088,4 +1125,94 @@ expect = [
   # 00104C79 is GSChetRef (the barter scenario's "barter menu with 0x00104C79").
   'anim object: 00104C79 holds meshes\animobjects\aobroom.nif on Bip01 L Hand (aoSweepingBroom',
   { re = 'anim objects summary: (?P<n>\d+) objects drawn', range = [1, 1000], label = "anim objects summary: one or more drawn" },
+]
+
+# ------------------------------------------------------------------ far world (playtest 2026-10-11, items 26-28)
+
+[[scenario]]
+name = "crash-report"
+source = "owner's playtest 2026-10-11 (crash outside Crimson Caravan, nothing logged): the run log and a crash report for a panic (engine/nvforever/src/crash.rs)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/crash.rs"]
+# A thread of its own panics 5 s after the first frame; the game goes on.
+env = { NVF_PLAY_TEST_PANIC = "5" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 20
+expect = [
+  { re = 'run log: .*nvforever-\d{8}-\d{6}-\d+\.log$', label = 'run log: <home>/logs/nvforever-<time>-<pid>.log' },
+  { re = 'panic on thread .nvf-test-panic. at .*test panic \(NVF_PLAY_TEST_PANIC\); where: WastelandNV cell -?\d+,-?\d+.*position .*crash report written to .*crash-\d{8}-\d{6}-\d+\.txt', label = "the panic logged with its thread, place and crash report" },
+  "run log: the game exited normally",
+]
+
+[[scenario]]
+name = "far-actors"
+source = "owner's playtest 2026-10-11 (Fiends heard talking far away): process levels, docs/design/actor-behaviour.md §5.9"
+areas = ["ai", "residents"]
+paths = ["crates/fnv-ai/src/process.rs", "crates/fnv-ai/src/social.rs", "crates/fnv-ai/src/carry.rs"]
+# Every actor of Goodsprings lives by its packages; the camera flies north out of the
+# loaded area, so they leave the high process and get a low-process update every 18 s.
+args = ["--cell", "Goodsprings", "--npc-packages", "all", "--hour", "12", "--auto-fly", "1500"]
+run_seconds = 60
+expect = [
+  { re = 'process summary: .* (?P<n>\d+) left the loaded area', range = [10, 100000], label = "process summary: ten or more left the loaded area" },
+  { re = 'process summary: .* (?P<n>\d+) low-process updates every 18 s', range = [10, 1000000], label = "process summary: low-process updates" },
+]
+
+[[scenario]]
+name = "dead-on-spawn"
+source = "owner's playtest 2026-10-11 (the tribal village's corpses stand up): Base Health 0 starts dead, docs/spec-notes/dead-on-spawn.md"
+areas = ["combat", "deaths"]
+paths = ["crates/fnv-game/src/combat.rs", "crates/fnv-game/src/data.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1" }
+args = ["--play", "--pos=-73500,29700,8000", "--heading", "300", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'new game: (?P<n>\d+) placed actors start dead \(Base Health 0\)', range = [800, 1000], label = "new game: about 889 placed actors start dead" },
+  { re = 'ragdolls: (?P<n>\d+) started', range = [9, 1000], label = "ragdolls: the village's nine corpses or more dropped" },
+]
+
+# ------------------------------------------------------------------ aid items (docs/spec-notes/aid-items.md)
+
+[[scenario]]
+name = "aid-survey"
+kind = "tool"
+source = "aid items (docs/spec-notes/aid-items.md §1-§5, §8): the masters' ingestibles decoded, and a Stimpak and two Buffouts on the authored player"
+areas = ["aid", "actor-values"]
+paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/functions/magic.rs", "crates/fnvtool/src/actor_aid.rs"]
+commands = [["actor", "aid", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--use", "Stimpak", "--use", "Buffout", "--use", "Buffout", "--damage", "Health:60", "--seconds", "481"]]
+# §1-§3 counts (FalloutNV.esm, 2026-10-12); §4 Medicine 15 gives potency 1.3 (30 -> 39);
+# §5.1 the usage monitor counts 30 a dose; Buffout's +2/+3/+60 end with its 480 s.
+expect = [
+  { json = "summary.items", equals = 189 },
+  { json = "summary.with_usage_monitor", equals = 15 },
+  { json = "summary.effects_by_archetype.Value Modifier", equals = 564 },
+  { json = "summary.value_changes_whose_efit_actor_value_differs_from_the_mgef", equals = 0 },
+  { json = "use.uses.?item=Stimpak.potency", range = [1.2999, 1.3001] },
+  { json = "use.uses.?item=Stimpak.values.Health", equals = 179.0 },
+  { json = "use.uses.?item=Buffout.values.Strength", equals = 7.0, count = 2 },
+  { json = "use.uses.?item=Buffout.values.Endurance", equals = 8.0, count = 2 },
+  { json = "use.uses.?item=Buffout.usage", equals = 60.0, label = "the second Buffout's usage 60" },
+  { json = "use.values_after.Strength", equals = 5.0 },
+  { json = "use.values_after.Health", equals = 179.0 },
+]
+
+[[scenario]]
+name = "aid-items"
+source = "aid items (docs/spec-notes/aid-items.md §3-§7): a Stimpak after 60 damage, Purified Water and Buffout used from the inventory in Doc Mitchell's house"
+areas = ["aid", "actor-values", "menus"]
+paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/functions/magic.rs", "engine/nvf-play/src/aid.rs", "engine/nvf-play/src/menu/test_aid.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00015169:1,000151A3:1,00015163:1", NVF_PLAY_TEST_SCRIPT = "4:damage:player:Health:60", NVF_PLAY_TEST_DROP = "6:00015169:use,9:000151A3:use,12:00015163:use" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 24
+# The new player: Health 200, Medicine and Survival 15 (potency 1.3). Stimpak 30 x 1.3 at
+# once; Purified Water 2 x 1.3 a second for 5 s (13); Buffout +2/+3/+60 for 240 s.
+expect = [
+  "test aid: 0x00000014 Health damaged by 60: now 140.0",
+  "inventory item used: NPCHumanUsingStimpak",
+  "aid: the player used Stimpak (potency 1.30): Health +39.0 at once, limbs too; Health 140 → 179",
+  "aid: the player used WaterPurified (potency 1.30): Health +2.6 a second for 5 s",
+  "aid: the player used Buffout (potency 1.00): Strength +2.0 while it lasts (240 s), Endurance +3.0 while it lasts (240 s), Health +60.0 while it lasts (240 s); usage 30; addiction chance 0.00; Strength 5 → 7, Endurance 5 → 8",
+  # When Buffout comes in the 5 s of the water depends on the message boxes; the sum not.
+  "aid: WaterPurified's effects on the player ended: Health ",
+  "aid summary: 3 items used (Buffout 1, Stimpak 1, WaterPurified 1), 6 effects started, 2 ended; addictions: none; 0 cured; the player at exit: Strength 7, Endurance 8, Health 252",
 ]

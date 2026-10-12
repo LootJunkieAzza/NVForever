@@ -945,8 +945,10 @@ masters), RemoveSpell removes it, CastImmediateOnSelf applies a spell with durat
 Dispel / DispelAllSpells end effects with their finish blocks, except an effect whose
 own script is running: that script stops like a return and its finish block does not
 run [documented: catalogue notes of Dispel]. IsSpellTarget and HasMagicEffect read the
-active effects. What effects do besides their scripts (actor value changes, shaders) is
-Layer 6. In the intro walk-through the concussion spell (PlayerConcussed, cast by
+active effects. What Value Modifier, Value And Parts and Limb Condition effects do to
+actor values, the potency of aid items, their usage monitor and addiction:
+docs/spec-notes/aid-items.md (2026-10-12; GetSpellUsageNum added). Shaders and the other
+archetypes are Layer 6. In the intro walk-through the concussion spell (PlayerConcussed, cast by
 CastImmediateOnSelf) now starts its Concussion effect; its second effect's condition
 (PerceptionCondition ≤ 0) fails, so it does not start.
 

@@ -74,9 +74,10 @@ teammates do not attack the player. Two actors with a faction in common, or plac
 the same base form, never attack each other [engineering choice: without it the Very
 Aggressive creatures of one kind, neutral to each other, would fight].
 
-Only hostiles count: a non-hostile actor noticing the player stays Normal. Crimes,
-assault (hitting someone neutral) and the player's reputation do not make anyone hostile
-yet.
+Only hostiles count: a non-hostile actor noticing the player stays Normal. Being hit by
+the player (assault, friendly fire) and an ally's fight (Assistance) make an actor
+hostile to the attacker through a grudge (`fnv_game::provocation`, combat-ai.md §10);
+crimes and the player's reputation do not yet.
 
 ## 4. Events and barks
 
@@ -131,7 +132,10 @@ yet.
   not arrived after 30 s ends where it is. [engineering choice for the times and
   distances.]
 - **Combat**: it closes in to where it can attack and faces its target; the attacks are
-  the combat AI's (docs/design/combat-ai.md). Cover and fleeing are not built.
+  the combat AI's (docs/design/combat-ai.md). Cover and fleeing are not built. A target
+  it no longer detects (behind a rise, say) it keeps closing in on, whatever the
+  distance, halving the gap each time the way is planned, until it sees it again or
+  goes Lost; the combat AI keeps its distance to fight from meanwhile [design: below].
 - **Continue During Combat** (package flag 26, owner's request 2026-10-11): an actor
   whose current package has it carries its package out in every combat state as if
   nothing had happened: no search, no stand [hypothesis: the flag's name; no source
@@ -154,8 +158,9 @@ yet.
 Furniture's fast getting-up set, chosen under `GetIsAlerted == 1` (furniture.md §2), now
 applies to alerted actors.
 
-Not yet: OnStartCombat / OnCombatEnd blocks, StartCombat / StopCombat, GetAttacked,
-IsHostilesNearby, GetPCDetectionState, combat groups (allies joining), crimes.
+Not yet: OnStartCombat / OnCombatEnd blocks, IsHostilesNearby, GetPCDetectionState,
+combat groups, crimes. StartCombat, StopCombat, GetAttacked and allies joining are in
+combat-ai.md §6 and §10.
 
 ## 7. Line of sight, fixed on the way
 
@@ -199,6 +204,15 @@ The log says which: `out of sight (blocked)` or `out of sight (out of view)`.
   combat", two CombatToLost, 15 s or more apart in the group) and 32 held back. The
   camp's fiends switch between Combat and Lost every few seconds (17 times each way in
   45 s); that flicker is older than this change and not looked into here.
+- **The camp's Combat ↔ Lost flicker, fixed** (2026-10-12, playtest list): the fiends
+  ran at the player, dropped behind a rise (`out of sight (blocked)`), and the combat AI
+  let go of them the moment they did not detect the player: without a distance to fight
+  from, the AI had them stand and face the player where they could not see, so after
+  `lost` (3 s) they went Lost, searched, saw the player again and went back to Combat.
+  Now the combat AI keeps a fighter (and its distance) for as long as it is in Combat,
+  fighting the target it detected last, and an actor that does not see its target closes
+  in on it. The camp, 45 s [observed 2026-10-12]: `alert summary: … Normal → Combat 4,
+  Alert → Combat 1;` and no Combat → Lost at all (before: 17 each way).
 - The Violet check above, on main 9ecb1be as on this branch (2026-10-11): she becomes
   Alert and sets off to search, but stays within 200 units of where she stood for the
   whole run (`ai summary … 1 on their way`) and never reaches Combat; reported, not

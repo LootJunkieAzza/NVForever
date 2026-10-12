@@ -4,6 +4,7 @@
 //! with its trace (`fnv.script.trace/1`). The interpreter itself is
 //! `fnv_script::vm`; this crate is the `Host` it runs against.
 //!
+//! - [`aid`]: aid items (ingestibles) and what magic effects do to actor values
 //! - [`data`]: compiled scripts, quests, dialogue/package results, messages, form lists
 //! - [`quest`]: quest definitions and run-time state
 //! - [`cond`]: the conditions of `CTDA` records
@@ -26,11 +27,13 @@
 //! Behaviour notes with confidence tags: docs/spec-notes/scripts.md §4 and later.
 
 pub mod actor_values;
+pub mod aid;
 pub mod ai;
 pub mod anims;
 pub mod awareness;
 pub mod chargen;
 pub mod combat;
+pub mod combat_style;
 pub mod cond;
 pub mod data;
 pub mod detection;
@@ -42,6 +45,7 @@ pub mod idles;
 pub mod intro;
 pub mod lockpick;
 pub mod package;
+pub mod provocation;
 pub mod quest;
 pub mod radio;
 pub mod rest;

@@ -406,6 +406,8 @@ pub struct ActorDef {
     pub assistance: Option<i64>,
     /// ACBS template flag "AI Data": the template supplies the AIDT values.
     pub template_ai: bool,
+    /// ZNAM: the combat style (CSTY) [documented: xEdit NPC_ and CREA ZNAM].
+    pub combat_style: Option<FormId>,
     /// NPC_ ACBS "Auto-calc stats".
     pub autocalc: bool,
     /// ACBS level, or the player-level multiplier ×1000 with "PC Level Mult", and the
@@ -418,6 +420,13 @@ pub struct ActorDef {
     pub template_stats: bool,
     /// CREA ACBS "Invulnerable".
     pub invulnerable: bool,
+    /// ACBS flag "No Low Level Processing": the actor's AI is not updated outside the
+    /// loaded area [documented: GECK wiki Category:NPC]. Read from the record itself, as
+    /// Essential is (whether the template flag Base Data passes it on is not checked).
+    pub no_low_level: bool,
+    /// The record has a DATA whose Base Health (NPC_) or Health (CREA) is 0: its placed
+    /// actors start the game as corpses ([`crate::game::Game::starts_dead`]).
+    pub zero_health: bool,
 }
 
 /// A leveled actor list (LVLN, LVLC) [documented: xEdit; schema `gameplay.json`]: the
@@ -464,10 +473,56 @@ pub struct MagicEffectDef {
     pub archetype: i64,
     /// The associated script when the archetype is 1 (Script).
     pub script: Option<FormId>,
+    /// DATA "Actor Value" (`None` for the record's "None").
+    pub actor_value: Option<u16>,
 }
 
+impl MagicEffectDef {
+    /// MGEF DATA flag bits [documented: xEdit MGEF; GECK wiki GetBaseEffectFlag].
+    pub const HOSTILE: u32 = 1;
+    pub const RECOVER: u32 = 2;
+    pub const DETRIMENTAL: u32 = 4;
+    pub const NO_DURATION: u32 = 1 << 7;
+    pub const NO_MAGNITUDE: u32 = 1 << 8;
+
+    pub fn has(&self, flag: u32) -> bool {
+        self.flags & flag != 0
+    }
+}
+
+/// MGEF archetype "Value Modifier" [documented: xEdit wbArchtypeEnum].
+pub const ARCHETYPE_VALUE_MODIFIER: i64 = 0;
 /// MGEF archetype "Script" [documented: xEdit wbArchtypeEnum].
 pub const ARCHETYPE_SCRIPT: i64 = 1;
+/// MGEF archetype "Dispel" [documented: xEdit wbArchtypeEnum].
+pub const ARCHETYPE_DISPEL: i64 = 2;
+/// MGEF archetype "Cure Addiction" [documented: xEdit wbArchtypeEnum].
+pub const ARCHETYPE_CURE_ADDICTION: i64 = 31;
+/// MGEF archetype "Value And Parts" [documented: xEdit wbArchtypeEnum].
+pub const ARCHETYPE_VALUE_AND_PARTS: i64 = 34;
+/// MGEF archetype "Limb Condition" [documented: xEdit wbArchtypeEnum].
+pub const ARCHETYPE_LIMB_CONDITION: i64 = 35;
+
+/// An ingestible's ENIT and ETYP (ALCH) [documented: xEdit ALCH; schema `objects.json`;
+/// GECK wiki Ingestible]. docs/spec-notes/aid-items.md §1.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct IngestibleDef {
+    pub value: i32,
+    /// ENIT flags: 2 Food Item, 4 Medicine.
+    pub flags: u8,
+    /// The actor effect (SPEL of type Addiction) given to an actor that becomes addicted.
+    pub withdrawal: Option<FormId>,
+    pub addiction_chance: f32,
+    /// The sound played when it is used.
+    pub consume_sound: Option<FormId>,
+    /// ETYP: the equip type code (10 Chems, 11 Stimpak, 12 Food, 13 Alcohol; -1 none).
+    pub equip_type: i64,
+}
+
+impl IngestibleDef {
+    pub const FOOD: u8 = 2;
+    pub const MEDICINE: u8 = 4;
+}
 
 /// One effect of a magic item (EFID + EFIT + its CTDA) on ALCH, SPEL, ENCH and INGR
 /// [documented: xEdit wbEffects; schema `common.json`].
@@ -478,6 +533,8 @@ pub struct EffectItem {
     pub area: u32,
     /// Seconds.
     pub duration: u32,
+    /// EFIT "Actor Value" (`None` for the record's "None").
+    pub actor_value: Option<u16>,
     pub conditions: Vec<Condition>,
 }
 
@@ -559,6 +616,8 @@ pub struct GameData {
     /// the textures folder [documented: GECK wiki, MenuIcon; corner-messages.md §3].
     pub menu_icons: HashMap<FormId, String>,
     pub actors: HashMap<FormId, ActorDef>,
+    /// Combat styles (CSTY), the values the combat AI uses ([`CombatStyleDef`]).
+    pub combat_styles: HashMap<FormId, CombatStyleDef>,
     /// Leveled actor lists (LVLN, LVLC): what a placed leveled actor or a `TPLT` naming a
     /// list stands for ([`GameData::template_source`]).
     pub leveled_actors: HashMap<FormId, LeveledActorDef>,
@@ -578,6 +637,11 @@ pub struct GameData {
     pub magic_effects: HashMap<FormId, MagicEffectDef>,
     /// The effects of every ALCH, SPEL, ENCH and INGR, in record order.
     pub effect_items: HashMap<FormId, Vec<EffectItem>>,
+    /// ALCH: what using the item needs besides its effects ([`IngestibleDef`]).
+    pub ingestibles: HashMap<FormId, IngestibleDef>,
+    /// SPEL SPIT type (0 Actor Effect, 1 Disease, 2 Power, 3 Lesser Power, 4 Ability,
+    /// 5 Poison, 10 Addiction) [documented: xEdit wbDefinitionsFNV.pas SPEL].
+    pub spell_types: HashMap<FormId, i64>,
     /// Races with the Child flag (RACE DATA).
     pub child_races: HashSet<FormId>,
     /// FACT XNAM: (other faction, group combat reaction 0 neutral, 1 enemy, 2 ally,
@@ -716,6 +780,36 @@ fn flag_bits(flags: Option<&Json>) -> u32 {
     flags.and_then(|f| f.get("value")).and_then(Json::as_u64).unwrap_or(0) as u32
 }
 
+/// A combat style (CSTY) [documented: layout xEdit wbDefinitionsFNV.pas CSTY, schema
+/// `ai.json`; meanings GECK wiki Combat Style, owner export]: the values the combat AI
+/// uses (docs/design/combat-ai.md §10.4). Percentages as the record has them (0–100).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CombatStyleDef {
+    /// Melee decision: base chances to block and to attack; bonuses to the attack chance
+    /// when the actor fights hand to hand.
+    pub block_chance: f32,
+    pub attack_chance: f32,
+    pub hand_to_hand_bonus: f32,
+    pub power_attack_chance: f32,
+    /// Melee decision: how long an actor that neither attacks nor blocks holds, seconds.
+    pub hold_timer: (f32, f32),
+    /// Advanced: the attack skill modifier (`base + mult × skill / 100`) and the attack
+    /// chance's multipliers under attack and not.
+    pub attack_skill_mod: (f32, f32),
+    pub attack_under_attack_mult: f32,
+    pub attack_not_under_attack_mult: f32,
+    /// Simple: what the actor may fight with: 0 None, 1 Melee Only, 2 Ranged Only.
+    pub weapon_restrictions: u32,
+    /// Simple: multipliers of the weapon's min and max range in range calculations.
+    pub range_mult: (f32, f32),
+    /// Simple: multipliers of the weapon's semi-automatic firing delays.
+    pub semi_auto_delay_mult: (f32, f32),
+    pub max_targeting_fov: f32,
+    pub combat_radius: f32,
+    /// Flag "Flee Based on Personal Survival".
+    pub flee_personal_survival: bool,
+}
+
 /// Everything read from one winning record.
 #[derive(Default)]
 struct Read {
@@ -730,6 +824,7 @@ struct Read {
     form_list: Option<Vec<FormId>>,
     menu_icon: Option<String>,
     actor: Option<ActorDef>,
+    combat_style: Option<CombatStyleDef>,
     leveled_actor: Option<LeveledActorDef>,
     package: Option<PackageDef>,
     reputation: Option<f32>,
@@ -737,6 +832,8 @@ struct Read {
     region: Option<RegionDef>,
     magic_effect: Option<MagicEffectDef>,
     effects: Option<Vec<EffectItem>>,
+    ingestible: Option<IngestibleDef>,
+    spell_type: Option<i64>,
     child_race: bool,
     faction: Option<Vec<(FormId, i64)>>,
     destruction: Option<DestructionDef>,
@@ -795,6 +892,7 @@ impl GameData {
             form_lists: HashMap::new(),
             menu_icons: HashMap::new(),
             actors: HashMap::new(),
+            combat_styles: HashMap::new(),
             leveled_actors: HashMap::new(),
             form_script: HashMap::new(),
             edids: HashMap::new(),
@@ -806,6 +904,8 @@ impl GameData {
             regions: HashMap::new(),
             magic_effects: HashMap::new(),
             effect_items: HashMap::new(),
+            ingestibles: HashMap::new(),
+            spell_types: HashMap::new(),
             child_races: HashSet::new(),
             faction_reactions: HashMap::new(),
             destructibles: HashMap::new(),
@@ -925,6 +1025,9 @@ impl GameData {
             if let Some(a) = r.actor {
                 d.actors.insert(id, a);
             }
+            if let Some(c) = r.combat_style {
+                d.combat_styles.insert(id, c);
+            }
             if let Some(l) = r.leveled_actor {
                 d.leveled_actors.insert(id, l);
             }
@@ -945,6 +1048,12 @@ impl GameData {
             }
             if let Some(v) = r.effects {
                 d.effect_items.insert(id, v);
+            }
+            if let Some(v) = r.ingestible {
+                d.ingestibles.insert(id, v);
+            }
+            if let Some(v) = r.spell_type {
+                d.spell_types.insert(id, v);
             }
             if r.child_race {
                 d.child_races.insert(id);
@@ -1238,6 +1347,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"IDLE"
             | b"PERK"
             | b"AVIF"
+            | b"CSTY"
     ) || subs.iter().any(|s| &s.sig == b"DEST");
     if &sig == b"FURN" {
         let flags = subs.iter().find(|s| &s.sig == b"MNAM").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(u32::from_le_bytes);
@@ -1606,6 +1716,31 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             }
             out.terminal = Some(t);
         }
+        b"CSTY" => {
+            let get = |sig: &[u8; 4]| decoded.iter().find(|(s, _)| *s == sig).and_then(|(_, v)| v.as_ref());
+            let (std, adv, simple) = (get(b"CSTD"), get(b"CSAD"), get(b"CSSD"));
+            let n = |v: Option<&Json>, k: &str, d: f32| v.and_then(|v| v.get(k)).and_then(Json::as_f64).map_or(d, |x| x as f32);
+            out.combat_style = Some(CombatStyleDef {
+                block_chance: n(std, "block_chance", 0.0),
+                attack_chance: n(std, "attack_chance", 100.0),
+                hand_to_hand_bonus: n(std, "hand_to_hand_bonus_to_attack", 0.0),
+                power_attack_chance: n(std, "power_attack_chance", 0.0),
+                hold_timer: (n(std, "hold_timer_min", 0.0), n(std, "hold_timer_max", 0.0)),
+                attack_skill_mod: (n(adv, "attack_skill_modifier_base", 0.0), n(adv, "attack_skill_modifier_mult", 0.0)),
+                attack_under_attack_mult: n(adv, "attack_while_under_attack_mult", 1.0),
+                attack_not_under_attack_mult: n(adv, "attack_not_under_attack_mult", 1.0),
+                weapon_restrictions: match simple.and_then(|v| v.get("weapon_restrictions")) {
+                    Some(Json::String(s)) => ["None", "Melee Only", "Ranged Only"].iter().position(|x| x == s).unwrap_or(0) as u32,
+                    Some(v) => v.as_u64().unwrap_or(0) as u32,
+                    None => 0,
+                },
+                range_mult: (n(simple, "ranged_weapon_range_mult_min", 1.0), n(simple, "ranged_weapon_range_mult_max", 1.0)),
+                semi_auto_delay_mult: (n(simple, "semi_auto_firing_delay_mult_min", 1.0), n(simple, "semi_auto_firing_delay_mult_max", 1.0)),
+                max_targeting_fov: n(simple, "max_targeting_fov", 0.0),
+                combat_radius: n(simple, "combat_radius", 0.0),
+                flee_personal_survival: has_flag(std.and_then(|v| v.get("flags")), "Flee Based on Personal Survival"),
+            });
+        }
         b"MICN" => {
             out.menu_icon = decoded.iter().find(|(s, _)| *s == b"ICON").and_then(|(_, v)| v.as_ref()?.as_str().map(str::to_string));
         }
@@ -1625,6 +1760,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"VTCK" => a.voice = fid(v),
                     b"PKID" => a.packages.extend(fid(v)),
                     b"TPLT" => a.template = fid(v),
+                    b"ZNAM" => a.combat_style = fid(v).filter(|f| f.0 != 0),
                     b"RNAM" if &sig == b"NPC_" => a.race = fid(v),
                     b"RNAM" if &sig == b"CREA" => a.attack_reach = v.as_ref().and_then(Json::as_u64).map(|n| n.min(255) as u8),
                     b"CNAM" if &sig == b"NPC_" => a.class = fid(v),
@@ -1632,6 +1768,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.creature_type =
                             v.as_ref().and_then(|v| v.get("type")).and_then(|t| field_code(schema, &sig, b"DATA", Some("type"), t));
                         a.base_health = v.as_ref().and_then(|v| v.get("health")).and_then(Json::as_i64).unwrap_or(0);
+                        a.zero_health = v.as_ref().and_then(|v| v.get("health")).and_then(Json::as_i64) == Some(0);
                         a.attributes = v.as_ref().and_then(|v| v.get("attributes")).and_then(attributes);
                         let skill = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_u64).map(|n| n.min(255) as u8);
                         (a.combat_skill, a.stealth_skill) = (skill("combat_skill"), skill("stealth_skill"));
@@ -1639,6 +1776,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     }
                     b"DATA" if &sig == b"NPC_" => {
                         a.base_health = v.as_ref().and_then(|v| v.get("base_health")).and_then(Json::as_i64).unwrap_or(0);
+                        a.zero_health = v.as_ref().and_then(|v| v.get("base_health")).and_then(Json::as_i64) == Some(0);
                         a.attributes = v.as_ref().and_then(|v| v.get("attributes")).and_then(attributes);
                     }
                     b"DNAM" if &sig == b"NPC_" => {
@@ -1656,6 +1794,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.female = has_flag(f, "Female");
                         a.essential = has_flag(f, "Essential");
                         a.invulnerable = has_flag(f, "Invulnerable");
+                        a.no_low_level = has_flag(f, "No Low Level Processing");
                         a.pc_level_mult = has_flag(f, "PC Level Mult");
                         a.autocalc = &sig == b"NPC_" && has_flag(f, "Auto-calc stats");
                         let n = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_i64).unwrap_or(0);
@@ -1731,10 +1870,12 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             if let Some((_, Some(v))) = decoded.iter().find(|(s, _)| *s == b"DATA") {
                 let archetype = v.get("archetype").and_then(|t| field_code(schema, &sig, b"DATA", Some("archetype"), t)).unwrap_or(-1);
                 let item = v.get("associated_item").and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId);
+                let actor_value = v.get("actor_value").and_then(|t| field_code(schema, &sig, b"DATA", Some("actor_value"), t));
                 out.magic_effect = Some(MagicEffectDef {
                     flags: flag_bits(v.get("flags")),
                     archetype,
                     script: item.filter(|_| archetype == ARCHETYPE_SCRIPT),
+                    actor_value: actor_value.and_then(|c| u16::try_from(c).ok()),
                 });
             }
         }
@@ -1742,14 +1883,35 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             let mut list: Vec<EffectItem> = Vec::new();
             for (s, v) in &decoded {
                 match *s {
-                    b"EFID" => list.extend(fid(v).map(|effect| EffectItem { effect, magnitude: 0, area: 0, duration: 0, conditions: Vec::new() })),
+                    b"EFID" => list.extend(fid(v).map(|effect| EffectItem { effect, magnitude: 0, area: 0, duration: 0, actor_value: None, conditions: Vec::new() })),
                     b"EFIT" => {
                         if let (Some(e), Some(v)) = (list.last_mut(), v.as_ref()) {
                             let n = |k: &str| v.get(k).and_then(Json::as_u64).unwrap_or(0) as u32;
                             e.magnitude = n("magnitude");
                             e.area = n("area");
                             e.duration = n("duration");
+                            e.actor_value = v
+                                .get("actor_value")
+                                .and_then(|t| field_code(schema, &sig, b"EFIT", Some("actor_value"), t))
+                                .and_then(|c| u16::try_from(c).ok());
                         }
+                    }
+                    b"ENIT" if &sig == b"ALCH" => {
+                        if let Some(v) = v.as_ref() {
+                            let form = |k: &str| v.get(k).and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId);
+                            let etyp = decoded.iter().find(|(s, _)| *s == b"ETYP").and_then(|(_, t)| t.as_ref());
+                            out.ingestible = Some(IngestibleDef {
+                                value: v.get("value").and_then(Json::as_i64).unwrap_or(0) as i32,
+                                flags: flag_bits(v.get("flags")) as u8,
+                                withdrawal: form("withdrawal_effect"),
+                                addiction_chance: v.get("addiction_chance").and_then(Json::as_f64).unwrap_or(0.0) as f32,
+                                consume_sound: form("sound_consume"),
+                                equip_type: etyp.and_then(|t| field_code(schema, &sig, b"ETYP", None, t)).unwrap_or(-1),
+                            });
+                        }
+                    }
+                    b"SPIT" if &sig == b"SPEL" => {
+                        out.spell_type = v.as_ref().and_then(|v| v.get("type")).and_then(|t| field_code(schema, &sig, b"SPIT", Some("type"), t));
                     }
                     b"CTDA" => {
                         if let Some(c) = cond(v, &mut out.issues) {

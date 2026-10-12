@@ -159,7 +159,8 @@ impl Ai {
         for (&actor, a) in &self.agents {
             let Some(def) = a.package.and_then(|p| data.package_defs.get(&p)) else { continue };
             let busy = a.activity == Activity::Travelling || a.talk.is_some() || a.chat.is_some() || a.search.is_some() || def.ty == PackageType::Sleep;
-            if busy || !here(game, actor) || game.is_talking(actor) || game.in_actor_conversation(actor) {
+            // Only actors in the loaded area talk (`crate::process`).
+            if busy || !self.is_high(actor) || !here(game, actor) || game.is_talking(actor) || game.in_actor_conversation(actor) {
                 continue;
             }
             free.push(Free { actor, at: Place { space: a.walker.space, pos: a.walker.feet }, def, seated: a.using.is_some() });
@@ -352,7 +353,7 @@ impl Ai {
         }));
         for (who, to) in pairs {
             let Some(a) = self.agents.get(&who) else { continue };
-            if a.using.is_some() || a.activity == Activity::Travelling || a.talk == Some(Talking::Speaking) {
+            if !self.is_high(who) || a.using.is_some() || a.activity == Activity::Travelling || a.talk == Some(Talking::Speaking) {
                 continue;
             }
             if let Some(at) = goal::place_of_ref(game, to) {

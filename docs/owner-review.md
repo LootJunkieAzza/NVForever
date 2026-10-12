@@ -3247,6 +3247,234 @@ first session noted from them is kept (lockpicking.md §1).
    the lock, the lock's `Backward` and the pin's `Backward`/`Left` sequences, saving broken
    locks.
 
+## Playtest fixes: far world (crash log, distant actors, floating troopers, dead on spawn) (2026-10-12, session "far")
+
+List 1 items 26, 27, 24 and 28 (docs/handoff/playtest-2026-10-12.md).
+
+1. **Crash logging (item 26).** NVForever did not log crashes. Now every run writes a run
+   log, `%LOCALAPPDATA%\NVForever\logs\nvforever-<UTC time>-<pid>.log` (or under
+   `NVFOREVER_HOME`; never the game folder or `Documents\My Games\FalloutNV`, checked by
+   `fnv_install::guard_write`): the console's lines without colours, written line by line
+   so a crash keeps everything before it; the last 10 are kept. A panic on any thread
+   writes `crash-<UTC time>-<pid>.txt` beside it (thread, message, file and line, where
+   the camera was: worldspace, cell and its name, position; the command line; the
+   backtrace; the run log's name) and logs the same in one ERROR line. A run that ends
+   normally logs "run log: the game exited normally"; at the start the previous log is
+   checked and, if it has neither that line nor a crash report, a WARN names it (a native
+   crash: driver access violation, stack overflow, or the process killed). Code
+   `engine/nvforever/src/crash.rs`; test aid `NVF_PLAY_TEST_PANIC=<s>`; scenario
+   `crash-report`.
+   *Decision:* the engine's release profile keeps no debug info, so backtraces name
+   functions from the PDB's public symbols only (some frames are mislabelled, no line
+   numbers). `debug = "line-tables-only"` under `[profile.release]` in `engine/Cargo.toml`
+   would give file:line for every frame at the cost of one full rebuild for everybody and a
+   larger PDB; not done here, your call. *Decision:* native crashes (no Rust panic) get no
+   report of their own, only the "did not end normally" warning; a Windows exception filter
+   would need unsafe FFI. *Check:* after a crash, send the newest `crash-*.txt` and
+   `nvforever-*.log` from `%LOCALAPPDATA%\NVForever\logs`.
+   **The crash outside Crimson Caravan was not reproduced**: `--play --cell
+   CrimsonCaravan` for 150 s walking (10 fps under load), and a free-camera flight with
+   every actor from Crimson Caravan towards Camp McCarran and the South Vegas ruins (196
+   cells streamed, 195 residents) ran clean. *Check:* reproduce it once more on this
+   build; the run log and crash report will say where and on which thread.
+
+2. **Actors processed far away (item 27).** Cause: with `--npc-packages all` (the default of
+   `--play`) every actor of every cell ever loaded, and every actor a script moved, kept
+   its full AI for the rest of the run wherever it was: packages, sandboxes, searches,
+   Dialogue packages, hellos and random conversations (whose lines the game then said, so
+   Fiends far off talked). Drawing, detection, combat and object scripts were already
+   limited to the loaded cells. Now AI process levels (`fnv_ai::process`;
+   docs/design/actor-behaviour.md §5.9): actors in the loaded 5 × 5 cells (or the
+   interior) are in the high process, as before; the others get one update every 18 s
+   (the GECK wiki's figure for the original's "Mid-High" level) in which they only take up
+   their package and walk on over the navmesh: no conversations, hellos, searches,
+   sandbox choices or Dialogue packages. Leaving the loaded area ends a random
+   conversation and a search. Actors whose base has "No Low Level Processing" are not
+   updated at all out of the loaded area (documented flag meaning). A "process summary"
+   line at exit; scenario `far-actors`; tests in `crates/fnv-ai/tests/carry.rs`. In the
+   Crimson Caravan flight: 140 of 195 residents out of the loaded area at the end, 137
+   low-process updates, no conversation started out there.
+   *Decision/Guess:* every actor the AI has is treated as the original's Mid-High (18 s),
+   never Mid-Low or Low (120 s): all of them were handed over because their cell had been
+   loaded, which is what Mid-High means. *Decision:* the high area is the drawn cells,
+   including cells still fading out. *Check:* stand outside Crimson Caravan: no Fiend
+   talk; walk back to Goodsprings after a while: the residents are where their packages
+   would have taken them.
+
+3. **NCR troopers floating outside Camp McCarran (item 24): not reproduced.** Checked in
+   the masters [observed]: the troopers there are placed on what is under them (rays and
+   probes with `fnvtool phys cell`): the gate patrols on the road (4,336-4,345, road
+   statics), the sentry at the gate on a sidewalk static (4,352), the four
+   NCRTrooperMcCarranCM on the runway transition static (4,336), the tower troopers on
+   the wall towers' tops (5,095-5,185, NVMcCarranWall03/04, with navmesh 0x00160C65 up
+   there), McCarranTowerTrooper1 following its patrol markers on its tower top. In game
+   (`--play`, noon, screenshots at the gate, the south wall and the north-east tower,
+   over 2 minutes each, and the patrol along the road): all stood and walked on the
+   ground or the tower tops. Not changed. *Check:* where exactly (which side of McCarran,
+   tower or ground, near or far, after what) and, if you can, a screenshot with the
+   overlay's `pos` line; one candidate left untested is the McCarran wall imposters
+   (`McCarranWallTowerImposter`, drawn by region at any distance) standing in for the
+   towers while the troopers on them are drawn.
+
+4. **Tribal village corpses (item 28).** You were right: "If Base Health is set to 0 the
+   actor will spawn as a corpse" [documented: GECK wiki Stats Tab - NPC and Category:NPC].
+   `TCFiend01DEAD` has Base Health 0 in its own stats (its template supplies other tabs,
+   not Stats); the placed references carry no flag for it. Now a new game marks every
+   placed actor whose stats actor has Base Health 0 (NPC) or Health 0 (creature) dead,
+   without a killer, an OnDeath or a dead count: 889 in the ten masters. Drawn, they
+   show the end of a death pose and drop as ragdolls (17 ragdolls came to the ground around the village in the
+   test run), the AI leaves them alone, and E searches them. Spec note
+   `docs/spec-notes/dead-on-spawn.md`; tests `crates/fnv-game/tests/dead_on_spawn.rs`;
+   scenario `dead-on-spawn`.
+   *Guess:* creatures with Health 0 start dead too (DeadMoleRat, DeadBrahmin,
+   NightkinMeleeDEAD; the wiki speaks of NPCs only). *Not done:* the "Respawn" flag
+   (TCFiend01DEAD has it) bringing them back alive after three days, and the references'
+   `XRGD` "Ragdoll Bones" (probably the pose the designer's Havok Sim left) which would lay
+   each body exactly as authored; ours fall where they stand. *Check:* the village's bodies
+   lie on the ground, can be searched, and do not get up.
+
+## Playtest fixes: combat rules from the GECK wiki (2026-10-12, session "pt-combat")
+
+Branch `claude/playtest-combat`; design in docs/design/combat-ai.md §10 and §11 (the gap
+table against the wiki's combat pages, and §11.1, what is left for the list-2 combat AI
+workstream), alert.md §5 and §8. List 1 items 20, 30, 32, 33 and 34.
+
+1. **Machete can't hit a gecko (item 20).** The swing was a fan of rays at eye height,
+   75 units long for the machete (fCombatDistance 150 × Reach 0.5): a gecko at your feet
+   was under it. Now the swing also strikes any actor whose centre is within the reach
+   across the ground (plus 24 units of body), inside the swing's arc, from 32 units below
+   your feet to 48 above your eyes, if nothing stands between. *Guess:* the 24, 32 and 48
+   units. *Check:* swing a machete at a gecko standing still at your feet, and at one a
+   step too far (it should miss).
+2. **Hitting a neutral NPC (item 30).** It turns on you at once, says its Assault line
+   ("What was that for?") and fights until it goes back to Normal, StopCombat, or a yield
+   it accepts. Friends and allies follow the wiki's friendly-fire counts (a friend
+   turns at once out of combat, after more than 4 hits within 10 s in combat; an ally
+   never in combat, after more than 3 hits out of it). **Your exception:** a neutral
+   already fighting someone else, hit while you are fighting too, does not turn.
+   *Decision:* "you are fighting" = someone in a combat state has you on its target list.
+   *Decision:* an enemy not aggressive enough to attack on sight is treated as a neutral.
+   *Guess:* your teammates count as allies.
+3. **Yielding (item 30).** Putting your weapon away is a yield. Actors fighting you only
+   because you hit them (or because they help someone you hit) accept it if their fight
+   began at most 10 s before (fCombatYieldTime): they stop and say AcceptYield. One that
+   forgave you within 600 s (fCombatYieldRetryTime) and was hit again ignores the next
+   yield. *Decision:* the wiki's 600 s timer is the player's, for everyone; I made it each
+   actor's, to match your words "if they have already recently forgiven". Actors hostile
+   by their records (raiders, fiends) and StartCombat fights never accept a yield.
+   *Check:* shoot Chet once, holster within a few seconds (he stops: "accepts the yield"),
+   shoot him again and holster (he keeps fighting).
+4. **Allies help allies (item 34).** An actor that sees or hears an ally (or a friend,
+   with Assistance "Helps Friends and Allies") in a fight takes it up against everyone
+   that ally fights, never against one of its own allies or friends. *Decision:* actors
+   sharing a faction, or placed from the same NPC, count as allies (the rule already
+   keeping them from fighting each other). Goodsprings' settlers and Violet's dogs help
+   each other this way. *Check:* shoot a Goodsprings settler where others can see:
+   they should join; Violet's dogs join her fight.
+5. **Combat styles and confidence (item 34).** The CSTY records are read: Melee Only has
+   a gun-holder fight with its fists; the range multiplier scales the distance it fights
+   from; semi-automatic guns wait the style's firing delay; melee fighters attack or hold
+   by the style's chances (a dog now bites a little less often). Confidence decides when
+   a hurt fighter would flee, but fleeing itself is not built: the log says "would flee".
+   *Guess:* how the per-fight confidence modifier applies (threshold × (1 − modifier));
+   damage per second for the threat ratio (the wiki does not say); an actor's style from
+   the template that supplies its AI data, else DefaultCombatstyle.
+6. **NPCs aim down the sights (items 32–33).** An NPC with a gun that has sights aims
+   down them when its target is more than 20 m away and walks while aiming; within 20 m
+   it fires from the hip and runs. Aimed shots lose the unaimed spread penalty, and the
+   iron-sights aim and attack clips play. *Decision:* 20 m = 1,400 units (70 units a
+   metre, the figure gravity fits); once up, the sights stay up to 1,350 units so it
+   does not switch at the edge; the sights come up only while it can fire (sees you,
+   weapon drawn). *Decision:* the record's Sight Usage (the wiki: "percentage of
+   fCombatIronSightsDistance") is not used: your 20 m rule stands in, and that setting is
+   neither in FalloutNV.esm nor on the wiki. *Check:* Violet from 50 m: she raises her
+   rifle to her eye and walks towards you; walk up to 15 m: she lowers it and fires from
+   the hip.
+7. **Fiends flickering Combat ↔ Lost at Cook-Cook's camp.** They ran at you, dropped
+   behind a rise, and the moment they could not see you the combat AI let go of them:
+   they stood where they could not see, went Lost after 3 s, searched, saw you, and went
+   back to Combat (17 times each way in 45 s). Now a fighter stays a fighter while in
+   Combat and keeps closing in on where it last saw you until it sees you again.
+   After: no Combat → Lost at all in the same 45 s. *Decision:* while it cannot see you
+   it closes in halving the gap each time it plans its way. *Check:* stand south of the
+   camp: the fiends should come at you without stopping and starting.
+
+8. **Two older smoke expectations changed by these rules** (marked known failing, not
+   changed; please confirm and they can be rewritten): `combat-violet` expected the hip
+   attack clip `2hrattack3.kf`, but Violet now fires from 1,600 units, beyond 20 m, so
+   every shot is aimed down the sights (`2hrattack3is.kf`); `combat-dogs` expected about
+   20 bites in 30 s, now 11–12 (main: 17), because the combat style's melee decision has
+   a dog attack at 55 % each time it may and wait out its Hold Timer otherwise.
+   *Decision:* keep the wiki's rule. *Check:* do Violet's dogs bite often enough?
+   Also seen: `detection-game` (the sneaking check of detection.md §5) fails on main
+   980f0c35 the same way; marked known failing, not looked into (not combat).
+
+Tests: fnv-ai, fnv-game, fnv-combat unit tests (new: three provocation/yield/assistance
+tests on a synthetic plugin, the blind close-in test, the sights rule); smoke scenarios
+`combat-sights` and `provoked-yield` added, `cook-cook-camp` now also forbids the flicker
+(at most 2 Combat → Lost lines). Not done (list 2): fleeing, cover, combat groups and
+their searches, NPC-against-NPC grudges, blocking, dodging, combat barks (combat-ai.md §11.1).
+## Aid items: chems, food and meds (2026-10-12, workstream I "aid")
+
+Using an aid item now changes the actor values its record says (Stimpak, RadAway, Rad-X,
+Buffout, Jet, Mentats, food and drink …): the effects' Value Modifier archetype applied to
+the three pools of the GECK wiki's ActorValue page, the Medicine and Food potency, the usage
+monitor, the addiction roll and withdrawal. Spec note `docs/spec-notes/aid-items.md`; code
+`crates/fnv-game/src/aid.rs`, `engine/nvf-play/src/aid.rs`; tool `fnvtool actor aid`; smoke
+scenarios `aid-survey` and `aid-items`.
+
+1. **Recover vs no Recover.** A Value Modifier with Recover (Buffout's +2 Strength) is a
+   temporary modifier while the effect lasts; without Recover it restores or damages.
+   *Decision/Guess:* without Recover and with a duration it acts magnitude **per second**
+   (the Hardcore Stimpak's 5 a second for 6 s equals the normal Stimpak's 30 at once).
+   *Check:* a Hardcore Stimpak heals 30 (39 at Medicine 15) over 6 s.
+2. **Potency.** Medicine-flagged items (Stimpak, RadAway, Rad-X, Doctor's Bag …) and
+   Food-flagged ones scale their beneficial magnitudes by `1 + 2 × skill / 100` (GECK wiki
+   Ingestible Settings). *Decision:* the user's own skill (the wiki says the player's);
+   both flags multiply; durations are not scaled. *Check:* a new character's Stimpak heals
+   39, not 30; the Pip-Boy STATS EFF list shows the scaled amounts.
+3. **Values that grow.** *Guess:* rads, dehydration, hunger and sleep deprivation go up with
+   "Damage …" effects and down with "Restore …" (RadAway "Restore Rads", Nuka-Cola "Damage
+   Rads"), never below 0. *Check:* RadAway lowers the RAD meter; Nuka-Cola adds 3 rads. In
+   Hardcore, Beer and Nuka-Cola carry "Damage Dehydration" — under this reading they make
+   you thirstier; please check H2O after a Nuka-Cola.
+4. **Value And Parts / Limb Condition.** *Guess:* the normal Stimpak ("Restore Health &
+   Conditions") restores every limb by the same amount as health; Doctor's Bag and Hydra
+   ("NVRestoreLimbs", no actor value) restore every limb. *Check:* a crippled leg after a
+   Stimpak in normal mode.
+5. **Usage monitor.** The chems' effect 0x0000014F has no record in any master; *Guess:*
+   it is the wiki's UMON (magnitude 30 = the GetSpellUsageNum example's "multiplied by
+   30"). Each use while it lasts (30 hours of play for most chems) adds 30; from 70 the
+   addiction chance is (usage − 70) / 100. *Decision:* the usage after this use counts, so
+   the third Buffout within 30 hours has 20 %, the sixth 100 %. *Check:* how many doses it
+   takes to get addicted.
+6. **Withdrawal.** *Guess:* an addiction's penalties are held back while that chem's effect
+   is active and apply when it ends; addictions do not wear off with time (Fixer's script
+   removes them). *Check:* Strength while addicted to Buffout, with and without a dose.
+7. **Not done:** waiting/sleeping does not advance effect timers (the original may);
+   Hardcore needs do not rise with time; Chameleon (Stealth Boy); perk entry points
+   (Chem Resistant, Chemist); Buffout's Strength does not raise carry weight (the
+   carry rule reads the world's S.P.E.C.I.A.L.); NPCs using stimpaks in combat (left for
+   the combat workstream: it needs the combat AI to choose to heal).
+8. **Test aid added:** `NVF_PLAY_TEST_SCRIPT=<t>:damage:<ref>:<actor value>:<amount>`.
+9. **Survival follows Endurance here** (actor-values.md §3.1 hypothesis), and formulas read
+   current values, so a Buffout taken before food raises the food's potency (Purified
+   Water 1.42 instead of 1.3 after Buffout's +3 Endurance). *Check:* whether chems change
+   food healing in the original.
+10. **Test aid fixes found on the way.** The inventory drop/use aid (`NVF_PLAY_TEST_DROP`)
+    now turns the Pip-Boy's ITEMS page to the item's tab (the list shows one tab, so aid
+    items were "not carried": the ui-sounds scenario's known failure on main), waits while
+    a script's message box is up, and waits for the scripts to be ready; items used before
+    the scripts were ready (or under a loading screen) are kept and applied when they run
+    (they were dropped). *Decision:* the ui-sounds stimpak expectation's known-failing mark
+    is removed (it passes); "24 played" stays known-failing at 23 with the stimpak's sound
+    now among them — one other sound is short, not found which.
+11. **quest-messages failed 3 of 3 runs on this branch, from load, not this change:** the
+    scripts were ready only after 14–17 s (four agents building on the machine), so its
+    test aids at 3, 9 and 9.1 s ran in one frame and the objective was completed before
+    it was shown. Nothing of the quest lines changed here. *Check:* it passes on a quiet
+    machine.
+
 ## Graphics: engine-level improvements (2026-10-12, session "gfx")
 
 Your list 2 item "ENGINE LEVEL GRAPHIC IMPROVEMENTS". Design, survey and the reasons for each
