@@ -206,8 +206,14 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         let value = |g: &mut fnv_game::Game<'static>, code: u16| shown_and_permanent(g, t, code);
         let level = g.player_level();
         s.level = Some(level as i64);
-        s.hp = value(g, av::HEALTH);
-        s.ap = value(g, av::ACTION_POINTS);
+        // HP and AP out of a whole that an aid item's temporary modifier raises with them
+        // (Buffout, Jet) [hypothesis].
+        let whole = |g: &mut fnv_game::Game<'static>, code: u16| {
+            let t = gf::actor_value_temporary(g, FormId::PLAYER_REF, code);
+            value(g, code).map(|(v, max)| (v, max + t))
+        };
+        s.hp = whole(g, av::HEALTH);
+        s.ap = whole(g, av::ACTION_POINTS);
         s.xp = Some((g.player.xp, model::xp_for_level(level + 1.0, xp_base, xp_bump)));
         for (i, &code) in LIMBS.iter().enumerate() {
             if let Some((v, max)) = value(g, code).filter(|v| v.1 > 0.0) {
@@ -270,7 +276,9 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
                 .filter_map(|x| {
                     let (modifier, detrimental) = forms.effect(x.effect.0);
                     let code = forms.ench_code(e.source.0, x.index)?;
-                    modifier.then(|| Change { value: short(forms, code), amount: x.magnitude as f64, detrimental })
+                    // The amount the game applied (potency included, `fnv_game::aid`).
+                    let amount = x.change.map_or(x.magnitude as f64, |c| c.amount.abs());
+                    modifier.then(|| Change { value: short(forms, code), amount, detrimental })
                 })
                 .collect();
             if !changes.is_empty() {
@@ -290,7 +298,10 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
 /// it reads as the original's].
 fn shown_and_permanent(g: &mut fnv_game::Game<'static>, temporary: &[(u16, f64, bool)], code: u16) -> Option<(f64, f64)> {
     let [b, m, d] = gf::actor_value_parts(g, FormId::PLAYER_REF, code).ok()?;
-    Some((b + m - d + model::added(temporary, code), b + m))
+    // Active effects' temporary modifier (aid items) is the game's own; worn apparel's
+    // is added here.
+    let t = gf::actor_value_temporary(g, FormId::PLAYER_REF, code);
+    Some((b + m + t - d + model::added(temporary, code), b + m))
 }
 
 /// An actor value's short name, else its name.

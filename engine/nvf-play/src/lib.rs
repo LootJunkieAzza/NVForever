@@ -12,6 +12,7 @@
 //! [`dialogue_look`] turns the player's view to the actor they talk to.
 
 pub mod activate;
+pub mod aid;
 pub mod ambient;
 pub mod bindings;
 pub mod blocking;
@@ -209,7 +210,8 @@ pub struct RefChanged {
 }
 
 /// The player used up an item from the inventory (an aid item): the script runtime
-/// applies its effects, including effect scripts (`fnv_game::Game::apply_magic_item`).
+/// uses it (`crate::aid`, `fnv_game::Game::ingest`: its effects, effect scripts
+/// included, with potency, the usage monitor and the addiction roll).
 /// The menu has already removed the item from the simulation.
 #[derive(Message, Clone, Copy, Debug)]
 pub struct ItemUsed {

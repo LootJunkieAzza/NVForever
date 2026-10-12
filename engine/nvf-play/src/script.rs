@@ -234,6 +234,8 @@ pub struct Runtime {
     children: HashMap<FormId, Vec<FormId>>,
     started: Instant,
     pub stats: TickStats,
+    /// What the player's aid items did (`crate::aid`).
+    pub aid: crate::aid::AidStats,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -420,6 +422,7 @@ impl Runtime {
             children,
             started: Instant::now(),
             stats: TickStats::default(),
+            aid: crate::aid::AidStats::default(),
         };
         with_world(&mut rt, sim, |rt| {
             rt.game.new_game();
@@ -758,6 +761,13 @@ impl Runtime {
                     return Err(format!("{} does not play {}", g.data.name(r), g.data.name(idle)));
                 }
             }
+            ScriptAid::Damage(r, value, amount) => {
+                let r = resolve(g, r)?;
+                let code = fnv_game::functions::av_code(g, value)?;
+                fnv_game::functions::add_actor_value_damage(g, r, code, *amount);
+                let now = fnv_game::functions::actor_value(g, r, code)?;
+                info!("test aid: {} {value} damaged by {amount}: now {now:.1}", g.data.name(r));
+            }
             ScriptAid::Walk(_) => unreachable!("handled by the caller"),
             ScriptAid::Var(of, var, value) => {
                 let f = resolve(g, of)?;
@@ -920,7 +930,7 @@ impl Plugin for ScriptPlugin {
         app.insert_resource(ScriptState::new(d, refs, new_game, unattended))
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
             .add_systems(Update, (crate::script_hud::menu_keys, run_scripts, sync_locks, walk_player, hold_player).chain().in_set(PlaySet::Scripts))
-            .add_systems(Last, write_final);
+            .add_systems(Last, (crate::aid::report, write_final));
     }
 }
 
@@ -1055,9 +1065,10 @@ pub(crate) fn run_scripts(
     let mut walks = Vec::new();
     with_world(rt, &mut sim, |rt| {
         rt.observe_inventory();
+        let aid_from = rt.game.events.len();
         for &item in &used {
-            let started = rt.game.apply_magic_item(FormId::PLAYER_REF, item, Some(FormId::PLAYER_REF), false);
-            info!("script: the player used {item}: {} effect(s) started", started.len());
+            let r = crate::aid::use_item(rt, item);
+            info!("script: the player used {item}: {} effect(s) started", r.effects.len());
         }
         rt.follow_player();
         if std::mem::take(&mut rt.opening_pending) {
@@ -1090,6 +1101,7 @@ pub(crate) fn run_scripts(
         rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
         rt.game.tick();
+        crate::aid::after_tick(rt, aid_from);
         // A script's `Activate player` on an actor: the player talks to it.
         rt.talk_after(from);
         rt.finish_answer();

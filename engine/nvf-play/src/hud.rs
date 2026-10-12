@@ -202,11 +202,22 @@ fn gather(
     }
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         (now.health, now.action_points) = with_world(rt, &mut sim, |rt| {
-            let max = rt.game.max_health(FormId::PLAYER_REF);
+            // An aid item's temporary modifier (Buffout's Health, Jet's Action Points) raises
+            // the maximum with the value [hypothesis: the bar stays a share of the whole].
+            let temporary = |g: &fnv_game::Game, code| fnv_game::functions::actor_value_temporary(g, FormId::PLAYER_REF, code);
+            let max = rt.game.max_health(FormId::PLAYER_REF) + temporary(&rt.game, fnv_game::actor_values::HEALTH);
             let health = fnv_game::functions::actor_health(&mut rt.game, FormId::PLAYER_REF).unwrap_or(max);
-            // Base, permanent modifier, damage: the bar is what is left of the first two.
+            // Base, permanent and temporary modifiers, damage: the bar is what is left of
+            // the first three.
             let ap = match fnv_game::functions::actor_value_parts(&mut rt.game, FormId::PLAYER_REF, ACTION_POINTS) {
-                Ok([base, modifier, damage]) if base + modifier > 0.0 => (base + modifier - damage) / (base + modifier),
+                Ok([base, modifier, damage]) => {
+                    let whole = base + modifier + temporary(&rt.game, ACTION_POINTS);
+                    if whole > 0.0 {
+                        (whole - damage) / whole
+                    } else {
+                        1.0
+                    }
+                }
                 _ => 1.0,
             };
             (if max > 0.0 { (health / max) as f32 } else { 0.0 }, ap as f32)
