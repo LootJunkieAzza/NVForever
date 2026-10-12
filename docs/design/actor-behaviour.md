@@ -568,6 +568,49 @@ them was moving around on its own; it should stay where it is then fly off".
   arrives and the player walks on through its place ("they changed the player's step 0
   times").
 
+### 5.9 Process levels: the loaded area and the rest (2026-10-12, owner's playtest)
+
+The owner: "check that npcs are not rendered/processing when outside of the cells not in
+the vicinity: could hear fiend conversations between each other whilst near Crimson
+Caravan". With `--npc-packages all` (the default of `--play`) every actor of every cell
+the camera had loaded, and every actor a script moved, stayed with the AI for the rest of
+the run with its full update: packages, sandboxes, searches, Dialogue packages, hellos
+and random conversations (whose lines the game says), wherever it was. Drawing was
+already limited to the loaded cells (`nav::show_actor`), and so were detection, combat
+and object scripts (the drawn actors; `Game::loaded_cells`).
+
+What the original does [documented: GECK wiki (JIP) GetActorsByProcessingLevel,
+GetActorProcessingLevel; Category:NPC; SetSceneIsComplex]: actors in the loaded interior
+or the uGridsToLoad cells around the player are in the **high** process, "processed every
+frame"; actors of exterior cells visited and still in memory are **mid-high**, "every ~18
+seconds"; unvisited interiors behind doors of the loaded cells **mid-low**; the rest
+**low**, "every ~120 seconds". An actor whose base has "No Low Level Processing" "does
+not update its AI unless it is in the loaded area".
+
+Now (`fnv_ai::process`, the residents' `process_levels`):
+- **High**: a resident whose walker is in a cell drawn now (the 5 × 5 grid of
+  `--radius 2`, or the interior) gets every update, as before.
+- **Low** (everyone else the AI looks after, all of them "visited", so the original's
+  mid-high): one update every 18 s for the time owed, in 0.5 s steps on the navmesh,
+  doors as if open, as an hour in the Wait menu: it takes up its current package and
+  walks on. No sandbox choice, no search, no Dialogue package, no hello, no random
+  conversation, no turning to a speaker. Leaving the loaded area ends a random
+  conversation it walks to, waits for or is in, and a search. Updates are spread over the
+  18 s by FormID [design].
+- **No Low Level Processing**: no update at all out of the loaded area, not even for
+  Wait-menu hours (`Ai::pass_time`).
+- The level is set every frame from where the walker is; going back in, the actor takes
+  up its full update from where the low updates left it.
+
+Checked by the `far-actors` smoke scenario (tools/smoke/scenarios.toml): Goodsprings with
+every actor, then the player put outside Crimson Caravan; the "process summary" line
+counts who left the loaded area and the low-process updates. Tests in
+`crates/fnv-ai/tests/carry.rs` ("process levels").
+
+Not done: the mid-low and low levels' slower cadence (every actor the AI has is mid-high
+here: it was handed over because its cell was loaded); actors of cells never loaded are
+not handed to the AI at all, as before.
+
 ## 6. Decisions for the owner
 
 1. **Keep-current when nothing is valid** (rule 3) rather than "no package": taken from

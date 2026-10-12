@@ -17,6 +17,7 @@
 //! - [`detection`]: how well one actor perceives another (hidden, noticed, detected)
 //! - [`dialogue`]: conversations between the player and an actor (Layer 6, step D2)
 //! - [`hacking`]: the terminal hacking game (words, likeness, bracket pairs, lockout)
+//! - [`lockpick`]: the lockpicking game (sweet spot, torque, bobby pins, Force Lock)
 //! - [`idles`]: the idle animations scripts, packages and dialogue lines ask for
 //! - [`chargen`]: the character-creation menus' rules (name, S.P.E.C.I.A.L., tag skills, traits)
 //! - [`intro`]: the intro chain's units (coverage)
@@ -41,6 +42,7 @@ pub mod hacking;
 pub mod game;
 pub mod idles;
 pub mod intro;
+pub mod lockpick;
 pub mod package;
 pub mod quest;
 pub mod radio;

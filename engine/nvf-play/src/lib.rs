@@ -31,6 +31,7 @@ pub mod hitvol;
 pub mod interface;
 pub mod hud;
 pub mod loading;
+pub mod lockpick;
 pub mod menu;
 pub mod message_menu;
 pub mod moved;
@@ -243,7 +244,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(ui_sounds::UiSoundsPlugin)
             .add_plugins(chargen::ChargenPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
-            .add_plugins(terminal::TerminalPlugin);
+            .add_plugins(terminal::TerminalPlugin)
+            .add_plugins(lockpick::LockpickPlugin);
         test_aid::setup(app);
     }
 }

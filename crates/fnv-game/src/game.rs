@@ -479,6 +479,9 @@ pub mod menus {
     pub const LOVE_TESTER: u16 = 1074;
     /// The trait menu (ShowTraitMenu).
     pub const TRAITS: u16 = 1084;
+    /// The lockpicking menu [documented: GECK wiki GetMenuTargetRef, owner export: "1014
+    /// The door/container being picked"].
+    pub const LOCKPICK: u16 = 1014;
     /// The barter menu (ShowBarterMenu) [hypothesis: the GECK wiki's MenuMode list as
     /// remembered; no shipped script reads it and the owner's export lacks the page].
     pub const BARTER: u16 = 1053;
@@ -625,6 +628,8 @@ pub struct Game<'a> {
     pub radio: crate::radio::Radios,
     /// Terminals hacked or locked out (`crate::terminal`).
     pub terminals: crate::terminal::Terminals,
+    /// Locks broken by forcing them (`crate::lockpick`). Not part of the saved state yet.
+    pub locks: crate::lockpick::Locks,
     pub world: World<'a>,
     pub cfg: GameConfig,
     pub quests: BTreeMap<FormId, QuestState>,
@@ -797,6 +802,7 @@ impl<'a> Game<'a> {
             awareness: Default::default(),
             radio: Default::default(),
             terminals: Default::default(),
+            locks: Default::default(),
             world,
             cfg,
             quests: BTreeMap::new(),
@@ -842,8 +848,11 @@ impl<'a> Game<'a> {
 
     /// The new-game state: every quest flagged "Start game enabled" is running, with no
     /// stage set [hypothesis: the flag's documented meaning (xEdit); which quest the
-    /// "New Game" menu starts is a separate input, scripts.md §8].
+    /// "New Game" menu starts is a separate input, scripts.md §8]; the placed actors that
+    /// start as corpses are dead ([`Game::lay_out_corpses`]).
     pub fn new_game(&mut self) {
+        // Placed corpses (Base Health 0) lie dead from the start.
+        self.lay_out_corpses();
         let start: Vec<FormId> = self.data.quests.values().filter(|q| q.start_enabled()).map(|q| q.form).collect();
         for q in start {
             self.start_quest(q);

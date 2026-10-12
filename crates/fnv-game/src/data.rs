@@ -418,6 +418,13 @@ pub struct ActorDef {
     pub template_stats: bool,
     /// CREA ACBS "Invulnerable".
     pub invulnerable: bool,
+    /// ACBS flag "No Low Level Processing": the actor's AI is not updated outside the
+    /// loaded area [documented: GECK wiki Category:NPC]. Read from the record itself, as
+    /// Essential is (whether the template flag Base Data passes it on is not checked).
+    pub no_low_level: bool,
+    /// The record has a DATA whose Base Health (NPC_) or Health (CREA) is 0: its placed
+    /// actors start the game as corpses ([`crate::game::Game::starts_dead`]).
+    pub zero_health: bool,
 }
 
 /// A leveled actor list (LVLN, LVLC) [documented: xEdit; schema `gameplay.json`]: the
@@ -1695,6 +1702,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.creature_type =
                             v.as_ref().and_then(|v| v.get("type")).and_then(|t| field_code(schema, &sig, b"DATA", Some("type"), t));
                         a.base_health = v.as_ref().and_then(|v| v.get("health")).and_then(Json::as_i64).unwrap_or(0);
+                        a.zero_health = v.as_ref().and_then(|v| v.get("health")).and_then(Json::as_i64) == Some(0);
                         a.attributes = v.as_ref().and_then(|v| v.get("attributes")).and_then(attributes);
                         let skill = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_u64).map(|n| n.min(255) as u8);
                         (a.combat_skill, a.stealth_skill) = (skill("combat_skill"), skill("stealth_skill"));
@@ -1702,6 +1710,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     }
                     b"DATA" if &sig == b"NPC_" => {
                         a.base_health = v.as_ref().and_then(|v| v.get("base_health")).and_then(Json::as_i64).unwrap_or(0);
+                        a.zero_health = v.as_ref().and_then(|v| v.get("base_health")).and_then(Json::as_i64) == Some(0);
                         a.attributes = v.as_ref().and_then(|v| v.get("attributes")).and_then(attributes);
                     }
                     b"DNAM" if &sig == b"NPC_" => {
@@ -1719,6 +1728,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.female = has_flag(f, "Female");
                         a.essential = has_flag(f, "Essential");
                         a.invulnerable = has_flag(f, "Invulnerable");
+                        a.no_low_level = has_flag(f, "No Low Level Processing");
                         a.pc_level_mult = has_flag(f, "PC Level Mult");
                         a.autocalc = &sig == b"NPC_" && has_flag(f, "Auto-calc stats");
                         let n = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_i64).unwrap_or(0);

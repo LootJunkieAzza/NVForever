@@ -51,6 +51,8 @@ pub enum UiMenu {
     Pause,
     /// The pause menu's settings page.
     Settings,
+    /// The lockpicking menu (`crate::lockpick`).
+    Lockpick,
 }
 
 impl UiMenu {
@@ -72,6 +74,7 @@ impl UiMenu {
             UiMenu::Sleep => "sleep",
             UiMenu::Pause => "pause",
             UiMenu::Settings => "settings",
+            UiMenu::Lockpick => "lockpick",
         }
     }
 }
@@ -110,6 +113,20 @@ pub enum UiEvent {
     Finished,
     /// A settings switch flipped.
     Flipped,
+    /// Lockpicking: the pin turned some way.
+    PinMoved,
+    /// Lockpicking: torque put on, the lock starts to turn.
+    Turning,
+    /// Lockpicking: the lock stopped short of opening.
+    Stopped,
+    /// Lockpicking: the pin under strain against the stop (`on`), or no longer.
+    Strain { on: bool },
+    /// Lockpicking: the pin broke.
+    PinBroke,
+    /// Lockpicking: the lock opened (picked or forced).
+    Unlocked,
+    /// Lockpicking: forcing the lock broke it.
+    ForceFailed,
 }
 
 impl UiEvent {
@@ -132,6 +149,14 @@ impl UiEvent {
             UiEvent::Accepted => "accepted",
             UiEvent::Finished => "hours passed",
             UiEvent::Flipped => "switch flipped",
+            UiEvent::PinMoved => "pin moved",
+            UiEvent::Turning => "lock turning",
+            UiEvent::Stopped => "lock stopped",
+            UiEvent::Strain { on: true } => "pin under strain",
+            UiEvent::Strain { on: false } => "strain off",
+            UiEvent::PinBroke => "pin broke",
+            UiEvent::Unlocked => "lock opened",
+            UiEvent::ForceFailed => "lock broken by forcing",
         }
     }
 }
@@ -154,6 +179,8 @@ pub enum Choice {
     Caps { up: bool },
     /// An aid item's consume sound (ALCH `ENIT`).
     Consume(FormId),
+    /// A SOUN by Editor ID that goes round until it is stopped (`on` false).
+    Loop(&'static str, bool),
     /// None, and why.
     Silent(&'static str),
 }
@@ -198,6 +225,22 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         // Exit and cancel as the settings' back button [observed: start_menu.xml
         // main_back_button `UIMenuCancel`; design for these menus].
         (Barter | Wait | Sleep | Pause | Settings, Back | Closed) => Named("UIMenuCancel"),
+        // Lockpicking (lockpicking.md §6): the SOUN records named for it [observed:
+        // FalloutNV.esm `UILockpicking…`; design: which event each is for, by its name].
+        // Opening: the lock model's own sound key [observed: lockinterface01.nif
+        // `Forward` "Sound: UILockpickingEnter"], played here as the model is drawn
+        // without its sequence's sound keys.
+        (Lockpick, Opened) => Named("UILockpickingEnter"),
+        (Lockpick, Closed) => Silent("the lock's model goes without a sound (its Backward has no sound key)"),
+        (Lockpick, PinMoved) => Named("UILockpickingPickMovement"),
+        (Lockpick, Turning) => Named("UILockpickingCylinderTurn"),
+        (Lockpick, Stopped) => Named("UILockpickingCylinderStop"),
+        (Lockpick, Strain { on }) => Loop("UILockpickingPickTensionLPM", on),
+        (Lockpick, PinBroke) => Named("UILockpickingPickBreak"),
+        (Lockpick, Unlocked) => Named("UILockpickingUnlock"),
+        (Lockpick, ForceFailed) => Named("UILockpickingForceFail"),
+        // A lock the player cannot pick [hypothesis: by the record's name, `DRSLocked`].
+        (Lockpick, Refused) => Named("DRSLocked"),
         (_, Refused) => Named("UIMenuCancel"),
         // The topics silence the click [observed: dialog_menu.xml DM_Topic].
         (Dialogue, Answered) => Silent("&nosound; in dialog_menu.xml"),
@@ -418,6 +461,7 @@ fn play(
     sfx: Option<Res<Sfx>>,
     mut world: Option<ResMut<WorldSounds>>,
     mut out: MessageWriter<PlaySound>,
+    mut loops: MessageWriter<crate::sfx::LoopSound>,
 ) {
     let ui = &mut *ui;
     let now = seen_now(&active, wait.as_deref(), dialogue.as_deref(), paused.is_some_and(|p| p.0), page.as_deref().copied());
@@ -429,7 +473,7 @@ fn play(
         *ui.stats.by_menu.entry(menu).or_default() += 1;
         let choice = sound_for(menu, event);
         let sound = match choice {
-            Choice::Named(e) => ui.by_edid.get_or_insert_with(|| by_edid(sfx)).get(e).copied(),
+            Choice::Named(e) | Choice::Loop(e, _) => ui.by_edid.get_or_insert_with(|| by_edid(sfx)).get(e).copied(),
             Choice::Item { item, up } => world.as_deref_mut().and_then(|w| w.item_sound_of(Some(sfx), item, up)),
             Choice::Caps { up } => world.as_deref_mut().and_then(|w| w.item_sound_of(Some(sfx), CAPS, up)),
             Choice::Consume(item) => ui.consume.get(&item).copied(),
@@ -447,6 +491,13 @@ fn play(
             info!("{line}");
         }
         match (sound, name) {
+            (Some(sound), Some(_)) if matches!(choice, Choice::Loop(_, false)) => {
+                loops.write(crate::sfx::LoopSound { sound, on: false });
+            }
+            (Some(sound), Some(name)) if matches!(choice, Choice::Loop(_, true)) => {
+                *ui.stats.played.entry(name).or_default() += 1;
+                loops.write(crate::sfx::LoopSound { sound, on: true });
+            }
             (Some(sound), Some(name)) => {
                 *ui.stats.played.entry(name).or_default() += 1;
                 out.write(PlaySound { sound, at: None });
@@ -513,6 +564,17 @@ mod tests {
         assert_eq!(sound_for(UiMenu::Barter, UiEvent::Traded { caps: 0 }), Choice::Named("UIMenuOK"));
         assert_eq!(sound_for(UiMenu::Container, UiEvent::TakeAll), Choice::Named("UIItemTakeAll"));
         assert!(matches!(sound_for(UiMenu::Container, UiEvent::Opened), Choice::Silent(_)));
+    }
+
+    #[test]
+    fn lockpicking_sounds_by_their_records() {
+        assert_eq!(sound_for(UiMenu::Lockpick, UiEvent::Opened), Choice::Named("UILockpickingEnter"));
+        assert_eq!(sound_for(UiMenu::Lockpick, UiEvent::PinBroke), Choice::Named("UILockpickingPickBreak"));
+        assert_eq!(sound_for(UiMenu::Lockpick, UiEvent::Unlocked), Choice::Named("UILockpickingUnlock"));
+        assert_eq!(sound_for(UiMenu::Lockpick, UiEvent::Strain { on: true }), Choice::Loop("UILockpickingPickTensionLPM", true));
+        assert_eq!(sound_for(UiMenu::Lockpick, UiEvent::Refused), Choice::Named("DRSLocked"));
+        // Other menus' refusals stay as they were.
+        assert_eq!(sound_for(UiMenu::Barter, UiEvent::Refused), Choice::Named("UIMenuCancel"));
     }
 
     fn seen() -> Seen {

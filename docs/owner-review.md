@@ -3200,6 +3200,138 @@ on this machine (11.4 min).
 4. *Seen, not changed:* at Cook-Cook's camp the fiends still go Combat → Lost and back
    16 times in 45 s (the handoff's "about 17"); it belongs to the combat workstream.
 
+## Playtest fixes: lockpicking (2026-10-12, session "lockpick")
+
+Item 31 of the playtest list. Locked doors and containers whose key the player does not
+carry now open the lockpicking menu (`nvf-play` `lockpick`, rules in `fnv-game`
+`lockpick`, the lock drawn by `nvforever` `lockpick_view.rs`; docs/spec-notes/lockpicking.md).
+The mouse turns the bobby pin over the half circle, W/A/S/D (the movement keys, as the
+game's help message says) put torque on the lock, F forces it, E leaves. Your reference
+screenshots (`C:\fnv-private\references\Lockpicking`) were not on this machine; what the
+first session noted from them is kept (lockpicking.md §1).
+
+1. *Decision:* the menu's layout is the game's `lockpick_menu.xml` (information box bottom
+   left with Lockpick, Bobby Pins and Lock Level; Force Lock and Exit at the right; a status
+   line). *Guess:* the words "Lockpick" and "Bobby Pins" (the game's own are executable
+   settings, not in the plugins). *Check:* the box and buttons against your screenshot.
+2. *Decision:* the lock is the game's own model (`lockinterface01.nif`, `bobbypin01.nif`)
+   drawn by a camera of its own; the plate and screwdriver fly in with the model's
+   `Forward` sequence. *Guess:* the camera (45 units in front, 55° view), the lights, the
+   turning axis (the files' +Y) and the direction (clockwise). *Check:* the picture against
+   your screenshot (`C:\fnv-private\scratch\lockpick\menu.png` is ours), and that the lock,
+   screwdriver and pin turn about the keyhole.
+3. *Guess (all tuning, `fnv_game::lockpick::Settings`):* sweet spot widths 30/20/12/8/5°
+   (Very Easy to Very Hard), +1 % per skill point above the lock's need; a 45° ring
+   around it where the lock turns part way; 120°/s turning; a pin lasts 1 s of strain
+   (+0.02 s a skill point over); a new pin 1 s after a break; mouse 0.3° per unit.
+   *Check:* whether the spot feels as small as in the game, and how fast pins break.
+4. *Decision:* the skill needed is 0/25/50/75/100; key-only (255) and broken locks refuse;
+   no bobby pins refuses. The refusal lines are NVForever's words. *Check:* the wording.
+5. *Guess:* Force Lock's chance is 3 % per Lockpick point over the lock's need, at most 95 %
+   (fits the one value seen, 15 % at 30 on an Easy lock); a failure breaks the lock for
+   good (only its key opens it: `GetLocked` 2, `GetIsLockBroken` 1) and uses up the pin.
+   A forced lock gives no XP, a picked one `iXPRewardPickLock…` (20–60). *Check:* the
+   chance at other skills/levels if you can read them in the game.
+6. *Decision:* when the lock turns all the way it stays unlocked, the menu closes 1.5 s
+   later and the door or container is **not** opened by itself: activate it again.
+   *Check:* whether the game opens the container straight away.
+7. *Decision:* where the sweet spot lies is new each time the menu opens. *Check:* whether
+   in the game it stays put for a lock between tries.
+8. *Decision:* sounds by the records' names: enter, pin movement (every 8°), cylinder
+   turn, cylinder stop, pin tension (a loop while strained), pin break, unlock, force fail;
+   `DRSLocked` when the menu refuses. The two cylinder squeak records are not used.
+9. *Crime hook:* picking or forcing a lock sends `LockOpened { reference, owner, forced }`
+   and logs "lockpick: crime hook: …" with the owner (the reference's, else the cell's as
+   a script set it; a cell's own XOWN is not read yet). No crime rules.
+10. *Not built:* the help message the first time, the debug meter, hiding the pointer over
+   the lock, the lock's `Backward` and the pin's `Backward`/`Left` sequences, saving broken
+   locks.
+
+## Playtest fixes: far world (crash log, distant actors, floating troopers, dead on spawn) (2026-10-12, session "far")
+
+List 1 items 26, 27, 24 and 28 (docs/handoff/playtest-2026-10-12.md).
+
+1. **Crash logging (item 26).** NVForever did not log crashes. Now every run writes a run
+   log, `%LOCALAPPDATA%\NVForever\logs\nvforever-<UTC time>-<pid>.log` (or under
+   `NVFOREVER_HOME`; never the game folder or `Documents\My Games\FalloutNV`, checked by
+   `fnv_install::guard_write`): the console's lines without colours, written line by line
+   so a crash keeps everything before it; the last 10 are kept. A panic on any thread
+   writes `crash-<UTC time>-<pid>.txt` beside it (thread, message, file and line, where
+   the camera was: worldspace, cell and its name, position; the command line; the
+   backtrace; the run log's name) and logs the same in one ERROR line. A run that ends
+   normally logs "run log: the game exited normally"; at the start the previous log is
+   checked and, if it has neither that line nor a crash report, a WARN names it (a native
+   crash: driver access violation, stack overflow, or the process killed). Code
+   `engine/nvforever/src/crash.rs`; test aid `NVF_PLAY_TEST_PANIC=<s>`; scenario
+   `crash-report`.
+   *Decision:* the engine's release profile keeps no debug info, so backtraces name
+   functions from the PDB's public symbols only (some frames are mislabelled, no line
+   numbers). `debug = "line-tables-only"` under `[profile.release]` in `engine/Cargo.toml`
+   would give file:line for every frame at the cost of one full rebuild for everybody and a
+   larger PDB; not done here, your call. *Decision:* native crashes (no Rust panic) get no
+   report of their own, only the "did not end normally" warning; a Windows exception filter
+   would need unsafe FFI. *Check:* after a crash, send the newest `crash-*.txt` and
+   `nvforever-*.log` from `%LOCALAPPDATA%\NVForever\logs`.
+   **The crash outside Crimson Caravan was not reproduced**: `--play --cell
+   CrimsonCaravan` for 150 s walking (10 fps under load), and a free-camera flight with
+   every actor from Crimson Caravan towards Camp McCarran and the South Vegas ruins (196
+   cells streamed, 195 residents) ran clean. *Check:* reproduce it once more on this
+   build; the run log and crash report will say where and on which thread.
+
+2. **Actors processed far away (item 27).** Cause: with `--npc-packages all` (the default of
+   `--play`) every actor of every cell ever loaded, and every actor a script moved, kept
+   its full AI for the rest of the run wherever it was: packages, sandboxes, searches,
+   Dialogue packages, hellos and random conversations (whose lines the game then said, so
+   Fiends far off talked). Drawing, detection, combat and object scripts were already
+   limited to the loaded cells. Now AI process levels (`fnv_ai::process`;
+   docs/design/actor-behaviour.md §5.9): actors in the loaded 5 × 5 cells (or the
+   interior) are in the high process, as before; the others get one update every 18 s
+   (the GECK wiki's figure for the original's "Mid-High" level) in which they only take up
+   their package and walk on over the navmesh: no conversations, hellos, searches,
+   sandbox choices or Dialogue packages. Leaving the loaded area ends a random
+   conversation and a search. Actors whose base has "No Low Level Processing" are not
+   updated at all out of the loaded area (documented flag meaning). A "process summary"
+   line at exit; scenario `far-actors`; tests in `crates/fnv-ai/tests/carry.rs`. In the
+   Crimson Caravan flight: 140 of 195 residents out of the loaded area at the end, 137
+   low-process updates, no conversation started out there.
+   *Decision/Guess:* every actor the AI has is treated as the original's Mid-High (18 s),
+   never Mid-Low or Low (120 s): all of them were handed over because their cell had been
+   loaded, which is what Mid-High means. *Decision:* the high area is the drawn cells,
+   including cells still fading out. *Check:* stand outside Crimson Caravan: no Fiend
+   talk; walk back to Goodsprings after a while: the residents are where their packages
+   would have taken them.
+
+3. **NCR troopers floating outside Camp McCarran (item 24): not reproduced.** Checked in
+   the masters [observed]: the troopers there are placed on what is under them (rays and
+   probes with `fnvtool phys cell`): the gate patrols on the road (4,336-4,345, road
+   statics), the sentry at the gate on a sidewalk static (4,352), the four
+   NCRTrooperMcCarranCM on the runway transition static (4,336), the tower troopers on
+   the wall towers' tops (5,095-5,185, NVMcCarranWall03/04, with navmesh 0x00160C65 up
+   there), McCarranTowerTrooper1 following its patrol markers on its tower top. In game
+   (`--play`, noon, screenshots at the gate, the south wall and the north-east tower,
+   over 2 minutes each, and the patrol along the road): all stood and walked on the
+   ground or the tower tops. Not changed. *Check:* where exactly (which side of McCarran,
+   tower or ground, near or far, after what) and, if you can, a screenshot with the
+   overlay's `pos` line; one candidate left untested is the McCarran wall imposters
+   (`McCarranWallTowerImposter`, drawn by region at any distance) standing in for the
+   towers while the troopers on them are drawn.
+
+4. **Tribal village corpses (item 28).** You were right: "If Base Health is set to 0 the
+   actor will spawn as a corpse" [documented: GECK wiki Stats Tab - NPC and Category:NPC].
+   `TCFiend01DEAD` has Base Health 0 in its own stats (its template supplies other tabs,
+   not Stats); the placed references carry no flag for it. Now a new game marks every
+   placed actor whose stats actor has Base Health 0 (NPC) or Health 0 (creature) dead,
+   without a killer, an OnDeath or a dead count: 889 in the ten masters. Drawn, they
+   show the end of a death pose and drop as ragdolls (17 ragdolls came to the ground around the village in the
+   test run), the AI leaves them alone, and E searches them. Spec note
+   `docs/spec-notes/dead-on-spawn.md`; tests `crates/fnv-game/tests/dead_on_spawn.rs`;
+   scenario `dead-on-spawn`.
+   *Guess:* creatures with Health 0 start dead too (DeadMoleRat, DeadBrahmin,
+   NightkinMeleeDEAD; the wiki speaks of NPCs only). *Not done:* the "Respawn" flag
+   (TCFiend01DEAD has it) bringing them back alive after three days, and the references'
+   `XRGD` "Ragdoll Bones" (probably the pose the designer's Havok Sim left) which would lay
+   each body exactly as authored; ours fall where they stand. *Check:* the village's bodies
+   lie on the ground, can be searched, and do not get up.
 ## Aid items: chems, food and meds (2026-10-12, workstream I "aid")
 
 Using an aid item now changes the actor values its record says (Stimpak, RadAway, Rad-X,

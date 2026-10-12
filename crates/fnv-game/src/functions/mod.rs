@@ -565,7 +565,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10BD, "SetPCSleepHours", Impl(crate::rest::set_pc_sleep_hours)),
         (0x10AF, "IsPCSleeping", Impl(crate::rest::is_pc_sleeping)),
         (0x1109, "IsTimePassing", Impl(crate::rest::is_time_passing)),
-        (0x120A, "GetIsLockBroken", Stub("lockpicking")),
+        (0x120A, "GetIsLockBroken", Impl(refs::get_is_lock_broken)),
         (0x127B, "SystemSave", Stub("saving")),
         (0x1217, "ForceSave", Stub("saving")),
         (0x11B5, "ExitGame", Stub("application")),
