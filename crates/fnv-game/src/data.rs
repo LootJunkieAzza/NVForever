@@ -891,6 +891,15 @@ pub struct CombatStyleDef {
     pub combat_radius: f32,
     /// Flag "Flee Based on Personal Survival".
     pub flee_personal_survival: bool,
+    /// Simple, cover: how far cover is looked for; the chance (0–100) to use cover for the
+    /// next 10 seconds; how long to stay behind it, to stand out of it looking for targets,
+    /// and to fire out of it once they are seen, seconds (min, max) [documented: GECK wiki
+    /// Combat Style].
+    pub cover_search_radius: f32,
+    pub take_cover_chance: f32,
+    pub wait_timer: (f32, f32),
+    pub wait_to_fire_timer: (f32, f32),
+    pub fire_timer: (f32, f32),
 }
 
 /// Everything read from one winning record.
@@ -1879,6 +1888,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 max_targeting_fov: n(simple, "max_targeting_fov", 0.0),
                 combat_radius: n(simple, "combat_radius", 0.0),
                 flee_personal_survival: has_flag(std.and_then(|v| v.get("flags")), "Flee Based on Personal Survival"),
+                cover_search_radius: n(simple, "cover_search_radius", 0.0),
+                take_cover_chance: n(simple, "take_cover_chance", 0.0),
+                wait_timer: (n(simple, "wait_timer_min", 0.0), n(simple, "wait_timer_max", 0.0)),
+                wait_to_fire_timer: (n(simple, "wait_to_fire_timer_min", 0.0), n(simple, "wait_to_fire_timer_max", 0.0)),
+                fire_timer: (n(simple, "fire_timer_min", 0.0), n(simple, "fire_timer_max", 0.0)),
             });
         }
         b"MICN" => {

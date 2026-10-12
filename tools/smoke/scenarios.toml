@@ -24,7 +24,7 @@ masters = [
 untimed = [
   "NVF_PLAY_TEST_SCRIPT_MENUS", "NVF_PLAY_TEST_GIVE", "NVF_PLAY_TEST_EQUIP", "NVF_PLAY_TEST_NEAR",
   "NVF_PLAY_TEST_MENU", "NVF_PLAY_TEST_BARTER", "NVF_PLAY_TEST_BARTER_DELAY", "NVF_PLAY_TEST_NO_SPREAD",
-  "NVF_PLAY_TEST_GOD", "NVF_PLAY_TEST_TALK_HEAD_ONLY",
+  "NVF_PLAY_TEST_GOD", "NVF_PLAY_TEST_TALK_HEAD_ONLY", "NVF_PLAY_TEST_UNSEEN",
 ]
 
 # Test aids whose value is a list of timed items (`<seconds>:<what>`), joined with sep.
@@ -482,7 +482,7 @@ args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", 
 run_seconds = 45
 expect = [
   "fights the player with WeapHuntingRifle (gun)",
-  { re = 'stops and faces .*?(?P<n>[\d,]+) units away', range = [1200, 2000], label = "stops and faces the player at about 1,600 units" },
+  { re = 'stops and faces .*?(?P<n>[\d,]+) units away', range = [1200, 2000], label = "stops and faces the player at about 1,600 units", known_failing = "claude/combat-ai-2 2026-10-12, 1 of 1 runs, by design: her combat style's Take Cover Chance (combat-ai.md §12.6) has her run to cover 900 units off instead of stopping in the open (the only 'stops and faces' line is at 2,656 units, before she fights)" },
   "shots are drawn from its weapon's muzzle",
   { re = 'attack anims summary.*2hrattack3\.kf', known_failing = "claude/playtest-combat 2026-10-12, by design: Violet stops about 1,600 units off, beyond 20 m, so every shot is aimed down the sights and plays the iron-sights clip (attack anims summary: 2hrattack3is.kf 13); the owner's playtest list items 32-33, combat-ai.md §10.6. combat-sights checks both clips" },
   { re = 'Violet hits the player for 44\.7', min = 9, max = 15, label = "a dozen 'Violet hits the player for 44.7'" },
@@ -514,7 +514,7 @@ run_seconds = 55
 expect = [
   { re = 'FiendVioletRef 0x000F570B aims down the sights, its target (?P<n>[\d,]+) units away \(beyond 1400\)', range = [1400, 3500], label = "Violet aims down the sights beyond 1,400 units" },
   { re = 'FiendVioletRef: walks on, aiming down the sights at the player|FiendVioletRef: walks at the player, .* aiming down the sights', label = "she walks while aiming" },
-  { re = 'FiendVioletRef 0x000F570B fires from the hip, its target (?P<n>[\d,]+) units away \(within 1400\)', range = [0, 1400], label = "Violet fires from the hip within 1,400 units" },
+  { re = 'FiendVioletRef 0x000F570B fires from the hip, its target (?P<n>[\d,]+) units away \(within 1400\)', range = [0, 1400], label = "Violet fires from the hip within 1,400 units", known_failing = "claude/combat-ai-2 2026-10-12, 1 of 1 runs, by design: she takes cover (combat-ai.md §12.6) and fires only from its peek point, 1,800 units from the player's first place; the cover roll is by chance, so this can pass" },
   { re = 'npc combat summary:.*?(?P<n>\d+) down the sights', range = [1, 1000], label = "shots down the sights in the npc combat summary" },
   { re = 'npc combat summary:.*?down the sights, (?P<n>\d+) from the hip', range = [1, 1000], label = "shots from the hip in the npc combat summary" },
   { re = 'attack anims summary.*2hrattack3is\.kf', label = "the iron-sights attack clip played" },
@@ -1508,4 +1508,94 @@ run_seconds = 24
 expect = [
   { re = 'crime: karma \+100 for killing .*\(Evil\), now 100', label = "karma +100 for killing Violet" },
   { re = 'crime summary: .* 0 murders', label = "no murder" },
+]
+
+# ---- Combat AI list 2 (docs/design/combat-ai.md §12) ------------------------------------
+# Six NCR troopers from near Camp McCarran are put (moveto) 600 units north of the player,
+# about 1,900 units south of Cook-Cook's Fiend camp (Cook-Cook and four Fiends); nobody
+# perceives the player (NVF_PLAY_TEST_UNSEEN), who watches from there. Three scenarios
+# read the one run (launch "ncr-fiends").
+
+[[scenario]]
+name = "battle-ncr-fiends"
+launch = "ncr-fiends"
+source = "owner's list 2 (combat AI, E2): fights between NPCs at scale, a group fight resolving (docs/design/combat-ai.md §12.7)"
+note = "observed 2026-10-12 (branch claude/combat-ai-2): 11 actors on 2 sides, resolved in about 62 s in one run, one against one still fighting at 75 s in another; who wins varies"
+areas = ["combat", "combat-groups"]
+paths = ["crates/fnv-game/src/combat_group.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/provocation.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 120
+expect = [
+  { re = 'npc combat: 0x000(F36F|FCEB|FD57|15CE)\S* 0x\S+ fights (FiendCookCookRef|0x000F9CE)', label = "the NCR troopers fight the Fiends" },
+  { re = 'npc combat: (FiendCookCookRef|0x000F9CE\S*) 0x\S+ fights 0x000(F36F|FCEB|FD57|15CE)', label = "the Fiends fight the NCR troopers" },
+  { re = 'battle: .* killed by ', min = 3, label = "three or more killed" },
+  { re = 'battle over after (?P<n>[\d.]+) s', range = [5, 120], label = "battle over: the fight is resolved" },
+  { re = 'battle summary: 2 sides, (?P<n>\d+) actors', range = [8, 14], label = "battle summary: 2 sides, about 11 actors" },
+  { re = 'takes a flank place', label = "the gunmen of a group spread round their target (flank places)" },
+  { re = 'battle summary: .*?(?P<n>\d+) fights started by a hit between actors', range = [1, 1000], label = "fights started by a hit between actors (NPC against NPC)" },
+]
+forbid = [{ re = 'the player died', label = "the player dies" }]
+
+[[scenario]]
+name = "combat-cover"
+launch = "ncr-fiends"
+source = "owner's list 2: NPCs take cover (GECK wiki Combat Style, Cover; docs/design/combat-ai.md §12.6)"
+note = "the style's Take Cover Chance is rolled every 10 s, so which fighter takes cover and how often varies (1 to 10 times in four runs of 2026-10-12)"
+areas = ["combat", "combat-groups"]
+paths = ["engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/npc_combat.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 120
+expect = [
+  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units" },
+  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover" },
+  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary" },
+]
+
+[[scenario]]
+name = "allies-alerted"
+launch = "ncr-fiends"
+source = "owner's list 2: allies alerted when one senses the enemy (GECK wiki Confidence, Alarms; docs/design/combat-ai.md §12.3)"
+areas = ["combat", "combat-groups", "alert"]
+paths = ["crates/fnv-game/src/combat_group.rs", "engine/nvforever/src/detection.rs", "engine/nvforever/src/combat_tactics.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 120
+expect = [
+  { re = 'combat group: (LvlNCR|NCRTrooper).* alarms (LvlNCR|NCRTrooper).* about ', min = 2, label = "NCR troopers alarm their comrades" },
+  { re = 'combat group: (FiendCookCookRef|LvlFiend).* alarms LvlFiend.* about ', label = "a Fiend alarms the camp" },
+]
+forbid = [{ re = 'combat group: (LvlNCR|NCRTrooper)\S* 0x\S+ alarms (FiendCookCookRef|LvlFiend)', label = "an NCR trooper alarms a Fiend" }]
+
+[[scenario]]
+name = "combat-flee"
+source = "owner's list 2: NPCs flee (GECK wiki Confidence and Combat Flee; docs/design/combat-ai.md §12.2): a cowardly bighorner shot once in its pen"
+note = "GSBigHorner: Unaggressive, Confidence 0 (Cowardly, threshold 1000): hurt, it fails its first flee check; where it flees to depends on the pen's navmesh (to cover, 2026-10-12)"
+areas = ["combat", "combat-groups"]
+paths = ["crates/fnv-game/src/combat_group.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "14:weapon,16:aimactor,16.2:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-69850,5700,8650", "--hour", "12"]
+run_seconds = 45
+expect = [
+  { re = 'npc combat: \S+ 0x\S+ flees from the player: group threat ratio [\d.]+ below its confidence 1000', label = "a cowardly creature hurt by the player flees" },
+  { re = 'ai \[.*: flees from the player (to cover|away|through door)|is cornered by the player', label = "it runs to a flee spot (or is cornered)" },
+  { re = 'reached its flee spot from the player|is cornered by the player', label = "it reaches its flee spot" },
+  { re = 'battle summary: .*?(?P<n>\d+) flights \(', range = [1, 10], label = "flights in the battle summary" },
+]
+
+[[scenario]]
+name = "group-search"
+source = "owner's list 2: a group searching spreads out, allies alerted when one senses the player (GECK wiki Combat Search; docs/design/combat-ai.md §12.3, §12.5)"
+note = "the player sneaks 3,700 units south of Cook-Cook's camp and fires once at 20 s; Cook-Cook notices the player and alarms the camp, which searches as one party, each its own sector (observed 2026-10-12: four 'has searched its share' lines)"
+areas = ["alert", "combat-groups"]
+paths = ["crates/fnv-game/src/combat_group.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "0.1:sneak,14:weapon,17:reload,19:aimnpc,20:fire" }
+args = ["--cell", "Goodsprings", "--pos=-43200,70800,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 85
+expect = [
+  { re = 'combat group: \S+ 0x\S+ alarms LvlFiend\S* 0x\S+ about the player \(noticed it\)', min = 2, label = "the camp is alarmed about the player" },
+  { re = 'LvlFiend\S+ \S+ Normal → Alert: saw an ally fight the player', min = 2, label = "the alarmed Fiends go Alert" },
+  { re = 'ai \[.*\] 0x000F9CE\S*: searches for the player', min = 2, label = "two or more Fiends search" },
+  { re = 'combat group: \S+ 0x\S+ has searched its share for the player', min = 2, label = "two or more searched their share" },
 ]

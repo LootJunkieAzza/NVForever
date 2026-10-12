@@ -128,9 +128,9 @@ StartCombat is called 938 times in the masters' scripts: quest fights now start 
 
 ## 8. Next
 
-- The larger behaviours of the gap table (§11, "next"): fleeing and avoiding, cover,
-  combat groups with their searches and alarms, teamwork, NPC-against-NPC fights,
-  blocking, dodging and power attacks of NPCs, grenades and explosives, combat barks.
+- Fleeing, cover, combat groups with their searches and alarms, teamwork and
+  NPC-against-NPC fights: built in list 2 (§12). Left: avoiding threats, blocking,
+  dodging and power attacks of NPCs, grenades and explosives, combat barks (§12.10).
 - StartCombat's group case; OnStartCombat / OnCombatEnd blocks; crimes
   (SendAssaultAlarm).
 - The original's death camera and reloading the last save.
@@ -440,3 +440,226 @@ the gaps above suggest:
 9. Weapon choice among several (Weapon Restrictions "Ranged Only"), ammunition use,
    reload clips for NPCs, the fCombatYieldRetryTime as the player's timer if the owner
    prefers the wiki's reading (§10.2).
+
+## 12. Fleeing, cover, groups and searching (list 2, "E2", 2026-10-12)
+
+The owner's list 2: "start implementing more sophisticated combat ai, i want npcs to
+fight, flee, take cover, assist allies. Create combat scenarios to observe fights
+between npcs at scale. Have them work together in order to win. As long as we hit the
+main points from geck wiki for functionality we can add more modern designs to combat.
+This can be extended to detection and cautious state an npc and its allies are in, e.g.
+spreading out to find the enemy, alerting their friends when they sense an enemy
+presence." The wiki's points come first and are tagged [documented: page]; what
+NVForever adds on top is [design]. Where it lives:
+
+| Part | Where |
+|---|---|
+| Groups, threat ratios, flee checks, alarms, NPC-against-NPC grudges, shared searches (rules, headless) | `fnv_game::combat_group` (`Awarenesses::tactics`) |
+| Fleeing, walking to posts, searching by sector (movement) | `fnv_ai::alert` |
+| Cover edges of the navmesh | `fnv_nav::NavGraph::cover_edges_near` |
+| Flee decisions, cover, flanks, line of fire (per fighter, with rays) | nvforever `npc_combat.rs`, `combat_tactics.rs` |
+| Alarms raised after each round of measurements; the test aid `NVF_PLAY_TEST_UNSEEN` | nvforever `detection.rs` |
+| Fight summary (`battle over`, `battle summary`) | nvforever `combat_tactics.rs` |
+| Test aid `moveto:` | `nvf_play::script_events::ScriptAid::MoveTo` |
+
+Only actors in the high process take part (the far-world rule of `fnv_ai::process`):
+the engine measures, fights and alarms only drawn actors near the player, and
+`fnv_ai::process` gives actors out of the loaded area no combat state.
+
+### 12.1 Posts: where the combat AI wants a fighter
+
+A **post** (`combat_group::Post`) is a place the engine's combat AI chooses for a
+fighter: behind cover, a peek out of it, a flank place, a step aside, a step back.
+`fnv_ai::alert` walks it there (running unless it aims down its sights) and has it stand
+facing its target; a post comes before closing in (§5). A post it has no way to is
+dropped (`has no way to …: closes in instead`) and the combat AI gives no post of that
+kind for 3 s (`NO_POST_SECONDS`); cover it could not reach is not chosen again [design].
+
+### 12.2 Fleeing [documented: GECK wiki Confidence, Combat Flee]
+
+- **When**: once hurt, every random 0 to fCombatThreatRatioUpdateTime (7.5 s) a fighter
+  makes a flee check: its **group threat ratio** (the sum of its group's combat
+  strengths, health × damage per second, over the sum of its foes') below its confidence
+  threshold, scaled by this fight's confidence modifier (§10.5), and, for a style with
+  "Flee Based on Personal Survival", its **personal ratio** ((its health / the foes'
+  average DPS) over (the foes' average health / its group's average DPS)) below it.
+  Frenzied actors (Aggression 3) never flee. Each fighter's strength goes to
+  `Tactics::strengths` every frame. Health does not count armour yet (the gap row stays
+  partial).
+- **Where to**: in the wiki's order, a door within fCombatFleeMaxDoorDistance (FalloutNV.esm
+  1,400) that is not nearer the attacker than the actor is; cover between
+  fCombatFleeMinCoverDistance and fCombatFleeMaxCoverDistance (1,000–2,000) from the
+  attacker (a navmesh cover edge the attacker is beyond, nearest first); else
+  fCombatFleeNormalDistance (1,400) straight away, turning up to 90° either way where the
+  navmesh ends [design: the choice among several, nearest first; the turns]. With no way
+  at all it is **cornered** and stands. It says its **Flee** line ("always plays").
+- **At the flee spot** it waits facing the attacker. Hurt there, or a target it sees
+  within fCombatFleeBoostConfidenceTargetRadius (512), its confidence rises one level for
+  the rest of the fight and it checks again: it turns to fight, or flees on to a new
+  spot. After fCombatFleeWaitTime (30 s) at the spot it checks again without a boost
+  [hypothesis: the wiki lists the setting without saying what it does]. Healing is not
+  built, so the wiki's third case does not happen.
+- It does not attack while it flees.
+- Log: `npc combat: … flees from … : group threat ratio … below its confidence …`,
+  `ai … flees from … away / to cover / through door …`, `reached its flee spot`,
+  `is cornered`, `turns to fight … again (hurt at its flee spot …)`, `flees on`.
+
+### 12.3 Alarms to allies [documented: Confidence, Alarms; design on top]
+
+After each round of measurements (`detection.rs`), an actor that **started fighting**
+(→ Combat) alarms its comrades near it, unless its group outmatches the foe: group threat
+ratio at or above (confidence threshold + 0.5) × the alarm confidence multiplier (the
+wiki's example, 3: no game setting of FalloutNV.esm names it) [documented]. An actor that
+**noticed** a hostile (Normal → Alert) alarms them too [design: the owner's "alerting
+their friends when they sense an enemy presence"]. Who hears it: the actors measured in
+that round (drawn, near the player) within `ALARM_RADIUS` (2,048 units [design]) that are
+its own kind (§12.4) or an ally or friend whose Assistance helps it; never against their
+own ally or friend. An alarmed actor gets an alarm at the foe's position (`Cause::Ally`)
+and holds a grudge (`Assist`) when its records would not attack the foe; it goes Alert,
+searches, and fights when it detects the foe. An alarm passed on by an ally is not passed
+on again. This is in addition to §10.3 (an ally that sees a fight joins it). Log:
+`combat group: A alarms B about C (noticed it | started fighting)`, `… sends no alarm …`.
+
+### 12.4 NPC against NPC [design on the wiki's Friendly Fire rules]
+
+- A hit by another actor goes to `Game::attacked_by_actor`: a victim that would not
+  attack its attacker turns on it (a grudge, its Assault line), as on the player's hit,
+  except a stray hit by its own ally or friend, or between two actors both fighting
+  someone else (the owner's exception of §10.1, for everyone). The wiki's friendly-fire
+  counts (§10.1) stay the player's.
+- **Kin**: `would_attack` keeps actors of one kind (the same base, or a faction in
+  common) from fighting each other (alert.md §3). That rule had the NCR and the Fiends at
+  peace: both are in GeneralIdleFaction, which names no reactions, and their own
+  factions do not name each other (NCRFactionNV names 23 factions, FiendsFactionNV 6,
+  neither the other: neutral both ways) [observed 2026-10-12]. Now (`Game::kin`) actors are
+  never kin when either's factions name the other's an enemy, and a faction in common that
+  names no reactions counts only when one of them has no faction that does [design]. So
+  Very Aggressive Fiends attack NCR troopers on sight, as neutrals.
+
+### 12.5 Searching together [documented: GECK wiki Combat Search; design for the split]
+
+- A hostile only **noticed** (−20 to 0) is searched for midway between the actor and it
+  [documented]; anything else (an event, a lost target, an ally's alarm) where it happened.
+- The comrades searching for the same actor's alarm are a **search party**
+  (`Game::search_party`): each takes its own sector of the circle round the search's
+  centre (index i of n: angles 360°·i/n to 360°·(i+1)/n) [design: the wiki has the group
+  split the navmesh area by what they cannot see; sectors stand in]. Three search points
+  (`SEARCH_POINTS`) make one complete search of its share [design]; the first within the
+  minimum search radius, later ones within the medium one [documented: the radii's
+  roles; FalloutNV.esm 512 and 1,024 outside, 256 and 512 inside].
+- After iCombatTargetLostRemoveSearchCount complete searches (FalloutNV.esm: 2) it drops
+  the alarm's owner, unless the hostile is still being noticed (its alarm refreshed in
+  the last second) [documented]. Log: `combat group: … has searched its share for … (n of
+  2 complete searches)`.
+
+### 12.6 Cover, flanks and the line of fire
+
+- **Cover** [documented: Combat Style, Cover]: every 10 s a fighter with a gun decides by
+  its style's Take Cover Chance whether it uses cover for the next 10 s. Using it, within
+  the style's Combat Search Radius (1,024 when 0), never more than 1,024 units from where
+  it stands (`COVER_MAX_RUN`: with the styles' radii troopers ran 2,000 units to cover in
+  the middle of a fight) [design], it looks for a navmesh cover
+  edge (§12.8) its target stands beyond, at least 400 and at most its weapon's range from
+  the target, not taken by another fighter, from whose back (40 units in) a ray from the
+  eyes to the target's chest is blocked, with a peek point 64 units past one end of the
+  edge from which the ray is clear [design: the cover search is not described]. It runs
+  there, **hides** for the style's Wait Timer (no shots), steps out to the peek point and
+  **waits to fire** for the Wait To Fire Timer, **fires** for the Fire Timer once it sees
+  its target, and hides again [documented: the three timers]. Cover whose edge no longer
+  faces the target, or out of the weapon's range, is given up. Log: `takes cover … (a peek
+  … from it)`, `leaves its cover`, `gives up its cover`.
+- **Flanks** [design: the owner's "work together in order to win"]: the gunmen of one
+  combat group fighting one target, not in cover, spread round it: each gets a place at
+  the distance it fights from, turned from the side the group comes from by 0, +35°,
+  −35°, +70° … in FormID order, looked at again every 2 s and only walked to when 192
+  units or more away. Log: `takes a flank place, 35° round …`.
+- **Line of fire** [design]: a fighter does not fire while a comrade (or the player, when
+  not its target) stands within 40 units of the line from its eyes to its target's chest;
+  it steps 128 units aside, away from them. Bystanders do not hold it back (the Fiends'
+  brahmin stand among them: with them counted, the troopers held fire 126 times in one
+  fight). Log:
+  `holds fire: … stands in its line of fire to …`.
+- Melee fighters and creatures close in as before (§5); they flee by the same rules.
+
+### 12.7 Watching fights: the test aids and the summary
+
+- `NVF_PLAY_TEST_SCRIPT=<s>:moveto:<reference>:<marker>[:x:y:z]`: the reference's
+  `MoveTo marker x y z`, `player` as the marker for the player: actors from elsewhere are
+  put where a fight can be watched (they become residents from there, actor-behaviour.md
+  §5.4).
+- `NVF_PLAY_TEST_UNSEEN=1`: nobody perceives the player (its pairs and its detection
+  events are not measured), so the player can stand by a fight [design].
+- **Fight summary** (`combat_tactics::Battle`): sides (comrades together, named by the
+  faction of each that names the most reactions), hits and kills by side, flights,
+  confidence boosts, cover taken and peeks, flank places, steps aside, shots held,
+  alarms, complete searches, fights started by a hit between actors, and the time:
+  `battle: X killed by Y`, `battle over after … s` once nobody has fought for 5 s, and
+  `battle summary` at exit.
+
+### 12.8 Cover in the navmesh
+
+NAVM's NVCA lists cover triangles; every listed triangle has a nonzero NVTR cover field
+and the field's bits are not one nibble per edge in edge order [observed: FalloutNV.esm,
+`fnvtool nav survey` "cover": 15,791 listed triangles, all nonzero; nonzero nibbles at
+bits 8–11 mostly on internal edges]. The GECK's Find Cover Edges marks edges by the height
+of what stands there [documented: GECK wiki Getting started, "Cover edges store data such
+as the height of a piece of cover"]. NVForever takes a listed triangle's outline edges
+(those leading nowhere) as **cover edges**, the cover standing beyond them
+(`NavGraph::cover_edges_near`, `CoverEdge`) [hypothesis]; the height in the field is not
+read, so cover is confirmed with a ray (§12.6).
+
+### 12.9 Checks
+
+Unit tests: `fnv-nav` (`cover_edges_are_the_outline_of_listed_triangles_facing_out`),
+`fnv-game` (`combat_group` ratios and alarm confidence; factions.rs
+`an_actor_hit_by_another_fights_it_but_not_an_ally`,
+`an_actor_that_starts_fighting_alarms_its_allies_near_it`,
+`a_search_party_shares_the_search_and_gives_up_after_its_searches`,
+`a_shared_faction_does_not_make_enemies_kin`), `fnv-ai` (carry.rs
+`a_fleeing_actor_runs_away_and_stays_at_its_spot`, `a_fleeing_actor_takes_a_door_near_it`,
+`a_fighter_goes_to_its_post_and_faces_its_target`, `a_search_party_splits_the_circle`;
+the search test now looks midway), nvforever (`combat_tactics` flank places, line of fire,
+peek points).
+
+Smoke scenarios (`tools/smoke/scenarios.toml`), observed on this branch 2026-10-12:
+
+- `battle-ncr-fiends`, `combat-cover`, `allies-alerted` (one run): six NCR troopers put
+  1,900 units south of Cook-Cook's camp, the player unseen. The troopers notice the camp
+  and alarm each other (`combat group: LvlNCRTrooper 0x0015CE0A alarms LvlNCRTrooperGun …
+  (noticed it)`), Cook-Cook alarms his four Fiends when he starts fighting, the Fiends
+  attack the troopers on sight as neutrals (§12.4). One run: `battle summary: 2 sides, 11
+  actors; FiendsFactionNV (5): 3 standing, 2 dead, 61 hits, 6 kills; NCRFactionNV (6): 0
+  standing, 6 dead, 33 hits, 2 kills; … 2 cover taken; 60 flank posts …; 9 alarms, 9 not
+  sent; 5 fights started by a hit between actors; first fighter at 6.7 s, resolved in
+  62.5 s`. Who wins varies.
+- `combat-flee`: a Goodsprings bighorner (Cowardly) shot once: `flees from the player:
+  group threat ratio 0.230 below its confidence 1000.0000`, `flees from the player to cover
+  … 1476 units from it`, `reached its flee spot … after 8.5s`; a settler that saw it
+  joined the fight against the player (§10.3).
+- `group-search`: the player sneaks 3,700 units south of the camp and fires once;
+  Cook-Cook notices the player and alarms the four Fiends, which go Alert (`saw an ally
+  fight the player`), search each in their own sector and log `has searched its share for
+  the player (1 of 2 complete searches)` (four lines in one run).
+
+### 12.10 The gap table, updated
+
+| Page | Documented behaviour | Status now |
+|---|---|---|
+| StartCombat | Target in combat: the attacker targets its combat group | missing (groups exist now; StartCombat still names one target) |
+| Confidence | Group threat ratio; the personal survival check | have (§12.2) |
+| Confidence | Alarms by Alarm Confidence | have (§12.3) |
+| Confidence | Frenzied actors never flee | have (§12.2) |
+| Confidence | Health counts armour | partial (not counted) |
+| Combat Flee | Door, cover or run away; at the flee spot wait, more confident when hurt or cornered | have (§12.2); healing not built |
+| Combat Style | Flee Based on Personal Survival | have (§12.2) |
+| Combat Style | Cover: search radius, take-cover chance, wait / wait-to-fire / fire timers | have (§12.6) |
+| Combat Search | The combat group's searches; iCombatTargetLostRemoveSearchCount | have, by sectors (§12.5); fCombatSearchTargetHiddenRemoveTime/MaxTime: alert.md §2's timers stand in |
+| Combat Search | Almost detected: the search centres midway | have (§12.5) |
+| Combat Package Flags | Continue During Combat: "using cover along the way" | partial: no cover on the way |
+| Combat Tab | Flee line | have (§12.2); the other combat barks: missing |
+
+Left for later: grenades and threats, blocking, dodging and power attacks, combat barks
+other than Flee, Combat Radius and Max Targeting FOV, Follow and Guard radii in combat,
+Pretend In Combat, weapon choice and ammunition, armour in the threat ratio, healing in
+combat, crouching behind low cover (NPCs do not sneak), cover on a Continue During Combat
+travel, the navmesh cover field's heights.
