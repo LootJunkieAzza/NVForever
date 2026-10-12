@@ -14,6 +14,7 @@ mod actor_tri;
 mod actor_detect;
 mod actor_factions;
 mod actor_values;
+mod actor_aid;
 mod actor_chargen;
 mod actor_weapons;
 mod actor_cmd;
@@ -137,6 +138,31 @@ pub enum ActorCmd {
         actor: Vec<String>,
         #[arg(long)]
         survey: bool,
+    },
+    /// Aid items (docs/spec-notes/aid-items.md §8): every ingestible (ALCH) with its
+    /// flags, addiction data and decoded effects, counts over them, and with --use what
+    /// using items does to the player in the authored game (fnv.actor.aid/1).
+    Aid {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Script function catalogue (default: `script/functions.json` next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// List only these items (Editor ID or FormID; repeatable).
+        #[arg(long)]
+        item: Vec<String>,
+        /// Use these items on the player, in order (repeatable).
+        #[arg(long = "use")]
+        uses: Vec<String>,
+        /// Damage before the uses, `<actor value>:<amount>` (repeatable).
+        #[arg(long)]
+        damage: Vec<String>,
+        /// Seconds of play after the uses.
+        #[arg(long, default_value_t = 10.0)]
+        seconds: f64,
+        /// Hardcore mode on.
+        #[arg(long)]
+        hardcore: bool,
     },
     /// Character creation (docs/spec-notes/chargen.md §6): the name offered, the
     /// S.P.E.C.I.A.L. sheet, the tag-skill list with values and the traits with their

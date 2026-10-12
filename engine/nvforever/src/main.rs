@@ -27,6 +27,7 @@ mod facegen;
 mod flashlight;
 mod fly;
 mod furniture;
+mod graphics;
 mod grass;
 mod head_look;
 mod idles;
@@ -45,6 +46,7 @@ mod nav;
 mod object_anims;
 mod pipboy_arm;
 mod player_body;
+mod post;
 mod particles;
 mod shot_fx;
 mod ragdoll;
@@ -55,6 +57,7 @@ mod settings;
 mod imagespace;
 mod imposters;
 mod sky;
+mod ssao;
 mod speech_look;
 mod terrain;
 mod tree;
@@ -261,6 +264,18 @@ struct Args {
     /// Do not draw the text overlay (implied by --frame-json).
     #[arg(long)]
     no_overlay: bool,
+    /// The look: `vanilla` (the picture the parity and picture checks compare) or
+    /// `enhanced` (ambient occlusion, finer and longer sun shadows, bloom, sharpening,
+    /// 16x anisotropic filtering; each also on the settings page;
+    /// docs/design/graphics-enhanced.md). Default: vanilla (`graphics::PLAY_DEFAULT`); test
+    /// runs (--screenshot, --timelapse, --frame-json, --run-seconds) always default to it.
+    #[arg(long, value_enum)]
+    graphics: Option<graphics::Preset>,
+    /// Instead of --graphics: exactly these improvements on, by the settings page's keys
+    /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic), for comparing them
+    /// one at a time.
+    #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
+    graphics_only: Option<Vec<String>>,
     /// Play: the camera is the player, walking with collision, activating with E
     /// (Layer 4, nvf-play) instead of the free-fly camera.
     #[arg(long)]
@@ -696,6 +711,13 @@ fn main() -> AppExit {
             Err(e) => return fail(e),
         }
     };
+    let graphics = match &args.graphics_only {
+        Some(keys) => match graphics::Graphics::only(keys) {
+            Ok(g) => g,
+            Err(e) => return fail(e),
+        },
+        None => graphics::Graphics::preset(graphics_preset(&args)),
+    };
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -703,6 +725,7 @@ fn main() -> AppExit {
                 default_sampler: ImageSamplerDescriptor {
                     address_mode_u: ImageAddressMode::Repeat,
                     address_mode_v: ImageAddressMode::Repeat,
+                    anisotropy_clamp: if graphics.anisotropic { 16 } else { 1 },
                     ..ImageSamplerDescriptor::linear()
                 },
             })
@@ -719,7 +742,7 @@ fn main() -> AppExit {
             }),
     )
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
-    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin))
+    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics)))
     .add_plugins(grass::GrassPlugin(grass::GrassConfig {
         enabled: !args.no_grass,
         fade_start: args.grass_distance.max(0.0),
@@ -958,6 +981,13 @@ fn main() -> AppExit {
         settings::register(&mut app);
     }
     app.run()
+}
+
+/// `--graphics`, or its default: vanilla for the test runs, whose pictures, timings and
+/// expectations were made with it, the play default otherwise (graphics.rs).
+fn graphics_preset(args: &Args) -> graphics::Preset {
+    let test_run = args.screenshot.is_some() || args.timelapse.is_some() || args.frame_json.is_some() || args.run_seconds.is_some();
+    args.graphics.unwrap_or(if test_run { graphics::Preset::Vanilla } else { graphics::PLAY_DEFAULT })
 }
 
 #[derive(Resource)]

@@ -27,12 +27,13 @@ An actor value is a base value and three pools added to it [documented: ActorVal
 |---|---|---|
 | Base | the record or a formula (§2 to §5); `SetActorValue` puts a number in its place | `GetBaseActorValue` |
 | Permanent modifier | `ModActorValue`; `ForceActorValue` moves it so the current value is the number asked for; skill books; for the player, abilities without conditions | `GetPermanentActorValue` = base + this |
-| Temporary modifier | active effects and worn enchantments ("Value Modifier" effects with Recover) | — |
+| Temporary modifier | active effects and worn enchantments ("Value Modifier" effects with Recover) | `GetActorValue` (aid-items.md §3) |
 | Damage | `DamageActorValue`, `RestoreActorValue` (never past zero); combat's health and limb damage; effects without Recover | `GetActorValue` = base + both modifiers − damage |
 
-- NVForever keeps the base override, the permanent modifier and the damage. Nothing
-  applies effects to actor values yet, so there is no temporary modifier (and the
-  abilities in an actor's SPLO list change nothing).
+- NVForever keeps the base override, the permanent modifier, the temporary modifier and
+  the damage. Active effects (aid items, spells cast or added) feed the temporary pool and
+  the damage as aid-items.md §3 says; worn enchantments do not yet (the Pip-Boy adds them
+  itself), and the abilities in an actor's SPLO list are not applied.
 - `SetActorValue` replaces the base only: a modifier and damage stay on top of the new
   number [documented: ActorValue, "the game uses this base value as a starting point …
   it then adds three pools"].

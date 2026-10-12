@@ -1,0 +1,139 @@
+// Screen-space ambient occlusion from the depth prepass (ssao.rs; enhanced graphics,
+// docs/design/graphics-enhanced.md §3.1). Entry `occlusion` writes how open each pixel is
+// (1 open, 0 closed) into a texture of its own; entry `apply` blurs that over the 4 x 4
+// pixels its sample pattern repeats over, keeping to pixels at about the same depth, and
+// multiplies the picture by it. An engineering choice, not the original game's.
+
+#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+
+struct Ao {
+    // x: radius (game units), y: strength, z: the projection's near plane, w: the
+    // distance (game units) beyond which the effect has faded out.
+    params: vec4<f32>,
+    // x, y: the projection's x and y scale (clip_from_view[0][0], [1][1]); z: the
+    // largest radius on the screen (pixels); w: the distance where the fade starts.
+    proj: vec4<f32>,
+}
+
+#ifdef MULTISAMPLED
+@group(0) @binding(0) var depth: texture_depth_multisampled_2d;
+#else
+@group(0) @binding(0) var depth: texture_depth_2d;
+#endif
+@group(0) @binding(1) var<uniform> ao: Ao;
+// `apply` only.
+@group(0) @binding(2) var screen: texture_2d<f32>;
+@group(0) @binding(3) var screen_sampler: sampler;
+@group(0) @binding(4) var openness: texture_2d<f32>;
+
+const SAMPLES: i32 = 12;
+// Turns of the sample spiral.
+const TURNS: f32 = 3.0;
+// Below this cosine between the normal and a sample a surface does not occlude itself.
+const BIAS: f32 = 0.12;
+const TAU: f32 = 6.2831853;
+
+fn dims() -> vec2<i32> {
+    return vec2<i32>(textureDimensions(depth));
+}
+
+// The depth prepass's value at a pixel (reverse z: 0 is the far plane, the sky).
+fn depth_at(p: vec2<i32>) -> f32 {
+    return textureLoad(depth, clamp(p, vec2(0), dims() - 1), 0);
+}
+
+// The view-space position of pixel `p` at depth value `d` (reverse infinite z:
+// distance = near / d), looking down −z.
+fn view_pos(p: vec2<f32>, d: f32) -> vec3<f32> {
+    let size = vec2<f32>(dims());
+    let ndc = vec2(p.x / size.x * 2.0 - 1.0, 1.0 - p.y / size.y * 2.0);
+    let z = ao.params.z / max(d, 1e-7);
+    return vec3(ndc.x * z / ao.proj.x, ndc.y * z / ao.proj.y, -z);
+}
+
+// The 4 x 4 ordered pattern that turns each pixel's spiral (0..1).
+fn pattern(p: vec2<i32>) -> f32 {
+    var b = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+    let i = (p.y & 3) * 4 + (p.x & 3);
+    return (b[i] + 0.5) / 16.0;
+}
+
+@fragment
+fn occlusion(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    let px = vec2<i32>(floor(in.position.xy));
+    let d = depth_at(px);
+    if d <= 0.0 {
+        return vec4(1.0);
+    }
+    let c = vec2<f32>(px) + 0.5;
+    let p = view_pos(c, d);
+    let dist = -p.z;
+    let fade = 1.0 - smoothstep(ao.proj.w, ao.params.w, dist);
+    if fade <= 0.0 {
+        return vec4(1.0);
+    }
+    // The normal from the neighbours on the side with the smaller step in depth, so an
+    // edge does not bend it.
+    let l = view_pos(c - vec2(1.0, 0.0), depth_at(px - vec2(1, 0)));
+    let r = view_pos(c + vec2(1.0, 0.0), depth_at(px + vec2(1, 0)));
+    let u = view_pos(c - vec2(0.0, 1.0), depth_at(px - vec2(0, 1)));
+    let b = view_pos(c + vec2(0.0, 1.0), depth_at(px + vec2(0, 1)));
+    let dx = select(p - l, r - p, abs(r.z - p.z) < abs(p.z - l.z));
+    let dy = select(p - u, b - p, abs(b.z - p.z) < abs(p.z - u.z));
+    var n = normalize(cross(dx, dy));
+    if dot(n, -p) < 0.0 {
+        n = -n;
+    }
+    let radius = ao.params.x;
+    let size = vec2<f32>(dims());
+    let on_screen = min(radius * ao.proj.y * 0.5 * size.y / dist, ao.proj.z);
+    if on_screen < 1.0 {
+        return vec4(1.0);
+    }
+    let turn = pattern(px) * TAU;
+    var sum = 0.0;
+    for (var i = 0; i < SAMPLES; i++) {
+        let a = (f32(i) + 0.5) / f32(SAMPLES);
+        let angle = a * TURNS * TAU + turn;
+        let q = c + vec2(cos(angle), sin(angle)) * a * on_screen;
+        let qd = depth_at(vec2<i32>(floor(q)));
+        if qd <= 0.0 {
+            continue;
+        }
+        let v = view_pos(floor(q) + 0.5, qd) - p;
+        let vv = dot(v, v);
+        let cosine = dot(v, n) * inverseSqrt(max(vv, 1e-4));
+        // Nothing from beyond the radius, full weight within half of it.
+        let range = 1.0 - smoothstep(0.25, 1.0, vv / (radius * radius));
+        sum += max(cosine - BIAS, 0.0) * range;
+    }
+    let open = clamp(1.0 - ao.params.y * sum / f32(SAMPLES) * 2.0, 0.0, 1.0);
+    return vec4(mix(1.0, open, fade));
+}
+
+@fragment
+fn apply(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
+    let src = textureSample(screen, screen_sampler, in.uv);
+    let px = vec2<i32>(floor(in.position.xy));
+    let d = depth_at(px);
+    if d <= 0.0 {
+        return src;
+    }
+    let z = ao.params.z / d;
+    let size = vec2<i32>(textureDimensions(openness));
+    var total = 0.0;
+    var weight = 0.0;
+    for (var y = -2; y < 2; y++) {
+        for (var x = -2; x < 2; x++) {
+            let q = clamp(px + vec2(x, y), vec2(0), size - 1);
+            let qd = depth_at(q);
+            let qz = ao.params.z / max(qd, 1e-7);
+            // Only pixels within a few per cent of this one's distance.
+            let w = max(1.0 - abs(qz - z) / (0.05 * z + 1.0), 0.0);
+            total += textureLoad(openness, q, 0).r * w;
+            weight += w;
+        }
+    }
+    let open = select(1.0, total / weight, weight > 0.0);
+    return vec4(src.rgb * open, src.a);
+}

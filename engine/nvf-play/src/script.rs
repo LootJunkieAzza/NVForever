@@ -207,6 +207,16 @@ pub struct ScriptState {
     /// `walk:` test aids due: where to put the player's feet.
     walks: Vec<(String, [f32; 3])>,
     new_game: bool,
+    /// Aid items the player used that the runtime has not taken yet (used before the
+    /// scripts were ready, or under a loading screen or the pause menu).
+    used: Vec<FormId>,
+}
+
+impl ScriptState {
+    /// The scripts are being loaded: not running yet, and not switched off.
+    pub fn loading(&self) -> bool {
+        self.rt.is_none() && self.off.is_none()
+    }
 }
 
 /// The running game and what the engine side remembers between frames.
@@ -237,6 +247,8 @@ pub struct Runtime {
     children: HashMap<FormId, Vec<FormId>>,
     started: Instant,
     pub stats: TickStats,
+    /// What the player's aid items did (`crate::aid`).
+    pub aid: crate::aid::AidStats,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -285,7 +297,7 @@ impl ScriptState {
             }
         });
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids, gates: HashMap::new(), auto_close, on_screen: None, walks: Vec::new(), new_game }
+        ScriptState { loader, rt: None, off, trace, aids, gates: HashMap::new(), auto_close, on_screen: None, walks: Vec::new(), new_game, used: Vec::new() }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -423,6 +435,7 @@ impl Runtime {
             children,
             started: Instant::now(),
             stats: TickStats::default(),
+            aid: crate::aid::AidStats::default(),
         };
         with_world(&mut rt, sim, |rt| {
             rt.game.new_game();
@@ -770,6 +783,13 @@ impl Runtime {
                     return Err(format!("{} does not play {}", g.data.name(r), g.data.name(idle)));
                 }
             }
+            ScriptAid::Damage(r, value, amount) => {
+                let r = resolve(g, r)?;
+                let code = fnv_game::functions::av_code(g, value)?;
+                fnv_game::functions::add_actor_value_damage(g, r, code, *amount);
+                let now = fnv_game::functions::actor_value(g, r, code)?;
+                info!("test aid: {} {value} damaged by {amount}: now {now:.1}", g.data.name(r));
+            }
             ScriptAid::Walk(_) => unreachable!("handled by the caller"),
             ScriptAid::Var(of, var, value) => {
                 let f = resolve(g, of)?;
@@ -932,7 +952,7 @@ impl Plugin for ScriptPlugin {
         app.insert_resource(ScriptState::new(d, refs, new_game, unattended))
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
             .add_systems(Update, (crate::script_hud::menu_keys, run_scripts, sync_locks, walk_player, hold_player).chain().in_set(PlaySet::Scripts))
-            .add_systems(Last, write_final);
+            .add_systems(Last, (crate::aid::report, write_final));
     }
 }
 
@@ -988,9 +1008,10 @@ pub(crate) fn run_scripts(
     paused: Res<crate::pause::Paused>,
     loading: Res<crate::loading::Loading>,
 ) {
-    // Items the player used up in the inventory menu (the menu already removed them).
-    let used: Vec<FormId> = used.read().map(|u| FormId(u.item)).collect();
+    // Items the player used up in the inventory menu (the menu already removed them),
+    // kept until the runtime runs.
     let st = &mut *script;
+    st.used.extend(used.read().map(|u| FormId(u.item)));
     if st.rt.is_none() {
         let Some(rx) = st.loader.as_ref() else { return };
         let got = rx.lock().ok().and_then(|r| r.try_recv().ok());
@@ -1029,6 +1050,7 @@ pub(crate) fn run_scripts(
     // The aids' clock, which goes on while a menu holds the picture (`crate::pause`).
     let now = time.elapsed_secs();
     let mut due = due_aids(st, now);
+    let used = std::mem::take(&mut st.used);
     // A script's menu or box left open by an unattended run: answered with OK / Done.
     let on_screen = st.rt.as_ref().and_then(|rt| {
         let m = rt.game.menu.filter(|&m| is_script_menu(m))?;
@@ -1067,9 +1089,10 @@ pub(crate) fn run_scripts(
     let mut walks = Vec::new();
     with_world(rt, &mut sim, |rt| {
         rt.observe_inventory();
+        let aid_from = rt.game.events.len();
         for &item in &used {
-            let started = rt.game.apply_magic_item(FormId::PLAYER_REF, item, Some(FormId::PLAYER_REF), false);
-            info!("script: the player used {item}: {} effect(s) started", started.len());
+            let r = crate::aid::use_item(rt, item);
+            info!("script: the player used {item}: {} effect(s) started", r.effects.len());
         }
         rt.follow_player();
         if std::mem::take(&mut rt.opening_pending) {
@@ -1102,6 +1125,7 @@ pub(crate) fn run_scripts(
         rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
         rt.game.tick();
+        crate::aid::after_tick(rt, aid_from);
         // A script's `Activate player` on an actor: the player talks to it.
         rt.talk_after(from);
         rt.finish_answer();
