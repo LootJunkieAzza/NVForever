@@ -821,6 +821,7 @@ impl Core {
                 | AiEvent::Search { .. }
                 | AiEvent::Hold { .. }
                 | AiEvent::Close { .. }
+                | AiEvent::Pace { .. }
                 | AiEvent::SearchOver { .. }
                 | AiEvent::SearchBack { .. } => info!("{line}"),
                 _ => debug!("{line}"),
@@ -960,6 +961,11 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             if *aiming { "walks" } else { "runs" },
             if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) },
             if *aiming { ", aiming down the sights" } else { "" }
+        ),
+        AiEvent::Pace { target, aiming } => format!(
+            "{} {}",
+            if *aiming { "walks on, aiming down the sights at" } else { "runs on, sights lowered, at" },
+            if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) }
         ),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),

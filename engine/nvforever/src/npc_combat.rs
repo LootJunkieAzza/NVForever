@@ -353,7 +353,13 @@ fn fight(
             let me = FormId(id);
             let Some(&(feet, eyes, scale)) = places.get(&id) else { continue };
             let Some(aw) = g.awareness.get(me).filter(|a| a.state == State::Combat) else { continue };
-            let Some((target, _)) = aw.combat_target() else { continue };
+            // The target it detects; just after losing sight of it (still in Combat, not
+            // yet Lost), the one detected last, so it keeps its distance to close in
+            // (`fnv_ai::alert`) instead of standing where it cannot see [design: the
+            // fiends at Cook-Cook's camp stood still behind a rise and went Lost and back
+            // every few seconds].
+            let latest = || aw.targets.iter().filter(|(_, t)| t.detected.is_some()).max_by(|x, y| x.1.detected.unwrap_or(0.0).total_cmp(&y.1.detected.unwrap_or(0.0))).map(|(id, t)| (*id, t));
+            let Some((target, _)) = aw.combat_target().or_else(latest) else { continue };
             let Some(&(tfeet, teyes, _)) = places.get(&target.0) else { continue };
             still.push(id);
             // What it fights with; its combat style may keep it to melee.

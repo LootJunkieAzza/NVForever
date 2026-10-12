@@ -130,8 +130,12 @@ impl Ai {
             let aiming = game.awareness.aiming.contains(&actor);
             let (walk, run) = (self.cfg.walk_speed, self.cfg.run_speed);
             let a = self.agents.get_mut(&actor).expect("listed");
-            if matches!(a.search, Some(Search::Closing { .. })) {
-                a.walker.speed = if aiming { walk } else { run };
+            if let Some(Search::Closing { target, .. }) = a.search {
+                let speed = if aiming { walk } else { run };
+                if a.walker.speed != speed {
+                    a.walker.speed = speed;
+                    self.log(game, actor, AiEvent::Pace { target, aiming });
+                }
             }
             if self.agents[&actor].activity != Activity::Travelling {
                 self.face(game, actor, Place { space, pos: at }, dt);
