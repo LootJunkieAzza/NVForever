@@ -11,12 +11,22 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use fnv_dds::{to_rgba8, Dds, Format};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU16, Ordering};
 
 /// Loaded textures by (VFS path, sRGB); `None` remembers a failure.
 #[derive(Resource, Default)]
 pub struct TextureCache {
     map: HashMap<(String, bool), Option<Handle<Image>>>,
     pub failures: Vec<String>,
+}
+
+/// Anisotropic filtering of the game's textures made from now on (8 unless the
+/// renderer's graphics settings say otherwise: nvforever `graphics.rs`).
+static ANISOTROPY: AtomicU16 = AtomicU16::new(8);
+
+/// Set the anisotropic filtering (1, 2, 4, 8 or 16) of textures made from now on.
+pub fn set_anisotropy(clamp: u16) {
+    ANISOTROPY.store(clamp.clamp(1, 16), Ordering::Relaxed);
 }
 
 pub fn sampler() -> ImageSampler {
@@ -26,7 +36,7 @@ pub fn sampler() -> ImageSampler {
         mag_filter: ImageFilterMode::Linear,
         min_filter: ImageFilterMode::Linear,
         mipmap_filter: ImageFilterMode::Linear,
-        anisotropy_clamp: 8,
+        anisotropy_clamp: ANISOTROPY.load(Ordering::Relaxed),
         ..ImageSamplerDescriptor::linear()
     })
 }

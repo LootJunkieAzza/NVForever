@@ -158,6 +158,25 @@ order = [[
   { re = 'image space modifiers on the screen: none$' },
 ]]
 
+[[scenario]]
+name = "graphics-enhanced"
+source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, and its switches change while the game runs"
+areas = ["renderer", "graphics"]
+paths = [
+  "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao*", "engine/nvforever/src/post*",
+  "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--graphics", "enhanced"]
+run_seconds = 22
+order = [[
+  "graphics: ambient occlusion, finer, longer shadows, bloom, sharpening, 16x anisotropic filtering",
+  { re = 'graphics: finer, longer shadows, bloom, sharpening, 16x anisotropic filtering$' },
+  { re = 'graphics: finer, longer shadows, sharpening, 16x anisotropic filtering$' },
+  { re = 'graphics: sharpening, 16x anisotropic filtering$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering$' },
+]]
+
 # ------------------------------------------------------------------ navmesh and AI
 
 [[scenario]]

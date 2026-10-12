@@ -211,6 +211,9 @@ const ROW_CHOSEN: Color = Color::srgba(0.26, 0.36, 0.24, 0.95);
 const ON: Color = Color::srgb(0.55, 1.0, 0.45);
 /// Width of the settings page's rows.
 const SETTINGS_WIDTH: f32 = 540.0;
+/// Up to this many switches the settings page has one column, beyond it two of this width.
+const ONE_COLUMN_ROWS: usize = 14;
+const COLUMN_WIDTH: f32 = 470.0;
 
 /// The settings page's group of switches about conversations and menus.
 pub const GROUP_MENUS: &str = "Dialogue and menus";
@@ -307,22 +310,37 @@ fn spawn_page(commands: &mut Commands, page: Page, settings: &Settings) {
 /// chosen row, the note.
 fn settings_page(p: &mut ChildSpawnerCommands, settings: &Settings, selected: usize) {
     p.spawn((Text::new("Settings"), font(26.0), TextColor(TITLE)));
-    let list = Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), width: Val::Px(SETTINGS_WIDTH), ..default() };
-    p.spawn(list).with_children(|rows| {
-        let mut group = "";
-        for (i, s) in settings.list().iter().enumerate() {
-            if s.group != group {
-                group = s.group;
-                rows.spawn((Node { margin: UiRect::top(Val::Px(6.0)), ..default() }, children![(Text::new(group), font(14.0), TextColor(TITLE))]));
+    let list = settings.list();
+    // A long list goes into two columns, split between groups near its middle.
+    let split = if list.len() > ONE_COLUMN_ROWS {
+        (1..list.len()).filter(|&i| list[i].group != list[i - 1].group).min_by_key(|&i| i.abs_diff(list.len() / 2)).unwrap_or(list.len())
+    } else {
+        list.len()
+    };
+    let width = if split < list.len() { COLUMN_WIDTH } else { SETTINGS_WIDTH };
+    p.spawn(Node { column_gap: Val::Px(20.0), align_items: AlignItems::FlexStart, ..default() }).with_children(|columns| {
+        for range in [0..split, split..list.len()] {
+            if range.is_empty() {
+                continue;
             }
-            let row = Node { justify_content: JustifyContent::SpaceBetween, column_gap: Val::Px(16.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() };
-            rows.spawn((Button, PauseButton::Switch(i), row, BackgroundColor(if i == selected { ROW_CHOSEN } else { ROW }))).with_children(|r| {
-                r.spawn((Text::new(s.label), font(16.0), TextColor(TEXT)));
-                r.spawn((SwitchState(i), Text::new(""), font(16.0), TextColor(DIM)));
+            let column = Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), width: Val::Px(width), ..default() };
+            columns.spawn(column).with_children(|rows| {
+                let mut group = "";
+                for (i, s) in list.iter().enumerate().skip(range.start).take(range.len()) {
+                    if s.group != group {
+                        group = s.group;
+                        rows.spawn((Node { margin: UiRect::top(Val::Px(6.0)), ..default() }, children![(Text::new(group), font(14.0), TextColor(TITLE))]));
+                    }
+                    let row = Node { justify_content: JustifyContent::SpaceBetween, column_gap: Val::Px(16.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() };
+                    rows.spawn((Button, PauseButton::Switch(i), row, BackgroundColor(if i == selected { ROW_CHOSEN } else { ROW }))).with_children(|r| {
+                        r.spawn((Text::new(s.label), font(16.0), TextColor(TEXT)));
+                        r.spawn((SwitchState(i), Text::new(""), font(16.0), TextColor(DIM)));
+                    });
+                }
             });
         }
-        if settings.list().is_empty() {
-            rows.spawn((Text::new("Nothing to switch."), font(16.0), TextColor(DIM)));
+        if list.is_empty() {
+            columns.spawn((Node { width: Val::Px(SETTINGS_WIDTH), ..default() }, children![(Text::new("Nothing to switch."), font(16.0), TextColor(DIM))]));
         }
     });
     // Four lines high whatever the note, so the panel keeps its size from row to row.
