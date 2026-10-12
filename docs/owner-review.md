@@ -3266,6 +3266,16 @@ workstream), alert.md §5 and §8. List 1 items 20, 30, 32, 33 and 34.
    it closes in halving the gap each time it plans its way. *Check:* stand south of the
    camp: the fiends should come at you without stopping and starting.
 
+8. **Two older smoke expectations changed by these rules** (marked known failing, not
+   changed; please confirm and they can be rewritten): `combat-violet` expected the hip
+   attack clip `2hrattack3.kf`, but Violet now fires from 1,600 units, beyond 20 m, so
+   every shot is aimed down the sights (`2hrattack3is.kf`); `combat-dogs` expected about
+   20 bites in 30 s, now 11–12 (main: 17), because the combat style's melee decision has
+   a dog attack at 55 % each time it may and wait out its Hold Timer otherwise.
+   *Decision:* keep the wiki's rule. *Check:* do Violet's dogs bite often enough?
+   Also seen: `detection-game` (the sneaking check of detection.md §5) fails on main
+   980f0c35 the same way; marked known failing, not looked into (not combat).
+
 Tests: fnv-ai, fnv-game, fnv-combat unit tests (new: three provocation/yield/assistance
 tests on a synthetic plugin, the blind close-in test, the sights rule); smoke scenarios
 `combat-sights` and `provoked-yield` added, `cook-cook-camp` now also forbids the flicker
