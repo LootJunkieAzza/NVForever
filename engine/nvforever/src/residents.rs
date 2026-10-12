@@ -1062,7 +1062,11 @@ pub fn drive(
     // there is no menu and no such message).
     let waited = hours.map_or(0, |mut h| h.read().count() as u32);
     let Ok(root) = root.single() else { return };
-    let dt = time.delta_secs().min(0.1);
+    // The frame's time, at most a whole frame of the virtual clock (as physics,
+    // `nvf_play::phys::play_params`). It was capped at 0.1 s: below 10 frames a second the
+    // actors walked and turned slower than the game's clock passed (Goodsprings at 6
+    // frames a second: the settler of detection.md §5 came into view after the shot).
+    let dt = time.delta_secs().min(nvf_play::phys::MAX_FRAME_SECONDS);
     let now = time.elapsed_secs();
     let res = &mut *res;
     // Start once the world around the camera has loaded (the actors can be seen).

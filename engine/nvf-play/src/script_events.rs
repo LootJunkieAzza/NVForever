@@ -577,6 +577,25 @@ pub struct TimedAid {
     pub aid: ScriptAid,
 }
 
+/// The scripts first run at `now` seconds (the aids' clock). When that is after the first
+/// timed step's time (the script data took long to load on a busy machine), every timed
+/// step is moved later by the difference: the first runs now and each keeps its distance
+/// from the others, instead of all the overdue ones running in this one frame [design;
+/// a check that shows an objective at 3 s and completes it at 9 s otherwise sees both in
+/// one frame]. Steps after a quest stage count from the stage and are left alone.
+/// Returns the seconds moved, if any.
+pub fn delay_late_aids(aids: &mut [TimedAid], now: f32) -> Option<f32> {
+    let first = aids.iter().filter(|a| a.after.is_none()).map(|a| a.at).reduce(f32::min)?;
+    let late = now - first;
+    if late <= 0.0 {
+        return None;
+    }
+    for a in aids.iter_mut().filter(|a| a.after.is_none()) {
+        a.at += late;
+    }
+    Some(late)
+}
+
 /// Parse `<when>:<op>[:<args>]` items separated by commas; `<when>` is `<seconds>` or
 /// `<seconds>@<quest>=<stage>`. Names are Editor IDs, hex FormIDs, `player` or the
 /// runner's `scripted:<SCPT>` / `placed:<base>`, resolved when the step runs.
@@ -989,5 +1008,23 @@ mod tests {
         assert!(parse_aids("x:start:VCG00").is_err());
         assert!(parse_aids("3@VCG01:close").is_err());
         assert!(parse_aids("3@VCG01=x:close").is_err());
+    }
+
+    #[test]
+    fn late_scripts_keep_the_steps_apart() {
+        let at = |a: &[TimedAid]| a.iter().map(|x| x.at).collect::<Vec<_>>();
+        // The quest lines' check on a busy machine: the scripts first run at 17 s.
+        let mut a = parse_aids("3:objective:VCG02:3,9:objective_done:VCG02:3,9.1:objective:VCG02:5,2@VCG02=10:close").unwrap();
+        assert_eq!(delay_late_aids(&mut a, 17.0), Some(14.0));
+        for (got, want) in at(&a).into_iter().zip([17.0, 23.0, 23.1, 2.0]) {
+            assert!((got - want).abs() < 1e-4, "{got} {want}");
+        }
+        // In time: nothing moves.
+        let mut b = parse_aids("3:start:VCG02,9:close").unwrap();
+        assert_eq!(delay_late_aids(&mut b, 1.5), None);
+        assert_eq!(at(&b), vec![3.0, 9.0]);
+        // Only steps after a stage: nothing to move.
+        let mut c = parse_aids("1@VCG02=10:close").unwrap();
+        assert_eq!(delay_late_aids(&mut c, 30.0), None);
     }
 }
