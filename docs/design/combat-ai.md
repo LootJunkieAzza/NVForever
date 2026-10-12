@@ -122,6 +122,10 @@ StartCombat is called 938 times in the masters' scripts: quest fights now start 
   (36, 62), run up and stop about 60–70 units off (bodies just apart), about 20 blows,
   4 run/stop lines in all, and the player's step changed by actors about 12 times.
 
+- Smoke scenarios (`tools/smoke/scenarios.toml`): `combat-violet`, `combat-dogs`,
+  `combat-sights` (§10.6), `provoked-yield` (§10.1–§10.2); the Fiends' `alert-fiend`
+  and `cook-cook-camp` forbid or show no Combat ↔ Lost flicker (alert.md §8).
+
 ## 8. Next
 
 - The larger behaviours of the gap table (§11, "next"): fleeing and avoiding, cover,
@@ -300,7 +304,10 @@ NPCs should not be able to move at full speed whilst aiming" (the player's half 
   shot [observed: the male skeleton folder has `aimis` and `attack…is` clips for rifles;
   `fnv_actor::player_clips` already chose them for the player].
 - It walks while aiming (`Awarenesses::aiming`, `fnv_ai::alert`): closing in it walks,
-  and the AI log says `walks at the player, … aiming down the sights`.
+  and the AI log says `walks at the player, … aiming down the sights`, or, raising its
+  sights on a way already planned, `walks on, aiming down the sights at the player`
+  (`runs on, sights lowered, at …` when it lowers them). The sights come up only while
+  it can fire (it sees its target, its weapon drawn) [design].
 - Not used: the WEAP's Sight Usage ("the percentage of fCombatIronSightsDistance" beyond
   which an actor uses its sights [documented: GECK wiki Weapons]), because the owner's
   20 m rule stands in and fCombatIronSightsDistance is neither in FalloutNV.esm nor on
@@ -310,6 +317,27 @@ NPCs should not be able to move at full speed whilst aiming" (the player's half 
 - Log: `npc combat: … aims down the sights, its target … units away (beyond 1400):
   walks while aiming`, `… fires from the hip …`, and in the summary `… down the sights,
   … from the hip, sights raised … times`.
+- Check (smoke scenario `combat-sights`) [observed 2026-10-12]: Violet, the player
+  3,000 units off and put 1,000 units from her at 38 s: `aims down the sights, its
+  target 2599 units away (beyond 1400): walks while aiming`, `walks on, aiming down the
+  sights at the player`, later `fires from the hip, its target 1130 units away (within
+  1400)`; `18 shots (… 8 down the sights, 10 from the hip, sights raised 3 times)` and
+  `2hrattack3.kf 10, 2hrattack3is.kf 8` in the attack anims summary.
+
+### 10.6.1 Checks of §10.1–§10.3
+
+- Unit tests (`fnv-game` tests `factions.rs`, a synthetic plugin):
+  `a_neutral_hit_by_the_player_fights_and_accepts_one_yield` (assault, a yield accepted,
+  the next refused within fCombatYieldRetryTime, a yield past fCombatYieldTime refused),
+  `a_neutral_fighting_someone_else_ignores_a_stray_hit_from_a_fighting_player` (the
+  owner's exception), `an_ally_that_sees_a_fight_helps` (Assistance, never against its
+  own ally).
+- Smoke scenario `provoked-yield` [observed 2026-10-12]: in the general store the player
+  shoots Chet (`provocation: GSChetRef 0x00104C79 (neutral) is attacked by the player
+  and fights back`, his Assault line "What was that for?"), he fights back with his .357,
+  the weapon put away 4 s later: `accepts the yield (3.8 s into the fight) and stops
+  fighting`, AcceptYield said; shot again and the weapon put away: `ignores the yield …:
+  it forgave the player recently`.
 
 ### 10.7 Melee reaches low targets
 
@@ -379,3 +407,36 @@ for a later workstream (2026-10-12). Every behaviour in the second column is
 | Weapons | Semi-Auto Fire Delay Min/Max for actors | have | §10.4 |
 | Gun Spread Formula (New Vegas) | No unaimed penalty while aiming | have | player and NPCs (§10.6) |
 | Gun Spread Formula (New Vegas) | NPC spread × fNPCMaxGunWobbleAngle + spread | missing | [design]: NPCs keep the player's formula |
+
+### 11.1 Left for the combat AI workstream (list 2, "E2")
+
+The playtest list's combat items (list 1: 20, 30, 32, 33, 34) end here (2026-10-12). What
+the wiki pages describe and is not built, for the list-2 workstream ("fight, flee, take
+cover, assist, teamwork; NPC-against-NPC at scale; caution and search"), in the order
+the gaps above suggest:
+
+1. **Fleeing** (Combat Flee, Confidence, Combat Style "Flee Based on Personal
+   Survival"): the decision is made and logged (`would flee`, §10.5); the doing is not:
+   a door, cover or running away, waiting at the flee spot, coming back more confident
+   when hurt or cornered; frenzied actors never flee; armour in the threat ratio.
+2. **Combat groups** (StartCombat's group case, Combat Search, Confidence's group threat
+   ratio and alarms by Alarm Confidence): actors fighting the same target as one group,
+   searching the navmesh between them (iCombatTargetLostRemoveSearchCount), alarming
+   friends; today each actor fights and searches alone and assistance (§10.3) is the
+   only link. StartCombat should not work on an ally or friend of the target.
+3. **NPC against NPC**: hits by NPCs start no grudge yet (`fnv_game::provocation` only
+   counts the player's), so a stray NPC shot does not turn its victim; assistance
+   already sends allies against any attacker.
+4. **Cover** (Combat Style cover chances and timers, Continue During Combat without
+   leaving cover) and **Min range** (backing off below Ranged Weapon Min Range Mult).
+5. **Melee**: NPC blocking (Block % and its multipliers), power attacks, dodging and the
+   maneuver decision, recoil/stagger and unconscious bonuses.
+6. **Threats**: grenades and explosives, Ignore Threats / Ignore Damaging …,
+   iAvoidHurtingNonTargetsResponsibility, avoiding threats out of combat.
+7. **Combat barks** (Combat Tab: Attack, Hit, Flee, Yield, HealthHalf, NoAmmo … with
+   their timers) and crimes (SendAssaultAlarm).
+8. **Pursuit limits**: Combat Radius, Max Targeting FOV, Follow and Guard radii in
+   combat, Pretend In Combat.
+9. Weapon choice among several (Weapon Restrictions "Ranged Only"), ammunition use,
+   reload clips for NPCs, the fCombatYieldRetryTime as the player's timer if the owner
+   prefers the wiki's reading (§10.2).
