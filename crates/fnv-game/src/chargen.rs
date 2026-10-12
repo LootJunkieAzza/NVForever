@@ -70,26 +70,56 @@ pub fn apply_name(g: &mut Game, name: &str) {
 
 // ---- S.P.E.C.I.A.L. ----------------------------------------------------------------------
 
-/// The Vigor Tester's seven attributes, Strength to Luck.
+/// The Vigor Tester's seven attributes, Strength to Luck, with the points the menu has
+/// to give out and how low each may go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpecialSheet {
     pub values: [i32; 7],
+    /// The points the seven add up to when the menu may be left: [`SPECIAL_POINTS`],
+    /// or what AddSPECIALPoints / SetSPECIALPoints asked for.
+    pub total: i32,
+    /// The lowest each attribute may be lowered to: [`SPECIAL_MIN`], or the value it
+    /// had before AddSPECIALPoints opened the menu.
+    pub floor: [i32; 7],
 }
 
 impl SpecialSheet {
+    /// A sheet with these values, the character-creation total and floor.
+    pub fn new(values: [i32; 7]) -> SpecialSheet {
+        SpecialSheet { values, total: SPECIAL_POINTS, floor: [SPECIAL_MIN; 7] }
+    }
+
     /// The player's attributes as they stand (their permanent values).
     pub fn of_player(g: &mut Game) -> SpecialSheet {
         let mut values = [5; 7];
         for (i, code) in SPECIALS.enumerate() {
             values[i] = actor::actor_value_base(g, FormId::PLAYER_REF, code).round() as i32;
         }
-        SpecialSheet { values }
+        SpecialSheet::new(values)
+    }
+
+    /// The sheet the S.P.E.C.I.A.L. menu opens with: the player's, under the rules a
+    /// script asked for when it opened the menu (AddSPECIALPoints, SetSPECIALPoints;
+    /// `functions::ui`), which are used up by this opening.
+    pub fn for_menu(g: &mut Game) -> SpecialSheet {
+        let mut s = SpecialSheet::of_player(g);
+        if let Some(m) = g.ui.special.take() {
+            let sum: i32 = s.values.iter().sum();
+            match m {
+                crate::functions::ui::SpecialMenu::Add(n) => {
+                    s.total = sum + n;
+                    s.floor = s.values;
+                }
+                crate::functions::ui::SpecialMenu::Set(n) => s.total = n,
+            }
+        }
+        s
     }
 
     /// Points not given to any attribute yet (below 0 when a script had raised them past
     /// the total).
     pub fn remaining(&self) -> i32 {
-        SPECIAL_POINTS - self.values.iter().sum::<i32>()
+        self.total - self.values.iter().sum::<i32>()
     }
 
     /// One more point for attribute `i` (0 Strength … 6 Luck), when one is left and the
@@ -102,9 +132,16 @@ impl SpecialSheet {
         ok
     }
 
-    /// One point back from attribute `i`, while it is above 1.
+    /// Whether attribute `i` may give a point back: above 1, and above the value it had
+    /// when AddSPECIALPoints opened the menu [documented: GECK wiki AddSPECIALPoints, "the
+    /// player cannot decrease their character's SPECIAL points past their base values"].
+    pub fn can_lower(&self, i: usize) -> bool {
+        self.values[i] > self.floor[i].max(SPECIAL_MIN)
+    }
+
+    /// One point back from attribute `i` ([`SpecialSheet::can_lower`]).
     pub fn lower(&mut self, i: usize) -> bool {
-        let ok = self.values[i] > SPECIAL_MIN;
+        let ok = self.can_lower(i);
         if ok {
             self.values[i] -= 1;
         }
@@ -146,6 +183,12 @@ pub struct TagSheet {
     /// named "Big Guns - OBSOLETE" in the masters].
     pub skills: Vec<u16>,
     pub tagged: BTreeSet<u16>,
+    /// How many skills are tagged when the menu may be left: [`TAG_COUNT`], or more
+    /// after AddTagSkills.
+    pub count: usize,
+    /// Skills that may not be untagged (those tagged before AddTagSkills opened the
+    /// menu).
+    pub locked: BTreeSet<u16>,
 }
 
 impl TagSheet {
@@ -156,16 +199,32 @@ impl TagSheet {
         let mut skills: Vec<u16> = SKILLS.filter(|&c| c != BIG_GUNS).collect();
         skills.sort_by_key(|&c| skill_name(g, c).to_lowercase());
         let tagged = g.player.tag_skills.iter().copied().filter(|c| skills.contains(c)).collect();
-        TagSheet { skills, tagged }
+        TagSheet { skills, tagged, count: TAG_COUNT, locked: BTreeSet::new() }
     }
 
-    /// Tag an untagged skill while fewer than three are, or untag a tagged one. Whether
-    /// anything changed.
+    /// The sheet the tag-skill menu opens with: the player's, with the extra skills to
+    /// tag that AddTagSkills asked for (used up by this opening): the skills tagged
+    /// before stay tagged and the player picks that many more [documented: GECK wiki
+    /// AddTagSkills, "the player may not un-Tag their initial Tagged Skills"].
+    pub fn for_menu(g: &mut Game) -> TagSheet {
+        let mut s = TagSheet::of_player(g);
+        if let Some(n) = g.ui.extra_tags.take() {
+            s.count = s.tagged.len() + n;
+            s.locked = s.tagged.clone();
+        }
+        s
+    }
+
+    /// Tag an untagged skill while fewer than the count are, or untag a tagged one that
+    /// is not locked. Whether anything changed.
     pub fn toggle(&mut self, skill: u16) -> bool {
+        if self.locked.contains(&skill) {
+            return false;
+        }
         if self.tagged.remove(&skill) {
             return true;
         }
-        if self.tagged.len() < TAG_COUNT && self.skills.contains(&skill) {
+        if self.tagged.len() < self.count && self.skills.contains(&skill) {
             self.tagged.insert(skill);
             return true;
         }
@@ -174,12 +233,12 @@ impl TagSheet {
 
     /// Skills still to tag.
     pub fn remaining(&self) -> usize {
-        TAG_COUNT.saturating_sub(self.tagged.len())
+        self.count.saturating_sub(self.tagged.len())
     }
 
-    /// Whether Done may be pressed: exactly three tagged.
+    /// Whether Done may be pressed: as many tagged as the count.
     pub fn complete(&self) -> bool {
-        self.tagged.len() == TAG_COUNT
+        self.tagged.len() == self.count
     }
 
     /// The skill's value as the menu shows it: the player's, with the tag bonus as the
@@ -329,7 +388,7 @@ mod tests {
 
     #[test]
     fn special_points_stay_within_the_rules() {
-        let mut s = SpecialSheet { values: [5; 7] };
+        let mut s = SpecialSheet::new([5; 7]);
         assert_eq!(s.remaining(), 5);
         assert!(!s.complete());
         for _ in 0..5 {
@@ -352,16 +411,16 @@ mod tests {
     #[test]
     fn the_screenshot_sheet_is_complete() {
         // S5 P3 E7 C7 I5 A6 L7: "00 POINTS REMAINING".
-        let s = SpecialSheet { values: [5, 3, 7, 7, 5, 6, 7] };
+        let s = SpecialSheet::new([5, 3, 7, 7, 5, 6, 7]);
         assert_eq!(s.remaining(), 0);
         assert!(s.complete());
         // S5 P3 E5 C7 I5 A6 L7: "02 POINTS REMAINING".
-        assert_eq!(SpecialSheet { values: [5, 3, 5, 7, 5, 6, 7] }.remaining(), 2);
+        assert_eq!(SpecialSheet::new([5, 3, 5, 7, 5, 6, 7]).remaining(), 2);
     }
 
     #[test]
     fn three_tags_and_no_more() {
-        let mut t = TagSheet { skills: vec![32, 34, 35, 41, 43, 44], tagged: BTreeSet::new() };
+        let mut t = TagSheet { skills: vec![32, 34, 35, 41, 43, 44], tagged: BTreeSet::new(), count: TAG_COUNT, locked: BTreeSet::new() };
         assert_eq!(t.remaining(), 3);
         assert!(t.toggle(43) && t.toggle(44));
         assert_eq!(t.remaining(), 1);
@@ -371,6 +430,28 @@ mod tests {
         assert!(!t.toggle(32), "a fourth tag is refused");
         assert!(t.toggle(41) && !t.complete());
         assert!(!t.toggle(33), "Big Guns is not in the list");
+    }
+
+    #[test]
+    fn added_points_keep_the_old_values_as_the_floor() {
+        // AddSPECIALPoints 1 on a finished character: one point to give, none to take.
+        let mut s = SpecialSheet::new([5, 3, 7, 7, 5, 6, 7]);
+        s.total = 41;
+        s.floor = s.values;
+        assert_eq!(s.remaining(), 1);
+        assert!(!s.lower(1), "below the value before the menu");
+        assert!(s.raise(1) && s.complete());
+        assert!(s.lower(1) && !s.lower(1));
+    }
+
+    #[test]
+    fn added_tags_lock_the_old_ones() {
+        let old: BTreeSet<u16> = [41, 43, 44].into();
+        let mut t = TagSheet { skills: vec![32, 34, 35, 41, 43, 44], tagged: old.clone(), count: 4, locked: old };
+        assert_eq!(t.remaining(), 1);
+        assert!(!t.toggle(41), "a tag from before stays");
+        assert!(t.toggle(32) && t.complete());
+        assert!(!t.toggle(34), "a fifth is refused");
     }
 
     #[test]

@@ -3,7 +3,7 @@
 //! of `fnv_game::chargen`, which holds the rules (points, limits, completeness); the
 //! drawing (`super`) only asks this module.
 
-use fnv_game::chargen::{SpecialSheet, SPECIAL_MAX, SPECIAL_MIN};
+use fnv_game::chargen::{SpecialSheet, SPECIAL_MAX};
 
 /// The attributes in sheet order (0 Strength … 6 Luck), as the model's node names spell
 /// them (`PB-Strength_01`, `Index_StrengthPointVal`, `SPECIAL-Title_Strength`).
@@ -138,8 +138,9 @@ pub const ONES_SHAPE: &str = "P1_PointsRemainDigit2:0";
 /// arrows; 10.jpg and 11.jpg show both on every row; the ◄ at 1 is a hypothesis by
 /// symmetry].
 pub fn review_arrows(sheet: &SpecialSheet, i: usize) -> (bool, bool) {
-    let v = sheet.values[i.min(6)];
-    (v > SPECIAL_MIN, v < SPECIAL_MAX && sheet.remaining() > 0)
+    let i = i.min(6);
+    let v = sheet.values[i];
+    (sheet.can_lower(i), v < SPECIAL_MAX && sheet.remaining() > 0)
 }
 
 /// Whether the → button works on `page`: always, but on the review page only once every
@@ -417,7 +418,7 @@ mod tests {
     use super::*;
 
     fn fives() -> SpecialSheet {
-        SpecialSheet { values: [5; 7] }
+        SpecialSheet::new([5; 7])
     }
 
     #[test]
@@ -519,7 +520,7 @@ mod tests {
             v.act(Action::Prev);
         }
         assert_eq!(v.act(Action::Prev), Outcome::Refused("first page"));
-        let mut w = Vigor::new(SpecialSheet { values: [1; 7] });
+        let mut w = Vigor::new(SpecialSheet::new([1; 7]));
         w.page = Page::Review;
         assert_eq!(w.act(Action::Lower(Some(2))), Outcome::Refused("at 1"));
     }

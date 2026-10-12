@@ -285,6 +285,13 @@ pub struct ChallengeState {
     /// RemoveRecurringFromChallenge cleared the Recurring flag.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub not_recurring: bool,
+    /// Progress towards the threshold (IncrementScriptedChallenge).
+    #[serde(skip_serializing_if = "is_zero_u32", default)]
+    pub progress: u32,
+}
+
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
 }
 
 /// EnableFastTravel's three flags (all false = the default: travel and waiting allowed).
@@ -619,6 +626,16 @@ pub struct Game<'a> {
     pub terminals: crate::terminal::Terminals,
     /// Locks broken by forcing them (`crate::lockpick`). Not part of the saved state yet.
     pub locks: crate::lockpick::Locks,
+    /// What the engine tells the scripts of the actors' movement, sneaking and sight and
+    /// of the camera (`functions::senses`). Not part of the saved state: the engine
+    /// measures again.
+    pub senses: crate::functions::senses::Senses,
+    /// The weather scripts forced or set, and the one the engine shows
+    /// (`crate::weather`). Not part of the saved state yet.
+    pub weather: crate::weather::WeatherState,
+    /// What scripts asked of the Pip-Boy and the character-creation menus, and to end
+    /// the game (`functions::ui`), for the engine to take. Not part of the saved state.
+    pub ui: crate::functions::ui::UiRequests,
     pub world: World<'a>,
     pub cfg: GameConfig,
     pub quests: BTreeMap<FormId, QuestState>,
@@ -792,6 +809,9 @@ impl<'a> Game<'a> {
             radio: Default::default(),
             terminals: Default::default(),
             locks: Default::default(),
+            senses: Default::default(),
+            weather: Default::default(),
+            ui: Default::default(),
             world,
             cfg,
             quests: BTreeMap::new(),
@@ -2074,6 +2094,7 @@ impl<'a> Game<'a> {
                     Value::ZERO
                 }
             },
+            Some(Kind::NoOp(_)) => Value::ZERO,
             Some(Kind::Stub(_)) => {
                 *self.stubbed.entry(ctx.opcode).or_default() += 1;
                 self.stub_note(ctx, args);
