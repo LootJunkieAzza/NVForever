@@ -57,6 +57,7 @@ pub fn switch(
         Ok(mut s) => {
             s.shadows = sky.shadows;
             s.shadow_distance = sky.shadow_distance;
+            s.shadow_reach = sky.shadow_reach;
             s.grade = sky.grade;
             s.time_scale = sky.time_scale;
             s.clock_running = sky.clock_running;
