@@ -5,7 +5,7 @@
 use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
 use fnv_combat::damage::{self, Attacker, HitInput, HitPart, NoPerks, Target};
 use fnv_combat::data::{AmmoEffect, ExplosionStats, ProjectileStats, WeaponStats};
-use fnv_combat::projectile::{blast, swing, ActorId, CombatWorld, ProjEvent, Projectile, WorldHit};
+use fnv_combat::projectile::{blast, swing, swing_reaching, ActorId, CombatWorld, ProjEvent, Projectile, WorldHit};
 use fnv_combat::shot::{self, Seen};
 use fnv_combat::spread::{self, Kick, Stance};
 use fnv_combat::vec::{self, V3};
@@ -489,7 +489,20 @@ fn melee_swing_and_blast() {
     let world = Toy { actors: vec![(7, [80.0, 20.0, 100.0], 25.0), (8, [-80.0, 0.0, 100.0], 25.0), (9, [300.0, 0.0, 100.0], 25.0)], fence: false, wall: None };
     let hits = swing(&world, &t, [0.0, 0.0, 100.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], 120.0, 1);
     assert_eq!(hits.iter().map(|h| h.0).collect::<Vec<_>>(), vec![7]);
-    let e = ExplosionStats { damage: 100.0, radius: 400.0, force: 300.0, ..ExplosionStats::default() };
+    // A short creature at the attacker's feet (a gecko): under the fan of rays at eye
+    // height, and the drop from the eye would use up the reach; reached across the
+    // ground it is struck. One behind is not, nor one beyond the reach.
+    let low = Toy { actors: vec![(7, [70.0, 10.0, 15.0], 15.0), (8, [-70.0, 0.0, 15.0], 15.0), (9, [200.0, 0.0, 15.0], 15.0)], fence: false, wall: None };
+    let eye = [0.0, 0.0, 112.0];
+    assert!(swing(&low, &t, eye, [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], 120.0, 1).is_empty());
+    let hits = swing_reaching(&low, &t, eye, 0.0, [1.0, 0.0, 0.0], 120.0, 1);
+    assert_eq!(hits.iter().map(|h| h.0).collect::<Vec<_>>(), vec![7]);
+    // A tall one in front is still found by the fan, once.
+    let both = Toy { actors: vec![(7, [70.0, 0.0, 15.0], 15.0), (8, [90.0, 30.0, 100.0], 25.0)], fence: false, wall: None };
+    let mut ids: Vec<_> = swing_reaching(&both, &t, eye, 0.0, [1.0, 0.0, 0.0], 120.0, 1).iter().map(|h| h.0).collect();
+    ids.sort();
+    assert_eq!(ids, vec![7, 8]);
+    let e =ExplosionStats { damage: 100.0, radius: 400.0, force: 300.0, ..ExplosionStats::default() };
     let open = Toy { actors: vec![(7, [200.0, 0.0, 30.0], 30.0)], fence: false, wall: None };
     let b = blast(&open, &t, &e, [0.0, 0.0, 30.0]);
     assert_eq!(b.len(), 1);

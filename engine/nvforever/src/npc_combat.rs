@@ -21,8 +21,22 @@
 //!   line, as the player's first-person shots (`ActorFire`; owner 2026-10-11: "the shots
 //!   were coming from Violet's face, not the gun"); without a muzzle node, from the eyes.
 //!   Inside its spread: the documented actor
-//!   spread for its weapon skill, standing and not aiming down the sights, plus an aim
-//!   that settles over [`SETTLE_SECONDS`] of firing at the same target [design].
+//!   spread for its weapon skill, standing, plus an aim that settles over
+//!   [`SETTLE_SECONDS`] of firing at the same target [design].
+//! - **Aiming down the sights** (owner's playtest list 2026-10-11: "only if the target
+//!   is at a distance; anything less than 20 metres they fire from the hip"): a gun
+//!   with sights (WEAP Sight FOV above 0; 0 "essentially disables iron sights"
+//!   [documented: GECK wiki Weapons]) is aimed down its sights while the actor fires at
+//!   a target more than [`HIP_FIRE_WITHIN`] away (20 m at 70 units per metre,
+//!   docs/spec-notes/physics.md §6.3), from the hip nearer ([`aims_down_sights`]).
+//!   Aimed, the spread loses the unaimed penalty (fUnaimedSpreadPenalty) [documented:
+//!   GECK wiki Gun Spread Formula (New Vegas)], the actor plays its weapon's iron-sights
+//!   aim and attack clips (`2hraimis.kf`, `2hrattack3is.kf`, `attack_anims.rs`), and it
+//!   walks instead of running (`Awarenesses::aiming`, `fnv_ai::alert`). The record's
+//!   Sight Usage ("the percentage of fCombatIronSightsDistance" beyond which an actor
+//!   uses its sights [documented: GECK wiki Weapons]) is not used: the owner's 20 m
+//!   rule stands in for it, and fCombatIronSightsDistance is neither in FalloutNV.esm
+//!   nor on the wiki.
 //! - **How it looks** (`attack_anims.rs`): each shot and blow asks for its attack clip
 //!   ([`PlayAttack`]); a blow's damage is dealt at its clip's `Hit` key
 //!   ([`AttackTimes`]), and lands if the target is still within reach then [design].
@@ -34,9 +48,24 @@
 //!   [design; owner 2026-10-11: a dog gets into range and bites, it does not push the
 //!   player around]. Without bodies to measure, its reach from its feet counts.
 //!
+//! - **Its combat style** (CSTY, `fnv_game::combat_style`; docs/design/combat-ai.md
+//!   §10.4) [documented: GECK wiki Combat Style]: Weapon Restrictions "Melee Only" has
+//!   it fight a gun-holder with its fists; the Ranged Weapon Max Range Mult scales the
+//!   weapon's max range in the distance it fights from; a semi-automatic gun waits a
+//!   random time between the weapon's Semi-Auto Fire Delay Min and Max, times the
+//!   style's multipliers, between shots ("semi-auto weapon's fire rate when used by
+//!   actors" [documented: GECK wiki Weapons]); in melee each time it may strike it makes
+//!   the melee decision (attack chance with the hand-to-hand bonus and the attack skill
+//!   modifier, under attack or not), and holds for the Hold Timer when it does not attack.
+//! - **Confidence** (`fnv_game::combat_style`): once hurt, every random 0 to
+//!   fCombatThreatRatioUpdateTime seconds it compares its threat ratio (its health ×
+//!   damage per second over its target's) with its confidence threshold and this
+//!   fight's confidence modifier; fleeing is not built, so a decision to flee is logged
+//!   (`would flee`) and counted.
+//!
 //! Whom it fights is the detection states' (its combat target); this module only
-//! attacks. Not built: attack animations, cover, fleeing, grenades, ammunition use,
-//! weapon choice among several, combat styles.
+//! attacks. Not built: cover, fleeing, grenades, ammunition use, weapon choice among
+//! several, blocking, dodging and power attacks of NPCs.
 
 use crate::attack_anims::{AttackTimes, PlayAttack, DEFAULT_HIT};
 use crate::limbs::ActorRig;
@@ -52,6 +81,7 @@ use fnv_combat::data::WeaponStats;
 use fnv_combat::spread::{self, Stance};
 use fnv_combat::vec::{self, V3};
 use fnv_game::awareness::State;
+use fnv_game::combat_style::{flees, melee_attack_chance, threat_ratio};
 use fnv_game::detection::Band;
 use fnv_sim::FormId;
 use nvf_play::blocking::ActorBlocks;
@@ -83,6 +113,13 @@ pub const MELEE_STOP_GAP: f32 = 6.0;
 pub const MELEE_HIT_GAP: f32 = 24.0;
 /// A creature without a reach of its own reaches this far, game units [design].
 pub const CREATURE_REACH: f32 = 96.0;
+/// Within this distance of its target an actor fires from the hip, beyond it down its
+/// sights: 20 m at 70 units per metre [owner's playtest list 2026-10-11; the units per
+/// metre: observed, gravity fits 9.81 m/s² at 70 units/m, physics.md §6.3].
+pub const HIP_FIRE_WITHIN: f32 = 1400.0;
+/// Once aiming down its sights, an actor keeps them up until its target is this much
+/// nearer than [`HIP_FIRE_WITHIN`], so it does not switch at the edge [design].
+pub const SIGHTS_HYSTERESIS: f32 = 50.0;
 /// Without a muzzle node, shots leave this far in front of the eyes, game units [design].
 const MUZZLE_AHEAD: f32 = 24.0;
 /// The chest as a fraction of the eye height (as `detection.rs` aims its sight).
@@ -122,15 +159,26 @@ struct Fighter {
     pulled: bool,
     /// Blows on their way: seconds until each lands, and the blow.
     blows: Vec<(f32, ActorStrike)>,
+    /// Aiming down its sights now.
+    sights: bool,
+    /// Seconds before a semi-automatic gun may be fired again (its combat style's
+    /// firing delay).
+    pull_in: f32,
+    /// This fight's confidence modifier; seconds to the next flee check; whether it
+    /// has decided it would flee (logged once).
+    confidence_mod: f64,
+    flee_check_in: f32,
+    would_flee: bool,
 }
 
 #[derive(Resource, Default)]
 pub struct Fighters {
     fighters: HashMap<u32, Fighter>,
-    /// Each fighter's pitch to its target (radians, negative looks down) and the weapon
-    /// drawn on it, this frame.
-    poses: HashMap<u32, (f32, Option<FormId>)>,
+    /// Each fighter's pitch to its target (radians, negative looks down), the weapon
+    /// drawn on it and whether it aims down the sights, this frame.
+    poses: HashMap<u32, (f32, Option<FormId>, bool)>,
     stats: Stats,
+    rng: u64,
 }
 
 impl Fighters {
@@ -142,6 +190,11 @@ impl Fighters {
     /// The weapon drawn on a fighting actor.
     pub fn weapon(&self, actor: u32) -> Option<FormId> {
         self.poses.get(&actor).and_then(|p| p.1)
+    }
+
+    /// Whether a fighting actor aims down its weapon's sights.
+    pub fn sights(&self, actor: u32) -> bool {
+        self.poses.get(&actor).is_some_and(|p| p.2)
     }
 }
 
@@ -156,6 +209,47 @@ struct Stats {
     /// Shots from a weapon's muzzle, and from the eyes (no muzzle node).
     from_muzzle: usize,
     from_eyes: usize,
+    /// Shots aimed down the sights and from the hip; times an actor raised its sights.
+    sights_shots: usize,
+    hip_shots: usize,
+    sights_raised: usize,
+    /// Melee decisions to hold instead of attacking; flee checks made and decisions to
+    /// flee (not acted on).
+    holds: usize,
+    flee_checks: usize,
+    would_flee: usize,
+}
+
+/// A number in [0, 1) from the module's own sequence `rng` [design].
+fn next_unit(rng: &mut u64) -> f32 {
+    *rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    (*rng >> 40) as f32 / (1u64 << 24) as f32
+}
+
+/// Damage per second of an attack, for the threat ratio [design: the documentation does
+/// not say how the original rates it]: a gun's damage per shot (all its projectiles)
+/// times its shots per second (its fire rate for automatic weapons, else its attack
+/// shots per second); a blow's damage over [`STRIKE_SECONDS`] at the weapon's attack
+/// speed.
+fn dps(c: &Combat, arm: &Arm) -> f32 {
+    let w = |id: Option<FormId>| id.or(c.fists_id()).and_then(|id| c.forms.weapons.get(&id));
+    match arm {
+        Arm::Gun(id) => w(Some(*id)).map_or(0.0, |ws| {
+            let per_second = if ws.automatic && ws.fire_rate > 0.0 { ws.fire_rate } else if ws.attack_shots_per_sec > 0.0 { ws.attack_shots_per_sec } else { 1.0 };
+            ws.base_damage.max(0) as f32 * per_second
+        }),
+        Arm::Melee(id) => w(*id).map_or(0.0, |ws| ws.base_damage.max(0) as f32 * ws.attack_mult.max(0.25) / STRIKE_SECONDS),
+        Arm::Creature(d, _) => *d / STRIKE_SECONDS,
+    }
+}
+
+/// The player's attack, for the threat ratio of those fighting the player: the weapon in
+/// use, a gun or a blow.
+fn player_arm(c: &Combat) -> Arm {
+    match c.player_weapon() {
+        Some(w) if c.forms.weapons.get(&w).is_some_and(|ws| is_gun(c, ws, w)) => Arm::Gun(w),
+        w => Arm::Melee(w),
+    }
 }
 
 /// How near an actor fighting with a melee reach or a gun's max range wants to be, and
@@ -174,6 +268,13 @@ pub fn engage(arm_reach: Option<f32>, gun_max_range: Option<f32>) -> (f32, f32) 
             (reach * MELEE_ENGAGE_SHARE, reach)
         }
     }
+}
+
+/// Whether an actor fires down its sights at a target `distance` away (module notes):
+/// only a gun with sights (`sight_fov` above 0), beyond [`HIP_FIRE_WITHIN`]; `was`: it
+/// aimed down them last frame (they stay up to [`SIGHTS_HYSTERESIS`] nearer).
+pub fn aims_down_sights(was: bool, distance: f32, sight_fov: f32) -> bool {
+    sight_fov > 0.0 && distance > if was { HIP_FIRE_WITHIN - SIGHTS_HYSTERESIS } else { HIP_FIRE_WITHIN }
 }
 
 /// The extra spread of an actor that has fired at its target for `firing` seconds.
@@ -241,6 +342,9 @@ fn fight(
     };
     let f = &mut *fighters;
     f.poses.clear();
+    // Each fighter's attack, for the threat ratio of whoever fights it.
+    let mut arms: HashMap<u32, Arm> = f.fighters.iter().map(|(id, x)| (*id, x.arm.clone())).collect();
+    arms.insert(FormId::PLAYER_REF.0, player_arm(c));
     let mut still: Vec<u32> = Vec::new();
     with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
@@ -249,11 +353,20 @@ fn fight(
             let me = FormId(id);
             let Some(&(feet, eyes, scale)) = places.get(&id) else { continue };
             let Some(aw) = g.awareness.get(me).filter(|a| a.state == State::Combat) else { continue };
-            let Some((target, _)) = aw.combat_target() else { continue };
+            // The target it detects; just after losing sight of it (still in Combat, not
+            // yet Lost), the one detected last, so it keeps its distance to close in
+            // (`fnv_ai::alert`) instead of standing where it cannot see [design: the
+            // fiends at Cook-Cook's camp stood still behind a rise and went Lost and back
+            // every few seconds].
+            let latest = || aw.targets.iter().filter(|(_, t)| t.detected.is_some()).max_by(|x, y| x.1.detected.unwrap_or(0.0).total_cmp(&y.1.detected.unwrap_or(0.0))).map(|(id, t)| (*id, t));
+            let Some((target, _)) = aw.combat_target().or_else(latest) else { continue };
             let Some(&(tfeet, teyes, _)) = places.get(&target.0) else { continue };
             still.push(id);
-            // What it fights with.
+            // What it fights with; its combat style may keep it to melee.
+            let style = g.combat_style(me);
+            let melee_only = style.is_some_and(|s| s.weapon_restrictions == 1);
             let arm = match weapons.get(&id).copied() {
+                Some(w) if melee_only && c.forms.weapons.get(&w).is_some_and(|ws| is_gun(c, ws, w)) => Arm::Melee(None),
                 Some(w) if c.forms.weapons.get(&w).is_some_and(|ws| is_gun(c, ws, w)) => Arm::Gun(w),
                 Some(w) => Arm::Melee(Some(w)),
                 None => match g.creature_attack(me) {
@@ -273,12 +386,47 @@ fn fight(
                 let name = g.data.name(me);
                 f.stats.fighters.insert(id, name.clone());
                 info!("npc combat: {name} {me} fights {} with {}", if target == FormId::PLAYER_REF { "the player".to_string() } else { g.data.name(target) }, describe(c, &arm));
-                f.fighters.insert(id, Fighter { target, arm: arm.clone(), seen_for: 0.0, firing_for: 0.0, cycle, strike_in: 0.0, pulled: false, blows: Vec::new() });
+                f.fighters.insert(id, Fighter { target, arm: arm.clone(), seen_for: 0.0, firing_for: 0.0, cycle, strike_in: 0.0, pulled: false, blows: Vec::new(), sights: false, pull_in: 0.0, confidence_mod: 0.0, flee_check_in: 0.0, would_flee: false });
+                // This fight's confidence modifier, not for the foolhardy; the first
+                // flee check within the update time [documented: GECK wiki Confidence].
+                let threshold = g.confidence_threshold(me);
+                let (lo, hi) = g.confidence_modifier_range();
+                let update = g.threat_ratio_update_time() as f32;
+                let (u1, u2) = (next_unit(&mut f.rng), next_unit(&mut f.rng));
+                let x = f.fighters.get_mut(&id).expect("inserted");
+                x.confidence_mod = if threshold > 0.0 { lo + (hi - lo) * u1 as f64 } else { 0.0 };
+                x.flee_check_in = update * u2;
             }
+            // Its opponent is in the middle of a blow (the melee decision).
+            let under_attack = f.fighters.get(&target.0).is_some_and(|t| !t.blows.is_empty());
             let fighter = f.fighters.get_mut(&id).expect("inserted");
+            // Confidence: once hurt, now and then, would it rather flee? (module notes)
+            fighter.flee_check_in -= dt;
+            if fighter.flee_check_in <= 0.0 && !fighter.would_flee {
+                fighter.flee_check_in = g.threat_ratio_update_time() as f32 * next_unit(&mut f.rng);
+                let (health, full) = g.health_now_and_full(me);
+                if health < full {
+                    f.stats.flee_checks += 1;
+                    let (their_health, _) = g.health_now_and_full(target);
+                    let theirs = arms.get(&target.0).map_or(0.0, |a| dps(c, a));
+                    let ratio = threat_ratio(health, dps(c, &arm) as f64, their_health, theirs as f64);
+                    let threshold = g.confidence_threshold(me);
+                    if flees(ratio, threshold, fighter.confidence_mod) {
+                        fighter.would_flee = true;
+                        f.stats.would_flee += 1;
+                        info!(
+                            "npc combat: {} {me} would flee (threat ratio {ratio:.3} below its confidence {threshold:.4}, modifier {:+.2}; fleeing is not built)",
+                            g.data.name(me),
+                            fighter.confidence_mod
+                        );
+                    }
+                }
+            }
             // How near it wants to be.
+            // The style's Ranged Weapon Max Range Mult scales the weapon's range.
+            let range_mult = style.map_or(1.0, |s| if s.range_mult.1 > 0.0 { s.range_mult.1 } else { 1.0 });
             let gun = match &arm {
-                Arm::Gun(w) => c.forms.weapons.get(w).map(|ws| ws.max_range),
+                Arm::Gun(w) => c.forms.weapons.get(w).map(|ws| ws.max_range * range_mult),
                 _ => None,
             };
             let reach = reach_of(c, &arm, scale);
@@ -300,20 +448,47 @@ fn fight(
             let ready = sees && fighter.seen_for >= REACTION_SECONDS && hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
             let tchest = [tfeet[0], tfeet[1], tfeet[2] + (teyes[2] - tfeet[2]) * CHEST];
             let pitch = (tchest[2] - eyes[2]).atan2((tchest[0] - eyes[0]).hypot(tchest[1] - eyes[1]));
-            f.poses.insert(id, (pitch, weapons.get(&id).copied()));
+            // Down the sights while it fires at a far target, from the hip near.
+            let sight_fov = match &arm {
+                Arm::Gun(w) => c.forms.weapons.get(w).map_or(0.0, |ws| ws.sight_fov),
+                _ => 0.0,
+            };
+            let sights = ready && aims_down_sights(fighter.sights, away, sight_fov);
+            if sights != fighter.sights && ready {
+                let name = g.data.name(me);
+                if sights {
+                    f.stats.sights_raised += 1;
+                    info!("npc combat: {name} {me} aims down the sights, its target {away:.0} units away (beyond {HIP_FIRE_WITHIN:.0}): walks while aiming");
+                } else {
+                    info!("npc combat: {name} {me} fires from the hip, its target {away:.0} units away (within {HIP_FIRE_WITHIN:.0})");
+                }
+            }
+            fighter.sights = sights;
+            if sights {
+                g.awareness.aiming.insert(me);
+            } else {
+                g.awareness.aiming.remove(&me);
+            }
+            f.poses.insert(id, (pitch, weapons.get(&id).copied(), sights));
             match &arm {
                 Arm::Gun(w) => {
                     let Some(ws) = c.forms.weapons.get(w) else { continue };
                     let Some(cycle) = fighter.cycle.as_mut() else { continue };
                     fighter.firing_for = if ready { fighter.firing_for + dt } else { 0.0 };
                     // Automatic weapons hold the trigger; others pull it again each time
-                    // the cycle is ready.
-                    let trigger = ready && (ws.automatic || !fighter.pulled);
+                    // the cycle is ready and the style's firing delay has passed.
+                    fighter.pull_in = (fighter.pull_in - dt).max(0.0);
+                    let trigger = ready && (ws.automatic || (!fighter.pulled && fighter.pull_in <= 0.0));
                     fighter.pulled = trigger;
                     let events = cycle.step(&c.tuning, Input { trigger, reload: false, dt, carried: u32::MAX / 2 });
                     for e in events {
                         match e {
                             Event::Fired { .. } => {
+                                if !ws.automatic {
+                                    let mult = style.map_or((1.0, 1.0), |s| s.semi_auto_delay_mult);
+                                    let (lo, hi) = (ws.semi_auto_fire_delay[0] * mult.0, ws.semi_auto_fire_delay[1] * mult.1);
+                                    fighter.pull_in = (lo + (hi - lo).max(0.0) * next_unit(&mut f.rng)).max(0.0);
+                                }
                                 // Aimed from the eyes, drawn from the muzzle when the weapon
                                 // has one (module notes).
                                 let muzzle = muzzle_at.get(&id).copied();
@@ -337,10 +512,15 @@ fn fight(
                                 }
                                 let skill = ws.skill.as_deref().and_then(fnv_game::functions::av_by_name).map_or(50.0, |code| fnv_game::functions::actor_value_capped(g, me, code)) as f32;
                                 let strength = fnv_game::functions::actor_value_capped(g, me, fnv_game::actor_values::STRENGTH) as f32;
-                                let stance = Stance { aiming: false, moving: false, running: false, sneaking: false, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled: false, right_arm_crippled: false };
+                                if fighter.sights {
+                                    f.stats.sights_shots += 1;
+                                } else {
+                                    f.stats.hip_shots += 1;
+                                }
+                                let stance = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: false, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled: false, right_arm_crippled: false };
                                 let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &stance), 0.0, ws, &[]) + settling(fighter.firing_for);
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle });
-                                anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false });
+                                anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights });
                                 f.stats.shots += 1;
                             }
                             Event::ReloadStarted => f.stats.reloads += 1,
@@ -365,7 +545,24 @@ fn fight(
                             f.stats.missed += 1;
                         }
                     }
-                    if ready && near && (feet[2] - tfeet[2]).abs() < 128.0 && fighter.strike_in <= 0.0 {
+                    // The melee decision: attack, or hold for the style's hold timer.
+                    let decide = ready && near && (feet[2] - tfeet[2]).abs() < 128.0 && fighter.strike_in <= 0.0;
+                    let attack = decide
+                        && style.is_none_or(|s| {
+                            let (skill_name, h2h) = match &arm {
+                                Arm::Melee(Some(w)) => (c.forms.weapons.get(w).and_then(|ws| ws.skill.clone()).unwrap_or_else(|| "Melee Weapons".into()), false),
+                                Arm::Melee(None) => ("Unarmed".to_string(), true),
+                                _ => ("Melee Weapons".to_string(), true),
+                            };
+                            let skill = fnv_game::functions::av_by_name(&skill_name).map_or(50.0, |code| fnv_game::functions::actor_value_capped(g, me, code)) as f32;
+                            next_unit(&mut f.rng) * 100.0 < melee_attack_chance(s, skill, h2h, under_attack)
+                        });
+                    if decide && !attack {
+                        let (lo, hi) = style.map_or((0.5, 1.5), |s| s.hold_timer);
+                        fighter.strike_in = (lo + (hi - lo).max(0.0) * next_unit(&mut f.rng)).max(0.1);
+                        f.stats.holds += 1;
+                    }
+                    if attack {
                         let speed = match &arm {
                             Arm::Melee(w) => w.or(c.fists_id()).and_then(|w| c.forms.weapons.get(&w)).map_or(1.0, |w| w.attack_mult.max(0.25)),
                             _ => 1.0,
@@ -381,7 +578,7 @@ fn fight(
                         // next is chosen after this) [design].
                         let delay = times.hit.get(&id).copied().unwrap_or(DEFAULT_HIT);
                         fighter.blows.push((delay, ActorStrike { attacker: me, target, weapon, creature_damage, point: tchest, dir }));
-                        anims.write(PlayAttack { actor: id, weapon, melee: true });
+                        anims.write(PlayAttack { actor: id, weapon, melee: true, sights: false });
                         f.stats.strikes += 1;
                     }
                 }
@@ -392,6 +589,7 @@ fn fight(
         for id in gone {
             f.fighters.remove(&id);
             g.awareness.engage.remove(&FormId(id));
+            g.awareness.aiming.remove(&FormId(id));
         }
     });
 }
@@ -413,15 +611,21 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
     let s = &fighters.stats;
     let (hits, damage, died) = stats.map_or((0, 0.0, false), |c| (c.player_hits, c.player_damage, c.player_died));
     info!(
-        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes), {} blows ({} missed: out of reach when they landed), {} reloads; the player was hit {hits} times for {damage:.1}{}",
+        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} missed: out of reach when they landed; {} melee decisions to hold), {} reloads; {} flee checks, {} would flee; the player was hit {hits} times for {damage:.1}{}",
         s.fighters.len(),
         s.fighters.values().cloned().collect::<Vec<_>>().join(", "),
         s.shots,
         s.from_muzzle,
         s.from_eyes,
+        s.sights_shots,
+        s.hip_shots,
+        s.sights_raised,
         s.strikes,
         s.missed,
+        s.holds,
         s.reloads,
+        s.flee_checks,
+        s.would_flee,
         if died { " and died" } else { "" },
     );
 }
@@ -438,6 +642,18 @@ mod tests {
         assert_eq!(engage(None, Some(0.0)).0, GUN_ENGAGE_MAX);
         let (stop, resume) = engage(Some(100.0), None);
         assert!((stop - 80.0).abs() < 1e-4 && (resume - 100.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn sights_beyond_twenty_metres_hip_within() {
+        assert!(!aims_down_sights(false, 1300.0, 55.0));
+        assert!(aims_down_sights(false, 1500.0, 55.0));
+        // Up, they stay up a little nearer; down, they come up only beyond 20 m.
+        assert!(aims_down_sights(true, 1380.0, 55.0));
+        assert!(!aims_down_sights(false, 1380.0, 55.0));
+        assert!(!aims_down_sights(true, 1300.0, 55.0));
+        // A weapon without sights never.
+        assert!(!aims_down_sights(false, 3000.0, 0.0));
     }
 
     #[test]

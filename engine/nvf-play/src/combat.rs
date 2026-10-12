@@ -27,7 +27,8 @@
 //!   that direction's `fDamagePowerAttack…Bonus`. The body plays [`WeaponAnim::swing`]
 //!   and times it ([`WeaponAnim::timed`]); the swing strikes once at the clip's `Hit` key
 //!   [documented: NiTextKeyExtraData] with a fan of rays from the eye out to the reach
-//!   (`damage::melee_reach`). With no weapon equipped the player fights with the
+//!   (`damage::melee_reach`), and at any actor whose centre is within that reach across
+//!   the ground, low or high (`projectile::swing_reaching`: a gecko at the player's feet). With no weapon equipped the player fights with the
 //!   Fists (WEAP `Fists`) [hypothesis: the game's unarmed weapon form]. Knockback force
 //!   is computed (documented formula) and logged; living actors are not pushed until they
 //!   move physically. Every shot and blow that lands on an actor also sends an
@@ -610,6 +611,11 @@ pub struct Combat {
 }
 
 impl Combat {
+    /// The weapon the player fights with now: the equipped one, else the Fists.
+    pub fn player_weapon(&self) -> Option<FormId> {
+        self.weapon
+    }
+
     /// The Fists (WEAP `Fists`), the unarmed weapon.
     pub fn fists_id(&self) -> Option<FormId> {
         self.fists
@@ -1378,7 +1384,13 @@ fn melee(
         let eye = player.eye();
         let hits = {
             let world = view(&mut phys);
-            let hits = fnv_combat::projectile::swing(&world, &c.tuning, eye, player.look_dir(), [0.0, 0.0, 1.0], reach, PLAYER);
+            // Low and high: a short creature at the player's feet is struck within the
+            // reach across the ground (`swing_reaching`).
+            let hits = fnv_combat::projectile::swing_reaching(&world, &c.tuning, eye, player.feet[2], player.look_dir(), reach, PLAYER);
+            let fan = fnv_combat::projectile::swing(&world, &c.tuning, eye, player.look_dir(), [0.0, 0.0, 1.0], reach, PLAYER).len();
+            if hits.len() > fan {
+                info!("combat: swing reaches {} actors (reach {reach:.0}), {} of them out of the fan of rays at eye height", hits.len(), hits.len() - fan);
+            }
             if hits.is_empty() {
                 let ahead = world.ray(eye, vec::add(eye, vec::scale(player.look_dir(), 400.0)), &[]);
                 info!(

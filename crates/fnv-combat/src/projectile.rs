@@ -305,6 +305,60 @@ pub fn swing(world: &dyn CombatWorld, t: &CombatTuning, eye: V3, forward: V3, up
     out
 }
 
+/// How far past the reach an actor's centre may be and still be struck by
+/// [`swing_reaching`] (the half-width of a body), game units [design].
+pub const SWING_BODY_MARGIN: f32 = 24.0;
+/// The heights [`swing_reaching`] reaches: from this far below the attacker's feet to this
+/// far above its eyes, game units [design].
+pub const SWING_BELOW_FEET: f32 = 32.0;
+pub const SWING_ABOVE_EYES: f32 = 48.0;
+
+/// The actors a melee swing touches, low or high: [`swing`]'s fan of rays from the eye,
+/// and besides it every actor whose centre is within the reach across the ground from the
+/// attacker's body (plus [`SWING_BODY_MARGIN`]), inside the swing's arc either side of
+/// where it faces, between its feet and above its eyes (`feet_z`, [`SWING_BELOW_FEET`],
+/// [`SWING_ABOVE_EYES`]), and that a ray from the eye to that centre meets first
+/// [design; playtest 2026-10-11: a machete never hit a gecko, whose body is below the
+/// fan of rays at eye height unless the view points steeply down, and the reach
+/// (fCombatDistance × Reach, 150 units) is used up by the drop from the eye]. The reach
+/// is measured across the ground, so a short creature at the player's feet is as near
+/// as a man in front of them.
+pub fn swing_reaching(world: &dyn CombatWorld, t: &CombatTuning, eye: V3, feet_z: f32, forward: V3, reach: f32, attacker: ActorId) -> Vec<(ActorId, WorldHit)> {
+    let mut out = swing(world, t, eye, forward, [0.0, 0.0, 1.0], reach, attacker);
+    let flat = [forward[0], forward[1], 0.0];
+    if vec::len(flat) < 1e-4 {
+        return out;
+    }
+    let flat = vec::normalize(flat);
+    let height = (eye[2] - feet_z).max(0.0);
+    let middle = [eye[0], eye[1], feet_z + height / 2.0];
+    let mut near = world.actors_near(middle, reach + SWING_BODY_MARGIN + height);
+    near.sort_by(|a, b| vec::len(vec::sub(a.1, eye)).total_cmp(&vec::len(vec::sub(b.1, eye))));
+    for (a, c) in near {
+        if a == attacker || out.iter().any(|(x, _)| *x == a) {
+            continue;
+        }
+        let across = [c[0] - eye[0], c[1] - eye[1], 0.0];
+        let d = vec::len(across);
+        if d > reach + SWING_BODY_MARGIN || c[2] < feet_z - SWING_BELOW_FEET || c[2] > eye[2] + SWING_ABOVE_EYES {
+            continue;
+        }
+        if d > 1e-3 && vec::dot(vec::scale(across, 1.0 / d), flat).clamp(-1.0, 1.0).acos().to_degrees() > t.melee_arc_deg {
+            continue;
+        }
+        let to = vec::sub(c, eye);
+        let len = vec::len(to);
+        if len < 1e-3 {
+            continue;
+        }
+        let end = vec::add(eye, vec::scale(to, (len + SWING_BODY_MARGIN) / len));
+        if let Some(h) = world.ray(eye, end, &[attacker]).filter(|h| h.actor == Some(a)) {
+            out.push((a, h));
+        }
+    }
+    out
+}
+
 /// One actor caught in a blast.
 #[derive(Debug, Clone, Serialize)]
 pub struct BlastHit {
