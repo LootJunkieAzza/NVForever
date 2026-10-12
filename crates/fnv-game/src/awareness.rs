@@ -435,6 +435,8 @@ pub struct Awarenesses {
     /// (actor, target) pairs StartCombat made hostile whatever the records say, until
     /// StopCombat.
     pub forced: std::collections::BTreeSet<(FormId, FormId)>,
+    /// Combat groups' state: strengths, posts, flights, searches (`crate::combat_group`).
+    pub tactics: crate::combat_group::Tactics,
     rng: u64,
 }
 
@@ -514,12 +516,7 @@ impl Game<'_> {
             if !self.world.is_enabled(other).unwrap_or(false) {
                 return false;
             }
-            let base = |g: &Game, r: FormId| g.world.placed.get(r).map(|p| p.base);
-            if base(self, actor).is_some() && base(self, actor) == base(self, other) {
-                return false;
-            }
-            let mine = factions_of(self, actor);
-            if !mine.is_empty() && factions_of(self, other).iter().any(|f| mine.contains(f)) {
+            if self.kin(actor, other) {
                 return false;
             }
         }
@@ -621,6 +618,7 @@ impl Game<'_> {
             if !self.present(id) || self.is_dead(id) || self.extra.get(&id).is_some_and(|e| e.dead) {
                 self.awareness.actors.remove(&id);
                 self.provocations.calm(id);
+                self.awareness.tactics.calm(id);
                 continue;
             }
             // Targets and alarm owners that died or went are forgotten.
@@ -646,6 +644,7 @@ impl Game<'_> {
                 // Back in Normal: the fights it took up because it was hit are over.
                 if c.to == State::Normal {
                     self.provocations.calm(id);
+                    self.awareness.tactics.calm(id);
                 }
                 self.awareness.changes.push(c);
                 if let Some(topic) = c.from.topic_to(c.to) {
@@ -695,15 +694,35 @@ impl Game<'_> {
     /// [`Game::would_attack`] keeps them from fighting each other; the game's combat
     /// groups are not built].
     pub fn bark_mates(&self, a: FormId, b: FormId) -> bool {
-        if a == b {
-            return true;
+        a == b || self.kin(a, b)
+    }
+
+    /// Whether two actors are of one kind, so that they never fight each other: placed
+    /// from the same base form, or with a faction in common [engineering choice: without
+    /// it Very Aggressive creatures of one kind, neutral to each other, would fight].
+    /// Since 2026-10-12 (combat-ai.md §12.4) never when the factions of either name the
+    /// other's an enemy, and a faction in common that names no reactions of its own (a
+    /// utility faction: GeneralIdleFaction, voice and dialogue factions) counts only when
+    /// one of the two has no faction that names reactions [design: NCR troopers and Fiends
+    /// are both in GeneralIdleFaction, which names none, and their own factions,
+    /// NCRFactionNV and FiendsFactionNV, name 23 and 6 others, but not each other:
+    /// observed].
+    pub fn kin(&self, a: FormId, b: FormId) -> bool {
+        if a == b || a == FormId::PLAYER_REF || b == FormId::PLAYER_REF {
+            return false;
+        }
+        if faction_relation(self, a, b) == 1 || faction_relation(self, b, a) == 1 {
+            return false;
         }
         let base = |r: FormId| self.world.placed.get(r).map(|p| p.base);
         if base(a).is_some() && base(a) == base(b) {
             return true;
         }
-        let mine = factions_of(self, a);
-        !mine.is_empty() && factions_of(self, b).iter().any(|f| mine.contains(f))
+        let names = |f: &FormId| self.data.faction_reactions.get(f).is_some_and(|v| !v.is_empty());
+        let (mine, theirs) = (factions_of(self, a), factions_of(self, b));
+        let shared: Vec<&FormId> = mine.iter().filter(|f| theirs.contains(f)).collect();
+        let fighting_faction = |fs: &[FormId]| fs.iter().any(names);
+        shared.iter().any(|f| names(f)) || (!shared.is_empty() && (!fighting_faction(&mine) || !fighting_faction(&theirs)))
     }
 }
 
@@ -738,6 +757,7 @@ impl Game<'_> {
     pub fn stop_combat(&mut self, actor: FormId) {
         self.awareness.forced.retain(|(a, _)| *a != actor);
         self.provocations.calm(actor);
+        self.awareness.tactics.calm(actor);
         self.forgive_crimes(actor);
         if let Some(a) = self.awareness.actors.remove(&actor) {
             if a.state != State::Normal {

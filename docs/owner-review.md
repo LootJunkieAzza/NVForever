@@ -3975,6 +3975,80 @@ Tests: nvf-play unit tests (261), engine clippy; smoke (one pass, final build):
 detection-game PASS, quest-messages PASS, house-items KNOWN, ui-sounds KNOWN; an earlier pass
 on this branch: residents, sleep-novac, wait-residents, held-player, corner-messages,
 sunny-wells, sunny-gas-station, aid-items, push, npc-travel all PASS.
+## Combat AI: fleeing, cover, groups and searching (2026-10-12, session "e2")
+
+List 2's combat item ("fight, flee, take cover, assist allies … fights between NPCs at
+scale … work together … spreading out to find the enemy, alerting their friends").
+Details and sources: docs/design/combat-ai.md §12. The GECK wiki's points come first; what
+is our own design is said so.
+
+1. **Fleeing** (wiki: Confidence, Combat Flee). A hurt fighter checks now and then
+   whether its side is outmatched (its group's health × damage per second against the
+   foes', and its own when its combat style says "personal survival"), against its
+   confidence. Failing, it says its Flee line and runs: through a door near it, to cover
+   away from the attacker, or straight away. At the spot it waits; hurt again or cornered
+   (an enemy within 512 units) its confidence goes up a level and it fights or flees on.
+   Frenzied actors never flee. *Guess:* after fCombatFleeWaitTime (30 s) at the spot it
+   checks again (the wiki lists the setting without saying what it does); the choice among
+   several doors or covers is nearest first; armour is not counted in the strengths yet.
+   *Check:* shoot a Goodsprings bighorner once: it runs off behind cover and stays there;
+   walk up to it: it should turn on you or run on.
+2. **Cover** (wiki: Combat Style cover chance and timers). Every 10 s a gunman rolls its
+   style's Take Cover Chance; using cover, it finds a spot behind something its target is
+   beyond (navmesh cover edges, checked with a sight ray), hides for the style's Wait
+   Timer, steps out to a peek point, fires for the Fire Timer, and ducks back.
+   *Decision:* never more than 1,024 units from where it stands (the styles' radii had
+   troopers run 2,000 units mid-fight). *Guess:* what the navmesh's cover field means
+   (we use the cover triangles' outer edges and confirm with a ray; the cover height is not
+   read, and NPCs do not crouch). *Check:* in the NCR–Fiend fight below, troopers should
+   run behind rocks and pop out to shoot; tell me if they look silly (too far, wrong side).
+3. **Groups working together** (our design on the wiki's combat groups). Gunmen of one side
+   fighting one target spread round it (flank places 35° apart), and nobody fires while a
+   comrade stands in the line of fire: it steps aside. *Decision:* bystanders (brahmin)
+   do not stop a shot, only comrades and the player. *Check:* the troopers should fan out,
+   not queue in a line.
+4. **Alerting friends** (wiki: Confidence, Alarms; our design on top). An actor that starts
+   fighting calls its comrades within 2,048 units, unless its side clearly outmatches the
+   foe (the wiki's alarm confidence; its multiplier 3 is the wiki's example, no game
+   setting names it). *Decision:* an actor that only notices a hostile also calls them (your
+   "alerting their friends when they sense an enemy presence"); an alarm passed on is not
+   passed on again; the 2,048 units are my choice. *Check:* at Cook-Cook's camp, once one
+   Fiend notices you the whole camp goes on alert.
+5. **Searching together** (wiki: Combat Search). A hostile only glimpsed is searched for
+   midway between the searcher and it (the wiki's rule; before it was at the hostile).
+   Comrades searching for the same thing split the circle round it into sectors, three
+   search points each; after two complete searches (FalloutNV.esm's
+   iCombatTargetLostRemoveSearchCount) they give up unless they still glimpse you.
+   *Decision:* sectors stand in for the wiki's split of the navmesh by what each cannot
+   see. *Check:* sneak and fire near the camp: the Fiends should fan out, not walk to one
+   spot together.
+6. **NPC against NPC.** A hit by another actor now makes the victim fight back as your hits
+   do, except stray hits between comrades and between two actors both fighting someone
+   else (your exception from list 1, for everyone).
+   **Changed rule, please confirm:** actors sharing a faction never fight each other (an
+   earlier engineering choice). The NCR and the Fiends both sit in GeneralIdleFaction, so
+   they were at peace; their own factions do not name each other at all (neutral both
+   ways in FalloutNV.esm), and the Fiends are Very Aggressive, so the game has them attack
+   NCR on sight. *Decision:* a shared faction no longer counts when either side's
+   factions name the other an enemy, and a shared faction that names no reactions (a
+   utility faction such as GeneralIdleFaction) only counts when one of the two has no
+   faction that does. *Check:* NCR patrols near Fiend ground should fight them; no new
+   fights among townsfolk and their animals.
+7. **Watching fights at scale.** Test aids: `NVF_PLAY_TEST_SCRIPT=<s>:moveto:<ref>:player:x:y:z`
+   moves any actor next to you; `NVF_PLAY_TEST_UNSEEN=1` makes you invisible to everyone.
+   Every fight logs `battle: X killed by Y`, `battle over after … s` and a `battle summary`
+   (sides, hits, kills, flights, cover, flanks, alarms, searches, time). Smoke scenarios
+   `battle-ncr-fiends`, `combat-cover`, `allies-alerted` (one run: six NCR troopers moved
+   by Cook-Cook's camp), `combat-flee`, `group-search`. One run: 11 actors on 2 sides,
+   the Fiends won (3 of 5 standing, all six troopers dead), 61 and 33 hits, resolved in
+   62.5 s.
+8. **Hook for the crime workstream:** `Game::attacked_by` (provocation.rs) now hands hits
+   by actors other than the player to `Game::attacked_by_actor` (combat_group.rs), and
+   `reaction_to` uses the new `Game::kin`. Nothing else in provocation.rs changed.
+
+Not done (combat-ai.md §12.10): grenades and avoiding threats, NPC blocking, dodging and
+power attacks, combat barks other than Flee, Combat Radius and targeting FOV, healing in
+combat, cover on a Continue During Combat walk, armour in the threat ratio.
 
 ## Floating NCR troopers (2026-10-12, session "floating-troopers")
 

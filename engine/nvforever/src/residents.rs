@@ -871,6 +871,11 @@ impl Core {
                 | AiEvent::Hold { .. }
                 | AiEvent::Close { .. }
                 | AiEvent::Pace { .. }
+                | AiEvent::Post { .. }
+                | AiEvent::NoPost { .. }
+                | AiEvent::Flee { .. }
+                | AiEvent::FleeArrived { .. }
+                | AiEvent::Cornered { .. }
                 | AiEvent::SearchOver { .. }
                 | AiEvent::SearchBack { .. } => info!("{line}"),
                 _ => debug!("{line}"),
@@ -1016,6 +1021,34 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             if *aiming { "walks on, aiming down the sights at" } else { "runs on, sights lowered, at" },
             if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) }
         ),
+        AiEvent::Post { post, target, to, away, length } => format!(
+            "goes to {} against {} at ({:.0}, {:.0}, {:.0}): {away:.0} units away, {length:.0} units to go",
+            post.name(),
+            if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) },
+            to[0],
+            to[1],
+            to[2]
+        ),
+        AiEvent::AtPost { post, off, .. } => format!("is at {} ({off:.0} units off)", post.name()),
+        AiEvent::NoPost { post } => format!("has no way to {}: closes in instead", post.name()),
+        AiEvent::Flee { from, how, to, away, length } => format!(
+            "flees from {} {}: to ({:.0}, {:.0}, {:.0}), {} from it, {length:.0} units to go",
+            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) },
+            match how {
+                fnv_game::combat_group::FleeBy::Door { door } => format!("through door {door}"),
+                fnv_game::combat_group::FleeBy::Cover => "to cover".to_string(),
+                fnv_game::combat_group::FleeBy::Away => "away".to_string(),
+            },
+            to[0],
+            to[1],
+            to[2],
+            if away.is_finite() { format!("{away:.0} units") } else { "in another cell".to_string() }
+        ),
+        AiEvent::FleeArrived { from, seconds, off } => format!(
+            "reached its flee spot from {} after {seconds:.1}s ({off:.0} units off): stays there",
+            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }
+        ),
+        AiEvent::Cornered { from } => format!("is cornered by {}: nowhere to flee, stands", if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
     }

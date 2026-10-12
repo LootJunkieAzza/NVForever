@@ -57,17 +57,30 @@
 //!   actors" [documented: GECK wiki Weapons]); in melee each time it may strike it makes
 //!   the melee decision (attack chance with the hand-to-hand bonus and the attack skill
 //!   modifier, under attack or not), and holds for the Hold Timer when it does not attack.
-//! - **Confidence** (`fnv_game::combat_style`): once hurt, every random 0 to
-//!   fCombatThreatRatioUpdateTime seconds it compares its threat ratio (its health ×
-//!   damage per second over its target's) with its confidence threshold and this
-//!   fight's confidence modifier; fleeing is not built, so a decision to flee is logged
-//!   (`would flee`) and counted.
+//! - **Confidence and fleeing** (`fnv_game::combat_group`, docs/design/combat-ai.md
+//!   §12.2): each fighter's strength (health, damage per second) goes to the game every
+//!   frame; once hurt, every random 0 to fCombatThreatRatioUpdateTime seconds it makes a
+//!   flee check (its group's threat ratio, and its personal one when its style says so,
+//!   against its confidence and this fight's modifier) and flees when it fails
+//!   (`fnv_ai::alert` runs it to a door, cover or away). It does not attack while it
+//!   flees. At its flee spot, hurt or with a target it sees within
+//!   fCombatFleeBoostConfidenceTargetRadius, its confidence goes up a level and it checks
+//!   again: it fights again or flees on; after fCombatFleeWaitTime there it checks again
+//!   without a boost [hypothesis: what the wait time is for].
+//! - **Tactics** (`combat_tactics`): cover by the style's Take Cover Chance and timers,
+//!   flank places for a group's gunmen, and no shot while a friend stands in the line of
+//!   fire.
 //!
-//! Whom it fights is the detection states' (its combat target); this module only
-//! attacks. Not built: cover, fleeing, grenades, ammunition use, weapon choice among
-//! several, blocking, dodging and power attacks of NPCs.
+//! Whom it fights is the detection states' (its combat target). Not built: grenades,
+//! ammunition use, weapon choice among several, blocking, dodging and power attacks of
+//! NPCs.
 
 use crate::attack_anims::{AttackTimes, PlayAttack, DEFAULT_HIT};
+use crate::combat_tactics::{self as tactics, Battle, Phase, Tactic};
+use crate::nav::NavState;
+use fnv_game::combat_group::{Post, PostKind, Strength};
+use fnv_nav::Space;
+use nvf_play::Location;
 use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
 use crate::ragdoll::Corpse;
@@ -81,7 +94,7 @@ use fnv_combat::data::WeaponStats;
 use fnv_combat::spread::{self, Stance};
 use fnv_combat::vec::{self, V3};
 use fnv_game::awareness::State;
-use fnv_game::combat_style::{flees, melee_attack_chance, threat_ratio};
+use fnv_game::combat_style::melee_attack_chance;
 use fnv_game::detection::Band;
 use fnv_sim::FormId;
 use nvf_play::blocking::ActorBlocks;
@@ -164,11 +177,11 @@ struct Fighter {
     /// Seconds before a semi-automatic gun may be fired again (its combat style's
     /// firing delay).
     pull_in: f32,
-    /// This fight's confidence modifier; seconds to the next flee check; whether it
-    /// has decided it would flee (logged once).
+    /// This fight's confidence modifier; seconds to the next flee check.
     confidence_mod: f64,
     flee_check_in: f32,
-    would_flee: bool,
+    /// Cover, flank, line of fire (`combat_tactics`).
+    tactic: Tactic,
 }
 
 #[derive(Resource, Default)]
@@ -213,11 +226,10 @@ struct Stats {
     sights_shots: usize,
     hip_shots: usize,
     sights_raised: usize,
-    /// Melee decisions to hold instead of attacking; flee checks made and decisions to
-    /// flee (not acted on).
+    /// Melee decisions to hold instead of attacking; flee checks made and flights begun.
     holds: usize,
     flee_checks: usize,
-    would_flee: usize,
+    flees: usize,
 }
 
 /// A number in [0, 1) from the module's own sequence `rng` [design].
@@ -305,7 +317,8 @@ fn fight(
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     player: Option<Res<Player>>,
-    (blocks, phys): (Option<Res<ActorBlocks>>, Option<Res<PhysState>>),
+    (blocks, mut phys): (Option<Res<ActorBlocks>>, Option<ResMut<PhysState>>),
+    (nav, location, mut battle): (Option<Res<NavState>>, Option<Res<Location>>, ResMut<Battle>),
     actors: Query<Fought>,
     held: Query<&HeldWeapon>,
     muzzles: Query<(&Muzzle, &GlobalTransform)>,
@@ -342,9 +355,9 @@ fn fight(
     };
     let f = &mut *fighters;
     f.poses.clear();
-    // Each fighter's attack, for the threat ratio of whoever fights it.
-    let mut arms: HashMap<u32, Arm> = f.fighters.iter().map(|(id, x)| (*id, x.arm.clone())).collect();
-    arms.insert(FormId::PLAYER_REF.0, player_arm(c));
+    let clock = time.elapsed_secs();
+    let space = location.as_deref().map(|l| l.interior.map_or(Space::World(l.world), Space::Interior));
+    let nav = nav.as_deref().map(|n| &n.graph);
     let mut still: Vec<u32> = Vec::new();
     with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
@@ -365,14 +378,29 @@ fn fight(
             // What it fights with; its combat style may keep it to melee.
             let style = g.combat_style(me);
             let melee_only = style.is_some_and(|s| s.weapon_restrictions == 1);
-            let arm = match weapons.get(&id).copied() {
-                Some(w) if melee_only && c.forms.weapons.get(&w).is_some_and(|ws| is_gun(c, ws, w)) => Arm::Melee(None),
-                Some(w) if c.forms.weapons.get(&w).is_some_and(|ws| is_gun(c, ws, w)) => Arm::Gun(w),
-                Some(w) => Arm::Melee(Some(w)),
-                None => match g.creature_attack(me) {
-                    Some((damage, reach)) => Arm::Creature(damage as f32, reach.filter(|r| *r > 0.0).map_or(CREATURE_REACH, |r| r as f32) * scale),
-                    None => Arm::Melee(None),
-                },
+            let arm = arm_of(c, g, weapons.get(&id).copied(), me, scale, melee_only);
+            // Its strength, and its target's, for the threat ratios.
+            let (health, full) = g.health_now_and_full(me);
+            g.awareness.tactics.strengths.insert(me, Strength { health, dps: dps(c, &arm) as f64 });
+            if !f.fighters.contains_key(&target.0) || target == FormId::PLAYER_REF {
+                let tarm = if target == FormId::PLAYER_REF { player_arm(c) } else { arm_of(c, g, weapons.get(&target.0).copied(), target, 1.0, false) };
+                let (th, _) = g.health_now_and_full(target);
+                g.awareness.tactics.strengths.insert(target, Strength { health: th, dps: dps(c, &tarm) as f64 });
+            }
+            battle.side_of(g, id);
+            battle.side_of(g, target.0);
+            battle.fought(clock);
+            // The gunmen of its group on this target (flank places), it among them.
+            let mates: Vec<u32> = {
+                let mut v: Vec<u32> = f
+                    .fighters
+                    .iter()
+                    .filter(|(k, x)| **k != id && x.target == target && matches!(x.arm, Arm::Gun(_)) && g.comrades(me, FormId(**k)) && !g.awareness.tactics.flights.contains_key(&FormId(**k)))
+                    .map(|(k, _)| *k)
+                    .collect();
+                v.push(id);
+                v.sort();
+                v
             };
             let fresh = f.fighters.get(&id).is_none_or(|x| x.target != target || x.arm != arm);
             if fresh {
@@ -386,7 +414,9 @@ fn fight(
                 let name = g.data.name(me);
                 f.stats.fighters.insert(id, name.clone());
                 info!("npc combat: {name} {me} fights {} with {}", if target == FormId::PLAYER_REF { "the player".to_string() } else { g.data.name(target) }, describe(c, &arm));
-                f.fighters.insert(id, Fighter { target, arm: arm.clone(), seen_for: 0.0, firing_for: 0.0, cycle, strike_in: 0.0, pulled: false, blows: Vec::new(), sights: false, pull_in: 0.0, confidence_mod: 0.0, flee_check_in: 0.0, would_flee: false });
+                // A new target keeps the fighter's tactics (its cover roll, its flight).
+                let tactic = f.fighters.remove(&id).map(|x| x.tactic).unwrap_or_default();
+                f.fighters.insert(id, Fighter { target, arm: arm.clone(), seen_for: 0.0, firing_for: 0.0, cycle, strike_in: 0.0, pulled: false, blows: Vec::new(), sights: false, pull_in: 0.0, confidence_mod: 0.0, flee_check_in: 0.0, tactic });
                 // This fight's confidence modifier, not for the foolhardy; the first
                 // flee check within the update time [documented: GECK wiki Confidence].
                 let threshold = g.confidence_threshold(me);
@@ -400,25 +430,88 @@ fn fight(
             // Its opponent is in the middle of a blow (the melee decision).
             let under_attack = f.fighters.get(&target.0).is_some_and(|t| !t.blows.is_empty());
             let fighter = f.fighters.get_mut(&id).expect("inserted");
-            // Confidence: once hurt, now and then, would it rather flee? (module notes)
+            // Confidence: once hurt, now and then, would it rather flee? At its flee spot,
+            // attacked or cornered, does it stand and fight? (module notes)
+            let away = (feet[0] - tfeet[0]).hypot(feet[1] - tfeet[1]);
+            let sees_now = g.detection.get(me, target).is_some_and(|d| d.band == Band::Detected && d.seen);
             fighter.flee_check_in -= dt;
-            if fighter.flee_check_in <= 0.0 && !fighter.would_flee {
-                fighter.flee_check_in = g.threat_ratio_update_time() as f32 * next_unit(&mut f.rng);
-                let (health, full) = g.health_now_and_full(me);
-                if health < full {
-                    f.stats.flee_checks += 1;
-                    let (their_health, _) = g.health_now_and_full(target);
-                    let theirs = arms.get(&target.0).map_or(0.0, |a| dps(c, a));
-                    let ratio = threat_ratio(health, dps(c, &arm) as f64, their_health, theirs as f64);
-                    let threshold = g.confidence_threshold(me);
-                    if flees(ratio, threshold, fighter.confidence_mod) {
-                        fighter.would_flee = true;
-                        f.stats.would_flee += 1;
-                        info!(
-                            "npc combat: {} {me} would flee (threat ratio {ratio:.3} below its confidence {threshold:.4}, modifier {:+.2}; fleeing is not built)",
-                            g.data.name(me),
-                            fighter.confidence_mod
-                        );
+            let gs = g.group_settings();
+            let target_name = tactics::who(g, target);
+            let me_name = tactics::who(g, me);
+            match g.awareness.tactics.flights.get(&me).copied() {
+                Some(fl) => {
+                    if let Some(arrived) = fl.arrived {
+                        let at_spot = *fighter.tactic.fled_health.get_or_insert(health);
+                        let hurt = health < at_spot - 0.5;
+                        let cornered = sees_now && away <= gs.flee_boost_radius;
+                        let waited = g.time - arrived >= gs.flee_wait;
+                        if hurt || cornered || waited {
+                            if hurt || cornered {
+                                g.boost_confidence(me);
+                                battle.boosts += 1;
+                            }
+                            fighter.tactic.fled_health = Some(health);
+                            let check = g.flee_check(me, fighter.confidence_mod);
+                            let why = if hurt { "hurt at its flee spot" } else if cornered { "cornered" } else { "waited at its flee spot" };
+                            if !check.flees {
+                                g.end_flight(me);
+                                battle.back_to_fight += 1;
+                                info!("npc combat: {me_name} turns to fight {target_name} again ({why}; confidence rating now {})", check.rating);
+                            } else if hurt || cornered {
+                                g.start_flight(me, target, tfeet);
+                                info!("npc combat: {me_name} flees on from {target_name} ({why})");
+                            } else if let Some(fl) = g.awareness.tactics.flights.get_mut(&me) {
+                                fl.arrived = Some(g.time);
+                            }
+                        }
+                    }
+                }
+                None if fighter.flee_check_in <= 0.0 => {
+                    fighter.flee_check_in = g.threat_ratio_update_time() as f32 * next_unit(&mut f.rng);
+                    if health < full {
+                        f.stats.flee_checks += 1;
+                        let check = g.flee_check(me, fighter.confidence_mod);
+                        if check.flees {
+                            g.start_flight(me, target, tfeet);
+                            fighter.tactic.fled_health = None;
+                            fighter.tactic.cover = None;
+                            f.stats.flees += 1;
+                            let side = battle.side_of(g, id);
+                            battle.sides[side].flights += 1;
+                            let (kind, ratio) = if check.personal { ("personal survival", check.personal_ratio) } else { ("group", check.group_ratio) };
+                            info!(
+                                "npc combat: {me_name} flees from {target_name}: {kind} threat ratio {:.3} below its confidence {:.4} (rating {}, modifier {:+.2}; health {health:.0} of {full:.0})",
+                                ratio.unwrap_or(0.0),
+                                check.threshold,
+                                check.rating,
+                                fighter.confidence_mod
+                            );
+                        }
+                    }
+                }
+                None => {}
+            }
+            let flight = g.awareness.tactics.flights.get(&me).copied();
+            let fleeing = flight.is_some();
+            if let Some(fl) = flight {
+                // How it fled, counted once: by its spot, or cornered.
+                let key = (id, fl.since.to_bits());
+                if !battle.counted_flights.contains(&key) {
+                    match (fl.spot, fl.arrived) {
+                        (Some((_, how)), _) => {
+                            let k = match how {
+                                fnv_game::combat_group::FleeBy::Door { .. } => 0,
+                                fnv_game::combat_group::FleeBy::Cover => 1,
+                                fnv_game::combat_group::FleeBy::Away => 2,
+                            };
+                            battle.flights[k] += 1;
+                            battle.counted_flights.insert(key);
+                        }
+                        (None, Some(_)) => {
+                            battle.cornered += 1;
+                            battle.counted_flights.insert(key);
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -430,7 +523,6 @@ fn fight(
                 _ => None,
             };
             let reach = reach_of(c, &arm, scale);
-            let away = (feet[0] - tfeet[0]).hypot(feet[1] - tfeet[1]);
             let gap = gap(id, target.0, tfeet);
             let want = match (&arm, gap) {
                 // Melee with bodies to measure: from where its feet are, as far as the
@@ -445,8 +537,161 @@ fn fight(
             // Can it see its target?
             let sees = g.detection.get(me, target).is_some_and(|d| d.band == Band::Detected && d.seen);
             fighter.seen_for = if sees { fighter.seen_for + dt } else { 0.0 };
-            let ready = sees && fighter.seen_for >= REACTION_SECONDS && hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
             let tchest = [tfeet[0], tfeet[1], tfeet[2] + (teyes[2] - tfeet[2]) * CHEST];
+            // Tactics of a gunman (`combat_tactics`): cover, flank, line of fire.
+            let mut hold_fire = fleeing;
+            if matches!(arm, Arm::Gun(_)) && !fleeing {
+                let name = &me_name;
+                let t = &mut fighter.tactic;
+                let mut want_post: Option<Post> = None;
+                // A post the AI dropped (no way there): not that kind again for a while;
+                // cover it could not reach is not looked at again.
+                if let (Some(k), false) = (t.last_post, g.awareness.tactics.posts.contains_key(&me)) {
+                    t.no_post = Some((k, clock + tactics::NO_POST_SECONDS));
+                    if matches!(k, PostKind::Cover | PostKind::Peek) {
+                        if let Some(cv) = t.cover.take() {
+                            t.bad_cover.push(cv.behind);
+                        }
+                        t.cover_search_in = tactics::COVER_RETRY;
+                    }
+                }
+                let barred = |t: &Tactic, k: PostKind| t.no_post.is_some_and(|(n, until)| n == k && clock < until);
+                // Cover: rolled every 10 s by the style's Take Cover Chance.
+                t.cover_roll_in -= dt;
+                if t.cover_roll_in <= 0.0 {
+                    t.cover_roll_in = tactics::COVER_EVERY;
+                    let chance = style.map_or(0.0, |s| s.take_cover_chance);
+                    t.use_cover = chance > 0.0 && next_unit(&mut f.rng) * 100.0 < chance;
+                    if !t.use_cover && t.cover.take().is_some() {
+                        info!("npc combat: {name} leaves its cover (no cover for the next {:.0} s)", tactics::COVER_EVERY);
+                    }
+                }
+                if let Some(cv) = t.cover {
+                    if !cv.edge.faces(tchest) || (cv.edge.mid[0] - tfeet[0]).hypot(cv.edge.mid[1] - tfeet[1]) > want.1 {
+                        t.cover = None;
+                        info!("npc combat: {name} gives up its cover: {target_name} is no longer behind it");
+                    }
+                }
+                if t.use_cover && t.cover.is_none() {
+                    t.cover_search_in -= dt;
+                    if t.cover_search_in <= 0.0 {
+                        t.cover_search_in = tactics::COVER_RETRY;
+                        let taken: Vec<[f32; 3]> = g.awareness.tactics.posts.iter().filter(|(k, _)| **k != me).map(|(_, p)| p.at).chain(t.bad_cover.iter().copied()).collect();
+                        if let (Some(nav), Some(space)) = (nav, space) {
+                            let radius = style.map_or(0.0, |s| s.cover_search_radius);
+                            let radius = if radius > 0.0 { radius } else { tactics::COVER_SEARCH_DEFAULT }.min(tactics::COVER_MAX_RUN);
+                            if let Some(cv) = tactics::find_cover(nav, phys.as_deref_mut(), space, feet, tchest, eyes[2] - feet[2], radius, want.1, &taken) {
+                                battle.cover_taken += 1;
+                                info!(
+                                    "npc combat: {name} takes cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it)",
+                                    (cv.behind[0] - feet[0]).hypot(cv.behind[1] - feet[1]),
+                                    (cv.behind[0] - tfeet[0]).hypot(cv.behind[1] - tfeet[1]),
+                                    (cv.peek[0] - cv.behind[0]).hypot(cv.peek[1] - cv.behind[1])
+                                );
+                                t.cover = Some(cv);
+                            }
+                        }
+                    }
+                }
+                let timer = |rng: &mut u64, (lo, hi): (f32, f32)| clock + (lo + (hi - lo).max(0.0) * next_unit(rng)).max(0.5);
+                if let Some(cv) = t.cover.as_mut() {
+                    let near = |p: [f32; 3]| (p[0] - feet[0]).hypot(p[1] - feet[1]) < tactics::AT_POST;
+                    let (wait, wait_fire, fire_t) = style.map_or(((2.0, 4.0), (1.0, 2.0), (2.0, 4.0)), |s| (s.wait_timer, s.wait_to_fire_timer, s.fire_timer));
+                    match cv.phase {
+                        Phase::Going => {
+                            if near(cv.behind) {
+                                cv.phase = Phase::Hiding { until: timer(&mut f.rng, wait) };
+                            }
+                        }
+                        Phase::Hiding { until } => {
+                            hold_fire = true;
+                            if clock >= until {
+                                cv.phase = Phase::WaitToFire { until: timer(&mut f.rng, wait_fire) };
+                                battle.peeks += 1;
+                            }
+                        }
+                        Phase::WaitToFire { until } => {
+                            if sees_now && near(cv.peek) {
+                                cv.phase = Phase::Firing { until: timer(&mut f.rng, fire_t) };
+                            } else if clock >= until {
+                                cv.phase = Phase::Hiding { until: timer(&mut f.rng, wait) };
+                            }
+                        }
+                        Phase::Firing { until } => {
+                            if clock >= until {
+                                cv.phase = Phase::Hiding { until: timer(&mut f.rng, wait) };
+                            }
+                        }
+                    }
+                    let (at, kind) = match cv.phase {
+                        Phase::Going | Phase::Hiding { .. } => (cv.behind, PostKind::Cover),
+                        _ => (cv.peek, PostKind::Peek),
+                    };
+                    if !barred(t, kind) {
+                        want_post = Some(Post { at, kind, run: true });
+                    }
+                }
+                // The line of fire: a comrade (or the player, when not its target) in the way.
+                let blocker = places
+                    .iter()
+                    .filter(|(k, _)| **k != id && **k != target.0)
+                    .map(|(k, p)| (*k, [p.0[0], p.0[1], p.0[2] + (p.1[2] - p.0[2]) * CHEST]))
+                    .find(|(k, p)| tactics::in_line_of_fire(eyes, tchest, *p, tactics::LINE_OF_FIRE_WIDTH) && (*k == FormId::PLAYER_REF.0 || g.comrades(me, FormId(*k))) && !g.would_attack(me, FormId(*k)));
+                match blocker {
+                    Some((k, p)) => {
+                        hold_fire = true;
+                        if t.blocked_by != Some(k) {
+                            t.blocked_by = Some(k);
+                            battle.held_fire += 1;
+                            info!("npc combat: {name} holds fire: {} stands in its line of fire to {target_name}", tactics::who(g, FormId(k)));
+                        }
+                        if want_post.is_none() && !barred(t, PostKind::Sidestep) {
+                            let at = tactics::sidestep(feet, tfeet, p, tactics::SIDESTEP);
+                            if g.awareness.tactics.posts.get(&me).is_none_or(|q| q.kind != PostKind::Sidestep) {
+                                battle.sidesteps += 1;
+                            }
+                            want_post = Some(Post { at, kind: PostKind::Sidestep, run: false });
+                        }
+                    }
+                    None => t.blocked_by = None,
+                }
+                // Flank places for a group's gunmen not in cover.
+                if want_post.is_none() && mates.len() >= 2 && !barred(t, PostKind::Flank) {
+                    t.flank_in -= dt;
+                    let current = g.awareness.tactics.posts.get(&me).copied().filter(|p| p.kind == PostKind::Flank);
+                    if t.flank_in <= 0.0 {
+                        t.flank_in = tactics::FLANK_EVERY;
+                        let index = mates.iter().position(|m| *m == id).unwrap_or(0);
+                        let n = mates.iter().filter_map(|m| places.get(m)).count().max(1) as f32;
+                        let centre = mates.iter().filter_map(|m| places.get(m)).fold([0.0f32; 3], |a, p| [a[0] + p.0[0] / n, a[1] + p.0[1] / n, a[2] + p.0[2] / n]);
+                        let radius = away.min(want.0);
+                        let at = tactics::flank_point(tfeet, centre, radius, tactics::flank_turn(index));
+                        if (at[0] - feet[0]).hypot(at[1] - feet[1]) >= tactics::FLANK_MIN_MOVE {
+                            if current.is_none_or(|c| (c.at[0] - at[0]).hypot(c.at[1] - at[1]) >= tactics::FLANK_MIN_MOVE) {
+                                battle.flanks += 1;
+                                info!("npc combat: {name} takes a flank place, {:.0}° round {target_name} from its group ({} gunmen)", tactics::flank_turn(index), mates.len());
+                            }
+                            want_post = Some(Post { at, kind: PostKind::Flank, run: true });
+                        } else if let Some(c) = current {
+                            want_post = Some(c);
+                        }
+                    } else {
+                        want_post = current;
+                    }
+                }
+                t.last_post = want_post.map(|p| p.kind);
+                match want_post {
+                    Some(p) => {
+                        g.awareness.tactics.posts.insert(me, p);
+                    }
+                    None => {
+                        g.awareness.tactics.posts.remove(&me);
+                    }
+                }
+            } else if fleeing || !matches!(arm, Arm::Gun(_)) {
+                g.awareness.tactics.posts.remove(&me);
+            }
+            let ready = sees && !hold_fire && fighter.seen_for >= REACTION_SECONDS && hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
             let pitch = (tchest[2] - eyes[2]).atan2((tchest[0] - eyes[0]).hypot(tchest[1] - eyes[1]));
             // Down the sights while it fires at a far target, from the hip near.
             let sight_fov = match &arm {
@@ -584,14 +829,29 @@ fn fight(
                 }
             }
         }
-        // Actors no longer fighting: no engage distance, no fighter.
+        // Actors no longer fighting: no engage distance, no fighter, no post.
         let gone: Vec<u32> = f.fighters.keys().copied().filter(|id| !still.contains(id)).collect();
         for id in gone {
             f.fighters.remove(&id);
             g.awareness.engage.remove(&FormId(id));
             g.awareness.aiming.remove(&FormId(id));
+            g.awareness.tactics.posts.remove(&FormId(id));
         }
     });
+}
+
+/// What an actor fights with: the weapon drawn on it (a gun, unless its style keeps it to
+/// melee), else a creature's own attack, else its fists.
+fn arm_of(c: &Combat, g: &fnv_game::game::Game, weapon: Option<FormId>, me: FormId, scale: f32, melee_only: bool) -> Arm {
+    match weapon {
+        Some(w) if melee_only && c.forms.weapons.get(&w).is_some_and(|ws| is_gun(c, ws, w)) => Arm::Melee(None),
+        Some(w) if c.forms.weapons.get(&w).is_some_and(|ws| is_gun(c, ws, w)) => Arm::Gun(w),
+        Some(w) => Arm::Melee(Some(w)),
+        None => match g.creature_attack(me) {
+            Some((damage, reach)) => Arm::Creature(damage as f32, reach.filter(|r| *r > 0.0).map_or(CREATURE_REACH, |r| r as f32) * scale),
+            None => Arm::Melee(None),
+        },
+    }
 }
 
 fn describe(c: &Combat, arm: &Arm) -> String {
@@ -611,7 +871,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
     let s = &fighters.stats;
     let (hits, damage, died) = stats.map_or((0, 0.0, false), |c| (c.player_hits, c.player_damage, c.player_died));
     info!(
-        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} missed: out of reach when they landed; {} melee decisions to hold), {} reloads; {} flee checks, {} would flee; the player was hit {hits} times for {damage:.1}{}",
+        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} missed: out of reach when they landed; {} melee decisions to hold), {} reloads; {} flee checks, {} fled; the player was hit {hits} times for {damage:.1}{}",
         s.fighters.len(),
         s.fighters.values().cloned().collect::<Vec<_>>().join(", "),
         s.shots,
@@ -625,7 +885,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.holds,
         s.reloads,
         s.flee_checks,
-        s.would_flee,
+        s.flees,
         if died { " and died" } else { "" },
     );
 }

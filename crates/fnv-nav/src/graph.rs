@@ -52,6 +52,45 @@ pub struct NavTri {
     pub next: [u32; 3],
     pub kind: [EdgeKind; 3],
     pub flags: u16,
+    /// Listed in its navmesh's NVCA (cover triangles); every listed triangle has a
+    /// nonzero NVTR cover field [observed: FalloutNV.esm, `fnvtool nav survey`, 15,791 of
+    /// 15,791]. What the field's bits mean is not known (docs/spec-notes/navmesh.md §2).
+    pub cover: bool,
+}
+
+/// An edge of a cover triangle on the outline of the navmesh ([`NavGraph::cover_edges_near`]):
+/// what stands beyond it (a rock, a wall, a car) is cover [hypothesis: the GECK's "Find
+/// Cover Edges" marks the outside edges by the height of what stands there; the edges
+/// of a listed triangle that lead nowhere are those].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CoverEdge {
+    pub tri: u32,
+    pub a: [f32; 3],
+    pub b: [f32; 3],
+    /// The edge's middle.
+    pub mid: [f32; 3],
+    /// Unit vector across the edge, out of the navmesh (towards what stands there),
+    /// horizontal.
+    pub out: [f32; 2],
+}
+
+impl CoverEdge {
+    /// The edge's length, horizontally.
+    pub fn length(&self) -> f32 {
+        (self.b[0] - self.a[0]).hypot(self.b[1] - self.a[1])
+    }
+
+    /// Whether `from` (a threat) is on the far side of the edge's line: the cover stands
+    /// between it and someone at the edge [design].
+    pub fn faces(&self, from: [f32; 3]) -> bool {
+        (from[0] - self.mid[0]) * self.out[0] + (from[1] - self.mid[1]) * self.out[1] > 0.0
+    }
+
+    /// A place to stand behind the edge, `back` units in from its middle (on the
+    /// navmesh side), at the edge's height.
+    pub fn behind(&self, back: f32) -> [f32; 3] {
+        [self.mid[0] - self.out[0] * back, self.mid[1] - self.out[1] * back, self.mid[2]]
+    }
 }
 
 impl NavTri {
@@ -243,7 +282,13 @@ impl NavGraph {
                     kind: [EdgeKind::Boundary; 3],
                     // A triangle with a bad vertex index is left out of paths.
                     flags: if ok { t.flags } else { t.flags | tri_flags::DELETED },
+                    cover: false,
                 });
+            }
+            for &c in &m.cover_triangles {
+                if let Some(t) = g.tris.get_mut((first_tri + c as u32) as usize).filter(|_| (c as usize) < m.triangles.len()) {
+                    t.cover = true;
+                }
             }
             g.meshes.push(NavMesh {
                 form_id: m.form_id,
@@ -507,6 +552,41 @@ impl NavGraph {
         }
         out.sort_unstable();
         out.dedup();
+        out
+    }
+
+    /// The cover edges ([`CoverEdge`]) of usable cover triangles of `space` whose middle
+    /// is within `radius` of `at` horizontally, nearest first.
+    pub fn cover_edges_near(&self, space: Space, at: [f32; 3], radius: f32) -> Vec<CoverEdge> {
+        let mut out = Vec::new();
+        for t in self.triangles_near(space, at[0], at[1], radius) {
+            let tri = &self.tris[t as usize];
+            if !tri.cover || !self.usable(t) {
+                continue;
+            }
+            let c = self.corners(t);
+            for e in 0..3 {
+                if tri.kind[e] != EdgeKind::Boundary {
+                    continue;
+                }
+                let (a, b, other) = (c[e], c[(e + 1) % 3], c[(e + 2) % 3]);
+                let mid = [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0, (a[2] + b[2]) / 2.0];
+                if (mid[0] - at[0]).hypot(mid[1] - at[1]) > radius {
+                    continue;
+                }
+                let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+                let len = dx.hypot(dy);
+                if len < 1.0 {
+                    continue;
+                }
+                let mut n = [dy / len, -dx / len];
+                if (other[0] - mid[0]) * n[0] + (other[1] - mid[1]) * n[1] > 0.0 {
+                    n = [-n[0], -n[1]];
+                }
+                out.push(CoverEdge { tri: t, a, b, mid, out: n });
+            }
+        }
+        out.sort_by(|x, y| (x.mid[0] - at[0]).hypot(x.mid[1] - at[1]).total_cmp(&(y.mid[0] - at[0]).hypot(y.mid[1] - at[1])));
         out
     }
 

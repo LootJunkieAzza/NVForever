@@ -21,6 +21,10 @@ use serde_json::Value as Json;
 const RAIDERS: u32 = 0x900;
 const PLAYER_FACTION: u32 = 0x901;
 const RATS: u32 = 0x902;
+/// A utility faction hostile groups share (as GeneralIdleFaction).
+const IDLERS: u32 = 0x903;
+const GANG_A: u32 = 0x904;
+const GANG_B: u32 = 0x905;
 
 const LEADER: u32 = 0x830;
 const MEMBER: u32 = 0x831;
@@ -28,6 +32,14 @@ const SECOND: u32 = 0x832;
 const OWN: u32 = 0x833;
 /// A rat-faction NPC that helps its allies (Assistance 1).
 const HELPER: u32 = 0x834;
+/// A raider and a watchman (of the player's faction, which the raiders name an enemy),
+/// both idlers; a loafer, only an idler.
+const BANDIT: u32 = 0x835;
+const WATCHMAN: u32 = 0x836;
+const LOAFER: u32 = 0x837;
+/// Members of two gangs neutral to each other, both idlers; a very aggressive one.
+const GANGER_A: u32 = 0x838;
+const GANGER_B: u32 = 0x839;
 const WOLF: u32 = 0x840;
 const RAT: u32 = 0x841;
 const SPAWN: u32 = 0x842;
@@ -50,6 +62,11 @@ const SPAWN_REF: u32 = 0x324;
 const SPAWN_HIGH_REF: u32 = 0x325;
 const LIST_REF: u32 = 0x326;
 const HELPER_REF: u32 = 0x327;
+const BANDIT_REF: u32 = 0x328;
+const WATCHMAN_REF: u32 = 0x329;
+const LOAFER_REF: u32 = 0x32A;
+const GANGER_A_REF: u32 = 0x32B;
+const GANGER_B_REF: u32 = 0x32C;
 /// Sixteen references of the creature whose template list holds a wolf and a rat.
 const MIXED_REFS: std::ops::Range<u32> = 0x340..0x350;
 const PLAYER: u32 = 0x14;
@@ -122,6 +139,10 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"FACT", 0, RAIDERS, &[sub(b"EDID", z("Raiders")), xnam(PLAYER_FACTION, 1)]),
         record(b"FACT", 0, PLAYER_FACTION, &[sub(b"EDID", z("PlayerFaction"))]),
         record(b"FACT", 0, RATS, &[sub(b"EDID", z("Rats"))]),
+        record(b"FACT", 0, IDLERS, &[sub(b"EDID", z("Idlers"))]),
+        // Two gangs that name nobody but a third faction, each other not at all.
+        record(b"FACT", 0, GANG_A, &[sub(b"EDID", z("GangA")), xnam(RATS, 0)]),
+        record(b"FACT", 0, GANG_B, &[sub(b"EDID", z("GangB")), xnam(RATS, 0)]),
     ]
     .concat();
     let npcs = [
@@ -133,6 +154,11 @@ fn plugin_bytes() -> Vec<u8> {
         // A template, but not for the factions.
         record(b"NPC_", 0, OWN, &[sub(b"EDID", z("Own")), acbs(AI_DATA), snam(RATS, 1), tplt(LEADER)]),
         record(b"NPC_", 0, HELPER, &[sub(b"EDID", z("Helper")), acbs(0), snam(RATS, 0), aidt_assisting(0, 1)]),
+        record(b"NPC_", 0, BANDIT, &[sub(b"EDID", z("Bandit")), acbs(0), snam(RAIDERS, 0), snam(IDLERS, 0), aidt(1)]),
+        record(b"NPC_", 0, WATCHMAN, &[sub(b"EDID", z("Watchman")), acbs(0), snam(PLAYER_FACTION, 0), snam(IDLERS, 0), aidt(1)]),
+        record(b"NPC_", 0, LOAFER, &[sub(b"EDID", z("Loafer")), acbs(0), snam(IDLERS, 0), aidt(1)]),
+        record(b"NPC_", 0, GANGER_A, &[sub(b"EDID", z("GangerA")), acbs(0), snam(GANG_A, 0), snam(IDLERS, 0), aidt(2)]),
+        record(b"NPC_", 0, GANGER_B, &[sub(b"EDID", z("GangerB")), acbs(0), snam(GANG_B, 0), snam(IDLERS, 0), aidt(1)]),
     ]
     .concat();
     let creatures = [
@@ -161,6 +187,11 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACRE", SPAWN_HIGH_REF, SPAWN_HIGH),
         placed(b"ACRE", LIST_REF, LIST_WOLF),
         placed(b"ACHR", HELPER_REF, HELPER),
+        placed(b"ACHR", BANDIT_REF, BANDIT),
+        placed(b"ACHR", WATCHMAN_REF, WATCHMAN),
+        placed(b"ACHR", LOAFER_REF, LOAFER),
+        placed(b"ACHR", GANGER_A_REF, GANGER_A),
+        placed(b"ACHR", GANGER_B_REF, GANGER_B),
     ]
     .concat();
     for r in MIXED_REFS {
@@ -383,4 +414,97 @@ fn an_ally_that_sees_a_fight_helps() {
     fighting(&mut g, OWN_REF, SPAWN_HIGH_REF);
     assert_eq!(g.call_allies(), 0);
     assert!(!g.would_attack(helper, FormId(SPAWN_HIGH_REF)));
+}
+
+#[test]
+fn an_actor_hit_by_another_fights_it_but_not_an_ally() {
+    // NPC against NPC (combat-ai.md §12.4): the leader (Raiders) is neutral to the helper
+    // (Rats); hit by it, it holds a grudge and fights it. The helper's own ally (Own, a
+    // rat too) lets the stray hit pass.
+    let f = fixture();
+    let mut g = game(&f);
+    let (leader, own, helper) = (FormId(LEADER_REF), FormId(OWN_REF), FormId(HELPER_REF));
+    assert!(!g.would_attack(leader, helper));
+    assert!(g.attacked_by(leader, helper));
+    assert!(g.would_attack(leader, helper));
+    assert!(!g.attacked_by(own, helper));
+    assert!(!g.would_attack(own, helper));
+    let notes = g.provocations.take_notes();
+    assert!(notes.iter().any(|n| matches!(n, Note::Assaulted { actor, by, .. } if *actor == leader && *by == helper)));
+    assert!(notes.iter().any(|n| matches!(n, Note::Ignored { why: "a stray hit by an ally or friend", .. })));
+    // Both fighting someone else (the player): a stray hit is ignored.
+    let f2 = fixture();
+    let mut g2 = game(&f2);
+    fighting(&mut g2, LEADER_REF, PLAYER);
+    fighting(&mut g2, HELPER_REF, PLAYER);
+    assert!(!g2.attacked_by(leader, helper));
+}
+
+#[test]
+fn an_actor_that_starts_fighting_alarms_its_allies_near_it() {
+    // Alarms (combat-ai.md §12.3): Own starts fighting the player; the helper, its ally
+    // that Helps Allies, 1,000 units off, is alarmed (Cause::Ally) and takes up the fight;
+    // a second rat 3,000 units off is beyond ALARM_RADIUS.
+    use fnv_game::awareness::Change;
+    use fnv_game::combat_group::{GroupNote, ALARM_RADIUS};
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, far, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId(SPAWN_HIGH_REF), FormId::PLAYER_REF);
+    assert!(g.attacked_by(own, player));
+    fighting(&mut g, OWN_REF, PLAYER);
+    let now = g.time;
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(player), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> =
+        [(own, [0.0, 0.0, 0.0]), (helper, [1000.0, 0.0, 0.0]), (far, [ALARM_RADIUS + 1000.0, 0.0, 0.0]), (player, [500.0, 0.0, 0.0])].into_iter().collect();
+    assert_eq!(g.raise_alarms(&near), 1);
+    assert!(g.awareness.get(helper).is_some_and(|a| a.alarms.iter().any(|x| x.owner == player && x.cause == Cause::Ally)));
+    assert!(g.would_attack(helper, player));
+    assert!(g.awareness.get(far).is_none());
+    assert!(g.awareness.tactics.take_notes().iter().any(|n| matches!(n, GroupNote::Alarm { receiver, combat: true, .. } if *receiver == helper)));
+    // The helper's own change (cause Ally) is not passed on again.
+    g.awareness.changes.clear();
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(helper), State::Alert);
+    assert_eq!(g.raise_alarms(&near), 0);
+}
+
+#[test]
+fn a_search_party_shares_the_search_and_gives_up_after_its_searches() {
+    // Combat Search (combat-ai.md §12.5): Own and the helper search for the player
+    // together; each has its place in the party; after its complete searches
+    // (iCombatTargetLostRemoveSearchCount, 1 without the game setting) it drops the alarm.
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId::PLAYER_REF);
+    let t = Timers::default();
+    for a in [own, helper] {
+        let x = g.awareness.actors.entry(a).or_default();
+        x.alarm(player, [0.0; 3], -5.0, Cause::Event(fnv_game::awareness::EventType::Bullet), 0.0, &t);
+        x.state = State::Alert;
+    }
+    assert_eq!(g.search_party(own, player), (0, 2));
+    assert_eq!(g.search_party(helper, player), (1, 2));
+    assert!(g.searched_once(own, player));
+    assert!(g.awareness.get(own).is_some_and(|a| a.alarms.is_empty()));
+    assert_eq!(g.search_party(helper, player), (0, 1));
+}
+
+#[test]
+fn a_shared_faction_does_not_make_enemies_kin() {
+    // combat-ai.md §12.4: the bandit and the watchman share the Idlers faction, but the
+    // raiders name the player's faction an enemy: they are not kin, and the (aggressive)
+    // bandit attacks the watchman on sight. The loafer, an idler only, is kin to both.
+    let f = fixture();
+    let mut g = game(&f);
+    let (bandit, watchman, loafer) = (FormId(BANDIT_REF), FormId(WATCHMAN_REF), FormId(LOAFER_REF));
+    assert!(!g.kin(bandit, watchman) && !g.kin(watchman, bandit));
+    assert!(g.would_attack(bandit, watchman));
+    assert!(g.kin(bandit, loafer) && g.kin(watchman, loafer));
+    assert!(!g.would_attack(bandit, loafer));
+    assert!(!g.comrades(bandit, watchman) && g.comrades(bandit, loafer));
+    // Two gangs neutral to each other, both idlers (the NCR and the Fiends in
+    // GeneralIdleFaction): not kin, so the very aggressive one attacks the other.
+    let (a, b) = (FormId(GANGER_A_REF), FormId(GANGER_B_REF));
+    assert!(!g.kin(a, b));
+    assert!(g.would_attack(a, b) && !g.would_attack(b, a));
 }

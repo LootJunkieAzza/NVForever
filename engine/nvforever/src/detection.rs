@@ -216,8 +216,17 @@ fn see_through() -> layers::LayerSet {
     ])
 }
 
-/// Whether the collision world lets `from` see `to`.
-fn clear_sight(phys: Option<&mut PhysState>, from: [f32; 3], to: [f32; 3]) -> bool {
+/// Test aid `NVF_PLAY_TEST_UNSEEN=1`: nobody perceives the player (its pairs and its
+/// detection events are not measured), so fights between actors can be watched from
+/// close by [design: as the original's console toggle for detection].
+fn unseen() -> bool {
+    static UNSEEN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *UNSEEN.get_or_init(|| std::env::var("NVF_PLAY_TEST_UNSEEN").is_ok_and(|v| v == "1"))
+}
+
+/// Whether the collision world lets `from` see `to` (also the combat AI's cover test,
+/// `combat_tactics`).
+pub(crate) fn clear_sight(phys: Option<&mut PhysState>, from: [f32; 3], to: [f32; 3]) -> bool {
     let Some(phys) = phys else { return true };
     let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
     let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
@@ -406,7 +415,7 @@ fn measure(
             let alert = aware.is_some_and(|a| a.state.in_combat());
             let fighting = aware.filter(|a| a.state == State::Combat).and_then(|a| a.combat_target()).map(|(t, _)| t);
             for (j, t) in people.iter().enumerate() {
-                if i == j {
+                if i == j || (j == 0 && unseen()) {
                     continue;
                 }
                 let dist = distance(d.feet, t.feet);
@@ -452,6 +461,9 @@ fn measure(
             g.queue_detection_event(DetectionEvent { owner: FormId(by), at, level, kind: EventType::Bullet });
         }
         for ev in g.take_detection_events() {
+            if unseen() && ev.owner == FormId::PLAYER_REF {
+                continue;
+            }
             events += 1;
             for d in people.iter().filter(|d| d.forward.is_some()) {
                 let dist = distance(d.feet, ev.at);
@@ -489,6 +501,10 @@ fn measure(
         // Allies that see one of their own fighting take up the fight (Assistance).
         g.call_allies();
         g.settle_awareness();
+        // Who started fighting or noticed a hostile alarms its comrades near it
+        // (`fnv_game::combat_group`); only those measured here: drawn, near the player.
+        let near: std::collections::BTreeMap<FormId, [f32; 3]> = people.iter().map(|p| (FormId(p.id), p.feet)).collect();
+        g.raise_alarms(&near);
         let held = std::mem::take(&mut g.awareness.held_back);
         for (topic, who, by) in &held {
             debug!("alert: {} does not say {topic}: {} said a line of that kind {:.0} s ago (group cooldown)", g.data.name(*who), g.data.name(*by), g.awareness.said.iter().rev().find(|s| s.speaker == *by).map_or(0.0, |s| g.time - s.time));

@@ -141,6 +141,34 @@ fn survey(lo: &LoadOrder, ix: &WorldIndex, nav: &NavRecords) -> Value {
     // Per link kind: (vertical drop from this edge's middle to the target triangle's
     // centre, horizontal distance between them), for percentiles.
     let mut link_geom: BTreeMap<&str, Vec<(f32, f32)>> = BTreeMap::new();
+    // The NVTR cover field against NVCA (docs/spec-notes/navmesh.md §2): triangles listed
+    // or not with a cover value or not; per edge, a nonzero 4-bit group by what the edge
+    // leads to; the high bits.
+    let mut cover_tally: BTreeMap<String, u64> = BTreeMap::new();
+    for (&id, m) in ms {
+        let listed: std::collections::HashSet<u16> = m.cover_triangles.iter().copied().collect();
+        for (ti, tr) in m.triangles.iter().enumerate() {
+            let l = listed.contains(&(ti as u16));
+            *cover_tally.entry(format!("listed {l}, cover {}", if tr.cover != 0 { "nonzero" } else { "zero" })).or_default() += 1;
+            for e in 0..3 {
+                let nib = (tr.cover >> (e * 4)) & 0xF;
+                let leads = if tr.edge_is_link(e) { "link" } else if tr.edges[e] >= 0 { "internal" } else { "none" };
+                *cover_tally.entry(format!("edge {e} nibble {}, edge leads to {leads}", if nib != 0 { "nonzero" } else { "zero" })).or_default() += 1;
+            }
+            for b in 12..16 {
+                if tr.cover & (1 << b) != 0 {
+                    *cover_tally.entry(format!("bit{b}")).or_default() += 1;
+                }
+            }
+            for e in 0..3 {
+                let nib = (tr.cover >> (e * 4)) & 0xF;
+                if nib != 0 {
+                    *cover_tally.entry(format!("nibble value {nib}")).or_default() += 1;
+                }
+            }
+        }
+        let _ = id;
+    }
     for (&id, m) in ms {
         *versions.entry(format!("{:?}", m.version)).or_default() += 1;
         verts += m.vertices.len() as u64;
@@ -346,6 +374,7 @@ fn survey(lo: &LoadOrder, ix: &WorldIndex, nav: &NavRecords) -> Value {
         "header_flags": header_flags,
         "initially_disabled": ms.values().filter(|m| m.initially_disabled()).count(),
         "totals": {"vertices": verts, "triangles": tris, "edge_links": links, "door_links": doors, "cover_triangles": cover},
+        "cover": cover_tally.iter().filter(|(_, n)| **n > 0).map(|(k, n)| (k.clone(), json!(n))).collect::<serde_json::Map<_, _>>(),
         "by_space": per_space.iter().map(|(k, (n, t))| (k.clone(), json!({"navmeshes": n, "triangles": t}))).collect::<serde_json::Map<_, _>>(),
         "navmeshes_per_cell": cells_hist,
         "triangle_flag_bits": (0..16).filter(|&b| flag_bits[b] > 0).map(|b| (format!("bit{b}"), json!(flag_bits[b]))).collect::<serde_json::Map<_, _>>(),

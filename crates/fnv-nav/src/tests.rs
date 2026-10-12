@@ -538,3 +538,31 @@ fn a_diagonal_approach_is_squared_up_to_the_middle_of_the_door() {
     assert!((through[0] - 250.0).abs() < 1.0 && through[1] > 429.0, "{through:?}");
     assert!(on_mesh(&g, W, &leg.points, 5.0));
 }
+
+#[test]
+fn cover_edges_are_the_outline_of_listed_triangles_facing_out() {
+    // A 4 × 4 grid of 100-unit squares with a hole (a rock) at square (2, 2); the four
+    // triangles round the hole are listed as cover.
+    let mut m = grid(0x10, [0.0, 0.0], 4, 4, 100.0, &[(2, 2)], flat);
+    let listed: Vec<u16> = (0..m.triangles.len() as u16)
+        .filter(|&t| {
+            let c = m.triangles[t as usize].v.map(|v| m.vertices[v as usize]);
+            let (x, y) = ((c[0][0] + c[1][0] + c[2][0]) / 3.0, (c[0][1] + c[1][1] + c[2][1]) / 3.0);
+            (150.0..=350.0).contains(&x) && (150.0..=350.0).contains(&y) && !((200.0..300.0).contains(&x) && (200.0..300.0).contains(&y))
+        })
+        .collect();
+    m.cover_triangles = listed;
+    let g = graph(&[(m, W)]);
+    let edges = g.cover_edges_near(W, [250.0, 100.0, 0.0], 400.0);
+    // Only the hole's four sides lie inside listed triangles (the grid's outer edges are
+    // not listed).
+    assert_eq!(edges.len(), 4, "{edges:?}");
+    // The south side of the rock: its middle at (250, 200), out of the navmesh is north.
+    let south = edges[0];
+    assert!((south.mid[0] - 250.0).abs() < 1e-3 && (south.mid[1] - 200.0).abs() < 1e-3);
+    assert!((south.out[1] - 1.0).abs() < 1e-3 && south.out[0].abs() < 1e-3);
+    // A threat north of the rock is covered from there; one south of it is not.
+    assert!(south.faces([250.0, 380.0, 0.0]) && !south.faces([250.0, 20.0, 0.0]));
+    assert_eq!(south.behind(40.0), [250.0, 160.0, 0.0]);
+    assert!((south.length() - 100.0).abs() < 1e-3);
+}
