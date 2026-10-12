@@ -38,6 +38,11 @@ clap = { version = "4", features = ["derive", "env"] }
 texpresso = { version = "2.0.2", default-features = false }
 
 # Bevy is slow unoptimised; optimise dependencies even in dev builds.
+[profile.release]
+# File and line numbers in backtraces, for the crash reports (engine/nvforever/src/crash.rs):
+# line tables only, no variable info, so the optimised code is unchanged.
+debug = "line-tables-only"
+
 [profile.dev]
 opt-level = 1
 
