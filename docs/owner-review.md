@@ -3246,3 +3246,57 @@ first session noted from them is kept (lockpicking.md §1).
 10. *Not built:* the help message the first time, the debug meter, hiding the pointer over
    the lock, the lock's `Backward` and the pin's `Backward`/`Left` sequences, saving broken
    locks.
+
+## Graphics: engine-level improvements (2026-10-12, session "gfx")
+
+Your list 2 item "ENGINE LEVEL GRAPHIC IMPROVEMENTS". Design, survey and the reasons for each
+choice: docs/design/graphics-enhanced.md. No asset is changed or added; every value below is an
+engineering choice by eye, not a fact about the original game.
+
+1. *Decision:* a new switch `--graphics vanilla|enhanced`. `enhanced` turns on five
+   improvements, each also a switch on the pause menu's settings page under "Enhanced
+   graphics" (the page now has two columns when it is long), and `--graphics-only <keys>`
+   turns on single ones for comparing:
+   - **Ambient occlusion** (`ambient-occlusion`): creases, corners and the ground under things
+     darken. Our own screen-space pass from the depth (Bevy's needs multisampling off, which
+     the plants' soft edges depend on). *Guess:* radius 64 units, strength 0.55, fading out
+     4,000-7,000 units away. *Check:* the crates by the house doors in Goodsprings, the bench
+     and air conditioner at night, interiors' corners; that the water does not show dark
+     patches from the lake bed under it.
+   - **Finer, longer sun shadows** (`fine-shadows`): shadow maps 4096 instead of 2048 and
+     reaching 1.5 × `--shadow-distance` (24,000). *Check:* shadow edges of roofs and fences
+     look sharper; shadows on far hills; frame rate.
+   - **Bloom** (`bloom`): light brighter than a threshold glows (the sun, bright sky, lamps).
+     Done on the picture before the game's own grade, which still applies on top; it does
+     not use the image spaces' HDR/bloom values (not decoded yet). *Guess:* threshold 0.82,
+     intensity 0.9, about 136 pixels wide. *Check:* lamps and lit windows at night and in
+     the saloon; that the noon sand does not glow.
+   - **Sharpening** (`sharpen`): contrast-adaptive, against the four neighbours. *Guess:*
+     strength 0.5. *Check:* brick and roof textures crisper, no bright or dark rims on edges.
+   - **Anisotropic filtering 16x** (`anisotropic`; 8x before): roads and ground at a slant.
+     The switch applies to textures loaded after it changes.
+2. *Decision (tried and dropped):* Bevy's contact shadows (speckled dark bands on near
+   surfaces without TAA: `C:\fnv-private\scratch\gfx\pair-cs2.png`), sun in-scattering in the
+   fog (invisible in the clear weather, a shadow lookup per pixel), Bevy's bloom (needs an HDR
+   view, double the memory traffic), Bevy's CAS sharpening (garbled the picture), TAA, SSR,
+   volumetric fog. Why each: graphics-enhanced.md §2, §4.
+3. *Frame rate* (GTX 1050, 1280 × 720, Goodsprings noon, 60 s runs, machine shared with
+   other sessions, so noisy): vanilla 14.5 fps, enhanced right after 10.0 fps; fine shadows
+   alone 19.6, the other four together 10.6, vanilla again at the end 7.2. *Decision:* enhanced
+   costs about a third of the frame rate here, so **normal play defaults to vanilla**
+   (`graphics::PLAY_DEFAULT`, one line to change on a faster GPU). Test runs (`--screenshot`,
+   `--timelapse`, `--frame-json`, `--run-seconds`) always default to vanilla, so no golden,
+   picture check or smoke expectation changed. *Check:* play with `--graphics enhanced` and
+   say whether the frame rate is acceptable to you; if so, flip the default.
+4. *Pictures* (in `C:\fnv-private\scratch\gfx\`, 1280 × 720): Goodsprings noon before
+   `gs-day-vanilla2.png`, one feature each `gs-day-ambient-occlusion.png`,
+   `gs-day-fine-shadows.png`, `gs-day-bloom.png`, `gs-day-sharpen.png`; crops side by side
+   (left vanilla) `pair-ao.png`, `pair-fs.png`, `pair-sh.png`; night `night-vanilla.png` /
+   `night-enhanced.png`. (No anisotropic pair: the difference is in the far ground at a
+   slant. The saloon pair caught the DLC message box and is not useful.)
+5. *Observed, not mine:* one of the vanilla noon frames (`gs-day-van.png`) came out much
+   warmer and brighter than the others of the same spot, hour and build, and than main's
+   build (`gs-day-mainexe.png`): the grade seems to differ from run to run at start.
+   *Check:* whether you see the noon colour change between launches.
+6. *Smoke:* new scenario `graphics-enhanced` (starts enhanced, switches four settings while
+   the game runs, checks the "graphics: …" log line after each).
