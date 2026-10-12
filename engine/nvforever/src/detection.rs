@@ -478,11 +478,16 @@ fn measure(
             }
         }
         for (id, by) in hits {
+            // Hit by someone it would leave alone: it may turn on them (assault,
+            // friendly fire; `fnv_game::provocation`).
+            g.attacked_by(FormId(id), FormId(by));
             let Some(at) = people.iter().find(|p| p.id == by).map(|p| p.feet) else { continue };
             if g.hurt_by(FormId(id), FormId(by), at) {
                 hurt += 1;
             }
         }
+        // Allies that see one of their own fighting take up the fight (Assistance).
+        g.call_allies();
         g.settle_awareness();
         let held = std::mem::take(&mut g.awareness.held_back);
         for (topic, who, by) in &held {

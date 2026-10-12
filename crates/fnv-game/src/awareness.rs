@@ -137,6 +137,8 @@ pub enum Cause {
     Hurt,
     /// A target it was fighting went undetected: where it was last known to be.
     LostTarget,
+    /// An ally it saw fighting is fighting this one (assistance, `crate::provocation`).
+    Ally,
 }
 
 impl Cause {
@@ -146,6 +148,7 @@ impl Cause {
             Cause::Event(t) => format!("heard a {} event", t.name()),
             Cause::Hurt => "was hurt".into(),
             Cause::LostTarget => "lost sight".into(),
+            Cause::Ally => "saw an ally fight".into(),
         }
     }
 }
@@ -426,6 +429,9 @@ pub struct Awarenesses {
     /// combat AI says, the AI that moves actors closes in (`fnv_ai::alert`). Not set: it
     /// holds its ground.
     pub engage: BTreeMap<FormId, (f32, f32)>,
+    /// Actors aiming down their sights now (the engine's combat AI says): the AI that
+    /// moves actors has them walk, not run (`fnv_ai::alert`).
+    pub aiming: std::collections::BTreeSet<FormId>,
     /// (actor, target) pairs StartCombat made hostile whatever the records say, until
     /// StopCombat.
     pub forced: std::collections::BTreeSet<(FormId, FormId)>,
@@ -493,7 +499,7 @@ impl Game<'_> {
         if out(self, actor) || out(self, other) || self.is_dead(other) {
             return false;
         }
-        if self.awareness.forced.contains(&(actor, other)) {
+        if self.awareness.forced.contains(&(actor, other)) || self.provocations.holds(actor, other) {
             return true;
         }
         if other == FormId::PLAYER_REF {
@@ -610,6 +616,7 @@ impl Game<'_> {
         for id in ids {
             if !self.present(id) || self.is_dead(id) || self.extra.get(&id).is_some_and(|e| e.dead) {
                 self.awareness.actors.remove(&id);
+                self.provocations.calm(id);
                 continue;
             }
             // Targets and alarm owners that died or went are forgotten.
@@ -632,6 +639,10 @@ impl Game<'_> {
             let a = &self.awareness.actors[&id];
             let (state, about) = (a.state, a.search_alarm().map(|x| x.owner).or(a.combat_target().map(|x| x.0)));
             if let Some(c) = change {
+                // Back in Normal: the fights it took up because it was hit are over.
+                if c.to == State::Normal {
+                    self.provocations.calm(id);
+                }
                 self.awareness.changes.push(c);
                 if let Some(topic) = c.from.topic_to(c.to) {
                     self.detection_bark(id, c.about, topic);
@@ -722,6 +733,7 @@ impl Game<'_> {
     /// StartCombat forced on it is undone. It may start again on what it perceives next.
     pub fn stop_combat(&mut self, actor: FormId) {
         self.awareness.forced.retain(|(a, _)| *a != actor);
+        self.provocations.calm(actor);
         if let Some(a) = self.awareness.actors.remove(&actor) {
             if a.state != State::Normal {
                 self.awareness.changes.push(Change { actor, from: a.state, to: State::Normal, time: self.time, about: None, cause: None, at: None, value: None });
@@ -741,6 +753,18 @@ pub fn start_combat(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
 pub fn stop_combat(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     g.stop_combat(r);
+    none()
+}
+
+/// `actor.StopCombatAlarmOnActor`: every actor fighting or hunting the calling actor
+/// stops ([`Game::stop_combat`]) [documented: GECK wiki StopCombatAlarmOnActor, "Ends the
+/// fighting flag for all enemies targeting the specified actor"].
+pub fn stop_combat_alarm_on_actor(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let hunters: Vec<FormId> = g.awareness.actors.iter().filter(|(_, a)| a.state.in_combat() && (a.targets.contains_key(&r) || a.alarms.iter().any(|x| x.owner == r))).map(|(id, _)| *id).collect();
+    for h in hunters {
+        g.stop_combat(h);
+    }
     none()
 }
 

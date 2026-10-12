@@ -619,6 +619,9 @@ pub struct Game<'a> {
     /// lists, and detection events waiting to be heard (`crate::awareness`). Not part of
     /// the saved state: the engine measures again.
     pub awareness: crate::awareness::Awarenesses,
+    /// Fights started by being hit, friendly hits, yields and allies joining
+    /// (`crate::provocation`). Not part of the saved state.
+    pub provocations: crate::provocation::Provocations,
     /// What switched radio receivers on and off (`crate::radio`); the engine plays the
     /// stations. Not part of the saved state.
     pub radio: crate::radio::Radios,
@@ -806,6 +809,7 @@ impl<'a> Game<'a> {
             rest: Default::default(),
             detection: Default::default(),
             awareness: Default::default(),
+            provocations: Default::default(),
             radio: Default::default(),
             terminals: Default::default(),
             locks: Default::default(),

@@ -36,15 +36,12 @@ pub const FOLLOWERS: &str = "H followers";
 
 /// Stubs whose system another workstream is building now or next.
 pub const ASSIGNED: &[(u16, &str)] = &[
-    (0x1101, COMBAT), // StopCombatAlarmOnActor
     (0x105F, COMBAT), // SendAssaultAlarm (assault rules)
     (0x10B1, COMBAT), // SetCombatStyle
     (0x11A0, COMBAT), // GetGroupMemberCount
     (0x11A1, COMBAT), // GetGroupTargetCount
     (0x11E2, COMBAT), // FireWeapon
     (0x119C, COMBAT), // UseWeapon
-    (0x103F, COMBAT), // GetAttacked
-    (0x1120, COMBAT), // GetFriendHit
     (0x1042, COMBAT), // GetShouldAttack
     (0x1203, COMBAT), // IsCombatTarget
     (0x10F5, COMBAT), // ForceFlee

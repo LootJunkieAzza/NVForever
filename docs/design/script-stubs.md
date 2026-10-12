@@ -22,11 +22,13 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 97 (26 assigned, 10 implementable, 61 need a system) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,326 (1,651 calls, 675 condition uses) |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses) |
 
-22 stubs were implemented (§3); 4 became `NoOp` (§5).
+22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
+combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
+PR #235), merged before this branch's PR.
 
 ## 2. How it is counted
 
@@ -92,7 +94,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetVATSValue | 0x1198 | 0 | 250 | needs a system not built yet | combat (VATS) |
 | PlayMagicShaderVisuals | 0x1123 | 205 | 0 | needs a system not built yet | rendering (effect shaders) |
 | SetActorAlpha | 0x1129 | 127 | 0 | needs a system not built yet | rendering |
-| StopCombatAlarmOnActor | 0x1101 | 97 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
 | SendAssaultAlarm | 0x105F | 93 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
 | SetCombatStyle | 0x10B1 | 92 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
 | IsActorTalkingThroughActivator | 0x11AE | 0 | 92 | needs a system not built yet | dialogue (talking activators) |
@@ -121,9 +122,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | UseWeapon | 0x119C | 13 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
 | SetPackDuration | 0x1122 | 12 | 0 | implementable, left for later | the package model has durations; a per-actor override is missing |
 | Reset3DState | 0x1146 | 12 | 0 | needs a system not built yet | rendering |
-| GetAttacked | 0x103F | 0 | 11 | assigned to workstream | assigned to workstream E2 combat AI |
 | GetShouldAttack | 0x1042 | 7 | 4 | assigned to workstream | assigned to workstream E2 combat AI |
-| GetFriendHit | 0x1120 | 2 | 9 | assigned to workstream | assigned to workstream E2 combat AI |
 | HasBeenEaten | 0x107F | 6 | 4 | needs a system not built yet | AI (Cannibal perk) |
 | SetVatsTarget | 0x11EB | 10 | 0 | needs a system not built yet | combat (VATS) |
 | ForceFlee | 0x10F5 | 8 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
