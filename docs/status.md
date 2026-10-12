@@ -1,0 +1,115 @@
+# NVForever status map (2026-10-12)
+
+What is built, what is partly built and what is not started, per system. Built from the
+design and spec notes, [owner-review.md](owner-review.md), the script stubs audit
+([design/script-stubs.md](design/script-stubs.md)) and the merged PR titles (#1–#251); it
+states the project's own state, not facts about the original game (those are tagged in the
+linked notes). Update the row when a PR changes a system's state.
+
+- **Done**: built and checked (parity lab, smoke scenario or in-game capture), open points
+  are small.
+- **Partly**: the core is built; the gaps are named.
+- **Not started**: nothing of it is built (script functions that need it are stubs).
+- **Awaiting owner**: built with guessed values or a design choice the owner has to confirm;
+  every one is listed, per workstream, in [owner-review.md](owner-review.md).
+
+Checks referred to below: the parity lab (`parity-lab/`, scenarios per layer `L1`–`L5`,
+compared with independent readers and in-game captures) and the smoke runner
+(`tools/smoke`, 83 game-run scenarios in `tools/smoke/scenarios.toml`).
+
+## 1. Foundations
+
+| System | State | Specifics | Notes |
+|---|---|---|---|
+| Archives (BSA) and plugins (ESM/ESP), load order | Done | Read and rewritten byte for byte; 70 of 107 record types have layouts (`schemas/fnv`), nothing undecoded at the end of a record in the 10 masters; xEdit cross-check agrees on 465,016 records | [layer1](design/layer1.md), [bsa](spec-notes/bsa.md), [esm](spec-notes/esm.md) |
+| Assets: NIF, KF, DDS | Done | 160/160 NIF block types, every block of the game decodes and re-encodes exactly; all textures agree with an independent reader; archive precedence settled in game (#101) | [layer2](design/layer2.md), [nif](spec-notes/nif.md), [dds](spec-notes/dds.md) |
+| Install layout | Done | NVForever's home is `%LOCALAPPDATA%\NVForever` (or `NVFOREVER_HOME`); never writes into the game folder or `My Games` | [install-layout](design/install-layout.md) |
+| SpeedTree | Done, awaiting owner | `.spt` trees generated (`fnv-spt`), leaf dimming and wind; field meanings are hypotheses checked against billboards | [speedtree](spec-notes/speedtree.md) |
+
+## 2. World and rendering (Layer 3)
+
+| System | State | Specifics | Notes |
+|---|---|---|---|
+| World streaming, terrain, LOD | Done | Cells stream around the camera (5×5), terrain with measured texture repeat, distant LOD at four levels with fades, generated distant terrain, object LOD, imposters by region (#206) | [layer3](design/layer3.md), [generated-lod](design/generated-lod.md), [world](spec-notes/world.md) |
+| Sky, weather, time of day, water | Partly, awaiting owner | Sky colours, clouds, sun path, moon and stars, weather, water with reflections and underwater fog. All 7 interior reference frames meet the image threshold, 1 of 8 exterior ones: exterior lighting strength and clouds are the known gaps | [layer3](design/layer3.md) §5, [world](spec-notes/world.md) |
+| Materials, lights, shadows | Done, awaiting owner | Game-style light falloff, emissive, glass, decals, soft cut-out edges, sun shadows on by default (owner decision), light rays and glows (#201) | [layer3](design/layer3.md) |
+| Grass | Done, awaiting owner | Grown from the landscape textures; placement rule and light weights are ours (fitted) | [grass](spec-notes/grass.md) |
+| Image space and modifiers | Partly | Worldspace/weather/interior grade; script screen effects (the opening's white screen and blur, #170). Not built: depth of field, motion blur, screen splatter (TriggerScreenSplatter etc.), SetCellImageSpace | [image-modifiers](spec-notes/image-modifiers.md) |
+| Particles and effect shaders | Partly | Particle systems for shot and impact effects (#179). Not built: effect shaders (EFSH: PlayMagicShaderVisuals, 284 script calls), SwapTexture (383 calls, the end slides), SetActorAlpha, ash piles | [particles](spec-notes/particles.md), [script-stubs](design/script-stubs.md) §4 |
+| Enhanced graphics (optional) | Done | `--graphics enhanced` or the settings page: SSAO, finer and longer shadows, bloom, sharpening, 16× anisotropic filtering, TAA, sun shafts, screen-space water reflections. Vanilla is the default and every test run's look. Not attempted: volumetric fog; contact shadows and CAS tried and dropped | [graphics-enhanced](design/graphics-enhanced.md) |
+| Loading screens | Done | Shown during travel between places | [loading-screen](design/loading-screen.md), [loading-screens](spec-notes/loading-screens.md) |
+
+## 3. Actors
+
+| System | State | Specifics | Notes |
+|---|---|---|---|
+| Appearance | Done, awaiting owner | Skeleton, body, FaceGen (race + NPC values, skin tint, hair morphs), worn armour, creatures, weapons holstered and drawn | [static-actors](design/static-actors.md), [actors](spec-notes/actors.md) |
+| Animation | Partly | Idles (PlayIdle, package and dialogue idles), locomotion, turning, head tracking, PlayGroup, weapons' moving parts, melee combos, lip sync from `.lip` files. Not built: actors' jumps, NPC sneaking (SetForceSneak), GetAnimAction/IsLeftUp/PickIdle | [animation](spec-notes/animation.md), [idles](spec-notes/idles.md), [lipsync](spec-notes/lipsync.md) |
+| Ragdolls | Partly | Corpses fall as jointed bodies from the skeletons' Havok data; stored corpse poses (XRGD, #245). Not built: knocking a live actor down and getting up (PushActorAway, GetKnockedState), armour ragdoll templates, IsFacingUp | [ragdoll](spec-notes/ragdoll.md), [dead-on-spawn](spec-notes/dead-on-spawn.md) |
+| Actor values | Done, awaiting owner | From the records and the GECK wiki's formulas; `fnvtool actor values` | [actor-values](spec-notes/actor-values.md) |
+| Player body and camera | Done, awaiting owner | Animated body, first-person arms rig and optional first-person body, orbit camera, Pip-Boy on the arm, player shadow, lying in beds, sitting | [player-body](design/player-body.md), [camera](spec-notes/camera.md), [furniture](spec-notes/furniture.md) |
+
+## 4. Simulation, physics and play (Layer 4)
+
+| System | State | Specifics | Notes |
+|---|---|---|---|
+| Collision and physics | Done | Havok shapes as rapier3d bodies; character controller walks, jumps, sneaks and swims like the captures; clutter falls asleep; dropped items. Three accepted residuals (B11 17/20, portal_wall 5/6, swim_h2o_fresh 8/9: owner said stop) | [layer4](design/layer4.md), [collision](spec-notes/collision.md), [physics](spec-notes/physics.md) |
+| Simulation core | Done | Inventories, containers, leveled lists, locks, doors (teleport and in place), clock, respawn of cells and corpses, merchants' restock, placed mines, encumbrance | [simulation](spec-notes/simulation.md), [doors](spec-notes/doors.md) |
+| `--play` controls | Done, awaiting owner | Keyboard and mouse as the game's, activation, crosshair and prompt, flashlight, aim slows to walk speed, debug give/equip switches behind a debug flag | [layer4-play](design/layer4-play.md), [controls](spec-notes/controls.md) |
+| Far world | Done, awaiting owner | Actors outside the loaded 5×5 cells run a low process (18 s, and the 120 s Low level, #245); actors with Base Health 0 are dead on spawn; crash log and report | [dead-on-spawn](spec-notes/dead-on-spawn.md) |
+| Saving and loading games | Not started | No saved game; Autosave, SystemSave, ForceSave are stubs (81 script calls) | [script-stubs](design/script-stubs.md) §4 |
+
+## 5. Scripting (Layer 5)
+
+| System | State | Specifics | Notes |
+|---|---|---|---|
+| Script decoding, interpreter, quests, conditions, events | Done | Every compiled script decodes and decompiles (`fnv-script`); the runtime (`fnv-game`) runs quest, object, effect and result scripts in `--play`; L5 lab 28/32 against in-game captures (4 known fails) | [layer5](design/layer5.md), [layer5-play](design/layer5-play.md), [scripts](spec-notes/scripts.md) |
+| Script function coverage | Partly | 80 functions are still stubs (2,006 uses in the shipped scripts): most need a system not built (rendering effects, VATS, saving, casino and Caravan menus, used items, perks such as Cannibal), some were assigned to combat AI and are left after it; 4 deliberate no-ops; GetIsObjectType used but unregistered | [script-stubs](design/script-stubs.md) |
+
+## 6. Gameplay (Layer 6)
+
+| System | State | Specifics | Notes |
+|---|---|---|---|
+| AI packages and navigation | Done, awaiting owner | Package choice by the owner's selection-order rules (quest priority, stored order), leveled package lists, navmesh paths across spaces, sandboxing, furniture, Follow/Accompany, force greets, residents fast-forwarded through waits. Not built: used items (GetIsUsedItem*), EnableNavMesh/DisableNavmesh, Cannibal and Mister Sandman | [actor-behaviour](design/actor-behaviour.md), [navmesh](design/navmesh.md), [packages](spec-notes/packages.md) |
+| Dialogue | Done, awaiting owner | DIAL/INFO in full, conversations with the original's selection rules, voices for 97.3 % of lines, the dialogue menu as the original's, NPC hellos and NPC-to-NPC conversations, SayTo facing, distance-based voice volume and subtitles. Not built: disposition, talking activators; rules still to confirm against captures | [dialogue](design/dialogue.md), [dialogue-play](design/dialogue-play.md), [dialogue spec](spec-notes/dialogue.md) |
+| Detection and alert states | Done, awaiting owner | Perception of the player and of each other; Normal/Alert/Combat/Lost with search; the light measure is the main guess; detection lines with a group cooldown | [detection](design/detection.md), [alert](design/alert.md) |
+| Combat, player side | Done | Weapons, ammo, projectiles, damage, spread, melee and unarmed, explosives, limbs and crippling, hit reactions, looping reloads, item condition and broken weapons, muzzle effects (C1–C8) | [combat](design/combat.md), [combat-data](spec-notes/combat-data.md), [combat-rules](spec-notes/combat-rules.md) |
+| Combat AI | Done, awaiting owner | NPCs aim, fire, strike and bite (CA1, CA2), combat styles and confidence, provocation and yielding, allies help allies, fleeing, cover, combat groups, alarms, shared searches, NPC-against-NPC fights (#247). Not built: VATS, NPCs reloading with animations | [combat-ai](design/combat-ai.md) |
+| Followers | Partly, awaiting owner | Companions hired by their own recruit scripts follow through doors, fight the player's foes, ignore friendly fire, OpenTeammateContainer (tested with Boone). Not built: the companion wheel (needs the original's menu files and a screenshot), aggressive/passive, sneaking with the player | [followers](design/followers.md) |
+| Crime and karma | Done, awaiting owner | Ownership, theft, opening owned locks, trespass, murder, witnesses, kill karma; `fnvtool actor karma` | [crime-karma](spec-notes/crime-karma.md), [factions](spec-notes/factions.md) |
+| Aid items and needs | Done, awaiting owner | Chems, food and meds onto actor values, potency, restore over time, limbs, RadAway, addiction and withdrawal, timers through waits and sleep, Hardcore needs, Stealth Boy, perk entry points, Buffout's carry weight. Not built on purpose: healing in an ordinary bed | [aid-items](spec-notes/aid-items.md) |
+| Waiting and sleeping | Done, awaiting owner | T wait menu, beds open the sleep menu, Well Rested, refusals | [wait-menu](spec-notes/wait-menu.md) |
+| Lockpicking and hacking | Done, awaiting owner | Lockpicking minigame with help, debug meter, saved broken locks; terminals and the hacking minigame from the game's word list | [lockpicking](spec-notes/lockpicking.md), [hacking](spec-notes/hacking.md) |
+| Character progression | Partly | Character creation (name, tag skills, traits, Vigor Tester), kill XP. Not built: levelling up and the perk menu (the level stays at SetLevel's) | [chargen](spec-notes/chargen.md), [vigor-tester](spec-notes/vigor-tester.md) |
+| VATS | Not started | GetVATSValue (250 conditions) and the other VATS functions are stubs | [script-stubs](design/script-stubs.md) §4 |
+| Repair, crafting, Caravan, casino games | Not started | ShowRepairMenu, ShowRecipeMenu, ShowCaravanMenu, the blackjack/roulette/slot menus are stubs | [script-stubs](design/script-stubs.md) §4 |
+
+## 7. Interface and audio (Layer 7)
+
+| System | State | Specifics | Notes |
+|---|---|---|---|
+| HUD and messages | Done, awaiting owner | Health, compass, action points, condition, ammo; crosshair and prompt; subtitles; corner messages; quest added/completed and objectives; message boxes in the game's fonts. Not built: compass markers, the red crosshair on enemies, the sneak meter | [hud](spec-notes/hud.md), [reticle](spec-notes/reticle.md), [quest-messages](spec-notes/quest-messages.md), [message-menu](spec-notes/message-menu.md) |
+| Menus | Partly, awaiting owner | Drawn from the game's menu files: inventory, container, barter, dialogue, Pip-Boy (STATS, ITEMS, DATA with local and world map, radio; the ITEMS page lacks the item's picture and figures), wait/sleep, chargen, lockpick, terminals, pause and settings. Not built: main menu and credits, the companion wheel, repair, crafting, barber and plastic surgeon, tutorial, Caravan and casino | [pipboy](spec-notes/pipboy.md), [barter-menu](spec-notes/barter-menu.md), [dialogue-menu](spec-notes/dialogue-menu.md) |
+| Audio | Partly, awaiting owner | Dialogue voice, music by place and battle/dungeon sets, sound markers and loops, animation and movement sounds, world and menu sounds, radios and the Pip-Boy radio, distance volume and panning. Not built: reverb | [audio](spec-notes/audio.md), [voice](spec-notes/voice.md), [radio](spec-notes/radio.md) |
+| Video | Not started | PlayBink is a stub (the intro and end videos) | [script-stubs](design/script-stubs.md) §4 |
+
+## 8. Tooling
+
+| Tool | State | Specifics | Notes |
+|---|---|---|---|
+| `fnvtool` | Done | JSON command-line tool over every crate: `bsa`, `esm`, `nif`, `dds`, `spt`, `world`, `phys`, `collide`, `sim`, `script`, `dialogue`, `actor`, `combat`, `nav`, `ai`, `voice`, `setup`, `paths` | [cli-contract](cli-contract.md) |
+| Parity lab | Done | Oracle-vs-candidate tests per layer with holdouts and baselines (rules in `parity-lab/AGENT.md`) | [parity-lab/README](../parity-lab/README.md) |
+| Capture tools | Done | Independent Python readers (`oracle_*.py`), `nvf_capture` (xNVSE plugin running unattended jobs in the original game), reference frames, AI observer | [tools/capture/README](../tools/capture/README.md), [xnvse-capture](spec-notes/xnvse-capture.md) |
+| Smoke runner | Done | `python tools/smoke run` picks the scenarios the changed files call for, shares launches, takes the game locks, one line per scenario; known-failing marks with reasons | `tools/smoke/scenarios.toml` |
+| Crash reports | Done | A panic writes `%LOCALAPPDATA%\NVForever\logs\crash-*.txt` with a backtrace; release builds carry line tables for file:line (`engine/Cargo.toml`) | `engine/nvforever/src/crash.rs` |
+| CI | Done | One Linux job on pushes to main (#89) | `.github/workflows/ci.yml` |
+
+## 9. Open items needing the owner
+
+- Every guessed constant and design choice, per workstream: [owner-review.md](owner-review.md).
+- Known-failing smoke marks that need the owner's word: `combat-violet` (Violet aims down the
+  sights at 1,600 units by design) and `combat-dogs` (fewer bites than expected, by the
+  combat style's attack chance).
+- Not reproduced from the playtest lists: shadow flicker after leaving an interior (debug
+  lines kept); the Crimson Caravan crash (the next one leaves a report).
+- The companion wheel needs the original's menu files and a screenshot of the wheel.

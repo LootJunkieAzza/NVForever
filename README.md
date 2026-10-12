@@ -4,24 +4,30 @@ An open-source, clean-room reimplementation of the engine behaviour of **Fallout
 Vegas**, in the spirit of OpenMW. It reads the data files of *your own legally purchased
 copy*; it ships no Bethesda content and contains no Bethesda or Gamebryo code.
 
-Status (2026-10-09, FNV 1.4.0.525, base game + all DLC): the archive and plugin readers,
-the asset formats, the world renderer, the core simulation, physics and scripting run on
-the whole game. `nvforever --play` lets you walk the Mojave with collision, open doors and
-containers, manage the inventory, and see quest and object scripts run. Every layer is
-checked by the parity lab against independent readers and against captures from the
-original game. Of Layers 6–7, the player's side of combat is built and you can talk to
-NPCs with their recorded voices; AI packages, the game's menus, the rest of the audio and
-saves are not started.
+Status (2026-10-12, FNV 1.4.0.525, base game + all DLC): the archive and plugin readers,
+the asset formats, the world renderer, physics, the simulation core and the script runtime
+run on the whole game. `nvforever --play` is a playable slice of the game: walk the Mojave
+with collision; talk to NPCs in the original's dialogue menu with their recorded voices;
+NPCs live by their AI packages, detect you, fight, flee and take cover; shoot, strike and
+throw with the player's side of combat; companions such as Boone follow you through doors
+and fight with you; pick locks, hack terminals, use aid items, wait and sleep; crime and
+karma are tracked; the HUD, Pip-Boy, inventory, barter and container menus are drawn from
+the game's own menu files; music, sounds and radio play. Not started: saved games, VATS,
+levelling up and perks, repair and crafting, the Caravan and casino games.
+
+**The full map of what is complete, partly built and not started, per system, with links to
+each design and spec note: [docs/status.md](docs/status.md).**
 
 | Layer | Scope | State |
 |---|---|---|
-| 0 | Ground truth, parity lab, capture tools | done: `parity-lab/` (402 scenarios; 376 pass on `main`, the rest are listed in the layer designs and [docs/owner-review.md](docs/owner-review.md)), independent Python readers, an xEdit export, and `nvf_capture`, an xNVSE plugin that runs unattended jobs in the original game (actions, traces, screenshots, AI observation) |
-| 1 | BSA reader, ESM/ESP parser, load order, schemas | done: archives and plugins read and rewrite byte for byte; 70 of 107 record types have layouts, with nothing left undecoded at the end of a record in any of the 10 masters; the xEdit cross-check matches 465,016 records of FalloutNV.esm except one, and the 4 rows that differ across the masters are xEdit normalising the file (layer1.md) — 111/115 scenarios |
-| 2 | NIF, DDS, KF assets, viewer | done: 160/160 block types, 1,036,695 blocks decode and re-encode exactly; an independent reader agrees on all 26,907 textures; archive precedence (`Update.bsa` and DLC archives over the base ones) confirmed in the game — 51/51 scenarios outside the holdouts |
-| 3 | World and rendering | in progress: `nvforever` streams the world with terrain, objects, distant LOD (four levels) and distant tree billboards, SpeedTree trees, grass grown from the landscape textures, water, sky, weather and time of day, interiors with their own lighting, and NPCs and creatures with FaceGen and idle animation. Compared with the game's own screenshots: all 7 interior reference frames and 1 of 8 exterior ones meet the image threshold; exterior lighting (sunlight strength, shaded faces) and clouds are the known gaps ([docs/design/layer3.md](docs/design/layer3.md)) — 99/109 scenarios |
-| 4 | Core simulation, collision, physics, play | done apart from Layer 6 systems: headless `fnv-sim` (inventories, containers, leveled lists, locks, doors, clock, respawn, placed mines), Havok collision and a rapier3d character controller that walks, jumps, sneaks and swims like the game's captures, and `--play` (walking, doors including other worldspaces, containers, inventory, dropping, pushing clutter), played by hand with keyboard and mouse. 87/90 scenarios; the 3 misses are accepted physics residuals ([docs/design/layer4.md](docs/design/layer4.md)) |
-| 5 | Scripting | in progress: every compiled script decodes (`fnv-script`); interpreter, quests, conditions and events (`fnv-game`, 28/32 `L5` scenarios against in-game captures); scripts run in `nvforever --play`; the intro chain advances headless with stand-ins for Layer 6 ([docs/design/layer5.md](docs/design/layer5.md)) |
-| 6–7 | Gameplay (dialogue, AI, combat), UI/audio/saves | started: the player's side of combat ([docs/design/combat.md](docs/design/combat.md)), dead actors drop as ragdolls built from their skeletons' Havok bodies and constraints ([docs/spec-notes/ragdoll.md](docs/spec-notes/ragdoll.md)); dialogue: topics and lines read in full, conversations with the original's selection rules (headless and in `--play` with a plain dialogue screen), voice lines found for 97.3 % of responses and played; rules still to confirm against in-game captures ([docs/design/dialogue.md](docs/design/dialogue.md)); AI packages, the game's menus, the rest of the audio and saves are not started |
+| 0 | Ground truth, parity lab, capture tools, smoke runner | done: `parity-lab/` (scenarios per layer against independent readers and captures from the original game), `nvf_capture` (an xNVSE plugin that runs unattended jobs in the original game), `tools/smoke` (game-run scenarios) |
+| 1 | BSA reader, ESM/ESP parser, load order, schemas | done ([docs/design/layer1.md](docs/design/layer1.md)) |
+| 2 | NIF, DDS, KF assets, viewer | done ([docs/design/layer2.md](docs/design/layer2.md)) |
+| 3 | World and rendering | done, with known gaps: exterior lighting and clouds against the game's frames, effect shaders, depth of field; an optional enhanced look (`--graphics enhanced`) ([docs/design/layer3.md](docs/design/layer3.md)) |
+| 4 | Core simulation, collision, physics, play | done; 3 accepted physics residuals ([docs/design/layer4.md](docs/design/layer4.md)) |
+| 5 | Scripting | done; 80 script functions remain stubs that need systems not built yet ([docs/design/layer5.md](docs/design/layer5.md), [docs/design/script-stubs.md](docs/design/script-stubs.md)) |
+| 6 | Gameplay: AI, dialogue, combat, followers, crime, aid | mostly done; VATS, levelling up, repair/crafting not started |
+| 7 | Interface, audio, saves | mostly done; saved games, the main menu and the minigame menus not started |
 
 Decisions taken by working sessions while the owner was away, and questions for the
 owner, are listed in [docs/owner-review.md](docs/owner-review.md).
@@ -54,7 +60,20 @@ cargo build --release -p fnvtool            # the command-line tool: target/rele
 cargo test --workspace --release
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
+python -m unittest discover -s tools/smoke/tests
 cd engine && cargo build --release          # Bevy viewer and game (first build takes a while)
+```
+
+With the game installed, two more checks run against your own data:
+
+```bash
+# Smoke tests: short game runs described as data in tools/smoke/scenarios.toml; picks the
+# scenarios your branch's changed files call for and prints one line per scenario.
+python tools/smoke plan
+python tools/smoke run --exe engine/target/release/nvforever.exe --data "$D" --fnvtool target/release/fnvtool.exe
+# The parity lab: every layer against independent readers and in-game captures.
+cp parity-lab/lab.local.example.json parity-lab/lab.local.json   # then set your paths
+cd parity-lab && python -m fnvlab run                             # summary in runs/latest.md
 ```
 
 The checks every change runs before it is pushed are in [CLAUDE.md](CLAUDE.md).
@@ -67,24 +86,43 @@ From `engine/`, with `$D` your game's `Data` folder (Windows PowerShell shown):
 
 ```powershell
 $D = "F:\SteamLibrary\steamapps\common\Fallout New Vegas\Data"
-cargo run --release --bin nvforever -- --data $D --cell Goodsprings --play
+cargo run --release --bin nvforever -- --data $D --cell Goodsprings --play     # walk in Goodsprings
+cargo run --release --bin nvforever -- --data $D --play --new-game             # the opening at Doc Mitchell's
+cargo run --release --bin nvforever -- --data $D --cell GSDocMitchellHouse --play --no-messages --graphics enhanced
 ```
 
-Keys in `--play`: W/A/S/D move, Shift walk, Caps Lock always run, Ctrl sneak, Q auto
-move, Space jump, mouse look, E use (doors, containers, items), Tab inventory, Esc pause
-menu, `[`/`]` hour, F12 screenshot. Going through a door to another place shows one of
-the game's loading screens while the destination loads; the game holds still meanwhile
-([docs/design/loading-screen.md](docs/design/loading-screen.md)).
+- `--play`: you are the player (without it the camera flies freely); NPCs live by their AI
+  packages unless `--no-npc-packages` is given.
+- `--cell <EditorID or x,y>`: where to start (an interior's Editor ID such as
+  `GSDocMitchellHouse` opens that interior); `--pos x,y,z`, `--heading` and `--hour`
+  refine it. `--new-game` (with `--play`) starts the opening instead.
+- `--no-messages` (with `--play`): message boxes with only an OK button (such as the
+  add-on packs' start-up boxes) close at once; their text is still logged.
+- `--graphics enhanced`: the optional modern look (ambient occlusion, finer shadows,
+  bloom, sharpening, anisotropic filtering, sun shafts, water reflections;
+  [docs/design/graphics-enhanced.md](docs/design/graphics-enhanced.md)). The default,
+  `vanilla`, is the original's look and the one every test compares. Each improvement is
+  also on the settings page of the Esc menu.
+- `--no-voice`, `--no-sound`, `--no-music` silence parts of the audio.
+
+Keys in `--play` (the game's defaults): W/A/S/D move, Shift walk/run, Caps Lock always run,
+Ctrl sneak, Q auto move, Space jump, mouse look, left mouse attack, right mouse aim, R
+reload, E use (doors, containers, items, people), F first/third person, Tab Pip-Boy (hold:
+flashlight), T wait, Esc pause menu, `[`/`]` hour, F12 screenshot. Going through a door to
+another place shows one of the game's loading screens while the destination loads
+([docs/design/loading-screen.md](docs/design/loading-screen.md)). The bindings:
+[docs/spec-notes/controls.md](docs/spec-notes/controls.md).
+
+A crash leaves a report with a backtrace in `%LOCALAPPDATA%\NVForever\logs`.
 
 Without `--play` the camera flies freely: W/A/S/D move, Q/E down/up, Shift faster, right
 mouse drag look, wheel speed, `[`/`]` hour, F12 screenshot, Esc quit.
 
-Useful options: `--world <WRLD>`, `--cell <EditorID or x,y>` (an interior's Editor ID such
-as `GSDocMitchellHouse` opens that interior), `--pos x,y,z`, `--heading`, `--pitch`,
-`--hour`, `--weather`, `--fov` (the game's setting, default 75), `--size WxH`,
-`--no-actors`, `--actor-pose idle|bind`, `--screenshot <png>` (render once and exit),
-`--time-scale <game hours per second>` with `--timelapse <dir>` (day/night sequences).
-`nvforever --help` lists them all.
+More options: `--world <WRLD>`, `--pitch`, `--weather`, `--fov` (the game's setting,
+default 75), `--size WxH`, `--msaa 1|2|4|8`, `--no-actors`, `--actor-pose idle|bind`,
+`--screenshot <png>` (render once and exit), `--time-scale <game hours per second>` with
+`--timelapse <dir>` (day/night sequences), `--run-seconds <s>` (exit after that long, for
+tests). `nvforever --help` lists them all.
 
 The asset viewer:
 
@@ -153,21 +191,32 @@ crates/
   fnv-phys      physics: rapier3d world, character controller, swimming, queries
   fnv-sim       core simulation: forms, references, inventories, activation, clock (headless)
   fnv-script    compiled scripts: bytecode to IR, function table, decompiler, interpreter
-  fnv-game      game rules: script instances, quests, conditions, events, functions, runner
+  fnv-game      game rules: script instances, quests, conditions, events, functions, runner,
+                dialogue, detection, combat rules, crime and karma, aid, lockpicking,
+                hacking, followers
+  fnv-ai        AI packages carried out: destinations, navmesh travel, sandboxing, alert states
+  fnv-nav       navmeshes: nav graph of a load order, paths, path following
+  fnv-combat    weapons, ammo, projectiles, explosions, body parts, damage rules
+  fnv-voice     dialogue voice files: where a line's sound lives and how long it is
+  fnv-font      the interface's bitmap fonts (.fnt)
   fnvtool       CLI used by the parity lab (JSON on stdout)
 engine/         Bevy workspace (its own):
   nvf-assets    archives, NIF meshes, DDS textures, KF playback for Bevy
   nvf-viewer    asset viewer
-  nvforever     the game: world streaming, terrain, LOD, sky, water, trees, actors
-  nvf-play      --play: player, physics, activation, menus, scripts in the game
+  nvforever     the game: world streaming, terrain, LOD, sky, water, trees, actors, AI,
+                combat, enhanced graphics, crash reports
+  nvf-play      --play: player, physics, activation, menus, HUD, dialogue, audio, scripts
 schemas/fnv/    record layouts as data (fnv.schema/1)
 schemas/nif/    NIF block layouts as data (fnv.nif.schema/1)
 schemas/script/ script function catalogue as data
 parity-lab/     oracle-vs-candidate differential testing (Python stdlib)
 tools/capture/  independent readers, in-game capture plugin and jobs, xEdit export
+tools/smoke/    smoke runner: game-run scenarios as data (scenarios.toml)
 docs/
   spec-notes/   clean-room format/behaviour notes (tagged documented/observed/hypothesis)
-  design/       per-layer designs and status
+  design/       per-layer and per-system designs
+  status.md     what is complete, partly built and not started, per system
+  handoff/      hand-over notes between coordinating sessions
   adr/          architecture decision records
   cli-contract.md
   owner-review.md  decisions and questions for the owner

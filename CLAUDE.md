@@ -3,8 +3,8 @@
 NVForever is an open-source, clean-room reimplementation of the Fallout: New Vegas engine
 (OpenMW-style). The owner wants sessions to work autonomously, including pushing.
 
-Work in progress: the owner's playtest lists and their state (branches, what is left) are in
-`docs/handoff/playtest-2026-10-12.md`; read it before picking up that work.
+The owner's playtest lists (all merged) and what is left after them are in
+`docs/handoff/playtest-2026-10-12.md`; the state of every system is in `docs/status.md`.
 
 ## Charter (non-negotiable)
 
@@ -15,7 +15,8 @@ Work in progress: the owner's playtest lists and their state (branches, what is 
   Never invent offsets, opcodes or field meanings.
 - Ship no game data. Goldens and game-derived dumps stay private and are never committed
   (`.gitignore` blocks game files).
-- Work in layer order (docs/design/layer1.md, layer2.md, layer3.md; Layer 3 = world/rendering is in progress).
+- Work in layer order (docs/design/layer1.md … layer5.md; Layers 1–5 are done, Layers 6–7 are
+  mostly built; what is complete, partly built and not started: docs/status.md).
 - nv-rs (slaterain/nv-rs) is a source of format facts only: never copy its code (its
   policy admits leaked Xbox symbols and translated decompiled code; owner decision
   2026-10-07). nif.xml is documentation only (no codegen) to keep the licence open.
@@ -47,6 +48,7 @@ python -m unittest discover -s tools/smoke/tests
 
 With game data available (owner's install, read-only): build `fnvtool`, set
 `parity-lab/lab.local.json`, run `python -m fnvlab run` and report the summary.
+
 ## Smoke tests: `tools/smoke` (game runs and fnvtool checks as data)
 
 Every smoke test is a scenario in `tools/smoke/scenarios.toml`: the files that call for it,
