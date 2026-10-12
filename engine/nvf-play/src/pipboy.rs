@@ -31,7 +31,10 @@
 //!   screen, it is passed to the menu's nodes as a pointer of their own
 //!   ([`PIPBOY_POINTER`], Bevy's picking) so the menus take hovers and clicks as any
 //!   other interface does. The body finds the spot on the model's screen
-//!   ([`PipBoyScreen::pointer`]); for the flat image this module finds it.
+//!   ([`PipBoyScreen::pointer`]) on the shape as the arm's bones pose it (nvforever
+//!   `pipboy_arm.rs`; Bevy's mesh ray casts see neither the skinning nor meshes kept on
+//!   the GPU only, which is why clicks on the model did nothing until 2026-10-11); for
+//!   the flat image this module finds it.
 //! - **Drawing.** [`frame`] draws what every page shares (the background, the tab line)
 //!   and gives the pages their tools; each page module ([`stats`], [`items`], [`data`])
 //!   fills the [`PageBody`] node with its own system, so a page can read what it needs.
@@ -233,6 +236,24 @@ pub struct PipBoyScreen {
     pub pointer: Option<Vec2>,
 }
 
+/// Test aid (`NVF_PLAY_TEST_PIPBOY`'s `point=` and `click=`): what the pointer is put on
+/// in place of the window's, and a click to make there.
+#[derive(Resource, Debug, Default)]
+pub struct PipBoyAid {
+    pub target: Option<AidTarget>,
+    /// A click on the target in progress: 3 asked, 2 the pointer is on it, 1 pressed.
+    pub click: u8,
+}
+
+/// Where the test aid points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AidTarget {
+    /// The middle of a page's button on the device.
+    Button(Page),
+    /// A point of the canvas, on the screen (through the model where it is shown).
+    Canvas(Vec2),
+}
+
 /// The node a page fills, under the menus' root (canvas units from its top left).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PageBody {
@@ -253,6 +274,7 @@ pub struct PipBoyPlugin;
 impl Plugin for PipBoyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PipBoy>()
+            .init_resource::<PipBoyAid>()
             .init_resource::<frame::Kit>()
             .add_message::<PipBoyInput>()
             .add_systems(Startup, setup_screen)
@@ -374,6 +396,7 @@ fn flat_screen(
     screen: Option<ResMut<PipBoyScreen>>,
     flat: Query<(Entity, &ComputedNode, &UiGlobalTransform), With<FlatScreen>>,
     windows: Query<&Window, With<PrimaryWindow>>,
+    aid: Res<PipBoyAid>,
 ) {
     let Some(mut screen) = screen else { return };
     let want = pip.open() && !screen.on_model;
@@ -395,6 +418,10 @@ fn flat_screen(
             commands.entity(e).despawn();
         }
         (true, Some((_, computed, at))) => {
+            if let Some(AidTarget::Canvas(p)) = aid.target {
+                screen.pointer = Some(p);
+                return;
+            }
             let cursor = windows.single().ok().and_then(|w| w.physical_cursor_position());
             let size = computed.size();
             screen.pointer = cursor.and_then(|c| {
@@ -409,6 +436,7 @@ fn flat_screen(
 
 /// Pass the pointer on the screen, and the mouse's buttons, to the menus' nodes (as Bevy's
 /// `render_ui_to_texture` example does).
+#[allow(clippy::too_many_arguments)]
 fn drive_pointer(
     mut commands: Commands,
     pip: Res<PipBoy>,
@@ -417,6 +445,7 @@ fn drive_pointer(
     mut spawned: Local<bool>,
     mut window_events: MessageReader<WindowEvent>,
     mut out: MessageWriter<PointerInput>,
+    mut aid: ResMut<PipBoyAid>,
 ) {
     let Some(screen) = screen else { return };
     if !*spawned {
@@ -449,6 +478,24 @@ fn drive_pointer(
             ButtonState::Released => PointerAction::Release(button),
         };
         out.write(PointerInput::new(PIPBOY_POINTER, Location { target: target.clone(), position }, action));
+    }
+    // The test aid's click: a frame on the spot first, then a press, then a release.
+    match aid.click {
+        3 => aid.click = 2,
+        1 | 2 if at.is_none() => {
+            warn!("test aid: pipboy click at {:?}: not on the screen", aid.target);
+            aid.click = 0;
+        }
+        2 => {
+            out.write(PointerInput::new(PIPBOY_POINTER, Location { target: target.clone(), position }, PointerAction::Press(PointerButton::Primary)));
+            aid.click = 1;
+        }
+        1 => {
+            out.write(PointerInput::new(PIPBOY_POINTER, Location { target, position }, PointerAction::Release(PointerButton::Primary)));
+            info!("test aid: pipboy clicked the screen at ({:.0}, {:.0})", position.x, position.y);
+            aid.click = 0;
+        }
+        _ => {}
     }
 }
 

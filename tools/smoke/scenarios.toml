@@ -62,6 +62,8 @@ sep = ","
 sep = ","
 [timed.NVF_PLAY_TEST_TALK]
 sep = ";"
+[timed.NVF_PLAY_TEST_KEYS]
+sep = ","
 [timed.NVF_PLAY_TEST_PAUSE]
 sep = ","
 shift = "all"
@@ -713,6 +715,22 @@ order = [[
 ]]
 
 [[scenario]]
+name = "container-e-key"
+source = "CLAUDE.md: after changes to activation or the menus' keys (nvf-play activate, menu menu_keys, FreshMenu): open and close a container with the real E key"
+areas = ["activate", "menus", "controls"]
+paths = ["engine/nvf-play/src/activate*", "engine/nvf-play/src/menu*"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105658", NVF_PLAY_TEST_KEYS = "16:e,19:e" }
+args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+run_seconds = 21
+order = [[
+  'menu: open Container(0x00105658) "Refrigerator"',
+  "menu: close",
+]]
+expect = [
+  { gap = ['menu: open Container(0x00105658) "Refrigerator"', "menu: close"], range = [2.25, 3.75], label = "menu: close about 3 s after the open" },
+]
+
+[[scenario]]
 name = "chargen-menus"
 source = "CLAUDE.md: after changes to the name, tag-skill or trait menus (docs/spec-notes/chargen.md §7)"
 areas = ["chargen", "menus"]
@@ -933,6 +951,20 @@ order = [[
   "pipboy: STATS Status",
   "pipboy: down",
 ]]
+
+[[scenario]]
+name = "pipboy-pointer"
+source = "CLAUDE.md: after changes to the Pip-Boy's pointer (pipboy_arm.rs follow_pointer, pipboy::drive_pointer), click on the model's screen"
+areas = ["pipboy"]
+paths = ["engine/nvforever/src/pipboy_arm.rs", "engine/nvf-play/src/pipboy*"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,14:click=320:650,16:click=stats,18:click=600:650" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
+run_seconds = 21
+expect = [
+  "pipboy: ITEMS Apparel",
+  "pipboy: the STATS button pressed",
+  "pipboy: STATS Perks",
+]
 
 [[scenario]]
 name = "hacking"

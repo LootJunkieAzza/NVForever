@@ -14,7 +14,8 @@
 //!   and back. Not a game behaviour.
 //! - `NVF_PLAY_TEST_LOOK=<seconds>:<heading deg>:<pitch deg>[,...]` turns the view (the
 //!   compass heading, 0 north, 90 east; the pitch, negative looks down) at those times,
-//!   as if the mouse had moved there.
+//!   as if the mouse had moved there (ignored, as the mouse is, while an animation
+//!   drives the view, `player::ViewDriven`).
 //! - `NVF_PLAY_TEST_GOTO=<seconds>:<x>:<y>:<z>[,...]` puts the player's feet on whatever
 //!   is under that point (game space, in the current cell or worldspace) at those times.
 //! - `NVF_PLAY_TEST_GIVE=<item FormID hex>[:<count>][,...]` adds items to the player's
@@ -41,6 +42,12 @@
 //!   everything the player has equipped, e.g. a weapon about to break). `aimpart=254`
 //!   aims at the weapon the nearest NPC holds drawn (`hitvol::WEAPON_PART`).
 //!   `flashlight` switches the flashlight as a hold of Menu Mode does (`crate::flashlight`).
+//! - `NVF_PLAY_TEST_KEYS=<seconds>:<key>[:<hold seconds>][,...]` presses a real key or
+//!   mouse button at each time and lets it go after the hold (default: the next frame),
+//!   through Bevy's input state, so the game's bindings (`crate::bindings`) are what
+//!   read it: `ctrl` (left Ctrl), `shift`, `space`, `tab`, `esc`, `enter`, a letter or
+//!   digit (`e`, `2`), `f1`..`f12`, or `mouse-left` / `mouse-right` / `mouse-middle`.
+//!   Unlike `NVF_PLAY_TEST_CONTROL` it tests the key's path, not just what it does.
 //!
 //! The aids that stand in for the keys and the mouse (`NVF_PLAY_TEST_MOVE`,
 //! `NVF_PLAY_TEST_CONTROL`'s presses, `NVF_PLAY_TEST_LOOK`, `NVF_PLAY_TEST_ACTIVATE`) are
@@ -193,6 +200,85 @@ fn press(rest: &str) -> Result<Press, String> {
     })
 }
 
+/// A real input pressed by `NVF_PLAY_TEST_KEYS`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RealInput {
+    Key(KeyCode),
+    Mouse(MouseButton),
+}
+
+/// `<key>[:<hold seconds>]` of `NVF_PLAY_TEST_KEYS`.
+pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
+    let (name, hold) = match rest.split_once(':') {
+        Some((n, h)) => (n.trim(), h.trim().parse::<f32>().map_err(|_| format!("{rest:?}: bad hold {h:?}"))?),
+        None => (rest.trim(), 0.0),
+    };
+    let lower = name.to_ascii_lowercase();
+    let letters = [
+        KeyCode::KeyA, KeyCode::KeyB, KeyCode::KeyC, KeyCode::KeyD, KeyCode::KeyE, KeyCode::KeyF, KeyCode::KeyG, KeyCode::KeyH, KeyCode::KeyI,
+        KeyCode::KeyJ, KeyCode::KeyK, KeyCode::KeyL, KeyCode::KeyM, KeyCode::KeyN, KeyCode::KeyO, KeyCode::KeyP, KeyCode::KeyQ, KeyCode::KeyR,
+        KeyCode::KeyS, KeyCode::KeyT, KeyCode::KeyU, KeyCode::KeyV, KeyCode::KeyW, KeyCode::KeyX, KeyCode::KeyY, KeyCode::KeyZ,
+    ];
+    let digits = [
+        KeyCode::Digit0, KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6, KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9,
+    ];
+    let fkeys = [
+        KeyCode::F1, KeyCode::F2, KeyCode::F3, KeyCode::F4, KeyCode::F5, KeyCode::F6, KeyCode::F7, KeyCode::F8, KeyCode::F9, KeyCode::F10, KeyCode::F11, KeyCode::F12,
+    ];
+    let input = match lower.as_str() {
+        "ctrl" => RealInput::Key(KeyCode::ControlLeft),
+        "shift" => RealInput::Key(KeyCode::ShiftLeft),
+        "alt" => RealInput::Key(KeyCode::AltLeft),
+        "space" => RealInput::Key(KeyCode::Space),
+        "tab" => RealInput::Key(KeyCode::Tab),
+        "esc" => RealInput::Key(KeyCode::Escape),
+        "enter" => RealInput::Key(KeyCode::Enter),
+        "mouse-left" => RealInput::Mouse(MouseButton::Left),
+        "mouse-right" => RealInput::Mouse(MouseButton::Right),
+        "mouse-middle" => RealInput::Mouse(MouseButton::Middle),
+        l if l.len() == 1 && l.as_bytes()[0].is_ascii_lowercase() => RealInput::Key(letters[(l.as_bytes()[0] - b'a') as usize]),
+        l if l.len() == 1 && l.as_bytes()[0].is_ascii_digit() => RealInput::Key(digits[(l.as_bytes()[0] - b'0') as usize]),
+        l => match l.strip_prefix('f').and_then(|n| n.parse::<usize>().ok()).filter(|n| (1..=12).contains(n)) {
+            Some(n) => RealInput::Key(fkeys[n - 1]),
+            None => return Err(format!("{rest:?}: unknown key {name:?}")),
+        },
+    };
+    Ok((input, hold))
+}
+
+/// `NVF_PLAY_TEST_KEYS`: what is still to press, and what is down until when.
+#[derive(Resource, Default)]
+struct RealPresses {
+    due: Vec<(f32, (RealInput, f32))>,
+    down: Vec<(RealInput, f32)>,
+}
+
+/// Press and let go the `NVF_PLAY_TEST_KEYS` inputs, right after Bevy read the real ones.
+fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>) {
+    let now = time.elapsed_secs();
+    let p = &mut *p;
+    p.down.retain(|&(input, until)| {
+        if now < until {
+            return true;
+        }
+        match input {
+            RealInput::Key(k) => keys.release(k),
+            RealInput::Mouse(m) => mouse.release(m),
+        }
+        info!("test aid: real input {input:?} let go");
+        false
+    });
+    for (input, hold) in take_due(&mut p.due, now) {
+        match input {
+            RealInput::Key(k) => keys.press(k),
+            RealInput::Mouse(m) => mouse.press(m),
+        }
+        info!("test aid: real input {input:?} pressed");
+        // At least one frame down.
+        p.down.push((input, now + hold.max(1e-4)));
+    }
+}
+
 /// `NVF_PLAY_TEST_SHOTS` items: `<seconds>` (saved as `play-<seconds>s.png` in `dir`) or
 /// `<seconds>:<path>`; bad entries are skipped.
 fn shots(v: &str, dir: &Path) -> Vec<(f32, PathBuf)> {
@@ -294,6 +380,15 @@ pub(crate) fn setup(app: &mut App) {
         }
     }
     let var = |name: &str| std::env::var(name).ok();
+    if let Some(v) = var("NVF_PLAY_TEST_KEYS") {
+        match timed(&v).and_then(|items| items.into_iter().map(|(s, r)| real_input(r).map(|k| (s, k))).collect()) {
+            Ok(due) => {
+                app.insert_resource(RealPresses { due, down: Vec::new() })
+                    .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(bevy::ui::UiSystems::Focus));
+            }
+            Err(e) => warn!("NVF_PLAY_TEST_KEYS: {e}"),
+        }
+    }
     let mut aids = Aids::default();
     if let Some(v) = var("NVF_PLAY_TEST_SHOTS") {
         let dir = std::env::var_os("NVF_PLAY_TEST_SHOT_DIR").map_or_else(|| PathBuf::from("."), PathBuf::from);
@@ -516,6 +611,7 @@ fn goto_and_look(
     mut player: ResMut<Player>,
     locks: Res<crate::control::ControlLocks>,
     mut stats: ResMut<crate::control::LockStats>,
+    driven: Option<Res<crate::player::ViewDriven>>,
 ) {
     let now = time.elapsed_secs();
     if phys.player.is_some() {
@@ -540,6 +636,11 @@ fn goto_and_look(
         if locks.looking {
             info!("test aid: look heading {:.1} pitch {:.1} ignored: a script has disabled looking", h.to_degrees(), p.to_degrees());
             stats.held[crate::control::group::LOOKING] += 1;
+            continue;
+        }
+        // As the mouse, held while an animation drives the view (`ViewDriven`).
+        if driven.as_deref().is_some_and(|d| d.0) {
+            info!("test aid: look heading {:.1} pitch {:.1} ignored: an animation drives the view", h.to_degrees(), p.to_degrees());
             continue;
         }
         info!("test aid: look heading {:.1} pitch {:.1}", h.to_degrees(), p.to_degrees());

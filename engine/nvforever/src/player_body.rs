@@ -889,8 +889,11 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
             commands.entity(*e).insert(RenderLayers::layer(ARMS_LAYER));
         }
         for ((&e, &p), &s) in spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of) {
-            if let Some(part) = uses[p].part.shapes[s].name.as_deref().and_then(crate::pipboy_arm::part) {
-                commands.entity(e).insert(part);
+            let shape = &uses[p].part.shapes[s];
+            if let Some(part) = shape.name.as_deref().and_then(crate::pipboy_arm::part) {
+                // The CPU copy: the pointer is followed onto the posed shape
+                // (`pipboy_arm::follow_pointer`).
+                commands.entity(e).insert((part, crate::pipboy_arm::PartMesh(shape.cpu.clone())));
             }
         }
     }
@@ -1446,6 +1449,7 @@ fn drive_body(
         Res<nvf_play::pipboy::PipBoy>,
         Query<&Projection, With<nvf_play::PlayerCamera>>,
     ),
+    mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
     let state = &mut *state;
     player.body_view = None;
@@ -1635,11 +1639,16 @@ fn drive_body(
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e);
     // While an idle turns the first-person view, its rig keeps the heading the idle
-    // started at, and the view's own turning since then (to the side, and up or down)
-    // is added to what the camera node gives [design: the opening leaves looking round
-    // to the player; hypothesis that the body does not swing round with the view].
+    // started at and the camera node alone places the view: mouse look and movement are
+    // ignored (`nvf_play::player::ViewDriven`) [design: the owner's wish, playtest of
+    // 2026-10-11; the opening's scripts leave looking on, so the original may let the
+    // view turn; hypothesis that the body does not swing round with the view].
     if idles.first.is_empty() && idles.held.take().is_some() {
         seat.hold = None;
+    }
+    if driven.0 != idles.held.is_some() {
+        driven.0 = idles.held.is_some();
+        info!("player view: {}", if driven.0 { "driven by an idle's camera node; mouse look and movement ignored" } else { "back to the player" });
     }
     let (held, pitch, at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
     if let Some(h) = idles.held {

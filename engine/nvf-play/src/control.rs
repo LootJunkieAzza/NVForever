@@ -377,6 +377,7 @@ pub fn read_controls(
     let c = &mut *control;
     if input.just_pressed(Control::CrouchSneak) {
         c.sneak = !c.sneak;
+        info!("Crouch/Sneak pressed: sneaking {} asked", if c.sneak { "on" } else { "off" });
     }
     if input.just_pressed(Control::AlwaysRun) {
         c.always_run = !c.always_run;
