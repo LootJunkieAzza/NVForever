@@ -19,6 +19,7 @@ use bevy::core_pipeline::tonemapping::tonemapping;
 use bevy::core_pipeline::{Core3d, Core3dSystems, FullscreenShader};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::render::extract_component::{ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin, UniformComponentPlugin};
 use bevy::render::render_resource::binding_types::{sampler, texture_2d, uniform_buffer};
 use bevy::render::render_resource::{
@@ -68,13 +69,19 @@ impl Plugin for PostPlugin {
             .add_systems(Render, prepare.in_set(RenderSystems::PrepareResources))
             .add_systems(
                 Core3d,
-                post_pass.in_set(Core3dSystems::PostProcess).after(tonemapping).after(crate::ssao::ao_pass).before(crate::imagespace::blur_pass),
+                post_pass
+                    .in_set(Core3dSystems::PostProcess)
+                    .after(tonemapping)
+                    .after(crate::ssao::ao_pass)
+                    .after(crate::taa::taa_pass)
+                    .after(crate::shafts::shafts_pass)
+                    .before(crate::imagespace::blur_pass),
             );
     }
 }
 
 #[derive(Resource)]
-struct PostPipelines {
+pub(crate) struct PostPipelines {
     /// One texture, sampler, uniform (bright, blurs); and with the glow (composite).
     single: BindGroupLayoutDescriptor,
     composite_layout: BindGroupLayoutDescriptor,
@@ -86,7 +93,7 @@ struct PostPipelines {
 }
 
 #[derive(Component)]
-struct PostView {
+pub(crate) struct PostView {
     composite: CachedRenderPipelineId,
     /// Quarter-size textures: the bright part and its blur go back and forth.
     a: CachedTexture,
@@ -190,7 +197,7 @@ fn draw(ctx: &mut RenderContext, label: &'static str, target: &TextureView, pipe
     pass.draw(0..3, 0..1);
 }
 
-fn post_pass(
+pub(crate) fn post_pass(
     view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<PostEffects>, &PostEffects, &PostView)>,
     pipelines: Res<PostPipelines>,
     cache: Res<PipelineCache>,
@@ -208,6 +215,10 @@ fn post_pass(
     let Some(glow) = glow else { return };
     let Some(binding) = uniforms.uniforms().binding() else { return };
     let single: BindGroupLayout = cache.get_bind_group_layout(&pipelines.single);
+    // GPU time of the pass (recorded with --log-frame-times, graphics.rs).
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+    let span = diagnostics.time_span(ctx.command_encoder(), "nvf_bloom_sharpen");
     let offset = index.index();
     let post = target.post_process_write();
     if bloom {
@@ -221,4 +232,5 @@ fn post_pass(
     let layout = cache.get_bind_group_layout(&pipelines.composite_layout);
     let bind_group = device.create_bind_group("post_composite", &layout, &BindGroupEntries::sequential((post.source, &pipelines.sampler, binding, &pv.a.default_view)));
     draw(&mut ctx, "post_composite_pass", post.destination, composite, &bind_group, offset);
+    span.end(ctx.command_encoder());
 }

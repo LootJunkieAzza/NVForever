@@ -3591,3 +3591,53 @@ and the smoke scenario `script-stubs` checks the counts.
 *Decision:* other workstreams' functions (combat, crime, followers, aid) were not touched;
 `crates/fnv-game/src/functions/stubs.rs` lists who owns which, and a test fails when one
 of them is implemented without being taken off the list.
+
+## Graphics follow-ups: TAA, sun shafts, water reflections (2026-10-12, session "graphics-2")
+
+Follow-ups to PR #236 (list 2, "ENGINE LEVEL GRAPHIC IMPROVEMENTS"; handoff §4 item 8). Reasons
+and figures: docs/design/graphics-enhanced.md §3.6-§3.8, §4, §5.1. Every value below is an
+engineering choice by eye, not a fact about the original game. The vanilla look is unchanged and
+is still the default of every test run, smoke scenario and lab frame.
+
+1. **Temporal anti-aliasing** (`taa`, settings page "Temporal anti-aliasing"). Our own pass:
+   Bevy's needs motion vectors from every material, which our custom shaders do not write.
+   *Decision:* it is the **other choice to multisampling, not stacked**: on, the view is drawn
+   without MSAA and smoothed over the frames; off, `--msaa` comes back (switchable while
+   playing). *Decision:* **not part of `--graphics enhanced`**: standing still it is as smooth
+   as MSAA 4x (plants' cut-outs smoother), but textures are softer, clearly so while the view
+   moves, and you play with 8x MSAA. It is cheaper than MSAA 4x (GPU 0.05 ms for the pass,
+   about 0.4 ms saved in the main pass and prepass on the RTX 4070 here). *Guesses:* blend 10 %
+   still / 50 % moving fast, mip bias -0.5, points nearer than 48 units move with the camera
+   (the arms and weapon), a jump over 400 units in a frame starts the history over. *Check:*
+   turn it on in the settings and walk and turn in Goodsprings: softness, ghosts behind walking
+   NPCs and swaying grass, the arms while turning; say if you want it in `enhanced`.
+2. **Sun shafts** (`light-shafts`, in `enhanced`): light streaming past what stands in front of
+   the sun, from the game's own sky and sun as drawn, as strong as the weather's fog makes the
+   air hazy. *Guesses:* strength 0.6 + 0.9 x haze, haze = 20,000 / fog far (clear weather 0.1),
+   source within 0.3 of the screen height of the sun. *Check:* Goodsprings at 19:00 facing the
+   sunset (`--pos=-69000,3500,8900 --heading 260 --pitch 2 --hour 19 --graphics enhanced`);
+   a dusty or cloudy weather (stronger there by design); that noon looking away from the sun is
+   unchanged.
+3. **Screen-space water reflections** (`water-reflections`, in `enhanced`): only where the
+   existing mirrored reflection does not reach (water at a second height in view, e.g. Lake Las
+   Vegas next to Lake Mead's cells); interiors have no WATR planes in this engine, so nothing
+   changes there. *Decision:* kept although its value is small: checked only by forcing it in
+   place of the mirrored reflection at Lake Las Vegas (no artefacts, small difference). *Check:*
+   if you know a spot with two water levels in view, whether the lower one now shows the shore.
+4. *Decision (tried and dropped):* **Bevy's volumetric fog**: on our non-HDR picture it turned
+   Goodsprings at dusk dark brown with a visible box edge across the mountains
+   (`C:\fnv-private\scratch\graphics-2\vol-dusk.png`) and would replace the weather's fog look;
+   the sun shafts give the light shafts it was meant for. Contact shadows and CAS (#236) were
+   not retried.
+5. *Found:* switching multisampling while the game runs (now possible through TAA) ended the run
+   with a validation error in the ambient occlusion pass; the passes that read the depth now go
+   by the depth texture's own sample count. The `graphics-enhanced` smoke scenario switches TAA
+   on, walks and turns, and off again, and forbids rendering errors.
+6. *Test aids for measuring:* `--log-frame-times <s>` (frame time and GPU time per pass) and
+   `--graphics-cycle "vanilla;taa;..."` (switches between sets in one run). On this machine
+   the picture stayed at 60 Hz whatever was asked, so the per-pass GPU times are the figures;
+   the GTX 1050 was not measured. *Check:* your frame rate with `--graphics enhanced` and with
+   TAA on instead of MSAA.
+7. *Seen in passing (not this workstream):* at Camp Golf (`--pos=29500,62000,3400 --heading 0
+   --pitch -10 --hour 12`, free camera) an NCR trooper stands in the air above his shadow;
+   possibly your floating-troopers item 24.

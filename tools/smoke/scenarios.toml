@@ -160,22 +160,27 @@ order = [[
 
 [[scenario]]
 name = "graphics-enhanced"
-source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, and its switches change while the game runs"
+source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, its switches change while the game runs, and temporal anti-aliasing replaces the multisampling and back without a rendering error"
 areas = ["renderer", "graphics"]
 paths = [
   "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao*", "engine/nvforever/src/post*",
+  "engine/nvforever/src/taa*", "engine/nvforever/src/shafts*",
   "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs",
 ]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16,19.5:20.5", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion,15:taa,15.5:light-shafts,20:taa", NVF_PLAY_TEST_LOOK = "17:90:0,17.5:120:0,18:150:0", NVF_PLAY_TEST_MOVE = "17:1:0,19:0:0" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--graphics", "enhanced"]
 run_seconds = 22
 order = [[
-  "graphics: ambient occlusion, finer, longer shadows, bloom, sharpening, 16x anisotropic filtering",
-  { re = 'graphics: finer, longer shadows, bloom, sharpening, 16x anisotropic filtering$' },
-  { re = 'graphics: finer, longer shadows, sharpening, 16x anisotropic filtering$' },
-  { re = 'graphics: sharpening, 16x anisotropic filtering$' },
-  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering$' },
+  "graphics: ambient occlusion, finer, longer shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections",
+  { re = 'graphics: finer, longer shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: finer, longer shadows, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, temporal anti-aliasing, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, temporal anti-aliasing, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, screen-space water reflections$' },
 ]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the multisampling changes" }]
 
 # ------------------------------------------------------------------ navmesh and AI
 

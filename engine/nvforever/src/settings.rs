@@ -157,7 +157,7 @@ pub fn register(app: &mut App) {
 /// of them on, `vanilla` with none).
 fn register_graphics(app: &mut App) {
     type Switch = (&'static str, &'static str, &'static str, fn(&World) -> bool, fn(&mut World, bool));
-    let switches: [Switch; 5] = [
+    let switches: [Switch; 8] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",
@@ -195,6 +195,27 @@ fn register_graphics(app: &mut App) {
                 w.resource_mut::<Graphics>().anisotropic = on;
                 nvf_assets::texture::set_anisotropy(if on { 16 } else { 8 });
             },
+        ),
+        (
+            "taa",
+            "Temporal anti-aliasing",
+            "On: edges are smoothed over the frames instead of by multisampling (which is switched off while this is on); plants' cut-out edges too. Off: --msaa again. (--graphics)",
+            |w| w.resource::<Graphics>().taa,
+            |w, on| w.resource_mut::<Graphics>().taa = on,
+        ),
+        (
+            "light-shafts",
+            "Sun shafts",
+            "On: sunlight streams past what stands in front of the sun, stronger the hazier the weather's fog. Not in the original. (--graphics)",
+            |w| w.resource::<Graphics>().light_shafts,
+            |w, on| w.resource_mut::<Graphics>().light_shafts = on,
+        ),
+        (
+            "water-reflections",
+            "Screen-space water reflections",
+            "On: water the mirrored reflection does not reach (another height, interiors) reflects what is on the screen instead of only the sky. (--graphics)",
+            |w| w.resource::<Graphics>().water_reflections,
+            |w, on| w.resource_mut::<Graphics>().water_reflections = on,
         ),
     ];
     for (key, label, note, get, set) in switches {
