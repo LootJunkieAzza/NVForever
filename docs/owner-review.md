@@ -3182,3 +3182,20 @@ Failing on main (2026-10-12), kept and marked known-failing: house items drop th
 given stimpaks not carried at 58 s (23 sounds, not 24). Flaky: the barter from Chet's
 dialogue once had the player carry nothing (the add-on packs' items not given yet) and
 got "You don't have enough caps."
+
+## Smoke tests: the last prose tests converted (2026-10-12, coordinator session)
+
+The three smoke tests PR #226 added to CLAUDE.md as prose are now scenarios
+(`sunny-wells`, `sunny-gas-station`, `cook-cook-camp`), and CLAUDE.md no longer lists any
+prose test. Two checks #229 suggested were added: the `turn summary` in the residents
+scenario (fastest turn at most 180°/s, no frame above 270°/s) and `chet-broom` (Chet holds
+`aobroom.nif` in his left hand in the general store). All five passed on main at 3a886bb2
+on this machine (11.4 min).
+
+1. *Decision:* "voice … out of hearing for lines from 2,000 units or more" is checked as
+   every out-of-hearing line being 2,000 units or more away (3 such lines, 2,110–2,635).
+2. *Decision:* "held back by the group cooldown above 0" is a number ≥ 1 (27 in the run).
+3. *Decision:* Chet's broom runs at noon (`--hour 12`): the note gave no hour, and at noon
+   his package sweeps. *Check:* the hour you saw him sweep at.
+4. *Seen, not changed:* at Cook-Cook's camp the fiends still go Combat → Lost and back
+   16 times in 45 s (the handoff's "about 17"); it belongs to the combat workstream.
