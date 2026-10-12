@@ -638,12 +638,25 @@ impl Core {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
             let (space, feet) = (a.walker.space, a.walker.feet);
             let high = drawn(world, streamer, space, feet);
-            if self.ai.set_high(game, r.actor, high) {
+            // Out of the loaded area: Mid-High in the cell buffer, Low beyond (`cell_buffer.rs`).
+            let level = match (high, streamer.buffer.holds(space, feet)) {
+                (true, _) => fnv_ai::ProcessLevel::High,
+                (false, true) => fnv_ai::ProcessLevel::MidHigh,
+                (false, false) => fnv_ai::ProcessLevel::Low,
+            };
+            let was_high = self.ai.is_high(r.actor);
+            if self.ai.set_level(game, r.actor, level) {
                 let line = format!(
-                    "ai [{}] {}: {} the loaded area at ({:.0}, {:.0}, {:.0}) in {}",
+                    "ai [{}] {}: {} at ({:.0}, {:.0}, {:.0}) in {}",
                     self.clock_text,
                     r.label,
-                    if high { "back in" } else { "out of" },
+                    match level {
+                        fnv_ai::ProcessLevel::High => "back in the loaded area",
+                        fnv_ai::ProcessLevel::MidHigh if was_high => "out of the loaded area",
+                        fnv_ai::ProcessLevel::MidHigh => "back in the cell buffer (low process every 18 s)",
+                        fnv_ai::ProcessLevel::Low if was_high => "out of the loaded area and the cell buffer (low process every 120 s)",
+                        fnv_ai::ProcessLevel::Low => "out of the cell buffer (low process every 120 s)",
+                    },
                     feet[0],
                     feet[1],
                     feet[2],
@@ -1277,14 +1290,19 @@ pub fn report(
     );
     let p = &core.ai.process_stats;
     let (high, low) = core.ai.process_counts();
+    let far = core.ai.far_count();
     info!(
-        "process summary: {high} residents in the loaded area (high process) and {low} out of it at the end, at most {} and {}; {} left the loaded area, {} came back; {} low-process updates every {:.0} s ({} walking steps); {} conversations or searches ended by leaving",
+        "process summary: {high} residents in the loaded area (high process) and {low} out of it at the end ({far} of them beyond the cell buffer), at most {}, {} and {}; {} left the loaded area, {} came back; {} fell out of the cell buffer; {} low-process updates every {:.0} s and {} every {:.0} s ({} walking steps); {} conversations or searches ended by leaving",
         p.most_high,
         p.most_low,
+        p.most_far,
         p.left,
         p.came_back,
-        p.low_updates,
+        p.fell_far,
+        p.low_updates - p.far_updates,
         fnv_ai::LOW_PROCESS_SECONDS,
+        p.far_updates,
+        fnv_ai::FAR_PROCESS_SECONDS,
         p.low_steps,
         p.dropped
     );
