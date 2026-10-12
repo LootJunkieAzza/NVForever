@@ -335,7 +335,8 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   east down the road at (−69500, 2500), with the sun low behind the camera, the 8–10 m
   telegraph pole and the trailer cast no shadow on the road. The renderer still draws sun
   shadows by default (owner decision 2026-10-09; `nvforever --shadow-distance 0` turns
-  them off to match the game). With shadows on
+  them off to match the game), to 8,000 units in 3 cascades since 2026-10-12 for the frame
+  rate (docs/design/graphics-enhanced.md §5.3). With shadows on
   and the corrected sun, the rock formations west of Goodsprings shade the whole town
   from about 18:40 [observed: renderer]. Whether actors cast shadows in the game is not
   known from these frames (nvforever draws no actors yet).

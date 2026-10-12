@@ -203,6 +203,7 @@ pub(crate) fn add_open_and_keys<M>(app: &mut App, before: impl IntoScheduleConfi
         .add_message::<OpenInventory>()
         .add_message::<ItemUsed>()
         .add_message::<crate::ui_sounds::UiSound>()
+        .add_message::<crate::crime::ItemsTaken>()
         .add_systems(Update, (before, open_menus, (menu_keys, apply_input).chain().run_if(menu_open)).chain());
 }
 
