@@ -11,8 +11,13 @@
 //! ragdoll, the earlier presentation holds: the death pose (played once, or straight at
 //! its end for an actor that is dead when it is drawn); without a death pose the pose
 //! freezes and the body is laid on its back about its feet [design].
+//!
+//! A corpse laid out by a new game (`Game::starts_dead`) whose reference stores the pose
+//! its designer left it in (`XRGD`, `authored_pose.rs`) is put in that pose at rest
+//! instead of falling (docs/spec-notes/dead-on-spawn.md §5).
 
 use crate::limbs::ActorRig;
+use crate::world::WorldData;
 use crate::locomotion::{Dying, Flinch, Locomotion};
 use crate::ragdoll::Ragdolls;
 use bevy::prelude::*;
@@ -55,6 +60,7 @@ fn show_hits_and_deaths(
     phys: Option<Res<PhysState>>,
     mut ragdolls: ResMut<Ragdolls>,
     mut actors: Query<Living, Without<Dying>>,
+    world: Option<Res<WorldData>>,
 ) {
     let fresh: Vec<ActorHit> = hits.read().copied().collect();
     let now = time.elapsed_secs();
@@ -74,6 +80,10 @@ fn show_hits_and_deaths(
             let clip = lo.filter(|lo| !falls && !lo.set.death.is_empty()).map(|lo| lo.set.death[(r.0 as usize) % lo.set.death.len()].clone());
             if clip.is_none() && !falls {
                 t.rotate_local_x(-std::f32::consts::FRAC_PI_2);
+            }
+            // Laid out by a new game, with the pose its designer left it in: at rest in it.
+            if let (false, Some(c), Some(w)) = (died_now, corpse.as_ref(), world.as_deref()) {
+                authored(&mut ragdolls, script.as_deref(), w, c, rig, gt);
             }
             let start = if died_now { 0.0 } else { END };
             let mut ec = commands.entity(e);
@@ -95,6 +105,37 @@ fn show_hits_and_deaths(
                 info!("hit reaction: {:08X} staggers for {:.1} s (location {}, {why})", r.0, c.clip.length(), h.location);
                 commands.entity(e).insert(Flinch { clip: c, at: now });
             }
+        }
+    }
+}
+
+/// Put the pose its reference stores (`XRGD`) where `ragdoll.rs` takes a corpse's resting
+/// pose from, for a corpse a new game laid out that has no resting pose yet.
+fn authored(ragdolls: &mut Ragdolls, script: Option<&ScriptState>, world: &WorldData, c: &crate::ragdoll::Corpse, rig: &ActorRig, gt: &GlobalTransform) {
+    let r = rig.reference;
+    if ragdolls.rest.contains_key(&r) {
+        return;
+    }
+    let Some(game) = script.and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
+    let id = fnv_sim::FormId(r);
+    if !game.starts_dead(id) || game.extra.get(&id).is_some_and(|e| e.killer.is_some()) {
+        return;
+    }
+    let Some(p) = game.world.placed.get(id) else { return };
+    let Some(d) = world.lo.index.get(&r).and_then(|d| d.last()) else { return };
+    let Ok(subs) = world.lo.records[d.plugin as usize][d.ordinal as usize].subrecords() else { return };
+    let Some(x) = subs.iter().find(|s| &s.sig == b"XRGD") else { return };
+    let bones = crate::authored_pose::parse(&x.data);
+    let names: Vec<Option<&str>> = c.data.bodies.iter().map(|b| b.object.node.as_deref()).collect();
+    let scale = gt.affine().matrix3.x_axis.length();
+    match crate::authored_pose::pose(&names, &rig.skel, &bones, p.pos, p.rot, scale) {
+        Ok(pose) => {
+            ragdolls.rest.insert(r, pose);
+            ragdolls.authored += 1;
+        }
+        Err(e) => {
+            ragdolls.authored_skipped += 1;
+            debug!("ragdoll: actor {r:08X}: its stored pose is not used ({e})");
         }
     }
 }
