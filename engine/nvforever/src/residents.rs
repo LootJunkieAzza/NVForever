@@ -297,6 +297,8 @@ struct Resident {
     stand: Option<Option<FormId>>,
     /// The heading it was drawn with last frame (drawn, not on furniture), and where.
     last_drawn: Option<(f32, [f32; 3])>,
+    /// A script put it somewhere (MoveTo) this frame: off its furniture at once.
+    moved: bool,
 }
 
 /// A resident standing with nothing else to do ([`Residents::standing`]).
@@ -512,6 +514,7 @@ impl Core {
             stand: None,
             last_drawn: None,
             wants: None,
+            moved: false,
         });
     }
 
@@ -537,6 +540,39 @@ impl Core {
         }
         if self.list.len() > before {
             debug!("ai: {} more residents ({} in all)", self.list.len() - before, self.list.len());
+        }
+    }
+
+    /// The actors a script put somewhere (MoveTo) since the last frame: a resident goes
+    /// on from where it was put (`fnv_ai::Ai::relocate`), off its furniture and without
+    /// its character; with `all`, an actor that is not a resident yet becomes one, from
+    /// where it was put (an actor placed in a cell that is not loaded, moved into one
+    /// that is or will be: Sunny Smiles to the gas station). [Until 2026-10-11 the AI
+    /// kept such an actor where it had stood: owner playtest.]
+    fn take_moved(&mut self, game: &mut Game, all: bool, mut phys: Option<&mut PhysState>) {
+        let refs = game.world.placed;
+        for (id, ours) in self.ai.moved_by_scripts(game) {
+            if !is_actor(refs, id) {
+                continue;
+            }
+            let place = game.world.peek(id).map(|s| (s.cell, s.pos));
+            let cell = place.and_then(|p| p.0).map_or_else(|| "no cell".to_string(), |c| game.data.name(c));
+            let pos = place.map_or([0.0; 3], |p| p.1);
+            if ours {
+                if let Some(p) = phys.as_deref_mut() {
+                    p.remove_npc(id.0);
+                }
+                self.unstuck.remove(&id.0);
+                self.skip_until.remove(&id.0);
+                if let Some(r) = self.list.iter_mut().find(|r| r.actor == id) {
+                    r.moved = true;
+                    info!("ai [{}] {}: put at ({:.0}, {:.0}, {:.0}) in {cell} by a script (MoveTo): goes on from there", self.clock_text, r.label, pos[0], pos[1], pos[2]);
+                }
+            } else if all && !self.known.contains(&id.0) {
+                self.add(refs, id, None);
+                let label = self.list.last().map_or_else(|| id.to_string(), |r| r.label.clone());
+                info!("ai [{}] {label}: put at ({:.0}, {:.0}, {:.0}) in {cell} by a script (MoveTo): a resident from there", self.clock_text, pos[0], pos[1], pos[2]);
+            }
         }
     }
 
@@ -718,6 +754,7 @@ impl Core {
                 AiEvent::Trip { .. }
                 | AiEvent::Unreachable { .. }
                 | AiEvent::Approach { .. }
+                | AiEvent::Follow { .. }
                 | AiEvent::Talk { .. }
                 | AiEvent::NoTalk { .. }
                 | AiEvent::PushedBack { .. }
@@ -832,6 +869,15 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::Talk { package, target, line, away, say_to: false, greeting: true } => format!("greets {} from {away:.0} units without a conversation ({}), line {line}", n(target), n(package)),
         AiEvent::Talk { package, target, line, away, say_to: true, .. } => format!("says line {line} to {} from {away:.0} units ({})", n(target), n(package)),
         AiEvent::TalkOver { package } => format!("has talked ({})", n(package)),
+        AiEvent::Follow { package, target, away, length, doors, running } => format!(
+            "{} after {} ({}): {}{length:.0} units to go, {} doors",
+            if *running { "runs" } else { "walks" },
+            n(target),
+            n(package),
+            away.map(|a| format!("{a:.0} units away, ")).unwrap_or_else(|| "in another cell, ".into()),
+            doors.len()
+        ),
+        AiEvent::CaughtUp { target, .. } => format!("has caught up with {}", n(target)),
         AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
         AiEvent::Hello { line, away } => format!("says hello to the player from {away:.0} units, line {line}"),
         AiEvent::Chat { partner, line, away } => format!("starts a conversation with {} from {away:.0} units, line {line}", n(partner)),
@@ -917,6 +963,7 @@ pub fn drive(
             if all {
                 res.core.take_cells(&world, &streamer, game.world.placed);
             }
+            res.core.take_moved(game, all, None);
             res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now, 0);
         }
         (None, Some(mut script), Some(mut sim)) => {
@@ -933,7 +980,11 @@ pub fn drive(
             }
             let core = &mut res.core;
             let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
-            nvf_play::script::with_world(rt, &mut sim, |rt| core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now, waited));
+            nvf_play::script::with_world(rt, &mut sim, |rt| {
+                let mut phys = phys;
+                core.take_moved(&mut rt.game, all, phys.as_deref_mut());
+                core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now, waited)
+            });
         }
         _ => return,
     }
@@ -948,9 +999,11 @@ pub fn drive(
         let on = on_furniture.contains(&r.actor.0);
         let entity = r.root.filter(|_| r.spawned);
         let wants = r.wants;
-        // Hours passed in the Wait menu and its package has it elsewhere: it is off its
-        // furniture at once (the AI has walked it on already).
-        if let (true, Seat::Wanted(f, _) | Seat::Ordered(f, _) | Seat::GettingUp(f)) = (waited > 0, r.seat) {
+        // Hours passed in the Wait menu, or a script moved it (MoveTo), and its package
+        // has it elsewhere: it is off its furniture at once (the AI has walked or put it
+        // on already).
+        let moved = std::mem::take(&mut r.moved);
+        if let (true, Seat::Wanted(f, _) | Seat::Ordered(f, _) | Seat::GettingUp(f)) = (waited > 0 || moved, r.seat) {
             if wants != Some(f) {
                 r.seat = Seat::None;
                 match entity {

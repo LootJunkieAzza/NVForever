@@ -392,8 +392,22 @@ All of it is in `GameSnapshot`.
   Talking to the actor again while it speaks cuts the line (no end result) and starts
   the greeting afresh [hypothesis, as for a second SayTo]. A Goodbye line of a topic
   named by StartConversation still opens a conversation that ends with it [hypothesis:
-  the statement is about GREETING]. StartConversation without a topic is the greeting,
-  so the rule applies to it.
+  the statement is about GREETING].
+- **The rule above is for the player talking to the actor. When the actor starts the
+  conversation** (a force greet: StartConversation with the player, or the actor's
+  Dialogue package that is not Say To), a greeting with the Goodbye flag **opens a
+  conversation too** (`Game::force_greet`): the dialogue menu holds the player, the game
+  is paused behind it as in any conversation, and when the line is over the Goodbye flag
+  ends it [owner statement 2026-10-11, of Sunny Smiles's "Hear that up on the ridge
+  behind me there?" (INFO 0x0010A1ED, GREETING, Goodbye and Say Once, three responses,
+  no choices; said by her Dialogue package VCG02SunnySmilesDialogueSneakStart at VCG02
+  stage 30): the line "needs to lock the player into dialogue even though there are no
+  responses from the player … until she is finished talking"; documented:
+  StartConversation's allowMovement, "Enter 1 to enable movement during conversation",
+  so by default the player does not move (GECK wiki StartConversation, owner export);
+  hypothesis: a Dialogue package's force greet is the same, the wiki says the actor
+  "will force-greet the player"]. Before 2026-10-11 StartConversation without a topic
+  and the Dialogue packages said such a greeting without a conversation.
 - **A conversation pauses the game** behind it; lines spoken outside one (SayTo, Say)
   do not [owner statement 2026-10-10: Doc Mitchell's Rorschach test, "a back and forth
   dialogue with chosen options from the player", is what makes "the game … pause in
@@ -630,7 +644,7 @@ a five-line exchange at Nellis. 1,065 have Link From blank, so can start one
 | Function | During a conversation | Source |
 |---|---|---|
 | `IsTalking` | 1 while the actor says a response; 0 while the player chooses | [documented: IsTalking for "currently talking"; hypothesis for the choosing phase] |
-| `MenuMode`, `MenuMode 1009` | 1 from the greeting to the end (0 throughout for a greeting with the Goodbye flag: no conversation, §5) | [owner statement 2026-10-10: the conversation pauses the game; documented: GetMenuTargetRef names menu 1009's target as the actor spoken to] |
+| `MenuMode`, `MenuMode 1009` | 1 from the greeting to the end (0 throughout for a greeting with the Goodbye flag the player asked for: no conversation, §5; 1 for one the actor force-greets with) | [owner statement 2026-10-10: the conversation pauses the game; documented: GetMenuTargetRef names menu 1009's target as the actor spoken to] |
 | GameMode blocks, game time (`Game::time`, GetSecondsPassed), GameMode quest delays | stopped: **the conversation is menu mode** (`Game::in_menu`), by the rules observed for the other menus (scripts.md §7.2, §7.7) | [owner statement for the pause; the details are the existing menu rules] |
 | `Begin MenuMode` and `Begin MenuMode 1009` blocks | run, with the MenuMode quest delay counter | [the existing menu rules; hypothesis for this menu] |
 | Magic effects, SayTo and Say lines of other actors | stand still, as in any menu | [the existing menu rules; hypothesis] |
@@ -677,7 +691,9 @@ Still stubs: `IsActorTalkingThroughActivator` (talking activators), `GetDisposit
 - F. Random pools are runs of Random lines that sit together; a plain line between two
   groups splits them, sayable or not (§4 rule 4).
 - G. A GREETING line with the Goodbye flag is said at the player without a conversation
-  (§5): no dialogue menu, the player keeps control, `MenuMode 1009` stays 0.
+  when the player talks to the actor (§5): no dialogue menu, the player keeps control,
+  `MenuMode 1009` stays 0. When the actor force-greets (StartConversation, a Dialogue
+  package) it is a conversation of that one line [owner statement 2026-10-11].
 
 **Open hypotheses** (numbers kept from the first version of this note; 2 and 4 moved
 up to C and F):

@@ -110,7 +110,8 @@ periodic choice.
 | Patrol located near a reference, or near the actor's linked reference | walk that reference and the chain of references linked from it [documented; observed: Victor] |
 | Patrol with another location | go to that location [hypothesis] |
 | Dialogue | wait at location 1, go up to the target, talk (§5.6); a conversation between two actors is not carried out |
-| Follow, Accompany, Escort, Use Weapon, Find, Use Item At, Ambush, Flee Not Combat | not carried out yet: the actor stays where it is |
+| Follow, Accompany | keep within the target's count / distance of the target (256 when 0), wherever it goes, through doors too; stand while it stands (since 2026-10-11, below) [documented: "Follow/Escort/Accompany: Idles play while not moving but waiting for target to move"; hypothesis: the distance] |
+| Escort, Use Weapon, Find, Use Item At, Ambush, Flee Not Combat | not carried out yet: the actor stays where it is |
 
 | Location | Meaning |
 |---|---|
@@ -124,6 +125,23 @@ periodic choice.
 A place counts as reached within the package's radius, and never needs more precision
 than 32 units [our choice]. Travel "stops at the edge of the destination radius"
 [documented]: the walk is planned to the centre and ends when the radius is entered.
+
+**Follow and Accompany** (`goal::Follow`, `Ai::follow_step`; owner playtest
+2026-10-11: Sunny Smiles's dog Cheyenne, whose CheyenneAccompany package targets
+SunnyRef at 128 units, stayed behind when Sunny went to the wells and was missing from
+the saloon afterwards, because the package type was not carried out). The actor stands
+while its target is within the distance plus 64 units [our choice]; farther, it sets off
+after the target (through the doors between, if the target is in another cell), walking,
+or running when the package says Always Run or the target is more than 512 units away
+[our choice]; the way is planned again when the target has moved 64 units, at most twice
+a second, and the actor stops once within the distance. A target that is gone or dead
+is not followed. The goal counts as met at once (`package_goal_met`), so the periodic
+choice may replace the package as it may any other. The target being attacked, the
+Wait/StopWaiting functions and a follower's own combat are not built. `fnvtool ai
+reach`: 256 of the 265 follow-type actor-package pairs of FalloutNV.esm are now
+"follows: goes after its target from where it is"; 5 name no reference (not carried
+out) and 4 are Escort; every other verdict is unchanged. Log: `ai [h] <actor>: walks
+after <target> (<package>): <n> units away, …` and `: has caught up with <target>`.
 
 ### 5.2 Getting there
 
@@ -146,6 +164,19 @@ than 32 units [our choice]. Travel "stops at the edge of the destination radius"
 - **Movement** is `fnv_nav::Walker` (on the navmesh surface, no physics), and the
   actor's cell and position in the game are kept up to date as it walks, so scripts and
   conditions (GetInCell, GetDistance) see it.
+- **Put somewhere by a script** (MoveTo, MoveToMarkerWithFade; `Game::teleported`,
+  `Ai::moved_by_scripts`, since 2026-10-11): the walker starts again where the game has
+  the actor now, facing the marker's way, and takes up its package afresh (its walk,
+  furniture, sandbox, search or random conversation are given up) [design]. In the
+  engine the resident gets off its furniture at once and loses its character; with
+  `--play` an actor moved into a cell from one that was never loaded becomes a resident
+  there (`residents.rs` `take_moved`). Log: `ai [h] <actor>: put at (x, y, z) in <cell>
+  by a script (MoveTo): goes on from there` (or `: a resident from there`). Before, the
+  walker kept the old place, so the actor stayed drawn where it had stood and went on
+  from there: Sunny Smiles stayed in the Prospector Saloon after Ringo's "All right,
+  I'm ready." (INFO 0x00105CC2, whose end script moves her to SunnySpawnMarker in the
+  gas station and gives her SunnyTriggerGunfightDialoguePackage) [owner playtest
+  2026-10-11].
 
 ### 5.3 What the checks show
 
@@ -387,7 +418,7 @@ wait location, the trigger location, the topic, Say To or conversation) and
 | `ToWait` | walks to location 1, if the package has one and the actor is not there | [documented] |
 | `Waiting` | stands. Without a trigger location it sets off at once (case 3). With one, it sets off when the target is in it (case 1). With one and a wait radius of 0 it talks as soon as the target is within the activate distance (case 2), and also sets off when the target is in the trigger location | [documented: cases 1 to 3; **hypothesis**: setting off in case 2] |
 | `Approaching` | walks (runs with Always Run) to where the target is, through doors if need be; the way is planned again when the target has moved 64 units, at most twice a second | [documented: "begin moving towards the target"; the numbers are ours] |
-| (start) | within the activate distance it stops: a conversation with the player starts (`Game::start_dialogue`, the package's topic or GREETING), or the Say To line is said (`Game::say`). A GREETING line with the Goodbye flag is said at the player and opens no conversation | [documented]; the Goodbye greeting: [owner statement 2026-10-10, docs/spec-notes/dialogue.md §5] |
+| (start) | within the activate distance it stops: a conversation with the player starts (`Game::force_greet`, the package's topic or GREETING), or the Say To line is said (`Game::say`). A GREETING line with the Goodbye flag opens a conversation too: the force greet holds the player until the line is over (since 2026-10-11; before, it was said without one) | [documented]; the Goodbye greeting: [owner statement 2026-10-11, docs/spec-notes/dialogue.md §5] |
 | `Speaking` | for as long as the conversation lasts, or the greeting said without one: turns to the target at the standing turn rate (120° a second), unless "No Headtracking" | [documented: they are "forced to look at each other"; observed: Sunny turned from 90° to 178° towards the player; the rate is ours; **hypothesis**: a greeting said without a conversation holds the package for the length of the line] |
 | `Done` | the conversation is over, or the greeting is said: the package's goal is met (`package_goal_met`), so a Must Complete package can be replaced and the end script runs. The actor does not start over while it keeps the package | [documented: Must Complete; ours: no starting over] |
 
@@ -412,7 +443,11 @@ wait location, the trigger location, the topic, Say To or conversation) and
   [our choice; otherwise the actor would try every frame].
 - **A held game** (a menu, another conversation): the start waits; nobody walks.
 - **A greeting with the Goodbye flag** (3,023 of GREETING's 5,579 lines,
-  docs/spec-notes/dialogue.md §5): `Game::start_dialogue` says it at the player as a
+  docs/spec-notes/dialogue.md §5). **Since 2026-10-11 a Dialogue package's force greet
+  (`Game::force_greet`) opens a conversation with it like with any other line** [owner
+  statement 2026-10-11, Sunny Smiles's gecko line]; what follows describes the way it
+  was said before, which is now only the player's own activation's:
+  `Game::start_dialogue` says it at the player as a
   `Speech` and leaves `Game::dialogue` empty, so the game is not held and `Ai::update`
   goes on. The actor is `Speaking` while `Game::speech` holds its greeting and `Done`
   when the line is over; `AiEvent::Talk` carries `greeting: true`. Until 2026-10-10

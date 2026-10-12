@@ -211,7 +211,9 @@ talk; `engine/nvf-play/src/script_hud.rs`) are drawn at the bottom centre:
 - In font 7, the font of the HUD's text templates [documented:
   menus\prefabs\hudtemplates.xml]; centred, broken at the rect's width of 800.
 - The text alone, without the speaker's name [observed: the owner's screenshot,
-  2026-10-11]; the log's `subtitle:` lines keep "Speaker: text".
+  2026-10-11]; the log's `subtitle:` lines keep "Speaker: text". Acting notes in braces
+  are left out ("{Sadly}Okay." shows "Okay."; dialogue-menu.md §4) [owner statement
+  2026-10-11].
 - Where: the first line's base 633 units under the top of the view, the lines 38 apart,
   centred across [observed: the same screenshot; it shows the G.O.A.T. classroom, so it
   may be Fallout 3's HUD, taken as the same layout — hypothesis]. Where a single line
