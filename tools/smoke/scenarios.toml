@@ -1,0 +1,983 @@
+# NVForever smoke tests as data (runner: `python tools/smoke run`, see tools/smoke/smoke/cli.py).
+#
+# Each [[scenario]] is one check that used to be prose in CLAUDE.md. Rules:
+# - Carry every expectation over; never loosen one to make a run pass (the parity-lab
+#   rules apply in spirit). A check that fails on main stays, marked
+#   `known_failing = "why"` on the expectation.
+# - "about N" in the prose is N ± 25 % (rounded outwards); "a dozen" is 9–15; counts
+#   the prose says vary are not checked beyond "at least one".
+# - `paths` are globs over the files a branch changed (`**` any depth); `areas` are
+#   names for `--area`.
+# - `launch = "<name>"`: scenarios that share one game run (same arguments; test aids
+#   in [timed] are joined, others must agree). Only shares checked by running both ways
+#   are written here. `offset` moves a member's timed test aids in a shared run.
+# - Expectation syntax: tools/smoke/smoke/expect.py. "run finished" and exit code 0 are
+#   always expected of a game run.
+
+# `{masters}` in a tool command: the ten masters ("the masters" of the docs), in load order.
+masters = [
+  "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm",
+  "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm",
+]
+
+# Test aids that hold no times (safe to keep as they are when a member is offset).
+untimed = [
+  "NVF_PLAY_TEST_SCRIPT_MENUS", "NVF_PLAY_TEST_GIVE", "NVF_PLAY_TEST_EQUIP", "NVF_PLAY_TEST_NEAR",
+  "NVF_PLAY_TEST_MENU", "NVF_PLAY_TEST_BARTER", "NVF_PLAY_TEST_BARTER_DELAY", "NVF_PLAY_TEST_NO_SPREAD",
+  "NVF_PLAY_TEST_GOD", "NVF_PLAY_TEST_TALK_HEAD_ONLY",
+]
+
+# Test aids whose value is a list of timed items (`<seconds>:<what>`), joined with sep.
+[timed.NVF_PLAY_TEST_SCRIPT]
+sep = ","
+[timed.NVF_PLAY_TEST_CONTROL]
+sep = ","
+[timed.NVF_PLAY_TEST_MOVE]
+sep = ","
+[timed.NVF_PLAY_TEST_LOOK]
+sep = ","
+[timed.NVF_PLAY_TEST_GOTO]
+sep = ","
+[timed.NVF_PLAY_TEST_DROP]
+sep = ","
+[timed.NVF_PLAY_TEST_ACTIVATE]
+sep = ","
+[timed.NVF_PLAY_TEST_WAIT]
+sep = ","
+[timed.NVF_PLAY_TEST_RADIO]
+sep = ","
+[timed.NVF_PLAY_TEST_CHARGEN]
+sep = ","
+[timed.NVF_PLAY_TEST_VIGOR]
+sep = ","
+[timed.NVF_PLAY_TEST_TERMINAL]
+sep = ","
+[timed.NVF_PLAY_TEST_PIPBOY]
+sep = ","
+[timed.NVF_PLAY_TEST_SETTINGS]
+sep = ","
+[timed.NVF_PLAY_TEST_SHOTS]
+sep = ","
+[timed.NVF_PLAY_TEST_FACE]
+sep = ","
+[timed.NVF_PLAY_TEST_TALK]
+sep = ";"
+[timed.NVF_PLAY_TEST_KEYS]
+sep = ","
+[timed.NVF_PLAY_TEST_PAUSE]
+sep = ","
+shift = "all"
+
+
+# ------------------------------------------------------------------ checks before every push
+# Engine workspace uses the crates/ workspace, so crate changes call for its clippy too.
+
+[[check]]
+name = "root cargo test"
+paths = ["crates/", "Cargo.toml", "Cargo.lock", "schemas/", "deny.toml"]
+cmd = ["cargo", "test", "--workspace", "--release"]
+
+[[check]]
+name = "root clippy"
+paths = ["crates/", "Cargo.toml", "Cargo.lock", "schemas/", "deny.toml"]
+cmd = ["cargo", "clippy", "--workspace", "--all-targets", "--release", "--", "-D", "warnings"]
+
+[[check]]
+name = "engine clippy"
+paths = ["engine/", "crates/", "Cargo.toml", "schemas/"]
+cmd = ["cargo", "clippy", "--release", "--all-targets", "--", "-D", "warnings"]
+cwd = "engine"
+
+[[check]]
+name = "parity-lab tests"
+paths = ["parity-lab/"]
+cmd = ["python", "-m", "unittest", "discover", "-s", "parity-lab/tests"]
+
+[[check]]
+name = "capture tests"
+paths = ["tools/capture/"]
+cmd = ["python", "-m", "unittest", "discover", "-s", "tools/capture/tests"]
+
+[[check]]
+name = "smoke runner tests"
+paths = ["tools/smoke/"]
+cmd = ["python", "-m", "unittest", "discover", "-s", "tools/smoke/tests"]
+
+# ------------------------------------------------------------------ renderer, sky, image space
+
+[[scenario]]
+name = "auto-fly"
+source = "CLAUDE.md: after renderer changes, the moving-camera smoke test (cell streaming and LOD rebuilds)"
+areas = ["renderer"]
+paths = [
+  "engine/nvf-assets/", "engine/nvforever/src/lod*.rs", "engine/nvforever/src/terrain.rs",
+  "engine/nvforever/src/world*.rs", "engine/nvforever/src/grass*", "engine/nvforever/src/tree*",
+  "engine/nvforever/src/water*", "engine/nvforever/src/imposters.rs", "engine/nvforever/src/reflection.rs",
+  "engine/nvforever/src/emittance.rs", "engine/nvforever/src/underwater.rs", "engine/nvforever/src/ripples.rs",
+  "engine/nvforever/src/particles.rs", "engine/nvforever/src/fly.rs", "engine/nvforever/src/main.rs",
+  "crates/fnv-nif/", "crates/fnv-dds/", "crates/fnv-spt/", "crates/fnv-bsa/", "crates/fnv-vfs/",
+  "crates/fnv-world/src/land.rs", "crates/fnv-world/src/grass.rs", "crates/fnv-world/src/imposter.rs",
+  "crates/fnv-world/src/index.rs", "crates/fnv-world/src/placed.rs",
+]
+args = ["--cell", "Goodsprings", "--auto-fly", "4000"]
+run_seconds = 40
+
+[[scenario]]
+name = "time-lapse"
+source = "CLAUDE.md: after sky or lighting changes, the day/night time-lapse (a full day in about 20 s)"
+areas = ["sky", "lighting"]
+paths = [
+  "engine/nvforever/src/sky*", "engine/nvforever/src/lights.rs", "crates/fnv-world/src/sky.rs",
+  "crates/fnv-world/src/lighting.rs", "crates/fnv-sim/src/clock.rs",
+]
+args = ["--cell", "Goodsprings", "--play", "--hour", "17", "--time-scale", "1.2"]
+run_seconds = 26
+expect = [
+  # one "time-lapse" log line per game hour, 24 or more
+  { re = '^.*time-lapse \S.*\(\d+ hours passed\)', min = 24 },
+]
+
+[[scenario]]
+name = "imagespace-opening"
+source = "CLAUDE.md: after image space modifier changes (docs/spec-notes/image-modifiers.md §6)"
+areas = ["imagespace"]
+paths = [
+  "crates/fnv-world/src/image_modifier.rs", "crates/fnv-world/src/imagespace.rs",
+  "crates/fnv-game/src/functions/misc.rs", "engine/nvforever/src/imagespace*", "engine/nvforever/src/fade.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--play", "--new-game"]
+run_seconds = 32
+order = [[
+  "image space modifiers on the screen: WhiteISFX, MQ08AllBlackedOutISFX",
+  "image space modifiers on the screen: VCG01FadeInFromBlackISFX",
+  { re = 'image space modifiers on the screen: (VCG01FadeInFromBlackISFX, VCG01PlayerStrainISFX|VCG01PlayerStrainISFX, VCG01FadeInFromBlackISFX)$', label = "that with VCG01PlayerStrainISFX" },
+  { re = 'image space modifiers on the screen: VCG01PlayerStrainISFX$' },
+  { re = 'image space modifiers on the screen: none$' },
+]]
+
+# ------------------------------------------------------------------ navmesh and AI
+
+[[scenario]]
+name = "nav-walks"
+kind = "tool"
+source = "CLAUDE.md: after navmesh, pathing or travelling-NPC changes, the headless NPC walks of docs/design/navmesh.md §5 (all must arrive)"
+areas = ["nav"]
+paths = ["crates/fnv-nav/", "crates/fnvtool/src/nav_*.rs", "crates/fnv-phys/", "crates/fnv-collide/"]
+commands = [
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "EasyPeteRef", "--to", "TrudyRef"],
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "GSChetRef", "--to", "SunnyRef"],
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "DocMitchellREF", "--to", "GSChetRef"],
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "SunnyRef", "--to", "DocMitchellREF"],
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "DocMitchellREF", "--to", "0x0013BB0D", "--keys", "0x00119875", "--speed", "344"],
+  ["nav", "walk", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--from", "TrudyRef", "--to=-193,600,3456", "--space", "GSProspectorSaloonInterior"],
+]
+expect = [{ json = "summary.outcome", schema = "fnv.nav.walk/1", equals = "arrived", count = 6, label = "all six walks arrived" }]
+manual = "paths, times and doors are listed in docs/design/navmesh.md §5 (not checked: the table is a dated record)"
+
+[[scenario]]
+name = "npc-travel"
+source = "CLAUDE.md: after navmesh, pathing or travelling-NPC changes, the travel smoke test"
+areas = ["nav"]
+paths = ["crates/fnv-nav/", "engine/nvforever/src/nav.rs", "engine/nvforever/src/locomotion.rs", "engine/nvf-play/src/doors.rs"]
+args = ["--cell", "Goodsprings", "--npc-travel", "DocMitchellREF=GSChetRef", "--npc-travel", "SunnyRef=EasyPeteRef", "--follow-npc"]
+run_seconds = 105
+expect = ["nav summary: 2 of 2 travellers arrived"]
+
+[[scenario]]
+name = "ai-packages"
+kind = "tool"
+source = "CLAUDE.md: after AI package changes, fnvtool ai packages (all_agree true), ai reach, and with the owner's observer captures ai observed and ai run --samples (docs/design/actor-behaviour.md §4, §5.3)"
+areas = ["ai"]
+paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs", "crates/fnv-ai/", "crates/fnvtool/src/ai_*.rs"]
+commands = [
+  ["ai", "packages", "{data}", "{masters}", "--schema", "schemas/fnv"],
+  ["ai", "reach", "{data}", "{masters}", "--schema", "schemas/fnv"],
+]
+expect = [
+  { json = "all_agree", schema = "fnv.ai.packages/1", equals = true },
+  # actor-behaviour.md §5.3 (2026-10-10). Main gave other figures on 2026-10-11 (below);
+  # the doc's need an update or an explanation (docs/owner-review.md, "Smoke tests reworked").
+  { json = "actor_package_pairs", schema = "fnv.ai.reach/1", equals = 15603, known_failing = "main 2026-10-11: 16,935" },
+  { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 9488, known_failing = "main 2026-10-11: 10,258" },
+  { json = "verdicts.reachable with a key the actor carries", schema = "fnv.ai.reach/1", equals = 18 },
+  { json = "verdicts.stays where it is", schema = "fnv.ai.reach/1", equals = 1571, known_failing = "main 2026-10-11: 1,602" },
+  { json = "verdicts.never chosen: needs a linked reference the actor lacks", schema = "fnv.ai.reach/1", equals = 2810, known_failing = "main 2026-10-11: 3,185" },
+  { json = "verdicts.nowhere to go: the location is the player, who is nowhere yet", schema = "fnv.ai.reach/1", equals = 177, known_failing = "main 2026-10-11: 182" },
+  { json = "verdicts.talks: goes up to its target from where it is", schema = "fnv.ai.reach/1", equals = 126 },
+  # main on 2026-10-11, so any change shows here and gets explained
+  { json = "actor_package_pairs", schema = "fnv.ai.reach/1", equals = 16935, label = "pairs as on main 2026-10-11: 16,935" },
+  { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 10258, label = "reachable as on main 2026-10-11: 10,258" },
+  { json = "verdicts.stays where it is", schema = "fnv.ai.reach/1", equals = 1602, label = "staying as on main 2026-10-11: 1,602" },
+  { json = "verdicts.never chosen: needs a linked reference the actor lacks", schema = "fnv.ai.reach/1", equals = 3185, label = "never chosen as on main 2026-10-11: 3,185" },
+  { json = "verdicts.nowhere to go: the location is the player, who is nowhere yet", schema = "fnv.ai.reach/1", equals = 182, label = "at the player as on main 2026-10-11: 182" },
+]
+manual = "the sums of §5.3 (512 not reachable, 901 not carried out) are not checked one by one: explain a change of the verdicts against docs/design/actor-behaviour.md §5.3"
+
+[[scenario]]
+name = "ai-observed"
+kind = "tool"
+source = "CLAUDE.md: after AI package changes, with the owner's observer captures: fnvtool ai observed and ai run --samples (actor-behaviour.md §4, §5.3)"
+areas = ["ai"]
+paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs", "crates/fnv-ai/", "crates/fnvtool/src/ai_*.rs"]
+requires = ["NVF_OBSERVER_SAMPLES"]
+note = "NVF_OBSERVER_SAMPLES: a glob of the observer captures (obs_*.jsonl)"
+commands = [
+  ["ai", "observed", "{data}", "{masters}", "--schema", "schemas/fnv", "--samples", "{env:NVF_OBSERVER_SAMPLES}"],
+  ["ai", "run", "{data}", "{masters}", "--schema", "schemas/fnv", "--actor", "GSChetRef", "--actor", "RingoRef",
+   "--actor", "CheyenneREF", "--actor", "GoodspringsSettler01Ref", "--actor", "GoodspringsSettler04Ref",
+   "--actor", "EasyPeteRef", "--actor", "SunnyRef", "--samples", "{env:NVF_OBSERVER_SAMPLES}"],
+]
+manual = "compare with docs/design/actor-behaviour.md §4 (234,335 samples: 186,563 same, 47,721 between, 51 differ) and the §5.3 table; explain any change"
+
+[[scenario]]
+name = "residents"
+source = "CLAUDE.md: after changes to fnv-ai or the engine's residents, the residents smoke test"
+areas = ["ai", "residents"]
+paths = ["crates/fnv-ai/", "engine/nvforever/src/residents.rs", "crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs"]
+args = ["--cell", "Goodsprings", "--npc-packages", "EasyPeteRef,GSChetRef,GoodspringsSettler04Ref", "--hour", "21.9", "--follow-npc"]
+run_seconds = 150
+expect = ["ai summary … 3 residents, 6 packages chosen, 4 trips, 4 arrivals, 0 unreachable"]
+# The furniture lines name Easy Pete by his reference, 00104C80 (EasyPeteRef).
+order = [[
+  { text = "furniture: 00104C80 is on 0010634A", label = "Easy Pete sitting on 0010634A" },
+  { text = "furniture: 00104C80 gets off 0010634A", label = "getting off it" },
+  { text = "furniture: 00104C80 is on 00176ACE", label = "on his bed 00176ACE" },
+]]
+
+[[scenario]]
+name = "force-greet"
+source = "CLAUDE.md: after changes to Dialogue packages (fnv-ai goal::talk, carry talk_step; docs/design/actor-behaviour.md §5.6)"
+areas = ["ai", "dialogue-packages"]
+paths = ["crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "SunnyRef", "--no-voice"]
+run_seconds = 45
+expect = [
+  "SunnyRef: walks up to 0x00000014 to talk",
+  "dialogue: conversation with SunnyRef started (topic GREETING)",
+  { re = 'ai summary.*\b1 talks started by dialogue packages' },
+]
+
+[[scenario]]
+name = "actor-values"
+kind = "tool"
+source = "CLAUDE.md: after actor value changes, fnvtool actor values (docs/spec-notes/actor-values.md §3.1, §7)"
+areas = ["actor-values"]
+paths = ["crates/fnv-game/src/actor_values.rs", "crates/fnv-game/src/functions/actor.rs", "crates/fnvtool/src/actor_values.rs"]
+commands = [["actor", "values", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--survey", "--actor", "player", "--actor", "SunnyRef"]]
+# §7: Sunny Smiles Guns 35, Health 100; the player every skill 15, Action Points 80.
+# §3.1: the fit table (NPCs, the attribute that fits, the share it fits; "100 %" read as ≥ 99.95 %).
+expect = [
+  { json = "actors.?actor=SunnyRef.values.Guns", equals = 35.0 },
+  { json = "actors.?actor=SunnyRef.values.Health", equals = 100.0 },
+  { json = "actors.?actor=player.values.Barter", equals = 15.0 },
+  { json = "actors.?actor=player.values.Big Guns", equals = 15.0 },
+  { json = "actors.?actor=player.values.Energy Weapons", equals = 15.0 },
+  { json = "actors.?actor=player.values.Explosives", equals = 15.0 },
+  { json = "actors.?actor=player.values.Lockpick", equals = 15.0 },
+  { json = "actors.?actor=player.values.Medicine", equals = 15.0 },
+  { json = "actors.?actor=player.values.Melee Weapons", equals = 15.0 },
+  { json = "actors.?actor=player.values.Repair", equals = 15.0 },
+  { json = "actors.?actor=player.values.Science", equals = 15.0 },
+  { json = "actors.?actor=player.values.Guns", equals = 15.0 },
+  { json = "actors.?actor=player.values.Sneak", equals = 15.0 },
+  { json = "actors.?actor=player.values.Speech", equals = 15.0 },
+  { json = "actors.?actor=player.values.Survival", equals = 15.0 },
+  { json = "actors.?actor=player.values.Unarmed", equals = 15.0 },
+  { json = "actors.?actor=player.values.Action Points", equals = 80.0 },
+  { json = "survey.skill_formula_fit.Barter.auto_calc_npcs_whose_class_does_not_tag_it", equals = 1923 },
+  { json = "survey.skill_formula_fit.Barter.best_fit", equals = "Charisma" },
+  { json = "survey.skill_formula_fit.Barter.share_the_formula_fits_by_attribute.Charisma", range = [0.9995, 1.0], label = "Barter: Charisma fits 100 %" },
+  { json = "survey.skill_formula_fit.Energy Weapons.auto_calc_npcs_whose_class_does_not_tag_it", equals = 1945 },
+  { json = "survey.skill_formula_fit.Energy Weapons.best_fit", equals = "Perception" },
+  { json = "survey.skill_formula_fit.Energy Weapons.share_the_formula_fits_by_attribute.Perception", range = [0.9865, 0.9875], label = "Energy Weapons: Perception fits 98.7 %" },
+  { json = "survey.skill_formula_fit.Explosives.auto_calc_npcs_whose_class_does_not_tag_it", equals = 1582 },
+  { json = "survey.skill_formula_fit.Explosives.best_fit", equals = "Perception" },
+  { json = "survey.skill_formula_fit.Explosives.share_the_formula_fits_by_attribute.Perception", range = [0.9905, 0.9915], label = "Explosives: Perception fits 99.1 %" },
+  { json = "survey.skill_formula_fit.Lockpick.auto_calc_npcs_whose_class_does_not_tag_it", equals = 2234 },
+  { json = "survey.skill_formula_fit.Lockpick.best_fit", equals = "Perception" },
+  { json = "survey.skill_formula_fit.Lockpick.share_the_formula_fits_by_attribute.Perception", range = [0.9995, 1.0], label = "Lockpick: Perception fits 100 %" },
+  { json = "survey.skill_formula_fit.Medicine.auto_calc_npcs_whose_class_does_not_tag_it", equals = 2190 },
+  { json = "survey.skill_formula_fit.Medicine.best_fit", equals = "Intelligence" },
+  { json = "survey.skill_formula_fit.Medicine.share_the_formula_fits_by_attribute.Intelligence", range = [0.9995, 1.0], label = "Medicine: Intelligence fits 100 %" },
+  { json = "survey.skill_formula_fit.Melee Weapons.auto_calc_npcs_whose_class_does_not_tag_it", equals = 854 },
+  { json = "survey.skill_formula_fit.Melee Weapons.best_fit", equals = "Strength" },
+  { json = "survey.skill_formula_fit.Melee Weapons.share_the_formula_fits_by_attribute.Strength", range = [0.9995, 1.0], label = "Melee Weapons: Strength fits 100 %" },
+  { json = "survey.skill_formula_fit.Repair.auto_calc_npcs_whose_class_does_not_tag_it", equals = 2133 },
+  { json = "survey.skill_formula_fit.Repair.best_fit", equals = "Intelligence" },
+  { json = "survey.skill_formula_fit.Repair.share_the_formula_fits_by_attribute.Intelligence", range = [0.9995, 1.0], label = "Repair: Intelligence fits 100 %" },
+  { json = "survey.skill_formula_fit.Science.auto_calc_npcs_whose_class_does_not_tag_it", equals = 2063 },
+  { json = "survey.skill_formula_fit.Science.best_fit", equals = "Intelligence" },
+  { json = "survey.skill_formula_fit.Science.share_the_formula_fits_by_attribute.Intelligence", range = [0.9995, 1.0], label = "Science: Intelligence fits 100 %" },
+  { json = "survey.skill_formula_fit.Guns.auto_calc_npcs_whose_class_does_not_tag_it", equals = 367 },
+  { json = "survey.skill_formula_fit.Guns.best_fit", equals = "Agility" },
+  { json = "survey.skill_formula_fit.Guns.share_the_formula_fits_by_attribute.Agility", range = [0.9995, 1.0], label = "Guns: Agility fits 100 %" },
+  { json = "survey.skill_formula_fit.Sneak.auto_calc_npcs_whose_class_does_not_tag_it", equals = 1946 },
+  { json = "survey.skill_formula_fit.Sneak.best_fit", equals = "Agility" },
+  { json = "survey.skill_formula_fit.Sneak.share_the_formula_fits_by_attribute.Agility", range = [0.9995, 1.0], label = "Sneak: Agility fits 100 %" },
+  { json = "survey.skill_formula_fit.Speech.auto_calc_npcs_whose_class_does_not_tag_it", equals = 2070 },
+  { json = "survey.skill_formula_fit.Speech.best_fit", equals = "Charisma" },
+  { json = "survey.skill_formula_fit.Speech.share_the_formula_fits_by_attribute.Charisma", range = [0.9995, 1.0], label = "Speech: Charisma fits 100 %" },
+  { json = "survey.skill_formula_fit.Unarmed.auto_calc_npcs_whose_class_does_not_tag_it", equals = 1439 },
+  { json = "survey.skill_formula_fit.Unarmed.best_fit", equals = "Endurance" },
+  { json = "survey.skill_formula_fit.Unarmed.share_the_formula_fits_by_attribute.Endurance", range = [0.9725, 0.9735], label = "Unarmed: Endurance fits 97.3 %" },
+  { json = "survey.skill_formula_fit.Big Guns.auto_calc_npcs_whose_class_does_not_tag_it", equals = 2240 },
+  { json = "survey.skill_formula_fit.Big Guns.best_fit", equals = "Endurance" },
+  { json = "survey.skill_formula_fit.Big Guns.share_the_formula_fits_by_attribute.Endurance", range = [0.4075, 0.4085], label = "Big Guns: Endurance fits 40.8 %" },
+  { json = "survey.skill_formula_fit.Survival.auto_calc_npcs_whose_class_does_not_tag_it", equals = 2239 },
+  { json = "survey.skill_formula_fit.Survival.best_fit", equals = "Intelligence" },
+  { json = "survey.skill_formula_fit.Survival.share_the_formula_fits_by_attribute.Intelligence", range = [0.8555, 0.8565], label = "Survival: Intelligence fits 85.6 %" },
+]
+manual = "on a failure, explain the change against docs/spec-notes/actor-values.md §3.1 and §7"
+
+# ------------------------------------------------------------------ wait and sleep
+
+[[scenario]]
+name = "sleep-novac"
+source = "CLAUDE.md: after changes to the Wait and Sleep menu, to sleeping or to the people during a wait (docs/spec-notes/wait-menu.md §11)"
+areas = ["wait"]
+paths = ["engine/nvf-play/src/wait*", "crates/fnv-game/src/rest.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_NEAR = "000CEB03", NVF_PLAY_TEST_ACTIVATE = "16", NVF_PLAY_TEST_WAIT = "24:hours=3,25:accept" }
+args = ["--cell", "NovacPlayersRoom", "--play", "--hour", "22"]
+run_seconds = 36
+expect = [
+  "wait menu: open as sleep",
+  { re = 'sleep: hour', count = 3 },
+  "on screen: You are now Well Rested!",
+  { re = 'wait summary.*\b1 sleeps told to a bed.s script' },
+]
+
+[[scenario]]
+name = "wait-residents"
+source = "CLAUDE.md: after changes to the Wait and Sleep menu or the people during a wait, the wait with residents"
+areas = ["wait", "residents"]
+paths = ["engine/nvf-play/src/wait*", "crates/fnv-game/src/rest.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_WAIT = "30:open,31:hours=4,32:accept" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "EasyPeteRef,GSChetRef,GoodspringsSettler04Ref", "--hour", "18.5"]
+run_seconds = 50
+expect = [
+  { re = 'ai summary.*\b3 there, 0 on their way' },
+  { re = 'ai summary.*\b4 hours passed in the wait menu \(2 walks in them\)' },
+]
+
+[[scenario]]
+name = "sleep-goodsprings-24h"
+source = "CLAUDE.md: after changes to the wait and sleep menu or to the play clock it advances (fnv_sim::World::advance_hours, sky_follows_game)"
+areas = ["wait", "clock"]
+paths = ["engine/nvf-play/src/wait*", "crates/fnv-sim/src/world.rs", "crates/fnv-sim/src/actions.rs", "engine/nvforever/src/main.rs"]
+env = { NVF_PLAY_TEST_NEAR = "00176ACE", NVF_PLAY_TEST_ACTIVATE = "16", NVF_PLAY_TEST_WAIT = "22:open,23.5:hours=24,24.5:accept" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "22"]
+run_seconds = 40
+expect = [
+  "wait menu: open as sleep (the player lies on a bed)",
+  { re = 'sleep: hour \d+ of 24 passed:', count = 24 },
+  "wait summary: the menu was opened 1 times (1 as sleep), 24 hours passed, 0 requests held by scripts",
+]
+manual = "the 24th 'sleep: hour' line ends one date later at the time of day the menu opened at"
+
+# ------------------------------------------------------------------ detection, alert, combat
+
+[[scenario]]
+name = "detection-table"
+kind = "tool"
+source = "CLAUDE.md: after detection changes, fnvtool actor detect (docs/design/detection.md §4)"
+areas = ["detection"]
+paths = ["crates/fnv-game/src/detection.rs", "engine/nvforever/src/detection.rs", "crates/fnvtool/src/actor_detect.rs"]
+commands = [["actor", "detect", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--detector", "SunnyRef"]]
+# The table of detection.md §4 ("never" is null in the output).
+expect = [
+  { json = "situations.?situation=standing, lit.detected_out_to", equals = 2590.0 },
+  { json = "situations.?situation=standing, lit.noticed_out_to", equals = 3420.0 },
+  { json = "situations.?situation=running, lit.detected_out_to", equals = 2940.0 },
+  { json = "situations.?situation=running, lit.noticed_out_to", equals = 3650.0 },
+  { json = "situations.?situation=standing, dark.detected_out_to", equals = 260.0 },
+  { json = "situations.?situation=standing, dark.noticed_out_to", equals = 1890.0 },
+  { json = "situations.?situation=sneaking, lit.detected_out_to", equals = 1840.0 },
+  { json = "situations.?situation=sneaking, lit.noticed_out_to", equals = 2420.0 },
+  { json = "situations.?situation=sneaking, dark.detected_out_to", null = true, label = "sneaking, dark: detected never" },
+  { json = "situations.?situation=sneaking, dark.noticed_out_to", null = true, label = "sneaking, dark: noticed never" },
+  { json = "situations.?situation=sneaking and walking, dark.detected_out_to", null = true, label = "sneaking and walking, dark: detected never" },
+  { json = "situations.?situation=sneaking and walking, dark.noticed_out_to", equals = 850.0 },
+  { json = "situations.?situation=behind a wall, walking.detected_out_to", null = true, label = "behind a wall, walking: detected never" },
+  { json = "situations.?situation=behind a wall, walking.noticed_out_to", equals = 1260.0 },
+  { json = "situations.?situation=sneaking, firing a normal gun, lit.detected_out_to", equals = 2800.0 },
+  { json = "situations.?situation=sneaking, firing a normal gun, lit.noticed_out_to", equals = 3200.0 },
+]
+manual = "on a failure, explain the change against the table in docs/design/detection.md §4"
+
+[[scenario]]
+name = "detection-game"
+source = "CLAUDE.md: after detection changes, the in-game check of docs/design/detection.md §5"
+areas = ["detection"]
+paths = ["crates/fnv-game/src/detection.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "10:sneak,14:weapon,17:reload,22:fire,22.2:fire" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 28
+order = [[
+  { re = 'detection: GSSettlerAM 00104F0A → the player: hidden → noticed .*sneaking' },
+  { re = 'detection: GSSettlerAM 00104F0A → the player: \w+ → detected' },
+]]
+expect = ["detection summary"]
+
+[[scenario]]
+name = "alert-fiend"
+launch = "violet"
+note = "NVF_PLAY_TEST_SCRIPT_MENUS=1 added (CLAUDE.md gave no test aid): with none the run is attended and the add-on packs' first message box stays open all run, so Violet never reaches Combat (alone, 2026-10-12)"
+source = "CLAUDE.md: after detection state changes, the Fiend check of docs/design/alert.md §8"
+areas = ["alert", "detection"]
+paths = ["crates/fnv-game/src/awareness.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/alert.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 45
+expect = [
+  "1EFiendViolet 000F570B Normal → Alert: noticed the player",
+  "NormalToAlert",
+  "FiendVioletRef: searches for the player",
+  { re = 'Alert → Combat: detects the player.*?(?P<n>[\d,]+) units', range = [1987, 3313], label = "Alert → Combat: detects the player at about 2,650 units" },
+  "alert summary: 1 actors became Alert",
+]
+forbid = [{ re = '1EFiendViolet.*Lost → Combat', label = "Combat ↔ Lost flicker" }]
+
+[[scenario]]
+name = "combat-violet"
+launch = "violet"
+source = "CLAUDE.md: after combat AI changes, the first check of docs/design/combat-ai.md §7"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/attack_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 45
+expect = [
+  "fights the player with WeapHuntingRifle (gun)",
+  { re = 'stops and faces .*?(?P<n>[\d,]+) units away', range = [1200, 2000], label = "stops and faces the player at about 1,600 units" },
+  "shots are drawn from its weapon's muzzle",
+  { re = 'attack anims summary.*2hrattack3\.kf' },
+  { re = 'Violet hits the player for 44\.7', min = 9, max = 15, label = "a dozen 'Violet hits the player for 44.7'" },
+]
+
+[[scenario]]
+name = "combat-dogs"
+source = "CLAUDE.md: after combat AI changes, the dogs (docs/design/combat-ai.md §7)"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/attack_anims.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 30
+expect = [
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary" },
+  { re = 'attack anims summary.*h2hattack' },
+  { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines" },
+]
+
+[[scenario]]
+name = "factions"
+kind = "tool"
+source = "CLAUDE.md: after changes to actor templates, leveled actor lists or faction functions (docs/spec-notes/factions.md §2–§5)"
+areas = ["factions"]
+paths = ["crates/fnv-game/src/templates.rs", "crates/fnv-game/src/functions/actor.rs", "crates/fnvtool/src/actor_factions.rs"]
+commands = [["actor", "factions", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--survey", "--actor", "player", "--actor", "FiendVioletRef", "--actor", "00157B36"]]
+expect = [
+  { json = "actors.?actor=00157B36.factions_source", equals = "CrCoyote" },
+  { json = "actors.?actor=00157B36.factions.#", equals = 4, label = "the coyote 00157B36: four factions" },
+  { json = "survey.placed.first_list_on_the_way_pick_against_the_actor_drawn.same", equals = 3003 },
+  { json = "survey.placed.first_list_on_the_way_pick_against_the_actor_drawn.differs", equals = 0 },
+]
+manual = "on a failure, explain the change against docs/spec-notes/factions.md §2–§5"
+
+[[scenario]]
+name = "sitting"
+source = "CLAUDE.md: after furniture changes (docs/spec-notes/furniture.md §7)"
+areas = ["furniture"]
+paths = ["engine/nvforever/src/furniture.rs", "engine/nvf-play/src/furniture.rs", "crates/fnv-actor/src/furniture.rs", "crates/fnv-game/src/functions/furniture.rs"]
+args = ["--cell", "Goodsprings", "--npc-sit", "EasyPeteRef=0010634A:8", "--follow-npc"]
+run_seconds = 45
+expect = ["furniture summary: 1 of 1 actors sat down, 1 got up again"]
+
+# ------------------------------------------------------------------ audio
+
+[[scenario]]
+name = "world-audio"
+kind = "tool"
+source = "CLAUDE.md: after music, placed sound or background loop changes, fnvtool world audio (docs/spec-notes/audio.md)"
+areas = ["audio", "music"]
+paths = ["crates/fnv-world/src/audio.rs", "crates/fnvtool/src/world_audio.rs"]
+commands = [["world", "audio", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv"]]
+# The counts of docs/spec-notes/audio.md §1, §3 and §5 (FalloutNV.esm alone).
+expect = [
+  { json = "counts.music_types", equals = 20 },
+  { json = "counts.media_sets.total", equals = 140 },
+  { json = "counts.media_sets.location", equals = 81 },
+  { json = "counts.media_sets.battle", equals = 32 },
+  { json = "counts.media_sets.dungeon", equals = 23 },
+  { json = "counts.media_sets.incidental", equals = 4 },
+  { json = "counts.controllers", equals = 89 },
+  { json = "counts.controllers_with_location_set", equals = 83 },
+  { json = "counts.controllers_with_several_location_sets", equals = 29 },
+  { json = "counts.controllers_with_faction", equals = 8 },
+  { json = "counts.controllers_with_faction_and_location_set", equals = 4 },
+  { json = "counts.controllers_without_any_set", equals = 2 },
+  { json = "counts.acoustic_spaces", equals = 113 },
+  { json = "world.cells_with_music_type", equals = 297 },
+  { json = "world.cells_with_acoustic_space", equals = 17485 },
+  { json = "world.audio_markers.total", equals = 572 },
+  { json = "world.audio_markers.interior", equals = 363 },
+  { json = "world.audio_markers.use_controller_values", equals = 426 },
+  { json = "world.audio_markers.radius_min", equals = 1000.0 },
+  { json = "world.audio_markers.radius_max", equals = 18000.0 },
+  { json = "world.audio_markers.initially_disabled", equals = 0 },
+  { json = "world.cells_with_audio_markers", equals = 372 },
+  { json = "world.cells_with_music_type_and_audio_markers", equals = 264 },
+  { json = "world.sound_markers.total", equals = 1178 },
+  { json = "world.sound_markers.interior", equals = 706 },
+  { json = "world.sound_markers.distinct_sounds", equals = 311 },
+  { json = "world.sound_markers.loop", equals = 607 },
+  { json = "world.sound_markers.play_at_random", equals = 550 },
+  { json = "world.sound_markers.random_location", equals = 151 },
+]
+manual = "on a failure, explain the change against the counts in docs/spec-notes/audio.md"
+
+[[scenario]]
+name = "music"
+source = "CLAUDE.md: after music, placed sound or background loop changes, the music smoke test"
+areas = ["audio", "music"]
+paths = ["engine/nvf-play/src/music.rs", "engine/nvf-play/src/ambient.rs", "crates/fnv-world/src/audio.rs"]
+args = ["--cell", "Goodsprings", "--play", "--pos=-69000,3500,8900", "--hour", "12"]
+run_seconds = 40
+expect = [
+  "music: musSetLOCDesExplBothABC day started, layers outer+middle+inner",
+  "music summary: 1 started, 0 changes of layers, 0 files not played",
+  "ambient summary: 2 placed loops started, … 1 background loops started",
+]
+
+[[scenario]]
+name = "music-script-trigger"
+source = "CLAUDE.md: after changes to battle, dungeon, incidental or script music (audio.md §13), the trigger outside Doc Mitchell's door"
+areas = ["audio", "music"]
+paths = ["engine/nvf-play/src/music.rs", "crates/fnv-game/src/sound.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:walk:placed:VCG01RemoveDocCarebearModeTrigger" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice"]
+run_seconds = 25
+expect = [
+  "music: a script plays musSCRGoodspringsStinger (once)",
+  { re = 'music summary.*\b1 script requests' },
+]
+
+[[scenario]]
+name = "music-battle"
+source = "CLAUDE.md: after changes to battle music, the battle beside Violet (audio.md §13)"
+areas = ["audio", "music"]
+paths = ["engine/nvf-play/src/music.rs", "crates/fnv-game/src/sound.rs"]
+args = ["--cell", "Goodsprings", "--play", "--pos=-46800,65000,4600", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  "music: battle begins (0x000F570B has the player detected)",
+  "intro of",
+  "battle over",
+  "1 battles (1 battle loops started), 2 intro and outro sounds",
+]
+
+[[scenario]]
+name = "radio-jukebox"
+launch = "saloon-jukebox"
+source = "CLAUDE.md: after radio changes, the saloon jukebox switched off at 20 s and on at 28 s (docs/spec-notes/radio.md §6)"
+areas = ["radio", "audio"]
+paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00107D73", NVF_PLAY_TEST_ACTIVATE = "20,28" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 40
+expect = [
+  "00109087 (vCountryRadio) is destroyed: silent",
+  "radio summary: 1 receivers heard, 1 songs started, 0 DJ lines, 0 lines without a file; receivers switched 3 times, 1 on at exit",
+]
+order = [[
+  { re = '00107D73 tuned to vCountryRadio playing (?P<f>sound\\songs\\radionv\\.*_mono\.ogg)', label = "00107D73 tuned to vCountryRadio playing sound\\songs\\radionv\\…_mono.ogg" },
+  "switched off",
+  { re = 'sound\\songs\\radionv\\.*_mono\.ogg.* from (?P<n>[\d.]+) s', range = [20, 25], label = "the same file again from <s> s (20–25 s)" },
+]]
+
+[[scenario]]
+name = "activators-onoff"
+launch = "saloon-jukebox"
+source = "CLAUDE.md: after changes to activators' on/off looks or to sequences on materials (docs/spec-notes/activators.md §3): the saloon radio test"
+areas = ["activators"]
+paths = ["engine/nvforever/src/activators.rs", "engine/nvf-assets/src/material_anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00107D73", NVF_PLAY_TEST_ACTIVATE = "20,28" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 40
+expect = [
+  "00109087 (GoodspringsRadio) off: keeps its stored look",
+  "activator summary: 2 receivers drawn with an on/off look; switched on 1 times, off 1 times while drawn",
+]
+order = [[
+  "00107D73 (JukeBoxDirtyNVCountry) on: plays its idle",
+  "off: holds its idle, lights dark",
+  "00107D73 (JukeBoxDirtyNVCountry) on: plays its idle",
+]]
+
+[[scenario]]
+name = "radio-pipboy"
+source = "CLAUDE.md: after radio changes, the Pip-Boy radio with a script-started broadcast (radio.md §8)"
+areas = ["radio", "audio", "pipboy"]
+paths = ["crates/fnv-world/src/radio.rs", "crates/fnv-game/src/radio.rs", "engine/nvf-play/src/radio.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "2:enable:RNVTARef,2:enable:vNCREmergencyRadioTARef,2:start:vNCREmergencyRadio", NVF_PLAY_TEST_RADIO = "4:next,12:next,20:previous,28:tune=vNCREmergencyRadioTA,52:off" }
+args = ["--cell", "Goodsprings", "--play"]
+run_seconds = 60
+expect = [
+  "pipboy radio: on, tuned to vCountryRadio",
+  { re = 'the Pip-Boy tuned to vCountryRadio playing sound\\songs\\radionv\\.*mp3' },
+  "vNCREmergencyRadioTA starts a conversation (StartRadioConversation)",
+  { re = 'the Pip-Boy tuned to vNCREmergencyRadioTA playing sound\\voice\\' },
+  "subtitle: NCR Emergency Radio: ",
+  "ends its conversation: silent",
+  "ui_radio_static_lp.wav (loop",
+  "pipboy radio summary: off at exit",
+  { re = '(?P<n>\d+) conversations started by scripts', range = [2, 1e9], label = "2 or more conversations started by scripts" },
+]
+
+# ------------------------------------------------------------------ controls, pushing, idles
+
+[[scenario]]
+name = "held-player"
+source = "CLAUDE.md: after changes to the player's controls or to what scripts lock of them (docs/spec-notes/controls.md §5)"
+areas = ["controls"]
+paths = ["engine/nvf-play/src/control.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/bindings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_MOVE = "1:1:0", NVF_PLAY_TEST_LOOK = "0.1:90:0", NVF_PLAY_TEST_ACTIVATE = "14", NVF_PLAY_TEST_CONTROL = "16:sneak,17:weapon,18:view" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 30
+expect = [
+  "look heading 90.0 pitch 0.0 ignored",
+  "activate: ignored",
+  { re = 'controls summary: scripts changed the player.s controls 2 times; disabled at exit: movement, Pip-Boy, fighting, POV, sneaking; held back: movement \d+, fighting 1, POV 1, looking 1, sneaking 1' },
+]
+
+[[scenario]]
+name = "push"
+source = "CLAUDE.md: after actor collision or pushing changes (docs/spec-notes/physics.md §6.8): the player stands on Easy Pete's noon walk"
+areas = ["blocking", "physics"]
+paths = ["engine/nvf-play/src/blocking.rs", "engine/nvf-play/src/hitvol.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOTO = "1:-67790:3450:8425" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "EasyPeteRef", "--hour", "12"]
+run_seconds = 30
+expect = [
+  "used door 0x0010636F",
+  { re = 'actors pushed aside:.*one the player in (?P<n>\d+)', range = [150, 250], label = "one the player in about 200 steps" },
+]
+
+[[scenario]]
+name = "idles-opening"
+source = "CLAUDE.md: after idle animation changes (docs/spec-notes/idles.md §7), the opening"
+areas = ["idles"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-actor/src/idle*.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 90
+expect = [
+  "VCG01 stage 55 set",
+  "idle summary: 10 idles asked for (1 by scripts, 4 by packages' begin, end and change, 1 from collections, 4 by dialogue lines); 5 started on actors, 5 on the player; 0 for actors not drawn, 0 without a usable clip",
+  { re = 'furniture:.*by clip SpecialIdle_DocSitLeftExit', label = "Doc Mitchell getting off his chair by clip SpecialIdle_DocSitLeftExit" },
+]
+
+# ------------------------------------------------------------------ messages and menus
+
+[[scenario]]
+name = "corner-messages"
+launch = "house-messages"
+source = "CLAUDE.md: after changes to the messages at the top left (docs/spec-notes/corner-messages.md §7)"
+areas = ["corner-messages", "hud"]
+paths = ["engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/interface.rs", "engine/nvf-play/src/script_events.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:message:FactionReminderNCR,3.1:message:AbilityWellRestedStartMsg" }
+args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+run_seconds = 20
+order = [[
+  'corner message: "You are still dressed as a member of the NCR." for 2 s, icon glow_message_vaultboy_ncr.dds',
+  'corner message: "You are now Well Rested!" for 10 s, icon default',
+]]
+expect = [
+  { gap = ['corner message: "You are still dressed', 'corner message: "You are now Well Rested!"'], range = [1.68, 2.82], label = "about 2.25 s apart" },
+]
+
+[[scenario]]
+name = "barter"
+note = "flaky on main 2026-10-12: 1 of 2 runs had the player carry nothing when the barter opened (the add-on packs' items not given yet) and 'You don't have enough caps.' instead of Traded"
+source = "CLAUDE.md: after changes to the container or barter menus (docs/spec-notes/barter-menu.md §6): the barter from Chet's dialogue"
+areas = ["barter", "menus"]
+paths = ["engine/nvf-play/src/menu*", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_TALK = "10:GSChetRef=for sale|leave", NVF_PLAY_TEST_BARTER = "*", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice"]
+run_seconds = 50
+order = [[
+  "menu: a script opens the barter menu with 0x00104C79",
+  "stock in 0x00104C7A",
+  "menu: Accept: Traded",
+  "menu: close",
+  "Goodbye.",
+]]
+
+[[scenario]]
+name = "container-e-key"
+source = "CLAUDE.md: after changes to activation or the menus' keys (nvf-play activate, menu menu_keys, FreshMenu): open and close a container with the real E key"
+areas = ["activate", "menus", "controls"]
+paths = ["engine/nvf-play/src/activate*", "engine/nvf-play/src/menu*"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105658", NVF_PLAY_TEST_KEYS = "16:e,19:e" }
+args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+run_seconds = 21
+order = [[
+  'menu: open Container(0x00105658) "Refrigerator"',
+  "menu: close",
+]]
+expect = [
+  { gap = ['menu: open Container(0x00105658) "Refrigerator"', "menu: close"], range = [2.25, 3.75], label = "menu: close about 3 s after the open" },
+]
+
+[[scenario]]
+name = "chargen-menus"
+source = "CLAUDE.md: after changes to the name, tag-skill or trait menus (docs/spec-notes/chargen.md §7)"
+areas = ["chargen", "menus"]
+paths = ["engine/nvf-play/src/chargen.rs", "engine/nvf-play/src/chargen/lists.rs", "engine/nvf-play/src/chargen/name.rs", "engine/nvf-play/src/chargen/draw.rs", "crates/fnv-game/src/chargen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1051,8:menu:1048,13:menu:1084", NVF_PLAY_TEST_CHARGEN = "5:clear,5.1:done,5.2:type:Courier Six,6:done,10:pick:Lockpick,10.1:done,10.2:pick:Guns,10.3:pick:Speech,10.4:pick:Survival,10.5:pick:Lockpick,10.6:pick:Survival,11:done,15:pick:Four Eyes,15.2:pick:Early Bird,15.4:pick:Wild Wasteland,16:done" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 20
+order = [[
+  "Ok refused: no name",
+  'done, name "Courier Six"',
+  "Done refused: 1 of 3 skills tagged",
+  "Survival refused",
+  "done, tag skills: Guns, Speech, Survival",
+  "Wild Wasteland refused",
+  "done, traits: Early Bird, Four Eyes",
+]]
+manual = "with the owner's load order (Old World Blues in it) the trait menu has 16 rows"
+
+[[scenario]]
+name = "vigor-tester"
+note = "not shared with chargen-menus: moved 18 s later in one launch the Vigor Tester took none of its steps (run 2026-10-12); alone it passes"
+source = "CLAUDE.md: after changes to the Vigor Tester's S.P.E.C.I.A.L. menu (docs/spec-notes/vigor-tester.md §7)"
+areas = ["chargen", "vigor", "menus"]
+paths = ["engine/nvf-play/src/chargen/vigor*", "engine/nvf-play/src/chargen.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1074", NVF_PLAY_TEST_VIGOR = "2:click:LookInside_Btn:0,4.5:raise,4.6:raise,4.7:done,5.5:page:review,8:select:luck,8.1:raise,8.2:raise:L,8.3:raise:endurance,8.5:click:P1_RT_Btn:0" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 20
+expect = [
+  "Done refused: points still to give out",
+  "Endurance 6, 0 points remaining",
+  "done, S.P.E.C.I.A.L. 7 5 6 5 5 5 7 (click)",
+  "vigor tester summary: opened 1 times, 5 changes, 8 page turns, 2 clicks on its buttons, done 1 times",
+]
+
+[[scenario]]
+name = "quest-messages"
+note = "not shared with house-messages: there its 'Talk to Sunny Smiles' line was never shown on its own (run 2026-10-12); alone it passes"
+source = "CLAUDE.md: after changes to the quest lines at the left (docs/spec-notes/quest-messages.md §7)"
+areas = ["quest-messages", "hud"]
+paths = ["engine/nvf-play/src/quest_messages.rs", "engine/nvf-play/src/script_events.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:objective:VCG02:3,9:objective_done:VCG02:3,9.1:objective:VCG02:5" }
+args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+run_seconds = 45
+order = [[
+  "quest message on screen: Quest added: BACK IN THE SADDLE",
+  "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.",
+  "quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny Smiles behind the Prospector Saloon.",
+]]
+
+[[scenario]]
+name = "flashlight"
+source = "CLAUDE.md: after flashlight changes, on and off in a dark interior"
+areas = ["flashlight"]
+paths = ["engine/nvf-play/src/flashlight.rs", "engine/nvforever/src/flashlight.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "2:flashlight,12:view,20:flashlight" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "23", "--no-voice"]
+run_seconds = 26
+order = [["flashlight: on", "flashlight: off"]]
+
+# ------------------------------------------------------------------ sounds
+
+[[scenario]]
+name = "anim-sounds"
+source = "CLAUDE.md: after changes to the sounds animations and doors name (docs/spec-notes/audio.md §10): footsteps, reload and doors"
+areas = ["anim-sounds", "audio"]
+paths = ["engine/nvforever/src/anim_sounds.rs", "crates/fnv-actor/src/anim_sounds.rs", "engine/nvf-play/src/doors.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_MOVE = "11:1:0,14:0:0", NVF_PLAY_TEST_CONTROL = "15:weapon,17:fire,17.2:fire,18:reload" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--open-doors"]
+run_seconds = 24
+expect = [
+  { re = 'anim sounds summary:.*\((?P<n>\d+) by the player', range = [3, 7], label = "about 5 footsteps by the player" },
+  { re = 'anim sounds summary:.*\b3 reload keys' },
+  { re = 'anim sounds summary:.*\b5 door sounds \(2 from door records\)' },
+  { re = 'anim sounds summary:.*\b0 keys without a SOUN' },
+]
+
+[[scenario]]
+name = "shoot-bottles"
+source = "CLAUDE.md: after changes to shot impacts, knocks, item, container, activator, message-box or script sounds (audio.md §11): Sunny's bottles"
+areas = ["world-sounds", "audio", "combat"]
+paths = ["engine/nvf-play/src/world_sounds.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/fx.rs", "crates/fnv-collide/", "crates/fnv-phys/"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT = "3:start:VCG02,4:info:0x0010A1E6:SunnyRef", NVF_PLAY_TEST_CONTROL = "7:weapon,10:aimref=0010A202,10.5:fire,10.7:fire,13:aimref=0010A203,13.5:fire,13.7:fire,16:aimref=0010A204,16.5:fire,16.7:fire" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 22
+expect = [
+  { re = 'world sounds summary:.*impacts by material: glass 3 \(0 on collision without a material\)' },
+  { re = 'world sounds summary:.*knock', label = "some knocks" },
+]
+
+[[scenario]]
+name = "house-items"
+launch = "house-messages"
+source = "CLAUDE.md: after changes to item, container or world sounds (audio.md §11): handle items in a house"
+areas = ["world-sounds", "audio"]
+paths = ["engine/nvf-play/src/world_sounds.rs", "engine/nvf-play/src/dropped*", "engine/nvf-play/src/menu.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "11:activate:0x001730E9,11.5:activate:0x001767B5", NVF_PLAY_TEST_MENU = "00105658", NVF_PLAY_TEST_DELAY = "18" }
+args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+run_seconds = 30
+expect = [
+  "001730E9 (0x00004323) picked up, sound ITMPistolUp",
+  { text = "dropped, sound UIItemsClothingDown", known_failing = "main 2026-10-12, alone and shared: the inventory test aid drops the BB Gun picked up at 11 s (FF000000 (0x00004323) dropped, sound ITMPistolDown)" },
+  { re = 'world sounds summary:.*2 pick-ups, 1 drops; 5 items taken from and 1 put in containers; containers opened 1 and closed 1 times' },
+]
+
+[[scenario]]
+name = "ui-sounds"
+source = "CLAUDE.md: after changes to the menus' sounds (docs/spec-notes/audio.md §12): the menus one after the other"
+areas = ["ui-sounds", "audio", "menus"]
+paths = ["engine/nvf-play/src/ui_sounds.rs", "engine/nvf-play/src/menu*", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/world_sounds.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "11:GSChetRef=for sale|leave", NVF_PLAY_TEST_BARTER = "*", NVF_PLAY_TEST_BARTER_DELAY = "6", NVF_PLAY_TEST_MENU = "nearest", NVF_PLAY_TEST_DELAY = "44", NVF_PLAY_TEST_GIVE = "00015169:2", NVF_PLAY_TEST_DROP = "58:00015169:use", NVF_PLAY_TEST_WAIT = "61:open,62:hours=2,63:accept", NVF_PLAY_TEST_PAUSE = "66:69", NVF_PLAY_TEST_SETTINGS = "67:page,67.5:menu-pause,68:menu-pause" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice"]
+run_seconds = 72
+expect = [
+  "barter opened: UIMenuMode",
+  "container take all: UIItemTakeAll",
+  { text = "inventory item used: NPCHumanUsingStimpak", known_failing = "main 2026-10-12, 2 of 2 runs: at 58 s the drop aid logs '0x00015169 is not carried', so no stimpak is used" },
+  "wait slider moved: UIMenuPrevNext",
+  "settings switch flipped: UIMenuPrevNext",
+  { re = 'ui sounds summary:.*\b24 played', known_failing = "main 2026-10-12: 23 played, the stimpak's sound missing (above)" },
+  { re = 'ui sounds summary:.*\b0 sounds not found' },
+  { re = "ui sounds summary:.*(?P<n>\\d+) items' own sounds held back for Take All", range = [1, 1e9], label = "one or more items' own sounds held back for Take All" },
+]
+
+[[scenario]]
+name = "bighorner"
+source = "CLAUDE.md: after changes to creatures' sounds, jump and landing, wading, objects' own sounds, casings or panning (audio.md §14): jump and shoot a bighorner in its pen"
+areas = ["creature-sounds", "audio"]
+paths = ["crates/fnv-actor/src/anim_sounds.rs", "engine/nvforever/src/anim_sounds.rs", "engine/nvforever/src/shot_fx.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/ambient.rs", "engine/nvf-play/src/world_sounds.rs"]
+env = { NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "11:jump,14:weapon,16:aimactor,16.2:fire,16.4:fire,17:aimactor,17.2:fire,17.4:fire,18:aimactor,18.2:fire,18.4:fire,19:aimactor,19.2:fire,19.4:fire,20:aimactor,20.2:fire,20.4:fire,21:aimactor,21.2:fire,21.4:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-69850,5700,8650"]
+run_seconds = 28
+expect = [
+  { re = 'anim sounds summary:.*creatures: \d+ sounds \(Left Back Foot \d+' },
+  { re = 'anim sounds summary:.*\b4 hits, 1 deaths' },
+  { re = 'anim sounds summary:.*the player jumped 1 and landed 1 times' },
+  { re = 'ambient summary:.*random', label = "a source heard with some random sounds played" },
+  { re = 'shot fx:.*casing knocks heard' },
+]
+
+# ------------------------------------------------------------------ objects' and actors' animation groups
+
+[[scenario]]
+name = "playgroup-night"
+source = "CLAUDE.md: after changes to scripts' animation groups on objects (docs/spec-notes/activators.md §5): Goodsprings at night with a plant picked"
+areas = ["object-anims"]
+paths = ["crates/fnv-game/src/anims.rs", "engine/nvforever/src/object_anims.rs", "engine/nvf-assets/src/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "12:activate:0x0016AF20" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "21", "--no-voice"]
+run_seconds = 25
+expect = [
+  "playgroup: 0x0016AF20 plays Forward (once, 0.47 s), flag 1",
+  { re = 'playgroup:.*0x0016B5E8.*Left', label = "a playgroup line showing 0x0016B5E8 (the saloon's lights) Left" },
+  { re = 'playgroup summary: (?P<n>\d+) asked \((?=.*Backward)(?=.*Forward)(?=.*Left)', range = [37, 63], label = "about 50 asked (Backward, Forward, Left)" },
+  { re = 'playgroup summary:.*\b0 without a sequence of that name' },
+]
+
+[[scenario]]
+name = "actor-groups"
+source = "CLAUDE.md: after changes to groups on actors, alpha or visibility tracks or groups' sound keys (activators.md §6–§8): the actors' groups"
+areas = ["actor-groups", "object-anims"]
+paths = ["engine/nvforever/src/actor_groups.rs", "engine/nvforever/src/object_anims.rs", "engine/nvf-assets/src/material_anim.rs"]
+# CLAUDE.md gave only NVF_PLAY_TEST_SCRIPT for this run and the bear trap's (no NVF_PLAY_TEST_SCRIPT_MENUS):
+# with the plant run's 1 s the add-on packs' message boxes still queue at 15 s and eat the trap's button.
+env = { NVF_PLAY_TEST_SCRIPT = "11:play_group:GoodspringsSettler01Ref:Equip:1,11.2:play_group:GoodspringsSettler01Ref:Aim:0,12:play_group:0x0010706E:Aim:1,16:play_group:0x0010706E:Idle:1,17:play_group:GoodspringsSettler01Ref:SpecialIdle:1,18:play_group:EasyPeteRef:Unequip:0" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 24
+expect = [
+  "actor group summary: 6 asked (Aim 2, Equip 1, Idle 1, SpecialIdle 1, Unequip 1); 3 started",
+  "1 waited for what played, 1 back to normal by Idle",
+  "1 for actors not drawn, 1 without a clip",
+]
+
+[[scenario]]
+name = "bear-trap"
+source = "CLAUDE.md: after changes to groups' sound keys (activators.md §6–§8): the bear trap"
+areas = ["actor-groups", "object-anims"]
+paths = ["engine/nvforever/src/object_anims.rs", "engine/nvforever/src/actor_groups.rs", "engine/nvf-assets/src/material_anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "11:var:0x0002012B:trapbearskillreq01:0,15:activate:0x00165495,15.1:button:1" }
+args = ["--play", "--pos=-68124,-17000,9100", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  { text = "playgroup: 0x00165495 passes the sound key TRPBearFire of Forward at 0.033 s", count = 1 },
+  { re = 'anim sounds summary:.*\b1 object group sounds' },
+]
+
+# ------------------------------------------------------------------ dialogue, Pip-Boy, terminals
+
+[[scenario]]
+name = "speech-look"
+launch = "saloon-jukebox"
+source = "CLAUDE.md: after changes to who turns to whom while a line is said (docs/design/dialogue-play.md §9): Sunny's lines in the saloon"
+areas = ["speech-look", "dialogue"]
+paths = ["crates/fnv-game/src/game.rs", "engine/nvforever/src/speech_look.rs", "crates/fnv-ai/src/social.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:say_to:0x00104E85:0x0010588E:GREETING,20:say_to:SunnyRef:player:GREETING,26:say_to:SunnyRef:0x0010588E:GREETING:1" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 34
+expect = [
+  "CheyenneREF listens to SunnyRef",
+  { re = 'speech look: line [0-9A-F]+ over: SunnyRef has .* (?P<n>[+-]\d+)° off its front', range = [-5, 5], all = true, label = "each line over: SunnyRef has … off its front within a few degrees of 0" },
+  { re = 'speech look summary: 3 lines' },
+  # Line 1 is said to Cheyenne (she listens), line 2 to the player, line 3 to Cheyenne
+  # with the flag that keeps listeners still: one "listens" line in all.
+  { re = 'listens to', count = 1, label = "no listens line for the last one (one listens line in all)" },
+]
+manual = "add --no-npc-packages to see 'the body turns' by speech_look.rs itself"
+
+[[scenario]]
+name = "pipboy"
+source = "CLAUDE.md: after Pip-Boy changes (docs/spec-notes/pipboy.md §7)"
+areas = ["pipboy"]
+paths = ["engine/nvf-play/src/pipboy*", "engine/nvforever/src/pipboy_arm.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,15:page=stats,17:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
+run_seconds = 19
+order = [[
+  "pipboy: up, page ITEMS tab Weapons",
+  "pipboy: the menus are on the model's screen",
+  "pipboy: STATS Status",
+  "pipboy: down",
+]]
+
+[[scenario]]
+name = "pipboy-pointer"
+source = "CLAUDE.md: after changes to the Pip-Boy's pointer (pipboy_arm.rs follow_pointer, pipboy::drive_pointer), click on the model's screen"
+areas = ["pipboy"]
+paths = ["engine/nvforever/src/pipboy_arm.rs", "engine/nvf-play/src/pipboy*"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_PIPBOY = "12:open,14:click=320:650,16:click=stats,18:click=600:650" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
+run_seconds = 21
+expect = [
+  "pipboy: ITEMS Apparel",
+  "pipboy: the STATS button pressed",
+  "pipboy: STATS Perks",
+]
+
+[[scenario]]
+name = "hacking"
+source = "CLAUDE.md: after changes to terminals or the hacking game (docs/spec-notes/hacking.md §9): the Easy terminal"
+areas = ["hacking", "terminal"]
+paths = ["crates/fnv-game/src/hacking.rs", "crates/fnv-game/src/terminal.rs", "engine/nvf-play/src/terminal*"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:back" }
+args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
+run_seconds = 48
+expect = [
+  "hacking, Easy (Science 25): 20 words",
+  "Exact match! access granted",
+  'menu of DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"',
+  "result script",
+  "terminal summary: 1 opened (0 refused), 1 hacking games (1 hacked, 0 locked out)",
+]

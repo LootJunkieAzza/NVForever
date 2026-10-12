@@ -3131,3 +3131,54 @@ Branch `claude/playtest-world`. Pictures: `C:\fnv-private\references\playtest_wo
    - Guessed constant: the median mask, 35 of 255. Check: the bed when you wake up and
      the vending machine and door at noon. A game screenshot of the vending machine in
      sun from the side would tell whether the original gives these objects any shine.
+
+## Smoke tests reworked (2026-10-11, session "pt-smoke")
+
+Your request (todo 3): stop wasting time and usage on redundant smoke testing. The ~40 prose
+smoke tests of CLAUDE.md are now data (`tools/smoke/scenarios.toml`, 49 scenarios) run by
+`python tools/smoke run`: it picks the scenarios whose files a branch changed, shares a game
+launch where that was checked to be safe, keeps the logs in `target/smoke/` and prints one
+line per scenario. CLAUDE.md now says how to run it and that new smoke tests go into the file.
+
+What I decided where the prose was unclear:
+1. **"About N"** is N ± 25 % (rounded outwards); "a dozen" is 9–15; "3 s later" 2.25–3.75 s.
+2. **The AI tool checks** (`fnvtool ai packages`, `ai reach`, `ai observed`, `ai run`) run over
+   the ten masters: CLAUDE.md gave no plugins, and the doc's figures (791 Sandbox, 32 Wander)
+   are those of the masters.
+3. **"Compare with the doc and explain any change"** is now checked: the figures of
+   actor-values.md §3.1/§7, detection.md §4, factions.md §2–§5, audio.md §1–§5 and
+   actor-behaviour.md §5.3 are JSON expectations on the tools' output. **Check:** the ai
+   reach figures of actor-behaviour.md §5.3 (2026-10-10) no longer match main: 16,935 pairs
+   (doc 15,603), 10,258 reachable (9,488), 1,602 staying (1,571), 3,185 never chosen (2,810),
+   182 at the player (177). They are marked known-failing, and main's 2026-10-11 figures are
+   checked too, so any later change shows. Someone who knows why they changed should update the doc.
+4. **The navmesh walk table** (navmesh.md §5) is a dated record; only "all six arrive" is
+   checked, as CLAUDE.md asked.
+5. **`ai observed` / `ai run --samples`** need the observer captures (`obs_*.jsonl`), which I
+   could not find on this machine; the scenario is skipped unless `NVF_OBSERVER_SAMPLES` names
+   them. **Check:** where are they?
+6. **Test aids the prose left out**: the actors' groups and bear trap runs got only the
+   `NVF_PLAY_TEST_SCRIPT` given (the bear trap fails with the plant run's
+   `SCRIPT_MENUS=1`: the add-on packs' message boxes still queue at 15 s); the dogs keep the
+   Violet run's `GOD` and `SCRIPT_MENUS` ("added"); the Fiend alert check got
+   `NVF_PLAY_TEST_SCRIPT_MENUS=1`, without which the run is attended and the first add-on
+   message box stays open all run (Violet never fights).
+7. **Shared launches** (checked by running both ways): Violet's alert and combat checks;
+   the saloon jukebox, its on/off look and Sunny's speech-look lines; the corner messages and
+   the house items. Undone after the run: the quest lines with the house items (the
+   objective line was never shown on its own) and the Vigor Tester after the name/tag/trait
+   menus (moved 18 s later it took no steps). Game launches for the full set: 39 as
+   CLAUDE.md had them (41 with the two added on main today), 38 now with 42 game scenarios.
+   The bigger saving is the selection: a branch runs only the scenarios its files call for.
+8. **Push checks**: engine clippy also when `crates/` changed (the engine workspace builds
+   the crates), root tests and clippy when `crates/`, the root Cargo files or `schemas/`
+   changed, a Python suite when its folder changed.
+9. **Locks**: both locks per launch, given back between launches; a lock with the runner's
+   owner file whose process is gone is cleared; another session's mkdir lock older than
+   15 min while no nvforever/FalloutNV runs is reported loudly, never removed.
+
+Failing on main (2026-10-12), kept and marked known-failing: house items drop the BB Gun
+(`ITMPistolDown`) where `UIItemsClothingDown` is expected; the menus' sounds run finds the
+given stimpaks not carried at 58 s (23 sounds, not 24). Flaky: the barter from Chet's
+dialogue once had the player carry nothing (the add-on packs' items not given yet) and
+got "You don't have enough caps."

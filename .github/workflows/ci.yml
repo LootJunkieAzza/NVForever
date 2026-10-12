@@ -55,6 +55,8 @@ jobs:
         run: python -m unittest discover -s parity-lab/tests -v
       - name: Capture-tool self-tests
         run: python -m unittest discover -s tools/capture/tests -v
+      - name: Smoke-runner self-tests
+        run: python -m unittest discover -s tools/smoke/tests -v
 
       - name: Engine tests
         run: cargo test --release --locked
