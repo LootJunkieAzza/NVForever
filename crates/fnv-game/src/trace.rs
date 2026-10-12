@@ -65,6 +65,14 @@ pub enum EventKind {
     /// The same magic item was applied again while its effect was active: the active
     /// effect's duration grew to `duration` seconds (no new effect, no second start).
     EffectExtended { id: u32, target: FormId, source: FormId, duration: f64 },
+    /// An actor used an ingestible (aid item): its effects applied with `potency` on
+    /// their beneficial Value Modifier magnitudes (docs/spec-notes/aid-items.md §4).
+    Ingested { actor: FormId, item: FormId, potency: f64 },
+    /// An actor became addicted: the item's withdrawal effect (an Addiction spell) was
+    /// added (aid-items.md §5).
+    Addicted { actor: FormId, item: FormId, spell: FormId },
+    /// Addictions taken away by a Cure Addiction effect.
+    AddictionCured { actor: FormId, spell: FormId },
     /// A menu opened (`menu` code; a message box is 1001) or was closed.
     MenuOpened { menu: u16 },
     MenuClosed { menu: u16 },
