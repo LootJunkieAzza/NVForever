@@ -72,7 +72,10 @@ friends are not [documented: GECK wiki GetFactionCombatReaction], the factions c
 [hypothesis]. Neither may be dead, disabled, unconscious or restrained; the player's
 teammates do not attack the player. Two actors with a faction in common, or placed from
 the same base form, never attack each other [engineering choice: without it the Very
-Aggressive creatures of one kind, neutral to each other, would fight].
+Aggressive creatures of one kind, neutral to each other, would fight]; since 2026-10-12
+not when either's factions name the other's an enemy, and a shared faction that names no
+reactions (GeneralIdleFaction) only counts when one of them has no faction that does
+(`Game::kin`, combat-ai.md §12.4).
 
 Only hostiles count: a non-hostile actor noticing the player stays Normal. Being hit by
 the player (assault, friendly fire) and an ally's fight (Assistance) make an actor
