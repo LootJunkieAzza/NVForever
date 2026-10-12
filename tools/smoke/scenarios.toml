@@ -1216,3 +1216,20 @@ expect = [
   "aid: WaterPurified's effects on the player ended: Health ",
   "aid summary: 3 items used (Buffout 1, Stimpak 1, WaterPurified 1), 6 effects started, 2 ended; addictions: none; 0 cured; the player at exit: Strength 7, Endurance 8, Health 252",
 ]
+
+[[scenario]]
+name = "no-messages"
+source = "engine/nvf-play/src/script.rs module doc: --no-messages closes message boxes that ask nothing at once; the twelve add-on start-up boxes of a Goodsprings start are such boxes"
+areas = ["scripts", "menus"]
+# No `paths`: script.rs and main.rs change on most branches; run with --area or --only.
+paths = []
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--no-messages"]
+run_seconds = 35
+order = [[
+  "--no-messages: message boxes without a choice close at once",
+  "message box shown: Classic Pack items added to inventory.",
+  "--no-messages: closed message box",
+]]
+expect = [
+  { text = "--no-messages: closed message box", min = 12 },
+]
