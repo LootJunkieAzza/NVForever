@@ -44,15 +44,48 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+GAME_PROCESSES = ("nvforever", "falloutnv")
+
+
+def game_running() -> bool:
+    """Whether an nvforever or FalloutNV process runs on this machine."""
+    cmd = ["tasklist", "/FO", "CSV", "/NH"] if os.name == "nt" else ["ps", "-A", "-o", "comm="]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout.lower()
+    except (OSError, subprocess.SubprocessError):
+        return True  # cannot tell: assume the lock is in use
+    return any(name in out for name in GAME_PROCESSES)
+
+
 class Locks:
     """The game-window locks every agent takes by `mkdir` (CLAUDE.md, the agents' brief).
     Taken all or none, in order; released only if this runner made them. A lock left by
     a smoke runner that died (its owner file names a process that is gone) is cleared."""
 
-    def __init__(self, paths: list[Path], poll: float = 30.0, wait_max: float = 4 * 3600.0, say=print):
+    def __init__(self, paths: list[Path], poll: float = 30.0, wait_max: float = 4 * 3600.0, say=print,
+                 stale_after: float = 900.0, running=game_running):
         self.paths = [Path(p) for p in paths]
         self.poll, self.wait_max, self.say = poll, wait_max, say
+        self.stale_after, self.running = stale_after, running
         self.held: list[Path] = []
+        self.warned: set[tuple[Path, float]] = set()
+
+    def warn_if_abandoned(self, p: Path) -> None:
+        """Another session's plain mkdir lock that is old while no game runs: say so loudly
+        (once per lock). It is never removed: only its maker may do that."""
+        try:
+            made = p.stat().st_ctime
+        except OSError:
+            return
+        if (p / OWNER).exists() or (p, made) in self.warned or time.time() - made < self.stale_after:
+            return
+        if self.running():
+            return
+        self.warned.add((p, made))
+        mins = (time.time() - made) / 60
+        self.say(f"!!! LOCK LOOKS ABANDONED: {p} was made {mins:.0f} min ago "
+                 f"({time.strftime('%H:%M', time.localtime(made))}) and no nvforever or FalloutNV runs. "
+                 f"Not removed: ask the session that made it, or remove it if that session is gone.")
 
     def _stale(self, p: Path) -> bool:
         f = p / OWNER
@@ -61,6 +94,19 @@ class Locks:
         except (OSError, ValueError, IndexError):
             return False
         return not pid_alive(pid)
+
+    @staticmethod
+    def holder(p: Path) -> str:
+        """Who holds a lock, as far as the folder tells (no lock is taken by this)."""
+        try:
+            return "held by " + (p / OWNER).read_text().strip()
+        except OSError:
+            pass
+        try:
+            made = time.strftime("%H:%M:%S", time.localtime(p.stat().st_ctime))
+        except OSError:
+            return "just released"
+        return f"another session's mkdir lock, made at {made}"
 
     def try_take(self) -> Path | None:
         """Take every lock or none; the lock that is held by someone else, if any."""
@@ -91,8 +137,9 @@ class Locks:
             if busy is None:
                 return
             if busy != told:
-                self.say(f"waiting for {busy} (another session runs the game)")
+                self.say(f"waiting for {busy}: {self.holder(busy)}")
                 told = busy
+            self.warn_if_abandoned(busy)
             if time.monotonic() - start > self.wait_max:
                 raise TimeoutError(f"lock {busy} still held after {self.wait_max:.0f} s")
             time.sleep(self.poll)
@@ -223,6 +270,7 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
             "".join(f"{k}={v}\n" for k, v in sorted(launch.env.items())) + subprocess.list2cmdline(cmd) + "\n")
         if locks:
             locks.acquire()
+        started = time.monotonic()  # the launch's own time, without waiting for the locks
         try:
             with open(log, "w", encoding="utf-8", errors="replace") as f:
                 p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=env.out,

@@ -236,10 +236,11 @@ paths = ["crates/fnv-ai/", "engine/nvforever/src/residents.rs", "crates/fnv-game
 args = ["--cell", "Goodsprings", "--npc-packages", "EasyPeteRef,GSChetRef,GoodspringsSettler04Ref", "--hour", "21.9", "--follow-npc"]
 run_seconds = 150
 expect = ["ai summary … 3 residents, 6 packages chosen, 4 trips, 4 arrivals, 0 unreachable"]
+# The furniture lines name Easy Pete by his reference, 00104C80 (EasyPeteRef).
 order = [[
-  { re = 'furniture:.*EasyPete.*0010634A', label = "Easy Pete sitting on 0010634A" },
-  { re = 'furniture:.*EasyPete.*(gets? up|getting off|off)', label = "getting off it" },
-  { re = 'furniture:.*EasyPete.*00176ACE', label = "on his bed 00176ACE" },
+  { text = "furniture: 00104C80 is on 0010634A", label = "Easy Pete sitting on 0010634A" },
+  { text = "furniture: 00104C80 gets off 0010634A", label = "getting off it" },
+  { text = "furniture: 00104C80 is on 00176ACE", label = "on his bed 00176ACE" },
 ]]
 
 [[scenario]]
@@ -420,9 +421,11 @@ expect = ["detection summary"]
 [[scenario]]
 name = "alert-fiend"
 launch = "violet"
+note = "NVF_PLAY_TEST_SCRIPT_MENUS=1 added (CLAUDE.md gave no test aid): with none the run is attended and the add-on packs' first message box stays open all run, so Violet never reaches Combat (alone, 2026-10-12)"
 source = "CLAUDE.md: after detection state changes, the Fiend check of docs/design/alert.md §8"
 areas = ["alert", "detection"]
 paths = ["crates/fnv-game/src/awareness.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/alert.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
 args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
 run_seconds = 45
 expect = [
@@ -694,6 +697,7 @@ expect = [
 
 [[scenario]]
 name = "barter"
+note = "flaky on main 2026-10-12: 1 of 2 runs had the player carry nothing when the barter opened (the add-on packs' items not given yet) and 'You don't have enough caps.' instead of Traded"
 source = "CLAUDE.md: after changes to the container or barter menus (docs/spec-notes/barter-menu.md §6): the barter from Chet's dialogue"
 areas = ["barter", "menus"]
 paths = ["engine/nvf-play/src/menu*", "crates/fnv-game/src/functions/misc.rs"]
@@ -710,7 +714,6 @@ order = [[
 
 [[scenario]]
 name = "chargen-menus"
-launch = "doc-mitchell-menus"
 source = "CLAUDE.md: after changes to the name, tag-skill or trait menus (docs/spec-notes/chargen.md §7)"
 areas = ["chargen", "menus"]
 paths = ["engine/nvf-play/src/chargen.rs", "engine/nvf-play/src/chargen/lists.rs", "engine/nvf-play/src/chargen/name.rs", "engine/nvf-play/src/chargen/draw.rs", "crates/fnv-game/src/chargen.rs"]
@@ -730,8 +733,7 @@ manual = "with the owner's load order (Old World Blues in it) the trait menu has
 
 [[scenario]]
 name = "vigor-tester"
-launch = "doc-mitchell-menus"
-offset = 18
+note = "not shared with chargen-menus: moved 18 s later in one launch the Vigor Tester took none of its steps (run 2026-10-12); alone it passes"
 source = "CLAUDE.md: after changes to the Vigor Tester's S.P.E.C.I.A.L. menu (docs/spec-notes/vigor-tester.md §7)"
 areas = ["chargen", "vigor", "menus"]
 paths = ["engine/nvf-play/src/chargen/vigor*", "engine/nvf-play/src/chargen.rs"]
@@ -747,7 +749,7 @@ expect = [
 
 [[scenario]]
 name = "quest-messages"
-launch = "house-messages"
+note = "not shared with house-messages: there its 'Talk to Sunny Smiles' line was never shown on its own (run 2026-10-12); alone it passes"
 source = "CLAUDE.md: after changes to the quest lines at the left (docs/spec-notes/quest-messages.md §7)"
 areas = ["quest-messages", "hud"]
 paths = ["engine/nvf-play/src/quest_messages.rs", "engine/nvf-play/src/script_events.rs"]
@@ -811,7 +813,7 @@ args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
 run_seconds = 30
 expect = [
   "001730E9 (0x00004323) picked up, sound ITMPistolUp",
-  "dropped, sound UIItemsClothingDown",
+  { text = "dropped, sound UIItemsClothingDown", known_failing = "main 2026-10-12, alone and shared: the inventory test aid drops the BB Gun picked up at 11 s (FF000000 (0x00004323) dropped, sound ITMPistolDown)" },
   { re = 'world sounds summary:.*2 pick-ups, 1 drops; 5 items taken from and 1 put in containers; containers opened 1 and closed 1 times' },
 ]
 
@@ -826,10 +828,10 @@ run_seconds = 72
 expect = [
   "barter opened: UIMenuMode",
   "container take all: UIItemTakeAll",
-  "inventory item used: NPCHumanUsingStimpak",
+  { text = "inventory item used: NPCHumanUsingStimpak", known_failing = "main 2026-10-12, 2 of 2 runs: at 58 s the drop aid logs '0x00015169 is not carried', so no stimpak is used" },
   "wait slider moved: UIMenuPrevNext",
   "settings switch flipped: UIMenuPrevNext",
-  { re = 'ui sounds summary:.*\b24 played' },
+  { re = 'ui sounds summary:.*\b24 played', known_failing = "main 2026-10-12: 23 played, the stimpak's sound missing (above)" },
   { re = 'ui sounds summary:.*\b0 sounds not found' },
   { re = "ui sounds summary:.*(?P<n>\\d+) items' own sounds held back for Take All", range = [1, 1e9], label = "one or more items' own sounds held back for Take All" },
 ]
@@ -872,7 +874,9 @@ name = "actor-groups"
 source = "CLAUDE.md: after changes to groups on actors, alpha or visibility tracks or groups' sound keys (activators.md §6–§8): the actors' groups"
 areas = ["actor-groups", "object-anims"]
 paths = ["engine/nvforever/src/actor_groups.rs", "engine/nvforever/src/object_anims.rs", "engine/nvf-assets/src/material_anim.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "11:play_group:GoodspringsSettler01Ref:Equip:1,11.2:play_group:GoodspringsSettler01Ref:Aim:0,12:play_group:0x0010706E:Aim:1,16:play_group:0x0010706E:Idle:1,17:play_group:GoodspringsSettler01Ref:SpecialIdle:1,18:play_group:EasyPeteRef:Unequip:0" }
+# CLAUDE.md gave only NVF_PLAY_TEST_SCRIPT for this run and the bear trap's (no NVF_PLAY_TEST_SCRIPT_MENUS):
+# with the plant run's 1 s the add-on packs' message boxes still queue at 15 s and eat the trap's button.
+env = { NVF_PLAY_TEST_SCRIPT = "11:play_group:GoodspringsSettler01Ref:Equip:1,11.2:play_group:GoodspringsSettler01Ref:Aim:0,12:play_group:0x0010706E:Aim:1,16:play_group:0x0010706E:Idle:1,17:play_group:GoodspringsSettler01Ref:SpecialIdle:1,18:play_group:EasyPeteRef:Unequip:0" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 24
 expect = [
@@ -886,7 +890,7 @@ name = "bear-trap"
 source = "CLAUDE.md: after changes to groups' sound keys (activators.md §6–§8): the bear trap"
 areas = ["actor-groups", "object-anims"]
 paths = ["engine/nvforever/src/object_anims.rs", "engine/nvforever/src/actor_groups.rs", "engine/nvf-assets/src/material_anim.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "11:var:0x0002012B:trapbearskillreq01:0,15:activate:0x00165495,15.1:button:1" }
+env = { NVF_PLAY_TEST_SCRIPT = "11:var:0x0002012B:trapbearskillreq01:0,15:activate:0x00165495,15.1:button:1" }
 args = ["--play", "--pos=-68124,-17000,9100", "--hour", "12", "--no-voice"]
 run_seconds = 20
 expect = [
@@ -909,7 +913,9 @@ expect = [
   "CheyenneREF listens to SunnyRef",
   { re = 'speech look: line [0-9A-F]+ over: SunnyRef has .* (?P<n>[+-]\d+)° off its front', range = [-5, 5], all = true, label = "each line over: SunnyRef has … off its front within a few degrees of 0" },
   { re = 'speech look summary: 3 lines' },
-  { re = 'listens to', count = 2, label = "no listens line for the last one (two lines with a listener)" },
+  # Line 1 is said to Cheyenne (she listens), line 2 to the player, line 3 to Cheyenne
+  # with the flag that keeps listeners still: one "listens" line in all.
+  { re = 'listens to', count = 1, label = "no listens line for the last one (one listens line in all)" },
 ]
 manual = "add --no-npc-packages to see 'the body turns' by speech_look.rs itself"
 

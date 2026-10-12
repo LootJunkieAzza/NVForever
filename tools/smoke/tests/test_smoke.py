@@ -353,6 +353,24 @@ class LockTests(unittest.TestCase):
             self.assertTrue(theirs.is_dir())
 
 
+    def test_old_mkdir_lock_without_a_game_is_reported_not_removed(self):
+        with tempfile.TemporaryDirectory() as d:
+            lock = Path(d) / "run.lock"
+            lock.mkdir()
+            said = []
+            locks = Locks([lock], poll=0.01, wait_max=0.05, say=said.append, stale_after=0.0, running=lambda: False)
+            with self.assertRaises(TimeoutError):
+                locks.acquire()
+            self.assertTrue(lock.is_dir())
+            self.assertEqual(sum("ABANDONED" in x for x in said), 1)  # once, not every poll
+            said.clear()
+            busy = Locks([lock], poll=0.01, wait_max=0.05, say=said.append, stale_after=0.0, running=lambda: True)
+            with self.assertRaises(TimeoutError):
+                busy.acquire()
+            self.assertFalse(any("ABANDONED" in x for x in said))  # a game runs: just waiting
+            self.assertTrue(any("mkdir lock, made at" in x for x in said))
+
+
 class CheckCommandTests(unittest.TestCase):
     def test_check_rejudges_saved_logs(self):
         with tempfile.TemporaryDirectory() as d:

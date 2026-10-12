@@ -215,23 +215,31 @@ def cmd_run(a, suite: Suite, say) -> int:
 
 
 def cmd_check(a, suite: Suite, say) -> int:
+    """Judge saved logs again: each scenario's own log or its shared launch's, the newer."""
     chosen, _ = selection(a, suite, say)
     env = Env(a.repo, out_dir(a), None, None, None, say)
     verdicts: list[Verdict] = []
-    for x in plan(suite, chosen, a.no_merge):
-        log = env.out / f"{x.name}.log"
-        if not log.exists():
-            for s in x.scenarios:
-                v = Verdict(s.name, "SKIP", reason=f"no log {log.name}")
-                verdicts.append(v)
-                report(v, x, None, log, say)
+    for s in chosen:
+        names = [s.name] + ([s.launch] if s.launch else [])
+        logs = [env.out / f"{n}.log" for n in names if (env.out / f"{n}.log").exists()]
+        x = Launch(s.name, s.kind, [s])
+        if not logs:
+            v = Verdict(s.name, "SKIP", reason=f"no log {s.name}.log")
+            verdicts.append(v)
+            report(v, x, None, env.out, say)
             continue
+        log = max(logs, key=lambda p: p.stat().st_mtime)
+        x.name = log.stem
+        x.scenarios = [s, s] if log.stem != s.name else [s]  # marks a shared log in the report
         meta = {}
         try:
-            meta = json.loads((env.out / f"{x.name}.exit").read_text())
+            meta = json.loads((env.out / f"{log.stem}.exit").read_text())
         except (OSError, ValueError):
             pass
-        judge_launch(x, env, meta.get("exit", 0), meta.get("error", ""), meta.get("seconds"), a, say, verdicts)
+        lines = read_lines(log)
+        v = judge(s, lines, meta.get("exit", 0), meta.get("error", ""))
+        verdicts.append(v)
+        report(v, x, meta.get("seconds"), log, say, getattr(a, "context", 3))
     return finish(verdicts, env, None, True, say)
 
 
