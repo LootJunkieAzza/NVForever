@@ -380,6 +380,11 @@ struct Args {
     /// --pos and --heading are ignored.
     #[arg(long, requires = "play")]
     new_game: bool,
+    /// With --play: close message boxes that ask nothing (an OK button only, such as the
+    /// add-on packs' start-up boxes) as soon as a script shows them; boxes with a choice
+    /// stay open. For testing; the box's text is still logged.
+    #[arg(long, requires = "play")]
+    no_messages: bool,
     /// With --play: do not play dialogue voice (lines still last as long as their sound;
     /// the log still names each file).
     #[arg(long)]
@@ -820,6 +825,9 @@ fn main() -> AppExit {
     }
     if args.new_game {
         app.insert_resource(nvf_play::script::NewGame);
+    }
+    if args.no_messages {
+        app.insert_resource(nvf_play::script::NoMessages);
     }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
     app.insert_resource(nvf_play::sfx::SfxSettings { play: !args.no_sound, ..Default::default() });
