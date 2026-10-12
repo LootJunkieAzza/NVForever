@@ -225,7 +225,7 @@ fn sync_volumes(
         let posed = posed.by_ref.get(&id).filter(|p| !p.segments.is_empty());
         // In the player's way where its body is now, unless the character controller
         // walks it (its block is where its character is, `crate::player`).
-        if !dead && id != FormId::PLAYER_REF.0 && !phys.npcs.contains_key(&id) {
+        if !dead && id != FormId::PLAYER_REF.0 && !phys.npcs.contains_key(&id) && !blocks.in_nobodys_way.contains(&id) {
             let block = blocking::block_for(id, lo, hi, posed.and_then(|p| blocking::torso(&p.segments)));
             // One that stands where it may be pushed is where its owner has it, with
             // the pushes still to come.
@@ -237,7 +237,7 @@ fn sync_volumes(
                 let size = (0..3).map(|k| hi[k] - lo[k]).fold(0.0f32, f32::max);
                 let caps = part_capsules(&p.segments, size);
                 if phys.world.actor_part_count(id) != caps.len() {
-                    debug!("actor {id:08X}: {} part capsules (size {size:.0}): {caps:?}", caps.len());
+                    debug!("actor {id:08X}: {} part capsules (size {size:.0}, bounds {lo:?}..{hi:?}): {caps:?}", caps.len());
                 }
                 phys.world.set_actor_parts(id, v, &caps);
             }

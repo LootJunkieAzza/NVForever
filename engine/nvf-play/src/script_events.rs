@@ -546,6 +546,9 @@ pub enum ScriptAid {
     /// `play_group:<reference>:<group>[:<flag>]`: a script calls `ref.PlayGroup group
     /// flag` (the group by name, as source spells it, or by code; flag 0 when left out).
     PlayGroup(String, String, i32),
+    /// `play_idle:<reference>:<idle>`: the actor is asked to play an IDLE (by Editor ID or
+    /// FormID) as a script's `PlayIdle` asks it.
+    PlayIdle(String, String),
 }
 
 /// When a test-aid step runs: `at` seconds after the start, or, with `after`, `at`
@@ -600,6 +603,7 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 ["say_to", sp, t, topic, flag] => ScriptAid::SayTo(sp.to_string(), t.to_string(), topic.to_string(), int(flag)? != 0),
                 ["play_group", r, g] => ScriptAid::PlayGroup(r.to_string(), g.to_string(), 0),
                 ["play_group", r, g, flag] => ScriptAid::PlayGroup(r.to_string(), g.to_string(), int(flag)?),
+                ["play_idle", r, i] => ScriptAid::PlayIdle(r.to_string(), i.to_string()),
                 // The owner's name may hold a colon too (`var:scripted:<SCPT>:<variable>:<value>`).
                 ["var", of @ .., var, value] if !of.is_empty() => {
                     ScriptAid::Var(of.join(":"), var.to_string(), value.parse().map_err(|_| format!("{rest:?}: bad value {value:?}"))?)
@@ -942,6 +946,7 @@ mod tests {
         assert!(parse_aids("3:var:bRunTimer:1").is_err());
         assert!(parse_aids("3:stage:VCG01").is_err());
         assert_eq!(parse_aids("2:message:VMS18VancesGunMessage").unwrap()[0].aid, ScriptAid::Message("VMS18VancesGunMessage".into()));
+        assert_eq!(parse_aids("12:play_idle:0x00104C6D:NPCSmokingIdle").unwrap()[0].aid, ScriptAid::PlayIdle("0x00104C6D".into(), "NPCSmokingIdle".into()));
         assert_eq!(parse_aids("3:menu:1074").unwrap()[0].aid, ScriptAid::Menu(1074));
         assert!(parse_aids("3:jump").is_err());
         assert!(parse_aids("x:start:VCG00").is_err());

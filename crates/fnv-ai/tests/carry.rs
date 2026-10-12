@@ -704,8 +704,13 @@ fn an_idle_marker_turns_the_actor_its_way() {
         let a = &s.ai.agents[&FormId(R_SB_OBJECTS)];
         if a.activity == Activity::There && matches!(a.sandbox.as_ref().map(|x| x.doing), Some(Doing::AtIdleMarker(_))) {
             assert!(dist(a.walker.feet, [10500.0, 10250.0, 0.0]) < 40.0, "{:?}", a.walker.feet);
-            assert!((a.walker.heading - 1.25).abs() < 1e-4, "heading {}", a.walker.heading);
             assert_eq!(a.using, None);
+            // It turns to the marker's heading on the spot (not at once), within the
+            // time a half turn takes at the standing rate.
+            assert!(a.face_to == Some(1.25) || (a.walker.heading - 1.25).abs() < 1e-4, "{:?} {}", a.face_to, a.walker.heading);
+            s.run(2.0);
+            let a = &s.ai.agents[&FormId(R_SB_OBJECTS)];
+            assert!((a.walker.heading - 1.25).abs() < 1e-4 && a.face_to.is_none(), "heading {} {:?}", a.walker.heading, a.face_to);
             at_marker = true;
             break;
         }
@@ -910,4 +915,18 @@ fn an_actor_in_combat_stops_and_faces_its_target() {
     assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Hold { target, .. } if *target == FormId::PLAYER_REF)));
     assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::There);
     assert!(dist(s.feet(R_TRAVEL), at) < 1.0, "it stands");
+}
+
+#[test]
+fn a_rooted_actor_stays_where_it_is() {
+    // A creature that cannot walk (a raven) keeps its place, whatever its package says.
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let start = s.feet(R_TRAVEL);
+    s.ai.root(&s.game, FormId(R_TRAVEL));
+    s.run(30.0);
+    assert_eq!(s.feet(R_TRAVEL), start);
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::None);
+    assert!(s.events(R_TRAVEL).is_empty(), "{:?}", s.events(R_TRAVEL));
+    assert!(!s.ai.stands(&s.game, FormId(R_TRAVEL)));
 }
