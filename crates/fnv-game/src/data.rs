@@ -406,6 +406,8 @@ pub struct ActorDef {
     pub assistance: Option<i64>,
     /// ACBS template flag "AI Data": the template supplies the AIDT values.
     pub template_ai: bool,
+    /// ZNAM: the combat style (CSTY) [documented: xEdit NPC_ and CREA ZNAM].
+    pub combat_style: Option<FormId>,
     /// NPC_ ACBS "Auto-calc stats".
     pub autocalc: bool,
     /// ACBS level, or the player-level multiplier ×1000 with "PC Level Mult", and the
@@ -559,6 +561,8 @@ pub struct GameData {
     /// the textures folder [documented: GECK wiki, MenuIcon; corner-messages.md §3].
     pub menu_icons: HashMap<FormId, String>,
     pub actors: HashMap<FormId, ActorDef>,
+    /// Combat styles (CSTY), the values the combat AI uses ([`CombatStyleDef`]).
+    pub combat_styles: HashMap<FormId, CombatStyleDef>,
     /// Leveled actor lists (LVLN, LVLC): what a placed leveled actor or a `TPLT` naming a
     /// list stands for ([`GameData::template_source`]).
     pub leveled_actors: HashMap<FormId, LeveledActorDef>,
@@ -716,6 +720,36 @@ fn flag_bits(flags: Option<&Json>) -> u32 {
     flags.and_then(|f| f.get("value")).and_then(Json::as_u64).unwrap_or(0) as u32
 }
 
+/// A combat style (CSTY) [documented: layout xEdit wbDefinitionsFNV.pas CSTY, schema
+/// `ai.json`; meanings GECK wiki Combat Style, owner export]: the values the combat AI
+/// uses (docs/design/combat-ai.md §10.4). Percentages as the record has them (0–100).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CombatStyleDef {
+    /// Melee decision: base chances to block and to attack; bonuses to the attack chance
+    /// when the actor fights hand to hand.
+    pub block_chance: f32,
+    pub attack_chance: f32,
+    pub hand_to_hand_bonus: f32,
+    pub power_attack_chance: f32,
+    /// Melee decision: how long an actor that neither attacks nor blocks holds, seconds.
+    pub hold_timer: (f32, f32),
+    /// Advanced: the attack skill modifier (`base + mult × skill / 100`) and the attack
+    /// chance's multipliers under attack and not.
+    pub attack_skill_mod: (f32, f32),
+    pub attack_under_attack_mult: f32,
+    pub attack_not_under_attack_mult: f32,
+    /// Simple: what the actor may fight with: 0 None, 1 Melee Only, 2 Ranged Only.
+    pub weapon_restrictions: u32,
+    /// Simple: multipliers of the weapon's min and max range in range calculations.
+    pub range_mult: (f32, f32),
+    /// Simple: multipliers of the weapon's semi-automatic firing delays.
+    pub semi_auto_delay_mult: (f32, f32),
+    pub max_targeting_fov: f32,
+    pub combat_radius: f32,
+    /// Flag "Flee Based on Personal Survival".
+    pub flee_personal_survival: bool,
+}
+
 /// Everything read from one winning record.
 #[derive(Default)]
 struct Read {
@@ -730,6 +764,7 @@ struct Read {
     form_list: Option<Vec<FormId>>,
     menu_icon: Option<String>,
     actor: Option<ActorDef>,
+    combat_style: Option<CombatStyleDef>,
     leveled_actor: Option<LeveledActorDef>,
     package: Option<PackageDef>,
     reputation: Option<f32>,
@@ -795,6 +830,7 @@ impl GameData {
             form_lists: HashMap::new(),
             menu_icons: HashMap::new(),
             actors: HashMap::new(),
+            combat_styles: HashMap::new(),
             leveled_actors: HashMap::new(),
             form_script: HashMap::new(),
             edids: HashMap::new(),
@@ -924,6 +960,9 @@ impl GameData {
             }
             if let Some(a) = r.actor {
                 d.actors.insert(id, a);
+            }
+            if let Some(c) = r.combat_style {
+                d.combat_styles.insert(id, c);
             }
             if let Some(l) = r.leveled_actor {
                 d.leveled_actors.insert(id, l);
@@ -1238,6 +1277,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"IDLE"
             | b"PERK"
             | b"AVIF"
+            | b"CSTY"
     ) || subs.iter().any(|s| &s.sig == b"DEST");
     if &sig == b"FURN" {
         let flags = subs.iter().find(|s| &s.sig == b"MNAM").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(u32::from_le_bytes);
@@ -1606,6 +1646,31 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             }
             out.terminal = Some(t);
         }
+        b"CSTY" => {
+            let get = |sig: &[u8; 4]| decoded.iter().find(|(s, _)| *s == sig).and_then(|(_, v)| v.as_ref());
+            let (std, adv, simple) = (get(b"CSTD"), get(b"CSAD"), get(b"CSSD"));
+            let n = |v: Option<&Json>, k: &str, d: f32| v.and_then(|v| v.get(k)).and_then(Json::as_f64).map_or(d, |x| x as f32);
+            out.combat_style = Some(CombatStyleDef {
+                block_chance: n(std, "block_chance", 0.0),
+                attack_chance: n(std, "attack_chance", 100.0),
+                hand_to_hand_bonus: n(std, "hand_to_hand_bonus_to_attack", 0.0),
+                power_attack_chance: n(std, "power_attack_chance", 0.0),
+                hold_timer: (n(std, "hold_timer_min", 0.0), n(std, "hold_timer_max", 0.0)),
+                attack_skill_mod: (n(adv, "attack_skill_modifier_base", 0.0), n(adv, "attack_skill_modifier_mult", 0.0)),
+                attack_under_attack_mult: n(adv, "attack_while_under_attack_mult", 1.0),
+                attack_not_under_attack_mult: n(adv, "attack_not_under_attack_mult", 1.0),
+                weapon_restrictions: match simple.and_then(|v| v.get("weapon_restrictions")) {
+                    Some(Json::String(s)) => ["None", "Melee Only", "Ranged Only"].iter().position(|x| x == s).unwrap_or(0) as u32,
+                    Some(v) => v.as_u64().unwrap_or(0) as u32,
+                    None => 0,
+                },
+                range_mult: (n(simple, "ranged_weapon_range_mult_min", 1.0), n(simple, "ranged_weapon_range_mult_max", 1.0)),
+                semi_auto_delay_mult: (n(simple, "semi_auto_firing_delay_mult_min", 1.0), n(simple, "semi_auto_firing_delay_mult_max", 1.0)),
+                max_targeting_fov: n(simple, "max_targeting_fov", 0.0),
+                combat_radius: n(simple, "combat_radius", 0.0),
+                flee_personal_survival: has_flag(std.and_then(|v| v.get("flags")), "Flee Based on Personal Survival"),
+            });
+        }
         b"MICN" => {
             out.menu_icon = decoded.iter().find(|(s, _)| *s == b"ICON").and_then(|(_, v)| v.as_ref()?.as_str().map(str::to_string));
         }
@@ -1625,6 +1690,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"VTCK" => a.voice = fid(v),
                     b"PKID" => a.packages.extend(fid(v)),
                     b"TPLT" => a.template = fid(v),
+                    b"ZNAM" => a.combat_style = fid(v).filter(|f| f.0 != 0),
                     b"RNAM" if &sig == b"NPC_" => a.race = fid(v),
                     b"RNAM" if &sig == b"CREA" => a.attack_reach = v.as_ref().and_then(Json::as_u64).map(|n| n.min(255) as u8),
                     b"CNAM" if &sig == b"NPC_" => a.class = fid(v),
