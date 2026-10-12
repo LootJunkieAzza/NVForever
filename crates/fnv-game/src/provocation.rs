@@ -42,8 +42,8 @@
 //!   lets them fight each other].
 //!
 //! A grudge ends when its holder goes back to Normal, on StopCombat, and on an accepted
-//! yield. Hits by actors other than the player start no grudge (NPC-against-NPC fights
-//! are a later workstream; assistance covers allies of a victim).
+//! yield. Hits by actors other than the player go to `Game::attacked_by_actor`
+//! (`crate::combat_group`, NPC against NPC).
 
 use crate::awareness::{Cause, State};
 use crate::detection::Band;
@@ -248,7 +248,11 @@ impl Game<'_> {
             return false;
         }
         self.provocations.attacked.insert(actor);
-        if by != FormId::PLAYER_REF || self.provocations.holds(actor, by) || self.would_attack(actor, by) {
+        // Hits by other actors: `crate::combat_group` (NPC against NPC).
+        if by != FormId::PLAYER_REF {
+            return self.attacked_by_actor(actor, by);
+        }
+        if self.provocations.holds(actor, by) || self.would_attack(actor, by) {
             return false;
         }
         let s = self.provocation_settings();

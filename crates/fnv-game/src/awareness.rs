@@ -435,6 +435,8 @@ pub struct Awarenesses {
     /// (actor, target) pairs StartCombat made hostile whatever the records say, until
     /// StopCombat.
     pub forced: std::collections::BTreeSet<(FormId, FormId)>,
+    /// Combat groups' state: strengths, posts, flights, searches (`crate::combat_group`).
+    pub tactics: crate::combat_group::Tactics,
     rng: u64,
 }
 
@@ -617,6 +619,7 @@ impl Game<'_> {
             if !self.present(id) || self.is_dead(id) || self.extra.get(&id).is_some_and(|e| e.dead) {
                 self.awareness.actors.remove(&id);
                 self.provocations.calm(id);
+                self.awareness.tactics.calm(id);
                 continue;
             }
             // Targets and alarm owners that died or went are forgotten.
@@ -642,6 +645,7 @@ impl Game<'_> {
                 // Back in Normal: the fights it took up because it was hit are over.
                 if c.to == State::Normal {
                     self.provocations.calm(id);
+                    self.awareness.tactics.calm(id);
                 }
                 self.awareness.changes.push(c);
                 if let Some(topic) = c.from.topic_to(c.to) {
@@ -734,6 +738,7 @@ impl Game<'_> {
     pub fn stop_combat(&mut self, actor: FormId) {
         self.awareness.forced.retain(|(a, _)| *a != actor);
         self.provocations.calm(actor);
+        self.awareness.tactics.calm(actor);
         if let Some(a) = self.awareness.actors.remove(&actor) {
             if a.state != State::Normal {
                 self.awareness.changes.push(Change { actor, from: a.state, to: State::Normal, time: self.time, about: None, cause: None, at: None, value: None });

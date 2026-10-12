@@ -384,3 +384,76 @@ fn an_ally_that_sees_a_fight_helps() {
     assert_eq!(g.call_allies(), 0);
     assert!(!g.would_attack(helper, FormId(SPAWN_HIGH_REF)));
 }
+
+#[test]
+fn an_actor_hit_by_another_fights_it_but_not_an_ally() {
+    // NPC against NPC (combat-ai.md §12.4): the leader (Raiders) is neutral to the helper
+    // (Rats); hit by it, it holds a grudge and fights it. The helper's own ally (Own, a
+    // rat too) lets the stray hit pass.
+    let f = fixture();
+    let mut g = game(&f);
+    let (leader, own, helper) = (FormId(LEADER_REF), FormId(OWN_REF), FormId(HELPER_REF));
+    assert!(!g.would_attack(leader, helper));
+    assert!(g.attacked_by(leader, helper));
+    assert!(g.would_attack(leader, helper));
+    assert!(!g.attacked_by(own, helper));
+    assert!(!g.would_attack(own, helper));
+    let notes = g.provocations.take_notes();
+    assert!(notes.iter().any(|n| matches!(n, Note::Assaulted { actor, by, .. } if *actor == leader && *by == helper)));
+    assert!(notes.iter().any(|n| matches!(n, Note::Ignored { why: "a stray hit by an ally or friend", .. })));
+    // Both fighting someone else (the player): a stray hit is ignored.
+    let f2 = fixture();
+    let mut g2 = game(&f2);
+    fighting(&mut g2, LEADER_REF, PLAYER);
+    fighting(&mut g2, HELPER_REF, PLAYER);
+    assert!(!g2.attacked_by(leader, helper));
+}
+
+#[test]
+fn an_actor_that_starts_fighting_alarms_its_allies_near_it() {
+    // Alarms (combat-ai.md §12.3): Own starts fighting the player; the helper, its ally
+    // that Helps Allies, 1,000 units off, is alarmed (Cause::Ally) and takes up the fight;
+    // a second rat 3,000 units off is beyond ALARM_RADIUS.
+    use fnv_game::awareness::Change;
+    use fnv_game::combat_group::{GroupNote, ALARM_RADIUS};
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, far, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId(SPAWN_HIGH_REF), FormId::PLAYER_REF);
+    assert!(g.attacked_by(own, player));
+    fighting(&mut g, OWN_REF, PLAYER);
+    let now = g.time;
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(player), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> =
+        [(own, [0.0, 0.0, 0.0]), (helper, [1000.0, 0.0, 0.0]), (far, [ALARM_RADIUS + 1000.0, 0.0, 0.0]), (player, [500.0, 0.0, 0.0])].into_iter().collect();
+    assert_eq!(g.raise_alarms(&near), 1);
+    assert!(g.awareness.get(helper).is_some_and(|a| a.alarms.iter().any(|x| x.owner == player && x.cause == Cause::Ally)));
+    assert!(g.would_attack(helper, player));
+    assert!(g.awareness.get(far).is_none());
+    assert!(g.awareness.tactics.take_notes().iter().any(|n| matches!(n, GroupNote::Alarm { receiver, combat: true, .. } if *receiver == helper)));
+    // The helper's own change (cause Ally) is not passed on again.
+    g.awareness.changes.clear();
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(helper), State::Alert);
+    assert_eq!(g.raise_alarms(&near), 0);
+}
+
+#[test]
+fn a_search_party_shares_the_search_and_gives_up_after_its_searches() {
+    // Combat Search (combat-ai.md §12.5): Own and the helper search for the player
+    // together; each has its place in the party; after its complete searches
+    // (iCombatTargetLostRemoveSearchCount, 1 without the game setting) it drops the alarm.
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId::PLAYER_REF);
+    let t = Timers::default();
+    for a in [own, helper] {
+        let x = g.awareness.actors.entry(a).or_default();
+        x.alarm(player, [0.0; 3], -5.0, Cause::Event(fnv_game::awareness::EventType::Bullet), 0.0, &t);
+        x.state = State::Alert;
+    }
+    assert_eq!(g.search_party(own, player), (0, 2));
+    assert_eq!(g.search_party(helper, player), (1, 2));
+    assert!(g.searched_once(own, player));
+    assert!(g.awareness.get(own).is_some_and(|a| a.alarms.is_empty()));
+    assert_eq!(g.search_party(helper, player), (0, 1));
+}

@@ -31,6 +31,7 @@ pub mod anims;
 pub mod awareness;
 pub mod chargen;
 pub mod combat;
+pub mod combat_group;
 pub mod combat_style;
 pub mod cond;
 pub mod data;
