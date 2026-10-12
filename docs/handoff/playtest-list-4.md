@@ -26,6 +26,7 @@ coordinator machines below. The previous lists are all merged (`playtest-2026-10
 | L2 | `claude/falling-loading` | 8 falling at too shallow a drop on a steep road (`runningdownhill`); 9 loading screen removed before the world is drawn; 10 ground fading in and the player dropping after leaving the gas station (`Worldloading`); 2–3 Victor's and Sunny's walk/run stopping and starting (the owner thinks it may be linked to 8) |
 | L3 | `claude/smoke-grass-fx` | 16 smoke effects not animated and far too visible (`campfiresmokenotanimated`); 17 stray pixels in some grass (`grasspixels`) |
 | L4 | `claude/creature-data` | 20 names from template data (`actornameshowingasID`: "VSpawnTier2GeckoMed" shown, "Gecko" wanted; check every template-inherited field); 18 non-hostile geckos attacking at close range (`nonhostilegeckos`); 19 no "E) Talk" on creatures or hostiles, name only; 14 Goodsprings bighorners joining the fight though cowardly and unaggressive |
+| L5 | `claude/fp-shadow-flicker` | 5 again: L1 (#254) could not reproduce it. Owner (2026-10-13): first person only, sun shadows on only, all DLC loaded; their run had played a long time (462 cell loads). Look at what casts into the sun shadow map only in first person (first-person body, arms rig, the arms' shade light) |
 
 ## 3. Desktop queue
 
