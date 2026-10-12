@@ -229,7 +229,8 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_SB_NOTHING, "Statue", &[P_SB_NOTHING]),
         npc(N_TO_CHAIR, "ChairUser", &[P_TO_CHAIR]),
         npc(N_SLEEP_C, "Sleeper", &[P_SLEEP_C]),
-        npc(N_STEADY, "Courier", &[P_STEADY]),
+        // ACBS flag "No Low Level Processing" (bit 9).
+        record(b"NPC_", N_STEADY, &[sub(b"EDID", z("Courier")), sub(b"ACBS", [0x200u32.to_le_bytes().to_vec(), vec![0; 20]].concat()), sub(b"PKID", P_STEADY.to_le_bytes().to_vec())]),
         npc(N_DOG, "Dog", &[P_ACCOMPANY]),
     ]
     .concat();
@@ -929,4 +930,101 @@ fn a_rooted_actor_stays_where_it_is() {
     assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::None);
     assert!(s.events(R_TRAVEL).is_empty(), "{:?}", s.events(R_TRAVEL));
     assert!(!s.ai.stands(&s.game, FormId(R_TRAVEL)));
+}
+
+// ---- process levels (fnv_ai::process) -------------------------------------------------
+
+#[test]
+fn an_actor_out_of_the_loaded_area_walks_on_in_coarse_updates() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    let actor = FormId(R_TRAVEL);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert!(s.ai.set_high(&s.game, actor, false));
+    assert!(!s.ai.set_high(&s.game, actor, false), "no change");
+    assert_eq!(s.ai.process_counts(), (0, 1));
+    // It stands between its updates and covers the time owed in one: one move, which
+    // takes it all the way (the walk takes about 8 s, an update owes up to 18).
+    let mut moves = 0;
+    let mut at = s.feet(R_TRAVEL);
+    for _ in 0..(2.0 * (fnv_ai::LOW_PROCESS_SECONDS + 1.0)) as usize {
+        s.run(0.5);
+        if dist(s.feet(R_TRAVEL), at) > 1e-3 {
+            moves += 1;
+            at = s.feet(R_TRAVEL);
+        }
+    }
+    assert_eq!(moves, 1);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
+    assert!(matches!(s.events(R_TRAVEL).last(), Some(AiEvent::Arrived { .. })), "{:?}", s.events(R_TRAVEL));
+    assert_eq!(s.game.world.peek(actor).unwrap().cell, Some(FormId(CELL_B)));
+    assert!(s.ai.process_stats.low_updates >= 1);
+    // Back in the loaded area: every update again.
+    assert!(s.ai.set_high(&s.game, actor, true));
+    assert_eq!(s.ai.process_counts(), (1, 0));
+    assert_eq!((s.ai.process_stats.left, s.ai.process_stats.came_back), (1, 1));
+}
+
+#[test]
+fn an_actor_out_of_the_loaded_area_searches_no_more_and_takes_up_its_package() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_RADIUS]);
+    s.run(30.0);
+    alert(&mut s, R_RADIUS, [150.0, 100.0, 0.0]);
+    s.run(1.0);
+    assert!(s.ai.agents[&FormId(R_RADIUS)].search.is_some());
+    s.ai.set_high(&s.game, FormId(R_RADIUS), false);
+    assert!(s.ai.agents[&FormId(R_RADIUS)].search.is_none());
+    assert_eq!(s.ai.process_stats.dropped, 1);
+    // Its updates keep to its package: no search starts again while it is out.
+    s.run(40.0);
+    let ev = s.events(R_RADIUS);
+    let searches = ev.iter().filter(|e| matches!(e, AiEvent::Search { .. })).count();
+    s.run(40.0);
+    assert_eq!(s.events(R_RADIUS).iter().filter(|e| matches!(e, AiEvent::Search { .. })).count(), searches);
+    assert!(dist(s.feet(R_RADIUS), [350.0, 350.0, 0.0]) <= 150.0);
+}
+
+#[test]
+fn a_random_conversation_ends_when_one_of_the_two_leaves_the_loaded_area() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL, R_RADIUS]);
+    let (a, b) = (FormId(R_TRAVEL), FormId(R_RADIUS));
+    s.ai.agents.get_mut(&a).unwrap().chat = Some(fnv_ai::Chat::Going { partner: b, since: 0.0 });
+    s.ai.agents.get_mut(&b).unwrap().chat = Some(fnv_ai::Chat::Waiting { starter: a });
+    s.ai.set_high(&s.game, a, false);
+    assert_eq!(s.ai.agents[&a].chat, None);
+    assert_eq!(s.ai.agents[&b].chat, None, "the partner stops waiting");
+    // The waiting one leaves instead: the starter finds nobody waiting and gives up.
+    s.ai.set_high(&s.game, a, true);
+    s.ai.agents.get_mut(&a).unwrap().chat = Some(fnv_ai::Chat::Going { partner: b, since: 0.0 });
+    s.ai.agents.get_mut(&b).unwrap().chat = Some(fnv_ai::Chat::Waiting { starter: a });
+    s.ai.set_high(&s.game, b, false);
+    assert_eq!(s.ai.agents[&b].chat, None);
+    assert_eq!(s.ai.process_stats.dropped, 2);
+}
+
+#[test]
+fn an_actor_with_no_low_level_processing_stands_still_out_of_the_loaded_area() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_STEADY]);
+    s.run(1.0);
+    let actor = FormId(R_STEADY);
+    assert!(s.game.no_low_level_processing(actor));
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    s.ai.set_high(&s.game, actor, false);
+    let at = s.feet(R_STEADY);
+    s.run(60.0);
+    assert_eq!(s.feet(R_STEADY), at, "no update out of the loaded area");
+    // Nor in hours passed in the Wait menu.
+    s.game.open_menu(1012);
+    assert_eq!(s.ai.pass_time(&mut s.game, &s.nav, 120.0, 0.5), 0);
+    assert_eq!(s.feet(R_STEADY), at);
+    assert_eq!((s.ai.process_stats.frozen, s.ai.process_stats.low_updates), (1, 0));
+    // Back in the loaded area it walks on.
+    s.game.close_menu();
+    s.ai.set_high(&s.game, actor, true);
+    s.run(30.0);
+    assert!(dist(s.feet(R_STEADY), [5250.0, 5250.0, 50.0]) < 5.0);
 }

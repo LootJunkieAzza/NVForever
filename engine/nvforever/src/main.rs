@@ -16,6 +16,7 @@ mod actors;
 mod attack_anims;
 mod alert;
 mod anim_sounds;
+mod crash;
 mod deaths;
 mod detection;
 mod dialogue_look;
@@ -472,8 +473,11 @@ fn lodgen_job(args: &Args, world: &WorldData, game: &GameData) -> Result<lodgen:
 
 fn main() -> AppExit {
     let args = Args::parse();
+    // The run log and crash reports in NVForever's home (crash.rs).
+    crash::install(&args.data);
     let fail = |e: String| {
         eprintln!("error: {e}");
+        crash::early_exit(&e);
         AppExit::error()
     };
     let game = match GameData::open(&args.data, &args.nif_schema) {
@@ -700,6 +704,8 @@ fn main() -> AppExit {
                     ..ImageSamplerDescriptor::linear()
                 },
             })
+            // The console's lines go to the run log too (crash.rs).
+            .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, ..default() })
             .set(WindowPlugin {
                 // Scale factor 1 so screenshots are exactly --size pixels on any display.
                 primary_window: Some(Window {
@@ -775,7 +781,9 @@ fn main() -> AppExit {
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
-    .add_systems(Update, timelapse.after(sky::update_sky));
+    .add_systems(Update, timelapse.after(sky::update_sky))
+    .add_systems(Startup, crash::report_start)
+    .add_systems(Last, (crash::note_place, crash::report_exit));
     if let Some(radius) = args.actor_turn_test {
         app.insert_resource(locomotion::TurnTest { radius, started: 0, finished: 0, degrees: 0.0 })
             .add_systems(Update, locomotion::turn_test.before(locomotion::turn_to))

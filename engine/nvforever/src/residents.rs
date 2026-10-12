@@ -628,6 +628,36 @@ impl Core {
         }
     }
 
+    /// Who is in the high process: the residents in the loaded area (the cells drawn
+    /// around the camera, or its interior; `fnv_ai::process`). The others get a cheap
+    /// update now and then: no conversations, hellos, searches or sandboxes far away
+    /// (owner's playtest 2026-10-11: Fiends talked near Camp McCarran, heard from
+    /// Crimson Caravan).
+    fn process_levels(&mut self, game: &Game, world: &WorldData, streamer: &Streamer) {
+        for r in self.list.iter().filter(|r| r.joined && !r.failed) {
+            let Some(a) = self.ai.agents.get(&r.actor) else { continue };
+            let (space, feet) = (a.walker.space, a.walker.feet);
+            let high = drawn(world, streamer, space, feet);
+            if self.ai.set_high(game, r.actor, high) {
+                let line = format!(
+                    "ai [{}] {}: {} the loaded area at ({:.0}, {:.0}, {:.0}) in {}",
+                    self.clock_text,
+                    r.label,
+                    if high { "back in" } else { "out of" },
+                    feet[0],
+                    feet[1],
+                    feet[2],
+                    nav::space_name(world, space)
+                );
+                if r.named {
+                    info!("{line}");
+                } else {
+                    debug!("{line}");
+                }
+            }
+        }
+    }
+
     /// One frame of the package choice and the walks in `game`. `own`: the game state is
     /// this module's (it is ticked here).
     #[allow(clippy::too_many_arguments)]
@@ -1024,6 +1054,7 @@ pub fn drive(
             }
             res.core.check_rooted(&world, &models.data);
             res.core.take_moved(game, all, None);
+            res.core.process_levels(game, &world, &streamer);
             res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now, 0);
         }
         (None, Some(mut script), Some(mut sim)) => {
@@ -1041,9 +1072,11 @@ pub fn drive(
             res.core.check_rooted(&world, &models.data);
             let core = &mut res.core;
             let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
+            let (world_ref, streamer_ref) = (&*world, &*streamer);
             nvf_play::script::with_world(rt, &mut sim, |rt| {
                 let mut phys = phys;
                 core.take_moved(&mut rt.game, all, phys.as_deref_mut());
+                core.process_levels(&rt.game, world_ref, streamer_ref);
                 core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now, waited)
             });
         }
@@ -1233,5 +1266,18 @@ pub fn report(
     info!(
         "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up)",
         core.social[0], core.social[1], core.social[2], core.social[3]
+    );
+    let p = &core.ai.process_stats;
+    let (high, low) = core.ai.process_counts();
+    info!(
+        "process summary: {high} residents in the loaded area (high process) and {low} out of it at the end, at most {} and {}; {} left the loaded area, {} came back; {} low-process updates every {:.0} s ({} walking steps); {} conversations or searches ended by leaving",
+        p.most_high,
+        p.most_low,
+        p.left,
+        p.came_back,
+        p.low_updates,
+        fnv_ai::LOW_PROCESS_SECONDS,
+        p.low_steps,
+        p.dropped
     );
 }

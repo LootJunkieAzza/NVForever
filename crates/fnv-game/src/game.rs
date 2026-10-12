@@ -837,8 +837,11 @@ impl<'a> Game<'a> {
 
     /// The new-game state: every quest flagged "Start game enabled" is running, with no
     /// stage set [hypothesis: the flag's documented meaning (xEdit); which quest the
-    /// "New Game" menu starts is a separate input, scripts.md §8].
+    /// "New Game" menu starts is a separate input, scripts.md §8]; the placed actors that
+    /// start as corpses are dead ([`Game::lay_out_corpses`]).
     pub fn new_game(&mut self) {
+        // Placed corpses (Base Health 0) lie dead from the start.
+        self.lay_out_corpses();
         let start: Vec<FormId> = self.data.quests.values().filter(|q| q.start_enabled()).map(|q| q.form).collect();
         for q in start {
             self.start_quest(q);
