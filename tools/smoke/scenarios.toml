@@ -1268,12 +1268,12 @@ forbid = [{ re = 'the player died', label = "the player dies" }]
 [[scenario]]
 name = "karma-fiend"
 source = "owner's playtest list 2 (2026-10-12): killing an evil actor raises karma (docs/spec-notes/crime-karma.md §4, §8)"
-note = "beside Violet's camp (as music-battle); the player shoots the nearest NPC, Violet (180 health), with the 10mm pistol twice a second from 12 s, reloading at 19, 26 and 33 s (a hunting rifle fired too slowly at the run's frame rate)"
+note = "beside Violet's camp (as music-battle); the script test aid kills Violet as the player at 14 s (Game::kill with the player as the killer): shooting her was not repeatable at the run's frame rate (a hunting rifle's shots were dropped, the 10mm pistol does 8 a hit against her DT)"
 areas = ["crime", "karma"]
 paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/combat.rs", "engine/nvf-play/src/crime.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:80", NVF_PLAY_TEST_CONTROL = "8:weapon,12:aimnpc,12.2:fire,12.5:aimnpc,12.7:fire,13:aimnpc,13.2:fire,13.5:aimnpc,13.7:fire,14:aimnpc,14.2:fire,14.5:aimnpc,14.7:fire,15:aimnpc,15.2:fire,15.5:aimnpc,15.7:fire,16:aimnpc,16.2:fire,16.5:aimnpc,16.7:fire,17:aimnpc,17.2:fire,17.5:aimnpc,17.7:fire,18:aimnpc,18.2:fire,18.5:aimnpc,18.7:fire,19:reload,20:aimnpc,20.2:fire,20.5:aimnpc,20.7:fire,21:aimnpc,21.2:fire,21.5:aimnpc,21.7:fire,22:aimnpc,22.2:fire,22.5:aimnpc,22.7:fire,23:aimnpc,23.2:fire,23.5:aimnpc,23.7:fire,24:aimnpc,24.2:fire,24.5:aimnpc,24.7:fire,25:aimnpc,25.2:fire,25.5:aimnpc,25.7:fire,26:reload,27:aimnpc,27.2:fire,27.5:aimnpc,27.7:fire,28:aimnpc,28.2:fire,28.5:aimnpc,28.7:fire,29:aimnpc,29.2:fire,29.5:aimnpc,29.7:fire,30:aimnpc,30.2:fire,30.5:aimnpc,30.7:fire,31:aimnpc,31.2:fire,31.5:aimnpc,31.7:fire,32:aimnpc,32.2:fire,32.5:aimnpc,32.7:fire,33:reload,34:aimnpc,34.2:fire,34.5:aimnpc,34.7:fire,35:aimnpc,35.2:fire,35.5:aimnpc,35.7:fire,36:aimnpc,36.2:fire,36.5:aimnpc,36.7:fire,37:aimnpc,37.2:fire,37.5:aimnpc,37.7:fire" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:kill:FiendVioletRef" }
 args = ["--cell", "Goodsprings", "--pos=-46800,65000,4600", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
-run_seconds = 42
+run_seconds = 24
 expect = [
   { re = 'crime: karma \+100 for killing .*\(Evil\), now 100', label = "karma +100 for killing Violet" },
   { re = 'crime summary: .* 0 murders', label = "no murder" },
