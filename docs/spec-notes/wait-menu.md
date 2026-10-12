@@ -256,7 +256,8 @@ What the sources say the original has beyond the wording:
 - **Hardcore mode** has a sleep need [observed: FalloutNV.esm]: the setting
   `fHCSleepDeprivationRate` (50.0), five "Sleep Deprivation" spells with rising
   penalties, and messages for its level changing. How sleeping lowers it is not in the
-  sources read.
+  sources read; NVForever's guess (100 a slept hour) and the needs over waited hours are
+  in aid-items.md §6 and §11.
 - A statistic "Times Slept" [documented: GECK wiki GetPCMiscStat].
 - Healing per hour of plain sleep, the rule for beds someone owns (only the name of a
   refusal text, §9), and being woken by an attack: not found in any source read.
@@ -388,10 +389,11 @@ is), the cells' own flag.
   effects that restore and damage it, and three messages for it rising, falling and
   ending. The need builds up "as game time passes" [documented: GECK wiki
   ToggleHardcoreTracking]. Not in any source read: the unit of the rate, what the
-  stage numbers are compared with, and how much an hour of sleep takes off. NVForever
-  builds no hardcore need at all yet, so there is nothing for sleep to lower. Proposal
-  (docs/owner-review.md): build the three needs together, from captures of the actor
-  value over waited and slept hours.
+  stage numbers are compared with, and how much an hour of sleep takes off. Built since
+  (2026-10-12, aid-items.md §11) on stated guesses: each hour waited or slept passes for
+  the effects' timers and the needs, a slept hour takes 100 off sleep deprivation; the
+  captures of the actor values over waited and slept hours (aid-items.md §9 item 7)
+  would settle them.
 - The "Times Slept" statistic: the catalogue of statistic codes has no code for it.
 - Being woken (by an attack, by a script other than through `WakeUpPC`).
 - `GetPCSleepHours` as a script function (no opcode known, §5).

@@ -230,6 +230,10 @@ pub struct World<'a> {
     detached_cells: BTreeMap<FormId, f32>,
     /// Quest-item flags set at run time (`set_quest_object`); they replace the record's.
     quest_objects: BTreeMap<FormId, bool>,
+    /// What the game layer adds to an actor's carry capacity beyond the formula on its
+    /// permanent Strength: temporary Strength (Buffout) and Carry Weight modifiers
+    /// ([`World::set_carry_bonus`]).
+    carry_bonus: BTreeMap<FormId, f64>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -244,6 +248,7 @@ impl<'a> World<'a> {
             globals: BTreeMap::new(),
             detached_cells: BTreeMap::new(),
             quest_objects: BTreeMap::new(),
+            carry_bonus: BTreeMap::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -664,9 +669,10 @@ impl<'a> World<'a> {
     /// `cl_b_encumbrance_speed`, `cl_b2_encumbrance_speed`, docs/spec-notes/simulation.md
     /// §3. Whole part vs. weight ≥ capacity + 1 differ only for fractional capacities:
     /// hypothesis]
+    ///
+    /// The capacity also holds the game layer's bonus ([`World::set_carry_bonus`]).
     pub fn encumbrance(&mut self, actor: FormId) -> Result<Encumbrance, SimError> {
-        let strength = self.actor_value(actor, "strength")?;
-        let capacity = self.setting("fAVDCarryWeightsBase")? + self.setting("fAVDCarryWeightMult")? * strength;
+        let capacity = self.formula_capacity(actor)? + self.carry_bonus.get(&actor).copied().unwrap_or(0.0) as f32;
         let (forms, hardcore) = (self.forms, self.cfg.hardcore);
         let t = self.inventory(actor)?.totals(forms, hardcore);
         Ok(Encumbrance {
@@ -675,6 +681,23 @@ impl<'a> World<'a> {
             over: t.weight.floor() > capacity as f64,
             unknown_weight: t.unknown_weight,
         })
+    }
+
+    /// The carry capacity from the permanent Strength alone: fAVDCarryWeightsBase +
+    /// fAVDCarryWeightMult × Strength.
+    pub fn formula_capacity(&mut self, actor: FormId) -> Result<f32, SimError> {
+        let strength = self.actor_value(actor, "strength")?;
+        Ok(self.setting("fAVDCarryWeightsBase")? + self.setting("fAVDCarryWeightMult")? * strength)
+    }
+
+    /// What the game layer adds to the capacity of [`World::formula_capacity`] (the
+    /// current Carry Weight with temporary modifiers less that formula); 0 removes it.
+    pub fn set_carry_bonus(&mut self, actor: FormId, bonus: f64) {
+        if bonus.abs() < 1e-6 {
+            self.carry_bonus.remove(&actor);
+        } else {
+            self.carry_bonus.insert(actor, bonus);
+        }
     }
 
     /// The weight a reference carries, as [`World::encumbrance`] counts it.
@@ -777,6 +800,11 @@ impl<'a> World<'a> {
         Ok(c)
     }
 
+    /// The TimeScale global (game seconds per real second), if the plugins define it.
+    pub fn time_scale(&self) -> Option<f64> {
+        self.time_global(clock::TIME_SCALE).ok().map(|(_, v)| v as f64)
+    }
+
     /// Advance game time by `seconds` of real time at the current TimeScale.
     pub fn advance_real_seconds(&mut self, seconds: f64) -> Result<Calendar, SimError> {
         let scale = self.time_global(clock::TIME_SCALE)?.1 as f64;
@@ -797,6 +825,12 @@ impl<'a> World<'a> {
         let now = self.calendar()?.days_passed;
         self.detached_cells.insert(cell, now);
         Ok(())
+    }
+
+    /// GameDaysPassed when `cell` was last unloaded ([`World::detach_cell`]), while it
+    /// is still unloaded.
+    pub fn detached_since(&self, cell: FormId) -> Option<f32> {
+        self.detached_cells.get(&cell).copied()
     }
 
     /// The engine loads `cell` again. If it stayed unloaded for at least

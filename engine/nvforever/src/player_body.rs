@@ -578,6 +578,12 @@ impl PlayerBody {
         self.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true))
     }
 
+    /// The root entities of the rigs built (the body's, then the arms rig's).
+    pub fn roots(&self) -> Vec<Entity> {
+        let Some(b) = self.body.as_ref() else { return Vec::new() };
+        std::iter::once(b.third.root).chain(b.first.as_ref().map(|f| f.root)).collect()
+    }
+
     /// Whether the body drawn is a woman's; `None` without a body.
     pub fn female(&self) -> Option<bool> {
         self.body.as_ref().map(|b| b.female)

@@ -3641,6 +3641,285 @@ is still the default of every test run, smoke scenario and lab frame.
 7. *Seen in passing (not this workstream):* at Camp Golf (`--pos=29500,62000,3400 --heading 0
    --pitch -10 --hour 12`, free camera) an NCR trooper stands in the air above his shadow;
    possibly your floating-troopers item 24.
+
+## Aid leftovers: waiting, Hardcore needs, Stealth Boy, perks, carry weight (2026-10-12, session "aid-2")
+
+The five leftovers of the aid items (§4 item 6 of the handoff). Spec note
+`docs/spec-notes/aid-items.md` §2, §6, §10–§12; code `crates/fnv-game/src/needs.rs`,
+`crates/fnv-game/src/perks.rs`, `crates/fnv-game/src/aid.rs`, `engine/nvf-play/src/aid.rs`,
+`engine/nvf-play/src/wait.rs`, `engine/nvforever/src/stealth_field.rs`; tool `fnvtool actor
+aid --perks --perk P --set AV:v --wait H [--sleep]`; smoke scenarios `aid-perks-needs-survey`,
+`aid-wait-perks`, `aid-hardcore`, `aid-stealth-boy`.
+
+1. **Effect timers during wait and sleep.** *Decision/Guess:* each hour waited or slept
+   counts as the seconds of play in which an hour passes at the TimeScale: 3600 / 30 =
+   120 s. Buffout (240 s) therefore wears off in the second hour waited, Chemist's 480 s
+   in the fourth; a usage monitor (108,000 s = 900 waited hours) practically never. The
+   other reading would be 3,600 s an hour (every chem gone after one hour, the usage
+   monitor after 30). *Check:* Buffout, then wait 1 hour and 2 hours: is Strength back?
+2. **Hardcore needs rising.** The masters have `fHCStarvationRate` 25 and
+   `fHCSleepDeprivationRate` 50 and no dehydration rate; the game's help message says
+   dehydration rises fastest, starvation slower, sleep deprivation slowest.
+   *Decision/Guess:* the setting is the seconds of play per point (larger = slower):
+   Hunger 4.8 an hour (Minor Starvation after about 42 hours), Sleep Deprivation 2.4 an
+   hour (Minor after about 83 hours). *Guess:* dehydration 12.5 s a point (9.6 an hour,
+   Minor after about 21 hours). *Guess:* an hour slept takes 100 off sleep deprivation;
+   hunger and thirst rise while sleeping as while waiting. *Check:* GetAV Dehydration,
+   Hunger, SleepDeprivation after 1, 6 and 24 hours waited and after 8 hours slept (spec
+   §9 item 7). These guesses decide how hard Hardcore feels; please say if they feel
+   wrong in play.
+3. **Need stages.** The RADS/DEHY/HUNG/SLPD records give each stage's threshold (200 …
+   1000) and its spell. *Decision:* the player has the spell of the highest stage reached
+   and loses it when the value drops below (so water at Minor Dehydration takes the
+   penalty away at once); rads' stages hold in every mode, the needs' only in Hardcore
+   (they go when Hardcore is turned off). *Not done:* the HUD's H2O/FOD/SLP codes, the
+   "Your dehydration level has increased" messages (the log says the stage), refusing a
+   wait or sleep that would kill (the help message says the original refuses it).
+4. **DamageActorValue / RestoreActorValue on rads and needs** now move them the way the
+   aid effects do (Damage raises, Restore lowers, never below 0): the Cannibal perk's
+   script restores Hunger 50 with the health it gives. Before, a Restore on Hunger did
+   nothing and a Damage on Rads lowered them. *Check:* RadAway-like scripts and eating
+   a corpse with Cannibal in Hardcore.
+5. **Stealth Boy.** Its "Stealth Field" (archetype Chameleon) now puts Chameleon 75 (and
+   Sneak +100) in the temporary pool for 120 s; detection already read Chameleon: in the
+   Goodsprings check the settler went from detected to hidden at 1,671 units in sight,
+   visual term 0. *Decision (look):* no refraction shader exists, so the player's body
+   and first-person arms are drawn see-through: blended at 30 % opacity, tinted blue
+   (`stealth_field.rs`; the shot shows a faint ghost). *Check:* whether you want the
+   original's shimmer instead (a shader of its own).
+6. **Perk entry points.** Read from the PERK records (109 perks of FalloutNV.esm have
+   entry point effects). The codes were identified by the only perks that use them: 23
+   Modify Addiction Chance (Chem Resistant × 0.5), 25 Modify Positive Chem Duration
+   (Chemist × 2, the chem challenge perk × 1.33), 44 Modify Radiation Consumed (Lead Belly
+   × 0.5); functions 1/2/3 read as Set/Add/Multiply. *Decisions:* only the player's
+   perks; a ranked perk applies its highest owned rank's entries only; entries in
+   ascending priority; entries with conditions on a tab other than the perk owner's are
+   skipped (none of the aid ones has any). *Decision:* Chemist lengthens beneficial
+   effects of items whose equip type is Chems, not the usage monitor; the Stealth Boy is
+   a Chems item, so Chemist doubles it too. *Check:* Stealth Boy duration with Chemist;
+   Buffout with Chemist lasts 8 minutes. *Not done:* the other entry points (combat's
+   still go through `PerkHooks` defaults), perks' ability effects (type 1, e.g. Life
+   Giver), "Modify Addiction Duration" (no master perk uses it).
+7. **Buffout and carry weight.** *Decision:* the capacity uses the current Strength
+   (temporary modifiers included, within 1–10) plus Carry Weight's own modifiers; the
+   menus' Wg line follows it (Buffout at Strength 5: 200 → 220, back to 200 when it
+   ends). *Check:* the Wg line in the Pip-Boy after Buffout.
+8. **Test aids added:** `NVF_PLAY_TEST_SCRIPT=<t>:hardcore:<0|1>`, `<t>:perk:<PERK>`,
+   `<t>:set_av:<ref>:<actor value>:<value>`. The wait now logs `wait: hour <n> passed for
+   the player (120 s of effects): …` each hour, and `needs: <value> <level>: <stage>` on
+   each stage change.
+9. **A lock mishap (process, not code):** during a picture run a shell line of mine
+   removed the two game locks (`run.lock`, `smoke.lock`) that another session held, for
+   a moment, after my own `mkdir` had failed; both existed again when checked right after
+   (taken again by their owner). If another session's run of 2026-10-12 about 18:03
+   overlapped a launch, that may be why. Later runs used a wrapper that only removes
+   locks it made.
+
+## Lockpicking leftovers (2026-10-12, session "lockpick-2")
+
+Item 4 of the handoff list (leftovers of #232). Your ten screenshots in
+`C:\fnv-private\references\Lockpicking` were on this machine and were compared with ours
+(docs/spec-notes/lockpicking.md §1, §2, §2.0, §2.1, §7.1).
+
+1. **Help message the first time.** *Decision:* the game's own message `HelpLockpicking`
+   (FalloutNV.esm 0x0000017C, title "Lockpicking", its text unchanged) comes up over the
+   menu the first time it opens, in the tutorial box laid out by `tutorial_menu.xml`
+   (VDSG symbol, "VDSG MANUAL", "Close E)"); E (also Enter, Esc, Tab) or a click on Close
+   shuts it; nothing is picked while it is up; the lock behind is drawn at about half
+   brightness. The key names in its text are the keys bound now ("WSAD", "F").
+   *Guess:* once per game (kept in the game state, see 5); the Next/Previous column width
+   (120) and VDSG symbol width (128) fitted so the text wraps and the words sit as on your
+   screenshot; Close's brightness. *Check:* that the game shows it only once, and whether
+   Esc/Enter should close it.
+2. **Debug meter.** *Decision:* behind the off-by-default debug switch
+   `NVF_PLAY_DEBUG_LOCKPICK=1` only: the menu file's meter bar with the sweet spot (bright)
+   and the ring around it (dim), the arrow over the pin's angle, "Pin health …% Lock …° of
+   90°", and the Sweet Spot / Concentric values (shown, not adjustable). *Guess:* the
+   colours and words (the file leaves them to the code).
+3. **Pointer over the lock.** *Decision:* hidden inside the menu file's detect area
+   (taken literally: from 60 units in to the right edge, from the top down to two thirds
+   of the screen), shown elsewhere and over the help box, as on your screenshot (pointer
+   at the left edge). *Check:* that the pointer never shows over the lock and comes back
+   at the left edge and over the buttons.
+4. **Exit animations.** *Decision:* the model files' sequences are now used:
+   - a broken pin plays the pin's `Backward` (it twists) then `Left` (the long piece flies
+     off); the short piece stays in the keyhole until the next pin, as on your screenshot
+     after a break; the next pin now comes 1.45 s after a break (was 1 s) so the break
+     plays out;
+   - once the lock is in, it is posed by the lock model's `Backward` sequence at the time
+     its turn has reached: the cylinder turns and the screwdriver follows with a twist of
+     the wrist. This matches your 40° and fully-turned screenshots (screwdriver nearly
+     level at 40°, pointing down when open), where turning everything rigidly did not;
+   - the pin no longer turns with the lock (your screenshots: it stays where you put it);
+   - leaving (E) pulls the pin out (its `Forward` backwards, 0.5 s) while the menu fades;
+     after opening, breaking or running out of pins the menu holds 1.5 s, then fades out in
+     0.5 s over the world (your screenshot of an opened lock shows the HUD coming back over
+     the lock still drawn).
+   *Guess:* the 0.5 s fade and pull-out. *Check:* the break and the leaving in game.
+5. **Broken locks saved.** *Decision:* broken locks (and whether the help was shown) are
+   part of the game state's snapshot (`GameSnapshot.locks`, written only when not empty).
+   NVForever has no save files yet, so today a broken lock stays broken for the session
+   and in any snapshot; it will be saved when saving is built.
+6. **Ringo's floor safe.** *Finding:* not a collision fault: the safe's collision is
+   whole and the crosshair finds it (standing on it 123 units straight down, or from the
+   mattress's edge looking 65° down at 145). The safe lies half under the edge of the
+   floor mattress, and the floor beside it is narrower than the player, so the player
+   stands on the mattress or on the safe; from the mattress the safe's door is 131 below
+   the eye and only a narrow cone is within the 150 reach. The test aid
+   `NVF_PLAY_TEST_NEAR` had chosen a spot 147.7 away assuming a 112-unit eye, while the
+   first-person body puts the eye at about 121, so the view ray needed 154 and missed.
+   *Fix:* the aid now chooses with the body's eye and 5 units to spare, and tries closer
+   spots aimed at points of the target; the new smoke scenario `lockpick-floor-safe` uses
+   the safe. *Check (in game):* can you target this safe from the mattress? If the
+   original lets the crosshair pass the mattress or reaches further downwards, tell us
+   which (physics.md §6 has the pick-sphere question).
+7. **Compared with your screenshots and changed:** "Lockpick Skill" (was "Lockpick");
+   the lock's size and place (camera 70 units away with a 17° view, the cylinder about
+   0.72 of the screen's height, a little above the middle; was 45 units / 55°, the lock
+   less than half that size); the pin not turning with the lock; the screwdriver's
+   motion (4); the help box (1). *Left as it is:* the room dim behind the lock on your
+   screenshots: our lock stays on black, because a see-through shade let quest and
+   corner messages show through the menu; the pin's and screwdriver's colours (ours
+   coppery and red, yours brass and brown: lighting). *Check:* the look against your
+   screenshots.
+8. *Smoke:* `lockpick` now closes the help and checks the help line and the leaving lines;
+   new `lockpick-floor-safe` (help once, leaving with the pin pulled out, a failed Force
+   Lock breaking the safe, the next activation refused).
+
+## Karma and crime (workstream J, branch claude/karma-crime, 2026-10-12)
+
+Your list 2 items "FACTION KARMA" and "CRIME". Facts and tags:
+docs/spec-notes/crime-karma.md. The game's own help messages (`HelpCrime`, `HelpKarma` in
+FalloutNV.esm) gave the crime rules: minor crimes (theft; opening an owned lock, which the
+help calls trespass) turn only the victim who sees it; major crimes (assault, murder) the
+victim and its friends.
+
+1. **Karma for kills.** Killing an Evil or Very Evil NPC gives +100
+   (`fKarmaModKillingEvilActor`, the only kill setting in FalloutNV.esm); a Good or Very
+   Good NPC costs 100; murdering a Neutral NPC costs 25. *Decision/Guess:* the setting is
+   the amount (it is not documented how it is used); the good-side and neutral amounts
+   are mine (no setting for them is in the plugins, the executable is encrypted);
+   creatures give no karma (a dead radroach is "Evil" in the data); alignment by the
+   globals KarmaVeryEvil −750, KarmaEvil −250, KarmaGood 250, KarmaVeryGood 750.
+   *Check:* kill a Fiend (Violet is −500, Evil): "You've gained Karma!" with the good
+   icon; kill Sunny (900, Very Good): "You've lost Karma!" with the evil icon.
+2. **Karma for stealing and breaking in.** Each owned item or stack taken, and each
+   owned lock picked or forced, costs 5 (`fKarmaModStealing`), seen or not; nothing when
+   the owner is an Evil faction, a faction that does not track crime, or an Evil NPC.
+   *Decision:* per take, not per item value; the lock cost is mine (you asked for
+   breaking in to cost karma). *Check:* take Chet's cigarettes: −5 and the corner message.
+3. **Ownership.** A reference's own owner (XOWN, with the faction rank XRNK), else its
+   cell's (the CELL's XOWN/XRNK, or SetCellOwnership). You own what your base or a faction
+   you have the rank in owns. *Decision:* items' own owners inside containers (COED) are
+   not read: a container's items are the container's owner's; a corpse's inventory is
+   nobody's; items you dropped are yours.
+4. **Theft.** The owner (or a member of the owning crime-tracking faction) who has you
+   *detected* when you take something turns on you and says its Steal line; others who
+   see it do nothing. *Decision:* the game's owner first tries to take the item back;
+   that is not built, the owner fights straight away. A crime enemy attacks whatever its
+   aggression, and a crime is not yieldable (holstering does not end it); StopCombat
+   from a script does. *Check:* in Chet's store, take something behind the counter
+   while he looks: he says his Steal line and fights; take something while he looks
+   away: only the karma.
+5. **Picked locks** of owned doors and containers: the owner who sees it attacks at once
+   (the help's rule). Hacking an owned terminal is the same crime in the help: not
+   hooked yet.
+6. **Trespassing.** In an owned cell without the Public place flag that you do not own
+   (23 interiors in FalloutNV.esm: Primm's and North Vegas's houses, Novac's motel rooms;
+   all of Goodsprings' interiors are public), the owner who sees you warns you
+   (GuardTrespass) every 5 s, twice (`iGuardWarnings` 2), then attacks. *Guess:* the Guard
+   package's warning rule applies to owned cells too; the Off Limits flag (one cell) and
+   the doors' No Alarm flag are not used. *Check:* walk into a Primm house with its
+   owner in.
+7. **Murder.** Killing a non-Evil NPC that did not attack you of its own accord. Every
+   witness who cares about the victim (its ally or friend, same faction or same base)
+   turns on you and says its Murder line, and when such a witness saw it, you become an
+   enemy of the victim's crime-tracking factions (all members attack on sight until a
+   script clears it). IsPCAMurderer becomes 1. *Decision:* only seen murders set the
+   faction flag. *Check:* kill Easy Pete in front of another settler: Goodsprings turns.
+8. **Assault** (already on main as provocation) now also counts as a major crime
+   (GetMajorCrimeCount). *Decision:* an assault does **not** make you an enemy of the
+   victim's whole faction (the wiki's enemy flag is for any major crime): one punch would
+   turn every NCR trooper in the Mojave. Allies who see it still help (assistance).
+   Please decide.
+9. **The prompt.** Over an owned item, container or lock the crosshair and its prompt are
+   drawn in the crime colour, and an item reads "E) Steal". *Guess:* the colour is the
+   HUD's "alt" colour from Fallout_default.ini (255, 67, 42); the word "Steal".
+   *Check:* in Chet's store the shelves' items should be red.
+10. **No bounties.** New Vegas has none (the wiki: crime gold is unused in Fallout);
+    reputation (REPU) is changed by scripts only, crimes do not change it here.
+11. **Script functions** built: RewardKarma (with the corner message), GetIsAlignment,
+    IsPCAMurderer, Get Minor/Major CrimeCount, GetActorCrimePlayerEnemy, GetAlarmed,
+    IsActorAVictim, IsCellOwner, IsInMyOwnedCell, IsTrespassing, GetTrespassWarningLevel,
+    SendTrespassAlarm, SendAssaultAlarm (93 calls in the scripts; it now really turns the
+    victim on you). SetPCEnemyOfFaction now has an effect: that faction's members attack
+    you on sight. *Check:* quests that call SendAssaultAlarm or SetPCEnemyOfFaction.
+
+Shared files touched (the combat AI agent works nearby): `fnv-game` `combat.rs` (one call
+in `kill`), `awareness.rs` (crime enemies in `would_attack`, forgiving in `stop_combat`),
+`provocation.rs` (one call when an assault grudge starts), `functions/mod.rs` (the crime
+entries only), `game.rs` (state fields), `data.rs` (cells, faction flags, ranks); engine
+`activate.rs`, `reticle.rs`, `menu.rs`, `menu/model.rs`, `lockpick.rs` (log text).
+
+Tests: fnv-game unit and synthetic-plugin tests (`tests/crime.rs`, 7), root and engine
+clippy; smoke: `karma-survey`, `crime-steal`, `karma-fiend` (new; the fiend is killed by
+a new `kill:<actor>` script test aid, shooting her was not repeatable under load) and the
+changed-file set pass (alert-fiend, provoked-yield, barter, container-e-key, speech-look,
+lockpick, cook-cook-camp, dead-on-spawn), except `house-items` and `ui-sounds`: in each run
+their container or inventory step fell while an add-on's start-up message box was open
+("menu request ignored: a menu is already open"), a different step each run; not caused by
+these changes (they only add a message after a container command).
+
+## Far-world leftovers: corpses respawning, their stored poses, the Low process level (2026-10-12, session "far-world-2")
+
+Handoff item 5 (docs/handoff/playtest-2026-10-12.md §4), the leftovers of PR #233.
+
+1. **Corpses' Respawn flag.** Built as a cell reset (`fnv_game::respawn`,
+   docs/spec-notes/dead-on-spawn.md §4): when a cell comes back into the loaded cells
+   after `iHoursToRespawnCell` (72 h) away, its dead actors whose base has Respawn are
+   recreated alive at their authored place. The village's seven Fiends and the burned
+   bodies around it have the flag and come back. Scenario `corpse-respawn`.
+   *Decision:* "recreated" read as starting again as authored: actor values, damage,
+   killer, script-set factions and packages dropped; inventory rolled again.
+   *Decision:* the wiki says such a corpse "will respawn alive after 3 days with 0 HP";
+   they come back with full health (alive at 0 health means nothing here).
+   *Decision:* the visit is the game's loaded cells (the player's cell and the 5 × 5 around
+   it); the clock starts when a cell leaves them. *Decision:* respawning containers in a
+   reset cell refill too (the `fnv_sim` code for it existed and was never called).
+   *Guess:* killed leveled-spawn creatures with the flag come back too (cazadors at the
+   village did in the test run). *Not done:* encounter zones' "Never Resets", removing the
+   bodies of killed non-respawning actors at a reset, ResetInterior.
+   *Check:* kill the village Fiends' neighbours or leave the corpses, go far away (more
+   than two cells), wait or sleep three days, come back: the Fiends stand again; a corpse
+   without the flag (e.g. `DeadGhoul2`) stays dead.
+
+2. **The poses the designers left the bodies in.** Found: placed corpses carry `XRGD`
+   "Ragdoll Bones", the pose the GECK's Havok Sim left (dead-on-spawn.md §5 says how each
+   entry maps to a bone and which rotation convention fits, all observed on the 278 human
+   corpses of FalloutNV.esm). A corpse laid out by a new game is now put in that pose at
+   rest instead of falling from its death pose; in the village 16 bodies lay in their
+   stored pose, flat on the ground next to their blood decals. *Guess:* the root entry's
+   rotation is relative to the reference's (the reading under which most bodies fell
+   backwards; the alternatives put heads every way or all to one side). *Not checked:* no
+   capture of the original's bodies was taken (the owner is away); creature corpses use
+   the same rule untested beyond the entry count; clutter skeletons' `XRGD` (REFR) are not
+   posed. *Check:* the tribal village and other placed corpses (Forlorn Hope's dead
+   troopers, the dead brahmin): do they lie as in the original?
+
+3. **The 120 s Low process level.** The AI now has three levels (`fnv_ai::process`,
+   actor-behaviour.md §5.9): the loaded area (every frame), the **cell buffer** (every
+   18 s) and beyond it (every 120 s). *Guess:* the buffer is the 36 exterior cells drawn
+   most recently (the 25 drawn now among them) and the 3 interiors visited last, from your
+   Fallout_default.ini (`uExterior Cell Buffer=36`, `uInterior Cell Buffer=3`); how the
+   original fills and empties it is not documented. *Decision:* the original's Mid-Low
+   (interiors behind the doors of the drawn exterior cells: Chet's store, the saloon seen
+   from Goodsprings) has an "unknown" rate; here they get the Mid-High 18 s.
+   *Decision:* an actor walking out of the loaded area (or on into another cell) takes
+   that cell into the buffer, and a follower is kept at Mid-High while its leader is at
+   Mid-High or above: without this Sunny, running to the wells through cells never drawn,
+   fell to 120 s updates at once and Cheyenne was left 1,066 units behind (`sunny-wells`). Scenarios `far-actors` (now flying at 400 units/s: at 1500 the cells leave
+   the buffer within seconds) and `far-actors-low`. *Check:* nothing visible should change;
+   after a long trip, residents of far places are where their packages would have them.
 ## Combat AI: fleeing, cover, groups and searching (2026-10-12, session "e2")
 
 List 2's combat item ("fight, flee, take cover, assist allies … fights between NPCs at

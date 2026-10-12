@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses) |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -80,6 +80,18 @@ The test aid `NVF_PLAY_TEST_SCRIPT` gained `call:<reference or ->:<function>[:<a
 which calls any function by name as a script would; the `script-stubs-play` scenario uses
 it for Look, StopLook, SetWeather and ReleaseWeatherOverride.
 
+### 3.1 Implemented by karma and crime (workstream J, claude/karma-crime)
+
+Taken off the assigned list (docs/spec-notes/crime-karma.md §7): SendAssaultAlarm (0x105F,
+93 calls; it was assigned to E2, the assault rules are provocation's and the alarm is a
+crime), SendTrespassAlarm (0x115C, 6), GetTrespassWarningLevel (0x1090, 29 condition
+uses), IsTrespassing (0x1091, 1), GetAlarmed (0x103D, 1 call), GetMajorCrimeCount
+(0x1075, 2); and GetIsAlignment (0x11DA, 3 condition uses), no longer unregistered.
+GetOwnerLastTarget (0x124E) stays assigned to J: it is the weapon owner's combat target,
+not built. Also registered there: GetMinorCrimeCount, GetActorCrimePlayerEnemy,
+IsActorAVictim, IsPCAMurderer, IsCellOwner, IsInMyOwnedCell, and RewardKarma with its
+corner message.
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is
@@ -94,7 +106,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetVATSValue | 0x1198 | 0 | 250 | needs a system not built yet | combat (VATS) |
 | PlayMagicShaderVisuals | 0x1123 | 205 | 0 | needs a system not built yet | rendering (effect shaders) |
 | SetActorAlpha | 0x1129 | 127 | 0 | needs a system not built yet | rendering |
-| SendAssaultAlarm | 0x105F | 93 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
 | SetCombatStyle | 0x10B1 | 92 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
 | IsActorTalkingThroughActivator | 0x11AE | 0 | 92 | needs a system not built yet | dialogue (talking activators) |
 | StopMagicShaderVisuals | 0x1125 | 79 | 0 | needs a system not built yet | rendering (effect shaders) |
@@ -107,7 +118,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | SetSecuritronExpression | 0x1248 | 37 | 0 | needs a system not built yet | rendering |
 | PushActorAway | 0x118A | 35 | 0 | implementable, left for later | the engine has ragdolls; a scripted push is missing |
 | PurgeCellBuffers | 0x1189 | 32 | 0 | deliberately no-op | memory: the original's cell buffers; cells here load and unload by distance |
-| GetTrespassWarningLevel | 0x1090 | 0 | 29 | assigned to workstream | assigned to workstream J karma and crime |
 | ShowCaravanMenu | 0x125A | 29 | 0 | needs a system not built yet | menus (Caravan) |
 | OpenTeammateContainer | 0x11C8 | 26 | 0 | assigned to workstream | assigned to workstream H followers |
 | FireWeapon | 0x11E2 | 24 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
@@ -133,7 +143,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetRadiationLevel | 0x11F7 | 0 | 7 | needs a system not built yet | radiation (environment) |
 | IsCombatTarget | 0x1203 | 6 | 1 | assigned to workstream | assigned to workstream E2 combat AI |
 | GetIsUsedItemType | 0x10F7 | 0 | 6 | needs a system not built yet | AI (used items) |
-| SendTrespassAlarm | 0x115C | 6 | 0 | assigned to workstream | assigned to workstream J karma and crime |
 | ShowBlackJackMenuParams | 0x1254 | 6 | 0 | needs a system not built yet | menus (casino) |
 | ShowRouletteMenuParams | 0x1256 | 6 | 0 | needs a system not built yet | menus (casino) |
 | SetAllVisible | 0x115A | 5 | 0 | needs a system not built yet | detection |
@@ -158,7 +167,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | PlaceAtReticle | 0x1263 | 3 | 0 | needs a system not built yet | HUD (reticle) |
 | GetArmorRating | 0x1051 | 1 | 1 | assigned to workstream | assigned to workstream E2 combat AI |
 | PickIdle | 0x1064 | 2 | 0 | needs a system not built yet | animation |
-| GetMajorCrimeCount | 0x1075 | 0 | 2 | assigned to workstream | assigned to workstream J karma and crime |
 | GetSandman | 0x10E2 | 0 | 2 | needs a system not built yet | AI (Mister Sandman perk) |
 | setAllReachable | 0x1159 | 2 | 0 | needs a system not built yet | navigation |
 | SetSceneIsComplex | 0x115D | 2 | 0 | deliberately no-op | performance switch of the original's AI |
@@ -177,9 +185,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetForceHitReaction | 0x1259 | 0 | 2 | assigned to workstream | assigned to workstream E2 combat AI |
 | EnableLoadingMenu | 0x1270 | 2 | 0 | needs a system not built yet | menus (loading) |
 | IsTurning | 0x101A | 0 | 1 | implementable, left for later | the engine knows the turn rate; it does not tell the game yet |
-| GetAlarmed | 0x103D | 1 | 0 | assigned to workstream | assigned to workstream J karma and crime |
 | StartMisterSandman | 0x107C | 1 | 0 | needs a system not built yet | AI (Mister Sandman perk) |
-| IsTrespassing | 0x1091 | 0 | 1 | assigned to workstream | assigned to workstream J karma and crime |
 | GetCannibal | 0x10E3 | 0 | 1 | needs a system not built yet | AI (Cannibal perk) |
 | trapUpdate | 0x110C | 1 | 0 | needs a system not built yet | physics (traps) |
 | IsWaterObject | 0x1130 | 0 | 1 | needs a system not built yet | AI (drinking) |
@@ -223,7 +229,6 @@ Notes on the most used:
 |---|---|---|---|---|
 | AddItemToLeveledList | 0x1236 | 20 | 0 | run-time changes to leveled lists; `crate::templates` reads the lists, there is no change store yet |
 | IsDLCInstalled | 0x126F | 8 | 0 | no catalogue page or summary: left unregistered rather than guessed |
-| GetIsAlignment | 0x11DA | 0 | 3 | the alignment (karma) of actors: workstream J |
 | GetXPForNextLevel | 0x1215 | 3 | 0 | levelling is not built |
 | GetIsObjectType | 0x11B1 | 0 | 1 | a form type by name; one condition |
 

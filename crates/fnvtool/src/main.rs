@@ -13,6 +13,7 @@ mod actor_locomotion;
 mod actor_tri;
 mod actor_detect;
 mod actor_factions;
+mod actor_karma;
 mod actor_values;
 mod actor_aid;
 mod actor_chargen;
@@ -163,6 +164,21 @@ pub enum ActorCmd {
         /// Hardcore mode on.
         #[arg(long)]
         hardcore: bool,
+        /// Perks the player has before the uses (Editor ID or FormID; repeatable).
+        #[arg(long)]
+        perk: Vec<String>,
+        /// Hours waited after the seconds of play (effects and needs, aid-items.md §6, §11).
+        #[arg(long, default_value_t = 0.0)]
+        wait: f64,
+        /// Sleep those hours instead of waiting them.
+        #[arg(long)]
+        sleep: bool,
+        /// Set actor values before the uses, `<actor value>:<value>` (repeatable).
+        #[arg(long)]
+        set: Vec<String>,
+        /// Also list the perks with entry point effects and the stages of rads and needs.
+        #[arg(long)]
+        perks: bool,
     },
     /// Character creation (docs/spec-notes/chargen.md §6): the name offered, the
     /// S.P.E.C.I.A.L. sheet, the tag-skill list with values and the traits with their
@@ -196,6 +212,27 @@ pub enum ActorCmd {
         /// Editor ID or load-order FormID (repeatable).
         #[arg(long)]
         actor: Vec<String>,
+        #[arg(long)]
+        survey: bool,
+    },
+    /// Karma and crime (docs/spec-notes/crime-karma.md): the settings and globals the
+    /// rules read; for each named actor its karma, alignment and what killing it does to
+    /// the player's karma; for each named cell its owner and what is owned in it; with
+    /// --survey, alignments of records and placed actors, faction flags (Evil, Track
+    /// Crime), owned and public cells and owned references (fnv.actor.karma/1).
+    Karma {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Script function catalogue (default: `script/functions.json` next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// `player`, a placed actor, or an actor base (its first placed reference), by
+        /// Editor ID or load-order FormID (repeatable).
+        #[arg(long)]
+        actor: Vec<String>,
+        /// A cell by Editor ID (repeatable).
+        #[arg(long)]
+        cell: Vec<String>,
         #[arg(long)]
         survey: bool,
     },

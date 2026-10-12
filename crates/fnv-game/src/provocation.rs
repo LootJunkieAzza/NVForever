@@ -291,6 +291,7 @@ impl Game<'_> {
         };
         self.provocations.grudges.insert((actor, by), Grudge { why: Why::Assault, since: now });
         self.provocations.notes.push(Note::Assaulted { actor, by, relation, hits });
+        self.player_assaulted(actor);
         self.detection_bark(actor, Some(by), "Assault");
         true
     }
