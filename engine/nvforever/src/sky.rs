@@ -107,8 +107,16 @@ const WEATHER_FADE_HOURS: f32 = 0.5;
 /// otherwise be painted over. Within the sky, lower biases are drawn first.
 const SKY_SORT_BIAS: f32 = -1.0e6;
 /// How far the sun's shadows reach when they are switched on in a run started without
-/// them (game units): the default of `--shadow-distance`.
-pub const DEFAULT_SHADOW_DISTANCE: f32 = 16_000.0;
+/// them (game units): the default of `--shadow-distance`. With [`DEFAULT_SHADOW_CASCADES`]
+/// [engineering choice, 2026-10-12, owner's playtest "shadow rendering seriously affects
+/// performance"]: every cascade is a pass over its casters, and at Goodsprings by day the
+/// earlier 16,000 in 4 cascades took the frame from about 7.6 ms without sun shadows to
+/// 19.7 ms; 8,000 in 3 takes it to about 14.4 ms (docs/design/graphics-enhanced.md §2).
+/// The original casts no sun shadows from the world, so shadows ending nearer are no
+/// further from its look.
+pub const DEFAULT_SHADOW_DISTANCE: f32 = 8_000.0;
+/// The sun's shadow cascades by default (see [`DEFAULT_SHADOW_DISTANCE`]).
+pub const DEFAULT_SHADOW_CASCADES: usize = 3;
 
 /// Light level that makes a colour of 1.0 light a white surface to 1.0 on screen: the
 /// inverse of the camera's exposure (Bevy's default, EV100 9.7). The game's lighting is
@@ -210,6 +218,8 @@ pub struct SkyState {
     /// The cascades reach this many times `shadow_distance` (1; more with the finer
     /// shadows of `graphics.rs`), the first cascade as near as without.
     pub shadow_reach: f32,
+    /// Number of the sun's shadow cascades.
+    pub shadow_cascades: usize,
     /// The picture is graded by the image space (`--no-grade` and the settings page turn
     /// it off).
     pub grade: bool,
@@ -310,6 +320,7 @@ impl SkyState {
             shadows: false,
             shadow_distance: DEFAULT_SHADOW_DISTANCE,
             shadow_reach: 1.0,
+            shadow_cascades: DEFAULT_SHADOW_CASCADES,
             grade: true,
             time_scale: 0.0,
             clock_running: false,
@@ -550,6 +561,12 @@ impl SkyState {
     /// Direction towards the sun, in Bevy's axes (also below the horizon).
     pub fn sun_dir(&self) -> Vec3 {
         game_to_bevy().rotation * Vec3::from_array(sun_direction(&self.climate, self.hour, SUN_SOUTH))
+    }
+
+    /// Compass heading of the sun in degrees (0 north, 90 east).
+    pub fn sun_heading(&self) -> f32 {
+        let d = sun_direction(&self.climate, self.hour, SUN_SOUTH);
+        d[0].atan2(d[1]).to_degrees().rem_euclid(360.0)
     }
 
     /// Sun elevation above the horizon in degrees.
@@ -899,15 +916,15 @@ pub fn setup_sky(
         RenderLayers::from_layers(&[0, SHADOW_LAYER]),
     ));
     if sky.shadows {
-        sun.insert(shadow_cascades(sky.shadow_distance, sky.shadow_reach));
+        sun.insert(shadow_cascades(sky.shadow_distance, sky.shadow_reach, sky.shadow_cascades));
     }
 }
 
 /// The sun's shadow cascades, in game units: the first covers the area right around the
 /// camera (a twelfth of `distance`), the last ends at `distance` × `reach`.
-pub(crate) fn shadow_cascades(distance: f32, reach: f32) -> CascadeShadowConfig {
+pub(crate) fn shadow_cascades(distance: f32, reach: f32, count: usize) -> CascadeShadowConfig {
     CascadeShadowConfigBuilder {
-        num_cascades: 4,
+        num_cascades: count.max(1),
         minimum_distance: 5.0,
         first_cascade_far_bound: (distance / 12.0).max(200.0),
         maximum_distance: distance * reach.max(1.0),
@@ -922,7 +939,7 @@ pub fn set_shadows(world: &mut World, on: bool) {
     let distance = {
         let mut sky = world.resource_mut::<SkyState>();
         sky.shadows = on;
-        (sky.shadow_distance, sky.shadow_reach)
+        (sky.shadow_distance, sky.shadow_reach, sky.shadow_cascades)
     };
     let mut suns = world.query_filtered::<(Entity, &mut DirectionalLight), With<Sun>>();
     let lit: Vec<Entity> = suns
@@ -934,7 +951,7 @@ pub fn set_shadows(world: &mut World, on: bool) {
         .collect();
     if on {
         for e in lit {
-            world.entity_mut(e).insert(shadow_cascades(distance.0, distance.1));
+            world.entity_mut(e).insert(shadow_cascades(distance.0, distance.1, distance.2));
         }
     }
 }
@@ -1143,9 +1160,16 @@ pub fn update_sky(
     let sun_dir_game = Vec3::from_array(sun_direction(c, h, SUN_SOUTH));
     let sun_dir = to_bevy.rotation * sun_dir_game;
 
-    // Follow the camera every frame; clouds drift with their ONAM speeds.
+    // Follow the camera every frame; clouds drift with their ONAM speeds. The dome is
+    // shrunk to nothing in interiors: give it its size back (the sun disc and glare are
+    // drawn on it, so after the first interior, e.g. a new game's Doc Mitchell's house,
+    // neither showed again).
     if let Ok((_, _, mut t)) = dome.single_mut() {
         t.translation = cam_pos;
+        if t.scale == Vec3::ZERO {
+            info!("sky: outdoors again, the sky dome (with the sun disc and glare) shown");
+        }
+        t.scale = sky_transform(cam_pos).scale;
     }
     if !changed {
         return;

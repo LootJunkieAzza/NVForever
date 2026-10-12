@@ -65,7 +65,7 @@ use crate::idles::{IdleSlot, PlayerIdles};
 use crate::sky::{Sun, ARMS_LAYER, SHADOW_LAYER};
 use crate::world::WorldRoot;
 use bevy::camera::visibility::RenderLayers;
-use bevy::light::CascadeShadowConfig;
+use bevy::light::CascadeShadowConfigBuilder;
 use bevy::math::Affine3A;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
@@ -184,12 +184,18 @@ const LOOP_HOLD: f32 = 0.25;
 /// an 8-bit picture at full brightness].
 const ARMS_SHADE_SHARE: f32 = 1.0 / 1024.0;
 
+/// How far from the camera the [`ArmsShade`] light's cascade reaches (game units): the
+/// arms rig and its weapon lie within about 100 units of the eye [engineering choice].
+const ARMS_SHADE_REACH: f32 = 256.0;
+
 /// The light the arms rig's sun shadows are read from (module docs, "The shadow"): a
 /// child of the sun, so it points the same way, with the sun's colour and
 /// [`ARMS_SHADE_SHARE`] of its strength. It casts from the world's layer and the arms',
-/// and not from the sun's shadow-only layer. Its one shadow cascade is the sun's first
-/// (the arms are well inside it), so the arms' shadows are drawn as finely as the sun's
-/// own would be.
+/// and not from the sun's shadow-only layer. Its one shadow cascade reaches only
+/// [`ARMS_SHADE_REACH`] from the camera, around the arms: a cascade takes every caster
+/// between it and the sun, so what shades the arms still does, while the pass draws only
+/// those (before 2026-10-12 it was the sun's first cascade, about 190 casters at
+/// Goodsprings against about 30 now; the arms' shadows are finer for it).
 #[derive(Component)]
 struct ArmsShade;
 
@@ -207,11 +213,11 @@ fn arms_material(materials: &mut Assets<NifMaterial>, m: &Handle<NifMaterial>) -
 fn shade_light(
     mut commands: Commands,
     state: Res<PlayerBody>,
-    sun: Query<(Entity, &DirectionalLight, &CascadeShadowConfig), (With<Sun>, Without<ArmsShade>)>,
+    sun: Query<(Entity, &DirectionalLight), (With<Sun>, Without<ArmsShade>)>,
     mut shade: Query<(&mut DirectionalLight, &mut Visibility), With<ArmsShade>>,
 ) {
-    // A sun that has cast no shadows yet has no cascades, and no shade light either.
-    let Ok((sun, sun_light, sun_cascades)) = sun.single() else { return };
+    // A sun casting no shadows has no shade light either.
+    let Ok((sun, sun_light)) = sun.single() else { return };
     let arms_drawn = state.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true));
     let on = arms_drawn && sun_light.shadow_maps_enabled;
     let illuminance = sun_light.illuminance * ARMS_SHADE_SHARE;
@@ -224,7 +230,14 @@ fn shade_light(
             light.illuminance = illuminance;
         }
     } else if on {
-        let cascades = CascadeShadowConfig { bounds: sun_cascades.bounds.iter().take(1).copied().collect(), ..sun_cascades.clone() };
+        let cascades = CascadeShadowConfigBuilder {
+            num_cascades: 1,
+            minimum_distance: 5.0,
+            first_cascade_far_bound: ARMS_SHADE_REACH,
+            maximum_distance: ARMS_SHADE_REACH,
+            overlap_proportion: 0.0,
+        }
+        .build();
         commands.spawn((
             Name::new("Arms shade light"),
             ArmsShade,

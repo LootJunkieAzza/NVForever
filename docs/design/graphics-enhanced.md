@@ -280,6 +280,50 @@ second, so:
   enhanced` on such a run asks for the enhanced look explicitly (the smoke scenario
   `graphics-enhanced` does).
 
+### 5.3 Sun shadows (2026-10-12, playtest list 4 item 6)
+
+The owner: "shadow rendering seriously affects performance; maybe limits on draw distance or
+quality". Bevy times no shadow pass (they do not appear in the GPU list of `--log-frame-times`),
+so the cost was measured as frame time with the cycle's shadow keys (§6) and the casters each
+cascade drew (the log's "shadow casters per cascade" line). Machine: GeForce RTX 4070, 1280 × 800,
+`--play` standing still at Goodsprings, (−69698, 2246), 14:00 looking east down the road (where
+the owner's screenshots of item 5 were taken), `vanilla`, cycle switched every 4 s, three rounds
+each; the figures are the round means (vsync off). The GPU's own time stayed between 1.9 and
+4.1 ms in every set: the cost is the CPU's, one pass per cascade per view, each culling,
+specialising and queueing its casters.
+
+| Sun shadows | Casters per cascade | Frame time (ms) |
+|---|---|---|
+| off | | 7.3-7.9 |
+| 8,000 in 2 cascades | 61, 2,000 | 12.4-13.8 |
+| 8,000 in 3 cascades | 61, 340, 1,900 | 13.7-15.2 |
+| 8,000 in 4 cascades | 61, 220, 710, 1,880 | 15.0-16.8 |
+| 16,000 in 3 cascades | 200, 1,090, 3,060 | 16.4-18.3 |
+| 16,000 in 4 cascades (the old default) | 200, 570, 1,690, 3,030 | 19.0-20.8 |
+
+All with the arms' shade light (`player_body.rs`) taking the sun's first cascade, about 190
+casters, as it did. Changed [engineering choices]:
+
+- **The shade light reaches 256 units** from the camera (`ARMS_SHADE_REACH`): about 30 casters, and
+  the old default 16,000 in 4 went from 19.0-20.8 to 16.9-17.6 ms. A cascade keeps every caster
+  between it and the sun, so walls and roofs still shade the arms; their shadows on the arms
+  are finer than before.
+- **The sun's shadows default to 8,000 units in 3 cascades** (`sky::DEFAULT_SHADOW_DISTANCE`,
+  `DEFAULT_SHADOW_CASCADES`; `--shadow-distance` still sets the reach): 12.5-12.9 ms against
+  the old 19.0-20.8, about 7 ms (a third of the frame) saved; shadows off is 7.3-7.5. The first
+  cascade, a twelfth of the reach, is now 667 units instead of 1,333, so shadows near the player
+  are finer. Visible change: nothing farther than 8,000 units (about 114 m) casts a sun shadow;
+  at noon the view down the road is unchanged
+  (`C:\fnv-private\references\shadows_sun\shadow_limits_before_after.png`); at dusk the long
+  shadows of distant rocks and buildings end nearer. The original casts no sun shadows from
+  the world at all (world.md §6), so this is no further from its look.
+- Finer shadows (§3.2) keep their 4096² maps and reach 1.5 × the distance, now 12,000.
+
+Not changed: the water's reflection camera, while active, gets its own cascades of the sun (Bevy
+builds them for every active camera, with no way to leave one out), doubling the shadow passes
+while water is in view; casters are not thinned by size with distance (no per-cascade filter in
+Bevy).
+
 ## 6. Test aids for measuring
 
 `--log-frame-times <seconds>` logs the mean and slowest frame time and the GPU time of the
@@ -287,6 +331,10 @@ costliest render passes every so many seconds (and asks for presenting without v
 driver may still impose); `--graphics-cycle "<set>;<set>;..."` switches between sets of
 improvements after each logged period (`vanilla`, `enhanced` or keys as for `--graphics-only`;
 the first half second after a switch is left out), so one run compares them under the same load.
+A set may also change the sun's shadows: `no-sun-shadows`, `shadow-distance=<units>`,
+`cascades=<n>` among its keys (`vanilla;no-sun-shadows;shadow-distance=16000,cascades=4`); the
+log then gives the sun's shadow reach and cascades with each frame time, the sun's heading and
+elevation, and the casters each cascade of each light drew.
 
 ## 7. Next candidates
 
@@ -297,4 +345,5 @@ the first half second after a switch is left out), so one run compares them unde
   prepasses (last frame's wind and skinning) would let the TAA follow what moves by itself.
 - Sun shafts through interior windows are the game's own light-ray meshes already; none from
   the moon.
-- A shadow distance and map size setting with more steps than on/off.
+- A shadow distance and map size setting with more steps than on/off (the cycle keys of §6
+  measure them).

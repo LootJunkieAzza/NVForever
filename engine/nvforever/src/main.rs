@@ -292,7 +292,8 @@ struct Args {
     log_frame_times: Option<f32>,
     /// Test aid with --log-frame-times: after each logged period switch to the next of
     /// these sets of improvements, in a loop, starting with the first: `;`-separated,
-    /// each `vanilla`, `enhanced` or keys as for --graphics-only.
+    /// each `vanilla`, `enhanced` or keys as for --graphics-only; `no-sun-shadows` among
+    /// a set's keys switches the sun's shadows off for it (e.g. `vanilla;no-sun-shadows`).
     #[arg(long, requires = "log_frame_times", allow_hyphen_values = true)]
     graphics_cycle: Option<String>,
     /// Play: the camera is the player, walking with collision, activating with E
@@ -750,7 +751,7 @@ fn main() -> AppExit {
                 Err(e) => return fail(e),
             };
             if let Some(first) = cycle.first() {
-                graphics = *first;
+                graphics = first.graphics;
             }
             Some(graphics::FrameTimes { every, cycle })
         }

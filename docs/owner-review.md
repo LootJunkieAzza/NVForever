@@ -4142,3 +4142,60 @@ Decisions where the sources were unclear:
   Needs the original's menu files and a screenshot of the wheel. Until then nothing in play
   sets `Waiting` except the game's own wait trigger volumes (and the test aid).
 - Wait/StopWaiting/IsWaiting are not built: no script of the masters uses them.
+
+## Shadows and the sun (2026-10-12, session "shadows-sun")
+
+Branch `claude/shadows-sun`, playtest list 4 items 5-7. Pictures:
+`C:\fnv-private\references\shadows_sun\`.
+
+5. **First-person shadow flicker outside Doc Mitchell's house: not reproduced, cause not
+   found.** Three runs, each leaving the house by its door (0x00103E61) and standing where
+   your screenshots were taken (−69698, 2246), turning round in 30° steps with two frames
+   0.3 s apart at each: a `--cell GSDocMitchellHouse` start at 14:00 (twice) and a full
+   `--new-game` opening (wake-up, Doc, chargen, Vigor Tester, about 95 s) then out of the door.
+   No shadow appeared or went between the two frames of any pair, and no shadow lay where
+   nothing casts one. What I found:
+   - In your screenshots the sun is about 72° high (13:56-14:40 in our sun path), so nothing
+     standing on the ground can throw shadows 20-30 m long; the wedge in `shadowbug3` is wide
+     at your feet and narrows far ahead, as the shadow of something stretched from your
+     position high into the air would. My best guess [hypothesis]: a stretched skinned shape
+     (vertices bound to a bone that is far away) on the third-person body, which in first
+     person is drawn only into the sun's shadow map (so you would see the shadow but not
+     the shape), or on a nearby animated actor.
+   - Your HUD shows a much larger scene than mine at the same spot: refs drawn 31,848
+     (980 animated), shapes 62,552, lights 247, SpeedTree 5,137, 462 cell loads; mine 2,800
+     refs (108 animated), 5,200 shapes, 33 lights after 30 loads. Whatever filled your scene
+     (a long session, another grid setting, other plugins?) is the likely way to reproduce.
+   - Please check: does it happen in third person too, and do you then see a long thin
+     streak of geometry? Does `--shadow-distance 0` (or Sun shadows off on the settings page)
+     make it go? Which plugins were loaded? A log of that run would let the next session
+     look for an actor or body part near you.
+6. **Shadow cost: limited** (docs/design/graphics-enhanced.md §5.3, measured with new cycle
+   keys of `--graphics-cycle`). At your screenshots' spot the sun's shadows took the frame
+   from 7.6 ms (off) to 19.7 ms (16,000 units in 4 cascades); the GPU's time hardly moved,
+   it is the CPU's work per cascade. Now 12.7 ms:
+   - The arms' shade light (the second light that lets your arms be shaded by walls but
+     not by your own unseen body) took a whole cascade of 190 casters; it now covers only
+     256 units round the camera, about 30 casters (−2.5 ms). Guessed constant:
+     `ARMS_SHADE_REACH` 256. Check: arms still go dark under a roof or in a building's shadow.
+   - The sun's shadows default to **8,000 units in 3 cascades** instead of 16,000 in 4
+     (−4.5 ms more). Visible change: no sun shadows beyond about 114 m; near shadows a little
+     finer (first cascade 667 units instead of 1,333). At noon the road view is unchanged
+     (`shadow_limits_before_after.png`); at dusk the long shadows of far rocks and buildings
+     end nearer. `--shadow-distance 16000` brings the old reach back (in 3 cascades).
+     Decide: whether 8,000 is close enough at dusk, or you'd rather trade more frame rate
+     (8,000 in 2 cascades measured 13.2 ms against 14.4 ms for 3, before the shade-light trim).
+   - Not changed: while water is in view its reflection camera gets the sun's cascades too
+     (Bevy builds them for every active camera).
+7. **Sun disc missing: fixed.** Cause: the sky dome is shrunk to nothing in interiors and
+   nothing gave it its size back outdoors. Since the sun and its glare were moved onto the
+   dome (2026-10-09), every game that started in or went through an interior (a new game
+   starts in Doc Mitchell's house) showed neither the sun nor the dome's sky colours, only
+   the clear colour and the clouds; a run started outdoors still had them, which is why it
+   seemed to come and go. Now the dome gets its size back outdoors, with a log line ("sky:
+   outdoors again, the sky dome (with the sun disc and glare) shown"). Before/after:
+   `sun_disc_before_after.png` (the two views differ a little: 230°/35° before, 240°/50°
+   after; the sun stands at 239°, 72°). Note the sky colours after an interior are now the
+   weather's again (a warmer, hazier blue than the plain clear colour you may have got used to).
+
+Checks: smoke scenario `shadows-sun` (new); engine clippy.

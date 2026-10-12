@@ -58,6 +58,7 @@ pub fn switch(
             s.shadows = sky.shadows;
             s.shadow_distance = sky.shadow_distance;
             s.shadow_reach = sky.shadow_reach;
+            s.shadow_cascades = sky.shadow_cascades;
             s.grade = sky.grade;
             s.time_scale = sky.time_scale;
             s.clock_running = sky.clock_running;
