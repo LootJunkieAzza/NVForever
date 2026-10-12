@@ -40,6 +40,7 @@ pub mod game;
 pub mod idles;
 pub mod intro;
 pub mod package;
+pub mod provocation;
 pub mod quest;
 pub mod radio;
 pub mod rest;
