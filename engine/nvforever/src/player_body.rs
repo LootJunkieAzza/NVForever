@@ -144,6 +144,12 @@ const HEAD_SLOTS: u32 = 1 | 1 << 1 | 0x7E << 8 | 1 << 16;
 /// landing, seconds [engineering choice: steps and slopes leave the ground briefly].
 const AIRBORNE_LOOP: f32 = 0.15;
 const AIRBORNE_LAND: f32 = 0.35;
+/// The jump loop (falling) starts only with the ground farther below the feet than this,
+/// or out of the controller's reach, game units: running down a slope or sliding over
+/// rocks leaves the ground for a few steps without a fall [engineering choice: the
+/// controller's step height, the drop it walks down without leaving the ground; the
+/// original's rule is not documented (physics.md §6.4.2)].
+const FALL_GAP: f32 = 24.0;
 /// Turning on the spot faster than this (radians per second) plays a turn clip
 /// [engineering choice].
 const TURN_RATE: f32 = 1.0;
@@ -514,6 +520,12 @@ struct Motion {
     speed: f32,
     last_feet: Option<[f32; 3]>,
     airborne: f32,
+    /// Playing the jump loop: in the air long enough, with the ground far below
+    /// ([`FALL_GAP`]); kept until the character is on the ground again.
+    falling: bool,
+    /// Falls (jump loops started) and landings played, for the summary at exit.
+    falls: u32,
+    landings: u32,
     last_heading: Option<f32>,
     turn_rate: f32,
     /// The view an idle gave the first-person camera last frame (`Player::body_view`).
@@ -557,6 +569,9 @@ impl Default for Motion {
             speed: 0.0,
             last_feet: None,
             airborne: 0.0,
+            falling: false,
+            falls: 0,
+            landings: 0,
             last_heading: None,
             turn_rate: 0.0,
             idle_view: None,
@@ -631,7 +646,16 @@ impl Plugin for PlayerBodyPlugin {
         app.insert_resource(PlayerBody { first_person_body: self.first_person_body, ..default() })
             .init_resource::<crate::furniture::BodyOverride>()
             .init_resource::<crate::furniture::PlayerUse>()
-            .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body, shade_light).chain().in_set(nvf_play::player::BodySet));
+            .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body, shade_light).chain().in_set(nvf_play::player::BodySet))
+            .add_systems(Last, report);
+    }
+}
+
+/// The body's falls at exit (smoke tests read it).
+fn report(mut exit: MessageReader<AppExit>, body: Res<PlayerBody>) {
+    if exit.read().next().is_some() {
+        let m = &body.motion;
+        info!("player body summary: {} falls (the jump loop), {} landings", m.falls, m.landings);
     }
 }
 
@@ -1493,7 +1517,7 @@ fn drive_body(
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
 
     // What the character is doing.
-    let (grounded, swimming) = phys.player.as_ref().map_or((true, false), |c| (c.grounded, c.swimming));
+    let (grounded, swimming, ground_gap) = phys.player.as_ref().map_or((true, false, None), |c| (c.grounded, c.swimming, c.ground_gap));
     let stance = if swimming {
         Stance::Swim
     } else if control.sneak {
@@ -1515,7 +1539,15 @@ fn drive_body(
     m.last_heading = Some(player.heading);
     let airborne_before = m.airborne;
     m.airborne = if grounded || swimming { 0.0 } else { m.airborne + dt };
-    let landing = airborne_before >= AIRBORNE_LAND && m.airborne == 0.0;
+    let was_falling = m.falling;
+    m.falling = m.airborne > 0.0 && (m.falling || (m.airborne >= AIRBORNE_LOOP && ground_gap.is_none_or(|g| g > FALL_GAP)));
+    let landing = was_falling && airborne_before >= AIRBORNE_LAND && m.airborne == 0.0;
+    m.falls += u32::from(m.falling && !was_falling);
+    m.landings += u32::from(landing);
+    if m.falling != was_falling {
+        let gap = ground_gap.map_or("out of reach".to_string(), |g| format!("{g:.1} units"));
+        debug!("player body: {} after {:.2}s in the air (ground {gap} below)", if m.falling { "falling" } else { "down again" }, airborne_before.max(m.airborne));
+    }
 
     let third_view = control.third_person_view();
     if let Some(o) = furniture.0.as_ref() {
@@ -1644,7 +1676,7 @@ fn drive_body(
         prefix,
         drawn: (m.hands.phase == WeaponPhase::Drawn).then_some(prefix),
         hands: m.hands,
-        airborne: m.airborne,
+        airborne: if m.falling { m.airborne } else { 0.0 },
         landing,
         turn_rate: m.turn_rate,
         pitch: player.pitch,

@@ -154,6 +154,9 @@ impl Default for PhysState {
 /// An actor's character in the physics world: who moves it sets `velocity`.
 pub struct NpcBody {
     pub ch: Character,
+    /// Feet before the last physics step, for drawing between steps
+    /// ([`PhysState::npc_drawn_feet`]).
+    pub prev_feet: [f32; 3],
     /// Wanted horizontal velocity (x, y), game units per second.
     pub velocity: [f32; 2],
 }
@@ -396,6 +399,16 @@ impl PhysState {
     /// Whether the cell under `feet` is loaded (the player may move).
     pub fn ready_at(&self, feet: [f32; 3]) -> bool {
         self.cells.contains_key(&self.cell_at(feet))
+    }
+
+    /// Where an actor's character is drawn this frame: between its feet before and after
+    /// the last physics step, by the time accumulated towards the next (as the player's
+    /// body), so a walk is as smooth on screen as the frame rate allows. `None` when the
+    /// actor has no character.
+    pub fn npc_drawn_feet(&self, id: u32) -> Option<[f32; 3]> {
+        let b = self.npcs.get(&id)?;
+        let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
+        Some(std::array::from_fn(|i| b.prev_feet[i] + (b.ch.feet[i] - b.prev_feet[i]) * a))
     }
 
     /// Whether the player is placed and every cell asked for around them is in (the
@@ -833,7 +846,7 @@ impl PhysState {
         let start = [feet[0], feet[1], hit.point[2] + params.rest_gap(hit.shell)];
         let mut ch = self.world.add_character(id, params, start);
         ch.ignore_layers = fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes());
-        self.npcs.insert(id, NpcBody { ch, velocity: [0.0, 0.0] });
+        self.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0, 0.0] });
         true
     }
 
@@ -911,9 +924,22 @@ impl PhysState {
             Some(c) => self.world.place_character(c, at),
             None => self.player = Some(self.world.add_character(0, CharacterParams::default(), at)),
         }
+        self.stands_placed(hit.is_some());
         self.prev_feet = at;
         self.stepper = Stepper::default();
         hit
+    }
+
+    /// A player put on something stands on it: it counts as on the ground until its next
+    /// physics step says otherwise. Placed characters start in the air (`fnv_phys`), and
+    /// the steps wait behind a loading screen, dialogue or menus: the body played the
+    /// jump loop meanwhile and a landing after it, as if the player had dropped from a
+    /// height on arrival (playtest 2026-10-12, item 10).
+    fn stands_placed(&mut self, on_support: bool) {
+        if let Some(c) = self.player.as_mut().filter(|_| on_support) {
+            c.grounded = true;
+            c.ground_gap = Some(0.0);
+        }
     }
 
     /// Put the player's character (created on first use) where an actor teleported to
@@ -930,6 +956,7 @@ impl PhysState {
             Some(c) => self.world.place_character(c, a.feet),
             None => self.player = Some(self.world.add_character(0, params, a.feet)),
         }
+        self.stands_placed(a.support.is_some());
         self.prev_feet = a.feet;
         self.stepper = Stepper::default();
         a

@@ -22,6 +22,14 @@ behind the screen).
 4. Behind the screen, streaming is faster than in play: the renderer loads cells for
    200 ms each frame instead of one cell a frame, physics takes up to 8 prepared cells a
    frame instead of 1.
+   Until then the renderer loads the cells around the arrival's grid square
+   (`Streamer::arrival`), not around the camera: in the frame of the travel the camera
+   still has its transform of the place left, and around it (an interior's coordinates,
+   far out in the worldspace) empty cells loaded at once and counted as the
+   destination's; the screen then came down with the arrival's own cells still to load
+   one a frame, and they faded in in front of the player (playtest list 4, items 9 and
+   10, 2026-10-13) [observed: `--cell GSGasStation` through its door: 26 cell loads in
+   all after the fix, no fade in the frame after the screen].
 5. The screen comes down when physics has every cell it asked for around the player
    (`PhysState::loading_done`) and the renderer has all the cells around the camera
    (`Streamer::settled`, reported through `Loading::render_busy`), and that has been so
@@ -29,6 +37,10 @@ behind the screen).
    to reach the graphics card). `PlayState` returns to `Playing`, the clock runs again.
 6. If loading has not finished after 120 s (`TIMEOUT_SECS`) the screen comes down with a
    warning, so an unattended run cannot hang there.
+
+The player arrives standing: physics puts the character on the support the arrival rule
+found and counts it as on the ground until its first step, so the body does not play the
+jump loop behind the screen and a landing when it comes down (`PhysState::arrive_player`).
 
 ## 2. What is on hold
 

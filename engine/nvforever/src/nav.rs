@@ -349,7 +349,7 @@ pub fn drive(
         let visible = tr.walker.space == drawn;
         let moving = ev == WalkEvent::Moved;
         let stage = (&mut tr.spawned, &mut tr.root);
-        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale }, stage, &tr.walker, moving, dt) {
+        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
             warn!("nav: {} could not be drawn", tr.label);
             tr.failed = Some(e.into());
         }
@@ -382,7 +382,7 @@ pub(crate) fn show_actor(
     actors: &mut Query<(&mut Transform, Option<&mut Locomotion>), Without<crate::furniture::OnFurniture>>,
     who: Who,
     (spawned, root): (&mut bool, &mut Option<Entity>),
-    walker: &Walker,
+    (feet, heading): ([f32; 3], f32),
     moving: bool,
     dt: f32,
 ) -> Result<(), &'static str> {
@@ -396,8 +396,8 @@ pub(crate) fn show_actor(
     }
     let Some(aw) = actor_world else { return Ok(()) };
     if !*spawned {
-        let at = Vec3::from_array(walker.feet);
-        let rt = bevy::math::Affine3A::from_scale_rotation_translation(Vec3::splat(scale), Quat::from_rotation_z(-walker.heading), at);
+        let at = Vec3::from_array(feet);
+        let rt = bevy::math::Affine3A::from_scale_rotation_translation(Vec3::splat(scale), Quat::from_rotation_z(-heading), at);
         let mut ctx = ActorCtx { cache: parts, models };
         let mut stats = Default::default();
         let drawn = if creature {
@@ -418,8 +418,8 @@ pub(crate) fn show_actor(
     let Some(e) = *root else { return Ok(()) };
     let Ok((mut t, lo)) = actors.get_mut(e) else { return Ok(()) };
     let before = (t.translation, tr_heading(&t));
-    t.translation = Vec3::from_array(walker.feet);
-    t.rotation = Quat::from_rotation_z(-walker.heading);
+    t.translation = Vec3::from_array(feet);
+    t.rotation = Quat::from_rotation_z(-heading);
     // Locomotion takes the velocity in the actor's axes and own scale (y forward)
     // and the turn rate (positive = left, counter-clockwise; the compass heading
     // turns the other way).
@@ -428,7 +428,7 @@ pub(crate) fn show_actor(
         let moved = before.0.truncate().distance(t.translation.truncate());
         let speed = if dt > 0.0 && moving { moved / dt } else { 0.0 };
         lo.velocity = [0.0, speed / scale];
-        let d = (walker.heading - before.1 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        let d = (heading - before.1 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         lo.turn = if dt > 0.0 { -d / dt } else { 0.0 };
     }
     Ok(())
