@@ -189,6 +189,10 @@ pub struct RefExtra {
     /// S.P.E.C.I.A.L. included. The current value is the permanent value minus this.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub av_damage: BTreeMap<u16, f64>,
+    /// The temporary modifier per actor value code: the Value Modifier effects with
+    /// Recover active on the actor (`crate::aid`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub av_temporary: BTreeMap<u16, f64>,
     /// Packages added with AddScriptPackage (the last one is current).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub packages: Vec<FormId>,
@@ -351,6 +355,13 @@ pub struct ActiveEffect {
     /// The effect script (MGEF archetype Script), if any.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub script: Option<FormId>,
+    /// What it does to an actor value (Value Modifier, Value And Parts): `crate::aid`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub change: Option<crate::aid::ValueChange>,
+    /// The usage monitor of an ingestible: the magnitudes of its uses while it lasts
+    /// (GetSpellUsageNum; docs/spec-notes/aid-items.md §5).
+    #[serde(skip_serializing_if = "is_zero_f64", default)]
+    pub usage: f64,
 }
 
 /// An image space modifier playing on the screen (docs/spec-notes/image-modifiers.md §3).
@@ -1841,9 +1852,16 @@ impl<'a> Game<'a> {
     /// hypothesis: the start block does not run again, and only effects of the same
     /// item (and effect index) merge]. Returns the effects started.
     pub fn apply_magic_item(&mut self, target: FormId, source: FormId, caster: Option<FormId>, permanent: bool) -> Vec<u32> {
+        self.apply_magic_item_with(target, source, caster, permanent, 1.0).into_iter().filter(|a| !a.extended).map(|a| a.id).collect()
+    }
+
+    /// [`Game::apply_magic_item`] with the beneficial Value Modifier effects' magnitudes
+    /// multiplied by `potency` (an ingestible's Medicine or Food potency, `crate::aid`).
+    /// Returns the effects started and extended, with their value changes as applied.
+    pub fn apply_magic_item_with(&mut self, target: FormId, source: FormId, caster: Option<FormId>, permanent: bool, potency: f64) -> Vec<crate::aid::Applied> {
         let data = self.data;
         let Some(items) = data.effect_items.get(&source) else { return Vec::new() };
-        let mut started = Vec::new();
+        let mut started: Vec<crate::aid::Applied> = Vec::new();
         for (index, e) in items.iter().enumerate() {
             let label = format!("{} effect {index}", data.name(source));
             if !self.conditions_pass(&e.conditions, Some(target), caster, &label) {
@@ -1856,14 +1874,21 @@ impl<'a> Game<'a> {
                     .find(|x| !x.permanent && x.target == target && x.source == source && x.index == index);
                 if let Some(x) = active {
                     x.duration += e.duration as f64;
-                    let (id, duration) = (x.id, x.duration);
+                    // The usage monitor counts every use while it lasts (aid-items.md §5).
+                    if e.effect == crate::aid::USAGE_MONITOR {
+                        x.usage += e.magnitude as f64;
+                    }
+                    let (id, duration, change) = (x.id, x.duration, x.change);
                     self.emit(EventKind::EffectExtended { id, target, source, duration });
+                    started.push(crate::aid::Applied { id, effect: e.effect, change, duration, extended: true });
                     continue;
                 }
             }
             let id = self.next_effect;
             self.next_effect += 1;
             let script = data.magic_effects.get(&e.effect).and_then(|m| m.script).filter(|s| data.scripts.contains_key(s));
+            let change = data.magic_effects.get(&e.effect).and_then(|m| crate::aid::value_change(m, e, potency, permanent));
+            let usage = if e.effect == crate::aid::USAGE_MONITOR { e.magnitude as f64 } else { 0.0 };
             self.effects.push(ActiveEffect {
                 id,
                 target,
@@ -1876,9 +1901,14 @@ impl<'a> Game<'a> {
                 permanent,
                 caster,
                 script,
+                change,
+                usage,
             });
             self.emit(EventKind::EffectStarted { id, target, source, effect: e.effect });
-            started.push(id);
+            self.start_change(id);
+            let change = self.effects.iter().find(|x| x.id == id).and_then(|x| x.change);
+            started.push(crate::aid::Applied { id, effect: e.effect, change, duration: e.duration as f64, extended: false });
+            self.effect_archetype_start(id);
             self.effect_event(id, event::SCRIPT_EFFECT_START, 0.0);
             if !permanent && e.duration == 0 && self.effects.iter().any(|x| x.id == id) {
                 self.finish_effect(id, true);
@@ -1888,15 +1918,15 @@ impl<'a> Game<'a> {
     }
 
     /// The player (or an actor) consumes an ingestible (ALCH) from its inventory: one is
-    /// removed and its effects apply to the actor ([`Game::apply_magic_item`]). The engine
-    /// calls this when the player uses an aid item; EquipItem of an aid item does the same.
+    /// removed and it is used ([`Game::ingest`]: its effects with the item's potency, the
+    /// usage monitor and the addiction roll). EquipItem of an aid item does the same.
     pub fn consume(&mut self, actor: FormId, item: FormId) -> Result<Vec<u32>, String> {
         let removed = self.world.remove_item(actor, item, 1).map_err(|e| e.to_string())?;
         if removed == 0 {
             return Err(format!("{} carries no {}", self.data.name(actor), self.data.name(item)));
         }
         self.emit(EventKind::ItemRemoved { from: actor, item, count: 1 });
-        Ok(self.apply_magic_item(actor, item, Some(actor), false))
+        Ok(self.ingest(actor, item).effects)
     }
 
     /// Run an effect's script block (if its script has one) on the effect's target.
@@ -1923,6 +1953,7 @@ impl<'a> Game<'a> {
         if run_finish {
             self.effect_event(id, event::SCRIPT_EFFECT_FINISH, 0.0);
         }
+        self.end_change(id);
         if let Some(i) = self.effects.iter().position(|x| x.id == id) {
             let e = self.effects.remove(i);
             self.instances.remove(&InstKey::Effect { id });
@@ -1940,11 +1971,14 @@ impl<'a> Game<'a> {
     /// GetSecondsPassed time after the use. Hypothesis: the effects run after the
     /// frame's quest and object scripts, and effects on dead actors keep running.
     fn update_effects(&mut self, dt: f64) {
+        self.refresh_suspended(dt);
         let ids: Vec<u32> = self.effects.iter().map(|e| e.id).collect();
         for id in ids {
             let Some(e) = self.effects.iter_mut().find(|x| x.id == id) else { continue };
+            let before = e.elapsed;
             e.elapsed += dt;
             let done = !e.permanent && e.elapsed + 1e-9 >= e.duration;
+            self.tick_change(id, before);
             self.effect_event(id, event::SCRIPT_EFFECT_UPDATE, dt);
             if done {
                 self.finish_effect(id, true);

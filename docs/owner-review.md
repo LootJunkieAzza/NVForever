@@ -3414,6 +3414,121 @@ tests on a synthetic plugin, the blind close-in test, the sights rule); smoke sc
 `combat-sights` and `provoked-yield` added, `cook-cook-camp` now also forbids the flicker
 (at most 2 Combat → Lost lines). Not done (list 2): fleeing, cover, combat groups and
 their searches, NPC-against-NPC grudges, blocking, dodging, combat barks (combat-ai.md §11.1).
+## Aid items: chems, food and meds (2026-10-12, workstream I "aid")
+
+Using an aid item now changes the actor values its record says (Stimpak, RadAway, Rad-X,
+Buffout, Jet, Mentats, food and drink …): the effects' Value Modifier archetype applied to
+the three pools of the GECK wiki's ActorValue page, the Medicine and Food potency, the usage
+monitor, the addiction roll and withdrawal. Spec note `docs/spec-notes/aid-items.md`; code
+`crates/fnv-game/src/aid.rs`, `engine/nvf-play/src/aid.rs`; tool `fnvtool actor aid`; smoke
+scenarios `aid-survey` and `aid-items`.
+
+1. **Recover vs no Recover.** A Value Modifier with Recover (Buffout's +2 Strength) is a
+   temporary modifier while the effect lasts; without Recover it restores or damages.
+   *Decision/Guess:* without Recover and with a duration it acts magnitude **per second**
+   (the Hardcore Stimpak's 5 a second for 6 s equals the normal Stimpak's 30 at once).
+   *Check:* a Hardcore Stimpak heals 30 (39 at Medicine 15) over 6 s.
+2. **Potency.** Medicine-flagged items (Stimpak, RadAway, Rad-X, Doctor's Bag …) and
+   Food-flagged ones scale their beneficial magnitudes by `1 + 2 × skill / 100` (GECK wiki
+   Ingestible Settings). *Decision:* the user's own skill (the wiki says the player's);
+   both flags multiply; durations are not scaled. *Check:* a new character's Stimpak heals
+   39, not 30; the Pip-Boy STATS EFF list shows the scaled amounts.
+3. **Values that grow.** *Guess:* rads, dehydration, hunger and sleep deprivation go up with
+   "Damage …" effects and down with "Restore …" (RadAway "Restore Rads", Nuka-Cola "Damage
+   Rads"), never below 0. *Check:* RadAway lowers the RAD meter; Nuka-Cola adds 3 rads. In
+   Hardcore, Beer and Nuka-Cola carry "Damage Dehydration" — under this reading they make
+   you thirstier; please check H2O after a Nuka-Cola.
+4. **Value And Parts / Limb Condition.** *Guess:* the normal Stimpak ("Restore Health &
+   Conditions") restores every limb by the same amount as health; Doctor's Bag and Hydra
+   ("NVRestoreLimbs", no actor value) restore every limb. *Check:* a crippled leg after a
+   Stimpak in normal mode.
+5. **Usage monitor.** The chems' effect 0x0000014F has no record in any master; *Guess:*
+   it is the wiki's UMON (magnitude 30 = the GetSpellUsageNum example's "multiplied by
+   30"). Each use while it lasts (30 hours of play for most chems) adds 30; from 70 the
+   addiction chance is (usage − 70) / 100. *Decision:* the usage after this use counts, so
+   the third Buffout within 30 hours has 20 %, the sixth 100 %. *Check:* how many doses it
+   takes to get addicted.
+6. **Withdrawal.** *Guess:* an addiction's penalties are held back while that chem's effect
+   is active and apply when it ends; addictions do not wear off with time (Fixer's script
+   removes them). *Check:* Strength while addicted to Buffout, with and without a dose.
+7. **Not done:** waiting/sleeping does not advance effect timers (the original may);
+   Hardcore needs do not rise with time; Chameleon (Stealth Boy); perk entry points
+   (Chem Resistant, Chemist); Buffout's Strength does not raise carry weight (the
+   carry rule reads the world's S.P.E.C.I.A.L.); NPCs using stimpaks in combat (left for
+   the combat workstream: it needs the combat AI to choose to heal).
+8. **Test aid added:** `NVF_PLAY_TEST_SCRIPT=<t>:damage:<ref>:<actor value>:<amount>`.
+9. **Survival follows Endurance here** (actor-values.md §3.1 hypothesis), and formulas read
+   current values, so a Buffout taken before food raises the food's potency (Purified
+   Water 1.42 instead of 1.3 after Buffout's +3 Endurance). *Check:* whether chems change
+   food healing in the original.
+10. **Test aid fixes found on the way.** The inventory drop/use aid (`NVF_PLAY_TEST_DROP`)
+    now turns the Pip-Boy's ITEMS page to the item's tab (the list shows one tab, so aid
+    items were "not carried": the ui-sounds scenario's known failure on main), waits while
+    a script's message box is up, and waits for the scripts to be ready; items used before
+    the scripts were ready (or under a loading screen) are kept and applied when they run
+    (they were dropped). *Decision:* the ui-sounds stimpak expectation's known-failing mark
+    is removed (it passes); "24 played" stays known-failing at 23 with the stimpak's sound
+    now among them — one other sound is short, not found which.
+11. **quest-messages failed 3 of 3 runs on this branch, from load, not this change:** the
+    scripts were ready only after 14–17 s (four agents building on the machine), so its
+    test aids at 3, 9 and 9.1 s ran in one frame and the objective was completed before
+    it was shown. Nothing of the quest lines changed here. *Check:* it passes on a quiet
+    machine.
+
+## Graphics: engine-level improvements (2026-10-12, session "gfx")
+
+Your list 2 item "ENGINE LEVEL GRAPHIC IMPROVEMENTS". Design, survey and the reasons for each
+choice: docs/design/graphics-enhanced.md. No asset is changed or added; every value below is an
+engineering choice by eye, not a fact about the original game.
+
+1. *Decision:* a new switch `--graphics vanilla|enhanced`. `enhanced` turns on five
+   improvements, each also a switch on the pause menu's settings page under "Enhanced
+   graphics" (the page now has two columns when it is long), and `--graphics-only <keys>`
+   turns on single ones for comparing:
+   - **Ambient occlusion** (`ambient-occlusion`): creases, corners and the ground under things
+     darken. Our own screen-space pass from the depth (Bevy's needs multisampling off, which
+     the plants' soft edges depend on). *Guess:* radius 64 units, strength 0.55, fading out
+     4,000-7,000 units away. *Check:* the crates by the house doors in Goodsprings, the bench
+     and air conditioner at night, interiors' corners; that the water does not show dark
+     patches from the lake bed under it.
+   - **Finer, longer sun shadows** (`fine-shadows`): shadow maps 4096 instead of 2048 and
+     reaching 1.5 × `--shadow-distance` (24,000). *Check:* shadow edges of roofs and fences
+     look sharper; shadows on far hills; frame rate.
+   - **Bloom** (`bloom`): light brighter than a threshold glows (the sun, bright sky, lamps).
+     Done on the picture before the game's own grade, which still applies on top; it does
+     not use the image spaces' HDR/bloom values (not decoded yet). *Guess:* threshold 0.82,
+     intensity 0.9, about 136 pixels wide. *Check:* lamps and lit windows at night and in
+     the saloon; that the noon sand does not glow.
+   - **Sharpening** (`sharpen`): contrast-adaptive, against the four neighbours. *Guess:*
+     strength 0.5. *Check:* brick and roof textures crisper, no bright or dark rims on edges.
+   - **Anisotropic filtering 16x** (`anisotropic`; 8x before): roads and ground at a slant.
+     The switch applies to textures loaded after it changes.
+2. *Decision (tried and dropped):* Bevy's contact shadows (speckled dark bands on near
+   surfaces without TAA: `C:\fnv-private\scratch\gfx\pair-cs2.png`), sun in-scattering in the
+   fog (invisible in the clear weather, a shadow lookup per pixel), Bevy's bloom (needs an HDR
+   view, double the memory traffic), Bevy's CAS sharpening (garbled the picture), TAA, SSR,
+   volumetric fog. Why each: graphics-enhanced.md §2, §4.
+3. *Frame rate* (GTX 1050, 1280 × 720, Goodsprings noon, 60 s runs, machine shared with
+   other sessions, so noisy): vanilla 14.5 fps, enhanced right after 10.0 fps; fine shadows
+   alone 19.6, the other four together 10.6, vanilla again at the end 7.2. *Decision:* enhanced
+   costs about a third of the frame rate here, so **normal play defaults to vanilla**
+   (`graphics::PLAY_DEFAULT`, one line to change on a faster GPU). Test runs (`--screenshot`,
+   `--timelapse`, `--frame-json`, `--run-seconds`) always default to vanilla, so no golden,
+   picture check or smoke expectation changed. *Check:* play with `--graphics enhanced` and
+   say whether the frame rate is acceptable to you; if so, flip the default.
+4. *Pictures* (in `C:\fnv-private\scratch\gfx\`, 1280 × 720): Goodsprings noon before
+   `gs-day-vanilla2.png`, one feature each `gs-day-ambient-occlusion.png`,
+   `gs-day-fine-shadows.png`, `gs-day-bloom.png`, `gs-day-sharpen.png`; crops side by side
+   (left vanilla) `pair-ao.png`, `pair-fs.png`, `pair-sh.png`; night `night-vanilla.png` /
+   `night-enhanced.png`. (No anisotropic pair: the difference is in the far ground at a
+   slant. The saloon pair caught the DLC message box and is not useful.)
+5. *Observed, not mine:* one of the vanilla noon frames (`gs-day-van.png`) came out much
+   warmer and brighter than the others of the same spot, hour and build, and than main's
+   build (`gs-day-mainexe.png`): the grade seems to differ from run to run at start.
+   *Check:* whether you see the noon colour change between launches.
+6. *Smoke:* new scenario `graphics-enhanced` (starts enhanced, switches four settings while
+   the game runs, checks the "graphics: …" log line after each).
+
 
 ## Karma and crime (workstream J, branch claude/karma-crime, 2026-10-12)
 

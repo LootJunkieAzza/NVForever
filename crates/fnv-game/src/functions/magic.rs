@@ -1,8 +1,8 @@
 //! Magic effects as state: spells added to actors, items cast or consumed, the
 //! effects active on each actor, and their effect scripts (ScriptEffectStart /
 //! Update / Finish). The rules: [`Game::apply_magic_item`] and docs/spec-notes/
-//! scripts.md §7.6. What an effect does besides its script (actor value changes,
-//! shaders, sounds) is Layer 6.
+//! scripts.md §7.6. What an effect does to actor values: `crate::aid`
+//! (docs/spec-notes/aid-items.md); shaders and sounds are Layer 6.
 
 use super::{none, yes, Args, Ctx};
 use crate::game::{Game, InstKey};
@@ -24,12 +24,7 @@ fn magic_item(g: &Game, a: &Args) -> Result<fnv_sim::FormId, String> {
 pub fn add_spell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let s = magic_item(g, a)?;
-    let e = g.extra.entry(r).or_default();
-    if e.spells.contains(&s) {
-        return none();
-    }
-    e.spells.push(s);
-    g.apply_magic_item(r, s, None, true);
+    g.add_spell(r, s);
     none()
 }
 
@@ -92,4 +87,12 @@ pub fn has_magic_effect(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
 /// [documented: GECK wiki ScriptEffectElapsedSeconds].
 pub fn script_effect_elapsed_seconds(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     Ok(Value::Num(if matches!(ctx.inst, Some(InstKey::Effect { .. })) { g.effect_elapsed } else { 0.0 }))
+}
+
+/// `actor.GetSpellUsageNum ingestible`: the uses of the ingestible while its usage
+/// monitor is active, times the monitor's magnitude [documented: GECK wiki
+/// GetSpellUsageNum; aid-items.md §5.1].
+pub fn get_spell_usage_num(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::Num(g.spell_usage(r, a.form(0)?)))
 }
