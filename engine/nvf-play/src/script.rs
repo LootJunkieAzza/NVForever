@@ -595,6 +595,14 @@ impl Runtime {
                         g.emit(EventKind::ItemAdded { to: player, item, count });
                         g.item_event(player, item, event::ON_ADD, Some(Value::Ref(player.0)));
                     }
+                    // Through a load door: the player's teammates come along
+                    // (`fnv_game::followers`).
+                    if matches!(a.outcome, Outcome::Teleported { .. }) {
+                        let brought = g.bring_teammates();
+                        if !brought.is_empty() {
+                            info!("script: {} teammate(s) come along through the door", brought.len());
+                        }
+                    }
                     // A script without OnActivate does not run on activation; the
                     // default action was all there is.
                     a.script = None;

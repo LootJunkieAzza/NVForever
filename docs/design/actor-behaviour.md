@@ -136,8 +136,10 @@ or running when the package says Always Run or the target is more than 512 units
 [our choice]; the way is planned again when the target has moved 64 units, at most twice
 a second, and the actor stops once within the distance. A target that is gone or dead
 is not followed. The goal counts as met at once (`package_goal_met`), so the periodic
-choice may replace the package as it may any other. The target being attacked, the
-Wait/StopWaiting functions and a follower's own combat are not built. `fnvtool ai
+choice may replace the package as it may any other. The target being attacked and the
+Wait/StopWaiting functions (used by no script of the masters) are not built. The
+player's companions (teammates) are docs/design/followers.md: brought along on a change
+of cells, fighting the player's foes, waiting by their Guard packages. `fnvtool ai
 reach`: 256 of the 265 follow-type actor-package pairs of FalloutNV.esm are now
 "follows: goes after its target from where it is"; 5 name no reference (not carried
 out) and 4 are Escort; every other verdict is unchanged. Log: `ai [h] <actor>: walks

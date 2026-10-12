@@ -4104,3 +4104,41 @@ Decisions where the sources were unclear:
   Here and Now perk. Levelling up is not built, so the level stays at SetLevel's.
 - **AddItemToLeveledList** ignores the health argument (leveled entries carry no
   condition here); an entry added twice counts twice.
+
+## Followers (2026-10-12, session "followers")
+
+Owner's list 2, H: "FOLLOWER AI … follow the player and assist with combat, transition
+through cells, ignore friendly fire etc." Design: docs/design/followers.md. Tested with Boone
+in Novac (smoke scenario `follower-boone`, passed: hired by his own recruit line, ignored two
+shots by the player, came along through his room's door, ran after the player, killed a feral
+ghoul with his rifle, then took his Wait package when his `Waiting` variable was set).
+
+Decisions where the sources were unclear:
+- **No hire system of ours**: the companions' recruit lines' result scripts do it all
+  (SetPlayerTeammate, SetIgnoreFriendlyHits, VNPCFollowers.bBooneHired …); the Follow and
+  Wait packages are the ESM's, chosen by their conditions. Nothing to decide, but check in
+  game that recruiting Boone after "One for My Baby" (or Veronica at the 188) makes them
+  follow without any test aid.
+- **Bringing teammates through doors**: the wiki says "Changing cells will teleport the
+  teammate to the player". Only teammates whose current package follows the player come
+  (not those told to wait) [hypothesis], put **64 units to the player's right** (a second
+  one to the left, then further out) facing the player's way [guess]. Check: go through a
+  door with a companion; does the original put them behind you, beside you, or at the door?
+- **Teammates in combat** ("as if in the player faction"): anyone attacks a teammate exactly
+  when it would attack the player; a teammate attacks whoever would attack the player and
+  also whomever its own records have it attack (so Boone keeps his Legion enmity) [design].
+  A teammate that sees the player gets an alarm at everyone fighting the player, without
+  the Assistance check [design]. Aggressive/passive (FollowerSwitchAggressive) is not built:
+  every companion behaves as aggressive. Check: does a passive companion in the original
+  hold fire until the player is attacked?
+- **Friendly fire**: teammates count as the player's allies (already a hypothesis of the
+  combat workstream) and the hire scripts' SetIgnoreFriendlyHits makes them ignore every
+  hit. Check: shoot a companion out of combat four times; in the original does it turn?
+- **Teammate cleared on death** after OnDeath runs [guess at the order].
+- **OpenTeammateContainer** opens the container menu on the companion once the
+  conversation has ended (the barter menu opens over it) [design].
+- **Companion wheel: not built** (not cheap): its buttons set the companion's script
+  variables, but which button sets what and the menu's look are not in the sources at hand.
+  Needs the original's menu files and a screenshot of the wheel. Until then nothing in play
+  sets `Waiting` except the game's own wait trigger volumes (and the test aid).
+- Wait/StopWaiting/IsWaiting are not built: no script of the masters uses them.

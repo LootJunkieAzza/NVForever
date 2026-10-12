@@ -856,7 +856,8 @@ impl Core {
             // Named residents in full; the crowd of `all` only when it sets off or fails.
             let line = format!("ai [{hour}] {}: {}", r.label, describe(game.data, world, &e.event));
             match e.event {
-                _ if r.named => info!("{line}"),
+                // The player's companions in full too (`fnv_game::followers`).
+                _ if r.named || game.is_teammate(e.actor) => info!("{line}"),
                 AiEvent::Trip { .. }
                 | AiEvent::Unreachable { .. }
                 | AiEvent::Approach { .. }
