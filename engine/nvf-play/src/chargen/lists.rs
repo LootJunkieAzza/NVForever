@@ -55,10 +55,11 @@ pub const ROW_H: f32 = 52.0;
 const TAG_LIST_Y: f32 = 66.0;
 /// The key hint ("R)") starts at the button's right end.
 const HINT_X: f32 = 0.0;
-/// How dark the picture behind makes the world: the world in it is 33 of 255 bright
+/// How dark the original's picture behind makes the world: the world in it is 33 of 255 bright
 /// against 54 just outside it on the trait screenshot (the world behind is also blurred
 /// there; not built).
-const SHADE: f32 = 0.4;
+/// Ours is darker, the owner's wish ([`crate::interface::MENU_BACKING`]).
+const SHADE: f32 = crate::interface::MENU_BACKING;
 /// The scroll bar's marker: 105 long, its top 23 under the up arrow at the list's top
 /// (sixteen traits, thirteen shown) [hypothesis: the same length for any list].
 const MARKER_H: f32 = 105.0;

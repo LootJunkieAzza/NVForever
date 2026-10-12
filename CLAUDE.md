@@ -218,6 +218,12 @@ dialogue, with `NVF_PLAY_TEST_TALK=10:GSChetRef=for sale|leave`, `NVF_PLAY_TEST_
 (expect exit 0, "menu: a script opens the barter menu with 0x00104C79", "stock in 0x00104C7A",
 "menu: Accept: Traded", "menu: close" and then the conversation's "Goodbye." choice).
 
+After changes to activation or the menus' keys (`nvf-play` `activate`, `menu` `menu_keys`,
+`FreshMenu`), open and close a container with the real E key, with `NVF_PLAY_TEST_SCRIPT_MENUS=0.3`,
+`NVF_PLAY_TEST_NEAR=00105658` and `NVF_PLAY_TEST_KEYS=16:e,19:e` set:
+`engine/target/release/nvforever --data <Data> --cell GSHouseInterior03 --play --no-voice --run-seconds 21`
+(expect exit 0, `menu: open Container(0x00105658) "Refrigerator"` and 3 s later `menu: close`).
+
 After changes to the name, tag-skill or trait menus (`nvf-play` `chargen`, `chargen::lists`,
 `chargen::name`, `fnv_game::chargen`; docs/spec-notes/chargen.md §7), run the three, with
 `NVF_PLAY_TEST_SCRIPT_MENUS=off`, `NVF_PLAY_TEST_SCRIPT=3:menu:1051,8:menu:1048,13:menu:1084` and
@@ -338,7 +344,11 @@ and field of view; docs/spec-notes/pipboy.md §7), run it with `NVF_PLAY_TEST_SC
 and `NVF_PLAY_TEST_PIPBOY=12:open,15:page=stats,17:close` set:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --play --no-voice --hour 12 --size 1280x720 --run-seconds 19`
 (expect exit 0, "pipboy: up, page ITEMS tab Weapons", "pipboy: the menus are on the model's
-screen", "pipboy: STATS Status" and "pipboy: down").
+screen", "pipboy: STATS Status" and "pipboy: down"). After changes to the Pip-Boy's pointer
+(`pipboy_arm.rs` `follow_pointer`, `pipboy::drive_pointer`), also click with
+`NVF_PLAY_TEST_PIPBOY=12:open,14:click=320:650,16:click=stats,18:click=600:650` and
+`--run-seconds 21` (expect "pipboy: ITEMS Apparel", "pipboy: the STATS button pressed" and
+"pipboy: STATS Perks").
 After changes to terminals or the hacking game (`fnv_game::hacking`, `fnv_game::terminal`,
 `nvf-play` `terminal`; docs/spec-notes/hacking.md §9), run the Easy terminal, with
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
