@@ -3528,3 +3528,50 @@ engineering choice by eye, not a fact about the original game.
    *Check:* whether you see the noon colour change between launches.
 6. *Smoke:* new scenario `graphics-enhanced` (starts enhanced, switches four settings while
    the game runs, checks the "graphics: …" log line after each).
+
+## Far-world leftovers: corpses respawning, their stored poses, the Low process level (2026-10-12, session "far-world-2")
+
+Handoff item 5 (docs/handoff/playtest-2026-10-12.md §4), the leftovers of PR #233.
+
+1. **Corpses' Respawn flag.** Built as a cell reset (`fnv_game::respawn`,
+   docs/spec-notes/dead-on-spawn.md §4): when a cell comes back into the loaded cells
+   after `iHoursToRespawnCell` (72 h) away, its dead actors whose base has Respawn are
+   recreated alive at their authored place. The village's seven Fiends and the burned
+   bodies around it have the flag and come back. Scenario `corpse-respawn`.
+   *Decision:* "recreated" read as starting again as authored: actor values, damage,
+   killer, script-set factions and packages dropped; inventory rolled again.
+   *Decision:* the wiki says such a corpse "will respawn alive after 3 days with 0 HP";
+   they come back with full health (alive at 0 health means nothing here).
+   *Decision:* the visit is the game's loaded cells (the player's cell and the 5 × 5 around
+   it); the clock starts when a cell leaves them. *Decision:* respawning containers in a
+   reset cell refill too (the `fnv_sim` code for it existed and was never called).
+   *Guess:* killed leveled-spawn creatures with the flag come back too (cazadors at the
+   village did in the test run). *Not done:* encounter zones' "Never Resets", removing the
+   bodies of killed non-respawning actors at a reset, ResetInterior.
+   *Check:* kill the village Fiends' neighbours or leave the corpses, go far away (more
+   than two cells), wait or sleep three days, come back: the Fiends stand again; a corpse
+   without the flag (e.g. `DeadGhoul2`) stays dead.
+
+2. **The poses the designers left the bodies in.** Found: placed corpses carry `XRGD`
+   "Ragdoll Bones", the pose the GECK's Havok Sim left (dead-on-spawn.md §5 says how each
+   entry maps to a bone and which rotation convention fits, all observed on the 278 human
+   corpses of FalloutNV.esm). A corpse laid out by a new game is now put in that pose at
+   rest instead of falling from its death pose; in the village 16 bodies lay in their
+   stored pose, flat on the ground next to their blood decals. *Guess:* the root entry's
+   rotation is relative to the reference's (the reading under which most bodies fell
+   backwards; the alternatives put heads every way or all to one side). *Not checked:* no
+   capture of the original's bodies was taken (the owner is away); creature corpses use
+   the same rule untested beyond the entry count; clutter skeletons' `XRGD` (REFR) are not
+   posed. *Check:* the tribal village and other placed corpses (Forlorn Hope's dead
+   troopers, the dead brahmin): do they lie as in the original?
+
+3. **The 120 s Low process level.** The AI now has three levels (`fnv_ai::process`,
+   actor-behaviour.md §5.9): the loaded area (every frame), the **cell buffer** (every
+   18 s) and beyond it (every 120 s). *Guess:* the buffer is the 36 exterior cells drawn
+   most recently (the 25 drawn now among them) and the 3 interiors visited last, from your
+   Fallout_default.ini (`uExterior Cell Buffer=36`, `uInterior Cell Buffer=3`); how the
+   original fills and empties it is not documented. *Decision:* the original's Mid-Low
+   (unvisited interiors behind doors) has no actors here: the AI only has actors of cells
+   once loaded. Scenarios `far-actors` (now flying at 400 units/s: at 1500 the cells leave
+   the buffer within seconds) and `far-actors-low`. *Check:* nothing visible should change;
+   after a long trip, residents of far places are where their packages would have them.
