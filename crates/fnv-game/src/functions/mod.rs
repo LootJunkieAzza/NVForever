@@ -4,9 +4,11 @@
 //! checks against `schemas/script/functions.json`.
 //!
 //! - [`Kind::Impl`]: implemented over the Layer 4 world and the Layer 5 state;
-//! - [`Kind::Stub`]: the function belongs to a Layer 6 system (dialogue, AI packages,
-//!   combat, sound, image space, menus, rendering): the call is recorded in the trace and
+//! - [`Kind::Stub`]: the function belongs to a system not built yet (or one another
+//!   workstream is building, [`stubs::ASSIGNED`]): the call is recorded in the trace and
 //!   has no effect;
+//! - [`Kind::NoOp`]: nothing to do on this engine (a console's controller, the
+//!   original's memory management): handled, no effect, not traced;
 //! - not listed: unhandled (traced once per opcode and unit, counted, returns 0).
 //!
 //! Behaviour notes per function are paraphrased from the catalogue (`summary`/`notes`,
@@ -14,6 +16,7 @@
 //! lists every function with its evidence.
 
 pub(crate) mod actor;
+mod ai_state;
 pub(crate) mod furniture;
 mod items;
 mod magic;
@@ -23,6 +26,9 @@ mod player;
 mod quest;
 mod refs;
 mod reputation;
+pub mod senses;
+pub mod stubs;
+pub mod ui;
 
 pub use reputation::{store as reputation_store, tiers as reputation_tiers};
 pub use actor::{actor_value, actor_value_capped, actor_value_parts, temporary as actor_value_temporary, add_damage as add_actor_value_damage, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
@@ -147,8 +153,10 @@ pub type FnImpl = fn(&mut Game, &Ctx, &Args) -> Result<Value, String>;
 #[derive(Clone, Copy)]
 pub enum Kind {
     Impl(FnImpl),
-    /// A Layer 6 system; the text names it.
+    /// A system not built yet; the text names it. Recorded in the trace, no effect.
     Stub(&'static str),
+    /// Deliberately nothing to do on this engine; the text says why. Returns 0.
+    NoOp(&'static str),
 }
 
 /// Every registered function: opcode, catalogue name, kind.
@@ -266,7 +274,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x126D, "ResetXP", Impl(player::reset_xp)),
         (0x123D, "GetReputation", Impl(player::get_reputation)),
         (0x1238, "SetReputation", Impl(player::set_reputation)),
-        (0x1204, "RewardKarma", Impl(player::reward_karma)),
+        (0x1204, "RewardKarma", Impl(crate::crime::reward_karma)),
         (0x124B, "SetHardcore", Impl(player::set_hardcore)),
         (0x1055, "ShowMap", Impl(player::show_map)),
         (0x11EC, "GetMapMarkerVisible", Impl(player::get_map_marker_visible)),
@@ -398,18 +406,18 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x105E, "EvaluatePackage", Impl(actor::evaluate_package)),
         (0x1097, "AddScriptPackage", Impl(actor::add_script_package)),
         (0x1098, "RemoveScriptPackage", Impl(actor::remove_script_package)),
-        (0x11FA, "ResetAI", Stub("AI packages")),
+        (0x11FA, "ResetAI", Impl(ai_state::reset_ai)),
         (0x1034, "SayTo", Impl(misc::say_to)),
         (0x1033, "Say", Impl(misc::say)),
         (0x1056, "StartConversation", Impl(misc::start_conversation)),
         (0x1016, "StartCombat", Impl(crate::awareness::start_combat)),
         (0x1017, "StopCombat", Impl(crate::awareness::stop_combat)),
         (0x1184, "SetDisposition", Stub("dialogue (disposition)")),
-        (0x115C, "SendTrespassAlarm", Stub("crime")),
+        (0x115C, "SendTrespassAlarm", Impl(crate::crime::send_trespass_alarm)),
         (0x1013, "PlayGroup", Impl(crate::anims::play_group)),
         (0x1190, "PlayIdle", Impl(crate::idles::play_idle)),
-        (0x105C, "Look", Stub("animation (head tracking)")),
-        (0x105D, "StopLook", Stub("animation (head tracking)")),
+        (0x105C, "Look", Impl(ai_state::look)),
+        (0x105D, "StopLook", Impl(ai_state::stop_look)),
         (0x11E4, "AgeRace", Stub("character appearance")),
         (0x1026, "PlaySound", Impl(crate::sound::play_sound)),
         (0x11FF, "PlayMusic", Impl(crate::sound::play_music)),
@@ -420,12 +428,12 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1240, "TriggerScreenSplatter", Stub("image space")),
         (0x1243, "SetScreenSplatterFade", Stub("image space")),
         (0x1241, "ClearScreenSplatter", Stub("image space")),
-        (0x112D, "ForceWeather", Stub("weather")),
-        (0x1158, "ReleaseWeatherOverride", Stub("weather")),
+        (0x112D, "ForceWeather", Impl(crate::weather::force_weather)),
+        (0x1158, "ReleaseWeatherOverride", Impl(crate::weather::release_weather_override)),
         (0x1186, "SetGlobalTimeMultiplier", Stub("time scale")),
         (0x1269, "SwapTexture", Stub("rendering")),
         (0x1225, "AutoDisplayObjectives", Stub("HUD")),
-        (0x11DD, "ForceActiveQuest", Stub("Pip-Boy")),
+        (0x11DD, "ForceActiveQuest", Impl(ui::force_active_quest)),
         (0x115E, "Autosave", Stub("saving")),
         (0x11E1, "GetPlayerName", Impl(misc::get_player_name)),
         (0x10DA, "ShowRaceMenu", Impl(misc::show_race_menu)),
@@ -433,13 +441,13 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1268, "ShowTraitMenu", Impl(misc::show_trait_menu)),
         (0x10A0, "GetFurnitureMarkerID", Impl(furniture::get_furniture_marker_id)),
         (0x1187, "GetHitLocation", Impl(actor::get_hit_location)),
-        (0x106E, "GetCurrentAIPackage", Stub("AI packages")),
-        (0x108F, "GetCurrentAIProcedure", Stub("AI packages")),
+        (0x106E, "GetCurrentAIPackage", Impl(ai_state::get_current_ai_package)),
+        (0x108F, "GetCurrentAIProcedure", Impl(ai_state::get_current_ai_procedure)),
         (0x10A1, "GetIsCurrentPackage", Impl(actor::get_is_current_package)),
         (0x10A2, "IsCurrentFurnitureRef", Impl(furniture::is_current_furniture_ref)),
         (0x1065, "IsWeaponOut", Impl(actor::is_weapon_out)),
         (0x106C, "GetWeaponAnimType", Impl(actor::get_weapon_anim_type)),
-        (0x111E, "IsSneaking", Stub("movement (sneaking)")),
+        (0x111E, "IsSneaking", Impl(senses::is_sneaking)),
         (0x1032, "GetTalkedToPC", Impl(misc::get_talked_to_pc)),
         (0x1245, "ShowLoveTesterMenuParams", Impl(misc::show_love_tester_menu)),
         (0x1173, "ShowBarterMenu", Impl(misc::show_barter_menu)),
@@ -449,7 +457,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1198, "GetVATSValue", Stub("combat (VATS)")),
         (0x105A, "SetAlert", Impl(crate::awareness::set_alert)),
         (0x1042, "GetShouldAttack", Stub("combat")),
-        (0x1275, "IncrementScriptedChallenge", Stub("challenges")),
+        (0x1275, "IncrementScriptedChallenge", Impl(ui::increment_scripted_challenge)),
         (0x1201, "ResetPipboyManager", Stub("Pip-Boy")),
         (0x122C, "ForceRadioStationUpdate", Impl(crate::radio::force_radio_station_update)),
         // Layer 6 systems added 2026-10-09 (function coverage round): recorded, no effect.
@@ -499,28 +507,36 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10E0, "GetVATSMode", Stub("combat (VATS)")),
         (0x102D, "GetDetected", Impl(crate::detection::get_detected)),
         (0x10B4, "GetDetectionLevel", Impl(crate::detection::get_detection_level)),
-        (0x101B, "GetLineOfSight", Stub("detection (line of sight)")),
+        (0x101B, "GetLineOfSight", Impl(senses::get_line_of_sight)),
         (0x115A, "SetAllVisible", Stub("detection")),
         (0x1068, "CreateDetectionEvent", Impl(crate::awareness::create_detection_event)),
-        (0x105F, "SendAssaultAlarm", Stub("crime")),
-        (0x1090, "GetTrespassWarningLevel", Stub("crime")),
-        (0x1091, "IsTrespassing", Stub("crime")),
-        (0x103D, "GetAlarmed", Stub("crime")),
-        (0x1075, "GetMajorCrimeCount", Stub("crime")),
+        // Karma and crime (crime.rs).
+        (0x105F, "SendAssaultAlarm", Impl(crate::crime::send_assault_alarm)),
+        (0x1090, "GetTrespassWarningLevel", Impl(crate::crime::get_trespass_warning_level)),
+        (0x1091, "IsTrespassing", Impl(crate::crime::is_trespassing)),
+        (0x103D, "GetAlarmed", Impl(crate::crime::get_alarmed)),
+        (0x1075, "GetMajorCrimeCount", Impl(crate::crime::get_major_crime_count)),
+        (0x1074, "GetMinorCrimeCount", Impl(crate::crime::get_minor_crime_count)),
+        (0x11CB, "GetActorCrimePlayerEnemy", Impl(crate::crime::get_actor_crime_player_enemy)),
+        (0x113A, "IsActorAVictim", Impl(crate::crime::is_actor_a_victim)),
+        (0x10B0, "IsPCAMurderer", Impl(crate::crime::is_pc_a_murderer)),
+        (0x11DA, "GetIsAlignment", Impl(crate::crime::get_is_alignment)),
+        (0x1118, "IsCellOwner", Impl(crate::crime::is_cell_owner)),
+        (0x1092, "IsInMyOwnedCell", Impl(crate::crime::is_in_my_owned_cell)),
         (0x124E, "GetOwnerLastTarget", Stub("crime")),
         (0x11AE, "IsActorTalkingThroughActivator", Stub("dialogue (talking activators)")),
         (0x11B3, "GetDialogueEmotion", Impl(misc::get_dialogue_emotion)),
         (0x104C, "GetDisposition", Stub("dialogue (disposition)")),
-        (0x1277, "AlwaysShowActorSubtitles", Stub("HUD (subtitles)")),
+        (0x1277, "AlwaysShowActorSubtitles", Impl(senses::always_show_actor_subtitles)),
         (0x1263, "PlaceAtReticle", Stub("HUD (reticle)")),
-        (0x1019, "IsMoving", Stub("movement")),
+        (0x1019, "IsMoving", Impl(senses::is_moving)),
         (0x101A, "IsTurning", Stub("movement")),
-        (0x111F, "IsRunning", Stub("movement")),
+        (0x111F, "IsRunning", Impl(senses::is_running)),
         (0x10B9, "IsSwimming", Stub("movement (swimming)")),
         (0x10D3, "SetForceSneak", Stub("movement (sneaking)")),
         (0x1166, "IsPlayerMovingIntoNewSpace", Stub("movement")),
         (0x1170, "IsPlayerActionActive", Stub("player input")),
-        (0x1188, "IsPC1stPerson", Stub("camera")),
+        (0x1188, "IsPC1stPerson", Impl(senses::is_pc_1st_person)),
         (0x118A, "PushActorAway", Stub("physics (ragdoll)")),
         (0x11D0, "IsPlayerGrabbedRef", Stub("physics (grab)")),
         (0x110C, "trapUpdate", Stub("physics (traps)")),
@@ -531,25 +547,25 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1248, "SetSecuritronExpression", Stub("rendering")),
         (0x1146, "Reset3DState", Stub("rendering")),
         (0x1211, "AttachAshPile", Stub("rendering (death effects)")),
-        (0x115D, "SetSceneIsComplex", Stub("rendering")),
+        (0x115D, "SetSceneIsComplex", NoOp("performance switch of the original's AI")),
         (0x1196, "SetCellImageSpace", Stub("image space")),
-        (0x1104, "SetWeather", Stub("weather")),
-        (0x103E, "IsRaining", Stub("weather")),
-        (0x1095, "GetIsCurrentWeather", Stub("weather")),
+        (0x1104, "SetWeather", Impl(crate::weather::set_weather)),
+        (0x103E, "IsRaining", Impl(crate::weather::is_raining)),
+        (0x1095, "GetIsCurrentWeather", Impl(crate::weather::get_is_current_weather)),
         (0x11F7, "GetRadiationLevel", Stub("radiation (environment)")),
         (0x11D6, "StartRadioConversation", Impl(crate::radio::start_radio_conversation)),
         (0x1224, "PipBoyRadioOff", Impl(crate::radio::pipboy_radio_off)),
         (0x11A7, "PipBoyRadio", Impl(crate::radio::pipboy_radio)),
         (0x11C4, "SetNPCRadio", Impl(crate::radio::set_npc_radio)),
-        (0x11FB, "SetRumble", Stub("controller rumble")),
-        (0x1189, "PurgeCellBuffers", Stub("memory (cell buffers)")),
-        (0x1163, "PreloadMagicEffect", Stub("loading")),
-        (0x1223, "ForceTerminalBack", Stub("menus (terminal)")),
+        (0x11FB, "SetRumble", NoOp("controller rumble: no controller rumble on the PC version")),
+        (0x1189, "PurgeCellBuffers", NoOp("memory: the original's cell buffers; cells here load and unload by distance")),
+        (0x1163, "PreloadMagicEffect", NoOp("loading: effect particles load when drawn")),
+        (0x1223, "ForceTerminalBack", Impl(ui::force_terminal_back)),
         (0x125A, "ShowCaravanMenu", Stub("menus (Caravan)")),
         (0x125B, "AddCardToPlayer", Stub("Caravan")),
         (0x11C8, "OpenTeammateContainer", Stub("menus (companion inventory)")),
-        (0x1219, "AddSPECIALPoints", Stub("menus (character creation)")),
-        (0x1218, "SetSPECIALPoints", Stub("menus (character creation)")),
+        (0x1219, "AddSPECIALPoints", Impl(ui::add_special_points)),
+        (0x1218, "SetSPECIALPoints", Impl(ui::set_special_points)),
         (0x117A, "ShowRepairMenu", Stub("menus (repair)")),
         (0x1250, "ShowRecipeMenu", Stub("menus (crafting)")),
         (0x1254, "ShowBlackJackMenuParams", Stub("menus (casino)")),
@@ -568,8 +584,8 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x120A, "GetIsLockBroken", Impl(refs::get_is_lock_broken)),
         (0x127B, "SystemSave", Stub("saving")),
         (0x1217, "ForceSave", Stub("saving")),
-        (0x11B5, "ExitGame", Stub("application")),
-        (0x121B, "AddTagSkills", Stub("menus (character creation)")),
+        (0x11B5, "ExitGame", Stub("menus (credits, main menu)")),
+        (0x121B, "AddTagSkills", Impl(ui::add_tag_skills)),
         (0x119F, "Exists", Stub("dialogue (combat dialogue)")),
         (0x1130, "IsWaterObject", Stub("AI (drinking)")),
     ]
@@ -585,20 +601,21 @@ pub fn lookup(opcode: u16) -> Option<&'static Kind> {
     index().get(&opcode).map(|&i| &registry()[i].2)
 }
 
-/// Whether an opcode is implemented (stubs count as handled, not implemented).
+/// Whether an opcode is implemented: an implementation, or deliberately nothing to do
+/// (stubs count as handled, not implemented).
 pub fn implemented(opcode: u16) -> bool {
-    matches!(lookup(opcode), Some(Kind::Impl(_)))
+    matches!(lookup(opcode), Some(Kind::Impl(_) | Kind::NoOp(_)))
 }
 
 pub fn is_stub(opcode: u16) -> bool {
     matches!(lookup(opcode), Some(Kind::Stub(_)))
 }
 
-pub(crate) fn yes(b: bool) -> Result<Value, String> {
+pub fn yes(b: bool) -> Result<Value, String> {
     Ok(Value::bool(b))
 }
 
-pub(crate) fn none() -> Result<Value, String> {
+pub fn none() -> Result<Value, String> {
     Ok(Value::ZERO)
 }
 

@@ -856,12 +856,15 @@ or used by conditions; shares by the catalogue's `script_calls` + `condition_use
 | all, round 2 | 133 implemented, 60 stubs | 88.1% | 95.0% |
 | all, round 3 | 225 implemented, 170 stubs, 5 unhandled (+ the unknown 0x127C) | 92.6% | 99.98% |
 | all, round 4 | 232 implemented, 163 stubs, 5 unhandled (+ 0x127C) | 93.7% | 99.98% |
+| all, stub audit (2026-10-12, with the combat merge) | 301 implemented (4 deliberate no-ops among them), 94 stubs, 5 unhandled | 98.5% | 99.98% |
 | top 40 by use | 36 implemented, 4 stubs (SayTo, StartCombat, PlayGroup, ResetAI) | 78.4% of all uses are in these 40 | |
 | intro chain (295 units, 248 conditions; `fnv_game::intro`), round 3 | 72 of 110 implemented, 38 stubs | 83.2% (all 248 conditions) | 100% |
 | intro chain, round 4 | 79 of 110 implemented, 31 stubs | 88.5% | 100% |
 
 The intro chain has no unhandled function left: SetLevel is implemented and
-SetSPECIALPoints is a menu stub (character creation).
+SetSPECIALPoints is a menu stub (character creation). After the stub audit of 2026-10-12
+the intro chain has 98 of 110 implemented, 12 stubs (94.5%). Every remaining stub, its use
+and what it waits for: docs/design/script-stubs.md (`fnvtool script stubs`).
 
 ### 7.6 Round 3 state and rules (2026-10-09)
 

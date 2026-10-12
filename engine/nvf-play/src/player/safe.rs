@@ -204,7 +204,8 @@ pub const AIM_HEIGHTS: [f32; 4] = [60.0, 30.0, 90.0, 0.0];
 /// A standing spot from which `target` (its position `target_pos`) can be activated: on
 /// rings around it, grounded and with room ([`stand`], not on the target itself), with a
 /// point of the target within `reach` of the eye whose view ray hits the target's
-/// collision first ([`AIM_HEIGHTS`] above its position); else, for references without
+/// collision first ([`AIM_HEIGHTS`] above its position); else from closer spots at points of
+/// the target near its position (a floor safe); else, for references without
 /// collision, the first spot with nothing between the eye and the position
 /// [engineering choice]. Returns the feet and the heading and pitch that look at it.
 pub fn reach_spot(phys: &mut PhysState, eye_height: f32, target: u32, target_pos: [f32; 3], reach: f32) -> Option<([f32; 3], f32, f32)> {
@@ -231,6 +232,32 @@ pub fn reach_spot(phys: &mut PhysState, eye_height: f32, target: u32, target_pos
                     unblocked = Some((feet, heading, pitch));
                 }
                 _ => {}
+            }
+        }
+    }
+    // A low reference hemmed in by furniture (a floor safe half under a mattress): spots
+    // close to it, aiming at points of it within 20 units of its position [engineering
+    // choice].
+    const NEAR_RADII: [f32; 2] = [25.0, 40.0];
+    const ON: [f32; 5] = [0.0, -10.0, 10.0, -20.0, 20.0];
+    for at in ring_spots(target_pos, &NEAR_RADII, 16) {
+        let Some(feet) = stand(phys, at, Some(target)) else { continue };
+        let eye = [feet[0], feet[1], feet[2] + eye_height];
+        for dx in ON {
+            for dy in ON {
+                let p = [target_pos[0] + dx, target_pos[1] + dy, target_pos[2]];
+                let d = dist2(eye, p).sqrt();
+                if d > reach || d < 1.0 {
+                    continue;
+                }
+                let dir = [(p[0] - eye[0]) / d, (p[1] - eye[1]) / d, (p[2] - eye[2]) / d];
+                match phys.world.queries().ray(eye, dir, reach, &f) {
+                    Some(hit) if matches!(hit.owner, Owner::Ref { form_id, .. } if form_id == target) => {
+                        let (heading, pitch) = aim(eye, hit.point);
+                        return Some((feet, heading, pitch));
+                    }
+                    _ => {}
+                }
             }
         }
     }

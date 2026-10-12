@@ -757,6 +757,13 @@ impl Runtime {
                     debug!("test aid: activated {r}: {:?}", a.outcome);
                 }
             }
+            ScriptAid::Kill(r) => {
+                let r = resolve(g, r)?;
+                if !g.kill(r, Some(FormId::PLAYER_REF)) {
+                    return Err(format!("{r} is dead already"));
+                }
+                info!("test aid: the player killed {r}");
+            }
             ScriptAid::Enable(r) => {
                 let r = resolve(g, r)?;
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: 0x1021, on: Some(r), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
@@ -788,12 +795,48 @@ impl Runtime {
                     return Err(format!("{} does not play {}", g.data.name(r), g.data.name(idle)));
                 }
             }
+            ScriptAid::Call(on, func, args) => {
+                let opcode = g.data.table.by_name(func).ok_or_else(|| format!("{func} is not a script function"))?;
+                let on = if on == "-" { None } else { Some(resolve(g, on)?) };
+                let mut values = Vec::new();
+                for a in args {
+                    values.push(match a.parse::<f64>() {
+                        Ok(n) => ArgValue::Value(Value::Num(n)),
+                        Err(_) => ArgValue::Value(Value::Ref(resolve(g, a)?.0)),
+                    });
+                }
+                let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode, on, self_ref: on, action_ref: None, quest: None, inst: None, in_condition: false };
+                let from = g.events.len();
+                g.call_function(&ctx, &values);
+                if let Some(EventKind::CallFailed { error, .. }) = g.events[from..].iter().map(|e| &e.kind).find(|k| matches!(k, EventKind::CallFailed { .. })) {
+                    return Err(format!("{func}: {error}"));
+                }
+                info!("script: test aid calls {func}{}", on.map(|r| format!(" on {}", g.data.name(r))).unwrap_or_default());
+            }
             ScriptAid::Damage(r, value, amount) => {
                 let r = resolve(g, r)?;
                 let code = fnv_game::functions::av_code(g, value)?;
                 fnv_game::functions::add_actor_value_damage(g, r, code, *amount);
                 let now = fnv_game::functions::actor_value(g, r, code)?;
                 info!("test aid: {} {value} damaged by {amount}: now {now:.1}", g.data.name(r));
+            }
+            ScriptAid::SetAv(r, value, v) => {
+                let r = resolve(g, r)?;
+                let code = fnv_game::functions::av_code(g, value)?;
+                fnv_game::functions::set_actor_value_current(g, r, code, *v)?;
+                info!("test aid: {} {value} set to {v}", g.data.name(r));
+            }
+            ScriptAid::Hardcore(on) => {
+                g.player.hardcore = Some(*on);
+                info!("test aid: Hardcore mode {}", if *on { "on" } else { "off" });
+            }
+            ScriptAid::Perk(p) => {
+                let p = resolve(g, p)?;
+                if !g.data.perks.contains_key(&p) {
+                    return Err(format!("{} is not a perk", g.data.name(p)));
+                }
+                *g.player.perks.entry(p).or_default() += 1;
+                info!("test aid: the player has the perk {}", g.data.name(p));
             }
             ScriptAid::Walk(_) => unreachable!("handled by the caller"),
             ScriptAid::Var(of, var, value) => {

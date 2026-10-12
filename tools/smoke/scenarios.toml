@@ -160,22 +160,27 @@ order = [[
 
 [[scenario]]
 name = "graphics-enhanced"
-source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, and its switches change while the game runs"
+source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, its switches change while the game runs, and temporal anti-aliasing replaces the multisampling and back without a rendering error"
 areas = ["renderer", "graphics"]
 paths = [
   "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao*", "engine/nvforever/src/post*",
+  "engine/nvforever/src/taa*", "engine/nvforever/src/shafts*",
   "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs",
 ]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16,19.5:20.5", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion,15:taa,15.5:light-shafts,20:taa", NVF_PLAY_TEST_LOOK = "17:90:0,17.5:120:0,18:150:0", NVF_PLAY_TEST_MOVE = "17:1:0,19:0:0" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--graphics", "enhanced"]
 run_seconds = 22
 order = [[
-  "graphics: ambient occlusion, finer, longer shadows, bloom, sharpening, 16x anisotropic filtering",
-  { re = 'graphics: finer, longer shadows, bloom, sharpening, 16x anisotropic filtering$' },
-  { re = 'graphics: finer, longer shadows, sharpening, 16x anisotropic filtering$' },
-  { re = 'graphics: sharpening, 16x anisotropic filtering$' },
-  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering$' },
+  "graphics: ambient occlusion, finer, longer shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections",
+  { re = 'graphics: finer, longer shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: finer, longer shadows, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, temporal anti-aliasing, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, temporal anti-aliasing, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, screen-space water reflections$' },
 ]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the multisampling changes" }]
 
 # ------------------------------------------------------------------ navmesh and AI
 
@@ -1046,20 +1051,24 @@ expect = [
 
 [[scenario]]
 name = "lockpick"
-source = "docs/spec-notes/lockpicking.md §7: the wall safe in GSHouseInterior02 (level 50, its key not carried), refused at Lockpick 30, picked at 55 after a pin breaks"
+source = "docs/spec-notes/lockpicking.md §7: the wall safe in GSHouseInterior02 (level 50, its key not carried), refused at Lockpick 30, picked at 55 after a pin breaks; the help message the first time"
 areas = ["lockpick"]
-paths = ["crates/fnv-game/src/lockpick.rs", "engine/nvf-play/src/lockpick*", "engine/nvforever/src/lockpick_view.rs", "engine/nvf-play/src/activate.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105229", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_ACTIVATE = "12,15,32", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:skill:55,17:off:20,17.5:torque:2,24:spot,24.5:torque:2" }
+paths = ["crates/fnv-game/src/lockpick.rs", "engine/nvf-play/src/lockpick*", "engine/nvf-play/src/lockpick/**", "engine/nvforever/src/lockpick_view.rs", "engine/nvf-play/src/activate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105229", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_ACTIVATE = "12,15,32", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:skill:55,16:help,17:off:20,17.5:torque:2,24:spot,24.5:torque:2" }
 args = ["--cell", "GSHouseInterior02", "--play", "--no-voice"]
 run_seconds = 36
 order = [[
   'lockpick: 0x00105229 Safe refused (Lockpick 30): on screen: "You need a Lockpick skill of 50 to pick this lock."',
   "lockpick: open 0x00105229 Safe: Average lock (Lockpick 55, 3 bobby pins)",
+  'lockpick: help message 0x0000017C "Lockpicking" shown (first use): "WSAD: Apply torque with the screwdriver"',
   "lockpick view: the lock drawn",
+  "lockpick: help message closed",
   "lockpick: the bobby pin broke, 2 left",
   "lockpick: a new bobby pin is in",
   "picked open (Average lock, 40 XP)",
   "lockpick: crime hook: 0x00105229",
+  "lockpick: leaving (the game is over)",
+  "lockpick: closed (the game is over)",
   "menu: open Container(0x00105229)",
 ]]
 expect = [
@@ -1067,6 +1076,34 @@ expect = [
   "ui sounds: lockpick pin broke: UILockpickingPickBreak",
   "ui sounds: lockpick lock opened: UILockpickingUnlock",
   "lockpick summary: 2 asked, 1 opened (1 refused); 1 picked, 0 forced, 0 broken by forcing; 2 torque tries, 1 pins broken, 0 times out of pins; 0 left before the end",
+]
+
+[[scenario]]
+name = "lockpick-floor-safe"
+source = "docs/spec-notes/lockpicking.md §7: Ringo's floor safe in GSGasStation (level 25, half under a mattress) targeted from where NVF_PLAY_TEST_NEAR stands; the help the first time only, leaving with the pin pulled out, a failed Force Lock breaks it for good and the next activation is refused"
+areas = ["lockpick"]
+paths = ["crates/fnv-game/src/lockpick.rs", "engine/nvf-play/src/lockpick*", "engine/nvf-play/src/lockpick/**", "engine/nvforever/src/lockpick_view.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/**", "engine/nvf-play/src/player/safe.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0010B2D4", NVF_PLAY_TEST_GIVE = "0000000A:2", NVF_PLAY_TEST_ACTIVATE = "12,18.5,23", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:help,15:pin:60,15.5:torque:0.6,17:exit,19:force:99" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice"]
+run_seconds = 26
+order = [[
+  "target 0x0010B2D4 Floor Safe (Locked (Easy)) by Collision",
+  "lockpick: open 0x0010B2D4 Floor Safe: Easy lock (Lockpick 30, 2 bobby pins)",
+  'lockpick: help message 0x0000017C "Lockpicking" shown (first use)',
+  "lockpick: help message closed",
+  "lockpick: torque on, pin at 60.0°",
+  "lockpick: leaving (the player left)",
+  "lockpick: closed (the player left)",
+  "lockpick: open 0x0010B2D4 Floor Safe: Easy lock (Lockpick 30, 2 bobby pins)",
+  "lockpick: Force Lock (15%, roll 99.0): 0x0010B2D4 broken for good, the pin with it (1 left)",
+  "lockpick: leaving (the game is over)",
+  "lockpick: closed (the game is over)",
+  'lockpick: 0x0010B2D4 Floor Safe refused (Lockpick 30): on screen: "This lock is broken. It can only be opened with a key."',
+]]
+expect = [
+  { text = "lockpick: help message 0x0000017C", count = 1 },
+  "ui sounds: lockpick lock broken by forcing: UILockpickingForceFail",
+  "lockpick summary: 3 asked, 2 opened (1 refused); 0 picked, 0 forced, 1 broken by forcing; 1 torque tries, 0 pins broken, 0 times out of pins; 1 left before the end",
 ]
 
 # ------------------------------------------------------------------ converted 2026-10-12 (prose added on main by PR #226)
@@ -1204,6 +1241,62 @@ expect = [
   { re = 'cell reset: GNDeadTribalVillage after 7\d\.\d h away: (?P<n>\d+) actors back alive: .*TCFiend01DEAD', range = [7, 100], label = "cell reset: the village's seven Fiends or more back alive" },
 ]
 
+# ------------------------------------------------------------------ script stubs
+
+[[scenario]]
+name = "script-stubs"
+kind = "tool"
+source = "docs/design/script-stubs.md §1-§2: the audit of the stubbed script functions over the ten masters"
+areas = ["scripts", "stubs"]
+paths = ["crates/fnv-game/src/functions/mod.rs", "crates/fnv-game/src/functions/stubs.rs", "crates/fnvtool/src/script_cmd.rs"]
+commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"]]
+# The counts of script-stubs.md §1 (a function implemented later lowers them: update the
+# doc's tables and these together). Karma and crime (claude/karma-crime) implemented six
+# stubs (SendAssaultAlarm, SendTrespassAlarm, GetTrespassWarningLevel, IsTrespassing,
+# GetAlarmed, GetMajorCrimeCount: 100 calls, 32 condition uses) and the unregistered GetIsAlignment.
+expect = [
+  { json = "summary.stubs", equals = 88 },
+  { json = "summary.by_status.assigned", equals = 17 },
+  { json = "summary.by_status.implementable", equals = 10 },
+  { json = "summary.by_status.needs_system", equals = 61 },
+  { json = "summary.by_status.no_op", equals = 4 },
+  { json = "summary.by_workstream.E2 combat AI", equals = 15 },
+  { json = "summary.by_workstream.J karma and crime", equals = 1 },
+  { json = "summary.by_workstream.H followers", equals = 1 },
+  { json = "summary.stub_calls", equals = 1452 },
+  { json = "summary.stub_condition_uses", equals = 623 },
+  { json = "summary.unhandled_used", equals = 4 },
+]
+
+[[scenario]]
+name = "script-stubs-play"
+source = "docs/design/script-stubs.md §3: Look and StopLook on Sunny (10 s apart), a held SetWeather and its release, ForceActiveQuest on the Pip-Boy (the test aid call:)"
+areas = ["scripts", "stubs", "weather", "pipboy"]
+paths = [
+  "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-game/src/functions/ui.rs",
+  "crates/fnv-game/src/weather.rs", "engine/nvforever/src/script_look.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:SunnyRef:Look:player,8:call:-:SetWeather:0x000E3792:1,10:call:-:ReleaseWeatherOverride,14:call:SunnyRef:StopLook,15:objective:VCG02:3,15.5:call:-:ForceActiveQuest:VCG02", NVF_PLAY_TEST_PIPBOY = "22:open,23:page=data,25:close" }
+# --no-messages: the add-on start-up boxes, late on a loaded machine, kept the Pip-Boy
+# from coming up once.
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 28
+# StopLook comes 10 s after Look: aids due while the start-up loading screen is up run
+# together in its first frame (a loaded machine kept it up past 10 s once), and a Look
+# taken back in the same frame is never drawn.
+order = [
+  [
+    { re = 'script look: .* looks at ', label = "script look: Sunny looks at the player" },
+    { re = 'script look: .* stops looking', label = "script look: Sunny stops looking" },
+  ],
+  [
+    { re = 'weather: \S+ by a script \(fading in, held until released\)', label = "weather: SetWeather 0x000E3792 1, held" },
+    "weather: a script releases its weather",
+    { re = 'pipboy data: active quest .* \(ForceActiveQuest\)', label = "pipboy data: VCG02 made the active quest" },
+  ],
+]
+expect = ["script look summary: 1 looks started, 1 stopped"]
+
 # ------------------------------------------------------------------ aid items (docs/spec-notes/aid-items.md)
 
 [[scenario]]
@@ -1244,11 +1337,97 @@ expect = [
   "inventory item used: NPCHumanUsingStimpak",
   "aid: the player used Stimpak (potency 1.30): Health +39.0 at once, limbs too; Health 140 → 179",
   "aid: the player used WaterPurified (potency 1.30): Health +2.6 a second for 5 s",
-  "aid: the player used Buffout (potency 1.00): Strength +2.0 while it lasts (240 s), Endurance +3.0 while it lasts (240 s), Health +60.0 while it lasts (240 s); usage 30; addiction chance 0.00; Strength 5 → 7, Endurance 5 → 8",
+  "aid: the player used Buffout (potency 1.00): Strength +2.0 while it lasts (240 s), Endurance +3.0 while it lasts (240 s), Health +60.0 while it lasts (240 s); usage 30; addiction chance 0.00; carry capacity 200 → 220; Strength 5 → 7, Endurance 5 → 8, Carry Weight 200 → 220",
   # When Buffout comes in the 5 s of the water depends on the message boxes; the sum not.
   "aid: WaterPurified's effects on the player ended: Health ",
-  "aid summary: 3 items used (Buffout 1, Stimpak 1, WaterPurified 1), 6 effects started, 2 ended; addictions: none; 0 cured; the player at exit: Strength 7, Endurance 8, Health 252",
+  "aid summary: 3 items used (Buffout 1, Stimpak 1, WaterPurified 1), 6 effects started, 2 ended; addictions: none; 0 cured; 0 stage changes; 0 hours waited for effects; the player at exit: Strength 7, Endurance 8, Carry Weight 220, Health 252",
 ]
+
+[[scenario]]
+name = "aid-perks-needs-survey"
+kind = "tool"
+source = "aid leftovers (docs/spec-notes/aid-items.md §6, §10-§12): the masters' perk entry points and need stages; three Buffouts with Chemist and Chem Resistant then a five-hour wait; Hardcore needs over three hours slept"
+areas = ["aid", "perks", "hardcore"]
+paths = ["crates/fnv-game/src/perks.rs", "crates/fnv-game/src/needs.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs", "crates/fnvtool/src/actor_aid.rs"]
+commands = [
+  ["actor", "aid", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--item", "Buffout", "--perks", "--use", "Buffout", "--use", "Buffout", "--use", "Buffout", "--perk", "Chemist", "--perk", "ChemResistant", "--seconds", "1", "--wait", "5"],
+  ["actor", "aid", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--item", "WaterPurified", "--hardcore", "--set", "Dehydration:195", "--set", "SleepDeprivation:250", "--use", "WaterPurified", "--use", "NukaCola", "--seconds", "1", "--wait", "3", "--sleep"],
+]
+# §10: 109 perks with entry point effects; one Chem Resistant (23), Chemist and the chem
+# challenge perk (25), Lead Belly (44). §11: five stages per need. Chemist doubles 240 s
+# to 480 s; usage 90 gives 0.2, Chem Resistant halves it; Buffout's +20 capacity outlasts
+# 5 hours (600 s) of a 1,440 s effect. Hardcore: 3 hours slept take Sleep Deprivation 235
+# to 0 and add 3 x 4.8 Hunger.
+expect = [
+  { json = "perks.count", equals = 109 },
+  { json = "perks.entries_by_entry_point.23", equals = 1 },
+  { json = "perks.entries_by_entry_point.25", equals = 2 },
+  { json = "perks.entries_by_entry_point.44", equals = 1 },
+  { json = "need_stages.Dehydration.#", equals = 5 },
+  { json = "use.uses.*.changes.*.duration", equals = 480.0, count = 3, label = "the first Buffout's three effects last 480 s" },
+  { json = "use.uses.?item=Buffout.addiction.chance", range = [0.0999, 0.1001], label = "the third Buffout's addiction chance 0.1" },
+  { json = "use.wait.values_after.carry_capacity", equals = 220.0 },
+  { json = "use.stage_changes.*.spell", equals = "SleepDeprivation200" },
+  { json = "use.wait.values_after.Sleep Deprivation", equals = 0.0 },
+  { json = "use.wait.values_after.Hunger", range = [14.43, 14.45] },
+]
+
+[[scenario]]
+name = "aid-wait-perks"
+source = "aid leftovers (docs/spec-notes/aid-items.md §6, §10, §12): Buffout with Chemist and Chem Resistant raises the carry capacity, and wears off during a five-hour wait"
+areas = ["aid", "wait", "perks"]
+paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/perks.rs", "crates/fnv-game/src/needs.rs", "crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/aid.rs", "engine/nvf-play/src/wait.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00015163:1", NVF_PLAY_TEST_SCRIPT = "3:perk:Chemist,3.5:perk:ChemResistant", NVF_PLAY_TEST_DROP = "6:00015163:use", NVF_PLAY_TEST_WAIT = "14:open,15:hours=5,16:accept" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 26
+expect = [
+  "test aid: the player has the perk Chemist",
+  "aid: the player used Buffout (potency 1.00): Strength +2.0 while it lasts (480 s), Endurance +3.0 while it lasts (480 s), Health +60.0 while it lasts (480 s); usage 30; addiction chance 0.00; perks: Chemist (entry point 25); carry capacity 200 → 220",
+  # 480 s of Buffout, a few seconds of it played before the wait: it ends in hour 4.
+  { re = 'wait: hour 3 passed for the player \(120 s of effects\): 0 effect\(s\) ended' },
+  { re = 'wait: hour 4 passed for the player \(120 s of effects\): 3 effect\(s\) ended' },
+  "aid: Buffout's effects on the player ended: Strength 5, Endurance 5, Carry Weight 200, Health 200",
+  { re = 'wait summary: .*\b5 hours passed' },
+]
+
+[[scenario]]
+name = "aid-hardcore"
+source = "aid leftovers (docs/spec-notes/aid-items.md §11): Hardcore needs, their stage effects, water lowering dehydration and a sleep lowering sleep deprivation"
+areas = ["aid", "wait", "hardcore"]
+paths = ["crates/fnv-game/src/needs.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs", "engine/nvf-play/src/aid.rs", "engine/nvf-play/src/wait.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00176ACE", NVF_PLAY_TEST_GIVE = "000151A3:1", NVF_PLAY_TEST_SCRIPT = "3:hardcore:1,3.2:set_av:player:Dehydration:205,3.4:set_av:player:SleepDeprivation:250", NVF_PLAY_TEST_DROP = "8:000151A3:use", NVF_PLAY_TEST_ACTIVATE = "16", NVF_PLAY_TEST_WAIT = "22:open,23.5:hours=3,24.5:accept" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "22", "--no-voice"]
+run_seconds = 32
+expect = [
+  "test aid: Hardcore mode on",
+  { re = 'needs: Dehydration 20\d: Dehydration200' },
+  { re = 'needs: Sleep Deprivation 25\d: SleepDeprivation200' },
+  # Minor Dehydration's Endurance -1 lowers Survival, so the water's potency is under 1.3.
+  { re = 'aid: the player used WaterPurified .*Dehydration \+6\d\.\d at once' },
+  { re = 'needs: Dehydration 1[34]\d[\d.]*: no stage' },
+  "wait menu: open as sleep",
+  { re = 'wait: hour 1 passed for the player \(120 s of effects\): \d+ effect\(s\) ended; Dehydration [\d.]+ → [\d.]+, Hunger [\d.]+ → [\d.]+, Sleep Deprivation 2\d\d[\d.]* → 1\d\d' },
+  { re = 'needs: Sleep Deprivation 1\d\d[\d.]*: no stage' },
+  { re = 'aid summary: .*\(Hardcore\); the player at exit: .*Sleep Deprivation 0' },
+]
+
+[[scenario]]
+name = "aid-stealth-boy"
+source = "aid leftovers (docs/spec-notes/aid-items.md §2): the sneaking player is noticed by a settler in Goodsprings at noon; a Stealth Boy hides the player (no visual term) and draws the body see-through"
+areas = ["aid", "detection"]
+paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/detection.rs", "engine/nvforever/src/stealth_field.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00043E94:1", NVF_PLAY_TEST_CONTROL = "6:view,10:sneak", NVF_PLAY_TEST_DROP = "21:00043E94:use" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 32
+expect = [
+  { re = 'stealth field: on \(Chameleon 75\): [1-9]\d* meshes see-through' },
+]
+order = [[
+  { re = 'detection: GSSettlerAM 00104F0A → the player: hidden → noticed .*sneaking' },
+  "aid: the player used StealthBoy (potency 1.00): Chameleon +75.0 while it lasts (120 s), Sneak +100.0 while it lasts (120 s)",
+  { re = 'detection: GSSettlerAM 00104F0A → the player: (noticed|detected) → hidden \(value -?[\d.]+: sound [\d.]+, visual 0\.0, .*sneaking' },
+]]
+manual = "a shot after 22 s shows the player's body faint and bluish (third person)"
 
 [[scenario]]
 name = "no-messages"
@@ -1265,4 +1444,66 @@ order = [[
 ]]
 expect = [
   { text = "--no-messages: closed message box", min = 12 },
+]
+
+# ------------------------------------------------------------------ karma and crime (docs/spec-notes/crime-karma.md)
+
+[[scenario]]
+name = "karma-survey"
+kind = "tool"
+source = "owner's playtest list 2 (2026-10-12), karma and crime: the settings, alignments and ownership the rules read (docs/spec-notes/crime-karma.md §2, §8)"
+areas = ["crime", "karma"]
+paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/data.rs", "crates/fnvtool/src/actor_karma.rs"]
+commands = [["actor", "karma", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--survey", "--actor", "FiendVioletRef", "--actor", "SunnyRef", "--actor", "GSChetRef", "--cell", "GSGeneralStore"]]
+expect = [
+  { json = "settings.fKarmaModKillingEvilActor", equals = 100.0 },
+  { json = "settings.fKarmaModStealing", equals = -5.0 },
+  { json = "settings.iGuardWarnings", equals = 2.0 },
+  { json = "settings.KarmaEvil", equals = -250.0 },
+  { json = "settings.KarmaVeryGood", equals = 750.0 },
+  { json = "actors.?actor=FiendVioletRef.alignment", equals = "Evil" },
+  { json = "actors.?actor=FiendVioletRef.kill_karma_in_a_fight_it_started", equals = 100.0 },
+  { json = "actors.?actor=SunnyRef.alignment", equals = "Very Good" },
+  { json = "actors.?actor=GSChetRef.kill_karma_as_murder", equals = -25.0 },
+  { json = "cells.?cell=GSGeneralStore.owner", equals = "GSChet" },
+  { json = "cells.?cell=GSGeneralStore.public", equals = true },
+  { json = "survey.cells.counts.owned_not_public_interior", equals = 23 },
+  { json = "survey.factions.counts.evil", equals = 44 },
+  { json = "survey.factions.counts.track_crime", equals = 188 },
+  { json = "survey.actors.placed_by_karma.NPC.Very Evil", equals = 15 },
+]
+manual = "on a failure, explain the change against docs/spec-notes/crime-karma.md §2"
+
+[[scenario]]
+name = "crime-steal"
+source = "owner's playtest list 2 (2026-10-12): stealing in front of the owner turns him hostile and costs karma (docs/spec-notes/crime-karma.md §3.1, §8)"
+note = "the player is put at Chet's counter at 14 s (after the add-ons' start-up message boxes) and takes the carton of cigarettes 0x00106D34 behind it at 20 s; Chet's store is his (CELL XOWN GSChet), public"
+areas = ["crime", "karma"]
+paths = ["crates/fnv-game/src/crime.rs", "engine/nvf-play/src/crime.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/model.rs", "engine/nvf-play/src/reticle.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOTO = "14:-400:540:560", NVF_PLAY_TEST_SCRIPT = "20:activate:0x00106D34" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 32
+order = [[
+  { re = 'crime: the player took .* \(0x00106D34\) x1, owned by someone else', label = "the carton taken is theft" },
+  { re = 'crime: karma -5 for stealing', label = "karma -5 for the theft" },
+  { re = 'crime: theft against GSChet .*turned on the player: \[GSChetRef 0x00104C79\]', label = "Chet saw it and turns on the player" },
+]]
+expect = [
+  { re = 'GSChet 00104C79 \w+ → Combat', label = "Chet fights" },
+  { re = 'crime summary: 1 thefts \(1 seen\)', label = "crime summary: one theft, seen" },
+]
+forbid = [{ re = 'the player died', label = "the player dies" }]
+
+[[scenario]]
+name = "karma-fiend"
+source = "owner's playtest list 2 (2026-10-12): killing an evil actor raises karma (docs/spec-notes/crime-karma.md §4, §8)"
+note = "beside Violet's camp (as music-battle); the script test aid kills Violet as the player at 14 s (Game::kill with the player as the killer): shooting her was not repeatable at the run's frame rate (a hunting rifle's shots were dropped, the 10mm pistol does 8 a hit against her DT)"
+areas = ["crime", "karma"]
+paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/combat.rs", "engine/nvf-play/src/crime.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:kill:FiendVioletRef" }
+args = ["--cell", "Goodsprings", "--pos=-46800,65000,4600", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 24
+expect = [
+  { re = 'crime: karma \+100 for killing .*\(Evil\), now 100', label = "karma +100 for killing Violet" },
+  { re = 'crime summary: .* 0 murders', label = "no murder" },
 ]

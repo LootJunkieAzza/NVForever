@@ -12,8 +12,8 @@
 //!   withdrawal is active (§5.3); a Cure Addiction effect removes addictions (§5.4).
 
 use crate::data::{
-    EffectItem, IngestibleDef, MagicEffectDef, ARCHETYPE_CURE_ADDICTION, ARCHETYPE_LIMB_CONDITION, ARCHETYPE_VALUE_AND_PARTS,
-    ARCHETYPE_VALUE_MODIFIER,
+    EffectItem, IngestibleDef, MagicEffectDef, ARCHETYPE_CHAMELEON, ARCHETYPE_CURE_ADDICTION, ARCHETYPE_INVISIBILITY, ARCHETYPE_LIMB_CONDITION,
+    ARCHETYPE_VALUE_AND_PARTS, ARCHETYPE_VALUE_MODIFIER,
 };
 use crate::functions::actor as fa;
 use crate::game::Game;
@@ -104,7 +104,10 @@ fn floored(code: u16) -> bool {
 /// Medicine; Ingestible Settings].
 pub fn value_change(m: &MagicEffectDef, e: &EffectItem, potency: f64, permanent: bool) -> Option<ValueChange> {
     let (parts, code) = match m.archetype {
-        ARCHETYPE_VALUE_MODIFIER => (false, e.actor_value.or(m.actor_value)?),
+        // Invisibility and Chameleon change their actor value as a Value Modifier does
+        // [hypothesis: the Stealth Boy's "Stealth Field" names the actor value Chameleon
+        // with Recover; detection reads that value, docs/design/detection.md].
+        ARCHETYPE_VALUE_MODIFIER | ARCHETYPE_INVISIBILITY | ARCHETYPE_CHAMELEON => (false, e.actor_value.or(m.actor_value)?),
         ARCHETYPE_VALUE_AND_PARTS => (true, e.actor_value.or(m.actor_value)?),
         // Every limb condition (the first stands for them) [hypothesis: Doctor's Bag's
         // and Hydra's "NVRestoreLimbs" names no actor value; aid-items.md §3].
@@ -142,8 +145,7 @@ pub fn potency(flags: u8, medicine: f64, survival: f64, setting: impl Fn(&str) -
 /// Addiction Chance of 0; with a usage monitor `(usage − threshold) / 100` once the
 /// usage reaches the threshold, else 0; without one the Addiction Chance itself
 /// [documented: GECK wiki Addiction Formula]. `usage` is the monitor's value after this
-/// use [hypothesis]. Perks' "Modify Addiction Chance" is not applied (no perk entry
-/// points yet).
+/// use [hypothesis]. Perks' "Modify Addiction Chance" is applied by [`Game::ingest`].
 pub fn addiction_chance(def: &IngestibleDef, usage: Option<f64>, threshold: f64) -> f64 {
     if def.withdrawal.is_none() || def.addiction_chance == 0.0 {
         return 0.0;
@@ -152,6 +154,56 @@ pub fn addiction_chance(def: &IngestibleDef, usage: Option<f64>, threshold: f64)
         Some(u) if u < threshold => 0.0,
         Some(u) => ((u - threshold) / 100.0).clamp(0.0, 1.0),
         None => (def.addiction_chance as f64).clamp(0.0, 1.0),
+    }
+}
+
+/// ETYP "Chems" [documented: xEdit EquipType; GECK wiki Equip Type].
+pub const EQUIP_CHEMS: i64 = 10;
+
+/// What changes an ingestible's effects for one use (aid-items.md §4, §10).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Mods {
+    /// Multiplies the beneficial Value Modifier magnitudes (Medicine and Food potency).
+    pub potency: f64,
+    /// Multiplies the durations of the beneficial effects that have one, the usage
+    /// monitor's excepted (perks' "Modify Positive Chem Duration", chems only).
+    pub duration: f64,
+    /// Multiplies the rads an effect gives (perks' "Modify Radiation Consumed").
+    pub rads: f64,
+}
+
+impl Default for Mods {
+    fn default() -> Mods {
+        Mods { potency: 1.0, duration: 1.0, rads: 1.0 }
+    }
+}
+
+impl Mods {
+    pub fn potency(potency: f64) -> Mods {
+        Mods { potency, ..Mods::default() }
+    }
+
+    /// The seconds an effect item lasts under these mods: a beneficial effect (neither
+    /// Hostile nor Detrimental) with a duration is lengthened by `duration`, the usage
+    /// monitor not [hypothesis: "positive" effects; the monitor counts uses, it is no
+    /// effect of the chem].
+    pub fn seconds(&self, m: Option<&MagicEffectDef>, e: &EffectItem) -> f64 {
+        let beneficial = m.is_some_and(|m| !m.has(MagicEffectDef::HOSTILE) && !m.has(MagicEffectDef::DETRIMENTAL));
+        let d = e.duration as f64;
+        if beneficial && e.effect != USAGE_MONITOR && d > 0.0 {
+            d * self.duration
+        } else {
+            d
+        }
+    }
+
+    /// A value change with the rads factor: an effect that gives rads (a "Damage Rads",
+    /// whose amount lowers the rads' "health") gives `rads` times as many.
+    pub fn on_change(&self, mut c: ValueChange) -> ValueChange {
+        if c.code == RAD_LEVEL && c.amount < 0.0 {
+            c.amount *= self.rads;
+        }
+        c
     }
 }
 
@@ -178,6 +230,10 @@ pub struct Ingested {
     /// Every effect started or extended, with its value change.
     pub applied: Vec<Applied>,
     pub potency: f64,
+    /// The factors this use had (potency, perks).
+    pub mods: Mods,
+    /// The perks whose entry points changed this use: the perk and the entry point.
+    pub perks: Vec<(FormId, u8)>,
     /// The usage monitor's value after this use, when the item has one.
     pub usage: Option<f64>,
     /// The addiction roll: its chance and whether it addicted.
@@ -198,13 +254,29 @@ impl Game<'_> {
         let medicine = fa::actor_value_capped(self, actor, 37);
         let survival = fa::actor_value_capped(self, actor, 44);
         let potency = potency(def.flags, medicine, survival, |n| self.aid_setting(n));
+        let mut perks: Vec<(FormId, u8)> = Vec::new();
+        let mut perk = |g: &mut Game, point: u8, value: f64| -> f64 {
+            let (v, by) = g.entry_point(actor, point, value);
+            perks.extend(by.iter().map(|a| (a.perk, point)));
+            v
+        };
+        // Chemist and the like lengthen chems only [hypothesis: the perk's "any chems you
+        // take"; the GECK wiki's entry point says "any ingestible"].
+        let duration = if def.equip_type == EQUIP_CHEMS { perk(self, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0) } else { 1.0 };
+        let rads = perk(self, crate::perks::MODIFY_RADIATION_CONSUMED, 1.0);
+        let mods = Mods { potency, duration, rads };
         self.emit(EventKind::Ingested { actor, item, potency });
-        let applied = self.apply_magic_item_with(actor, item, Some(actor), false, potency);
+        let applied = self.apply_magic_item_with(actor, item, Some(actor), false, &mods);
         let effects = applied.iter().filter(|a| !a.extended).map(|a| a.id).collect();
         let has_monitor = self.data.effect_items.get(&item).is_some_and(|l| l.iter().any(|e| e.effect == USAGE_MONITOR));
         let usage = has_monitor.then(|| self.spell_usage(actor, item));
         let threshold = self.aid_setting("fAddictionUsageMonitorThreshold");
-        let chance = addiction_chance(&def, usage, threshold);
+        let mut chance = addiction_chance(&def, usage, threshold);
+        // "Addiction Chance accounts for the Modify Addiction Chance Perk Entry Point"
+        // [documented: GECK wiki Addiction Formula].
+        if chance > 0.0 {
+            chance = perk(self, crate::perks::MODIFY_ADDICTION_CHANCE, chance).clamp(0.0, 1.0);
+        }
         let mut addiction = None;
         if let Some(spell) = def.withdrawal.filter(|_| def.addiction_chance != 0.0) {
             let already = self.extra.get(&actor).is_some_and(|e| e.spells.contains(&spell));
@@ -217,7 +289,7 @@ impl Game<'_> {
                 addiction = Some((chance, hit));
             }
         }
-        Ingested { effects, applied, potency, usage, addiction }
+        Ingested { effects, applied, potency, mods, perks, usage, addiction }
     }
 
     /// AddSpell: the spell's effects apply at once and last until removed; false when

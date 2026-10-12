@@ -338,7 +338,7 @@ pub(crate) fn blur_pass(
     mut ctx: RenderContext,
 ) {
     let (target, index, grade, ids, prepass) = view.into_inner();
-    if grade.blur <= 0.0 {
+    if grade.blur <= 0.0 || crate::ssao::depth_multisampled(prepass) != Some(ids.1) {
         return;
     }
     let Some(depth) = prepass.depth_view() else { return };

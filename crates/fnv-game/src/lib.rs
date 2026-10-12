@@ -18,12 +18,14 @@
 //! - [`dialogue`]: conversations between the player and an actor (Layer 6, step D2)
 //! - [`hacking`]: the terminal hacking game (words, likeness, bracket pairs, lockout)
 //! - [`lockpick`]: the lockpicking game (sweet spot, torque, bobby pins, Force Lock)
+//! - [`crime`]: karma, ownership, theft, trespass, assault and murder
 //! - [`idles`]: the idle animations scripts, packages and dialogue lines ask for
 //! - [`chargen`]: the character-creation menus' rules (name, S.P.E.C.I.A.L., tag skills, traits)
 //! - [`intro`]: the intro chain's units (coverage)
 //! - [`runner`]: `fnv.script.actions/1` → `fnv.script.trace/1`
 //! - [`respawn`]: cell resets: respawning actors back alive after `iHoursToRespawnCell`
 //! - [`voice`]: the hook that gives a dialogue response the length of its voice file
+//! - [`weather`]: the weather scripts ask for and the one the sky shows
 //!
 //! Behaviour notes with confidence tags: docs/spec-notes/scripts.md §4 and later.
 
@@ -36,6 +38,7 @@ pub mod chargen;
 pub mod combat;
 pub mod combat_style;
 pub mod cond;
+pub mod crime;
 pub mod data;
 pub mod detection;
 pub mod dialogue;
@@ -45,7 +48,9 @@ pub mod game;
 pub mod idles;
 pub mod intro;
 pub mod lockpick;
+pub mod needs;
 pub mod package;
+pub mod perks;
 pub mod provocation;
 pub mod quest;
 pub mod radio;
@@ -57,6 +62,7 @@ pub mod templates;
 pub mod terminal;
 pub mod trace;
 pub mod voice;
+pub mod weather;
 
 pub use data::GameData;
 pub use game::{Game, GameConfig, InstKey};

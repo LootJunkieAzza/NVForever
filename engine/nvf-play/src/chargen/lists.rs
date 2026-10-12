@@ -155,7 +155,7 @@ impl ListMenu {
     /// The menu for `code` (1048 or 1084), from the player as the game holds them.
     pub fn open(code: u16, g: &mut Game) -> ListMenu {
         let sheet = if code == menus::TAG_SKILLS {
-            let s = TagSheet::of_player(g);
+            let s = TagSheet::for_menu(g);
             Sheet::Tags { now: s.clone(), start: s }
         } else {
             let s = TraitSheet::of_player(g);
@@ -264,7 +264,7 @@ impl ListMenu {
                     .collect();
                 let info = now.skills.get(self.selected).and_then(|&s| g.data.actor_value_info(s));
                 (
-                    tag_title(now.tagged.len()),
+                    tag_title(now.tagged.len(), now.count),
                     rows,
                     info.and_then(|i| i.icon.clone()),
                     info.map(|i| i.description.clone()).unwrap_or_default(),
@@ -297,8 +297,9 @@ impl ListMenu {
 }
 
 /// The tag-skill menu's title [observed: "SKILLS:  2/3 Selected"].
-pub fn tag_title(tagged: usize) -> String {
-    format!("SKILLS:  {tagged}/{} Selected", chargen::TAG_COUNT)
+/// `count` is [`chargen::TAG_COUNT`], or more after AddTagSkills.
+pub fn tag_title(tagged: usize, count: usize) -> String {
+    format!("SKILLS:  {tagged}/{count} Selected")
 }
 
 /// The counter under the tag-skill menu's text [observed: "Tag 1 Skill" at 2/3, nothing
@@ -486,7 +487,7 @@ mod tests {
 
     #[test]
     fn texts_as_the_screenshots_have_them() {
-        assert_eq!(tag_title(2), "SKILLS:  2/3 Selected");
+        assert_eq!(tag_title(2, chargen::TAG_COUNT), "SKILLS:  2/3 Selected");
         assert_eq!(tag_counter(1), "Tag 1 Skill");
         assert_eq!(tag_counter(0), "");
         assert_eq!(trait_counter(2), "2 TRAITS LEFT");

@@ -1,10 +1,14 @@
 # Spec notes: aid items (chems, food, drink, medicine)
 
 What happens when an actor uses an ingestible (ALCH): which effects apply, what they do
-to actor values, how strong they are, how long they last, and addiction. Code:
-`crates/fnv-game/src/aid.rs` (the rules), `crates/fnv-game/src/game.rs`
+to actor values, how strong they are, how long they last, and addiction; and what time
+does to the player's body: effect timers while waiting, Hardcore's needs, the stages of
+rads and needs. Code: `crates/fnv-game/src/aid.rs` (the rules), `crates/fnv-game/src/game.rs`
 (`apply_magic_item_with`, the effects ticking), `crates/fnv-game/src/functions/actor.rs`
-(the temporary pool), `engine/nvf-play/src/aid.rs` (the player's use, the log). Tool:
+(the temporary pool, the carry capacity), `crates/fnv-game/src/perks.rs` (perk entry
+points, §10), `crates/fnv-game/src/needs.rs` (needs, stages, hours passing, §6, §11),
+`engine/nvf-play/src/aid.rs` (the player's use, the log), `engine/nvf-play/src/wait.rs`
+(hours passing), `engine/nvforever/src/stealth_field.rs` (the Stealth Boy's look). Tool:
 `fnvtool actor aid` (§8). Builds on actor-values.md (the pools) and scripts.md §7.6 (active
 effects and effect scripts).
 
@@ -59,7 +63,14 @@ record in any master (§5.1).
 - Script effects (26: Nuka-Cola's cap, Cateye, Psycho, Fixer's addiction removal, Super
   Stimpak, Doctor's Bag without Hardcore …) run their effect scripts as scripts.md §7.6
   says; nothing here changes that.
-- Chameleon (the Stealth Boy) is not modelled (detection would read it).
+- **Chameleon and Invisibility** (the Stealth Boy's "Stealth Field": Chameleon 75 for
+  120 s, or 240 s with a HasPerk condition, and Sneak +100 [observed]) change their actor
+  value as a Value Modifier does: with Recover, a modifier while the effect lasts
+  [hypothesis: the archetype names the actor value Chameleon]. Detection reads it: a
+  target whose Invisibility or Chameleon is 1 or more is seen × fSneakStealthboyMult
+  (docs/design/detection.md). The player's body is drawn see-through meanwhile [design:
+  no refraction shader; `stealth_field.rs` blends the body's and arms' materials at 30 %
+  opacity, tinted blue].
 
 ## 3. What an effect does to an actor value
 
@@ -97,9 +108,8 @@ The ActorValue page's three pools (actor-values.md §1) [documented: ActorValue]
   they last, 138 by the second.
 
 What reads the temporary pool now: `GetActorValue` and conditions, the Pip-Boy's STATS page
-(values, HP and AP), the HUD's health and AP bars (their maximum includes it). Not yet: the
-carry weight rule and the menus, which read S.P.E.C.I.A.L. from the Layer 4 world (Buffout's
-+2 Strength does not raise carry weight); combat's limb pools (they read the permanent
+(values, HP and AP), the HUD's health and AP bars (their maximum includes it), the carry
+capacity the menus show (§12). Not yet: combat's limb pools (they read the permanent
 Health).
 
 ## 4. Potency
@@ -151,8 +161,9 @@ Food:      fMagicSurvivalSkillBase + fMagicSurvivalSkillMult × Survival / 100  
   then ignored. The usage counted is the value after this use [hypothesis], so Buffout's
   third dose within 30 hours (90) addicts with 20 %, the sixth (180) for sure.
 - The roll is made on every use while the actor is not already addicted (seeded game RNG).
-- Not applied: the "Modify Addiction Chance" perk entry point (Chem Resistant) — perk entry
-  points are not modelled yet.
+- The chance passes through the "Modify Addiction Chance" perk entry point [documented:
+  "Addiction Chance accounts for the Modify Addiction Chance Perk Entry Point"]: Chem
+  Resistant halves it (§10).
 
 ### 5.3 Withdrawal
 
@@ -183,8 +194,15 @@ Food:      fMagicSurvivalSkillBase + fMagicSurvivalSkillMult × Survival / 100  
 - Effect durations are seconds of game-mode time: they stop under menus and in
   conversations and do not count under loading screens [observed: scripts.md §7.6,
   Cateye's 120 s].
-- The Sleep / Wait menu does not advance them here [hypothesis to check: whether waiting
-  hours makes chems wear off; wait-menu.md].
+- **Waiting and sleeping advance them**: each hour that passes in the Sleep / Wait menu
+  counts as the seconds of play in which an hour passes at the TimeScale, 3600 / 30 =
+  120 s (`Game::pass_hours`) [hypothesis: the game's help says "waiting, sleeping, and
+  Fast Travel will also affect your needs" (HelpHardcoreNeeds, observed in
+  FalloutNV.esm); that effects go with them, and at the TimeScale's pace, is ours].
+  Buffout (240 s) wears off in the second hour waited; the usage monitors (108,000 s)
+  last 900 hours waited. Each effect runs one ScriptEffectUpdate with the hour's
+  seconds, a value changed by the second changes by the seconds of its duration left,
+  and an effect whose time is up finishes [hypothesis].
 - The same item used again while its effect is active extends that effect (one effect,
   one end) [observed: scripts.md §7.6]; a modifier is therefore not doubled by a second
   dose [hypothesis follows from it].
@@ -203,9 +221,9 @@ Food:      fMagicSurvivalSkillBase + fMagicSurvivalSkillMult × Survival / 100  
 - Hardcore mode's Stimpak and RadAway effects are chosen by their conditions (IsHardcore,
   HasPerk); the conditions of the masters' aid effects [observed]: IsHardcore 179,
   HasPerk 147, and a few others (§8).
-- Not done: NPCs using stimpaks in combat (the combat workstream's), Hardcore's needs
-  rising with time (only the items' changes to them are applied), Chameleon, perk entry
-  points.
+- Not done: NPCs using stimpaks in combat (the combat workstream's); the HUD's H2O, FOD
+  and SLP codes and the Pip-Boy's needs (the log says the stages, §11); refusing a wait
+  that would kill (§11).
 
 ## 8. Tool
 
@@ -219,11 +237,24 @@ consume sound, usage monitor and its effects decoded (archetype, flags, actor va
 value changes, conditions by function name); the counts of §1–§5 (`summary`); the
 withdrawal spells and their effects. With `--use`: the player in the authored game takes
 the damage, uses the items in turn, then plays `--seconds`; the values at each step, the
-potency, the usage and the addiction roll.
+potency, the perks applied, the usage and the addiction roll. More options: `--perk P`
+(the player has the perk), `--set <actor value>:<value>`, `--wait <hours>` (hours passed
+one at a time after the seconds, `--sleep` to sleep them: values after and the stages
+changed), `--perks` (every perk's entry point effects, §10, and the stages of §11). With
+Hardcore the needs are among the values; with Strength, Carry Weight and the carry
+capacity the menus show.
 
 Checked 2026-10-12 (FalloutNV.esm, Medicine 15 on the new player, normal mode): Stimpak
 after 60 damage restores 39 at once; Buffout gives Strength +2, Endurance +3 and Health +60
 while it lasts, usage 30, no chance of addiction on the first dose.
+
+Checked 2026-10-12 (aid-2): three Buffouts with Chemist and Chem Resistant last 480 s
+each (1,440 s merged), the third's chance 0.2 halved to 0.1, Carry Weight and the menus'
+capacity 220 while Buffout lasts; a Stealth Boy gives Chameleon 75 and Sneak +100 for 120 s
+and ends in the first hour slept; in Hardcore, Purified Water takes Dehydration 195 to 130,
+Nuka-Cola gives 10 back and takes 15 of Sleep Deprivation, 3 hours slept take Sleep
+Deprivation 235 to 0 (its stage effect Minor goes) while Dehydration rises 9.6 and Hunger
+4.8 an hour.
 
 ## 9. To capture
 
@@ -235,6 +266,103 @@ while it lasts, usage 30, no chance of addiction on the first dose.
    Strength bonus doubles or the effect lengthens (§5.1, §6).
 4. An addiction: the withdrawal's Strength while Buffout is active and after it ends
    (§5.3), and after Fixer.
-5. A wait of a few hours with Buffout active: whether its effect ends (§6).
+5. A wait of a few hours with Buffout active: whether its effect ends, and after how many
+   hours (§6: 2 here).
 6. Health while Buffout is active and when it ends at low health (whether the drop can
    kill).
+7. Hardcore: H2O, FOD and SLP (GetAV Dehydration, Hunger, SleepDeprivation) at the start
+   and after 1, 6 and 24 hours waited, and after 8 hours slept (§11: the rates' unit, the
+   dehydration rate, what sleep takes off).
+8. A Stealth Boy: how long it lasts with Chemist (§10: doubled here, it is a chem by its
+   equip type), and the look of the field (§2).
+
+## 10. Perk entry points
+
+A PERK's effects follow its header fields, each from PRKE to PRKF [documented: xEdit PERK
+record order]. PRKE holds the effect type (0 quest and stage, 1 ability, 2 entry point),
+the rank it belongs to and its priority [documented: `schemas/fnv/gameplay.json`]. The rest
+[observed: all 176 PERK records of FalloutNV.esm, `fnvtool esm decode`; `fnvtool actor aid
+--perks` lists them]:
+
+- An entry point's DATA is three bytes: the entry point's code, the function and the
+  number of condition tabs; the conditions follow as PRKC (the tab, 0 = the perk owner)
+  and CTDA; EPFT 1 is followed by EPFD, one float. 109 perks have entry point effects.
+- The function: 1 with 0 or 1 (Light Step, Computer Whiz: flags), 2 with additions
+  (Educated +2, Toughness +3 and +6 by rank), 3 with factors (Chem Resistant 0.5) —
+  read as Set, Add and Multiply [hypothesis from those uses].
+- The codes used for aid items, each named by the only perks that use it [observed;
+  the meanings documented on the GECK wiki's Entry Point page]:
+
+| Code | Entry point | Perks (number, function) |
+|---|---|---|
+| 23 | Modify Addiction Chance | Chem Resistant (× 0.5) |
+| 25 | Modify Positive Chem Duration | Chemist (× 2), the chem challenge perk (× 1.33) |
+| 44 | Modify Radiation Consumed | Lead Belly (× 0.5) |
+
+Rules (`crates/fnv-game/src/perks.rs`) [hypothesis unless said]:
+
+- Only the player has perks here (AddPerk on another actor is refused).
+- Of a perk with ranks, only the entries of the highest rank owned apply (the masters'
+  ranked entries each hold the whole bonus: Demolition Expert 1.2, 1.4, 1.6).
+- Entries apply in ascending priority, then perk FormID, each on the value the previous
+  one left.
+- The owner tab's conditions are evaluated with the owner as subject; an entry with
+  conditions on another tab is not applied (no aid entry point of the masters has any).
+- Modify Positive Chem Duration lengthens the beneficial effects (neither Hostile nor
+  Detrimental) with a duration of an item whose equip type is Chems, not the usage
+  monitor [hypothesis: Chemist's "any chems you take last twice as long"; the wiki says
+  "any ingestible"]. The Stealth Boy's equip type is Chems [observed], so Chemist doubles
+  it here.
+- Modify Radiation Consumed multiplies the rads an ingestible's effects give, any
+  ingestible [documented: "Modifies the radiation from ingestibles"].
+- Not read: the other entry points (combat's go through `fnv_combat::damage::PerkHooks`
+  without the records yet), ability effects of perks (type 1), quest-stage effects.
+
+## 11. Rads and Hardcore's needs over time
+
+Records [observed: FalloutNV.esm]: the actor values Dehydration (H2O), Hunger
+("Starvation") and Sleep Deprivation; the settings `fHCStarvationRate` 25 and
+`fHCSleepDeprivationRate` 50 (no dehydration rate in any master); RADS, DEHY, HUNG and
+SLPD records, five each, whose DATA is a threshold (200, 400, 600, 800, 1000) and a SPEL
+(Radiation200 … Dehydration1000: Minor, Advanced, Critical, Deadly, Fatal; the Fatal
+ones damage Health by 10,000). The game's help ("HelpHardcoreNeeds") [observed]: the needs
+"are continually ticking away"; "Dehydration increases at a faster pace than starvation
+or sleep deprivation"; starvation is "slower than dehydration, but quicker than sleep
+deprivation"; "waiting, sleeping, and Fast Travel will also affect your needs. If
+performing any of these activities would result in death, you will be prevented"; "Some
+drinks, such as alcohol and soda, can increase dehydration" — which fits "Damage
+Dehydration" raising it (§3); "a few chems and drinks can help offset sleep deprivation".
+The JIP functions say the needs build up "as game time passes" [documented: GECK wiki
+ToggleHardcoreTracking].
+
+Rules (`crates/fnv-game/src/needs.rs`):
+
+- In Hardcore, each need rises one point every `rate` seconds of play, `rate` its
+  setting [hypothesis: the unit; the larger setting is the slower need, so it is time
+  per point]. At TimeScale 30: hunger 4.8 an hour (Minor after 42 hours), sleep
+  deprivation 2.4 an hour (Minor after 83 hours). Dehydration: `fHCDehydrationRate` if a
+  plugin sets it [hypothesis: the name], else 12.5 [guess: twice starvation's pace],
+  9.6 an hour.
+- An hour waited raises them by an hour's worth (120 s of play at TimeScale 30); an hour
+  slept does the same for dehydration and hunger and lowers sleep deprivation by 100
+  [guess] (§6).
+- Restore / Damage on a need lowers / raises it (items, and the script functions
+  RestoreActorValue and DamageActorValue, e.g. the Cannibal perk's `RestoreActorValue
+  Hunger 50`), never below 0 (§3).
+- The stage: the player has the SPEL of the highest stage whose threshold the value has
+  reached, added as AddSpell adds it; when the value falls below, it goes (RemoveSpell)
+  and the lower stage's comes [hypothesis]. Rads' stages hold in every mode; the needs'
+  only in Hardcore, and go when Hardcore is turned off [hypothesis].
+- Only the player has needs [design].
+- Not done: the refusal of a wait or sleep that would kill; the HUD codes; the messages
+  `sDehydrationIncrease` and the like (the log says the stage instead).
+
+## 12. Carry weight
+
+The capacity is `fAVDCarryWeightsBase + fAVDCarryWeightMult × Strength` (150 + 10 ×
+Strength, simulation.md §3). The Strength in it is the current one, temporary modifiers
+included, within 1–10, and Carry Weight's own modifiers add to it [hypothesis: GECK wiki
+GetCalculatedMaxCarryWeight calls CarryWeight an actor value; the formulas read current
+values, actor-values.md]. The game layer keeps the world's capacity (the menus' Wg line,
+`fnv_sim::World::encumbrance`) at the current Carry Weight whenever Strength or Carry
+Weight changes: Buffout's +2 Strength gives 220 at Strength 5 while it lasts.
