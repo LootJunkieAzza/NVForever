@@ -3333,6 +3333,87 @@ List 1 items 26, 27, 24 and 28 (docs/handoff/playtest-2026-10-12.md).
    each body exactly as authored; ours fall where they stand. *Check:* the village's bodies
    lie on the ground, can be searched, and do not get up.
 
+## Playtest fixes: combat rules from the GECK wiki (2026-10-12, session "pt-combat")
+
+Branch `claude/playtest-combat`; design in docs/design/combat-ai.md §10 and §11 (the gap
+table against the wiki's combat pages, and §11.1, what is left for the list-2 combat AI
+workstream), alert.md §5 and §8. List 1 items 20, 30, 32, 33 and 34.
+
+1. **Machete can't hit a gecko (item 20).** The swing was a fan of rays at eye height,
+   75 units long for the machete (fCombatDistance 150 × Reach 0.5): a gecko at your feet
+   was under it. Now the swing also strikes any actor whose centre is within the reach
+   across the ground (plus 24 units of body), inside the swing's arc, from 32 units below
+   your feet to 48 above your eyes, if nothing stands between. *Guess:* the 24, 32 and 48
+   units. *Check:* swing a machete at a gecko standing still at your feet, and at one a
+   step too far (it should miss).
+2. **Hitting a neutral NPC (item 30).** It turns on you at once, says its Assault line
+   ("What was that for?") and fights until it goes back to Normal, StopCombat, or a yield
+   it accepts. Friends and allies follow the wiki's friendly-fire counts (a friend
+   turns at once out of combat, after more than 4 hits within 10 s in combat; an ally
+   never in combat, after more than 3 hits out of it). **Your exception:** a neutral
+   already fighting someone else, hit while you are fighting too, does not turn.
+   *Decision:* "you are fighting" = someone in a combat state has you on its target list.
+   *Decision:* an enemy not aggressive enough to attack on sight is treated as a neutral.
+   *Guess:* your teammates count as allies.
+3. **Yielding (item 30).** Putting your weapon away is a yield. Actors fighting you only
+   because you hit them (or because they help someone you hit) accept it if their fight
+   began at most 10 s before (fCombatYieldTime): they stop and say AcceptYield. One that
+   forgave you within 600 s (fCombatYieldRetryTime) and was hit again ignores the next
+   yield. *Decision:* the wiki's 600 s timer is the player's, for everyone; I made it each
+   actor's, to match your words "if they have already recently forgiven". Actors hostile
+   by their records (raiders, fiends) and StartCombat fights never accept a yield.
+   *Check:* shoot Chet once, holster within a few seconds (he stops: "accepts the yield"),
+   shoot him again and holster (he keeps fighting).
+4. **Allies help allies (item 34).** An actor that sees or hears an ally (or a friend,
+   with Assistance "Helps Friends and Allies") in a fight takes it up against everyone
+   that ally fights, never against one of its own allies or friends. *Decision:* actors
+   sharing a faction, or placed from the same NPC, count as allies (the rule already
+   keeping them from fighting each other). Goodsprings' settlers and Violet's dogs help
+   each other this way. *Check:* shoot a Goodsprings settler where others can see:
+   they should join; Violet's dogs join her fight.
+5. **Combat styles and confidence (item 34).** The CSTY records are read: Melee Only has
+   a gun-holder fight with its fists; the range multiplier scales the distance it fights
+   from; semi-automatic guns wait the style's firing delay; melee fighters attack or hold
+   by the style's chances (a dog now bites a little less often). Confidence decides when
+   a hurt fighter would flee, but fleeing itself is not built: the log says "would flee".
+   *Guess:* how the per-fight confidence modifier applies (threshold × (1 − modifier));
+   damage per second for the threat ratio (the wiki does not say); an actor's style from
+   the template that supplies its AI data, else DefaultCombatstyle.
+6. **NPCs aim down the sights (items 32–33).** An NPC with a gun that has sights aims
+   down them when its target is more than 20 m away and walks while aiming; within 20 m
+   it fires from the hip and runs. Aimed shots lose the unaimed spread penalty, and the
+   iron-sights aim and attack clips play. *Decision:* 20 m = 1,400 units (70 units a
+   metre, the figure gravity fits); once up, the sights stay up to 1,350 units so it
+   does not switch at the edge; the sights come up only while it can fire (sees you,
+   weapon drawn). *Decision:* the record's Sight Usage (the wiki: "percentage of
+   fCombatIronSightsDistance") is not used: your 20 m rule stands in, and that setting is
+   neither in FalloutNV.esm nor on the wiki. *Check:* Violet from 50 m: she raises her
+   rifle to her eye and walks towards you; walk up to 15 m: she lowers it and fires from
+   the hip.
+7. **Fiends flickering Combat ↔ Lost at Cook-Cook's camp.** They ran at you, dropped
+   behind a rise, and the moment they could not see you the combat AI let go of them:
+   they stood where they could not see, went Lost after 3 s, searched, saw you, and went
+   back to Combat (17 times each way in 45 s). Now a fighter stays a fighter while in
+   Combat and keeps closing in on where it last saw you until it sees you again.
+   After: no Combat → Lost at all in the same 45 s. *Decision:* while it cannot see you
+   it closes in halving the gap each time it plans its way. *Check:* stand south of the
+   camp: the fiends should come at you without stopping and starting.
+
+8. **Two older smoke expectations changed by these rules** (marked known failing, not
+   changed; please confirm and they can be rewritten): `combat-violet` expected the hip
+   attack clip `2hrattack3.kf`, but Violet now fires from 1,600 units, beyond 20 m, so
+   every shot is aimed down the sights (`2hrattack3is.kf`); `combat-dogs` expected about
+   20 bites in 30 s, now 11–12 (main: 17), because the combat style's melee decision has
+   a dog attack at 55 % each time it may and wait out its Hold Timer otherwise.
+   *Decision:* keep the wiki's rule. *Check:* do Violet's dogs bite often enough?
+   Also seen: `detection-game` (the sneaking check of detection.md §5) fails on main
+   980f0c35 the same way; marked known failing, not looked into (not combat).
+
+Tests: fnv-ai, fnv-game, fnv-combat unit tests (new: three provocation/yield/assistance
+tests on a synthetic plugin, the blind close-in test, the sights rule); smoke scenarios
+`combat-sights` and `provoked-yield` added, `cook-cook-camp` now also forbids the flicker
+(at most 2 Combat → Lost lines). Not done (list 2): fleeing, cover, combat groups and
+their searches, NPC-against-NPC grudges, blocking, dodging, combat barks (combat-ai.md §11.1).
 ## Aid items: chems, food and meds (2026-10-12, workstream I "aid")
 
 Using an aid item now changes the actor values its record says (Stimpak, RadAway, Rad-X,

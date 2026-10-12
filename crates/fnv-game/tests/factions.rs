@@ -6,6 +6,9 @@ mod common;
 use common::*;
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_game::actor_values as av;
+use fnv_game::awareness::{Cause, State, Timers};
+use fnv_game::detection::{Band, Detection};
+use fnv_game::provocation::Note;
 use fnv_game::functions::Ctx;
 use fnv_game::game::{Game, GameConfig};
 use fnv_game::templates::Picks;
@@ -23,6 +26,8 @@ const LEADER: u32 = 0x830;
 const MEMBER: u32 = 0x831;
 const SECOND: u32 = 0x832;
 const OWN: u32 = 0x833;
+/// A rat-faction NPC that helps its allies (Assistance 1).
+const HELPER: u32 = 0x834;
 const WOLF: u32 = 0x840;
 const RAT: u32 = 0x841;
 const SPAWN: u32 = 0x842;
@@ -44,6 +49,7 @@ const OWN_REF: u32 = 0x323;
 const SPAWN_REF: u32 = 0x324;
 const SPAWN_HIGH_REF: u32 = 0x325;
 const LIST_REF: u32 = 0x326;
+const HELPER_REF: u32 = 0x327;
 /// Sixteen references of the creature whose template list holds a wolf and a rat.
 const MIXED_REFS: std::ops::Range<u32> = 0x340..0x350;
 const PLAYER: u32 = 0x14;
@@ -82,7 +88,13 @@ fn tplt(template: u32) -> fnv_esm::raw::Subrecord {
 }
 
 fn aidt(aggression: u8) -> fnv_esm::raw::Subrecord {
-    let mut d = vec![aggression, 0, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    aidt_assisting(aggression, 0)
+}
+
+/// AIDT with an Assistance code (byte 14: 0 Helps Nobody, 1 Helps Allies, 2 Helps Friends
+/// and Allies).
+fn aidt_assisting(aggression: u8, assistance: u8) -> fnv_esm::raw::Subrecord {
+    let mut d = vec![aggression, 0, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, assistance, 0];
     d.extend(0i32.to_le_bytes());
     sub(b"AIDT", d)
 }
@@ -120,6 +132,7 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"NPC_", 0, SECOND, &[sub(b"EDID", z("Second")), acbs(FACTIONS), tplt(MEMBER)]),
         // A template, but not for the factions.
         record(b"NPC_", 0, OWN, &[sub(b"EDID", z("Own")), acbs(AI_DATA), snam(RATS, 1), tplt(LEADER)]),
+        record(b"NPC_", 0, HELPER, &[sub(b"EDID", z("Helper")), acbs(0), snam(RATS, 0), aidt_assisting(0, 1)]),
     ]
     .concat();
     let creatures = [
@@ -147,6 +160,7 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACRE", SPAWN_REF, SPAWN),
         placed(b"ACRE", SPAWN_HIGH_REF, SPAWN_HIGH),
         placed(b"ACRE", LIST_REF, LIST_WOLF),
+        placed(b"ACHR", HELPER_REF, HELPER),
     ]
     .concat();
     for r in MIXED_REFS {
@@ -281,4 +295,92 @@ fn the_package_list_comes_from_the_same_source() {
     }
     // Without a template for the packages, an actor's own list (empty here).
     assert!(g.package_list(FormId(MEMBER_REF)).is_empty());
+}
+
+/// Put `actor` in Combat against `target`, detected now.
+fn fighting(g: &mut Game, actor: u32, target: u32) {
+    let (now, t) = (g.time, Timers::default());
+    let a = g.awareness.actors.entry(FormId(actor)).or_default();
+    a.observe(FormId(target), &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, [0.0; 3], now, &t);
+    a.state = State::Combat;
+}
+
+#[test]
+fn a_neutral_hit_by_the_player_fights_and_accepts_one_yield() {
+    // docs/design/combat-ai.md §10.1 and §10.2 (playtest list 2026-10-11, item 30).
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, player) = (FormId(OWN_REF), FormId::PLAYER_REF);
+    assert!(!g.would_attack(own, player), "neutral and not aggressive");
+    assert!(g.attacked_by(own, player), "a grudge");
+    assert!(g.would_attack(own, player) && !g.attacked_by(own, player));
+    assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::Assaulted { actor, .. } if *actor == own)));
+    // Not fighting yet: nothing to yield to.
+    assert_eq!(g.player_yields(), 0);
+    fighting(&mut g, OWN_REF, 0x14);
+    g.time += 3.0;
+    assert_eq!(g.player_yields(), 1);
+    assert!(!g.would_attack(own, player) && g.awareness.state(own) == State::Normal);
+    // Attacked again soon after: the next yield is ignored.
+    g.time += 30.0;
+    assert!(g.attacked_by(own, player));
+    fighting(&mut g, OWN_REF, 0x14);
+    g.provocations.take_notes();
+    assert_eq!(g.player_yields(), 0);
+    assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::Refuses { why: "it forgave the player recently", .. })));
+    assert!(g.would_attack(own, player));
+    // A yield long after the fight began is too late, whoever it is.
+    g.stop_combat(own);
+    g.time += 700.0;
+    assert!(g.attacked_by(own, player));
+    fighting(&mut g, OWN_REF, 0x14);
+    g.time += 11.0;
+    g.provocations.take_notes();
+    assert_eq!(g.player_yields(), 0);
+    assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::Refuses { why: "the fight is past the time to yield", .. })));
+    // Past the retry time and within the yield time: accepted again.
+    g.stop_combat(own);
+    assert!(g.attacked_by(own, player));
+    fighting(&mut g, OWN_REF, 0x14);
+    assert_eq!(g.player_yields(), 1);
+}
+
+#[test]
+fn a_neutral_fighting_someone_else_ignores_a_stray_hit_from_a_fighting_player() {
+    // The owner's exception (combat-ai.md §10.1).
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, player) = (FormId(OWN_REF), FormId::PLAYER_REF);
+    fighting(&mut g, OWN_REF, LEADER_REF);
+    // The player is not fighting anyone: the hit counts.
+    assert!(g.attacked_by(own, player));
+    g.stop_combat(own);
+    // Both fight someone else now: it does not turn.
+    fighting(&mut g, OWN_REF, LEADER_REF);
+    fighting(&mut g, LEADER_REF, 0x14);
+    assert!(!g.attacked_by(own, player));
+    assert!(!g.would_attack(own, player));
+    assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::Ignored { why: "both were fighting someone else", .. })));
+}
+
+#[test]
+fn an_ally_that_sees_a_fight_helps() {
+    // Assistance (combat-ai.md §10.3): the helper shares the Rats faction with the
+    // victim, so it is its ally, and it Helps Allies.
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, helper, player) = (FormId(OWN_REF), FormId(HELPER_REF), FormId::PLAYER_REF);
+    assert!(g.attacked_by(own, player));
+    fighting(&mut g, OWN_REF, 0x14);
+    // Not seen yet: nobody joins.
+    assert_eq!(g.call_allies(), 0);
+    g.detection.pairs.insert((helper, own), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
+    assert_eq!(g.call_allies(), 1);
+    assert!(g.would_attack(helper, player));
+    assert!(g.awareness.get(helper).is_some_and(|a| a.alarms.iter().any(|x| x.owner == player && x.cause == Cause::Ally)));
+    // Once only; and never against its own ally (the other rat is not a foe).
+    assert_eq!(g.call_allies(), 0);
+    fighting(&mut g, OWN_REF, SPAWN_HIGH_REF);
+    assert_eq!(g.call_allies(), 0);
+    assert!(!g.would_attack(helper, FormId(SPAWN_HIGH_REF)));
 }

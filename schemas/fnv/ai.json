@@ -539,6 +539,371 @@
      "note": "xEdit wbIdleAnimation: IDLE FormIDs"
     }
    }
+  },
+  "CSTY": {
+   "name": "Combat Style",
+   "subrecords": {
+    "CSTD": {
+     "name": "Advanced - Standard",
+     "type": {
+      "struct": [
+       {
+        "name": "dodge_chance",
+        "type": "u8"
+       },
+       {
+        "name": "left_right_chance",
+        "type": "u8"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       },
+       {
+        "name": "dodge_lr_timer_min",
+        "type": "f32"
+       },
+       {
+        "name": "dodge_lr_timer_max",
+        "type": "f32"
+       },
+       {
+        "name": "dodge_forward_timer_min",
+        "type": "f32"
+       },
+       {
+        "name": "dodge_forward_timer_max",
+        "type": "f32"
+       },
+       {
+        "name": "dodge_back_timer_min",
+        "type": "f32"
+       },
+       {
+        "name": "dodge_back_timer_max",
+        "type": "f32"
+       },
+       {
+        "name": "idle_timer_min",
+        "type": "f32"
+       },
+       {
+        "name": "idle_timer_max",
+        "type": "f32"
+       },
+       {
+        "name": "block_chance",
+        "type": "u8"
+       },
+       {
+        "name": "attack_chance",
+        "type": "u8"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       },
+       {
+        "name": "recoil_stagger_bonus_to_attack",
+        "type": "f32"
+       },
+       {
+        "name": "unconscious_bonus_to_attack",
+        "type": "f32"
+       },
+       {
+        "name": "hand_to_hand_bonus_to_attack",
+        "type": "f32"
+       },
+       {
+        "name": "power_attack_chance",
+        "type": "u8"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 3
+        }
+       },
+       {
+        "name": "recoil_stagger_bonus_to_power",
+        "type": "f32"
+       },
+       {
+        "name": "unconscious_bonus_to_power_attack",
+        "type": "f32"
+       },
+       {
+        "name": "power_attack_normal",
+        "type": "u8"
+       },
+       {
+        "name": "power_attack_forward",
+        "type": "u8"
+       },
+       {
+        "name": "power_attack_back",
+        "type": "u8"
+       },
+       {
+        "name": "power_attack_left",
+        "type": "u8"
+       },
+       {
+        "name": "power_attack_right",
+        "type": "u8"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 3
+        }
+       },
+       {
+        "name": "hold_timer_min",
+        "type": "f32"
+       },
+       {
+        "name": "hold_timer_max",
+        "type": "f32"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u16",
+         "bits": {
+          "0": "Choose Attack using % Chance",
+          "1": "Melee Alert OK",
+          "2": "Flee Based on Personal Survival",
+          "4": "Ignore Threats",
+          "5": "Ignore Damaging Self",
+          "6": "Ignore Damaging Group",
+          "7": "Ignore Damaging Spectators",
+          "8": "Cannot Use Stealthboy"
+         }
+        }
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        },
+        "optional": true
+       },
+       {
+        "name": "acrobatic_dodge_chance",
+        "type": "u8",
+        "optional": true
+       },
+       {
+        "name": "rushing_attack_chance",
+        "type": "u8",
+        "optional": true
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        },
+        "optional": true
+       },
+       {
+        "name": "rushing_attack_distance_mult",
+        "type": "f32",
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CSTY record (dev-4.1.6); meanings: GECK wiki Combat Style"
+    },
+    "CSAD": {
+     "name": "Advanced - Advanced",
+     "type": {
+      "struct": [
+       {
+        "name": "dodge_fatigue_mod_mult",
+        "type": "f32"
+       },
+       {
+        "name": "dodge_fatigue_mod_base",
+        "type": "f32"
+       },
+       {
+        "name": "encumbered_speed_mod_base",
+        "type": "f32"
+       },
+       {
+        "name": "encumbered_speed_mod_mult",
+        "type": "f32"
+       },
+       {
+        "name": "dodge_while_under_attack_mult",
+        "type": "f32"
+       },
+       {
+        "name": "dodge_not_under_attack_mult",
+        "type": "f32"
+       },
+       {
+        "name": "dodge_back_while_under_attack_mult",
+        "type": "f32"
+       },
+       {
+        "name": "dodge_back_not_under_attack_mult",
+        "type": "f32"
+       },
+       {
+        "name": "dodge_forward_while_attacking_mult",
+        "type": "f32"
+       },
+       {
+        "name": "dodge_forward_not_attacking_mult",
+        "type": "f32"
+       },
+       {
+        "name": "block_skill_modifier_mult",
+        "type": "f32"
+       },
+       {
+        "name": "block_skill_modifier_base",
+        "type": "f32"
+       },
+       {
+        "name": "block_while_under_attack_mult",
+        "type": "f32"
+       },
+       {
+        "name": "block_not_under_attack_mult",
+        "type": "f32"
+       },
+       {
+        "name": "attack_skill_modifier_mult",
+        "type": "f32"
+       },
+       {
+        "name": "attack_skill_modifier_base",
+        "type": "f32"
+       },
+       {
+        "name": "attack_while_under_attack_mult",
+        "type": "f32"
+       },
+       {
+        "name": "attack_not_under_attack_mult",
+        "type": "f32"
+       },
+       {
+        "name": "attack_during_block_mult",
+        "type": "f32"
+       },
+       {
+        "name": "power_attack_fatigue_mod_base",
+        "type": "f32"
+       },
+       {
+        "name": "power_attack_fatigue_mod_mult",
+        "type": "f32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CSTY record (dev-4.1.6); meanings: GECK wiki Combat Style"
+    },
+    "CSSD": {
+     "name": "Simple",
+     "type": {
+      "struct": [
+       {
+        "name": "cover_search_radius",
+        "type": "f32"
+       },
+       {
+        "name": "take_cover_chance",
+        "type": "f32"
+       },
+       {
+        "name": "wait_timer_min",
+        "type": "f32"
+       },
+       {
+        "name": "wait_timer_max",
+        "type": "f32"
+       },
+       {
+        "name": "wait_to_fire_timer_min",
+        "type": "f32"
+       },
+       {
+        "name": "wait_to_fire_timer_max",
+        "type": "f32"
+       },
+       {
+        "name": "fire_timer_min",
+        "type": "f32"
+       },
+       {
+        "name": "fire_timer_max",
+        "type": "f32"
+       },
+       {
+        "name": "ranged_weapon_range_mult_min",
+        "type": "f32"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 4
+        }
+       },
+       {
+        "name": "weapon_restrictions",
+        "type": {
+         "enum": "u32",
+         "values": {
+          "0": "None",
+          "1": "Melee Only",
+          "2": "Ranged Only"
+         }
+        }
+       },
+       {
+        "name": "ranged_weapon_range_mult_max",
+        "type": "f32"
+       },
+       {
+        "name": "max_targeting_fov",
+        "type": "f32"
+       },
+       {
+        "name": "combat_radius",
+        "type": "f32"
+       },
+       {
+        "name": "semi_auto_firing_delay_mult_min",
+        "type": "f32"
+       },
+       {
+        "name": "semi_auto_firing_delay_mult_max",
+        "type": "f32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CSTY record (dev-4.1.6); meanings: GECK wiki Combat Style"
+    }
+   }
   }
  }
 }
