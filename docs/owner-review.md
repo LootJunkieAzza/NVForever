@@ -3529,6 +3529,192 @@ engineering choice by eye, not a fact about the original game.
 6. *Smoke:* new scenario `graphics-enhanced` (starts enhanced, switches four settings while
    the game runs, checks the "graphics: …" log line after each).
 
+## Script stubs audited (2026-10-12, session "stubs")
+
+Your list 2 item: go through the placeholder script functions against what the engine has
+now. The audit is `docs/design/script-stubs.md` (every stub with its use in the ten
+masters' scripts, the system it needs and its status); `fnvtool script stubs` re-counts it
+and the smoke scenario `script-stubs` checks the counts.
+
+1. **The count.** 123 stubs before; 22 implemented here (1,807 of the 4,185 uses in the
+   shipped scripts that reached a stub), 4 made deliberate no-ops, 3 implemented by the
+   combat merge (#235); 94 left: 23 assigned to other workstreams (16 E2 combat AI, 6 J
+   karma and crime, 1 H followers), 10 implementable later, 61 waiting for a system not
+   built yet (VATS, effect shaders, see-through actors,
+   saving, Caravan and the casino, repair and crafting menus, talking activators …).
+   *Check:* the table in script-stubs.md §4 for anything you want sooner.
+
+2. **ResetAI (711 calls) and the AI codes.** ResetAI drops the script package, forgets the
+   goal and unreachable packages, lets go of a Look and chooses packages again; it does not
+   stop combat (that is the combat workstream's). GetCurrentAIPackage and
+   GetCurrentAIProcedure answer with the GECK wiki's codes from the package type, the
+   detection state and the furniture.
+   *Guess:* Find packages are 0 EXPLORE; a Dialogue package is 34; in combat 5/13, searching
+   29/36, talking to the player 6/4; a package whose goal was met reads procedure 17 DONE
+   (eight package end scripts in FalloutNV.esm wait for four actors' 17). *Check:* scripted scenes
+   that wait for an actor to finish, and scripts that check an actor sleeps (code 4).
+
+3. **Look / StopLook (401 calls).** A script's Look now turns the actor's head over every
+   other look (conversation, alert); a marker as the target is looked at at eye height.
+   *Not done:* Look's "rotate the whole body" flag. *Check:* scenes where an NPC is told to
+   look at someone or something (159 Look calls in 30 scripts).
+
+4. **Movement, sneaking, sight, camera.** IsSneaking, IsMoving, IsRunning, GetLineOfSight and
+   IsPC1stPerson read what the engine measures (detection every 0.25 s, the player's
+   controls every frame). *Guess:* a moving actor reads IsMoving 1 (forward): the
+   direction is not told apart yet; NPCs never sneak yet; GetLineOfSight from the player
+   reads 0 (the player is not measured as a detector).
+
+5. **The weather (SetWeather, ForceWeather, ReleaseWeatherOverride, IsRaining,
+   GetIsCurrentWeather).** The sky takes a script's weather (a fade, or at once) and holds
+   it against the climate when the script says so. *Guess:* a weather set without the hold
+   stays until the climate's own choice changes. *Check:* Hoover Dam's battle weather and
+   the Honest Hearts rain if you get there.
+
+6. **Menus and challenges.** ForceActiveQuest marks the quest in the Pip-Boy; a terminal
+   item's ForceTerminalBack goes back a level (or closes the terminal);
+   AddSPECIALPoints / SetSPECIALPoints / AddTagSkills open the Vigor Tester's and the
+   tag-skill menus with their rules (no lowering below the old values, old tags locked);
+   IncrementScriptedChallenge counts to the challenge's threshold.
+   *Guess:* AddSPECIALPoints uses the Vigor Tester's menu (New Vegas has no other
+   S.P.E.C.I.A.L. page); a Start Disabled challenge counts nothing until unlocked.
+   *Not done:* the challenge's XP and its "completed" message.
+
+7. **Deliberate no-ops:** SetRumble, PurgeCellBuffers, PreloadMagicEffect,
+   SetSceneIsComplex now do nothing on purpose (no trace). **Not registered** and left so:
+   IsDLCInstalled (no documentation to go on), AddItemToLeveledList, GetIsAlignment,
+   GetXPForNextLevel, GetIsObjectType (§6).
+
+8. **New test aid:** `NVF_PLAY_TEST_SCRIPT` takes `call:<ref or ->:<Function>[:<arg>…]`,
+   any function by name as a script would call it; scenario `script-stubs-play` uses it.
+
+*Decision:* other workstreams' functions (combat, crime, followers, aid) were not touched;
+`crates/fnv-game/src/functions/stubs.rs` lists who owns which, and a test fails when one
+of them is implemented without being taken off the list.
+
+## Graphics follow-ups: TAA, sun shafts, water reflections (2026-10-12, session "graphics-2")
+
+Follow-ups to PR #236 (list 2, "ENGINE LEVEL GRAPHIC IMPROVEMENTS"; handoff §4 item 8). Reasons
+and figures: docs/design/graphics-enhanced.md §3.6-§3.8, §4, §5.1. Every value below is an
+engineering choice by eye, not a fact about the original game. The vanilla look is unchanged and
+is still the default of every test run, smoke scenario and lab frame.
+
+1. **Temporal anti-aliasing** (`taa`, settings page "Temporal anti-aliasing"). Our own pass:
+   Bevy's needs motion vectors from every material, which our custom shaders do not write.
+   *Decision:* it is the **other choice to multisampling, not stacked**: on, the view is drawn
+   without MSAA and smoothed over the frames; off, `--msaa` comes back (switchable while
+   playing). *Decision:* **not part of `--graphics enhanced`**: standing still it is as smooth
+   as MSAA 4x (plants' cut-outs smoother), but textures are softer, clearly so while the view
+   moves, and you play with 8x MSAA. It is cheaper than MSAA 4x (GPU 0.05 ms for the pass,
+   about 0.4 ms saved in the main pass and prepass on the RTX 4070 here). *Guesses:* blend 10 %
+   still / 50 % moving fast, mip bias -0.5, points nearer than 48 units move with the camera
+   (the arms and weapon), a jump over 400 units in a frame starts the history over. *Check:*
+   turn it on in the settings and walk and turn in Goodsprings: softness, ghosts behind walking
+   NPCs and swaying grass, the arms while turning; say if you want it in `enhanced`.
+2. **Sun shafts** (`light-shafts`, in `enhanced`): light streaming past what stands in front of
+   the sun, from the game's own sky and sun as drawn, as strong as the weather's fog makes the
+   air hazy. *Guesses:* strength 0.6 + 0.9 x haze, haze = 20,000 / fog far (clear weather 0.1),
+   source within 0.3 of the screen height of the sun. *Check:* Goodsprings at 19:00 facing the
+   sunset (`--pos=-69000,3500,8900 --heading 260 --pitch 2 --hour 19 --graphics enhanced`);
+   a dusty or cloudy weather (stronger there by design); that noon looking away from the sun is
+   unchanged.
+3. **Screen-space water reflections** (`water-reflections`, in `enhanced`): only where the
+   existing mirrored reflection does not reach (water at a second height in view, e.g. Lake Las
+   Vegas next to Lake Mead's cells); interiors have no WATR planes in this engine, so nothing
+   changes there. *Decision:* kept although its value is small: checked only by forcing it in
+   place of the mirrored reflection at Lake Las Vegas (no artefacts, small difference). *Check:*
+   if you know a spot with two water levels in view, whether the lower one now shows the shore.
+4. *Decision (tried and dropped):* **Bevy's volumetric fog**: on our non-HDR picture it turned
+   Goodsprings at dusk dark brown with a visible box edge across the mountains
+   (`C:\fnv-private\scratch\graphics-2\vol-dusk.png`) and would replace the weather's fog look;
+   the sun shafts give the light shafts it was meant for. Contact shadows and CAS (#236) were
+   not retried.
+5. *Found:* switching multisampling while the game runs (now possible through TAA) ended the run
+   with a validation error in the ambient occlusion pass; the passes that read the depth now go
+   by the depth texture's own sample count. The `graphics-enhanced` smoke scenario switches TAA
+   on, walks and turns, and off again, and forbids rendering errors.
+6. *Test aids for measuring:* `--log-frame-times <s>` (frame time and GPU time per pass) and
+   `--graphics-cycle "vanilla;taa;..."` (switches between sets in one run). On this machine
+   the picture stayed at 60 Hz whatever was asked, so the per-pass GPU times are the figures;
+   the GTX 1050 was not measured. *Check:* your frame rate with `--graphics enhanced` and with
+   TAA on instead of MSAA.
+7. *Seen in passing (not this workstream):* at Camp Golf (`--pos=29500,62000,3400 --heading 0
+   --pitch -10 --hour 12`, free camera) an NCR trooper stands in the air above his shadow;
+   possibly your floating-troopers item 24.
+
+## Aid leftovers: waiting, Hardcore needs, Stealth Boy, perks, carry weight (2026-10-12, session "aid-2")
+
+The five leftovers of the aid items (§4 item 6 of the handoff). Spec note
+`docs/spec-notes/aid-items.md` §2, §6, §10–§12; code `crates/fnv-game/src/needs.rs`,
+`crates/fnv-game/src/perks.rs`, `crates/fnv-game/src/aid.rs`, `engine/nvf-play/src/aid.rs`,
+`engine/nvf-play/src/wait.rs`, `engine/nvforever/src/stealth_field.rs`; tool `fnvtool actor
+aid --perks --perk P --set AV:v --wait H [--sleep]`; smoke scenarios `aid-perks-needs-survey`,
+`aid-wait-perks`, `aid-hardcore`, `aid-stealth-boy`.
+
+1. **Effect timers during wait and sleep.** *Decision/Guess:* each hour waited or slept
+   counts as the seconds of play in which an hour passes at the TimeScale: 3600 / 30 =
+   120 s. Buffout (240 s) therefore wears off in the second hour waited, Chemist's 480 s
+   in the fourth; a usage monitor (108,000 s = 900 waited hours) practically never. The
+   other reading would be 3,600 s an hour (every chem gone after one hour, the usage
+   monitor after 30). *Check:* Buffout, then wait 1 hour and 2 hours: is Strength back?
+2. **Hardcore needs rising.** The masters have `fHCStarvationRate` 25 and
+   `fHCSleepDeprivationRate` 50 and no dehydration rate; the game's help message says
+   dehydration rises fastest, starvation slower, sleep deprivation slowest.
+   *Decision/Guess:* the setting is the seconds of play per point (larger = slower):
+   Hunger 4.8 an hour (Minor Starvation after about 42 hours), Sleep Deprivation 2.4 an
+   hour (Minor after about 83 hours). *Guess:* dehydration 12.5 s a point (9.6 an hour,
+   Minor after about 21 hours). *Guess:* an hour slept takes 100 off sleep deprivation;
+   hunger and thirst rise while sleeping as while waiting. *Check:* GetAV Dehydration,
+   Hunger, SleepDeprivation after 1, 6 and 24 hours waited and after 8 hours slept (spec
+   §9 item 7). These guesses decide how hard Hardcore feels; please say if they feel
+   wrong in play.
+3. **Need stages.** The RADS/DEHY/HUNG/SLPD records give each stage's threshold (200 …
+   1000) and its spell. *Decision:* the player has the spell of the highest stage reached
+   and loses it when the value drops below (so water at Minor Dehydration takes the
+   penalty away at once); rads' stages hold in every mode, the needs' only in Hardcore
+   (they go when Hardcore is turned off). *Not done:* the HUD's H2O/FOD/SLP codes, the
+   "Your dehydration level has increased" messages (the log says the stage), refusing a
+   wait or sleep that would kill (the help message says the original refuses it).
+4. **DamageActorValue / RestoreActorValue on rads and needs** now move them the way the
+   aid effects do (Damage raises, Restore lowers, never below 0): the Cannibal perk's
+   script restores Hunger 50 with the health it gives. Before, a Restore on Hunger did
+   nothing and a Damage on Rads lowered them. *Check:* RadAway-like scripts and eating
+   a corpse with Cannibal in Hardcore.
+5. **Stealth Boy.** Its "Stealth Field" (archetype Chameleon) now puts Chameleon 75 (and
+   Sneak +100) in the temporary pool for 120 s; detection already read Chameleon: in the
+   Goodsprings check the settler went from detected to hidden at 1,671 units in sight,
+   visual term 0. *Decision (look):* no refraction shader exists, so the player's body
+   and first-person arms are drawn see-through: blended at 30 % opacity, tinted blue
+   (`stealth_field.rs`; the shot shows a faint ghost). *Check:* whether you want the
+   original's shimmer instead (a shader of its own).
+6. **Perk entry points.** Read from the PERK records (109 perks of FalloutNV.esm have
+   entry point effects). The codes were identified by the only perks that use them: 23
+   Modify Addiction Chance (Chem Resistant × 0.5), 25 Modify Positive Chem Duration
+   (Chemist × 2, the chem challenge perk × 1.33), 44 Modify Radiation Consumed (Lead Belly
+   × 0.5); functions 1/2/3 read as Set/Add/Multiply. *Decisions:* only the player's
+   perks; a ranked perk applies its highest owned rank's entries only; entries in
+   ascending priority; entries with conditions on a tab other than the perk owner's are
+   skipped (none of the aid ones has any). *Decision:* Chemist lengthens beneficial
+   effects of items whose equip type is Chems, not the usage monitor; the Stealth Boy is
+   a Chems item, so Chemist doubles it too. *Check:* Stealth Boy duration with Chemist;
+   Buffout with Chemist lasts 8 minutes. *Not done:* the other entry points (combat's
+   still go through `PerkHooks` defaults), perks' ability effects (type 1, e.g. Life
+   Giver), "Modify Addiction Duration" (no master perk uses it).
+7. **Buffout and carry weight.** *Decision:* the capacity uses the current Strength
+   (temporary modifiers included, within 1–10) plus Carry Weight's own modifiers; the
+   menus' Wg line follows it (Buffout at Strength 5: 200 → 220, back to 200 when it
+   ends). *Check:* the Wg line in the Pip-Boy after Buffout.
+8. **Test aids added:** `NVF_PLAY_TEST_SCRIPT=<t>:hardcore:<0|1>`, `<t>:perk:<PERK>`,
+   `<t>:set_av:<ref>:<actor value>:<value>`. The wait now logs `wait: hour <n> passed for
+   the player (120 s of effects): …` each hour, and `needs: <value> <level>: <stage>` on
+   each stage change.
+9. **A lock mishap (process, not code):** during a picture run a shell line of mine
+   removed the two game locks (`run.lock`, `smoke.lock`) that another session held, for
+   a moment, after my own `mkdir` had failed; both existed again when checked right after
+   (taken again by their owner). If another session's run of 2026-10-12 about 18:03
+   overlapped a launch, that may be why. Later runs used a wrapper that only removes
+   locks it made.
+
 ## Lockpicking leftovers (2026-10-12, session "lockpick-2")
 
 Item 4 of the handoff list (leftovers of #232). Your ten screenshots in

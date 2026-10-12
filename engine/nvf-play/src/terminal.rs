@@ -154,6 +154,8 @@ struct TerminalStats {
     duds: u32,
     refills: u32,
     items: u32,
+    /// Result scripts that called ForceTerminalBack.
+    forced_back: u32,
 }
 
 /// `NVF_PLAY_TEST_TERMINAL`.
@@ -657,6 +659,21 @@ fn apply(
                     c.note.map(|n| format!(", note {}", rt.game.data.name(n))).unwrap_or_default()
                 );
                 m.result = c.result;
+                // The result script called ForceTerminalBack: back one level, or out of
+                // the terminal from its top level [documented: GECK wiki ForceTerminalBack].
+                if c.back {
+                    stats.forced_back += 1;
+                    (m.note, m.scroll) = (None, 0);
+                    if let Some((parent, row)) = m.parents.pop() {
+                        info!("terminal: ForceTerminalBack: back to {}", rt.game.data.name(parent));
+                        let items = with_world(rt, &mut sim, |rt| rules::items(&mut rt.game, reference, parent));
+                        (m.terminal, m.items, m.selected) = (parent, items, row);
+                        log_menu(rt, m);
+                        continue;
+                    }
+                    leave(&mut next, "ForceTerminalBack from the top menu");
+                    return;
+                }
                 if let Some(sub) = c.submenu {
                     m.parents.push((terminal, m.selected));
                     m.terminal = sub;
@@ -773,8 +790,8 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<TerminalStats>) {
         return;
     }
     info!(
-        "terminal summary: {} opened ({} refused), {} hacking games ({} hacked, {} locked out), {} words entered, {} bracket pairs ({} duds removed, {} allowances replenished), {} menu items chosen",
-        stats.opened, stats.refused, stats.hacks, stats.hacked, stats.locked_out, stats.guesses, stats.pairs, stats.duds, stats.refills, stats.items
+        "terminal summary: {} opened ({} refused), {} hacking games ({} hacked, {} locked out), {} words entered, {} bracket pairs ({} duds removed, {} allowances replenished), {} menu items chosen ({} sent back by ForceTerminalBack)",
+        stats.opened, stats.refused, stats.hacks, stats.hacked, stats.locked_out, stats.guesses, stats.pairs, stats.duds, stats.refills, stats.items, stats.forced_back
     );
 }
 

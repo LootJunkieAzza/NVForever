@@ -344,6 +344,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
             .add_systems(Update, (crate::control::enforce_locks, aiming_walks).chain().after(PlaySet::Input).before(PlaySet::Physics))
+            .add_systems(Update, crate::control::tell_scripts.after(PlaySet::Input).before(PlaySet::Scripts))
             .add_systems(Last, crate::control::report_locks)
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(

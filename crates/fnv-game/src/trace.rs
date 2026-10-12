@@ -73,6 +73,12 @@ pub enum EventKind {
     Addicted { actor: FormId, item: FormId, spell: FormId },
     /// Addictions taken away by a Cure Addiction effect.
     AddictionCured { actor: FormId, spell: FormId },
+    /// Hours of a wait or a sleep passed for the effects and needs: the seconds of play
+    /// they stood for (`crate::needs`).
+    TimePassed { hours: f64, seconds: f64, sleeping: bool },
+    /// The stage of a need (or rads) the actor has changed: the actor value, its level,
+    /// the stage record now held and its actor effect (`None`: below the first stage).
+    NeedStage { actor: FormId, value: u16, level: f64, stage: Option<FormId>, spell: Option<FormId> },
     /// A menu opened (`menu` code; a message box is 1001) or was closed.
     MenuOpened { menu: u16 },
     MenuClosed { menu: u16 },

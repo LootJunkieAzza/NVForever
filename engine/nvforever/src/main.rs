@@ -45,18 +45,22 @@ mod nav;
 mod object_anims;
 mod pipboy_arm;
 mod player_body;
+mod stealth_field;
 mod post;
 mod particles;
 mod shot_fx;
 mod ragdoll;
 mod reflection;
 mod residents;
+mod script_look;
 mod ripples;
 mod settings;
+mod shafts;
 mod imagespace;
 mod imposters;
 mod sky;
 mod ssao;
+mod taa;
 mod speech_look;
 mod terrain;
 mod tree;
@@ -265,16 +269,27 @@ struct Args {
     no_overlay: bool,
     /// The look: `vanilla` (the picture the parity and picture checks compare) or
     /// `enhanced` (ambient occlusion, finer and longer sun shadows, bloom, sharpening,
-    /// 16x anisotropic filtering; each also on the settings page;
+    /// 16x anisotropic filtering, sun shafts, screen-space water reflections; each also on
+    /// the settings page, which also offers temporal anti-aliasing instead of --msaa;
     /// docs/design/graphics-enhanced.md). Default: vanilla (`graphics::PLAY_DEFAULT`); test
     /// runs (--screenshot, --timelapse, --frame-json, --run-seconds) always default to it.
     #[arg(long, value_enum)]
     graphics: Option<graphics::Preset>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
-    /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic), for comparing them
-    /// one at a time.
+    /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, taa, light-shafts,
+    /// water-reflections), for comparing them one at a time.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
     graphics_only: Option<Vec<String>>,
+    /// Test aid: log the mean and the slowest frame time every this many seconds (real
+    /// time), for measuring what a graphics switch costs; the picture is then not held to
+    /// the display's refresh (no vsync).
+    #[arg(long)]
+    log_frame_times: Option<f32>,
+    /// Test aid with --log-frame-times: after each logged period switch to the next of
+    /// these sets of improvements, in a loop, starting with the first: `;`-separated,
+    /// each `vanilla`, `enhanced` or keys as for --graphics-only.
+    #[arg(long, requires = "log_frame_times", allow_hyphen_values = true)]
+    graphics_cycle: Option<String>,
     /// Play: the camera is the player, walking with collision, activating with E
     /// (Layer 4, nvf-play) instead of the free-fly camera.
     #[arg(long)]
@@ -377,6 +392,11 @@ struct Args {
     /// --pos and --heading are ignored.
     #[arg(long, requires = "play")]
     new_game: bool,
+    /// With --play: close message boxes that ask nothing (an OK button only, such as the
+    /// add-on packs' start-up boxes) as soon as a script shows them; boxes with a choice
+    /// stay open. For testing; the box's text is still logged.
+    #[arg(long, requires = "play")]
+    no_messages: bool,
     /// With --play: do not play dialogue voice (lines still last as long as their sound;
     /// the log still names each file).
     #[arg(long)]
@@ -710,12 +730,25 @@ fn main() -> AppExit {
             Err(e) => return fail(e),
         }
     };
-    let graphics = match &args.graphics_only {
+    let mut graphics = match &args.graphics_only {
         Some(keys) => match graphics::Graphics::only(keys) {
             Ok(g) => g,
             Err(e) => return fail(e),
         },
         None => graphics::Graphics::preset(graphics_preset(&args)),
+    };
+    let frame_times = match (args.log_frame_times, args.graphics_cycle.as_deref()) {
+        (None, _) => None,
+        (Some(every), cycle) => {
+            let cycle = match cycle.map(graphics::FrameTimes::parse_cycle).transpose() {
+                Ok(c) => c.unwrap_or_default(),
+                Err(e) => return fail(e),
+            };
+            if let Some(first) = cycle.first() {
+                graphics = *first;
+            }
+            Some(graphics::FrameTimes { every, cycle })
+        }
     };
     let mut app = App::new();
     app.add_plugins(
@@ -735,13 +768,15 @@ fn main() -> AppExit {
                 primary_window: Some(Window {
                     title: "NVForever".into(),
                     resolution: bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0),
+                    // Measuring frame times: not held to the display's refresh.
+                    present_mode: if args.log_frame_times.is_some() { bevy::window::PresentMode::AutoNoVsync } else { default() },
                     ..default()
                 }),
                 ..default()
             }),
     )
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
-    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics)))
+    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
     .add_plugins(grass::GrassPlugin(grass::GrassConfig {
         enabled: !args.no_grass,
         fade_start: args.grass_distance.max(0.0),
@@ -816,6 +851,9 @@ fn main() -> AppExit {
     if args.new_game {
         app.insert_resource(nvf_play::script::NewGame);
     }
+    if args.no_messages {
+        app.insert_resource(nvf_play::script::NoMessages);
+    }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
     app.insert_resource(nvf_play::sfx::SfxSettings { play: !args.no_sound, ..Default::default() });
     app.insert_resource(nvf_play::music::MusicSettings { play: !args.no_music, volume: args.music_volume });
@@ -849,7 +887,7 @@ fn main() -> AppExit {
         app.add_plugins(head_look::HeadLookPlugin { enabled: !args.no_head_tracking, camera_is_player: args.head_track_camera, force_point });
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
-            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
             app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
             // The sounds clips and doors name (anim_sounds.rs).
             app.add_plugins(anim_sounds::AnimSoundsPlugin);
@@ -861,6 +899,8 @@ fn main() -> AppExit {
             app.add_plugins(detection::DetectionPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
+            // Heads held by a script's Look (script_look.rs).
+            app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
             // Fights started by hits; the player's yield (provoked.rs).
@@ -870,7 +910,7 @@ fn main() -> AppExit {
         }
     }
     if play.is_some() {
-        app.add_systems(Update, sky_follows_game.before(sky::update_sky));
+        app.add_systems(Update, (script_weather, sky_follows_game).chain().before(sky::update_sky));
     }
     if play.is_some() || residents.is_some() {
         // Idle animations (idles.rs): after the game asked for them (scripts, packages,
@@ -1105,6 +1145,30 @@ fn keys(
 /// TimeScale global. An hour set by hand (the `[` and `]` keys) becomes the game's. The
 /// time-lapse test aid (`--time-scale`) keeps the sky's own clock, and so does
 /// `--still-sky` (the settings page switches it while the game runs).
+/// The weather scripts ask for (SetWeather, ForceWeather, ReleaseWeatherOverride;
+/// `fnv_game::weather`), and back to the scripts the weather shown (IsRaining,
+/// GetIsCurrentWeather).
+fn script_weather(mut script: Option<ResMut<nvf_play::script::ScriptState>>, world: Option<Res<nvf_play::PlayWorld>>, mut sky: ResMut<sky::SkyState>) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let g = &mut rt.game;
+    if let Some(r) = g.take_weather_request() {
+        match world.as_deref().and_then(|w| fnv_world::sky::weather(w.lo, w.schema, r.weather.0).map(|wt| (w, wt))) {
+            Some((w, wt)) => {
+                let adapters = fnv_world::imagespace::weather_adapters(w.lo, w.schema, &wt).map(|id| id.and_then(|id| fnv_world::imagespace::adapter(w.lo, w.schema, id)));
+                sky.script_weather(wt, adapters, r.instant, r.hold);
+            }
+            None => warn!("weather: a script asked for {}, which is not a weather", g.data.name(r.weather)),
+        }
+    }
+    if g.take_weather_release() {
+        sky.release_script_weather();
+    }
+    let (shown, raining) = (fnv_sim::FormId(sky.weather.form_id), sky.raining());
+    if g.weather.shown != Some(shown) || g.weather.raining != raining {
+        g.set_shown_weather(shown, raining);
+    }
+}
+
 fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, args: Res<Args>, mut shown: Local<Option<f32>>) {
     if sky.time_scale > 0.0 || args.still_sky {
         return;
