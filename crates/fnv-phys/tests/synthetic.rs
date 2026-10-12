@@ -1421,3 +1421,40 @@ fn clutter_asleep_on_a_keyframed_lid_stays_asleep() {
     let b = w.ref_bodies(0x99)[0];
     assert!(b.sleeping && (b.translation[2] - 304.0).abs() < 1e-3, "{b:?}");
 }
+
+#[test]
+fn running_off_a_low_edge_keeps_the_ground_and_the_speed() {
+    // A platform (top at `h`) ending at x = 0; the character runs off it at 344 units/s
+    // (physics.md §6.4.2).
+    for (h, lands_within) in [(8.0f32, 3usize), (16.0, 3), (22.0, 3)] {
+        let mut w = ground();
+        w.add_ref(&at(1, [-500.0, 0.0, h / 2.0]), &[object(boxed([500.0, 200.0, h / 2.0]), Motion::Static)]);
+        let mut c = w.add_character(1, CharacterParams::default(), [-200.0, 0.0, h + 5.0]);
+        settle(&mut w, &mut c, 60);
+        let steps = walk(&mut w, &mut c, [344.0, 0.0], 90);
+        let airborne = steps.iter().filter(|s| !s.grounded).count();
+        assert!(airborne <= lands_within, "{h}: {airborne} steps in the air");
+        assert!(steps.iter().all(|s| s.landed_speed.is_none_or(|v| v < air::LANDING_MIN_SPEED)), "{h}: a hard landing");
+        assert!(c.since_landing.is_none(), "{h}: the landing slowed it");
+        assert!((c.feet[0] - (-200.0 + 344.0 * 1.5)).abs() < 2.0, "{h}: {:?}", c.feet);
+    }
+}
+
+#[test]
+fn running_off_a_high_edge_still_falls() {
+    let mut w = ground();
+    w.add_ref(&at(1, [-500.0, 0.0, 30.0]), &[object(boxed([500.0, 200.0, 30.0]), Motion::Static)]);
+    let mut c = w.add_character(1, CharacterParams::default(), [-200.0, 0.0, 65.0]);
+    settle(&mut w, &mut c, 60);
+    let steps = walk(&mut w, &mut c, [344.0, 0.0], 90);
+    let airborne = steps.iter().filter(|s| !s.grounded).count();
+    assert!(airborne >= 10, "{airborne} steps in the air off a 60-unit edge");
+    assert!(steps.iter().any(|s| s.landed_speed.is_some_and(|v| v >= air::LANDING_MIN_SPEED)));
+}
+
+#[test]
+fn the_landing_profile_needs_a_drop_above_the_step_height() {
+    assert!(fnv_phys::character::landing_profile(290.0, 61.6, 24.0));
+    assert!(!fnv_phys::character::landing_profile(170.0, 20.0, 24.0));
+    assert!(!fnv_phys::character::landing_profile(90.0, 30.0, 24.0));
+}

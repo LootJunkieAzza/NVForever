@@ -176,6 +176,22 @@ pub struct Character {
     pub since_landing: Option<f32>,
     /// Seconds since the character left the ground (0 on the ground).
     pub air_time: f32,
+    /// Feet height where the character walked off the ground (left it without jumping,
+    /// e.g. running down a hill or over a small edge); `None` on the ground, after a jump
+    /// and after a placement. While the ground below is within `step_height` of this
+    /// height the character is put on it, as a step down (see [`move_character`]).
+    ///
+    /// [`move_character`]: PhysWorld::move_character
+    pub walked_off_z: Option<f32>,
+    /// Highest feet height since the character left the ground (`None` on the ground):
+    /// a landing starts the landing speed profile only after a drop of more than
+    /// `step_height` from it (see [`landing_profile`]).
+    pub air_top_z: Option<f32>,
+    /// How far the feet were above the nearest support below at the start of the last
+    /// step (beyond the gap kept from it), game units; `None` when nothing was within the
+    /// support search (`step_height` and the terrain shell twice, plus the step's fall).
+    /// For the animations: a character this close to the ground is not falling.
+    pub ground_gap: Option<f32>,
     /// Other characters do not block this one: its caller keeps characters apart by
     /// other means. (Off, the controller also carries a character along with any
     /// kinematic body that comes within its contact distance, another character's
@@ -271,6 +287,9 @@ impl PhysWorld {
             air_full: false,
             since_landing: None,
             air_time: 0.0,
+            walked_off_z: None,
+            air_top_z: None,
+            ground_gap: None,
             passes_characters: false,
         };
         let body =
@@ -292,6 +311,8 @@ impl PhysWorld {
         c.grounded = false;
         c.velocity = [0.0, 0.0];
         c.since_landing = None;
+        c.walked_off_z = None;
+        c.air_top_z = None;
         let center = c.center(self.k);
         self.w.bodies[c.body].set_translation(center, true);
         // A body that had gone to sleep (a character not moved for a while) stayed where
@@ -389,6 +410,7 @@ impl PhysWorld {
                 c.feet[2] += lift;
             }
         }
+        c.ground_gap = support.map(|(_, toi, n)| (toi - c.gap / n.z.max(walkable)).max(0.0));
         let on_walkable = support.is_some_and(|(_, toi, n)| n.z >= walkable && toi <= c.gap / n.z + SUPPORT_MARGIN);
 
         let key = input.velocity;
@@ -515,7 +537,14 @@ impl PhysWorld {
         // physics.md §6.2) on walkable ground, lifted when closer (landing, or after walking
         // onto terrain from a static floor) and pulled down within `step_height` when the
         // step started on the ground (descents; a swimming or rising character is left).
-        if !c.swimming && c.vertical_speed <= 0.0 && (on_walkable || moved.grounded) {
+        // A character that walked off the ground lands as soon as walkable ground is
+        // within `step_height` of where it left it (`walked_off_z`): running down a hill
+        // or over a small edge, a step can miss the ground (the edge of a mesh, a crease
+        // of the terrain), and without this the character fell freely until its arc met
+        // the slope again, 0.2-0.4 s later, and the landing slowed it [observed: `fnvtool
+        // phys walk` at the owner's steep road, physics.md §6.4.2].
+        let walked_off = c.walked_off_z.filter(|_| !c.swimming && !jumping && c.vertical_speed <= 0.0);
+        if !c.swimming && c.vertical_speed <= 0.0 && (on_walkable || moved.grounded || walked_off.is_some()) {
             let at = Pose::from_translation(pos.translation + moved.translation);
             let q = self.w.query_pipeline_with_filter(filter);
             let opts = ShapeCastOptions {
@@ -528,7 +557,9 @@ impl PhysWorld {
             if let Some((h, toi, n)) = below.filter(|&(_, _, n)| n.z >= walkable) {
                 let gap = c.params.rest_gap(self.shell_of(h));
                 let mut d = toi - gap / n.z;
-                if d > 0.0 && !(on_walkable && d <= c.params.step_height) {
+                let feet_after = c.feet[2] + moved.translation.z / k;
+                let step_down = walked_off.is_some_and(|z| z - (feet_after - d) <= c.params.step_height);
+                if d > 0.0 && !((on_walkable && d <= c.params.step_height) || step_down) {
                     d = 0.0;
                 }
                 if d < 0.0 {
@@ -537,7 +568,7 @@ impl PhysWorld {
                         d = d.max(-up.time_of_impact / k);
                     }
                 }
-                if d != 0.0 || on_walkable {
+                if d != 0.0 || on_walkable || step_down {
                     moved.translation.z -= d * k;
                     moved.grounded = true;
                     c.gap = gap;
@@ -566,10 +597,16 @@ impl PhysWorld {
             // Walked off an edge: the keys held now decide the air target.
             c.air_full = !air::is_zero(key);
             c.air_time = 0.0;
+            c.walked_off_z = Some(c.feet[2]);
         }
+        if c.grounded || jumping || c.swimming {
+            c.walked_off_z = None;
+        }
+        let top = c.air_top_z.unwrap_or(c.feet[2]);
         c.air_time = if c.grounded { 0.0 } else { c.air_time + dt };
+        let landing_z = c.feet[2] + moved.translation.z / k;
         c.since_landing = if c.grounded && !was_grounded {
-            (falling_speed >= air::LANDING_MIN_SPEED).then_some(0.0)
+            landing_profile(falling_speed, top - landing_z, c.params.step_height).then_some(0.0)
         } else if c.grounded {
             c.since_landing.map(|t| t + dt).filter(|&t| ((t * 60.0).round() as usize) < air::LANDING_SPEEDS.len())
         } else {
@@ -593,6 +630,7 @@ impl PhysWorld {
             c.vertical_speed = 0.0;
         }
         c.feet = arr3(vec3(c.feet) + moved.translation / k);
+        c.air_top_z = if c.grounded || c.swimming { None } else { Some(top.max(c.feet[2])) };
         // Falling (not on the ground) with the feet `swim_depth` below the surface starts
         // swimming: the fall stops there, with no landing [observed: physics.md §6.6].
         if !c.swimming && !c.grounded && c.vertical_speed < 0.0 {
@@ -617,6 +655,16 @@ impl PhysWorld {
             touched,
         }
     }
+}
+
+/// Whether a landing at `speed` (downward, units/s) after a drop of `drop` units from the
+/// highest point in the air starts the landing speed profile ([`air::LANDING_SPEEDS`]):
+/// from [`air::LANDING_MIN_SPEED`], and only after a drop of more than `step_height`, so
+/// a short hop down a slope or off a small edge does not slow a running character
+/// [hypothesis: the profile was seen after jumps of 61.6 (physics.md §6.4.1); the original
+/// running down the owner's steep road kept its speed, playtest 2026-10-12].
+pub fn landing_profile(speed: f32, drop: f32, step_height: f32) -> bool {
+    speed >= air::LANDING_MIN_SPEED && drop > step_height
 }
 
 /// Vertical speed of a swimming character with its feet at `feet_z` under a surface at

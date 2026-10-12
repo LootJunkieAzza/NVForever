@@ -4249,6 +4249,52 @@ Smoke scenarios added: `voice-opening`, `message-button-conditions`, `goodbye-af
 `message_shown` gains a `hidden` field (written only when a button is hidden), which the lab's
 script traces may show for boxes with conditions (no lab run in this workstream).
 
+## Falling, loading and walks (playtest list 4 items 8, 9, 10, 2-3) (2026-10-13, session "falling-loading")
+
+8. **Falling on the steep road: fixed in the physics.** At your spot (-64168, -8679)
+   running straight south never left the ground; at 150° and 210° it did, for 0.4 s and
+   more. One step missed the ground (the first thing under the capsule was a face steeper
+   than the 45° slope limit: a mesh's edge, a rock), and from then the character fell
+   freely until its arc met the slope again, then the landing slowed it to 81 units/s:
+   the switching between falling and running (physics.md §6.4.2). Now a character that
+   walked off the ground lands on walkable ground as soon as it is within the step height
+   (24) of where it left; the landing slow-down needs a drop of more than 24 from the top
+   of the jump; and the jump loop needs the ground more than 24 below the feet.
+   Guesses: all three 24s (the controller's step height; the original's rules are not in
+   the ESM's settings or the wiki); the 45° slope limit for the player (still untouched:
+   running across the 56° rock face at 210° still slides). Check: run down that road in
+   several directions, and onto and off rocks; jump and fall off a roof (the jump loop
+   and landing must still play).
+9-10. **Loading screen and ground fading in at the gas station: fixed.** Two causes.
+   (a) In the frame of the door the renderer still had the camera where it was inside,
+   so it loaded the (empty) cells around that point at once and counted them as the
+   destination; the screen came down while the gas station's own cells still loaded one
+   a frame, fading in. It now loads around the arrival point until all are in.
+   (b) The player placed by the door counted as in the air until the first physics
+   step, which waits behind the loading screen: the body played the jump loop behind
+   the screen and a landing when it came down (the "drop from a height"). A placed
+   player on support now counts as standing. Not done: the screen does not wait for
+   distant LOD generation (it can take long on a first visit); the 0.25 s settling time
+   for meshes and textures is unchanged. Check: leave the gas station and Doc Mitchell's
+   house; the ground should be there when the screen goes.
+2-3. **Victor's and Sunny's stop-and-go: partly.** Not the falls: `fnvtool nav walk` on an
+   NPC path from Victor's patrol start found 7 steps in the air before the fix (1 after)
+   and none at running speed. What did stop them: an actor near the player moves in the
+   physics steps (60 a second), but was drawn at the position of the last step and its
+   animation took the distance moved since the last frame: a frame with no physics step
+   (any frame rate above 60, or uneven frame times) drew it standing and played the idle.
+   Actors with a character are now drawn between their last two steps, as the player is.
+   In my runs at about 55 frames a second the frames with no step were rare, so I could
+   not reproduce the stop-and-go on screen: Goodsprings with every resident, 40 s, 1,311
+   frames of residents walking, 251 drawn standing, but only 1 stop of 1-3 frames; the
+   rest were 4 long stops (198 frames of actors whose character did not move: held,
+   blocked or waiting) and 48 frames of turning on the spot. The smoke scenario
+   `falling-loading` logs this ("walk summary") and wants at most 5 short stops. Victor stood at his
+   VCG00 idle in a new game (his patrol starts later in the quest), so I did not watch his
+   patrol, nor Sunny's run to the geckos. Check: those two walks at your usual frame rate;
+   if they still stop and start, note whether it happens at path corners (turning on the
+   spot is by design: `spot_turn_start`) or on open ground.
+
 ## Playtest list 4: third-person crosshair
 
 Branch `claude/third-person-aim` (desktop queue D2), items 11 and 12.

@@ -289,6 +289,10 @@ struct Resident {
     waiting: Option<(u32, f32)>,
     doors_opened: usize,
     last_feet: [f32; 3],
+    /// Where its body was drawn last frame (`npc_drawn_feet`).
+    drawn_feet: [f32; 3],
+    /// Frames in a row drawn standing while on its way (the walk summary).
+    standing_frames: usize,
     seat: Seat,
     /// The furniture `fnv_ai` has the actor use now.
     wants: Option<u32>,
@@ -390,6 +394,16 @@ struct Core {
     /// and the frames in which one turned faster than [`SNAP_TURN`].
     fastest_turn: (f32, String),
     snaps: usize,
+    /// Frames of drawn residents on their way: all, those in which their character had
+    /// not moved since the last frame (no physics step: drawn standing before the
+    /// in-between drawing), and those drawn standing.
+    walk_frames: [usize; 3],
+    /// Of the frames drawn standing: with a physics character, turning on the spot, and
+    /// the other walkers; and the stops (standing between two frames walking) of 1-3
+    /// frames and longer.
+    standing_by: [usize; 5],
+    /// The game was held this frame (menu, conversation, loading screen): nobody walks.
+    held_now: bool,
 }
 
 #[derive(Resource)]
@@ -453,6 +467,9 @@ impl Residents {
             waited: [0; 2],
             fastest_turn: (0.0, String::new()),
             snaps: 0,
+            walk_frames: [0; 3],
+            standing_by: [0; 5],
+            held_now: false,
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -559,6 +576,8 @@ impl Core {
             waiting: None,
             doors_opened: 0,
             last_feet: placed.pos,
+            drawn_feet: placed.pos,
+            standing_frames: 0,
             seat: Seat::None,
             stand: None,
             last_drawn: None,
@@ -703,7 +722,8 @@ impl Core {
             }
         }
         // A menu, a conversation or a loading screen holds the game: nobody moves.
-        if game.menu.is_some() || game.loading || game.dialogue.is_some() {
+        self.held_now = game.menu.is_some() || game.loading || game.dialogue.is_some();
+        if self.held_now {
             for b in phys.iter_mut().flat_map(|p| p.npcs.values_mut()) {
                 b.velocity = [0.0, 0.0];
             }
@@ -1228,7 +1248,26 @@ pub fn drive(
             }
             budget -= 1;
         }
-        let moving = agent.activity == Activity::Travelling && (w.feet[0] - r.last_feet[0]).hypot(w.feet[1] - r.last_feet[1]) > 1e-4;
+        // Drawn where its character is between two physics steps (as the player is): the
+        // steps run at a fixed rate, and frames that held none showed the actor standing
+        // (no movement this frame, so the idle clip), which made walks stop and start.
+        let feet = phys.as_deref().and_then(|p| p.npc_drawn_feet(r.actor.0)).unwrap_or(w.feet);
+        let moving = agent.activity == Activity::Travelling && (feet[0] - r.drawn_feet[0]).hypot(feet[1] - r.drawn_feet[1]) > 1e-4;
+        if visible && r.spawned && !on && !core.held_now && agent.activity == Activity::Travelling {
+            let unmoved = (w.feet[0] - r.last_feet[0]).hypot(w.feet[1] - r.last_feet[1]) <= 1e-4;
+            core.walk_frames[0] += 1;
+            core.walk_frames[1] += usize::from(unmoved);
+            core.walk_frames[2] += usize::from(!moving);
+            if !moving {
+                let in_phys = phys.as_deref().is_some_and(|p| p.npcs.contains_key(&r.actor.0));
+                core.standing_by[if in_phys { 0 } else if w.turning { 1 } else { 2 }] += 1;
+                r.standing_frames += 1;
+            } else if r.standing_frames > 0 {
+                core.standing_by[if r.standing_frames <= 3 { 3 } else { 4 }] += 1;
+                r.standing_frames = 0;
+            }
+        }
+        r.drawn_feet = feet;
         r.last_feet = w.feet;
         // How fast its drawn body turns (the turn summary): the AI's heading of an actor
         // drawn in this frame and the last, not on furniture, not through a door.
@@ -1248,7 +1287,7 @@ pub fn drive(
             (_, false) => None,
         };
         let stage = (&mut r.spawned, &mut r.root);
-        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale }, stage, w, moving, dt) {
+        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale }, stage, (feet, w.heading), moving, dt) {
             if r.named {
                 warn!("ai: {} could not be drawn ({e})", r.label);
             }
@@ -1297,6 +1336,18 @@ pub fn report(
         if core.fastest_turn.1.is_empty() { String::new() } else { format!(" ({})", core.fastest_turn.1) },
         core.snaps,
         SNAP_TURN.to_degrees()
+    );
+    info!(
+        "walk summary: {} frames of drawn residents on their way (the game not held); their character had not moved in {} of them (no physics step that frame), drawn standing in {} ({:.1}%: {} with a physics character, {} turning on the spot, {} other walkers); {} stops of 1-3 frames, {} longer",
+        core.walk_frames[0],
+        core.walk_frames[1],
+        core.walk_frames[2],
+        100.0 * core.walk_frames[2] as f64 / core.walk_frames[0].max(1) as f64,
+        core.standing_by[0],
+        core.standing_by[1],
+        core.standing_by[2],
+        core.standing_by[3],
+        core.standing_by[4]
     );
     info!(
         "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; sandbox: {} wanders, {} seats, {} idle markers, {} sleeps, {} meals, {} times nothing to do; {} talks started by dialogue packages; physics moved actors in {} updates (at most {} at once), gave up {} times; standing actors pushed aside {} times ({:.0} units in all, {} times no room); {} hours passed in the wait menu ({} walks in them); {}",
