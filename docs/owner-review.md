@@ -4294,3 +4294,46 @@ script traces may show for boxes with conditions (no lab run in this workstream)
    patrol, nor Sunny's run to the geckos. Check: those two walks at your usual frame rate;
    if they still stop and start, note whether it happens at path corners (turning on the
    spot is by design: `spot_turn_start`) or on open ground.
+
+## Playtest list 4: third-person crosshair
+
+Branch `claude/third-person-aim` (desktop queue D2), items 11 and 12.
+
+**Cause (both items).** The third-person camera sits over the right shoulder (the shoulder
+offset 40 right, 10 down from the pivot; `fOverShoulderPosX/Z`) and looks the same way as
+the player, so the crosshair in the middle of the view lies on a line about 40 units right
+of the eye's. The activate prompt (`activate::find_target`) and the player's shots
+(`combat::fire`) both used the eye's view ray, as in first person: the prompt showed only
+when the eye's ray (left of the crosshair) met the object, and shots landed left of the
+crosshair.
+
+**Fix.** `place_camera` now records the third-person camera's line (`control::Crosshair`,
+in `PlayerControl::crosshair`) each frame. Item 11: the target ray starts on that line where
+it is level with the eye (so nothing between the camera and the player is picked and the
+reach stays measured from about the player) and runs along the view. Item 12: the aim point
+is what that ray meets first within the weapon's range (its end when nothing); the shot's
+ray goes from the eye to that point, then the muzzle and cover rules of combat.md §5.1 apply
+as before. First person is unchanged. The `aim…` test aids now put the point under the
+crosshair (third person: turned so the camera's line passes through it).
+
+*Decision:* while the camera circles the player (Toggle POV held, or swinging back), the
+eye's view is used, since the camera then does not look where the player does.
+*Decision:* the shot leaves from the eye (then muzzle), not from the camera, so cover
+between the player and the target still blocks it; a target the camera sees round a corner
+the player cannot may be hit on the corner instead (as in the original [hypothesis]).
+*Guess:* the original converges the shot on the crosshair point the same way; we have not
+observed how it treats an aim point very close to the player. Here, an aim point less than
+1 unit away or not ahead of the eye uses the view direction.
+*Check:* in third person, the E) prompt shows when the crosshair is on an NPC, door or
+item (not to its right); shots with a scoped/no-spread weapon land on the crosshair at near
+(Sunny's bottles) and far range; shooting past a doorframe near the right shoulder.
+
+Smoke scenarios added: `third-person-shots` (Sunny's bottles shot from third person, glass 3)
+and `third-person-activate` (one of Sunny's bottles, targeted in first person, not targeted
+once the view goes to third person with it left of the crosshair, then targeted again with
+it under the crosshair). Chet behind the general store's counter was tried first and is not
+a clean test: even in first person he is found only by his render bounds there, and along
+the camera's line not at all [observed: smoke run 2026-10-13]; worth a look if the prompt
+is hard to get on shopkeepers behind counters. New
+log line: `crosshair: the third-person camera's line (shoulder [..])` / `crosshair: the
+eye's view` when the crosshair's line changes.
