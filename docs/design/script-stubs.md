@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -121,6 +121,14 @@ the code table is not in the local GECK wiki export; one condition use).
 The test aid `call:` also takes `x`/`y`/`z` (an axis) and `"text"` (a string). Smoke:
 `script-stubs-2-play` (the time multiplier and ShowAllMapMarkers on the Pip-Boy map).
 
+### 3.3 The followers (H, 2026-10-12)
+
+OpenTeammateContainer (0x11C8, 26 calls) is implemented (docs/design/followers.md §5): the
+container menu on the companion's inventory, once the conversation is over. No stub is
+assigned to H any more. Wait, StopWaiting and IsWaiting are not registered and used by no
+script of the masters [observed]; the companions wait by their `Waiting` variable and Guard
+packages.
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is
@@ -148,7 +156,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | PushActorAway | 0x118A | 35 | 0 | needs a system not built yet | physics: ragdolls are for corpses only; a live actor knocked down and getting up is not built |
 | PurgeCellBuffers | 0x1189 | 32 | 0 | deliberately no-op | memory: the original's cell buffers; cells here load and unload by distance |
 | ShowCaravanMenu | 0x125A | 29 | 0 | needs a system not built yet | menus (Caravan) |
-| OpenTeammateContainer | 0x11C8 | 26 | 0 | assigned to workstream | assigned to workstream H followers |
 | FireWeapon | 0x11E2 | 24 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
 | IsLeftUp | 0x111D | 0 | 22 | needs a system not built yet | animation |
 | Exists | 0x119F | 0 | 21 | assigned to workstream | assigned to workstream E2 combat AI |

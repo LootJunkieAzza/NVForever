@@ -208,7 +208,7 @@ a later workstream].
   combat after more than iFriendHitCombatAllowed hits (FalloutNV.esm: 4) within
   fFriendHitTimer (10 s), hits closer than fFriendMinimumLastHitTime (0.5 s) counting
   once [documented: GECK wiki Friendly Fire and its defaults; the 4 observed 2026-10-12].
-- **Ally** (reaction 2; the player's teammates count as allies [hypothesis]): never in
+- **Ally** (reaction 2; the player's teammates count as allies [hypothesis]; followers.md §4): never in
   combat (iAllyHitCombatAllowed 1000, "infinite"; GetFriendHit stays at 1); out of
   combat after more than iAllyHitNonCombatAllowed (3) hits [documented].
 - **The owner's exception**: a neutral actor already in Combat with someone else, hit

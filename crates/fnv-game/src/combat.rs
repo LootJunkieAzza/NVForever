@@ -240,6 +240,11 @@ impl Game<'_> {
             *self.player.dead_count.entry(b).or_default() += 1;
         }
         self.ref_event(r, event::ON_DEATH, killer.map(|k| Value::Ref(k.0)), killer);
+        // "Teammate state is cleared on death of the actor" [documented: GECK wiki
+        // SetPlayerTeammate]; after OnDeath, which may still ask [hypothesis: the order].
+        if let Some(e) = self.extra.get_mut(&r) {
+            e.teammate = false;
+        }
         true
     }
 

@@ -610,6 +610,8 @@ impl Core {
             let place = game.world.peek(id).map(|s| (s.cell, s.pos));
             let cell = place.and_then(|p| p.0).map_or_else(|| "no cell".to_string(), |c| game.data.name(c));
             let pos = place.map_or([0.0; 3], |p| p.1);
+            // A teammate the player's change of cells brought along (`fnv_game::followers`).
+            let why = if game.brought_along.remove(&id) { "with the player (teammate)" } else { "by a script (MoveTo)" };
             if ours {
                 if let Some(p) = phys.as_deref_mut() {
                     p.remove_npc(id.0);
@@ -618,12 +620,12 @@ impl Core {
                 self.skip_until.remove(&id.0);
                 if let Some(r) = self.list.iter_mut().find(|r| r.actor == id) {
                     r.moved = true;
-                    info!("ai [{}] {}: put at ({:.0}, {:.0}, {:.0}) in {cell} by a script (MoveTo): goes on from there", self.clock_text, r.label, pos[0], pos[1], pos[2]);
+                    info!("ai [{}] {}: put at ({:.0}, {:.0}, {:.0}) in {cell} {why}: goes on from there", self.clock_text, r.label, pos[0], pos[1], pos[2]);
                 }
             } else if all && !self.known.contains(&id.0) {
                 self.add(refs, id, None);
                 let label = self.list.last().map_or_else(|| id.to_string(), |r| r.label.clone());
-                info!("ai [{}] {label}: put at ({:.0}, {:.0}, {:.0}) in {cell} by a script (MoveTo): a resident from there", self.clock_text, pos[0], pos[1], pos[2]);
+                info!("ai [{}] {label}: put at ({:.0}, {:.0}, {:.0}) in {cell} {why}: a resident from there", self.clock_text, pos[0], pos[1], pos[2]);
             }
         }
     }
@@ -854,7 +856,8 @@ impl Core {
             // Named residents in full; the crowd of `all` only when it sets off or fails.
             let line = format!("ai [{hour}] {}: {}", r.label, describe(game.data, world, &e.event));
             match e.event {
-                _ if r.named => info!("{line}"),
+                // The player's companions in full too (`fnv_game::followers`).
+                _ if r.named || game.is_teammate(e.actor) => info!("{line}"),
                 AiEvent::Trip { .. }
                 | AiEvent::Unreachable { .. }
                 | AiEvent::Approach { .. }

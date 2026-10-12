@@ -42,6 +42,7 @@ pub mod cond;
 pub mod crime;
 pub mod data;
 pub mod detection;
+pub mod followers;
 pub mod dialogue;
 pub mod functions;
 pub mod hacking;

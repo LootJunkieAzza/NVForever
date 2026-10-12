@@ -655,6 +655,14 @@ pub struct Game<'a> {
     /// is open for scripts ([`menus::BARTER`]) until the engine closes it. Not part of
     /// the saved state.
     pub barter_requests: Vec<BarterRequest>,
+    /// Teammates' inventories scripts opened (OpenTeammateContainer,
+    /// `crate::followers`), for the engine to show as a container menu. Not part of the
+    /// saved state.
+    pub teammate_containers: Vec<FormId>,
+    /// Teammates brought to the player when the player changed cells
+    /// (`crate::followers`), for the engine's log; they are in [`Game::teleported`] too.
+    /// Not part of the saved state.
+    pub brought_along: BTreeSet<FormId>,
     /// Sleeping and waiting as scripts see and ask for them (`crate::rest`); the menu is
     /// the engine's. Not part of the saved state.
     pub rest: crate::rest::Rest,
@@ -868,6 +876,8 @@ impl<'a> Game<'a> {
             music_requests: Vec::new(),
             anims: Default::default(),
             barter_requests: Vec::new(),
+            teammate_containers: Vec::new(),
+            brought_along: BTreeSet::new(),
             rest: Default::default(),
             detection: Default::default(),
             awareness: Default::default(),
@@ -1833,7 +1843,10 @@ impl<'a> Game<'a> {
                 self.emit(EventKind::ItemAdded { to: actor, item, count });
                 self.item_event(actor, item, event::ON_ADD, Some(Value::Ref(actor.0)));
             }
-            Outcome::Teleported { cell, .. } if actor == FormId::PLAYER_REF => self.player_entered(cell),
+            Outcome::Teleported { cell, .. } if actor == FormId::PLAYER_REF => {
+                self.player_entered(cell);
+                self.bring_teammates();
+            }
             _ => {}
         }
         Ok(v)

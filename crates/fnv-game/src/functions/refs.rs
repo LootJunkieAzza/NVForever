@@ -69,6 +69,7 @@ pub fn move_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.emit(EventKind::Moved { reference: r, cell, pos });
     if r == FormId::PLAYER_REF {
         g.player_entered(cell);
+        g.bring_teammates();
     }
     none()
 }
