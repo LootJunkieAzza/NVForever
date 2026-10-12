@@ -275,6 +275,11 @@ pub struct Ai {
     taken: BTreeMap<FormId, FormId>,
     /// Hellos and random conversations ([`Ai::social`]).
     pub(crate) social: crate::social::Social,
+    /// The actors out of the high process, with the seconds owed to each since its last
+    /// update, `None` for one that is not updated there at all ([`crate::process`]).
+    pub(crate) low: BTreeMap<FormId, Option<f32>>,
+    /// Updates given to actors out of the high process, and changes of level.
+    pub process_stats: crate::process::ProcessStats,
 }
 
 fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -283,7 +288,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default() }
     }
 
     /// Start looking after a placed actor, from where it is now.
@@ -449,8 +454,11 @@ impl Ai {
 
     /// [`Ai::update`] with the caller's [`Mover`]: its doors, and its own way of moving
     /// the actors it chooses to (the engine's character controller near the player).
+    /// Actors out of the high process get their own, less frequent update
+    /// ([`crate::process`]).
     pub fn update_moved(&mut self, game: &mut Game, nav: &NavGraph, dt: f32, open: &mut dyn Mover) {
-        self.step(game, nav, dt, open, false)
+        self.step(game, nav, dt, open, false);
+        self.update_low(game, nav, dt);
     }
 
     /// Game time that passed while a menu held the game (an hour of a wait or a sleep,
@@ -472,8 +480,10 @@ impl Ai {
             self.step(game, nav, step.min(left), &mut Passed, true);
             left -= step;
             let before = walked.len();
-            walked.extend(self.agents.iter().filter(|(_, a)| a.activity == Activity::Travelling).map(|(id, _)| *id));
-            let nobody = self.agents.values().all(|a| a.activity != Activity::Travelling);
+            // Not counted: who is not updated at all where it is (`crate::process`).
+            let on_way: Vec<FormId> = self.agents.iter().filter(|(id, a)| a.activity == Activity::Travelling && self.low.get(id).is_none_or(Option::is_some)).map(|(id, _)| *id).collect();
+            let nobody = on_way.is_empty();
+            walked.extend(on_way);
             still = if nobody && walked.len() == before { still + 1 } else { 0 };
         }
         walked.len()
@@ -481,63 +491,71 @@ impl Ai {
 
     /// One update: `quiet` is [`Ai::pass_time`]'s (no talking, no new sandbox behaviour,
     /// no patrol leaving its point, nobody going back after a push).
+    /// Actors out of the high process ([`crate::process`]) are left out of an update that
+    /// is not quiet ([`Ai::update_moved`] gives them their own, now and then), and those
+    /// not updated there at all out of every update.
     fn step(&mut self, game: &mut Game, nav: &NavGraph, dt: f32, open: &mut dyn Mover, quiet: bool) {
-        let actors: Vec<FormId> = self.agents.keys().copied().collect();
+        let actors: Vec<FormId> = self.agents.keys().copied().filter(|a| self.low.get(a).is_none_or(|owed| quiet && owed.is_some())).collect();
         for actor in actors {
-            if !game.present(actor) || game.extra.get(&actor).is_some_and(|e| e.dead) || self.agents[&actor].rooted {
-                continue;
+            self.step_actor(game, nav, actor, dt, open, quiet);
+        }
+    }
+
+    /// One update of one actor (see [`Ai::step`]).
+    pub(crate) fn step_actor(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, open: &mut dyn Mover, quiet: bool) {
+        if !game.present(actor) || game.extra.get(&actor).is_some_and(|e| e.dead) || self.agents[&actor].rooted {
+            return;
+        }
+        let current = game.current_package(actor);
+        if self.agents[&actor].package != current {
+            self.log(game, actor, AiEvent::Package { package: current });
+            let a = self.agents.get_mut(&actor).expect("listed");
+            a.package = current;
+            a.goal = None;
+            a.walker.follower = None;
+            a.activity = Activity::None;
+            a.sandbox = None;
+            a.wait_until = None;
+            a.talk = None;
+            a.pushed_at = None;
+            // A random conversation is given up (`crate::social` lets the other
+            // one go).
+            a.chat = None;
+            a.search = None;
+            a.face_to = None;
+            a.following = None;
+            self.set_using(game, actor, None);
+            self.taken.retain(|_, user| *user != actor);
+            if let Some(p) = current {
+                self.begin(game, nav, actor, p);
             }
-            let current = game.current_package(actor);
-            if self.agents[&actor].package != current {
-                self.log(game, actor, AiEvent::Package { package: current });
-                let a = self.agents.get_mut(&actor).expect("listed");
-                a.package = current;
-                a.goal = None;
-                a.walker.follower = None;
-                a.activity = Activity::None;
-                a.sandbox = None;
-                a.wait_until = None;
-                a.talk = None;
-                a.pushed_at = None;
-                // A random conversation is given up (`crate::social` lets the other
-                // one go).
-                a.chat = None;
-                a.search = None;
-                a.face_to = None;
-                a.following = None;
-                self.set_using(game, actor, None);
-                self.taken.retain(|_, user| *user != actor);
-                if let Some(p) = current {
-                    self.begin(game, nav, actor, p);
+        }
+        // A combat state comes before the package (`crate::alert`).
+        let alerted = !quiet && self.alert_step(game, nav, actor, dt);
+        let chatting = self.agents[&actor].chat.is_some();
+        if !quiet && !chatting && !alerted && self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
+            self.back_after_push(game, nav, actor);
+        }
+        match self.agents[&actor].activity {
+            Activity::Travelling => self.walk(game, nav, actor, dt, open),
+            Activity::There if !quiet && !chatting && !alerted => {
+                if let Some(h) = self.agents[&actor].face_to {
+                    self.face_heading(game, actor, h, dt);
+                }
+                if self.agents[&actor].wait_until.is_some_and(|t| game.time >= t) {
+                    self.agents.get_mut(&actor).expect("listed").wait_until = None;
+                    self.patrol_on(game, nav, actor);
+                } else if self.agents[&actor].sandbox.is_some() && self.awake(game, actor) {
+                    self.sandbox_step(game, nav, actor);
                 }
             }
-            // A combat state comes before the package (`crate::alert`).
-            let alerted = !quiet && self.alert_step(game, nav, actor, dt);
-            let chatting = self.agents[&actor].chat.is_some();
-            if !quiet && !chatting && !alerted && self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
-                self.back_after_push(game, nav, actor);
-            }
-            match self.agents[&actor].activity {
-                Activity::Travelling => self.walk(game, nav, actor, dt, open),
-                Activity::There if !quiet && !chatting && !alerted => {
-                    if let Some(h) = self.agents[&actor].face_to {
-                        self.face_heading(game, actor, h, dt);
-                    }
-                    if self.agents[&actor].wait_until.is_some_and(|t| game.time >= t) {
-                        self.agents.get_mut(&actor).expect("listed").wait_until = None;
-                        self.patrol_on(game, nav, actor);
-                    } else if self.agents[&actor].sandbox.is_some() && self.awake(game, actor) {
-                        self.sandbox_step(game, nav, actor);
-                    }
-                }
-                _ => {}
-            }
-            if !quiet && !alerted && self.agents[&actor].talk.is_some() {
-                self.talk_step(game, nav, actor, dt);
-            }
-            if !alerted && !chatting && matches!(self.agents[&actor].goal, Some(Goal::Follow(_))) {
-                self.follow_step(game, nav, actor);
-            }
+            _ => {}
+        }
+        if !quiet && !alerted && self.agents[&actor].talk.is_some() {
+            self.talk_step(game, nav, actor, dt);
+        }
+        if !alerted && !chatting && matches!(self.agents[&actor].goal, Some(Goal::Follow(_))) {
+            self.follow_step(game, nav, actor);
         }
     }
 

@@ -52,6 +52,8 @@ sep = ","
 sep = ","
 [timed.NVF_PLAY_TEST_TERMINAL]
 sep = ","
+[timed.NVF_PLAY_TEST_LOCKPICK]
+sep = ","
 [timed.NVF_PLAY_TEST_PIPBOY]
 sep = ","
 [timed.NVF_PLAY_TEST_SETTINGS]
@@ -1023,6 +1025,31 @@ expect = [
   "terminal summary: 1 opened (0 refused), 1 hacking games (1 hacked, 0 locked out)",
 ]
 
+[[scenario]]
+name = "lockpick"
+source = "docs/spec-notes/lockpicking.md §7: the wall safe in GSHouseInterior02 (level 50, its key not carried), refused at Lockpick 30, picked at 55 after a pin breaks"
+areas = ["lockpick"]
+paths = ["crates/fnv-game/src/lockpick.rs", "engine/nvf-play/src/lockpick*", "engine/nvforever/src/lockpick_view.rs", "engine/nvf-play/src/activate.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105229", NVF_PLAY_TEST_GIVE = "0000000A:3", NVF_PLAY_TEST_ACTIVATE = "12,15,32", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:skill:55,17:off:20,17.5:torque:2,24:spot,24.5:torque:2" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice"]
+run_seconds = 36
+order = [[
+  'lockpick: 0x00105229 Safe refused (Lockpick 30): on screen: "You need a Lockpick skill of 50 to pick this lock."',
+  "lockpick: open 0x00105229 Safe: Average lock (Lockpick 55, 3 bobby pins)",
+  "lockpick view: the lock drawn",
+  "lockpick: the bobby pin broke, 2 left",
+  "lockpick: a new bobby pin is in",
+  "picked open (Average lock, 40 XP)",
+  "lockpick: crime hook: 0x00105229",
+  "menu: open Container(0x00105229)",
+]]
+expect = [
+  "ui sounds: lockpick refused: DRSLocked",
+  "ui sounds: lockpick pin broke: UILockpickingPickBreak",
+  "ui sounds: lockpick lock opened: UILockpickingUnlock",
+  "lockpick summary: 2 asked, 1 opened (1 refused); 1 picked, 0 forced, 0 broken by forcing; 2 torque tries, 1 pins broken, 0 times out of pins; 0 left before the end",
+]
+
 # ------------------------------------------------------------------ converted 2026-10-12 (prose added on main by PR #226)
 
 [[scenario]]
@@ -1079,4 +1106,48 @@ expect = [
   # 00104C79 is GSChetRef (the barter scenario's "barter menu with 0x00104C79").
   'anim object: 00104C79 holds meshes\animobjects\aobroom.nif on Bip01 L Hand (aoSweepingBroom',
   { re = 'anim objects summary: (?P<n>\d+) objects drawn', range = [1, 1000], label = "anim objects summary: one or more drawn" },
+]
+
+# ------------------------------------------------------------------ far world (playtest 2026-10-11, items 26-28)
+
+[[scenario]]
+name = "crash-report"
+source = "owner's playtest 2026-10-11 (crash outside Crimson Caravan, nothing logged): the run log and a crash report for a panic (engine/nvforever/src/crash.rs)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/crash.rs"]
+# A thread of its own panics 5 s after the first frame; the game goes on.
+env = { NVF_PLAY_TEST_PANIC = "5" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 20
+expect = [
+  { re = 'run log: .*nvforever-\d{8}-\d{6}-\d+\.log$', label = 'run log: <home>/logs/nvforever-<time>-<pid>.log' },
+  { re = 'panic on thread .nvf-test-panic. at .*test panic \(NVF_PLAY_TEST_PANIC\); where: WastelandNV cell -?\d+,-?\d+.*position .*crash report written to .*crash-\d{8}-\d{6}-\d+\.txt', label = "the panic logged with its thread, place and crash report" },
+  "run log: the game exited normally",
+]
+
+[[scenario]]
+name = "far-actors"
+source = "owner's playtest 2026-10-11 (Fiends heard talking far away): process levels, docs/design/actor-behaviour.md §5.9"
+areas = ["ai", "residents"]
+paths = ["crates/fnv-ai/src/process.rs", "crates/fnv-ai/src/social.rs", "crates/fnv-ai/src/carry.rs"]
+# Every actor of Goodsprings lives by its packages; the camera flies north out of the
+# loaded area, so they leave the high process and get a low-process update every 18 s.
+args = ["--cell", "Goodsprings", "--npc-packages", "all", "--hour", "12", "--auto-fly", "1500"]
+run_seconds = 60
+expect = [
+  { re = 'process summary: .* (?P<n>\d+) left the loaded area', range = [10, 100000], label = "process summary: ten or more left the loaded area" },
+  { re = 'process summary: .* (?P<n>\d+) low-process updates every 18 s', range = [10, 1000000], label = "process summary: low-process updates" },
+]
+
+[[scenario]]
+name = "dead-on-spawn"
+source = "owner's playtest 2026-10-11 (the tribal village's corpses stand up): Base Health 0 starts dead, docs/spec-notes/dead-on-spawn.md"
+areas = ["combat", "deaths"]
+paths = ["crates/fnv-game/src/combat.rs", "crates/fnv-game/src/data.rs", "engine/nvforever/src/deaths.rs", "engine/nvforever/src/ragdoll.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1" }
+args = ["--play", "--pos=-73500,29700,8000", "--heading", "300", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'new game: (?P<n>\d+) placed actors start dead \(Base Health 0\)', range = [800, 1000], label = "new game: about 889 placed actors start dead" },
+  { re = 'ragdolls: (?P<n>\d+) started', range = [9, 1000], label = "ragdolls: the village's nine corpses or more dropped" },
 ]

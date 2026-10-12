@@ -140,6 +140,7 @@ pub fn is_script_menu(code: u16) -> bool {
         && code != MENU_BARTER
         && code != crate::terminal::MENU_HACKING
         && code != crate::terminal::MENU_TERMINAL
+        && code != crate::lockpick::MENU_LOCKPICK
 }
 
 /// Default of `NVF_PLAY_TEST_SCRIPT_MENUS` in unattended runs, seconds.
@@ -425,6 +426,9 @@ impl Runtime {
             rt.game.new_game();
             rt.snapshot_inventory();
         });
+        // Placed actors with Base Health 0 lie dead from the start (docs/spec-notes/dead-on-spawn.md).
+        let corpses = rt.game.extra.values().filter(|e| e.dead).count();
+        info!("new game: {corpses} placed actors start dead (Base Health 0)");
         rt
     }
 
@@ -1234,13 +1238,14 @@ fn hold_player(
     active: Res<ActiveMenu>,
     paused: Res<crate::pause::Paused>,
     wait: Res<crate::wait::WaitMenu>,
-    terminal: Res<crate::terminal::TerminalScreen>,
+    (terminal, lockpick): (Res<crate::terminal::TerminalScreen>, Res<crate::lockpick::LockpickScreen>),
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
     // The pause menu is also a `PlayState::Menu` without an engine menu: it is its own.
-    // So are the wait menu (`crate::wait`) and a terminal (`crate::terminal`).
-    if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() {
+    // So are the wait menu (`crate::wait`), a terminal (`crate::terminal`) and the
+    // lockpicking menu (`crate::lockpick`).
+    if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() {
         return;
     }
     let held = script.rt.as_ref().and_then(|rt| rt.game.menu).is_some_and(is_script_menu);
