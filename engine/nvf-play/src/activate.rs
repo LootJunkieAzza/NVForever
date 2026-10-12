@@ -8,6 +8,8 @@
 //!   `crate::loading`), `OpenContainer` or an on-screen line.
 //! - `PlaySet::Ui`: the message line (hidden in menus). The crosshair and the prompt
 //!   under it are drawn by `crate::reticle` from [`Target`].
+//! - A locked door or container without its key goes to the lockpicking menu
+//!   (`crate::lockpick`), which opens or says why not.
 //! - While a script has the player's controls off (`control::ControlLocks`,
 //!   docs/spec-notes/controls.md §5): with movement off E does nothing.
 //! - `PlaySet::Sync`: `RefVisual` entities are hidden while the simulation says their
@@ -256,7 +258,12 @@ fn activate(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut changed: MessageWriter<RefChanged>,
-    (mut sit, mut sounds, mut terminals): (MessageWriter<crate::furniture::UseFurniture>, MessageWriter<crate::world_sounds::Activated>, MessageWriter<crate::terminal::OpenTerminal>),
+    (mut sit, mut sounds, mut terminals, mut lockpicks): (
+        MessageWriter<crate::furniture::UseFurniture>,
+        MessageWriter<crate::world_sounds::Activated>,
+        MessageWriter<crate::terminal::OpenTerminal>,
+        MessageWriter<crate::lockpick::OpenLockpick>,
+    ),
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     script: Option<ResMut<crate::script::ScriptState>>,
     locks: Option<Res<crate::control::ControlLocks>>,
@@ -324,6 +331,12 @@ fn activate(
     let terminal = sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)).is_some_and(|b| &b.sig == b"TERM");
     if terminal && matches!(a.outcome, Outcome::Activated) {
         terminals.write(crate::terminal::OpenTerminal { reference: t.form_id });
+        return;
+    }
+    // Locked, without the key: the lockpicking menu, or a line saying why not
+    // (`crate::lockpick`, docs/spec-notes/lockpicking.md §4).
+    if matches!(a.outcome, Outcome::Locked { .. }) {
+        lockpicks.write(crate::lockpick::OpenLockpick { reference: t.form_id });
         return;
     }
     let name_of = |id: FormId| sim.name(id).map_or_else(|| id.to_string(), str::to_string);

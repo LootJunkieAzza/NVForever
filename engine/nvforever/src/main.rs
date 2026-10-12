@@ -32,6 +32,7 @@ mod idles;
 mod lights;
 mod limbs;
 mod lips;
+mod lockpick_view;
 mod lod;
 mod locomotion;
 mod npc_combat;
@@ -802,6 +803,8 @@ fn main() -> AppExit {
         app.add_plugins(object_anims::ObjectAnimsPlugin);
         // The flashlight's light on the player's camera (flashlight.rs).
         app.add_plugins(flashlight::FlashlightPlugin);
+        // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
+        app.add_plugins(lockpick_view::LockpickViewPlugin);
     }
     if let Some(a) = actor_world {
         app.insert_resource(a);
