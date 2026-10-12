@@ -1043,3 +1043,20 @@ expect = [
   'anim object: 00104C79 holds meshes\animobjects\aobroom.nif on Bip01 L Hand (aoSweepingBroom',
   { re = 'anim objects summary: (?P<n>\d+) objects drawn', range = [1, 1000], label = "anim objects summary: one or more drawn" },
 ]
+
+# ------------------------------------------------------------------ far world (playtest 2026-10-11, items 26-28)
+
+[[scenario]]
+name = "crash-report"
+source = "owner's playtest 2026-10-11 (crash outside Crimson Caravan, nothing logged): the run log and a crash report for a panic (engine/nvforever/src/crash.rs)"
+areas = ["crash"]
+paths = ["engine/nvforever/src/crash.rs"]
+# A thread of its own panics 5 s after the first frame; the game goes on.
+env = { NVF_PLAY_TEST_PANIC = "5" }
+args = ["--cell", "Goodsprings"]
+run_seconds = 20
+expect = [
+  { re = 'run log: .*nvforever-\d{8}-\d{6}-\d+\.log$', label = 'run log: <home>/logs/nvforever-<time>-<pid>.log' },
+  { re = 'panic on thread .nvf-test-panic. at .*test panic \(NVF_PLAY_TEST_PANIC\); where: WastelandNV cell -?\d+,-?\d+.*position .*crash report written to .*crash-\d{8}-\d{6}-\d+\.txt', label = "the panic logged with its thread, place and crash report" },
+  "run log: the game exited normally",
+]
