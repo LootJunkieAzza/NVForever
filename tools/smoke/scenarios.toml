@@ -439,11 +439,12 @@ manual = "on a failure, explain the change against the table in docs/design/dete
 
 [[scenario]]
 name = "detection-game"
+note = "--no-messages added 2026-10-12 (fixes workstream): on a loaded machine the add-on packs' twelve start-up message boxes came up while the test aids ran (a menu request ignored, the game clock held for about 10 s while the aids' clock ran on); with it they close on the frame they open. Expectations unchanged"
 source = "CLAUDE.md: after detection changes, the in-game check of docs/design/detection.md §5"
 areas = ["detection"]
 paths = ["crates/fnv-game/src/detection.rs", "engine/nvforever/src/detection.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "10:sneak,14:weapon,17:reload,22:fire,22.2:fire" }
-args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 28
 order = [[
   { re = 'detection: GSSettlerAM 00104F0A → the player: hidden → noticed .*sneaking' },
@@ -889,12 +890,12 @@ expect = [
 
 [[scenario]]
 name = "house-items"
-launch = "house-messages"
+note = "--no-messages added 2026-10-12 (fixes workstream): on a loaded machine the add-on packs' twelve start-up message boxes came up while the test aids ran (a menu request ignored, the game clock held for about 10 s while the aids' clock ran on); with it they close on the frame they open. Expectations unchanged"
 source = "CLAUDE.md: after changes to item, container or world sounds (audio.md §11): handle items in a house"
 areas = ["world-sounds", "audio"]
 paths = ["engine/nvf-play/src/world_sounds.rs", "engine/nvf-play/src/dropped*", "engine/nvf-play/src/menu.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "11:activate:0x001730E9,11.5:activate:0x001767B5", NVF_PLAY_TEST_MENU = "00105658", NVF_PLAY_TEST_DELAY = "18" }
-args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+args = ["--cell", "GSHouseInterior03", "--play", "--no-voice", "--no-messages"]
 run_seconds = 30
 expect = [
   "001730E9 (0x00004323) picked up, sound ITMPistolUp",
@@ -904,11 +905,12 @@ expect = [
 
 [[scenario]]
 name = "ui-sounds"
+note = "--no-messages added 2026-10-12 (fixes workstream): on a loaded machine the add-on packs' twelve start-up message boxes came up while the test aids ran (a menu request ignored, the game clock held for about 10 s while the aids' clock ran on); with it they close on the frame they open. Expectations unchanged"
 source = "CLAUDE.md: after changes to the menus' sounds (docs/spec-notes/audio.md §12): the menus one after the other"
 areas = ["ui-sounds", "audio", "menus"]
 paths = ["engine/nvf-play/src/ui_sounds.rs", "engine/nvf-play/src/menu*", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/world_sounds.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "11:GSChetRef=for sale|leave", NVF_PLAY_TEST_BARTER = "*", NVF_PLAY_TEST_BARTER_DELAY = "6", NVF_PLAY_TEST_MENU = "nearest", NVF_PLAY_TEST_DELAY = "44", NVF_PLAY_TEST_GIVE = "00015169:2", NVF_PLAY_TEST_DROP = "58:00015169:use", NVF_PLAY_TEST_WAIT = "61:open,62:hours=2,63:accept", NVF_PLAY_TEST_PAUSE = "66:69", NVF_PLAY_TEST_SETTINGS = "67:page,67.5:menu-pause,68:menu-pause" }
-args = ["--cell", "GSGeneralStore", "--play", "--no-voice"]
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--no-messages"]
 run_seconds = 72
 expect = [
   "barter opened: UIMenuMode",
