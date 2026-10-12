@@ -209,9 +209,19 @@ pub fn unlock(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     none()
 }
 
+/// 0 not locked, 1 locked; 2 for a lock broken by forcing it [documented: GECK wiki
+/// GetLocked, "locked out"; docs/spec-notes/lockpicking.md §5].
 pub fn get_locked(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    Ok(Value::Num(g.world.lock_status(r).map_err(|e| e.to_string())? as f64))
+    let status = g.world.lock_status(r).map_err(|e| e.to_string())?;
+    Ok(Value::Num(if status == 1 && g.locks.broken.contains(&r) { 2.0 } else { status as f64 }))
+}
+
+/// 1 for a lock broken by forcing it (`crate::lockpick`) [documented: GECK wiki
+/// GetIsLockBroken].
+pub fn get_is_lock_broken(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::bool(g.locks.broken.contains(&r)))
 }
 
 /// `Ref.Activate [actor] [flag]`: with no actor the calling reference's action reference

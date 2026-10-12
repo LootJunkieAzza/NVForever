@@ -448,9 +448,13 @@ pub fn pins(g: &mut Game) -> i32 {
     g.world.item_count(FormId::PLAYER_REF, BOBBY_PIN).unwrap_or(0)
 }
 
-/// What activating the locked `reference` does for a player of Lockpick `skill`.
+/// What activating the locked `reference` does for a player of Lockpick `skill`. The key
+/// is not looked for: activation opens a lock whose key the player carries before this
+/// is asked (`fnv_sim::World::activate`, simulation.md §5).
 pub fn opening(g: &mut Game, reference: FormId, skill: f32) -> Opening {
-    let Some(lock) = g.world.peek(reference).and_then(|s| s.lock).filter(|l| l.locked) else { return Opening::NotLocked };
+    // `get`, not `peek`: a reference nothing has touched yet has no state, and its lock
+    // comes from its XLOC when the state is made.
+    let Some(lock) = g.world.get(reference).ok().and_then(|s| s.lock).filter(|l| l.locked) else { return Opening::NotLocked };
     let level = Level::of(lock.level);
     let n = pins(g);
     match may_pick(level, skill, n, g.locks.broken.contains(&reference)) {
@@ -492,11 +496,12 @@ pub fn broke(g: &mut Game, reference: FormId) {
     pin_broke(g);
 }
 
-/// Who owns a door or container: its own owner (XOWN), else its cell's (SetCellOwnership)
-/// [documented: GECK wiki ownership of references and cells].
+/// Who owns a door or container: its own owner (XOWN), else its cell's as a script set it
+/// (SetCellOwnership) [documented: GECK wiki ownership of references and cells]. A cell's
+/// own XOWN is not read yet [design: the crime workstream reads it].
 pub fn owner(g: &Game, reference: FormId) -> Option<FormId> {
     let placed = g.world.placed.get(reference);
-    placed.and_then(|p| p.owner).or_else(|| placed.and_then(|p| p.cell).and_then(|c| g.extra_cell_owner(c)))
+    placed.and_then(|p| p.owner).or_else(|| placed.and_then(|p| p.cell).and_then(|c| g.forms.cell_owners.get(&c).copied()))
 }
 
 #[cfg(test)]
@@ -569,6 +574,23 @@ mod tests {
         out
     }
 
+    /// Run until an event `stop` says so (or `secs` are up).
+    fn run_until(p: &mut Picking, secs: f32, torque: bool, stop: impl Fn(&Event) -> bool) -> Vec<Event> {
+        let mut out = Vec::new();
+        let dt = 1.0 / 60.0;
+        let mut t = 0.0;
+        while t < secs {
+            let ev = p.step(dt, torque);
+            let done = ev.iter().any(&stop);
+            out.extend(ev);
+            if done {
+                break;
+            }
+            t += dt;
+        }
+        out
+    }
+
     #[test]
     fn in_the_sweet_spot_the_lock_opens() {
         let mut p = Picking::new(Level::Easy, 30.0, 3, 0.5, s());
@@ -603,10 +625,13 @@ mod tests {
         assert_eq!(p.turn, 0.0);
         assert_eq!(p.health, worn);
         // Strain it to breaking: one pin left, a new one goes in after a while.
-        let ev = run(&mut p, 2.0, true);
+        let ev = run_until(&mut p, 2.0, true, |e| matches!(e, Event::PinBroke { .. }));
         assert!(ev.contains(&Event::PinBroke { left: 1 }), "{ev:?}");
         assert!(matches!(p.phase, Phase::PinBroken { .. }));
-        let ev = run(&mut p, 1.1, false);
+        // Not before its time, even with torque held.
+        let ev = run(&mut p, 0.5, true);
+        assert!(!ev.contains(&Event::NewPin));
+        let ev = run(&mut p, 0.6, false);
         assert!(ev.contains(&Event::NewPin));
         assert_eq!((p.phase, p.health, p.pins), (Phase::Picking, PIN_HEALTH, 1));
         // The last pin breaks: out of pins.
