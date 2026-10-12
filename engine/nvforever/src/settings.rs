@@ -7,6 +7,7 @@
 //! `--no-actors`, FaceGen, weapons, `--no-lodgen`), the numbers (distances, `--msaa`,
 //! `--fov`, volumes) and the test aids.
 
+use crate::graphics::Graphics;
 use crate::grass::GrassConfig;
 use crate::head_look::HeadLookSettings;
 use crate::lips::LipState;
@@ -23,6 +24,7 @@ use nvf_play::settings::{add_setting, Setting};
 const GROUP_WORLD: &str = "World";
 const GROUP_PICTURE: &str = "Picture";
 const GROUP_DEVELOPER: &str = "Developer";
+const GROUP_GRAPHICS: &str = "Enhanced graphics";
 
 /// List the renderer's switches: those whose module is part of this run.
 pub fn register(app: &mut App) {
@@ -124,6 +126,7 @@ pub fn register(app: &mut App) {
             set: |w, on| w.resource_mut::<SkyState>().grade = on,
         },
     );
+    register_graphics(app);
     add_setting(
         app,
         Setting {
@@ -147,6 +150,55 @@ pub fn register(app: &mut App) {
                 set: |w, on| w.resource_mut::<NavState>().show = on,
             },
         );
+    }
+}
+
+/// The engine-level improvements of `graphics.rs` (`--graphics enhanced` starts with all
+/// of them on, `vanilla` with none).
+fn register_graphics(app: &mut App) {
+    type Switch = (&'static str, &'static str, &'static str, fn(&World) -> bool, fn(&mut World, bool));
+    let switches: [Switch; 5] = [
+        (
+            "ambient-occlusion",
+            "Ambient occlusion",
+            "On: creases, corners and the ground under things are darkened by how enclosed they are (screen-space, from the depth). Not in the original. (--graphics)",
+            |w| w.resource::<Graphics>().ambient_occlusion,
+            |w, on| w.resource_mut::<Graphics>().ambient_occlusion = on,
+        ),
+        (
+            "fine-shadows",
+            "Finer, longer sun shadows",
+            "On: the sun's shadow maps have twice the detail and reach half as far again as --shadow-distance. Costs frame rate and video memory. (--graphics)",
+            |w| w.resource::<Graphics>().fine_shadows,
+            |w, on| w.resource_mut::<Graphics>().fine_shadows = on,
+        ),
+        (
+            "bloom",
+            "Bloom",
+            "On: light brighter than a sunlit white wall (the sun, lamps, windows) glows into its surroundings, on top of the game's own image space. (--graphics)",
+            |w| w.resource::<Graphics>().bloom,
+            |w, on| w.resource_mut::<Graphics>().bloom = on,
+        ),
+        (
+            "sharpen",
+            "Sharpening",
+            "On: the final picture is sharpened where it has little contrast (contrast-adaptive sharpening). (--graphics)",
+            |w| w.resource::<Graphics>().sharpen,
+            |w, on| w.resource_mut::<Graphics>().sharpen = on,
+        ),
+        (
+            "anisotropic",
+            "Anisotropic filtering 16x",
+            "On: textures seen at a slant stay sharp further (16x instead of 8x). For textures loaded from now on (the cells loaded next). (--graphics)",
+            |w| w.resource::<Graphics>().anisotropic,
+            |w, on| {
+                w.resource_mut::<Graphics>().anisotropic = on;
+                nvf_assets::texture::set_anisotropy(if on { 16 } else { 8 });
+            },
+        ),
+    ];
+    for (key, label, note, get, set) in switches {
+        add_setting(app, Setting { key, group: GROUP_GRAPHICS, label, note, get, set });
     }
 }
 

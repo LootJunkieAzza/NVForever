@@ -203,6 +203,9 @@ pub struct SkyState {
     pub shadows: bool,
     /// Sun shadows reach this far from the camera (game units).
     pub shadow_distance: f32,
+    /// The cascades reach this many times `shadow_distance` (1; more with the finer
+    /// shadows of `graphics.rs`), the first cascade as near as without.
+    pub shadow_reach: f32,
     /// The picture is graded by the image space (`--no-grade` and the settings page turn
     /// it off).
     pub grade: bool,
@@ -302,6 +305,7 @@ impl SkyState {
             interior_grade: None,
             shadows: false,
             shadow_distance: DEFAULT_SHADOW_DISTANCE,
+            shadow_reach: 1.0,
             grade: true,
             time_scale: 0.0,
             clock_running: false,
@@ -886,18 +890,18 @@ pub fn setup_sky(
         RenderLayers::from_layers(&[0, SHADOW_LAYER]),
     ));
     if sky.shadows {
-        sun.insert(shadow_cascades(sky.shadow_distance));
+        sun.insert(shadow_cascades(sky.shadow_distance, sky.shadow_reach));
     }
 }
 
 /// The sun's shadow cascades, in game units: the first covers the area right around the
-/// camera.
-fn shadow_cascades(distance: f32) -> CascadeShadowConfig {
+/// camera (a twelfth of `distance`), the last ends at `distance` × `reach`.
+pub(crate) fn shadow_cascades(distance: f32, reach: f32) -> CascadeShadowConfig {
     CascadeShadowConfigBuilder {
         num_cascades: 4,
         minimum_distance: 5.0,
         first_cascade_far_bound: (distance / 12.0).max(200.0),
-        maximum_distance: distance,
+        maximum_distance: distance * reach.max(1.0),
         overlap_proportion: 0.2,
     }
     .build()
@@ -909,7 +913,7 @@ pub fn set_shadows(world: &mut World, on: bool) {
     let distance = {
         let mut sky = world.resource_mut::<SkyState>();
         sky.shadows = on;
-        sky.shadow_distance
+        (sky.shadow_distance, sky.shadow_reach)
     };
     let mut suns = world.query_filtered::<(Entity, &mut DirectionalLight), With<Sun>>();
     let lit: Vec<Entity> = suns
@@ -921,7 +925,7 @@ pub fn set_shadows(world: &mut World, on: bool) {
         .collect();
     if on {
         for e in lit {
-            world.entity_mut(e).insert(shadow_cascades(distance));
+            world.entity_mut(e).insert(shadow_cascades(distance.0, distance.1));
         }
     }
 }

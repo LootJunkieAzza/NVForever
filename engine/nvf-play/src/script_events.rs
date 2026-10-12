@@ -553,6 +553,9 @@ pub enum ScriptAid {
     /// its catalogue name) on the reference (`-`: none); an argument that reads as a
     /// number is one, any other is a form (Editor ID, FormID or `player`).
     Call(String, String, Vec<String>),
+    /// `damage:<reference>:<actor value>:<amount>`: the actor value takes damage as
+    /// `DamageActorValue` gives it (a stand-in for a hit, for checking aid items).
+    Damage(String, String, f64),
 }
 
 /// When a test-aid step runs: `at` seconds after the start, or, with `after`, `at`
@@ -609,13 +612,16 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 ["play_group", r, g, flag] => ScriptAid::PlayGroup(r.to_string(), g.to_string(), int(flag)?),
                 ["play_idle", r, i] => ScriptAid::PlayIdle(r.to_string(), i.to_string()),
                 ["call", on, f, args @ ..] => ScriptAid::Call(on.to_string(), f.to_string(), args.iter().map(|a| a.to_string()).collect()),
+                ["damage", r, v, amount] => {
+                    ScriptAid::Damage(r.to_string(), v.to_string(), amount.parse().map_err(|_| format!("{rest:?}: bad amount {amount:?}"))?)
+                }
                 // The owner's name may hold a colon too (`var:scripted:<SCPT>:<variable>:<value>`).
                 ["var", of @ .., var, value] if !of.is_empty() => {
                     ScriptAid::Var(of.join(":"), var.to_string(), value.parse().map_err(|_| format!("{rest:?}: bad value {value:?}"))?)
                 }
                 _ => {
                     return Err(format!(
-                        "{rest:?}: expected start:, stop:, combat:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate:, say_to:, play_group:, play_idle: or call:"
+                        "{rest:?}: expected start:, stop:, combat:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate:, say_to:, play_group:, play_idle:, call: or damage:"
                     ))
                 }
             };
@@ -957,6 +963,7 @@ mod tests {
             ScriptAid::Call("SunnyRef".into(), "Look".into(), vec!["player".into(), "1".into()])
         );
         assert_eq!(parse_aids("4:call:-:ReleaseWeatherOverride").unwrap()[0].aid, ScriptAid::Call("-".into(), "ReleaseWeatherOverride".into(), vec![]));
+        assert_eq!(parse_aids("3:damage:player:Health:60").unwrap()[0].aid, ScriptAid::Damage("player".into(), "Health".into(), 60.0));
         assert_eq!(parse_aids("3:menu:1074").unwrap()[0].aid, ScriptAid::Menu(1074));
         assert!(parse_aids("3:jump").is_err());
         assert!(parse_aids("x:start:VCG00").is_err());

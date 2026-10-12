@@ -81,9 +81,11 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         g.item_event(actor, u, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
     }
     if e.consumed {
-        // An aid item is consumed: its effects apply to the actor (Game::consume).
+        // An aid item is consumed: it is used as from the inventory (Game::consume), with
+        // potency and the addiction roll [documented: GECK wiki EquipItem, "the item is
+        // treated as though it were used normally"].
         g.emit(EventKind::ItemRemoved { from: actor, item, count: 1 });
-        g.apply_magic_item(actor, item, Some(actor), false);
+        g.ingest(actor, item);
     } else {
         g.item_event(actor, item, event::ON_EQUIP, Some(Value::Ref(actor.0)));
     }

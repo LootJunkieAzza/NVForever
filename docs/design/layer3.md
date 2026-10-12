@@ -306,6 +306,9 @@ game units unchanged.
    owner's game runs 8), and the cut-out edges of alpha-tested shapes (plants, fences,
    hair, tree leaves and billboards, grass) are smoothed with it, standing in for the
    game's transparency multisampling (nif.md §6 "Alpha", soft edges; grass.md §5).
+   Engine-level improvements beyond the original's look (ambient occlusion, finer shadows,
+   bloom, sharpening, 16x anisotropic filtering) are optional: `--graphics enhanced`,
+   docs/design/graphics-enhanced.md.
 11. **Grass** (done: generation from the landscape textures, soft strand edges, wind,
    distance fade; the placement rule is a hypothesis and the light weights are fitted,
    both checked against the owner's screenshots at the Goodsprings sign): LTEX `GNAM` →

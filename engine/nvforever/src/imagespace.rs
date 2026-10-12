@@ -265,7 +265,7 @@ fn update_grade(
 /// The blur passes' pipelines: across and down, per target format and whether the
 /// view's depth is multisampled (the depth is read to keep what is near sharp).
 #[derive(Resource)]
-struct BlurPipelines {
+pub(crate) struct BlurPipelines {
     /// The layouts with a single-sampled and a multisampled depth.
     layouts: [BindGroupLayoutDescriptor; 2],
     sampler: Sampler,
@@ -275,7 +275,7 @@ struct BlurPipelines {
 
 /// The blur pipelines of a view, and whether its depth is multisampled.
 #[derive(Component)]
-struct BlurPipelineIds([CachedRenderPipelineId; 2], bool);
+pub(crate) struct BlurPipelineIds([CachedRenderPipelineId; 2], bool);
 
 fn init_blur(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>) {
     let screen = || (texture_2d(TextureSampleType::Float { filterable: true }), sampler(SamplerBindingType::Filtering), uniform_buffer::<ImageSpaceGrade>(true));
@@ -329,7 +329,7 @@ fn prepare_blur(
 
 /// Blur the picture across and then down, while a modifier blurs (a view without a depth
 /// prepass is not blurred).
-fn blur_pass(
+pub(crate) fn blur_pass(
     view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<ImageSpaceGrade>, &ImageSpaceGrade, &BlurPipelineIds, &ViewPrepassTextures)>,
     pipelines: Res<BlurPipelines>,
     cache: Res<PipelineCache>,

@@ -223,6 +223,7 @@ fn setup_drops(app: &mut App) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn run_drops(
     time: crate::pause::AidTime,
     drops: Option<ResMut<Drops>>,
@@ -230,6 +231,9 @@ pub(super) fn run_drops(
     mut commands: Commands,
     mut open_inventory: MessageWriter<OpenInventory>,
     mut input: MessageWriter<MenuInput>,
+    pip: Option<ResMut<crate::pipboy::PipBoy>>,
+    sim: Res<crate::sim::SimState>,
+    script: Option<Res<crate::script::ScriptState>>,
 ) {
     let Some(mut d) = drops else { return };
     let now = time.elapsed_secs();
@@ -242,8 +246,12 @@ pub(super) fn run_drops(
                 }
                 return;
             }
-            if m.is_some() {
-                return; // wait until no menu is open
+            // Wait until no menu is open, a script's message box included (the inventory
+            // would not open over it), and until the scripts run (an aid item's effects
+            // are theirs).
+            let script_menu = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.menu.is_some());
+            if m.is_some() || script_menu || script.as_ref().is_some_and(|s| s.loading()) {
+                return;
             }
             let job = d.jobs.pop().expect("checked");
             info!("test aid: {:?} {}: open the inventory", job.cmd, job.item);
@@ -255,7 +263,7 @@ pub(super) fn run_drops(
                 return;
             }
             match (stage, m) {
-                (1, Some(m)) if m.mode == Mode::Inventory => {
+                (1 | 3, Some(m)) if m.mode == Mode::Inventory => {
                     match m.list(Side::Player).rows.iter().position(|r| r.item == job.item) {
                         Some(i) => {
                             // Selecting the selected row would use (equip) it: only when needed.
@@ -263,6 +271,16 @@ pub(super) fn run_drops(
                                 input.write(MenuInput(Command::Select(Side::Player, i)));
                             }
                             input.write(MenuInput(job.cmd));
+                        }
+                        // The Pip-Boy's ITEMS page lists one tab's kind of item: turn to
+                        // the item's tab and look again.
+                        None if stage == 1 && pip.is_some() => {
+                            let kind = sim.forms.sig(job.item).and_then(|s| ItemKind::from_sig(&s));
+                            if let (Some(mut p), Some(tab)) = (pip, crate::pipboy::items::TABS.iter().position(|c| c.holds(kind))) {
+                                p.tabs[crate::pipboy::Page::Items.index()] = tab;
+                            }
+                            d.current = Some((job, 3, now + 0.3));
+                            return;
                         }
                         None => info!("test aid: {} is not carried", job.item),
                     }
