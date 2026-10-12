@@ -1152,10 +1152,10 @@ paths = ["crates/fnv-ai/src/process.rs", "crates/fnv-ai/src/social.rs", "crates/
 # Every actor of Goodsprings lives by its packages; the camera flies north out of the
 # loaded area, so they leave the high process and get a low-process update every 18 s
 # while their cells are in the cell buffer. (Until 2026-10-12 the camera flew at 1500
-# units/s: since the Low level, the cells drop out of the buffer within seconds at that
-# speed, which `far-actors-low` checks.)
-args = ["--cell", "Goodsprings", "--npc-packages", "all", "--hour", "12", "--auto-fly", "400"]
-run_seconds = 60
+# units/s for 60 s: since the Low level, the cells drop out of the buffer within seconds
+# at that speed, which `far-actors-low` checks; slower and longer here.)
+args = ["--cell", "Goodsprings", "--npc-packages", "all", "--hour", "12", "--auto-fly", "250"]
+run_seconds = 90
 expect = [
   { re = 'process summary: .* (?P<n>\d+) left the loaded area', range = [10, 100000], label = "process summary: ten or more left the loaded area" },
   { re = 'process summary: .* (?P<n>\d+) low-process updates every 18 s', range = [10, 1000000], label = "process summary: low-process updates" },

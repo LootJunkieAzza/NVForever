@@ -3571,7 +3571,12 @@ Handoff item 5 (docs/handoff/playtest-2026-10-12.md §4), the leftovers of PR #2
    most recently (the 25 drawn now among them) and the 3 interiors visited last, from your
    Fallout_default.ini (`uExterior Cell Buffer=36`, `uInterior Cell Buffer=3`); how the
    original fills and empties it is not documented. *Decision:* the original's Mid-Low
-   (unvisited interiors behind doors) has no actors here: the AI only has actors of cells
-   once loaded. Scenarios `far-actors` (now flying at 400 units/s: at 1500 the cells leave
+   (interiors behind the doors of the drawn exterior cells: Chet's store, the saloon seen
+   from Goodsprings) has an "unknown" rate; here they get the Mid-High 18 s.
+   *Consequence to judge:* the `sunny-wells` scenario fails on this branch (passes on
+   main): its GOTO teleports the player to the wells, the 25 new cells push Cheyenne's
+   cells out of the 36-cell buffer, she gets 120 s updates and is 1,066 units behind Sunny
+   (running) instead of 192 (walking) when Sunny starts talking. A walking player would
+   not empty the buffer like that; your call whether the test or the rule changes. Scenarios `far-actors` (now flying at 400 units/s: at 1500 the cells leave
    the buffer within seconds) and `far-actors-low`. *Check:* nothing visible should change;
    after a long trip, residents of far places are where their packages would have them.

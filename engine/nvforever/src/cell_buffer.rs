@@ -14,12 +14,21 @@
 //!   included (36 = the 5 × 5 loaded cells and the 11 left last; the interior buffer is
 //!   the interior the player is in and the two before). An interior does not touch the
 //!   exterior buffer (the Strip example) nor the other way round.
+//! - Actors in "interior cells that have not been visited, but are accessible through
+//!   teleport doors within player's loaded cell grid" are at Mid-Low, and "once actor's
+//!   level goes up to Mid-Low, it never seems to go back to Low" (Chet in Goodsprings)
+//!   [documented: same page]. Its rate is "unknown at this time" [documented:
+//!   GetActorProcessingLevel]: here such an interior counts as buffered, every 18 s
+//!   [design: the rate those actors had before the Low level existed]. The interiors are
+//!   the destinations of the load doors placed in the exterior cells drawn this session.
 
 use bevy::prelude::*;
 use fnv_nav::Space;
 use std::collections::HashMap;
 
 use crate::world::{Streamer, WorldData};
+use fnv_sim::{FormId, RefTable};
+use std::collections::HashSet;
 
 /// Exterior cells kept [observed: `uExterior Cell Buffer`, Fallout_default.ini].
 pub const EXTERIOR_CELLS: usize = 36;
@@ -34,6 +43,10 @@ pub struct CellBuffer {
     exterior: HashMap<(u32, (i32, i32)), u64>,
     interior: HashMap<u32, u64>,
     frame: u64,
+    /// Interiors behind the load doors of the exterior cells drawn so far (Mid-Low),
+    /// and the exterior cells whose doors were looked at.
+    behind_doors: HashSet<u32>,
+    doors_seen: HashSet<(u32, (i32, i32))>,
 }
 
 impl CellBuffer {
@@ -55,10 +68,29 @@ impl CellBuffer {
         keep_newest(&mut self.interior, INTERIOR_CELLS);
     }
 
-    /// Whether the cell at `feet` in `space` is in the buffer.
+    /// Note the interiors the load doors of the drawn exterior cells of `world` lead to
+    /// (each cell looked at once).
+    pub fn note_doors(&mut self, refs: &RefTable, world: u32, exterior: impl Iterator<Item = (i32, i32)>) {
+        let Some(grid) = refs.world_grid.get(&FormId(world)) else { return };
+        for c in exterior {
+            if !self.doors_seen.insert((world, c)) {
+                continue;
+            }
+            let Some(cell) = grid.get(&c) else { continue };
+            for r in refs.by_cell.get(cell).into_iter().flatten() {
+                let to = refs.get(*r).and_then(|p| p.teleport.as_ref()).and_then(|t| refs.teleport_cell(t));
+                if let Some(to) = to.filter(|&t| refs.world_of(t).is_none()) {
+                    self.behind_doors.insert(to.0);
+                }
+            }
+        }
+    }
+
+    /// Whether the cell at `feet` in `space` is in the buffer (or an interior behind the
+    /// doors of the cells drawn so far, module notes).
     pub fn holds(&self, space: Space, feet: [f32; 3]) -> bool {
         match space {
-            Space::Interior(c) => self.interior.contains_key(&c),
+            Space::Interior(c) => self.interior.contains_key(&c) || self.behind_doors.contains(&c),
             Space::World(w) => self.exterior.contains_key(&(w, fnv_world::cell_of(feet[0], feet[1]))),
         }
     }
@@ -81,12 +113,21 @@ fn keep_newest<K: Copy + Eq + std::hash::Hash>(m: &mut HashMap<K, u64>, n: usize
     }
 }
 
-/// Note the cells drawn this frame (after `world::stream`).
-pub fn remember(mut streamer: ResMut<Streamer>, world: Res<WorldData>) {
+/// Note the cells drawn this frame (after `world::stream`), and the interiors behind
+/// their doors (the placed references: the played game's, else the residents' own).
+pub fn remember(mut streamer: ResMut<Streamer>, world: Res<WorldData>, sim: Option<Res<nvf_play::sim::SimState>>, residents: Option<ResMut<crate::residents::Residents>>) {
+    let refs: Option<&'static RefTable> = match sim {
+        Some(s) => Some(s.refs),
+        None => residents.and_then(|mut r| r.own_game().map(|g| g.world.placed)),
+    };
     let s = &mut *streamer;
     // The loading screen's placeholder key is no cell.
-    let drawn = s.loaded.keys().copied().filter(|&(x, _)| x != i32::MIN);
-    s.buffer.remember(world.world, s.interior, drawn);
+    let drawn = || s.loaded.keys().copied().filter(|&(x, _)| x != i32::MIN);
+    if let (Some(refs), None) = (refs, s.interior) {
+        s.buffer.note_doors(refs, world.world, drawn());
+    }
+    let drawn: Vec<(i32, i32)> = drawn().collect();
+    s.buffer.remember(world.world, s.interior, drawn.into_iter());
 }
 
 #[cfg(test)]

@@ -604,6 +604,10 @@ Now (`fnv_ai::process`, the residents' `process_levels`):
     Fallout_default.ini; hypothesis: that the buffer keeps the cells drawn most recently
     and counts the drawn ones]. Going into an interior leaves the exterior buffer as it
     was, so the exterior actors around stay Mid-High (the wiki's Strip example).
+  - **Mid-Low**: interiors behind the load doors of the exterior cells drawn this session
+    ("accessible through teleport doors within player's loaded cell grid", and once
+    there "it never seems to go back to Low") count as buffered, every 18 s [design: the
+    original's rate is "unknown"; 18 s is what those actors had before].
   - **Low**, every 120 s: anywhere else ("neither currently loaded nor buffered").
 
   Moving between the two keeps the share of the interval the actor is owed.
@@ -618,9 +622,7 @@ Checked by the `far-actors` (camera flying north at 400 units/s: Mid-High update
 who left the loaded area, who fell out of the buffer and the updates at each rate. Tests
 in `crates/fnv-ai/tests/carry.rs` ("process levels") and `cell_buffer.rs`.
 
-Not done: the mid-low level (actors of interiors behind the loaded cells' doors, never
-visited: "unknown" rate) has nobody here, since actors of cells never loaded are not
-handed to the AI at all, as before.
+Not done: actors of cells never loaded are not handed to the AI at all, as before.
 
 ## 6. Decisions for the owner
 
