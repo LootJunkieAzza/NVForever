@@ -104,15 +104,27 @@ pub fn voice_gain(distance: f32) -> f32 {
 /// interior other than the player's, or inside while the player is outside) or nowhere.
 pub fn hearing(sim: &SimState, player: &Player, speaker: FormId) -> Option<([f32; 3], f32)> {
     let me = sim.world.peek(FormId::PLAYER_REF)?;
-    let s = sim.world.peek(speaker)?;
+    let (cell, pos) = speaker_place(sim, speaker)?;
     let space = |cell: Option<FormId>| cell.map(|c| sim.refs.world_of(c).map_or((false, c.0), |w| (true, w.0)));
-    if space(me.cell)? != space(s.cell)? {
+    if space(me.cell)? != space(cell)? {
         return None;
     }
-    let at = [s.pos[0], s.pos[1], s.pos[2] + MOUTH_HEIGHT];
+    let at = [pos[0], pos[1], pos[2] + MOUTH_HEIGHT];
     let eye = player.eye();
     let d = ((at[0] - eye[0]).powi(2) + (at[1] - eye[1]).powi(2) + (at[2] - eye[2]).powi(2)).sqrt();
     Some((at, d))
+}
+
+/// A speaker's cell and position: its simulation state, or where it is placed while the
+/// simulation has not touched it yet (references are materialised on first use, and
+/// Doc Mitchell says the opening's lines before anything moved him: they were taken as
+/// said in another cell, silent; owner playtest 2026-10-12, "Doc Mitchell's opening
+/// lines are not voiced").
+pub fn speaker_place(sim: &SimState, speaker: FormId) -> Option<(Option<FormId>, [f32; 3])> {
+    match sim.world.peek(speaker) {
+        Some(s) => Some((s.cell, s.pos)),
+        None => sim.refs.get(speaker).map(|p| (p.cell, p.pos)),
+    }
 }
 
 /// Whether the player hears a line `speaker` says outside the conversation with the
@@ -436,7 +448,10 @@ fn play(
         let heard = if s.conversation { None } else { Some(player.and_then(|p| hearing(&sim, p, s.speaker))) };
         let out_of_hearing = match heard {
             Some(Some((_, d))) if d >= DIALOG_MAX_DISTANCE => Some(format!("{d:.0} units away")),
-            Some(None) if player.is_some() => Some("in another cell".to_string()),
+            Some(None) if player.is_some() => {
+                let cell = |r: FormId| speaker_place(&sim, r).and_then(|(c, _)| c).map_or("none".to_string(), |c| g.data.name(c));
+                Some(format!("in another cell: {} vs the player's {}", cell(s.speaker), cell(FormId::PLAYER_REF)))
+            }
             _ => None,
         };
         let pan = heard.map(|_| Pan::new(placed_gains(&sim, player, s.speaker)));

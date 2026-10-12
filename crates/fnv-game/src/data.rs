@@ -272,6 +272,10 @@ pub struct MessageDef {
     pub title: Option<String>,
     pub text: Option<String>,
     pub buttons: Vec<String>,
+    /// CTDA after each ITXT: a button is shown only while its conditions hold
+    /// [documented: GECK wiki GetButtonPressed, "certain buttons are hidden with
+    /// conditions"; the indices stay those of the record]. One list per button.
+    pub button_conditions: Vec<Vec<Condition>>,
     pub message_box: bool,
     /// INAM: the Menu Icon (MICN) drawn with the message when it is not a box; none
     /// means the default icon [documented: GECK wiki, Message; corner-messages.md §3].
@@ -1798,7 +1802,16 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 match *s {
                     b"FULL" => m.title = v.as_ref().and_then(|v| v.as_str().map(str::to_string)).filter(|t| !t.trim().is_empty()),
                     b"DESC" => m.text = v.as_ref().and_then(|v| v.as_str().map(str::to_string)),
-                    b"ITXT" => m.buttons.push(v.as_ref().and_then(|v| v.as_str()).unwrap_or_default().to_string()),
+                    b"ITXT" => {
+                        m.buttons.push(v.as_ref().and_then(|v| v.as_str()).unwrap_or_default().to_string());
+                        m.button_conditions.push(Vec::new());
+                    }
+                    // A CTDA belongs to the button before it [observed: GSChemistrySetMsg
+                    // has a Science condition after each of its two craft buttons].
+                    b"CTDA" => match m.button_conditions.last_mut() {
+                        Some(c) => c.extend(cond(v, &mut out.issues)),
+                        None => out.issues.note("message condition before any button", || format!("0x{g:08X}")),
+                    },
                     b"DNAM" => m.message_box = has_flag(v.as_ref(), "Message Box"),
                     b"INAM" => m.icon = fid(v).filter(|f| f.0 != 0),
                     b"TNAM" => m.display_seconds = v.as_ref().and_then(Json::as_u64).map(|x| x as u32),

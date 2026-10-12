@@ -4206,3 +4206,45 @@ and only with sun shadows on (never in third person). Plugins: the main game and
 run had played longer (462 cell loads). Next lead [hypothesis]: something drawn or posed only
 in first person (the first-person body or arms rig, #172/#178) casts into the sun's shadow map.
 Follow-up queued as L5 in docs/handoff/playtest-list-4.md.
+## Playtest list 4: dialogue and message boxes (2026-10-13, workstream "d1")
+
+**Item 1, Doc Mitchell's opening lines not voiced.** The files were found and played
+(`voice: playing …maleuniquedocmitchell\vcg01_vcg01intro_00104bee_1.ogg`), but every one was
+flagged "out of hearing, in another cell", so it played at volume 0 with no subtitle. Cause
+[observed]: the simulation creates a reference's state on first use, and nothing had touched
+Doc Mitchell yet when he said the opening, so the hearing test found no cell for him. Fix: a
+speaker not yet created is heard from where it is placed (`voice.rs` `speaker_place`); the
+same test also decides the subtitles, so his opening subtitles come back too.
+*Decision/Guess:* none. *Check:* the opening, Doc's first lines heard and subtitled.
+
+**Item 4, message box buttons ignore their conditions.** MESG records keep a CTDA list
+after each button (ITXT) [observed: GSChemistrySetMsg, GSBrokenSMGMsg: GetActorValue
+Science / Repair ≥ 25 on PlayerRef]. They were not read. Now they are checked when
+ShowMessage shows the box; buttons whose conditions fail are not drawn, and the ones left
+keep their record indices for GetButtonPressed [documented: GECK wiki GetButtonPressed, "the
+button indices … remain the same even if certain buttons are hidden with conditions"]. The
+log line `script: message …` gives `(hidden by their conditions: [..])`.
+*Guess:* the conditions run with the player as subject and the reference whose script shows
+the box as target (both boxes here name PlayerRef, so only Subject/Target conditions depend
+on this). The conditions are checked once, when the box is shown, not while it is open.
+*Check:* with Science and Repair under 25, the chemistry set and broken SMG offer only
+"Leave it alone."; at 25 or more the other buttons are back and do their work.
+
+**Item 22, Johnson Nash has no Goodbye.** His topic list (headless `fnvtool dialogue talk`):
+Who are you? / I have some questions about Primm. / Want to play a hand of Caravan?. The
+Caravan offer line has the Goodbye flag (it ends the conversation to start the game), and
+our rule "add the generic GOODBYE only when no listed line says goodbye" [documented: Quest
+and Dialogue Tutorial] treated it as his goodbye.
+*Guess:* a listed Goodbye line with an end (result) script does not count as the player's
+way to leave, because it ends the conversation to do something else (Caravan, hiring a
+follower, a quest action). His list now ends with GOODBYE ("See you later." in the headless
+run). This can add a generic Goodbye to other lists whose only Goodbye entries have end
+scripts (some quest topics do; 100+ top-level Goodbye lines of FalloutNV.esm have one).
+*Check:* Johnson Nash, Ringo and another Caravan player each show one Goodbye; check an NPC
+whose quest Goodbye topic runs a script, to see whether the original also adds a generic
+Goodbye there.
+
+Smoke scenarios added: `voice-opening`, `message-button-conditions`, `goodbye-after-caravan`
+(its actions file is `tools/smoke/actions/nash-goodbye.actions.json`). The trace event
+`message_shown` gains a `hidden` field (written only when a button is hidden), which the lab's
+script traces may show for boxes with conditions (no lab run in this workstream).

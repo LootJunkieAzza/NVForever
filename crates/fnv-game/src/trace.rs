@@ -28,7 +28,16 @@ pub enum EventKind {
     RefDisabled { reference: FormId },
     ItemAdded { to: FormId, item: FormId, count: i32 },
     ItemRemoved { from: FormId, item: FormId, count: i32 },
-    MessageShown { message: FormId, #[serde(skip_serializing_if = "Option::is_none")] text: Option<String>, #[serde(skip_serializing_if = "Vec::is_empty")] buttons: Vec<String> },
+    /// `hidden`: the indices (in `buttons`) of the buttons whose conditions failed, not shown.
+    MessageShown {
+        message: FormId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        buttons: Vec<String>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        hidden: Vec<usize>,
+    },
     Moved { reference: FormId, #[serde(skip_serializing_if = "Option::is_none")] cell: Option<FormId>, pos: [f32; 3] },
     Activated { reference: FormId, by: FormId, #[serde(skip_serializing_if = "Option::is_none")] outcome: Option<serde_json::Value> },
     /// A Begin block ran because of an event other than the per-frame ones.

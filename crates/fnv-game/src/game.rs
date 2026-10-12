@@ -2173,6 +2173,24 @@ impl<'a> Game<'a> {
         cond::combine(&results)
     }
 
+    /// The buttons of a message (indices in record order) whose conditions fail when it
+    /// is shown: they are not shown, and the others keep their indices [documented: GECK
+    /// wiki GetButtonPressed]. The conditions run on the player as subject and the
+    /// reference whose script shows the message as target [hypothesis: the craft and
+    /// repair buttons of Doc Mitchell's house test the player's skills with a fixed
+    /// PlayerRef run-on, so the choice matters only for Subject/Target conditions].
+    pub fn hidden_buttons(&mut self, message: FormId, shown_by: Option<FormId>) -> Vec<usize> {
+        let data = self.data;
+        let Some(def) = data.messages.get(&message) else { return Vec::new() };
+        let mut hidden = Vec::new();
+        for (i, c) in def.button_conditions.iter().enumerate() {
+            if !c.is_empty() && !self.conditions_pass(c, Some(FormId::PLAYER_REF), shown_by, &format!("MESG {message} button {i}")) {
+                hidden.push(i);
+            }
+        }
+        hidden
+    }
+
     /// Each condition with its value, for diagnostics ("GetStage(0x…) = 10 == 20: false").
     pub fn explain_conditions(&mut self, conds: &[Condition], subject: Option<FormId>, target: Option<FormId>) -> Vec<String> {
         let data = self.data;

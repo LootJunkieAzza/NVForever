@@ -565,7 +565,11 @@ impl<'a> Game<'a> {
     /// GOODBYE topic is offered last, if it has one [documented: Quest and Dialogue
     /// Tutorial: the generic GOODBYE of the Conversation tab appears when no listed
     /// topic says goodbye; Conversation Tab: the topic is also what NPCs say when the
-    /// player leaves the menu].
+    /// player leaves the menu]. A listed Goodbye line with an end script does not count:
+    /// it ends the conversation to do something else (start a game of Caravan, hire a
+    /// follower), not to say goodbye [hypothesis, owner playtest 2026-10-12: Johnson
+    /// Nash's list, whose only Goodbye line is CaravanOffer's, should end with a
+    /// Goodbye].
     pub fn build_choices(&mut self, actor: FormId, topic: FormId, def: &InfoDef) -> Vec<Choice> {
         let data = self.data;
         let priority = |t: &FormId| data.topic_defs.get(t).map_or(50.0, |d| d.priority);
@@ -584,7 +588,7 @@ impl<'a> Game<'a> {
             listed.sort_by(|a, b| priority(b).total_cmp(&priority(a)).then(order(a).cmp(&order(b))));
         }
         let mut out = self.offer(actor, &listed);
-        if !out.iter().any(|c| c.goodbye) {
+        if !out.iter().any(|c| c.goodbye && data.infos.get(&c.info).is_some_and(|d| d.end.is_none())) {
             if let Some(bye) = data.goodbye.filter(|b| !out.iter().any(|c| c.topic == *b)) {
                 out.extend(self.offer(actor, &[bye]));
             }

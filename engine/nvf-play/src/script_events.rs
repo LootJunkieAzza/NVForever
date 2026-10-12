@@ -84,13 +84,23 @@ pub struct Objective {
 pub struct BoxMessage {
     pub message: u32,
     pub text: String,
+    /// Every button of the message, in record order.
     pub buttons: Vec<String>,
+    /// The indices of the buttons whose conditions failed when it was shown: not drawn
+    /// (`fnv_game::Game::hidden_buttons`).
+    pub hidden: Vec<usize>,
 }
 
 impl BoxMessage {
     /// The runtime waits for a button (`fnv_game::game::MessageBox`, GetButtonPressed).
     pub fn waits(&self) -> bool {
         !self.buttons.is_empty()
+    }
+
+    /// The buttons drawn, top to bottom: each one's index in the record (what
+    /// GetButtonPressed returns) and its text.
+    pub fn shown(&self) -> Vec<(usize, &str)> {
+        self.buttons.iter().enumerate().filter(|(i, _)| !self.hidden.contains(i)).map(|(i, b)| (i, b.as_str())).collect()
     }
 }
 
@@ -253,10 +263,10 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                     }
                 }
             }
-            EventKind::MessageShown { message, text, buttons } => {
+            EventKind::MessageShown { message, text, buttons, hidden } => {
                 let text = text.clone().unwrap_or_default();
                 if !buttons.is_empty() || ctx.is_message_box(*message) {
-                    out.push(ScriptEffect::MessageBox(BoxMessage { message: message.0, text, buttons: buttons.clone() }));
+                    out.push(ScriptEffect::MessageBox(BoxMessage { message: message.0, text, buttons: buttons.clone(), hidden: hidden.clone() }));
                 } else if !text.trim().is_empty() {
                     let (icon, seconds) = ctx.message_look(*message);
                     out.push(ScriptEffect::Notify(Note { text, icon, seconds }));
@@ -804,9 +814,9 @@ mod tests {
     #[test]
     fn messages_objectives_and_items() {
         let e = run(vec![
-            EventKind::MessageShown { message: FormId(0xAA), text: Some("To jump, press Space.".into()), buttons: vec![] },
-            EventKind::MessageShown { message: FormId(0xBB), text: Some("Old World Blues has been loaded.".into()), buttons: vec![] },
-            EventKind::MessageShown { message: FormId(0xCC), text: Some("Hardcore?".into()), buttons: vec!["No".into(), "Yes".into()] },
+            EventKind::MessageShown { message: FormId(0xAA), text: Some("To jump, press Space.".into()), buttons: vec![], hidden: vec![] },
+            EventKind::MessageShown { message: FormId(0xBB), text: Some("Old World Blues has been loaded.".into()), buttons: vec![], hidden: vec![] },
+            EventKind::MessageShown { message: FormId(0xCC), text: Some("Hardcore?".into()), buttons: vec!["No".into(), "Yes".into()], hidden: vec![] },
             EventKind::ObjectiveDisplayed { quest: QUEST, index: 30, on: true },
             EventKind::ObjectiveCompleted { quest: QUEST, index: 10, on: true },
             EventKind::ObjectiveDisplayed { quest: QUEST, index: 40, on: false },
@@ -820,8 +830,8 @@ mod tests {
             vec![
                 // A message's line has its record's icon and time; the others have neither.
                 ScriptEffect::Notify(Note { text: "To jump, press Space.".into(), icon: Some("icons\\pain.dds".into()), seconds: Some(10.0) }),
-                ScriptEffect::MessageBox(BoxMessage { message: 0xBB, text: "Old World Blues has been loaded.".into(), buttons: vec![] }),
-                ScriptEffect::MessageBox(BoxMessage { message: 0xCC, text: "Hardcore?".into(), buttons: vec!["No".into(), "Yes".into()] }),
+                ScriptEffect::MessageBox(BoxMessage { message: 0xBB, text: "Old World Blues has been loaded.".into(), buttons: vec![], hidden: vec![] }),
+                ScriptEffect::MessageBox(BoxMessage { message: 0xCC, text: "Hardcore?".into(), buttons: vec!["No".into(), "Yes".into()], hidden: vec![] }),
                 // The quest was listed already: no "Quest added".
                 ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: QUEST.0, text: "Use the Vit-o-matic Vigor Tester".into(), completed: false }])),
                 ScriptEffect::Quest(QuestNotice::Objectives(vec![Objective { quest: QUEST.0, text: "Talk to Sunny Smiles.".into(), completed: true }])),

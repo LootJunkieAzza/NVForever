@@ -1,0 +1,9 @@
+{
+  "format": "fnv.dialogue.actions/1",
+  "title": "Johnson Nash's topic list from the new-game state: it ends with a Goodbye although CaravanOffer's line has the Goodbye flag (owner playtest list 4, item 22)",
+  "new_game": true,
+  "actions": [
+    {"op": "talk", "actor": "PrimmJohnsonNashRef"},
+    {"op": "wait_talk"}
+  ]
+}
