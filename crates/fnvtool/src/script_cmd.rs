@@ -44,6 +44,13 @@ pub enum ScriptCmd {
         #[command(flatten)]
         a: ScriptArgs,
     },
+    /// Every stubbed function with why it is one and its use in the load order's scripts,
+    /// and the functions the scripts use that are not registered at all
+    /// (fnv.script.stubs/1; docs/design/script-stubs.md).
+    Stubs {
+        #[command(flatten)]
+        a: ScriptArgs,
+    },
     /// Run scripts headless from the new-game state through a fnv.script.actions/1 file
     /// and print the trace (fnv.script.trace/1; docs/spec-notes/layer5-captures.md §4,
     /// scripts.md §8).
@@ -119,6 +126,7 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             let fjson = functions_json(&a)?;
             with_load_order(&a, |l, lo, schema| Ok(coverage(l, lo, schema, &fjson)))
         }
+        ScriptCmd::Stubs { a } => with_load_order(&a, |l, _, _| Ok(stubs(l))),
         ScriptCmd::Run { a, actions, no_voice_lengths } => run_actions(&a, &actions, !no_voice_lengths),
     }
 }
@@ -599,6 +607,68 @@ fn coverage(l: &Loaded, lo: &LoadOrder<'_>, schema: &Schema, fjson: &Value) -> V
         },
         "opcodes": rows.into_iter().map(|r| r.1).collect::<Vec<_>>(),
         "intro_opcodes": irows.into_iter().map(|r| r.1).collect::<Vec<_>>(),
+    })
+}
+
+/// `script stubs`: the audit of docs/design/script-stubs.md. Calls are counted in the
+/// load order's decoded scripts (object, quest and effect scripts, quest stage, dialogue,
+/// package and terminal result scripts); condition uses are the catalogue's
+/// (`functions.json`, CTDA over the masters).
+fn stubs(l: &Loaded) -> Value {
+    use fnv_game::functions::stubs::{audit, Status};
+    let done = decode_units(l);
+    let mut stats = Stats::default();
+    for d in &done {
+        stats.program(&d.decoded);
+    }
+    let calls = |op: u16| stats.calls.get(&op).map_or(0, |c| c[0] + c[1]);
+    let conds = |op: u16| l.table.get(op).map_or(0, |f| f.condition_uses);
+    let mut rows: Vec<(u64, Value)> = Vec::new();
+    let mut by_status: BTreeMap<&str, u64> = BTreeMap::new();
+    let mut by_workstream: BTreeMap<&str, u64> = BTreeMap::new();
+    let (mut stub_calls, mut stub_conds) = (0u64, 0u64);
+    for (op, name, st) in audit() {
+        *by_status.entry(st.key()).or_default() += 1;
+        let why = match st {
+            Status::NeedsSystem(w) | Status::Assigned(w) | Status::Implementable(w) | Status::NoOp(w) => w,
+        };
+        if let Status::Assigned(w) = st {
+            *by_workstream.entry(w).or_default() += 1;
+        }
+        let (c, k) = (calls(op), conds(op));
+        if st.key() != "no_op" {
+            stub_calls += c;
+            stub_conds += k;
+        }
+        rows.push((c + k, json!({"opcode": format!("0x{op:04X}"), "name": name, "status": st.key(), "why": why, "calls": c, "condition_uses": k})));
+    }
+    rows.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1["opcode"].as_str().cmp(&b.1["opcode"].as_str())));
+    // Functions used that have no registration at all.
+    let mut unhandled: Vec<(u64, Value)> = l
+        .table
+        .functions
+        .iter()
+        .filter(|(op, _)| **op >= 0x1000 && fnv_game::functions::lookup(**op).is_none())
+        .map(|(op, f)| (calls(*op), f.condition_uses, op, f))
+        .filter(|(c, k, ..)| c + k > 0)
+        .map(|(c, k, op, f)| (c + k, json!({"opcode": format!("0x{op:04X}"), "name": f.name, "calls": c, "condition_uses": k})))
+        .collect();
+    unhandled.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1["opcode"].as_str().cmp(&b.1["opcode"].as_str())));
+    let stubs = by_status.iter().filter(|(k, _)| **k != "no_op").map(|(_, n)| n).sum::<u64>();
+    json!({
+        "format": "fnv.script.stubs/1",
+        "load_order": l.load_order,
+        "summary": {
+            "units": done.len(),
+            "stubs": stubs,
+            "by_status": by_status,
+            "by_workstream": by_workstream,
+            "stub_calls": stub_calls,
+            "stub_condition_uses": stub_conds,
+            "unhandled_used": unhandled.len(),
+        },
+        "functions": rows.into_iter().map(|r| r.1).collect::<Vec<_>>(),
+        "unhandled": unhandled.into_iter().map(|r| r.1).collect::<Vec<_>>(),
     })
 }
 

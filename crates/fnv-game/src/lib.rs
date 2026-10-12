@@ -23,6 +23,7 @@
 //! - [`intro`]: the intro chain's units (coverage)
 //! - [`runner`]: `fnv.script.actions/1` → `fnv.script.trace/1`
 //! - [`voice`]: the hook that gives a dialogue response the length of its voice file
+//! - [`weather`]: the weather scripts ask for and the one the sky shows
 //!
 //! Behaviour notes with confidence tags: docs/spec-notes/scripts.md §4 and later.
 
@@ -56,6 +57,7 @@ pub mod templates;
 pub mod terminal;
 pub mod trace;
 pub mod voice;
+pub mod weather;
 
 pub use data::GameData;
 pub use game::{Game, GameConfig, InstKey};

@@ -53,6 +53,7 @@ use bevy::prelude::*;
 use fnv_game::awareness::{Change, DetectionEvent, EventType, State};
 use fnv_game::detection::{Band, Settings, Situation};
 use fnv_phys::{layers, Filter, Owner};
+use fnv_game::functions::senses::Motion;
 use fnv_sim::FormId;
 use nvf_play::combat::{ActorHit, Combat, ImpactFx, ShotFired};
 use nvf_play::control::PlayerControl;
@@ -401,6 +402,12 @@ fn measure(
     let mut heard: Vec<(String, DetectionEvent, f64, f32)> = Vec::new();
     let (alert_changes, barks, held) = with_world(rt, sim, |rt| {
         let g = &mut rt.game;
+        // What the scripts read of movement and sneaking (IsMoving, IsRunning,
+        // IsSneaking): the people measured now; the others are forgotten.
+        g.senses.motion.retain(|k, _| people.iter().any(|p| p.id == k.0));
+        for p in &people {
+            g.set_motion(FormId(p.id), Motion { moving: p.moving, running: p.running, sneaking: p.sneaking });
+        }
         for (i, d) in people.iter().enumerate() {
             let Some(forward) = d.forward else { continue };
             let asleep = g.asleep(FormId(d.id));

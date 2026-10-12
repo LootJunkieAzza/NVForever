@@ -19,6 +19,7 @@ use bevy::core_pipeline::tonemapping::tonemapping;
 use bevy::core_pipeline::{Core3d, Core3dSystems, FullscreenShader};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::render::extract_component::{ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin, UniformComponentPlugin};
 use bevy::render::render_resource::binding_types::{sampler, texture_2d, texture_depth_2d, texture_depth_2d_multisampled, uniform_buffer};
 use bevy::render::render_resource::{
@@ -215,6 +216,14 @@ fn prepare(
     }
 }
 
+/// Whether the view's depth prepass texture is multisampled this frame. Read from the
+/// texture itself: in the frame the multisampling changes (temporal anti-aliasing switched
+/// on or off, `graphics.rs`) the view's `Msaa` and its prepass texture may disagree, and a
+/// pass bound to the other kind of texture is a validation error that ends the run.
+pub(crate) fn depth_multisampled(prepass: &ViewPrepassTextures) -> Option<bool> {
+    prepass.depth.as_ref().map(|d| d.texture.texture.sample_count() > 1)
+}
+
 /// The occlusion into the view's texture, then the picture multiplied by it.
 pub(crate) fn ao_pass(
     view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<AmbientOcclusion>, &AoView, &ViewPrepassTextures)>,
@@ -225,9 +234,16 @@ pub(crate) fn ao_pass(
     mut ctx: RenderContext,
 ) {
     let (target, index, ao, prepass) = view.into_inner();
+    if depth_multisampled(prepass) != Some(ao.multi) {
+        return;
+    }
     let Some(depth) = prepass.depth_view() else { return };
     let (Some(occlusion), Some(apply)) = (cache.get_render_pipeline(ao.occlusion), cache.get_render_pipeline(ao.apply)) else { return };
     let Some(binding) = uniforms.uniforms().binding() else { return };
+    // GPU time of the pass (recorded with --log-frame-times, graphics.rs).
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+    let span = diagnostics.time_span(ctx.command_encoder(), "nvf_ambient_occlusion");
     let layout = cache.get_bind_group_layout(&pipelines.occlusion_layouts[ao.multi as usize]);
     let bind_group = device.create_bind_group("ssao_occlusion_bind_group", &layout, &BindGroupEntries::sequential((depth, binding.clone())));
     {
@@ -261,4 +277,6 @@ pub(crate) fn ao_pass(
     pass.set_pipeline(apply);
     pass.set_bind_group(0, &bind_group, &[index.index()]);
     pass.draw(0..3, 0..1);
+    drop(pass);
+    span.end(ctx.command_encoder());
 }

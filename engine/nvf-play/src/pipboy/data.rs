@@ -220,6 +220,8 @@ pub struct DataState {
     /// The active quest: the player's pick while it runs, else the newest running quest
     /// [design].
     active_quest: Option<u32>,
+    /// How many ForceActiveQuest calls the page has taken (`fnv_game::functions::ui`).
+    forced_seen: u64,
     /// When each quest was first seen listed (a running count).
     seen: HashMap<u32, u64>,
     seen_count: u64,
@@ -502,6 +504,15 @@ fn lists(st: &mut DataState, game: &Game) -> Lists {
         .map(|(q, s)| QuestKey { seen: st.seen.get(&q.0).copied().unwrap_or(st.seen_count + 1), form: q.0, done: s.completed || s.failed })
         .collect();
     model::sort_quests(&mut out.quests);
+    // A script's ForceActiveQuest makes its quest the active one [documented: GECK wiki
+    // ForceActiveQuest]; the player's pick afterwards wins again.
+    if g.ui.active_quest_count != st.forced_seen {
+        st.forced_seen = g.ui.active_quest_count;
+        if let Some(q) = g.ui.active_quest {
+            st.active_quest = Some(q.0);
+            info!("pipboy data: active quest {q} (ForceActiveQuest)");
+        }
+    }
     if !st.active_quest.is_some_and(|a| out.quests.iter().any(|q| q.form == a && !q.done)) {
         st.active_quest = out.quests.iter().find(|q| !q.done).map(|q| q.form);
     }
