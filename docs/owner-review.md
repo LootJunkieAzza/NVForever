@@ -4200,6 +4200,12 @@ Branch `claude/shadows-sun`, playtest list 4 items 5-7. Pictures:
 
 Checks: smoke scenario `shadows-sun` (new); engine clippy.
 
+**Owner's answers (2026-10-13), on the first-person flicker:** it happens only in first person,
+and only with sun shadows on (never in third person). Plugins: the main game and all the DLC
+(the ten masters, as every test run loads). So the scene size gap is not plugins: the owner's
+run had played longer (462 cell loads). Next lead [hypothesis]: something drawn or posed only
+in first person (the first-person body or arms rig, #172/#178) casts into the sun's shadow map.
+Follow-up queued as L5 in docs/handoff/playtest-list-4.md.
 ## Playtest list 4: dialogue and message boxes (2026-10-13, workstream "d1")
 
 **Item 1, Doc Mitchell's opening lines not voiced.** The files were found and played
