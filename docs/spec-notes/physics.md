@@ -1236,6 +1236,51 @@ it. Ideas for a capture: drops onto a single straight branch or a second thin st
 at several speeds; a drop from below the branches' level (e.g. `SetPos` 5 above a branch
 at the rim).
 
+### 6.4.2 Running down slopes: staying on the ground (playtest list 4 item 8, 2026-10-13)
+
+The owner's report: running down a steep road south of (-64168, -8679) the player played
+the jump loop at drops far too small for a fall and kept switching between falling and
+running.
+
+- **Cause** [observed: `fnvtool phys walk` from (-64168, -8679) at 344 units/s for 5 s,
+  headings 135-225 in 15-degree steps]: at 150 and 210 degrees the character left the
+  ground for 22 and 57 steps. Each time one step's settling missed the ground: the first
+  support under the capsule after the move was a face steeper than `max_slope_deg` (the
+  edge of a static mesh, n.z 0.57; at 210 degrees the 56-62-degree face of rock
+  0x0010710A), so the character was not pulled down. From the next step the controller
+  no longer counted it as standing (the terrain was 10 units below, beyond the 1-unit
+  `SUPPORT_MARGIN`), and it fell freely until its arc met the slope again: on a slope of
+  angle a at speed v that takes 2 v tan(a) / g, 0.36 s on the 20-degree road, past the
+  body's 0.15 s jump-loop delay and its 0.35 s landing threshold. The touchdown, at
+  150-370 units/s, started the landing speed profile (`air::LANDING_SPEEDS`, 81 units/s
+  for two steps): the stop-and-go.
+- **Rule now** (`fnv_phys::character`): a character that walked off the ground (left it
+  without a jump) is put on walkable ground as soon as that ground is within
+  `step_height` of the height where it left (`Character::walked_off_z`) - the step-down
+  the controller already made from a standing start, kept for the steps after a miss
+  [engineering choice; the original's rule is not documented: the ten masters' GMSTs
+  hold only `fJumpFallHeightMin` 600, `fJumpFallHeightExponent` 1.65 and
+  `fJumpFallVelocityMin` 2785 on falls, all for damage]. The landing profile starts only
+  after a drop of more than `step_height` from the highest point in the air
+  (`landing_profile`) [hypothesis: it was seen after jumps of 61.6, §6.4.1].
+- **Result** [observed]: heading 150 now leaves the ground for 1 step (in `phys walk` and
+  in the engine, 60/61 steps grounded at 340-347 units/s); 165-195 unchanged (none);
+  210 still leaves it on the rock face steeper than the slope limit (runs of 12, 14 and
+  31 steps), a slide the slope limit makes [hypothesis: 45 degrees for the player is not
+  captured]. NPC paths: `fnvtool nav walk` from Victor's patrol start to the wells, 7
+  steps in the air before, 1 after; none at running speed either way.
+- **The body** (`engine/nvforever/src/player_body.rs`): the jump loop also needs the
+  ground farther than 24 units below the feet (`Character::ground_gap`, the support found
+  at the start of the step) or out of reach, and the landing clip plays only after the
+  jump loop [engineering choice]. A player put on something by a door, a test aid or
+  furniture counts as on the ground until its next step (the steps wait behind a
+  loading screen, a conversation or a menu; meanwhile the body had counted time in the
+  air and played the jump loop and a landing after the loading screen).
+- Checks: `fnv-phys` tests `running_off_a_low_edge_keeps_the_ground_and_the_speed`
+  (fails on the earlier controller), `running_off_a_high_edge_still_falls`,
+  `the_landing_profile_needs_a_drop_above_the_step_height`; smoke scenario
+  `falling-loading`. The lab's L4 physics walks were not re-run with this change.
+
 ### 6.5 Ladders
 
 New Vegas has no climbable ladders: the only ladder-like uses are door-style transitions

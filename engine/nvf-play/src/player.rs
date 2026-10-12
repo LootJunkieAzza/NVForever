@@ -797,6 +797,9 @@ fn step(
         }
         if let Some(c) = p.player.as_mut() {
             p.world.place_character(c, at);
+            // Held up by the furniture: not in the air (the body's fall and landing).
+            c.grounded = true;
+            c.ground_gap = Some(0.0);
             p.prev_feet = at;
         }
         p.prev_feet = at;
@@ -908,6 +911,7 @@ fn step(
         }
         // The actors another system walks, by the velocity it gave each.
         for (b, v) in p.npcs.values_mut().zip(walking) {
+            b.prev_feet = b.ch.feet;
             p.world.move_character(&mut b.ch, CharacterInput { velocity: v, ..Default::default() });
         }
         p.world.step();

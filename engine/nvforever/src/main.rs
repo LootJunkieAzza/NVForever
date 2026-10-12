@@ -805,6 +805,7 @@ fn main() -> AppExit {
         fades: Default::default(),
         fade_secs: args.cell_fade.max(0.0),
         settled: false,
+        arrival: None,
         per_frame: 1,
         hide: args.hide.iter().map(|h| h.to_ascii_lowercase()).collect(),
         interior,

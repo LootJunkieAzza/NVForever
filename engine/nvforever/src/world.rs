@@ -116,6 +116,13 @@ pub struct Streamer {
     /// The cells around the start (or a door's destination) are in: cells loaded from now
     /// on fade in (the first ones appear at once, as behind a loading screen).
     pub settled: bool,
+    /// The grid square a door's travel arrives in, outdoors: the cells are loaded around
+    /// it, not around the camera, until they are all in (`settled`). The frame of the
+    /// travel still has the camera's transform of the place left: around it, cells
+    /// of empty land far away loaded at once and counted as the destination's, so the
+    /// loading screen came down with the arrival's own cells still to load, and they
+    /// faded in in front of the player (playtest 2026-10-12, items 9 and 10).
+    pub arrival: Option<(i32, i32)>,
     /// Cells loaded per frame (loading is synchronous for now).
     pub per_frame: usize,
     /// Model path fragments not to draw (diagnostics).
@@ -234,7 +241,7 @@ pub fn stream(
         return;
     }
     let g = bevy_to_game(cam.translation());
-    let centre = cell_of(g.x, g.y);
+    let centre = streamer.arrival.unwrap_or_else(|| cell_of(g.x, g.y));
     let r = streamer.radius;
     let want: HashSet<(i32, i32)> =
         (-r..=r).flat_map(|dx| (-r..=r).map(move |dy| (centre.0 + dx, centre.1 + dy))).collect();
@@ -298,6 +305,7 @@ pub fn stream(
     }
     if !streamer.settled && want.iter().all(|c| streamer.loaded.contains_key(c)) {
         streamer.settled = true;
+        streamer.arrival = None;
     }
 }
 
@@ -354,6 +362,7 @@ pub fn travel(
     streamer.fades.clear();
     streamer.settled = false;
     streamer.interior = t.interior;
+    streamer.arrival = t.interior.is_none().then(|| cell_of(t.feet[0], t.feet[1]));
     sky.set_interior(t.interior.and_then(|id| fnv_world::lighting::cell_lighting(world.lo, world.schema, id)));
     sky.interior_grade = t.interior.and_then(|id| crate::sky::SkyState::cell_grade(world.lo, world.schema, id));
     lod.set_enabled(&mut commands, t.interior.is_none() && !args.no_lod);
