@@ -448,7 +448,7 @@ args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-m
 run_seconds = 28
 order = [[
   { re = 'detection: GSSettlerAM 00104F0A → the player: hidden → noticed .*sneaking' },
-  { re = 'detection: GSSettlerAM 00104F0A → the player: \w+ → detected', known_failing = "main 980f0c35 2026-10-12, 1 of 1 runs (and claude/playtest-combat, 2 of 2): the settler notices the sneaking player only after the shot, 2,121 units off, and does not detect the player before the run ends" },
+  { re = 'detection: GSSettlerAM 00104F0A → the player: \w+ → detected' },
 ]]
 expect = ["detection summary"]
 
@@ -844,8 +844,8 @@ args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
 run_seconds = 45
 order = [[
   "quest message on screen: Quest added: BACK IN THE SADDLE",
-  { text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon.", known_failing = "main 0b9a442f and claude/aid-items 2026-10-12, 4 of 4 runs on a machine running 3-4 other agents: the add-on packs' quest lines (Happy Trails, The Reunion, the Divide) queue at start-up and the scripts are ready only after 14-17 s, so the test aids at 3, 9 and 9.1 s land in one frame; this line never shows" },
-  { text = "quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny Smiles behind the Prospector Saloon.", known_failing = "main 0b9a442f and claude/aid-items 2026-10-12, 4 of 4 runs on a machine running 3-4 other agents: the add-on packs' quest lines (Happy Trails, The Reunion, the Divide) queue at start-up and the scripts are ready only after 14-17 s, so the test aids at 3, 9 and 9.1 s land in one frame; this line never shows" },
+  { text = "quest message on screen: Talk to Sunny Smiles in the Prospector Saloon." },
+  { text = "quest message on screen: COMPLETED: Talk to Sunny Smiles in the Prospector Saloon. | Meet Sunny Smiles behind the Prospector Saloon." },
 ]]
 
 [[scenario]]
@@ -918,7 +918,7 @@ expect = [
   "inventory item used: NPCHumanUsingStimpak",
   "wait slider moved: UIMenuPrevNext",
   "settings switch flipped: UIMenuPrevNext",
-  { re = 'ui sounds summary:.*\b24 played', known_failing = "main 2026-10-12: 23 played, the stimpak's sound missing (above); claude/aid-items 2026-10-12: the stimpak's sound plays now (the drop aid turns the Pip-Boy to the Aid tab) and it is still 23, one other sound short (not found which)" },
+  { re = 'ui sounds summary:.*\b24 played', known_failing = "claude/smoke-regressions 2026-10-12: 23 played with every step done (the start-up boxes no longer swallow the menu aid's inventory pass); one UIPipBoyScroll short of the 24 of 2026-10-11: since the Pip-Boy ITEMS page (#213) the menu aid's inventory pass lists the Weapons tab, whose first row is the weapon it puts on and is already selected, so no selection move is heard (before: the Vault 13 jumpsuit, further down one list). Not a sound the engine loses" },
   { re = 'ui sounds summary:.*\b0 sounds not found' },
   { re = "ui sounds summary:.*(?P<n>\\d+) items' own sounds held back for Take All", range = [1, 1e9], label = "one or more items' own sounds held back for Take All" },
 ]

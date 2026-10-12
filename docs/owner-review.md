@@ -3641,3 +3641,59 @@ is still the default of every test run, smoke scenario and lab frame.
 7. *Seen in passing (not this workstream):* at Camp Golf (`--pos=29500,62000,3400 --heading 0
    --pitch -10 --hour 12`, free camera) an NCR trooper stands in the air above his shadow;
    possibly your floating-troopers item 24.
+
+## Smoke failures on main explained (2026-10-12, workstream "fixes")
+
+All four were timing on a loaded machine (3-4 agents building, the game at 5-15 frames a
+second), not a feature broken by the merges #225-#236. Runs: `C:\fnv-private\scratch\fixes\`.
+
+1. **detection-game** (detection.md §5). *Cause [observed]:* not a regression: the build of
+   dfb60896 (the merge that added detection) fails the same way here, as do 3570ebfc and
+   main ec6aaaf0. The settler GSSettlerAM 00104F0A turns into sight at about 12:04-12:05 game
+   time; the shot is at 22 s on the test aids' clock. Two things held the game clock back
+   against that clock: the add-on packs' twelve start-up message boxes (with
+   `NVF_PLAY_TEST_SCRIPT_MENUS=1` each holds the game about 1 s) and, below 7.5 frames a
+   second, two frame caps: physics ran at most 8 steps of 1/60 s a frame and the residents'
+   AI capped its frame at 0.1 s, so actors walked and turned slower than the game clock
+   passed. The shot then fell at about 12:02-12:03 and the settler noticed only after it.
+   *Fixed:* play now runs physics steps for a whole frame of the virtual clock (0.25 s,
+   `nvf_play::phys::play_params`) and the residents use the frame time up to the same 0.25 s
+   (engine bug since 2026-10-10); the scenario passes `--no-messages` (#241), so the
+   start-up boxes close on the frame they open. Passes now; mark removed.
+   *Decision:* furniture.rs, idles.rs and nav.rs (travellers) still cap at 0.1 s; left as
+   they are (animation and the headless travel walk). *Check:* NPCs walk at their speed
+   when the frame rate is low.
+2. **quest-messages.** *Cause [observed]:* the scripts were ready 10-20 s after launch, so
+   the steps at 3, 9 and 9.1 s all ran in the scripts' first frame; the objective was
+   completed while still waiting to be shown (shown once, completed: quest-messages.md §5,
+   by design, not a queue bug). *Fixed:* when the scripts first run after the first timed
+   `NVF_PLAY_TEST_SCRIPT` step, every timed step comes that much later, keeping their
+   distances (`script_events::delay_late_aids`, unit-tested); steps gated on a quest stage
+   are left alone, nothing moves when the scripts are ready in time. Passes; marks removed.
+3. **ui-sounds "24 played".** *Cause [observed]:* the 24 of 2026-10-11 (rebuilt b5ff0244 and
+   ran it: 24) include the `NVF_PLAY_TEST_MENU` aid's inventory pass (open, a row selected:
+   UIPipBoyScroll, a jumpsuit put on, close). On a loaded machine that pass ran into the
+   start-up boxes ("menu request ignored: a menu is already open") and its four sounds were
+   lost (20 played). *Fixed:* the menu aid's steps that open a menu wait while a script's
+   box is up or the scripts load, and ask for the inventory again if it did not open; the
+   scenario passes `--no-messages`. Now 23 with every step done: one UIPipBoyScroll short,
+   because since the Pip-Boy ITEMS page (#213) the pass sees the Weapons tab, whose first row
+   (the weapon it puts on) is already selected, so no selection move is heard.
+   *Decision:* kept known-failing with that reason (not changed to 23). *Check:* whether the
+   expectation should become 23.
+4. **house-items** (from the coordinator, same family): the container step met an add-on
+   box. Now `--no-messages` and its own launch (corner-messages keeps the boxes). Its older
+   known failure (the BB Gun dropped, not clothing) is unchanged.
+5. **Grading varies between launches:** *Observed:* the "warm" frame `gs-day-van.png` was
+   taken with the overlay text on; below the text (rows 120-720) its mean colour equals the
+   other two frames' to 0.1 (92.6, 83.7, 64.9) and a difference picture shows only clouds,
+   grass and a bird moving. No nondeterminism found in the weather choice (highest chance,
+   ties to the first). No further runs made (owner asked to cut usage).
+6. **ai-packages / ai-reach figures:** not done. *Hypothesis:* most of the +1,332 pairs come
+   from c830f7ee (#190, package lists through leveled actor lists: its own message counts
+   +837 pairs on FalloutNV.esm alone); not measured.
+
+Tests: nvf-play unit tests (261), engine clippy; smoke (one pass, final build):
+detection-game PASS, quest-messages PASS, house-items KNOWN, ui-sounds KNOWN; an earlier pass
+on this branch: residents, sleep-novac, wait-residents, held-player, corner-messages,
+sunny-wells, sunny-gas-station, aid-items, push, npc-travel all PASS.
