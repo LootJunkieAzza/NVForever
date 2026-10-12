@@ -237,7 +237,12 @@ areas = ["ai", "residents"]
 paths = ["crates/fnv-ai/", "engine/nvforever/src/residents.rs", "crates/fnv-game/src/ai.rs", "crates/fnv-game/src/package.rs"]
 args = ["--cell", "Goodsprings", "--npc-packages", "EasyPeteRef,GSChetRef,GoodspringsSettler04Ref", "--hour", "21.9", "--follow-npc"]
 run_seconds = 150
-expect = ["ai summary … 3 residents, 6 packages chosen, 4 trips, 4 arrivals, 0 unreachable"]
+expect = [
+  "ai summary … 3 residents, 6 packages chosen, 4 trips, 4 arrivals, 0 unreachable",
+  # PR #229 (NPC turn rate, owner-review "Playtest fixes: …" C §3): walking turns at most 180°/s.
+  { re = 'turn summary: the fastest turn of a drawn resident was (?P<n>\d+)°/s', range = [0, 180], label = "turn summary: fastest turn at most 180°/s" },
+  { re = 'turn summary: .*; 0 frames with a turn faster than', label = "turn summary: no frame with a snap turn" },
+]
 # The furniture lines name Easy Pete by his reference, 00104C80 (EasyPeteRef).
 order = [[
   { text = "furniture: 00104C80 is on 0010634A", label = "Easy Pete sitting on 0010634A" },
@@ -980,4 +985,61 @@ expect = [
   'menu of DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"',
   "result script",
   "terminal summary: 1 opened (0 refused), 1 hacking games (1 hacked, 0 locked out)",
+]
+
+# ------------------------------------------------------------------ converted 2026-10-12 (prose added on main by PR #226)
+
+[[scenario]]
+name = "sunny-wells"
+source = "CLAUDE.md (PR #226): after changes to force greets, Follow/Accompany packages or MoveTo of actors (actor-behaviour.md §5.1–§5.2): Sunny's walk to the wells"
+areas = ["ai", "dialogue-packages", "follow"]
+paths = ["crates/fnv-game/src/dialogue.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor,1@VCG02=10:stage:VCG02:25,3@VCG02=10:activate:0x0010618E", NVF_PLAY_TEST_TALK = "0:*=VFreeformGoodspringsGSSunnySmilesTopic019", NVF_PLAY_TEST_GOTO = "90:-67150:-9100:7650" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "10"]
+run_seconds = 150
+expect = [
+  "CheyenneREF: walks after SunnyRef (CheyenneAccompany)",
+  "SunnyRef: starts a conversation … (VCG02SunnySmilesDialogueSneakStart), line 0x0010A1ED",
+  "conversation with SunnyRef ended (goodbye, 1 lines)",
+]
+
+[[scenario]]
+name = "sunny-gas-station"
+source = "CLAUDE.md (PR #226): after changes to MoveTo of actors (actor-behaviour.md §5.1–§5.2): Sunny at the gas station"
+areas = ["ai", "dialogue-packages"]
+paths = ["crates/fnv-game/src/dialogue.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:start:VMS16,4:info:0x00105CC2:0x00104C7D" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "12"]
+run_seconds = 30
+expect = [
+  "SunnyRef: put at (512, -5971, 7554) in GSGasStation by a script (MoveTo)",
+  "Time to look alive",
+]
+
+[[scenario]]
+name = "cook-cook-camp"
+source = "CLAUDE.md (PR #226): after changes to Detection lines or voices by distance (fnv_game::awareness barks, nvf-play voice; alert.md §4, voice.md §9): Cook-Cook's camp"
+areas = ["alert", "voice"]
+paths = ["crates/fnv-game/src/awareness.rs", "engine/nvf-play/src/voice.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 45
+expect = [
+  { re = 'alert: .* says ', min = 1, label = "a few 'alert: … says' lines" },
+  { re = 'alert summary:.*\b(?P<n>\d+) held back by the group cooldown', range = [1, 1000000], label = "held back by the group cooldown above 0" },
+  { re = 'voice: playing .*\[out of hearing, (?P<n>[\d,]+) units away: silent and no subtitle', range = [2000, 1000000], all = true, label = "voice: playing … [out of hearing, only from 2,000 units, no subtitle" },
+]
+
+[[scenario]]
+name = "chet-broom"
+source = "PR #229 (owner-review 'Playtest fixes' C §4, props in idles): Chet sweeps with his broom in the general store"
+areas = ["idles", "residents"]
+paths = ["engine/nvforever/src/anim_objects.rs", "engine/nvforever/src/idles.rs", "crates/fnv-game/src/idles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--hour", "12"]
+run_seconds = 40
+expect = [
+  # 00104C79 is GSChetRef (the barter scenario's "barter menu with 0x00104C79").
+  'anim object: 00104C79 holds meshes\animobjects\aobroom.nif on Bip01 L Hand (aoSweepingBroom',
+  { re = 'anim objects summary: (?P<n>\d+) objects drawn', range = [1, 1000], label = "anim objects summary: one or more drawn" },
 ]
