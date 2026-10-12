@@ -93,6 +93,10 @@ pub struct PlayerControl {
     pub reload: bool,
     /// Ammo Swap pressed; `crate::combat` clears it.
     pub ammo_swap: bool,
+    /// The third-person camera's line through the crosshair, set by [`place_camera`]
+    /// each frame; `None` in first person and while the camera circles. Activation and
+    /// the player's shots aim along it ([`Crosshair::ray`]).
+    pub crosshair: Option<Crosshair>,
 }
 
 impl Default for PlayerControl {
@@ -110,6 +114,7 @@ impl Default for PlayerControl {
             trigger: false,
             reload: false,
             ammo_swap: false,
+            crosshair: None,
         }
     }
 }
@@ -118,6 +123,78 @@ impl PlayerControl {
     /// Whether the camera shows the player from outside (third person, or circling).
     pub fn third_person_view(&self) -> bool {
         self.pov == Pov::Third || self.orbit.active()
+    }
+}
+
+/// The third-person camera's view line: the crosshair sits in the middle of the view, so
+/// what is under it lies along this line, not along the eye's (the camera is off to the
+/// side, over the shoulder: playtest list 4, items 11 and 12).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Crosshair {
+    /// The camera, game space.
+    pub camera: [f32; 3],
+    /// The view direction (unit), game space.
+    pub dir: [f32; 3],
+    /// The pivot the camera was placed from, and where the camera's line passes it:
+    /// right of it and up, level with it along the view (the shoulder offset, less what
+    /// collision pulled in).
+    pub pivot: [f32; 3],
+    pub shoulder: [f32; 2],
+}
+
+impl Crosshair {
+    /// The line of a camera placed at `camera`, looking along `heading` and `pitch`.
+    pub fn placed(camera: [f32; 3], heading: f32, pitch: f32, pivot: [f32; 3]) -> Crosshair {
+        let dir = space::look_dir(heading, pitch);
+        let (s, c) = heading.sin_cos();
+        let rel = [camera[0] - pivot[0], camera[1] - pivot[1], camera[2] - pivot[2]];
+        let side = rel[0] * c - rel[1] * s;
+        // Along the view to where the line is level with the pivot horizontally.
+        let ahead = rel[0] * s + rel[1] * c;
+        let level = dir[0] * s + dir[1] * c;
+        let up = if level > 1e-3 { rel[2] - dir[2] * ahead / level } else { rel[2] };
+        Crosshair { camera, dir, pivot, shoulder: [side, up] }
+    }
+
+    /// The ray under the crosshair, `(start, dir)`: from the point on the camera's line
+    /// level with the eye (so nothing between the camera and the player is picked, and
+    /// reaches stay measured from about the player), along the view.
+    pub fn ray(this: Option<&Crosshair>, eye: [f32; 3], look: [f32; 3]) -> ([f32; 3], [f32; 3]) {
+        let Some(c) = this else { return (eye, look) };
+        let rel = [eye[0] - c.camera[0], eye[1] - c.camera[1], eye[2] - c.camera[2]];
+        let t = (rel[0] * c.dir[0] + rel[1] * c.dir[1] + rel[2] * c.dir[2]).max(0.0);
+        ([c.camera[0] + c.dir[0] * t, c.camera[1] + c.dir[1] * t, c.camera[2] + c.dir[2] * t], c.dir)
+    }
+
+    /// The direction from `eye` to the point under the crosshair, given where the
+    /// crosshair ray first hits (`hit`, `None`: nothing within `reach`): what the
+    /// player's shot follows, so it lands under the crosshair as in first person. The view
+    /// direction itself when that point is not ahead of the eye.
+    pub fn aim_from(eye: [f32; 3], start: [f32; 3], dir: [f32; 3], reach: f32, hit: Option<[f32; 3]>) -> [f32; 3] {
+        let p = hit.unwrap_or([start[0] + dir[0] * reach, start[1] + dir[1] * reach, start[2] + dir[2] * reach]);
+        let to = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
+        let len = (to[0] * to[0] + to[1] * to[1] + to[2] * to[2]).sqrt();
+        // Under a hand's breadth ahead, or behind: keep the view's direction.
+        if len < 1.0 || (to[0] * dir[0] + to[1] * dir[1] + to[2] * dir[2]) < 0.5 * len {
+            return dir;
+        }
+        [to[0] / len, to[1] / len, to[2] / len]
+    }
+
+    /// The heading and pitch that put `point` under the crosshair: from `eye` in first
+    /// person (`None`), else turned so the camera's line, offset by the shoulder from the
+    /// pivot, passes through it (collision pulling the camera in is left out).
+    pub fn aim_at(this: Option<&Crosshair>, eye: [f32; 3], point: [f32; 3]) -> (f32, f32) {
+        let (from, side, up) = match this {
+            Some(c) => (c.pivot, c.shoulder[0], c.shoulder[1]),
+            None => (eye, 0.0, 0.0),
+        };
+        let (dx, dy, dz) = (point[0] - from[0], point[1] - from[1], point[2] - from[2]);
+        let r = dx.hypot(dy).max(1e-3);
+        let side = side.clamp(-0.99 * r, 0.99 * r);
+        let heading = dx.atan2(dy) - (side / r).asin();
+        let along = (r * r - side * side).sqrt();
+        (heading, (dz - up).atan2(along))
     }
 }
 
@@ -484,6 +561,7 @@ pub fn orbit_shoulder(shoulder: [f32; 2], yaw: f32) -> [f32; 2] {
 /// The camera: at the eye in first person; behind the shoulder in third person (turned by
 /// the orbit while circling), in front of whatever collision lies between the pivot and
 /// that spot.
+#[allow(clippy::too_many_arguments)]
 pub fn place_camera(
     time: Res<Time>,
     player: Option<Res<Player>>,
@@ -492,7 +570,17 @@ pub fn place_camera(
     body: Res<BodyView>,
     mut phys: ResMut<PhysState>,
     mut cams: Query<&mut Transform, With<PlayerCamera>>,
+    mut told: Local<Option<bool>>,
 ) {
+    // Say which line the crosshair follows when it changes (smoke tests read it).
+    let third = control.crosshair.is_some();
+    if *told != Some(third) {
+        *told = Some(third);
+        match control.crosshair {
+            Some(c) => info!("crosshair: the third-person camera's line (shoulder {:?})", c.shoulder),
+            None => info!("crosshair: the eye's view"),
+        }
+    }
     if !control.orbit.held {
         // Swing back behind the player.
         let k = (-time.delta_secs() / ORBIT_RETURN).exp();
@@ -504,6 +592,7 @@ pub fn place_camera(
     }
     let (Some(p), Ok(mut t)) = (player, cams.single_mut()) else { return };
     let eye = p.eye();
+    control.crosshair = None;
     if !control.third_person_view() {
         t.rotation = p.body_view.map_or_else(|| space::look_rotation(p.heading, p.pitch), space::view_rotation);
         t.translation = space::to_bevy(eye);
@@ -540,12 +629,77 @@ pub fn place_camera(
         }
     }
     t.translation = space::to_bevy(out);
+    // While circling, the camera does not look where the player does: aim from the eye.
+    if !control.orbit.active() {
+        control.crosshair = Some(Crosshair::placed(out, heading, pitch, pivot));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::f32::consts::FRAC_PI_2;
+
+    /// The distance from `p` to the line through `a` along unit `d`.
+    fn off_line(p: [f32; 3], a: [f32; 3], d: [f32; 3]) -> f32 {
+        let r = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+        let t = r[0] * d[0] + r[1] * d[1] + r[2] * d[2];
+        let q = [r[0] - d[0] * t, r[1] - d[1] * t, r[2] - d[2] * t];
+        (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt()
+    }
+
+    #[test]
+    fn the_crosshair_ray_is_the_cameras_line_level_with_the_eye() {
+        let (pivot, shoulder) = ([0.0, 0.0, 100.0], [40.0, -10.0]);
+        let (_, cam) = third_person_spot(pivot, 0.0, 0.0, shoulder, 170.0);
+        let cross = Crosshair { camera: cam, dir: space::look_dir(0.0, 0.0), pivot, shoulder };
+        let eye = [0.0, 5.0, 100.0];
+        let (start, dir) = Crosshair::ray(Some(&cross), eye, [0.0, 1.0, 0.0]);
+        // Right of the eye by the shoulder, level with it along the view.
+        assert!((start[0] - 40.0).abs() < 1e-3 && (start[1] - 5.0).abs() < 1e-3 && (start[2] - 90.0).abs() < 1e-3, "{start:?}");
+        assert_eq!(dir, cross.dir);
+        // First person: the eye's own ray.
+        assert_eq!(Crosshair::ray(None, eye, [0.0, 1.0, 0.0]), (eye, [0.0, 1.0, 0.0]));
+    }
+
+    #[test]
+    fn a_shot_aims_from_the_eye_at_the_point_under_the_crosshair() {
+        let (eye, start, dir) = ([0.0, 0.0, 100.0], [40.0, 0.0, 90.0], [0.0, 1.0, 0.0]);
+        let hit = [40.0, 500.0, 90.0];
+        let aim = Crosshair::aim_from(eye, start, dir, 1000.0, Some(hit));
+        // It crosses the crosshair's line at the hit, not 40 units to its left.
+        assert!(off_line(hit, eye, aim) < 1e-3, "{aim:?}");
+        assert!(aim[0] > 0.0);
+        // Nothing hit: towards the end of the reach.
+        let far = Crosshair::aim_from(eye, start, dir, 1000.0, None);
+        assert!(off_line([40.0, 1000.0, 90.0], eye, far) < 1e-2);
+        // A hit beside the eye (not ahead of it): the view's direction.
+        assert_eq!(Crosshair::aim_from(eye, start, dir, 1000.0, Some([40.0, 0.5, 90.0])), dir);
+    }
+
+    #[test]
+    fn a_placed_camera_gives_its_lines_shoulder_offset() {
+        let pivot = [10.0, -20.0, 120.0];
+        for (h, p, sh) in [(0.3, -0.2, [40.0, -10.0]), (2.0, 0.5, [12.0, -10.0])] {
+            let (_, cam) = third_person_spot(pivot, h, p, sh, 150.0);
+            let c = Crosshair::placed(cam, h, p, pivot);
+            assert!((c.shoulder[0] - sh[0]).abs() < 1e-3 && (c.shoulder[1] - sh[1]).abs() < 1e-3, "{:?}", c.shoulder);
+        }
+    }
+
+    #[test]
+    fn aiming_puts_the_point_on_the_cameras_line() {
+        let (pivot, shoulder) = ([10.0, -20.0, 120.0], [40.0, -10.0]);
+        for point in [[300.0, 400.0, 80.0], [-200.0, 150.0, 200.0], [60.0, -20.0, 120.0]] {
+            let probe = Crosshair { camera: pivot, dir: [0.0, 1.0, 0.0], pivot, shoulder };
+            let (h, p) = Crosshair::aim_at(Some(&probe), pivot, point);
+            let (base, _) = third_person_spot(pivot, h, p, shoulder, 170.0);
+            assert!(off_line(point, base, space::look_dir(h, p)) < 1e-2, "{point:?}");
+        }
+        // First person: straight at it from the eye.
+        let (h, p) = Crosshair::aim_at(None, [0.0, 0.0, 0.0], [100.0, 0.0, 100.0]);
+        assert!((h - FRAC_PI_2).abs() < 1e-5 && (p - std::f32::consts::FRAC_PI_4).abs() < 1e-5);
+    }
 
     #[test]
     fn third_person_sits_behind_and_right() {

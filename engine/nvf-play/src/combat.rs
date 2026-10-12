@@ -1017,9 +1017,21 @@ fn fire(
                 // muzzle, and in third person leaves it when the barrel is behind cover
                 // (docs/design/combat.md §5.1).
                 let reach = if range > 0.0 { range } else { AIM_REACH };
+                // In third person the view ray is the camera's, through the crosshair over
+                // the shoulder: the shot aims from the eye at what lies under it, as the
+                // eye's view ray does in first person (playtest list 4, item 12).
                 let leaving = {
                     let world = view(&mut phys);
-                    shot::leaving(&world, eye, player.look_dir(), anim.muzzle, reach, Some(PLAYER), control.third_person_view())
+                    let aim = match control.crosshair.as_ref() {
+                        Some(cross) => {
+                            let (start, dir) = crate::control::Crosshair::ray(Some(cross), eye, player.look_dir());
+                            let end = vec::add(start, vec::scale(dir, reach));
+                            let hit = world.ray(start, end, &[PLAYER]).map(|h| h.point);
+                            crate::control::Crosshair::aim_from(eye, start, dir, reach, hit)
+                        }
+                        None => player.look_dir(),
+                    };
+                    shot::leaving(&world, eye, aim, anim.muzzle, reach, Some(PLAYER), control.third_person_view())
                 };
                 let rng = &mut c.rng;
                 let mut rand = || rng.next_f32();
