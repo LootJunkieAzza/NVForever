@@ -540,6 +540,9 @@ pub enum ScriptAid {
     Activate(String),
     /// `enable:<reference>`: the reference is enabled as a script's `Enable` does.
     Enable(String),
+    /// `kill:<actor>`: the player kills the actor (`Game::kill` with the player as the
+    /// killer: karma and murder are judged, `fnv_game::crime`).
+    Kill(String),
     /// `say_to:<speaker>:<target>:<topic>[:<noTargetLookFlag>]`: the speaker's script
     /// calls `SayTo target topic 0 flag`.
     SayTo(String, String, String, bool),
@@ -603,6 +606,7 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 ["start", q] => ScriptAid::Start(q.to_string()),
                 ["combat", a, t] => ScriptAid::Combat(a.to_string(), t.to_string()),
                 ["enable", r] => ScriptAid::Enable(r.to_string()),
+                ["kill", r] => ScriptAid::Kill(r.to_string()),
                 ["stop", q] => ScriptAid::Stop(q.to_string()),
                 ["stage", q, s] => ScriptAid::Stage(q.to_string(), int(s)?),
                 ["objective", q, i] => ScriptAid::Objective(q.to_string(), int(i)?),
@@ -633,7 +637,7 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 }
                 _ => {
                     return Err(format!(
-                        "{rest:?}: expected start:, stop:, combat:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate:, say_to:, play_group:, play_idle:, call:, damage:, set_av:, hardcore: or perk:"
+                        "{rest:?}: expected start:, stop:, combat:, enable:, kill:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate:, say_to:, play_group:, play_idle:, call:, damage:, set_av:, hardcore: or perk:"
                     ))
                 }
             };

@@ -35,9 +35,9 @@
 //! held; F forces the lock; E leaves (Esc and Tab too [design]). The buttons can be
 //! clicked.
 //!
-//! A picked lock is a crime when the door or container is owned: that is the karma and
-//! crime workstream's; here a [`LockOpened`] message names the owner and a line is
-//! logged ("crime hook").
+//! A picked lock is a crime when the door or container is owned: a [`LockOpened`]
+//! message names the owner and a line is logged ("crime hook"); `crate::crime` judges it
+//! (`fnv_game::Game::player_opened_lock`).
 //!
 //! Test aid `NVF_PLAY_TEST_LOCKPICK=<seconds>:<step>[,…]`: `open:<reference hex>` as if
 //! the player had activated that locked reference, `skill:<n>` makes the player's Lockpick
@@ -88,9 +88,8 @@ pub struct OpenLockpick {
     pub reference: u32,
 }
 
-/// A lock was picked or forced open: the hook for the crime workstream (nothing reads it
-/// yet). `owner`: the door's or container's owner, or its cell's
-/// (`fnv_game::lockpick::owner`).
+/// A lock was picked or forced open: the crime hook (`crate::crime` reads it). `owner`:
+/// the door's or container's owner, or its cell's (`fnv_game::lockpick::owner`).
 #[derive(Message, Clone, Copy, Debug)]
 pub struct LockOpened {
     pub reference: u32,
@@ -591,7 +590,7 @@ fn apply(
 
 fn crime_hook(out: &mut MessageWriter<LockOpened>, reference: FormId, owner: Option<FormId>, forced: bool) {
     match owner {
-        Some(o) => info!("lockpick: crime hook: {reference} is owned by {o} ({}; no crime rules yet)", if forced { "forced" } else { "picked" }),
+        Some(o) => info!("lockpick: crime hook: {reference} is owned by {o} ({}; judged by `crate::crime`)", if forced { "forced" } else { "picked" }),
         None => info!("lockpick: crime hook: {reference} has no owner"),
     }
     out.write(LockOpened { reference: reference.0, owner: owner.map(|o| o.0), forced });

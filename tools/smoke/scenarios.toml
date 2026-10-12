@@ -1218,19 +1218,21 @@ areas = ["scripts", "stubs"]
 paths = ["crates/fnv-game/src/functions/mod.rs", "crates/fnv-game/src/functions/stubs.rs", "crates/fnvtool/src/script_cmd.rs"]
 commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"]]
 # The counts of script-stubs.md §1 (a function implemented later lowers them: update the
-# doc's tables and these together).
+# doc's tables and these together). Karma and crime (claude/karma-crime) implemented six
+# stubs (SendAssaultAlarm, SendTrespassAlarm, GetTrespassWarningLevel, IsTrespassing,
+# GetAlarmed, GetMajorCrimeCount: 100 calls, 32 condition uses) and the unregistered GetIsAlignment.
 expect = [
-  { json = "summary.stubs", equals = 94 },
-  { json = "summary.by_status.assigned", equals = 23 },
+  { json = "summary.stubs", equals = 88 },
+  { json = "summary.by_status.assigned", equals = 17 },
   { json = "summary.by_status.implementable", equals = 10 },
   { json = "summary.by_status.needs_system", equals = 61 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.by_workstream.E2 combat AI", equals = 16 },
-  { json = "summary.by_workstream.J karma and crime", equals = 6 },
+  { json = "summary.by_workstream.E2 combat AI", equals = 15 },
+  { json = "summary.by_workstream.J karma and crime", equals = 1 },
   { json = "summary.by_workstream.H followers", equals = 1 },
-  { json = "summary.stub_calls", equals = 1552 },
-  { json = "summary.stub_condition_uses", equals = 655 },
-  { json = "summary.unhandled_used", equals = 5 },
+  { json = "summary.stub_calls", equals = 1452 },
+  { json = "summary.stub_condition_uses", equals = 623 },
+  { json = "summary.unhandled_used", equals = 4 },
 ]
 
 [[scenario]]
@@ -1409,4 +1411,66 @@ order = [[
 ]]
 expect = [
   { text = "--no-messages: closed message box", min = 12 },
+]
+
+# ------------------------------------------------------------------ karma and crime (docs/spec-notes/crime-karma.md)
+
+[[scenario]]
+name = "karma-survey"
+kind = "tool"
+source = "owner's playtest list 2 (2026-10-12), karma and crime: the settings, alignments and ownership the rules read (docs/spec-notes/crime-karma.md §2, §8)"
+areas = ["crime", "karma"]
+paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/data.rs", "crates/fnvtool/src/actor_karma.rs"]
+commands = [["actor", "karma", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--survey", "--actor", "FiendVioletRef", "--actor", "SunnyRef", "--actor", "GSChetRef", "--cell", "GSGeneralStore"]]
+expect = [
+  { json = "settings.fKarmaModKillingEvilActor", equals = 100.0 },
+  { json = "settings.fKarmaModStealing", equals = -5.0 },
+  { json = "settings.iGuardWarnings", equals = 2.0 },
+  { json = "settings.KarmaEvil", equals = -250.0 },
+  { json = "settings.KarmaVeryGood", equals = 750.0 },
+  { json = "actors.?actor=FiendVioletRef.alignment", equals = "Evil" },
+  { json = "actors.?actor=FiendVioletRef.kill_karma_in_a_fight_it_started", equals = 100.0 },
+  { json = "actors.?actor=SunnyRef.alignment", equals = "Very Good" },
+  { json = "actors.?actor=GSChetRef.kill_karma_as_murder", equals = -25.0 },
+  { json = "cells.?cell=GSGeneralStore.owner", equals = "GSChet" },
+  { json = "cells.?cell=GSGeneralStore.public", equals = true },
+  { json = "survey.cells.counts.owned_not_public_interior", equals = 23 },
+  { json = "survey.factions.counts.evil", equals = 44 },
+  { json = "survey.factions.counts.track_crime", equals = 188 },
+  { json = "survey.actors.placed_by_karma.NPC.Very Evil", equals = 15 },
+]
+manual = "on a failure, explain the change against docs/spec-notes/crime-karma.md §2"
+
+[[scenario]]
+name = "crime-steal"
+source = "owner's playtest list 2 (2026-10-12): stealing in front of the owner turns him hostile and costs karma (docs/spec-notes/crime-karma.md §3.1, §8)"
+note = "the player is put at Chet's counter at 14 s (after the add-ons' start-up message boxes) and takes the carton of cigarettes 0x00106D34 behind it at 20 s; Chet's store is his (CELL XOWN GSChet), public"
+areas = ["crime", "karma"]
+paths = ["crates/fnv-game/src/crime.rs", "engine/nvf-play/src/crime.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/model.rs", "engine/nvf-play/src/reticle.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOTO = "14:-400:540:560", NVF_PLAY_TEST_SCRIPT = "20:activate:0x00106D34" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 32
+order = [[
+  { re = 'crime: the player took .* \(0x00106D34\) x1, owned by someone else', label = "the carton taken is theft" },
+  { re = 'crime: karma -5 for stealing', label = "karma -5 for the theft" },
+  { re = 'crime: theft against GSChet .*turned on the player: \[GSChetRef 0x00104C79\]', label = "Chet saw it and turns on the player" },
+]]
+expect = [
+  { re = 'GSChet 00104C79 \w+ → Combat', label = "Chet fights" },
+  { re = 'crime summary: 1 thefts \(1 seen\)', label = "crime summary: one theft, seen" },
+]
+forbid = [{ re = 'the player died', label = "the player dies" }]
+
+[[scenario]]
+name = "karma-fiend"
+source = "owner's playtest list 2 (2026-10-12): killing an evil actor raises karma (docs/spec-notes/crime-karma.md §4, §8)"
+note = "beside Violet's camp (as music-battle); the script test aid kills Violet as the player at 14 s (Game::kill with the player as the killer): shooting her was not repeatable at the run's frame rate (a hunting rifle's shots were dropped, the 10mm pistol does 8 a hit against her DT)"
+areas = ["crime", "karma"]
+paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/combat.rs", "engine/nvf-play/src/crime.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:kill:FiendVioletRef" }
+args = ["--cell", "Goodsprings", "--pos=-46800,65000,4600", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 24
+expect = [
+  { re = 'crime: karma \+100 for killing .*\(Evil\), now 100', label = "karma +100 for killing Violet" },
+  { re = 'crime summary: .* 0 murders', label = "no murder" },
 ]

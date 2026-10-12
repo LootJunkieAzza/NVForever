@@ -757,6 +757,13 @@ impl Runtime {
                     debug!("test aid: activated {r}: {:?}", a.outcome);
                 }
             }
+            ScriptAid::Kill(r) => {
+                let r = resolve(g, r)?;
+                if !g.kill(r, Some(FormId::PLAYER_REF)) {
+                    return Err(format!("{r} is dead already"));
+                }
+                info!("test aid: the player killed {r}");
+            }
             ScriptAid::Enable(r) => {
                 let r = resolve(g, r)?;
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode: 0x1021, on: Some(r), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };

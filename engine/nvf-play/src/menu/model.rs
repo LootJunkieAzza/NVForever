@@ -363,6 +363,9 @@ pub struct Applied {
     /// An item the player used up (an aid item "equipped" from the inventory): its
     /// effects (and effect scripts) are the script runtime's (`crate::ItemUsed`).
     pub used: Option<FormId>,
+    /// Items the player took out of the container, with their counts (`crate::crime`:
+    /// taking owned items is theft).
+    pub taken: Vec<(FormId, i32)>,
 }
 
 const PLAYER: FormId = FormId::PLAYER_REF;
@@ -651,6 +654,7 @@ impl MenuModel {
                 }
                 out.changed = !moved.is_empty();
                 let n: i64 = moved.iter().map(|m| m.1 as i64).sum();
+                out.taken.clone_from(&moved);
                 Ok(if moved.is_empty() { "Nothing to take".into() } else { format!("Took everything ({n} items)") })
             }
             (Mode::Container(c), Command::One | Command::Stack) => {
@@ -662,6 +666,9 @@ impl MenuModel {
                 let want = if cmd == Command::One { 1 } else { r.count };
                 let n = world.transfer(from, to, r.item, want)?;
                 out.changed = n > 0;
+                if self.focus == Side::Container && n > 0 {
+                    out.taken.push((r.item, n));
+                }
                 let verb = if self.focus == Side::Container { "Took" } else { "Stored" };
                 Ok(format!("{verb} {} x{n}", name(&r)))
             }

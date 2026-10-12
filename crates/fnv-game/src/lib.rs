@@ -18,6 +18,7 @@
 //! - [`dialogue`]: conversations between the player and an actor (Layer 6, step D2)
 //! - [`hacking`]: the terminal hacking game (words, likeness, bracket pairs, lockout)
 //! - [`lockpick`]: the lockpicking game (sweet spot, torque, bobby pins, Force Lock)
+//! - [`crime`]: karma, ownership, theft, trespass, assault and murder
 //! - [`idles`]: the idle animations scripts, packages and dialogue lines ask for
 //! - [`chargen`]: the character-creation menus' rules (name, S.P.E.C.I.A.L., tag skills, traits)
 //! - [`intro`]: the intro chain's units (coverage)
@@ -36,6 +37,7 @@ pub mod chargen;
 pub mod combat;
 pub mod combat_style;
 pub mod cond;
+pub mod crime;
 pub mod data;
 pub mod detection;
 pub mod dialogue;

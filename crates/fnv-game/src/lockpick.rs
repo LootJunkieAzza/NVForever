@@ -524,12 +524,11 @@ pub fn broke(g: &mut Game, reference: FormId) {
     pin_broke(g);
 }
 
-/// Who owns a door or container: its own owner (XOWN), else its cell's as a script set it
-/// (SetCellOwnership) [documented: GECK wiki ownership of references and cells]. A cell's
-/// own XOWN is not read yet [design: the crime workstream reads it].
+/// Who owns a door or container: its own owner (XOWN), else its cell's (its record's, or
+/// SetCellOwnership's) [documented: GECK wiki ownership of references and cells;
+/// `crate::crime::Game::ownership`].
 pub fn owner(g: &Game, reference: FormId) -> Option<FormId> {
-    let placed = g.world.placed.get(reference);
-    placed.and_then(|p| p.owner).or_else(|| placed.and_then(|p| p.cell).and_then(|c| g.forms.cell_owners.get(&c).copied()))
+    g.ownership(reference).map(|o| o.owner)
 }
 
 #[cfg(test)]

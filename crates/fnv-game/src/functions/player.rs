@@ -155,22 +155,6 @@ pub fn set_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
     none()
 }
 
-/// Karma (actor value 23) changes by the amount, kept within the iKarmaMin/iKarmaMax game
-/// settings when a plugin defines them [documented: GECK wiki RewardKarma].
-pub fn reward_karma(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let p = FormId::PLAYER_REF;
-    let now = super::actor::actor_value(g, p, 23)?;
-    let mut v = now + a.num(0)?;
-    if let Some(max) = g.world.forms.setting_f32("iKarmaMax") {
-        v = v.min(max as f64);
-    }
-    if let Some(min) = g.world.forms.setting_f32("iKarmaMin") {
-        v = v.max(min as f64);
-    }
-    super::actor::shift_base(g, p, 23, v - now)?;
-    none()
-}
-
 pub fn set_hardcore(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let on = a.num(0)? != 0.0;
     g.player.hardcore = Some(on);
