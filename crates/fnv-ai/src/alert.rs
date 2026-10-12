@@ -23,13 +23,36 @@
 //!   player and NPCs should not be able to move at full speed whilst aiming"].
 //! - **Continue During Combat**: an actor whose current package has the flag carries
 //!   its package out as if nothing had happened (`Game::continues_during_combat`).
+//! - **Fleeing** (docs/design/combat-ai.md §12.2) [documented: GECK wiki Combat Flee]:
+//!   an actor the combat AI has fleeing (`fnv_game::combat_group::Flight`, any combat
+//!   state) runs, in this order of tries, through a door within fCombatFleeMaxDoorDistance
+//!   that is not nearer its attacker than it is, to cover between
+//!   fCombatFleeMinCoverDistance and fCombatFleeMaxCoverDistance from the attacker (a
+//!   navmesh cover edge the attacker is beyond, `fnv_nav::CoverEdge`), or
+//!   fCombatFleeNormalDistance straight away from it (turning up to 90° either way when
+//!   the navmesh ends there); at the spot it stays, facing the attacker. Cornered (no
+//!   way out) it stands where it is [design: the choice among doors and cover, nearest
+//!   first].
+//! - **Posts** (§12.1): a place the combat AI wants a fighter at (cover, a peek out of
+//!   it, a flank, a step aside, a step back; `fnv_game::combat_group::Post`): it goes
+//!   there, running unless it aims down its sights, and stands facing its target. A post
+//!   it has no way to is dropped and it closes in as before.
+//! - **Shared searches** (§12.5) [documented: GECK wiki Combat Search]: a hostile only
+//!   noticed is searched for midway between the actor and it; the comrades searching for
+//!   the same actor's alarm (`Game::search_party`) each take their own sector of the
+//!   circle round the search's centre [design: the wiki splits the navmesh area; sectors
+//!   stand in], [`SEARCH_POINTS`] points making one complete search; the first within
+//!   the minimum search radius, later ones within the medium one; after
+//!   iCombatTargetLostRemoveSearchCount complete searches the alarm is dropped
+//!   (`Game::searched_once`).
 //! - Back in **Normal**, the actor goes back to its package's place, as after a random
 //!   conversation.
 
 use crate::carry::{Activity, AiEvent};
 use crate::goal;
 use crate::Ai;
-use fnv_game::awareness::State;
+use fnv_game::awareness::{Cause, State};
+use fnv_game::combat_group::{FleeBy, Flight, Post, PostKind};
 use fnv_game::game::Game;
 use fnv_nav::{NavGraph, Place, Space};
 use fnv_sim::FormId;
@@ -54,24 +77,49 @@ pub const STOP_SHORT: f32 = 0.9;
 /// In Combat, a target it does not detect now: it closes in to this share of the
 /// distance, again each time the way is planned [design].
 pub const BLIND_CLOSE_SHARE: f32 = 0.5;
+/// Search points that make one complete search of an actor's share [design].
+pub const SEARCH_POINTS: u32 = 3;
+/// A post that moved less than this from where the way to it was planned is kept, game
+/// units [design].
+pub const POST_SLACK: f32 = 48.0;
+/// A flight or a walk to a post that has not arrived after this long ends where it is
+/// [design].
+pub const FLEE_WALK_SECONDS: f64 = 30.0;
+/// Behind a cover edge a fleeing actor stands this far in from it, game units [design:
+/// about an actor's width].
+pub const COVER_STANDOFF: f32 = 48.0;
 
 /// Where an actor in a combat state is ([`crate::Agent::search`]).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(tag = "search", rename_all = "snake_case")]
 pub enum Search {
-    /// Walking to a point to search, since `since` (`Game::time`).
-    Going { to: [f32; 3], since: f64 },
+    /// Walking to a point to search, since `since` (`Game::time`): a search centred on
+    /// `centre` for the alarm that was at `alarm` then; `points` searched of this
+    /// complete search.
+    Going { to: [f32; 3], since: f64, centre: [f32; 3], alarm: [f32; 3], points: u32 },
     /// Looking about at `at` until `until`.
-    Looking { at: [f32; 3], until: f64 },
+    Looking { at: [f32; 3], until: f64, centre: [f32; 3], alarm: [f32; 3], points: u32 },
     /// In Combat: standing, facing its target.
     Holding { target: FormId },
     /// In Combat: running up to its target, last planned for where it stood (`to`) at
     /// `since`.
     Closing { target: FormId, to: [f32; 3], since: f64 },
+    /// In Combat: going to the post the combat AI chose, planned at `since`.
+    Posted { kind: PostKind, target: FormId, to: [f32; 3], since: f64 },
+    /// In Combat: at its post, facing its target.
+    AtPost { kind: PostKind, target: FormId, at: [f32; 3] },
+    /// Running from `from` to its flee spot `to`, since `since`.
+    Fleeing { from: FormId, to: [f32; 3], since: f64 },
+    /// At its flee spot (or cornered), facing `from`.
+    Fled { from: FormId, at: [f32; 3] },
 }
 
-fn setting(game: &Game, name: &str, default: f32) -> f32 {
-    game.world.forms.setting_f32(name).unwrap_or(default)
+fn midway(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0, (a[2] + b[2]) / 2.0]
+}
+
+fn flat(a: [f32; 3], b: [f32; 3]) -> f32 {
+    (a[0] - b[0]).hypot(a[1] - b[1])
 }
 
 impl Ai {
@@ -91,6 +139,11 @@ impl Ai {
             self.set_using(game, actor, None);
             self.log(game, actor, AiEvent::Furniture { furniture: None });
         }
+        // Fleeing comes first, in every combat state.
+        if let Some(flight) = game.awareness.tactics.flights.get(&actor).copied() {
+            self.flee_step(game, nav, actor, flight, dt);
+            return true;
+        }
         let Some(aw) = game.awareness.get(actor) else { return true };
         let now = game.time;
         let a = &self.agents[&actor];
@@ -99,7 +152,15 @@ impl Ai {
             // The target it detects; just after losing it, the one detected last.
             let latest = aw.targets.iter().filter(|(_, t)| t.detected.is_some()).max_by(|x, y| x.1.detected.unwrap_or(0.0).total_cmp(&y.1.detected.unwrap_or(0.0)));
             let Some((target, at)) = aw.combat_target().or(latest.map(|(id, t)| (*id, t))).map(|(id, t)| (id, t.at)) else { return true };
+            let sees = aw.combat_target().is_some();
             let away = goal::dist(a.walker.feet, at);
+            // A post the combat AI chose (cover, a flank …) comes before closing in.
+            if let Some(post) = game.awareness.tactics.posts.get(&actor).copied() {
+                if self.post_step(game, nav, actor, target, at, post, dt) {
+                    return true;
+                }
+            }
+            let a = &self.agents[&actor];
             // It stops within its distance and, standing, sets off again only when the
             // target is beyond what it can attack from, so it does not stop and start at
             // the edge.
@@ -109,7 +170,6 @@ impl Ai {
             // in on, whatever the distance, halving the gap, until it sees it again
             // [design: an actor that stood where it could not see its target went Lost
             // and back to Combat every few seconds at Cook-Cook's camp].
-            let sees = aw.combat_target().is_some();
             let close_in = (!sees && engage.is_some()) || engage.is_some_and(|(stop, resume)| away > if holding { resume } else { stop });
             let stop = if sees { engage.map_or(0.0, |e| e.0) } else { away * BLIND_CLOSE_SHARE };
             let going = a.activity == Activity::Travelling;
@@ -143,39 +203,60 @@ impl Ai {
             return true;
         }
         let Some(alarm) = aw.search_alarm().copied() else { return true };
+        // A hostile only noticed is searched for midway between the actor and it
+        // [documented: Combat Search]; anything else where it happened.
+        let centre_for = |feet: [f32; 3]| if alarm.cause == Cause::Noticed { midway(feet, alarm.at) } else { alarm.at };
+        let feet = a.walker.feet;
         match a.search {
-            None | Some(Search::Holding { .. } | Search::Closing { .. }) => self.search_at(game, nav, actor, alarm.at, alarm.owner),
-            Some(Search::Going { to, since }) => {
+            Some(Search::Going { to, since, centre, alarm: was, points }) => {
                 if a.activity != Activity::Travelling || now - since > SEARCH_WALK_SECONDS {
                     let a = self.agents.get_mut(&actor).expect("listed");
                     a.walker.follower = None;
                     a.activity = Activity::There;
-                    a.search = Some(Search::Looking { at: to, until: now + LOOK_SECONDS });
+                    a.search = Some(Search::Looking { at: to, until: now + LOOK_SECONDS, centre, alarm: was, points });
                     self.log(game, actor, AiEvent::SearchLook { at: to, seconds: LOOK_SECONDS as f32 });
                 }
             }
-            Some(Search::Looking { at, until }) => {
+            Some(Search::Looking { until, centre, alarm: was, points, .. }) => {
                 self.face(game, actor, Place { space, pos: alarm.at }, dt);
                 if now >= until {
-                    let to = if goal::dist(at, alarm.at) > RECENTRE {
-                        alarm.at
+                    if goal::dist(was, alarm.at) > RECENTRE {
+                        // The alarm moved (the hostile was noticed elsewhere): search there.
+                        let c = centre_for(feet);
+                        self.search_at(game, nav, actor, c, c, alarm.at, 0, alarm.owner);
                     } else {
+                        // On round its share; each complete search counts.
+                        let mut points = points + 1;
+                        if points >= SEARCH_POINTS {
+                            points = 0;
+                            game.searched_once(actor, alarm.owner);
+                        }
+                        let (index, party) = game.search_party(actor, alarm.owner);
                         let indoors = matches!(space, Space::Interior(_));
-                        let r = if indoors { setting(game, "fCombatSearchInteriorMinRadius", 256.0) } else { setting(game, "fCombatSearchExteriorMinRadius", 512.0) };
-                        let angle = self.social.rng.range(0.0, std::f32::consts::TAU);
-                        let d = self.social.rng.range(0.25, 1.0) * r;
-                        [alarm.at[0] + d * angle.cos(), alarm.at[1] + d * angle.sin(), alarm.at[2]]
-                    };
-                    self.search_at(game, nav, actor, to, alarm.owner);
+                        let gs = game.group_settings();
+                        let radii = if indoors { gs.search_interior } else { gs.search_exterior };
+                        let r = if game.searches_done(actor, alarm.owner) == 0 { radii[0] } else { radii[1] };
+                        let share = std::f32::consts::TAU / party.max(1) as f32;
+                        let angle = share * (index as f32 + self.social.rng.range(0.0, 1.0));
+                        let d = self.social.rng.range(0.4, 1.0) * r;
+                        let to = [centre[0] + d * angle.cos(), centre[1] + d * angle.sin(), centre[2]];
+                        self.search_at(game, nav, actor, to, centre, was, points, alarm.owner);
+                    }
                 }
+            }
+            _ => {
+                let c = centre_for(feet);
+                self.search_at(game, nav, actor, c, c, alarm.at, 0, alarm.owner);
             }
         }
         true
     }
 
-    /// Set off to search at `to`, the navmesh point nearest it; without a way there the
-    /// actor looks about where it stands.
-    fn search_at(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, to: [f32; 3], about: FormId) {
+    /// Set off to search at `to`, the navmesh point nearest it, in the search centred on
+    /// `centre` for the alarm that was at `alarm`, `points` of its complete search done;
+    /// without a way there the actor looks about where it stands.
+    #[allow(clippy::too_many_arguments)]
+    fn search_at(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, to: [f32; 3], centre: [f32; 3], alarm: [f32; 3], points: u32, about: FormId) {
         let params = self.path_params(game, actor);
         let speed = self.cfg.walk_speed;
         let now = game.time;
@@ -195,13 +276,13 @@ impl Ai {
                 a.activity = Activity::Travelling;
                 a.trip_started = now;
                 a.trip_from = a.walker.travelled;
-                a.search = Some(Search::Going { to: p, since: now });
+                a.search = Some(Search::Going { to: p, since: now, centre, alarm, points });
                 self.log(game, actor, AiEvent::Search { about, to: p, away: goal::dist(from, p), length });
             }
             _ => {
                 a.walker.follower = None;
                 a.activity = Activity::There;
-                a.search = Some(Search::Looking { at: from, until: now + LOOK_SECONDS });
+                a.search = Some(Search::Looking { at: from, until: now + LOOK_SECONDS, centre, alarm, points });
                 self.log(game, actor, AiEvent::SearchLook { at: from, seconds: LOOK_SECONDS as f32 });
             }
         }
@@ -247,6 +328,161 @@ impl Ai {
                 }
             }
         }
+    }
+
+    /// Go to the combat AI's `post`, or stand there facing `target` (at `at`). Returns
+    /// false when there is no way to it (the post is dropped).
+    #[allow(clippy::too_many_arguments)]
+    fn post_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, target: FormId, at: [f32; 3], post: Post, dt: f32) -> bool {
+        let now = game.time;
+        let a = &self.agents[&actor];
+        let space = a.walker.space;
+        match a.search {
+            Some(Search::Posted { kind, to, since, .. }) if kind == post.kind && flat(to, post.at) < POST_SLACK => {
+                if a.activity != Activity::Travelling || now - since > FLEE_WALK_SECONDS {
+                    let a = self.agents.get_mut(&actor).expect("listed");
+                    a.walker.follower = None;
+                    a.activity = Activity::There;
+                    let feet = a.walker.feet;
+                    a.search = Some(Search::AtPost { kind, target, at: post.at });
+                    self.log(game, actor, AiEvent::AtPost { post: kind, target, off: flat(feet, post.at) });
+                }
+                return true;
+            }
+            Some(Search::AtPost { kind, at: here, .. }) if kind == post.kind && flat(here, post.at) < POST_SLACK => {
+                self.face(game, actor, Place { space, pos: at }, dt);
+                return true;
+            }
+            _ => {}
+        }
+        let params = self.path_params(game, actor);
+        let aiming = game.awareness.aiming.contains(&actor);
+        let speed = if post.run && !aiming { self.cfg.run_speed } else { self.cfg.walk_speed };
+        let a = self.agents.get_mut(&actor).expect("listed");
+        let from = a.walker.feet;
+        let point = nav.nearest(space, post.at, 256.0).map(|(_, p)| p);
+        a.walker.speed = speed;
+        let path = point.and_then(|p| a.walker.go_to(nav, Place { space, pos: p }, &params).ok()).map(|path| path.length);
+        match (point, path) {
+            (Some(p), Some(length)) => {
+                a.activity = Activity::Travelling;
+                a.trip_started = now;
+                a.trip_from = a.walker.travelled;
+                a.search = Some(Search::Posted { kind: post.kind, target, to: post.at, since: now });
+                self.log(game, actor, AiEvent::Post { post: post.kind, target, to: p, away: flat(from, p), length });
+                true
+            }
+            _ => {
+                game.awareness.tactics.posts.remove(&actor);
+                self.log(game, actor, AiEvent::NoPost { post: post.kind });
+                false
+            }
+        }
+    }
+
+    /// One update of a fleeing actor (module notes).
+    fn flee_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, flight: Flight, dt: f32) {
+        let now = game.time;
+        // Where the one it flees is now (else where it was when the flight began).
+        let threat = game.awareness.get(actor).and_then(|a| a.targets.get(&flight.from)).map_or(flight.from_at, |t| t.at);
+        let a = &self.agents[&actor];
+        let space = a.walker.space;
+        match a.search {
+            Some(Search::Fleeing { from, to, since }) if from == flight.from => {
+                if a.activity != Activity::Travelling || now - since > FLEE_WALK_SECONDS {
+                    let a = self.agents.get_mut(&actor).expect("listed");
+                    a.walker.follower = None;
+                    a.activity = Activity::There;
+                    let feet = a.walker.feet;
+                    a.search = Some(Search::Fled { from, at: feet });
+                    if let Some(f) = game.awareness.tactics.flights.get_mut(&actor) {
+                        f.arrived = Some(now);
+                    }
+                    self.log(game, actor, AiEvent::FleeArrived { from, seconds: (now - since) as f32, off: flat(feet, to) });
+                }
+            }
+            Some(Search::Fled { from, .. }) if from == flight.from => {
+                self.face(game, actor, Place { space, pos: threat }, dt);
+            }
+            _ => self.flee_from(game, nav, actor, flight.from, threat),
+        }
+    }
+
+    /// Choose a flee spot away from `threat` and set off there, running (module notes).
+    fn flee_from(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, from: FormId, threat: [f32; 3]) {
+        let params = self.path_params(game, actor);
+        let gs = game.group_settings();
+        let now = game.time;
+        let speed = self.cfg.run_speed;
+        let a = self.agents.get_mut(&actor).expect("listed");
+        let (space, feet) = (a.walker.space, a.walker.feet);
+        if let Some(s) = a.sandbox.as_mut() {
+            s.pending = None;
+        }
+        a.wait_until = None;
+        a.walker.speed = speed;
+        let mut tries: Vec<(Place, FleeBy)> = Vec::new();
+        // 1. A door that leads elsewhere, not nearer the threat than the actor is.
+        let mut doors: Vec<(f32, Place, FleeBy)> = Vec::new();
+        for t in nav.triangles_near(space, feet[0], feet[1], gs.flee_max_door) {
+            for e in nav.doors.get(&t).map_or(&[][..], |v| v.as_slice()) {
+                let c = nav.centre(t);
+                let d = flat(c, feet);
+                if d > gs.flee_max_door || flat(c, threat) < flat(feet, threat) {
+                    continue;
+                }
+                if let Some(to_space) = nav.space_of_tri(e.to) {
+                    doors.push((d, Place { space: to_space, pos: e.arrival }, FleeBy::Door { door: FormId(e.door) }));
+                }
+            }
+        }
+        doors.sort_by(|x, y| x.0.total_cmp(&y.0));
+        tries.extend(doors.into_iter().take(3).map(|d| (d.1, d.2)));
+        // 2. Cover away from the threat, between the flee cover distances from it.
+        let mut cover: Vec<(f32, [f32; 3])> = nav
+            .cover_edges_near(space, threat, gs.flee_max_cover)
+            .into_iter()
+            .filter(|e| {
+                let d = flat(e.mid, threat);
+                d >= gs.flee_min_cover && d >= flat(feet, threat) && e.faces(threat)
+            })
+            .map(|e| (flat(e.mid, feet), e.behind(COVER_STANDOFF)))
+            .collect();
+        cover.sort_by(|x, y| x.0.total_cmp(&y.0));
+        tries.extend(cover.into_iter().take(4).filter_map(|(_, p)| nav.nearest(space, p, 128.0)).map(|(_, p)| (Place { space, pos: p }, FleeBy::Cover)));
+        // 3. Straight away from it, turning when the navmesh ends there.
+        let (dx, dy) = (feet[0] - threat[0], feet[1] - threat[1]);
+        let base = if dx.hypot(dy) > 1.0 { dy.atan2(dx) } else { 0.0 };
+        for turn in [0.0f32, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0] {
+            let h = base + turn.to_radians();
+            let p = [feet[0] + gs.flee_normal * h.cos(), feet[1] + gs.flee_normal * h.sin(), feet[2]];
+            if let Some((_, p)) = nav.nearest(space, p, 512.0) {
+                if flat(p, threat) > flat(feet, threat) {
+                    tries.push((Place { space, pos: p }, FleeBy::Away));
+                }
+            }
+        }
+        for (place, how) in tries {
+            let Ok(length) = a.walker.go_to(nav, place, &params).map(|p| p.length) else { continue };
+            a.activity = Activity::Travelling;
+            a.trip_started = now;
+            a.trip_from = a.walker.travelled;
+            a.search = Some(Search::Fleeing { from, to: place.pos, since: now });
+            if let Some(f) = game.awareness.tactics.flights.get_mut(&actor) {
+                f.spot = Some((place.pos, how));
+            }
+            let away = if place.space == space { flat(place.pos, threat) } else { f32::INFINITY };
+            self.log(game, actor, AiEvent::Flee { from, how, to: place.pos, away, length });
+            return;
+        }
+        // Nowhere to go: it stands, cornered.
+        a.walker.follower = None;
+        a.activity = Activity::There;
+        a.search = Some(Search::Fled { from, at: feet });
+        if let Some(f) = game.awareness.tactics.flights.get_mut(&actor) {
+            f.arrived = Some(now);
+        }
+        self.log(game, actor, AiEvent::Cornered { from });
     }
 
     /// The search or the stand ends: the actor goes back to its package.

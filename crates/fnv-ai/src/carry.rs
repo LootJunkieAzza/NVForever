@@ -140,6 +140,20 @@ pub enum AiEvent {
     /// Closing in on `target`, it slows to a walk as it raises its sights (`aiming`), or
     /// runs again as it lowers them (`crate::alert`).
     Pace { target: FormId, aiming: bool },
+    /// In Combat it goes to the post the combat AI chose (`crate::alert`): `to`, `away`
+    /// units off, a way of `length` units.
+    Post { post: fnv_game::combat_group::PostKind, target: FormId, to: [f32; 3], away: f32, length: f32 },
+    /// It is at its post, `off` units from where the post is.
+    AtPost { post: fnv_game::combat_group::PostKind, target: FormId, off: f32 },
+    /// It has no way to its post: it closes in instead.
+    NoPost { post: fnv_game::combat_group::PostKind },
+    /// It flees `from` (`how`): to `to`, `away` units from the one it flees, a way of
+    /// `length` units.
+    Flee { from: FormId, how: fnv_game::combat_group::FleeBy, to: [f32; 3], away: f32, length: f32 },
+    /// It reached its flee spot after `seconds`, `off` units from it.
+    FleeArrived { from: FormId, seconds: f32, off: f32 },
+    /// It has nowhere to flee to and stands.
+    Cornered { from: FormId },
     /// It stops searching or holding (`why`).
     SearchOver { why: &'static str },
     /// After a search it goes back to its package's place, `away` units off.
