@@ -32,7 +32,8 @@
 //!   round the player) or `release` (Toggle POV let go); for combat (step C4): `fire`
 //!   (Use pressed, or let go if held), `reload` (a Ready Item tap with the weapon out),
 //!   `swap` (Ammo Swap), `aimactor` (turn the view to the nearest actor's aim point: its
-//!   torso, or the middle of its single capsule), `aimcorpse` (to the trunk of the
+//!   torso, or the middle of its single capsule), `aimflat` (face the nearest actor
+//!   with the view level, as a player looking ahead at a short creature), `aimcorpse` (to the trunk of the
 //!   nearest ragdoll), `aimnpc` (the same, NPCs only),
 //!   `aimnpc=<share>` (at that share of the NPC's height, 0 feet to 1 top: the head or
 //!   legs for limb hits), `aimpart=<n>` (at the nearest NPC's body part `n`, its index in
@@ -153,6 +154,7 @@ enum Press {
     Reload,
     Swap,
     AimActor,
+    AimFlat,
     AimCorpse,
     AimNpc,
     AimNpcAt(f32),
@@ -176,6 +178,7 @@ fn press(rest: &str) -> Result<Press, String> {
         "flashlight" => Press::Flashlight,
         "swap" => Press::Swap,
         "aimactor" => Press::AimActor,
+        "aimflat" => Press::AimFlat,
         "aimcorpse" => Press::AimCorpse,
         "aimnpc" => Press::AimNpc,
         _ => {
@@ -469,6 +472,10 @@ fn keys_and_controls(
             Press::Swap => control.ammo_swap = true,
             Press::Flashlight => flashlight.toggle(),
             Press::AimActor => aim_at_nearest_actor(&phys, &mut player, |_| true, None),
+            Press::AimFlat => {
+                aim_at_nearest_actor(&phys, &mut player, |_| true, None);
+                player.pitch = 0.0;
+            }
             Press::AimCorpse => aim_at_nearest_corpse(&phys, &mut player),
             Press::AimNpc => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), None),
             Press::AimNpcAt(h) => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Share(h))),
@@ -689,6 +696,7 @@ mod tests {
         assert_eq!(press("weapon").unwrap(), Press::Weapon);
         assert_eq!(press("fire").unwrap(), Press::Fire);
         assert_eq!(press("aimactor").unwrap(), Press::AimActor);
+        assert_eq!(press("aimflat").unwrap(), Press::AimFlat);
         assert_eq!(press("aimnpc=0.9").unwrap(), Press::AimNpcAt(0.9));
         assert_eq!(press("aimref=0010A202").unwrap(), Press::AimRef(0x10A202));
         assert_eq!(press("aimpart=4").unwrap(), Press::AimPart(4));
