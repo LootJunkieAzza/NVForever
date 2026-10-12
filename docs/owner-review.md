@@ -3604,3 +3604,12 @@ in `kill`), `awareness.rs` (crime enemies in `would_attack`, forgiving in `stop_
 `provocation.rs` (one call when an assault grudge starts), `functions/mod.rs` (the crime
 entries only), `game.rs` (state fields), `data.rs` (cells, faction flags, ranks); engine
 `activate.rs`, `reticle.rs`, `menu.rs`, `menu/model.rs`, `lockpick.rs` (log text).
+
+Tests: fnv-game unit and synthetic-plugin tests (`tests/crime.rs`, 7), root and engine
+clippy; smoke: `karma-survey`, `crime-steal`, `karma-fiend` (new; the fiend is killed by
+a new `kill:<actor>` script test aid, shooting her was not repeatable under load) and the
+changed-file set pass (alert-fiend, provoked-yield, barter, container-e-key, speech-look,
+lockpick, cook-cook-camp, dead-on-spawn), except `house-items` and `ui-sounds`: in each run
+their container or inventory step fell while an add-on's start-up message box was open
+("menu request ignored: a menu is already open"), a different step each run; not caused by
+these changes (they only add a message after a container command).
