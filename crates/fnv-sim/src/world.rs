@@ -799,6 +799,12 @@ impl<'a> World<'a> {
         Ok(())
     }
 
+    /// GameDaysPassed when `cell` was last unloaded ([`World::detach_cell`]), while it
+    /// is still unloaded.
+    pub fn detached_since(&self, cell: FormId) -> Option<f32> {
+        self.detached_cells.get(&cell).copied()
+    }
+
     /// The engine loads `cell` again. If it stayed unloaded for at least
     /// `respawn_hours`, the containers in it whose base has the Respawns flag go back
     /// to their authored state: their next use rolls new contents, and anything left in

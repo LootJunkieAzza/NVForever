@@ -648,6 +648,9 @@ pub struct Game<'a> {
     /// layer that moves actors last took them ([`Game::take_teleported`]): it has to
     /// start them again from where they are now. Not saved.
     pub teleported: BTreeSet<FormId>,
+    /// Cell resets since the engine last took them ([`Game::take_cell_resets`],
+    /// `crate::respawn`). Not saved.
+    pub cell_resets: Vec<crate::respawn::CellReset>,
     /// The open menu, by menu code. While a menu is open, [`Game::tick`] runs MenuMode
     /// blocks instead of GameMode, and game time stops for scripts (GetSecondsPassed and
     /// the quest delay of GameMode) [observed: layer5-captures.md §8.3 e]. Part of the
@@ -817,6 +820,7 @@ impl<'a> Game<'a> {
             loaded_cells: BTreeSet::new(),
             moved: BTreeSet::new(),
             teleported: BTreeSet::new(),
+            cell_resets: Vec::new(),
             menu: None,
             loading: false,
             message_box: None,
@@ -1675,6 +1679,13 @@ impl<'a> Game<'a> {
     /// OnLoad [hypothesis: OnLoad runs when the reference's cell is loaded].
     pub fn set_loaded(&mut self, cells: BTreeSet<FormId>) {
         let new: Vec<FormId> = cells.difference(&self.loaded_cells).copied().collect();
+        let left: Vec<FormId> = self.loaded_cells.difference(&cells).copied().collect();
+        // Cells left start their reset clock; cells entered whose clock ran out are reset
+        // before anything in them runs (`crate::respawn`).
+        self.cells_left(&left);
+        for &c in &new {
+            self.cell_entered(c);
+        }
         self.loaded_cells = cells;
         // Actors of the new cells choose their package at the next tick.
         self.package_scan_due = 0.0;
