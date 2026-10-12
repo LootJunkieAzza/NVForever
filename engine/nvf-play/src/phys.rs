@@ -110,10 +110,25 @@ pub struct PhysState {
     fake: Option<fn(&Job) -> Prepared>,
 }
 
+/// The longest frame the game's virtual clock passes on, seconds (Bevy's `Time<Virtual>`
+/// default `max_delta`): longer frames are slowed down to it.
+pub const MAX_FRAME_SECONDS: f32 = 0.25;
+
+/// The physics settings of play: as `PhysParams::default`, with enough fixed steps for a
+/// whole frame of the virtual clock ([`MAX_FRAME_SECONDS`]). With the default 8 steps of
+/// 1/60 s a frame longer than 0.133 s lost the rest, so on a busy machine (6 frames a
+/// second) the player and the actors walking near it covered less ground than the game's
+/// clock passed: Goodsprings' settlers came into view seconds of game time late
+/// (detection.md §5) [design].
+pub fn play_params() -> PhysParams {
+    let p = PhysParams::default();
+    PhysParams { max_substeps: (MAX_FRAME_SECONDS / p.dt).ceil() as u32, ..p }
+}
+
 impl Default for PhysState {
     fn default() -> Self {
         PhysState {
-            world: PhysWorld::new(PhysParams::default()),
+            world: PhysWorld::new(play_params()),
             stepper: Stepper::default(),
             player: None,
             npcs: BTreeMap::new(),
