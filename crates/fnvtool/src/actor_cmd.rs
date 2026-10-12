@@ -26,6 +26,9 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
         ActorCmd::Factions { w, functions, actor, survey } => {
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_factions::run(lo, schema, data, refs, &actor, survey))
         }
+        ActorCmd::Karma { w, functions, actor, cell, survey } => {
+            crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_karma::run(lo, schema, data, refs, &actor, &cell, survey))
+        }
         ActorCmd::Detect { w, functions, detector, target, interior, light, dark } => {
             let o = crate::actor_detect::Options { detector, target, interior, light, dark };
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_detect::run(lo, schema, data, refs, &o))

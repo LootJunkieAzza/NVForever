@@ -424,6 +424,16 @@ pub struct PlayerState {
     /// Hardcore mode was off at some point (IsAlwaysHardcore).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub hardcore_was_off: bool,
+    /// The player murdered a non-Evil NPC (IsPCAMurderer; `crate::crime`).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub murderer: bool,
+    /// Crimes against each actor: [minor, major] (GetMinorCrimeCount, GetMajorCrimeCount).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub crime_counts: BTreeMap<FormId, [u32; 2]>,
+    /// Actors that are the player's enemies because of crimes against them or seen by
+    /// them (GetActorCrimePlayerEnemy; `crate::crime`).
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub crime_enemies: BTreeSet<FormId>,
 }
 
 /// A message box waiting for a button (`ShowMessage` of a message with buttons).
@@ -622,6 +632,9 @@ pub struct Game<'a> {
     pub terminals: crate::terminal::Terminals,
     /// Locks broken by forcing them (`crate::lockpick`). Not part of the saved state yet.
     pub locks: crate::lockpick::Locks,
+    /// Crimes being reported, trespass warnings and karma changes for the engine
+    /// (`crate::crime`); what lasts is in [`PlayerState`]. Not part of the saved state.
+    pub crimes: crate::crime::Crimes,
     pub world: World<'a>,
     pub cfg: GameConfig,
     pub quests: BTreeMap<FormId, QuestState>,
@@ -796,6 +809,7 @@ impl<'a> Game<'a> {
             radio: Default::default(),
             terminals: Default::default(),
             locks: Default::default(),
+            crimes: Default::default(),
             world,
             cfg,
             quests: BTreeMap::new(),

@@ -594,6 +594,16 @@ pub struct GameData {
     /// FACT XNAM: (other faction, group combat reaction 0 neutral, 1 enemy, 2 ally,
     /// 3 friend).
     pub faction_reactions: HashMap<FormId, Vec<(FormId, i64)>>,
+    /// FACT DATA flags as one number: the first byte's bits (1 Hidden from PC, 2 Evil,
+    /// 4 Special Combat) and the second's shifted by 8 (256 Track Crime, 512 Allow Sell)
+    /// [documented: xEdit wbDefinitionsFNV.pas FACT, schema `gameplay.json`; the numbering
+    /// is the GECK wiki GetFactionFlags'] (docs/spec-notes/crime-karma.md §2).
+    pub faction_flags: HashMap<FormId, u16>,
+    /// Cells with an owner, the Public place flag or the Off Limits form flag
+    /// (`crate::crime::CellDef`).
+    pub cells: HashMap<FormId, crate::crime::CellDef>,
+    /// XRNK of placed references: the faction rank that owns them (with an XOWN faction).
+    pub owner_ranks: HashMap<FormId, i32>,
     pub destructibles: HashMap<FormId, DestructionDef>,
     /// WEAP DNAM skill (actor value code).
     pub weapon_skills: HashMap<FormId, i64>,
@@ -781,6 +791,9 @@ struct Read {
     effects: Option<Vec<EffectItem>>,
     child_race: bool,
     faction: Option<Vec<(FormId, i64)>>,
+    faction_flags: Option<u16>,
+    cell: Option<crate::crime::CellDef>,
+    owner_rank: Option<i32>,
     destruction: Option<DestructionDef>,
     weapon_skill: Option<i64>,
     weapon_anim_type: Option<i64>,
@@ -851,6 +864,9 @@ impl GameData {
             effect_items: HashMap::new(),
             child_races: HashSet::new(),
             faction_reactions: HashMap::new(),
+            faction_flags: HashMap::new(),
+            cells: HashMap::new(),
+            owner_ranks: HashMap::new(),
             destructibles: HashMap::new(),
             weapon_skills: HashMap::new(),
             weapon_anim_types: HashMap::new(),
@@ -1024,6 +1040,15 @@ impl GameData {
             }
             if let Some(v) = r.av_info {
                 d.actor_value_infos.insert(id, v);
+            }
+            if let Some(v) = r.faction_flags {
+                d.faction_flags.insert(id, v);
+            }
+            if let Some(v) = r.cell.filter(crate::crime::CellDef::matters) {
+                d.cells.insert(id, v);
+            }
+            if let Some(v) = r.owner_rank {
+                d.owner_ranks.insert(id, v);
             }
         }
         let (lines, order) = topic_lines(lo);
@@ -1308,6 +1333,20 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             b"SCRI" if out.script.is_none() => out.script = val(s).as_ref().and_then(hexid).and_then(map).map(FormId),
             _ => {}
         }
+    }
+    // Ownership and crime (`crate::crime`): read from the raw subrecords, as the schema
+    // lays them out [documented: xEdit wbDefinitionsFNV.pas CELL DATA flags, XOWN, XRNK;
+    // FACT DATA; schemas `world.json`, `common.json`, `gameplay.json`].
+    match &sig {
+        b"CELL" => out.cell = Some(crate::crime::CellDef::from_raw(&subs, r.header.flags, &map)),
+        b"REFR" | b"ACHR" | b"ACRE" | b"PGRE" => {
+            out.owner_rank = subs.iter().find(|s| &s.sig == b"XRNK").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(i32::from_le_bytes);
+        }
+        b"FACT" => {
+            let data = subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()).unwrap_or_default();
+            out.faction_flags = Some(u16::from(data.first().copied().unwrap_or(0)) | (u16::from(data.get(1).copied().unwrap_or(0)) << 8));
+        }
+        _ => {}
     }
     if UNIT_SIGS.contains(&&sig) {
         let plugin = &lo.plugins[pi].name;

@@ -13,6 +13,7 @@ mod actor_locomotion;
 mod actor_tri;
 mod actor_detect;
 mod actor_factions;
+mod actor_karma;
 mod actor_values;
 mod actor_chargen;
 mod actor_weapons;
@@ -170,6 +171,27 @@ pub enum ActorCmd {
         /// Editor ID or load-order FormID (repeatable).
         #[arg(long)]
         actor: Vec<String>,
+        #[arg(long)]
+        survey: bool,
+    },
+    /// Karma and crime (docs/spec-notes/crime-karma.md): the settings and globals the
+    /// rules read; for each named actor its karma, alignment and what killing it does to
+    /// the player's karma; for each named cell its owner and what is owned in it; with
+    /// --survey, alignments of records and placed actors, faction flags (Evil, Track
+    /// Crime), owned and public cells and owned references (fnv.actor.karma/1).
+    Karma {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Script function catalogue (default: `script/functions.json` next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// `player`, a placed actor, or an actor base (its first placed reference), by
+        /// Editor ID or load-order FormID (repeatable).
+        #[arg(long)]
+        actor: Vec<String>,
+        /// A cell by Editor ID (repeatable).
+        #[arg(long)]
+        cell: Vec<String>,
         #[arg(long)]
         survey: bool,
     },
