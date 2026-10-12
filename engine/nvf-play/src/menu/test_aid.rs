@@ -46,6 +46,8 @@ pub(super) struct Script {
     delay: f32,
     step: usize,
     next_at: Option<f32>,
+    /// Times the inventory was asked for again because it did not open.
+    retries: u32,
 }
 
 /// The barter check (`NVF_PLAY_TEST_BARTER`).
@@ -176,7 +178,7 @@ pub(super) fn setup(app: &mut App) {
     };
     let delay = std::env::var("NVF_PLAY_TEST_DELAY").ok().and_then(|d| d.parse().ok()).unwrap_or(6.0);
     let shot = std::env::var_os("NVF_PLAY_TEST_SHOT").map(PathBuf::from);
-    app.insert_resource(Script { container, shot, delay, step: 0, next_at: None });
+    app.insert_resource(Script { container, shot, delay, step: 0, next_at: None, retries: 0 });
 }
 
 /// One scheduled drop (`NVF_PLAY_TEST_DROP`).
@@ -343,11 +345,22 @@ pub(super) fn run(
     mut open_nearest: MessageWriter<OpenNearestContainer>,
     mut open_inventory: MessageWriter<OpenInventory>,
     mut input: MessageWriter<MenuInput>,
+    scripts: Option<Res<crate::script::ScriptState>>,
 ) {
     let Some(mut s) = script else { return };
     let now = time.elapsed_secs();
     let due = s.next_at.unwrap_or(s.delay);
     if now < due {
+        return;
+    }
+    // The steps that open a menu wait while a script's message box is up (the menu
+    // would not open over it) or the scripts are still loading (their first frames
+    // show the add-on packs' boxes and give their items), as the drop aid does. On a
+    // busy machine the container check ran into those boxes: the inventory never
+    // opened and the ui-sounds check lost its four sounds.
+    let script_menu = scripts.as_ref().and_then(|x| x.rt.as_ref()).is_some_and(|rt| rt.game.menu.is_some());
+    let loading = scripts.as_ref().is_some_and(|x| x.loading());
+    if matches!(s.step, 0 | 7) && (script_menu || loading || (s.step == 7 && active.0.is_some())) {
         return;
     }
     s.next_at = Some(now + 1.0);
@@ -385,6 +398,14 @@ pub(super) fn run(
         7 => {
             log_menu("closed", m);
             open_inventory.write(OpenInventory);
+        }
+        // A script's box came up in the same frame and the inventory did not open: ask
+        // again (a few times).
+        8 if m.is_none() && s.retries < 5 => {
+            s.retries += 1;
+            info!("test aid: the inventory did not open: asking again");
+            s.step = 7;
+            return;
         }
         8 => log_menu("inventory", m),
         9 => {
