@@ -157,7 +157,7 @@ fn open_close(
     }
     let Ok((cam, _)) = camera.single() else { return };
     let Some(rt) = script.rt.as_mut() else { return };
-    let sheet = crate::script::with_world(rt, &mut sim, |rt| SpecialSheet::of_player(&mut rt.game));
+    let sheet = crate::script::with_world(rt, &mut sim, |rt| SpecialSheet::for_menu(&mut rt.game));
     if menu.clips.is_none() {
         menu.clips = Some(Arc::new(read_clips(&ctx.data)));
     }

@@ -267,6 +267,7 @@ fn records_read_for_the_new_functions() {
     let d = &f.data;
     assert_eq!(d.reputations[&FormId(REP)], 20.0);
     assert_eq!(d.challenges[&FormId(CHAL)], 1);
+    assert_eq!(d.challenge_thresholds[&FormId(CHAL)], 1);
     assert!(d.child_races.contains(&FormId(RACE_CHILD)));
     assert_eq!(d.faction_reactions[&FormId(F1)], vec![(FormId(F2), 1)]);
     assert_eq!(d.actors[&FormId(CREA)].creature_type, Some(6));
@@ -699,4 +700,105 @@ fn radio_functions() {
     assert!(g.radio.npc_radios.is_empty());
     call(&mut g, FORCE_UPDATE, None, &[]);
     assert_eq!(g.radio.force_updates, 1);
+}
+
+/// The stubs implemented by the audit of 2026-10-12 (docs/design/script-stubs.md §3):
+/// what the engine tells (movement, sight, the camera), heads held by Look, subtitles,
+/// the weather, scripted challenges and the menus' requests.
+#[test]
+fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
+    use fnv_game::chargen::{SpecialSheet, TagSheet};
+    use fnv_game::functions::senses::{Look, Motion};
+    use fnv_game::functions::ui::SpecialMenu;
+    let f = fixture();
+    let mut g = game(&f);
+    let (adult, child) = (FormId(ADULT_REF), FormId(CHILD_REF));
+
+    // Look holds the head on the target until StopLook; the body flag is kept.
+    call(&mut g, 0x105C, Some(ADULT_REF), &[r(CHILD_REF), n(1.0)]);
+    assert_eq!(g.script_look(adult), Some(Look { target: child, rotate_body: true }));
+    call(&mut g, 0x105D, Some(ADULT_REF), &[]);
+    assert_eq!(g.script_look(adult), None);
+
+    // Movement and sneaking as the engine told them; nothing told is standing still.
+    assert_eq!(call(&mut g, 0x111E, None, &[]), 0.0);
+    g.set_motion(FormId::PLAYER_REF, Motion { moving: true, running: false, sneaking: true });
+    assert_eq!(call(&mut g, 0x111E, None, &[]), 1.0);
+    assert_eq!(call(&mut g, 0x1019, None, &[]), 1.0);
+    assert_eq!(call(&mut g, 0x111F, None, &[]), 0.0);
+    g.set_motion(adult, Motion { moving: true, running: true, sneaking: false });
+    assert_eq!(call(&mut g, 0x111F, Some(ADULT_REF), &[]), 1.0);
+    g.forget_motion(adult);
+    assert_eq!(call(&mut g, 0x1019, Some(ADULT_REF), &[]), 0.0);
+
+    // Line of sight from the detection the engine measured for the pair.
+    assert_eq!(call(&mut g, 0x101B, Some(ADULT_REF), &[r(CHILD_REF)]), 0.0);
+    let seen = fnv_game::detection::Detection { seen: true, ..Default::default() };
+    g.detection.record(adult, child, seen, g.time);
+    assert_eq!(call(&mut g, 0x101B, Some(ADULT_REF), &[r(CHILD_REF)]), 1.0);
+
+    // The camera: first person until the engine says otherwise.
+    assert_eq!(call(&mut g, 0x1188, None, &[]), 1.0);
+    g.set_first_person(false);
+    assert_eq!(call(&mut g, 0x1188, None, &[]), 0.0);
+
+    // Subtitles shown out of hearing too.
+    call(&mut g, 0x1277, Some(ADULT_REF), &[n(1.0)]);
+    assert!(g.always_subtitles(adult));
+    call(&mut g, 0x1277, Some(ADULT_REF), &[n(0.0)]);
+    assert!(!g.always_subtitles(adult));
+
+    // The weather: a request for the sky, current from the call; then what the sky shows.
+    let (rain, clear) = (0x999u32, 0x998u32);
+    call(&mut g, 0x1104, None, &[r(rain), n(1.0)]);
+    assert_eq!(call(&mut g, 0x1095, None, &[r(rain)]), 1.0);
+    let req = g.take_weather_request().unwrap();
+    assert_eq!((req.weather, req.instant, req.hold), (FormId(rain), false, true));
+    call(&mut g, 0x112D, None, &[r(clear)]);
+    assert!(g.take_weather_request().is_some_and(|r| r.instant && !r.hold));
+    g.set_shown_weather(FormId(rain), true);
+    assert_eq!(call(&mut g, 0x103E, None, &[]), 1.0);
+    assert_eq!(call(&mut g, 0x1095, None, &[r(clear)]), 0.0);
+    call(&mut g, 0x1158, None, &[]);
+    assert!(g.take_weather_release() && !g.take_weather_release());
+
+    // A Start Disabled challenge with threshold 1: no progress until unlocked, then done
+    // and, not recurring, held at its threshold.
+    call(&mut g, 0x1275, None, &[r(CHAL)]);
+    assert_eq!(call(&mut g, 0x1266, None, &[r(CHAL)]), 0.0);
+    call(&mut g, 0x125E, None, &[r(CHAL)]);
+    call(&mut g, 0x1275, None, &[r(CHAL)]);
+    assert_eq!(call(&mut g, 0x1266, None, &[r(CHAL)]), 1.0);
+    call(&mut g, 0x1275, None, &[r(CHAL)]);
+    assert_eq!(g.player.challenges[&FormId(CHAL)].progress, 1);
+
+    // The S.P.E.C.I.A.L. menu with two points to add, the old values its floor.
+    call(&mut g, 0x1219, None, &[n(2.0)]);
+    assert_eq!((g.menu, g.ui.special), (Some(1074), Some(SpecialMenu::Add(2))));
+    let s = SpecialSheet::for_menu(&mut g);
+    assert_eq!((s.remaining(), s.floor), (2, s.values));
+    assert_eq!(g.ui.special, None, "used up by the opening");
+    call(&mut g, 0x1218, None, &[n(30.0)]);
+    let s = SpecialSheet::for_menu(&mut g);
+    assert_eq!(s.total, 30);
+    // The tag-skill menu with one more to tag.
+    g.player.tag_skills.extend([41u16, 43, 44]);
+    call(&mut g, 0x121B, None, &[n(1.0)]);
+    assert_eq!(g.menu, Some(1048));
+    let t = TagSheet::for_menu(&mut g);
+    assert_eq!((t.count, t.remaining(), t.locked.len()), (4, 1, 3));
+
+    // A terminal's result script asks to go back; a quest that is no quest is refused.
+    call(&mut g, 0x1223, None, &[]);
+    assert!(g.terminals.back);
+    let ctx = Ctx { unit: "test".into(), opcode: 0x11DD, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[r(CHAL)]);
+    assert!(matches!(&g.events.last().unwrap().kind, EventKind::CallFailed { .. }));
+    assert_eq!(g.ui.active_quest, None);
+
+    // The deliberate no-ops: handled, no stub recorded.
+    let stubbed = g.stubbed.len();
+    call(&mut g, 0x11FB, None, &[n(1.0), n(1.0), n(0.5)]);
+    call(&mut g, 0x1189, None, &[]);
+    assert_eq!(g.stubbed.len(), stubbed);
 }

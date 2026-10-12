@@ -196,8 +196,10 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&cr
     let mut subs = Vec::new();
     let mut on_screen = Vec::new();
     for s in &g.speech {
-        // A line the player does not hear has no subtitle (`crate::voice::audible`).
-        if !crate::voice::audible(sim, player, s.speaker) {
+        // A line the player does not hear has no subtitle (`crate::voice::audible`),
+        // unless a script asked for the speaker's subtitles always
+        // (AlwaysShowActorSubtitles).
+        if !crate::voice::audible(sim, player, s.speaker) && !g.always_subtitles(s.speaker) {
             continue;
         }
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };
