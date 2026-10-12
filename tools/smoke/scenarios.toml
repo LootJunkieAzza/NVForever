@@ -149,7 +149,7 @@ paths = [
 ]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
 args = ["--play", "--new-game"]
-run_seconds = 42
+run_seconds = 32
 order = [[
   "image space modifiers on the screen: WhiteISFX, MQ08AllBlackedOutISFX",
   "image space modifiers on the screen: VCG01FadeInFromBlackISFX",
