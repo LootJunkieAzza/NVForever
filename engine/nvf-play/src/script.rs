@@ -204,6 +204,16 @@ pub struct ScriptState {
     /// `walk:` test aids due: where to put the player's feet.
     walks: Vec<(String, [f32; 3])>,
     new_game: bool,
+    /// Aid items the player used that the runtime has not taken yet (used before the
+    /// scripts were ready, or under a loading screen or the pause menu).
+    used: Vec<FormId>,
+}
+
+impl ScriptState {
+    /// The scripts are being loaded: not running yet, and not switched off.
+    pub fn loading(&self) -> bool {
+        self.rt.is_none() && self.off.is_none()
+    }
 }
 
 /// The running game and what the engine side remembers between frames.
@@ -284,7 +294,7 @@ impl ScriptState {
             }
         });
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids, gates: HashMap::new(), auto_close, on_screen: None, walks: Vec::new(), new_game }
+        ScriptState { loader, rt: None, off, trace, aids, gates: HashMap::new(), auto_close, on_screen: None, walks: Vec::new(), new_game, used: Vec::new() }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -986,9 +996,10 @@ pub(crate) fn run_scripts(
     paused: Res<crate::pause::Paused>,
     loading: Res<crate::loading::Loading>,
 ) {
-    // Items the player used up in the inventory menu (the menu already removed them).
-    let used: Vec<FormId> = used.read().map(|u| FormId(u.item)).collect();
+    // Items the player used up in the inventory menu (the menu already removed them),
+    // kept until the runtime runs.
     let st = &mut *script;
+    st.used.extend(used.read().map(|u| FormId(u.item)));
     if st.rt.is_none() {
         let Some(rx) = st.loader.as_ref() else { return };
         let got = rx.lock().ok().and_then(|r| r.try_recv().ok());
@@ -1027,6 +1038,7 @@ pub(crate) fn run_scripts(
     // The aids' clock, which goes on while a menu holds the picture (`crate::pause`).
     let now = time.elapsed_secs();
     let mut due = due_aids(st, now);
+    let used = std::mem::take(&mut st.used);
     // A script's menu or box left open by an unattended run: answered with OK / Done.
     let on_screen = st.rt.as_ref().and_then(|rt| {
         let m = rt.game.menu.filter(|&m| is_script_menu(m))?;

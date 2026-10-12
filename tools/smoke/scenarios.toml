@@ -851,10 +851,10 @@ run_seconds = 72
 expect = [
   "barter opened: UIMenuMode",
   "container take all: UIItemTakeAll",
-  { text = "inventory item used: NPCHumanUsingStimpak", known_failing = "main 2026-10-12, 2 of 2 runs: at 58 s the drop aid logs '0x00015169 is not carried', so no stimpak is used" },
+  "inventory item used: NPCHumanUsingStimpak",
   "wait slider moved: UIMenuPrevNext",
   "settings switch flipped: UIMenuPrevNext",
-  { re = 'ui sounds summary:.*\b24 played', known_failing = "main 2026-10-12: 23 played, the stimpak's sound missing (above)" },
+  { re = 'ui sounds summary:.*\b24 played', known_failing = "main 2026-10-12: 23 played, the stimpak's sound missing (above); claude/aid-items 2026-10-12: the stimpak's sound plays now (the drop aid turns the Pip-Boy to the Aid tab) and it is still 23, one other sound short (not found which)" },
   { re = 'ui sounds summary:.*\b0 sounds not found' },
   { re = "ui sounds summary:.*(?P<n>\\d+) items' own sounds held back for Take All", range = [1, 1e9], label = "one or more items' own sounds held back for Take All" },
 ]
@@ -1085,6 +1085,7 @@ expect = [
   "aid: the player used Stimpak (potency 1.30): Health +39.0 at once, limbs too; Health 140 → 179",
   "aid: the player used WaterPurified (potency 1.30): Health +2.6 a second for 5 s",
   "aid: the player used Buffout (potency 1.00): Strength +2.0 while it lasts (240 s), Endurance +3.0 while it lasts (240 s), Health +60.0 while it lasts (240 s); usage 30; addiction chance 0.00; Strength 5 → 7, Endurance 5 → 8",
-  "aid: WaterPurified's effects on the player ended: Health 252",
+  # When Buffout comes in the 5 s of the water depends on the message boxes; the sum not.
+  "aid: WaterPurified's effects on the player ended: Health ",
   "aid summary: 3 items used (Buffout 1, Stimpak 1, WaterPurified 1), 6 effects started, 2 ended; addictions: none; 0 cured; the player at exit: Strength 7, Endurance 8, Health 252",
 ]

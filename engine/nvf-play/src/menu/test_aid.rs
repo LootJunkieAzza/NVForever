@@ -233,6 +233,7 @@ pub(super) fn run_drops(
     mut input: MessageWriter<MenuInput>,
     pip: Option<ResMut<crate::pipboy::PipBoy>>,
     sim: Res<crate::sim::SimState>,
+    script: Option<Res<crate::script::ScriptState>>,
 ) {
     let Some(mut d) = drops else { return };
     let now = time.elapsed_secs();
@@ -245,8 +246,12 @@ pub(super) fn run_drops(
                 }
                 return;
             }
-            if m.is_some() {
-                return; // wait until no menu is open
+            // Wait until no menu is open, a script's message box included (the inventory
+            // would not open over it), and until the scripts run (an aid item's effects
+            // are theirs).
+            let script_menu = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.menu.is_some());
+            if m.is_some() || script_menu || script.as_ref().is_some_and(|s| s.loading()) {
+                return;
             }
             let job = d.jobs.pop().expect("checked");
             info!("test aid: {:?} {}: open the inventory", job.cmd, job.item);
