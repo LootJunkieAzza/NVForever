@@ -911,3 +911,23 @@ fn an_actor_in_combat_stops_and_faces_its_target() {
     assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::There);
     assert!(dist(s.feet(R_TRAVEL), at) < 1.0, "it stands");
 }
+
+#[test]
+fn an_actor_in_combat_closes_in_on_a_target_it_cannot_see() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    let (now, t) = (s.game.time, Timers::default());
+    let at = s.feet(R_TRAVEL);
+    let target = [at[0] + 300.0, at[1], at[2]];
+    let a = s.game.awareness.actors.entry(FormId(R_TRAVEL)).or_default();
+    a.observe(FormId::PLAYER_REF, &Detection { value: 5.0, band: Band::Detected, ..Default::default() }, target, now, &t);
+    a.settle(FormId(R_TRAVEL), now, &t, true);
+    // Within the distance it fights from, but the target is out of sight now.
+    s.game.awareness.engage.insert(FormId(R_TRAVEL), (1000.0, 1200.0));
+    let a = s.game.awareness.actors.get_mut(&FormId(R_TRAVEL)).unwrap();
+    a.observe(FormId::PLAYER_REF, &Detection { value: -10.0, band: Band::Noticed, ..Default::default() }, target, now, &t);
+    s.run(2.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Close { target, .. } if *target == FormId::PLAYER_REF)), "{:?}", s.events(R_TRAVEL));
+    assert!(dist(s.feet(R_TRAVEL), target) < 280.0, "it moved towards the target");
+}

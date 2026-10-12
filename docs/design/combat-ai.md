@@ -93,6 +93,10 @@ their reach and field of view.
 | StartCombat | the actor fights the target from now on, hostile whatever its records say, until StopCombat; it counts as detecting the target at once (Combat) | [documented: catalogue notes]; the target's combat group: not built |
 | StopCombat | the actor leaves its combat state; StartCombat's hostility is undone | [documented] |
 | IsInCombat, GetCombatTarget | as alert.md §6 | |
+| StopCombatAlarmOnActor | every actor fighting or hunting the calling actor stops (StopCombat) | [documented: GECK wiki StopCombatAlarmOnActor] |
+| GetFriendHit | the friendly hits of the target on the actor that still count (§10.1) | [documented: GECK wiki GetFriendHit, Friendly Fire] |
+| GetAttacked | 1 once anyone attacked the actor, cleared when it leaves combat | [documented: GECK wiki GetAttacked] |
+| SetIgnoreFriendlyHits | its friends' and allies' hits never turn it (§10.1) | [hypothesis: the name] |
 
 The test aid `NVF_PLAY_TEST_SCRIPT=<s>:combat:<actor>:<target>` calls StartCombat
 (`0x` before a hex FormID, `player` for the player).
@@ -120,15 +124,13 @@ StartCombat is called 938 times in the masters' scripts: quest fights now start 
 
 ## 8. Next
 
-- Combat groups: allies join (the Fiends' dogs did not, their records being neutral to
-  the player), StartCombat's group case, Assistance.
-- Combat styles (CSTY): ranges, cover, strafing, flee by Confidence; weapon choice;
-  grenades; ammunition use.
-- OnStartCombat / OnCombatEnd blocks; crimes and assault making actors hostile.
+- The larger behaviours of the gap table (§11, "next"): fleeing and avoiding, cover,
+  combat groups with their searches and alarms, teamwork, NPC-against-NPC fights,
+  blocking, dodging and power attacks of NPCs, grenades and explosives, combat barks.
+- StartCombat's group case; OnStartCombat / OnCombatEnd blocks; crimes
+  (SendAssaultAlarm).
 - The original's death camera and reloading the last save.
-- Aiming down the sights for NPCs at range, slowed to walking as the player is while
-  aiming (`nvf_play::player::aiming_walks`, the owner's wish of 2026-10-11; the owner's
-  list asks for it beyond 20 m, hip fire nearer).
+- Weapon choice among several; ammunition use.
 
 ## 9. How fighters look (step CA2)
 
@@ -174,3 +176,206 @@ Owner request 2026-10-11: "add attack animations so NPCs aim, fire and bite visi
 - Not done: reload clips for NPCs, recoil of the `##` weapon parts on the muzzle node,
   turning a standing NPC that is not run on its packages to face its target, aiming
   while moving (the movement clips drive the spine above the aim, animation.md §9.6).
+
+## 10. Being attacked, allies, styles and sights (playtest list 2026-10-11)
+
+The owner's playtest list asked for fights started by an attack, yielding, allies
+helping allies, NPCs aiming down their sights, a machete that reaches a gecko, and a
+comparison of all of combat with the GECK wiki's combat pages (the owner's export
+`C:\fnv-private\geckwiki\Combat.xml`: Combat Flee, Combat Package Flags, Combat Search,
+Combat Style, Combat Tab, Confidence, Friendly Fire, Yielding; with
+GetFactionCombatReaction, StartCombat, StopCombat, GetFriendHit, GetAttacked,
+SetIgnoreFriendlyHits, StopCombatAlarmOnActor from the functions export, and Weapons and
+Gun Spread Formula (New Vegas) from the Items and Game Mechanics exports). The gap table
+is §11.
+
+### 10.1 Assault, friendly fire and the owner's exception (`fnv_game::provocation`)
+
+Every hit an actor survives goes through `Game::attacked_by` before `hurt_by` (engine
+`detection.rs`). Only the player's hits start a fight here [design: NPC against NPC is
+a later workstream].
+
+- **Neutral** (and an enemy not aggressive enough to attack on sight): turns on the
+  player at once, in or out of combat [documented: GECK wiki Friendly Fire]. It holds a
+  **grudge**: `would_attack` is true for the pair until it is back in Normal, until
+  StopCombat, or until it accepts a yield. It says its Assault line [documented: GECK
+  wiki Combat Tab, "Said when the actor is first attacked"].
+- **Friend** (reaction 3): out of combat at once (iFriendHitNonCombatAllowed 0); in
+  combat after more than iFriendHitCombatAllowed hits (FalloutNV.esm: 4) within
+  fFriendHitTimer (10 s), hits closer than fFriendMinimumLastHitTime (0.5 s) counting
+  once [documented: GECK wiki Friendly Fire and its defaults; the 4 observed 2026-10-12].
+- **Ally** (reaction 2; the player's teammates count as allies [hypothesis]): never in
+  combat (iAllyHitCombatAllowed 1000, "infinite"; GetFriendHit stays at 1); out of
+  combat after more than iAllyHitNonCombatAllowed (3) hits [documented].
+- **The owner's exception**: a neutral actor already in Combat with someone else, hit
+  by the player while the player is fighting too (someone in a combat state has the
+  player on its target list), does not turn: "the neutral NPC will not start fighting
+  the player" [owner's playtest list 2026-10-11].
+- The engine (`provoked.rs`) logs `provocation: … is attacked by the player and fights
+  back`, `… lets a hit by the player pass (n counted, m allowed)`, `… ignores a hit …:
+  both were fighting someone else`, and a `provocation summary` at exit.
+
+### 10.2 Yielding
+
+The player putting the weapon away (`PlayerControl::weapon_out` going off) is a yield
+[documented: GECK wiki Yielding]. Actors fighting the player only because of a grudge
+(not their records, not StartCombat) accept it when their fight began at most
+fCombatYieldTime (10 s) before: they stop (StopCombat), say AcceptYield, and the grudge
+is gone. One that accepted a yield within fCombatYieldRetryTime (600 s) and was
+attacked again ignores the next: `provocation: … ignores the yield …: it forgave the
+player recently` [owner's playtest list 2026-10-11: "if they have already recently
+forgiven and were attacked again then ignore the yield"]. The wiki's retry timer is the
+player's, for everyone; ours is each actor's [design: the owner's wording]. Allies that
+joined a fight against the player (§10.3) hold grudges too and yield the same way.
+
+### 10.3 Assistance
+
+An actor in a combat state that another detects (band Detected: seen or heard) makes
+that other take up its fight against each actor on its target list (and whoever hurt
+it) when the other's Assistance helps it: 1 Helps Allies for an ally, 2 Helps Friends and
+Allies for a friend too [documented: GECK wiki GetFactionCombatReaction, "An actor's
+Assistance setting determine whether it will help an Ally / a Friend in combat or not";
+the codes: xEdit AIDT]. Never against one of its own allies or friends ("cannot attack
+each other under any circumstances" [documented]). Actors sharing a faction, or placed
+from the same base form, count as allies [engineering choice: the rule that keeps them
+from fighting each other, alert.md §3]. The helper holds a grudge (`Assist`) and gets an
+alarm at the attacker's position (`Cause::Ally`), so it becomes Alert and fights when it
+detects the attacker: `provocation: … helps … against …`. `Game::call_allies` runs after
+each round of measurements.
+
+Goodsprings' settlers share GoodspringsFaction and have Assistance 2 [observed:
+`fnvtool actor values`], so shooting one brings the others that see it; Violet's dogs
+share FiendsFactionNV with her (Assistance 2), so they now join her fights.
+
+### 10.4 Combat styles (`fnv_game::combat_style`, schema `ai.json` CSTY)
+
+CSTY is read (CSTD, CSAD, CSSD) [documented: layout xEdit wbDefinitionsFNV.pas CSTY;
+meanings GECK wiki Combat Style]; FalloutNV.esm has 84 [observed]. An actor's style is
+its ZNAM, from the template that supplies its AI data [hypothesis], else
+`DefaultCombatstyle` (0x3D) [hypothesis]. Used now (nvforever `npc_combat`):
+
+- **Weapon Restrictions** Melee Only: a gun held is not fired; the actor fights with
+  its fists. Ranged Only changes nothing yet (there is no weapon choice).
+- **Ranged Weapon Max Range Mult** scales the weapon's max range in the distance the
+  actor fights from (§5).
+- **Semi-Auto Firing Delay Mult (min, max)**: a semi-automatic gun waits a random time
+  between the WEAP's Semi-Auto Fire Delay Min and Max, each times its multiplier,
+  between shots ("Determines semi-auto weapon's fire rate when used by actors"
+  [documented: GECK wiki Weapons]).
+- **Melee decision**: each time a blow is possible the actor attacks with chance
+  (Attack % + the Hand-To-Hand bonus when unarmed or a creature + Attack Skill Modifier
+  base + mult × skill / 100) × the Attack While / Not Under Attack multiplier, against a
+  roll of 1–100; otherwise it holds for a random Hold Timer [documented: Combat Style,
+  Advanced]. "Under attack": its opponent has a blow on the way [hypothesis]. With the
+  dog's style that is 55 % at skill 50, so dogs bite less often than CA1's fixed rhythm.
+
+### 10.5 Confidence
+
+Once hurt, every random 0 to fCombatThreatRatioUpdateTime (7.5 s), a fighter compares
+its threat ratio (its health × damage per second over its target's) with its confidence
+threshold (Cowardly 1000, Cautious 0.375, Average 0.1875, Brave 0.0375, Foolhardy 0;
+FalloutNV.esm sets the middle three), scaled by a confidence modifier drawn per fight
+from fCombatConfidenceModifierMin −0.25 to Max 1.0, not for the foolhardy [documented:
+GECK wiki Confidence; how the modifier applies, threshold × (1 − modifier):
+hypothesis]. Damage per second is the weapon's damage times its shots or blows per
+second [design]; armour is not counted yet. Fleeing is not built: the engine logs
+`npc combat: … would flee (threat ratio … below its confidence …)` and counts it.
+
+### 10.6 Aiming down the sights (NPCs)
+
+The owner's list: NPCs aim down the sights "only if the player (target) is at a
+distance; anything less than 20 metres they fire from the hip", and "the player and
+NPCs should not be able to move at full speed whilst aiming" (the player's half is
+`nvf_play::player::aiming_walks`).
+
+- 20 m = 1,400 units at 70 units per metre [observed: gravity fits 9.81 m/s² at 70
+  units/m, docs/spec-notes/physics.md §6.3]. A fighter firing a gun with sights (WEAP
+  Sight FOV above 0 [documented: GECK wiki Weapons, Sight FOV 0 "essentially disables
+  iron sights"]) at a target beyond 1,400 units aims down them; nearer it fires from the
+  hip; once up, the sights stay up to 1,350 units [design: no switching at the edge].
+- Aimed shots lose the unaimed spread penalty, fUnaimedSpreadPenalty [documented: Gun
+  Spread Formula (New Vegas)].
+- It plays the stance's iron-sights clips: `2hraimis.kf` with `2hraimisup/down.kf` in
+  place of the level aim, and `2hrattack3is.kf` (and its up and down forms) for each
+  shot [observed: the male skeleton folder has `aimis` and `attack…is` clips for rifles;
+  `fnv_actor::player_clips` already chose them for the player].
+- It walks while aiming (`Awarenesses::aiming`, `fnv_ai::alert`): closing in it walks,
+  and the AI log says `walks at the player, … aiming down the sights`.
+- Not used: the WEAP's Sight Usage ("the percentage of fCombatIronSightsDistance" beyond
+  which an actor uses its sights [documented: GECK wiki Weapons]), because the owner's
+  20 m rule stands in and fCombatIronSightsDistance is neither in FalloutNV.esm nor on
+  the wiki; the NPC spread's fNPCMaxGunWobbleAngle term (Gun Spread Formula (New
+  Vegas): spread × fNPCMaxGunWobbleAngle + spread, ×16 with the masters' 15) [design:
+  NPCs keep the player's formula; combat is not a parity target].
+- Log: `npc combat: … aims down the sights, its target … units away (beyond 1400):
+  walks while aiming`, `… fires from the hip …`, and in the summary `… down the sights,
+  … from the hip, sights raised … times`.
+
+### 10.7 Melee reaches low targets
+
+The owner could not hit a gecko with a machete. The player's swing was a fan of rays
+from the eye at eye height, as long as the reach (fCombatDistance 150 × Reach): a gecko
+at the player's feet lies under the fan, and a ray pitched down to it spends most of
+the reach on the drop from the eye. `fnv_combat::projectile::swing_reaching` adds every
+actor whose centre is within the reach across the ground (plus 24 units for its body),
+inside the swing's arc, from 32 units below the feet to 48 above the eyes, that a ray
+from the eye to its centre meets first [design]. Tall targets are found by the fan as
+before.
+
+## 11. The GECK wiki's combat pages against what is built
+
+Status: **have**, **partial**, **missing**; "next" marks the larger AI behaviours left
+for a later workstream (2026-10-12). Every behaviour in the second column is
+[documented] by the page in the first.
+
+| Page | Documented behaviour | Status | Where / note |
+|---|---|---|---|
+| Friendly Fire | Neutral: aggro at once when hit by the player, in or out of combat | have | §10.1 |
+| Friendly Fire | Friend: in combat after iFriendHitCombatAllowed hits within fFriendHitTimer; out of combat at once | have | §10.1 |
+| Friendly Fire | Ally: never in combat; out of combat after iAllyHitNonCombatAllowed hits; GetFriendHit capped at 1 | have | §10.1 |
+| Friendly Fire | fFriendMinimumLastHitTime between counted hits; 1000 or more is infinite | have | §10.1 |
+| Yielding | Yield by holstering within fCombatYieldTime; only actors not hostile by their records | have | §10.2 |
+| Yielding | fCombatYieldRetryTime after a yield accepted | partial | each actor's timer, not the player's (owner's wording) |
+| GetFactionCombatReaction | Enemies attacked by Aggressive and Very Aggressive actors, neutrals by Very Aggressive | have | alert.md §3 |
+| GetFactionCombatReaction | Allies and friends cannot attack each other | have | alert.md §3; grudges and assistance respect it |
+| GetFactionCombatReaction | Assistance decides whether an actor helps an ally / a friend in combat | have | §10.3 |
+| StartCombat | Target in combat: the attacker targets its combat group | missing | combat groups (next) |
+| StartCombat | Does not work on an ally or friend of the target | missing | StartCombat forces any pair |
+| StopCombat | Ends the combat state; the actor may resume when still hostile | have | §6 |
+| StopCombatAlarmOnActor | Every actor targeting the actor stops | have | §6 |
+| GetAttacked, GetFriendHit, SetIgnoreFriendlyHits | as named | have | §6 |
+| SendAssaultAlarm | An assault crime; actors yell Assault | missing | crimes (next) |
+| Combat Tab | Assault when first attacked; AcceptYield when a yield is accepted | have | §10.1, §10.2 |
+| Combat Tab | Attack, PowerAttack, Hit, Death, Flee, Yield, HealthHalf, Crippled, NoAmmo … and their Responses, with their timers | missing | combat barks (next) |
+| Combat Style | Melee decision: Attack % with the Hand-To-Hand bonus, Attack Skill Modifier, under-attack multipliers; Hold Timer | have | §10.4 |
+| Combat Style | Melee decision: Block % and its multipliers | missing | NPC blocking (next) |
+| Combat Style | Recoil/Stagger and Unconscious bonuses; Attack During Block Mult | missing | next, with blocking and knockdowns |
+| Combat Style | Power attacks: chance, by movement or by % chance, fatigue modifier | missing | next |
+| Combat Style | Maneuver decision: dodge chances and timers, fatigue and encumbrance modifiers | missing | next (dodging) |
+| Combat Style | Cover: search radius, take-cover chance, wait / wait-to-fire / fire timers | missing | next (cover) |
+| Combat Style | Ranged Weapon Min/Max Range Mult | partial | max used (§10.4); min: no backing off yet |
+| Combat Style | Semi-Auto Firing Delay Min/Max Mult | have | §10.4 |
+| Combat Style | Weapon Restrictions | partial | Melee Only; Ranged Only needs weapon choice |
+| Combat Style | Max Targeting FOV | missing | read; detection's field of view stands in |
+| Combat Style | Combat Radius: no pursuit beyond it | missing | read; next with pursuit and searches |
+| Combat Style | Ignore Threats; Ignore Damaging Self / Group / Spectators; iAvoidHurtingNonTargetsResponsibility | missing | next (threats, grenades) |
+| Combat Style | Flee Based on Personal Survival | missing | read; next with fleeing |
+| Confidence | Ratings and thresholds; threat ratio from health × DPS | have | §10.5, the decision only |
+| Confidence | Health counts armour | partial | armour not counted yet |
+| Confidence | Checks every 0–fCombatThreatRatioUpdateTime, only after damage; a confidence modifier per combat | have | §10.5 |
+| Confidence | Group threat ratio; the personal survival check | missing | next (combat groups) |
+| Confidence | Avoiding threats out of combat | missing | next |
+| Confidence | Alarms by Alarm Confidence | missing | next (combat groups) |
+| Confidence | Frenzied actors never flee | missing | with fleeing (next) |
+| Combat Flee | Door, cover or run away; at the flee spot wait, more confident when hurt or cornered | missing | next (fleeing); `would flee` logged |
+| Combat Package Flags | No Combat Alert | have | alert.md §2 |
+| Combat Package Flags | Continue During Combat | partial | alert.md §5: the package goes on and the actor fights as any other; no cover on the way |
+| Combat Package Flags | Pretend In Combat | missing | next |
+| Combat Package Flags | Follow and Guard radii in combat (fCombatFollowRadiusMult, fCombatGuardRadiusMult) | missing | next |
+| Combat Search | Alert and Lost actors search | partial | alert.md §5: each alone, not the combat group splitting the navmesh |
+| Combat Search | The combat group's searches; iCombatTargetLostRemoveSearchCount; the hidden-target timers | missing | next (search parties); our timers are alert.md §2's |
+| Weapons | Sight FOV 0 disables iron sights | have | §10.6 |
+| Weapons | Sight Usage × fCombatIronSightsDistance: when an actor uses its sights | partial | the owner's 20 m rule instead (§10.6) |
+| Weapons | Semi-Auto Fire Delay Min/Max for actors | have | §10.4 |
+| Gun Spread Formula (New Vegas) | No unaimed penalty while aiming | have | player and NPCs (§10.6) |
+| Gun Spread Formula (New Vegas) | NPC spread × fNPCMaxGunWobbleAngle + spread | missing | [design]: NPCs keep the player's formula |

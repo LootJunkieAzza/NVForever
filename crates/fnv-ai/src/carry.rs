@@ -135,8 +135,8 @@ pub enum AiEvent {
     /// In Combat it stops and faces `target`, `away` units from it.
     Hold { target: FormId, away: f32 },
     /// In Combat it runs up to `target`, `away` units off, a way of `length` units to
-    /// `to` (`crate::alert`).
-    Close { target: FormId, to: [f32; 3], away: f32, length: f32 },
+    /// `to` (`crate::alert`); `aiming`: it aims down its sights and walks.
+    Close { target: FormId, to: [f32; 3], away: f32, length: f32, aiming: bool },
     /// It stops searching or holding (`why`).
     SearchOver { why: &'static str },
     /// After a search it goes back to its package's place, `away` units off.

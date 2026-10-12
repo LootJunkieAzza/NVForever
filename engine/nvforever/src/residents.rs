@@ -867,9 +867,11 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             "stops and faces {}, {away:.0} units away",
             if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) }
         ),
-        AiEvent::Close { target, away, length, .. } => format!(
-            "runs at {}, {away:.0} units away, {length:.0} units to go",
-            if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) }
+        AiEvent::Close { target, away, length, aiming, .. } => format!(
+            "{} at {}, {away:.0} units away, {length:.0} units to go{}",
+            if *aiming { "walks" } else { "runs" },
+            if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) },
+            if *aiming { ", aiming down the sights" } else { "" }
         ),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),

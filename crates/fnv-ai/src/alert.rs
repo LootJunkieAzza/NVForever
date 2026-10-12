@@ -15,7 +15,12 @@
 //!   attacks from (`Awarenesses::engage`, which the engine's combat AI sets from its
 //!   weapon), running, the way planned again as the target moves; there it stops and
 //!   faces it. Without such a distance it holds its ground [design]. The attacks
-//!   themselves are the engine's (nvforever `npc_combat`).
+//!   themselves are the engine's (nvforever `npc_combat`). A target it does not detect
+//!   now it closes in on whatever the distance, halving the gap each time the way is
+//!   planned, until it sees it again [design]. While it aims down its sights
+//!   (`Awarenesses::aiming`, set by the combat AI) it walks instead of running, as the
+//!   player does while aiming [design: the owner's wish, playtest list 2026-10-11, "the
+//!   player and NPCs should not be able to move at full speed whilst aiming"].
 //! - **Continue During Combat**: an actor whose current package has the flag carries
 //!   its package out as if nothing had happened (`Game::continues_during_combat`).
 //! - Back in **Normal**, the actor goes back to its package's place, as after a random
@@ -46,6 +51,9 @@ pub const CLOSE_REPLAN_SECONDS: f64 = 1.5;
 /// Closing in ends this share of the stop distance short of the target, inside it
 /// [design].
 pub const STOP_SHORT: f32 = 0.9;
+/// In Combat, a target it does not detect now: it closes in to this share of the
+/// distance, again each time the way is planned [design].
+pub const BLIND_CLOSE_SHARE: f32 = 0.5;
 
 /// Where an actor in a combat state is ([`crate::Agent::search`]).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -97,12 +105,18 @@ impl Ai {
             // the edge.
             let holding = a.search == Some(Search::Holding { target });
             let engage = game.awareness.engage.get(&actor).copied();
-            let close_in = engage.is_some_and(|(stop, resume)| away > if holding { resume } else { stop });
+            // A target it does not detect now (out of sight behind a rock, say) it closes
+            // in on, whatever the distance, halving the gap, until it sees it again
+            // [design: an actor that stood where it could not see its target went Lost
+            // and back to Combat every few seconds at Cook-Cook's camp].
+            let sees = aw.combat_target().is_some();
+            let close_in = (!sees && engage.is_some()) || engage.is_some_and(|(stop, resume)| away > if holding { resume } else { stop });
+            let stop = if sees { engage.map_or(0.0, |e| e.0) } else { away * BLIND_CLOSE_SHARE };
             let going = a.activity == Activity::Travelling;
             match (close_in, a.search) {
                 // On its way, and the way still leads to the target.
                 (true, Some(Search::Closing { target: t, to, since })) if t == target && going && goal::dist(to, at) < CLOSE_REPLAN_DISTANCE && now - since < CLOSE_REPLAN_SECONDS => {}
-                (true, _) => self.close_in(game, nav, actor, target, at, away, engage.map_or(0.0, |e| e.0)),
+                (true, _) => self.close_in(game, nav, actor, target, at, away, stop),
                 (false, Some(Search::Holding { target: t })) if t == target => {}
                 (false, _) => {
                     let a = self.agents.get_mut(&actor).expect("listed");
@@ -111,6 +125,13 @@ impl Ai {
                     a.search = Some(Search::Holding { target });
                     self.log(game, actor, AiEvent::Hold { target, away });
                 }
+            }
+            // Aiming down the sights slows it to a walk, also on a way already planned.
+            let aiming = game.awareness.aiming.contains(&actor);
+            let (walk, run) = (self.cfg.walk_speed, self.cfg.run_speed);
+            let a = self.agents.get_mut(&actor).expect("listed");
+            if matches!(a.search, Some(Search::Closing { .. })) {
+                a.walker.speed = if aiming { walk } else { run };
             }
             if self.agents[&actor].activity != Activity::Travelling {
                 self.face(game, actor, Place { space, pos: at }, dt);
@@ -190,7 +211,8 @@ impl Ai {
     #[allow(clippy::too_many_arguments)]
     fn close_in(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, target: FormId, at: [f32; 3], away: f32, stop: f32) {
         let params = self.path_params(game, actor);
-        let speed = self.cfg.run_speed;
+        let aiming = game.awareness.aiming.contains(&actor);
+        let speed = if aiming { self.cfg.walk_speed } else { self.cfg.run_speed };
         let now = game.time;
         let a = self.agents.get_mut(&actor).expect("listed");
         let space = a.walker.space;
@@ -209,7 +231,7 @@ impl Ai {
                 a.trip_from = a.walker.travelled;
                 a.search = Some(Search::Closing { target, to: at, since: now });
                 if first {
-                    self.log(game, actor, AiEvent::Close { target, to: p, away, length });
+                    self.log(game, actor, AiEvent::Close { target, to: p, away, length, aiming });
                 }
             }
             _ => {

@@ -66,6 +66,8 @@ pub struct PlayAttack {
     pub actor: u32,
     pub weapon: Option<FormId>,
     pub melee: bool,
+    /// A shot aimed down the sights: the iron-sights attack clip (`2hrattack3is.kf`).
+    pub sights: bool,
 }
 
 /// When each actor's next blow lands into its attack clip (its `Hit` key), seconds:
@@ -91,6 +93,13 @@ pub struct Attack {
 pub struct CombatPose {
     pub aim_up: Option<Arc<BoundClip>>,
     pub aim_down: Option<Arc<BoundClip>>,
+    /// The iron-sights aim (`2hraimis.kf`) and its up and down forms, for a weapon that
+    /// has them; played in place of the level aim while [`CombatPose::sights`].
+    pub aim_is: Option<Arc<BoundClip>>,
+    pub aim_is_up: Option<Arc<BoundClip>>,
+    pub aim_is_down: Option<Arc<BoundClip>>,
+    /// Aiming down the sights now (`npc_combat`).
+    pub sights: bool,
     /// Radians, negative looks down.
     pub pitch: f32,
     /// In a fight now (the aim follows the pitch); an attack still playing keeps the
@@ -113,8 +122,21 @@ impl CombatPose {
         let [_, (_, up), (_, down)] = aim_weights(self.pitch);
         let (variant, share) = if up > 0.0 { (Aim::Up, up) } else { (Aim::Down, down) };
         let w = variant_weight(share);
+        // Down the sights: the iron-sights aim in place of the level aim clip (layer 2,
+        // `weapons.rs`) while the draw cycle is not fading there.
+        let sights = self.fighting && drawn && self.sights && self.aim_is.is_some() && player.layers[AIM_VARIANT_LAYER].is_none();
+        if sights {
+            if let (Some(level), Some(is)) = (player.layers[2].as_mut(), self.aim_is.clone()) {
+                level.clip = is;
+            }
+        }
         if self.fighting && drawn && player.layers[AIM_VARIANT_LAYER].is_none() && w > 1e-3 {
-            let clip = if variant == Aim::Up { self.aim_up.clone() } else { self.aim_down.clone() };
+            let clip = match (variant, sights) {
+                (Aim::Up, true) => self.aim_is_up.clone().or(self.aim_up.clone()),
+                (Aim::Up, false) => self.aim_up.clone(),
+                (_, true) => self.aim_is_down.clone().or(self.aim_down.clone()),
+                (_, false) => self.aim_down.clone(),
+            };
             player.layers[AIM_VARIANT_LAYER] = clip.map(|clip| Layer { clip, phase: 0.0, weight: w });
         }
         let Some(a) = self.attack.as_mut() else { return };
@@ -235,12 +257,20 @@ fn start(
         let mut new_pose = pose.as_ref().map(|p| (*p).clone()).unwrap_or_default();
         new_pose.pitch = pitch;
         new_pose.fighting = fighters.pitch(id).is_some();
+        new_pose.sights = fighters.sights(id);
         // The aim's up and down forms, once, for an actor with a weapon drawn on it.
         if hold.is_some() && new_pose.aim_up.is_none() && new_pose.aim_down.is_none() {
             let w = fighters.weapon(id);
             let level = format!("{folder}\\{}aim.kf", weapon_prefix(w));
             new_pose.aim_up = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&level, Aim::Up));
             new_pose.aim_down = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&level, Aim::Down));
+            // The iron-sights aim, where the stance has one (rifles, pistols, automatics).
+            let is = format!("{folder}\\{}aimis.kf", weapon_prefix(w));
+            new_pose.aim_is = clips.bind(&mut ctx, &rig.skeleton, &skel, &is);
+            if new_pose.aim_is.is_some() {
+                new_pose.aim_is_up = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&is, Aim::Up));
+                new_pose.aim_is_down = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&is, Aim::Down));
+            }
         }
         for a in mine {
             let creature = hold.is_none() && a.weapon.is_none() && rig.skeleton.to_ascii_lowercase().contains("creatures");
@@ -268,7 +298,7 @@ fn start(
             } else {
                 let prefix = weapon_prefix(a.weapon);
                 let attack = a.weapon.and_then(|w| combat.as_deref().and_then(|c| c.forms.weapons.get(&w))).and_then(|w| w.attack_anim.clone());
-                let names = attack_clips(Stance::Stand, prefix, &attack_stem(attack.as_deref()), false);
+                let names = attack_clips(Stance::Stand, prefix, &attack_stem(attack.as_deref()), a.sights);
                 clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &names)
             };
             let Some((path, clip)) = found else {

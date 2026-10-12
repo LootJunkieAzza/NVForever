@@ -74,9 +74,10 @@ teammates do not attack the player. Two actors with a faction in common, or plac
 the same base form, never attack each other [engineering choice: without it the Very
 Aggressive creatures of one kind, neutral to each other, would fight].
 
-Only hostiles count: a non-hostile actor noticing the player stays Normal. Crimes,
-assault (hitting someone neutral) and the player's reputation do not make anyone hostile
-yet.
+Only hostiles count: a non-hostile actor noticing the player stays Normal. Being hit by
+the player (assault, friendly fire) and an ally's fight (Assistance) make an actor
+hostile to the attacker through a grudge (`fnv_game::provocation`, combat-ai.md §10);
+crimes and the player's reputation do not yet.
 
 ## 4. Events and barks
 
@@ -154,8 +155,9 @@ yet.
 Furniture's fast getting-up set, chosen under `GetIsAlerted == 1` (furniture.md §2), now
 applies to alerted actors.
 
-Not yet: OnStartCombat / OnCombatEnd blocks, StartCombat / StopCombat, GetAttacked,
-IsHostilesNearby, GetPCDetectionState, combat groups (allies joining), crimes.
+Not yet: OnStartCombat / OnCombatEnd blocks, IsHostilesNearby, GetPCDetectionState,
+combat groups, crimes. StartCombat, StopCombat, GetAttacked and allies joining are in
+combat-ai.md §6 and §10.
 
 ## 7. Line of sight, fixed on the way
 
