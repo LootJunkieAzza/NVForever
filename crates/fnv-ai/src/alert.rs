@@ -401,7 +401,8 @@ impl Ai {
                     self.log(game, actor, AiEvent::FleeArrived { from, seconds: (now - since) as f32, off: flat(feet, to) });
                 }
             }
-            Some(Search::Fled { from, .. }) if from == flight.from => {
+            // At its spot until the combat AI has it flee again (a new flight: not arrived).
+            Some(Search::Fled { from, .. }) if from == flight.from && flight.arrived.is_some() => {
                 self.face(game, actor, Place { space, pos: threat }, dt);
             }
             _ => self.flee_from(game, nav, actor, flight.from, threat),

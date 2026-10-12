@@ -290,6 +290,25 @@ impl Game<'_> {
         }
     }
 
+    /// A name for the side `actor` fights on, for logs: the Editor ID of its faction
+    /// that names the most others in its reactions (NCRFactionNV rather than
+    /// GeneralIdleFaction), else its base form's.
+    pub fn side_name(&self, actor: FormId) -> String {
+        if actor == FormId::PLAYER_REF {
+            return "the player".into();
+        }
+        let factions = crate::functions::actor::factions_of(self, actor);
+        let reactions = |f: &FormId| self.data.faction_reactions.get(f).map_or(0, |v| v.len());
+        factions
+            .iter()
+            .enumerate()
+            .max_by_key(|(i, f)| (reactions(f), std::cmp::Reverse(*i)))
+            .map(|(_, f)| f)
+            .and_then(|f| self.data.edid_of.get(f).cloned())
+            .or_else(|| self.world.placed.get(actor).and_then(|p| self.data.edid_of.get(&p.base).cloned()))
+            .unwrap_or_else(|| actor.to_string())
+    }
+
     /// Whom `actor` fights or hunts: its targets and its alarms' owners.
     pub fn foes_of(&self, actor: FormId) -> BTreeSet<FormId> {
         self.awareness.get(actor).map_or_else(BTreeSet::new, |a| a.targets.keys().copied().chain(a.alarms.iter().map(|x| x.owner)).collect())
@@ -330,13 +349,13 @@ impl Game<'_> {
     }
 
     /// A flee check of `actor` with this fight's confidence `modifier` (module notes;
-    /// `crate::combat_style::flees` applies the modifier). Frenzied actors (Aggression 4)
-    /// never flee [documented: "Frenzied enemies will not flee"].
+    /// `crate::combat_style::flees` applies the modifier). Frenzied actors (Aggression 3,
+    /// docs/spec-notes/factions.md §4) never flee [documented: "Frenzied enemies will not flee"].
     pub fn flee_check(&mut self, actor: FormId, modifier: f64) -> FleeCheck {
         let base = actor_value(self, actor, crate::actor_values::CONFIDENCE).unwrap_or(2.0).round() as i64;
         let rating = (base + self.awareness.tactics.boosts.get(&actor).copied().unwrap_or(0) as i64).min(4);
         let threshold = crate::combat_style::confidence_threshold(rating as f64, |name, d| crate::combat::setting(self, name, d));
-        let frenzied = actor_value(self, actor, crate::actor_values::AGGRESSION).unwrap_or(0.0) >= 4.0;
+        let frenzied = actor_value(self, actor, crate::actor_values::AGGRESSION).unwrap_or(0.0) >= 3.0;
         let (group_ratio, personal_ratio) = self.threat_ratios(actor);
         let survival = self.combat_style(actor).is_some_and(|s| s.flee_personal_survival);
         let by_group = group_ratio.is_some_and(|r| flees(r, threshold, modifier));
@@ -344,7 +363,8 @@ impl Game<'_> {
         FleeCheck { group_ratio, personal_ratio, threshold, rating, flees: !frenzied && (by_group || by_self), personal: by_self }
     }
 
-    /// `actor` starts fleeing from `from`, at `at`.
+    /// `actor` starts fleeing from `from`, at `at` (again, from its flee spot, when it
+    /// fled already: it looks for a new spot).
     pub fn start_flight(&mut self, actor: FormId, from: FormId, at: [f32; 3]) {
         let now = self.time;
         self.awareness.tactics.flights.insert(actor, Flight { from, from_at: at, since: now, spot: None, arrived: None });
@@ -401,9 +421,9 @@ impl Game<'_> {
                 }
                 let relation = self.reaction_to(receiver, c.actor);
                 let assistance = actor_value(self, receiver, crate::actor_values::ASSISTANCE).unwrap_or(0.0) as i64;
-                // Its own group (a faction or base in common) always hears it [design];
+                // Its own kind (a faction or base in common) always hears it [design];
                 // allies and friends by their Assistance [documented: GetFactionCombatReaction].
-                let kin = self.bark_mates(receiver, c.actor);
+                let kin = self.kin(receiver, c.actor);
                 if !kin && !crate::provocation::helps(assistance, relation) {
                     continue;
                 }

@@ -47,7 +47,7 @@
 
 use crate::awareness::{Cause, State};
 use crate::detection::Band;
-use crate::functions::actor::{actor_value, faction_relation, factions_of};
+use crate::functions::actor::{actor_value, faction_relation};
 use crate::game::Game;
 use fnv_sim::FormId;
 use std::collections::BTreeMap;
@@ -229,12 +229,7 @@ impl Game<'_> {
         if relation != NEUTRAL || actor == FormId::PLAYER_REF || other == FormId::PLAYER_REF {
             return relation;
         }
-        let base = |r: FormId| self.world.placed.get(r).map(|p| p.base);
-        if base(actor).is_some() && base(actor) == base(other) {
-            return ALLY;
-        }
-        let mine = factions_of(self, actor);
-        if !mine.is_empty() && factions_of(self, other).iter().any(|f| mine.contains(f)) {
+        if self.kin(actor, other) {
             return ALLY;
         }
         NEUTRAL
