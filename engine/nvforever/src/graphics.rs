@@ -142,25 +142,49 @@ pub struct MsaaSetting(pub Msaa);
 /// Test aid for measuring (`--log-frame-times`, `--graphics-cycle`): log the frame time
 /// every `every` seconds of real time and then, with a cycle, switch to its next set of
 /// improvements (the first half second after a switch, when pipelines compile, is left
-/// out of the figures).
+/// out of the figures). A set may also change the sun's shadows: `no-sun-shadows`,
+/// `shadow-distance=<units>`, `cascades=<n>` (otherwise as at the start).
 #[derive(Clone, Default)]
 pub struct FrameTimes {
     pub every: f32,
-    pub cycle: Vec<Graphics>,
+    pub cycle: Vec<CycleStep>,
+}
+
+/// One set of `--graphics-cycle`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CycleStep {
+    pub graphics: Graphics,
+    /// `no-sun-shadows` was among the keys: the sun casts no shadows during this set.
+    pub no_sun_shadows: bool,
+    /// `shadow-distance=<units>`.
+    pub shadow_distance: Option<f32>,
+    /// `cascades=<n>`.
+    pub cascades: Option<usize>,
 }
 
 impl FrameTimes {
-    /// `--graphics-cycle`: sets separated by `;`, each `vanilla` or keys as for
-    /// `--graphics-only`.
-    pub fn parse_cycle(text: &str) -> Result<Vec<Graphics>, String> {
+    /// `--graphics-cycle`: sets separated by `;`, each `vanilla`, `enhanced` or keys as
+    /// for `--graphics-only`, any of them with `no-sun-shadows` among its keys.
+    pub fn parse_cycle(text: &str) -> Result<Vec<CycleStep>, String> {
         text.split(';').map(str::trim).filter(|t| !t.is_empty()).map(|t| {
-            if t == "vanilla" {
-                Ok(Graphics::preset(Preset::Vanilla))
-            } else if t == "enhanced" {
-                Ok(Graphics::preset(Preset::Enhanced))
-            } else {
-                Graphics::only(&t.split(',').map(String::from).collect::<Vec<_>>())
-            }
+            let keys: Vec<String> = t.split(',').map(|k| k.trim().to_string()).filter(|k| !k.is_empty()).collect();
+            let no_sun_shadows = keys.iter().any(|k| k == "no-sun-shadows");
+            let value = |name: &str| {
+                keys.iter()
+                    .find_map(|k| k.strip_prefix(name))
+                    .map(|v| v.parse::<f32>().map_err(|e| format!("--graphics-cycle {name}{v}: {e}")))
+                    .transpose()
+            };
+            let shadow_distance = value("shadow-distance=")?;
+            let cascades = value("cascades=")?.map(|n| n as usize);
+            let keys: Vec<String> = keys.iter().filter(|k| *k != "no-sun-shadows" && !k.contains('=')).cloned().collect();
+            let graphics = match keys.as_slice() {
+                [] => Graphics::preset(Preset::Vanilla),
+                [k] if k == "vanilla" => Graphics::preset(Preset::Vanilla),
+                [k] if k == "enhanced" => Graphics::preset(Preset::Enhanced),
+                _ => Graphics::only(&keys)?,
+            };
+            Ok(CycleStep { graphics, no_sun_shadows, shadow_distance, cascades })
         }).collect()
     }
 }
@@ -182,7 +206,15 @@ impl Plugin for GraphicsPlugin {
             // GPU time per render pass (timestamp queries), logged with the frame time.
             app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
             // (time in this period, time counted, slowest, frames counted, cycle index)
-            app.add_systems(Update, move |time: Res<Time<Real>>, mut g: ResMut<Graphics>, store: Res<bevy::diagnostic::DiagnosticsStore>, mut acc: Local<(f32, f32, f32, u32, usize)>| {
+            #[allow(clippy::type_complexity)]
+            app.add_systems(Update, move |mut commands: Commands, time: Res<Time<Real>>, mut g: ResMut<Graphics>, sky: Res<SkyState>, store: Res<bevy::diagnostic::DiagnosticsStore>, lights: Query<(Option<&Name>, &DirectionalLight, &bevy::camera::visibility::CascadesVisibleEntities)>, views: Query<Option<&Name>, With<Camera>>, mut acc: Local<(f32, f32, f32, u32, usize)>, mut start_shadows: Local<Option<(bool, f32, usize)>>| {
+                let first = start_shadows.is_none();
+                let start = *start_shadows.get_or_insert((sky.shadows, sky.shadow_distance, sky.shadow_cascades));
+                if first {
+                    if let Some(step) = ft.cycle.first() {
+                        apply_shadow_step(&mut commands, &sky, start, step);
+                    }
+                }
                 let dt = time.delta_secs();
                 acc.0 += dt;
                 if acc.0 > 0.5 || ft.cycle.is_empty() {
@@ -191,7 +223,7 @@ impl Plugin for GraphicsPlugin {
                     acc.3 += 1;
                 }
                 if acc.0 >= ft.every {
-                    info!("frame time: {:.2} ms mean, {:.1} ms slowest over {} frames; graphics: {}", acc.1 * 1e3 / acc.3.max(1) as f32, acc.2 * 1e3, acc.3, g.describe());
+                    info!("frame time: {:.2} ms mean, {:.1} ms slowest over {} frames; graphics: {}; sun shadows {}; sun at heading {:.0}, elevation {:.0}", acc.1 * 1e3 / acc.3.max(1) as f32, acc.2 * 1e3, acc.3, g.describe(), if sky.shadows { format!("to {:.0} in {} cascades", sky.shadow_distance, sky.shadow_cascades) } else { "off".into() }, sky.sun_heading(), sky.sun_elevation());
                     // The GPU's time in the passes that cost the most (ms, about the last
                     // second's average).
                     let mut passes: Vec<(String, f64)> = store
@@ -203,14 +235,47 @@ impl Plugin for GraphicsPlugin {
                     let total: f64 = passes.iter().filter(|(n, _)| !n.contains('/')).map(|(_, t)| t).sum();
                     let list: Vec<String> = passes.iter().filter(|(n, _)| !n.contains('/')).take(12).map(|(n, t)| format!("{n} {t:.2}")).collect();
                     info!("gpu time: {total:.2} ms in all top-level passes; {}", list.join(", "));
+                    // What the shadow passes draw (Bevy times no shadow pass): the casters
+                    // in each cascade of each light with shadows, per view.
+                    let mut casters = Vec::new();
+                    for (name, light, cascades) in &lights {
+                        if !light.shadow_maps_enabled {
+                            continue;
+                        }
+                        let name = name.map_or("light", |n| n.as_str());
+                        for (view, per_cascade) in &cascades.entities {
+                            let view = views.get(*view).ok().flatten().map_or("view", |n| n.as_str());
+                            let counts: Vec<String> = per_cascade.iter().map(|c| c.entities.len().to_string()).collect();
+                            casters.push(format!("{name} for {view}: [{}]", counts.join(", ")));
+                        }
+                    }
+                    info!("shadow casters per cascade: {}", if casters.is_empty() { "none (sun shadows off)".to_string() } else { casters.join("; ") });
                     let next = acc.4 + 1;
                     *acc = (0.0, 0.0, 0.0, 0, next);
                     if !ft.cycle.is_empty() {
-                        *g = ft.cycle[next % ft.cycle.len()];
+                        let step = ft.cycle[next % ft.cycle.len()];
+                        *g = step.graphics;
+                        apply_shadow_step(&mut commands, &sky, start, &step);
                     }
                 }
             });
         }
+    }
+}
+
+/// The sun's shadows of a `--graphics-cycle` set: `start` (on, distance, cascades) as at
+/// the start, changed by the set's keys.
+fn apply_shadow_step(commands: &mut Commands, sky: &SkyState, start: (bool, f32, usize), step: &CycleStep) {
+    let on = start.0 && !step.no_sun_shadows;
+    let distance = step.shadow_distance.unwrap_or(start.1);
+    let cascades = step.cascades.unwrap_or(start.2);
+    if on != sky.shadows || distance != sky.shadow_distance || cascades != sky.shadow_cascades {
+        commands.queue(move |w: &mut World| {
+            let mut sky = w.resource_mut::<SkyState>();
+            sky.shadow_distance = distance;
+            sky.shadow_cascades = cascades;
+            crate::sky::set_shadows(w, on);
+        });
     }
 }
 
@@ -276,7 +341,7 @@ fn apply(
     }
     for (e, light) in &suns {
         if light.shadow_maps_enabled && (reach_changed || first) {
-            commands.entity(e).insert(crate::sky::shadow_cascades(sky.shadow_distance, sky.shadow_reach));
+            commands.entity(e).insert(crate::sky::shadow_cascades(sky.shadow_distance, sky.shadow_reach, sky.shadow_cascades));
         }
     }
     if !first {
@@ -296,7 +361,11 @@ mod tests {
         let enhanced = Graphics::preset(Preset::Enhanced);
         assert!(!enhanced.taa && enhanced.light_shafts && enhanced.water_reflections);
         assert!(Graphics::only(&["nonsense".into()]).is_err());
-        let cycle = FrameTimes::parse_cycle("vanilla; taa,light-shafts ;enhanced").expect("cycle");
-        assert_eq!(cycle, vec![Graphics::preset(Preset::Vanilla), Graphics::only(&["taa".into(), "light-shafts".into()]).unwrap(), enhanced]);
+        let cycle = FrameTimes::parse_cycle("vanilla; taa,light-shafts ;enhanced;vanilla,no-sun-shadows;shadow-distance=8000,cascades=3").expect("cycle");
+        let graphics: Vec<Graphics> = cycle.iter().map(|c| c.graphics).collect();
+        let vanilla = Graphics::preset(Preset::Vanilla);
+        assert_eq!(graphics, vec![vanilla, Graphics::only(&["taa".into(), "light-shafts".into()]).unwrap(), enhanced, vanilla, vanilla]);
+        assert_eq!(cycle.iter().map(|c| c.no_sun_shadows).collect::<Vec<_>>(), vec![false, false, false, true, false]);
+        assert_eq!((cycle[4].shadow_distance, cycle[4].cascades), (Some(8000.0), Some(3)));
     }
 }

@@ -159,6 +159,24 @@ order = [[
 ]]
 
 [[scenario]]
+name = "shadows-sun"
+source = "docs/design/graphics-enhanced.md §2 (playtest list 4 items 6-7, 2026-10-12): the sky dome and its sun come back after leaving an interior; the sun's shadows default to 8,000 units in 3 cascades and the arms' shade light draws only what is near the arms"
+areas = ["renderer", "graphics", "sky"]
+paths = ["engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wgsl", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--hour", "14", "--log-frame-times", "4", "--graphics-cycle", "vanilla;no-sun-shadows"]
+run_seconds = 30
+order = [[
+  "GSDocMitchellHouseIntDoorREF activated",
+  "sky: outdoors again, the sky dome (with the sun disc and glare) shown",
+]]
+expect = [
+  "sun shadows to 8000 in 3 cascades",
+  "sun shadows off",
+  { re = 'Arms shade light for view: \[(?P<n>\d+)\]', range = [1, 80], label = "the arms' shade light draws at most 80 casters (about 190 when it was the sun's first cascade)" },
+]
+
+[[scenario]]
 name = "graphics-enhanced"
 source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, its switches change while the game runs, and temporal anti-aliasing replaces the multisampling and back without a rendering error"
 areas = ["renderer", "graphics"]
