@@ -3332,6 +3332,7 @@ List 1 items 26, 27, 24 and 28 (docs/handoff/playtest-2026-10-12.md).
    `XRGD` "Ragdoll Bones" (probably the pose the designer's Havok Sim left) which would lay
    each body exactly as authored; ours fall where they stand. *Check:* the village's bodies
    lie on the ground, can be searched, and do not get up.
+
 ## Aid items: chems, food and meds (2026-10-12, workstream I "aid")
 
 Using an aid item now changes the actor values its record says (Stimpak, RadAway, Rad-X,
