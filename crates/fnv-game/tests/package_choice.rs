@@ -430,3 +430,42 @@ fn the_periodic_choice_follows_the_clock() {
     still.frames(60 * 12);
     assert!(still.extra.get(&a).is_none_or(|e| e.current_package.is_none()));
 }
+
+/// ResetAI, GetCurrentAIPackage and GetCurrentAIProcedure (docs/design/script-stubs.md
+/// §3; the codes are the GECK wiki's tables).
+#[test]
+fn reset_ai_drops_the_script_package_and_the_codes_follow_the_package() {
+    use fnv_game::functions::Ctx;
+    use fnv_game::game::FurnitureUse;
+    use fnv_script::vm::{ArgValue, Value};
+    let f = fixture();
+    let mut g = game(&f, None);
+    let a = id(REF_A);
+    let call = |g: &mut Game, op: u16, args: &[ArgValue]| -> f64 {
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(a), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, args).num()
+    };
+    let (package, procedure) = (0x106E, 0x108F);
+    // Noon: the sandbox package.
+    assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (36.0, 45.0));
+    // A script's travel package: travelling, then done at its goal.
+    call(&mut g, 0x1097, &[ArgValue::Value(Value::Ref(P_MORNING))]);
+    assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (14.0, 0.0));
+    g.package_goal_met(a);
+    assert_eq!(call(&mut g, procedure, &[]), 17.0);
+    // ResetAI: the script package is gone and the list is chosen from again.
+    call(&mut g, 0x11FA, &[]);
+    assert!(g.extra[&a].packages.is_empty());
+    assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (36.0, 45.0));
+    // Night: the sleep package, walking to the bed, lying on it, getting up; a chair.
+    set(&mut g, G_HOUR, 23.0);
+    g.evaluate_package(a);
+    assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (4.0, 0.0));
+    let on = |marker_id, state| Some(FurnitureUse { reference: id(MARKER), marker_id, state });
+    g.set_furniture_use(a, on(1, 3));
+    assert_eq!(call(&mut g, procedure, &[]), 8.0);
+    g.set_furniture_use(a, on(1, 4));
+    assert_eq!(call(&mut g, procedure, &[]), 21.0);
+    g.set_furniture_use(a, on(20, 3));
+    assert_eq!(call(&mut g, procedure, &[]), 48.0);
+}

@@ -272,6 +272,19 @@ pub fn enforce_locks(
 
 /// At exit, when scripts ever changed the player's controls: how often, what is off now
 /// and what was held back.
+/// Tell the scripts the camera's view (IsPC1stPerson) and whether the player sneaks
+/// (IsSneaking) every frame; movement is told by detection (`nvforever` `detection.rs`).
+pub fn tell_scripts(control: Res<PlayerControl>, mut script: Option<ResMut<crate::script::ScriptState>>) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let g = &mut rt.game;
+    g.set_first_person(!control.third_person_view());
+    let mut m = g.motion(fnv_sim::FormId::PLAYER_REF);
+    if m.sneaking != control.sneak {
+        m.sneaking = control.sneak;
+        g.set_motion(fnv_sim::FormId::PLAYER_REF, m);
+    }
+}
+
 pub fn report_locks(mut exit: MessageReader<AppExit>, locks: Res<ControlLocks>, stats: Res<LockStats>) {
     if exit.read().next().is_none() || stats.changes == 0 {
         return;

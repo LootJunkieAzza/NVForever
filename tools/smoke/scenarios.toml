@@ -160,22 +160,27 @@ order = [[
 
 [[scenario]]
 name = "graphics-enhanced"
-source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, and its switches change while the game runs"
+source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, its switches change while the game runs, and temporal anti-aliasing replaces the multisampling and back without a rendering error"
 areas = ["renderer", "graphics"]
 paths = [
   "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao*", "engine/nvforever/src/post*",
+  "engine/nvforever/src/taa*", "engine/nvforever/src/shafts*",
   "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs",
 ]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16,19.5:20.5", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion,15:taa,15.5:light-shafts,20:taa", NVF_PLAY_TEST_LOOK = "17:90:0,17.5:120:0,18:150:0", NVF_PLAY_TEST_MOVE = "17:1:0,19:0:0" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--graphics", "enhanced"]
 run_seconds = 22
 order = [[
-  "graphics: ambient occlusion, finer, longer shadows, bloom, sharpening, 16x anisotropic filtering",
-  { re = 'graphics: finer, longer shadows, bloom, sharpening, 16x anisotropic filtering$' },
-  { re = 'graphics: finer, longer shadows, sharpening, 16x anisotropic filtering$' },
-  { re = 'graphics: sharpening, 16x anisotropic filtering$' },
-  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering$' },
+  "graphics: ambient occlusion, finer, longer shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections",
+  { re = 'graphics: finer, longer shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: finer, longer shadows, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, temporal anti-aliasing, sun shafts, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, temporal anti-aliasing, screen-space water reflections$' },
+  { re = 'graphics: ambient occlusion, sharpening, 16x anisotropic filtering, screen-space water reflections$' },
 ]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the multisampling changes" }]
 
 # ------------------------------------------------------------------ navmesh and AI
 
@@ -1170,6 +1175,60 @@ expect = [
   { re = 'new game: (?P<n>\d+) placed actors start dead \(Base Health 0\)', range = [800, 1000], label = "new game: about 889 placed actors start dead" },
   { re = 'ragdolls: (?P<n>\d+) started', range = [9, 1000], label = "ragdolls: the village's nine corpses or more dropped" },
 ]
+
+# ------------------------------------------------------------------ script stubs
+
+[[scenario]]
+name = "script-stubs"
+kind = "tool"
+source = "docs/design/script-stubs.md §1-§2: the audit of the stubbed script functions over the ten masters"
+areas = ["scripts", "stubs"]
+paths = ["crates/fnv-game/src/functions/mod.rs", "crates/fnv-game/src/functions/stubs.rs", "crates/fnvtool/src/script_cmd.rs"]
+commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"]]
+# The counts of script-stubs.md §1 (a function implemented later lowers them: update the
+# doc's tables and these together).
+expect = [
+  { json = "summary.stubs", equals = 94 },
+  { json = "summary.by_status.assigned", equals = 23 },
+  { json = "summary.by_status.implementable", equals = 10 },
+  { json = "summary.by_status.needs_system", equals = 61 },
+  { json = "summary.by_status.no_op", equals = 4 },
+  { json = "summary.by_workstream.E2 combat AI", equals = 16 },
+  { json = "summary.by_workstream.J karma and crime", equals = 6 },
+  { json = "summary.by_workstream.H followers", equals = 1 },
+  { json = "summary.stub_calls", equals = 1552 },
+  { json = "summary.stub_condition_uses", equals = 655 },
+  { json = "summary.unhandled_used", equals = 5 },
+]
+
+[[scenario]]
+name = "script-stubs-play"
+source = "docs/design/script-stubs.md §3: Look and StopLook on Sunny (10 s apart), a held SetWeather and its release, ForceActiveQuest on the Pip-Boy (the test aid call:)"
+areas = ["scripts", "stubs", "weather", "pipboy"]
+paths = [
+  "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-game/src/functions/ui.rs",
+  "crates/fnv-game/src/weather.rs", "engine/nvforever/src/script_look.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:SunnyRef:Look:player,8:call:-:SetWeather:0x000E3792:1,10:call:-:ReleaseWeatherOverride,14:call:SunnyRef:StopLook,15:objective:VCG02:3,15.5:call:-:ForceActiveQuest:VCG02", NVF_PLAY_TEST_PIPBOY = "22:open,23:page=data,25:close" }
+# --no-messages: the add-on start-up boxes, late on a loaded machine, kept the Pip-Boy
+# from coming up once.
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 28
+# StopLook comes 10 s after Look: aids due while the start-up loading screen is up run
+# together in its first frame (a loaded machine kept it up past 10 s once), and a Look
+# taken back in the same frame is never drawn.
+order = [
+  [
+    { re = 'script look: .* looks at ', label = "script look: Sunny looks at the player" },
+    { re = 'script look: .* stops looking', label = "script look: Sunny stops looking" },
+  ],
+  [
+    { re = 'weather: \S+ by a script \(fading in, held until released\)', label = "weather: SetWeather 0x000E3792 1, held" },
+    "weather: a script releases its weather",
+    { re = 'pipboy data: active quest .* \(ForceActiveQuest\)', label = "pipboy data: VCG02 made the active quest" },
+  ],
+]
+expect = ["script look summary: 1 looks started, 1 stopped"]
 
 # ------------------------------------------------------------------ aid items (docs/spec-notes/aid-items.md)
 

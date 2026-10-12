@@ -637,6 +637,8 @@ pub struct GameData {
     pub reputations: HashMap<FormId, f32>,
     /// CHAL DATA flags (1 Start Disabled, 2 Recurring, 4 Show Zero Progress).
     pub challenges: HashMap<FormId, u32>,
+    /// CHAL DATA threshold: the progress at which the challenge is completed.
+    pub challenge_thresholds: HashMap<FormId, u32>,
     pub regions: HashMap<FormId, RegionDef>,
     pub magic_effects: HashMap<FormId, MagicEffectDef>,
     /// The effects of every ALCH, SPEL, ENCH and INGR, in record order.
@@ -890,7 +892,8 @@ struct Read {
     leveled_actor: Option<LeveledActorDef>,
     package: Option<PackageDef>,
     reputation: Option<f32>,
-    challenge: Option<u32>,
+    /// CHAL DATA flags and threshold.
+    challenge: Option<(u32, u32)>,
     region: Option<RegionDef>,
     magic_effect: Option<MagicEffectDef>,
     effects: Option<Vec<EffectItem>>,
@@ -964,6 +967,7 @@ impl GameData {
             scripted_by_cell: BTreeMap::new(),
             reputations: HashMap::new(),
             challenges: HashMap::new(),
+            challenge_thresholds: HashMap::new(),
             regions: HashMap::new(),
             magic_effects: HashMap::new(),
             effect_items: HashMap::new(),
@@ -1101,8 +1105,9 @@ impl GameData {
             if let Some(v) = r.reputation {
                 d.reputations.insert(id, v);
             }
-            if let Some(v) = r.challenge {
-                d.challenges.insert(id, v);
+            if let Some((flags, threshold)) = r.challenge {
+                d.challenges.insert(id, flags);
+                d.challenge_thresholds.insert(id, threshold);
             }
             if let Some(v) = r.region {
                 d.regions.insert(id, v);
@@ -1926,7 +1931,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             out.reputation = decoded.iter().find(|(s, _)| *s == b"DATA").and_then(|(_, v)| v.as_ref()?.as_f64()).map(|x| x as f32);
         }
         b"CHAL" => {
-            out.challenge = decoded.iter().find(|(s, _)| *s == b"DATA").and_then(|(_, v)| v.as_ref()).map(|v| flag_bits(v.get("flags")));
+            out.challenge = decoded
+                .iter()
+                .find(|(s, _)| *s == b"DATA")
+                .and_then(|(_, v)| v.as_ref())
+                .map(|v| (flag_bits(v.get("flags")), v.get("threshold").and_then(Json::as_u64).unwrap_or(0) as u32));
         }
         b"REGN" => {
             let mut rg = RegionDef::default();
