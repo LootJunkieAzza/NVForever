@@ -263,9 +263,13 @@ pub struct BoundClip {
     pub tracks: Vec<(usize, Arc<TransformTrack>, i32)>,
     /// The accumulation root's node index, if the skeleton has it.
     pub root: Option<usize>,
-    /// The index in `tracks` of the root's track, and the root's translation over one
-    /// cycle, which sampling removes so the clip plays in place.
-    pub root_track: Option<(usize, Vec3)>,
+    /// The index in `tracks` of the root's track, the root's translation over one
+    /// cycle, which sampling removes so the clip plays in place, and the root's height
+    /// where the track starts, which sampling removes too: the root rises and falls only
+    /// relative to it (actors.md §8.2; the 2ha/2hh `Holster` clips hold `Bip01` 67 units
+    /// up with no `Bip01 NonAccum` track, which over an idle's pelvis height lifted the
+    /// whole body off the ground, docs/spec-notes/floating-actors.md).
+    pub root_track: Option<(usize, Vec3, f32)>,
 }
 
 impl BoundClip {
@@ -281,7 +285,8 @@ impl BoundClip {
         let root_track = root.and_then(|r| tracks.iter().position(|(i, _, _)| *i == r)).map(|k| {
             let tt = &tracks[k].1;
             let at = |t: f32| tt.translation.sample(t).map_or(Vec3::ZERO, Vec3::from_array);
-            (k, at(clip.stop) - at(clip.start))
+            let start = at(clip.start);
+            (k, at(clip.stop) - start, start.z)
         });
         BoundClip { clip, tracks, root, root_track }
     }
@@ -443,9 +448,10 @@ impl BlendPlayer {
             for (j, (i, track, p)) in bc.tracks.iter().enumerate() {
                 let b = self.bind.get(*i).copied().unwrap_or_default();
                 let mut t = track.translation.sample(time).map_or(b.translation, Vec3::from_array);
-                if let Some((rj, per_cycle)) = bc.root_track {
+                if let Some((rj, per_cycle, start_z)) = bc.root_track {
                     if rj == j {
                         t -= per_cycle * phase;
+                        t.z -= start_z;
                     }
                 }
                 let r = track.rotation_at(time).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
@@ -701,7 +707,7 @@ mod tests {
         let (_, ix) = player();
         let (walk, idle) = walk_and_idle(&ix);
         assert_eq!(walk.tracks.len(), 3);
-        assert_eq!((walk.root, walk.root_track), (Some(1), Some((0, Vec3::new(0.0, 100.0, 0.0)))));
+        assert_eq!((walk.root, walk.root_track), (Some(1), Some((0, Vec3::new(0.0, 100.0, 0.0), 0.0))));
         // A track whose node the skeleton lacks is dropped; the idle drives no root.
         assert_eq!((idle.tracks.len(), idle.root, idle.root_track), (1, Some(1), None));
         assert_eq!(walk.time_at(0.25), 0.25);
@@ -789,6 +795,24 @@ mod tests {
 
     fn pose(t: [f32; 3]) -> Arc<TransformTrack> {
         track(Channel::Static(Some(t)), Channel::Static(Some([1.0, 0.0, 0.0, 0.0])))
+    }
+
+    #[test]
+    fn root_height_counts_from_the_track_start() {
+        // A holster clip holding `Bip01` 67 up with no `Bip01 NonAccum` track (2ha/2hh
+        // `Holster`, floating-actors.md) over an idle with the pelvis at 61: the body stays
+        // at the idle's height.
+        let (mut p, ix) = player();
+        let holster = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01", pose([0.0, 0.0, 67.0]), 40)]), &ix));
+        let idle = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Bip01 NonAccum", pose([0.0, 0.0, 61.0]), 10)]), &ix));
+        assert_eq!(holster.root_track, Some((0, Vec3::ZERO, 67.0)));
+        let layer = |c: &Arc<BoundClip>| Some(Layer { clip: c.clone(), phase: 0.5, weight: 1.0 });
+        p.layers = [layer(&idle), layer(&holster), None, None, None, None];
+        let mut out = Vec::new();
+        p.sample(&mut out);
+        let get = |i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1.translation;
+        assert_eq!(get(1), Vec3::ZERO);
+        assert_eq!(get(2).z, 61.0);
     }
 
     #[test]
