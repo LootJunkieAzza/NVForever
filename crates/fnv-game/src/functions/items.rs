@@ -329,3 +329,19 @@ pub fn set_quest_object(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Str
     g.world.set_quest_object(f, a.num_or(1, 1.0) != 0.0);
     none()
 }
+
+/// `AddItemToLeveledList list form level count health`: from now on `form` (an item or
+/// a leveled list) is an entry of the leveled item list `list` at `level`, `count` at a
+/// time; kept in the saved state and never taken back [documented: GECK wiki
+/// AddItemToLeveledList] (`fnv_sim::World::add_to_leveled_list`). The health (0–100 in
+/// New Vegas [documented]) is not kept: leveled entries here carry no condition, and the
+/// shipped calls all ask for 1 or 100 [observed: the 20 decoded calls of Honest Hearts
+/// and Old World Blues]. Count and level below 1 are read as 1 [hypothesis].
+pub fn add_item_to_leveled_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let list = a.form(0)?;
+    let item = a.form(1)?;
+    let level = a.num_or(2, 1.0).clamp(1.0, u16::MAX as f64) as u16;
+    let count = a.num_or(3, 1.0).clamp(1.0, u16::MAX as f64) as u16;
+    g.world.add_to_leveled_list(list, fnv_sim::forms::LeveledEntry { level, item, count }).map_err(|e| e.to_string())?;
+    none()
+}

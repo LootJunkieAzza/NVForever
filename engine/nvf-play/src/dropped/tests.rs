@@ -165,6 +165,7 @@ fn world_with(s: RefState) -> World<'static> {
         globals: Default::default(),
         detached_cells: Default::default(),
         quest_objects: Default::default(),
+        leveled_added: Default::default(),
     };
     World::restore(forms, refs, &snap).unwrap()
 }

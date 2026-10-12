@@ -213,6 +213,14 @@ pub struct RefExtra {
     /// GameDaysPassed reaches the value ([`Game::block_package`]).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub package_blocked: BTreeMap<FormId, f32>,
+    /// SetPackDuration: the current package (first) ends when GameDaysPassed reaches the
+    /// second ([`Game::end_timed_packages`]).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub package_ends: Option<(FormId, f64)>,
+    /// SetActorsAI 0: the actor's AI does not run (no package choice, no detection, no
+    /// walking); its scripts still do.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub ai_off: bool,
     /// SetActorRefEssential (the reference only; the base's flag is separate).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub essential: Option<bool>,
@@ -380,6 +388,17 @@ pub struct ActiveImageModifier {
     pub elapsed: f64,
 }
 
+/// What the last ShowAllMapMarkers asked for (docs/design/script-stubs.md §3.2).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AllMarkers {
+    /// Every marker is on the map (1), or the call took them off (0).
+    pub shown: bool,
+    /// Fast travel to them is allowed (no fast travel is built yet; kept for it).
+    pub travel: bool,
+    /// Markers flagged "Show All" Hidden are left out.
+    pub skip_hidden: bool,
+}
+
 /// The player's state outside the world's reference table.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayerState {
@@ -421,6 +440,9 @@ pub struct PlayerState {
     /// Map markers ShowMap made visible.
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub map_markers: BTreeSet<FormId>,
+    /// ShowAllMapMarkers: every marker shown at once; `None` before any call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all_markers: Option<AllMarkers>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub challenges: BTreeMap<FormId, ChallengeState>,
     #[serde(skip_serializing_if = "FastTravel::is_default", default)]
@@ -682,6 +704,12 @@ pub struct Game<'a> {
     /// layer that moves actors last took them ([`Game::take_teleported`]): it has to
     /// start them again from where they are now. Not saved.
     pub teleported: BTreeSet<FormId>,
+    /// Rotate: this frame's turn per reference (axis 0–2, degrees per second); the last
+    /// call of the frame counts. Applied at the end of [`Game::tick`]. Not saved.
+    pub rotations: BTreeMap<FormId, (usize, f64)>,
+    /// References Rotate turned in the latest [`Game::tick`], for the engine to draw at
+    /// their new angle. Not saved.
+    pub turned: BTreeSet<FormId>,
     /// Cell resets since the engine last took them ([`Game::take_cell_resets`],
     /// `crate::respawn`). Not saved.
     pub cell_resets: Vec<crate::respawn::CellReset>,
@@ -861,6 +889,8 @@ impl<'a> Game<'a> {
             loaded_cells: BTreeSet::new(),
             moved: BTreeSet::new(),
             teleported: BTreeSet::new(),
+            rotations: BTreeMap::new(),
+            turned: BTreeSet::new(),
             cell_resets: Vec::new(),
             menu: None,
             loading: false,
@@ -1233,6 +1263,7 @@ impl<'a> Game<'a> {
     /// ran, each after the previous one was closed, layer5-captures.md §10.1–10.2].
     pub fn tick(&mut self) {
         self.frame += 1;
+        self.turned.clear();
         if self.loading {
             return;
         }
@@ -1313,7 +1344,9 @@ impl<'a> Game<'a> {
             self.update_effects(dt);
             self.tick_needs(dt);
             self.update_speech(dt);
+            self.apply_rotations(dt);
         }
+        self.rotations.clear();
         // The conversation's own lines go on in real time while it pauses the game;
         // another menu on top of it (a message box) holds it.
         if self.menu.is_none() {

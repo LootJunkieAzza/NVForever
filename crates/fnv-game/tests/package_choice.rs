@@ -469,3 +469,47 @@ fn reset_ai_drops_the_script_package_and_the_codes_follow_the_package() {
     g.set_furniture_use(a, on(20, 3));
     assert_eq!(call(&mut g, procedure, &[]), 48.0);
 }
+
+/// SetPackDuration ends the current package that many game minutes after the call (it
+/// is chosen again, here the same one, which starts afresh); SetActorsAI 0 keeps the
+/// periodic choice away from the actor until SetActorsAI 1 (docs/design/script-stubs.md
+/// §3.2).
+#[test]
+fn set_pack_duration_ends_the_package_and_set_actors_ai_stops_the_choice() {
+    use fnv_game::functions::Ctx;
+    use fnv_script::vm::{ArgValue, Value};
+    let f = fixture();
+    let mut g = game(&f, Some(10.0));
+    let a = id(REF_A);
+    let call = |g: &mut Game, op: u16, x: f64| {
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(a), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, &[ArgValue::Value(Value::Num(x))]);
+    };
+    g.tick();
+    assert_eq!(g.extra[&a].current_package, Some(id(P_DEFAULT)));
+    call(&mut g, 0x1122, 30.0);
+    let until = g.extra[&a].package_ends;
+    assert!(until.is_some_and(|(p, t)| p == id(P_DEFAULT) && (t - (5.0 + 30.0 / 1440.0)).abs() < 1e-4), "{until:?}");
+    let let_go = |g: &Game, from: usize| g.events[from..].iter().any(|e| matches!(e.kind, EventKind::PackageChosen { actor, package: None } if actor == a));
+    // 14 game minutes on: still running.
+    set(&mut g, G_DAYS_PASSED, 5.01);
+    let from = g.events.len();
+    g.tick();
+    assert!(!let_go(&g, from) && g.extra[&a].package_ends.is_some());
+    // 43 minutes on: it ends and the actor chooses again (the same package, afresh).
+    set(&mut g, G_DAYS_PASSED, 5.03);
+    let from = g.events.len();
+    g.tick();
+    assert!(let_go(&g, from), "the timed package was let go");
+    assert_eq!((g.extra[&a].current_package, g.extra[&a].package_ends), (Some(id(P_DEFAULT)), None));
+
+    // AI off: the night window comes and goes without a choice; on again, it chooses.
+    call(&mut g, 0x118B, 0.0);
+    assert!(g.extra[&a].ai_off);
+    set(&mut g, G_HOUR, 22.0);
+    g.frames(60 * 12);
+    assert_eq!(g.extra[&a].current_package, Some(id(P_DEFAULT)));
+    call(&mut g, 0x118B, 1.0);
+    g.frames(60 * 12);
+    assert_eq!(g.extra[&a].current_package, Some(id(P_NIGHT)));
+}

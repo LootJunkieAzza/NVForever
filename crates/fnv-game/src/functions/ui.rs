@@ -29,6 +29,9 @@ pub struct UiRequests {
     /// AddTagSkills: skills to tag in the next tag-skill menu besides those tagged
     /// (`crate::chargen::TagSheet::for_menu`).
     pub extra_tags: Option<usize>,
+    /// SetGlobalTimeMultiplier: the game's speed (`None`: never set, 1). The engine
+    /// applies it to its clock while no menu holds the game.
+    pub time_multiplier: Option<f64>,
 }
 
 /// `IncrementScriptedChallenge challenge`: one step towards the challenge's threshold

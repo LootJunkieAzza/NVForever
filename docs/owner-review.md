@@ -4072,3 +4072,35 @@ combat, cover on a Continue During Combat walk, armour in the threat ratio.
      walk keep it too.
    - New test aid `NVF_TEST_ACTOR_FEET=<s>[:<range>]` logs each nearby actor's root, lowest
      foot bone and the landscape under it; smoke scenario `floating-troopers`.
+
+## Script stubs, second round (2026-10-12, session "stubs-2")
+
+Playtest §4 item 7 (docs/design/script-stubs.md §3.2). Implemented: SetPackDuration,
+SetActorsAI, Rotate, ShowAllMapMarkers, SetGlobalTimeMultiplier, IsTurning,
+IsPlayerMovingIntoNewSpace; registered AddItemToLeveledList, IsDLCInstalled,
+GetXPForNextLevel. Left: PushActorAway, SetForceSneak (both need a system now),
+AutoDisplayObjectives, GetIsObjectType.
+
+Decisions where the sources were unclear:
+- **SetPackDuration** counts from the call, not the package's start; when the time is up
+  the package counts as done (end script, OnPackageDone) and the actor chooses again,
+  which may pick the same package and start it afresh. Check: the Hidden Valley bunker
+  Paladins (packages 0x000D76E4–0x000D781C) change activity about every 30–90 game
+  minutes rather than staying all day.
+- **Rotate** turns a reference for one frame per call (the shipped callers call it
+  every frame from GameMode). Check: the turning objects of `SCPT 0x0013414C/D/E` (via
+  their linked references) spin steadily.
+- **SetActorsAI 0** stops package choice, walking and detection, not animation or
+  collision: the actor stands in its idle. Check the ambusher of `SCPT 0x000F9D8F/90`.
+- **SetGlobalTimeMultiplier** slows the whole virtual clock (animations, physics, NPCs,
+  scripts' frame time, the game clock); sound is never slowed or pitched.
+- **ShowAllMapMarkers 0** forgets ShowMap's markers but leaves found and Visible ones.
+  The Explorer perk (`1 0 0`) shows the hidden-flagged markers too, as the wiki reads.
+  Smoke run: 183 of the 188 Mojave markers on the world map (5 are disabled).
+- **IsTurning** threshold 0.5 rad/s (about 30°/s), guessed.
+- **IsDLCInstalled** matches a load-order plugin by name, spaces/case/extension ignored
+  ("tribal pack" = TribalPack.esm); no page documents the function.
+- **GetXPForNextLevel** returns what is left to the next level (not the total), from the
+  Here and Now perk. Levelling up is not built, so the level stays at SetLevel's.
+- **AddItemToLeveledList** ignores the health argument (leveled entries carry no
+  condition here); an entry added twice counts twice.
