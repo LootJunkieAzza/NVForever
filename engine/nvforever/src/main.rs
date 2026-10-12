@@ -51,6 +51,7 @@ mod shot_fx;
 mod ragdoll;
 mod reflection;
 mod residents;
+mod script_look;
 mod ripples;
 mod settings;
 mod shafts;
@@ -390,6 +391,11 @@ struct Args {
     /// --pos and --heading are ignored.
     #[arg(long, requires = "play")]
     new_game: bool,
+    /// With --play: close message boxes that ask nothing (an OK button only, such as the
+    /// add-on packs' start-up boxes) as soon as a script shows them; boxes with a choice
+    /// stay open. For testing; the box's text is still logged.
+    #[arg(long, requires = "play")]
+    no_messages: bool,
     /// With --play: do not play dialogue voice (lines still last as long as their sound;
     /// the log still names each file).
     #[arg(long)]
@@ -844,6 +850,9 @@ fn main() -> AppExit {
     if args.new_game {
         app.insert_resource(nvf_play::script::NewGame);
     }
+    if args.no_messages {
+        app.insert_resource(nvf_play::script::NoMessages);
+    }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
     app.insert_resource(nvf_play::sfx::SfxSettings { play: !args.no_sound, ..Default::default() });
     app.insert_resource(nvf_play::music::MusicSettings { play: !args.no_music, volume: args.music_volume });
@@ -889,6 +898,8 @@ fn main() -> AppExit {
             app.add_plugins(detection::DetectionPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
+            // Heads held by a script's Look (script_look.rs).
+            app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
             // Fights started by hits; the player's yield (provoked.rs).
@@ -898,7 +909,7 @@ fn main() -> AppExit {
         }
     }
     if play.is_some() {
-        app.add_systems(Update, sky_follows_game.before(sky::update_sky));
+        app.add_systems(Update, (script_weather, sky_follows_game).chain().before(sky::update_sky));
     }
     if play.is_some() || residents.is_some() {
         // Idle animations (idles.rs): after the game asked for them (scripts, packages,
@@ -1133,6 +1144,30 @@ fn keys(
 /// TimeScale global. An hour set by hand (the `[` and `]` keys) becomes the game's. The
 /// time-lapse test aid (`--time-scale`) keeps the sky's own clock, and so does
 /// `--still-sky` (the settings page switches it while the game runs).
+/// The weather scripts ask for (SetWeather, ForceWeather, ReleaseWeatherOverride;
+/// `fnv_game::weather`), and back to the scripts the weather shown (IsRaining,
+/// GetIsCurrentWeather).
+fn script_weather(mut script: Option<ResMut<nvf_play::script::ScriptState>>, world: Option<Res<nvf_play::PlayWorld>>, mut sky: ResMut<sky::SkyState>) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let g = &mut rt.game;
+    if let Some(r) = g.take_weather_request() {
+        match world.as_deref().and_then(|w| fnv_world::sky::weather(w.lo, w.schema, r.weather.0).map(|wt| (w, wt))) {
+            Some((w, wt)) => {
+                let adapters = fnv_world::imagespace::weather_adapters(w.lo, w.schema, &wt).map(|id| id.and_then(|id| fnv_world::imagespace::adapter(w.lo, w.schema, id)));
+                sky.script_weather(wt, adapters, r.instant, r.hold);
+            }
+            None => warn!("weather: a script asked for {}, which is not a weather", g.data.name(r.weather)),
+        }
+    }
+    if g.take_weather_release() {
+        sky.release_script_weather();
+    }
+    let (shown, raining) = (fnv_sim::FormId(sky.weather.form_id), sky.raining());
+    if g.weather.shown != Some(shown) || g.weather.raining != raining {
+        g.set_shown_weather(shown, raining);
+    }
+}
+
 fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, args: Res<Args>, mut shown: Local<Option<f32>>) {
     if sky.time_scale > 0.0 || args.still_sky {
         return;

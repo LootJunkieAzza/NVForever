@@ -231,6 +231,19 @@ pub struct SkyState {
     /// Each weather's image space adapters per time of day, by weather form ID.
     adapters: HashMap<u32, [Option<Adapter>; 6]>,
     changed: bool,
+    /// A script's weather (SetWeather, ForceWeather), while it lasts.
+    script: Option<ScriptWeather>,
+}
+
+/// A weather a script set: held until ReleaseWeatherOverride, or kept until the
+/// climate's own choice changes from the one it was when the script set it
+/// [documented: GECK wiki SetWeather, "the weather will change back in the normal
+/// fashion according to the weather system"; hypothesis: "in the normal fashion" is the
+/// next change of the climate's choice].
+#[derive(Debug, Clone, Copy)]
+struct ScriptWeather {
+    hold: bool,
+    climate_pick: Option<u32>,
 }
 
 /// A climate weather with its chance and gating global.
@@ -307,6 +320,7 @@ impl SkyState {
             image_space,
             adapters,
             changed: true,
+            script: None,
         };
         s.follow_climate(true);
         Ok(s)
@@ -317,12 +331,15 @@ impl SkyState {
     /// at once with `instant`.
     fn follow_climate(&mut self, instant: bool) {
         let h = self.hour;
-        let best = self
-            .choices
-            .iter()
-            .filter(|c| c.global.as_ref().is_none_or(|(e, v)| gate_value(e.as_deref(), *v, h).is_some_and(|v| v != 0.0)))
-            .reduce(|a, b| if b.chance > a.chance { b } else { a });
-        let Some(best) = best else { return };
+        let Some(best) = self.climate_choice() else { return };
+        if let Some(sw) = self.script {
+            if sw.hold || sw.climate_pick == Some(best.weather.form_id) {
+                return;
+            }
+            self.script = None;
+            info!("weather: the climate takes over from the script's weather");
+        }
+        let Some(best) = self.climate_choice() else { return };
         if best.weather.form_id == self.weather.form_id {
             if instant {
                 self.prev = None;
@@ -341,6 +358,56 @@ impl SkyState {
         }
         info!("weather: {} at {:02}:{:02}", self.weather.edid.as_deref().unwrap_or("?"), h as u32, (h.fract() * 60.0) as u32);
         self.changed = true;
+    }
+
+    /// The climate's weather for the current hour: the highest chance among the weathers
+    /// whose gate is open.
+    fn climate_choice(&self) -> Option<&Choice> {
+        let h = self.hour;
+        self.choices
+            .iter()
+            .filter(|c| c.global.as_ref().is_none_or(|(e, v)| gate_value(e.as_deref(), *v, h).is_some_and(|v| v != 0.0)))
+            .reduce(|a, b| if b.chance > a.chance { b } else { a })
+    }
+
+    /// A script's weather (SetWeather fades to it, ForceWeather is `instant`), held
+    /// against the climate with `hold` until [`SkyState::release_script_weather`].
+    pub fn script_weather(&mut self, w: Weather, adapters: [Option<Adapter>; 6], instant: bool, hold: bool) {
+        self.adapters.entry(w.form_id).or_insert(adapters);
+        let climate_pick = self.climate_choice().map(|c| c.weather.form_id);
+        self.script = Some(ScriptWeather { hold, climate_pick });
+        info!(
+            "weather: {} by a script ({}{})",
+            w.edid.as_deref().unwrap_or("?"),
+            if instant { "at once" } else { "fading in" },
+            if hold { ", held until released" } else { "" }
+        );
+        if w.form_id == self.weather.form_id {
+            return;
+        }
+        let old = std::mem::replace(&mut self.weather, w);
+        if instant {
+            self.prev = None;
+            self.fade = 1.0;
+        } else {
+            self.prev = Some(old);
+            self.fade = 0.0;
+        }
+        self.changed = true;
+    }
+
+    /// ReleaseWeatherOverride: the climate chooses again.
+    pub fn release_script_weather(&mut self) {
+        if let Some(sw) = self.script.as_mut() {
+            sw.hold = false;
+            info!("weather: a script releases its weather");
+        }
+        self.follow_climate(false);
+    }
+
+    /// The weather shown is rainy (WTHR DATA) and its change is over (IsRaining).
+    pub fn raining(&self) -> bool {
+        self.weather.rainy && self.prev.is_none()
     }
 
     /// Set the hour; `instant` skips weather fades (a jump rather than time passing).
