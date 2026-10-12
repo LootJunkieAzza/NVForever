@@ -252,6 +252,8 @@ pub struct DataState {
     poll: f32,
     acts: Vec<Act>,
     drag: Vec2,
+    /// How many markers the world map showed when last logged.
+    world_logged: Option<usize>,
 }
 
 // ---- what is shown ------------------------------------------------------------------------
@@ -806,9 +808,12 @@ fn place_cursor(st: &mut DataState, tab: usize, pointer: Option<Vec2>, marks: &m
 }
 
 /// Whether the player knows a marker (`Some`), and has been there (`true`): found within
-/// its radius, or shown by ShowMap or by its Visible flag [hypothesis].
+/// its radius, or shown by ShowMap, ShowAllMapMarkers (which leaves out markers flagged
+/// "Show All" Hidden, FNAM bit 4 [documented: xEdit's flag names, schemas/fnv/world.json],
+/// when asked to) or by its Visible flag [hypothesis].
 fn known(st: &DataState, game: &Game, m: &read::Marker) -> Option<bool> {
-    let shown = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.player.map_markers.contains(&FormId(m.form)));
+    let hidden = m.flags & 4 != 0;
+    let shown = game.script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.map_marker_shown(FormId(m.form), hidden));
     let found = st.discovered.contains(&m.form);
     let enabled = game.sim.as_ref().is_none_or(|s| s.present(m.form));
     (enabled && (found || shown || m.flags & 1 != 0)).then_some(found)
@@ -839,6 +844,10 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         .filter(|t| t.interior.is_none() && t.world == world)
         .map(|t| quest_corner(on_map(t.pos[0], t.pos[1])))
         .collect();
+    if st.world_logged != Some(marks.len()) {
+        st.world_logged = Some(marks.len());
+        info!("pipboy data: world map shows {} of {} markers of this worldspace", marks.len(), all.iter().filter(|mk| mk.world == world).count());
+    }
     let (cursor, label) = place_cursor(st, WORLD, pointer, &mut marks, &names);
     MapShown {
         picture: Some((m.texture.clone(), Rect::from_corners(left, left + size))),

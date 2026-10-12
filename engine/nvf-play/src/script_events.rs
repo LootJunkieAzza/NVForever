@@ -558,7 +558,8 @@ pub enum ScriptAid {
     PlayIdle(String, String),
     /// `call:<reference or ->:<function>[:<argument>…]`: a script calls the function (by
     /// its catalogue name) on the reference (`-`: none); an argument that reads as a
-    /// number is one, any other is a form (Editor ID, FormID or `player`).
+    /// number is one, `x`/`y`/`z` an axis, `"text"` a string, any other is a form (Editor
+    /// ID, FormID or `player`).
     Call(String, String, Vec<String>),
     /// `damage:<reference>:<actor value>:<amount>`: the actor value takes damage as
     /// `DamageActorValue` gives it (a stand-in for a hit, for checking aid items).

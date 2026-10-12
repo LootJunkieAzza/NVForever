@@ -168,9 +168,63 @@ pub fn show_map(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
+/// Whether a marker is on the map by the scripts' word (ShowMap; ShowAllMapMarkers),
+/// with its "Show All" Hidden flag. Markers the player found, or authored Visible, are
+/// the engine's to add.
+impl Game<'_> {
+    pub fn map_marker_shown(&self, marker: FormId, hidden: bool) -> bool {
+        self.player.map_markers.contains(&marker) || self.player.all_markers.is_some_and(|a| a.shown && !(a.skip_hidden && hidden))
+    }
+}
+
+/// The marker's Hidden flag is not read here: a marker counts as not hidden
+/// [engineering choice: the game crate has no marker data; the Pip-Boy map reads it].
 pub fn get_map_marker_visible(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(g.player.map_markers.contains(&r))
+    yes(g.map_marker_shown(r, false))
+}
+
+/// `ShowAllMapMarkers show [canTravel] [skipHidden]`: every map marker on the world map
+/// (1) or off it (0); the optional flags default to 1 [documented: GECK wiki
+/// ShowAllMapMarkers, "1, 1, 1 … same as first example"]. Hiding takes travel away
+/// whatever canTravel says, and showing with canTravel 0 does not take it from markers
+/// that had it [documented]; fast travel is not built, so `travel` is only kept. The
+/// Explorer perk's quest calls `ShowAllMapMarkers 1 0 0` [observed: QUST 0x000038B2
+/// stage 50]. Hiding forgets the markers ShowMap showed; markers the player found and
+/// those authored Visible stay on the map [hypothesis: no shipped script hides them,
+/// and the engine keeps discovery outside the game state].
+pub fn show_all_map_markers(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let shown = a.num(0)? != 0.0;
+    let travel = shown && (a.num_or(1, 1.0) != 0.0 || g.player.all_markers.is_some_and(|m| m.travel));
+    let skip_hidden = a.num_or(2, 1.0) != 0.0;
+    if !shown {
+        g.player.map_markers.clear();
+    }
+    g.player.all_markers = Some(crate::game::AllMarkers { shown, travel, skip_hidden });
+    none()
+}
+
+/// The total experience the player needs to have reached `level`:
+/// (n − 1)((n − 2)/2 · iXPBumpBase + iXPBase) [documented: GECK wiki Experience
+/// Settings]. The settings default to 200 and 150 [documented: same page] when the load
+/// order lacks them.
+pub fn xp_for_level(g: &Game, level: i32) -> f64 {
+    let base = g.world.forms.setting_f32("iXPBase").unwrap_or(200.0) as f64;
+    let bump = g.world.forms.setting_f32("iXPBumpBase").unwrap_or(150.0) as f64;
+    let n = level as f64;
+    (n - 1.0) * ((n - 2.0) / 2.0 * bump + base)
+}
+
+/// `GetXPForNextLevel`: the experience the player still needs to reach the next level
+/// [documented: GECK wiki, "the amount of XP the player needs before reaching the next
+/// level"]: the next level's total ([`xp_for_level`]) less the experience the player
+/// has, at least 0 [hypothesis: remaining rather than the total; the Here and Now perk's
+/// stage rewards exactly this amount, `QUST 0x000038B2` stage 10, which levels the
+/// player up at once only if it is what is left]. Levelling up is not built: the level
+/// is SetLevel's or the configuration's.
+pub fn get_xp_for_next_level(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let level = g.player.level.unwrap_or(g.world.config().player_level as i32);
+    Ok(Value::Num((xp_for_level(g, level + 1) - g.player.xp).max(0.0).round()))
 }
 
 /// The player's miscellaneous statistics by code (the source names them as strings; the

@@ -300,3 +300,31 @@ pub fn remove_image_space_modifier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result
 pub fn is_image_space_active(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     yes(g.image_modifier_active(a.form(0)?))
 }
+
+/// `IsDLCInstalled "name"`: 1 when the named add-on is in the load order. No wiki page or
+/// catalogue summary describes it; the only caller (`SCPT 0x0017912E`, the pack items'
+/// quest script) asks for "tribal pack", "caravan pack", "mercenary pack" and "classic
+/// pack" [observed: decoded scripts], which are the pack plugins' names without the
+/// space and the extension (TribalPack.esm …). So: a plugin of the load order whose name,
+/// without its extension, equals the argument once spaces and case are ignored
+/// [hypothesis: how the original finds an add-on by name is not documented].
+pub fn is_dlc_installed(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let squash = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_ascii_lowercase();
+    let want = squash(a.str(0)?);
+    yes(!want.is_empty() && g.data.load_order.iter().any(|p| squash(p.rsplit_once('.').map_or(p.as_str(), |(stem, _)| stem)) == want))
+}
+
+/// `SetGlobalTimeMultiplier mult [keepSoundUnchanged]`: the speed of the whole game,
+/// 1 normal, 0.5 slow motion [documented: GECK wiki SetGlobalTimeMultiplier]. The
+/// engine takes it (`UiRequests::time_multiplier`, read by `nvf_play`); sound speed and
+/// pitch are not changed either way (the second parameter's "unchanged" is the only
+/// behaviour; the shipped slow motion asks for it, `QUST 0x00102037` stage 27 [observed]).
+/// 0 "will break the game" [documented]: values at or below 0 are refused.
+pub fn set_global_time_multiplier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let m = a.num(0)?;
+    if m <= 0.0 || !m.is_finite() {
+        return Err(format!("time multiplier {m} refused (must be above 0)"));
+    }
+    g.ui.time_multiplier = Some(m);
+    none()
+}

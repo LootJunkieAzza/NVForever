@@ -21,6 +21,8 @@ pub struct Motion {
     pub running: bool,
     /// It is sneaking (crouched).
     pub sneaking: bool,
+    /// It is turning: 0 not, 1 left, 2 right (IsTurning's codes).
+    pub turning: u8,
 }
 
 /// What the engine told the scripts, and the switches scripts set for it.
@@ -142,4 +144,23 @@ pub fn always_show_actor_subtitles(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<
         g.senses.always_subtitles.remove(&r);
     }
     none()
+}
+
+/// `actor.IsTurning`: 0 not turning, 1 turning left, 2 turning right [documented: GECK
+/// wiki IsTurning]. The engine tells it with the rest of the movement
+/// ([`Game::set_motion`]; `nvforever` `detection.rs` measures the heading's change).
+pub fn is_turning(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject_or_player();
+    Ok(Value::Num(g.motion(r).turning.min(2) as f64))
+}
+
+/// `IsPlayerMovingIntoNewSpace`: 1 while the player is moving into a new space, through a
+/// load door or by fast travel [documented: GECK wiki IsPlayerMovingIntoNewSpace]: while
+/// the engine holds the game under a loading screen ([`Game::loading`], set by
+/// `nvf_play::script` from the travel's frozen frames). Scripts do not run then, so a
+/// script reads 0 in its own blocks, as the page's note warns [documented: "may only
+/// work within a MenuMode, OnLoad or similar block"]; package conditions evaluated during
+/// the load see 1.
+pub fn is_player_moving_into_new_space(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    yes(g.loading)
 }

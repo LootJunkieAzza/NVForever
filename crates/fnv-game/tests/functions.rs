@@ -722,11 +722,11 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
 
     // Movement and sneaking as the engine told them; nothing told is standing still.
     assert_eq!(call(&mut g, 0x111E, None, &[]), 0.0);
-    g.set_motion(FormId::PLAYER_REF, Motion { moving: true, running: false, sneaking: true });
+    g.set_motion(FormId::PLAYER_REF, Motion { moving: true, running: false, sneaking: true, turning: 0 });
     assert_eq!(call(&mut g, 0x111E, None, &[]), 1.0);
     assert_eq!(call(&mut g, 0x1019, None, &[]), 1.0);
     assert_eq!(call(&mut g, 0x111F, None, &[]), 0.0);
-    g.set_motion(adult, Motion { moving: true, running: true, sneaking: false });
+    g.set_motion(adult, Motion { moving: true, running: true, sneaking: false, turning: 0 });
     assert_eq!(call(&mut g, 0x111F, Some(ADULT_REF), &[]), 1.0);
     g.forget_motion(adult);
     assert_eq!(call(&mut g, 0x1019, Some(ADULT_REF), &[]), 0.0);
@@ -801,4 +801,64 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
     call(&mut g, 0x11FB, None, &[n(1.0), n(1.0), n(0.5)]);
     call(&mut g, 0x1189, None, &[]);
     assert_eq!(g.stubbed.len(), stubbed);
+}
+
+/// The stubs implemented on 2026-10-12 by claude/script-stubs-2
+/// (docs/design/script-stubs.md §3.2).
+#[test]
+fn second_round_stubs() {
+    use fnv_game::functions::senses::Motion;
+    let f = fixture();
+    let mut g = game(&f);
+    let adult = FormId(ADULT_REF);
+
+    // GetXPForNextLevel: level 2 needs 200 in all (iXPBase, the wiki's defaults here);
+    // what the player has counts.
+    g.player.level = Some(1);
+    assert_eq!(call(&mut g, 0x1215, None, &[]), 200.0);
+    call(&mut g, 0x1177, None, &[n(50.0)]);
+    assert_eq!(call(&mut g, 0x1215, None, &[]), 150.0);
+    g.player.level = Some(2);
+    assert_eq!(call(&mut g, 0x1215, None, &[]), 500.0, "level 3 at 550");
+
+    // IsDLCInstalled: a plugin of the load order by name, spaces and case ignored.
+    assert_eq!(call(&mut g, 0x126F, None, &[s("functions")]), 1.0);
+    assert_eq!(call(&mut g, 0x126F, None, &[s("Tribal Pack")]), 0.0);
+
+    // ShowAllMapMarkers 1 0 0 (the Explorer perk): every marker, the hidden ones too.
+    let marker = FormId(ACTI_REF);
+    assert_eq!(call(&mut g, 0x11EC, Some(ACTI_REF), &[]), 0.0);
+    call(&mut g, 0x11F8, None, &[n(1.0), n(0.0), n(0.0)]);
+    assert!(g.map_marker_shown(marker, true));
+    assert_eq!(call(&mut g, 0x11EC, Some(ACTI_REF), &[]), 1.0);
+    call(&mut g, 0x11F8, None, &[n(1.0)]);
+    assert!(g.map_marker_shown(marker, false) && !g.map_marker_shown(marker, true), "skips hidden by default");
+    call(&mut g, 0x11F8, None, &[n(0.0)]);
+    assert!(!g.map_marker_shown(marker, false));
+
+    // SetGlobalTimeMultiplier: kept for the engine; 0 refused.
+    call(&mut g, 0x1186, None, &[n(0.5), n(1.0)]);
+    assert_eq!(g.ui.time_multiplier, Some(0.5));
+
+    // IsTurning and IsPlayerMovingIntoNewSpace from what the engine tells.
+    assert_eq!(call(&mut g, 0x101A, Some(ADULT_REF), &[]), 0.0);
+    g.set_motion(adult, Motion { turning: 2, ..Motion::default() });
+    assert_eq!(call(&mut g, 0x101A, Some(ADULT_REF), &[]), 2.0);
+    assert_eq!(call(&mut g, 0x1166, None, &[]), 0.0);
+    g.loading = true;
+    assert_eq!(call(&mut g, 0x1166, None, &[]), 1.0);
+    g.loading = false;
+
+    // Rotate: the frame's last call turns the reference by speed × frame time, once.
+    g.cfg.frame_seconds = 0.5;
+    let z0 = g.world.get(FormId(ACTI_REF)).unwrap().rot[2];
+    call(&mut g, 0x1004, Some(ACTI_REF), &[ArgValue::Axis('Z'), n(10.0)]);
+    call(&mut g, 0x1004, Some(ACTI_REF), &[ArgValue::Axis('Z'), n(90.0)]);
+    g.tick();
+    let z1 = g.world.get(FormId(ACTI_REF)).unwrap().rot[2];
+    assert!((z1 - z0 - 45f32.to_radians()).abs() < 1e-5, "{z0} -> {z1}");
+    assert!(g.turned.contains(&FormId(ACTI_REF)));
+    g.tick();
+    assert_eq!(g.world.get(FormId(ACTI_REF)).unwrap().rot[2], z1, "no call, no turn");
+    assert!(g.turned.is_empty());
 }

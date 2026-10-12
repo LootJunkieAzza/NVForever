@@ -318,3 +318,35 @@ pub fn enter_trigger(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String>
     g.ref_event(t, crate::game::event::ON_TRIGGER_ENTER, Some(Value::Ref(by.0)), Some(by));
     none()
 }
+
+/// `ref.Rotate axis degreesPerSecond`: turns the reference about the world's X, Y or Z
+/// axis at that speed [documented: GECK wiki Rotate]. One call turns it for one frame:
+/// the shipped turners call it from GameMode every frame [observed: `SCPT 0x0013414C`
+/// and its two siblings, `linkedRef.Rotate z ±300/900`], and a reference turns about
+/// one axis per frame, the last call of the frame counting [documented: the page's
+/// note]. So a call records the turn and [`Game::tick`] applies speed × frame time to
+/// the angle at the end of the frame [hypothesis: one frame per call]. The angle is the
+/// reference's own about that axis (Z is the heading; X and Y are only "world" for an
+/// unturned reference, which the page warns of [documented: "not reliable for complex
+/// rotations"]). Collision does not follow [documented: "Collision is not updated with
+/// rotation until the cell is reloaded"].
+pub fn rotate(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let axis = a.axis(0)?;
+    let speed = a.num(1)?;
+    g.world.get(r).map_err(|e| e.to_string())?;
+    g.rotations.insert(r, (axis, speed));
+    none()
+}
+
+impl Game<'_> {
+    /// Apply this frame's Rotate calls ([`rotate`]), angles kept within ±π.
+    pub(crate) fn apply_rotations(&mut self, dt: f64) {
+        for (r, (axis, speed)) in std::mem::take(&mut self.rotations) {
+            let Ok(s) = self.world.get(r) else { continue };
+            let a = s.rot[axis] as f64 + (speed * dt).to_radians();
+            s.rot[axis] = (a + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) as f32 - std::f32::consts::PI;
+            self.turned.insert(r);
+        }
+    }
+}

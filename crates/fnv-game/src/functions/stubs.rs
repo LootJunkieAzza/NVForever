@@ -56,16 +56,7 @@ pub const ASSIGNED: &[(u16, &str)] = &[
 
 /// Stubs whose system exists, left for a later round; the text says what is missing.
 pub const IMPLEMENTABLE: &[(u16, &str)] = &[
-    (0x1166, "IsPlayerMovingIntoNewSpace: the engine's load doors and fast travel would tell it"),
-    (0x1122, "SetPackDuration: the package model has durations; a per-actor override is missing"),
-    (0x118B, "SetActorsAI: the residents and the AI could skip an actor; the switch is missing"),
-    (0x1004, "Rotate: references move (SetAngle); a per-frame turn is missing"),
-    (0x11F8, "ShowAllMapMarkers: the Pip-Boy map reads markers; the game crate has no marker list"),
-    (0x1186, "SetGlobalTimeMultiplier: the engine has a time scale; the game crate does not ask for one"),
-    (0x118A, "PushActorAway: the engine has ragdolls; a scripted push is missing"),
-    (0x1225, "AutoDisplayObjectives: quest messages exist; the switch for when the Pip-Boy is away is missing"),
-    (0x101A, "IsTurning: the engine knows the turn rate; it does not tell the game yet"),
-    (0x10D3, "SetForceSneak: the player's sneak exists; NPCs never sneak yet"),
+    (0x1225, "AutoDisplayObjectives: objectives already show at the left as scripts set them; what the switch adds is not documented beyond the summary"),
 ];
 
 /// Why the stub `opcode` is one; `None` for an implemented or unknown opcode.

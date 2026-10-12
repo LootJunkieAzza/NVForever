@@ -1256,18 +1256,21 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # doc's tables and these together). Karma and crime (claude/karma-crime) implemented six
 # stubs (SendAssaultAlarm, SendTrespassAlarm, GetTrespassWarningLevel, IsTrespassing,
 # GetAlarmed, GetMajorCrimeCount: 100 calls, 32 condition uses) and the unregistered GetIsAlignment.
+# claude/script-stubs-2 implemented seven (34 calls, 9 condition uses), moved PushActorAway and
+# SetForceSneak to "needs a system", and registered AddItemToLeveledList, IsDLCInstalled and
+# GetXPForNextLevel (§3.2).
 expect = [
-  { json = "summary.stubs", equals = 88 },
+  { json = "summary.stubs", equals = 81 },
   { json = "summary.by_status.assigned", equals = 17 },
-  { json = "summary.by_status.implementable", equals = 10 },
-  { json = "summary.by_status.needs_system", equals = 61 },
+  { json = "summary.by_status.implementable", equals = 1 },
+  { json = "summary.by_status.needs_system", equals = 63 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.E2 combat AI", equals = 15 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
   { json = "summary.by_workstream.H followers", equals = 1 },
-  { json = "summary.stub_calls", equals = 1452 },
-  { json = "summary.stub_condition_uses", equals = 623 },
-  { json = "summary.unhandled_used", equals = 4 },
+  { json = "summary.stub_calls", equals = 1418 },
+  { json = "summary.stub_condition_uses", equals = 614 },
+  { json = "summary.unhandled_used", equals = 1 },
 ]
 
 [[scenario]]
@@ -1298,6 +1301,23 @@ order = [
   ],
 ]
 expect = ["script look summary: 1 looks started, 1 stopped"]
+
+[[scenario]]
+name = "script-stubs-2-play"
+source = "docs/design/script-stubs.md §3.2: SetGlobalTimeMultiplier slows the clock and puts it back; ShowAllMapMarkers 1 0 0 (the Explorer perk) puts the markers on the Pip-Boy's world map (the test aid call:)"
+areas = ["scripts", "stubs", "pipboy"]
+paths = ["crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/functions/misc.rs", "engine/nvf-play/src/pipboy/data.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:SetGlobalTimeMultiplier:0.5,8:call:-:SetGlobalTimeMultiplier:1,10:call:-:ShowAllMapMarkers:1:0:0", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=data,16:tab=1,19:close" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 26
+# Before the call only the few markers flagged Visible are on the map; after it, every one that
+# is enabled (a disabled marker stays off, so "all" is not asserted exactly).
+order = [[
+  "time multiplier: 1 -> 0.5 (SetGlobalTimeMultiplier)",
+  "time multiplier: 0.5 -> 1 (SetGlobalTimeMultiplier)",
+  "script: test aid calls ShowAllMapMarkers",
+  { re = 'pipboy data: world map shows (\d+) of \d+ markers', range = [100, 100000], label = "pipboy data: the world map shows the markers (100 or more)" },
+]]
 
 # ------------------------------------------------------------------ aid items (docs/spec-notes/aid-items.md)
 
@@ -1601,6 +1621,17 @@ expect = [
 ]
 
 [[scenario]]
+name = "floating-troopers"
+source = "docs/spec-notes/floating-actors.md: Camp Golf's tower trooper and Mags stood 66 units above their roots (2ha Holster clip's Bip01 height over the idle's pelvis); playtest list 1 item 24"
+areas = ["actors", "animation"]
+paths = ["engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/anim_blend.rs", "engine/nvforever/src/actor_feet.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_TEST_ACTOR_FEET = "15:3500" }
+args = ["--play", "--pos=29500,62000,3400", "--heading", "0", "--pitch", "-10", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  "actor feet: 0010B35A CampGolfNCRTrooperTower1A at ",
+  "actor feet: … actors within 3500 units of the camera, 0 with a foot bone over 30 units above the root",
+
 name = "follower-boone"
 source = "owner's list 2 (H followers): a companion hired by the game's own recruit line follows the player through a door, ignores the player's friendly fire, joins the player's fight and waits when told (docs/design/followers.md)"
 note = "Boone's recruit line INFO 0x0015F30D runs at 3 s (its result script hires him: SetPlayerTeammate, SetIgnoreFriendlyHits, VNPCFollowers.bBooneHired); the player shoots him twice at 18 s, leaves his room by its door at 26 s, walks off at 32 s; a feral ghoul is put 1,200 units from the player at 45 s; Boone's Waiting variable is set at 62 s"

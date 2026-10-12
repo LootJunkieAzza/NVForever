@@ -149,7 +149,7 @@ pub struct Door {
     pub minimal_use: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct LeveledEntry {
     pub level: u16,
     pub item: FormId,

@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 
 use crate::clock::{self, Calendar};
 use crate::form::FormId;
-use crate::forms::{BaseData, FormStore, ItemKind, SPECIAL};
+use crate::forms::{BaseData, FormStore, ItemKind, LeveledEntry, SPECIAL};
 use crate::inventory::{unequipped, Extra, Inventory};
 use crate::leveled::{self, LeveledError};
 use crate::refs::{PlacedRef, RefTable};
@@ -215,6 +215,10 @@ pub struct Snapshot {
     /// none (and in older snapshots).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub quest_objects: BTreeMap<FormId, bool>,
+    /// Entries scripts added to leveled item lists (AddItemToLeveledList), by list;
+    /// absent when none (and in older snapshots).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub leveled_added: BTreeMap<FormId, Vec<LeveledEntry>>,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.sim.state/1";
@@ -230,6 +234,8 @@ pub struct World<'a> {
     detached_cells: BTreeMap<FormId, f32>,
     /// Quest-item flags set at run time (`set_quest_object`); they replace the record's.
     quest_objects: BTreeMap<FormId, bool>,
+    /// Entries added to leveled item lists at run time ([`World::add_to_leveled_list`]).
+    leveled_added: BTreeMap<FormId, Vec<LeveledEntry>>,
     /// What the game layer adds to an actor's carry capacity beyond the formula on its
     /// permanent Strength: temporary Strength (Buffout) and Carry Weight modifiers
     /// ([`World::set_carry_bonus`]).
@@ -248,6 +254,7 @@ impl<'a> World<'a> {
             globals: BTreeMap::new(),
             detached_cells: BTreeMap::new(),
             quest_objects: BTreeMap::new(),
+            leveled_added: BTreeMap::new(),
             carry_bonus: BTreeMap::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
@@ -334,7 +341,7 @@ impl<'a> World<'a> {
         for e in entries {
             let from = out.len();
             // LVLG globals at their current values [observed: leveled_b8 captures].
-            leveled::resolve_in(self.forms, &self.globals, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
+            leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
             // COED on an entry applies to whatever it resolves to. [hypothesis]
             for r in &mut out[from..] {
                 r.extra = e.extra;
@@ -420,7 +427,7 @@ impl<'a> World<'a> {
         }
         self.inventory(to)?;
         let mut out = Vec::new();
-        leveled::resolve_in(self.forms, &self.globals, item, count, self.cfg.player_level, &mut self.rng, &mut out)?;
+        leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, item, count, self.cfg.player_level, &mut self.rng, &mut out)?;
         let inv = self.inventory(to)?;
         Ok(out
             .into_iter()
@@ -508,6 +515,27 @@ impl<'a> World<'a> {
     /// kept in snapshots.
     pub fn set_quest_object(&mut self, item: FormId, quest: bool) {
         self.quest_objects.insert(item, quest);
+    }
+
+    /// `AddItemToLeveledList list form level count`: from now on `form` (an item or
+    /// another leveled list) is an entry of the leveled item list `list` at `level`,
+    /// `count` at a time; kept in snapshots, never taken back [documented: GECK wiki
+    /// AddItemToLeveledList, "it will persist in the save game data. It can not be
+    /// undone"]. Adding the same entry twice gives two entries [hypothesis].
+    pub fn add_to_leveled_list(&mut self, list: FormId, entry: LeveledEntry) -> Result<(), SimError> {
+        if self.forms.leveled(list).is_none() {
+            return Err(if self.forms.sig(list).is_some() { SimError::NotAnItem(list) } else { SimError::UnknownForm(list) });
+        }
+        if self.forms.leveled(entry.item).is_none() {
+            self.check_item(entry.item)?;
+        }
+        self.leveled_added.entry(list).or_default().push(entry);
+        Ok(())
+    }
+
+    /// The entries scripts added to a leveled list.
+    pub fn leveled_added(&self, list: FormId) -> &[LeveledEntry] {
+        self.leveled_added.get(&list).map(Vec::as_slice).unwrap_or_default()
     }
 
     /// Drop items from an inventory into the world, one new reference per group of
@@ -1105,6 +1133,7 @@ impl<'a> World<'a> {
             globals: self.globals.clone(),
             detached_cells: self.detached_cells.clone(),
             quest_objects: self.quest_objects.clone(),
+            leveled_added: self.leveled_added.clone(),
         }
     }
 
@@ -1120,6 +1149,7 @@ impl<'a> World<'a> {
         w.globals = s.globals.clone();
         w.detached_cells = s.detached_cells.clone();
         w.quest_objects = s.quest_objects.clone();
+        w.leveled_added = s.leveled_added.clone();
         Ok(w)
     }
 }

@@ -125,9 +125,11 @@ fn pose(sim: &SimState, p: &Placement) -> Affine3A {
 type Cells<'w, 's> = Query<'w, 's, (Entity, &'static RenderCell, &'static Transform), Without<ScriptDrawnRoot>>;
 
 /// Move the roots of the references physics moved this frame
-/// (`PhysState::settle_placed`) to the simulation's pose.
-fn follow(sim: Res<SimState>, phys: Res<PhysState>, state: Res<ScriptDrawn>, cells: Cells, mut roots: Query<&mut Transform, With<ScriptDrawnRoot>>) {
-    for &id in &phys.moved_now {
+/// (`PhysState::settle_placed`), or a script's Rotate turned (`Game::turned`), to the
+/// simulation's pose.
+fn follow(sim: Res<SimState>, phys: Res<PhysState>, script: Res<ScriptState>, state: Res<ScriptDrawn>, cells: Cells, mut roots: Query<&mut Transform, With<ScriptDrawnRoot>>) {
+    let turned = script.rt.iter().flat_map(|rt| rt.game.turned.iter().map(|r| r.0));
+    for id in phys.moved_now.iter().copied().chain(turned) {
         let Some(&(root, cell_e)) = state.drawn.get(&id) else { continue };
         let (Ok((_, _, cell)), Ok(mut t), Some(p)) = (cells.get(cell_e), roots.get_mut(root), sim.refs.get(FormId(id))) else { continue };
         let (pos, rot) = sim.moved_pose(id).unwrap_or((p.pos, p.rot));

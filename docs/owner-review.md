@@ -4049,3 +4049,58 @@ is our own design is said so.
 Not done (combat-ai.md §12.10): grenades and avoiding threats, NPC blocking, dodging and
 power attacks, combat barks other than Flee, Combat Radius and targeting FOV, healing in
 combat, cover on a Continue During Combat walk, armour in the threat ratio.
+
+## Floating NCR troopers (2026-10-12, session "floating-troopers")
+
+1. **Playtest list 1 item 24, NCR troopers floating: found and fixed.** Reproduced at Camp
+   Golf (the graphics-2 sighting: 2CPoindexter above his shadow in the free camera; with
+   `--play` the tower trooper CampGolfNCRTrooperTower1A and 2CMags had their feet 73 units
+   above their roots). The ground was right (collision, navmesh and drawn landscape agree);
+   the body was lifted. Cause: the `Holster` clips of the two-handed automatic and heavy
+   stances (`2haholster.kf`, `2hhholster.kf` and the power-armour/sneak copies) hold `Bip01`
+   67 units up and have no `Bip01 NonAccum` track; NPC posing used that height on top of the
+   idle's pelvis height. Now the accumulation root's height counts from where its track
+   starts (only these four clips of 2,149 start elsewhere). Details:
+   `docs/spec-notes/floating-actors.md`.
+   - *Decision:* only the height is taken relative to the start; the x/y start of furniture
+     clips is left as it was (the sitting code measures it).
+   - *Not checked:* Camp McCarran was not run again; I expect its troopers to be the same
+     case. *Check:* the troopers outside McCarran and on its towers stand on the ground,
+     including right after they put a weapon away.
+   - *Seen, not changed:* in the free camera (no `--play`) actors stand at their placed
+     height, e.g. Poindexter 28 units above the ground; with `--play`, residents that never
+     walk keep it too.
+   - New test aid `NVF_TEST_ACTOR_FEET=<s>[:<range>]` logs each nearby actor's root, lowest
+     foot bone and the landscape under it; smoke scenario `floating-troopers`.
+
+## Script stubs, second round (2026-10-12, session "stubs-2")
+
+Playtest §4 item 7 (docs/design/script-stubs.md §3.2). Implemented: SetPackDuration,
+SetActorsAI, Rotate, ShowAllMapMarkers, SetGlobalTimeMultiplier, IsTurning,
+IsPlayerMovingIntoNewSpace; registered AddItemToLeveledList, IsDLCInstalled,
+GetXPForNextLevel. Left: PushActorAway, SetForceSneak (both need a system now),
+AutoDisplayObjectives, GetIsObjectType.
+
+Decisions where the sources were unclear:
+- **SetPackDuration** counts from the call, not the package's start; when the time is up
+  the package counts as done (end script, OnPackageDone) and the actor chooses again,
+  which may pick the same package and start it afresh. Check: the Hidden Valley bunker
+  Paladins (packages 0x000D76E4–0x000D781C) change activity about every 30–90 game
+  minutes rather than staying all day.
+- **Rotate** turns a reference for one frame per call (the shipped callers call it
+  every frame from GameMode). Check: the turning objects of `SCPT 0x0013414C/D/E` (via
+  their linked references) spin steadily.
+- **SetActorsAI 0** stops package choice, walking and detection, not animation or
+  collision: the actor stands in its idle. Check the ambusher of `SCPT 0x000F9D8F/90`.
+- **SetGlobalTimeMultiplier** slows the whole virtual clock (animations, physics, NPCs,
+  scripts' frame time, the game clock); sound is never slowed or pitched.
+- **ShowAllMapMarkers 0** forgets ShowMap's markers but leaves found and Visible ones.
+  The Explorer perk (`1 0 0`) shows the hidden-flagged markers too, as the wiki reads.
+  Smoke run: 183 of the 188 Mojave markers on the world map (5 are disabled).
+- **IsTurning** threshold 0.5 rad/s (about 30°/s), guessed.
+- **IsDLCInstalled** matches a load-order plugin by name, spaces/case/extension ignored
+  ("tribal pack" = TribalPack.esm); no page documents the function.
+- **GetXPForNextLevel** returns what is left to the next level (not the total), from the
+  Here and Now perk. Levelling up is not built, so the level stays at SetLevel's.
+- **AddItemToLeveledList** ignores the health argument (leveled entries carry no
+  condition here); an entry added twice counts twice.
