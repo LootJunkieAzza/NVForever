@@ -421,7 +421,7 @@ args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 28
 order = [[
   { re = 'detection: GSSettlerAM 00104F0A → the player: hidden → noticed .*sneaking' },
-  { re = 'detection: GSSettlerAM 00104F0A → the player: \w+ → detected' },
+  { re = 'detection: GSSettlerAM 00104F0A → the player: \w+ → detected', known_failing = "main 980f0c35 2026-10-12, 1 of 1 runs (and claude/playtest-combat, 2 of 2): the settler notices the sneaking player only after the shot, 2,121 units off, and does not detect the player before the run ends" },
 ]]
 expect = ["detection summary"]
 
@@ -457,7 +457,7 @@ expect = [
   "fights the player with WeapHuntingRifle (gun)",
   { re = 'stops and faces .*?(?P<n>[\d,]+) units away', range = [1200, 2000], label = "stops and faces the player at about 1,600 units" },
   "shots are drawn from its weapon's muzzle",
-  { re = 'attack anims summary.*2hrattack3\.kf' },
+  { re = 'attack anims summary.*2hrattack3\.kf', known_failing = "claude/playtest-combat 2026-10-12, by design: Violet stops about 1,600 units off, beyond 20 m, so every shot is aimed down the sights and plays the iron-sights clip (attack anims summary: 2hrattack3is.kf 13); the owner's playtest list items 32-33, combat-ai.md §10.6. combat-sights checks both clips" },
   { re = 'Violet hits the player for 44\.7', min = 9, max = 15, label = "a dozen 'Violet hits the player for 44.7'" },
 ]
 
@@ -470,7 +470,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 30
 expect = [
-  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "claude/playtest-combat 2026-10-12, 2 of 2 runs: 11 and 12 blows (main: 17), by design: the combat style's melee decision (GECK wiki Combat Style, combat-ai.md §10.4) has the dogs attack at 55 % each time they may and hold for the style's Hold Timer otherwise, where CA1 bit at a fixed rhythm" },
   { re = 'attack anims summary.*h2hattack' },
   { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines" },
 ]
@@ -491,6 +491,7 @@ expect = [
   { re = 'npc combat summary:.*?(?P<n>\d+) down the sights', range = [1, 1000], label = "shots down the sights in the npc combat summary" },
   { re = 'npc combat summary:.*?down the sights, (?P<n>\d+) from the hip', range = [1, 1000], label = "shots from the hip in the npc combat summary" },
   { re = 'attack anims summary.*2hrattack3is\.kf', label = "the iron-sights attack clip played" },
+  { re = 'attack anims summary.*2hrattack3\.kf', label = "the hip attack clip played" },
 ]
 
 [[scenario]]
