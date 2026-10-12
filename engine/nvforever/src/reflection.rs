@@ -144,6 +144,7 @@ fn update_reflection(
     >,
     cache: Res<WaterCache>,
     mut materials: ResMut<Assets<WaterMaterial>>,
+    graphics: Option<Res<crate::graphics::Graphics>>,
 ) {
     let (Ok((main_gt, main_proj, main_fog)), Ok((mut camera, mut t, mut gt, mut proj, mut fog))) = (main.single(), refl.single_mut())
     else {
@@ -154,9 +155,11 @@ fn update_reflection(
         (None, Projection::Perspective(_)) => reflection_height(&world, &mut dw, bevy_to_game(cam)),
         _ => None,
     };
+    // z: screen-space reflections stand in where this plane is not (graphics.rs).
+    let ssr = if graphics.is_some_and(|g| g.water_reflections) { 1.0 } else { 0.0 };
     let plane = match height {
-        Some(h) => Vec4::new(h, 1.0, 0.0, 0.0),
-        None => Vec4::ZERO,
+        Some(h) => Vec4::new(h, 1.0, ssr, 0.0),
+        None => Vec4::new(0.0, 0.0, ssr, 0.0),
     };
     cache.set_reflection_plane(&mut materials, plane);
     if camera.is_active != height.is_some() {

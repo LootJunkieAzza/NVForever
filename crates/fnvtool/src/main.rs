@@ -164,6 +164,21 @@ pub enum ActorCmd {
         /// Hardcore mode on.
         #[arg(long)]
         hardcore: bool,
+        /// Perks the player has before the uses (Editor ID or FormID; repeatable).
+        #[arg(long)]
+        perk: Vec<String>,
+        /// Hours waited after the seconds of play (effects and needs, aid-items.md §6, §11).
+        #[arg(long, default_value_t = 0.0)]
+        wait: f64,
+        /// Sleep those hours instead of waiting them.
+        #[arg(long)]
+        sleep: bool,
+        /// Set actor values before the uses, `<actor value>:<value>` (repeatable).
+        #[arg(long)]
+        set: Vec<String>,
+        /// Also list the perks with entry point effects and the stages of rads and needs.
+        #[arg(long)]
+        perks: bool,
     },
     /// Character creation (docs/spec-notes/chargen.md §6): the name offered, the
     /// S.P.E.C.I.A.L. sheet, the tag-skill list with values and the traits with their

@@ -3592,6 +3592,199 @@ and the smoke scenario `script-stubs` checks the counts.
 `crates/fnv-game/src/functions/stubs.rs` lists who owns which, and a test fails when one
 of them is implemented without being taken off the list.
 
+## Graphics follow-ups: TAA, sun shafts, water reflections (2026-10-12, session "graphics-2")
+
+Follow-ups to PR #236 (list 2, "ENGINE LEVEL GRAPHIC IMPROVEMENTS"; handoff §4 item 8). Reasons
+and figures: docs/design/graphics-enhanced.md §3.6-§3.8, §4, §5.1. Every value below is an
+engineering choice by eye, not a fact about the original game. The vanilla look is unchanged and
+is still the default of every test run, smoke scenario and lab frame.
+
+1. **Temporal anti-aliasing** (`taa`, settings page "Temporal anti-aliasing"). Our own pass:
+   Bevy's needs motion vectors from every material, which our custom shaders do not write.
+   *Decision:* it is the **other choice to multisampling, not stacked**: on, the view is drawn
+   without MSAA and smoothed over the frames; off, `--msaa` comes back (switchable while
+   playing). *Decision:* **not part of `--graphics enhanced`**: standing still it is as smooth
+   as MSAA 4x (plants' cut-outs smoother), but textures are softer, clearly so while the view
+   moves, and you play with 8x MSAA. It is cheaper than MSAA 4x (GPU 0.05 ms for the pass,
+   about 0.4 ms saved in the main pass and prepass on the RTX 4070 here). *Guesses:* blend 10 %
+   still / 50 % moving fast, mip bias -0.5, points nearer than 48 units move with the camera
+   (the arms and weapon), a jump over 400 units in a frame starts the history over. *Check:*
+   turn it on in the settings and walk and turn in Goodsprings: softness, ghosts behind walking
+   NPCs and swaying grass, the arms while turning; say if you want it in `enhanced`.
+2. **Sun shafts** (`light-shafts`, in `enhanced`): light streaming past what stands in front of
+   the sun, from the game's own sky and sun as drawn, as strong as the weather's fog makes the
+   air hazy. *Guesses:* strength 0.6 + 0.9 x haze, haze = 20,000 / fog far (clear weather 0.1),
+   source within 0.3 of the screen height of the sun. *Check:* Goodsprings at 19:00 facing the
+   sunset (`--pos=-69000,3500,8900 --heading 260 --pitch 2 --hour 19 --graphics enhanced`);
+   a dusty or cloudy weather (stronger there by design); that noon looking away from the sun is
+   unchanged.
+3. **Screen-space water reflections** (`water-reflections`, in `enhanced`): only where the
+   existing mirrored reflection does not reach (water at a second height in view, e.g. Lake Las
+   Vegas next to Lake Mead's cells); interiors have no WATR planes in this engine, so nothing
+   changes there. *Decision:* kept although its value is small: checked only by forcing it in
+   place of the mirrored reflection at Lake Las Vegas (no artefacts, small difference). *Check:*
+   if you know a spot with two water levels in view, whether the lower one now shows the shore.
+4. *Decision (tried and dropped):* **Bevy's volumetric fog**: on our non-HDR picture it turned
+   Goodsprings at dusk dark brown with a visible box edge across the mountains
+   (`C:\fnv-private\scratch\graphics-2\vol-dusk.png`) and would replace the weather's fog look;
+   the sun shafts give the light shafts it was meant for. Contact shadows and CAS (#236) were
+   not retried.
+5. *Found:* switching multisampling while the game runs (now possible through TAA) ended the run
+   with a validation error in the ambient occlusion pass; the passes that read the depth now go
+   by the depth texture's own sample count. The `graphics-enhanced` smoke scenario switches TAA
+   on, walks and turns, and off again, and forbids rendering errors.
+6. *Test aids for measuring:* `--log-frame-times <s>` (frame time and GPU time per pass) and
+   `--graphics-cycle "vanilla;taa;..."` (switches between sets in one run). On this machine
+   the picture stayed at 60 Hz whatever was asked, so the per-pass GPU times are the figures;
+   the GTX 1050 was not measured. *Check:* your frame rate with `--graphics enhanced` and with
+   TAA on instead of MSAA.
+7. *Seen in passing (not this workstream):* at Camp Golf (`--pos=29500,62000,3400 --heading 0
+   --pitch -10 --hour 12`, free camera) an NCR trooper stands in the air above his shadow;
+   possibly your floating-troopers item 24.
+
+## Aid leftovers: waiting, Hardcore needs, Stealth Boy, perks, carry weight (2026-10-12, session "aid-2")
+
+The five leftovers of the aid items (§4 item 6 of the handoff). Spec note
+`docs/spec-notes/aid-items.md` §2, §6, §10–§12; code `crates/fnv-game/src/needs.rs`,
+`crates/fnv-game/src/perks.rs`, `crates/fnv-game/src/aid.rs`, `engine/nvf-play/src/aid.rs`,
+`engine/nvf-play/src/wait.rs`, `engine/nvforever/src/stealth_field.rs`; tool `fnvtool actor
+aid --perks --perk P --set AV:v --wait H [--sleep]`; smoke scenarios `aid-perks-needs-survey`,
+`aid-wait-perks`, `aid-hardcore`, `aid-stealth-boy`.
+
+1. **Effect timers during wait and sleep.** *Decision/Guess:* each hour waited or slept
+   counts as the seconds of play in which an hour passes at the TimeScale: 3600 / 30 =
+   120 s. Buffout (240 s) therefore wears off in the second hour waited, Chemist's 480 s
+   in the fourth; a usage monitor (108,000 s = 900 waited hours) practically never. The
+   other reading would be 3,600 s an hour (every chem gone after one hour, the usage
+   monitor after 30). *Check:* Buffout, then wait 1 hour and 2 hours: is Strength back?
+2. **Hardcore needs rising.** The masters have `fHCStarvationRate` 25 and
+   `fHCSleepDeprivationRate` 50 and no dehydration rate; the game's help message says
+   dehydration rises fastest, starvation slower, sleep deprivation slowest.
+   *Decision/Guess:* the setting is the seconds of play per point (larger = slower):
+   Hunger 4.8 an hour (Minor Starvation after about 42 hours), Sleep Deprivation 2.4 an
+   hour (Minor after about 83 hours). *Guess:* dehydration 12.5 s a point (9.6 an hour,
+   Minor after about 21 hours). *Guess:* an hour slept takes 100 off sleep deprivation;
+   hunger and thirst rise while sleeping as while waiting. *Check:* GetAV Dehydration,
+   Hunger, SleepDeprivation after 1, 6 and 24 hours waited and after 8 hours slept (spec
+   §9 item 7). These guesses decide how hard Hardcore feels; please say if they feel
+   wrong in play.
+3. **Need stages.** The RADS/DEHY/HUNG/SLPD records give each stage's threshold (200 …
+   1000) and its spell. *Decision:* the player has the spell of the highest stage reached
+   and loses it when the value drops below (so water at Minor Dehydration takes the
+   penalty away at once); rads' stages hold in every mode, the needs' only in Hardcore
+   (they go when Hardcore is turned off). *Not done:* the HUD's H2O/FOD/SLP codes, the
+   "Your dehydration level has increased" messages (the log says the stage), refusing a
+   wait or sleep that would kill (the help message says the original refuses it).
+4. **DamageActorValue / RestoreActorValue on rads and needs** now move them the way the
+   aid effects do (Damage raises, Restore lowers, never below 0): the Cannibal perk's
+   script restores Hunger 50 with the health it gives. Before, a Restore on Hunger did
+   nothing and a Damage on Rads lowered them. *Check:* RadAway-like scripts and eating
+   a corpse with Cannibal in Hardcore.
+5. **Stealth Boy.** Its "Stealth Field" (archetype Chameleon) now puts Chameleon 75 (and
+   Sneak +100) in the temporary pool for 120 s; detection already read Chameleon: in the
+   Goodsprings check the settler went from detected to hidden at 1,671 units in sight,
+   visual term 0. *Decision (look):* no refraction shader exists, so the player's body
+   and first-person arms are drawn see-through: blended at 30 % opacity, tinted blue
+   (`stealth_field.rs`; the shot shows a faint ghost). *Check:* whether you want the
+   original's shimmer instead (a shader of its own).
+6. **Perk entry points.** Read from the PERK records (109 perks of FalloutNV.esm have
+   entry point effects). The codes were identified by the only perks that use them: 23
+   Modify Addiction Chance (Chem Resistant × 0.5), 25 Modify Positive Chem Duration
+   (Chemist × 2, the chem challenge perk × 1.33), 44 Modify Radiation Consumed (Lead Belly
+   × 0.5); functions 1/2/3 read as Set/Add/Multiply. *Decisions:* only the player's
+   perks; a ranked perk applies its highest owned rank's entries only; entries in
+   ascending priority; entries with conditions on a tab other than the perk owner's are
+   skipped (none of the aid ones has any). *Decision:* Chemist lengthens beneficial
+   effects of items whose equip type is Chems, not the usage monitor; the Stealth Boy is
+   a Chems item, so Chemist doubles it too. *Check:* Stealth Boy duration with Chemist;
+   Buffout with Chemist lasts 8 minutes. *Not done:* the other entry points (combat's
+   still go through `PerkHooks` defaults), perks' ability effects (type 1, e.g. Life
+   Giver), "Modify Addiction Duration" (no master perk uses it).
+7. **Buffout and carry weight.** *Decision:* the capacity uses the current Strength
+   (temporary modifiers included, within 1–10) plus Carry Weight's own modifiers; the
+   menus' Wg line follows it (Buffout at Strength 5: 200 → 220, back to 200 when it
+   ends). *Check:* the Wg line in the Pip-Boy after Buffout.
+8. **Test aids added:** `NVF_PLAY_TEST_SCRIPT=<t>:hardcore:<0|1>`, `<t>:perk:<PERK>`,
+   `<t>:set_av:<ref>:<actor value>:<value>`. The wait now logs `wait: hour <n> passed for
+   the player (120 s of effects): …` each hour, and `needs: <value> <level>: <stage>` on
+   each stage change.
+9. **A lock mishap (process, not code):** during a picture run a shell line of mine
+   removed the two game locks (`run.lock`, `smoke.lock`) that another session held, for
+   a moment, after my own `mkdir` had failed; both existed again when checked right after
+   (taken again by their owner). If another session's run of 2026-10-12 about 18:03
+   overlapped a launch, that may be why. Later runs used a wrapper that only removes
+   locks it made.
+
+## Lockpicking leftovers (2026-10-12, session "lockpick-2")
+
+Item 4 of the handoff list (leftovers of #232). Your ten screenshots in
+`C:\fnv-private\references\Lockpicking` were on this machine and were compared with ours
+(docs/spec-notes/lockpicking.md §1, §2, §2.0, §2.1, §7.1).
+
+1. **Help message the first time.** *Decision:* the game's own message `HelpLockpicking`
+   (FalloutNV.esm 0x0000017C, title "Lockpicking", its text unchanged) comes up over the
+   menu the first time it opens, in the tutorial box laid out by `tutorial_menu.xml`
+   (VDSG symbol, "VDSG MANUAL", "Close E)"); E (also Enter, Esc, Tab) or a click on Close
+   shuts it; nothing is picked while it is up; the lock behind is drawn at about half
+   brightness. The key names in its text are the keys bound now ("WSAD", "F").
+   *Guess:* once per game (kept in the game state, see 5); the Next/Previous column width
+   (120) and VDSG symbol width (128) fitted so the text wraps and the words sit as on your
+   screenshot; Close's brightness. *Check:* that the game shows it only once, and whether
+   Esc/Enter should close it.
+2. **Debug meter.** *Decision:* behind the off-by-default debug switch
+   `NVF_PLAY_DEBUG_LOCKPICK=1` only: the menu file's meter bar with the sweet spot (bright)
+   and the ring around it (dim), the arrow over the pin's angle, "Pin health …% Lock …° of
+   90°", and the Sweet Spot / Concentric values (shown, not adjustable). *Guess:* the
+   colours and words (the file leaves them to the code).
+3. **Pointer over the lock.** *Decision:* hidden inside the menu file's detect area
+   (taken literally: from 60 units in to the right edge, from the top down to two thirds
+   of the screen), shown elsewhere and over the help box, as on your screenshot (pointer
+   at the left edge). *Check:* that the pointer never shows over the lock and comes back
+   at the left edge and over the buttons.
+4. **Exit animations.** *Decision:* the model files' sequences are now used:
+   - a broken pin plays the pin's `Backward` (it twists) then `Left` (the long piece flies
+     off); the short piece stays in the keyhole until the next pin, as on your screenshot
+     after a break; the next pin now comes 1.45 s after a break (was 1 s) so the break
+     plays out;
+   - once the lock is in, it is posed by the lock model's `Backward` sequence at the time
+     its turn has reached: the cylinder turns and the screwdriver follows with a twist of
+     the wrist. This matches your 40° and fully-turned screenshots (screwdriver nearly
+     level at 40°, pointing down when open), where turning everything rigidly did not;
+   - the pin no longer turns with the lock (your screenshots: it stays where you put it);
+   - leaving (E) pulls the pin out (its `Forward` backwards, 0.5 s) while the menu fades;
+     after opening, breaking or running out of pins the menu holds 1.5 s, then fades out in
+     0.5 s over the world (your screenshot of an opened lock shows the HUD coming back over
+     the lock still drawn).
+   *Guess:* the 0.5 s fade and pull-out. *Check:* the break and the leaving in game.
+5. **Broken locks saved.** *Decision:* broken locks (and whether the help was shown) are
+   part of the game state's snapshot (`GameSnapshot.locks`, written only when not empty).
+   NVForever has no save files yet, so today a broken lock stays broken for the session
+   and in any snapshot; it will be saved when saving is built.
+6. **Ringo's floor safe.** *Finding:* not a collision fault: the safe's collision is
+   whole and the crosshair finds it (standing on it 123 units straight down, or from the
+   mattress's edge looking 65° down at 145). The safe lies half under the edge of the
+   floor mattress, and the floor beside it is narrower than the player, so the player
+   stands on the mattress or on the safe; from the mattress the safe's door is 131 below
+   the eye and only a narrow cone is within the 150 reach. The test aid
+   `NVF_PLAY_TEST_NEAR` had chosen a spot 147.7 away assuming a 112-unit eye, while the
+   first-person body puts the eye at about 121, so the view ray needed 154 and missed.
+   *Fix:* the aid now chooses with the body's eye and 5 units to spare, and tries closer
+   spots aimed at points of the target; the new smoke scenario `lockpick-floor-safe` uses
+   the safe. *Check (in game):* can you target this safe from the mattress? If the
+   original lets the crosshair pass the mattress or reaches further downwards, tell us
+   which (physics.md §6 has the pick-sphere question).
+7. **Compared with your screenshots and changed:** "Lockpick Skill" (was "Lockpick");
+   the lock's size and place (camera 70 units away with a 17° view, the cylinder about
+   0.72 of the screen's height, a little above the middle; was 45 units / 55°, the lock
+   less than half that size); the pin not turning with the lock; the screwdriver's
+   motion (4); the help box (1). *Left as it is:* the room dim behind the lock on your
+   screenshots: our lock stays on black, because a see-through shade let quest and
+   corner messages show through the menu; the pin's and screwdriver's colours (ours
+   coppery and red, yours brass and brown: lighting). *Check:* the look against your
+   screenshots.
+8. *Smoke:* `lockpick` now closes the help and checks the help line and the leaving lines;
+   new `lockpick-floor-safe` (help once, leaving with the pin pulled out, a failed Force
+   Lock breaking the safe, the next activation refused).
 
 ## Karma and crime (workstream J, branch claude/karma-crime, 2026-10-12)
 
