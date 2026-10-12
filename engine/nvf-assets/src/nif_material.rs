@@ -341,13 +341,65 @@ impl Plugin for NifMaterialPlugin {
         bevy::asset::embedded_asset!(app, "nif_material.wgsl");
         load_internal_asset!(app, FADE_PREPASS_SHADER, "fade_prepass.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, NIF_PREPASS_SHADER, "nif_prepass.wgsl", Shader::from_wgsl);
-        app.add_plugins(MaterialPlugin::<NifMaterial>::default());
+        app.add_plugins(MaterialPlugin::<NifMaterial>::default()).add_systems(PostUpdate, see_through_casts_no_shadow);
+    }
+}
+
+/// Whether a material is see-through: blended, added or multiplied onto what lies behind
+/// it (glass, light rays, glows, smoke), and not an alpha-tested cut-out with soft edges
+/// (`NifSurface::alpha_cut`), which is solid where it is drawn.
+pub fn see_through(m: &NifMaterial) -> bool {
+    matches!(m.base.alpha_mode, AlphaMode::Blend | AlphaMode::Add | AlphaMode::Multiply | AlphaMode::Premultiplied) && m.extension.alpha_cut <= 0.0
+}
+
+/// Marks a mesh [`see_through_casts_no_shadow`] took the shadow from.
+#[derive(Component)]
+pub struct SeeThroughNoShadow;
+
+/// See-through shapes cast no shadows, from the sun, the flashlight or any other light
+/// (owner, playtest 2026-10-11: "anything see-through should not be generating a
+/// shadow"; the Prospector Saloon's window rays and lit lanterns threw the flashlight's
+/// shadows). Their depth-only shadow pass drew every fragment with alpha above 0.05
+/// (`nif_prepass.wgsl`), so a light ray stood in the light like a wall. Checked whenever
+/// a mesh gets its material (docs/spec-notes/nif.md §6 "Shadows of see-through shapes").
+#[allow(clippy::type_complexity)]
+fn see_through_casts_no_shadow(
+    mut commands: Commands,
+    materials: Res<Assets<NifMaterial>>,
+    changed: Query<(Entity, &MeshMaterial3d<NifMaterial>, Has<bevy::light::NotShadowCaster>, Has<SeeThroughNoShadow>), Changed<MeshMaterial3d<NifMaterial>>>,
+) {
+    for (e, m, no_shadow, ours) in &changed {
+        let Some(m) = materials.get(&m.0) else { continue };
+        match (see_through(m), no_shadow, ours) {
+            (true, false, _) => {
+                commands.entity(e).try_insert((bevy::light::NotShadowCaster, SeeThroughNoShadow));
+            }
+            (false, true, true) => {
+                commands.entity(e).try_remove::<(bevy::light::NotShadowCaster, SeeThroughNoShadow)>();
+            }
+            _ => {}
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn see_through_shapes_are_the_blended_ones_without_a_cut() {
+        let with = |alpha_mode: AlphaMode, cut: f32| {
+            let mut m = nif_material(StandardMaterial { alpha_mode, ..default() });
+            m.extension.alpha_cut = cut;
+            see_through(&m)
+        };
+        assert!(with(AlphaMode::Blend, 0.0));
+        assert!(with(AlphaMode::Add, 0.0));
+        assert!(with(AlphaMode::Multiply, 0.0));
+        assert!(!with(AlphaMode::Blend, 0.5));
+        assert!(!with(AlphaMode::Mask(0.5), 0.0));
+        assert!(!with(AlphaMode::Opaque, 0.0));
+    }
 
     #[test]
     fn falloff_fields() {

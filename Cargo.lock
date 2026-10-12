@@ -505,6 +505,7 @@ name = "fnv-nif"
 version = "0.1.0"
 dependencies = [
  "fnv-bsa",
+ "fnv-dds",
  "fnv-util",
  "proptest",
  "serde_json",

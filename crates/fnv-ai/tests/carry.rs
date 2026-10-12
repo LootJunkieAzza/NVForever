@@ -916,3 +916,17 @@ fn an_actor_in_combat_stops_and_faces_its_target() {
     assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::There);
     assert!(dist(s.feet(R_TRAVEL), at) < 1.0, "it stands");
 }
+
+#[test]
+fn a_rooted_actor_stays_where_it_is() {
+    // A creature that cannot walk (a raven) keeps its place, whatever its package says.
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let start = s.feet(R_TRAVEL);
+    s.ai.root(&s.game, FormId(R_TRAVEL));
+    s.run(30.0);
+    assert_eq!(s.feet(R_TRAVEL), start);
+    assert_eq!(s.ai.agents[&FormId(R_TRAVEL)].activity, Activity::None);
+    assert!(s.events(R_TRAVEL).is_empty(), "{:?}", s.events(R_TRAVEL));
+    assert!(!s.ai.stands(&s.game, FormId(R_TRAVEL)));
+}

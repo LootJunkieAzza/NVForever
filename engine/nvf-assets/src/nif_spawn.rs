@@ -402,15 +402,35 @@ pub(crate) fn fix_vertex_colors(mesh: &mut Mesh, vertex_alpha: bool) {
 /// flag get none; shapes without a normal map keep the earlier constant. Hair-shader
 /// shapes (hair, brows, beards) get none either [hypothesis, nif.md §6 "Hair": read as a
 /// plain mask their normal-map alpha gave glinting white strands the game does not show].
-pub(crate) fn specular(props: &Props, has_normal_map: bool) -> (f32, bool) {
+///
+/// A normal map without an alpha channel (DXT1: `unmasked`) holds no mask; read as one,
+/// its alpha of 1 is the strongest mask there is, seven times the median authored one,
+/// and made Doc Mitchell's bed, the Goodsprings gas station's vending machine and door
+/// shine like wet paint (owner's playtest, 2026-10-11). Such a shape gets
+/// [`UNMASKED_SPECULAR`] instead [hypothesis, nif.md §6 "Specular"].
+pub(crate) fn specular(props: &Props, has_normal_map: bool, unmasked: bool) -> (f32, bool) {
     if props.hair {
         return (0.0, false);
     }
     match (has_normal_map, props.specular) {
+        (true, true) if unmasked => (UNMASKED_SPECULAR, false),
         (true, true) => (2.0, true),
         (true, false) => (0.0, false),
         (false, _) => (0.3, false),
     }
+}
+
+/// The reflectance of a shape whose normal map has no alpha channel: the median mask of
+/// the normal maps that have one, 35 of 255, as the masked path reads it (reflectance
+/// 2.0 × 0.5 × mask) [observed: `crates/fnv-nif/examples/normal_mask_survey.rs` over
+/// `Fallout - Textures.bsa` and `Textures2.bsa`, 2,998 masked normal maps, quartiles of
+/// their mean alpha 21 / 35 / 58; the choice of the median is a hypothesis].
+pub(crate) const UNMASKED_SPECULAR: f32 = 35.0 / 255.0;
+
+/// Whether a loaded normal map has no alpha channel to hold a specular mask (DXT1).
+pub(crate) fn lacks_alpha(image: &Image) -> bool {
+    use bevy::render::render_resource::TextureFormat;
+    matches!(image.texture_descriptor.format, TextureFormat::Bc1RgbaUnorm | TextureFormat::Bc1RgbaUnormSrgb)
 }
 
 /// The falloff to draw a shape's material with. Falloff scales alpha, so only blended
@@ -460,7 +480,8 @@ pub(crate) fn shape_material(
         .then_some(props.glow.as_deref())
         .flatten()
         .and_then(|t| textures.get(t, true, data, images, formats));
-    let (reflectance, masked) = specular(props, normal.is_some());
+    let unmasked = normal.as_ref().and_then(|h| images.get(h)).is_some_and(lacks_alpha);
+    let (reflectance, masked) = specular(props, normal.is_some(), unmasked);
     let material = StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
         base_color_texture: base,
@@ -929,11 +950,12 @@ mod tests {
     #[test]
     fn specular_from_mask() {
         let flagged = Props { specular: true, ..Default::default() };
-        assert_eq!(specular(&flagged, true), (2.0, true));
-        assert_eq!(specular(&Props::default(), true), (0.0, false));
-        assert_eq!(specular(&flagged, false), (0.3, false));
+        assert_eq!(specular(&flagged, true, false), (2.0, true));
+        assert_eq!(specular(&flagged, true, true), (UNMASKED_SPECULAR, false));
+        assert_eq!(specular(&Props::default(), true, false), (0.0, false));
+        assert_eq!(specular(&flagged, false, false), (0.3, false));
         let hair = Props { specular: true, hair: true, ..Default::default() };
-        assert_eq!((specular(&hair, true), specular(&hair, false)), ((0.0, false), (0.0, false)));
+        assert_eq!((specular(&hair, true, false), specular(&hair, false, false)), ((0.0, false), (0.0, false)));
         // Phong exponent → roughness: 0 is fully rough, higher is smoother.
         assert!((gloss_roughness(0.0) - 1.0).abs() < 1e-6);
         assert!((gloss_roughness(67.0) - 0.41).abs() < 0.01);

@@ -3076,3 +3076,58 @@ and §9.4, idles.md §10.
    small animation (the broom has one) isn't played. *Check:* Chet sweeping; anyone
    smoking, drinking or eating at a table. New test aid `play_idle:<ref>:<idle>` in
    `NVF_PLAY_TEST_SCRIPT`.
+
+## Playtest fixes: loose items, ravens, shadows and shine (2026-10-11, session "pt-world")
+
+Branch `claude/playtest-world`. Pictures: `C:\fnv-private\references\playtest_world\`.
+
+1. **Loose items in Chet's store** (physics.md §4.3.1). Fixed. A new test aid
+   (`NVF_PLAY_TEST_PHYS_TRACE`) logged every loose item after the store loaded: 53 of 67
+   moved. Three causes: (a) objects made of parts joined by hinges (the globe on its
+   stand, the bucket and handle, a hanging office lamp) flew apart and fell from the
+   ceiling, because we do not model those joints, and knocked their neighbours; (b) two
+   books inside the glass display case and a magazine have nothing under them in the
+   collision (the case's collision is only its outer shell), so they dropped; (c) piles of
+   produce in a crate overlap and were pushed apart. Now every placed loose item starts
+   at rest and stays exactly where it was placed until something touches it (you, an
+   NPC, a shot, an explosion, something falling on it, or an item under it being picked
+   up); jointed objects stay fixed where they are drawn. After: 0 items move in the
+   store, Sunny's house (GSHouseInterior03) and the saloon; shot bottles still fall.
+   - My choice: "stays put until disturbed" is my reading of the original (the books in
+     the display case would have fallen otherwise). Check: walk into a shelf and shoot
+     things: they should react as before.
+   - Not done: the hanging lamp, globe and bucket no longer move at all, even when shot
+     (their joints would need modelling).
+2. **Ravens outside Doc Mitchell's** (actor-behaviour.md §5.8). Fixed. They are
+   creatures with a "sandbox around where placed" AI package but no walking animations,
+   so our AI slid them around. Their fly-off is their own script: when you come within
+   512 units (or shoot one) it plays the fly-away animation and disappears about 4.5 s
+   later; that already worked. Now creatures with no walking animations stay where they
+   are, and perched birds (those plus the "Flies" flag) no longer block you.
+   - My choice: no-collision applies to "can't walk and flies" creatures only; anything
+     else that can't walk (e.g. turrets) still blocks. Check: walk out of Doc's door;
+     the two ravens should sit still, then fly off as you approach, and never block you.
+3. **Shadow flicker after leaving an interior** (player-body.md §1.6). Not reproduced.
+   I left the saloon by the front door in first person at 15:00 and took bursts of
+   frames on the porch, walking into the sun and standing with the .357 out: nothing
+   flickered, and the extra "arms shade" light and the arms/body visibility never
+   switched. I left debug log lines for it. Please tell me the time of day, which door,
+   whether "Body in first person" was on, and what flickered (the arms, the ground, your
+   own shadow); a short video would settle it.
+4. **Flashlight shadows from light rays and lanterns** (nif.md §6). Fixed. Anything
+   drawn see-through (glass, light rays, glows, smoke) now casts no shadow from any
+   light, the sun and the flashlight included. Before/after:
+   `flashlight_rays_before_after.png` (saloon, flashlight on, facing the east windows:
+   the rays' dark wedges on the wall are gone). Cut-out textures (fences, leaves) still
+   cast. Check: glass bottles and windows no longer throw a sun shadow either; say if
+   you want the windows' frames-only shadow some other way.
+5. **Too shiny: Doc's bed, the gas station's Sunset Sarsaparilla machine and door**
+   (nif.md §6 "Specular"). Fixed in the material path for all objects of this kind. All
+   three use a normal map without an alpha channel (DXT1, 425 of the game's 3,428 normal
+   maps); we read the missing alpha as "full shine", seven times the shine of a typical
+   surface, which looked like wet paint and turned mirror-like at shallow angles. Now
+   such objects get the typical (median) shine of the other normal maps.
+   - Before/after: `shine_gas_station_before_after.png`, `shine_doc_bed_before_after.png`.
+   - Guessed constant: the median mask, 35 of 255. Check: the bed when you wake up and
+     the vending machine and door at noon. A game screenshot of the vending machine in
+     sun from the side would tell whether the original gives these objects any shine.

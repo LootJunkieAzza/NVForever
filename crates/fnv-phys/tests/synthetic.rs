@@ -1320,3 +1320,104 @@ fn a_placed_character_takes_its_body_along() {
     assert_eq!(hit.owner, Owner::Character { id: 1 });
     assert!((hit.distance - 78.0).abs() < 1.0, "{}", hit.distance);
 }
+
+/// A placed reference's collision added asleep (`PreparedRef::asleep`), as the engine adds
+/// a cell's clutter.
+fn add_asleep(w: &mut PhysWorld, form_id: u32, pos: [f32; 3], half: [f32; 3]) {
+    let p = PreparedRef::new(&w.params, &at(form_id, pos), &[CollisionObject { mass: 1.0, ..object(boxed(half), Motion::Dynamic) }]).asleep();
+    w.insert_ref(p);
+}
+
+#[test]
+fn clutter_added_asleep_stays_put_with_nothing_under_it() {
+    // A book placed in mid-air (inside a display case whose inner shelf has no
+    // collision) stays where it was placed, through queries and steps.
+    let mut w = ground();
+    add_asleep(&mut w, 0x99, [100.0, 100.0, 300.0], [5.0, 5.0, 2.0]);
+    let _ = down(&mut w, 0.0, 0.0);
+    for _ in 0..120 {
+        w.step();
+    }
+    let b = w.ref_bodies(0x99)[0];
+    assert!(b.sleeping && (b.translation[2] - 300.0).abs() < 1e-3, "{b:?}");
+}
+
+#[test]
+fn clutter_added_asleep_falls_once_struck() {
+    let mut w = ground();
+    add_asleep(&mut w, 0x99, [100.0, 100.0, 300.0], [5.0, 5.0, 2.0]);
+    for _ in 0..10 {
+        w.step();
+    }
+    let at0 = w.ref_bodies(0x99)[0].translation;
+    assert!(w.push_ref(0x99, at0, [0.0, 0.0, -10.0], 1000.0).is_some());
+    let _ = down(&mut w, 0.0, 0.0);
+    for _ in 0..60 {
+        w.step();
+    }
+    let z = w.ref_bodies(0x99)[0].translation[2];
+    assert!(z < 250.0, "the struck box fell: z = {z}");
+}
+
+#[test]
+fn clutter_added_asleep_wakes_when_a_body_falls_on_it() {
+    // A box asleep in mid-air; an awake box dropped onto it wakes it, and both fall.
+    let mut w = ground();
+    add_asleep(&mut w, 0x99, [100.0, 100.0, 300.0], [10.0, 10.0, 5.0]);
+    w.add_ref(&at(0x9A, [100.0, 100.0, 340.0]), &[CollisionObject { mass: 1.0, ..object(boxed([5.0, 5.0, 5.0]), Motion::Dynamic) }]);
+    for _ in 0..120 {
+        w.step();
+    }
+    let z = w.ref_bodies(0x99)[0].translation[2];
+    assert!(z < 250.0, "the sleeping box was woken and fell: z = {z}");
+}
+
+#[test]
+fn clutter_added_asleep_falls_when_its_support_is_removed() {
+    // A box asleep on a shelf (a dynamic box asleep too) falls when the shelf's reference
+    // is removed (picked up).
+    let mut w = ground();
+    add_asleep(&mut w, 0x9B, [100.0, 100.0, 290.0], [20.0, 20.0, 5.0]);
+    add_asleep(&mut w, 0x99, [100.0, 100.0, 300.0], [5.0, 5.0, 5.0]);
+    for _ in 0..10 {
+        w.step();
+    }
+    assert!(w.remove_ref(0x9B));
+    for _ in 0..60 {
+        w.step();
+    }
+    let z = w.ref_bodies(0x99)[0].translation[2];
+    assert!(z < 250.0, "the box fell once its support was gone: z = {z}");
+}
+
+#[test]
+fn clutter_added_asleep_on_a_shelf_it_overlaps_stays_asleep() {
+    // Placed 0.6 into a static shelf and touching a neighbour, as clutter is placed: no
+    // push apart at load.
+    let mut w = ground();
+    w.add_ref(&at(0x9C, [100.0, 100.0, 290.0]), &[object(boxed([50.0, 50.0, 10.0]), Motion::Static)]);
+    add_asleep(&mut w, 0x99, [100.0, 100.0, 304.4], [5.0, 5.0, 5.0]);
+    add_asleep(&mut w, 0x9A, [109.0, 100.0, 304.4], [5.0, 5.0, 5.0]);
+    let _ = down(&mut w, 0.0, 0.0);
+    for _ in 0..120 {
+        w.step();
+    }
+    for id in [0x99, 0x9A] {
+        let b = w.ref_bodies(id)[0];
+        assert!(b.sleeping && (b.translation[2] - 304.4).abs() < 1e-3, "{id:X}: {b:?}");
+    }
+}
+
+#[test]
+fn clutter_asleep_on_a_keyframed_lid_stays_asleep() {
+    // A container's keyframed lid added with the cell (asleep), a bottle overlapping it.
+    let mut w = ground();
+    let lid = PreparedRef::new(&w.params, &at(0x9C, [100.0, 100.0, 290.0]), &[object(boxed([50.0, 50.0, 10.0]), Motion::Keyframed)]).asleep();
+    w.insert_ref(lid);
+    add_asleep(&mut w, 0x99, [100.0, 100.0, 304.0], [5.0, 5.0, 5.0]);
+    for _ in 0..120 {
+        w.step();
+    }
+    let b = w.ref_bodies(0x99)[0];
+    assert!(b.sleeping && (b.translation[2] - 304.0).abs() < 1e-3, "{b:?}");
+}

@@ -251,6 +251,9 @@ pub struct Agent {
     /// What it does in a combat state (`crate::alert`): its package's own doings wait
     /// meanwhile.
     pub search: Option<crate::alert::Search>,
+    /// It cannot walk (a creature without movement animations, a raven): it stays where
+    /// it is, whatever its packages say ([`Ai::root`]).
+    pub rooted: bool,
     /// The heading it is to stand facing where it arrived (an idle marker's, a sandbox
     /// spot's): turned to on the spot at the standing turn rate, not taken at once
     /// [design; owner's playtest 2026-10-11: actors turned half about in a frame].
@@ -285,7 +288,7 @@ impl Ai {
         let place = goal::place_of_ref(game, actor).ok_or_else(|| format!("{actor} is in no cell"))?;
         let heading = game.world.peek(actor).map(|s| s.rot[2]).or_else(|| game.world.placed.get(actor).map(|p| p.rot[2])).unwrap_or(0.0);
         let walker = Walker::new(place.space, place.pos, heading, self.cfg.walk_speed);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false });
         Ok(())
     }
 
@@ -335,13 +338,30 @@ impl Ai {
         self.taken.retain(|_, user| *user != actor);
     }
 
+    /// Keep `actor` where it is from now on: no package moves it, no sandbox, no walk,
+    /// no search (an actor that cannot walk, e.g. a creature without movement
+    /// animations; the engine decides who). Its scripts still run.
+    pub fn root(&mut self, game: &Game, actor: FormId) {
+        let Some(a) = self.agents.get_mut(&actor) else { return };
+        a.rooted = true;
+        a.goal = None;
+        a.walker.follower = None;
+        a.activity = Activity::None;
+        a.sandbox = None;
+        a.search = None;
+        a.chat = None;
+        self.set_using(game, actor, None);
+        self.taken.retain(|_, user| *user != actor);
+    }
+
     /// Whether `actor` stands where an actor walking into it pushes it aside: it is in
     /// the world and alive, not on its way, not on furniture or about to use some, not
     /// waiting at a door, not in a conversation it started and not fighting (in Combat it
-    /// stands its ground, `crate::alert`) [design].
+    /// stands its ground, `crate::alert`), and able to walk ([`Ai::root`]) [design].
     pub fn stands(&self, game: &Game, actor: FormId) -> bool {
         let Some(a) = self.agents.get(&actor) else { return false };
         game.present(actor)
+            && !a.rooted
             && !game.extra.get(&actor).is_some_and(|e| e.dead)
             && a.activity != Activity::Travelling
             && a.using.is_none()
@@ -461,7 +481,7 @@ impl Ai {
     fn step(&mut self, game: &mut Game, nav: &NavGraph, dt: f32, open: &mut dyn Mover, quiet: bool) {
         let actors: Vec<FormId> = self.agents.keys().copied().collect();
         for actor in actors {
-            if !game.present(actor) || game.extra.get(&actor).is_some_and(|e| e.dead) {
+            if !game.present(actor) || game.extra.get(&actor).is_some_and(|e| e.dead) || self.agents[&actor].rooted {
                 continue;
             }
             let current = game.current_package(actor);
