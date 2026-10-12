@@ -2980,6 +2980,103 @@ Branch `claude/playtest-controls`. One commit per item.
    finishes closing within 0.25 s of that press, it fires; otherwise the press is
    dropped and you press again. **Check:** whether 0.25 s feels right.
 
+## Playtest fixes: Sunny, dialogue and voices by distance (2026-10-11, session "pt-dialogue")
+
+Branch `claude/playtest-dialogue`; notes in docs/spec-notes/dialogue.md §5,
+dialogue-menu.md §4, voice.md §9, docs/design/dialogue-play.md §1 and §8.1,
+actor-behaviour.md §5.1–§5.2, alert.md §4 and §8.
+
+1. **Sunny's gecko line holds you.** "Hear that up on the ridge…" is a greeting with the
+   Goodbye flag, said by her Dialogue package. **Rule now:** when an actor starts the
+   conversation (StartConversation with the player, or its Dialogue package), a Goodbye
+   greeting is a conversation of one line: the dialogue screen holds you until it is
+   said, then ends. When **you** talk to an actor, a Goodbye greeting is still just
+   said at you (your rule of 2026-10-10). Please check in the game whether a
+   force-greet's Goodbye line zooms in like this for other NPCs too.
+2. **No `{…}` in lines.** Acting notes in braces are left out of the dialogue line, the
+   choices and the subtitles ("{questioning}" and the like; 5,634 lines carry one).
+   **Kept:** square brackets ("[SUCCEEDED]", "[FAILED]", "[You hear static.]"), because
+   the original shows those. Four lines close a note with ")" by mistake ("{KAI-zar)
+   Caesar awaits!"); the note ends there. Angle-bracket prompts ("<Log Off>", "<lie>")
+   are shown as written: tell me if the game hides those.
+3. **Facing in conversations.** The NPC now turns its whole body to you on the spot and
+   keeps facing you for the whole conversation, however it started, and still faces you
+   afterwards until its package moves it (before, the drawing put it back). Turn speed is
+   the standing turn rate (120° a second). Someone sitting turns only the head.
+4. **Sunny at the gas station.** Cause: a script's MoveTo (Ringo's "All right, I'm
+   ready." moves her to the gas station) did not reach the AI, which kept her where she
+   stood in the saloon. Now an actor put somewhere by a script goes on from there and
+   takes up its package anew. Checked in the gas station: she appears and says "Time to
+   look alive" with the conversation open. Please play it from Ringo's line once.
+5. **Cheyenne.** Her package is "accompany Sunny" (128 units); that package type was not
+   carried out, so she stayed behind. Follow and Accompany packages are carried out now:
+   she stands while Sunny is within 128 + 64 units, else walks after her (runs when Sunny
+   is more than 512 away), through doors too. Guessed: the 64-unit slack, the 512 run
+   distance, 256 units for packages that give no distance. Escort is still not carried
+   out.
+6. **Voices by distance.** NPC lines you are not in a conversation with are full volume
+   within 600 units, quieter beyond, silent from 2,000, and panned left/right; another
+   cell is silent. 600 and 2,000 are `fDialogMinDistance` / `fDialogMaxDistance` from
+   the game's `Fallout_default.ini` (the names fit; nothing documents them). **No
+   subtitle** while the speaker is 2,000 units or more away or in another cell. Your own
+   conversation stays full volume. Please listen to a hello at about 10 m and 25 m.
+7. **Fewer barks.** After one actor says a detection line (spotting you, losing you,
+   searching), nobody of its group within 4,096 units (one cell) says a line of the same
+   kind for 15 s. Group = same NPC type or a shared faction. "Same kind": the three
+   "starts fighting" topics count as one, the three "gives up" topics as one, the two
+   search idles as one. 15 s is the longest idle-bark wait in the ESM; 4,096 is my
+   choice. At Cook-Cook's camp: 12 lines in 45 s before, 4 after.
+
+Seen on the way, not fixed (not mine): in the Fiend check (alert.md §8) Violet becomes
+Alert but barely moves and never reaches Combat, on main as well; Cook-Cook's fiends switch
+Combat ↔ Lost every few seconds.
+
+## Playtest fixes: NPCs on furniture, turning and anim objects (2026-10-11, session "pt-npcs")
+
+Branch `claude/playtest-npcs`; notes in docs/spec-notes/furniture.md §7, actors.md §8.9
+and §9.4, idles.md §10.
+
+1. **The saloon settler standing in his stool after you come back** (and **Easy Pete
+   not sitting on the porch chair after coming out of the saloon**): one cause. When you
+   left the cell the actor's body was taken away while seated, but the stool stayed
+   booked to him, so on your return the stool refused him as "in use" (by himself). Now
+   the seat is freed when the body goes, and a resident that was seated is put straight
+   back on it when you return, already sitting (no walk-up and sit-down clip again).
+   *Decision:* coming back finds him seated, not sitting down again. *Check:* leave the
+   saloon and come back; with Pete, enter the saloon while he sits on the porch, wait
+   two hours inside, come out at 14:00.
+2. **Holstered weapons floating on seated NPCs**: the seat clips don't move the weapon,
+   so it fell back to its "in the hand" position while hung from the hip. Now only the
+   weapon's own holster track is kept over the seat clip (and over a death pose), so the
+   gun stays on the hip or back and follows it. *Check:* a seated settler's pistol at his
+   hip; the rifle on the back of a seated rifleman.
+3. **Turning speed** (guessed values, nothing in the data gives an NPC's turn speed;
+   the game has a setting `fCharacterDefaultTurningSpeed` whose value is built into the
+   game, and creatures have a "Turning Speed" field of 40–100 that we don't use yet):
+   - walking: at most **180°/s** (was 720°/s); standing turns stay **120°/s**;
+   - an actor slows while turning: it keeps 30% of its speed when its way is a quarter
+     turn or more off, full speed when facing it (a right-angle corner costs about half a
+     second);
+   - near you (where actors walk with physics) they walk an arc round corners and turn
+     on the spot before setting off, like elsewhere;
+   - arriving at an idle marker they now turn to its heading at 120°/s (it was instant);
+     walking the last steps to a chair they take as long as the turn needs; getting up
+     from a chair no longer snaps them half about in one frame.
+   *Measured:* the fastest turn between two frames in the residents test went from
+   720°/s (2 frames above 270°/s) to 180°/s (none). Turn-on-the-spot clips already
+   exist and play (`mtturnleft/right.kf`); weapon-stance and creature turn clips are not
+   used by NPCs yet. The conversation turn was left as it was (another session works on
+   dialogue facing). *Check:* do 180°/s and the slow-down feel right? Should creatures
+   use their own "Turning Speed" field?
+4. **Props in idles (Chet's broom)**: the game links a prop to an idle through an
+   "animated object" record that names the idle; the prop's model names the hand it goes
+   in. Now while an NPC plays such an idle the prop is drawn in that hand, and taken
+   away when the idle ends. Chet sweeps with his broom; a smoking idle gets a cigarette.
+   *Guess:* the prop shows for the whole idle (including its fade-out); the prop's own
+   small animation (the broom has one) isn't played. *Check:* Chet sweeping; anyone
+   smoking, drinking or eating at a table. New test aid `play_idle:<ref>:<idle>` in
+   `NVF_PLAY_TEST_SCRIPT`.
+
 ## Playtest fixes: loose items, ravens, shadows and shine (2026-10-11, session "pt-world")
 
 Branch `claude/playtest-world`. Pictures: `C:\fnv-private\references\playtest_world\`.

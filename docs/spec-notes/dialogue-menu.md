@@ -120,6 +120,14 @@ From these, all [hypothesis] fitted to the pictures:
 - A choice reads as the runtime gives it, with a check's tag and two spaces before it;
   no numbers. A choice answered before is drawn at brightness 128; the frame of a check
   the player falls short of is red.
+- The line and the choices are shown without the acting notes in braces
+  (`dialogue::shown_text`: "{questioning}You know how to play Caravan?" reads "You know
+  how to play Caravan?") [owner statement 2026-10-11: the original shows no `{…}`
+  content; observed: 5,634 of FalloutNV.esm's response texts carry such a note, 4,617 at
+  the start, 4 closed by ")" instead of "}", which NVForever ends there; design]. Square
+  brackets stay ("[SUCCEEDED]", "[You hear static.]"): the statement names braces only.
+  The subtitles and radio subtitles are shown the same way (corner-messages.md §8); the
+  log's `dialogue:` lines keep the record's text.
 - The list scrolls by whole choices to keep the selected one in sight [design].
 - The keys are dialogue-play.md §2's; the old on-screen key hint and the "You cannot
   leave this conversation yet." note are gone (the original shows neither; a refused

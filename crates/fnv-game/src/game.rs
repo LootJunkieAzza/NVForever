@@ -625,6 +625,10 @@ pub struct Game<'a> {
     pub loaded_cells: BTreeSet<FormId>,
     /// Scripted references a script moved (they may have left their authored cell).
     pub moved: BTreeSet<FormId>,
+    /// References other than the player that a script put somewhere (MoveTo) since the
+    /// layer that moves actors last took them ([`Game::take_teleported`]): it has to
+    /// start them again from where they are now. Not saved.
+    pub teleported: BTreeSet<FormId>,
     /// The open menu, by menu code. While a menu is open, [`Game::tick`] runs MenuMode
     /// blocks instead of GameMode, and game time stops for scripts (GetSecondsPassed and
     /// the quest delay of GameMode) [observed: layer5-captures.md §8.3 e]. Part of the
@@ -791,6 +795,7 @@ impl<'a> Game<'a> {
             form_lists: BTreeMap::new(),
             loaded_cells: BTreeSet::new(),
             moved: BTreeSet::new(),
+            teleported: BTreeSet::new(),
             menu: None,
             loading: false,
             message_box: None,

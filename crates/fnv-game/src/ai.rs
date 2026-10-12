@@ -237,6 +237,12 @@ impl Game<'_> {
         self.evaluate_package(actor)
     }
 
+    /// The references a script put somewhere since the last call (MoveTo; see
+    /// [`Game::teleported`]).
+    pub fn take_teleported(&mut self) -> BTreeSet<FormId> {
+        std::mem::take(&mut self.teleported)
+    }
+
     /// Put an actor somewhere without a trace event: the layer that moves actors calls
     /// this as they walk (a script's MoveTo is traced; a step is not).
     pub fn set_actor_place(&mut self, actor: FormId, cell: Option<FormId>, pos: [f32; 3], heading: f32) -> Result<(), String> {
