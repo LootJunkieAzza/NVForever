@@ -1619,3 +1619,16 @@ expect = [
   { re = 'ai \[.*\] 0x000F9CE\S*: searches for the player', min = 2, label = "two or more Fiends search" },
   { re = 'combat group: \S+ 0x\S+ has searched its share for the player', min = 2, label = "two or more searched their share" },
 ]
+
+[[scenario]]
+name = "floating-troopers"
+source = "docs/spec-notes/floating-actors.md: Camp Golf's tower trooper and Mags stood 66 units above their roots (2ha Holster clip's Bip01 height over the idle's pelvis); playtest list 1 item 24"
+areas = ["actors", "animation"]
+paths = ["engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/anim_blend.rs", "engine/nvforever/src/actor_feet.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/weapons.rs"]
+env = { NVF_TEST_ACTOR_FEET = "15:3500" }
+args = ["--play", "--pos=29500,62000,3400", "--heading", "0", "--pitch", "-10", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  "actor feet: 0010B35A CampGolfNCRTrooperTower1A at ",
+  "actor feet: … actors within 3500 units of the camera, 0 with a foot bone over 30 units above the root",
+]

@@ -10,6 +10,7 @@
 //! menu.
 
 mod activators;
+mod actor_feet;
 mod anim_objects;
 mod actor_groups;
 mod actors;
@@ -849,6 +850,9 @@ fn main() -> AppExit {
     .add_systems(Update, timelapse.after(sky::update_sky))
     .add_systems(Startup, crash::report_start)
     .add_systems(Last, (crash::note_place, crash::report_exit));
+    if let Some(probe) = actor_feet::from_env() {
+        app.insert_resource(probe).add_systems(Last, actor_feet::probe);
+    }
     if let Some(radius) = args.actor_turn_test {
         app.insert_resource(locomotion::TurnTest { radius, started: 0, finished: 0, degrees: 0.0 })
             .add_systems(Update, locomotion::turn_test.before(locomotion::turn_to))

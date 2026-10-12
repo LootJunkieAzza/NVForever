@@ -916,6 +916,11 @@ sequences): 70 directly in it, 9 in `male\`, 9 in `female\`, 8 in `child\` and 2
   in-cycle deviations and removes the travel [engine rule; hypothesis that the game
   moves the actor at the clip's average speed]. A clip without a `Bip01` track holds it
   at the identity (§7.2), so all locomotion clips blend on the same root.
+- The root's **height** counts from the track's start: sampling also removes the
+  track's start z. Only the 2ha/2hh `Holster` clips (and their power-armour and sneak
+  copies) start `Bip01` off height 0, at a constant 67–68 with no `Bip01 NonAccum`
+  track; taken as they are they lifted NPCs 66 units off the ground
+  [observed; rule hypothesis, docs/spec-notes/floating-actors.md].
 
 ### 8.3 Selection, blending, phase and speed (engine)
 
