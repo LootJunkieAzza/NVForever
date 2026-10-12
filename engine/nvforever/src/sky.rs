@@ -67,6 +67,10 @@ const NIF_SKY_RADIUS: f32 = 500.0;
 /// The atmosphere dome is flat: about 500 units across but only 250 high [observed], so
 /// sky objects stay within half the dome radius to remain in front of it overhead.
 const SKY_INNER: f32 = 0.5 * DOME_RADIUS;
+/// Depth beyond this distance from the camera (game units) is the sky dome's (it is opaque
+/// and in the depth prepass); nothing of the world is drawn this far (sun shafts,
+/// `shafts.rs`).
+pub const SKY_DEPTH_FROM: f32 = 0.9 * SKY_INNER;
 /// Distance of the sun and moon discs and the sun's size [hypothesis: about 4 degrees
 /// across].
 const SUN_DISTANCE: f32 = 0.8 * SKY_INNER;
@@ -474,6 +478,11 @@ impl SkyState {
         let m = s.iter().copied().fold(1e-3f32, f32::max);
         let k = (self.daylight() * CLOUD_SUN).min(1.0);
         std::array::from_fn(|i| c[i] * (1.0 + (s[i] / m - 1.0) * k))
+    }
+
+    /// Direction towards the sun, in Bevy's axes (also below the horizon).
+    pub fn sun_dir(&self) -> Vec3 {
+        game_to_bevy().rotation * Vec3::from_array(sun_direction(&self.climate, self.hour, SUN_SOUTH))
     }
 
     /// Sun elevation above the horizon in degrees.

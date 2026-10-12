@@ -28,7 +28,8 @@ struct WaterParams {
     surface: vec4<f32>,
     // per layer: uv velocity (per second), 1 / uv scale (per world unit), amplitude
     layers: array<vec4<f32>, 3>,
-    // x = Bevy y of the plane the reflection texture shows, y = 1 when it is in use
+    // x = Bevy y of the plane the reflection texture shows, y = 1 when it is in use,
+    // z = 1 when screen-space reflections stand in where it is not (enhanced graphics)
     reflection_plane: vec4<f32>,
     // ripple grid: game x, y of its corner, units per cell, height scale (0: none)
     ripple: vec4<f32>,
@@ -88,6 +89,75 @@ fn scene_point(fc: vec2<f32>) -> vec4<f32> {
     if d > 0.0 {
         let ndc = frag_coord_to_ndc(vec4(fc, d, 1.0));
         return vec4(position_ndc_to_world(ndc), 1.0);
+    }
+#endif
+    return vec4(0.0);
+}
+
+// Screen-space reflections (enhanced graphics, graphics-enhanced.md §3.8): where the
+// mirrored camera does not show this plane (water at another height, interiors), the
+// reflected ray is marched through the depth prepass and the opaque picture (the
+// transmission copy) is taken where it passes behind something. Steps grow by SSR_GROWTH
+// from SSR_FIRST units, SSR_STEPS of them (about 9,000 units in all), then four halvings
+// [engineering choices, by eye]. Returns the colour (display values: fogged and
+// tonemapped, as the copy holds them) and in w how much to trust it (0: no hit).
+const SSR_STEPS: i32 = 28;
+const SSR_FIRST: f32 = 24.0;
+const SSR_GROWTH: f32 = 1.16;
+fn ssr(pos: vec3<f32>, R: vec3<f32>) -> vec4<f32> {
+#ifdef DEPTH_PREPASS
+    let o = (view.view_from_world * vec4(pos, 1.0)).xyz;
+    let d = normalize((view.view_from_world * vec4(R, 0.0)).xyz);
+    let size = view.viewport.zw;
+    var t0 = 0.0;
+    var t = SSR_FIRST;
+    var stride = SSR_FIRST;
+    for (var i = 0; i < SSR_STEPS; i++) {
+        let p = o + d * t;
+        if p.z >= -1.0 {
+            return vec4(0.0);
+        }
+        let clip = view.clip_from_view * vec4(p, 1.0);
+        let uv = ndc_to_uv(clip.xy / clip.w);
+        if any(uv < vec2(0.0)) || any(uv > vec2(1.0)) {
+            return vec4(0.0);
+        }
+        let scene = prepass_utils::prepass_depth(vec4(view.viewport.xy + uv * size, 0.0, 1.0), 0u);
+        // Distance along the view axis of the ray's point and of the scene there
+        // (reverse infinite z: distance = near / depth; the sky, depth 0, is never hit).
+        let ray_z = -p.z;
+        let near = view.clip_from_view[3][2];
+        let scene_z = select(1.0e9, near / scene, scene > 0.0);
+        // Behind the scene, by less than a step's length (else it passed behind an object
+        // it does not touch).
+        if ray_z > scene_z && ray_z - scene_z < stride * 2.0 + 20.0 {
+            // Halve the last step four times.
+            var lo = t0;
+            var hi = t;
+            for (var k = 0; k < 4; k++) {
+                let m = 0.5 * (lo + hi);
+                let pm = o + d * m;
+                let cm = view.clip_from_view * vec4(pm, 1.0);
+                let um = ndc_to_uv(cm.xy / cm.w);
+                let sm = prepass_utils::prepass_depth(vec4(view.viewport.xy + um * size, 0.0, 1.0), 0u);
+                if sm > 0.0 && -pm.z > near / sm {
+                    hi = m;
+                } else {
+                    lo = m;
+                }
+            }
+            let ph = o + d * hi;
+            let ch = view.clip_from_view * vec4(ph, 1.0);
+            let uh = ndc_to_uv(ch.xy / ch.w);
+            let c = textureSampleLevel(view_transmission_texture, view_transmission_sampler, uh, 0.0).rgb;
+            // Less trust near the picture's edges and towards the end of the march.
+            let edge = min(min(uh.x, 1.0 - uh.x), min(uh.y, 1.0 - uh.y));
+            let trust = smoothstep(0.0, 0.08, edge) * (1.0 - smoothstep(0.6, 1.0, f32(i) / f32(SSR_STEPS)));
+            return vec4(c, trust);
+        }
+        t0 = t;
+        stride *= SSR_GROWTH;
+        t += stride;
     }
 #endif
     return vec4(0.0);
@@ -186,6 +256,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // fresnel term blended with a constant by the fresnel amount.
     var fr = 0.0;
     var reflected = vec3(0.0);
+    // Screen-space reflection where the mirror camera does not cover (display values).
+    var traced = vec4(0.0);
     if above {
         let R = reflect(-V, N);
         let schlick = 0.02 + 0.98 * pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 5.0);
@@ -202,6 +274,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let world_reflection = textureSampleLevel(reflection_texture, reflection_sampler, clamp(uv, vec2(0.0), vec2(1.0)), 0.0).rgb;
         let mirror_here = water.reflection_plane.y > 0.5 && abs(pos.y - water.reflection_plane.x) < 2.0;
         let sky = select(sky_colour(R.y), world_reflection, mirror_here);
+        if !mirror_here && water.reflection_plane.z > 0.5 && water.reflection.a > 0.5 {
+            traced = ssr(pos, R);
+        }
         reflected = select(water.reflection.rgb, sky, water.reflection.a > 0.5);
         if lights.n_directional_lights > 0u {
             let sun = lights.directional_lights[0];
@@ -223,5 +298,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // refracted scene (already fogged and tonemapped: a copy of the opaque pass).
     pbr.material.flags = pbr_types::STANDARD_MATERIAL_FLAGS_FOG_ENABLED_BIT;
     colour = pbr_functions::main_pass_post_lighting_processing(pbr, colour);
-    return vec4(colour.rgb * colour.a + refracted * (1.0 - colour.a), 1.0);
+    var result = colour.rgb * colour.a + refracted * (1.0 - colour.a);
+    // The traced reflection takes the reflected share's place [approximation: mixed in
+    // after fog and tonemapping, which the copy already has].
+    result = mix(result, traced.rgb, fr * traced.w);
+    return vec4(result, 1.0);
 }
