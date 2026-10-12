@@ -112,8 +112,8 @@ pub fn get_current_ai_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Valu
 ///
 /// - a conversation with the player 4, combat 13, Alert or Lost 36;
 /// - getting off a seat or bed 21, lying on a bed 8, sitting 48;
-/// - a package whose goal was met 17 DONE [hypothesis: the end scripts of four
-///   travelling Primm packages wait for the others' 17 together];
+/// - a package whose goal was met 17 DONE [hypothesis: the end scripts of eight
+///   packages of FalloutNV.esm (0x0012FEED-F0, 0x0016954E-51) wait for four actors' 17];
 /// - else by the package type: Travel 0, Sleep 0 (on its way to the bed), Find 2,
 ///   Wander 7, Eat 10, Follow 11, Escort 12, Accompany 27, Use Item At 28, Ambush 30,
 ///   Flee Not Combat 34, Patrol 41, Use Weapon 42, Guard 44, Sandbox 45, Dialogue 4
