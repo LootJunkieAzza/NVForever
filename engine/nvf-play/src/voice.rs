@@ -21,17 +21,31 @@
 //!   there and resumed after; a line of the conversation itself goes on in real time and
 //!   is held only by a message box on top of it; the pause menu holds every line. One log
 //!   line each way (`voice: … held` / `goes on`).
-//! - Not done [decision]: 3D placement (voices play flat, at full volume wherever the
-//!   speaker stands). Lip sync follows [`VoiceState::spoken`] from `nvforever`'s
-//!   `lips.rs` (docs/spec-notes/lipsync.md).
+//! - **Heard where it is said** (since 2026-10-11, owner request: "audio volume based on
+//!   the distance … if the NPC is out of hearing range we shouldn't show the
+//!   subtitle"). A line said outside the conversation with the player (SayTo, Say, a
+//!   hello, a line between two actors, a detection bark) is heard from where its
+//!   speaker stands ([`hearing`]): at full volume within [`DIALOG_MIN_DISTANCE`] of the
+//!   player's eye, falling as minimum ÷ distance beyond it and fading to nothing at
+//!   [`DIALOG_MAX_DISTANCE`] ([`voice_gain`], the shape `crate::sfx` gives sound effects),
+//!   and panned to the side it is on (`crate::sfx::pan_gains`), following the speaker and
+//!   the player while it plays. A speaker in another cell (an interior other than the
+//!   player's, or inside while the player is outside) is not heard. While a line is not
+//!   heard it is silent and shows no subtitle (`crate::script_hud`; [`audible`]): both
+//!   follow the distance while the line lasts; the log says `voice: … out of hearing`
+//!   when a response starts out of hearing. The
+//!   conversation with the player stays at full volume and unpanned. Lip sync follows
+//!   [`VoiceState::spoken`] from `nvforever`'s `lips.rs` (docs/spec-notes/lipsync.md).
 //!
 //! Switches: [`VoiceSettings`] (`nvforever --no-voice`, `--voice-volume`);
 //! `NVF_PLAY_VOICE_LENGTHS=0` keeps the fitted line lengths (sounds still play).
 
+use crate::player::Player;
 use crate::script::ScriptState;
+use crate::sfx::{pan_gains, Pan, Panned};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayWorld};
-use bevy::audio::Volume;
+use bevy::audio::{AddAudioSource, Volume};
 use bevy::prelude::*;
 use fnv_game::game::Speech;
 use fnv_game::Game;
@@ -59,6 +73,58 @@ impl Default for VoiceSettings {
     }
 }
 
+/// Dialogue said by an actor is heard at full volume within this many units of the
+/// listener [observed: `fDialogMinDistance=600.00` in the [Audio] section of the
+/// install's `Fallout_default.ini`; hypothesis: that it is the distance up to which
+/// dialogue is not attenuated, as its name says].
+pub const DIALOG_MIN_DISTANCE: f32 = 600.0;
+/// … and not at all beyond this many [observed: `fDialogMaxDistance=2000.00`, the same
+/// section; hypothesis: that it is the distance at which dialogue falls silent]. A line
+/// said farther away shows no subtitle either [owner request 2026-10-11].
+pub const DIALOG_MAX_DISTANCE: f32 = 2000.0;
+/// The speaker's mouth above its feet, game units [design: about a standing head].
+pub const MOUTH_HEIGHT: f32 = 110.0;
+
+/// The gain of dialogue said `distance` units from the listener: 1 within
+/// [`DIALOG_MIN_DISTANCE`], minimum ÷ distance beyond it, faded linearly to 0 at
+/// [`DIALOG_MAX_DISTANCE`] [design: the shape of `crate::sfx::distance_gain`].
+pub fn voice_gain(distance: f32) -> f32 {
+    let (min, max) = (DIALOG_MIN_DISTANCE, DIALOG_MAX_DISTANCE);
+    if distance >= max {
+        return 0.0;
+    }
+    if distance <= min {
+        return 1.0;
+    }
+    (min / distance) * (1.0 - (distance - min) / (max - min))
+}
+
+/// Where the listener hears a speaker: the speaker's mouth (game space) and its distance
+/// from the player's eye; `None` when the speaker is not in the player's cell space (an
+/// interior other than the player's, or inside while the player is outside) or nowhere.
+pub fn hearing(sim: &SimState, player: &Player, speaker: FormId) -> Option<([f32; 3], f32)> {
+    let me = sim.world.peek(FormId::PLAYER_REF)?;
+    let s = sim.world.peek(speaker)?;
+    let space = |cell: Option<FormId>| cell.map(|c| sim.refs.world_of(c).map_or((false, c.0), |w| (true, w.0)));
+    if space(me.cell)? != space(s.cell)? {
+        return None;
+    }
+    let at = [s.pos[0], s.pos[1], s.pos[2] + MOUTH_HEIGHT];
+    let eye = player.eye();
+    let d = ((at[0] - eye[0]).powi(2) + (at[1] - eye[1]).powi(2) + (at[2] - eye[2]).powi(2)).sqrt();
+    Some((at, d))
+}
+
+/// Whether the player hears a line `speaker` says outside the conversation with the
+/// player (its subtitle is shown): in the player's cell space and nearer than
+/// [`DIALOG_MAX_DISTANCE`]. Without a player (no world yet) everything is heard.
+pub fn audible(sim: &SimState, player: Option<&Player>, speaker: FormId) -> bool {
+    match player {
+        None => true,
+        Some(p) => hearing(sim, p, speaker).is_some_and(|(_, d)| d < DIALOG_MAX_DISTANCE),
+    }
+}
+
 /// A sound being played for a line.
 struct Playing {
     info: FormId,
@@ -78,6 +144,9 @@ struct Playing {
     started_at: f64,
     /// Real seconds the sound has stood still so far (`held`).
     held_secs: f64,
+    /// A line heard where it is said: its left and right gains, distance included,
+    /// followed while it plays (`None`: the conversation's, flat and whole).
+    pan: Option<Pan>,
 }
 
 /// A response being said, for what follows the voice (lip sync, `nvforever`'s
@@ -121,6 +190,8 @@ pub struct VoiceState {
     pub started: u64,
     /// Responses that started without a file.
     pub missing: u64,
+    /// Responses that started out of the player's hearing (no sound, no subtitle).
+    pub unheard: u64,
 }
 
 /// Marks the audio entity of a line.
@@ -268,7 +339,21 @@ fn hook(state: Res<VoiceState>, settings: Res<VoiceSettings>, mut script: ResMut
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The left and right gains of a line heard from where its speaker is now (0 out of
+/// hearing).
+fn placed_gains(sim: &SimState, player: Option<&Player>, speaker: FormId) -> [f32; 2] {
+    let Some(p) = player else { return [1.0, 1.0] };
+    match hearing(sim, p, speaker) {
+        Some((at, d)) => {
+            let g = voice_gain(d);
+            let [l, r] = pan_gains(p.eye(), p.heading, at);
+            [l * g, r * g]
+        }
+        None => [0.0, 0.0],
+    }
+}
+
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn play(
     mut commands: Commands,
     time: Res<Time<Real>>,
@@ -276,10 +361,11 @@ fn play(
     mut state: ResMut<VoiceState>,
     script: Res<ScriptState>,
     sim: Res<SimState>,
-    sounds: Option<ResMut<Assets<AudioSource>>>,
+    (sounds, mut panned, player): (Option<ResMut<Assets<AudioSource>>>, Option<ResMut<Assets<Panned<AudioSource>>>>, Option<Res<Player>>),
     paused: Res<crate::pause::Paused>,
     sinks: Query<&AudioSink, With<VoiceSound>>,
 ) {
+    let player = player.as_deref();
     let st = &mut *state;
     let (Some(bank), Some(rt)) = (st.bank.clone(), script.rt.as_ref()) else { return };
     let g = &rt.game;
@@ -298,6 +384,12 @@ fn play(
         }
         said
     });
+    // A line heard where it is said follows its speaker and the listener.
+    for (speaker, p) in st.playing.iter() {
+        if let Some(pan) = &p.pan {
+            pan.set(placed_gains(&sim, player, *speaker));
+        }
+    }
     // Whatever holds a line's timer holds its sound: the sink is paused, the sound's end
     // moves on by the time held, and both go on together.
     for (speaker, p) in st.playing.iter_mut() {
@@ -340,35 +432,61 @@ fn play(
         let who = g.data.name(s.speaker);
         let number = bank.index.lines.get(&s.info.0).and_then(|l| l.responses.get(k)).map_or(0, |r| r.number);
         let file = base.and_then(|b| bank.file(s.info.0, k, b.0));
+        // A line outside the conversation is heard from where it is said, or not at all.
+        let heard = if s.conversation { None } else { Some(player.and_then(|p| hearing(&sim, p, s.speaker))) };
+        let out_of_hearing = match heard {
+            Some(Some((_, d))) if d >= DIALOG_MAX_DISTANCE => Some(format!("{d:.0} units away")),
+            Some(None) if player.is_some() => Some("in another cell".to_string()),
+            _ => None,
+        };
+        let pan = heard.map(|_| Pan::new(placed_gains(&sim, player, s.speaker)));
         let (entity, seconds) = match &file {
             Some(path) => {
                 let seconds = bank.seconds(path).unwrap_or(fitted);
+                // Played also out of hearing, silent: it is heard if the speaker comes
+                // near (or the player does) while it lasts.
                 let entity = match (settings.play, sounds.as_mut(), bank.read(path)) {
                     (true, Some(assets), Some(bytes)) => {
-                        let source = assets.add(AudioSource { bytes: bytes.into() });
+                        let source = AudioSource { bytes: bytes.into() };
                         let volume = Volume::Linear(settings.volume.max(0.0));
-                        Some(commands.spawn((AudioPlayer::new(source), PlaybackSettings::DESPAWN.with_volume(volume), VoiceSound)).id())
+                        let playback = PlaybackSettings::DESPAWN.with_volume(volume);
+                        match (&pan, panned.as_mut()) {
+                            (Some(pan), Some(panned)) => {
+                                let handle = panned.add(Panned { inner: source, pan: pan.clone() });
+                                Some(commands.spawn((AudioPlayer::<Panned<AudioSource>>(handle), playback, VoiceSound)).id())
+                            }
+                            _ => Some(commands.spawn((AudioPlayer::new(assets.add(source)), playback, VoiceSound)).id()),
+                        }
                     }
                     _ => None,
                 };
                 st.started += 1;
-                info!(
-                    "voice: playing {path} ({seconds:.2} s) {who} line {} response {number}{}",
-                    g.data.name(s.info),
-                    if entity.is_some() { "" } else { " [silent: voice playback is off]" }
-                );
+                let place = match heard {
+                    Some(Some((_, d))) => format!(" at {d:.0} units, gain {:.2}", voice_gain(d)),
+                    _ => String::new(),
+                };
+                let silent = match (&out_of_hearing, entity) {
+                    (Some(why), _) => format!(" [out of hearing, {why}: silent and no subtitle while it is]"),
+                    (None, None) => " [silent: voice playback is off]".to_string(),
+                    (None, Some(_)) => String::new(),
+                };
+                info!("voice: playing {path} ({seconds:.2} s) {who} line {} response {number}{place}{silent}", g.data.name(s.info));
                 (entity, seconds)
             }
             None => {
                 st.missing += 1;
+                if let Some(why) = &out_of_hearing {
+                    info!("voice: {who} line {} response {number} is out of hearing ({why}): no subtitle", g.data.name(s.info));
+                }
                 let voice = base.and_then(|b| bank.index.voice_of(b.0)).and_then(|v| bank.index.voice_types.get(&v));
                 info!("voice: no file for {who} line {} response {number} (voice type {})", g.data.name(s.info), voice.map_or("none", |v| v.as_str()));
                 (None, fitted)
             }
         };
+        st.unheard += u64::from(out_of_hearing.is_some());
         st.playing.insert(
             s.speaker,
-            Playing { info: s.info, response: k, entity, ends_at: now + seconds, remaining: s.remaining, path: file, started_at: now, held_secs: 0.0, conversation: s.conversation, held: false },
+            Playing { info: s.info, response: k, entity, ends_at: now + seconds, remaining: s.remaining, path: file, started_at: now, held_secs: 0.0, conversation: s.conversation, held: false, pan },
         );
     }
 }
@@ -377,7 +495,11 @@ pub struct VoicePlugin;
 
 impl Plugin for VoicePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<VoiceSettings>().init_resource::<VoiceState>().add_systems(Update, (load, hook, play).chain().in_set(PlaySet::Ui));
+        app.init_resource::<VoiceSettings>()
+            .init_resource::<VoiceState>()
+            .add_audio_source::<Panned<AudioSource>>()
+            .add_systems(Update, (load, hook, play).chain().in_set(PlaySet::Ui))
+            .add_systems(Last, report);
         crate::settings::add_setting(
             app,
             crate::settings::Setting {
@@ -392,9 +514,29 @@ impl Plugin for VoicePlugin {
     }
 }
 
+/// At exit: how many responses were played and how many were out of hearing.
+fn report(mut exit: MessageReader<AppExit>, state: Res<VoiceState>) {
+    if exit.read().next().is_some() {
+        info!("voice summary: {} responses started with a file, {} without one, {} started out of the player's hearing (silent, no subtitle while out of it)", state.started, state.missing, state.unheard);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dialogue_is_heard_by_distance() {
+        assert_eq!(voice_gain(0.0), 1.0);
+        assert_eq!(voice_gain(DIALOG_MIN_DISTANCE), 1.0);
+        // Halfway out: 600/1300 of it, faded by half.
+        let g = voice_gain(1300.0);
+        assert!((g - 600.0 / 1300.0 * 0.5).abs() < 1e-5, "{g}");
+        // Falling all the way, and nothing from the maximum on.
+        assert!(voice_gain(1000.0) > voice_gain(1500.0) && voice_gain(1500.0) > voice_gain(1999.0));
+        assert_eq!(voice_gain(DIALOG_MAX_DISTANCE), 0.0);
+        assert_eq!(voice_gain(5000.0), 0.0);
+    }
 
     #[test]
     fn responses_follow_one_another() {

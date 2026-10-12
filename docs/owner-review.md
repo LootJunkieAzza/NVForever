@@ -2979,3 +2979,54 @@ Branch `claude/playtest-controls`. One commit per item.
    after that, while it is still closing, is kept for **0.25 s** (my pick): if the weapon
    finishes closing within 0.25 s of that press, it fires; otherwise the press is
    dropped and you press again. **Check:** whether 0.25 s feels right.
+
+## Playtest fixes: Sunny, dialogue and voices by distance (2026-10-11, session "pt-dialogue")
+
+Branch `claude/playtest-dialogue`; notes in docs/spec-notes/dialogue.md §5,
+dialogue-menu.md §4, voice.md §9, docs/design/dialogue-play.md §1 and §8.1,
+actor-behaviour.md §5.1–§5.2, alert.md §4 and §8.
+
+1. **Sunny's gecko line holds you.** "Hear that up on the ridge…" is a greeting with the
+   Goodbye flag, said by her Dialogue package. **Rule now:** when an actor starts the
+   conversation (StartConversation with the player, or its Dialogue package), a Goodbye
+   greeting is a conversation of one line: the dialogue screen holds you until it is
+   said, then ends. When **you** talk to an actor, a Goodbye greeting is still just
+   said at you (your rule of 2026-10-10). Please check in the game whether a
+   force-greet's Goodbye line zooms in like this for other NPCs too.
+2. **No `{…}` in lines.** Acting notes in braces are left out of the dialogue line, the
+   choices and the subtitles ("{questioning}" and the like; 5,634 lines carry one).
+   **Kept:** square brackets ("[SUCCEEDED]", "[FAILED]", "[You hear static.]"), because
+   the original shows those. Four lines close a note with ")" by mistake ("{KAI-zar)
+   Caesar awaits!"); the note ends there. Angle-bracket prompts ("<Log Off>", "<lie>")
+   are shown as written: tell me if the game hides those.
+3. **Facing in conversations.** The NPC now turns its whole body to you on the spot and
+   keeps facing you for the whole conversation, however it started, and still faces you
+   afterwards until its package moves it (before, the drawing put it back). Turn speed is
+   the standing turn rate (120° a second). Someone sitting turns only the head.
+4. **Sunny at the gas station.** Cause: a script's MoveTo (Ringo's "All right, I'm
+   ready." moves her to the gas station) did not reach the AI, which kept her where she
+   stood in the saloon. Now an actor put somewhere by a script goes on from there and
+   takes up its package anew. Checked in the gas station: she appears and says "Time to
+   look alive" with the conversation open. Please play it from Ringo's line once.
+5. **Cheyenne.** Her package is "accompany Sunny" (128 units); that package type was not
+   carried out, so she stayed behind. Follow and Accompany packages are carried out now:
+   she stands while Sunny is within 128 + 64 units, else walks after her (runs when Sunny
+   is more than 512 away), through doors too. Guessed: the 64-unit slack, the 512 run
+   distance, 256 units for packages that give no distance. Escort is still not carried
+   out.
+6. **Voices by distance.** NPC lines you are not in a conversation with are full volume
+   within 600 units, quieter beyond, silent from 2,000, and panned left/right; another
+   cell is silent. 600 and 2,000 are `fDialogMinDistance` / `fDialogMaxDistance` from
+   the game's `Fallout_default.ini` (the names fit; nothing documents them). **No
+   subtitle** while the speaker is 2,000 units or more away or in another cell. Your own
+   conversation stays full volume. Please listen to a hello at about 10 m and 25 m.
+7. **Fewer barks.** After one actor says a detection line (spotting you, losing you,
+   searching), nobody of its group within 4,096 units (one cell) says a line of the same
+   kind for 15 s. Group = same NPC type or a shared faction. "Same kind": the three
+   "starts fighting" topics count as one, the three "gives up" topics as one, the two
+   search idles as one. 15 s is the longest idle-bark wait in the ESM; 4,096 is my
+   choice. At Cook-Cook's camp: 12 lines in 45 s before, 4 after.
+
+Seen on the way, not fixed (not mine): in the Fiend check (alert.md §8) Violet becomes
+Alert but barely moves and never reaches Combat, on main as well; Cook-Cook's fiends switch
+Combat ↔ Lost every few seconds.

@@ -26,6 +26,8 @@ pub enum Goal {
     Route(Route),
     /// Talk to someone: a Dialogue package.
     Talk(Talk),
+    /// Keep near someone, wherever it goes: a Follow or Accompany package.
+    Follow(Follow),
     /// The package type or the location kind is not carried out yet: the actor stays
     /// where it is.
     NotCarriedOut(&'static str),
@@ -69,6 +71,21 @@ pub struct Talk {
     /// PKDD "No Headtracking": speaker and target are not made to look at each other.
     pub no_headtracking: bool,
 }
+
+/// What a Follow or Accompany package has its actor do: keep within `distance` of its
+/// target, wherever the target goes (through doors too), and stand while the target
+/// stands [documented: GECK wiki Category:Packages, "Follow/Escort/Accompany: Idles
+/// play while not moving but waiting for target to move"; hypothesis: that the
+/// target's count / distance is how near it keeps].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Follow {
+    pub target: FormId,
+    /// Game units; [`STANDARD_FOLLOW_DISTANCE`] when the record has 0.
+    pub distance: f32,
+}
+
+/// How near a follower keeps to a target whose package gives no distance [our choice].
+pub const STANDARD_FOLLOW_DISTANCE: f32 = 256.0;
 
 /// The activate distance of a Dialogue package that gives none [documented: GECK wiki,
 /// Dialogue Package: "The standard distance is 150, as defined in the
@@ -259,7 +276,8 @@ pub fn resolve(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> 
     let refs = game.world.placed;
     match def.ty {
         PackageType::Travel | PackageType::Sandbox | PackageType::Sleep | PackageType::Eat | PackageType::Guard | PackageType::Wander | PackageType::Patrol => {}
-        PackageType::Follow | PackageType::Accompany | PackageType::Escort => return Goal::NotCarriedOut("a package that follows or leads its target"),
+        PackageType::Follow | PackageType::Accompany => return follow(game, actor, def),
+        PackageType::Escort => return Goal::NotCarriedOut("a package that leads its target"),
         PackageType::Dialogue => return talk(game, nav, actor, def),
         PackageType::UseWeapon => return Goal::NotCarriedOut("a use-weapon package"),
         PackageType::Find | PackageType::UseItemAt => return Goal::NotCarriedOut("a package that searches for or uses an object"),
@@ -309,6 +327,26 @@ fn stay_at(game: &Game, nav: &NavGraph, actor: FormId, loc: &Location) -> Goal {
             Goal::NotCarriedOut("a location given by an object")
         }
     }
+}
+
+/// The goal of a Follow or Accompany package: its target, a reference or the actor's
+/// linked reference ([`Follow`]).
+fn follow(game: &Game, actor: FormId, def: &PackageDef) -> Goal {
+    let linked = game.world.placed.get(actor).and_then(|r| r.linked);
+    let target = match def.target.map(|t| t.kind) {
+        Some(TargetKind::Reference(Some(r))) => r,
+        Some(TargetKind::LinkedReference) => match linked {
+            Some(l) => l,
+            None => return Goal::Missing("the actor has no linked reference to follow"),
+        },
+        Some(TargetKind::Reference(None)) => return Goal::Missing("the reference to follow is not in the load order"),
+        _ => return Goal::NotCarriedOut("a follow package without a reference to follow"),
+    };
+    if target == actor {
+        return Goal::Missing("the actor would follow itself");
+    }
+    let distance = def.target.map_or(0, |t| t.count_distance);
+    Goal::Follow(Follow { target, distance: if distance > 0 { distance as f32 } else { STANDARD_FOLLOW_DISTANCE } })
 }
 
 /// The goal of a Dialogue package [documented: GECK wiki, Dialogue Package].

@@ -29,8 +29,12 @@
 //!   `Locomotion::turn` [design; the original can turn the whole body to a head-track
 //!   target: documented for the `Look` function, GECK wiki "Look", owner export]. The
 //!   body keeps its new heading afterwards [design: AI packages will take over].
-//! - **Head only** for an actor whose body something else places or holds: a
-//!   `--npc-travel` traveller (its heading is the walker's), an actor under the walk test,
+//! - **Head only** for an actor whose body something else places or holds: an actor the
+//!   AI runs (`--play`, `--npc-packages`: `fnv_ai::Ai::update_held` turns its body on the
+//!   spot and keeps it facing the player for the whole conversation, in the walker's
+//!   heading, which the engine draws; turning the drawn body here would be undone by the
+//!   next frame's drawing), a `--npc-travel` traveller (its heading is the walker's), an
+//!   actor under the walk test,
 //!   and one marked [`BodyHeld`] (in furniture or lying down: `furniture.rs` marks the
 //!   actors it seats).
 //! - **Nobody turns** when the actor is dead or a ragdoll (never touched), is not a
@@ -367,7 +371,7 @@ pub(crate) fn heading_deg(rotation: Quat) -> f32 {
 
 /// Turn the conversation's actor to the player, and ease back the ones whose
 /// conversation is over (the module notes).
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn turn_speaker(
     time: Res<Time>,
     settings: Res<LookSettings>,
@@ -376,8 +380,7 @@ pub(crate) fn turn_speaker(
     script: Option<Res<ScriptState>>,
     sim: Res<SimState>,
     player: Option<Res<Player>>,
-    combat: Option<Res<Combat>>,
-    nav: Option<Res<NavState>>,
+    (combat, nav, residents): (Option<Res<Combat>>, Option<Res<NavState>>, Option<Res<crate::residents::Residents>>),
     mut looks: ResMut<Looks>,
     mut face: ResMut<SpeakerFace>,
     actors: Query<Actor>,
@@ -426,6 +429,7 @@ pub(crate) fn turn_speaker(
                     Ok(_) if held => Turns::HeadOnly("it is in furniture"),
                     Ok(_) if looks.head_only => Turns::HeadOnly("test aid NVF_PLAY_TEST_TALK_HEAD_ONLY"),
                     Ok(_) if traveller => Turns::HeadOnly("its heading is its route's (--npc-travel)"),
+                    Ok(_) if residents.as_ref().is_some_and(|res| res.runs(r)) => Turns::HeadOnly("the AI turns its body to the player (fnv_ai)"),
                     Ok(_) if walk_test => Turns::HeadOnly("the walk test moves it"),
                     Ok(_) if !standing => Turns::HeadOnly("it is not standing in its idle"),
                     Ok(_) => Turns::HeadAndBody,

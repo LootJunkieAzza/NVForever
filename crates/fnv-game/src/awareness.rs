@@ -196,11 +196,18 @@ pub struct Timers {
     /// two [documented: Detection Tab, fCombatDetectionDialogueIdleMin/MaxElapsedTime;
     /// the defaults are FalloutNV.esm's values, observed 2026-10-11].
     pub idle_bark: (f64, f64),
+    /// After an actor says a Detection line of one kind ([`bark_kind`]), neither it nor
+    /// a member of its group ([`Game::bark_mates`]) within [`BARK_GROUP_RADIUS`] says one
+    /// of the same kind for this many seconds [owner request 2026-10-11: "if an enemy in
+    /// a group says a line … all the others don't shout the same line type"; design:
+    /// the length is the longer idle-bark wait, fCombatDetectionDialogueIdleMaxElapsedTime,
+    /// 15 s in FalloutNV.esm].
+    pub bark_cooldown: f64,
 }
 
 impl Default for Timers {
     fn default() -> Timers {
-        Timers { alarm: 20.0, forget_target: 10.0, lost: 3.0, idle_bark: (5.0, 15.0) }
+        Timers { alarm: 20.0, forget_target: 10.0, lost: 3.0, idle_bark: (5.0, 15.0), bark_cooldown: 15.0 }
     }
 }
 
@@ -209,8 +216,45 @@ impl Timers {
     pub fn read(g: &Game) -> Timers {
         let d = Timers::default();
         let s = |name: &str, v: f64| crate::combat::setting(g, name, v);
-        Timers { idle_bark: (s("fCombatDetectionDialogueIdleMinElapsedTime", d.idle_bark.0), s("fCombatDetectionDialogueIdleMaxElapsedTime", d.idle_bark.1)), ..d }
+        let idle_bark = (s("fCombatDetectionDialogueIdleMinElapsedTime", d.idle_bark.0), s("fCombatDetectionDialogueIdleMaxElapsedTime", d.idle_bark.1));
+        Timers { idle_bark, bark_cooldown: idle_bark.1.max(idle_bark.0), ..d }
     }
+}
+
+/// Members of a group within this many game units of a Detection line's speaker do not
+/// say a line of the same kind while its cooldown lasts [design: one exterior cell's
+/// width, about the spread of a camp such as the Fiends' around Cook-Cook].
+pub const BARK_GROUP_RADIUS: f32 = 4096.0;
+
+/// The kind of a Detection topic, for the group cooldown: the three topics an actor says
+/// on starting to fight (NormalToCombat, AlertToCombat, LostToCombat) are one kind, as
+/// are the three on giving up (AlertToNormal, CombatToNormal, LostToNormal) and the two
+/// idles (AlertIdle, LostIdle); NormalToAlert and CombatToLost are kinds of their own
+/// [design: lines of one kind say the same thing].
+pub fn bark_kind(topic: &'static str) -> &'static str {
+    match topic {
+        "NormalToCombat" | "AlertToCombat" | "LostToCombat" => "to combat",
+        "AlertToNormal" | "CombatToNormal" | "LostToNormal" => "to normal",
+        "AlertIdle" | "LostIdle" => "idle",
+        t => t,
+    }
+}
+
+/// Who of `said` (the lines said within the cooldown) holds back a line of `kind` by an
+/// actor standing at `at`: the first that said a line of that kind within
+/// [`BARK_GROUP_RADIUS`] of it and is of its group (`mates`, the actor itself included).
+pub fn held_back_by(said: &[Said], kind: &str, at: Option<[f32; 3]>, mates: impl Fn(FormId) -> bool) -> Option<FormId> {
+    let near = |s: &Said| at.is_none_or(|a| (a[0] - s.at[0]).hypot(a[1] - s.at[1]) <= BARK_GROUP_RADIUS);
+    said.iter().find(|s| s.kind == kind && near(s) && mates(s.speaker)).map(|s| s.speaker)
+}
+
+/// A Detection line said: when, by whom, where, of what kind.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Said {
+    pub kind: &'static str,
+    pub speaker: FormId,
+    pub at: [f32; 3],
+    pub time: f64,
 }
 
 /// One actor's detection state, alert list and target list.
@@ -371,6 +415,11 @@ pub struct Awarenesses {
     pub changes: Vec<Change>,
     /// Detection topic lines said: the change's or idle topic, the speaker and the line.
     pub barks: Vec<(&'static str, FormId, Option<FormId>)>,
+    /// Detection lines said within the last cooldown, for the group cooldown.
+    pub said: Vec<Said>,
+    /// Detection lines not said for the group cooldown: the topic, the actor held back
+    /// and the one that had said a line of that kind.
+    pub held_back: Vec<(&'static str, FormId, FormId)>,
     pub timers: Option<Timers>,
     /// How close each actor wants to be to its target, and how far it may be before it
     /// has to close in again (its weapon's range, its reach), game units: the engine's
@@ -600,15 +649,46 @@ impl Game<'_> {
 
     /// `actor` says its line of the Detection topic `topic` about `about` (the
     /// conditions' target), when the load order has the topic, the actor is not already
-    /// speaking and no conversation or menu holds the game [documented: Detection Tab].
+    /// speaking and no conversation or menu holds the game [documented: Detection Tab],
+    /// and neither it nor a member of its group near it has said a line of the same kind
+    /// within the cooldown ([`Timers::bark_cooldown`], [`Game::bark_mates`]).
     pub fn detection_bark(&mut self, actor: FormId, about: Option<FormId>, topic: &'static str) {
         if self.menu.is_some() || self.dialogue.is_some() || self.is_talking(actor) {
             return;
         }
         let data = self.data;
         let Some(t) = data.by_edid(topic).filter(|t| data.topic_defs.contains_key(t)) else { return };
+        let cooldown = self.awareness_timers().bark_cooldown;
+        let now = self.time;
+        let kind = bark_kind(topic);
+        let at = position(self, actor);
+        self.awareness.said.retain(|s| now - s.time < cooldown);
+        let said = self.awareness.said.clone();
+        if let Some(by) = held_back_by(&said, kind, at, |other| self.bark_mates(actor, other)) {
+            self.awareness.held_back.push((topic, actor, by));
+            return;
+        }
         let line = self.say(actor, about, t, false);
+        if line.is_some() {
+            self.awareness.said.push(Said { kind, speaker: actor, at: at.unwrap_or_default(), time: now });
+        }
         self.awareness.barks.push((topic, actor, line));
+    }
+
+    /// Whether two actors are of one group for the Detection lines' cooldown: the same
+    /// actor, the same base form, or a faction in common [design: the rule by which
+    /// [`Game::would_attack`] keeps them from fighting each other; the game's combat
+    /// groups are not built].
+    pub fn bark_mates(&self, a: FormId, b: FormId) -> bool {
+        if a == b {
+            return true;
+        }
+        let base = |r: FormId| self.world.placed.get(r).map(|p| p.base);
+        if base(a).is_some() && base(a) == base(b) {
+            return true;
+        }
+        let mine = factions_of(self, a);
+        !mine.is_empty() && factions_of(self, b).iter().any(|f| mine.contains(f))
     }
 }
 
@@ -750,6 +830,26 @@ mod tests {
 
     fn step(a: &mut Awareness, now: f64) -> Option<(State, State)> {
         a.settle(ME, now, &Timers::default(), true).map(|c| (c.from, c.to))
+    }
+
+    #[test]
+    fn a_group_says_one_detection_line_of_a_kind_at_a_time() {
+        let (a, b, c, stranger) = (FormId(0xA), FormId(0xB), FormId(0xC), FormId(0xD));
+        let group = |x: FormId| x != stranger;
+        // A fiend said its "to combat" line here 3 s ago.
+        let said = [Said { kind: bark_kind("NormalToCombat"), speaker: a, at: [0.0, 0.0, 0.0], time: 10.0 }];
+        // Its mates nearby do not say one of that kind (AlertToCombat and LostToCombat
+        // are the same kind), nor does it itself.
+        assert_eq!(held_back_by(&said, bark_kind("AlertToCombat"), Some([500.0, 0.0, 0.0]), group), Some(a));
+        assert_eq!(held_back_by(&said, bark_kind("LostToCombat"), Some([0.0, 3000.0, 0.0]), group), Some(a));
+        assert_eq!(held_back_by(&said, bark_kind("NormalToCombat"), Some([0.0, 0.0, 0.0]), |x| x == a), Some(a));
+        // Another kind, an actor of another group, a mate far away: they speak.
+        assert_eq!(held_back_by(&said, bark_kind("CombatToLost"), Some([500.0, 0.0, 0.0]), group), None);
+        assert_eq!(held_back_by(&said, bark_kind("NormalToCombat"), Some([500.0, 0.0, 0.0]), |x| x == b || x == c), None);
+        assert_eq!(held_back_by(&said, bark_kind("NormalToCombat"), Some([BARK_GROUP_RADIUS + 1.0, 0.0, 0.0]), group), None);
+        assert_eq!((bark_kind("AlertIdle"), bark_kind("LostIdle"), bark_kind("NormalToAlert")), ("idle", "idle", "NormalToAlert"));
+        // The cooldown is the longer idle-bark wait.
+        assert_eq!(Timers::default().bark_cooldown, Timers::default().idle_bark.1);
     }
 
     #[test]
