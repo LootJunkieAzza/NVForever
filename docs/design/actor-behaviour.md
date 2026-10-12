@@ -590,26 +590,43 @@ not update its AI unless it is in the loaded area".
 Now (`fnv_ai::process`, the residents' `process_levels`):
 - **High**: a resident whose walker is in a cell drawn now (the 5 × 5 grid of
   `--radius 2`, or the interior) gets every update, as before.
-- **Low** (everyone else the AI looks after, all of them "visited", so the original's
-  mid-high): one update every 18 s for the time owed, in 0.5 s steps on the navmesh,
-  doors as if open, as an hour in the Wait menu: it takes up its current package and
-  walks on. No sandbox choice, no search, no Dialogue package, no hello, no random
-  conversation, no turning to a speaker. Leaving the loaded area ends a random
-  conversation it walks to, waits for or is in, and a search. Updates are spread over the
-  18 s by FormID [design].
+- **Out of the loaded area** (everyone else the AI looks after): an update now and then
+  for the time owed, in 0.5 s steps on the navmesh, doors as if open, as an hour in the
+  Wait menu: it takes up its current package and walks on. No sandbox choice, no search,
+  no Dialogue package, no hello, no random conversation, no turning to a speaker. Leaving
+  the loaded area ends a random conversation it walks to, waits for or is in, and a
+  search. Updates are spread over the interval by FormID [design]. How often (2026-10-12,
+  far-world leftovers):
+  - **Mid-High**, every 18 s: the walker is in a cell of the **cell buffer**
+    (`engine/nvforever/src/cell_buffer.rs`): the 36 exterior cells drawn most recently
+    (the 25 drawn now among them) and the 3 interiors visited last [observed:
+    `uExterior Cell Buffer=36`, `uInterior Cell Buffer=3`, `uGridsToLoad=5` in the owner's
+    Fallout_default.ini; hypothesis: that the buffer keeps the cells drawn most recently
+    and counts the drawn ones]. Going into an interior leaves the exterior buffer as it
+    was, so the exterior actors around stay Mid-High (the wiki's Strip example).
+  - **Mid-Low**: interiors behind the load doors of the exterior cells drawn this session
+    ("accessible through teleport doors within player's loaded cell grid", and once
+    there "it never seems to go back to Low") count as buffered, every 18 s [design: the
+    original's rate is "unknown"; 18 s is what those actors had before].
+  - An actor walking out of the loaded area, or on into another cell while at Mid-High,
+    takes that cell into the buffer [hypothesis: it keeps its surroundings in memory],
+    and a follower (Follow or Accompany package) out of the buffer is kept at Mid-High
+    while its leader is processed at Mid-High or above [design].
+  - **Low**, every 120 s: anywhere else ("neither currently loaded nor buffered").
+
+  Moving between the two keeps the share of the interval the actor is owed.
 - **No Low Level Processing**: no update at all out of the loaded area, not even for
   Wait-menu hours (`Ai::pass_time`).
 - The level is set every frame from where the walker is; going back in, the actor takes
   up its full update from where the low updates left it.
 
-Checked by the `far-actors` smoke scenario (tools/smoke/scenarios.toml): Goodsprings with
-every actor, then the player put outside Crimson Caravan; the "process summary" line
-counts who left the loaded area and the low-process updates. Tests in
-`crates/fnv-ai/tests/carry.rs` ("process levels").
+Checked by the `far-actors` (camera flying north at 400 units/s: Mid-High updates) and
+`far-actors-low` (1500 units/s for 150 s: actors falling out of the buffer, updates every
+120 s) smoke scenarios (tools/smoke/scenarios.toml); the "process summary" line counts
+who left the loaded area, who fell out of the buffer and the updates at each rate. Tests
+in `crates/fnv-ai/tests/carry.rs` ("process levels") and `cell_buffer.rs`.
 
-Not done: the mid-low and low levels' slower cadence (every actor the AI has is mid-high
-here: it was handed over because its cell was loaded); actors of cells never loaded are
-not handed to the AI at all, as before.
+Not done: actors of cells never loaded are not handed to the AI at all, as before.
 
 ## 6. Decisions for the owner
 

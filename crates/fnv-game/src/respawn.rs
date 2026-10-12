@@ -1,0 +1,111 @@
+//! Cell resets: dead actors flagged Respawn come back (docs/spec-notes/dead-on-spawn.md §4;
+//! owner's playtest 2026-10-12, far-world leftovers).
+//!
+//! - **When** [documented: GECK wiki SetZoneRespawns, "Respawn rate on zones is controlled
+//!   by a gamesetting: iHoursToRespawnCell (default setting is 72 hours)"; IsCellExpired, a
+//!   cell "has expired and going to be reset on the next load (happens 3 days after the
+//!   last visit)"; ResetInterior, the cell "has to be loaded in order to get cleaned up"]:
+//!   a cell the player's loaded area left starts its clock then (GameDaysPassed,
+//!   `fnv_sim::World::detach_cell`); when the loaded area takes it in again after at least
+//!   `iHoursToRespawnCell` game hours (`fnv_sim::World::respawn_hours`: 72 when no plugin
+//!   sets it), the cell is reset before anything in it runs.
+//! - **Who comes back** [documented: GECK wiki Category:NPC: the flag Respawn,
+//!   "References of this NPC in the world will be recreated after three days"; the note on
+//!   Base Health 0, "the 'Respawns' flag must not be ticked or the actor will respawn alive
+//!   after 3 days"; ResetInterior, "Unlike a time-based cell reset, this scripted reset does
+//!   NOT resurrect Actors"]: every dead actor reference placed in that cell (its authored
+//!   cell) whose base has Respawn — the template's flag with the template flag "Base Data"
+//!   ([`crate::data::ActorDef::template_base`]). Corpses laid out by a new game (Base Health
+//!   0, `Game::lay_out_corpses`) are dead actors like any other.
+//! - **How** [hypothesis: "recreated" read as the reference starting again as authored]:
+//!   alive, at its authored place and facing, with its authored inventory rolled again
+//!   (`fnv_sim::World::reset_inventory`), and none of its run-time state (actor values and
+//!   damage, killer, factions, packages: `RefExtra` dropped). The wiki's "with 0 HP" is not
+//!   copied: it comes back with its full health [design: an actor alive at 0 health has no
+//!   meaning here; the owner checks].
+//! - Respawning containers in the cell go back to their authored contents
+//!   (`fnv_sim::World::attach_cell`, docs/spec-notes/simulation.md §3).
+//! - Not done: the encounter zone flag "Never Resets" [documented: GECK wiki, containers in
+//!   such a zone do not respawn]; removing the bodies of killed actors that do not respawn
+//!   ("Quest Item: Dead body isn't removed when the cell regenerates", Category:NPC);
+//!   ResetInterior.
+
+use crate::functions::base_of;
+use crate::game::Game;
+use fnv_sim::FormId;
+use serde::Serialize;
+
+/// What a cell reset did.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CellReset {
+    pub cell: FormId,
+    /// Game hours the cell was left for.
+    pub hours_away: f64,
+    /// Actors brought back alive.
+    pub respawned: Vec<FormId>,
+    /// Containers back to their authored contents.
+    pub containers: Vec<FormId>,
+}
+
+impl Game<'_> {
+    /// Whether the actor reference `r` respawns: its base has the flag Respawn, or its
+    /// template does with the template flag "Base Data" (module notes).
+    pub fn respawns(&self, r: FormId) -> bool {
+        base_of(self, r).and_then(|b| self.data.template_source(b, r, |d| d.template_base)).is_some_and(|(_, d)| d.respawn)
+    }
+
+    /// The cells `left` are no longer in the loaded area: their reset clock starts.
+    pub(crate) fn cells_left(&mut self, left: &[FormId]) {
+        for &c in left {
+            // Without the time globals (synthetic data) there is no clock to start.
+            let _ = self.world.detach_cell(c);
+        }
+    }
+
+    /// `cell` comes into the loaded area: reset it when it has been away long enough
+    /// (module notes). The reset, if any, is also kept for [`Game::take_cell_resets`].
+    pub(crate) fn cell_entered(&mut self, cell: FormId) -> Option<CellReset> {
+        let since = self.world.detached_since(cell);
+        let now = self.world.calendar().ok().map(|c| c.days_passed);
+        let containers = self.world.attach_cell(cell).unwrap_or_default();
+        let hours_away = (now? as f64 - since? as f64) * 24.0;
+        // The same slack as `World::attach_cell` (GameDaysPassed is an f32).
+        if hours_away + 1e-3 < self.world.respawn_hours() as f64 {
+            return None;
+        }
+        let placed = self.world.placed;
+        let dead: Vec<FormId> = placed
+            .by_cell
+            .get(&cell)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|&r| placed.get(r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE")) && self.is_dead(r) && self.respawns(r))
+            .collect();
+        for &r in &dead {
+            self.recreate(r);
+        }
+        let reset = CellReset { cell, hours_away, respawned: dead, containers };
+        self.cell_resets.push(reset.clone());
+        Some(reset)
+    }
+
+    /// The reference `r` starts again as authored, alive (module notes).
+    fn recreate(&mut self, r: FormId) {
+        self.extra.remove(&r);
+        if let Some(p) = self.world.placed.get(r) {
+            let (cell, pos, rot) = (p.cell, p.pos, p.rot);
+            if let Ok(s) = self.world.get(r) {
+                (s.cell, s.pos, s.rot) = (cell, pos, rot);
+            }
+        }
+        let _ = self.world.reset_inventory(r);
+        // The layer that moves actors starts it again from its authored place.
+        self.teleported.insert(r);
+    }
+
+    /// The cell resets since the last call (the engine draws their actors alive again).
+    pub fn take_cell_resets(&mut self) -> Vec<CellReset> {
+        std::mem::take(&mut self.cell_resets)
+    }
+}

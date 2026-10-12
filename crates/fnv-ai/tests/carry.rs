@@ -1048,3 +1048,50 @@ fn an_actor_with_no_low_level_processing_stands_still_out_of_the_loaded_area() {
     s.run(30.0);
     assert!(dist(s.feet(R_STEADY), [5250.0, 5250.0, 50.0]) < 5.0);
 }
+
+#[test]
+fn an_actor_out_of_the_cell_buffer_is_updated_every_two_minutes() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    let actor = FormId(R_TRAVEL);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Low));
+    assert!(!s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Low), "no change");
+    assert_eq!(s.ai.level(actor), fnv_ai::ProcessLevel::Low);
+    assert_eq!((s.ai.process_counts(), s.ai.far_count()), ((0, 1), 1));
+    // Its first update comes within the interval (spread by its share of it), and walks
+    // it all the way; the next one an interval later.
+    let mut waited = 0;
+    while s.ai.process_stats.far_updates == 0 {
+        s.run(1.0);
+        waited += 1;
+        assert!(waited <= 121, "an update within {} s", fnv_ai::FAR_PROCESS_SECONDS);
+    }
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0, "one update took it there");
+    s.run(f64::from(fnv_ai::FAR_PROCESS_SECONDS) - 2.0);
+    assert_eq!(s.ai.process_stats.far_updates, 1, "not before {} s", fnv_ai::FAR_PROCESS_SECONDS);
+    s.run(3.0);
+    assert_eq!((s.ai.process_stats.fell_far, s.ai.process_stats.far_updates), (1, 2));
+    assert_eq!(s.ai.process_stats.low_updates, 2, "no Mid-High update in between");
+    // Back up to Mid-High, then into the loaded area.
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::MidHigh));
+    assert_eq!((s.ai.level(actor), s.ai.far_count()), (fnv_ai::ProcessLevel::MidHigh, 0));
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::High));
+    assert_eq!(s.ai.process_counts(), (1, 0));
+}
+
+#[test]
+fn a_follower_is_processed_at_least_as_often_as_its_leader() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL, R_DOG]);
+    s.run(1.0);
+    let (leader, dog) = (FormId(R_TRAVEL), FormId(R_DOG));
+    // The leader is in the loaded area: the dog beyond the buffer is kept at Mid-High.
+    assert!(s.ai.set_level(&s.game, dog, fnv_ai::ProcessLevel::Low));
+    assert_eq!(s.ai.level(dog), fnv_ai::ProcessLevel::MidHigh);
+    // The leader beyond the buffer too: so is the dog.
+    assert!(s.ai.set_level(&s.game, leader, fnv_ai::ProcessLevel::Low));
+    assert!(s.ai.set_level(&s.game, dog, fnv_ai::ProcessLevel::Low));
+    assert_eq!(s.ai.level(dog), fnv_ai::ProcessLevel::Low);
+}

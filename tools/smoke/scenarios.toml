@@ -1185,14 +1185,31 @@ expect = [
 name = "far-actors"
 source = "owner's playtest 2026-10-11 (Fiends heard talking far away): process levels, docs/design/actor-behaviour.md §5.9"
 areas = ["ai", "residents"]
-paths = ["crates/fnv-ai/src/process.rs", "crates/fnv-ai/src/social.rs", "crates/fnv-ai/src/carry.rs"]
+paths = ["crates/fnv-ai/src/process.rs", "crates/fnv-ai/src/social.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/cell_buffer.rs"]
 # Every actor of Goodsprings lives by its packages; the camera flies north out of the
-# loaded area, so they leave the high process and get a low-process update every 18 s.
-args = ["--cell", "Goodsprings", "--npc-packages", "all", "--hour", "12", "--auto-fly", "1500"]
-run_seconds = 60
+# loaded area, so they leave the high process and get a low-process update every 18 s
+# while their cells are in the cell buffer. (Until 2026-10-12 the camera flew at 1500
+# units/s for 60 s: since the Low level, the cells drop out of the buffer within seconds
+# at that speed, which `far-actors-low` checks; slower and longer here.)
+args = ["--cell", "Goodsprings", "--npc-packages", "all", "--hour", "12", "--auto-fly", "250"]
+run_seconds = 90
 expect = [
   { re = 'process summary: .* (?P<n>\d+) left the loaded area', range = [10, 100000], label = "process summary: ten or more left the loaded area" },
   { re = 'process summary: .* (?P<n>\d+) low-process updates every 18 s', range = [10, 1000000], label = "process summary: low-process updates" },
+]
+
+[[scenario]]
+name = "far-actors-low"
+source = "far-world leftovers 2026-10-12: the Low process level (every 120 s) beyond the cell buffer, docs/design/actor-behaviour.md §5.9"
+areas = ["ai", "residents"]
+paths = ["crates/fnv-ai/src/process.rs", "engine/nvforever/src/cell_buffer.rs"]
+# The camera flies north fast: Goodsprings' cells leave the loaded area and then the
+# 36-cell buffer, so their actors fall to the Low level and get an update every 120 s.
+args = ["--cell", "Goodsprings", "--npc-packages", "all", "--hour", "12", "--auto-fly", "1500"]
+run_seconds = 150
+expect = [
+  { re = 'process summary: .* (?P<n>\d+) fell out of the cell buffer', range = [10, 100000], label = "process summary: ten or more fell out of the cell buffer" },
+  { re = 'process summary: .* (?P<n>\d+) every 120 s \(', range = [10, 1000000], label = "process summary: Low-level updates every 120 s" },
 ]
 
 [[scenario]]
@@ -1205,7 +1222,23 @@ args = ["--play", "--pos=-73500,29700,8000", "--heading", "300", "--hour", "12",
 run_seconds = 40
 expect = [
   { re = 'new game: (?P<n>\d+) placed actors start dead \(Base Health 0\)', range = [800, 1000], label = "new game: about 889 placed actors start dead" },
-  { re = 'ragdolls: (?P<n>\d+) started', range = [9, 1000], label = "ragdolls: the village's nine corpses or more dropped" },
+  { re = 'ragdolls: .* (?P<n>\d+) laid in the pose their reference stores', range = [9, 1000], label = "ragdolls: the village's nine corpses or more in their stored pose" },
+  { re = 'ragdolls: .* \(0 stored poses did not fit\)' },
+]
+
+[[scenario]]
+name = "corpse-respawn"
+source = "far-world leftovers 2026-10-12: corpses flagged Respawn back alive after iHoursToRespawnCell, docs/spec-notes/dead-on-spawn.md §4"
+areas = ["combat", "deaths", "wait"]
+paths = ["crates/fnv-game/src/respawn.rs", "engine/nvforever/src/cell_resets.rs"]
+# From the tribal village to Goodsprings, three 24 h waits there, and back: the village's
+# Fiends (TCFiend0?DEAD, Base Health 0, flag Respawn) are alive again.
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_GOTO = "20:-70500:1500:20000,82:-73300:30250:7900", NVF_PLAY_TEST_WAIT = "26:open,27:hours=24,28:accept,44:open,45:hours=24,46:accept,62:open,63:hours=24,64:accept" }
+args = ["--play", "--pos=-73500,29700,8000", "--heading", "300", "--hour", "12", "--no-voice"]
+run_seconds = 95
+expect = [
+  { re = 'wait summary: .* 72 hours passed' },
+  { re = 'cell reset: GNDeadTribalVillage after 7\d\.\d h away: (?P<n>\d+) actors back alive: .*TCFiend01DEAD', range = [7, 100], label = "cell reset: the village's seven Fiends or more back alive" },
 ]
 
 # ------------------------------------------------------------------ script stubs

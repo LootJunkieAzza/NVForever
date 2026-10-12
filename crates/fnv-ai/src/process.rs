@@ -17,17 +17,24 @@
 //! SetSceneIsComplex "low and middle-low process levels do not update … they will not go
 //! through load doors" [documented: GECK wiki SetSceneIsComplex], so outside it they do.
 //!
-//! Here the engine says which actors are in the loaded area ([`Ai::set_high`]); the AI
-//! keeps two levels [design]:
-//! - **high**: everything (packages, walks, sandboxes, combat states, Dialogue packages,
-//!   hellos and random conversations), every update;
-//! - **low** (every actor it looks after outside the loaded area, which here are all
-//!   actors of cells the player has had loaded, or that scripts moved: the original's
-//!   Mid-High): an update every [`LOW_PROCESS_SECONDS`] of the time owed since the last,
-//!   in which it takes up its current package and walks on as far as that time takes it,
-//!   on the navmesh (doors as if open), as in an hour passed in the Wait menu
+//! Here the engine says where each actor is ([`Ai::set_level`], a [`ProcessLevel`]); the
+//! AI keeps three levels [design, after the original's]:
+//! - **high** (the loaded area): everything (packages, walks, sandboxes, combat states,
+//!   Dialogue packages, hellos and random conversations), every update;
+//! - **low**, out of the loaded area: an update now and then, in which it takes up its
+//!   current package and walks on as far as the time owed since the last takes it, on
+//!   the navmesh (doors as if open), as in an hour passed in the Wait menu
 //!   ([`crate::Ai::pass_time`]): nothing that needs the player near: no sandbox
 //!   behaviour, no combat state, no Dialogue package, no hello, no random conversation.
+//!   How often depends on where:
+//!   - [`ProcessLevel::MidHigh`], cells left recently and still in the cell buffer (the
+//!     engine keeps it: `uExterior Cell Buffer`, `uInterior Cell Buffer`): every
+//!     [`LOW_PROCESS_SECONDS`];
+//!   - [`ProcessLevel::Low`], everyone else: every [`FAR_PROCESS_SECONDS`].
+//!
+//!   The original's Mid-Low (interiors reached by doors from the loaded cells, never
+//!   visited, "unknown" rate) has no actors here: the AI only has the actors of cells
+//!   loaded once, or moved by scripts.
 //!
 //! An actor whose base has "No Low Level Processing" gets no update at all out of the
 //! loaded area, not even for hours passed in the Wait menu.
@@ -44,9 +51,28 @@ use fnv_nav::NavGraph;
 use fnv_sim::FormId;
 use serde::Serialize;
 
-/// An actor out of the loaded area is updated this often, seconds [documented: GECK
-/// wiki (JIP) GetActorProcessingLevel, Mid-High "processed every ~18 seconds"].
+/// An actor out of the loaded area but in the cell buffer is updated this often,
+/// seconds [documented: GECK wiki (JIP) GetActorProcessingLevel, Mid-High "processed
+/// every ~18 seconds"].
 pub const LOW_PROCESS_SECONDS: f32 = 18.0;
+
+/// An actor neither in the loaded area nor in the cell buffer is updated this often,
+/// seconds [documented: GECK wiki (JIP) GetActorProcessingLevel, Low "processed every
+/// ~120 seconds"].
+pub const FAR_PROCESS_SECONDS: f32 = 120.0;
+
+/// Where an actor is, for its process level (the engine tells, [`Ai::set_level`])
+/// [documented: GECK wiki (JIP) GetActorsByProcessingLevel].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ProcessLevel {
+    /// In the loaded interior, or the exterior cells loaded around the player.
+    High,
+    /// In a cell not loaded but "recently visited by the player and still buffered in
+    /// memory".
+    MidHigh,
+    /// In a cell "neither currently loaded nor buffered".
+    Low,
+}
 
 /// A low-process update walks the time owed in steps this long, seconds [our choice: as
 /// coarse as the walker's path following allows; Wait-menu hours use 0.25].
@@ -70,6 +96,11 @@ pub struct ProcessStats {
     /// Times an actor with "No Low Level Processing" left the loaded area (it is not
     /// updated out of it).
     pub frozen: usize,
+    /// Times an actor fell to the Low level (out of the cell buffer), the low-process
+    /// updates given at that level, and the most actors at it at once.
+    pub fell_far: usize,
+    pub far_updates: usize,
+    pub most_far: usize,
 }
 
 /// [`crate::Ai::update_low`]'s mover: the walker's own steps, every door open.
@@ -89,14 +120,73 @@ impl Ai {
         (self.agents.len() - low, low)
     }
 
-    /// Put `actor` in the high process (it is in the loaded area) or out of it. Returns
-    /// whether its level changed.
+    /// The process level of `actor` (an actor the AI does not look after is high).
+    pub fn level(&self, actor: FormId) -> ProcessLevel {
+        match (self.is_high(actor), self.far.contains(&actor)) {
+            (true, _) => ProcessLevel::High,
+            (false, false) => ProcessLevel::MidHigh,
+            (false, true) => ProcessLevel::Low,
+        }
+    }
+
+    /// An actor following another one (a Follow or Accompany package) out of the loaded
+    /// area is processed at least as often as its leader, up to Mid-High [design,
+    /// coordinator 2026-10-12: teleports (fast travel, MoveTo) can leave a follower
+    /// beyond the cell buffer while its leader is near: Cheyenne after Sunny Smiles].
+    fn with_leader(&self, actor: FormId, level: ProcessLevel) -> ProcessLevel {
+        let leader = match self.agents.get(&actor).and_then(|a| a.goal.as_ref()) {
+            Some(crate::goal::Goal::Follow(f)) if self.agents.contains_key(&f.target) => f.target,
+            _ => return level,
+        };
+        match (level, self.level(leader)) {
+            (ProcessLevel::Low, ProcessLevel::High | ProcessLevel::MidHigh) => ProcessLevel::MidHigh,
+            _ => level,
+        }
+    }
+
+    /// How many of the actors the AI looks after are at the Low level.
+    pub fn far_count(&self) -> usize {
+        self.far.iter().filter(|a| self.agents.contains_key(a)).count()
+    }
+
+    /// Put `actor` at `level`. Returns whether its level changed. Between the two
+    /// levels out of the loaded area only the rate changes, and the share of its
+    /// interval it is owed.
+    pub fn set_level(&mut self, game: &Game, actor: FormId, level: ProcessLevel) -> bool {
+        let level = self.with_leader(actor, level);
+        if !self.agents.contains_key(&actor) || level == self.level(actor) {
+            return false;
+        }
+        self.set_high(game, actor, level == ProcessLevel::High);
+        let was_far = self.far.contains(&actor);
+        if level == ProcessLevel::Low {
+            self.far.insert(actor);
+            self.process_stats.fell_far += 1;
+        } else {
+            self.far.remove(&actor);
+        }
+        // The share of its interval owed stays (updates stay spread over the interval).
+        let rate = match (was_far, level) {
+            (false, ProcessLevel::Low) => FAR_PROCESS_SECONDS / LOW_PROCESS_SECONDS,
+            (true, ProcessLevel::MidHigh) => LOW_PROCESS_SECONDS / FAR_PROCESS_SECONDS,
+            _ => 1.0,
+        };
+        if let Some(Some(owed)) = self.low.get_mut(&actor) {
+            *owed *= rate;
+        }
+        true
+    }
+
+    /// Put `actor` in the high process (it is in the loaded area) or out of it (at the
+    /// Mid-High level unless [`Ai::set_level`] puts it lower). Returns whether it went
+    /// in or out.
     pub fn set_high(&mut self, game: &Game, actor: FormId, high: bool) -> bool {
         if !self.agents.contains_key(&actor) || high == self.is_high(actor) {
             return false;
         }
         if high {
             self.low.remove(&actor);
+            self.far.remove(&actor);
             self.process_stats.came_back += 1;
             return true;
         }
@@ -154,14 +244,17 @@ impl Ai {
         let (high, low) = self.process_counts();
         self.process_stats.most_high = self.process_stats.most_high.max(high);
         self.process_stats.most_low = self.process_stats.most_low.max(low);
+        self.process_stats.most_far = self.process_stats.most_far.max(self.far_count());
         let mut due = Vec::new();
         for (actor, owed) in self.low.iter_mut().filter_map(|(a, o)| Some((a, o.as_mut()?))) {
             *owed += dt;
-            if *owed >= LOW_PROCESS_SECONDS {
+            let every = if self.far.contains(actor) { FAR_PROCESS_SECONDS } else { LOW_PROCESS_SECONDS };
+            if *owed >= every {
                 due.push((*actor, std::mem::take(owed)));
             }
         }
         for (actor, owed) in due {
+            self.process_stats.far_updates += usize::from(self.far.contains(&actor));
             self.low_update(game, nav, actor, owed);
         }
     }

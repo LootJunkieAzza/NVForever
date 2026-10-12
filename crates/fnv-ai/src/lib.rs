@@ -21,6 +21,6 @@ pub mod social;
 
 pub use carry::{Activity, Agent, Ai, AiConfig, AiEvent, Logged, Mover, Talking};
 pub use goal::{Follow, Goal, Route, Talk, Trigger};
-pub use process::{ProcessStats, LOW_PROCESS_SECONDS};
+pub use process::{ProcessLevel, ProcessStats, FAR_PROCESS_SECONDS, LOW_PROCESS_SECONDS};
 pub use sandbox::{Allowed, Doing, Sandbox};
 pub use social::Chat;

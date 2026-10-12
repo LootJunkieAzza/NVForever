@@ -427,6 +427,15 @@ pub struct ActorDef {
     /// The record has a DATA whose Base Health (NPC_) or Health (CREA) is 0: its placed
     /// actors start the game as corpses ([`crate::game::Game::starts_dead`]).
     pub zero_health: bool,
+    /// ACBS flag "Respawn": "References of this NPC in the world will be recreated after
+    /// three days" [documented: GECK wiki Category:NPC, Configuration]; with the template
+    /// flag "Base Data" the template's flag counts ([`ActorDef::template_base`]).
+    pub respawn: bool,
+    /// ACBS template flag "Base Data": the template supplies the base data, the Respawn
+    /// flag among it [documented: GECK wiki Category:NPC, Template Data: "Base Data does
+    /// not include the Quest Item, No Knockdowns, No VATS Melee, Is CharGen Face Preset,
+    /// or Can Be All Races flags"].
+    pub template_base: bool,
 }
 
 /// A leveled actor list (LVLN, LVLC) [documented: xEdit; schema `gameplay.json`]: the
@@ -1926,6 +1935,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.essential = has_flag(f, "Essential");
                         a.invulnerable = has_flag(f, "Invulnerable");
                         a.no_low_level = has_flag(f, "No Low Level Processing");
+                        a.respawn = has_flag(f, "Respawn");
                         a.pc_level_mult = has_flag(f, "PC Level Mult");
                         a.autocalc = &sig == b"NPC_" && has_flag(f, "Auto-calc stats");
                         let n = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_i64).unwrap_or(0);
@@ -1937,6 +1947,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.template_stats = has_flag(tf, "Stats");
                         a.template_ai = has_flag(tf, "AI Data");
                         a.template_factions = has_flag(tf, "Factions");
+                        a.template_base = has_flag(tf, "Base Data");
                     }
                     _ => {}
                 }
