@@ -233,6 +233,19 @@ Code: `engine/nvforever/src/furniture.rs` (actors and the player), `nvf_play::fu
   it is off, the components are removed and a traveller's position and heading are
   updated. One user per reference, except where every marker has ID 14 or 15 (one per
   marker) [design, §5 item 3].
+- **Leaving the cell and coming back** [design; owner's playtest 2026-10-11]. An actor
+  whose visual is taken away while it is on furniture (or walking up to it) gives the
+  furniture up at once (log: `is off … unseen (no longer drawn)`), so the furniture is
+  free again for anyone, itself included; an actor's own earlier use never counts as
+  "in use" for it. Drawn again with the same furniture still its package's, a resident is
+  put straight back on it in the loop, without the walk and the getting-on clip
+  (`SitOn::at_once`, log: `is back on`). Before this, the stool stayed "in use" by its own
+  sitter, who then stood in it (`cannot use …: in use`), and Easy Pete coming back out of
+  the saloon to the porch chair he had sat on before stood beside it [observed in
+  NVForever: `--cell GSProspectorSaloonInterior --play --hour 12` with the door
+  0x0010618E activated at 14 s and ProspectorSaloonDoor at 24 s; `--cell Goodsprings
+  --play --hour 11.9` with Pete on 0010634A, the saloon entered, two hours waited inside
+  and the saloon left].
 - **`--npc-sit ACTOR=FURNITURE[:SECONDS]`** sends a travelling NPC (docs/design/navmesh.md
   §5) to a furniture reference (hex FormID) and gives it a `SitOn` on arrival.
 - **The player** uses furniture by activating it. The third-person body plays the clips

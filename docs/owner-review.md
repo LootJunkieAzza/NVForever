@@ -3030,3 +3030,172 @@ actor-behaviour.md §5.1–§5.2, alert.md §4 and §8.
 Seen on the way, not fixed (not mine): in the Fiend check (alert.md §8) Violet becomes
 Alert but barely moves and never reaches Combat, on main as well; Cook-Cook's fiends switch
 Combat ↔ Lost every few seconds.
+
+## Playtest fixes: NPCs on furniture, turning and anim objects (2026-10-11, session "pt-npcs")
+
+Branch `claude/playtest-npcs`; notes in docs/spec-notes/furniture.md §7, actors.md §8.9
+and §9.4, idles.md §10.
+
+1. **The saloon settler standing in his stool after you come back** (and **Easy Pete
+   not sitting on the porch chair after coming out of the saloon**): one cause. When you
+   left the cell the actor's body was taken away while seated, but the stool stayed
+   booked to him, so on your return the stool refused him as "in use" (by himself). Now
+   the seat is freed when the body goes, and a resident that was seated is put straight
+   back on it when you return, already sitting (no walk-up and sit-down clip again).
+   *Decision:* coming back finds him seated, not sitting down again. *Check:* leave the
+   saloon and come back; with Pete, enter the saloon while he sits on the porch, wait
+   two hours inside, come out at 14:00.
+2. **Holstered weapons floating on seated NPCs**: the seat clips don't move the weapon,
+   so it fell back to its "in the hand" position while hung from the hip. Now only the
+   weapon's own holster track is kept over the seat clip (and over a death pose), so the
+   gun stays on the hip or back and follows it. *Check:* a seated settler's pistol at his
+   hip; the rifle on the back of a seated rifleman.
+3. **Turning speed** (guessed values, nothing in the data gives an NPC's turn speed;
+   the game has a setting `fCharacterDefaultTurningSpeed` whose value is built into the
+   game, and creatures have a "Turning Speed" field of 40–100 that we don't use yet):
+   - walking: at most **180°/s** (was 720°/s); standing turns stay **120°/s**;
+   - an actor slows while turning: it keeps 30% of its speed when its way is a quarter
+     turn or more off, full speed when facing it (a right-angle corner costs about half a
+     second);
+   - near you (where actors walk with physics) they walk an arc round corners and turn
+     on the spot before setting off, like elsewhere;
+   - arriving at an idle marker they now turn to its heading at 120°/s (it was instant);
+     walking the last steps to a chair they take as long as the turn needs; getting up
+     from a chair no longer snaps them half about in one frame.
+   *Measured:* the fastest turn between two frames in the residents test went from
+   720°/s (2 frames above 270°/s) to 180°/s (none). Turn-on-the-spot clips already
+   exist and play (`mtturnleft/right.kf`); weapon-stance and creature turn clips are not
+   used by NPCs yet. The conversation turn was left as it was (another session works on
+   dialogue facing). *Check:* do 180°/s and the slow-down feel right? Should creatures
+   use their own "Turning Speed" field?
+4. **Props in idles (Chet's broom)**: the game links a prop to an idle through an
+   "animated object" record that names the idle; the prop's model names the hand it goes
+   in. Now while an NPC plays such an idle the prop is drawn in that hand, and taken
+   away when the idle ends. Chet sweeps with his broom; a smoking idle gets a cigarette.
+   *Guess:* the prop shows for the whole idle (including its fade-out); the prop's own
+   small animation (the broom has one) isn't played. *Check:* Chet sweeping; anyone
+   smoking, drinking or eating at a table. New test aid `play_idle:<ref>:<idle>` in
+   `NVF_PLAY_TEST_SCRIPT`.
+
+## Playtest fixes: loose items, ravens, shadows and shine (2026-10-11, session "pt-world")
+
+Branch `claude/playtest-world`. Pictures: `C:\fnv-private\references\playtest_world\`.
+
+1. **Loose items in Chet's store** (physics.md §4.3.1). Fixed. A new test aid
+   (`NVF_PLAY_TEST_PHYS_TRACE`) logged every loose item after the store loaded: 53 of 67
+   moved. Three causes: (a) objects made of parts joined by hinges (the globe on its
+   stand, the bucket and handle, a hanging office lamp) flew apart and fell from the
+   ceiling, because we do not model those joints, and knocked their neighbours; (b) two
+   books inside the glass display case and a magazine have nothing under them in the
+   collision (the case's collision is only its outer shell), so they dropped; (c) piles of
+   produce in a crate overlap and were pushed apart. Now every placed loose item starts
+   at rest and stays exactly where it was placed until something touches it (you, an
+   NPC, a shot, an explosion, something falling on it, or an item under it being picked
+   up); jointed objects stay fixed where they are drawn. After: 0 items move in the
+   store, Sunny's house (GSHouseInterior03) and the saloon; shot bottles still fall.
+   - My choice: "stays put until disturbed" is my reading of the original (the books in
+     the display case would have fallen otherwise). Check: walk into a shelf and shoot
+     things: they should react as before.
+   - Not done: the hanging lamp, globe and bucket no longer move at all, even when shot
+     (their joints would need modelling).
+2. **Ravens outside Doc Mitchell's** (actor-behaviour.md §5.8). Fixed. They are
+   creatures with a "sandbox around where placed" AI package but no walking animations,
+   so our AI slid them around. Their fly-off is their own script: when you come within
+   512 units (or shoot one) it plays the fly-away animation and disappears about 4.5 s
+   later; that already worked. Now creatures with no walking animations stay where they
+   are, and perched birds (those plus the "Flies" flag) no longer block you.
+   - My choice: no-collision applies to "can't walk and flies" creatures only; anything
+     else that can't walk (e.g. turrets) still blocks. Check: walk out of Doc's door;
+     the two ravens should sit still, then fly off as you approach, and never block you.
+3. **Shadow flicker after leaving an interior** (player-body.md §1.6). Not reproduced.
+   I left the saloon by the front door in first person at 15:00 and took bursts of
+   frames on the porch, walking into the sun and standing with the .357 out: nothing
+   flickered, and the extra "arms shade" light and the arms/body visibility never
+   switched. I left debug log lines for it. Please tell me the time of day, which door,
+   whether "Body in first person" was on, and what flickered (the arms, the ground, your
+   own shadow); a short video would settle it.
+4. **Flashlight shadows from light rays and lanterns** (nif.md §6). Fixed. Anything
+   drawn see-through (glass, light rays, glows, smoke) now casts no shadow from any
+   light, the sun and the flashlight included. Before/after:
+   `flashlight_rays_before_after.png` (saloon, flashlight on, facing the east windows:
+   the rays' dark wedges on the wall are gone). Cut-out textures (fences, leaves) still
+   cast. Check: glass bottles and windows no longer throw a sun shadow either; say if
+   you want the windows' frames-only shadow some other way.
+5. **Too shiny: Doc's bed, the gas station's Sunset Sarsaparilla machine and door**
+   (nif.md §6 "Specular"). Fixed in the material path for all objects of this kind. All
+   three use a normal map without an alpha channel (DXT1, 425 of the game's 3,428 normal
+   maps); we read the missing alpha as "full shine", seven times the shine of a typical
+   surface, which looked like wet paint and turned mirror-like at shallow angles. Now
+   such objects get the typical (median) shine of the other normal maps.
+   - Before/after: `shine_gas_station_before_after.png`, `shine_doc_bed_before_after.png`.
+   - Guessed constant: the median mask, 35 of 255. Check: the bed when you wake up and
+     the vending machine and door at noon. A game screenshot of the vending machine in
+     sun from the side would tell whether the original gives these objects any shine.
+
+## Smoke tests reworked (2026-10-11, session "pt-smoke")
+
+Your request (todo 3): stop wasting time and usage on redundant smoke testing. The ~40 prose
+smoke tests of CLAUDE.md are now data (`tools/smoke/scenarios.toml`, 49 scenarios) run by
+`python tools/smoke run`: it picks the scenarios whose files a branch changed, shares a game
+launch where that was checked to be safe, keeps the logs in `target/smoke/` and prints one
+line per scenario. CLAUDE.md now says how to run it and that new smoke tests go into the file.
+
+What I decided where the prose was unclear:
+1. **"About N"** is N ± 25 % (rounded outwards); "a dozen" is 9–15; "3 s later" 2.25–3.75 s.
+2. **The AI tool checks** (`fnvtool ai packages`, `ai reach`, `ai observed`, `ai run`) run over
+   the ten masters: CLAUDE.md gave no plugins, and the doc's figures (791 Sandbox, 32 Wander)
+   are those of the masters.
+3. **"Compare with the doc and explain any change"** is now checked: the figures of
+   actor-values.md §3.1/§7, detection.md §4, factions.md §2–§5, audio.md §1–§5 and
+   actor-behaviour.md §5.3 are JSON expectations on the tools' output. **Check:** the ai
+   reach figures of actor-behaviour.md §5.3 (2026-10-10) no longer match main: 16,935 pairs
+   (doc 15,603), 10,258 reachable (9,488), 1,602 staying (1,571), 3,185 never chosen (2,810),
+   182 at the player (177). They are marked known-failing, and main's 2026-10-11 figures are
+   checked too, so any later change shows. Someone who knows why they changed should update the doc.
+4. **The navmesh walk table** (navmesh.md §5) is a dated record; only "all six arrive" is
+   checked, as CLAUDE.md asked.
+5. **`ai observed` / `ai run --samples`** need the observer captures (`obs_*.jsonl`), which I
+   could not find on this machine; the scenario is skipped unless `NVF_OBSERVER_SAMPLES` names
+   them. **Check:** where are they?
+6. **Test aids the prose left out**: the actors' groups and bear trap runs got only the
+   `NVF_PLAY_TEST_SCRIPT` given (the bear trap fails with the plant run's
+   `SCRIPT_MENUS=1`: the add-on packs' message boxes still queue at 15 s); the dogs keep the
+   Violet run's `GOD` and `SCRIPT_MENUS` ("added"); the Fiend alert check got
+   `NVF_PLAY_TEST_SCRIPT_MENUS=1`, without which the run is attended and the first add-on
+   message box stays open all run (Violet never fights).
+7. **Shared launches** (checked by running both ways): Violet's alert and combat checks;
+   the saloon jukebox, its on/off look and Sunny's speech-look lines; the corner messages and
+   the house items. Undone after the run: the quest lines with the house items (the
+   objective line was never shown on its own) and the Vigor Tester after the name/tag/trait
+   menus (moved 18 s later it took no steps). Game launches for the full set: 39 as
+   CLAUDE.md had them (41 with the two added on main today), 38 now with 42 game scenarios.
+   The bigger saving is the selection: a branch runs only the scenarios its files call for.
+8. **Push checks**: engine clippy also when `crates/` changed (the engine workspace builds
+   the crates), root tests and clippy when `crates/`, the root Cargo files or `schemas/`
+   changed, a Python suite when its folder changed.
+9. **Locks**: both locks per launch, given back between launches; a lock with the runner's
+   owner file whose process is gone is cleared; another session's mkdir lock older than
+   15 min while no nvforever/FalloutNV runs is reported loudly, never removed.
+
+Failing on main (2026-10-12), kept and marked known-failing: house items drop the BB Gun
+(`ITMPistolDown`) where `UIItemsClothingDown` is expected; the menus' sounds run finds the
+given stimpaks not carried at 58 s (23 sounds, not 24). Flaky: the barter from Chet's
+dialogue once had the player carry nothing (the add-on packs' items not given yet) and
+got "You don't have enough caps."
+
+## Smoke tests: the last prose tests converted (2026-10-12, coordinator session)
+
+The three smoke tests PR #226 added to CLAUDE.md as prose are now scenarios
+(`sunny-wells`, `sunny-gas-station`, `cook-cook-camp`), and CLAUDE.md no longer lists any
+prose test. Two checks #229 suggested were added: the `turn summary` in the residents
+scenario (fastest turn at most 180°/s, no frame above 270°/s) and `chet-broom` (Chet holds
+`aobroom.nif` in his left hand in the general store). All five passed on main at 3a886bb2
+on this machine (11.4 min).
+
+1. *Decision:* "voice … out of hearing for lines from 2,000 units or more" is checked as
+   every out-of-hearing line being 2,000 units or more away (3 such lines, 2,110–2,635).
+2. *Decision:* "held back by the group cooldown above 0" is a number ≥ 1 (27 in the run).
+3. *Decision:* Chet's broom runs at noon (`--hour 12`): the note gave no hour, and at noon
+   his package sweeps. *Check:* the hour you saw him sweep at.
+4. *Seen, not changed:* at Cook-Cook's camp the fiends still go Combat → Lost and back
+   16 times in 45 s (the handoff's "about 17"); it belongs to the combat workstream.

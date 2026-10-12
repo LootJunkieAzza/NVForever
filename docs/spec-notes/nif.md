@@ -389,6 +389,18 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   One kind of shape is cut by alpha without a NiAlphaProperty: object LOD blocks, whose
   shader sets BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]. The renderers
   alpha-test those at alpha above 128 [hypothesis; evidence in world.md §7 "Objects"].
+
+  **Shadows of see-through shapes** (2026-10-11). Shapes drawn blended, added or
+  multiplied (glass, light rays, glows, smoke) cast no shadows from any light, the sun
+  and the flashlight included; alpha-tested shapes, and blended ones with an alpha cut
+  (`blend_cut`), still do (`nvf_assets::nif_material::see_through`, which gives the mesh
+  `NotShadowCaster` when it gets its material) [design, owner's request after the
+  playtest: "anything see-through should not be generating a shadow"; the original casts
+  no sun shadows from the world at all, world.md §6]. Before, the depth-only shadow pass
+  drew every fragment of such a shape with alpha above 0.05, so the Prospector Saloon's
+  window rays threw dark wedges onto the wall under the flashlight [observed, `--play
+  --cell GSProspectorSaloonInterior`, flashlight on, facing the east windows; picture
+  `C:\fnv-private\references\playtest_world\flashlight_rays_before_after.png`].
 - **Skin shader type** [observed, `crates/fnv-nif/examples/skin_survey.rs` over
   `Fallout - Meshes.bsa`]: 255 visible shapes have BSShaderPPLightingProperty shader
   type 14 (`SHADER_SKIN` [documented: nif.xml BSShaderType]); the same 255 and no others
@@ -747,8 +759,8 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   (0.682, 0.729, 0.796) with glossiness 1 looks like an exporter default. Normal-map
   alpha holds an authored mask [documented: nif.xml calls slot 1 "normal (+ gloss in
   alpha)"]: `NV_RockFormations_01_N.dds` (DXT5) averages 22/255 (median 18, 90th
-  percentile 49). Normal maps are 2,873 DXT5, 425 DXT1 (alpha reads 1, i.e. full
-  mask), 125 DXT3 and 5 R8G8B8. Glossiness spans 0–320 and clusters at 10 and 60–70
+  percentile 49). Normal maps are 2,873 DXT5, 425 DXT1 (alpha reads 1; see below),
+  125 DXT3 and 5 R8G8B8. Glossiness spans 0–320 and clusters at 10 and 60–70
   (rocks: 67). The renderers ignore the specular colour, scale specular by the
   normal-map alpha when the Specular flag is set (none when it is clear), and read
   glossiness as a Blinn-Phong exponent for the highlight size [hypothesis: the
@@ -756,6 +768,25 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   is presumably unused]. Reading glossiness 67 as a plain roughness of 0.33 and
   ignoring the mask made the canyon rocks look wet (owner's screenshot, Goodsprings
   rain); with the mask they are matte. To confirm against in-game captures.
+  **Normal maps without alpha** (2026-10-11): Doc Mitchell's bed
+  (`furniture\nv_bedtwin01.nif`, `NV_Bed01_N.dds`), the Goodsprings gas station's
+  Sunset Sarsaparilla machine (`clutter\ssvendingmachine\ssvendingmachine.nif`,
+  `ssVendingMachine_n.dds`) and its metal door (`dungeons\office\doors\
+  offdoormetalstatic.nif`, `offdoorMetal_n.dds`) all have the Specular flag, a black
+  specular colour, glossiness 10, no environment map, and a DXT1 normal map [observed:
+  `fnvtool nif decode`, `fnvtool bsa extract`]. Read as a mask, DXT1's alpha of 1 gave
+  them reflectance 1.0 (F0 0.16, four times a usual dielectric), and with Bevy's
+  Fresnel they turned mirror-like at grazing angles: "very shiny, almost reflective"
+  (owner's playtest). Over the 2,998 normal maps with an alpha channel the per-file mean
+  alpha has quartiles 21 / 35 / 58 and 10th / 90th percentiles 11 / 91 (of 255)
+  [observed: `crates/fnv-nif/examples/normal_mask_survey.rs` over `Fallout - Textures.bsa`
+  and `Textures2.bsa`], so a full mask is far beyond what any authored mask asks for.
+  The renderers give a shape whose normal map is DXT1 the median authored mask, 35/255,
+  as a constant (`nif_spawn::UNMASKED_SPECULAR`) [hypothesis: the game's highlight on
+  these objects is that of an ordinary surface; how its shader reads a DXT1 normal map's
+  alpha is not known, and an in-game picture of the vending machine in sunlight from the
+  side would settle it]. The 5 R8G8B8 normal maps decode with alpha 255 and are not
+  covered.
   Ambient light is diffuse only in the renderers: Bevy adds a specular part for its
   ambient light whenever F0 ≥ 0.02, which the NIF material shader subtracts again
   [hypothesis: the game's ambient is a flat colour term, highlights come from lights and

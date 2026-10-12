@@ -10,6 +10,7 @@
 //! menu.
 
 mod activators;
+mod anim_objects;
 mod actor_groups;
 mod actors;
 mod attack_anims;
@@ -844,6 +845,11 @@ fn main() -> AppExit {
         app.init_resource::<idles::Idles>()
             .add_systems(Update, idles::drive.after(nvf_play::PlaySet::Scripts).after(residents::drive).before(locomotion::walk_test))
             .add_systems(Last, idles::report);
+        // The props idles hold (anim_objects.rs): after the idles started and ended.
+        app.init_resource::<anim_objects::AnimObjects>()
+            .add_systems(Startup, anim_objects::read)
+            .add_systems(Update, anim_objects::hold.after(idles::drive))
+            .add_systems(Last, anim_objects::report);
     }
     app.init_resource::<idles::PlayerIdles>();
     if let Some(f) = furnishings {

@@ -294,6 +294,43 @@ pub struct Walker {
     pub travelled: f32,
 }
 
+/// Fastest turn of a walking actor, radians per second (180 degrees per second)
+/// [design; owner's playtest 2026-10-11: actors turned half about in a frame or two].
+/// The game's characters turn at the setting `fCharacterDefaultTurningSpeed` [documented:
+/// GECK wiki, Settings list], whose value is not in FalloutNV.esm (a built-in default);
+/// creatures have their own, CREA `TNAM` "Turning Speed" [documented: xEdit], 40 to 100
+/// on the records looked at [observed], degrees per second [hypothesis]; not used yet.
+/// Was 720 degrees per second.
+pub const WALK_TURN_RATE: f32 = std::f32::consts::PI;
+
+/// While its heading catches up with the way to go, a walking actor keeps this share of
+/// its speed at the least (heading a quarter turn or more off) and all of it when facing
+/// the way ([`turn_slowdown`]) [design].
+pub const TURN_SLOW_MIN: f32 = 0.3;
+
+/// The share of its speed a walking actor keeps when its heading is `off` radians from
+/// the way to go: it slows to turn [design].
+pub fn turn_slowdown(off: f32) -> f32 {
+    TURN_SLOW_MIN + (1.0 - TURN_SLOW_MIN) * off.cos().max(0.0)
+}
+
+/// The direction a heading faces (0 north = +y, π/2 east = +x).
+pub fn dir_of(heading: f32) -> [f32; 2] {
+    let (s, c) = heading.sin_cos();
+    [s, c]
+}
+
+/// Which way a walking actor moves while it turns towards `way` (a unit direction) with
+/// its heading now at `heading`: along its heading, so that it walks an arc round a
+/// corner, while that is within a quarter turn of the way; else along the way itself
+/// (it does not walk off backwards) [design]. With the share of its speed it keeps
+/// ([`turn_slowdown`]).
+pub fn arc_step(heading: f32, way: [f32; 2]) -> ([f32; 2], f32) {
+    let off = heading_delta(heading, heading_of(way)).abs();
+    let along = if off < std::f32::consts::FRAC_PI_2 { dir_of(heading) } else { way };
+    (along, turn_slowdown(off))
+}
+
 /// Turn speed of a standing actor, radians per second (120 degrees per second) [design:
 /// the turn clips carry no rotation, docs/spec-notes/actors.md §8.2 and §8.9].
 pub const SPOT_TURN_RATE: f32 = 120.0 * std::f32::consts::PI / 180.0;
@@ -332,7 +369,7 @@ impl Walker {
             heading,
             tri: NONE,
             speed,
-            turn_rate: 4.0 * std::f32::consts::PI,
+            turn_rate: WALK_TURN_RATE,
             spot_turn_rate: SPOT_TURN_RATE,
             spot_turn_start: SPOT_TURN_START,
             turning: false,
@@ -420,7 +457,10 @@ impl Walker {
                         return WalkEvent::Turned;
                     }
                     self.heading = turn_towards(self.heading, want, self.turn_rate * dt);
-                    let step = budget.min(to_target);
+                    // It slows while its heading catches up (on the navmesh it keeps
+                    // to the path itself; the character controller walks the arc).
+                    let slow = turn_slowdown(heading_delta(self.heading, want).abs());
+                    let step = (budget * slow).min(to_target);
                     let start = self.feet;
                     let mut p = [start[0] + dir[0] * step, start[1] + dir[1] * step, start[2]];
                     // Height: the navmesh under the new point, else along the segment.
@@ -434,7 +474,7 @@ impl Walker {
                     };
                     self.feet = p;
                     self.travelled += step;
-                    budget -= step;
+                    budget -= step / slow;
                     moved = true;
                 }
             }
@@ -588,7 +628,8 @@ mod tests {
         // Nearly facing the way (within 20°): it sets off at once.
         let (g, mut w) = walker(FRAC_PI_2 - 0.3, vec![[0.0, 0.0, 0.0], [200.0, 0.0, 0.0]]);
         assert_eq!(w.update(&g, dt), WalkEvent::Moved);
-        assert!((w.heading - FRAC_PI_2).abs() < 1e-4);
+        // It turns on as it walks, at the walking rate.
+        assert!((w.heading - (FRAC_PI_2 - 0.3 + WALK_TURN_RATE * dt)).abs() < 1e-4, "{}", w.heading);
     }
 
     #[test]
@@ -607,6 +648,39 @@ mod tests {
         assert!(!events.contains(&WalkEvent::Turned), "{events:?}");
         // (It cuts the corner within the arrival radius, so it ends a little east of north.)
         assert!(w.heading.abs() < 0.2 && !w.moving, "{}", w.heading);
+    }
+
+    #[test]
+    fn a_walker_turns_at_most_at_the_walking_rate_and_slows_to_turn() {
+        use std::f32::consts::FRAC_PI_2;
+        // East, then a right angle north, at 100 units per second in steps of 1/60 s.
+        let (g, mut w) = walker(FRAC_PI_2, vec![[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [100.0, 200.0, 0.0]]);
+        let dt = 1.0 / 60.0;
+        let mut slowest = f32::MAX;
+        for _ in 0..600 {
+            let (h, at) = (w.heading, w.feet);
+            if w.update(&g, dt) == WalkEvent::Arrived {
+                break;
+            }
+            assert!(heading_delta(h, w.heading).abs() <= WALK_TURN_RATE * dt + 1e-5, "turned {} in a step", heading_delta(h, w.heading));
+            slowest = slowest.min((w.feet[0] - at[0]).hypot(w.feet[1] - at[1]) / dt);
+        }
+        // Round the corner it slowed down (it turns a quarter in half a second).
+        assert!(slowest < 80.0, "{slowest}");
+        assert!(w.follower.is_none() && (w.feet[1] - 200.0).abs() < 20.0, "{:?}", w.feet);
+    }
+
+    #[test]
+    fn the_arc_follows_the_heading_within_a_quarter_turn() {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        // Facing north, the way east: half a quarter off, it goes along its heading.
+        let (d, k) = arc_step(PI / 4.0, [1.0, 0.0]);
+        assert!((d[0] - (PI / 4.0).sin()).abs() < 1e-6 && (d[1] - (PI / 4.0).cos()).abs() < 1e-6);
+        assert!(k > TURN_SLOW_MIN && k < 1.0);
+        // Facing the way: full speed. Facing away: along the way, slowest.
+        assert_eq!(arc_step(FRAC_PI_2, [1.0, 0.0]).1, 1.0);
+        let (d, k) = arc_step(-FRAC_PI_2, [1.0, 0.0]);
+        assert_eq!((d, k), ([1.0, 0.0], TURN_SLOW_MIN));
     }
 
     #[test]

@@ -387,7 +387,8 @@ on [documented: Idle Markers, Patrol Data]; the furniture a package gives its ac
 
 **Checks**: 17 tests in `crates/fnv-ai/tests/carry.rs` (only-wander stays inside its
 radius and uses nothing; no-wander alternates chair and idle marker; all off stands; the
-night's bed and the meal's chair at the rolled hours; an idle marker's heading; two
+night's bed and the meal's chair at the rolled hours; an idle marker's heading (turned to
+on the spot at 120°/s since 2026-10-11, `Agent::face_to`, actors.md §8.9); two
 sandboxers never on one chair; the same run twice; the patrol wait). `fnvtool ai run
 --actor GSChetRef --start-hour 9`: a meal on a chair, an idle marker, a wander, a seat,
 in his store. In `nvforever`: Chet walks about his store and sits down (screenshots);
@@ -526,6 +527,46 @@ docs/spec-notes/physics.md §6.8; the figures are placeholders until the capture
 - **Checked**: `fnv-ai` test `a_standing_actor_is_pushed_over_the_navmesh_and_goes_back`
   (not while on its way; all of a small push; to the navmesh's edge and along it, no
   further; back into its package's radius after the wait; a seated actor not at all).
+
+### 5.8 Creatures that cannot walk; perched birds (2026-10-11, owner's playtest)
+
+The owner: "ravens outside Doc Mitchell's house should not have collision; also one of
+them was moving around on its own; it should stay where it is then fly off".
+
+- **What they are** [observed, FalloutNV.esm]: four placed creatures (ACRE 0x0014C447,
+  0x0014C448, 0x0014C449 initially disabled, 0x0014C44A) of `NVCrRaven` (CREA 0x00140DB0):
+  skeleton `creatures\nvraven\skeleton.nif`, ACBS flags Flies, Walks, No Low Level
+  Processing, Can't Open Doors, Tilt Front/Back; package `DefaultSandboxEditorLocation512`
+  (sandbox within 512 of the editor location); object script `BlackbirdSinging`. The
+  skeleton's folder holds an idle and the fly-away idle but no movement clips (the
+  engine's locomotion log: "missing Forward, Backward, …"). The skeleton has three
+  Biped-layer bodies (bhkBlendCollisionObject), as other creatures' skeletons do.
+- **The fly-off is the script's** [documented: the script's source, SCTX]: on load it
+  arms itself; in GameMode, once the player is within 512 units (`GetDistance Player`),
+  or when hit (OnHit), it plays the idle `NVRavenFlyAway` and counts `fFlyTime` down from
+  9, subtracting `GetSecondsPassed` twice a frame, so about 4.5 s; then `Disable` and
+  `MarkForDelete`. The engine already ran it: "idle: 0x0014C447 plays NVRavenFlyAway
+  (6.43 s)" and "disabled" 4.5 s later [observed, `--play`, 2026-10-11]; the idle's clip
+  carries the bird up and away.
+- **The stray motion was the sandbox**: the residents walked the ravens' sandbox
+  (0x0014C448 "walked 820 units") with no movement clip to play, so they slid. Now a
+  creature whose skeleton folder has no `Forward` or `FastForward` clip of its stance
+  cannot walk: the residents hand it to the AI **rooted** (`fnv_ai::Ai::root`: no
+  package, sandbox, walk, search or push moves it; its scripts still run) [hypothesis:
+  the game moves actors at their movement clips' speed, so an actor without one stays
+  put; the owner saw the ravens sit still in the game]. Test
+  `a_rooted_actor_stays_where_it_is`.
+- **No collision for perched birds** [engineering choice, from the owner's wish]: a
+  rooted creature whose base has the Flies flag is in nobody's way
+  (`ActorBlocks::in_nobodys_way`): it has no block (physics.md §6.8), so the player
+  walks through it. It keeps its hit volume, so a shot still makes it fly off (OnHit).
+  Nothing in the data read says how the original keeps the player and a raven apart.
+- **Checked** [observed, `--play --cell Goodsprings --pos=-73500,2300,8800 --hour 12`,
+  `NVF_PLAY_TEST_FACE=10:0014C447` and `NVF_PLAY_TEST_MOVE=10.2:1:0:walk,13:0:0`]: "ai:
+  0x0014C447 has no movement animations: it stays where it is; it flies, so it is in
+  nobody's way"; no raven in the ai summary's walks; the raven flies off as the player
+  arrives and the player walks on through its place ("they changed the player's step 0
+  times").
 
 ## 6. Decisions for the owner
 
