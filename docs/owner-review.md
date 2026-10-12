@@ -3414,3 +3414,78 @@ tests on a synthetic plugin, the blind close-in test, the sights rule); smoke sc
 `combat-sights` and `provoked-yield` added, `cook-cook-camp` now also forbids the flicker
 (at most 2 Combat → Lost lines). Not done (list 2): fleeing, cover, combat groups and
 their searches, NPC-against-NPC grudges, blocking, dodging, combat barks (combat-ai.md §11.1).
+
+## Karma and crime (workstream J, branch claude/karma-crime, 2026-10-12)
+
+Your list 2 items "FACTION KARMA" and "CRIME". Facts and tags:
+docs/spec-notes/crime-karma.md. The game's own help messages (`HelpCrime`, `HelpKarma` in
+FalloutNV.esm) gave the crime rules: minor crimes (theft; opening an owned lock, which the
+help calls trespass) turn only the victim who sees it; major crimes (assault, murder) the
+victim and its friends.
+
+1. **Karma for kills.** Killing an Evil or Very Evil NPC gives +100
+   (`fKarmaModKillingEvilActor`, the only kill setting in FalloutNV.esm); a Good or Very
+   Good NPC costs 100; murdering a Neutral NPC costs 25. *Decision/Guess:* the setting is
+   the amount (it is not documented how it is used); the good-side and neutral amounts
+   are mine (no setting for them is in the plugins, the executable is encrypted);
+   creatures give no karma (a dead radroach is "Evil" in the data); alignment by the
+   globals KarmaVeryEvil −750, KarmaEvil −250, KarmaGood 250, KarmaVeryGood 750.
+   *Check:* kill a Fiend (Violet is −500, Evil): "You've gained Karma!" with the good
+   icon; kill Sunny (900, Very Good): "You've lost Karma!" with the evil icon.
+2. **Karma for stealing and breaking in.** Each owned item or stack taken, and each
+   owned lock picked or forced, costs 5 (`fKarmaModStealing`), seen or not; nothing when
+   the owner is an Evil faction, a faction that does not track crime, or an Evil NPC.
+   *Decision:* per take, not per item value; the lock cost is mine (you asked for
+   breaking in to cost karma). *Check:* take Chet's cigarettes: −5 and the corner message.
+3. **Ownership.** A reference's own owner (XOWN, with the faction rank XRNK), else its
+   cell's (the CELL's XOWN/XRNK, or SetCellOwnership). You own what your base or a faction
+   you have the rank in owns. *Decision:* items' own owners inside containers (COED) are
+   not read: a container's items are the container's owner's; a corpse's inventory is
+   nobody's; items you dropped are yours.
+4. **Theft.** The owner (or a member of the owning crime-tracking faction) who has you
+   *detected* when you take something turns on you and says its Steal line; others who
+   see it do nothing. *Decision:* the game's owner first tries to take the item back;
+   that is not built, the owner fights straight away. A crime enemy attacks whatever its
+   aggression, and a crime is not yieldable (holstering does not end it); StopCombat
+   from a script does. *Check:* in Chet's store, take something behind the counter
+   while he looks: he says his Steal line and fights; take something while he looks
+   away: only the karma.
+5. **Picked locks** of owned doors and containers: the owner who sees it attacks at once
+   (the help's rule). Hacking an owned terminal is the same crime in the help: not
+   hooked yet.
+6. **Trespassing.** In an owned cell without the Public place flag that you do not own
+   (23 interiors in FalloutNV.esm: Primm's and North Vegas's houses, Novac's motel rooms;
+   all of Goodsprings' interiors are public), the owner who sees you warns you
+   (GuardTrespass) every 5 s, twice (`iGuardWarnings` 2), then attacks. *Guess:* the Guard
+   package's warning rule applies to owned cells too; the Off Limits flag (one cell) and
+   the doors' No Alarm flag are not used. *Check:* walk into a Primm house with its
+   owner in.
+7. **Murder.** Killing a non-Evil NPC that did not attack you of its own accord. Every
+   witness who cares about the victim (its ally or friend, same faction or same base)
+   turns on you and says its Murder line, and when such a witness saw it, you become an
+   enemy of the victim's crime-tracking factions (all members attack on sight until a
+   script clears it). IsPCAMurderer becomes 1. *Decision:* only seen murders set the
+   faction flag. *Check:* kill Easy Pete in front of another settler: Goodsprings turns.
+8. **Assault** (already on main as provocation) now also counts as a major crime
+   (GetMajorCrimeCount). *Decision:* an assault does **not** make you an enemy of the
+   victim's whole faction (the wiki's enemy flag is for any major crime): one punch would
+   turn every NCR trooper in the Mojave. Allies who see it still help (assistance).
+   Please decide.
+9. **The prompt.** Over an owned item, container or lock the crosshair and its prompt are
+   drawn in the crime colour, and an item reads "E) Steal". *Guess:* the colour is the
+   HUD's "alt" colour from Fallout_default.ini (255, 67, 42); the word "Steal".
+   *Check:* in Chet's store the shelves' items should be red.
+10. **No bounties.** New Vegas has none (the wiki: crime gold is unused in Fallout);
+    reputation (REPU) is changed by scripts only, crimes do not change it here.
+11. **Script functions** built: RewardKarma (with the corner message), GetIsAlignment,
+    IsPCAMurderer, Get Minor/Major CrimeCount, GetActorCrimePlayerEnemy, GetAlarmed,
+    IsActorAVictim, IsCellOwner, IsInMyOwnedCell, IsTrespassing, GetTrespassWarningLevel,
+    SendTrespassAlarm, SendAssaultAlarm (93 calls in the scripts; it now really turns the
+    victim on you). SetPCEnemyOfFaction now has an effect: that faction's members attack
+    you on sight. *Check:* quests that call SendAssaultAlarm or SetPCEnemyOfFaction.
+
+Shared files touched (the combat AI agent works nearby): `fnv-game` `combat.rs` (one call
+in `kill`), `awareness.rs` (crime enemies in `would_attack`, forgiving in `stop_combat`),
+`provocation.rs` (one call when an assault grudge starts), `functions/mod.rs` (the crime
+entries only), `game.rs` (state fields), `data.rs` (cells, faction flags, ranks); engine
+`activate.rs`, `reticle.rs`, `menu.rs`, `menu/model.rs`, `lockpick.rs` (log text).

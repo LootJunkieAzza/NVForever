@@ -79,11 +79,18 @@ pub struct Prompt {
     pub name: String,
     /// An item's weight and value, as written.
     pub figures: Option<[String; 2]>,
+    /// Drawn in the crime colour: someone else owns the target (`crate::crime`).
+    pub crime: bool,
 }
 
 impl Prompt {
     pub fn of(t: &Targeted, sim: &SimState) -> Prompt {
-        let (action, name) = outcome::prompt(&t.name, &t.action);
+        let (mut action, name) = outcome::prompt(&t.name, &t.action);
+        // An owned item is stolen, not taken [hypothesis: the game's word; owner's
+        // playtest list 2 of 2026-10-12].
+        if t.crime && matches!(t.action, Action::Take { .. }) {
+            action = "Steal".into();
+        }
         let item = match t.action {
             Action::Take { .. } => sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)),
             _ => None,
@@ -92,7 +99,7 @@ impl Prompt {
             BaseData::Item(i) => Some([weight_text(i.weight), value_text(i.value)]),
             _ => None,
         });
-        Prompt { action, name, figures }
+        Prompt { action, name, figures, crime: t.crime }
     }
 }
 
@@ -148,6 +155,15 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
         Vec2::new(STEM_X - STEM_IN_PICTURE, top)
     });
     Layout { texts, divider }
+}
+
+/// The crime colour: the prompt over something another owns, and the crosshair with it
+/// [documented: GECK wiki IsCrimeOrEnemy, the "red color of the crosshair or the
+/// activation prompt"; HudBarSetSystemColor, the system colour "Crime" of the prompt].
+/// Its value: the HUD's alternative colour, `iSystemColorHUDAlt*` 255, 67, 42 in
+/// Fallout_default.ini [observed; hypothesis: that it is the crime colour].
+pub fn crime_colour() -> Color {
+    Color::srgb_u8(255, 67, 42)
 }
 
 // ---- drawing ----------------------------------------------------------------------------
@@ -217,7 +233,7 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
 }
 
 fn spawn_texts(p: &mut ChildSpawnerCommands, kit: &Kit, prompt: &Prompt) {
-    let color = amber(255.0);
+    let color = if prompt.crime { crime_colour() } else { amber(255.0) };
     let l = layout(prompt, &kit.face.font);
     if let (Some(corner), Some(picture)) = (l.divider, kit.divider.clone()) {
         p.spawn((at(corner.x, corner.y, DIVIDER_SIZE.x, DIVIDER_SIZE.y), picture_node(picture, color)));
@@ -240,7 +256,7 @@ fn draw(
     mut kit: Local<Option<Kit>>,
     mut shown: Local<Option<Prompt>>,
     mut root: Query<&mut Visibility, With<Root>>,
-    mut crosses: Query<(&Cross, &mut Visibility), Without<Root>>,
+    mut crosses: Query<(&Cross, &mut Visibility, Option<&mut ImageNode>), Without<Root>>,
     texts: Query<Entity, With<Texts>>,
 ) {
     let playing = *state.get() == PlayState::Playing;
@@ -261,8 +277,12 @@ fn draw(
     }
     let locks = locks.as_deref().copied().unwrap_or_default();
     let aimed = target.0.is_some();
-    for (c, mut v) in &mut crosses {
+    let colour = if target.0.as_ref().is_some_and(|t| t.crime) { crime_colour() } else { amber(255.0) };
+    for (c, mut v, image) in &mut crosses {
         v.set_if_neq(show(!locks.movement && c.filled == aimed));
+        if let Some(mut image) = image.filter(|i| i.color != colour) {
+            image.color = colour;
+        }
     }
     let want = target.0.as_ref().filter(|_| !locks.rollover).map(|t| Prompt::of(t, &sim));
     if *shown != want {
@@ -286,7 +306,7 @@ mod tests {
     }
 
     fn prompt(action: &str, name: &str, figures: Option<[&str; 2]>) -> Prompt {
-        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)) }
+        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false }
     }
 
     #[test]

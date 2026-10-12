@@ -19,6 +19,7 @@ pub mod chargen;
 pub mod combat;
 pub mod control;
 pub mod corner_messages;
+pub mod crime;
 pub mod dialogue;
 pub mod dialogue_look;
 pub mod dialogue_menu;
@@ -243,7 +244,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(chargen::ChargenPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
-            .add_plugins(lockpick::LockpickPlugin);
+            .add_plugins(lockpick::LockpickPlugin)
+            .add_plugins(crime::CrimePlugin);
         test_aid::setup(app);
     }
 }

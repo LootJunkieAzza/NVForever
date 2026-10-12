@@ -71,6 +71,9 @@ pub struct Targeted {
     pub action: Action,
     pub distance: f32,
     pub source: Source,
+    /// Someone else owns it: taking from it, or opening its lock, is a crime
+    /// (`crate::crime`); the prompt is drawn in the crime colour.
+    pub crime: bool,
 }
 
 /// The last on-screen message and how long it has been shown.
@@ -206,20 +209,36 @@ fn find_target(
             .clone()
     };
     let picked = pick::choose(hit, bounds, REACH, |id| describe_once(id).is_some());
+    let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let new = picked.and_then(|Pick { form_id, distance, source }| {
         let (name, action) = describe_once(form_id)?;
-        Some(Targeted { form_id, name, action, distance, source })
+        let crime = owned_by_other(game, &sim, form_id, &action);
+        Some(Targeted { form_id, name, action, distance, source, crime })
     });
-    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone()));
+    let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime));
     if key(&target.0) != key(&new) {
         match &new {
-            Some(t) => info!("target 0x{:08X} {} ({}) by {:?} at {:.0}", t.form_id, t.name, t.action.label(), t.source, t.distance),
+            Some(t) => info!("target 0x{:08X} {} ({}{}) by {:?} at {:.0}", t.form_id, t.name, t.action.label(), if t.crime { ", owned" } else { "" }, t.source, t.distance),
             None => info!("target none"),
         }
     }
     if target.0 != new {
         target.0 = new;
     }
+}
+
+/// Whether acting on the target is a crime: an item to take, a container to open or a
+/// lock to pick that someone other than the player owns (`fnv_game::crime`). A dead
+/// actor's inventory is not [hypothesis].
+fn owned_by_other(game: Option<&fnv_game::Game>, sim: &SimState, form_id: u32, action: &Action) -> bool {
+    let Some(g) = game else { return false };
+    let container = sim.base_of(form_id).and_then(|b| sim.forms.get(b)).is_some_and(|b| matches!(b.data, BaseData::Container(_)));
+    let judged = match action {
+        Action::Take { .. } | Action::Locked { .. } => true,
+        Action::Open | Action::Unlock => container,
+        _ => false,
+    };
+    judged && g.ownership_in(&sim.world, FormId(form_id)).is_some_and(|o| !g.counts_as_owner(FormId::PLAYER_REF, &o))
 }
 
 /// Test aid: times (seconds after start) at which E counts as pressed.

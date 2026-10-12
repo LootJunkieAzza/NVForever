@@ -1151,3 +1151,65 @@ expect = [
   { re = 'new game: (?P<n>\d+) placed actors start dead \(Base Health 0\)', range = [800, 1000], label = "new game: about 889 placed actors start dead" },
   { re = 'ragdolls: (?P<n>\d+) started', range = [9, 1000], label = "ragdolls: the village's nine corpses or more dropped" },
 ]
+
+# ------------------------------------------------------------------ karma and crime (docs/spec-notes/crime-karma.md)
+
+[[scenario]]
+name = "karma-survey"
+kind = "tool"
+source = "owner's playtest list 2 (2026-10-12), karma and crime: the settings, alignments and ownership the rules read (docs/spec-notes/crime-karma.md §2, §8)"
+areas = ["crime", "karma"]
+paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/data.rs", "crates/fnvtool/src/actor_karma.rs"]
+commands = [["actor", "karma", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "--survey", "--actor", "FiendVioletRef", "--actor", "SunnyRef", "--actor", "GSChetRef", "--cell", "GSGeneralStore"]]
+expect = [
+  { json = "settings.fKarmaModKillingEvilActor", equals = 100.0 },
+  { json = "settings.fKarmaModStealing", equals = -5.0 },
+  { json = "settings.iGuardWarnings", equals = 2.0 },
+  { json = "settings.KarmaEvil", equals = -250.0 },
+  { json = "settings.KarmaVeryGood", equals = 750.0 },
+  { json = "actors.?actor=FiendVioletRef.alignment", equals = "Evil" },
+  { json = "actors.?actor=FiendVioletRef.kill_karma_in_a_fight_it_started", equals = 100.0 },
+  { json = "actors.?actor=SunnyRef.alignment", equals = "Very Good" },
+  { json = "actors.?actor=GSChetRef.kill_karma_as_murder", equals = -25.0 },
+  { json = "cells.?cell=GSGeneralStore.owner", equals = "GSChet" },
+  { json = "cells.?cell=GSGeneralStore.public", equals = true },
+  { json = "survey.cells.counts.owned_not_public_interior", equals = 23 },
+  { json = "survey.factions.counts.evil", equals = 44 },
+  { json = "survey.factions.counts.track_crime", equals = 188 },
+  { json = "survey.actors.placed_by_karma.NPC.Very Evil", equals = 15 },
+]
+manual = "on a failure, explain the change against docs/spec-notes/crime-karma.md §2"
+
+[[scenario]]
+name = "crime-steal"
+source = "owner's playtest list 2 (2026-10-12): stealing in front of the owner turns him hostile and costs karma (docs/spec-notes/crime-karma.md §3.1, §8)"
+note = "the player is put at Chet's counter at 14 s (after the add-ons' start-up message boxes) and takes the carton of cigarettes 0x00106D34 behind it at 20 s; Chet's store is his (CELL XOWN GSChet), public"
+areas = ["crime", "karma"]
+paths = ["crates/fnv-game/src/crime.rs", "engine/nvf-play/src/crime.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/model.rs", "engine/nvf-play/src/reticle.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOTO = "14:-400:540:560", NVF_PLAY_TEST_SCRIPT = "20:activate:0x00106D34" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 32
+order = [[
+  { re = 'crime: the player took .* \(0x00106D34\) x1, owned by someone else', label = "the carton taken is theft" },
+  { re = 'crime: karma -5 for stealing', label = "karma -5 for the theft" },
+  { re = 'crime: theft against GSChet .*turned on the player: \[GSChetRef 0x00104C79\]', label = "Chet saw it and turns on the player" },
+]]
+expect = [
+  { re = 'GSChet 00104C79 \w+ → Combat', label = "Chet fights" },
+  { re = 'crime summary: 1 thefts \(1 seen\)', label = "crime summary: one theft, seen" },
+]
+forbid = [{ re = 'the player died', label = "the player dies" }]
+
+[[scenario]]
+name = "karma-fiend"
+source = "owner's playtest list 2 (2026-10-12): killing an evil actor raises karma (docs/spec-notes/crime-karma.md §4, §8)"
+note = "beside Violet's camp (as music-battle); the player shoots the nearest NPC, Violet (180 health), with the 10mm pistol twice a second from 12 s, reloading at 19, 26 and 33 s (a hunting rifle fired too slowly at the run's frame rate)"
+areas = ["crime", "karma"]
+paths = ["crates/fnv-game/src/crime.rs", "crates/fnv-game/src/combat.rs", "engine/nvf-play/src/crime.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:80", NVF_PLAY_TEST_CONTROL = "8:weapon,12:aimnpc,12.2:fire,12.5:aimnpc,12.7:fire,13:aimnpc,13.2:fire,13.5:aimnpc,13.7:fire,14:aimnpc,14.2:fire,14.5:aimnpc,14.7:fire,15:aimnpc,15.2:fire,15.5:aimnpc,15.7:fire,16:aimnpc,16.2:fire,16.5:aimnpc,16.7:fire,17:aimnpc,17.2:fire,17.5:aimnpc,17.7:fire,18:aimnpc,18.2:fire,18.5:aimnpc,18.7:fire,19:reload,20:aimnpc,20.2:fire,20.5:aimnpc,20.7:fire,21:aimnpc,21.2:fire,21.5:aimnpc,21.7:fire,22:aimnpc,22.2:fire,22.5:aimnpc,22.7:fire,23:aimnpc,23.2:fire,23.5:aimnpc,23.7:fire,24:aimnpc,24.2:fire,24.5:aimnpc,24.7:fire,25:aimnpc,25.2:fire,25.5:aimnpc,25.7:fire,26:reload,27:aimnpc,27.2:fire,27.5:aimnpc,27.7:fire,28:aimnpc,28.2:fire,28.5:aimnpc,28.7:fire,29:aimnpc,29.2:fire,29.5:aimnpc,29.7:fire,30:aimnpc,30.2:fire,30.5:aimnpc,30.7:fire,31:aimnpc,31.2:fire,31.5:aimnpc,31.7:fire,32:aimnpc,32.2:fire,32.5:aimnpc,32.7:fire,33:reload,34:aimnpc,34.2:fire,34.5:aimnpc,34.7:fire,35:aimnpc,35.2:fire,35.5:aimnpc,35.7:fire,36:aimnpc,36.2:fire,36.5:aimnpc,36.7:fire,37:aimnpc,37.2:fire,37.5:aimnpc,37.7:fire" }
+args = ["--cell", "Goodsprings", "--pos=-46800,65000,4600", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 42
+expect = [
+  { re = 'crime: karma \+100 for killing .*\(Evil\), now 100', label = "karma +100 for killing Violet" },
+  { re = 'crime summary: .* 0 murders', label = "no murder" },
+]
