@@ -1198,22 +1198,29 @@ expect = [
 
 [[scenario]]
 name = "script-stubs-play"
-source = "docs/design/script-stubs.md §3: Look and StopLook on Sunny, a held SetWeather and its release, ForceActiveQuest on the Pip-Boy (the test aid call:)"
+source = "docs/design/script-stubs.md §3: Look and StopLook on Sunny (10 s apart), a held SetWeather and its release, ForceActiveQuest on the Pip-Boy (the test aid call:)"
 areas = ["scripts", "stubs", "weather", "pipboy"]
 paths = [
   "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-game/src/functions/ui.rs",
   "crates/fnv-game/src/weather.rs", "engine/nvforever/src/script_look.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_events.rs",
 ]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:SunnyRef:Look:player,10:call:SunnyRef:StopLook,12:call:-:SetWeather:0x000E3792:1,14:call:-:ReleaseWeatherOverride,15:objective:VCG02:3,15.5:call:-:ForceActiveQuest:VCG02", NVF_PLAY_TEST_PIPBOY = "17:open,18:page=data,20:close" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:SunnyRef:Look:player,8:call:-:SetWeather:0x000E3792:1,10:call:-:ReleaseWeatherOverride,14:call:SunnyRef:StopLook,15:objective:VCG02:3,15.5:call:-:ForceActiveQuest:VCG02", NVF_PLAY_TEST_PIPBOY = "17:open,18:page=data,20:close" }
 args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
 run_seconds = 23
-order = [[
-  { re = 'script look: .* looks at ', label = "script look: Sunny looks at the player" },
-  { re = 'script look: .* stops looking', label = "script look: Sunny stops looking" },
-  { re = 'weather: \S+ by a script \(fading in, held until released\)', label = "weather: SetWeather 0x000E3792 1, held" },
-  "weather: a script releases its weather",
-  { re = 'pipboy data: active quest .* \(ForceActiveQuest\)', label = "pipboy data: VCG02 made the active quest" },
-]]
+# StopLook comes 10 s after Look: aids due while the start-up loading screen is up run
+# together in its first frame (a loaded machine kept it up past 10 s once), and a Look
+# taken back in the same frame is never drawn.
+order = [
+  [
+    { re = 'script look: .* looks at ', label = "script look: Sunny looks at the player" },
+    { re = 'script look: .* stops looking', label = "script look: Sunny stops looking" },
+  ],
+  [
+    { re = 'weather: \S+ by a script \(fading in, held until released\)', label = "weather: SetWeather 0x000E3792 1, held" },
+    "weather: a script releases its weather",
+    { re = 'pipboy data: active quest .* \(ForceActiveQuest\)', label = "pipboy data: VCG02 made the active quest" },
+  ],
+]
 expect = ["script look summary: 1 looks started, 1 stopped"]
 
 # ------------------------------------------------------------------ aid items (docs/spec-notes/aid-items.md)
