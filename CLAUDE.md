@@ -3,6 +3,9 @@
 NVForever is an open-source, clean-room reimplementation of the Fallout: New Vegas engine
 (OpenMW-style). The owner wants sessions to work autonomously, including pushing.
 
+Work in progress: the owner's playtest lists and their state (branches, what is left) are in
+`docs/handoff/playtest-2026-10-12.md`; read it before picking up that work.
+
 ## Charter (non-negotiable)
 
 - Clean room: describe formats/behaviour in plain language in `docs/spec-notes/`, implement
