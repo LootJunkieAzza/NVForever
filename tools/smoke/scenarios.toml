@@ -1631,7 +1631,9 @@ run_seconds = 20
 expect = [
   "actor feet: 0010B35A CampGolfNCRTrooperTower1A at ",
   "actor feet: … actors within 3500 units of the camera, 0 with a foot bone over 30 units above the root",
+]
 
+[[scenario]]
 name = "follower-boone"
 source = "owner's list 2 (H followers): a companion hired by the game's own recruit line follows the player through a door, ignores the player's friendly fire, joins the player's fight and waits when told (docs/design/followers.md)"
 note = "Boone's recruit line INFO 0x0015F30D runs at 3 s (its result script hires him: SetPlayerTeammate, SetIgnoreFriendlyHits, VNPCFollowers.bBooneHired); the player shoots him twice at 18 s, leaves his room by its door at 26 s, walks off at 32 s; a feral ghoul is put 1,200 units from the player at 45 s; Boone's Waiting variable is set at 62 s"
