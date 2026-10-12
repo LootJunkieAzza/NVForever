@@ -3200,6 +3200,53 @@ on this machine (11.4 min).
 4. *Seen, not changed:* at Cook-Cook's camp the fiends still go Combat → Lost and back
    16 times in 45 s (the handoff's "about 17"); it belongs to the combat workstream.
 
+## Playtest fixes: lockpicking (2026-10-12, session "lockpick")
+
+Item 31 of the playtest list. Locked doors and containers whose key the player does not
+carry now open the lockpicking menu (`nvf-play` `lockpick`, rules in `fnv-game`
+`lockpick`, the lock drawn by `nvforever` `lockpick_view.rs`; docs/spec-notes/lockpicking.md).
+The mouse turns the bobby pin over the half circle, W/A/S/D (the movement keys, as the
+game's help message says) put torque on the lock, F forces it, E leaves. Your reference
+screenshots (`C:\fnv-private\references\Lockpicking`) were not on this machine; what the
+first session noted from them is kept (lockpicking.md §1).
+
+1. *Decision:* the menu's layout is the game's `lockpick_menu.xml` (information box bottom
+   left with Lockpick, Bobby Pins and Lock Level; Force Lock and Exit at the right; a status
+   line). *Guess:* the words "Lockpick" and "Bobby Pins" (the game's own are executable
+   settings, not in the plugins). *Check:* the box and buttons against your screenshot.
+2. *Decision:* the lock is the game's own model (`lockinterface01.nif`, `bobbypin01.nif`)
+   drawn by a camera of its own; the plate and screwdriver fly in with the model's
+   `Forward` sequence. *Guess:* the camera (45 units in front, 55° view), the lights, the
+   turning axis (the files' +Y) and the direction (clockwise). *Check:* the picture against
+   your screenshot (`C:\fnv-private\scratch\lockpick\menu.png` is ours), and that the lock,
+   screwdriver and pin turn about the keyhole.
+3. *Guess (all tuning, `fnv_game::lockpick::Settings`):* sweet spot widths 30/20/12/8/5°
+   (Very Easy to Very Hard), +1 % per skill point above the lock's need; a 45° ring
+   around it where the lock turns part way; 120°/s turning; a pin lasts 1 s of strain
+   (+0.02 s a skill point over); a new pin 1 s after a break; mouse 0.3° per unit.
+   *Check:* whether the spot feels as small as in the game, and how fast pins break.
+4. *Decision:* the skill needed is 0/25/50/75/100; key-only (255) and broken locks refuse;
+   no bobby pins refuses. The refusal lines are NVForever's words. *Check:* the wording.
+5. *Guess:* Force Lock's chance is 3 % per Lockpick point over the lock's need, at most 95 %
+   (fits the one value seen, 15 % at 30 on an Easy lock); a failure breaks the lock for
+   good (only its key opens it: `GetLocked` 2, `GetIsLockBroken` 1) and uses up the pin.
+   A forced lock gives no XP, a picked one `iXPRewardPickLock…` (20–60). *Check:* the
+   chance at other skills/levels if you can read them in the game.
+6. *Decision:* when the lock turns all the way it stays unlocked, the menu closes 1.5 s
+   later and the door or container is **not** opened by itself: activate it again.
+   *Check:* whether the game opens the container straight away.
+7. *Decision:* where the sweet spot lies is new each time the menu opens. *Check:* whether
+   in the game it stays put for a lock between tries.
+8. *Decision:* sounds by the records' names: enter, pin movement (every 8°), cylinder
+   turn, cylinder stop, pin tension (a loop while strained), pin break, unlock, force fail;
+   `DRSLocked` when the menu refuses. The two cylinder squeak records are not used.
+9. *Crime hook:* picking or forcing a lock sends `LockOpened { reference, owner, forced }`
+   and logs "lockpick: crime hook: …" with the owner (the reference's, else the cell's as
+   a script set it; a cell's own XOWN is not read yet). No crime rules.
+10. *Not built:* the help message the first time, the debug meter, hiding the pointer over
+   the lock, the lock's `Backward` and the pin's `Backward`/`Left` sequences, saving broken
+   locks.
+
 ## Playtest fixes: far world (crash log, distant actors, floating troopers, dead on spawn) (2026-10-12, session "far")
 
 List 1 items 26, 27, 24 and 28 (docs/handoff/playtest-2026-10-12.md).

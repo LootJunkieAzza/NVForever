@@ -150,6 +150,7 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .add_message::<crate::furniture::UseFurniture>()
         .add_message::<crate::world_sounds::Activated>()
         .add_message::<crate::terminal::OpenTerminal>()
+        .add_message::<crate::lockpick::OpenLockpick>()
         .add_systems(Update, (find_target, activate, sync_visuals).chain());
     app
 }
@@ -239,7 +240,7 @@ fn walls_and_reach_limit_the_bounds() {
 }
 
 #[test]
-fn a_door_sends_travel_and_a_locked_chest_a_message() {
+fn a_door_sends_travel_and_a_locked_chest_to_the_lockpicking_menu() {
     let mut app = scene(&[(DOOR_REF, 50.0)]);
     app.update();
     assert_eq!(target(&app), Some((DOOR_REF, Source::Collision)));
@@ -253,7 +254,9 @@ fn a_door_sends_travel_and_a_locked_chest_a_message() {
     let mut app = scene(&[(SAFE_REF, 50.0)]);
     press_e(&mut app);
     assert!(drain::<OpenContainer>(&mut app).is_empty());
-    assert_eq!(app.world().resource::<HudMessage>().text, "Chest is locked (Average)");
+    // Without its key: the lockpicking menu is asked for (it opens or says why not).
+    let asked: Vec<u32> = drain::<crate::lockpick::OpenLockpick>(&mut app).into_iter().map(|o| o.reference).collect();
+    assert_eq!(asked, vec![SAFE_REF]);
 }
 
 #[test]
