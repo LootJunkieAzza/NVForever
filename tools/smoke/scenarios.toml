@@ -499,10 +499,10 @@ expect = [
 [[scenario]]
 name = "provoked-yield"
 source = "playtest list 2026-10-11 item 30 (docs/design/combat-ai.md §10.1-§10.2): a neutral NPC the player shoots fights back; holstering is a yield it accepts once, and ignores when it forgave the player recently"
-note = "Chet (GSChetRef) is the nearest NPC in the general store; shot twice at 12-13 s, the weapon put away at 16 s, shot again at 32-33 s and put away at 36 s (two shots each time: a message box of an add-on may hold one)"
+note = "Chet (GSChetRef) is the nearest NPC in the general store; shot twice at 18-19 s (after the add-ons' start-up message boxes), the weapon put away at 22 s, shot again at 33-34 s and put away at 37 s; each shot aimed anew, as Chet moves"
 areas = ["combat", "alert"]
 paths = ["crates/fnv-game/src/provocation.rs", "engine/nvforever/src/provoked.rs", "engine/nvforever/src/detection.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "9:weapon,11.5:aimnpc,12:fire,12.2:fire,13:fire,13.2:fire,16:weapon,28:weapon,31.5:aimnpc,32:fire,32.2:fire,33:fire,33.2:fire,36:weapon" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "9:weapon,18:aimnpc,18.1:fire,18.3:fire,19:aimnpc,19.1:fire,19.3:fire,22:weapon,30:weapon,33:aimnpc,33.1:fire,33.3:fire,34:aimnpc,34.1:fire,34.3:fire,37:weapon" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 42
 expect = [
