@@ -503,7 +503,8 @@ impl Ai {
 
     /// One update of one actor (see [`Ai::step`]).
     pub(crate) fn step_actor(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, open: &mut dyn Mover, quiet: bool) {
-        if !game.present(actor) || game.extra.get(&actor).is_some_and(|e| e.dead) || self.agents[&actor].rooted {
+        // SetActorsAI 0: no packages, no walking, until it is switched on again.
+        if !game.present(actor) || game.extra.get(&actor).is_some_and(|e| e.dead || e.ai_off) || self.agents[&actor].rooted {
             return;
         }
         let current = game.current_package(actor);

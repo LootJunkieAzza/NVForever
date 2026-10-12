@@ -180,3 +180,33 @@ pub fn stop_look(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     g.senses.looks.remove(&r);
     none()
 }
+
+/// `actor.SetPackDuration minutes`: the actor's current package runs for that many game
+/// minutes [documented: GECK wiki SetPackDuration, "useful … for less than an hour"].
+/// Counted from the call [hypothesis: from the call rather than from the package's start;
+/// the two agree for the shipped calls in begin scripts, and the Hidden Valley restroom
+/// trigger's `enteringActor.SetPackDuration 1` (`SCPT 0x000CE229`) only makes sense
+/// from the call, [observed: decoded scripts]]. When the time is up the package ends
+/// ([`Game::end_timed_packages`]). Without a current package nothing happens.
+pub fn set_pack_duration(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let minutes = a.num(0)?.max(0.0);
+    let now = g.world.calendar().map(|c| c.days_passed as f64).unwrap_or(0.0);
+    if let Some(p) = g.extra.get(&r).and_then(|e| e.current_package) {
+        g.extra.entry(r).or_default().package_ends = Some((p, now + minutes / (24.0 * 60.0)));
+    }
+    none()
+}
+
+/// `actor.SetActorsAI flag`: 0 stops the actor's AI, any other value starts it again;
+/// its scripts still run, but it does not process packages, detection, Havok or
+/// animation [documented: GECK wiki SetActorsAI]. Here: the periodic package choice
+/// leaves it out (`crate::ai`), the AI that carries packages out does not step it
+/// (`fnv_ai` `Ai::step_actor`: no walk, no sandbox), and the engine does not let it
+/// detect (`nvforever` `detection.rs`). Its animation and collision are not stopped
+/// [engineering choice: no engine switch for them yet; the actor stands in its idle].
+pub fn set_actors_ai(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.extra.entry(r).or_default().ai_off = a.num(0)? == 0.0;
+    none()
+}

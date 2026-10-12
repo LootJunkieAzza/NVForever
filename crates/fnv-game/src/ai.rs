@@ -237,6 +237,33 @@ impl Game<'_> {
         self.evaluate_package(actor)
     }
 
+    /// Packages whose SetPackDuration time is up end: the package counts as done (its
+    /// end script and OnPackageDone run, as for a goal met), the actor lets it go and
+    /// chooses again at once, by the usual rules [hypothesis: what "duration" ends into
+    /// is not documented; choosing again may pick the same package, which then starts
+    /// afresh with its begin script]. A package changed in the meantime drops the timer.
+    pub fn end_timed_packages(&mut self) {
+        let now = self.world.calendar().map(|c| c.days_passed as f64).unwrap_or(0.0);
+        let due: Vec<FormId> = self
+            .extra
+            .iter()
+            .filter_map(|(a, e)| e.package_ends.filter(|(p, until)| e.current_package == Some(*p) && now >= *until).map(|_| *a))
+            .collect();
+        self.extra.values_mut().filter(|e| e.package_ends.is_some_and(|(p, _)| e.current_package != Some(p))).for_each(|e| e.package_ends = None);
+        for a in due {
+            self.extra.entry(a).or_default().package_ends = None;
+            if self.extra.get(&a).is_some_and(|e| e.dead || e.ai_off) {
+                continue;
+            }
+            let p = self.extra.get(&a).and_then(|e| e.current_package);
+            self.package_goal_met(a);
+            if p.is_some_and(|p| self.extra.get(&a).is_some_and(|e| e.packages.last() != Some(&p))) {
+                self.set_package(a, None);
+            }
+            self.evaluate_package(a);
+        }
+    }
+
     /// The references a script put somewhere since the last call (MoveTo; see
     /// [`Game::teleported`]).
     pub fn take_teleported(&mut self) -> BTreeSet<FormId> {
@@ -313,7 +340,7 @@ impl Game<'_> {
             return;
         }
         for a in self.package_actors() {
-            if self.present(a) && !self.extra.get(&a).is_some_and(|e| e.dead) {
+            if self.present(a) && !self.extra.get(&a).is_some_and(|e| e.dead || e.ai_off) {
                 self.update_package(a);
             }
         }
@@ -325,13 +352,14 @@ impl Game<'_> {
     /// [our choice; observed: switch delays after a boundary are spread, not equal].
     pub(crate) fn tick_packages(&mut self) {
         let Some(interval) = self.cfg.package_interval.filter(|i| *i > 0.0) else { return };
+        self.end_timed_packages();
         if self.time < self.package_scan_due {
             return;
         }
         let now = self.time;
         let mut next = now + interval;
         for a in self.package_actors() {
-            if !self.present(a) || self.extra.get(&a).is_some_and(|e| e.dead) {
+            if !self.present(a) || self.extra.get(&a).is_some_and(|e| e.dead || e.ai_off) {
                 continue;
             }
             let due = match self.extra.get(&a).and_then(|e| e.package_due) {

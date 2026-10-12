@@ -5,12 +5,13 @@
 //! Render streaming (`engine/nvforever`) draws placed references at their placement, as
 //! children of their cell's [`RenderCell`] entity; this module moves those entities by
 //! the change from the pose they were drawn at to the simulation's: each frame for the
-//! references physics moved, and for every reference whose entities just appeared (a
+//! references physics moved or a script's Rotate turned (`Game::turned`), and for every reference whose entities just appeared (a
 //! cell streamed in) and whose simulation pose differs. Only entities whose parent is the
 //! cell are moved (a model with its own node hierarchy moves with its root). Actors are
 //! left alone (their placement is not their pose once AI runs; Layer 6).
 
 use crate::phys::PhysState;
+use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::{PlaySet, RefVisual, RenderCell};
 use bevy::math::Affine3A;
@@ -52,11 +53,13 @@ fn follow(
     mut commands: Commands,
     sim: Res<SimState>,
     phys: Res<PhysState>,
+    script: Res<ScriptState>,
     added: Query<&RefVisual, Added<RefVisual>>,
     mut drawn: Drawn,
     cells: Query<&Transform, (With<RenderCell>, Without<RefVisual>)>,
 ) {
     let mut ids: BTreeSet<u32> = phys.moved_now.iter().copied().collect();
+    ids.extend(script.rt.iter().flat_map(|rt| rt.game.turned.iter().map(|r| r.0)));
     ids.extend(added.iter().map(|r| r.0).filter(|&id| sim.moved_pose(id).is_some()));
     if ids.is_empty() {
         return;

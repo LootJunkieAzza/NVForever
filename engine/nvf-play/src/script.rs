@@ -802,6 +802,10 @@ impl Runtime {
                 for a in args {
                     values.push(match a.parse::<f64>() {
                         Ok(n) => ArgValue::Value(Value::Num(n)),
+                        // An axis (Rotate, SetAngle): X, Y or Z.
+                        Err(_) if matches!(a.as_str(), "x" | "y" | "z" | "X" | "Y" | "Z") => ArgValue::Axis(a.chars().next().unwrap_or('Z').to_ascii_uppercase()),
+                        // A string ("…" in the aid; no comma or colon inside).
+                        Err(_) if a.len() >= 2 && a.starts_with('"') && a.ends_with('"') => ArgValue::Str(a[1..a.len() - 1].to_string()),
                         Err(_) => ArgValue::Value(Value::Ref(resolve(g, a)?.0)),
                     });
                 }
@@ -1000,8 +1004,23 @@ impl Plugin for ScriptPlugin {
         let no_messages = app.world().contains_resource::<NoMessages>();
         app.insert_resource(ScriptState::new(d, refs, new_game, unattended, no_messages))
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
-            .add_systems(Update, (crate::script_hud::menu_keys, run_scripts, sync_locks, walk_player, hold_player).chain().in_set(PlaySet::Scripts))
+            .add_systems(Update, (crate::script_hud::menu_keys, run_scripts, sync_locks, walk_player, hold_player, time_multiplier).chain().in_set(PlaySet::Scripts))
             .add_systems(Last, (crate::aid::report, write_final));
+    }
+}
+
+/// SetGlobalTimeMultiplier (`UiRequests::time_multiplier`): the virtual clock runs at that
+/// speed, so everything driven by `Time` (animations, physics, NPCs, the scripts' frame
+/// time, the game clock) slows down or speeds up together [documented: GECK wiki
+/// SetGlobalTimeMultiplier, "0.5 is slow mo"]. Sounds keep their speed and pitch
+/// [engineering choice: the shipped slow motion asks for that, QUST 0x00102037 stage 27].
+/// Pausing (loading screens, menus) is the clock's own state and is not touched.
+fn time_multiplier(script: Res<ScriptState>, mut clock: ResMut<Time<Virtual>>) {
+    let Some(rt) = script.rt.as_ref() else { return };
+    let want = rt.game.ui.time_multiplier.unwrap_or(1.0) as f32;
+    if (clock.relative_speed() - want).abs() > 1e-6 {
+        info!("time multiplier: {} -> {want} (SetGlobalTimeMultiplier)", clock.relative_speed());
+        clock.set_relative_speed(want);
     }
 }
 

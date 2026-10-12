@@ -27,6 +27,11 @@
 //!   [engineering choice]; the player runs when moving at the run gait (not holding Walk)
 //!   [hypothesis: a sneaking run counts as running]. Actors never sneak (packages' Always
 //!   Sneak is not acted on yet).
+//! - **Turning** (IsTurning): the heading changed by more than [`TURN_RATE`] per second
+//!   since the last measurement, left or right [hypothesis: the game's threshold is not
+//!   documented].
+//! - **AI off** (SetActorsAI 0): the actor does not detect anyone [documented: GECK wiki
+//!   SetActorsAI, "will not process … detection"]; it can still be detected.
 //! - **Action sound**: an actor's (or the player's) loudest shot since the last
 //!   measurement, at the
 //!   weapon's sound level (WEAP VNAM: iSoundLevelLoud, Normal, Silent) [documented:
@@ -66,6 +71,9 @@ use std::collections::{BTreeSet, HashMap};
 
 /// Seconds between two measurements [engineering choice].
 pub const INTERVAL: f32 = 0.25;
+/// An actor turning faster than this (radians per second, about 30°/s) is turning for
+/// IsTurning [hypothesis].
+pub const TURN_RATE: f32 = 0.5;
 /// Half the field of view, degrees [documented: catalogue notes, GetLineOfSight].
 pub const HALF_FIELD_OF_VIEW: f32 = 95.0;
 /// Below this speed (units per second) an actor stands still [engineering choice].
@@ -126,6 +134,8 @@ pub struct DetectionState {
     next: f32,
     /// Where each actor was at the last measurement, and when (elapsed seconds).
     last: HashMap<u32, ([f32; 3], f32)>,
+    /// Each actor's compass heading at the last measurement, and when.
+    headings: HashMap<u32, (f32, f32)>,
     /// The loudest shot each shooter fired since the last measurement.
     shots: HashMap<u32, f64>,
     /// The sound level of each shooter's last shot: its impacts make that sound.
@@ -151,6 +161,8 @@ struct Person {
     moving: bool,
     running: bool,
     sneaking: bool,
+    /// IsTurning's code: 0 not turning, 1 left, 2 right.
+    turning: u8,
 }
 
 impl Person {
@@ -322,6 +334,25 @@ fn measure(
         last.insert(id, (feet, now));
         speed
     };
+    // Compass heading (0 north, rising clockwise): rising is turning right.
+    let turning = |id: u32, heading: f32, headings: &mut HashMap<u32, (f32, f32)>| -> u8 {
+        let code = match headings.get(&id) {
+            Some(&(h, t)) if now > t => {
+                let d = (heading - h + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                let rate = d / (now - t);
+                if rate.abs() <= TURN_RATE {
+                    0
+                } else if rate > 0.0 {
+                    2
+                } else {
+                    1
+                }
+            }
+            _ => 0,
+        };
+        headings.insert(id, (heading, now));
+        code
+    };
     let mut people = Vec::new();
     let pspeed = motion(FormId::PLAYER_REF.0, player.feet, &mut state.last);
     let pmoving = pspeed > MOVING_SPEED;
@@ -334,6 +365,7 @@ fn measure(
         moving: pmoving,
         running: pmoving && !intent.as_deref().is_some_and(|i| i.walk),
         sneaking: control.as_deref().is_some_and(|c| c.sneak),
+        turning: turning(FormId::PLAYER_REF.0, player.heading, &mut state.headings),
     });
     for (rig, g, vis, dying, corpse, name) in &actors {
         if !vis.get() || dying || corpse || rt.game.is_dead(FormId(rig.reference)) {
@@ -359,9 +391,11 @@ fn measure(
             moving: speed > MOVING_SPEED,
             running: speed > RUNNING_SPEED,
             sneaking: false,
+            turning: turning(rig.reference, flat.x.atan2(flat.y), &mut state.headings),
         });
     }
     state.last.retain(|_, (_, t)| now - *t < 5.0);
+    state.headings.retain(|_, (_, t)| now - *t < 5.0);
 
     // The light sources that are on: game-space centre, radius, luminance.
     let mut lights = Vec::new();
@@ -397,10 +431,13 @@ fn measure(
         // IsSneaking): the people measured now; the others are forgotten.
         g.senses.motion.retain(|k, _| people.iter().any(|p| p.id == k.0));
         for p in &people {
-            g.set_motion(FormId(p.id), Motion { moving: p.moving, running: p.running, sneaking: p.sneaking });
+            g.set_motion(FormId(p.id), Motion { moving: p.moving, running: p.running, sneaking: p.sneaking, turning: p.turning });
         }
         for (i, d) in people.iter().enumerate() {
             let Some(forward) = d.forward else { continue };
+            if g.extra.get(&FormId(d.id)).is_some_and(|e| e.ai_off) {
+                continue;
+            }
             let asleep = g.asleep(FormId(d.id));
             let aware = g.awareness.get(FormId(d.id));
             let alert = aware.is_some_and(|a| a.state.in_combat());

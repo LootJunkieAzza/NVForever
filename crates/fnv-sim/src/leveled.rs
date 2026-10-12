@@ -23,13 +23,18 @@
 //!    rolls of one; otherwise one roll whose result is multiplied by N.
 //! 5. An entry naming another leveled list is resolved recursively with
 //!    `entry.count × multiplier`.
+//!
+//! Entries a script added at run time (AddItemToLeveledList, [`resolve_with`]) count as
+//! entries of the list, after the authored ones [documented: GECK wiki
+//! AddItemToLeveledList, "adds a form to a Leveled Item list"; hypothesis: they take part
+//! in the selection exactly as authored entries do].
 
 use std::collections::BTreeMap;
 
 use rand_core::RngCore;
 
 use crate::form::FormId;
-use crate::forms::{Entry, FormStore};
+use crate::forms::{Entry, FormStore, LeveledEntry};
 
 /// Nesting deeper than this is reported as a cycle.
 pub const MAX_DEPTH: u32 = 32;
@@ -77,12 +82,28 @@ pub fn resolve_in(
     rng: &mut impl RngCore,
     out: &mut Vec<Entry>,
 ) -> Result<(), LeveledError> {
-    resolve_at(&Ctx { forms, globals }, item, count, level, rng, out, 0)
+    resolve_with(forms, globals, &BTreeMap::new(), item, count, level, rng, out)
+}
+
+/// [`resolve_in`] with entries added to lists at run time (`added`, by list).
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_with(
+    forms: &FormStore,
+    globals: &BTreeMap<FormId, f32>,
+    added: &BTreeMap<FormId, Vec<LeveledEntry>>,
+    item: FormId,
+    count: i32,
+    level: u16,
+    rng: &mut impl RngCore,
+    out: &mut Vec<Entry>,
+) -> Result<(), LeveledError> {
+    resolve_at(&Ctx { forms, globals, added }, item, count, level, rng, out, 0)
 }
 
 struct Ctx<'a> {
     forms: &'a FormStore,
     globals: &'a BTreeMap<FormId, f32>,
+    added: &'a BTreeMap<FormId, Vec<LeveledEntry>>,
 }
 
 fn resolve_at(
@@ -111,7 +132,8 @@ fn resolve_at(
         Some(v) => v.clamp(0.0, 100.0) as u32,
         None => list.chance_none as u32,
     };
-    let eligible: Vec<_> = list.entries.iter().filter(|e| e.level <= level).collect();
+    let extra = cx.added.get(&item).map(Vec::as_slice).unwrap_or_default();
+    let eligible: Vec<_> = list.entries.iter().chain(extra).filter(|e| e.level <= level).collect();
     let rolls = if list.each { count } else { 1 };
     let mult = if list.each { 1 } else { count };
     for _ in 0..rolls {

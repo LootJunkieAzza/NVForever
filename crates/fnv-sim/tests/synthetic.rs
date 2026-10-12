@@ -565,6 +565,26 @@ fn leveled_lists_follow_level_and_chance_none() {
     }
 }
 
+/// AddItemToLeveledList: an entry added at run time takes part in the choice as an
+/// authored one, is kept in snapshots, and only leveled item lists take entries.
+#[test]
+fn entries_added_to_a_leveled_list_count_and_persist() {
+    use fnv_sim::forms::LeveledEntry;
+    let f = fixture();
+    let cfg = SimConfig { seed: 3, player_level: 10, ..SimConfig::default() };
+    let mut w = World::new(&f.forms, &f.refs, cfg);
+    // LL_LOOT picks among its highest eligible level (5: CAPS x10); an entry at level 7
+    // becomes the only one of the highest level.
+    w.add_to_leveled_list(id(LL_LOOT), LeveledEntry { level: 7, item: id(KEY), count: 2 }).unwrap();
+    assert_eq!(w.add_item(FormId::PLAYER_REF, id(LL_LOOT), 1).unwrap(), vec![(id(KEY), 2)]);
+    let snap: fnv_sim::Snapshot = serde_json::from_str(&serde_json::to_string(&w.snapshot()).unwrap()).unwrap();
+    let mut again = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    assert_eq!(again.leveled_added(id(LL_LOOT)).len(), 1);
+    assert_eq!(again.add_item(FormId::PLAYER_REF, id(LL_LOOT), 1).unwrap(), vec![(id(KEY), 2)]);
+    assert!(w.add_to_leveled_list(id(STIMPAK), LeveledEntry { level: 1, item: id(KEY), count: 1 }).is_err(), "not a leveled list");
+    assert!(w.add_to_leveled_list(id(LL_LOOT), LeveledEntry { level: 1, item: id(0xDEAD), count: 1 }).is_err(), "unknown form");
+}
+
 #[test]
 fn lvlg_global_replaces_chance_none_at_its_current_value() {
     let f = fixture();
