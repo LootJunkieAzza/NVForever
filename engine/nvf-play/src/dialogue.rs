@@ -9,9 +9,12 @@
 //!   its greeting (`script::Runtime::talk_after`); so does a script's `Activate player`
 //!   on an actor, and scripts start conversations themselves with StartConversation. An
 //!   actor with nothing to say starts none (the line "… has nothing to say" and a log
-//!   line). Nor does an actor whose greeting has the Goodbye flag: it says the line at
-//!   the player (a subtitle and its voice, like a SayTo line) and the player is never
-//!   held [owner statement 2026-10-10; the runtime's rule, `Game::start_dialogue`].
+//!   line). Nor does an actor whose greeting has the Goodbye flag when the player talks
+//!   to it: it says the line at the player (a subtitle and its voice, like a SayTo line)
+//!   and the player is not held [owner statement 2026-10-10; the runtime's rule,
+//!   `Game::start_dialogue`]. When the actor force-greets (StartConversation, a Dialogue
+//!   package) it is a conversation of that one line, which holds the player until it is
+//!   said [owner statement 2026-10-11; `Game::force_greet`].
 //! - **State and pausing** (docs/design/dialogue.md, Pausing). While a conversation runs
 //!   the game is in [`PlayState::Dialogue`]. Game logic stands still as in the container
 //!   and inventory menus and under a script's message box: the player cannot move or
@@ -233,6 +236,34 @@ pub fn challenge_tag(name: &str, needed: Option<f64>, have: Option<f64>) -> Stri
 
 // ---- reading the conversation -----------------------------------------------------------
 
+/// A dialogue text as it is shown (the dialogue menu's line and choices, subtitles):
+/// without the acting notes in braces, "{Sadly - her dog died}Okay." reading "Okay."
+/// [owner statement 2026-10-11: the original shows no `{…}` content, Ringo's caravan
+/// question shows no "{questioning}"; observed: 5,634 of FalloutNV.esm's response
+/// texts carry such a note, 4,617 of them at the start]. A note the data closes with
+/// ")" instead of "}" ("{KAI-zar)Caesar awaits!", 4 texts) ends there, one never closed
+/// runs to the end, and a stray "}" goes [design]. Square brackets stay: "[SUCCEEDED]",
+/// "[FAILED]" and "[You hear static.]" are shown by the original [owner statement
+/// 2026-10-11 names only braces]. The spaces left around a note are closed up.
+pub fn shown_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find(['{', '}']) {
+        out.push_str(&rest[..i]);
+        if rest[i..].starts_with('}') {
+            rest = &rest[i + 1..];
+            continue;
+        }
+        let note = &rest[i + 1..];
+        rest = match note.find('}').or_else(|| note.find(')')) {
+            Some(j) => &note[j + 1..],
+            None => "",
+        };
+    }
+    out.push_str(rest);
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// The name an actor is shown by: the base form's display name, else its Editor ID.
 fn speaker_name(g: &Game, sim: &SimState, actor: FormId) -> String {
     let base = sim.base_of(actor.0).unwrap_or(actor);
@@ -245,8 +276,8 @@ fn response_text(g: &Game) -> Option<String> {
     let l = c.line.as_ref()?;
     let def = g.data.infos.get(&l.info)?;
     let r = *def.response_order().get(l.response)?;
-    let text = def.responses[r].text.trim();
-    (!text.is_empty()).then(|| text.to_string())
+    let text = shown_text(&def.responses[r].text);
+    (!text.is_empty()).then_some(text)
 }
 
 /// The subtitle of the response being said in the conversation: "Speaker: text".
@@ -258,15 +289,15 @@ pub fn subtitle(g: &Game, sim: &SimState) -> Option<String> {
 fn offers(g: &Game, choices: &[Choice]) -> Vec<Offer> {
     choices
         .iter()
-        .map(|c| Offer { topic: c.topic, edid: g.data.edid_of.get(&c.topic).cloned(), text: g.choice_text(c).to_string(), goodbye: c.goodbye })
+        .map(|c| Offer { topic: c.topic, edid: g.data.edid_of.get(&c.topic).cloned(), text: shown_text(g.choice_text(c)), goodbye: c.goodbye })
         .collect()
 }
 
 /// What a choice reads: a check's tag and the line [observed: two spaces between them on
 /// the owner's screenshot]; a topic without a line shows its name.
 fn row_label(text: &str, fallback: &str, tag: Option<String>) -> String {
-    let text = text.trim();
-    let text = if text.is_empty() { format!("({fallback})") } else { text.to_string() };
+    let text = shown_text(text);
+    let text = if text.is_empty() { format!("({fallback})") } else { text };
     match tag {
         Some(t) => format!("{t}{TAG_GAP}{text}"),
         None => text,
@@ -866,6 +897,25 @@ mod tests {
         assert!(pick(&Step::Leave, &o).is_err());
         assert!(pick(&Step::Break, &o).is_err());
         assert!(pick(&Step::Index(0), &[]).is_err());
+    }
+
+    #[test]
+    fn acting_notes_in_braces_are_not_shown() {
+        assert_eq!(shown_text("{questioning}You know how to play Caravan?"), "You know how to play Caravan?");
+        assert_eq!(shown_text("{Sadly - her dog died}Okay. Well... good luck to you."), "Okay. Well... good luck to you.");
+        // In the middle and at the end; the spaces around a note close up.
+        assert_eq!(shown_text("Look alive, {beat} guys. {Stern}"), "Look alive, guys.");
+        assert_eq!(shown_text("[FAILED] {Angered, cutting the player off}Enough."), "[FAILED] Enough.");
+        // A note closed by a parenthesis, a stray brace, a note never closed.
+        assert_eq!(shown_text("{Angered}What are you doing standing around, whelp? {KAI-zar)Caesar awaits!"), "What are you doing standing around, whelp? Caesar awaits!");
+        assert_eq!(shown_text("{thrilled}}It is? It will?"), "It is? It will?");
+        assert_eq!(shown_text("Wait {unfinished"), "Wait");
+        // Square brackets stay; text without notes is unchanged but for its ends.
+        assert_eq!(shown_text("[You hear static.]"), "[You hear static.]");
+        assert_eq!(shown_text("  Howdy.  "), "Howdy.");
+        assert_eq!(shown_text("{Laughs}"), "");
+        // A choice's row reads without its note too.
+        assert_eq!(row_label("{lie} I'm with the NCR.", "TopicLie", None), "I'm with the NCR.");
     }
 
     #[test]

@@ -391,6 +391,12 @@ pub fn reach(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable) 
                         continue;
                     }
                 },
+                // A Follow or Accompany package: where it goes is where its target is.
+                Goal::Follow(_) => {
+                    *verdicts.entry("follows: goes after its target from where it is".into()).or_default() += 1;
+                    *by_type.entry(ty).or_default().entry("goes after its target".into()).or_default() += 1;
+                    continue;
+                }
                 Goal::NotCarriedOut(why) => {
                     *verdicts.entry(format!("not carried out yet: {why}")).or_default() += 1;
                     *by_type.entry(ty).or_default().entry("not carried out yet".into()).or_default() += 1;

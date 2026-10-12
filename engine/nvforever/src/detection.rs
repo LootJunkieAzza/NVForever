@@ -112,6 +112,8 @@ struct Stats {
     alerted: BTreeSet<u32>,
     barks: usize,
     barks_silent: usize,
+    /// Detection lines held back by the group cooldown.
+    barks_held: usize,
     events: usize,
     events_heard: usize,
     hurt_alarms: usize,
@@ -388,7 +390,7 @@ fn measure(
     let shot_levels = state.shot_levels.clone();
     let (mut events, mut hurt) = (0, 0);
     let mut heard: Vec<(String, DetectionEvent, f64, f32)> = Vec::new();
-    let (alert_changes, barks) = with_world(rt, sim, |rt| {
+    let (alert_changes, barks, held) = with_world(rt, sim, |rt| {
         let g = &mut rt.game;
         for (i, d) in people.iter().enumerate() {
             let Some(forward) = d.forward else { continue };
@@ -480,12 +482,17 @@ fn measure(
         // Allies that see one of their own fighting take up the fight (Assistance).
         g.call_allies();
         g.settle_awareness();
-        (g.awareness.take_changes(), std::mem::take(&mut g.awareness.barks))
+        let held = std::mem::take(&mut g.awareness.held_back);
+        for (topic, who, by) in &held {
+            debug!("alert: {} does not say {topic}: {} said a line of that kind {:.0} s ago (group cooldown)", g.data.name(*who), g.data.name(*by), g.awareness.said.iter().rev().find(|s| s.speaker == *by).map_or(0.0, |s| g.time - s.time));
+        }
+        (g.awareness.take_changes(), std::mem::take(&mut g.awareness.barks), held.len())
     });
 
     // The log and the counts.
     let st = &mut state.stats;
     st.measurements += 1;
+    st.barks_held += held;
     st.pairs += pairs;
     st.most_pairs = st.most_pairs.max(pairs);
     for (i, j, dist, before, det, sight) in changes {
@@ -617,7 +624,7 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
     );
     let changes: Vec<String> = s.changes.iter().map(|((f, t), n)| format!("{} → {} {n}", f.name(), t.name())).collect();
     info!(
-        "alert summary: {} actors became Alert; changes: {}; {} detection events, heard {} times; {} hits alarmed; {} Detection topic lines said, {} asked for without a line",
+        "alert summary: {} actors became Alert; changes: {}; {} detection events, heard {} times; {} hits alarmed; {} Detection topic lines said, {} asked for without a line, {} held back by the group cooldown",
         s.alerted.len(),
         if changes.is_empty() { "none".into() } else { changes.join(", ") },
         s.events,
@@ -625,6 +632,7 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
         s.hurt_alarms,
         s.barks,
         s.barks_silent,
+        s.barks_held,
     );
 }
 

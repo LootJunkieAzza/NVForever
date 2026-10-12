@@ -101,6 +101,20 @@ yet.
   FalloutNV.esm's values) [documented; per actor, not per combat group as the original:
   engineering choice]. Not while it is already speaking, nor while a menu or a
   conversation holds the game. Not said yet: NormalToAlertResponse, StartCombatResponse.
+- **Group cooldown** (2026-10-11, owner request: detection and combat lines were said
+  "way too frequently … if an enemy in a group says a line … all the others don't shout
+  the same line type"): after an actor says a Detection line, neither it nor a member
+  of its group within 4,096 units (`BARK_GROUP_RADIUS`) says one of the same kind for
+  15 s (`Timers::bark_cooldown`: the longer idle wait,
+  fCombatDetectionDialogueIdleMaxElapsedTime) [design for all three]. A group is the
+  same actor, the same base form or a faction in common (`Game::bark_mates`, the rule
+  that keeps them from fighting each other) [design: combat groups are not built]. The
+  kinds (`bark_kind`): NormalToCombat, AlertToCombat and LostToCombat are one ("to
+  combat"); AlertToNormal, CombatToNormal and LostToNormal one; AlertIdle and LostIdle
+  one; NormalToAlert and CombatToLost each their own [design]. A line held back is
+  logged at debug level (`alert: <actor> does not say <topic>: <who> said a line of
+  that kind <s> s ago (group cooldown)`) and counted in the summary's `held back by the
+  group cooldown`.
 
 ## 5. What actors do
 
@@ -176,6 +190,19 @@ The log says which: `out of sight (blocked)` or `out of sight (out of view)`.
   `--pos=-43300,64896,7000 --run-seconds 40`: no alert before the shot; then `heard a
   bullet event of the player (level 50 …, 273 units away)`, `Normal → Alert: heard a
   bullet event`, a search at the impact, and `1 detection events, heard 1 times`.
+
+- **Group cooldown** (2026-10-11): Cook-Cook's camp, the player 1,700 units south at
+  noon, god mode: `NVF_PLAY_TEST_GOD=1 NVF_PLAY_TEST_SCRIPT_MENUS=1 nvforever --data
+  <Data> --cell Goodsprings --pos=-43200,73000,7000 --play --hour 12 --no-voice
+  --run-seconds 45`. Before: 12 Detection lines in 45 s (four NormalToCombat within
+  29 s, eight CombatToLost from two fiends, one every 2–4 s); after: 4 lines (two "to
+  combat", two CombatToLost, 15 s or more apart in the group) and 32 held back. The
+  camp's fiends switch between Combat and Lost every few seconds (17 times each way in
+  45 s); that flicker is older than this change and not looked into here.
+- The Violet check above, on main 9ecb1be as on this branch (2026-10-11): she becomes
+  Alert and sets off to search, but stays within 200 units of where she stood for the
+  whole run (`ai summary … 1 on their way`) and never reaches Combat; reported, not
+  looked into.
 
 ## 9. Next
 
