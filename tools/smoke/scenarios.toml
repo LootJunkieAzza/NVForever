@@ -1040,6 +1040,6 @@ args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--hour", "12"]
 run_seconds = 40
 expect = [
   # 00104C79 is GSChetRef (the barter scenario's "barter menu with 0x00104C79").
-  'anim object: 00104C79 holds meshesnimobjectsobroom.nif on Bip01 L Hand (aoSweepingBroom',
+  'anim object: 00104C79 holds meshes\animobjects\aobroom.nif on Bip01 L Hand (aoSweepingBroom',
   { re = 'anim objects summary: (?P<n>\d+) objects drawn', range = [1, 1000], label = "anim objects summary: one or more drawn" },
 ]
