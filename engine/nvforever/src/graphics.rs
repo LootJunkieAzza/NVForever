@@ -216,7 +216,7 @@ impl Plugin for GraphicsPlugin {
 
 /// Put the improvements that are on onto the main camera and the sun, take those that are
 /// off away (when a switch changes, and once at the start).
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn apply(
     mut commands: Commands,
     g: Res<Graphics>,
