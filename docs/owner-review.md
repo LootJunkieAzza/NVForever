@@ -3528,3 +3528,76 @@ engineering choice by eye, not a fact about the original game.
    *Check:* whether you see the noon colour change between launches.
 6. *Smoke:* new scenario `graphics-enhanced` (starts enhanced, switches four settings while
    the game runs, checks the "graphics: …" log line after each).
+
+## Aid leftovers: waiting, Hardcore needs, Stealth Boy, perks, carry weight (2026-10-12, session "aid-2")
+
+The five leftovers of the aid items (§4 item 6 of the handoff). Spec note
+`docs/spec-notes/aid-items.md` §2, §6, §10–§12; code `crates/fnv-game/src/needs.rs`,
+`crates/fnv-game/src/perks.rs`, `crates/fnv-game/src/aid.rs`, `engine/nvf-play/src/aid.rs`,
+`engine/nvf-play/src/wait.rs`, `engine/nvforever/src/stealth_field.rs`; tool `fnvtool actor
+aid --perks --perk P --set AV:v --wait H [--sleep]`; smoke scenarios `aid-perks-needs-survey`,
+`aid-wait-perks`, `aid-hardcore`, `aid-stealth-boy`.
+
+1. **Effect timers during wait and sleep.** *Decision/Guess:* each hour waited or slept
+   counts as the seconds of play in which an hour passes at the TimeScale: 3600 / 30 =
+   120 s. Buffout (240 s) therefore wears off in the second hour waited, Chemist's 480 s
+   in the fourth; a usage monitor (108,000 s = 900 waited hours) practically never. The
+   other reading would be 3,600 s an hour (every chem gone after one hour, the usage
+   monitor after 30). *Check:* Buffout, then wait 1 hour and 2 hours: is Strength back?
+2. **Hardcore needs rising.** The masters have `fHCStarvationRate` 25 and
+   `fHCSleepDeprivationRate` 50 and no dehydration rate; the game's help message says
+   dehydration rises fastest, starvation slower, sleep deprivation slowest.
+   *Decision/Guess:* the setting is the seconds of play per point (larger = slower):
+   Hunger 4.8 an hour (Minor Starvation after about 42 hours), Sleep Deprivation 2.4 an
+   hour (Minor after about 83 hours). *Guess:* dehydration 12.5 s a point (9.6 an hour,
+   Minor after about 21 hours). *Guess:* an hour slept takes 100 off sleep deprivation;
+   hunger and thirst rise while sleeping as while waiting. *Check:* GetAV Dehydration,
+   Hunger, SleepDeprivation after 1, 6 and 24 hours waited and after 8 hours slept (spec
+   §9 item 7). These guesses decide how hard Hardcore feels; please say if they feel
+   wrong in play.
+3. **Need stages.** The RADS/DEHY/HUNG/SLPD records give each stage's threshold (200 …
+   1000) and its spell. *Decision:* the player has the spell of the highest stage reached
+   and loses it when the value drops below (so water at Minor Dehydration takes the
+   penalty away at once); rads' stages hold in every mode, the needs' only in Hardcore
+   (they go when Hardcore is turned off). *Not done:* the HUD's H2O/FOD/SLP codes, the
+   "Your dehydration level has increased" messages (the log says the stage), refusing a
+   wait or sleep that would kill (the help message says the original refuses it).
+4. **DamageActorValue / RestoreActorValue on rads and needs** now move them the way the
+   aid effects do (Damage raises, Restore lowers, never below 0): the Cannibal perk's
+   script restores Hunger 50 with the health it gives. Before, a Restore on Hunger did
+   nothing and a Damage on Rads lowered them. *Check:* RadAway-like scripts and eating
+   a corpse with Cannibal in Hardcore.
+5. **Stealth Boy.** Its "Stealth Field" (archetype Chameleon) now puts Chameleon 75 (and
+   Sneak +100) in the temporary pool for 120 s; detection already read Chameleon: in the
+   Goodsprings check the settler went from detected to hidden at 1,671 units in sight,
+   visual term 0. *Decision (look):* no refraction shader exists, so the player's body
+   and first-person arms are drawn see-through: blended at 30 % opacity, tinted blue
+   (`stealth_field.rs`; the shot shows a faint ghost). *Check:* whether you want the
+   original's shimmer instead (a shader of its own).
+6. **Perk entry points.** Read from the PERK records (109 perks of FalloutNV.esm have
+   entry point effects). The codes were identified by the only perks that use them: 23
+   Modify Addiction Chance (Chem Resistant × 0.5), 25 Modify Positive Chem Duration
+   (Chemist × 2, the chem challenge perk × 1.33), 44 Modify Radiation Consumed (Lead Belly
+   × 0.5); functions 1/2/3 read as Set/Add/Multiply. *Decisions:* only the player's
+   perks; a ranked perk applies its highest owned rank's entries only; entries in
+   ascending priority; entries with conditions on a tab other than the perk owner's are
+   skipped (none of the aid ones has any). *Decision:* Chemist lengthens beneficial
+   effects of items whose equip type is Chems, not the usage monitor; the Stealth Boy is
+   a Chems item, so Chemist doubles it too. *Check:* Stealth Boy duration with Chemist;
+   Buffout with Chemist lasts 8 minutes. *Not done:* the other entry points (combat's
+   still go through `PerkHooks` defaults), perks' ability effects (type 1, e.g. Life
+   Giver), "Modify Addiction Duration" (no master perk uses it).
+7. **Buffout and carry weight.** *Decision:* the capacity uses the current Strength
+   (temporary modifiers included, within 1–10) plus Carry Weight's own modifiers; the
+   menus' Wg line follows it (Buffout at Strength 5: 200 → 220, back to 200 when it
+   ends). *Check:* the Wg line in the Pip-Boy after Buffout.
+8. **Test aids added:** `NVF_PLAY_TEST_SCRIPT=<t>:hardcore:<0|1>`, `<t>:perk:<PERK>`,
+   `<t>:set_av:<ref>:<actor value>:<value>`. The wait now logs `wait: hour <n> passed for
+   the player (120 s of effects): …` each hour, and `needs: <value> <level>: <stage>` on
+   each stage change.
+9. **A lock mishap (process, not code):** during a picture run a shell line of mine
+   removed the two game locks (`run.lock`, `smoke.lock`) that another session held, for
+   a moment, after my own `mkdir` had failed; both existed again when checked right after
+   (taken again by their owner). If another session's run of 2026-10-12 about 18:03
+   overlapped a launch, that may be why. Later runs used a wrapper that only removes
+   locks it made.

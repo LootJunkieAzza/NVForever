@@ -404,6 +404,10 @@ pub struct PlayerState {
     /// SetHardcore (otherwise the configuration's).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub hardcore: Option<bool>,
+    /// The stage record (RADS, DEHY, HUNG, SLPD) whose effect the player has, by the
+    /// need's actor value code (`crate::needs`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub need_stages: BTreeMap<u16, FormId>,
     /// Miscellaneous statistics by code (ModPCMiscStat).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub misc_stats: BTreeMap<u16, f64>,
@@ -1266,6 +1270,7 @@ impl<'a> Game<'a> {
         }
         if !in_menu {
             self.update_effects(dt);
+            self.tick_needs(dt);
             self.update_speech(dt);
         }
         // The conversation's own lines go on in real time while it pauses the game;
@@ -1838,13 +1843,15 @@ impl<'a> Game<'a> {
     /// hypothesis: the start block does not run again, and only effects of the same
     /// item (and effect index) merge]. Returns the effects started.
     pub fn apply_magic_item(&mut self, target: FormId, source: FormId, caster: Option<FormId>, permanent: bool) -> Vec<u32> {
-        self.apply_magic_item_with(target, source, caster, permanent, 1.0).into_iter().filter(|a| !a.extended).map(|a| a.id).collect()
+        self.apply_magic_item_with(target, source, caster, permanent, &crate::aid::Mods::default()).into_iter().filter(|a| !a.extended).map(|a| a.id).collect()
     }
 
     /// [`Game::apply_magic_item`] with the beneficial Value Modifier effects' magnitudes
-    /// multiplied by `potency` (an ingestible's Medicine or Food potency, `crate::aid`).
-    /// Returns the effects started and extended, with their value changes as applied.
-    pub fn apply_magic_item_with(&mut self, target: FormId, source: FormId, caster: Option<FormId>, permanent: bool, potency: f64) -> Vec<crate::aid::Applied> {
+    /// multiplied by `mods.potency` (an ingestible's Medicine or Food potency), the
+    /// beneficial effects' durations by `mods.duration` and the rads given by
+    /// `mods.rads` (perks; `crate::aid::Mods`). Returns the effects started and extended,
+    /// with their value changes as applied.
+    pub fn apply_magic_item_with(&mut self, target: FormId, source: FormId, caster: Option<FormId>, permanent: bool, mods: &crate::aid::Mods) -> Vec<crate::aid::Applied> {
         let data = self.data;
         let Some(items) = data.effect_items.get(&source) else { return Vec::new() };
         let mut started: Vec<crate::aid::Applied> = Vec::new();
@@ -1853,13 +1860,14 @@ impl<'a> Game<'a> {
             if !self.conditions_pass(&e.conditions, Some(target), caster, &label) {
                 continue;
             }
+            let seconds = mods.seconds(data.magic_effects.get(&e.effect), e);
             if !permanent && e.duration > 0 {
                 let active = self
                     .effects
                     .iter_mut()
                     .find(|x| !x.permanent && x.target == target && x.source == source && x.index == index);
                 if let Some(x) = active {
-                    x.duration += e.duration as f64;
+                    x.duration += seconds;
                     // The usage monitor counts every use while it lasts (aid-items.md §5).
                     if e.effect == crate::aid::USAGE_MONITOR {
                         x.usage += e.magnitude as f64;
@@ -1873,7 +1881,7 @@ impl<'a> Game<'a> {
             let id = self.next_effect;
             self.next_effect += 1;
             let script = data.magic_effects.get(&e.effect).and_then(|m| m.script).filter(|s| data.scripts.contains_key(s));
-            let change = data.magic_effects.get(&e.effect).and_then(|m| crate::aid::value_change(m, e, potency, permanent));
+            let change = data.magic_effects.get(&e.effect).and_then(|m| crate::aid::value_change(m, e, mods.potency, permanent)).map(|c| mods.on_change(c));
             let usage = if e.effect == crate::aid::USAGE_MONITOR { e.magnitude as f64 } else { 0.0 };
             self.effects.push(ActiveEffect {
                 id,
@@ -1882,7 +1890,7 @@ impl<'a> Game<'a> {
                 effect: e.effect,
                 index,
                 magnitude: e.magnitude,
-                duration: e.duration as f64,
+                duration: seconds,
                 elapsed: 0.0,
                 permanent,
                 caster,
@@ -1893,7 +1901,7 @@ impl<'a> Game<'a> {
             self.emit(EventKind::EffectStarted { id, target, source, effect: e.effect });
             self.start_change(id);
             let change = self.effects.iter().find(|x| x.id == id).and_then(|x| x.change);
-            started.push(crate::aid::Applied { id, effect: e.effect, change, duration: e.duration as f64, extended: false });
+            started.push(crate::aid::Applied { id, effect: e.effect, change, duration: seconds, extended: false });
             self.effect_archetype_start(id);
             self.effect_event(id, event::SCRIPT_EFFECT_START, 0.0);
             if !permanent && e.duration == 0 && self.effects.iter().any(|x| x.id == id) {
@@ -1956,6 +1964,17 @@ impl<'a> Game<'a> {
     /// and the duration; Cateye's 120 s effect finished 119.82–119.94 s of
     /// GetSecondsPassed time after the use. Hypothesis: the effects run after the
     /// frame's quest and object scripts, and effects on dead actors keep running.
+    /// Active effects advance by `seconds` at once, as if that much game-mode time had
+    /// passed in one frame (a wait or a sleep, `crate::needs`): each runs one
+    /// ScriptEffectUpdate with those seconds, a value changed by the second changes by
+    /// the seconds inside its duration, and the effects whose duration has passed
+    /// finish [hypothesis: aid-items.md §6].
+    pub fn advance_effects(&mut self, seconds: f64) {
+        if seconds > 0.0 {
+            self.update_effects(seconds);
+        }
+    }
+
     fn update_effects(&mut self, dt: f64) {
         self.refresh_suspended(dt);
         let ids: Vec<u32> = self.effects.iter().map(|e| e.id).collect();

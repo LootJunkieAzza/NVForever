@@ -552,6 +552,13 @@ pub enum ScriptAid {
     /// `damage:<reference>:<actor value>:<amount>`: the actor value takes damage as
     /// `DamageActorValue` gives it (a stand-in for a hit, for checking aid items).
     Damage(String, String, f64),
+    /// `set_av:<reference>:<actor value>:<value>`: SetActorValue (a need's level, for
+    /// checking Hardcore's stages).
+    SetAv(String, String, f64),
+    /// `hardcore:<0|1>`: SetHardcore.
+    Hardcore(bool),
+    /// `perk:<PERK>`: the player gets the perk (AddPerk), for checking perk entry points.
+    Perk(String),
 }
 
 /// When a test-aid step runs: `at` seconds after the start, or, with `after`, `at`
@@ -610,13 +617,18 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 ["damage", r, v, amount] => {
                     ScriptAid::Damage(r.to_string(), v.to_string(), amount.parse().map_err(|_| format!("{rest:?}: bad amount {amount:?}"))?)
                 }
+                ["set_av", r, v, value] => {
+                    ScriptAid::SetAv(r.to_string(), v.to_string(), value.parse().map_err(|_| format!("{rest:?}: bad value {value:?}"))?)
+                }
+                ["hardcore", on] => ScriptAid::Hardcore(int(on)? != 0),
+                ["perk", p] => ScriptAid::Perk(p.to_string()),
                 // The owner's name may hold a colon too (`var:scripted:<SCPT>:<variable>:<value>`).
                 ["var", of @ .., var, value] if !of.is_empty() => {
                     ScriptAid::Var(of.join(":"), var.to_string(), value.parse().map_err(|_| format!("{rest:?}: bad value {value:?}"))?)
                 }
                 _ => {
                     return Err(format!(
-                        "{rest:?}: expected start:, stop:, combat:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate:, say_to:, play_group:, play_idle: or damage:"
+                        "{rest:?}: expected start:, stop:, combat:, enable:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk:, activate:, say_to:, play_group:, play_idle:, damage:, set_av:, hardcore: or perk:"
                     ))
                 }
             };
@@ -954,6 +966,10 @@ mod tests {
         assert_eq!(parse_aids("2:message:VMS18VancesGunMessage").unwrap()[0].aid, ScriptAid::Message("VMS18VancesGunMessage".into()));
         assert_eq!(parse_aids("12:play_idle:0x00104C6D:NPCSmokingIdle").unwrap()[0].aid, ScriptAid::PlayIdle("0x00104C6D".into(), "NPCSmokingIdle".into()));
         assert_eq!(parse_aids("3:damage:player:Health:60").unwrap()[0].aid, ScriptAid::Damage("player".into(), "Health".into(), 60.0));
+        let aids = parse_aids("1:hardcore:1,2:perk:Chemist,3:set_av:player:Dehydration:195").unwrap();
+        assert_eq!(aids[0].aid, ScriptAid::Hardcore(true));
+        assert_eq!(aids[1].aid, ScriptAid::Perk("Chemist".into()));
+        assert_eq!(aids[2].aid, ScriptAid::SetAv("player".into(), "Dehydration".into(), 195.0));
         assert_eq!(parse_aids("3:menu:1074").unwrap()[0].aid, ScriptAid::Menu(1074));
         assert!(parse_aids("3:jump").is_err());
         assert!(parse_aids("x:start:VCG00").is_err());

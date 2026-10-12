@@ -560,6 +560,12 @@ fn apply(mut input: MessageReader<WaitInput>, mut menu: ResMut<WaitMenu>, mut ne
 /// While the accepted hours pass: one hour onto the game's calendar every
 /// [`HOUR_SECONDS`], a log line for each, and the menu closes after the last. The time
 /// is the aids' clock, which goes on while a menu holds the picture (`crate::pause`).
+///
+/// Each hour also passes for the player's body (`fnv_game::Game::pass_hours`): active
+/// effects advance by the seconds of play an hour stands for, Hardcore's needs rise, a
+/// sleep lowers sleep deprivation (docs/spec-notes/aid-items.md §6, §11); a line says
+/// what changed.
+#[allow(clippy::too_many_arguments)]
 fn pass_hours(
     time: AidTime,
     mut menu: ResMut<WaitMenu>,
@@ -568,6 +574,7 @@ fn pass_hours(
     mut stats: ResMut<WaitStats>,
     mut next: ResMut<NextState<PlayState>>,
     mut passed: MessageWriter<HourPassed>,
+    mut script: Option<ResMut<ScriptState>>,
 ) {
     let Some(m) = menu.0.as_mut() else { return };
     if m.passing.is_none() || !m.tick(time.delta_secs_f64() as f32, HOUR_SECONDS) {
@@ -578,6 +585,10 @@ fn pass_hours(
         Ok(c) => {
             stats.hours += 1;
             passed.write(HourPassed { sleep: m.sleep });
+            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                let (sleep, hour) = (m.sleep, p.asked - p.left);
+                crate::script::with_world(rt, &mut sim, |rt| crate::aid::hour_passed(rt, sleep, hour));
+            }
             info!(
                 "{}: hour {} of {} passed: {} (GameHour {:.3}, GameDaysPassed {:.3})",
                 if m.sleep { "sleep" } else { "wait" },
