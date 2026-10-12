@@ -160,11 +160,15 @@ each the identity by default. Reading PERK records is a later step.
     clip from its start to `Hit` loads one round, and repeats while rounds are missing
     and carried; after the last round the clip plays on from `Hit` to its end, which
     closes the weapon. The close plays every time [owner decision 2026-10-11].
-  - Stopping: a fresh pull of the trigger stops it after the round in hand; the weapon
-    closes first, then fires [owner decision 2026-10-11]. The shot needs no second pull,
-    and a pull during the close fires once it is closed too [design]. A pull while it
-    opens still lets the first round go in [design]. The pull that starts a reload on
-    an empty magazine does not stop it.
+  - Stopping: a fresh pull of the trigger stops it after the round in hand and the
+    weapon closes [owner decision 2026-10-11]. That pull fires nothing (owner,
+    playtest of 2026-10-11, replacing "closes first, then fires" of the same morning).
+    A later pull while it is stopped or closing is kept for 0.25 s
+    (`fnv_combat::attack::SHOT_GRACE`) [design: the owner asked for a grace period; the
+    length is chosen]: closed within that time of the pull, the shot follows without
+    another pull; else the pull is dropped. A pull while it opens still lets the first
+    round go in [design]. The pull that starts a reload on an empty magazine does not
+    stop it.
   - Events: `ReloadStarted` (the opening clip), `ReloadRound` (the reload clip from its
     start), `RoundLoaded`, `ReloadClosing { stopped }`, `Reloaded { taken }`.
   - **Checked** [observed 2026-10-11, `nvforever --cell GSHouseInterior03 --play`, exit

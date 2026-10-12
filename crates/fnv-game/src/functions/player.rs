@@ -62,19 +62,22 @@ pub fn add_achievement(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Stri
 /// The seven control groups: movement, Pip-Boy, fighting, POV, looking, rollover text,
 /// sneaking. With no parameters `DisablePlayerControls` disables the first four and
 /// `EnablePlayerControls` enables all seven [documented: GECK wiki pages of both].
-fn controls(a: &Args, default: [bool; 7]) -> [bool; 7] {
+/// A parameter left out of a short list takes `missing` (docs/spec-notes/controls.md §5.2).
+fn controls(a: &Args, default: [bool; 7], missing: bool) -> [bool; 7] {
     if a.is_empty() {
         return default;
     }
     let mut out = [false; 7];
     for (i, o) in out.iter_mut().enumerate() {
-        *o = a.num_or(i, 0.0) != 0.0;
+        *o = if i < a.len() { a.num_or(i, 0.0) != 0.0 } else { missing };
     }
     out
 }
 
 pub fn disable_player_controls(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let which = controls(a, [true, true, true, true, false, false, false]);
+    // A left-out parameter is 0: the group is left as it is [hypothesis; §5.2 has a
+    // capture that does not fit any simple rule].
+    let which = controls(a, [true, true, true, true, false, false, false], false);
     for (d, w) in g.player.controls_disabled.iter_mut().zip(which) {
         *d |= w;
     }
@@ -82,7 +85,13 @@ pub fn disable_player_controls(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Val
 }
 
 pub fn enable_player_controls(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let which = controls(a, [true; 7]);
+    // A left-out parameter enables its group, as the form without parameters does
+    // [hypothesis: the trigger outside Doc Mitchell's door,
+    // VCG01RemoveDocCarebearModeTriggerSCRIPT, gives the controls back with
+    // `EnablePlayerControls 1 1 1 1 1 1`, and no other script gives sneaking back after
+    // the opening turned it off; read with a left-out 0 the player could never sneak
+    // again. controls.md §5.2].
+    let which = controls(a, [true; 7], true);
     for (d, w) in g.player.controls_disabled.iter_mut().zip(which) {
         if w {
             *d = false;
@@ -94,7 +103,7 @@ pub fn enable_player_controls(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Valu
 /// 1 when any of the selected groups is disabled (all groups when none is selected)
 /// [documented: catalogue summary].
 pub fn get_player_controls_disabled(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let which = controls(a, [true; 7]);
+    let which = controls(a, [true; 7], false);
     yes(g.player.controls_disabled.iter().zip(which).any(|(d, w)| *d && w))
 }
 
@@ -277,4 +286,27 @@ pub fn add_topic(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 pub fn is_always_hardcore(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let on = is_hardcore(g, ctx, a)?.num() != 0.0;
     yes(on && !g.player.hardcore_was_off)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnv_script::vm::ArgValue;
+
+    fn nums(v: &[f64]) -> Vec<ArgValue> {
+        v.iter().map(|&n| ArgValue::Value(Value::Num(n))).collect()
+    }
+
+    #[test]
+    fn short_parameter_lists() {
+        let disable = |v: &[f64]| controls(&Args(&nums(v)), [true, true, true, true, false, false, false], false);
+        let enable = |v: &[f64]| controls(&Args(&nums(v)), [true; 7], true);
+        assert_eq!(disable(&[]), [true, true, true, true, false, false, false]);
+        assert_eq!(disable(&[1.0, 1.0]), [true, true, false, false, false, false, false]);
+        assert_eq!(enable(&[]), [true; 7]);
+        // The trigger outside Doc Mitchell's door gives sneaking back too.
+        assert_eq!(enable(&[1.0; 6]), [true; 7]);
+        assert_eq!(enable(&[0.0, 1.0, 1.0]), [false, true, true, true, true, true, true]);
+        assert_eq!(enable(&[1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0]), [true, false, false, true, true, true, false]);
+    }
 }

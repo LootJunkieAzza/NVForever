@@ -2932,6 +2932,54 @@ Branch `claude/crosshair`; note docs/spec-notes/reticle.md.
    and condition in the item row. Screenshots of a locked safe, an owned item, a load
    door and a weapon on the floor would settle most of these.
 
+## Playtest fixes: controls, crosshair and menus (2026-10-11, session "pt-controls")
+
+Branch `claude/playtest-controls`. One commit per item.
+
+1. **No crosshair, containers would not open (regression).** The new crosshair
+   (`reticle.rs`, PR #224) was never added to the game, so nothing drew a crosshair.
+   Containers: E opened the container menu and the menu, reading the same press of E as
+   its "Exit E)", closed it in the same frame (since the barter/container menu PR made E
+   close it). Both fixed, each with a test that fails without the fix; a new test aid
+   `NVF_PLAY_TEST_KEYS=<s>:<key>` presses real keys and mouse buttons so the bindings
+   themselves are tested. **Check:** E on a container opens it and E closes it; the
+   crosshair shows and becomes the boxed one on usable things.
+2. **Ctrl crouch (regression).** The key worked; the opening's scripts turned sneaking off
+   and never gave it back. The trigger outside Doc Mitchell's door gives the controls back
+   with `EnablePlayerControls 1 1 1 1 1 1` (six numbers, the seventh, sneaking, left out),
+   and we read a left-out number as "leave it off". Now a left-out number of
+   `EnablePlayerControls` gives that control back, as the form with no numbers does.
+   **Guess:** that this is the game's rule (no other script gives sneaking back, so it
+   must be). **Check:** after leaving Doc's house, Ctrl crouches; inside his house before
+   that, it does not (as the scripts ask).
+3. **Wake-up camera.** While the opening's wake-up/sit-up/stand-up idles drive the view,
+   the mouse, the look test aid and movement keys are ignored; the camera is the
+   animation's. Released when the last idle ends. **Note:** the game's scripts leave
+   looking switched on during the wake-up, so the original may let you look round there;
+   this follows your wish. **Check:** the wake-up in a new game.
+4. **Dark sheet behind menus.** The barter, container, tag-skill and trait menus now have
+   a 0.75 black sheet behind them (`interface::MENU_BACKING`, your wish; the original's
+   is about 0.33–0.4 but it also blurs the world, which we do not). The name menu (0.85),
+   message boxes, dialogue and terminal screens were already darker and are unchanged.
+   The Vigor Tester's text sits on the machine itself and keeps its 0.45 sheet behind the
+   machine. **Check:** is 0.75 right, or should it be darker or lighter?
+5. **Pip-Boy mouse.** Clicks on the screen and on the STATS/ITEMS/DATA buttons did
+   nothing: the pointer was traced with a method that cannot see the arm's animation nor
+   meshes kept on the graphics card. Now the screen and the buttons are traced as the arm
+   holds them. Tabs and rows take clicks; the pointer on a row selects it, a click on the
+   selected row uses/equips it; the button under the pointer glows **[my choice]**.
+   **Check:** clicking tabs, rows and the three buttons; whether a button should glow
+   under the pointer in the original.
+6. **Walk while aiming.** Holding right mouse (Block) with a weapon out moves the player
+   at walking speed and the body walks; sneaking slows it further. NPCs: left for the
+   combat AI (noted in combat-ai.md §8). **Check:** the feel; should a melee block slow
+   the player too (it does now, since Block is the same control)?
+7. **Revolver reload grace.** The press that interrupts a round-by-round reload (.357,
+   lever-actions, hunting shotgun) now only closes the weapon, never fires. A press made
+   after that, while it is still closing, is kept for **0.25 s** (my pick): if the weapon
+   finishes closing within 0.25 s of that press, it fires; otherwise the press is
+   dropped and you press again. **Check:** whether 0.25 s feels right.
+
 ## Playtest fixes: loose items, ravens, shadows and shine (2026-10-11, session "pt-world")
 
 Branch `claude/playtest-world`. Pictures: `C:\fnv-private\references\playtest_world\`.

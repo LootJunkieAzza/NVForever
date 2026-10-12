@@ -23,14 +23,22 @@
 //! the reload clip up to its `Hit` key and closes with the rest of that clip
 //! [hypothesis: the `Hit` key "also ends looping reloads", documented: GECK wiki
 //! NiTextKeyExtraData; observed: the sounds named after it are the `…ReloadEnd`, click
-//! and cock sounds]. A fresh pull of the trigger stops it after the round in hand: the
-//! weapon closes first, then fires [owner decision 2026-10-11], and the close plays
-//! every time [owner decision 2026-10-11].
+//! and cock sounds]. A fresh pull of the trigger stops it after the round in hand and
+//! the weapon closes; the close plays every time [owner decision 2026-10-11]. The pull
+//! that stops the reload only closes the weapon: it fires nothing [owner decision
+//! 2026-10-11, playtest: "pressing attack mid reload to close cylinder fires a shot"].
+//! A later pull while the reload is stopped or closing is kept for [`SHOT_GRACE`]: if
+//! the weapon is closed within that time of the pull, the shot follows; else it is
+//! dropped and a new pull is needed.
 
 use serde::Serialize;
 
 use crate::data::WeaponStats;
 use crate::tuning::CombatTuning;
+
+/// How long a pull made while a round-by-round reload is stopped or closing waits for
+/// the weapon to close, seconds [design: the owner's "grace period", 2026-10-11; chosen].
+pub const SHOT_GRACE: f32 = 0.25;
 
 /// Clip timing the engine reads from the weapon's attack and reload clips. All optional.
 #[derive(Debug, Clone, Copy, Default, Serialize)]
@@ -126,9 +134,8 @@ pub enum Phase {
     ReloadOpen { left: f32, stop: bool },
     /// Round by round: one round goes in when `left` reaches 0; `taken` so far.
     ReloadRound { left: f32, stop: bool, taken: u32 },
-    /// Round by round: closing the weapon. `fire`: the trigger was pulled, the shot
-    /// follows.
-    ReloadClose { left: f32, fire: bool, taken: u32 },
+    /// Round by round: closing the weapon.
+    ReloadClose { left: f32, taken: u32 },
 }
 
 /// One tick's input.
@@ -186,6 +193,9 @@ pub struct Cycle {
     held: bool,
     /// Spun up: shots have left since the trigger was last pulled.
     spun: bool,
+    /// Seconds since a pull made while a round-by-round reload was stopped or closing:
+    /// the shot it asks for, kept for [`SHOT_GRACE`].
+    queued: Option<f32>,
     pub timing: Timing,
 }
 
@@ -203,6 +213,7 @@ impl Cycle {
             regen_acc: 0.0,
             held: false,
             spun: false,
+            queued: None,
             timing,
         }
     }
@@ -245,8 +256,16 @@ impl Cycle {
             }
         }
         let mut dt = i.dt;
-        // A fresh pull stops a round-by-round reload, unless that pull started it.
+        // A queued shot ages; past the grace it is dropped.
+        self.queued = self.queued.map(|q| q + i.dt).filter(|q| *q <= SHOT_GRACE);
+        // A fresh pull stops a round-by-round reload, unless that pull started it; once
+        // it is stopped, a fresh pull is queued.
         let mut stop_pull = fresh;
+        let stopped = matches!(self.phase, Phase::ReloadOpen { stop: true, .. } | Phase::ReloadRound { stop: true, .. } | Phase::ReloadClose { .. });
+        if fresh && stopped {
+            self.queued = Some(0.0);
+            stop_pull = false;
+        }
         // Rounds loaded this tick, not yet out of `i.carried`.
         let mut loaded = 0;
         // Up to a few phase changes per tick, so short intervals at long ticks still fire.
@@ -330,7 +349,7 @@ impl Cycle {
                     break;
                 }
                 Phase::ReloadOpen { left, stop } => {
-                    let stop = stop || stop_pull;
+                    let stop = stop || std::mem::take(&mut stop_pull);
                     if left > dt {
                         self.phase = Phase::ReloadOpen { left: left - dt, stop };
                         break;
@@ -342,7 +361,7 @@ impl Cycle {
                     out.push(Event::ReloadRound);
                 }
                 Phase::ReloadRound { left, stop, taken } => {
-                    let stop = stop || stop_pull;
+                    let stop = stop || std::mem::take(&mut stop_pull);
                     if left > dt {
                         self.phase = Phase::ReloadRound { left: left - dt, stop, taken };
                         break;
@@ -359,26 +378,24 @@ impl Cycle {
                         taken
                     };
                     if stop || self.magazine >= self.clip_size || i.carried <= loaded {
-                        self.phase = Phase::ReloadClose { left: r.close, fire: stop, taken };
+                        self.phase = Phase::ReloadClose { left: r.close, taken };
                         out.push(Event::ReloadClosing { stopped: stop });
                     } else {
                         self.phase = Phase::ReloadRound { left: r.round, stop: false, taken };
                         out.push(Event::ReloadRound);
                     }
                 }
-                Phase::ReloadClose { left, fire, taken } => {
-                    // A pull while it closes fires once it is closed too.
-                    let fire = fire || stop_pull;
+                Phase::ReloadClose { left, taken } => {
                     if left > dt {
-                        self.phase = Phase::ReloadClose { left: left - dt, fire, taken };
+                        self.phase = Phase::ReloadClose { left: left - dt, taken };
                         break;
                     }
                     dt -= left;
                     out.push(Event::Reloaded { taken });
                     self.phase = Phase::Ready;
-                    // Closed first, then the shot the trigger asked for [owner decision
-                    // 2026-10-11], without a new pull [design].
-                    if fire && self.has_round() {
+                    // Closed: a shot asked for within the grace follows, without a new
+                    // pull; the pull that stopped the reload fires nothing (module docs).
+                    if self.queued.take().is_some() && self.has_round() {
                         self.phase = Phase::WindUp { left: self.timing.fire_delay };
                     } else {
                         break;
