@@ -1,0 +1,99 @@
+name: release
+
+# Builds every program NVForever has (fnvtool, nvforever, nvf-viewer) for Windows and
+# Linux and publishes them as a GitHub release. Runs when a version tag (v*) is pushed,
+# or by hand (Actions tab > release > Run workflow, naming the tag): a hand run builds
+# the chosen branch's head and creates the tag there if it does not exist yet.
+# No game data is packaged: the archives hold our programs, the schemas they read and
+# the licence files only (CLAUDE.md charter).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. v0.1.0); created at the branch head if new"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            exe: .exe
+            archive: zip
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            exe: ""
+            archive: tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            engine -> target
+      - name: Linux system libraries for Bevy
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+
+      - name: Build fnvtool
+        run: cargo build --release --locked -p fnvtool
+      - name: Build nvforever and nvf-viewer
+        run: cargo build --release --locked -p nvforever -p nvf-viewer
+        working-directory: engine
+
+      - name: Package
+        shell: bash
+        run: |
+          name="NVForever-${TAG}-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          cp "target/release/fnvtool${{ matrix.exe }}" "dist/$name/"
+          cp "engine/target/release/nvforever${{ matrix.exe }}" "dist/$name/"
+          cp "engine/target/release/nvf-viewer${{ matrix.exe }}" "dist/$name/"
+          cp -r schemas "dist/$name/schemas"
+          cp README.md LICENSE LEGAL.md tools/release/README-release.md "dist/$name/"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp tools/release/nvforever.cmd tools/release/nvf-viewer.cmd "dist/$name/"
+            (cd dist && 7z a -tzip "$name.zip" "$name" > /dev/null)
+          else
+            cp tools/release/nvforever.sh tools/release/nvf-viewer.sh "dist/$name/"
+            chmod +x "dist/$name/"*.sh "dist/$name/nvforever" "dist/$name/nvf-viewer" "dist/$name/fnvtool"
+            tar -C dist -czf "dist/$name.tar.gz" "$name"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*.${{ matrix.archive }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
+          name: NVForever ${{ env.TAG }}
+          body_path: tools/release/notes/${{ env.TAG }}.md
+          prerelease: true
+          files: dist/*
