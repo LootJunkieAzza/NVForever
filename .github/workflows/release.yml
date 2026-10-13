@@ -2,7 +2,8 @@ name: release
 
 # Builds every program NVForever has (fnvtool, nvforever, nvf-viewer) for Windows and
 # Linux and publishes them as a GitHub release. Runs when a version tag (v*) is pushed,
-# or by hand (Actions tab > release > Run workflow, naming an existing tag).
+# or by hand (Actions tab > release > Run workflow, naming the tag): a hand run builds
+# the chosen branch's head and creates the tag there if it does not exist yet.
 # No game data is packaged: the archives hold our programs, the schemas they read and
 # the licence files only (CLAUDE.md charter).
 on:
@@ -11,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build and publish (e.g. v0.1.0)"
+        description: "Tag to publish (e.g. v0.1.0); created at the branch head if new"
         required: true
 
 permissions:
@@ -38,8 +39,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -84,8 +83,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG }}
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -95,6 +92,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
           name: NVForever ${{ env.TAG }}
           body_path: tools/release/notes/${{ env.TAG }}.md
           prerelease: true
