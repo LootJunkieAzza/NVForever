@@ -1,20 +1,27 @@
 name: ci
 
-# The repo is private, so every runner minute is billed. To keep that small:
-# - CI runs only on pushes to main (no pull-request, branch or scheduled runs),
-#   plus manual runs (Actions tab > ci > Run workflow).
-# - one Linux job runs every check in sequence, so there is a single status check.
-# - docs-only changes skip CI.
-# - a newer push cancels the run still in progress.
+# The repo is public, so runner minutes are free. CI runs on every pull request (so
+# collaborators' changes are checked before they are merged), on pushes to main and by
+# hand (Actions tab > ci > Run workflow).
+# - one Linux job runs every check in sequence, so there is a single status check to
+#   require in branch protection.
+# - docs-only changes skip the build, but the game-data guard runs for every pull request.
+# - a newer push to the same branch or pull request cancels the run still in progress.
 # Windows/macOS are covered by the local checks in CLAUDE.md before each push.
 on:
   push:
     branches: [main]
     paths-ignore: ["docs/**", "**/*.md"]
+  pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
   workflow_dispatch:
 
+# Pull requests from forks get a read-only token; keep pushes the same.
+permissions:
+  contents: read
+
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
