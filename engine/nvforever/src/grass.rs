@@ -494,7 +494,20 @@ fn load_model(path: &str, models: &mut ModelCtx, materials: &mut Assets<GrassMat
                 }
             }
         }
-        let image = texture.as_deref().and_then(|t| models.textures.get(t, true, &models.data, &mut models.images, models.formats.as_deref()));
+        // Grass textures are sampled clamped at their edges, not repeated.
+        //
+        // The grass models share one atlas (`GrassWastelandComp01.dds`, 1024 × 1024, four
+        // plants), and several reach a little past it: the blade tips of `GrassWasteland02`,
+        // `03` and `04` have V −0.013, −0.1 and −0.008, `GrassWasteland07` reaches U 1.23
+        // [observed: `fnvtool nif decode`]. Repeated, those tips sample the far edge of the
+        // atlas: its bottom rows are the dense feet of the plants below (mean alpha 66–70 of
+        // 255, about 300 of 1,024 texels above alpha 100), while its top row and its left and right
+        // columns are empty (alpha 0) [observed: the texture decoded from `Fallout - Textures2.bsa`].
+        // So every such tip carried a small opaque triangle of blade feet, floating above the
+        // plant (owner's playtest, 2026-10-12, `grasspixels`). The game shows none, which
+        // clamping explains [hypothesis: the game's grass sampler clamps; the shader property
+        // stores no clamp mode].
+        let image = texture.as_deref().and_then(|t| models.textures.get_clamped(t, true, &models.data, &mut models.images, models.formats.as_deref()));
         if image.is_none() {
             warn!("{path}: grass texture {texture:?} not loaded");
         }

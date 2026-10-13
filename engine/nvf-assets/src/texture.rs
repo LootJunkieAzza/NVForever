@@ -17,6 +17,8 @@ use std::sync::atomic::{AtomicU16, Ordering};
 #[derive(Resource, Default)]
 pub struct TextureCache {
     map: HashMap<(String, bool), Option<Handle<Image>>>,
+    /// Copies sampled with clamped edges ([`Self::get_clamped`]), by the same key.
+    clamped: HashMap<(String, bool), Option<Handle<Image>>>,
     pub failures: Vec<String>,
 }
 
@@ -113,9 +115,34 @@ impl TextureCache {
         images: &mut Assets<Image>,
         formats: Option<&CompressedImageFormatSupport>,
     ) -> Option<Handle<Image>> {
+        self.load(raw_path, srgb, false, data, images, formats)
+    }
+
+    /// Like [`Self::get`], a copy of the texture whose sampler clamps at its edges
+    /// instead of repeating (the grass atlas, nvforever `grass.rs`).
+    pub fn get_clamped(
+        &mut self,
+        raw_path: &str,
+        srgb: bool,
+        data: &GameData,
+        images: &mut Assets<Image>,
+        formats: Option<&CompressedImageFormatSupport>,
+    ) -> Option<Handle<Image>> {
+        self.load(raw_path, srgb, true, data, images, formats)
+    }
+
+    fn load(
+        &mut self,
+        raw_path: &str,
+        srgb: bool,
+        clamp: bool,
+        data: &GameData,
+        images: &mut Assets<Image>,
+        formats: Option<&CompressedImageFormatSupport>,
+    ) -> Option<Handle<Image>> {
         let path = fnv_vfs::texture_path(raw_path);
         let path = pc_texture(&path, |p| data.vfs.exists(p)).unwrap_or(path);
-        if let Some(h) = self.map.get(&(path.clone(), srgb)) {
+        if let Some(h) = (if clamp { &self.clamped } else { &self.map }).get(&(path.clone(), srgb)) {
             return h.clone();
         }
         let bc = formats.is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
@@ -124,13 +151,21 @@ impl TextureCache {
             Some(bytes) => dds_image(&bytes, srgb, bc),
         };
         let handle = match result {
-            Ok(img) => Some(images.add(img)),
+            Ok(mut img) => {
+                if clamp {
+                    if let ImageSampler::Descriptor(d) = &mut img.sampler {
+                        d.address_mode_u = ImageAddressMode::ClampToEdge;
+                        d.address_mode_v = ImageAddressMode::ClampToEdge;
+                    }
+                }
+                Some(images.add(img))
+            }
             Err(e) => {
                 self.failures.push(format!("{path}: {e}"));
                 None
             }
         };
-        self.map.insert((path, srgb), handle.clone());
+        (if clamp { &mut self.clamped } else { &mut self.map }).insert((path, srgb), handle.clone());
         handle
     }
 }

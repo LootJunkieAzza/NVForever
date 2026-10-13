@@ -73,13 +73,15 @@ pub struct RigMaterials {
 /// The values of `tracks` at `t` for each slot; `dark` blacks out the emissive of
 /// every slot an emissive track drives (and leaves offsets and alpha where they are).
 /// A member no track drives keeps its stored value; offset and alpha stay where a
-/// track last left them.
-pub fn sample(slots: &[MaterialSlot], tracks: &[MaterialTrack], t: f32, dark: bool) -> Vec<Look> {
+/// track last left them. A track with its own timing ([`MaterialTrack::cycle`]) is
+/// taken at its own time after `clock` seconds of play instead of at `t`.
+pub fn sample(slots: &[MaterialSlot], tracks: &[MaterialTrack], t: f32, clock: f32, dark: bool) -> Vec<Look> {
     slots
         .iter()
         .map(|s| {
             let mut l = Look { colour: s.emissive, mult: s.emissive_mult, uv: s.last.map_or([0.0; 2], |l| l.uv), alpha: s.last.map_or(s.alpha, |l| l.alpha) };
             for tr in tracks.iter().filter(|tr| tr.shape == s.shape) {
+                let t = tr.cycle.map_or(t, |c| c.time(clock));
                 match tr.target {
                     MaterialTarget::SelfIllum if dark => l.colour = [0.0; 3],
                     MaterialTarget::EmissiveMult if dark => l.mult = 0.0,
@@ -96,9 +98,10 @@ pub fn sample(slots: &[MaterialSlot], tracks: &[MaterialTrack], t: f32, dark: bo
 }
 
 impl RigMaterials {
-    /// Pose the slots' materials with `tracks` at sequence time `t` (see [`sample`]).
-    pub fn apply(&mut self, tracks: &[MaterialTrack], t: f32, dark: bool, materials: &mut Assets<NifMaterial>) {
-        let values = sample(&self.slots, tracks, t, dark);
+    /// Pose the slots' materials with `tracks` at sequence time `t`, after `clock`
+    /// seconds of play (see [`sample`]).
+    pub fn apply(&mut self, tracks: &[MaterialTrack], t: f32, clock: f32, dark: bool, materials: &mut Assets<NifMaterial>) {
+        let values = sample(&self.slots, tracks, t, clock, dark);
         for (slot, v) in self.slots.iter_mut().zip(values) {
             if !slot.own || slot.last == Some(v) {
                 continue;
@@ -141,7 +144,7 @@ pub fn animate_rig_materials(mut rigs: Query<(&Playing, &mut RigMaterials)>, mut
         }
         let idle = rig.idle.clone();
         let dark = rig.dark;
-        rig.apply(&idle, p.sequence_time(), dark, &mut materials);
+        rig.apply(&idle, p.sequence_time(), p.time - p.start, dark, &mut materials);
     }
 }
 
@@ -166,20 +169,22 @@ mod tests {
             shape: "JukeBox01:0".into(),
             target: MaterialTarget::SelfIllum,
             values: Arc::new(ValueTrack::Point3(Channel::Keys(keys(&[(0.0, [0.863; 3]), (2.0, [0.349; 3])])))),
+            cycle: None,
         };
         let notes = MaterialTrack {
             shape: "Music".into(),
             target: MaterialTarget::UvOffset(0),
             values: Arc::new(ValueTrack::Float(Channel::Keys(keys(&[(0.0, [2.0]), (8.0, [0.0])])))),
+            cycle: None,
         };
         let slots = [slot("JukeBox01:0"), slot("Music"), slot("Other")];
         let tracks = [glow, notes];
-        let v = sample(&slots, &tracks, 2.0, false);
+        let v = sample(&slots, &tracks, 2.0, 2.0, false);
         assert!((v[0].colour[0] - 0.349).abs() < 1e-5 && v[0].mult == 1.0 && v[0].uv == [0.0, 0.0]);
         assert!((v[1].uv[0] - 1.5).abs() < 1e-5 && v[1].colour == [0.86; 3]);
         assert_eq!(v[2], Look { colour: [0.86; 3], mult: 1.0, uv: [0.0, 0.0], alpha: 0.0 });
         // Dark: the light goes out, the notes stay where they were.
-        let d = sample(&slots, &tracks, 2.0, true);
+        let d = sample(&slots, &tracks, 2.0, 2.0, true);
         assert_eq!(d[0].colour, [0.0; 3]);
         assert_eq!(d[1].colour, [0.86; 3]);
         assert_eq!(d[2].colour, [0.86; 3]);
@@ -192,9 +197,31 @@ mod tests {
             shape: "windowEm01:0".into(),
             target: MaterialTarget::Alpha,
             values: Arc::new(ValueTrack::Float(Channel::Keys(keys(&[(0.0, [1.0]), (0.033, [1.0])])))),
+            cycle: None,
         };
         let slots = [slot("windowEm01:0")];
-        assert_eq!(sample(&slots, &[], 0.0, false)[0].alpha, 0.0);
-        assert_eq!(sample(&slots, std::slice::from_ref(&left), 0.01, false)[0].alpha, 1.0);
+        assert_eq!(sample(&slots, &[], 0.0, 0.0, false)[0].alpha, 0.0);
+        assert_eq!(sample(&slots, std::slice::from_ref(&left), 0.01, 0.01, false)[0].alpha, 1.0);
+    }
+
+    #[test]
+    fn a_controller_of_its_own_keeps_its_own_cycle() {
+        // `fxsmokewisps01.nif`: the wisps' texture scrolls along V from 0 to 1 in 36.67 s
+        // and along U in 44.1 s, each looping by itself.
+        let track = |axis: usize, stop: f32| MaterialTrack {
+            shape: "WispsGeo:0".into(),
+            target: MaterialTarget::UvOffset(axis),
+            values: Arc::new(ValueTrack::Float(Channel::Keys(keys(&[(0.0, [0.0]), (stop, [1.0])])))),
+            cycle: Some(crate::anim_play::OwnCycle { start: 0.0, stop, frequency: 1.0, phase: 0.0, cycle_type: 0 }),
+        };
+        let tracks = [track(1, 36.666668), track(0, 44.1)];
+        let clip = crate::anim_play::Clip::from_controllers(tracks.to_vec());
+        assert!((clip.stop - 44.1).abs() < 1e-4);
+        let slots = [slot("WispsGeo:0")];
+        // 50 s of play: V is 13.33 s into its second cycle, U 5.9 s into its second,
+        // whatever the clip's own (wrapped) time.
+        let v = sample(&slots, &tracks, 5.9, 50.0, false)[0].uv;
+        assert!((v[1] - 13.333332 / 36.666668).abs() < 1e-4, "{v:?}");
+        assert!((v[0] - 5.9 / 44.1).abs() < 1e-4, "{v:?}");
     }
 }

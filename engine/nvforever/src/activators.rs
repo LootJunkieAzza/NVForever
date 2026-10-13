@@ -134,7 +134,7 @@ pub fn drive(
                         // Its own materials are not bound yet: pose it next frame.
                         continue;
                     }
-                    m.apply(&clip.materials, clip.start + want.1, false, &mut materials);
+                    m.apply(&clip.materials, clip.start + want.1, want.1, false, &mut materials);
                 }
                 rig.shown = Some(want);
             }

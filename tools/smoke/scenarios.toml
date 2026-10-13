@@ -1830,6 +1830,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "placed-smoke-scroll"
+source = "playtest list 4 item 16 (docs/spec-notes/nif.md §6 \"Controllers outside sequences\"): the ground smoke at the camp fire south of Goodsprings scrolls its texture by a controller of its own (no sequence); the model is read with that track"
+note = "looks (fainter smoke from unlit vertex colours as display values, item 16; grass atlas clamped, item 17) are checked by frames, not here"
+areas = ["models", "effects"]
+paths = ["engine/nvf-assets/src/model.rs", "engine/nvf-assets/src/anim_play.rs", "engine/nvf-assets/src/material_anim.rs", "engine/nvf-assets/src/nif_spawn.rs", "engine/nvf-assets/src/texture.rs", "engine/nvforever/src/grass.rs"]
+args = ["--cell=-16,-5", "--pos=-61744,-17983,6483", "--heading", "80", "--pitch", "-14", "--hour", "16"]
+run_seconds = 12
+expect = [
+  "dlcpittfxgroundsmoke01.nif: 1 material track(s) of controllers of their own, played on their own cycles",
+]
+
+[[scenario]]
 name = "creature-names"
 source = "playtest list 4 items 19-20 (docs/spec-notes/factions.md §7, engine/nvf-play/src/activate.rs): an actor placed from a nameless template actor is named by the actor its template leads to; a hostile creature shows only its name, a dead one Search"
 note = "VERGSGecko2REF 0x00157B3D (base VSpawnTier2GeckoMed, no FULL; template list VEncTier2GeckoMed -> VCrTier2GeckoMed 'Gecko'), Very Aggressive (as its neighbour 0x00157B3E): name only while alive; both killed by the script aid at 16 s; the menu test aid opens the dead one's inventory at 24 s"

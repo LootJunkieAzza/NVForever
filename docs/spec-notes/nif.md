@@ -732,6 +732,37 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   and the lit letters of the Bison Steve sign in Primm, seen at a grazing angle, were
   nearly out and are lit; the Old Town shadow strips show as thin lines
   (see "Alpha", "Vertex alpha and the test").
+- **Controllers outside sequences.** Many effect meshes animate with controllers attached
+  straight to a block, with no NiControllerManager or sequence [observed, `fnvtool nif
+  decode`]: `effects/ambient/fxsmokewisps01.nif` (180 placed in FalloutNV.esm), `02`,
+  `fxsmokewispslgvol01`, `fxsmokewispslg2x1` and `dlcpitt/effects/dlcpittfxgroundsmoke01.nif`
+  (29 placed, among them the camp fire south of Goodsprings) each hold one or two
+  `NiTextureTransformController`s on the shape's `NiTexturingProperty`: base texture
+  (slot 0), operation TT_TRANSLATE_V (1) or TT_TRANSLATE_U (0), a `NiFloatInterpolator`
+  with two keys 0 → 1 over the controller's own start and stop time (13.3 s for the
+  ground smoke; 36.67 s V and 44.1 s U for the wisps), flags 72 (Active, loop),
+  frequency 1, phase 0. Fields and flag bits are those of NiTimeController
+  [documented: nif.xml: bits 1-2 cycle type, bit 3 active, bit 5 manager controlled].
+  How `nvf_assets` plays them [hypothesis: the game runs such a controller from load on
+  its own clock]: every active controller without the manager-controlled bit that moves
+  the base texture or drives a `NiMaterialProperty`'s alpha becomes a material track
+  with its own cycle (`model::free_material_tracks`, `anim_play::OwnCycle`); a model
+  with no Idle sequence gets a clip of its own for them, which loops over the longest
+  cycle while each track keeps its own time. The texture moves by `uv + value`, as for
+  the sequences' offset tracks (activators.md §2); with the ground smoke's UVs (V about
+  0.84–1.0 at the foot) the pattern rises. Not played: transform, visibility and
+  colour controllers outside sequences (e.g. `fxdustmeshtube01.nif`'s
+  `NiVisController`), and particle systems inside ordinary models (`fxlightsmoke.nif`,
+  `dlc03fxdarksmoke.nif`, `fxtiresmoke.nif`, `ashtray03smoke.nif`; particles.md).
+- **Unlit vertex colours as display values.** An unlit shape (BSShaderNoLightingProperty)
+  draws texture × vertex colour; its vertex colours are taken as display values and
+  converted to linear before the renderer's linear product (`nif_spawn::unlit_vertex_colors`)
+  [hypothesis, as for the landscape and grass vertex colours]. The ground smoke's vertex
+  colour (0.57, 0.54, 0.51) on a white texture (`DLCPittSideClouds.dds`, mean alpha 31 of
+  255) is then a grey close to the desert floor's, as in the owner's game screenshot
+  where the smoke can barely be seen (playtest list 4 item 16); read as linear it drew
+  as a display 0.78, a white plume. Lit shapes still take their vertex colours as linear
+  factors (see "Multiply blend" for what that leaves).
 - **Vertex colours** [observed, `crates/fnv-nif/examples/vertex_alpha_survey.rs` over
   `Fallout - Meshes.bsa`, visible shapes with vertex colours and a shader property]:
   with BSShaderFlags bit 3 "Vertex_Alpha" [documented: nif.xml] set, 2,445 shapes have

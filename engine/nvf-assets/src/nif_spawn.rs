@@ -395,6 +395,26 @@ pub(crate) fn fix_vertex_colors(mesh: &mut Mesh, vertex_alpha: bool) {
     }
 }
 
+/// The vertex colours of an unlit shape (BSShaderNoLightingProperty) taken as display
+/// values: their colour is converted to linear, the alpha kept.
+///
+/// An unlit shape's colour is texture × vertex colour, which the game forms in display
+/// values [hypothesis, as for the landscape's vertex colours (terrain.rs) and the grass
+/// (grass.rs)]; this renderer multiplies in linear values, so a stored 0.57 grey drew as
+/// a display 0.78. The smoke meshes are tinted so: the ground smoke at the camp fires
+/// (`dlcpitt/effects/dlcpittfxgroundsmoke01.nif`, vertex colour (0.57, 0.54, 0.51), white
+/// texture) is a grey near the desert floor's in the game, where it can barely be seen
+/// (owner's screenshots, 2026-10-12), and drew as a white plume here
+/// (docs/spec-notes/nif.md §6 "Vertex colours").
+pub(crate) fn unlit_vertex_colors(mesh: &mut Mesh) {
+    let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR) else { return };
+    for c in colors.iter_mut() {
+        for v in &mut c[..3] {
+            *v = Color::srgb(*v, 0.0, 0.0).to_linear().red;
+        }
+    }
+}
+
 /// Reflectance for a shape, and whether its normal map's alpha (the specular mask,
 /// docs/spec-notes/nif.md §6 "Specular") scales it. Bevy maps mask alpha a to
 /// reflectance × a × 0.5, so 2.0 lets the mask span the full [0, 1] range: a mask of
@@ -465,6 +485,9 @@ pub(crate) fn shape_material(
     formats: Option<&CompressedImageFormatSupport>,
 ) -> (NifMaterial, Option<String>) {
     fix_vertex_colors(mesh, props.vertex_alpha);
+    if props.unlit {
+        unlit_vertex_colors(mesh);
+    }
     let base = props.textures.first().filter(|t| !t.is_empty()).and_then(|t| textures.get(t, true, data, images, formats));
     let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.get(t, false, data, images, formats));
     let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
