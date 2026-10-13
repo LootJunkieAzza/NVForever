@@ -51,7 +51,22 @@ pub fn enabled() -> bool {
 /// Skin slot findings from the render world: (shape, slot named by its instance data,
 /// slot of its skin now).
 #[derive(Resource, Clone, Default)]
-struct SlotFindings(Arc<Mutex<(u32, Vec<(Entity, u32, u32)>, Vec<(Entity, u32, u32)>)>>);
+struct SlotFindings(Arc<Mutex<Found>>);
+
+/// What the render world found since the main world last looked.
+#[derive(Default)]
+struct Found {
+    /// Skinned instances checked in the last check.
+    checked: u32,
+    slots: Vec<Finding>,
+    moved: Vec<Finding>,
+}
+
+/// A shape and two numbers: the slot or vertex it is drawn with, and its skin's or mesh's.
+type Finding = (Entity, u32, u32);
+
+/// Names, parents, layers and places, to say where a shape is.
+type Names<'w, 's> = Query<'w, 's, (Option<&'static Name>, Option<&'static ChildOf>, Option<&'static RenderLayers>, Option<&'static GlobalTransform>)>;
 
 #[derive(Resource, Default)]
 struct Probe {
@@ -71,7 +86,7 @@ struct Probe {
 }
 
 /// Whether `e` hangs under the player's third-person body (`player_body.rs` names it).
-fn under_player_body(e: Entity, names: &Query<(Option<&Name>, Option<&ChildOf>, Option<&RenderLayers>, Option<&GlobalTransform>)>) -> bool {
+fn under_player_body(e: Entity, names: &Names) -> bool {
     let mut at = Some(e);
     for _ in 0..40 {
         let Some(x) = at else { break };
@@ -97,7 +112,7 @@ impl Plugin for ShadowProbePlugin {
 }
 
 /// Where an entity is: the names of it and its ancestors, its layers, its place.
-fn describe(e: Entity, names: &Query<(Option<&Name>, Option<&ChildOf>, Option<&RenderLayers>, Option<&GlobalTransform>)>) -> String {
+fn describe(e: Entity, names: &Names) -> String {
     let mut chain = Vec::new();
     let mut at = Some(e);
     let mut steps = 0;
@@ -120,14 +135,14 @@ fn probe(
     findings: Res<SlotFindings>,
     skins: Query<(Entity, &SkinnedMesh, &ViewVisibility, Option<&Aabb>, &GlobalTransform)>,
     globals: Query<&GlobalTransform>,
-    names: Query<(Option<&Name>, Option<&ChildOf>, Option<&RenderLayers>, Option<&GlobalTransform>)>,
+    names: Names,
     sun: Query<&CascadesVisibleEntities, With<Sun>>,
     camera: Query<(Entity, &GlobalTransform), With<nvf_play::PlayerCamera>>,
 ) {
     let state = &mut *state;
     state.frame = state.frame.wrapping_add(1);
     state.since_summary += time.delta_secs();
-    if state.frame % EVERY == 0 {
+    if state.frame.is_multiple_of(EVERY) {
         let cam = camera.single().ok();
         // Stretched skins.
         for (e, skin, seen, _, _) in &skins {
@@ -178,10 +193,10 @@ fn probe(
         }
     }
     // Skin slots, from the render world.
-    let (taken, moved): (Vec<(Entity, u32, u32)>, Vec<(Entity, u32, u32)>) = {
+    let (taken, moved): (Vec<Finding>, Vec<Finding>) = {
         let Ok(mut f) = findings.0.lock() else { return };
-        state.checked_slots = state.checked_slots.max(f.0);
-        (std::mem::take(&mut f.1), std::mem::take(&mut f.2))
+        state.checked_slots = state.checked_slots.max(f.checked);
+        (std::mem::take(&mut f.slots), std::mem::take(&mut f.moved))
     };
     for (e, had, now) in moved {
         state.moved += 1;
@@ -223,7 +238,7 @@ fn check_slots(
     findings: Res<SlotFindings>,
 ) {
     *frame = frame.wrapping_add(1);
-    if *frame % EVERY != 0 {
+    if !frame.is_multiple_of(EVERY) {
         return;
     }
     let (RenderMeshInstances::GpuBuilding(gpu), Some(buffers)) = (&*instances, buffers) else { return };
@@ -253,8 +268,8 @@ fn check_slots(
         }
     }
     if let Ok(mut f) = findings.0.lock() {
-        f.0 = checked;
-        f.1.extend(wrong);
-        f.2.extend(stale);
+        f.checked = checked;
+        f.slots.extend(wrong);
+        f.moved.extend(stale);
     }
 }
