@@ -1,0 +1,124 @@
+name: Differs from the original game
+description: Something works, but looks, sounds or behaves differently from Fallout New Vegas itself, for example lighting, an NPC's schedule, a dialogue line, a menu layout or a sound.
+title: "[Differs] "
+labels: ["parity"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        NVForever aims to match the original game (except where `--graphics enhanced` is
+        on, and combat, which may be modernised). A difference is easiest to fix with the
+        **same moment in both games side by side**: same place, same camera, same game hour.
+
+        Tips for a fair comparison:
+        - In the original, open the console (`~`) and use `set gamehour to 21` and
+          `player.getpos x` (and `y`, `z`) so we can start NVForever at the same spot with
+          `--pos` and `--hour`.
+        - Compare with NVForever's default look (`vanilla`), not `enhanced`.
+        - Close-ups of faces read best from the dialogue camera, not a long zoom.
+
+        **Never attach game files** (anything from the game's `Data` folder, BSA contents,
+        extracted assets or ESM dumps). Screenshots and videos of either game are fine.
+
+  - type: textarea
+    id: difference
+    attributes:
+      label: What differs
+      description: What the original does, and what NVForever does instead.
+      placeholder: In the original, the saloon's interior is lit warm orange at night. In NVForever it is much darker and bluer.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of difference
+      options:
+        - Looks (lighting, colours, sky, water, models, textures, effects)
+        - Behaviour (AI, scripts, quests, dialogue, physics, timing)
+        - Sound (missing, wrong, too loud or quiet, wrong place)
+        - Interface (menu, HUD, Pip-Boy, text, fonts, layout)
+        - Controls or camera
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: where
+    attributes:
+      label: Where and when
+      description: Place name, and the cell Editor ID, position (`player.getpos`), heading and game hour if you have them. Quest stage too, if a quest is involved.
+      placeholder: |
+        Goodsprings, inside the Prospector Saloon
+        pos <x>, <y>, <z>  heading <degrees>  hour 21
+        Quest: none in progress
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to see it in NVForever
+      description: The command line or `Play.ps1` place you used, then what you did.
+      placeholder: |
+        1. nvforever --data <Data> --cell <cell Editor ID> --pos <x>,<y>,<z> --hour 21 --play
+        2. Look towards the bar
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: original-media
+    attributes:
+      label: The original game
+      description: Screenshot or short video of the original at that spot.
+    validations:
+      required: true
+
+  - type: textarea
+    id: nvf-media
+    attributes:
+      label: NVForever
+      description: Screenshot (F12) or short video of NVForever at the same spot.
+    validations:
+      required: true
+
+  - type: textarea
+    id: original-setup
+    attributes:
+      label: Original game setup
+      description: Mods or graphics settings in the original that could change what you see (ENB, Reshade, texture packs, NVSE plugins, antialiasing, view distance). "Unmodded, Ultra" is fine.
+      placeholder: Unmodded, Ultra preset, 8x MSAA
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: NVForever run log
+      description: From `%LOCALAPPDATA%\NVForever\logs` (newest `nvforever-….log`). Optional for a pure look difference, very useful for behaviour.
+
+  - type: input
+    id: version
+    attributes:
+      label: NVForever version
+      description: Release or commit (`git rev-parse --short HEAD` if you built it yourself).
+    validations:
+      required: true
+
+  - type: dropdown
+    id: graphics
+    attributes:
+      label: NVForever graphics mode
+      options:
+        - vanilla (the default)
+        - enhanced
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: How you know the original does this
+      description: Your own play, a video, the GECK wiki, a game file you looked at in the GECK. Links welcome. This helps us tag the fact as observed or documented.

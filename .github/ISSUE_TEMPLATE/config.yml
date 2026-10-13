@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How to build and run NVForever
+    url: https://github.com/LootJunkieAzza/NVForever#build-and-test
+    about: Setup, command-line options and keys. Worth a look before reporting a build or start-up problem.
+  - name: What is built and what is not yet
+    url: https://github.com/LootJunkieAzza/NVForever/blob/main/docs/status.md
+    about: Check here first. A missing feature that is listed as not started is not a bug.

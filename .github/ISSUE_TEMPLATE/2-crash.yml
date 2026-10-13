@@ -1,0 +1,115 @@
+name: Crash or freeze
+description: The game closed by itself, froze, or would not start.
+title: "[Crash] "
+labels: ["bug", "crash"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A crash leaves a report with a backtrace in `%LOCALAPPDATA%\NVForever\logs`
+        (`crash-<date>-<time>-<pid>.txt`), next to the run log of the same run
+        (`nvforever-<date>-<time>-<pid>.log`). **Those two files are the most useful thing
+        you can send.**
+
+        **Never attach game files** (anything from the game's `Data` folder, BSA contents,
+        extracted assets or ESM dumps).
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What happened
+      options:
+        - Closed to the desktop (crash)
+        - Froze or hung (window stopped responding)
+        - Would not start (error before or as the window opened)
+        - Black or blank screen, but sound or the window still running
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you were doing
+      description: |
+        Start with how you launched the game: the full command line, or the `Play.ps1` place
+        and switches. Then what you did just before the crash.
+      placeholder: |
+        1. .\tools\play\Play.ps1 NewGame
+        2. Finished talking to Doc Mitchell, walked to the front door
+        3. Pressed E on the door; the game closed while the loading screen was up
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: how-often
+    attributes:
+      label: How often does it happen?
+      options:
+        - Every time
+        - Most times
+        - Sometimes
+        - Once, I could not repeat it
+    validations:
+      required: true
+
+  - type: textarea
+    id: crash-report
+    attributes:
+      label: Crash report
+      description: Drag the `crash-….txt` file here, or paste it whole. If there was none (freeze, or would not start), write "none".
+      placeholder: Drag crash-20261012-222056-18304.txt here
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Run log
+      description: Drag the `nvforever-….log` of the same run here. The last lines before the crash matter most. Paths may contain your Windows user name; change it if you prefer.
+    validations:
+      required: true
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Error message
+      description: Any error shown in the console window or a message box, word for word. Leave empty if there was none.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: NVForever version
+      description: The release (for example `v0.1.0`), or the commit if you built it yourself (`git rev-parse --short HEAD`).
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: How you got NVForever
+      options:
+        - Release download
+        - Built from source (release build)
+        - Built from source (debug build)
+    validations:
+      required: true
+
+  - type: textarea
+    id: game-install
+    attributes:
+      label: Your Fallout New Vegas install
+      description: Store (Steam, GOG, Epic, disc), Ultimate Edition or which add-ons, and any mods or extra plugins in the load order. Did you run `fnvtool setup`?
+      placeholder: Steam, Ultimate Edition, no mods, fnvtool setup done
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Operating system, graphics card and driver, memory. The first lines of the run log list these.
+      placeholder: Windows 10 Home, RTX 4070 (driver 616.56), 48 GB
+    validations:
+      required: true
