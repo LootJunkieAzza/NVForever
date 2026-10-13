@@ -159,8 +159,11 @@ fn destination_name(sim: &SimState, index: &fnv_world::WorldIndex, door: FormId,
         .or_else(|| c.edid.clone())
 }
 
-/// The collision ray from the eye along the view (the player's capsule and trigger
-/// volumes ignored), then the render-bounds fallback (`pick`).
+/// The collision ray under the crosshair (the player's capsule and trigger volumes
+/// ignored), then the render-bounds fallback (`pick`). In first person it is the eye's
+/// view ray; in third person the camera's, through the crosshair over the shoulder
+/// (`control::Crosshair`; playtest list 4, item 11).
+#[allow(clippy::too_many_arguments)]
 fn find_target(
     player: Option<Res<Player>>,
     phys: Option<ResMut<PhysState>>,
@@ -169,9 +172,11 @@ fn find_target(
     visuals: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>,
     mut target: ResMut<Target>,
     script: Option<Res<crate::script::ScriptState>>,
+    control: Option<Res<crate::control::PlayerControl>>,
 ) {
     let Some(player) = player else { return };
-    let (eye, dir) = (player.eye(), player.look_dir());
+    let crosshair = control.as_deref().and_then(|c| c.crosshair);
+    let (eye, dir) = crate::control::Crosshair::ray(crosshair.as_ref(), player.eye(), player.look_dir());
     let hit = phys.and_then(|mut p| {
         let mut filter = p.player.as_ref().map_or_else(Filter::default, |c| Filter::excluding(c.key()));
         // Trigger volumes do not block the view [hypothesis].

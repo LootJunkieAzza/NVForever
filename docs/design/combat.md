@@ -378,6 +378,14 @@ role; their exact names come from C1.
   2026-10-09]; we deliberately don't do that. In third person, a second ray from the
   muzzle to the aim point stops shots that would pass through a wall right in front of
   the character. The muzzle only matters for visuals (tracer, flash).
+- **Third person: the crosshair is the camera's** (playtest list 4 item 12, 2026-10-13).
+  The over-the-shoulder camera sits right of the eye, looking the same way, so the eye's
+  view ray passes about 40 units left of what is under the crosshair. In third person
+  the aim point is what the camera's line (from where it is level with the eye) meets
+  first within the range, and the shot's view ray goes from the eye to that point
+  (`control::Crosshair`); everything below then applies to that ray. While the camera
+  circles the player (Toggle POV held), the eye's own view is used. The activate prompt
+  follows the same line (`activate::find_target`, item 11).
 - **What is seen leaves the muzzle** (built 2026-10-10 after the owner's report that
   shots looked as if they came from the camera; `fnv_combat::shot::leaving`, `Seen`).
   - The muzzle is the `ProjectileNode` of the weapon model in the rig in view

@@ -41,7 +41,9 @@
 //!   object, e.g. a bottle to shoot), `equip=<FormID hex>` (give one unless carried and
 //!   equip it, as `NVF_PLAY_TEST_EQUIP`) and `condition=<percent>` (set the condition of
 //!   everything the player has equipped, e.g. a weapon about to break). `aimpart=254`
-//!   aims at the weapon the nearest NPC holds drawn (`hitvol::WEAPON_PART`).
+//!   aims at the weapon the nearest NPC holds drawn (`hitvol::WEAPON_PART`). The `aim…`
+//!   presses put the point under the crosshair: in third person the view turns so the
+//!   over-the-shoulder camera's line passes through it (`control::Crosshair::aim_at`).
 //!   `flashlight` switches the flashlight as a hold of Menu Mode does (`crate::flashlight`).
 //! - `NVF_PLAY_TEST_KEYS=<seconds>:<key>[:<hold seconds>][,...]` presses a real key or
 //!   mouse button at each time and lets it go after the hold (default: the next frame),
@@ -78,7 +80,7 @@
 //!   `NVF_PLAY_TEST_EQUIP`, e.g. a weapon of every animation type and its ammunition to
 //!   look at the player body's clips with.
 
-use crate::control::{Pov, PlayerControl};
+use crate::control::{Crosshair, Pov, PlayerControl};
 use crate::phys::PhysState;
 use crate::player::{MoveIntent, Player};
 use crate::sim::SimState;
@@ -459,6 +461,9 @@ fn keys_and_controls(
         (intent.forward, intent.right, intent.walk) = (m.forward, m.right, m.walk);
     }
     let presses = take_due(&mut aids.presses, now);
+    // The `aim…` presses put the point under the crosshair: the third-person camera's
+    // when it is out (`control::Crosshair`), the eye's otherwise.
+    let cross = control.crosshair;
     for p in presses {
         match p {
             Press::Sneak => control.sneak = !control.sneak,
@@ -475,16 +480,16 @@ fn keys_and_controls(
             Press::Reload => control.reload = true,
             Press::Swap => control.ammo_swap = true,
             Press::Flashlight => flashlight.toggle(),
-            Press::AimActor => aim_at_nearest_actor(&phys, &mut player, |_| true, None),
+            Press::AimActor => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |_| true, None),
             Press::AimFlat => {
-                aim_at_nearest_actor(&phys, &mut player, |_| true, None);
+                aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |_| true, None);
                 player.pitch = 0.0;
             }
-            Press::AimCorpse => aim_at_nearest_corpse(&phys, &mut player),
-            Press::AimNpc => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), None),
-            Press::AimNpcAt(h) => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Share(h))),
-            Press::AimPart(n) => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Part(n))),
-            Press::AimRef(id) => aim_at_ref(&phys, &mut player, id),
+            Press::AimCorpse => aim_at_nearest_corpse(&phys, &mut player, cross.as_ref()),
+            Press::AimNpc => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), None),
+            Press::AimNpcAt(h) => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Share(h))),
+            Press::AimPart(n) => aim_at_nearest_actor(&phys, &mut player, cross.as_ref(), |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Part(n))),
+            Press::AimRef(id) => aim_at_ref(&phys, &mut player, cross.as_ref(), id),
             Press::Condition(percent) => {
                 let c = (percent / 100.0).clamp(0.0, 1.0);
                 if let Ok(inv) = sim.world.inventory_mut(FormId::PLAYER_REF) {
@@ -529,7 +534,7 @@ enum Aim {
 
 /// Aim at the nearest kept actor: its aim point (`PhysWorld::actor_aim_point`), a share of
 /// its height or one of its body parts.
-fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player, keep: impl Fn(u32) -> bool, aim: Option<Aim>) {
+fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player, cross: Option<&Crosshair>, keep: impl Fn(u32) -> bool, aim: Option<Aim>) {
     let eye = player.eye();
     let d2 = |c: [f32; 3]| (c[0] - eye[0]).powi(2) + (c[1] - eye[1]).powi(2) + (c[2] - eye[2]).powi(2);
     let point = |id: u32| match aim {
@@ -542,27 +547,25 @@ fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player, keep: impl Fn(u32
         warn!("test aid: aimactor: no actor hit volume");
         return;
     };
-    let (dx, dy, dz) = (c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]);
-    player.heading = dx.atan2(dy);
-    player.pitch = dz.atan2(dx.hypot(dy));
-    info!("test aid: aiming at actor {id:08X} ({:.0} units away)", d2(c).sqrt());
+    (player.heading, player.pitch) = Crosshair::aim_at(cross, eye, c);
+    let line = cross.map_or(String::new(), |x| format!(", the third-person crosshair's line {:.0} right and {:.0} up of the pivot", x.shoulder[0], x.shoulder[1]));
+    info!("test aid: aiming at actor {id:08X} ({:.0} units away{line})", d2(c).sqrt());
 }
 
 /// Aim at the collision body of a placed object (its first body's centre of mass).
-fn aim_at_ref(phys: &PhysState, player: &mut Player, id: u32) {
+fn aim_at_ref(phys: &PhysState, player: &mut Player, cross: Option<&Crosshair>, id: u32) {
     let Some(c) = phys.world.ref_center(id) else {
         warn!("test aid: aimref: {id:08X} has no collision body");
         return;
     };
     let eye = player.eye();
     let (dx, dy, dz) = (c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]);
-    player.heading = dx.atan2(dy);
-    player.pitch = dz.atan2(dx.hypot(dy));
+    (player.heading, player.pitch) = Crosshair::aim_at(cross, eye, c);
     info!("test aid: aiming at {id:08X} ({:.0} units away)", (dx * dx + dy * dy + dz * dz).sqrt());
 }
 
 /// Aim at the trunk of the nearest ragdoll (a dead actor's body in the physics world).
-fn aim_at_nearest_corpse(phys: &PhysState, player: &mut Player) {
+fn aim_at_nearest_corpse(phys: &PhysState, player: &mut Player, cross: Option<&Crosshair>) {
     let eye = player.eye();
     let d2 = |c: [f32; 3]| (c[0] - eye[0]).powi(2) + (c[1] - eye[1]).powi(2) + (c[2] - eye[2]).powi(2);
     let nearest = phys.world.ragdolls().filter_map(|id| phys.world.ragdoll_center(id).map(|p| (id, p))).min_by(|a, b| d2(a.1).total_cmp(&d2(b.1)));
@@ -570,9 +573,7 @@ fn aim_at_nearest_corpse(phys: &PhysState, player: &mut Player) {
         warn!("test aid: aimcorpse: no ragdoll");
         return;
     };
-    let (dx, dy, dz) = (c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]);
-    player.heading = dx.atan2(dy);
-    player.pitch = dz.atan2(dx.hypot(dy));
+    (player.heading, player.pitch) = Crosshair::aim_at(cross, eye, c);
     info!("test aid: aiming at the corpse of {id:08X} ({:.0} units away, at ({:.0}, {:.0}, {:.0}))", d2(c).sqrt(), c[0], c[1], c[2]);
 }
 
