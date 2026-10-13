@@ -119,7 +119,13 @@ systems inside ordinary models (fires and steam placed in cells). Code:
 - Not built: turbulence, spawn on death, `NiPSysModifierActiveCtlr` (modifiers switched
   on and off over time), strip and mesh particle systems, other emitter shapes than
   box, sphere and cylinder, colour-key modifiers, the ADDN's sound and particle cap,
-  particle systems of ordinary models.
+  particle systems of ordinary models. Placed smoke that is built so (not drawn at
+  all): `effects/fxlightsmoke.nif` (10 placed in FalloutNV.esm), `dlc03/effects/
+  dlc03fxdarksmoke.nif` (13, Primm), `effects/nv/fxtiresmoke.nif` (16),
+  `clutter/ashtray/ashtray03smoke.nif` (19), `effects/fxhelios_steam.nif` (8)
+  [observed, `fnvtool world refs`, `fnvtool nif decode`, 2026-10-13]. The more common
+  smoke wisps and ground smoke are meshes with scrolling textures (nif.md §6
+  "Controllers outside sequences").
 - Open: the flamer's flame is a sparse run of puffs in ours. Its emitters exist only
   while a flame projectile is drawn (640 units at 12,000 units/s, 0.05 s a shot), so
   the systems get about a third of their birth rate. How long the game keeps a flame
