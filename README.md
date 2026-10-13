@@ -3,6 +3,9 @@
 An open-source, clean-room reimplementation of the engine behaviour of **Fallout: New
 Vegas**, in the spirit of OpenMW. It reads the data files of *your own legally purchased
 copy*; it ships no Bethesda content and contains no Bethesda or Gamebryo code.
+NVForever is an independent project, not affiliated with or endorsed by Bethesda
+Softworks, ZeniMax Media, Microsoft or Obsidian Entertainment; *Fallout* and *Fallout:
+New Vegas* are their trademarks. See [LEGAL.md](LEGAL.md).
 
 Status (2026-10-12, FNV 1.4.0.525, base game + all DLC): the archive and plugin readers,
 the asset formats, the world renderer, physics, the simulation core and the script runtime
@@ -230,6 +233,8 @@ docs/
 - Every factual claim is tagged `[documented]`, `[observed]` or `[hypothesis]`.
 - Goldens and any game-derived dumps stay private (`.gitignore` blocks game files).
 
+The full statement of sources, process and trademarks is in [LEGAL.md](LEGAL.md).
+
 ## Support the project
 
 NVForever is free and stays free. If you would like to support the work, you can do so on
@@ -239,6 +244,6 @@ features. You still need your own copy of *Fallout: New Vegas*.
 
 ## Licence
 
-GPL-3.0-or-later (placeholder pending the project owner's decision; see `LICENSE`).
+GPL-3.0-or-later; see [LICENSE](LICENSE) and [LEGAL.md](LEGAL.md#licence).
 Record layouts in `schemas/` were derived from the MPL-2.0 xEdit definitions as
 documentation; see `schemas/README.md`.

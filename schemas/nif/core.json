@@ -1,6 +1,6 @@
 {
   "format": "fnv.nif.schema/1",
-  "_comment": "Core scene graph, extra data, basic properties and triangle geometry. Layouts re-expressed from niftools nif.xml (https://github.com/niftools/nifxml, read as documentation) for the versions in the FNV corpus only: 20.2.0.7 with user version 11 and bs_version 14-34, and 20.0.0.4 with user version 11. Fields that cannot occur in those versions are omitted. Every block is checked against the user's install with `fnvtool nif coverage` (exact consumption + byte-identical re-encode).",
+  "_comment": "Core scene graph, extra data, basic properties and triangle geometry. Layouts re-expressed from niftools nif.xml (https://github.com/niftools/nifxml, GPL-3.0, read as documentation only; no text copied) for the versions in the FNV corpus only: 20.2.0.7 with user version 11 and bs_version 14-34, and 20.0.0.4 with user version 11. Fields that cannot occur in those versions are omitted. Every block is checked against the user's install with `fnvtool nif coverage` (exact consumption + byte-identical re-encode).",
   "enums": {
     "AlphaFlags": {
       "storage": "u16",
