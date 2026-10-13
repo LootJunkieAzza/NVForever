@@ -23,10 +23,14 @@
 //!   whose lines it has [observed: every radio quest of the masters gates its lines that
 //!   way, radio.md §3]. It starts with RadioHello [documented: GECK wiki Radio Tab and
 //!   Radio Stations: RadioHello starts radio conversations as HELLO does]. After a line
-//!   it goes on with the topics the line links to (TCLT): one of the linked topics
-//!   that has a line the station can say, picked at random [hypothesis: radio.md §5];
-//!   with none, back to RadioHello [hypothesis]. Within a topic the line is picked as
-//!   for any speaker ([`Game::select_line`]: quest priority, stored order, Random pools).
+//!   it goes on with the topics the line leads to (its choices, TCLT, and the topics
+//!   whose lines name its topic in their Link From, dialogue.md §3.5): one of them that
+//!   has a line the station can say, picked at random [hypothesis: radio.md §5]; with
+//!   none, back to RadioHello [hypothesis]. Within a topic the line is picked as for any
+//!   speaker ([`Game::select_line`]: quest priority, stored order, Random pools), except
+//!   that a line's fixed speaker does not keep the station from saying it: it names
+//!   whose voice the line is in [documented: SetNPCRadio; observed: Black Mountain
+//!   Radio's segments name Tabitha and Raul Tejada].
 //! - **StartRadioConversation [topic]** asks for one conversation on the station: from
 //!   the topic, else RadioHello, along the links until a line links nowhere; a
 //!   broadcasting station is interrupted and goes on with its programme afterwards, a
@@ -46,6 +50,7 @@
 //! - `ForceRadioStationUpdate` "forces radio update" [documented: GECK wiki]: the engine
 //!   looks at every radio each frame, so it is counted only [design].
 
+use crate::dialogue::Says;
 use crate::functions::{base_of, none, yes, Args, Ctx};
 use crate::game::{Game, RunCtx};
 use fnv_script::vm::{ArgValue, Value};
@@ -124,21 +129,21 @@ impl Game<'_> {
     /// conversation.
     pub fn radio_start(&mut self, station: FormId, topic: Option<FormId>) -> Option<(FormId, FormId)> {
         let topic = topic.or_else(|| self.data.by_edid(RADIO_HELLO))?;
-        self.select_line(station, Some(FormId::PLAYER_REF), topic).map(|i| (topic, i))
+        self.select_line_as(station, Some(FormId::PLAYER_REF), topic, |_| true, Says::Station).map(|i| (topic, i))
     }
 
-    /// The line that follows `after` in its conversation: one of the topics it links to
-    /// that has a line the station can say now, at random. `None`: the conversation ends.
+    /// The line that follows `after` in its conversation: one of the topics it leads to
+    /// (its choices and the topics whose lines name its topic in their Link From,
+    /// [`Game::links_after`]) that has a line the station can say now, at random.
+    /// `None`: the conversation ends.
     pub fn radio_follow(&mut self, station: FormId, after: FormId) -> Option<(FormId, FormId)> {
         let data = self.data;
         let def = data.infos.get(&after)?;
+        let topic = def.topic?;
         let mut linked: Vec<(FormId, FormId)> = Vec::new();
-        for &topic in &def.choices {
-            if linked.iter().any(|(t, _)| *t == topic) {
-                continue;
-            }
-            if let Some(info) = self.select_line(station, Some(FormId::PLAYER_REF), topic) {
-                linked.push((topic, info));
+        for link in self.links_after(topic, def) {
+            if let Some(info) = self.link_line(station, Some(FormId::PLAYER_REF), link, Says::Station) {
+                linked.push((link.topic, info));
             }
         }
         match linked.len() {

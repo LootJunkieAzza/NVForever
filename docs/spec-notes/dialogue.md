@@ -279,22 +279,50 @@ What the data shows (the ten masters) [observed: scratch survey 2026-10-11]:
   names all his topics and GREETING: an exit from anywhere. Topics 031, 032 and 034
   name each other: a group of answers that each offer the others. GREETING is named by
   his 003 and 004 only.
+- Between actors (Conversation topics): 83 links under 65 named topics, 32 adding
+  something. HELLO is named by the Fiends' and Cass's Freeside replies, Wrangler's,
+  Boone's and Jack's (Nellis), and by seven GenericKids HELLO lines with the Goodbye flag
+  ("Hi.", "What?"): replies to a greeting. Their openers have Link From blank or `ANY`.
+  Several speeches name their own topic (the NCR deputies' speech, the Primm sheriff's
+  order); the one line that does not is the last, with the Goodbye flag.
+- Radio: 54 links under 21 named topics, 50 adding something. Black Mountain Radio's
+  segments name RadioHello and themselves, and RadioBMMusic names the 13 segments
+  (its lines are gated by a quest variable). RadioBMSegment12 is reached only this way
+  (no RadioHello line lists it). Radio New Vegas's RNVNewsStory3 follows RNVNewsStory2
+  only this way.
+- `ANY` (a Conversation topic with no lines) is named by 431 links of 26 topics, all of
+  which are also reached by ordinary Choices links. It reads as a marker ("a reply, not
+  an opener"; HELLO lines naming it cannot start a conversation) rather than a topic
+  that is said; taken literally it adds nothing, since no line is a line of `ANY`.
 - A per-line reading (the line with the Link From can be said only after the topics
   it names) would contradict Choices links: 54 type-Topic lines (many of them Dead
   Money's radio acts, which name `ANY`) are listed as a choice by a topic their Link From
-  leaves out, e.g. `VMS22MichaelAngeloTopic024`, a choice of
-  Topic006, whose only line names just Topic025. Doctor Medical's two identical
-  `DoctorMedical99YES` lines, one with Link From `DoctorMedicalSpeech` and one
-  without, change nothing under either reading, since both have the same condition.
+  leaves out, e.g. `VMS22MichaelAngeloTopic024`, a choice of Topic006, whose only line
+  names just Topic025. So the per-line reading is used only for topics that a line
+  reaches through Link From alone (below).
 
-Runtime (player dialogue, `GameData::linked_from`, `Game::build_choices`): after a line
-said under topic X, the topics whose player lines name X in their Link From join the
-list the line offers. They join its choices if it has any; otherwise they join the
-topic list, by priority. They do not turn a line without choices into one with
-choices. A topic named this way is offered like a choice, by whichever of its lines the
-actor can say. [hypothesis for all three; documented that it adds links; capture
-question 10.] Not yet used in conversations between NPCs (except the blank-for-HELLO
-start rule, §5.1) or on the radio.
+Runtime (`GameData::linked_from`, `Game::links_after`, `Game::link_line`), the same in
+player dialogue (`Game::build_choices`), conversations between actors
+(`Game::next_conversation_line`, §5.1) and on the radio (`Game::radio_follow`,
+radio.md §5):
+
+- After a line said under topic X, the topics with a line naming X in its Link From
+  join the topics the line leads to, after its own choices. In player dialogue they join
+  its choices if it has any; otherwise they join the topic list by priority; they do
+  not turn a line without choices into one with choices. Between actors and on the
+  radio they join the Link To topics one of which is picked at random.
+- A topic reached only this way is said with one of its lines that names X (the first
+  the speaker can say, by the rule of §4). A topic that is also a choice (or in the
+  topic list) is said with any of its lines, as before. Examples: a child answers a
+  hello between actors with "Hi." (Link From HELLO, Goodbye), not with its own opener;
+  Michael Angelo's 031 after his 034 is his line naming 034.
+- Which lines count follows who is talking: in player dialogue only player lines
+  (type Topic) of topics of type Topic, as before the three shared the links; between
+  actors only Conversation lines (§5.1, the owner's 2026-10-11 ruling); on the radio
+  any line [hypothesis].
+- [documented that Link From adds links; hypothesis for how they combine and for which
+  line answers; capture question 10.] Radio and conversation topics name the topic of
+  the stored line (the radio's line is never a shared one).
 
 ### 3.6 Run Immediately
 
@@ -713,9 +741,10 @@ up to C and F):
    player skips a line or leaves; Run Immediately on a chosen line.
 9. INFC/INFX: a "shared" line is taken as a line of the listing topic (§1.2); check it
    in game (Red Lucy's "What's this place?") and where the Info Index puts it.
-10. Link From in player dialogue: taken as adding the topic to the list after the named
-    topics' lines (§3.5); check in game with Michael Angelo (031/032/034, and 004 after a
-    greeting), and whether it is per line or per topic.
+10. Link From: taken as adding the topic to the links after the named topics' lines,
+    answered by a line that names them (§3.5); check in game with Michael Angelo
+    (031/032/034, and 004 after a greeting), Black Mountain Radio's RadioBMSegment12,
+    and a child answering an NPC's hello.
 11. The skill tag's numbers: taken from the line's condition? What is shown for a perk?
 12. Inside the pause (B): what `IsTalking` reads while the player chooses;
     `Begin MenuMode 1009` blocks and the MenuMode quest delay; whether magic effects

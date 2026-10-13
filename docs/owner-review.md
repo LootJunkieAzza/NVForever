@@ -4633,3 +4633,17 @@ started afresh at once. Decisions (crates/fnv-game/src/aggro.rs):
 Check in game: the geckos south-west of Goodsprings warn and then attack; a creature you walk
 away from (out of its radius) forgets its warnings after about 10 s.
 
+
+## Link From between actors and on the radio (2026-10-13, session "link-from")
+Port of the rescued 2026-10-11 commit 035c21ae onto main (dialogue.md §3.5, radio.md §5).
+- Link From now adds links in conversations between actors and on the radio, as it did
+  for player dialogue. A topic reached only through Link From is said with one of its lines
+  that names the topic just said (e.g. a child's "Hi." / "What?" answering another actor's
+  hello) [hypothesis; capture question 10].
+- Kept from main where the two met: conversations between actors still use only
+  Conversation lines (your 2026-10-11 ruling), Link From replies included; player dialogue
+  takes Link From only from player lines (type Topic) of Topic topics, as before.
+- Radio: a line's fixed speaker no longer stops a station saying it; Black Mountain Radio
+  now plays its segments (Segment12 too) with Tabitha's and Raul's voices.
+Check in game: Black Mountain Radio (segments between songs, Tabitha's voice); two
+NPCs greeting each other (and a child answering an NPC's hello where children talk); Michael Angelo's 031/032/034 choices.

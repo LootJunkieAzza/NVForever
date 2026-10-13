@@ -616,10 +616,11 @@ pub struct GameData {
     /// lines with the shared ones put in at their Info Index, the order
     /// [`GameData::lines_tried`] starts from (dialogue.md §1.2).
     pub shared_lines: HashMap<FormId, Vec<FormId>>,
-    /// Link From turned round, for player dialogue: for a topic X, the topics of type
-    /// Topic with a player line (type Topic) whose Link From names X, in topic record
-    /// order ([`TopicDef::order`]). They are offered after a line of X as its choices are
-    /// (`Game::build_choices`, dialogue.md §3.5).
+    /// Link From turned round: for a topic X, the topics with a line whose Link From
+    /// names X, in topic record order ([`TopicDef::order`]). A line of X leads to them as
+    /// to its choices, in player dialogue, conversations between actors and on the radio
+    /// (`Game::links_after`, dialogue.md §3.5). `ANY`, named by 431 links, has no line,
+    /// so nothing follows it.
     pub linked_from: HashMap<FormId, Vec<FormId>>,
     /// Every topic (DIAL) from its winning record.
     pub topic_defs: HashMap<FormId, TopicDef>,
@@ -1375,14 +1376,12 @@ fn shared_lines(topics: &HashMap<FormId, Vec<FormId>>, defs: &HashMap<FormId, To
     out
 }
 
-/// [`GameData::linked_from`]: each player line (type Topic, of a topic of type Topic)
-/// with a Link From list puts its topic under every topic the list names, once, in the
-/// topics' record order.
+/// [`GameData::linked_from`]: each line with a Link From list puts its topic under
+/// every topic the list names, once, in the topics' record order.
 fn linked_from(defs: &HashMap<FormId, TopicDef>, infos: &HashMap<FormId, InfoDef>) -> HashMap<FormId, Vec<FormId>> {
     let mut out: HashMap<FormId, Vec<FormId>> = HashMap::new();
-    let player_topic = |t: &FormId| defs.get(t).is_some_and(|d| d.topic_type == topic_type::TOPIC);
-    for i in infos.values().filter(|i| i.info_type == topic_type::TOPIC && !i.link_from.is_empty()) {
-        let Some(t) = i.topic.filter(player_topic) else { continue };
+    for i in infos.values().filter(|i| !i.link_from.is_empty()) {
+        let Some(t) = i.topic else { continue };
         for &x in &i.link_from {
             let list = out.entry(x).or_default();
             if !list.contains(&t) {
