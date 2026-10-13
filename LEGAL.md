@@ -56,7 +56,15 @@ are never committed or published.
 What the repository does contain is our own description of the game's file formats and
 behaviour (`docs/spec-notes/`, `schemas/`) and the tools that read your copy of the data.
 Those descriptions name records, fields, Editor IDs and file paths where that is needed to
-explain a format or cite an observation.
+explain a format or cite an observation. Quotations from documentation are kept short and
+cite their source; descriptions of scripting functions are written in our own words.
+
+The engine itself shows a handful of short on-screen phrases that are not in the data
+files and so cannot be read from your copy, such as a terminal's header lines. These are
+kept to the few words a faithful screen needs and are tagged where they are defined
+(for the terminals, [docs/spec-notes/hacking.md](docs/spec-notes/hacking.md) §8). The
+game's own dialogue, quest text, messages, names, notes and menu layouts are read at run
+time from your game's files and are not in this repository.
 
 ## How we learnt the game's behaviour and recreated it
 
@@ -85,11 +93,14 @@ NVForever follows a clean-room process, in the spirit of OpenMW.
 
 - No leaked source code or debug symbols, from any platform.
 - No decompiled or disassembled game or editor code. Of the game's executable, only
-  unencrypted data was read (version resource, import table, plain strings), to identify
-  the game build and the third-party components it uses
+  unencrypted data was read (version resource, import table, plain strings and the type
+  names they include), to identify the game build and the third-party components it uses
   ([docs/spec-notes/layer0-install.md](docs/spec-notes/layer0-install.md)).
 - No code from other projects whose provenance does not meet these rules. Where such a
   project is consulted at all, it is for format facts only and its code is never copied.
+  The one such project so far is nv-rs, whose own policy admits leaked debug symbols and
+  translated decompiled code: its only recorded use was to cross-check the NIF animation
+  layouts already taken from `nif.xml` and the data ([docs/design/layer2.md](docs/design/layer2.md)).
 
 **From notes to code**
 

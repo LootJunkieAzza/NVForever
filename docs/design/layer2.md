@@ -15,11 +15,13 @@ parsers, parity lab).
 Decisions taken with the owner (2026-10-07):
 - nv-rs (https://github.com/slaterain/nv-rs) is a source of **format facts only**: its
   2026-10-05 policy admits leaked Xbox 360 debug symbols and translated decompiled code,
-  which our charter excludes. Its code is not copied. In practice nothing from it was
-  needed: every layout came from nif.xml and was confirmed by the data.
+  which our charter excludes. Its code is not copied. Every layout came from nif.xml and
+  was confirmed by the data; the animation schema's facts were also cross-checked
+  against nv-rs `crates/nif` (recorded in `schemas/nif/anim.json`), without taking any
+  layout or code from it.
 - niftools nif.xml (GPL-3.0 repository) is used **as documentation**; layouts are
-  re-expressed in our own JSON (as Layer 1 did with xEdit). No code is generated from it,
-  so the licence choice (GPL vs MIT/Apache) stays open.
+  re-expressed in our own JSON (as Layer 1 did with xEdit). No code is generated from it.
+  The project has since chosen GPL-3.0-or-later (LEGAL.md).
 - Bevy 0.19.1 for the engine side (spec §7.1); see ADR-0001.
 
 ## 2. Findings and design
