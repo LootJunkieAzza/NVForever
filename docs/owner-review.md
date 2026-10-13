@@ -4374,6 +4374,80 @@ scenario `shadow-probe`).
   `shadow probe:` warning names the shape and its owner.
 - *Decisions/guesses:* the probe's thresholds (1,500 units; body spread 30-300 in the
   smoke test) are mine. No game behaviour changed.
+## Playtest list 4: combat (workstream D3, branch `claude/combat-list-4`, 2026-10-13)
+
+### Item 13: Ringo did not come out of the gas station to the fight
+
+**Cause.** Once the player had left GSGasStation, Ringo was out of the loaded area at the
+Mid-High level (the interior is in the cell buffer, actor-behaviour.md §5.9): one update
+every 18 s, each walking the time owed in one go, and none of the high process (combat,
+assistance). RingoTravelPackage (given by the result script of INFO 0x00105D09) sends him
+to RingoPositionMarker (exterior, -70390, 3462) [observed: `fnvtool script decompile`,
+`esm decode`], so he came out in jumps, late.
+
+**Fix.** A new process level `fnv_ai::ProcessLevel::Coming`: an actor out of the loaded area
+whose rest of path (from the leg it is on) has a corner in a drawn cell is updated every
+frame in the low process (navmesh steps, doors as if open). It comes through the door when
+it would have walking in sight, and is then in the loaded area (high process: drawn, joins
+the fight). Log line `… on its way into the loaded area (moved every frame)`; the process
+summary counts `set off into the loaded area from out of it`.
+
+A low update in which a new package starts a walk now stops there and keeps the rest of
+the time owed (the first run walked Ringo's whole 5,247-unit trip in the one update that
+gave him the package); an actor going Coming catches up no time owed: it walks in real time
+from where it is [design].
+
+*Decision:* any actor whose remaining path passes through the loaded area counts, not only
+one sent towards the player (the original's rule for actors heading to the player's area is
+not documented; JIP's process-level pages name only the four levels) [design].
+*Guess:* that the path's corners are a good enough test (a long straight leg crossing the
+loaded area between two corners outside it is missed).
+*Check:* give Ringo the "let's go" line in the gas station, leave first and go to the
+fight: he should come out of the door a few seconds after you and join the fight. Smoke
+`ringo-comes-out`: out of the loaded area, on its way (moved every frame), back in the
+loaded area in WastelandNV within the same game minute.
+
+### Item 15: a looted corpse still drawn wearing its armour and weapon
+
+**Cause.** An NPC's drawn outfit and weapon were decided once at spawn
+(`fnv_actor::resolve`) and never looked at again; taking them changed only the simulation's
+inventory.
+
+**Fix.** `engine/nvforever/src/outfits.rs`: each drawn NPC carries what it is drawn wearing
+and holding (`Dressed`). When an item leaves its inventory, the armour's model comes off and
+the parts it covered (race body, hands, head, the hair's no-hat shape) are spawned on the
+same skeleton nodes (`nvf_assets::actor::spawn_parts`, split out of `spawn_actor`), so a
+ragdoll keeps its pose; the weapon model, its muzzle and the weapon clips go as for a broken
+weapon. Log lines `outfit: actor …`, `outfit summary: …`.
+
+*Decision:* the drawn choice and the simulation's roll of leveled lists are separate and
+agree only for actors with no random leveled choice (GSPG01Ref: "random": false; the dead
+tribal Fiends: random) [observed: `fnvtool actor appearance`]. What stands for a drawn item
+is looked at once, when the simulation first holds the inventory: the item itself if
+carried, else the carried armour sharing a body slot with it (or, for the weapon, every
+carried weapon); the drawn item comes off when all of that is gone, and stays when nothing
+stood for it [design]. Making the two rolls the same is left for later.
+*Check:* kill a Powder Ganger, take only his armour (the body shows skin), then his weapon
+(the holster/hand empties); also a Fiend with a leveled outfit. Smoke `corpse-undressed`
+(a dead tribal Fiend, take all): weapon and two armour pieces off, upper body and hair put
+on. No frame was captured (the screenshot aid did not reach the smoke runner's launches):
+please look at the body once.
+
+### Item 21: attacks during a crippled stagger
+
+**Cause.** The hit reaction (`deaths.rs`, `Flinch`) only played a clip; the combat code
+(`npc_combat.rs`) and the walks did not know about it.
+
+**Fix.** While a hit reaction is playing an actor neither fires, nor starts a blow, and a
+blow it was swinging is cut short; it also stands (held like an actor on furniture,
+`residents.rs`) until the clip ends. Log `npc combat: … holds its attacks while it
+staggers`; the npc combat summary counts the staggers and blows cut short.
+
+*Decision:* a blow already swung but not landed is cut short [design: the original
+interrupts an attack with a stagger, hypothesis]; the gun's cycle (reload, refire timers)
+just pauses.
+*Check:* cripple a gecko's or Powder Ganger's leg: no bite or shot until the stagger ends.
+Smoke `stagger-holds-attack` (Chet shot in the legs).
 
 ## Smoke effects and grass pixels (playtest list 4 items 16, 17) (2026-10-13, session "smoke-grass-fx")
 

@@ -502,6 +502,14 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
         commands.entity(nodes[p.unwrap_or(0)]).add_child(nodes[i]);
     }
     let mut out = SpawnedActor { root: nodes[0], nodes, drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0 };
+    spawn_parts(commands, skel, parts, &mut out);
+    out
+}
+
+/// Spawn every part's shapes on the skeleton nodes of `out` (an actor spawned already:
+/// [`spawn_actor`], or parts put on later, as armour taken off shows the body), adding
+/// them to its `drawn`, `part_of` (indices into `parts`) and `shape_of`.
+pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[PartUse], out: &mut SpawnedActor) {
     let nodes = &out.nodes;
     for (pi, u) in parts.iter().enumerate() {
         let bone = skel.by_name.get(u.part.attach_bone()).copied();
@@ -553,7 +561,6 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
             out.shape_of.push(i);
         }
     }
-    out
 }
 
 /// The skeleton node a clip track named `name` drives: any node but the root, whose

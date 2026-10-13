@@ -360,6 +360,8 @@ pub fn spawn(
         Name::new(format!("Actor {reference:08X} {}", a.edid.as_deref().unwrap_or(""))),
         RefVisual(reference),
         ActorRig { reference, base, skeleton: a.skeleton.clone(), skel: skel.clone(), nodes: spawned.nodes.clone() },
+        // What it wears and holds follows its inventory (`outfits.rs`).
+        crate::outfits::Dressed::new(world, &a, &part_index, &spawned),
     ));
     for e in &spawned.drawn {
         commands.entity(*e).insert(RefVisual(reference));

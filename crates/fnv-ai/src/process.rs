@@ -30,7 +30,10 @@
 //!   - [`ProcessLevel::MidHigh`], cells left recently and still in the cell buffer (the
 //!     engine keeps it: `uExterior Cell Buffer`, `uInterior Cell Buffer`): every
 //!     [`LOW_PROCESS_SECONDS`];
-//!   - [`ProcessLevel::Low`], everyone else: every [`FAR_PROCESS_SECONDS`].
+//!   - [`ProcessLevel::Low`], everyone else: every [`FAR_PROCESS_SECONDS`];
+//!   - [`ProcessLevel::Coming`], whatever the cell, an actor whose walk leads into the
+//!     loaded area (the engine looks at the rest of its path): every frame, so it
+//!     arrives when it would have walking in sight.
 //!
 //!   The original's Mid-Low (interiors reached by doors from the loaded cells, never
 //!   visited, "unknown" rate) has no actors here: the AI only has the actors of cells
@@ -72,6 +75,13 @@ pub enum ProcessLevel {
     MidHigh,
     /// In a cell "neither currently loaded nor buffered".
     Low,
+    /// Out of the loaded area but on its way into it (the rest of its path ends there):
+    /// moved every frame, as in the low process (no sandbox, combat state or
+    /// conversation; doors as if open), so it comes through the door when it would
+    /// [design, owner's playtest list 4 item 13: Ringo, sent from the gas station to the
+    /// Powder Ganger fight by RingoTravelPackage, came out only after it ended; the
+    /// original's rule for actors heading to the player's area is not documented].
+    Coming,
 }
 
 /// A low-process update walks the time owed in steps this long, seconds [our choice: as
@@ -101,6 +111,10 @@ pub struct ProcessStats {
     pub fell_far: usize,
     pub far_updates: usize,
     pub most_far: usize,
+    /// Times an actor out of the loaded area set off into it ([`ProcessLevel::Coming`]),
+    /// and the updates given to such actors.
+    pub coming: usize,
+    pub coming_updates: usize,
 }
 
 /// [`crate::Ai::update_low`]'s mover: the walker's own steps, every door open.
@@ -122,10 +136,11 @@ impl Ai {
 
     /// The process level of `actor` (an actor the AI does not look after is high).
     pub fn level(&self, actor: FormId) -> ProcessLevel {
-        match (self.is_high(actor), self.far.contains(&actor)) {
-            (true, _) => ProcessLevel::High,
-            (false, false) => ProcessLevel::MidHigh,
-            (false, true) => ProcessLevel::Low,
+        match (self.is_high(actor), self.far.contains(&actor), self.coming.contains(&actor)) {
+            (true, _, _) => ProcessLevel::High,
+            (false, _, true) => ProcessLevel::Coming,
+            (false, false, false) => ProcessLevel::MidHigh,
+            (false, true, false) => ProcessLevel::Low,
         }
     }
 
@@ -139,7 +154,7 @@ impl Ai {
             _ => return level,
         };
         match (level, self.level(leader)) {
-            (ProcessLevel::Low, ProcessLevel::High | ProcessLevel::MidHigh) => ProcessLevel::MidHigh,
+            (ProcessLevel::Low, ProcessLevel::High | ProcessLevel::MidHigh | ProcessLevel::Coming) => ProcessLevel::MidHigh,
             _ => level,
         }
     }
@@ -159,6 +174,16 @@ impl Ai {
         }
         self.set_high(game, actor, level == ProcessLevel::High);
         let was_far = self.far.contains(&actor);
+        if level == ProcessLevel::Coming {
+            self.coming.insert(actor);
+            self.process_stats.coming += 1;
+            // It walks in real time from where it is: no time owed is caught up at once.
+            if let Some(Some(owed)) = self.low.get_mut(&actor) {
+                *owed = 0.0;
+            }
+        } else {
+            self.coming.remove(&actor);
+        }
         if level == ProcessLevel::Low {
             self.far.insert(actor);
             self.process_stats.fell_far += 1;
@@ -187,6 +212,7 @@ impl Ai {
         if high {
             self.low.remove(&actor);
             self.far.remove(&actor);
+            self.coming.remove(&actor);
             self.process_stats.came_back += 1;
             return true;
         }
@@ -248,13 +274,20 @@ impl Ai {
         let mut due = Vec::new();
         for (actor, owed) in self.low.iter_mut().filter_map(|(a, o)| Some((a, o.as_mut()?))) {
             *owed += dt;
-            let every = if self.far.contains(actor) { FAR_PROCESS_SECONDS } else { LOW_PROCESS_SECONDS };
+            let every = if self.coming.contains(actor) {
+                0.0
+            } else if self.far.contains(actor) {
+                FAR_PROCESS_SECONDS
+            } else {
+                LOW_PROCESS_SECONDS
+            };
             if *owed >= every {
                 due.push((*actor, std::mem::take(owed)));
             }
         }
         for (actor, owed) in due {
             self.process_stats.far_updates += usize::from(self.far.contains(&actor));
+            self.process_stats.coming_updates += usize::from(self.coming.contains(&actor));
             self.low_update(game, nav, actor, owed);
         }
     }
@@ -263,12 +296,25 @@ impl Ai {
     fn low_update(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, seconds: f32) {
         self.process_stats.low_updates += 1;
         let mut left = seconds;
+        let package = self.agents.get(&actor).and_then(|a| a.package);
         while left > 0.0 {
             let step = LOW_STEP_SECONDS.min(left);
             self.step_actor(game, nav, actor, step, &mut Low, true);
             self.process_stats.low_steps += 1;
             left -= step;
-            if self.agents.get(&actor).is_none_or(|a| a.activity != Activity::Travelling) {
+            let Some(a) = self.agents.get(&actor) else { break };
+            if a.activity != Activity::Travelling {
+                break;
+            }
+            // A walk just begun (a new package) waits for the next update with the rest of
+            // the time owed, so the engine can see where it leads first: into the loaded
+            // area, it is walked frame by frame ([`ProcessLevel::Coming`]) [design, owner's
+            // playtest list 4 item 13: Ringo's whole trip out of the gas station was walked
+            // in one update].
+            if a.package != package {
+                if let Some(Some(owed)) = self.low.get_mut(&actor) {
+                    *owed += left;
+                }
                 break;
             }
         }

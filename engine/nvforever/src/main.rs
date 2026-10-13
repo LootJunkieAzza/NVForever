@@ -48,6 +48,7 @@ mod weapons;
 mod lodgen;
 mod nav;
 mod object_anims;
+mod outfits;
 mod pipboy_arm;
 mod player_body;
 mod stealth_field;
@@ -902,6 +903,8 @@ fn main() -> AppExit {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
             app.add_plugins(cell_resets::CellResetsPlugin);
+            // What drawn NPCs wear and hold follows their inventories (outfits.rs).
+            app.add_plugins(outfits::OutfitsPlugin);
             if shadow_probe::enabled() {
                 app.add_plugins(shadow_probe::ShadowProbePlugin);
             }
