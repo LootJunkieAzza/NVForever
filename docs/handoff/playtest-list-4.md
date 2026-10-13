@@ -85,3 +85,26 @@ coordinator machines below. The previous lists are all merged (`playtest-2026-10
 21. NPCs/creatures playing a crippled stagger should not attack until it is complete.
 22. Johnson Nash has no Goodbye in dialogue (missing goodbye topics?); you can Tab out, but
     Goodbye / "I need to get going" should be shown.
+
+## 5. Outcome (2026-10-13)
+
+Every queue item is merged: L1 #254, L2 #258, L5 #260, L3 #263 (laptop); D1 #257, D2 #259,
+D3 #261, L4 #264 (desktop); CI fix #255 (main was red since #242). Details and guesses are in the
+owner-review sections of each.
+
+Left open:
+- Item 5, first-person shadow flicker: not reproduced twice. Debug probe `NVF_PLAY_DEBUG_SHADOWS=1`
+  (#260): the owner runs with it and keeps the log; best lead is a skinned vertex drawn at the
+  world origin (east of Goodsprings).
+- Items 2–3, Victor's and Sunny's stop-start: one cause fixed (#258), not reproduced; needs the
+  owner's eyes on those two walks.
+- Item 16: smoke built from particle systems inside ordinary models (about 66 placements, e.g.
+  Primm smoke, HELIOS steam) is still not drawn.
+- Item 18: the owner's two geckos at cell -17,-6 still don't attack: their first package
+  VCrGeckoFindFood forbids aggro and our once-per-day Find package never ends. Follow-up L6 below.
+- Wider effect of #264: about 467 placed creatures and 14 NPCs now attack inside their aggro
+  radius (two warnings 5 s apart).
+
+| # | Branch | Machine | Item |
+|---|---|---|---|
+| L6 | `claude/package-duration` | laptop | once-per-day packages end after their duration, so the next package (with aggro) takes over (item 18) |
