@@ -193,7 +193,9 @@ pub fn set_pack_duration(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
     let minutes = a.num(0)?.max(0.0);
     let now = g.world.calendar().map(|c| c.days_passed as f64).unwrap_or(0.0);
     if let Some(p) = g.extra.get(&r).and_then(|e| e.current_package) {
-        g.extra.entry(r).or_default().package_ends = Some((p, now + minutes / (24.0 * 60.0)));
+        let e = g.extra.entry(r).or_default();
+        e.package_ends = Some((p, now + minutes / (24.0 * 60.0)));
+        e.package_ends_by_schedule = false;
     }
     none()
 }

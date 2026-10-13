@@ -213,10 +213,16 @@ pub struct RefExtra {
     /// GameDaysPassed reaches the value ([`Game::block_package`]).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub package_blocked: BTreeMap<FormId, f32>,
-    /// SetPackDuration: the current package (first) ends when GameDaysPassed reaches the
-    /// second ([`Game::end_timed_packages`]).
+    /// The current package (first) ends when GameDaysPassed reaches the second
+    /// ([`Game::end_timed_packages`]): set by SetPackDuration, or when a package with a
+    /// duration and no starting hour is chosen (`Game::set_package`).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub package_ends: Option<(FormId, f64)>,
+    /// The `package_ends` timer is the package's own schedule duration (a package with
+    /// no starting hour), not SetPackDuration's: Must Complete and Continue If PC Near
+    /// hold it ([`Game::end_timed_packages`]).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub package_ends_by_schedule: bool,
     /// SetActorsAI 0: the actor's AI does not run (no package choice, no detection, no
     /// walking); its scripts still do.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
