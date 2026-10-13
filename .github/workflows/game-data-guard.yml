@@ -1,0 +1,42 @@
+name: game-data-guard
+
+# The charter (CLAUDE.md) says no game data is ever committed. .gitignore blocks the
+# usual files, but `git add -f` or an edited .gitignore gets past it, so this check looks
+# at what the branch actually tracks. The patterns live here, not in .gitignore, so a
+# pull request cannot loosen them. It runs on every pull request, docs-only ones too.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No game files or built programs are tracked
+        run: |
+          found=$(git ls-files -- \
+            ':(icase)*.esm' ':(icase)*.esp' ':(icase)*.esl' ':(icase)*.bsa' \
+            ':(icase)*.nif' ':(icase)*.kf' ':(icase)*.dds' ':(icase)*.egm' \
+            ':(icase)*.egt' ':(icase)*.tri' ':(icase)*.lip' ':(icase)*.ogg' \
+            ':(icase)*.wav' ':(icase)*.mp3' ':(icase)*.fos' ':(icase)*.spt' \
+            ':(icase)*.exe' ':(icase)*.dll' \
+            'goldens/*' 'parity-lab/goldens/*' '*lab.local.json')
+          if [ -n "$found" ]; then
+            echo "::error::These files must not be committed (game data, goldens or binaries):"
+            echo "$found"
+            exit 1
+          fi
+      - name: No file over 5 MB
+        run: |
+          big=$(git ls-files -z | xargs -0 -r stat -c '%s %n' | awk '$1 > 5*1024*1024')
+          if [ -n "$big" ]; then
+            echo "::error::Files over 5 MB (game-derived dumps or binaries?):"
+            echo "$big"
+            exit 1
+          fi
