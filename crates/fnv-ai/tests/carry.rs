@@ -1253,3 +1253,26 @@ fn a_follower_is_processed_at_least_as_often_as_its_leader() {
     assert!(s.ai.set_level(&s.game, dog, fnv_ai::ProcessLevel::Low));
     assert_eq!(s.ai.level(dog), fnv_ai::ProcessLevel::Low);
 }
+
+#[test]
+fn an_actor_walking_into_the_loaded_area_is_moved_every_frame() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    s.run(1.0);
+    let actor = FormId(R_TRAVEL);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::Coming));
+    assert_eq!(s.ai.level(actor), fnv_ai::ProcessLevel::Coming);
+    assert_eq!(s.ai.process_counts(), (0, 1));
+    // Owner's playtest list 4 item 13: it walks on in real time, not in 18 s jumps.
+    for _ in 0..5 {
+        let at = s.feet(R_TRAVEL);
+        s.run(0.5);
+        assert!(dist(s.feet(R_TRAVEL), at) > 1.0, "it walked in this half second");
+    }
+    assert_eq!(s.ai.process_stats.coming, 1);
+    assert!(s.ai.process_stats.coming_updates >= 5);
+    // Into the loaded area: the high process.
+    assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::High));
+    assert_eq!((s.ai.level(actor), s.ai.process_counts()), (fnv_ai::ProcessLevel::High, (1, 0)));
+}

@@ -298,6 +298,9 @@ pub struct Ai {
     /// neither loaded nor buffered): updated every [`crate::process::FAR_PROCESS_SECONDS`]
     /// instead of [`crate::process::LOW_PROCESS_SECONDS`] ([`crate::process`]).
     pub(crate) far: std::collections::BTreeSet<FormId>,
+    /// Of the actors out of the high process, those walking into the loaded area:
+    /// updated every frame ([`crate::process::ProcessLevel::Coming`]).
+    pub(crate) coming: std::collections::BTreeSet<FormId>,
 }
 
 fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -306,7 +309,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default() }
     }
 
     /// Start looking after a placed actor, from where it is now.
