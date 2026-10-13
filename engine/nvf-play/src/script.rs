@@ -432,6 +432,9 @@ impl Runtime {
         // same interval when they start).
         let cfg = GameConfig { frame_seconds: 1.0 / 60.0, package_interval: packages.then_some(PACKAGE_INTERVAL), ..GameConfig::default() };
         let game = Game::new(data, World::new(sim.forms, sim.refs, sim.world.config()), cfg);
+        // The simulation's world is the one played (`with_world`): its placed actors carry
+        // their template's items too (template flag "Inventory").
+        sim.world.set_inventory_sources(data.inventory_sources(sim.refs));
         let mut children: HashMap<FormId, Vec<FormId>> = HashMap::new();
         for (id, p) in &sim.refs.refs {
             if let Some(ep) = p.enable_parent {
@@ -1103,7 +1106,7 @@ pub(crate) fn run_scripts(
     mut used: MessageReader<ItemUsed>,
     mut sit: MessageWriter<crate::furniture::UseFurniture>,
     paused: Res<crate::pause::Paused>,
-    loading: Res<crate::loading::Loading>,
+    (loading, bindings): (Res<crate::loading::Loading>, Option<Res<crate::bindings::Bindings>>),
 ) {
     // Items the player used up in the inventory menu (the menu already removed them),
     // kept until the runtime runs.
@@ -1307,7 +1310,11 @@ pub(crate) fn run_scripts(
             ScriptEffect::OpenContainer(c) => {
                 open.write(OpenContainer { container: c });
             }
-            ScriptEffect::Notify(note) => {
+            ScriptEffect::Notify(mut note) => {
+                // Key strings (`&sUActnVats;`) name the keys bound now.
+                if let Some(b) = bindings.as_deref() {
+                    note.text = crate::lockpick::help::expand_keys(&note.text, b);
+                }
                 info!("on screen: {}", note.text.trim().replace('\n', " / "));
                 corner.push(note);
             }
@@ -1315,7 +1322,12 @@ pub(crate) fn run_scripts(
                 info!("quest message: {}", crate::quest_messages::describe(&n));
                 quest_lines.push(n);
             }
-            ScriptEffect::MessageBox(b) => hud.message_box(b),
+            ScriptEffect::MessageBox(mut b) => {
+                if let Some(k) = bindings.as_deref() {
+                    b.text = crate::lockpick::help::expand_keys(&b.text, k);
+                }
+                hud.message_box(b)
+            }
             ScriptEffect::UseFurniture(reference) => {
                 info!("script: the player uses furniture {reference:08X} (a script's Activate)");
                 sit.write(crate::furniture::UseFurniture { reference });

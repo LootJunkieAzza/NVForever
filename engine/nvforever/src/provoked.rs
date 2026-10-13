@@ -6,7 +6,8 @@
 //!   off) is a yield [documented: GECK wiki Yielding]; `Game::player_yields` decides who
 //!   accepts it.
 //! - **Log**: `provocation:` lines for each assault, friendly hit let pass, hit ignored,
-//!   ally joining, yield accepted or refused, and a `provocation summary` at exit.
+//!   ally joining, coward staying out, yield accepted or refused, aggro radius warning
+//!   and attack (`fnv_game::aggro`), and a `provocation summary` at exit.
 
 use bevy::prelude::*;
 use fnv_game::provocation::Note;
@@ -32,6 +33,9 @@ struct Stats {
     yields: usize,
     forgiven: usize,
     refused: usize,
+    aggro_warnings: usize,
+    aggro_attacks: usize,
+    stayed_out: usize,
 }
 
 /// The player put the weapon away: a yield.
@@ -94,6 +98,18 @@ fn log_notes(mut script: Option<ResMut<ScriptState>>, mut stats: ResMut<Stats>) 
                 stats.refused += 1;
                 info!("provocation: {} ignores the yield ({after:.1} s into the fight): {why}", name(actor));
             }
+            Note::AggroWarned { actor, level, distance, radius } => {
+                stats.aggro_warnings += 1;
+                info!("provocation: {} warns the player inside its aggro radius (warning {level}; {distance:.0} of {radius:.0} units)", name(actor));
+            }
+            Note::AggroAttacks { actor, distance, radius } => {
+                stats.aggro_attacks += 1;
+                info!("provocation: {} attacks the player, who stayed inside its aggro radius ({distance:.0} of {radius:.0} units)", name(actor));
+            }
+            Note::StaysOut { helper, victim } => {
+                stats.stayed_out += 1;
+                info!("provocation: {} stays out of {}'s fight: its confidence is Cowardly", name(helper), name(victim));
+            }
         }
     }
 }
@@ -104,7 +120,7 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<Stats>) {
     }
     let s = &*stats;
     info!(
-        "provocation summary: {} actors attacked turned on their attacker, {} friendly hits let pass, {} hits ignored, {} allies joined a fight; {} yields: {} accepted, {} ignored",
-        s.assaulted, s.tolerated, s.ignored, s.assisted, s.yields, s.forgiven, s.refused
+        "provocation summary: {} actors attacked turned on their attacker, {} friendly hits let pass, {} hits ignored, {} allies joined a fight, {} cowards stayed out; {} yields: {} accepted, {} ignored; aggro radius: {} warnings, {} attacks",
+        s.assaulted, s.tolerated, s.ignored, s.assisted, s.stayed_out, s.yields, s.forgiven, s.refused, s.aggro_warnings, s.aggro_attacks
     );
 }

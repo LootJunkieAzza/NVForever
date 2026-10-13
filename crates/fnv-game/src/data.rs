@@ -410,6 +410,17 @@ pub struct ActorDef {
     pub assistance: Option<i64>,
     /// ACBS template flag "AI Data": the template supplies the AIDT values.
     pub template_ai: bool,
+    /// AIDT "Aggro Radius Behavior" and "Aggro Radius" (game units) [documented: xEdit
+    /// field names; the behaviour: `crate::aggro`].
+    pub aggro_radius_behavior: bool,
+    pub aggro_radius: u32,
+    /// ACBS template flags "Traits" (race, sex, voice, class), "Model/Animation",
+    /// "Inventory" and "Script" [documented: GECK wiki GetActorTemplateFlag, flag IDs 1,
+    /// 64, 256 and 512; xEdit ACBS template flags].
+    pub template_traits: bool,
+    pub template_model: bool,
+    pub template_inventory: bool,
+    pub template_script: bool,
     /// ZNAM: the combat style (CSTY) [documented: xEdit NPC_ and CREA ZNAM].
     pub combat_style: Option<FormId>,
     /// NPC_ ACBS "Auto-calc stats".
@@ -425,8 +436,8 @@ pub struct ActorDef {
     /// CREA ACBS "Invulnerable".
     pub invulnerable: bool,
     /// ACBS flag "No Low Level Processing": the actor's AI is not updated outside the
-    /// loaded area [documented: GECK wiki Category:NPC]. Read from the record itself, as
-    /// Essential is (whether the template flag Base Data passes it on is not checked).
+    /// loaded area [documented: GECK wiki Category:NPC]. With the template flag "Base
+    /// Data" the template's counts, as for Essential and Invulnerable (`Game::base_data_def`).
     pub no_low_level: bool,
     /// The record has a DATA whose Base Health (NPC_) or Health (CREA) is 0: its placed
     /// actors start the game as corpses ([`crate::game::Game::starts_dead`]).
@@ -1955,6 +1966,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         let code = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(|t| field_code(schema, &sig, b"AIDT", Some(k), t));
                         (a.aggression, a.confidence, a.mood, a.assistance) = (code("aggression"), code("confidence"), code("mood"), code("assistance"));
                         a.responsibility = v.as_ref().and_then(|v| v.get("responsibility")).and_then(Json::as_i64);
+                        a.aggro_radius_behavior = v.as_ref().and_then(|v| v.get("aggro_radius_behavior")).is_some_and(|b| b.as_str() == Some("True") || b.as_bool() == Some(true) || b.as_u64().is_some_and(|n| n != 0));
+                        a.aggro_radius = v.as_ref().and_then(|v| v.get("aggro_radius")).and_then(Json::as_u64).map_or(0, |n| n.min(u64::from(u32::MAX)) as u32);
                     }
                     b"ACBS" => {
                         let f = v.as_ref().and_then(|v| v.get("flags"));
@@ -1975,6 +1988,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.template_ai = has_flag(tf, "AI Data");
                         a.template_factions = has_flag(tf, "Factions");
                         a.template_base = has_flag(tf, "Base Data");
+                        a.template_traits = has_flag(tf, "Traits");
+                        a.template_model = has_flag(tf, "Model/Animation");
+                        a.template_inventory = has_flag(tf, "Inventory");
+                        a.template_script = has_flag(tf, "Script");
                     }
                     _ => {}
                 }

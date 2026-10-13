@@ -89,7 +89,8 @@ fn actor(g: &Game, refs: &RefTable, name: &str) -> anyhow::Result<Value> {
         chain.push(step);
     }
     let source = data.template_source(base, r, from_template);
-    let ai = data.template_source(base, r, |d| d.template_ai).and_then(|(_, d)| d.aggression);
+    let ai_def = data.template_source(base, r, |d| d.template_ai).map(|(_, d)| d);
+    let ai = ai_def.and_then(|d| d.aggression);
     let relation = |a: FormId, b: FormId| REACTION[faction_relation(g, a, b).clamp(0, 3) as usize];
     Ok(json!({
         "actor": name,
@@ -100,6 +101,7 @@ fn actor(g: &Game, refs: &RefTable, name: &str) -> anyhow::Result<Value> {
         "factions": source.map(|(_, d)| faction_list(data, &d.factions)),
         "factions_now": factions_of(g, r).iter().map(|f| data.name(*f)).collect::<Vec<_>>(),
         "aggression": ai.map(|a| AGGRESSION[a.clamp(0, 3) as usize]),
+        "aggro_radius": ai_def.filter(|d| d.aggro_radius_behavior && d.aggro_radius > 0).map(|d| d.aggro_radius),
         "towards_player": relation(r, FormId::PLAYER_REF),
         "player_towards_it": relation(FormId::PLAYER_REF, r),
     }))
@@ -249,6 +251,9 @@ fn placed(lo: &LoadOrder, schema: &Schema, forms: &FormStore, g: &Game, refs: &R
     let mut player_only_enemy = 0u64;
     // Creatures neutral to the player: aggression → factions source → count.
     let mut neutral_creatures: BTreeMap<&str, BTreeMap<String, u64>> = BTreeMap::new();
+    // Actors with an aggro radius that their aggression alone would not set on the
+    // player (`fnv_game::aggro`): kind → AI data source → count.
+    let mut aggro_adds: BTreeMap<&str, BTreeMap<String, u64>> = BTreeMap::new();
     for (&r, p) in &refs.refs {
         if !matches!(&p.sig, b"ACHR" | b"ACRE") {
             continue;
@@ -285,6 +290,16 @@ fn placed(lo: &LoadOrder, schema: &Schema, forms: &FormStore, g: &Game, refs: &R
         let who = if &def.sig == b"CREA" { "creatures" } else { "NPCs" };
         *stance.entry(format!("{who}, {}", AGGRESSION[aggression])).or_default().entry(REACTION[towards]).or_default() += 1;
         player_only_enemy += (towards != 1 && faction_relation(g, FormId::PLAYER_REF, r) == 1) as u64;
+        let ai = data.template_source(p.base, r, |d| d.template_ai);
+        let attacks_on_sight = match aggression {
+            3 => true,
+            2 => towards != 2 && towards != 3,
+            1 => towards == 1,
+            _ => false,
+        };
+        if let Some((ai_source, d)) = ai.filter(|(_, d)| d.aggro_radius_behavior && d.aggro_radius > 0 && !attacks_on_sight && towards != 2 && towards != 3) {
+            *aggro_adds.entry(who).or_default().entry(format!("{} ({}, radius {})", data.name(ai_source), AGGRESSION[aggression], d.aggro_radius)).or_default() += 1;
+        }
         if towards == 0 && &def.sig == b"CREA" {
             *neutral_creatures.entry(AGGRESSION[aggression]).or_default().entry(data.name(source)).or_default() += 1;
         }
@@ -296,6 +311,8 @@ fn placed(lo: &LoadOrder, schema: &Schema, forms: &FormStore, g: &Game, refs: &R
         top.into_iter().map(|(name, n)| format!("{name} {n}")).collect::<Vec<_>>()
     };
     let neutral_creatures: BTreeMap<&str, Vec<String>> = neutral_creatures.into_iter().map(|(k, m)| (k, top(m))).collect();
+    let aggro_counts: BTreeMap<&str, u64> = aggro_adds.iter().map(|(k, m)| (*k, m.values().sum())).collect();
+    let aggro_adds: BTreeMap<&str, Vec<String>> = aggro_adds.into_iter().map(|(k, m)| (k, top(m))).collect();
     json!({
         "actor_references": references,
         "placed_actors": actors,
@@ -312,5 +329,6 @@ fn placed(lo: &LoadOrder, schema: &Schema, forms: &FormStore, g: &Game, refs: &R
         "aggression_/_the_actors_factions_towards_the_players": stance,
         "players_factions_name_it_an_enemy_but_not_the_other_way": player_only_enemy,
         "placed_creatures_neutral_to_the_player_by_aggression_and_factions_source": neutral_creatures,
+        "aggro_radius_not_hostile_on_sight": { "counts": aggro_counts, "by_ai_data_source": aggro_adds },
     })
 }

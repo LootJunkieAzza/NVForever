@@ -154,7 +154,10 @@ the drawn actor), actor-values.md (Stats and AI Data from templates).
   not known from a capture [hypothesis: the rule holds; the AIDT aggro radius fields,
   which the export does not describe, may add to it]. A capture of `GetFactionRelation
   player`, `GetAV Aggression` and `IsInCombat` on a coyote and a giant rat while the
-  player walks up would settle it.
+  player walks up would settle it. **2026-10-13:** most of them have Aggro Radius
+  Behavior with a radius (giant rats 700, coyotes 1,024, bighorners 500–700, ants 512,
+  bloatflies 1,000, bark scorpions 400, mole rats 700) [observed]: they now warn and then
+  attack a player who comes inside it (combat-ai.md §13.1).
 
 ## 6. CLI contract
 
@@ -164,9 +167,10 @@ prints `fnv.actor.factions/1`.
 - `--actor` (`player`, a placed actor, or an actor base: its first placed reference):
   `chain` (each actor on the way with its own factions and flag, each list with its
   entries and the actor picked), `factions_source`, `factions`, `factions_now` (with
-  run-time changes; none in the authored game), `aggression`, `towards_player` and
-  `player_towards_it`.
-- `--survey`: `records` (§2, §3), `reactions` (§4), `placed` (§2, §3, §5).
+  run-time changes; none in the authored game), `aggression`, `aggro_radius` (when its
+  AI data turns the behaviour on), `towards_player` and `player_towards_it`.
+- `--survey`: `records` (§2, §3), `reactions` (§4), `placed` (§2, §3, §5; with
+  `aggro_radius_not_hostile_on_sight`, combat-ai.md §13.1).
 
 Check after changes to templates, leveled actor lists or faction functions:
 `fnvtool actor factions --schema schemas/fnv <Data> FalloutNV.esm --survey --actor player --actor FiendVioletRef --actor 00157B36`
@@ -176,6 +180,5 @@ and compare with the figures above; explain any change.
 
 - The game's own leveled pick (player level, encounter zone, level modifier) and when it
   is redone.
-- AI Packages, Traits and the other groups through a leveled list in `fnv-game`
-  (`base_package_list`, voice, race and sex read the placed base or an actor template).
-- Disposition modifiers of `XNAM`; who helps whom (Assistance); the aggro radius.
+- Disposition modifiers of `XNAM`. (Assistance: combat-ai.md §10.3; the aggro radius,
+  cowards and every template group through leveled lists: combat-ai.md §13, 2026-10-13.)

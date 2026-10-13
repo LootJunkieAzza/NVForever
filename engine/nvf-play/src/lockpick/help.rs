@@ -26,7 +26,7 @@
 
 use super::screen::{Ctx, FontKind, LockButton, BUTTON_DIM};
 use super::{Help, LockpickInput};
-use crate::bindings::{Bindings, Control};
+use crate::bindings::{Bindings, Control, GAME_CONTROLS};
 use crate::interface::{amber, at, u};
 use bevy::prelude::*;
 
@@ -73,7 +73,8 @@ pub fn key_label(k: KeyCode) -> String {
 }
 
 /// The help text with the executable's key strings replaced by the keys bound now:
-/// `&-sUActn<control>;` (Forward, Back, Sldleft, Sldright) by the control's key and
+/// `&-sUActn<control>;` and `&sUActn<control>;` (Forward, Back, Sldleft, Sldright, and
+/// any control by its INI name, such as Vats) by the control's key and
 /// `&sKB<key>;` by the key's name. Anything else between `&` and `;` is kept as it is.
 pub fn expand_keys(text: &str, bindings: &Bindings) -> String {
     let mut out = String::with_capacity(text.len());
@@ -86,12 +87,17 @@ pub fn expand_keys(text: &str, bindings: &Bindings) -> String {
             return out;
         };
         let name = &tail[1..end];
-        let control = match name.strip_prefix("-sUActn").map(str::to_ascii_lowercase).as_deref() {
+        let action = name.strip_prefix('-').unwrap_or(name).strip_prefix("sUActn").map(str::to_ascii_lowercase);
+        let control = match action.as_deref() {
             Some("forward") => Some(Control::Forward),
             Some("back") => Some(Control::Back),
             Some("sldleft") => Some(Control::SlideLeft),
             Some("sldright") => Some(Control::SlideRight),
-            _ => None,
+            // Any other control by its INI name without spaces and slashes, as
+            // `&sUActnVats;` in the VATS hint [hypothesis: the strings follow the INI
+            // names; only Vats seen, owner's playtest list 4].
+            Some(other) => GAME_CONTROLS.iter().find(|(_, n, _)| n.replace([' ', '/'], "").eq_ignore_ascii_case(other)).map(|(c, _, _)| *c),
+            None => None,
         };
         match (control, name.strip_prefix("sKB")) {
             (Some(c), _) => match bindings.get(c).key {
@@ -171,6 +177,7 @@ mod tests {
         let b = Bindings::game_defaults();
         let text = "&-sUActnForward;&-sUActnBack;&-sUActnSldleft;&-sUActnSldright;: Apply torque\r\n&sKBF;: Force Lock &unknown; & so";
         assert_eq!(expand_keys(text, &b), "WSAD: Apply torque\r\nF: Force Lock &unknown; & so");
+        assert_eq!(expand_keys("Center VATS &sUActnVats;", &b), "Center VATS V");
         assert_eq!(key_label(KeyCode::Digit4), "4");
         assert_eq!(key_label(KeyCode::Space), "Space");
     }

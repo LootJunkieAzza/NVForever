@@ -164,6 +164,22 @@ impl<'a> Game<'a> {
         self.def_following(r, |d| d.template_stats)
     }
 
+    /// The definition supplying `r`'s traits: race, sex, voice type, class (template
+    /// flag "Traits") [documented: GECK wiki Category:NPC, Template Data: each flag stands
+    /// for a tab; the Traits tab holds these].
+    pub(crate) fn traits_def(&self, r: FormId) -> Option<&'a ActorDef> {
+        self.def_following(r, |d| d.template_traits)
+    }
+
+    /// The definition supplying `r`'s base data: its name and the configuration flags
+    /// (Essential, Respawn, No Low Level Processing, Invulnerable) (template flag "Base
+    /// Data") [documented: GECK wiki Category:NPC, Template Data, "Base Data does not
+    /// include the Quest Item, No Knockdowns, No VATS Melee, Is CharGen Face Preset, or
+    /// Can Be All Races flags"].
+    pub(crate) fn base_data_def(&self, r: FormId) -> Option<&'a ActorDef> {
+        self.def_following(r, |d| d.template_base)
+    }
+
     /// The current value of an actor value as the formulas read it: within its range, 0
     /// when it cannot be read.
     fn formula_input(&mut self, r: FormId, code: u16) -> f64 {

@@ -139,11 +139,17 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let name = line(&p.name);
     let action_x = ACTION_X - action.width / 2.0;
     let name_base = ACTION_BASE + LINE_PITCH;
-    let mut texts = vec![
-        set(key.clone(), action_x - KEY_GAP - key.width, ACTION_BASE),
-        set(action, action_x, ACTION_BASE),
-        set(name.clone(), NAME_X - name.width / 2.0, name_base),
-    ];
+    // No action (an actor shown by name only, `Action::Name`): the name alone, on its
+    // own line [hypothesis: the line stays where it is with an action].
+    let mut texts = if p.action.is_empty() {
+        vec![set(name.clone(), NAME_X - name.width / 2.0, name_base)]
+    } else {
+        vec![
+            set(key.clone(), action_x - KEY_GAP - key.width, ACTION_BASE),
+            set(action, action_x, ACTION_BASE),
+            set(name.clone(), NAME_X - name.width / 2.0, name_base),
+        ]
+    };
     let divider = p.figures.as_ref().map(|[weight, value]| {
         let top = name_base + DIVIDER_BELOW;
         let base = top + FIGURES_BELOW;

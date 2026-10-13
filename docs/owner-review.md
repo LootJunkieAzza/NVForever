@@ -4448,3 +4448,90 @@ interrupts an attack with a stagger, hypothesis]; the gun's cycle (reload, refir
 just pauses.
 *Check:* cripple a gecko's or Powder Ganger's leg: no bite or shot until the stagger ends.
 Smoke `stagger-holds-attack` (Chet shot in the legs).
+
+## Playtest list 4: creature data
+
+Workstream L4 (`claude/creature-data`, 2026-10-13): items 14, 18, 19, 20 of
+`docs/handoff/playtest-list-4.md` §4, and the VATS hint's key token. Design notes:
+docs/design/combat-ai.md §13.
+
+### Item 20: names (and every group) from the template
+
+**Cause.** The prompt named an actor by its placed base's FULL, else its Editor ID. The
+dead gecko's base VSpawnTier2GeckoMed (0x00156777) has no FULL: it takes its Base Data
+from its template, the leveled list VEncTier2GeckoMed, whose entry VCrTier2GeckoMed is
+named "Gecko" [observed: `fnvtool esm decode`]. Other groups were read from the placed
+base too: traits (race, sex, voice, class), Essential, No Low Level Processing,
+Invulnerable, the carried items (a placed leveled list carried nothing) and the script.
+
+**Fix.** `GameData::display_base` (the "Base Data" source) names actors in the prompt,
+the loot/barter menu title, the conversation and hit messages. Traits, Base Data flags,
+Inventory (`fnv_sim::World::set_inventory_sources`) and Script now follow their template
+flags (combat-ai.md §13.4 has the table). The drawn model already did.
+
+*Decision/Guess:* the name is Base Data [observed: the template actor has no FULL when the
+flag is set; the owner's game shows "Gecko"]; GetIsCreatureType follows Stats (the type
+sits in CREA DATA with the stats) [hypothesis]; Karma stays the base's (unknown group).
+Carried items now come from the template: actors placed from a template or a leveled
+list (Powder Gangers, Fiends, much wildlife) now carry their template's items where they
+carried nothing before.
+*Check:* kill a gecko south of Goodsprings and look at it: "Search / Gecko". Loot a
+templated NPC (e.g. a leveled Powder Ganger): it carries items. Smoke `creature-names`.
+
+### Item 18: geckos that attack a player who comes close
+
+**Cause.** The AIDT aggro radius was not read. The owner's geckos are
+VSpawnSpecialTier1GeckoSmallGS02Hunter (0x0016518B, 0x0016518C): Unaggressive, neutral to
+the player, Aggro Radius Behavior on, radius 650 [observed].
+
+**Fix.** `fnv_game::aggro`: inside its radius, an actor that would not attack the player
+on sight warns (GuardTrespass) twice 5 s apart (iGuardWarnings, fAITrespassWarningTimer),
+then attacks; only while its package allows "Aggro Radius Behavior".
+
+*Decision/Guess:* warnings then attack, as the guard package (the wiki names aggro radius
+among the GuardTrespass warnings; how many warnings it gives is a guess: the guard's 2);
+the player only; leaving the radius resets the count. This also makes the Aggressive,
+Neutral wildlife that "left the player alone" (giant rats, coyotes, bighorners, ants,
+bloatflies, bark scorpions, mole rats; factions.md §5) attack inside their radius, and
+14 NPCs (Primm ambush gangers 768; Hoover Dam NCR snipers 25,000).
+**Not fixed for the owner's two geckos:** their first package, VCrGeckoFindFood (Once Per
+Day, 2 hours, Skip Fallout Behavior without the aggro flag), forbids it, and NVForever
+keeps a running Once Per Day package all day (a Find package never completes here), so
+they stay on it. In the game they would move on to their patrol/sandbox packages after it,
+which allow aggro. Ending a Once Per Day package after its duration is an AI package
+change left for the owner's call (it touches every such package).
+*Check:* walk up to a coyote or giant rat near Goodsprings: two warnings, then it attacks.
+Smoke `aggro-radius` (coyote VERGSCoyote6REF).
+
+### Item 19: no Talk on creatures and hostile actors
+
+**Fix.** A hostile actor (would attack the player, or fighting the player) shows only its
+name; a creature shows Talk only when it has a GREETING line it can say now; other NPCs
+keep Talk. E on a name-only target does nothing.
+
+*Decision/Guess:* "has a sayable GREETING line" stands for the game's rule [hypothesis: Rex
+and ED-E have dialogue, animals none]; an NPC without a line keeps Talk; the name alone is
+drawn on the name line (no "E)").
+*Check:* look at a bighorner in Goodsprings (name only), Rex (Talk), a Powder Ganger in a
+fight (name only). Smokes `creature-no-talk`, `creature-names`.
+
+### Item 14: the Goodsprings bighorners joined the fight
+
+**Cause.** Assistance (Helps Allies) and alarms took any ally into a fight. The bighorners
+(GSBigHorner) are Unaggressive, Cowardly, Helps Allies, in GoodspringsAnimalFaction
+[observed].
+
+**Fix.** A Cowardly actor never takes up another's fight (assistance or alarm); it still
+defends itself and flees when hurt (Cowardly threshold).
+
+*Decision/Guess:* Cowardly is the override ("I will always flee from combat", GECK wiki
+Confidence); Unaggressive alone does not keep a helper out (the wiki's aggression levels
+are about attacking on sight). The bighorners do not run away from the fight (avoiding
+threats out of combat is not built).
+*Check:* the Powder Ganger fight in Goodsprings: the bighorners stay out.
+
+### Extra: the VATS hint's `&sUActnVats;`
+
+**Fix.** Corner messages and message boxes now replace `&sUActn<control>;` (with or without
+the leading `-`) by the bound key, as the lockpick help did: "&sUActnVats;" reads "V".
+*Decision/Guess:* any control by its INI name without spaces [hypothesis; only Vats seen].

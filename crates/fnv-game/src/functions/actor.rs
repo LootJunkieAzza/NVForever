@@ -456,7 +456,7 @@ pub fn remove_from_faction(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
 pub fn get_is_voice_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let v = a.form(0)?;
-    let Some(voice) = base_of(g, r).and_then(|b| g.data.actors.get(&b)).and_then(|d| d.voice) else { return yes(false) };
+    let Some(voice) = g.traits_def(r).and_then(|d| d.voice) else { return yes(false) };
     yes(voice == v || super::refs::list_members(g, v).contains(&voice))
 }
 
@@ -466,7 +466,7 @@ fn is_female(g: &Game, r: FormId) -> bool {
             return f;
         }
     }
-    base_of(g, r).and_then(|b| g.data.actors.get(&b)).is_some_and(|a| a.female)
+    g.traits_def(r).is_some_and(|a| a.female)
 }
 
 /// Sex codes: 0 male, 1 female (scripts.md §2.4).
@@ -496,12 +496,12 @@ pub fn sex_change(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 pub fn get_is_race(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(base_of(g, r).and_then(|b| g.data.actors.get(&b)).and_then(|d| d.race) == Some(a.form(0)?))
+    yes(g.traits_def(r).and_then(|d| d.race) == Some(a.form(0)?))
 }
 
 pub fn get_is_class(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(base_of(g, r).and_then(|b| g.data.actors.get(&b)).and_then(|d| d.class) == Some(a.form(0)?))
+    yes(g.traits_def(r).and_then(|d| d.class) == Some(a.form(0)?))
 }
 
 macro_rules! flag {
@@ -524,15 +524,11 @@ flag!(set_restrained, get_restrained, restrained);
 flag!(set_unconscious, get_unconscious, unconscious);
 flag!(set_player_teammate, get_player_teammate, teammate);
 
-fn actor_def<'d>(g: &'d Game, r: FormId) -> Option<&'d crate::data::ActorDef> {
-    base_of(g, r).and_then(|b| g.data.actors.get(&b))
-}
-
 /// 1 for an actor whose race has the Child flag (RACE DATA) [documented: catalogue
 /// summary of IsChild].
 pub fn is_child(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(actor_def(g, r).and_then(|d| d.race).is_some_and(|race| g.data.child_races.contains(&race)))
+    yes(g.traits_def(r).and_then(|d| d.race).is_some_and(|race| g.data.child_races.contains(&race)))
 }
 
 /// 1 for a creature of the given type (CREA DATA type) [documented: catalogue summary];
@@ -540,7 +536,8 @@ pub fn is_child(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 pub fn get_is_creature_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let t = a.code(0)? as i64;
-    yes(actor_def(g, r).and_then(|d| d.creature_type) == Some(t))
+    // The type sits in CREA DATA with the stats [hypothesis: it follows the "Stats" flag].
+    yes(g.stats_def(r).and_then(|d| d.creature_type) == Some(t))
 }
 
 /// Essential: the reference's own flag (SetActorRefEssential) or its base's (ACBS,
@@ -550,7 +547,7 @@ pub fn essential(g: &Game, r: FormId) -> bool {
     let base = base_of(g, r);
     let base_flag = base
         .and_then(|b| g.forms.essential.get(&b).copied())
-        .unwrap_or_else(|| base.and_then(|b| g.data.actors.get(&b)).is_some_and(|d| d.essential));
+        .unwrap_or_else(|| g.base_data_def(r).is_some_and(|d| d.essential));
     base_flag || g.extra.get(&r).and_then(|e| e.essential).unwrap_or(false)
 }
 
