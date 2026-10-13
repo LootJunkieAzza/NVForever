@@ -60,6 +60,7 @@ mod residents;
 mod script_look;
 mod ripples;
 mod settings;
+mod shadow_probe;
 mod shafts;
 mod imagespace;
 mod imposters;
@@ -901,6 +902,9 @@ fn main() -> AppExit {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
             app.add_plugins(cell_resets::CellResetsPlugin);
+            if shadow_probe::enabled() {
+                app.add_plugins(shadow_probe::ShadowProbePlugin);
+            }
             app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
             // The sounds clips and doors name (anim_sounds.rs).
             app.add_plugins(anim_sounds::AnimSoundsPlugin);

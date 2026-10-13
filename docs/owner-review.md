@@ -4337,3 +4337,40 @@ the camera's line not at all [observed: smoke run 2026-10-13]; worth a look if t
 is hard to get on shopkeepers behind counters. New
 log line: `crosshair: the third-person camera's line (shoulder [..])` / `crosshair: the
 eye's view` when the crosshair's line changes.
+
+## First-person shadow flicker, second look (2026-10-13, session "fp-shadow-flicker")
+
+Branch `claude/fp-shadow-flicker`, playtest list 4 item 5 (follow-up of "Shadows and the
+sun" above). **Not reproduced; cause not found; no fix.** What was added is a debug probe,
+off by default: `NVF_PLAY_DEBUG_SHADOWS=1` (`engine/nvforever/src/shadow_probe.rs`, smoke
+scenario `shadow-probe`).
+
+- **What the probe checks** (every 10 frames, log lines `shadow probe: …`, a summary every
+  5 s): skinned shapes whose joints lie more than 1,500 units apart; skinned casters in the
+  sun's two near cascades with bounds wider than that; skins with a joint gone or standing
+  at the world's origin; in the render world, instances whose skin slot on the GPU is not
+  their skin's, and instances drawn from where their mesh's vertices or indices were
+  before the mesh was placed anew; and the widest joint spread of the hidden third-person
+  body (the one that casts your shadow in first person).
+- **Four runs, all clean** [observed]: Goodsprings at 14:00 in first person, after 11
+  jumps of 30,000-100,000 units (about 275 cell loads), with the 9mm pistol drawn and
+  holstered every 3 s while turning in 37° steps; a run leaving Doc Mitchell's house by
+  its door; and one at 1920x1080 with frames every half second looking east. Nothing was
+  flagged in any of them; the hidden body's joints stayed within 69-71 units; the frames
+  show only the normal body shadow.
+- **A clue for next time** [observed in your screenshots, hypothesis on its meaning]: all
+  three `shadowbug` screenshots look east (compass E), and the wedge narrows eastwards.
+  East of Goodsprings, 70,000 units away, is the world's origin (game 0, 0, 0). A skinned
+  shape whose vertices are drawn at the origin (Bevy writes a missing joint as the
+  identity; a skin read from a wrong place gives zeros) stretches from where it stands to
+  there, and its shadow would be exactly such a wedge. The probe now looks for this from
+  the main world (joints gone or at the origin) and the render world (skin slots, moved
+  meshes); a GPU-side cause it cannot see (a joint buffer read past what was written)
+  remains possible.
+- **Please, if you see it again:** run with `NVF_PLAY_DEBUG_SHADOWS=1` set (e.g.
+  `$env:NVF_PLAY_DEBUG_SHADOWS=1` before `play-new-game.ps1`; the script clears only
+  `NVF_PLAY_TEST_*`), and keep that run's log from `%LOCALAPPDATA%\NVForever\logs`. Note
+  which way you face, and whether turning to look west makes the wedge go. Any
+  `shadow probe:` warning names the shape and its owner.
+- *Decisions/guesses:* the probe's thresholds (1,500 units; body spread 30-300 in the
+  smoke test) are mine. No game behaviour changed.
