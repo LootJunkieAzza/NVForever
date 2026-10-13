@@ -4374,3 +4374,35 @@ scenario `shadow-probe`).
   `shadow probe:` warning names the shape and its owner.
 - *Decisions/guesses:* the probe's thresholds (1,500 units; body spread 30-300 in the
   smoke test) are mine. No game behaviour changed.
+
+## Smoke effects and grass pixels (playtest list 4 items 16, 17) (2026-10-13, session "smoke-grass-fx")
+
+- **16, smoke not animated and far too visible.** The camp fire smoke south of Goodsprings
+  is `DLCPittFXGroundSmoke01` and the Bison Steve smoke `FXSmokeWisps01`: meshes whose
+  texture scrolls by a `NiTextureTransformController` attached straight to the texturing
+  property, with no sequence. We only played controllers inside sequences, so they stood
+  still. They now play on their own cycles (13.3 s for the ground smoke, 36.7 s and 44.1 s
+  for the wisps' two directions). Too visible: these unlit shapes are tinted grey by their
+  vertex colours (0.57 for the ground smoke), which we read as linear values, drawing them
+  as a near-white plume. Unlit shapes now take vertex colours as display values, as the
+  landscape and grass already do. The additive alpha^1.5 from #201 is not involved: both
+  smokes use normal alpha blending. Checked with one frame before and frames after (the
+  pattern moves between frames 12 s apart and the smoke is a faint haze).
+  - *Please check:* the camp fire south of Goodsprings and the Bison Steve smoke against
+    the game: speed and direction of the drift (I assumed the texture moves by +offset,
+    which makes the pattern rise), and strength.
+  - *Side effect to look at:* every unlit shape with grey vertex colours is now darker
+    (glows, signs and shade overlays drawn by BSShaderNoLightingProperty). By the same
+    reasoning this should be closer to the game, but I did not look at those.
+  - *Not done:* smoke built from particle systems inside ordinary models is still not drawn
+    (`fxlightsmoke`, the Primm dark smoke `dlc03fxdarksmoke`, tyre smoke, ashtray smoke,
+    HELIOS steam; about 66 placements). It needs the add-on particle code to emit from
+    ordinary models; a workstream of its own. Transform, visibility and colour controllers
+    outside sequences (e.g. the dust tube) are not played either.
+- **17, floating grass pixels.** The grass models share one texture atlas, and some blade
+  tips reach a little past its edge (V −0.1 to −0.01, U up to 1.23). With repeating
+  sampling, those tips picked up the dense blade feet at the opposite edge of the atlas
+  and drew them as small opaque triangles above the plants. Grass textures are now
+  sampled clamped at their edges, so the soft edges stay as they were. The triangles are
+  gone in the owner's view (before and after frames at the same spot, 17:06).
+  - *Guess:* the game clamps the grass texture; the shader property stores no clamp mode.
