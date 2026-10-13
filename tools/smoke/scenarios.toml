@@ -1901,5 +1901,5 @@ order = [[
 ]]
 expect = [
   { re = 'ai summary at .*0x0016518[BC]: VCrGeckoSandboxEditorLocation1024', label = "the chain ended on the sandbox" },
-  { re = 'provocation: 0x0016518[BC] .*attacks the player, who stayed inside its aggro radius', label = "a gecko attacks after its warnings", known_failing = "2026-10-13 (L6): the warnings come, but the count starts afresh whenever the gecko stops detecting the player (crates/fnv-game/src/aggro.rs needs Detected within the last second; at 06:00-07:00 the wandering gecko loses sight of the player within the 5 s before the attack), so no attack in 90 s; three runs: 2 warnings then a restart each time" },
+  { re = 'provocation: 0x0016518[BC] .*attacks the player, who stayed inside its aggro radius', label = "a gecko attacks after its warnings" },
 ]

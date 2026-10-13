@@ -4619,3 +4619,17 @@ scenario. Whether a warning count should survive a short loss of sight is the ow
 17:00 and wait 14 hours: they patrol off after about 2 hours and come back to sandbox
 after about 10, then warn when the player is within 650 units. Smoke
 `package-duration-geckos`.
+
+## Aggro warnings that outlast a short loss of sight (2026-10-13, coordinator)
+
+Follow-up to "Package durations" (L6, #266) and #264's aggro radius. The owner's geckos at cell
+-17,-6 warned twice but never attacked: right after the second warning the wandering gecko
+walked past the player facing away (detection Detected → Noticed at 49 units), and the count
+started afresh at once. Decisions (crates/fnv-game/src/aggro.rs):
+- The warning count now clears only after two warning timers (10 s) without the player inside
+  the radius, not on the first tick the actor stops seeing them.
+- An actor that has started warning keeps counting while the player is in its alert band
+  (Noticed), not only Detected.
+Check in game: the geckos south-west of Goodsprings warn and then attack; a creature you walk
+away from (out of its radius) forgets its warnings after about 10 s.
+
