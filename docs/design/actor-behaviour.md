@@ -71,6 +71,26 @@ Two ways of choosing:
   met, or Continue If PC Near with the player in the actor's cell [documented]. The
   goal is reported by the layer that carries the package out (`package_goal_met`).
 
+**How long a package runs** (2026-10-13, playtest list 4 item 18; only with
+`package_interval` set): a list package with a **duration and no starting hour** ends
+that many game hours after the actor chose it (`start_schedule_duration`,
+`end_timed_packages`, the same ending as SetPackDuration's: end script, then choose
+again) [documented: GECK wiki SetPackDuration "sets the duration of the actor's current
+package", the Schedule tab gives it in hours; Continue If PC Near holds a package "even
+if the package should have expired"; hypothesis: counted from the choice]. A **Once Per
+Day** package that ended is not chosen again that day ("not immediately selected again
+after being completed" [documented: Category:Packages]), so the next valid package of the
+list takes over; any other package may be chosen again at once and starts afresh. A held
+package (Must Complete or Must Reach Location before its goal, Continue If PC Near with
+the player in the cell) does not end by its duration [documented]. With nothing else
+valid the ended package goes on [hypothesis]. Packages with a starting hour end with
+their window, as before; script packages are left alone [our choice]. The game data is
+built for this [observed]: the Goodsprings geckos' list is VCrGeckoFindFood (Once Per Day,
+2 h), VCrGeckoPatrolRunningLinkedRef (3 h), VCrGeckoFindFood02 (2 h),
+VCrGeckoPatrolRunning02LinkedRef (3 h), then a sandbox with no duration. A Find package
+that finds its target is not ended early: Find is not carried out yet (§5.1), and no
+source read says what "found" ends.
+
 **When** (only with `package_interval` set): every actor in the loaded cells, and every
 actor that already runs a package, chooses when first seen and then every interval
 (10 seconds [documented: "seem to be"]). Each actor has its own phase within the

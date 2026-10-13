@@ -85,7 +85,7 @@ impl Game<'_> {
     ///    cannot carry out is not documented];
     /// 4. a Once Per Day package is not chosen again within 24 game hours of the
     ///    moment the actor chose it [documented]; one that is still running may go on
-    ///    [hypothesis];
+    ///    [hypothesis] until its duration ends it ([`Game::end_timed_packages`]);
     /// 5. the conditions, with the actor as the subject.
     pub fn check_package(&mut self, actor: FormId, package: FormId) -> PackageCheck {
         let data = self.data;
@@ -170,6 +170,8 @@ impl Game<'_> {
             let now = self.world.calendar().map(|c| c.days_passed).unwrap_or(0.0);
             self.extra.entry(actor).or_default().package_chosen_at.insert(p, now);
         }
+        // Before the begin script runs, so that a SetPackDuration there replaces it.
+        self.start_schedule_duration(actor);
         self.emit(EventKind::PackageChosen { actor, package });
         if self.runs_packages() {
             if let Some(o) = old.filter(|_| !finished) {
@@ -237,11 +239,44 @@ impl Game<'_> {
         self.evaluate_package(actor)
     }
 
-    /// Packages whose SetPackDuration time is up end: the package counts as done (its
-    /// end script and OnPackageDone run, as for a goal met), the actor lets it go and
-    /// chooses again at once, by the usual rules [hypothesis: what "duration" ends into
-    /// is not documented; choosing again may pick the same package, which then starts
-    /// afresh with its begin script]. A package changed in the meantime drops the timer.
+    /// A list package with a schedule duration and no starting hour runs for that many
+    /// game hours from the moment the actor chose it, then ends
+    /// ([`Game::end_timed_packages`]) [documented: GECK wiki SetPackDuration "sets the
+    /// duration of the actor's current package", the Schedule tab sets it in hours, and
+    /// Continue If PC Near holds a package "even if the package should have expired";
+    /// hypothesis: counted from the choice, as no starting hour gives another start;
+    /// observed: such lists are built as chains, e.g. the Goodsprings geckos' Once Per
+    /// Day VCrGeckoFindFood 2 h, VCrGeckoPatrolRunningLinkedRef 3 h, VCrGeckoFindFood02
+    /// 2 h, VCrGeckoPatrolRunning02LinkedRef 3 h, then a sandbox with no duration].
+    /// A package with a starting hour ends with its window instead (the schedule
+    /// check); a script package (AddScriptPackage) is left alone [our choice: its end is
+    /// a separate open question, packages.md §6].
+    fn start_schedule_duration(&mut self, actor: FormId) {
+        let Some(e) = self.extra.get(&actor) else { return };
+        let Some(p) = e.current_package.filter(|p| e.packages.last() != Some(p)) else { return };
+        let Some(def) = self.data.package_defs.get(&p) else { return };
+        if def.schedule.hour >= 0 || def.schedule.duration == 0 {
+            return;
+        }
+        let now = self.world.calendar().map(|c| c.days_passed as f64).unwrap_or(0.0);
+        let e = self.extra.entry(actor).or_default();
+        e.package_ends = Some((p, now + def.schedule.duration as f64 / 24.0));
+        e.package_ends_by_schedule = true;
+    }
+
+    /// Packages whose time is up end (SetPackDuration's, or the schedule duration of
+    /// [`Game::start_schedule_duration`]): the package counts as done (its end script
+    /// and OnPackageDone run, as for a goal met), the actor lets it go and chooses again
+    /// at once, by the usual rules [hypothesis: what "duration" ends into is not
+    /// documented; choosing again may pick the same package, which then starts afresh
+    /// with its begin script; a Once Per Day package is not chosen again, which is what
+    /// the flag is for: "not immediately selected again after being completed",
+    /// documented: GECK wiki, Category:Packages]. A schedule duration does not end a
+    /// package that is held ([`Game::package_held`]: Must Complete or Must Reach
+    /// Location before its goal, Continue If PC Near with the player in the cell)
+    /// [documented: the flags "will not terminate" until then]. With no other valid
+    /// package the actor keeps the ended one [hypothesis, as the keep rule of
+    /// [`Game::select_package`]]. A package changed in the meantime drops the timer.
     pub fn end_timed_packages(&mut self) {
         let now = self.world.calendar().map(|c| c.days_passed as f64).unwrap_or(0.0);
         let due: Vec<FormId> = self
@@ -251,16 +286,24 @@ impl Game<'_> {
             .collect();
         self.extra.values_mut().filter(|e| e.package_ends.is_some_and(|(p, _)| e.current_package != Some(p))).for_each(|e| e.package_ends = None);
         for a in due {
-            self.extra.entry(a).or_default().package_ends = None;
             if self.extra.get(&a).is_some_and(|e| e.dead || e.ai_off) {
+                self.extra.entry(a).or_default().package_ends = None;
                 continue;
             }
+            if self.extra.get(&a).is_some_and(|e| e.package_ends_by_schedule) && self.package_held(a).is_some() {
+                continue;
+            }
+            self.extra.entry(a).or_default().package_ends = None;
             let p = self.extra.get(&a).and_then(|e| e.current_package);
             self.package_goal_met(a);
             if p.is_some_and(|p| self.extra.get(&a).is_some_and(|e| e.packages.last() != Some(&p))) {
                 self.set_package(a, None);
             }
-            self.evaluate_package(a);
+            if self.evaluate_package(a).is_none() {
+                // Nothing else is valid: the ended package goes on (no begin script).
+                self.extra.entry(a).or_default().current_package = p;
+                self.emit(EventKind::PackageChosen { actor: a, package: p });
+            }
         }
     }
 
@@ -339,6 +382,7 @@ impl Game<'_> {
         if !self.runs_packages() {
             return;
         }
+        self.end_timed_packages();
         for a in self.package_actors() {
             if self.present(a) && !self.extra.get(&a).is_some_and(|e| e.dead || e.ai_off) {
                 self.update_package(a);

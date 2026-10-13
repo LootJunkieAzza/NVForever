@@ -524,8 +524,10 @@ packages, packages in no list, placed actors whose base lists packages).
   time (every capture used timescale 30), and how the game treats actors in unloaded
   cells (three switched in one sample).
 - Schedules: a starting hour with duration 0 (12 master packages, which our rule never
-  lets run [hypothesis]) and a duration without a starting hour (358 packages, treated
-  as any time; perhaps how long the activity lasts); the day a window that crosses
+  lets run [hypothesis]) and a duration without a starting hour (358 packages: since
+  2026-10-13 treated as how long the package runs from its choice [hypothesis built on
+  the documented SetPackDuration "duration of the actor's current package";
+  docs/design/actor-behaviour.md §3], not yet seen in a capture); the day a window that crosses
   midnight belongs to; months, seasons and dates (no master package uses them).
 - With no valid package: does the actor keep its current package or take the last of
   its list (§4), and what does an actor that has run none do?

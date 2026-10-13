@@ -4567,3 +4567,55 @@ threats out of combat is not built).
 **Fix.** Corner messages and message boxes now replace `&sUActn<control>;` (with or without
 the leading `-`) by the bound key, as the lockpick help did: "&sUActnVats;" reads "V".
 *Decision/Guess:* any control by its INI name without spaces [hypothesis; only Vats seen].
+
+## Package durations (2026-10-13, session "package-duration")
+
+Workstream L6 (`claude/package-duration`): playtest list 4 item 18, the follow-up of #264
+(the owner's two non-hostile geckos at cell -17,-6 never attacked). Design:
+docs/design/actor-behaviour.md §3 "How long a package runs".
+
+**Cause.** VCrGeckoFindFood (Find, Once Per Day, schedule "any time" with a 2-hour duration,
+Skip Fallout Behavior without the aggro flag) is the first package of their list, and a
+duration without a starting hour was ignored: the package ran all day, so the next one,
+which allows aggro, never came.
+
+**Fix.** A list package with a duration and no starting hour now ends that many game
+hours after the actor chose it, the same way a SetPackDuration time ends (#250's
+`end_timed_packages`: end script and OnPackageDone, then the actor chooses again). Once
+Per Day keeps it from being chosen again that day, so the next valid package takes
+over. The geckos' list is built for this [observed]: find food 2 h, patrol 3 h, find food
+2 h, patrol 3 h, then a sandbox at their spot with no duration, which allows aggro.
+
+*Sources:* GECK wiki SetPackDuration ("sets the duration of the actor's current package";
+the Schedule tab gives durations in hours), Category:Packages (Continue If PC Near holds
+a package "even if the package should have expired"; Once Per Day exists so a package is
+"not immediately selected again after being completed"; Must Complete "will not
+terminate" before its goal) [documented]. The export has no Find package page.
+
+*Decisions/guesses:*
+- The duration counts from the moment the actor chose the package [hypothesis: nothing
+  else gives a start when there is no starting hour].
+- A package that is held (Must Complete / Must Reach Location before its goal, Continue
+  If PC Near with the player in the cell) does not end by its duration [documented flags;
+  SetPackDuration's own timer is unchanged and still ends at once].
+- A package without Once Per Day may be chosen again right away and starts afresh (its
+  begin script runs again) [hypothesis]. About 358 master packages have a duration and no
+  starting hour; the ones without Once Per Day now restart every `duration` hours.
+- With no other valid package, the ended package goes on [hypothesis, as the keep rule].
+- Packages with a starting hour still end with their window; script packages
+  (AddScriptPackage) are not ended by a duration [our choice].
+- A Find package is not ended early by finding food: Find is not carried out yet, and no
+  source read says what "found" ends.
+- Hours passed in the Wait menu: packages are chosen once per waited hour, so each step of
+  a chain can start up to an hour late during a wait.
+
+*Not fixed:* in the smoke run the geckos come back on their sandbox and warn the player
+twice, but the count starts afresh whenever the gecko stops detecting the player
+(`aggro.rs` needs Detected within the last second), and the wandering gecko lost sight of
+the player before the attack in each run (at 06:00–07:00 game time). Marked known in the
+scenario. Whether a warning count should survive a short loss of sight is the owner's call.
+
+*Check in game:* stand at the owner's spot near the two geckos (-65828, -23929) at about
+17:00 and wait 14 hours: they patrol off after about 2 hours and come back to sandbox
+after about 10, then warn when the player is within 650 units. Smoke
+`package-duration-geckos`.

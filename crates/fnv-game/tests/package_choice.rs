@@ -110,6 +110,8 @@ const P_MUST: u32 = 0x828;
 const P_SHOP: u32 = 0x829;
 const P_SUNDAY: u32 = 0x82A;
 const P_WEEKEND: u32 = 0x82B;
+const P_FIND_2H: u32 = 0x82C;
+const P_PATROL_3H: u32 = 0x82D;
 // Actor bases and references.
 const NPC_A: u32 = 0x840;
 const NPC_B: u32 = 0x841;
@@ -118,6 +120,7 @@ const NPC_D: u32 = 0x843;
 const NPC_E: u32 = 0x844;
 const NPC_F: u32 = 0x845;
 const NPC_G: u32 = 0x846;
+const NPC_H: u32 = 0x847;
 const STAT: u32 = 0x850;
 const CELL: u32 = 0x860;
 const CELL_FAR: u32 = 0x861;
@@ -131,6 +134,7 @@ const REF_E: u32 = 0x876;
 const REF_F: u32 = 0x877;
 const REF_G: u32 = 0x878;
 const REF_FAR: u32 = 0x879;
+const REF_H: u32 = 0x87A;
 
 const TRAVEL: u8 = 6;
 const SLEEP: u8 = 4;
@@ -164,6 +168,8 @@ fn plugin_bytes() -> Vec<u8> {
         p(P_SHOP, "Shop8x12", flags::CONTINUE_IF_PC_NEAR, TRAVEL, NEAR_EDITOR, 8, 12, -1, None),
         p(P_SUNDAY, "Sunday", 0, TRAVEL, NEAR_EDITOR, -1, 0, 0, None),
         p(P_WEEKEND, "Weekend", 0, TRAVEL, NEAR_EDITOR, -1, 0, 8, None),
+        p(P_FIND_2H, "FindOnceADay2h", flags::ONCE_PER_DAY, 0, NEAR_EDITOR, -1, 2, -1, None),
+        p(P_PATROL_3H, "SandboxOnceADay3h", flags::ONCE_PER_DAY, SANDBOX, NEAR_EDITOR, -1, 3, -1, None),
     ]
     .concat();
     let npcs = [
@@ -175,6 +181,7 @@ fn plugin_bytes() -> Vec<u8> {
         npc(NPC_E, "E", &[P_MUST, P_DEFAULT]),
         npc(NPC_F, "F", &[P_SHOP, P_DEFAULT]),
         npc(NPC_G, "G", &[P_SUNDAY, P_WEEKEND, P_DEFAULT]),
+        npc(NPC_H, "H", &[P_FIND_2H, P_PATROL_3H, P_DEFAULT]),
     ]
     .concat();
     let stat = record(b"STAT", STAT, &[sub(b"EDID", z("Marker"))]);
@@ -188,6 +195,7 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", REF_E, "ERef", NPC_E, None),
         placed(b"ACHR", REF_F, "FRef", NPC_F, None),
         placed(b"ACHR", REF_G, "GRef", NPC_G, None),
+        placed(b"ACHR", REF_H, "HRef", NPC_H, None),
     ]
     .concat();
     let cell = |id: u32, edid: &str, refs: &[u8]| {
@@ -512,4 +520,28 @@ fn set_pack_duration_ends_the_package_and_set_actors_ai_stops_the_choice() {
     call(&mut g, 0x118B, 1.0);
     g.frames(60 * 12);
     assert_eq!(g.extra[&a].current_package, Some(id(P_NIGHT)));
+}
+
+/// A list package with a duration and no starting hour ends that many game hours after
+/// it was chosen; Once Per Day keeps it from being chosen again that day, so the next
+/// package of the list takes over (the Goodsprings geckos' chain: find food 2 h, patrol
+/// 3 h, then a sandbox), and a day later the first one is valid again.
+#[test]
+fn a_schedule_duration_ends_the_package_and_the_next_one_takes_over() {
+    let f = fixture();
+    let mut g = game(&f, Some(10.0));
+    let h = id(REF_H);
+    g.tick();
+    assert_eq!(g.extra[&h].current_package, Some(id(P_FIND_2H)));
+    assert!(g.extra[&h].package_ends_by_schedule);
+    for (days, want) in [(5.05, P_FIND_2H), (5.09, P_PATROL_3H), (5.2, P_PATROL_3H), (5.22, P_DEFAULT), (5.9, P_DEFAULT)] {
+        set(&mut g, G_DAYS_PASSED, days);
+        g.tick();
+        assert_eq!(g.extra[&h].current_package, Some(id(want)), "at day {days}");
+    }
+    // A day after the first choice the find package is valid again.
+    set(&mut g, G_DAYS_PASSED, 6.01);
+    assert_eq!(g.evaluate_package(h), Some(id(P_FIND_2H)));
+    // Its timer starts afresh.
+    assert!(g.extra[&h].package_ends.is_some_and(|(p, t)| p == id(P_FIND_2H) && (t - (6.01 + 2.0 / 24.0)).abs() < 1e-4));
 }

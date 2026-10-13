@@ -1883,3 +1883,23 @@ order = [[
   { re = 'provocation: VERGSCoyote6REF 0x00157B38 attacks the player, who stayed inside its aggro radius', label = "then it attacks" },
 ]]
 expect = [{ re = 'provocation summary: .*aggro radius: (?P<n>\d+) warnings, (?P<m>\d+) attacks', label = "the aggro radius in the provocation summary" }]
+
+[[scenario]]
+name = "package-duration-geckos"
+source = "playtest list 4 item 18, follow-up L6 (crates/fnv-game/src/ai.rs start_schedule_duration / end_timed_packages, docs/design/actor-behaviour.md §3): a list package with a duration and no starting hour ends that long after it was chosen, Once Per Day keeps it from coming back that day, and the next package takes over"
+note = "the owner's geckos at cell -17,-6 (0x0016518B, 0x0016518C, VSpawnSpecialTier1GeckoSmallGS02Hunter, aggro radius 650): VCrGeckoFindFood (Once Per Day, 2 h, forbids aggro), VCrGeckoPatrolRunningLinkedRef (3 h), VCrGeckoFindFood02 (2 h), VCrGeckoPatrolRunning02LinkedRef (3 h), then VCrGeckoSandboxEditorLocation1024 (allows aggro). The player starts at the owner's spot; the hostile geckos within 6,000 units are disabled so that no fight is joined; a 14-hour wait (packages are chosen once per waited hour, so each step starts up to an hour late) runs the chain to the sandbox, which brings them back"
+areas = ["ai", "combat"]
+paths = ["crates/fnv-game/src/ai.rs", "crates/fnv-game/src/aggro.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "1:call:0x00157B3C:Disable,1:call:0x00157B3F:Disable,1:call:0x00157B40:Disable,1:call:0x00157B41:Disable,1:call:0x00164A37:Disable,1:call:0x00164A39:Disable,1:call:0x00159625:Disable,1:call:0x00159627:Disable", NVF_PLAY_TEST_WAIT = "20:open,21:hours=14,22:accept" }
+args = ["--play", "--pos=-65828,-23929,7313", "--hour", "17", "--no-voice", "--no-messages"]
+run_seconds = 90
+order = [[
+  { re = 'an hour passed in the wait menu', label = "the wait passes hours" },
+  { re = '0x0016518[BC]: runs to .*patrol point VERT1GSPrimmGeckoRoute01b', label = "after its 2 hours of find food, the patrol takes over" },
+  { re = 'wait menu: 14 hour\(s\) passed; closed', label = "the wait ends" },
+  { re = 'provocation: 0x0016518[BC] .*warns the player inside its aggro radius \(warning 1;', label = "a gecko, back on its sandbox, warns the player inside its aggro radius" },
+]]
+expect = [
+  { re = 'ai summary at .*0x0016518[BC]: VCrGeckoSandboxEditorLocation1024', label = "the chain ended on the sandbox" },
+  { re = 'provocation: 0x0016518[BC] .*attacks the player, who stayed inside its aggro radius', label = "a gecko attacks after its warnings", known_failing = "2026-10-13 (L6): the warnings come, but the count starts afresh whenever the gecko stops detecting the player (crates/fnv-game/src/aggro.rs needs Detected within the last second; at 06:00-07:00 the wandering gecko loses sight of the player within the 5 s before the attack), so no attack in 90 s; three runs: 2 warnings then a restart each time" },
+]
