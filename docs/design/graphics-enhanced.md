@@ -18,7 +18,7 @@ look only.
 |---|---|---|
 | Main view | Not HDR: forward PBR with tonemapping (Tony McMapface) in the shaders into an 8-bit sRGB target; MSAA 4x (`--msaa`, the owner's game runs 8); depth prepass (water and the image-space blur read it) | `main.rs` `setup` |
 | Alpha-tested edges | Smoothed with MSAA (soft edges standing in for transparency multisampling) | `nvf_assets::nif_material`, grass, trees |
-| Sun | One directional light, 4 shadow cascades out to `--shadow-distance` (16,000), first cascade a twelfth of it, maps 2048² (Bevy's default), Gaussian PCF (Bevy's default); a second "shade" light for the first-person arms copies its cascades | `sky.rs`, `player_body.rs` |
+| Sun | One directional light; shadows off by default since 2026-10-13 (owner decision, frame cost and flicker; `--sun-shadows` or the settings page): 4 shadow cascades out to `--shadow-distance` (16,000), first cascade a twelfth of it, maps 2048² (Bevy's default), Gaussian PCF (Bevy's default); a second "shade" light for the first-person arms copies its cascades | `sky.rs`, `player_body.rs` |
 | Local lights | Point/spot lights from LIGH records, flashlight with shadows | `lights.rs`, `flashlight.rs` |
 | Sky | The game's sky meshes, colours mapped through the inverse of the tonemapper so the grade sees the weather's colours | `sky.rs`, `sky.wgsl` |
 | Fog | Bevy distance fog, linear, from the weather's near/far | `sky.rs` |

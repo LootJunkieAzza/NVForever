@@ -210,7 +210,7 @@ pub struct SkyState {
     pub interior: Option<fnv_world::lighting::CellLighting>,
     /// Interior mode: the cell's own image space (CELL XCIM) grades the picture.
     pub interior_grade: Option<Cinematic>,
-    /// The sun casts shadows (`--shadow-distance` above 0; the settings page:
+    /// The sun casts shadows (`--sun-shadows` with `--shadow-distance` above 0; the settings page:
     /// [`set_shadows`]).
     pub shadows: bool,
     /// Sun shadows reach this far from the camera (game units).

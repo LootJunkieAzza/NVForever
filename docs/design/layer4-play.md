@@ -395,7 +395,7 @@ keep the positions. Changed in `nvf-play` (`player.rs` `keys`, `read_keys`):
     `dialogue-recentre` (`--dialogue-recentre`), `lip-sync` (`--no-lip`),
     `head-tracking` (`--no-head-tracking`), `sky-clock` (`--still-sky`),
     `first-person-body` (`--first-person-body`, player-body.md §1.5), `sun-shadows`
-    (`--shadow-distance 0`), `grass` (`--no-grass`), `distant-lod` (`--no-lod`), `grade`
+    (`--sun-shadows`), `grass` (`--no-grass`), `distant-lod` (`--no-lod`), `grade`
     (`--no-grade`), `overlay` (`--no-overlay`), `navmesh` (`--show-navmesh`).
   - What switching while the game runs needed: grass switched off is hidden and cells
     loaded meanwhile are owed theirs (`grass.rs` `GrassOwed`), grown a cell a frame once

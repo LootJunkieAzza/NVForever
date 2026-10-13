@@ -88,7 +88,7 @@ pub fn register(app: &mut App) {
             key: "sun-shadows",
             group: GROUP_PICTURE,
             label: "Sun shadows",
-            note: "On: the sun casts shadows out to --shadow-distance. The original casts none from the world. (--shadow-distance 0)",
+            note: "On: the sun casts shadows out to --shadow-distance. The original casts none from the world. (--sun-shadows)",
             get: |w| w.resource::<SkyState>().shadows,
             set: crate::sky::set_shadows,
         },

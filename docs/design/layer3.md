@@ -112,7 +112,8 @@ What it does now:
   game's sun positions: rises at sunrise begin, sets at sunset end, 9° south of the
   east-west line (world.md §6). Sun shadows: four cascades out to `--shadow-distance`
   (default 16,000 units; 0 turns them off). The original game casts none from the world
-  (world.md §6); they stay on by default by owner decision (2026-10-09). The directional light
+  (world.md §6); they were on by default by owner decision (2026-10-09) and are off by
+  default, behind `--sun-shadows`, since 2026-10-13 (owner decision: frame cost and flicker). The directional light
   fades out within ~6° of the horizon, where it switches between sun and moon
   [interim]. Observed in the time-lapse: NVWastelandClear's night ambient (luminance
   0.42) is brighter than its day ambient (0.14), so nights look brighter than late

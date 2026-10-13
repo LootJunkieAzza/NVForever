@@ -192,9 +192,13 @@ struct Args {
     /// (docs/spec-notes/image-modifiers.md §6). Repeatable.
     #[arg(long, value_name = "MODIFIER[@SECONDS]")]
     imod: Vec<String>,
-    /// Sun shadows reach this far from the camera (game units); 0 turns them off. On by
-    /// default (owner decision 2026-10-09), although the original game casts no sun shadows
-    /// from the world (docs/spec-notes/world.md §6, "Sun path and shadows").
+    /// The sun casts shadows. Off by default until their frame cost and flicker are fixed
+    /// (owner decision 2026-10-13; on by default from 2026-10-09); the original game casts
+    /// no sun shadows from the world (docs/spec-notes/world.md §6, "Sun path and shadows").
+    #[arg(long)]
+    sun_shadows: bool,
+    /// Sun shadows reach this far from the camera (game units), with --sun-shadows or when
+    /// turned on from the settings page; 0 keeps them off.
     #[arg(long, default_value_t = sky::DEFAULT_SHADOW_DISTANCE)]
     shadow_distance: f32,
     /// Samples per pixel for anti-aliasing: 1 (off), 2, 4 or 8. The cut-out edges of
@@ -590,8 +594,8 @@ fn main() -> AppExit {
         Ok(s) => s,
         Err(e) => return fail(e),
     };
-    sky_state.shadows = args.shadow_distance > 0.0;
-    if sky_state.shadows {
+    sky_state.shadows = args.sun_shadows && args.shadow_distance > 0.0;
+    if args.shadow_distance > 0.0 {
         sky_state.shadow_distance = args.shadow_distance;
     }
     sky_state.grade = !args.no_grade;

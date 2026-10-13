@@ -164,7 +164,7 @@ source = "docs/design/graphics-enhanced.md §2 (playtest list 4 items 6-7, 2026-
 areas = ["renderer", "graphics", "sky"]
 paths = ["engine/nvforever/src/sky.rs", "engine/nvforever/src/sky.wgsl", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "10:00103E61", NVF_PLAY_TEST_ACTIVATE = "12" }
-args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--hour", "14", "--log-frame-times", "4", "--graphics-cycle", "vanilla;no-sun-shadows"]
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--hour", "14", "--sun-shadows", "--log-frame-times", "4", "--graphics-cycle", "vanilla;no-sun-shadows"]
 run_seconds = 30
 order = [[
   "GSDocMitchellHouseIntDoorREF activated",
@@ -182,7 +182,7 @@ source = "engine/nvforever/src/shadow_probe.rs (playtest list 4 item 5, the firs
 areas = ["renderer", "player-body"]
 paths = ["engine/nvforever/src/shadow_probe.rs", "engine/nvforever/src/player_body.rs"]
 env = { NVF_PLAY_DEBUG_SHADOWS = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_CONTROL = "8:weapon", NVF_PLAY_TEST_LOOK = "10:90:-12,13:180:-12,16:270:-30,19:0:-5,22:90:-12" }
-args = ["--cell", "Goodsprings", "--pos=-69698,2246,8500", "--play", "--no-voice", "--hour", "14"]
+args = ["--cell", "Goodsprings", "--pos=-69698,2246,8500", "--play", "--no-voice", "--hour", "14", "--sun-shadows"]
 run_seconds = 30
 expect = [
   "shadow probe: on (NVF_PLAY_DEBUG_SHADOWS)",
