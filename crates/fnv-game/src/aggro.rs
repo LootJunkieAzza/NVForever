@@ -19,7 +19,13 @@
 //!   (5 s) up to iGuardWarnings (2) times, then attacks: a grudge ([`Why::Aggro`]) makes
 //!   `Game::would_attack` true for the pair [hypothesis: the guard package's rule,
 //!   `crate::crime`'s for trespassing; creatures have no GuardTrespass lines and warn
-//!   in silence]. Leaving the radius clears the count [hypothesis].
+//!   in silence]. The count clears once the actor has gone twice the warning timer
+//!   (10 s) without warning, i.e. after leaving the radius or losing the player for
+//!   that long; a short loss of detection while it wanders keeps the count [decision,
+//!   2026-10-13: clearing it at once let wandering geckos warn forever and never attack].
+//!   An actor that has started warning also keeps counting while the player is only in
+//!   its alert band (Noticed: it knows where the player is but does not see them, e.g.
+//!   walking past with its back turned) [decision, same reason].
 //! - **Who**: the player only [design: other actors' aggro radii are not measured];
 //!   never an actor that is the player's ally or friend or teammate, one already hostile
 //!   by its records, a dead, unconscious or restrained one.
@@ -61,10 +67,16 @@ impl Game<'_> {
             .detection
             .pairs
             .iter()
-            .filter(|((w, t), (d, at))| *t == FormId::PLAYER_REF && *w != FormId::PLAYER_REF && d.band == Band::Detected && now - at <= 1.0)
+            .filter(|((w, t), (d, at))| {
+                // One that has started warning keeps counting while it has the player in
+                // the alert band (module notes).
+                let warning = self.provocations.aggro_warnings.contains_key(w);
+                *t == FormId::PLAYER_REF && *w != FormId::PLAYER_REF && (d.band == Band::Detected || (warning && d.band == Band::Noticed)) && now - at <= 1.0
+            })
             .map(|((w, _), _)| *w)
             .collect();
-        // Actors no longer watching the player inside their radius start counting afresh.
+        // Actors no longer watching the player inside their radius start counting afresh
+        // after a grace of two warning timers (module notes).
         let mut inside = Vec::new();
         let mut turned = 0;
         for w in watchers {
@@ -96,7 +108,8 @@ impl Game<'_> {
                 turned += 1;
             }
         }
-        self.provocations.aggro_warnings.retain(|w, _| inside.contains(w));
+        let grace = 2.0 * s.warning_timer;
+        self.provocations.aggro_warnings.retain(|w, (_, last)| inside.contains(w) || now - *last < grace);
         turned
     }
 }
