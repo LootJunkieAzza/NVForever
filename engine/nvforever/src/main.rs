@@ -61,6 +61,7 @@ mod residents;
 mod script_look;
 mod ripples;
 mod settings;
+mod shadow_probe;
 mod shafts;
 mod imagespace;
 mod imposters;
@@ -904,6 +905,9 @@ fn main() -> AppExit {
             app.add_plugins(cell_resets::CellResetsPlugin);
             // What drawn NPCs wear and hold follows their inventories (outfits.rs).
             app.add_plugins(outfits::OutfitsPlugin);
+            if shadow_probe::enabled() {
+                app.add_plugins(shadow_probe::ShadowProbePlugin);
+            }
             app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
             // The sounds clips and doors name (anim_sounds.rs).
             app.add_plugins(anim_sounds::AnimSoundsPlugin);
