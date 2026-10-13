@@ -1,0 +1,170 @@
+name: Bug
+description: Something in NVForever is broken, for example a door that will not open, an NPC stuck in a wall, a menu that does nothing or a missing sound.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. A bug we can repeat is a bug we can fix, so the most useful
+        parts are **where it happened**, **the exact steps** and **the run log**.
+
+        If the game closed by itself, use the **Crash** form. If something works but looks,
+        sounds or behaves differently from the original Fallout: New Vegas, use
+        **Differs from the original game**.
+
+        **Never attach game files** (anything from the game's `Data` folder, BSA contents,
+        extracted meshes or textures, or ESM dumps). NVForever ships no game data.
+        Screenshots and short videos are welcome.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What went wrong, in a sentence or two.
+      placeholder: Pressing E on the Prospector Saloon door does nothing. The prompt shows, but I stay outside.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      placeholder: The loading screen, then the inside of the saloon.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to repeat it
+      description: |
+        Start with how you launched the game: the full command line, or the `Play.ps1` place
+        and switches. Then each thing you did, in order.
+      placeholder: |
+        1. .\tools\play\Play.ps1 Goodsprings -Hour 14
+        2. Walk to the Prospector Saloon (north side of the road)
+        3. Look at the front door and press E
+        4. Nothing happens
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: how-often
+    attributes:
+      label: How often does it happen?
+      options:
+        - Every time
+        - Most times
+        - Sometimes
+        - Once, I could not repeat it
+    validations:
+      required: true
+
+  - type: input
+    id: where
+    attributes:
+      label: Where in the game
+      description: |
+        Place name, and if you know them the cell Editor ID, position and game hour
+        (the `--cell`, `--pos` and `--hour` you started with, or what the log shows).
+      placeholder: Goodsprings, outside the Prospector Saloon, about 14:00
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Your best guess. Pick "Not sure" if unsure.
+      options:
+        - Not sure
+        - World, cells, loading, doors
+        - Graphics, lighting, weather, water
+        - Player movement, collision, physics
+        - NPCs, AI, animation
+        - Dialogue, quests, scripts
+        - Combat, weapons, damage
+        - Items, inventory, barter, containers
+        - Pip-Boy, HUD, menus
+        - Sound, voice, music, radio
+        - Controls, input, camera
+        - Performance (stutter, low frame rate, long loads)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Run log
+      description: |
+        Every run writes a log to `%LOCALAPPDATA%\NVForever\logs` (`nvforever-<date>-<time>-<pid>.log`;
+        the newest is the run that went wrong). Drag the file into this box, or paste the
+        lines around the problem. The log records doors used, places loaded and positions,
+        which often pinpoints the bug. Paths in it may contain your Windows user name;
+        change it if you prefer.
+      placeholder: Drag the .log file here, or paste lines.
+    validations:
+      required: true
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or video
+      description: F12 takes a screenshot in game. Drag images or a short clip here.
+
+  - type: input
+    id: version
+    attributes:
+      label: NVForever version
+      description: The release (for example `v0.1.0`), or the commit if you built it yourself (`git rev-parse --short HEAD`).
+      placeholder: v0.1.0 / commit fea339c
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: How you got NVForever
+      options:
+        - Release download
+        - Built from source (release build)
+        - Built from source (debug build)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: graphics
+    attributes:
+      label: Graphics mode
+      options:
+        - vanilla (the default)
+        - enhanced (--graphics enhanced, or turned on in the Esc settings page)
+        - Free camera (no --play)
+    validations:
+      required: true
+
+  - type: textarea
+    id: game-install
+    attributes:
+      label: Your Fallout New Vegas install
+      description: Store (Steam, GOG, Epic, disc), whether it is the Ultimate Edition or which add-ons are installed, and any mods or extra plugins in the load order.
+      placeholder: |
+        Steam, Ultimate Edition (all add-ons), no mods
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Operating system, graphics card and driver. The first lines of the run log list these (`SystemInfo` and `AdapterInfo`).
+      placeholder: Windows 10 Home, RTX 4070, driver 616.56
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Did it work in an earlier version? Does it happen with `--no-npc-packages`, `--graphics vanilla` or other switches off? Anything that narrows it down helps.
