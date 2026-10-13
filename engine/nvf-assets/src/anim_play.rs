@@ -63,6 +63,37 @@ pub struct MaterialTrack {
     pub shape: String,
     pub target: MaterialTarget,
     pub values: Arc<ValueTrack>,
+    /// The track's own timing, for a controller that runs by itself rather than under a
+    /// sequence (`None`: it follows the sequence's time). See [`OwnCycle`].
+    pub cycle: Option<OwnCycle>,
+}
+
+/// The timing of a controller that is not driven by a sequence: an effect mesh whose
+/// texture scrolls by a `NiTextureTransformController` on its `NiTexturingProperty`
+/// (smoke wisps, ground smoke; docs/spec-notes/nif.md §6 "Controllers outside
+/// sequences"). Fields of NiTimeController [documented: nif.xml]: start and stop time,
+/// frequency, phase, and the cycle type in flag bits 1-2 (0 loop, 1 reverse, 2 clamp).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OwnCycle {
+    pub start: f32,
+    pub stop: f32,
+    pub frequency: f32,
+    pub phase: f32,
+    pub cycle_type: i64,
+}
+
+impl OwnCycle {
+    /// The controller's time after `clock` seconds of play: start + clock × frequency +
+    /// phase, then wrapped by the cycle type [hypothesis: the order of frequency and
+    /// phase; every looping controller surveyed has phase 0].
+    pub fn time(&self, clock: f32) -> f32 {
+        cycle_time(self.start + clock * self.frequency + self.phase, self.start, self.stop, self.cycle_type)
+    }
+
+    /// The length of one cycle in seconds of play.
+    pub fn period(&self) -> f32 {
+        (self.stop - self.start).max(0.0) / self.frequency.max(1e-6)
+    }
 }
 
 impl MaterialTrack {
@@ -83,7 +114,7 @@ impl MaterialTrack {
             },
             _ => return None,
         };
-        Some(MaterialTrack { shape, target, values: Arc::new(values) })
+        Some(MaterialTrack { shape, target, values: Arc::new(values), cycle: None })
     }
 }
 
@@ -120,6 +151,27 @@ impl Clip {
             text_keys: seq.text_keys.clone(),
             visibility,
             materials,
+        }
+    }
+
+    /// The clip a model plays for its controllers that run by themselves (`tracks`, each
+    /// with its own [`OwnCycle`]) when it has no Idle sequence: it lasts as long as the
+    /// longest of their cycles and loops; each track keeps its own time.
+    pub fn from_controllers(tracks: Vec<MaterialTrack>) -> Clip {
+        let stop = tracks.iter().filter_map(|t| t.cycle.map(|c| c.period())).fold(1.0f32, f32::max);
+        Clip {
+            name: "Idle".into(),
+            start: 0.0,
+            stop,
+            frequency: 1.0,
+            cycle_type: 0,
+            tracks: Vec::new(),
+            priorities: Vec::new(),
+            skipped: 0,
+            accum_root: None,
+            text_keys: Vec::new(),
+            visibility: Vec::new(),
+            materials: tracks,
         }
     }
 

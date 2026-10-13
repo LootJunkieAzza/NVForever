@@ -195,6 +195,17 @@ region of the 1280 × 720 frames): its brightest tenth, which is grass in the li
   frame rate of that test was 42.5 per second with grass and 44.2 without (before the
   soft edges were added).
 
+- **Texture edges** [observed; hypothesis for the game's rule]: the grass models share
+  one atlas, `textures/landscape/grass/GrassWastelandComp01.dds` (1024 × 1024, a plant
+  in each quarter), and some blade tips reach past it: V −0.013 (`GrassWasteland02`),
+  −0.1 (`03`), −0.008 (`04`), U up to 1.23 (`07`) [observed, `fnvtool nif decode`]. The
+  atlas's top row and outer columns are empty (alpha 0); its bottom rows hold the dense
+  feet of the lower plants (about 300 of 1,024 texels above alpha 100). With a
+  repeating sampler those tips drew small opaque triangles of blade feet above the
+  plants, which the game does not show (owner's playtest list 4 item 17,
+  `grasspixels`). The grass textures are sampled clamped at their edges
+  (`TextureCache::get_clamped`); the soft edges (alpha to coverage) are unchanged.
+
 ## 6. Open questions
 
 - The generator itself: the lattice, the meaning of density and position range together,

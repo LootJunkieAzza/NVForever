@@ -10,7 +10,7 @@
 //! [`Rig`]: their node hierarchy, spawned per reference so the sequence can move nodes
 //! and skinned shapes (waving flags, windmills).
 
-use crate::anim_play::{Clip, MaterialTarget, Playing};
+use crate::anim_play::{Clip, MaterialTarget, MaterialTrack, OwnCycle, Playing};
 use crate::material_anim::{MaterialSlot, RigMaterials};
 use crate::data::GameData;
 use crate::nif_material::NifMaterial;
@@ -24,7 +24,7 @@ use bevy::math::Affine3A;
 use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::mesh::{PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
-use fnv_nif::anim::sequences;
+use fnv_nif::anim::{sequences, value_track};
 use fnv_nif::scene::{scene_objects, segment_triangles, Decoded, SceneObject};
 use fnv_nif::NifFile;
 use std::collections::{HashMap, HashSet};
@@ -275,6 +275,76 @@ impl Rig {
     }
 }
 
+/// The material tracks of the controllers in a file that are not driven by a sequence:
+/// `NiTextureTransformController`s on a shape's `NiTexturingProperty` that move its base
+/// texture along U or V, and `NiAlphaController`s on its `NiMaterialProperty`. Each keeps
+/// its own timing ([`OwnCycle`]). Effect meshes are built so: the smoke wisps
+/// (`effects/ambient/fxsmokewisps01.nif`: V in 36.67 s, U in 44.1 s, both looping) and
+/// the ground smoke at camp fires (`dlcpitt/effects/dlcpittfxgroundsmoke01.nif`: V in
+/// 13.3 s) [observed: `fnvtool nif decode`; docs/spec-notes/nif.md §6 "Controllers
+/// outside sequences"].
+///
+/// Taken: controllers with the Active flag (bit 3) and without the "manager controlled"
+/// flag (bit 5), whose interpolator gives float values [documented: nif.xml
+/// NiTimeController flags]; a controller a sequence drives is played with that sequence.
+pub fn free_material_tracks(file: &NifFile, dec: &Decoded) -> Vec<MaterialTrack> {
+    // The shapes that list each property.
+    let mut users: HashMap<i32, Vec<String>> = HashMap::new();
+    for b in dec.blocks.iter().flatten() {
+        let Some(name) = b.text("name").filter(|n| !n.is_empty()) else { continue };
+        for r in b.refs("properties").unwrap_or_default() {
+            users.entry(*r).or_default().push(name.to_string());
+        }
+    }
+    let mut out = Vec::new();
+    for (i, b) in file.blocks.iter().enumerate() {
+        let target = match b.type_name.as_str() {
+            "NiTextureTransformController" | "NiAlphaController" => b.type_name.as_str(),
+            _ => continue,
+        };
+        let Ok(c) = &dec.blocks[i] else { continue };
+        let flags = c.int("flags").unwrap_or(0);
+        if flags & 0x8 == 0 || flags & 0x20 != 0 {
+            continue;
+        }
+        let Some(prop) = c.block_ref("target").filter(|&t| t >= 0) else { continue };
+        let what = match target {
+            "NiTextureTransformController" => {
+                // Base texture (slot 0) of the NiTexturingProperty; operation 0
+                // TT_TRANSLATE_U, 1 TT_TRANSLATE_V [documented: nif.xml].
+                if c.int("texture_slot").unwrap_or(0) != 0 || c.int("shader_map").unwrap_or(0) != 0 {
+                    continue;
+                }
+                match c.int("operation") {
+                    Some(0) => MaterialTarget::UvOffset(0),
+                    Some(1) => MaterialTarget::UvOffset(1),
+                    _ => continue,
+                }
+            }
+            _ if file.blocks.get(prop as usize).is_some_and(|p| p.type_name == "NiMaterialProperty") => MaterialTarget::Alpha,
+            _ => continue,
+        };
+        let Some(interp) = c.block_ref("interpolator").filter(|&r| r >= 0) else { continue };
+        let Some(kind) = file.blocks.get(interp as usize).map(|b| b.type_name.clone()) else { continue };
+        let Some(values) = value_track(dec, interp, &kind) else { continue };
+        let cycle = OwnCycle {
+            start: c.float("start_time").unwrap_or(0.0),
+            stop: c.float("stop_time").unwrap_or(0.0),
+            frequency: c.float("frequency").filter(|f| *f > 0.0).unwrap_or(1.0),
+            phase: c.float("phase").unwrap_or(0.0),
+            cycle_type: (flags >> 1) & 3,
+        };
+        if cycle.stop <= cycle.start {
+            continue;
+        }
+        let values = Arc::new(values);
+        for shape in users.get(&prop).into_iter().flatten() {
+            out.push(MaterialTrack { shape: shape.clone(), target: what, values: values.clone(), cycle: Some(cycle) });
+        }
+    }
+    out
+}
+
 /// A mesh with its material, ready to spawn.
 pub type MeshAndMaterial = (Handle<Mesh>, Handle<NifMaterial>);
 
@@ -403,7 +473,18 @@ impl ModelCtx<'_> {
         let named = |want: &str| {
             seqs.iter().filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(want))).map(Clip::from_sequence).find(&moves)
         };
-        let idle = named("idle").or_else(|| named("specialidle"));
+        let mut idle = named("idle").or_else(|| named("specialidle"));
+        // Controllers that run by themselves (scrolling smoke and dust textures) play
+        // with the idle clip, each on its own cycle; a model without one gets a clip of
+        // its own for them.
+        let free: Vec<MaterialTrack> = free_material_tracks(&file, &dec).into_iter().filter(|t| has(&t.shape)).collect();
+        if !free.is_empty() {
+            info!("{path}: {} material track(s) of controllers of their own, played on their own cycles", free.len());
+            match idle.as_mut() {
+                Some(c) => c.materials.extend(free),
+                None => idle = Some(Clip::from_controllers(free)),
+            }
+        }
         // A door's Open and Close, when both move nodes of this file.
         let door = named("open").zip(named("close")).map(|(open, close)| DoorClips { open, close });
         // Every named sequence that animates this file (scripts' PlayGroup).
