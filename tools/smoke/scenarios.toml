@@ -1827,6 +1827,9 @@ expect = [
   { re = 'hit reaction: 00104C79 staggers for', label = "Chet staggers (a crippled limb)" },
   { re = 'npc combat: .* holds its attacks while it staggers', label = "his attacks held while he staggers" },
   { re = 'npc combat summary: .* (?P<n>\d+) staggers held a fighter', range = [1, 1000], label = "npc combat summary: staggers held a fighter" },
+]
+
+[[scenario]]
 name = "placed-smoke-scroll"
 source = "playtest list 4 item 16 (docs/spec-notes/nif.md §6 \"Controllers outside sequences\"): the ground smoke at the camp fire south of Goodsprings scrolls its texture by a controller of its own (no sequence); the model is read with that track"
 note = "looks (fainter smoke from unlit vertex colours as display values, item 16; grass atlas clamped, item 17) are checked by frames, not here"
