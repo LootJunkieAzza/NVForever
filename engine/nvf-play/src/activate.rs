@@ -167,12 +167,13 @@ fn destination_name(sim: &SimState, index: &fnv_world::WorldIndex, door: FormId,
 fn find_target(
     player: Option<Res<Player>>,
     phys: Option<ResMut<PhysState>>,
-    sim: Res<SimState>,
+    mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
     visuals: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>,
     mut target: ResMut<Target>,
-    script: Option<Res<crate::script::ScriptState>>,
+    mut script: Option<ResMut<crate::script::ScriptState>>,
     control: Option<Res<crate::control::PlayerControl>>,
+    mut talkers: Local<HashMap<u32, (bool, f64)>>,
 ) {
     let Some(player) = player else { return };
     let crosshair = control.as_deref().and_then(|c| c.crosshair);
@@ -201,24 +202,30 @@ fn find_target(
         Some((r.0, pick::ray_box(o, d, &t, c, h)?))
     });
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();
-    // A dead actor is searched rather than talked to (combat C5).
+    // A dead actor is searched rather than talked to (combat C5); a living one is talked
+    // to only when it may be ([`actor_action`]). Actors are named by their template's
+    // name where the template supplies it (playtest list 4, item 20).
+    let mut rt = script.as_deref_mut().and_then(|s| s.rt.as_mut());
     let mut describe_once = |id: u32| {
         described
             .entry(id)
             .or_insert_with(|| {
                 describe(&sim, play.index, id).map(|(n, a)| match a {
-                    Action::Talk if crate::combat::is_dead(script.as_deref(), id) => (n, Action::Search),
+                    Action::Talk => {
+                        let name = sim.ref_name(rt.as_deref().map(|rt| rt.game.data), id).map_or(n, str::to_string);
+                        (name, actor_action(rt.as_deref_mut(), &mut sim, id, &mut talkers))
+                    }
                     a => (n, a),
                 })
             })
             .clone()
     };
     let picked = pick::choose(hit, bounds, REACH, |id| describe_once(id).is_some());
+    let chosen = picked.and_then(|p| describe_once(p.form_id).map(|d| (p, d)));
     let game = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
-    let new = picked.and_then(|Pick { form_id, distance, source }| {
-        let (name, action) = describe_once(form_id)?;
+    let new = chosen.map(|(Pick { form_id, distance, source }, (name, action))| {
         let crime = owned_by_other(game, &sim, form_id, &action);
-        Some(Targeted { form_id, name, action, distance, source, crime })
+        Targeted { form_id, name, action, distance, source, crime }
     });
     let key = |t: &Option<Targeted>| t.as_ref().map(|t| (t.form_id, t.action.clone(), t.crime));
     if key(&target.0) != key(&new) {
@@ -229,6 +236,50 @@ fn find_target(
     }
     if target.0 != new {
         target.0 = new;
+    }
+}
+
+/// Seconds a creature's "has something to say" answer is kept before it is asked again.
+const TALKER_SECONDS: f64 = 2.0;
+
+/// What E does to a living or dead actor (playtest list 4, item 19): a dead one is
+/// searched (combat C5); one hostile to the player (it would attack the player, or is
+/// fighting the player) shows only its name; a creature is talked to only when it has a
+/// greeting it can say now ([`fnv_game::Game::has_greeting`]), else shows only its name;
+/// any other NPC is talked to [hypothesis: the game offers Talk on creatures that have
+/// dialogue, such as Rex and ED-E, and not on animals; an NPC without a line keeps the
+/// prompt and says nothing, as before]. Without the scripts: Talk.
+fn actor_action(rt: Option<&mut crate::script::Runtime>, sim: &mut SimState, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
+    let Some(rt) = rt else { return Action::Talk };
+    let creature = sim.refs.get(FormId(id)).is_some_and(|p| &p.sig == b"ACRE");
+    crate::script::with_world(rt, sim, |rt| actor_action_in(&mut rt.game, creature, id, talkers))
+}
+
+fn actor_action_in(g: &mut fnv_game::Game, creature: bool, id: u32, talkers: &mut HashMap<u32, (bool, f64)>) -> Action {
+    let r = FormId(id);
+    if g.is_dead(r) {
+        return Action::Search;
+    }
+    let fighting_player = g.awareness.get(r).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
+    if fighting_player || g.would_attack(r, FormId::PLAYER_REF) {
+        return Action::Name;
+    }
+    if !creature {
+        return Action::Talk;
+    }
+    let now = g.time;
+    let talks = match talkers.get(&id) {
+        Some(&(t, at)) if (now - at).abs() < TALKER_SECONDS => t,
+        _ => {
+            let t = g.has_greeting(r);
+            talkers.insert(id, (t, now));
+            t
+        }
+    };
+    if talks {
+        Action::Talk
+    } else {
+        Action::Name
     }
 }
 
@@ -316,6 +367,12 @@ fn activate(
         seat.leave |= seat.hold.is_some();
         return;
     };
+    // An actor shown by name only (hostile, or a creature with nothing to say): E does
+    // nothing (playtest list 4, item 19).
+    if t.action == Action::Name {
+        info!("activate 0x{:08X} {}: nothing to do (name only)", t.form_id, t.name);
+        return;
+    }
     // The actor's place before, to put back if a teleport cannot be followed.
     let before = sim.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot));
     let a = match crate::script::activate_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {

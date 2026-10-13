@@ -34,6 +34,17 @@ impl SimState {
         b.name.as_deref().or(b.edid.as_deref())
     }
 
+    /// The name a placed reference is shown by: for an actor, its "Base Data" template
+    /// source's ([`fnv_game::GameData::display_base`]: an actor placed from a template
+    /// actor with no name of its own shows the name of the actor its template, through a
+    /// leveled list, leads to; owner's playtest list 4, item 20); otherwise, and without
+    /// the game data, its base form's ([`SimState::name`]).
+    pub fn ref_name(&self, data: Option<&fnv_game::GameData>, form_id: u32) -> Option<&str> {
+        let base = self.base_of(form_id)?;
+        let shown = data.map_or(base, |d| d.display_base(base, FormId(form_id)));
+        self.name(shown).or_else(|| self.name(base))
+    }
+
     /// A placed reference's pose in the simulation (position, Euler angles in radians)
     /// when it differs from its placement: moved by physics (pushed or knocked clutter,
     /// `crate::phys::PhysState::settle_placed`) or by a script. `None` for references the

@@ -52,6 +52,13 @@ const LIST_NESTED: u32 = 0x853;
 const PACK_WOLF: u32 = 0x860;
 const PACK_RAT: u32 = 0x861;
 const PACK_OWN: u32 = 0x862;
+/// A rat that Helps Allies but is Cowardly (playtest list 4, item 14).
+const COWARD: u32 = 0x870;
+/// An unaggressive rat with an aggro radius of 650 (item 18).
+const LURKER: u32 = 0x871;
+/// A creature with no data of its own: name (Base Data), traits, inventory and script
+/// from the wolf list (item 20).
+const NAMELESS: u32 = 0x872;
 
 const CELL: u32 = 0x200;
 const LEADER_REF: u32 = 0x320;
@@ -67,6 +74,9 @@ const WATCHMAN_REF: u32 = 0x329;
 const LOAFER_REF: u32 = 0x32A;
 const GANGER_A_REF: u32 = 0x32B;
 const GANGER_B_REF: u32 = 0x32C;
+const COWARD_REF: u32 = 0x32D;
+const LURKER_REF: u32 = 0x32E;
+const NAMELESS_REF: u32 = 0x32F;
 /// Sixteen references of the creature whose template list holds a wolf and a rat.
 const MIXED_REFS: std::ops::Range<u32> = 0x340..0x350;
 const PLAYER: u32 = 0x14;
@@ -80,6 +90,11 @@ const GET_FACTION_RELATION: u16 = 0x11C2;
 const FACTIONS: u16 = 0x4;
 const AI_DATA: u16 = 0x10;
 const AI_PACKAGES: u16 = 0x20;
+/// Traits (bit 0), Base Data (bit 7), Inventory (bit 8), Script (bit 9).
+const TRAITS: u16 = 0x1;
+const BASE_DATA: u16 = 0x80;
+const INVENTORY: u16 = 0x100;
+const SCRIPT: u16 = 0x200;
 
 fn acbs(template_flags: u16) -> fnv_esm::raw::Subrecord {
     let mut d = 0u32.to_le_bytes().to_vec();
@@ -111,8 +126,14 @@ fn aidt(aggression: u8) -> fnv_esm::raw::Subrecord {
 /// AIDT with an Assistance code (byte 14: 0 Helps Nobody, 1 Helps Allies, 2 Helps Friends
 /// and Allies).
 fn aidt_assisting(aggression: u8, assistance: u8) -> fnv_esm::raw::Subrecord {
-    let mut d = vec![aggression, 0, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, assistance, 0];
-    d.extend(0i32.to_le_bytes());
+    aidt_full(aggression, 0, assistance, None)
+}
+
+/// AIDT with a Confidence code (byte 1: 0 Cowardly … 4 Foolhardy) and an aggro radius
+/// (byte 15 Aggro Radius Behavior, bytes 16–19 the radius).
+fn aidt_full(aggression: u8, confidence: u8, assistance: u8, aggro: Option<i32>) -> fnv_esm::raw::Subrecord {
+    let mut d = vec![aggression, confidence, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, assistance, u8::from(aggro.is_some())];
+    d.extend(aggro.unwrap_or(0).to_le_bytes());
     sub(b"AIDT", d)
 }
 
@@ -153,7 +174,7 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"NPC_", 0, SECOND, &[sub(b"EDID", z("Second")), acbs(FACTIONS), tplt(MEMBER)]),
         // A template, but not for the factions.
         record(b"NPC_", 0, OWN, &[sub(b"EDID", z("Own")), acbs(AI_DATA), snam(RATS, 1), tplt(LEADER)]),
-        record(b"NPC_", 0, HELPER, &[sub(b"EDID", z("Helper")), acbs(0), snam(RATS, 0), aidt_assisting(0, 1)]),
+        record(b"NPC_", 0, HELPER, &[sub(b"EDID", z("Helper")), acbs(0), snam(RATS, 0), aidt_full(0, 2, 1, None)]),
         record(b"NPC_", 0, BANDIT, &[sub(b"EDID", z("Bandit")), acbs(0), snam(RAIDERS, 0), snam(IDLERS, 0), aidt(1)]),
         record(b"NPC_", 0, WATCHMAN, &[sub(b"EDID", z("Watchman")), acbs(0), snam(PLAYER_FACTION, 0), snam(IDLERS, 0), aidt(1)]),
         record(b"NPC_", 0, LOAFER, &[sub(b"EDID", z("Loafer")), acbs(0), snam(IDLERS, 0), aidt(1)]),
@@ -168,6 +189,9 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"CREA", 0, SPAWN_MIXED, &[sub(b"EDID", z("SpawnMixed")), acbs(FACTIONS | AI_DATA | AI_PACKAGES), tplt(LIST_MIXED), aidt(1)]),
         // Its list has nothing for a level-1 player: it keeps its own.
         record(b"CREA", 0, SPAWN_HIGH, &[sub(b"EDID", z("SpawnHigh")), acbs(FACTIONS | AI_PACKAGES), snam(RATS, 3), pkid(PACK_OWN), tplt(LIST_HIGH)]),
+        record(b"CREA", 0, COWARD, &[sub(b"EDID", z("Coward")), acbs(0), snam(RATS, 0), aidt_full(0, 0, 1, None)]),
+        record(b"CREA", 0, LURKER, &[sub(b"EDID", z("Lurker")), acbs(0), snam(RATS, 0), aidt_full(0, 4, 1, Some(650))]),
+        record(b"CREA", 0, NAMELESS, &[sub(b"EDID", z("Nameless")), acbs(BASE_DATA | INVENTORY | SCRIPT | TRAITS), tplt(LIST_WOLF), aidt(0)]),
     ]
     .concat();
     let lists = [
@@ -192,6 +216,9 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", LOAFER_REF, LOAFER),
         placed(b"ACHR", GANGER_A_REF, GANGER_A),
         placed(b"ACHR", GANGER_B_REF, GANGER_B),
+        placed(b"ACRE", COWARD_REF, COWARD),
+        placed(b"ACRE", LURKER_REF, LURKER),
+        placed(b"ACRE", NAMELESS_REF, NAMELESS),
     ]
     .concat();
     for r in MIXED_REFS {
@@ -558,4 +585,92 @@ fn open_teammate_container_asks_for_the_teammates_inventory() {
     g.extra.entry(FormId(LOAFER_REF)).or_default().teammate = true;
     call(&mut g, OPEN_TEAMMATE_CONTAINER, LOAFER_REF, &[]);
     assert_eq!(g.teammate_containers, vec![FormId(LOAFER_REF)]);
+}
+
+#[test]
+fn a_cowardly_ally_stays_out_of_fights() {
+    // Playtest list 4, item 14 (combat-ai.md §13): the coward is the victim's ally and
+    // Helps Allies, but its confidence is Cowardly: it neither joins by assistance nor
+    // answers an alarm; the helper (Average) does.
+    use fnv_game::awareness::Change;
+    let f = fixture();
+    let mut g = game(&f);
+    let (own, coward, helper, player) = (FormId(OWN_REF), FormId(COWARD_REF), FormId(HELPER_REF), FormId::PLAYER_REF);
+    assert!(g.attacked_by(own, player));
+    fighting(&mut g, OWN_REF, PLAYER);
+    for w in [coward, helper] {
+        g.detection.pairs.insert((w, own), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
+    }
+    assert_eq!(g.call_allies(), 1);
+    assert!(g.would_attack(helper, player) && !g.would_attack(coward, player));
+    let notes = g.provocations.take_notes();
+    assert_eq!(notes.iter().filter(|n| matches!(n, Note::StaysOut { helper, .. } if *helper == coward)).count(), 1);
+    // Noted once.
+    assert_eq!(g.call_allies(), 0);
+    assert!(!g.provocations.take_notes().iter().any(|n| matches!(n, Note::StaysOut { .. })));
+    // An alarm does not bring it either.
+    let now = g.time;
+    g.awareness.changes.push(Change { actor: own, from: State::Normal, to: State::Combat, time: now, about: Some(player), cause: None, at: Some([500.0, 0.0, 0.0]), value: Some(5.0) });
+    let near: std::collections::BTreeMap<FormId, [f32; 3]> = [(own, [0.0; 3]), (coward, [300.0, 0.0, 0.0]), (player, [500.0, 0.0, 0.0])].into_iter().collect();
+    assert_eq!(g.raise_alarms(&near), 0);
+    assert!(!g.would_attack(coward, player));
+}
+
+#[test]
+fn an_actor_warns_then_attacks_a_player_inside_its_aggro_radius() {
+    // Playtest list 4, item 18 (`fnv_game::aggro`): unaggressive and neutral to the
+    // player, Aggro Radius Behavior on, radius 650. Two warnings 5 s apart (iGuardWarnings,
+    // fAITrespassWarningTimer), then it attacks; outside the radius nothing happens.
+    use fnv_game::provocation::Why;
+    let f = fixture();
+    let mut g = game(&f);
+    let (lurker, player) = (FormId(LURKER_REF), FormId::PLAYER_REF);
+    let d = &f.data.actors[&FormId(LURKER)];
+    assert!(d.aggro_radius_behavior && d.aggro_radius == 650);
+    assert_eq!(g.aggro_radius(lurker), Some(650.0));
+    assert_eq!(g.aggro_radius(FormId(OWN_REF)), None);
+    g.world.get(player).unwrap().pos = [0.0; 3];
+    g.world.get(lurker).unwrap().pos = [700.0, 0.0, 0.0];
+    let seen = |g: &mut Game| {
+        let now = g.time;
+        g.detection.pairs.insert((lurker, player), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, now));
+    };
+    assert!(!g.would_attack(lurker, player));
+    seen(&mut g);
+    assert_eq!(g.aggro_tick(), 0);
+    assert!(g.provocations.take_notes().is_empty(), "outside the radius");
+    g.world.get(lurker).unwrap().pos = [600.0, 0.0, 0.0];
+    for (level, step) in [(1, 0.0), (2, 5.0)] {
+        g.time += step;
+        seen(&mut g);
+        assert_eq!(g.aggro_tick(), 0);
+        assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::AggroWarned { actor, level: l, .. } if *actor == lurker && *l == level)));
+    }
+    // Not again before the timer.
+    g.time += 1.0;
+    seen(&mut g);
+    assert_eq!(g.aggro_tick(), 0);
+    g.time += 4.0;
+    seen(&mut g);
+    assert_eq!(g.aggro_tick(), 1);
+    assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::AggroAttacks { actor, .. } if *actor == lurker)));
+    assert!(g.would_attack(lurker, player));
+    assert_eq!(g.provocations.grudges[&(lurker, player)].why, Why::Aggro);
+}
+
+#[test]
+fn the_template_supplies_the_name_and_inventory_it_is_flagged_for() {
+    // Playtest list 4, item 20: a creature with no data of its own, whose template is a
+    // leveled list of one wolf, is named and carries as the wolf.
+    let f = fixture();
+    let (r, base) = (FormId(NAMELESS_REF), FormId(NAMELESS));
+    assert_eq!(f.data.display_base(base, r), FormId(WOLF));
+    // Without the Base Data flag the actor names itself.
+    assert_eq!(f.data.display_base(FormId(SPAWN), FormId(SPAWN_REF)), FormId(SPAWN));
+    let sources = f.data.inventory_sources(&f.refs);
+    assert_eq!(sources.get(&r), Some(&FormId(WOLF)));
+    // A leveled list placed directly carries its entry's items; actors with their own
+    // inventory are not listed.
+    assert_eq!(sources.get(&FormId(LIST_REF)), Some(&FormId(WOLF)));
+    assert!(!sources.contains_key(&FormId(LEADER_REF)) && !sources.contains_key(&FormId(SPAWN_REF)));
 }

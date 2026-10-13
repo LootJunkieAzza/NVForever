@@ -1262,7 +1262,7 @@ fn apply_hit(
         return hit_player(rt, sim, dealt, info, stats, hud);
     }
     let r = with_world(rt, sim, |rt| rt.game.hit(target, dealt as f64, info));
-    let name = sim.base_of(target.0).and_then(|b| sim.name(b).map(str::to_string)).unwrap_or_else(|| target.to_string());
+    let name = sim.ref_name(Some(rt.game.data), target.0).map_or_else(|| target.to_string(), str::to_string);
     if mine {
         stats.damage += r.dealt as f32;
     }
@@ -1310,7 +1310,7 @@ fn god_mode() -> bool {
 /// Another actor hits the player (module notes): the player's health takes the damage
 /// through `Game::hit`, and at 0 the player dies.
 fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, info: HitInfo, stats: &mut CombatStats, hud: Option<&mut HudMessage>) -> Option<HitResult> {
-    let by = info.attacker.map_or("?".to_string(), |a| sim.base_of(a.0).and_then(|b| sim.name(b).map(str::to_string)).unwrap_or_else(|| a.to_string()));
+    let by = info.attacker.map_or("?".to_string(), |a| sim.ref_name(Some(rt.game.data), a.0).map_or_else(|| a.to_string(), str::to_string));
     stats.player_hits += 1;
     if god_mode() {
         info!("combat: {by} hits the player for {dealt:.1} (test aid: no damage taken)");

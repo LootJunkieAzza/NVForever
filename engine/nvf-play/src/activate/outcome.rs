@@ -35,6 +35,9 @@ pub enum Action {
     Access,
     /// A placed explosive (PGRE).
     Disarm,
+    /// An actor the player cannot talk to: a hostile one, or a creature with nothing to
+    /// say. The prompt shows only its name and E does nothing (`crate::activate`).
+    Name,
 }
 
 /// A lock level by the name the game gives it: the levels the editor offers, 0 Very Easy,
@@ -70,6 +73,7 @@ impl Action {
             // [hypothesis, hacking.md §8: the original's word for a terminal]
             Action::Access => "Access".into(),
             Action::Disarm => "Disarm".into(),
+            Action::Name => String::new(),
         }
     }
 }

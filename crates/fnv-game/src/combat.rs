@@ -188,7 +188,7 @@ impl Game<'_> {
     /// Whether `r`'s base has "No Low Level Processing": its AI is not updated outside
     /// the loaded area [documented: GECK wiki Category:NPC].
     pub fn no_low_level_processing(&self, r: FormId) -> bool {
-        self.def_following(r, |_| false).is_some_and(|d| d.no_low_level)
+        self.base_data_def(r).is_some_and(|d| d.no_low_level)
     }
 
     /// Lay out the corpses of a new game: every placed actor that starts dead
@@ -204,14 +204,14 @@ impl Game<'_> {
     }
 
     fn is_essential(&self, r: FormId) -> bool {
-        self.extra.get(&r).and_then(|e| e.essential).unwrap_or_else(|| base_of(self, r).and_then(|b| self.data.actors.get(&b)).is_some_and(|d| d.essential))
+        self.extra.get(&r).and_then(|e| e.essential).unwrap_or_else(|| self.base_data_def(r).is_some_and(|d| d.essential))
     }
 
     /// Whether the actor takes no damage: its race has the Child flag, or the creature is
     /// Invulnerable.
     pub fn is_immune(&self, r: FormId) -> bool {
-        let Some(d) = base_of(self, r).and_then(|b| self.data.actors.get(&b)) else { return false };
-        d.invulnerable || d.race.is_some_and(|race| self.data.child_races.contains(&race))
+        let invulnerable = self.base_data_def(r).is_some_and(|d| d.invulnerable);
+        invulnerable || self.traits_def(r).and_then(|d| d.race).is_some_and(|race| self.data.child_races.contains(&race))
     }
 
     /// A creature's own attack: its damage (CREA DATA Damage) and its reach (RNAM Attack

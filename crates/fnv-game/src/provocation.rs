@@ -40,6 +40,14 @@
 //!   and is alarmed at the attacker's position. Actors sharing a faction, or placed from
 //!   the same base form, count as allies [engineering choice, as `would_attack` never
 //!   lets them fight each other].
+//! - **Cowards stay out** [documented: GECK wiki Confidence, "Cowardly … I will always
+//!   flee from combat"; owner's playtest list 4, item 14: confidence and aggression must
+//!   override the helps-allies join]: an actor whose Confidence is Cowardly never takes up
+//!   another's fight, by assistance here or by an alarm (`crate::combat_group`); it
+//!   still fights whom its own records make it attack, and whoever attacks it. Avoiding
+//!   the fight (running from it) is not built (combat-ai.md §11, "Avoiding threats out of
+//!   combat") [design: Unaggressive alone does not keep a helper out; the wiki's
+//!   Unaggressive only says whom an actor might avoid].
 //!
 //! A grudge ends when its holder goes back to Normal, on StopCombat, and on an accepted
 //! yield. Hits by actors other than the player go to `Game::attacked_by_actor`
@@ -70,6 +78,8 @@ pub enum Why {
     Assault,
     /// It helps `victim`, whom they fight.
     Assist { victim: FormId },
+    /// The player stayed inside its aggro radius past its warnings (`crate::aggro`).
+    Aggro,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -145,6 +155,13 @@ pub enum Note {
     Forgives { actor: FormId, after: f64 },
     /// `actor` ignored the yield.
     Refuses { actor: FormId, why: &'static str, after: f64 },
+    /// `actor` warned the player inside its aggro radius (`level` warnings so far;
+    /// `crate::aggro`).
+    AggroWarned { actor: FormId, level: u32, distance: f64, radius: f64 },
+    /// `actor` attacks the player, who stayed inside its aggro radius.
+    AggroAttacks { actor: FormId, distance: f64, radius: f64 },
+    /// `helper` stays out of `victim`'s fight: its confidence is Cowardly (module notes).
+    StaysOut { helper: FormId, victim: FormId },
 }
 
 /// The grudges, friendly hits and forgiveness of every actor. Not part of the saved state
@@ -161,6 +178,11 @@ pub struct Provocations {
     pub attacked: std::collections::BTreeSet<FormId>,
     pub notes: Vec<Note>,
     pub settings: Option<Settings>,
+    /// Aggro radius warnings each actor gave the player inside its radius, and when it
+    /// gave the last (`crate::aggro`).
+    pub aggro_warnings: std::collections::BTreeMap<FormId, (u32, f64)>,
+    /// (helper, victim) pairs whose staying out was noted ([`Note::StaysOut`], once).
+    pub stayed_out: std::collections::BTreeSet<(FormId, FormId)>,
 }
 
 impl Provocations {
@@ -233,6 +255,16 @@ impl Game<'_> {
             return ALLY;
         }
         NEUTRAL
+    }
+
+    /// Whether `helper` stays out of `victim`'s fight (a Cowardly helper, module notes);
+    /// the first time for the pair it is noted ([`Note::StaysOut`]).
+    pub fn stays_out(&mut self, helper: FormId, victim: FormId) -> bool {
+        let cowardly = actor_value(self, helper, crate::actor_values::CONFIDENCE).unwrap_or(2.0) as i64 == 0;
+        if cowardly && self.provocations.stayed_out.insert((helper, victim)) {
+            self.provocations.notes.push(Note::StaysOut { helper, victim });
+        }
+        cowardly
     }
 
     /// `actor` was hit by `by` (and lives): it may turn on `by` (module notes). Returns
@@ -361,6 +393,9 @@ impl Game<'_> {
                 }
                 let assistance = actor_value(self, helper, ASSISTANCE).unwrap_or(0.0) as i64;
                 if !helps(assistance, self.reaction_to(helper, victim)) {
+                    continue;
+                }
+                if self.stays_out(helper, victim) {
                     continue;
                 }
                 for &(attacker, at) in &foes {

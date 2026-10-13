@@ -264,10 +264,10 @@ pub fn shown_text(text: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The name an actor is shown by: the base form's display name, else its Editor ID.
+/// The name an actor is shown by: its template's or base form's display name, else its
+/// Editor ID (`SimState::ref_name`).
 fn speaker_name(g: &Game, sim: &SimState, actor: FormId) -> String {
-    let base = sim.base_of(actor.0).unwrap_or(actor);
-    sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(actor))
+    sim.ref_name(Some(g.data), actor.0).map(str::to_string).unwrap_or_else(|| g.data.name(actor))
 }
 
 /// The text of the response being said in the conversation, if it has any.

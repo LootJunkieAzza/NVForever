@@ -240,6 +240,9 @@ pub struct World<'a> {
     /// permanent Strength: temporary Strength (Buffout) and Carry Weight modifiers
     /// ([`World::set_carry_bonus`]).
     carry_bonus: BTreeMap<FormId, f64>,
+    /// Placed actors whose carried items are another base's than their own (an actor
+    /// template's, [`World::set_inventory_sources`]).
+    inventory_sources: BTreeMap<FormId, FormId>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -256,6 +259,7 @@ impl<'a> World<'a> {
             quest_objects: BTreeMap::new(),
             leveled_added: BTreeMap::new(),
             carry_bonus: BTreeMap::new(),
+            inventory_sources: BTreeMap::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -292,7 +296,7 @@ impl<'a> World<'a> {
             None if id == FormId::PLAYER_REF => (FormId::PLAYER_BASE, None),
             None => return Err(SimError::UnknownRef(id)),
         };
-        let mut inventory = self.roll_inventory(base)?;
+        let mut inventory = self.roll_inventory(self.inventory_base(id, base))?;
         if id == FormId::PLAYER_REF {
             // The player wears the non-playable armour it carries: the Pip-Boy Glove and
             // the Pip-Boy 3000 that the base form NPC_ 0x7 lists. [observed in game,
@@ -330,6 +334,19 @@ impl<'a> World<'a> {
             actor_values: BTreeMap::new(),
             last_restock: None,
         })
+    }
+
+    /// The placed actors whose carried items come from another actor base than their
+    /// own: the game layer's actor templates (template flag "Inventory") and placed
+    /// leveled actor lists, which this layer does not follow (`fnv_game`
+    /// `GameData::inventory_sources`). Set before the references are first read.
+    pub fn set_inventory_sources(&mut self, sources: BTreeMap<FormId, FormId>) {
+        self.inventory_sources = sources;
+    }
+
+    /// The base whose carried items `id` (placed with `base`) starts with.
+    fn inventory_base(&self, id: FormId, base: FormId) -> FormId {
+        self.inventory_sources.get(&id).copied().unwrap_or(base)
     }
 
     /// A fresh inventory for a container or actor base: its carried items with leveled
@@ -982,7 +999,7 @@ impl<'a> World<'a> {
     /// (ResetInventory, Layer 5). `false` when the base carries no items.
     pub fn reset_inventory(&mut self, id: FormId) -> Result<bool, SimError> {
         let base = self.get(id)?.base;
-        let inv = self.roll_inventory(base)?;
+        let inv = self.roll_inventory(self.inventory_base(id, base))?;
         let s = self.get(id)?;
         let had = inv.is_some();
         if had {

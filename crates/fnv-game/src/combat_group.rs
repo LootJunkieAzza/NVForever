@@ -431,8 +431,9 @@ impl Game<'_> {
                     continue;
                 }
                 if !self.would_attack(receiver, about) {
-                    // Never against its own allies and friends.
-                    if self.comrades(receiver, about) {
+                    // Never against its own allies and friends; a coward stays out
+                    // (`crate::provocation`, item 14 of playtest list 4).
+                    if self.comrades(receiver, about) || self.stays_out(receiver, c.actor) {
                         continue;
                     }
                     let now = self.time;

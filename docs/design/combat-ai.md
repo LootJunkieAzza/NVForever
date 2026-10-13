@@ -663,3 +663,87 @@ other than Flee, Combat Radius and Max Targeting FOV, Follow and Guard radii in 
 Pretend In Combat, weapon choice and ammunition, armour in the threat ratio, healing in
 combat, crouching behind low cover (NPCs do not sneak), cover on a Continue During Combat
 travel, the navmesh cover field's heights.
+
+## 13. Creature data: aggro radius, cowards, template data (playtest list 4, 2026-10-13)
+
+The owner's list 4, items 14, 18, 19 and 20 (`docs/handoff/playtest-list-4.md` §4).
+
+### 13.1 The aggro radius (`fnv_game::aggro`, item 18)
+
+- **Records** [documented: xEdit AIDT "Aggro Radius Behavior", "Aggro Radius"]: the AI
+  data (the "AI Data" template source) turns it on and gives the radius in game units.
+  The current package must allow it: "Aggro Radius Behavior: Allow aggro radius behavior
+  (if any)" is a package Fallout behaviour flag [documented: GECK wiki Category:Packages],
+  read as `fnv_ai::social` reads them (a package without "Skip Fallout Behavior" allows
+  them all [observed: packages.md, actor-behaviour.md §345]); no package allows it
+  [hypothesis].
+- **Behaviour**: an actor that would not attack the player on sight (its aggression
+  against its faction reaction, `would_attack`), not the player's ally, friend or
+  teammate, that has the player detected inside its radius says GuardTrespass
+  [documented: Combat Tab, "a warning … from … Aggro Radius behavior"] every
+  fAITrespassWarningTimer (5 s) up to iGuardWarnings (2) times, then attacks: a grudge
+  (`Why::Aggro`) [hypothesis: the guard package's rule; GetTrespassWarningLevel counts
+  "an aggro radius violation" with the guard and trespass warnings, documented]. Leaving
+  the radius resets the count [hypothesis]. The player only [design]. Run with the
+  trespass tick (`nvf_play::crime`, four times a second of game time).
+- **Who it changes** [observed: `fnvtool actor factions --survey`,
+  `placed.aggro_radius_not_hostile_on_sight`, FalloutNV.esm]: 467 placed creatures and
+  14 NPCs, among them giant rats (radius 700) 75, coyotes (1,024) 50, bighorners (500,
+  700) 80, worker ants (512) 33, bloatflies (1,000) 32, bark scorpions (400) 31, mole
+  rats (700) 15 — the Aggressive, Neutral wildlife of factions.md §5 — and the
+  Unaggressive gecko hunters of GS02 (650). The 14 NPCs include Primm's ambush gangers
+  (768) and NCR snipers with a radius of 25,000 (vHDLVLNCRRangerEliteNCRBattleSniper, the
+  Hoover Dam battle).
+- **The owner's geckos** (cell -17,-6, VSpawnSpecialTier1GeckoSmallGS02Hunter
+  0x0016518B and 0x0016518C, "Young Gecko Hunter"): Unaggressive, Foolhardy, neutral to
+  the player, Aggro Radius Behavior on, radius 650 [observed]. Their package list starts
+  with VCrGeckoFindFood (Once Per Day, 2 hours, Skip Fallout Behavior with no behaviour
+  flag, so no aggro while it runs); after it they patrol and sandbox, which allow it.
+  NVForever chooses VCrGeckoFindFood all day (`fnvtool ai day`): a Once Per Day package
+  that is running is kept and a Find package never completes here, so these two do not
+  aggro yet (owner-review.md, "Playtest list 4: creature data").
+- Log: `provocation: … warns the player inside its aggro radius (warning n; d of r
+  units)`, `provocation: … attacks the player, who stayed inside its aggro radius`; the
+  provocation summary counts both. Smoke `aggro-radius` (a Goodsprings coyote).
+
+### 13.2 Cowards stay out (`fnv_game::provocation`, item 14)
+
+An actor whose Confidence is Cowardly ("I will always flee from combat" [documented:
+GECK wiki Confidence]) never takes up another's fight, by assistance (§10.3) or by an
+alarm (§12.3): `provocation: … stays out of …'s fight: its confidence is Cowardly`, once
+per pair. It still fights whom its own records make it attack and whoever attacks it
+(then it flees by §12.2: a Cowardly threshold of 1,000). Unaggressive alone does not keep
+a helper out [design: the wiki's aggression levels say whom an actor attacks on sight
+and whom it might avoid, not whether it assists]. The Goodsprings bighorners (GSBigHorner:
+Unaggressive, Cowardly, Helps Allies, in GoodspringsAnimalFaction) [observed] no longer
+join the Powder Ganger fight. Running away from a fight it is not in ("avoiding",
+Confidence page) is not built (§11, "Avoiding threats out of combat").
+
+### 13.3 Talk on creatures and hostile actors (`nvf_play::activate`, item 19)
+
+The prompt on a living actor (`activate::actor_action`): one hostile to the player (it
+would attack the player, or it is fighting the player) shows only its name; a creature
+shows Talk only when it has a GREETING line it can say now (`Game::has_greeting`), else
+only its name; other NPCs show Talk [hypothesis: the game offers Talk on creatures with
+dialogue, Rex and ED-E, and not on animals; not captured]. A name-only target does
+nothing on E (`activate 0x… …: nothing to do (name only)`). The reticle draws the name
+alone, without the key and the action line.
+
+### 13.4 Data from the template (`fnv_game::templates`, item 20)
+
+Each ACBS template flag now decides where its group is read (factions.md §7):
+
+| Flag | Read from the template's source now | Before |
+|---|---|---|
+| Traits | GetIsRace, GetIsSex, GetIsVoiceType, GetIsClass, IsChild, child immunity | the placed base |
+| Stats | health, attributes, skills, level, fatigue, speed; a creature's attack, GetIsCreatureType [hypothesis: the type sits in CREA DATA with the stats] | the same (type: the base) |
+| Factions | factions | the same |
+| Actor Effect List | not read by the game layer | — |
+| AI Data | aggression, confidence, assistance, mood, energy, responsibility, aggro radius, combat style | the same |
+| AI Packages | the package list | the same |
+| Model/Animation | the drawn model, skeleton and animations (`fnv_actor::resolve`) | the same |
+| Base Data | the name shown (prompt, loot menu, conversation, hit messages); Essential, Respawn, No Low Level Processing, Invulnerable | the base's (Respawn: the same) |
+| Inventory | the simulation's carried items (`fnv_sim::World::set_inventory_sources`; a placed leveled list: its entry's) | the placed base's (none for a list) |
+| Script | the script a reference runs (`Game::ref_script`) | the placed base's |
+
+Karma (ACBS) is still the placed base's: which flag carries it is not known.

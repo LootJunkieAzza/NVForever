@@ -867,7 +867,9 @@ pub struct RunCtx {
 }
 
 impl<'a> Game<'a> {
-    pub fn new(data: &'a GameData, world: World<'a>, cfg: GameConfig) -> Game<'a> {
+    pub fn new(data: &'a GameData, mut world: World<'a>, cfg: GameConfig) -> Game<'a> {
+        // Placed actors carry their template's items (template flag "Inventory").
+        world.set_inventory_sources(data.inventory_sources(world.placed));
         Game {
             data,
             combat_requests: Vec::new(),
@@ -1087,6 +1089,13 @@ impl<'a> Game<'a> {
         let base = match self.world.peek(r) {
             Some(s) => s.base,
             None => self.world.placed.get(r).map(|p| p.base).or((r == FormId::PLAYER_REF).then_some(FormId::PLAYER_BASE))?,
+        };
+        // An actor with the template flag "Script" runs its template's script [documented:
+        // GECK wiki GetActorTemplateFlag, "Use Script"].
+        let base = if self.data.actors.contains_key(&base) || self.data.leveled_actors.contains_key(&base) {
+            self.data.template_source(base, r, |d| d.template_script).map_or(base, |(id, _)| id)
+        } else {
+            base
         };
         self.data.script_of_base(base)
     }

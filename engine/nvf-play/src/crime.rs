@@ -120,7 +120,7 @@ fn report_deeds(
     });
 }
 
-/// Trespass warnings and attacks, four times a second of game time.
+/// Trespass and aggro radius warnings and attacks, four times a second of game time.
 fn tick(mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut stats: ResMut<CrimeStats>) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let now = rt.game.time;
@@ -128,7 +128,11 @@ fn tick(mut sim: ResMut<SimState>, mut script: Option<ResMut<ScriptState>>, mut 
         return;
     }
     stats.last_tick = now;
-    with_world(rt, &mut sim, |rt| rt.game.crime_tick());
+    with_world(rt, &mut sim, |rt| {
+        rt.game.crime_tick();
+        // Aggro radius warnings and attacks, on the same clock (`fnv_game::aggro`).
+        rt.game.aggro_tick();
+    });
 }
 
 fn name(g: &fnv_game::Game, id: FormId) -> String {

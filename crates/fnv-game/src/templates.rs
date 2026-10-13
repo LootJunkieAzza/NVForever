@@ -102,6 +102,33 @@ impl GameData {
         self.template_source(base, reference, |d| d.template_factions).map_or(&[], |(_, d)| &d.factions)
     }
 
+    /// The actor base whose name `reference` (placed with `base`) is shown by: the
+    /// "Base Data" source of its template chain (the name is base data: an actor with the
+    /// flag has no FULL of its own [observed: VSpawnTier2GeckoMed 0x00156777, shown as
+    /// "Gecko", the FULL of the entry its template VEncTier2GeckoMed leads to, owner's
+    /// playtest list 4 item 20]). `base` itself when the chain cannot be followed.
+    pub fn display_base(&self, base: FormId, reference: FormId) -> FormId {
+        self.template_source(base, reference, |d| d.template_base).map_or(base, |(id, _)| id)
+    }
+
+    /// The placed actors whose carried items are another actor base's than their own:
+    /// the "Inventory" source of the template chain, or the entry a placed leveled list
+    /// stands for ([`GameData::template_source`]), for `fnv_sim::World::set_inventory_sources`.
+    pub fn inventory_sources(&self, placed: &fnv_sim::RefTable) -> std::collections::BTreeMap<FormId, FormId> {
+        let mut out = std::collections::BTreeMap::new();
+        for (&r, p) in &placed.refs {
+            if !matches!(&p.sig, b"ACHR" | b"ACRE") {
+                continue;
+            }
+            if let Some((source, _)) = self.template_source(p.base, r, |d| d.template_inventory) {
+                if source != p.base {
+                    out.insert(r, source);
+                }
+            }
+        }
+        out
+    }
+
     /// Every actor base `id` can stand for or take the group from, whatever the picks:
     /// the ends of the template chain through every entry of every list on the way (for
     /// surveys: whether the pick matters).

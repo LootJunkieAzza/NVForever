@@ -288,7 +288,17 @@ pub(crate) fn open_menus(
         (None, None) => MenuModel::open_inventory(&mut sim.world),
     };
     match opened {
-        Ok(m) => {
+        Ok(mut m) => {
+            // An actor is named by its template's name where the template supplies it
+            // (`SimState::ref_name`; playtest list 4, item 20).
+            let who = match m.mode {
+                Mode::Container(r) | Mode::Barter(r) => Some(r),
+                _ => None,
+            };
+            let data = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.data);
+            if let Some(name) = who.filter(|r| sim.refs.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"))).and_then(|r| sim.ref_name(data, r.0)) {
+                m.title = name.to_string();
+            }
             info!("menu: open {:?} \"{}\"", m.mode, m.title);
             // Scripts run MenuMode 1008 / 1002 / 1053 from now on (layer5-play.md).
             crate::script::engine_menu_opened(script, m.mode);

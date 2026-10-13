@@ -232,6 +232,15 @@ impl<'a> Game<'a> {
         self.select_line_where(speaker, listener, topic, |_| true)
     }
 
+    /// Whether `speaker` has a GREETING line it can say to the player now (what talking
+    /// to it would start with, [`Game::start_dialogue`]), without picking among Random
+    /// lines (no random draw).
+    pub fn has_greeting(&mut self, speaker: FormId) -> bool {
+        let data = self.data;
+        let Some(topic) = data.greeting else { return false };
+        data.lines_tried(topic).iter().any(|&i| self.can_say(speaker, Some(FormId::PLAYER_REF), i))
+    }
+
     /// [`Game::select_line`] among the lines `keep` accepts: the others count as lines
     /// the speaker cannot say.
     pub(crate) fn select_line_where(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId, keep: impl Fn(&InfoDef) -> bool) -> Option<FormId> {
