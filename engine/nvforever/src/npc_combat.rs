@@ -82,7 +82,7 @@ use fnv_game::combat_group::{Post, PostKind, Strength};
 use fnv_nav::Space;
 use nvf_play::Location;
 use crate::limbs::ActorRig;
-use crate::locomotion::Dying;
+use crate::locomotion::{Dying, Flinch};
 use crate::ragdoll::Corpse;
 use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 use crate::world::bevy_to_game;
@@ -182,6 +182,9 @@ struct Fighter {
     flee_check_in: f32,
     /// Cover, flank, line of fire (`combat_tactics`).
     tactic: Tactic,
+    /// The start (`Flinch::at`, as bits) of the last hit reaction counted as holding it
+    /// back.
+    stagger_seen: Option<u32>,
 }
 
 #[derive(Resource, Default)]
@@ -230,6 +233,10 @@ struct Stats {
     holds: usize,
     flee_checks: usize,
     flees: usize,
+    /// Hit reactions (crippled staggers) that held a fighter back, and blows being
+    /// swung that they cut short.
+    staggers: usize,
+    blows_cut: usize,
 }
 
 /// A number in [0, 1) from the module's own sequence `rng` [design].
@@ -306,7 +313,7 @@ fn is_gun(c: &Combat, w: &WeaponStats, id: FormId) -> bool {
     AttackKind::of(w) == AttackKind::Gun && c.forms.chain(id, None).is_some_and(|ch| ch.projectile.is_some())
 }
 
-type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>);
+type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>, Option<&'w Flinch>);
 
 /// One frame of every fight (module notes).
 #[allow(clippy::too_many_arguments)]
@@ -335,7 +342,7 @@ fn fight(
     let muzzle_at: HashMap<u32, V3> = muzzles.iter().map(|(m, g)| (m.reference, bevy_to_game(g.translation()).to_array())).collect();
     // Where everyone is: feet and chest (game space), and size.
     let mut places: HashMap<u32, (V3, V3, f32)> = HashMap::new();
-    for (rig, g, vis, _, dying, corpse) in &actors {
+    for (rig, g, vis, _, dying, corpse, _) in &actors {
         if vis.get() && !dying && !corpse {
             let feet = bevy_to_game(g.translation()).to_array();
             let scale = g.affine().transform_vector3(Vec3::Z).length().max(0.1);
@@ -361,7 +368,7 @@ fn fight(
     let mut still: Vec<u32> = Vec::new();
     with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
-        for (rig, _, _, hold, _, _) in &actors {
+        for (rig, _, _, hold, _, _, flinch) in &actors {
             let id = rig.reference;
             let me = FormId(id);
             let Some(&(feet, eyes, scale)) = places.get(&id) else { continue };
@@ -416,7 +423,7 @@ fn fight(
                 info!("npc combat: {name} {me} fights {} with {}", if target == FormId::PLAYER_REF { "the player".to_string() } else { g.data.name(target) }, describe(c, &arm));
                 // A new target keeps the fighter's tactics (its cover roll, its flight).
                 let tactic = f.fighters.remove(&id).map(|x| x.tactic).unwrap_or_default();
-                f.fighters.insert(id, Fighter { target, arm: arm.clone(), seen_for: 0.0, firing_for: 0.0, cycle, strike_in: 0.0, pulled: false, blows: Vec::new(), sights: false, pull_in: 0.0, confidence_mod: 0.0, flee_check_in: 0.0, tactic });
+                f.fighters.insert(id, Fighter { target, arm: arm.clone(), seen_for: 0.0, firing_for: 0.0, cycle, strike_in: 0.0, pulled: false, blows: Vec::new(), sights: false, pull_in: 0.0, confidence_mod: 0.0, flee_check_in: 0.0, tactic, stagger_seen: None });
                 // This fight's confidence modifier, not for the foolhardy; the first
                 // flee check within the update time [documented: GECK wiki Confidence].
                 let threshold = g.confidence_threshold(me);
@@ -691,7 +698,20 @@ fn fight(
             } else if fleeing || !matches!(arm, Arm::Gun(_)) {
                 g.awareness.tactics.posts.remove(&me);
             }
-            let ready = sees && !hold_fire && fighter.seen_for >= REACTION_SECONDS && hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
+            // A hit reaction (the stagger of a crippled limb, `deaths.rs`) playing: no attack
+            // until it has ended, and a blow being swung is cut short (owner's playtest
+            // list 4 item 21) [design].
+            let staggering = flinch.filter(|fl| clock < fl.at + fl.clip.clip.length());
+            if let Some(fl) = staggering {
+                if fighter.stagger_seen != Some(fl.at.to_bits()) {
+                    fighter.stagger_seen = Some(fl.at.to_bits());
+                    let cut = std::mem::take(&mut fighter.blows).len();
+                    f.stats.staggers += 1;
+                    f.stats.blows_cut += cut;
+                    info!("npc combat: {me_name} holds its attacks while it staggers ({:.1} s){}", fl.at + fl.clip.clip.length() - clock, if cut > 0 { format!("; {cut} blow(s) cut short") } else { String::new() });
+                }
+            }
+            let ready = sees && !hold_fire && staggering.is_none() && fighter.seen_for >= REACTION_SECONDS && hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
             let pitch = (tchest[2] - eyes[2]).atan2((tchest[0] - eyes[0]).hypot(tchest[1] - eyes[1]));
             // Down the sights while it fires at a far target, from the hip near.
             let sight_fov = match &arm {
@@ -871,7 +891,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
     let s = &fighters.stats;
     let (hits, damage, died) = stats.map_or((0, 0.0, false), |c| (c.player_hits, c.player_damage, c.player_died));
     info!(
-        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} missed: out of reach when they landed; {} melee decisions to hold), {} reloads; {} flee checks, {} fled; the player was hit {hits} times for {damage:.1}{}",
+        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} missed: out of reach when they landed; {} melee decisions to hold), {} reloads; {} flee checks, {} fled; the player was hit {hits} times for {damage:.1}{}; {} staggers held a fighter's attacks ({} blows cut short)",
         s.fighters.len(),
         s.fighters.values().cloned().collect::<Vec<_>>().join(", "),
         s.shots,
@@ -887,6 +907,8 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.flee_checks,
         s.flees,
         if died { " and died" } else { "" },
+        s.staggers,
+        s.blows_cut,
     );
 }
 

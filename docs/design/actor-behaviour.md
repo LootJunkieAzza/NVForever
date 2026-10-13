@@ -615,6 +615,12 @@ Now (`fnv_ai::process`, the residents' `process_levels`):
     and a follower (Follow or Accompany package) out of the buffer is kept at Mid-High
     while its leader is processed at Mid-High or above [design].
   - **Low**, every 120 s: anywhere else ("neither currently loaded nor buffered").
+  - **Coming** (2026-10-13, owner's playtest list 4 item 13: Ringo came out of the gas
+    station only after the fight): an actor whose rest of path has a corner in a drawn
+    cell is moved every frame, still without the high process's extras, so it comes
+    through a load door when it would have in sight [design: the original's rule for
+    actors heading to the player's area is not documented]. Smoke scenario
+    `ringo-comes-out`.
 
   Moving between the two keeps the share of the interval the actor is owed.
 - **No Low Level Processing**: no update at all out of the loaded area, not even for

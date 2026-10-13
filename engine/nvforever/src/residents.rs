@@ -404,6 +404,9 @@ struct Core {
     standing_by: [usize; 5],
     /// The game was held this frame (menu, conversation, loading screen): nobody walks.
     held_now: bool,
+    /// Actors playing a hit reaction (the stagger of a crippled limb, `deaths.rs`) this
+    /// frame: they stand until it ends (owner's playtest list 4 item 21) [design].
+    staggering: HashSet<u32>,
 }
 
 #[derive(Resource)]
@@ -470,6 +473,7 @@ impl Residents {
             walk_frames: [0; 3],
             standing_by: [0; 5],
             held_now: false,
+            staggering: HashSet::new(),
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -666,10 +670,17 @@ impl Core {
             if carries {
                 streamer.buffer.carry(space, feet);
             }
-            let level = match (high, streamer.buffer.holds(space, feet)) {
-                (true, _) => fnv_ai::ProcessLevel::High,
-                (false, true) => fnv_ai::ProcessLevel::MidHigh,
-                (false, false) => fnv_ai::ProcessLevel::Low,
+            // On its way into the loaded area (a corner of the rest of its path is in
+            // it): moved every frame, so it comes through the door when it would (owner's
+            // playtest list 4 item 13: Ringo out of the gas station).
+            let coming = !high
+                && a.activity == fnv_ai::Activity::Travelling
+                && a.walker.follower.as_ref().is_some_and(|f| f.path.legs.iter().skip(f.leg).any(|l| l.points.iter().any(|p| drawn(world, streamer, l.space, *p))));
+            let level = match (high, coming, streamer.buffer.holds(space, feet)) {
+                (true, _, _) => fnv_ai::ProcessLevel::High,
+                (false, true, _) => fnv_ai::ProcessLevel::Coming,
+                (false, false, true) => fnv_ai::ProcessLevel::MidHigh,
+                (false, false, false) => fnv_ai::ProcessLevel::Low,
             };
             let was_high = self.ai.is_high(r.actor);
             if self.ai.set_level(game, r.actor, level) {
@@ -683,6 +694,7 @@ impl Core {
                         fnv_ai::ProcessLevel::MidHigh => "back in the cell buffer (low process every 18 s)",
                         fnv_ai::ProcessLevel::Low if was_high => "out of the loaded area and the cell buffer (low process every 120 s)",
                         fnv_ai::ProcessLevel::Low => "out of the cell buffer (low process every 120 s)",
+                        fnv_ai::ProcessLevel::Coming => "on its way into the loaded area (moved every frame)",
                     },
                     feet[0],
                     feet[1],
@@ -710,8 +722,12 @@ impl Core {
         });
         // Whoever is on furniture, or getting off it, does not walk yet; nor do two actors
         // talking to each other (`fnv_ai::social`).
-        let held: HashSet<u32> =
-            self.list.iter().filter(|r| matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_)) || game.in_actor_conversation(r.actor) || self.ai.holds_for_chat(r.actor)).map(|r| r.actor.0).collect();
+        let held: HashSet<u32> = self
+            .list
+            .iter()
+            .filter(|r| matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_)) || game.in_actor_conversation(r.actor) || self.ai.holds_for_chat(r.actor) || self.staggering.contains(&r.actor.0))
+            .map(|r| r.actor.0)
+            .collect();
         if !self.prepared {
             self.prepared = true;
             game.cfg.package_interval = Some(PACKAGE_INTERVAL);
@@ -1095,6 +1111,13 @@ type PlayState<'w> = (
     Option<ResMut<'w, ActorBlocks>>,
 );
 
+/// Who is on furniture, the hours passed in the Wait menu, and who plays a hit reaction.
+type Held<'w, 's> = (
+    Query<'w, 's, &'static RefVisual, With<OnFurniture>>,
+    Option<MessageReader<'w, 's, nvf_play::wait::HourPassed>>,
+    Query<'w, 's, (&'static RefVisual, &'static crate::locomotion::Flinch)>,
+);
+
 /// Run the package choice and the walks, log what happens, keep the visuals in step.
 #[allow(clippy::too_many_arguments)]
 pub fn drive(
@@ -1112,7 +1135,7 @@ pub fn drive(
     mut actors: Query<(&mut Transform, Option<&mut Locomotion>), Without<OnFurniture>>,
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, sim, mut phys, mut blocks): PlayState,
-    (seated, hours): (Query<&RefVisual, With<OnFurniture>>, Option<MessageReader<nvf_play::wait::HourPassed>>),
+    (seated, hours, flinches): Held,
 ) {
     // Hours passed in the Wait menu since the last frame (`--play` only: without it
     // there is no menu and no such message).
@@ -1133,6 +1156,8 @@ pub fn drive(
         res.started = true;
     }
     let all = res.all;
+    // Who staggers (a hit reaction playing) stands until it ends.
+    res.core.staggering = flinches.iter().filter(|(_, f)| now < f.at + f.clip.clip.length()).map(|(v, _)| v.0).collect();
     // The game state: this module's, or the game being played (once its data is in).
     match (res.own.as_deref_mut(), script, sim) {
         (Some(game), _, _) => {
@@ -1389,18 +1414,20 @@ pub fn report(
     let (high, low) = core.ai.process_counts();
     let far = core.ai.far_count();
     info!(
-        "process summary: {high} residents in the loaded area (high process) and {low} out of it at the end ({far} of them beyond the cell buffer), at most {}, {} and {}; {} left the loaded area, {} came back; {} fell out of the cell buffer; {} low-process updates every {:.0} s and {} every {:.0} s ({} walking steps); {} conversations or searches ended by leaving",
+        "process summary: {high} residents in the loaded area (high process) and {low} out of it at the end ({far} of them beyond the cell buffer), at most {}, {} and {}; {} left the loaded area, {} came back; {} fell out of the cell buffer; {} low-process updates every {:.0} s and {} every {:.0} s ({} walking steps); {} conversations or searches ended by leaving; {} set off into the loaded area from out of it ({} updates every frame)",
         p.most_high,
         p.most_low,
         p.most_far,
         p.left,
         p.came_back,
         p.fell_far,
-        p.low_updates - p.far_updates,
+        p.low_updates - p.far_updates - p.coming_updates,
         fnv_ai::LOW_PROCESS_SECONDS,
         p.far_updates,
         fnv_ai::FAR_PROCESS_SECONDS,
         p.low_steps,
-        p.dropped
+        p.dropped,
+        p.coming,
+        p.coming_updates
     );
 }
