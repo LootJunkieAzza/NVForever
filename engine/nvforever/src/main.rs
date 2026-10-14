@@ -528,7 +528,7 @@ fn main() -> AppExit {
         crash::early_exit(&e);
         AppExit::error()
     };
-    let game = match GameData::open(&args.data, &args.nif_schema) {
+    let game = match GameData::open_for_plugins(&args.data, &args.plugins, &args.nif_schema) {
         Ok(g) => g,
         Err(e) => return fail(e),
     };

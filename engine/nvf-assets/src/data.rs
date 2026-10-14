@@ -15,7 +15,13 @@ pub struct GameData {
 impl GameData {
     /// Open the default archive set of `data_dir` (read-only) and load the schemas.
     pub fn open(data_dir: &Path, schema_dir: &Path) -> Result<GameData, String> {
-        let vfs = Vfs::open_default(data_dir).map_err(|e| e.to_string())?;
+        GameData::open_for_plugins(data_dir, &fnv_vfs::DEFAULT_PLUGINS, schema_dir)
+    }
+
+    /// [`GameData::open`] with the archives of `plugins` (load order): mods' archives
+    /// over the base game's, loose files over both.
+    pub fn open_for_plugins<S: AsRef<str>>(data_dir: &Path, plugins: &[S], schema_dir: &Path) -> Result<GameData, String> {
+        let vfs = Vfs::open_for_plugins(data_dir, plugins).map_err(|e| e.to_string())?;
         let schema = Schema::load_dir(schema_dir).map_err(|e| e.to_string())?;
         Ok(GameData { vfs: Arc::new(vfs), schema: Arc::new(schema) })
     }

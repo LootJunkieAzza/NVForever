@@ -89,6 +89,10 @@ overrides the base archives, whatever the file timestamps (the overriding archiv
 the older files). Still **[hypothesis]**: `Update.bsa` against the DLC archives, DLC
 against DLC, and loose files on top (no loose mesh or texture exists to test with).
 `NVF_ARCHIVE_ORDER` (comma-separated, lowest first) replaces the order for diagnostics.
+The game takes "each plugin" from its `--plugins` list (`Vfs::open_for_plugins`), so a
+mod's plugin brings its own archives (`MyMod.bsa`, `MyMod - *.bsa`) above the base game's
+and DLC's, and loose files in `Data` subfolders override both. An archive no loaded plugin
+names is not read. fnvtool and the viewer still open the base + DLC set.
 
 ### 2.6 Scene and geometry conventions (spec notes §6)
 
