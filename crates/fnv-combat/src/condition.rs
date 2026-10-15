@@ -45,6 +45,18 @@ pub fn armor_mult(t: &CombatTuning, condition: f32) -> f32 {
     t.armor_condition_min_mult + (1.0 - t.armor_condition_min_mult) * condition.clamp(0.0, 1.0)
 }
 
+/// The chance one shot jams a weapon at `condition` (the owner's playtest list 5 item 9)
+/// [design]: none at or above [`CombatTuning::jam_condition`] (75 %, where the HUD's
+/// condition bar marks it), growing to [`CombatTuning::jam_chance_max`] at zero along
+/// [`CombatTuning::jam_curve`].
+pub fn jam_chance(t: &CombatTuning, condition: f32) -> f32 {
+    if t.jam_condition <= 0.0 || condition >= t.jam_condition {
+        return 0.0;
+    }
+    let short = ((t.jam_condition - condition.max(0.0)) / t.jam_condition).clamp(0.0, 1.0);
+    t.jam_chance_max * short.powf(t.jam_curve.max(0.01))
+}
+
 /// A condition as the whole percentage shown to the player: 0 only when broken, 100 only
 /// when undamaged.
 pub fn percent(condition: f32) -> u32 {

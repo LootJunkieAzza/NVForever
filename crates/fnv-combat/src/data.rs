@@ -218,6 +218,15 @@ pub struct ProjectileStats {
     pub sound_level: Option<String>,
 }
 
+impl WeaponStats {
+    /// Held in two hands: its DNAM animation type is one of the "(2 Hand)" types
+    /// (rifles, automatic rifles, launchers, handles, two-handed melee) [observed: the
+    /// schema's names].
+    pub fn two_handed(&self) -> bool {
+        self.anim_type.as_deref().is_some_and(|t| t.contains("(2 Hand)"))
+    }
+}
+
 impl ProjectileStats {
     pub fn has(&self, flag: &str) -> bool {
         self.flags.iter().any(|f| f == flag)

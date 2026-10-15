@@ -938,6 +938,34 @@ expect = [
 ]
 
 [[scenario]]
+name = "tgm-no-ammo"
+source = "playtest list 5 item 49 (2026-10-16): in god mode (tgm) shots use no ammo and the weapon never needs reloading"
+note = "God mode by its test aid; the 9mm pistol (clip 13) with 3 rounds carried, fired 16 times by fresh pulls: without god mode it would run dry after 3"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/attack.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:3", NVF_PLAY_TEST_CONTROL = "8:weapon,11:fire,11.2:fire,11.8:fire,12:fire,12.6:fire,12.8:fire,13.4:fire,13.6:fire,14.2:fire,14.4:fire,15:fire,15.2:fire,15.8:fire,16:fire,16.6:fire,16.8:fire,17.4:fire,17.6:fire,18.2:fire,18.4:fire,19:fire,19.2:fire,19.8:fire,20:fire,20.6:fire,20.8:fire,21.4:fire,21.6:fire,22.2:fire,22.4:fire,23:fire,23.2:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 28
+expect = [
+  { re = 'combat: (?P<n>\d+) shots \(', range = [12, 16], label = "about 16 shots with 3 rounds carried" },
+  { re = 'combat: \d+ shots .*, 0 reloads, 0 dry fires', label = "no reload and no dry fire" },
+]
+
+[[scenario]]
+name = "carry-two-handed"
+source = "playtest list 5 items 21 and 61 (2026-10-16): over the carry limit the player can only walk; running with a two-handed weapon drawn is slower"
+note = "40 hunting rifles (6 lb each) take the player over the 200 lb limit; one drawn is a two-handed weapon (fMove2HBigPenalty 0.1 in FalloutNV.esm)"
+areas = ["controls", "combat"]
+paths = ["engine/nvf-play/src/player.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_EQUIP = "00004333", NVF_PLAY_TEST_GIVE = "00004333:40", NVF_PLAY_TEST_CONTROL = "8:weapon", NVF_PLAY_TEST_MOVE = "11:1:0,13:0:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'encumbrance: [\d.]+ / 200, over the limit: the player walks', label = "over the limit: walking only" },
+  "movement: running at 90% of the speed (a two-handed weapon drawn)",
+]
+
+[[scenario]]
 name = "third-person-activate"
 source = "playtest list 4 item 11 (2026-10-12): in third person the activate prompt follows the crosshair (the over-the-shoulder camera's line): one of Sunny's bottles (a small object) under the third-person crosshair is the target"
 note = "The player stands about 110 units from the bottle (GOTO) looking at it; once in third person the crosshair is about 40 units right of it (the bottle no longer targeted, as the eye's view would have kept it), and the aim aid then puts it under the crosshair. Sunny's opening line (info) is needed for the bottles' collision bodies, as in shoot-bottles. Chet in the general store was tried first: behind his counter he is targeted only by his render bounds in first person, and not at all along the camera's line, so he does not test the line alone"

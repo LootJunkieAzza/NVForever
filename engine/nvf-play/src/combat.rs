@@ -114,6 +114,7 @@ use fnv_combat::vec::{self, V3};
 use fnv_combat::{shot, CombatForms, CombatTuning, Rules};
 use fnv_phys::{layers, Filter, Key, Owner, Queries};
 use fnv_sim::FormId;
+use std::collections::HashMap;
 
 use crate::activate::HudMessage;
 use crate::sfx::{LoopSound, PlaySound, Sfx};
@@ -152,6 +153,11 @@ pub struct WeaponAnim {
     /// Counted up by combat when a weapon starts to spin up: the body plays the attack
     /// clip from its start, and the first shot follows at the clip's `Fire` key.
     pub spin_ups: u32,
+    /// Set by combat: the weapon's jam animation (`JamA` for reload animation
+    /// `ReloadA`: the game's `1hpjama.kf` beside `1hpreloada.kf` [observed: file lists]),
+    /// and counted up when a shot jams the weapon; the body plays the jam clip.
+    pub jam: Option<String>,
+    pub jams: u32,
     /// Set by combat: the clip stem of the melee swing playing (`attackleft_b`,
     /// `attackforwardpower`; `fnv_combat::melee`), for the body's clip choice; `None`:
     /// the weapon's attack animation.
@@ -435,6 +441,10 @@ pub struct CombatStats {
     pub damage: f32,
     pub reloads: u32,
     pub dry_fires: u32,
+    /// Shots that jammed the weapon (item 9).
+    pub jams: u32,
+    /// Melee blows that showed an impact (item 24).
+    pub melee_impacts: u32,
     pub kills: u32,
     pub xp: f64,
     pub swings: u32,
@@ -683,10 +693,23 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, weapon_state, equip_sync, weapon_sounds, fire, melee, actor_attacks, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hit_hud).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
+    }
+}
+
+/// The player runs slower with a two-handed weapon drawn, by `fMove2HBigPenalty`
+/// (`crate::player::RunPace`; the owner's playtest list 5 item 61) [design: every
+/// two-handed weapon; hypothesis: the setting's role, from its name].
+fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<crate::player::RunPace>>) {
+    let Some(mut pace) = pace else { return };
+    let two = control.weapon_out && c.weapon.and_then(|w| c.forms.weapons.get(&w)).is_some_and(WeaponStats::two_handed);
+    let want = if two { (1.0 - c.rules.move_2h_penalty).clamp(0.1, 1.0) } else { 1.0 };
+    if pace.0 != want {
+        pace.0 = want;
+        info!("movement: running at {:.0}% of the speed ({})", want * 100.0, if two { "a two-handed weapon drawn" } else { "no two-handed weapon drawn" });
     }
 }
 
@@ -805,6 +828,7 @@ fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut
     }
     anim.attack = w.attack_anim.clone();
     anim.reload = w.reload_anim.clone();
+    anim.jam = w.reload_anim.as_deref().and_then(jam_anim);
     info!(
         "combat: weapon {} ({id}), ammo {}, magazine {}/{}, {} projectile(s) per shot",
         w.edid.as_deref().unwrap_or("?"),
@@ -815,12 +839,47 @@ fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut
     );
 }
 
+/// The impact a weapon's impact data set names for what a hit struck, and the material
+/// it was chosen by: an actor's is its base's Impact Material Type (NPC_ / CREA `NAM4`),
+/// organic without one [design]; anything else's its collision material
+/// (docs/spec-notes/audio.md §11). Shots and melee blows alike (item 24).
+fn impact_for(s: &Sfx, sim: &SimState, weapon: FormId, actor: Option<ActorId>, material: Option<u32>) -> (Option<FormId>, &'static str) {
+    let material = match actor {
+        Some(a) => sim.base_of(a as u32).and_then(|b| s.forms.actor_material(b)).unwrap_or("organic"),
+        None => fnv_combat::fx::impact_material(material),
+    };
+    let set = s.forms.weapons.get(&weapon).and_then(|w| w.impact_dataset);
+    (set.and_then(|set| s.forms.impact_id(set, material)), material)
+}
+
+/// Show an impact (the renderer's model and debris, `ImpactFx`) and play its sounds there.
+fn show_impact(s: &Sfx, fx: ImpactFx, sounds: &mut MessageWriter<PlaySound>, impacts: &mut MessageWriter<ImpactFx>) {
+    impacts.write(fx);
+    if let Some(i) = s.forms.impacts.get(&fx.impact) {
+        for sound in i.sound_1.into_iter().chain(i.sound_2) {
+            sounds.write(PlaySound { sound, at: Some(fx.point) });
+        }
+    }
+}
+
+/// The jam animation beside a reload animation: `ReloadA` → `JamA`, `ReloadX` → `JamX`
+/// [observed: `1hpjama.kf`…`2hrjamz.kf` beside the reload clips in the meshes archive;
+/// the letters' pairing is a hypothesis from the names].
+pub fn jam_anim(reload: &str) -> Option<String> {
+    let rest = reload.strip_prefix("Reload").or_else(|| reload.strip_prefix("reload"))?;
+    (!rest.is_empty()).then(|| format!("Jam{rest}"))
+}
+
 /// The physics world as combat sees it: rays that skip the player's capsule and the
 /// layers nothing solid is on, and actor hit volumes.
 struct PhysView<'a> {
     q: Queries<'a>,
     player: Option<Key>,
+    /// The characters of the actors another system walks (`PhysState::npcs`).
+    npcs: Vec<Key>,
     actors: Vec<(ActorId, V3, f32)>,
+    /// Each actor's body part capsule centres, widest first.
+    aims: HashMap<ActorId, Vec<V3>>,
 }
 
 impl CombatWorld for PhysView<'_> {
@@ -840,6 +899,11 @@ impl CombatWorld for PhysView<'_> {
         }
         // The shooter's own hit volume and character.
         f.exclude.extend(ignore.iter().filter(|&&a| a != PLAYER).flat_map(|&a| [Key::Actor(a as u32), Key::Character(a as u32)]));
+        // An actor's character (the capsule that walks it) is not its body: its hit
+        // volumes are. A shot or a swing that met the character first struck it as a
+        // wall, dust and no damage, and one past a flying or low creature's capsule
+        // missed its body (the owner's playtest list 5 items 16 and 25) [design].
+        f.exclude.extend(self.npcs.iter().copied());
         let h = self.q.ray(from, d, len, &f)?;
         let player_hit = other_shoots && self.player == Some(h.owner.key());
         Some(WorldHit {
@@ -867,14 +931,20 @@ impl CombatWorld for PhysView<'_> {
     fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
         self.actors.iter().filter(|(_, c, r)| vec::len(vec::sub(*c, point)) <= radius + r).map(|&(id, c, _)| (id, c)).collect()
     }
+
+    fn aim_points(&self, actor: ActorId) -> Vec<V3> {
+        self.aims.get(&actor).cloned().unwrap_or_default()
+    }
 }
 
 fn view(phys: &mut PhysState) -> PhysView<'_> {
     let actors: Vec<(ActorId, V3, f32)> =
         phys.world.actor_volumes().filter_map(|id| phys.world.actor_volume(id).map(|v| (id as ActorId, v.center(), v.radius))).collect();
     let player = phys.player.as_ref().map(|c| c.key());
+    let npcs = phys.npcs.values().map(|b| b.ch.key()).collect();
+    let aims = actors.iter().map(|&(id, ..)| (id, phys.world.actor_part_centers(id as u32))).filter(|(_, v)| !v.is_empty()).collect();
     phys.world.update_queries();
-    PhysView { q: phys.world.queries(), player, actors }
+    PhysView { q: phys.world.queries(), player, npcs, actors, aims }
 }
 
 /// An actor's current value as the formulas read it (within its range: S.P.E.C.I.A.L.
@@ -982,9 +1052,16 @@ fn fire(
             }
         }
     }
+    // God mode: no ammo is used and nothing needs reloading (the owner's playtest list 5
+    // item 49) [design]: the magazine stays full and shots take nothing from the
+    // inventory.
+    let god = god_mode();
+    if god && !cycle.no_ammo && cycle.regen.is_none() && !c.self_ammo {
+        cycle.magazine = cycle.clip_size;
+    }
     let total = if c.self_ammo { player_count(&sim, Some(id)) } else { player_count(&sim, c.ammo) };
     let carried = total.saturating_sub(cycle.magazine);
-    let events = cycle.step(&c.tuning, Input { trigger: control.trigger, reload, dt, carried });
+    let events = cycle.step(&c.tuning, Input { trigger: control.trigger, reload: reload && !god, dt, carried });
     let Some(chain) = c.forms.chain(id, c.ammo) else { return };
     let weapon_fx = sfx.as_deref().and_then(|s| s.forms.weapons.get(&id));
     for e in events {
@@ -996,12 +1073,12 @@ fn fire(
             Event::Fired { rounds } => {
                 anim.attacks += 1;
                 stats.shots += 1;
-                if rounds > 0 {
+                if rounds > 0 && !god {
                     if let Some(a) = c.ammo {
                         let _ = sim.world.remove_item(FormId::PLAYER_REF, a, rounds as i32);
                     }
                 }
-                if c.self_ammo {
+                if c.self_ammo && !god {
                     let _ = sim.world.remove_item(FormId::PLAYER_REF, id, 1);
                 }
                 // The weapon's OnFire blocks (the detonator's DetonatePlacedExplosives).
@@ -1115,8 +1192,25 @@ fn fire(
                 debug!("combat: shot, cone {cone:.2}°, magazine {}", cycle.magazine);
                 // The shot wears the weapon (§17); a thrown weapon is spent instead.
                 if !c.self_ammo {
+                    // Worn below the jamming mark, the shot may jam it (item 9): the jam
+                    // clip plays and nothing fires until it ends. Weapons that use ammo
+                    // only; a thrown one spends itself [design].
+                    let jams = c.ammo.is_some() && c.rng.next_f32() < condition::jam_chance(&c.tuning, item_condition(&sim, FormId::PLAYER_REF, id));
                     let points = condition::weapon_wear(&c.rules, &w, &effects);
                     if wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, FormId::PLAYER_REF, id, points, None).is_some_and(|w| w.broke) {
+                        break;
+                    }
+                    if jams {
+                        let secs = anim.timing.jam_len.unwrap_or(c.tuning.jam_fallback);
+                        cycle.jam(secs);
+                        anim.jams += 1;
+                        stats.jams += 1;
+                        info!(
+                            "combat: {} jammed at {}% condition (clip {}, {secs:.2} s)",
+                            w.edid.as_deref().unwrap_or("?"),
+                            condition::percent(item_condition(&sim, FormId::PLAYER_REF, id)),
+                            anim.jam.as_deref().unwrap_or("none")
+                        );
                         break;
                     }
                 }
@@ -1145,6 +1239,7 @@ fn fire(
                 info!("combat: click (no ammo)");
             }
             Event::Regenerated => {}
+            Event::Cleared => info!("combat: the jam is cleared"),
         }
     }
 }
@@ -1396,11 +1491,9 @@ fn melee(
     mut script: Option<ResMut<ScriptState>>,
     mut feedback: ResMut<HitFeedback>,
     mut hud: Option<ResMut<HudMessage>>,
-    mut messages: MessageWriter<ActorHit>,
-    mut pushes: MessageWriter<ActorPush>,
-    parts: Res<ActorParts>,
-    limbs: Res<PlayerLimbs>,
-    mut broken: MessageWriter<WeaponBroken>,
+    (mut messages, mut pushes, mut broken): (MessageWriter<ActorHit>, MessageWriter<ActorPush>, MessageWriter<WeaponBroken>),
+    (parts, limbs): (Res<ActorParts>, Res<PlayerLimbs>),
+    (sfx, mut sounds, mut impacts): (Option<Res<Sfx>>, MessageWriter<PlaySound>, MessageWriter<ImpactFx>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -1446,6 +1539,9 @@ fn melee(
         let power_mult = power.map_or(1.0, |d| d.damage(&c.rules));
         let reach = damage::melee_reach(&c.rules, &w, 1.0);
         let eye = player.eye();
+        // A blow that meets no one but strikes the world within reach (a wall, the
+        // ground ahead) shows its impact there.
+        let mut struck_world: Option<WorldHit> = None;
         let hits = {
             let world = view(&mut phys);
             // Low and high: a short creature at the player's feet is struck within the
@@ -1457,6 +1553,7 @@ fn melee(
             }
             if hits.is_empty() {
                 let ahead = world.ray(eye, vec::add(eye, vec::scale(player.look_dir(), 400.0)), &[]);
+                struck_world = ahead.clone().filter(|h| h.actor.is_none() && h.distance <= reach);
                 info!(
                     "combat: swing misses (reach {reach:.0}); straight ahead: {}",
                     ahead.map_or("nothing within 400".to_string(), |h| format!("{} at {:.0}", h.actor.map_or("the world".to_string(), |a| format!("actor {a:08X}")), h.distance))
@@ -1467,6 +1564,26 @@ fn melee(
         // A blow that lands wears the weapon, once however many it strikes (§17); the
         // blow itself is dealt at the condition the weapon had.
         let weapon_condition = item_condition(&sim, FormId::PLAYER_REF, id);
+        // The blow's impacts, as a shot's (the owner's playtest list 5 item 24): blood on
+        // the actors struck, dust or sparks on the world, with their sounds.
+        if let Some(s) = sfx.as_deref() {
+            let dir = player.look_dir();
+            let landed = hits.iter().map(|(a, h)| (Some(*a), h)).chain(struck_world.iter().map(|h| (None, h)));
+            for (actor, h) in landed {
+                if h.part == Some(WEAPON_PART) {
+                    continue;
+                }
+                let (impact, material) = impact_for(s, &sim, id, actor, h.material);
+                match impact {
+                    Some(impact) => {
+                        stats.melee_impacts += 1;
+                        debug!("combat: melee impact {impact} ({material}) at ({:.0}, {:.0}, {:.0})", h.point[0], h.point[1], h.point[2]);
+                        show_impact(s, ImpactFx { impact, shooter: FormId::PLAYER_REF, point: h.point, normal: h.normal, dir }, &mut sounds, &mut impacts);
+                    }
+                    None => debug!("combat: {} has no impact for {material}", w.edid.as_deref().unwrap_or("?")),
+                }
+            }
+        }
         if !hits.is_empty() {
             wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, FormId::PLAYER_REF, id, condition::weapon_wear(&c.rules, &w, &[]), None);
         }
@@ -1593,6 +1710,7 @@ fn actor_attacks(
     (mut shots, mut blows): (MessageReader<ActorFire>, MessageReader<ActorStrike>),
     (mut fired, mut sounds, mut messages, mut pushes): (MessageWriter<ShotFired>, MessageWriter<PlaySound>, MessageWriter<ActorHit>, MessageWriter<ActorPush>),
     sfx: Option<Res<Sfx>>,
+    mut impacts: MessageWriter<ImpactFx>,
 ) {
     let c = &mut *c;
     let gravity = phys.world.params.gravity;
@@ -1649,6 +1767,13 @@ fn actor_attacks(
         }
         if let Some(sound) = sfx.as_deref().and_then(|x| b.weapon.and_then(|w| x.forms.weapons.get(&w))).and_then(|f| f.shoot_3d.or(f.shoot_2d)) {
             sounds.write(PlaySound { sound, at: Some(b.point) });
+        }
+        // Its impact on the one struck, as the player's blows (item 24).
+        if let Some(s) = sfx.as_deref() {
+            if let (Some(impact), _) = impact_for(s, &sim, id, Some(b.target.0 as ActorId), None) {
+                stats.melee_impacts += 1;
+                show_impact(s, ImpactFx { impact, shooter: b.attacker, point: b.point, normal: vec::scale(b.dir, -1.0), dir: b.dir }, &mut sounds, &mut impacts);
+            }
         }
         let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages);
         if r.as_ref().is_none_or(|r| !r.immune) {
@@ -1724,7 +1849,10 @@ fn fly(
             // its start on the muzzle: the attack clip moves the gun in the frames after
             // the shot [observed: the laser rifle's muzzle is 10 units higher one frame
             // after it fires], and a beam left where the muzzle was hangs below the barrel.
-            let follow = at_once && f.from_muzzle;
+            // Only the player's own: the muzzle followed is the player's weapon's, so an
+            // enemy's shot was drawn from the player's gun (the owner's playtest list 5
+            // item 20).
+            let follow = at_once && f.from_muzzle && f.by.actor == FormId::PLAYER_REF;
             let ghost = move |to: V3| Ghost { id, proj, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fresh: true, follow: follow && beam };
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             for e in f.p.step(&world, dt) {
@@ -1883,19 +2011,9 @@ fn fly(
         // base's Impact Material Type (NPC_ / CREA `NAM4`), organic without one
         // [design]; anything else's its collision material (docs/spec-notes/audio.md §11).
         if let Some(s) = sfx.as_deref() {
-            let material = match p.actor {
-                Some(a) => sim.base_of(a as u32).and_then(|b| s.forms.actor_material(b)).unwrap_or("organic"),
-                None => fnv_combat::fx::impact_material(p.material),
-            };
-            let set = s.forms.weapons.get(&id).and_then(|w| w.impact_dataset);
-            let impact = set.and_then(|set| s.forms.impact_id(set, material));
+            let (impact, material) = impact_for(s, &sim, id, p.actor, p.material);
             if let Some(impact) = impact {
-                effects.1.write(ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir });
-                if let Some(i) = s.forms.impacts.get(&impact) {
-                    for sound in i.sound_1.into_iter().chain(i.sound_2) {
-                        effects.0.write(PlaySound { sound, at: Some(p.point) });
-                    }
-                }
+                show_impact(s, ImpactFx { impact, shooter, point: p.point, normal: p.normal, dir: p.dir }, &mut effects.0, &mut effects.1);
             }
             let hit = p.actor.map(|a| a as u32).or(p.object.map(|o| o as u32));
             effects.4.write(crate::world_sounds::log_impact(s, hit, p.actor.is_some(), p.material, material, impact));
@@ -2034,8 +2152,8 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
     if exit.read().last().is_some() {
         let s = &*stats;
         info!(
-            "combat: {} shots ({} drawn from the muzzle, {} from behind cover), {} projectiles, {} actor hits, {} world hits ({} objects' hit blocks, {} objects knocked away), {} explosions ({} knockdowns), {} swings ({} chained, {} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
-            s.shots, s.muzzle_shots, s.covered_shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.chained_swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
+            "combat: {} shots ({} drawn from the muzzle, {} from behind cover), {} projectiles, {} actor hits, {} world hits ({} objects' hit blocks, {} objects knocked away), {} explosions ({} knockdowns), {} swings ({} chained, {} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires, {} jams, {} melee impacts",
+            s.shots, s.muzzle_shots, s.covered_shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.chained_swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires, s.jams, s.melee_impacts
         );
         info!(
             "condition summary: the player's weapons lost {:.1} health, {} hits on held weapons, {} weapons broken, armour lost {:.1} health, {} pieces worn to nothing",
@@ -2152,5 +2270,43 @@ pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32
         reload_hit: reload.and_then(|r| r.1),
         reload_open_len: reload_open,
         spin_up: attack.filter(|a| a.2).and_then(|a| a.1),
+        jam_len: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::phys::NpcBody;
+
+    /// An NPC walked by a character controller: its character (a man-sized capsule from
+    /// the ground) and, inside it, a smaller body hovering (a bloatfly's hit volume).
+    fn npc_world() -> PhysState {
+        let mut phys = PhysState::default();
+        let id = 0x1234;
+        let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), [0.0, 0.0, 0.0]);
+        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2] });
+        phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet: [0.0, 0.0, 30.0], radius: 8.0, height: 30.0, dead: false });
+        phys
+    }
+
+    #[test]
+    fn shots_pass_an_npcs_character_and_strike_its_body() {
+        // The playtest list 5 item 16: the character was struck as a wall (dust, no damage).
+        let mut phys = npc_world();
+        let world = view(&mut phys);
+        let h = world.ray([-300.0, 0.0, 45.0], [300.0, 0.0, 45.0], &[PLAYER]).expect("the body is struck");
+        assert_eq!(h.actor, Some(0x1234));
+        assert!(h.point[0] > -10.0, "struck at the body, not the character's side: {:?}", h.point);
+        // Below the body, through the character's legs: nothing.
+        assert!(world.ray([-300.0, 0.0, 10.0], [300.0, 0.0, 10.0], &[PLAYER]).is_none());
+    }
+
+    #[test]
+    fn jam_animations_beside_reload_animations() {
+        assert_eq!(jam_anim("ReloadA").as_deref(), Some("JamA"));
+        assert_eq!(jam_anim("ReloadZ").as_deref(), Some("JamZ"));
+        assert_eq!(jam_anim("Reload"), None);
+        assert_eq!(jam_anim("AttackLeft"), None);
     }
 }

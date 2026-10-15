@@ -35,6 +35,12 @@ use crate::weapons::{HeldWeapon, WeaponHold};
 /// Joints closer than this to the previous kept joint are merged, game units [design].
 pub const MIN_SEGMENT: f32 = 4.0;
 
+/// A part's side branch is covered when it reaches this far from the part's chain, game
+/// units, at most [`MAX_BRANCHES`] of them, the longest first [design: long enough to
+/// leave out fingers and twist bones, short enough for a bloatfly's legs].
+pub const BRANCH_MIN: f32 = 12.0;
+pub const MAX_BRANCHES: usize = 8;
+
 /// An actor's skeleton as spawned, until its parts are matched ([`LimbRig`]).
 #[derive(Component, Clone)]
 pub struct ActorRig {
@@ -72,6 +78,7 @@ pub fn part_chains(names: &[Option<String>], parents: &[Option<usize>], bind: &[
     let find = |n: &str| names.iter().position(|x| x.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(n)));
     let nodes: Vec<Option<usize>> = part_nodes.iter().map(|n| n.and_then(find)).collect();
     let is_part = |i: usize| nodes.contains(&Some(i));
+    let is_bone = |i: usize| names[i].as_deref().is_some_and(|s| s.to_ascii_lowercase().starts_with("bip01"));
     let mut children: Vec<Vec<usize>> = vec![Vec::new(); names.len()];
     for (i, p) in parents.iter().enumerate() {
         if let Some(p) = p {
@@ -100,7 +107,7 @@ pub fn part_chains(names: &[Option<String>], parents: &[Option<usize>], bind: &[
         let others: Vec<usize> = nodes.iter().flatten().copied().filter(|&o| o != n && is_ancestor(n, o)).collect();
         let connecting: Vec<usize> = own.iter().copied().filter(|&i| i != n && others.iter().any(|&o| is_ancestor(i, o))).collect();
         let candidates: Vec<usize> = if connecting.is_empty() {
-            own.iter().copied().filter(|&i| i != n && names[i].as_deref().is_some_and(|s| s.to_ascii_lowercase().starts_with("bip01"))).collect()
+            own.iter().copied().filter(|&i| i != n && is_bone(i)).collect()
         } else {
             connecting
         };
@@ -114,6 +121,7 @@ pub fn part_chains(names: &[Option<String>], parents: &[Option<usize>], bind: &[
         }
         path.push(n);
         path.reverse();
+        let full = path.clone();
         // Not from the root bone or the accumulation node (they stand at the feet).
         let root_like = |i: usize| {
             parents[i].is_none_or(|p| parents[p].is_none()) || names[i].as_deref().is_some_and(|s| s.to_ascii_lowercase().contains("nonaccum"))
@@ -121,18 +129,60 @@ pub fn part_chains(names: &[Option<String>], parents: &[Option<usize>], bind: &[
         while path.len() > 1 && root_like(path[0]) {
             path.remove(0);
         }
-        let start = path[0];
-        // Merge joints too close to the last one kept (the end always stays).
-        let mut chain = vec![start];
-        for (j, &i) in path.iter().enumerate().skip(1) {
-            let last = *chain.last().expect("start");
-            if bind[i].distance(bind[last]) >= MIN_SEGMENT || (j + 1 == path.len() && chain.len() == 1) {
-                chain.push(i);
+        out.push((k, merged(&path, bind)));
+        // Side branches: the part's own bones off its chain that reach far (a creature's
+        // legs that are no part of their own, a radscorpion's head) are its body too
+        // (the owner's playtest list 5 item 16: shots passed through a bloatfly's lower
+        // body) [design]. Each branch from where it leaves the chain to its farthest bone.
+        let on_path = |i: usize| full.contains(&i);
+        let mut branches: Vec<(f32, Vec<usize>)> = Vec::new();
+        for &first in own.iter().filter(|&&i| !on_path(i) && parents[i].is_some_and(on_path)) {
+            let from = parents[first].expect("off the chain");
+            // The farthest bone of this branch, its own bones only.
+            let mut far = (first, bind[first].distance(bind[from]));
+            let mut stack = vec![first];
+            while let Some(i) = stack.pop() {
+                let d = bind[i].distance(bind[from]);
+                if d > far.1 && is_bone(i) {
+                    far = (i, d);
+                }
+                stack.extend(children[i].iter().copied().filter(|&c| !is_part(c) && !on_path(c)));
             }
+            if far.1 < BRANCH_MIN || !is_bone(far.0) || others.iter().any(|&o| is_ancestor(first, o) || o == first) {
+                continue;
+            }
+            let mut b = vec![far.0];
+            let mut i = far.0;
+            while i != from {
+                i = parents[i].expect("below the branch's start");
+                b.push(i);
+            }
+            b.reverse();
+            // Not from the root bone or the accumulation node at the feet.
+            while b.len() > 2 && root_like(b[0]) {
+                b.remove(0);
+            }
+            branches.push((far.1, b));
         }
-        out.push((k, chain));
+        branches.sort_by(|a, b| b.0.total_cmp(&a.0));
+        for (_, b) in branches.into_iter().take(MAX_BRANCHES) {
+            out.push((k, merged(&b, bind)));
+        }
     }
     out
+}
+
+/// A path of joints with those too close to the last one kept merged (the end always
+/// stays).
+fn merged(path: &[usize], bind: &[Vec3]) -> Vec<usize> {
+    let mut chain = vec![path[0]];
+    for (j, &i) in path.iter().enumerate().skip(1) {
+        let last = *chain.last().expect("start");
+        if bind[i].distance(bind[last]) >= MIN_SEGMENT || (j + 1 == path.len() && chain.len() == 1) {
+            chain.push(i);
+        }
+    }
+    chain
 }
 
 /// One drawn shape of a weapon model: its transform and its local bounds (centre, half
@@ -274,6 +324,41 @@ mod tests {
         assert!(a.distance(Vec3::new(102.0, 0.0, -3.0)) < 1e-3, "{a}");
         assert!(b.distance(Vec3::new(80.0, 0.0, -3.0)) < 1e-3, "{b}");
         assert_eq!(weapon_segment(&[]), None);
+    }
+
+    /// A bloatfly as its skeleton is laid out [observed: `creatureslowfly\skeleton.nif`
+    /// names; places made up]: flying, Bip01 at the body; the abdomen along the tail to
+    /// the stinger (a part), a leg hanging below that is no part, and the head and brain
+    /// in front.
+    fn bloatfly() -> (Vec<Option<String>>, Vec<Option<usize>>, Vec<Vec3>) {
+        let nodes: [(&str, Option<usize>, [f32; 3]); 13] = [
+            ("Scene Root", None, [0.0, 0.0, 0.0]),
+            ("Bip01", Some(0), [0.0, 0.0, 136.0]),
+            ("Bip01 NonAccum", Some(1), [0.0, 0.0, 136.0]),
+            ("Bip01 Spine", Some(2), [0.0, 2.0, 136.0]),
+            ("Bip01 neck01", Some(3), [0.0, 12.0, 138.0]),
+            ("Bip01 Head", Some(4), [0.0, 18.0, 138.0]),
+            ("Bip01 L UpperArm", Some(3), [-6.0, 4.0, 142.0]),
+            ("Bip01 L Thigh 01", Some(3), [-4.0, 4.0, 132.0]),
+            ("Bip01 L Calf 01", Some(7), [-6.0, 6.0, 118.0]),
+            ("Bip01 L Foot 01", Some(8), [-6.0, 8.0, 108.0]),
+            ("Bip01 tail", Some(3), [0.0, -6.0, 134.0]),
+            ("Bip01 tail01", Some(10), [0.0, -20.0, 128.0]),
+            ("Bip01 tail04", Some(11), [0.0, -34.0, 118.0]),
+        ];
+        (nodes.iter().map(|n| Some(n.0.to_string())).collect(), nodes.iter().map(|n| n.1).collect(), nodes.iter().map(|n| Vec3::from(n.2)).collect())
+    }
+
+    #[test]
+    fn a_bloatfly_body_covers_its_abdomen_and_legs() {
+        let (names, parents, bind) = bloatfly();
+        // BloatFlyBodyPartData's nodes [observed]: Body, a wing, Head, Brain, Stinger.
+        let parts = [Some("Bip01"), Some("Bip01 L UpperArm"), Some("Bip01 Head"), Some("Bip01 neck01"), Some("Bip01 tail04")];
+        let chains = part_chains(&names, &parents, &bind, &parts);
+        // The body runs from the spine along the abdomen towards the stinger, and the leg
+        // hanging below it is the body's too (playtest list 5 item 16); the wing, head,
+        // brain and stinger as before.
+        assert_eq!(chains, vec![(0, vec![3, 10, 11]), (0, vec![3, 7, 8, 9]), (1, vec![6]), (2, vec![5]), (3, vec![4]), (4, vec![12])]);
     }
 
     #[test]
