@@ -190,8 +190,8 @@ ours and never remapped.
    with other plugins (missing, added or reordered) is refused with the differences
    listed.
 7. **Importing a `.fos`**: not planned.
-8. **Thumbnail**: 512×288 from the main camera; **not built yet** (the container has its
-   place, written empty; nothing shows saves in a menu yet).
+8. **Thumbnail**: 512×288 from the main camera; built (§6), shown on the pause menu's load
+   page.
 
 ## 6. What is built
 
@@ -221,12 +221,29 @@ ours and never remapped.
   a world built fresh from the plugins.
 - **Console**: `save <name>`, `load [name]` (the quicksave without a name), `saves` (the
   list: name, level, place, game date, kind).
+- **Thumbnail** (`save.rs`): the snapshot is taken at the end of the frame as before; that
+  frame is drawn without the UI (the root UI nodes are hidden for it, shown again the next
+  frame, so a menu blinks for one frame) and captured from the window. When the picture
+  arrives, a writer thread takes its middle 16:9, scales it to 512×288 by area averaging,
+  encodes an RGB PNG (`png` crate, the version Bevy already builds) and writes the file.
+  Measured in the smoke run: the frame spends about 1 ms on the snapshot; the file is on
+  disk about 65 ms later; a thumbnail is 35–300 KB. No picture within 30 frames: the save
+  is written without one. A load (the restart) and quitting wait for saves in flight.
+- **Pause menu** (`pause.rs`): *Save game* (N) saves to a new slot `Save <n>` and says when
+  it is written; *Load game* (L) lists the saves newest first (name, kind, game date per
+  row; the chosen save's thumbnail, player and level, place, game date, play time and when
+  it was saved), Up/Down, the wheel or the pointer choose, Enter or a click load through
+  `LoadRequest`. Only the chosen save's thumbnail is read. Our own layout; nothing of the
+  original's menus is copied.
+- **Smoke**: `save-write` also checks that its saves carry a 512×288 thumbnail, saves from
+  the pause menu, and that the load page lists the saves newest first with their
+  thumbnails (test aid `NVF_PLAY_TEST_PAUSE_MENU`).
 - **Checks**: `crates/fnv-save` unit tests; the game snapshot round trip in
   `crates/fnv-game/tests/synthetic.rs` covers the new fields and an older snapshot without
   them; smoke `save-write` (changes through the console, a manual save, an autosave after
   `coc` and one from `Autosave`) then `save-load` (`--load`, and the changes are back:
   items, a disabled reference, an actor value, the position).
 
-Not built: the thumbnail, a load menu, remapping another load order, in-place loading
+Not built: deleting or renaming saves from the menu, remapping another load order, in-place loading
 without a restart, AI agent progress, corpse poses beyond their position, the sitting or
 lying pose (the player stands up), playback positions of music and radio.

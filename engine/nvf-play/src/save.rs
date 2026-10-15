@@ -21,26 +21,44 @@
 //!   `--load`, so the save always lands in a world built fresh from the plugins.
 //! - Not saved (design §3): physics in motion (objects load at rest), menus, music and
 //!   radio playback position, AI agents' patrol and sandbox progress (packages start
-//!   again from where each actor stands), the thumbnail (not built yet).
+//!   again from where each actor stands).
+//! - **Thumbnail** (design §5 q8): a 512×288 PNG of the main camera's picture, for the load
+//!   menu (`crate::pause`). The snapshot is still taken at the end of the frame the save
+//!   was asked in; that frame is drawn without the UI (the root nodes are hidden for it
+//!   and shown again the next frame) and captured from the window. When the picture
+//!   arrives (a frame or two later), a thread crops it to 16:9, scales it down by area
+//!   averaging, encodes the PNG and writes the file, so the frame does not wait for the
+//!   encoder or the disk. No picture within [`SHOT_WAIT_FRAMES`] frames: the save is
+//!   written without one. A load or quit waits for the saves in flight ([`SaveWrites`]).
 //!
 //! The random numbers are not restored as saved: a load re-seeds them, so a reload does
 //! not replay the same rolls (design §5 q3); test aid `NVF_PLAY_TEST_SAVE_SAME_ROLLS=1`
 //! keeps the saved positions.
 //!
-//! Log: `save: wrote <path> (<kind>, <bytes> bytes, <n> changed references) in <ms> ms`,
+//! Log: `save: wrote <path> (<kind>, <bytes> bytes, <n> changed references), thumbnail
+//! 512x288 (<bytes> bytes PNG) in <ms> ms (snapshot <ms> ms)` (`no thumbnail` without one),
 //! `save: not now: <why>`, `load: restored <path>: …`.
 
 use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::{Location, PlaySet, PlayState, PlayWorld};
 use bevy::prelude::*;
+use bevy::render::render_resource::TextureFormat;
+use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use fnv_save::{PluginEntry, SaveHeader, SaveKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::{mpsc, Mutex};
 
 pub const BODY_FORMAT: &str = "nvf.save.body/1";
 pub const ENGINE_FORMAT: &str = "nvf.engine.state/1";
+
+/// The thumbnail's size (design §5 q8).
+pub const THUMB_W: u32 = 512;
+pub const THUMB_H: u32 = 288;
+/// Frames to wait for the window's picture before a save is written without a thumbnail.
+pub const SHOT_WAIT_FRAMES: u32 = 30;
 
 /// Save now (at the end of this frame, when saving is allowed).
 #[derive(Message, Debug, Clone)]
@@ -156,6 +174,72 @@ struct SaveQueue(Vec<SaveRequest>);
 #[derive(Resource, Default)]
 pub struct SaveLog(pub Vec<String>);
 
+/// A save written (or failed), for the pause menu's status line.
+#[derive(Message, Debug, Clone)]
+pub struct SaveDone {
+    pub path: PathBuf,
+    pub result: Result<(), String>,
+}
+
+/// A save whose snapshot is taken, waiting for its picture.
+struct Unwritten {
+    path: PathBuf,
+    header: SaveHeader,
+    body: Vec<u8>,
+    kind: SaveKind,
+    refs: usize,
+    t0: std::time::Instant,
+    snapshot_ms: f64,
+}
+
+/// A file written on the writer thread: body and thumbnail bytes, or why not.
+struct Written {
+    path: PathBuf,
+    kind: SaveKind,
+    result: Result<(usize, usize), String>,
+    refs: usize,
+    t0: std::time::Instant,
+    snapshot_ms: f64,
+}
+
+/// The window's picture as captured.
+struct Shot {
+    w: u32,
+    h: u32,
+    bgra: bool,
+    px: Vec<u8>,
+}
+
+/// Saves between their snapshot and their file: waiting for the picture, or being written
+/// on another thread.
+#[derive(Resource)]
+pub struct SaveWrites {
+    waiting: Vec<Unwritten>,
+    /// The frame the picture was asked for (the UI is hidden in it), until it comes.
+    asked: Option<u32>,
+    shot: Option<Shot>,
+    /// UI roots hidden for the picture, and their visibility before.
+    hidden: Vec<(Entity, Visibility)>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+    in_flight: usize,
+    tx: mpsc::Sender<Written>,
+    rx: Mutex<mpsc::Receiver<Written>>,
+}
+
+impl Default for SaveWrites {
+    fn default() -> Self {
+        let (tx, rx) = mpsc::channel();
+        SaveWrites { waiting: Vec::new(), asked: None, shot: None, hidden: Vec::new(), threads: Vec::new(), in_flight: 0, tx, rx: Mutex::new(rx) }
+    }
+}
+
+impl SaveWrites {
+    /// Whether a save is not on disk yet (a load waits for it).
+    pub fn busy(&self) -> bool {
+        !self.waiting.is_empty() || self.in_flight > 0
+    }
+}
+
 pub struct SavePlugin;
 
 impl Plugin for SavePlugin {
@@ -164,10 +248,13 @@ impl Plugin for SavePlugin {
             .init_resource::<SaveHooks>()
             .init_resource::<SaveQueue>()
             .init_resource::<SaveLog>()
+            .init_resource::<SaveWrites>()
             .add_message::<SaveRequest>()
+            .add_message::<SaveDone>()
             .add_message::<LoadRequest>()
             .add_systems(Update, (requests, autosaves).in_set(PlaySet::Ui))
-            .add_systems(Update, (write_saves, apply_engine).chain().after(PlaySet::Sync));
+            .add_systems(Update, (write_saves, take_shot, finish_writes, apply_engine).chain().after(PlaySet::Sync))
+            .add_systems(Last, flush_on_exit);
         if let Some(p) = app.world_mut().remove_resource::<PendingLoad>() {
             let PendingLoad { path, body } = p;
             app.insert_resource(PendingEngine(body.engine, path.clone()));
@@ -280,15 +367,18 @@ fn write_saves(world: &mut World) {
             continue;
         }
         done.push(key);
-        let line = match save_now(world, &r) {
-            Ok(l) => l,
-            Err(e) => {
-                warn!("save: failed: {e}");
-                format!("Save failed: {e}")
-            }
-        };
-        world.resource_mut::<SaveLog>().0.push(line);
+        if let Err(e) = save_now(world, &r) {
+            warn!("save: failed: {e}");
+            world.resource_mut::<SaveLog>().0.push(format!("Save failed: {e}"));
+            let path = world.resource::<SaveConfig>().path_of(&r.name).unwrap_or_default();
+            world.write_message(SaveDone { path, result: Err(e) });
+        }
     }
+}
+
+/// A save's game date and hour as the load list shows it (day.month.year hour:00).
+pub fn game_date(h: &SaveHeader) -> String {
+    format!("{:02}.{:02}.{} {:02.0}:00", h.game_day, h.game_month + 1, h.game_year, h.game_hour.floor())
 }
 
 /// The plugins of the running load order.
@@ -296,7 +386,7 @@ pub fn plugin_list(d: &crate::PlayData) -> Vec<PluginEntry> {
     d.lo.plugins.iter().map(|p| PluginEntry { name: p.name.clone(), size: p.file_size }).collect()
 }
 
-fn save_now(world: &mut World, r: &SaveRequest) -> Result<String, String> {
+fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
     let t0 = std::time::Instant::now();
     let cfg = world.resource::<SaveConfig>().clone();
     let name = match r.kind {
@@ -315,13 +405,192 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<String, String> {
     let refs = game.sim.refs.len();
     let body = SaveBody { format: BODY_FORMAT.into(), game, engine };
     let bytes = serde_json::to_vec(&body).map_err(|e| e.to_string())?;
-    fnv_save::write(&path, &header, &[], &bytes, r.kind != SaveKind::Manual).map_err(|e| e.to_string())?;
-    let kind = format!("{:?}", r.kind).to_lowercase();
-    info!("save: wrote {} ({kind}, {} bytes, {refs} changed references) in {:.0} ms", path.display(), bytes.len(), t0.elapsed().as_secs_f64() * 1e3);
-    if let Some(mut c) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
-        c.push(if r.kind == SaveKind::Auto { "Autosaved".to_string() } else { "Game saved".to_string() }.into());
+    let snapshot_ms = t0.elapsed().as_secs_f64() * 1e3;
+    world.resource_mut::<SaveWrites>().waiting.push(Unwritten { path, header, body: bytes, kind: r.kind, refs, t0, snapshot_ms });
+    Ok(())
+}
+
+/// Ask for the picture of this frame, drawn without the UI, for the saves just taken.
+fn take_shot(world: &mut World) {
+    let w = world.resource::<SaveWrites>();
+    if w.waiting.is_empty() || w.asked.is_some() {
+        return;
     }
-    Ok(format!("Saved {}", path.display()))
+    let frame = world.resource::<bevy::diagnostic::FrameCount>().0;
+    // The root nodes drawn on the window (not the Pip-Boy's screen, drawn by its own camera).
+    let mut roots = world.query_filtered::<(Entity, &Visibility), (With<Node>, Without<ChildOf>, Without<bevy::ui::UiTargetCamera>)>();
+    let hidden: Vec<(Entity, Visibility)> = roots.iter(world).filter(|(_, v)| **v != Visibility::Hidden).map(|(e, v)| (e, *v)).collect();
+    for (e, _) in &hidden {
+        world.entity_mut(*e).insert(Visibility::Hidden);
+    }
+    let mut w = world.resource_mut::<SaveWrites>();
+    w.hidden = hidden;
+    w.asked = Some(frame);
+    w.shot = None;
+    world.spawn(Screenshot::primary_window()).observe(|ev: On<ScreenshotCaptured>, mut w: ResMut<SaveWrites>| {
+        let img = &ev.image;
+        let bgra = match img.texture_descriptor.format {
+            TextureFormat::Bgra8Unorm | TextureFormat::Bgra8UnormSrgb => true,
+            TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb => false,
+            f => {
+                warn!("save: the window's picture is {f:?}; no thumbnail");
+                return;
+            }
+        };
+        if let Some(px) = img.data.clone() {
+            w.shot = Some(Shot { w: img.width(), h: img.height(), bgra, px });
+        }
+    });
+}
+
+/// Show the UI again the frame after the picture; once the picture is here (or did not
+/// come in time) hand the saves to a writer thread; report the files written.
+fn finish_writes(world: &mut World) {
+    let frame = world.resource::<bevy::diagnostic::FrameCount>().0;
+    let mut w = world.resource_mut::<SaveWrites>();
+    let shown_again = if w.asked.is_none_or(|f| frame > f) { std::mem::take(&mut w.hidden) } else { Vec::new() };
+    let ready = w.asked.is_some_and(|f| w.shot.is_some() || frame.saturating_sub(f) > SHOT_WAIT_FRAMES);
+    if ready {
+        let shot = w.shot.take();
+        if shot.is_none() {
+            warn!("save: no picture of the window within {SHOT_WAIT_FRAMES} frames; saving without a thumbnail");
+        }
+        w.asked = None;
+        let batch = std::mem::take(&mut w.waiting);
+        start_writer(&mut w, batch, shot);
+    }
+    for (e, v) in shown_again {
+        if let Ok(mut ent) = world.get_entity_mut(e) {
+            ent.insert(v);
+        }
+    }
+    report_written(world);
+}
+
+fn start_writer(w: &mut SaveWrites, batch: Vec<Unwritten>, shot: Option<Shot>) {
+    if batch.is_empty() {
+        return;
+    }
+    w.in_flight += batch.len();
+    let tx = w.tx.clone();
+    w.threads.retain(|t| !t.is_finished());
+    w.threads.push(std::thread::spawn(move || {
+        let png = shot.and_then(|s| thumbnail_rgb(s.w, s.h, &s.px, s.bgra)).and_then(|rgb| encode_png(&rgb, THUMB_W, THUMB_H)).unwrap_or_default();
+        for u in batch {
+            let result = fnv_save::write(&u.path, &u.header, &png, &u.body, u.kind != SaveKind::Manual).map(|()| (u.body.len(), png.len())).map_err(|e| e.to_string());
+            let _ = tx.send(Written { path: u.path, kind: u.kind, result, refs: u.refs, t0: u.t0, snapshot_ms: u.snapshot_ms });
+        }
+    }));
+}
+
+/// Log the files the writer thread finished, for the console, the corner and the pause menu.
+fn report_written(world: &mut World) {
+    let done: Vec<Written> = {
+        let w = world.resource::<SaveWrites>();
+        let rx = w.rx.lock().expect("the writer channel");
+        rx.try_iter().collect()
+    };
+    for d in done {
+        world.resource_mut::<SaveWrites>().in_flight -= 1;
+        let line = match &d.result {
+            Ok((bytes, shot)) => {
+                let kind = format!("{:?}", d.kind).to_lowercase();
+                let thumb = if *shot > 0 { format!("thumbnail {THUMB_W}x{THUMB_H} ({shot} bytes PNG)") } else { "no thumbnail".into() };
+                info!("save: wrote {} ({kind}, {bytes} bytes, {} changed references), {thumb} in {:.0} ms (snapshot {:.0} ms)", d.path.display(), d.refs, d.t0.elapsed().as_secs_f64() * 1e3, d.snapshot_ms);
+                if let Some(mut c) = world.get_resource_mut::<crate::corner_messages::CornerMessages>() {
+                    c.push(if d.kind == SaveKind::Auto { "Autosaved".to_string() } else { "Game saved".to_string() }.into());
+                }
+                format!("Saved {}", d.path.display())
+            }
+            Err(e) => {
+                warn!("save: failed: {e}");
+                format!("Save failed: {e}")
+            }
+        };
+        world.resource_mut::<SaveLog>().0.push(line);
+        world.write_message(SaveDone { path: d.path, result: d.result.map(|_| ()) });
+    }
+}
+
+/// Quitting (or starting again for a load) while saves are not on disk: write those still
+/// waiting for their picture without one and wait for the writer threads.
+fn flush_on_exit(world: &mut World) {
+    if world.resource::<Messages<AppExit>>().is_empty() || !world.resource::<SaveWrites>().busy() {
+        return;
+    }
+    let mut w = world.resource_mut::<SaveWrites>();
+    let batch = std::mem::take(&mut w.waiting);
+    w.asked = None;
+    start_writer(&mut w, batch, None);
+    let threads = std::mem::take(&mut w.threads);
+    for t in threads {
+        let _ = t.join();
+    }
+    report_written(world);
+}
+
+/// The thumbnail's RGB pixels from the window's picture (`px` 4 bytes a pixel, BGRA or
+/// RGBA, alpha left out): the middle 16:9 of it, each pixel the average of the area it
+/// covers.
+fn thumbnail_rgb(w: u32, h: u32, px: &[u8], bgra: bool) -> Option<Vec<u8>> {
+    let (w, h) = (w as usize, h as usize);
+    if w == 0 || h == 0 || px.len() < w * h * 4 {
+        return None;
+    }
+    let (cw, ch) = if w * 9 > h * 16 { (h * 16 / 9, h) } else { (w, w * 9 / 16) };
+    let (x0, y0) = ((w - cw) / 2, (h - ch) / 2);
+    let (tw, th) = (THUMB_W as usize, THUMB_H as usize);
+    // The source span of output pixel `i` of `n` over `len` source pixels, at least one wide.
+    let span = |i: usize, n: usize, len: usize, at: usize, max: usize| {
+        let a = at + i * len / n;
+        (a, (at + (i + 1) * len / n).max(a + 1).min(max))
+    };
+    let mut out = Vec::with_capacity(tw * th * 3);
+    for ty in 0..th {
+        let (sy0, sy1) = span(ty, th, ch, y0, h);
+        for tx in 0..tw {
+            let (sx0, sx1) = span(tx, tw, cw, x0, w);
+            let mut sum = [0u32; 3];
+            for y in sy0..sy1 {
+                for p in px[(y * w + sx0) * 4..(y * w + sx1) * 4].as_chunks::<4>().0 {
+                    for (s, v) in sum.iter_mut().zip(p) {
+                        *s += u32::from(*v);
+                    }
+                }
+            }
+            let n = ((sy1 - sy0) * (sx1 - sx0)) as u32;
+            let avg = sum.map(|v| ((v + n / 2) / n) as u8);
+            out.extend_from_slice(&if bgra { [avg[2], avg[1], avg[0]] } else { avg });
+        }
+    }
+    Some(out)
+}
+
+fn encode_png(rgb: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut e = png::Encoder::new(&mut out, w, h);
+    e.set_color(png::ColorType::Rgb);
+    e.set_depth(png::BitDepth::Eight);
+    let mut wr = e.write_header().ok()?;
+    wr.write_image_data(rgb).ok()?;
+    wr.finish().ok()?;
+    Some(out)
+}
+
+/// A save's thumbnail as RGBA pixels (width, height, pixels), for the load menu.
+pub fn decode_thumbnail(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    let mut d = png::Decoder::new(std::io::Cursor::new(bytes));
+    d.set_transformations(png::Transformations::EXPAND);
+    let mut r = d.read_info().ok()?;
+    let mut buf = vec![0; r.output_buffer_size()?];
+    let info = r.next_frame(&mut buf).ok()?;
+    buf.truncate(info.buffer_size());
+    let rgba = match (info.color_type, info.bit_depth) {
+        (png::ColorType::Rgba, png::BitDepth::Eight) => buf,
+        (png::ColorType::Rgb, png::BitDepth::Eight) => buf.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        _ => return None,
+    };
+    Some((info.width, info.height, rgba))
 }
 
 fn engine_snapshot(world: &World) -> EngineSnapshot {
@@ -438,6 +707,33 @@ mod tests {
         let full = EngineSnapshot { format: ENGINE_FORMAT.into(), third_person: true, distance: 150.0, sneak: true, always_run: true, flashlight: true, magazine: Some((0x1234, 7)), active_quest: Some(0x104C1C), extra: [("sky".to_string(), serde_json::json!({"weather": "NVWastelandClear"}))].into() };
         let back: EngineSnapshot = serde_json::from_str(&serde_json::to_string(&full).unwrap()).unwrap();
         assert_eq!(back, full);
+    }
+
+    #[test]
+    fn the_thumbnail_is_the_middle_16_9_scaled_down() {
+        // A 4:3 picture, 1024x768, BGRA: the bands above and below 16:9 (green) are cut;
+        // red on the left half, blue on the right.
+        let (w, h) = (1024u32, 768u32);
+        let mut px = vec![0u8; (w * h * 4) as usize];
+        for y in 0..h {
+            for x in 0..w {
+                let i = ((y * w + x) * 4) as usize;
+                let c = if !(96..672).contains(&y) { [0, 255, 0] } else if x < w / 2 { [0, 0, 255] } else { [255, 0, 0] };
+                px[i..i + 3].copy_from_slice(&c);
+                px[i + 3] = 7;
+            }
+        }
+        let rgb = thumbnail_rgb(w, h, &px, true).unwrap();
+        assert_eq!(rgb.len(), (THUMB_W * THUMB_H * 3) as usize);
+        let at = |x: u32, y: u32| rgb[((y * THUMB_W + x) * 3) as usize..][..3].to_vec();
+        assert_eq!(at(0, 0), [255, 0, 0]);
+        assert_eq!(at(THUMB_W - 1, THUMB_H - 1), [0, 0, 255]);
+        let png = encode_png(&rgb, THUMB_W, THUMB_H).unwrap();
+        let (tw, th, rgba) = decode_thumbnail(&png).unwrap();
+        assert_eq!((tw, th), (THUMB_W, THUMB_H));
+        assert_eq!(&rgba[..4], [255, 0, 0, 255]);
+        assert!(thumbnail_rgb(10, 10, &px[..8], true).is_none());
+        assert!(decode_thumbnail(b"not a png").is_none());
     }
 
     #[test]

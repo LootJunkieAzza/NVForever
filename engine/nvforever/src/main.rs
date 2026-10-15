@@ -1124,9 +1124,16 @@ fn main() -> AppExit {
 
 /// Loading while playing (nvf_play::save::LoadRequest): NVForever starts again with the
 /// same arguments and `--load`, so the save lands in a world built fresh from the
-/// plugins, then this run ends. The arguments the save decides are left out.
-fn load_by_restart(mut asked: MessageReader<nvf_play::save::LoadRequest>, mut exit: MessageWriter<AppExit>) {
-    let Some(r) = asked.read().last().cloned() else { return };
+/// plugins, then this run ends. The arguments the save decides are left out. A save not
+/// yet on disk (its thumbnail, its writer thread) is waited for.
+fn load_by_restart(mut asked: MessageReader<nvf_play::save::LoadRequest>, writes: Res<nvf_play::save::SaveWrites>, mut waiting: Local<Option<nvf_play::save::LoadRequest>>, mut exit: MessageWriter<AppExit>) {
+    if let Some(r) = asked.read().last().cloned() {
+        *waiting = Some(r);
+    }
+    if writes.busy() {
+        return;
+    }
+    let Some(r) = waiting.take() else { return };
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut keep = restart_args(&args);
     keep.push("--load".into());

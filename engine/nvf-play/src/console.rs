@@ -331,7 +331,7 @@ fn typing(
                 }
                 for (p, h) in list.iter().take(30) {
                     let name = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-                    c.print(format!("{name}: {} level {}, {}, {:02}.{:02}.{} {:02.0}:00 ({:?})", h.player_name, h.level, h.location, h.game_day, h.game_month + 1, h.game_year, h.game_hour.floor(), h.kind));
+                    c.print(format!("{name}: {} level {}, {}, {} ({:?})", h.player_name, h.level, h.location, crate::save::game_date(h), h.kind));
                 }
             }
             "tgm" => {

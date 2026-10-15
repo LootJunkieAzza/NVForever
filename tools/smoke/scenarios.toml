@@ -1938,17 +1938,23 @@ expect = [
 name = "save-write"
 source = "owner 2026-10-15: save and load (docs/design/save-load.md): the first half of the round trip; save-load reads what this run saves, so run them together"
 areas = ["save"]
-paths = ["engine/nvf-play/src/save.rs", "crates/fnv-save/", "crates/fnv-game/src/game.rs", "crates/fnv-sim/src/world.rs"]
-env = { NVFOREVER_HOME = "save-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.additem Stimpak 7;12.5:player.getitemcount Stimpak;13:0010A202.disable;13.5:player.setav luck 9;14:save smoke-roundtrip;15:saves;16:coc GSProspectorSaloonInterior;24:autosave;25:close" }
+paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-save/", "crates/fnv-game/src/game.rs", "crates/fnv-sim/src/world.rs"]
+env = { NVFOREVER_HOME = "save-home", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.additem Stimpak 7;12.5:player.getitemcount Stimpak;13:0010A202.disable;13.5:player.setav luck 9;14:save smoke-roundtrip;15:saves;16:coc GSProspectorSaloonInterior;24:autosave;25:close", NVF_PLAY_TEST_PAUSE = "26:31.5", NVF_PLAY_TEST_PAUSE_MENU = "26.5:save,28:load,29:down,30:up,30.5:back" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
-run_seconds = 28
+run_seconds = 33
 expect = [
   { re = 'console: GetItemCount on player >> 12\.00', label = "twelve Stimpaks before saving" },
   { re = 'save: wrote .*smoke-roundtrip\.nvfsave \(manual, \d+ bytes, \d+ changed references\)', label = "the save is written" },
+  { re = 'save: wrote .*smoke-roundtrip\.nvfsave \(manual, .*\), thumbnail 512x288 \(\d+ bytes PNG\)', label = "the save has a thumbnail" },
   { re = 'console: smoke-roundtrip: .* level \d+, .*\(Manual\)', label = "the save list shows it" },
   "save: autosave after travel",
   "save: autosave asked by a script",
   { re = 'save: wrote .*autosave\.nvfsave \(auto, ', min = 2, label = "both autosaves written to the autosave slot" },
+  { re = 'pause menu: saving as "Save \d+"', label = "the pause menu's Save button names a new slot" },
+  { re = 'save: wrote .*Save \d+\.nvfsave \(manual, .*\), thumbnail 512x288 \(\d+ bytes PNG\)', label = "the pause menu's save is written with a thumbnail" },
+  { re = 'pause menu: load page: \d+ save\(s\), newest first: "Save \d+" \(manual\), "autosave" \(auto\), .*"smoke-roundtrip" \(manual\)', label = "the load page lists the saves newest first" },
+  { re = 'pause menu: load page row 0 "Save \d+": thumbnail 512x288', label = "the newest save's thumbnail is shown" },
+  { re = 'pause menu: load page row 1 "autosave": thumbnail 512x288', label = "the next row's thumbnail is shown" },
 ]
 
 [[scenario]]

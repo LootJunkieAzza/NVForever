@@ -35,3 +35,6 @@ rand_chacha = "0.9"
 # ambient.rs), Ogg sound effects decoded whole (sfx.rs). The version Bevy's audio is built
 # on: no second copy (docs/design/dependencies.md).
 rodio = { version = "0.22", default-features = false, features = ["mp3", "vorbis", "wav"] }
+# Save thumbnails (save.rs): PNG encoded and decoded directly, the version Bevy's images
+# already build (no second copy).
+png = "0.18"
