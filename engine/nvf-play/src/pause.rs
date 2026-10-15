@@ -44,7 +44,7 @@
 //! click on its row); the key `page` only shows the page.
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
 //! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page),
-//! `back`.
+//! `back` (from the load or the settings page).
 
 use crate::settings::{add_setting, Setting, Settings};
 use crate::{PlaySet, PlayState};
@@ -181,7 +181,7 @@ pub struct Paused(pub bool);
 
 /// The page of the pause menu that is up; on the settings page, the row the keys are on.
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Page {
+pub enum Page {
     #[default]
     Main,
     Settings {
@@ -372,6 +372,7 @@ impl Plugin for PausePlugin {
             }
         }
         app.init_resource::<Paused>()
+            .init_resource::<PageRequest>()
             .init_resource::<Page>()
             .init_resource::<LoadList>()
             .init_resource::<PauseStatus>()
@@ -579,6 +580,11 @@ fn open(
     spawn_page(&mut commands, *page, &settings, &list, "");
 }
 
+/// A page another menu asks the pause menu to show (the main menu's Load Game and
+/// Settings, `crate::main_menu`); taken on the next frame.
+#[derive(Resource, Default)]
+pub struct PageRequest(pub Option<Page>);
+
 /// The row after `selected` (`step` 1) or before it (-1) of `rows`, round the ends.
 fn step_row(selected: usize, step: i32, rows: usize) -> usize {
     if rows == 0 {
@@ -602,8 +608,29 @@ fn choose(
     mut commands: Commands,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut menu: SaveMenu,
+    (mut request, main_menu): (ResMut<PageRequest>, Option<Res<crate::main_menu::MainMenu>>),
 ) {
     if !paused.0 {
+        return;
+    }
+    // Under the main menu the first page is the main menu's own (`crate::main_menu`): its
+    // pages come from here, and going back shows it again.
+    let under_main = main_menu.is_some_and(|m| m.open);
+    let mut redraw = false;
+    if let Some(p) = request.0.take() {
+        if matches!(p, Page::Load { .. }) {
+            menu.list.open(menu.cfg.dir.as_deref());
+        }
+        info!("pause menu: {p:?} page for another menu");
+        *page = p;
+        redraw = true;
+    }
+    if under_main && *page == Page::Main {
+        if redraw {
+            for e in &roots {
+                commands.entity(e).despawn();
+            }
+        }
         return;
     }
     let now = time.elapsed_secs();
@@ -682,7 +709,7 @@ fn choose(
         }
         Page::Settings { selected } => {
             let rows = settings.list().len();
-            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) {
+            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
                 *page = Page::Main;
             } else if let Some(PauseButton::Switch(i)) = clicked {
                 *selected = i;
@@ -729,11 +756,13 @@ fn choose(
     }
     // Another page, or another save chosen on the load page: draw it. On the settings page
     // a change of row or of a switch only repaints (`show_switches`).
-    if std::mem::discriminant(&before) != std::mem::discriminant(&*page) || (matches!(*page, Page::Load { .. }) && before != *page) {
+    if redraw || std::mem::discriminant(&before) != std::mem::discriminant(&*page) || (matches!(*page, Page::Load { .. }) && before != *page) {
         for e in &roots {
             commands.entity(e).despawn();
         }
-        spawn_page(&mut commands, *page, &settings, &menu.list, &menu.status.line);
+        if !(under_main && *page == Page::Main) {
+            spawn_page(&mut commands, *page, &settings, &menu.list, &menu.status.line);
+        }
     }
 }
 

@@ -33,6 +33,7 @@ pub mod hitvol;
 pub mod interface;
 pub mod hud;
 pub mod loading;
+pub mod main_menu;
 pub mod lockpick;
 pub mod menu;
 pub mod message_menu;
@@ -251,7 +252,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins(crime::CrimePlugin)
             .add_plugins(console::ConsolePlugin)
-            .add_plugins(save::SavePlugin);
+            .add_plugins(save::SavePlugin)
+            .add_plugins(main_menu::MainMenuPlugin);
         test_aid::setup(app);
     }
 }

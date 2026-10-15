@@ -27,6 +27,8 @@ They run in Windows PowerShell 5.1 and in PowerShell 7.
   `-Exe`, `NVF_EXE` or `engine\target\release\nvforever.exe`. The schema folders and the
   script function catalogue are always taken from this checkout, so a build made in another
   worktree still runs.
+- The main menu: run nvforever with `--play --menu` (no place): Continue, New Game, Load
+  Game, Settings, Quit; pass it with `-Extra '--menu'` here.
 - The log goes to the console and to `%LOCALAPPDATA%\NVForever\logs` (crash reports too).
 
 To add a place, add a line to the `$places` table in `Play.ps1` and its name to the

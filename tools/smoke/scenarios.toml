@@ -1974,3 +1974,26 @@ expect = [
   { re = 'console: GetActorValue on player >> 9\.00', label = "the player's Luck came back" },
   { re = 'console: GetPos on player >> -683\d\d\.', label = "the player stands where the save was made" },
 ]
+
+[[scenario]]
+name = "main-menu"
+source = "owner 2026-10-15: the main menu (engine/nvf-play/src/main_menu.rs): loading screens behind it, its theme, Continue and Load greyed without saves, Settings, New Game starts the opening"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/pause.rs"]
+env = { NVFOREVER_HOME = "menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "5:shot,6:continue,6.5:load,7:settings,11:new", NVF_PLAY_TEST_PAUSE_MENU = "9:back" }
+args = ["--play", "--menu"]
+run_seconds = 22
+expect = [
+  { re = 'main menu: open \(\d+ loading screens, 0 saves\)', label = "the menu opens with no saves" },
+  'main menu: theme music\special\maintitle.mp3',
+  { re = 'main menu: slide interface.loading.', label = "a loading screen behind it" },
+  "main menu: Continue is greyed out",
+  "main menu: Load Game is greyed out",
+  "main menu: Settings",
+  "pause menu: Settings { selected: 0 } page for another menu",
+  "main menu: New Game",
+  "main menu: closed, the opening begins",
+  "new game: VCG00 started at stage 0",
+  "main menu: theme faded out",
+]
+order = [["main menu: Settings", "main menu: New Game", "new game: VCG00 started at stage 0"]]

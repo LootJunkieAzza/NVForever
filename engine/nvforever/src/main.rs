@@ -422,6 +422,11 @@ struct Args {
     /// --world are taken from the save.
     #[arg(long, requires = "play", conflicts_with = "new_game")]
     load: Option<String>,
+    /// With --play: open on the main menu (nvf_play::main_menu): Continue, New Game, Load
+    /// Game, Settings, Quit over the plugins' loading screens. The game behind it is a new
+    /// game, held until New Game.
+    #[arg(long, requires = "play", conflicts_with_all = ["new_game", "load"])]
+    menu: bool,
     /// With --play: close message boxes that ask nothing (an OK button only, such as the
     /// add-on packs' start-up boxes) as soon as a script shows them; boxes with a choice
     /// stay open. For testing; the box's text is still logged.
@@ -604,6 +609,10 @@ fn main() -> AppExit {
         }
         None => None,
     };
+    // The main menu stands over a new game, held until New Game is chosen.
+    if args.menu {
+        args.new_game = true;
+    }
     // A new game starts at the opening's marker (nvf-play).
     if args.new_game {
         match nvf_play::script::new_game_start(world.lo, world.schema, world.index) {
@@ -951,6 +960,9 @@ fn main() -> AppExit {
     if let Some(p) = pending {
         app.insert_resource(p);
     }
+    if args.menu {
+        app.insert_resource(nvf_play::main_menu::MainMenuStart);
+    }
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
@@ -1163,7 +1175,7 @@ fn restart_args(args: &[String]) -> Vec<String> {
     while i < args.len() {
         let a = &args[i];
         let name = a.split('=').next().unwrap_or(a);
-        if a == "--new-game" {
+        if a == "--new-game" || a == "--menu" {
             i += 1;
             continue;
         }
@@ -1497,7 +1509,7 @@ mod tests {
 
     #[test]
     fn a_restart_for_a_load_drops_what_the_save_decides() {
-        let a: Vec<String> = ["--data", "D", "--cell", "Goodsprings", "--play", "--pos=-1,2,3", "--new-game", "--hour", "9", "--no-music", "--load", "old"].map(String::from).to_vec();
+        let a: Vec<String> = ["--data", "D", "--cell", "Goodsprings", "--play", "--menu", "--pos=-1,2,3", "--new-game", "--hour", "9", "--no-music", "--load", "old"].map(String::from).to_vec();
         assert_eq!(restart_args(&a), ["--data", "D", "--play", "--no-music"]);
     }
 
