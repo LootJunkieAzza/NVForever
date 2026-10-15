@@ -3460,6 +3460,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
+name = "hound"
+version = "3.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62adaabb884c94955b19907d60019f4e145d091c75345379e70d1ee696f7854f"
+
+[[package]]
 name = "icu_collections"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3610,6 +3616,30 @@ dependencies = [
  "hashbrown 0.17.1",
  "serde",
  "serde_core",
+]
+
+[[package]]
+name = "infinitier_bik_decoder"
+version = "0.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07dd151fd38b88ef77000016a51dd7ee44b72618a9225dba0cf92376e8dd2e4d"
+dependencies = [
+ "bitflags 2.13.2",
+ "hound",
+ "infinitier_datasource",
+ "log",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "infinitier_datasource"
+version = "0.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69c041046c99e15dc6fef7fa7a2b1b9053426fdad204f4c4768ec5f8a5b12d9a"
+dependencies = [
+ "encoding_rs",
+ "flate2",
+ "parking_lot",
 ]
 
 [[package]]
@@ -4248,6 +4278,7 @@ dependencies = [
  "fnv-vfs",
  "fnv-voice",
  "fnv-world",
+ "infinitier_bik_decoder",
  "nvf-assets",
  "png",
  "rand_chacha",

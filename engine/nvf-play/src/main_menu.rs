@@ -18,7 +18,7 @@
 //! How it fits: the game starts as a new game (the world is Doc Mitchell's house) with the
 //! menu over it; while it is open the game is held as under the pause menu
 //! (`crate::pause::Paused`: no scripts, the clock and the picture stand still), so New
-//! Game only lets the opening begin. Load Game and Settings are the pause menu's own pages
+//! Game plays the intro film (`crate::intro`) and then only lets the opening begin. Load Game and Settings are the pause menu's own pages
 //! (`crate::pause`), drawn over this menu; going back from them shows it again. Continue
 //! and loading a save start NVForever again with `--load` (`crate::save::LoadRequest`).
 //!
@@ -272,7 +272,8 @@ fn open_at_start(
     menu.open = true;
     paused.0 = true;
     next.set(PlayState::Menu);
-    spawn(&mut commands, &menu, logo, edge);
+    let shade = images.add(shade());
+    spawn(&mut commands, &menu, logo, edge, shade);
     info!("main menu: open ({} loading screens, {} saves{})", menu.slides.len(), menu.saves, menu.newest.as_ref().map(|p| format!(", newest {}", p.display())).unwrap_or_default());
 }
 
@@ -298,19 +299,34 @@ fn vignette() -> Image {
         for x in 0..W {
             // Distance outside a rounded rectangle inset from the edges, in pixels.
             let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
-            let (inset, radius) = (26.0, 34.0);
+            let (inset, radius) = (12.0, 40.0);
             let dx = (inset + radius - px).max(px - (W as f32 - inset - radius)).max(0.0);
             let dy = (inset + radius - py).max(py - (H as f32 - inset - radius)).max(0.0);
             let outside = (dx * dx + dy * dy).sqrt() - radius;
-            let a = ((outside + 30.0) / 40.0).clamp(0.0, 1.0);
+            let a = ((outside + 22.0) / 40.0).clamp(0.0, 1.0);
             let a = a * a * (3.0 - 2.0 * a);
-            data.extend_from_slice(&[0, 0, 0, (a * 250.0) as u8]);
+            // Darkest at the very edge, about two thirds black [design: the owner found the
+            // first, near-black corners too strong, 2026-10-15].
+            data.extend_from_slice(&[0, 0, 0, (a * 165.0) as u8]);
         }
     }
     Image::new(Extent3d { width: W, height: H, depth_or_array_layers: 1 }, TextureDimension::D2, data, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)
 }
 
-fn spawn(commands: &mut Commands, menu: &MainMenu, logo: Option<(Handle<Image>, Vec2)>, edge: Handle<Image>) {
+/// A soft shade behind the column of entries: clear at the left, about half black at
+/// the right edge, so greyed entries still read over a bright screen [design].
+fn shade() -> Image {
+    const W: u32 = 64;
+    let mut data = Vec::with_capacity((W * 4) as usize);
+    for x in 0..W {
+        let t = x as f32 / (W - 1) as f32;
+        let a = t * t * (3.0 - 2.0 * t) * 0.5;
+        data.extend_from_slice(&[0, 0, 0, (a * 255.0) as u8]);
+    }
+    Image::new(Extent3d { width: W, height: 1, depth_or_array_layers: 1 }, TextureDimension::D2, data, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)
+}
+
+fn spawn(commands: &mut Commands, menu: &MainMenu, logo: Option<(Handle<Image>, Vec2)>, edge: Handle<Image>, shade: Handle<Image>) {
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
     commands
         .spawn((MenuRoot, full.clone(), BackgroundColor(Color::BLACK), GlobalZIndex(100)))
@@ -318,6 +334,7 @@ fn spawn(commands: &mut Commands, menu: &MainMenu, logo: Option<(Handle<Image>, 
             root.spawn((Slide, ImageNode { color: Color::srgba(1.0, 1.0, 1.0, 0.0), ..default() }, Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden));
             // Stretched to the window whatever its shape.
             root.spawn((ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(edge) }, full.clone()));
+            root.spawn((ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(shade) }, Node { position_type: PositionType::Absolute, right: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(40.0), height: Val::Percent(100.0), ..default() }));
             if let Some((image, size)) = logo {
                 let h = LOGO_WIDTH * size.y / size.x.max(1.0);
                 root.spawn((ImageNode::new(image), Node { position_type: PositionType::Absolute, left: u(LOGO_LEFT), top: u(LOGO_TOP), width: u(LOGO_WIDTH), height: u(h), ..default() }));
@@ -352,9 +369,8 @@ fn choose(
     page: Res<Page>,
     mut request: ResMut<PageRequest>,
     entries: Query<(&Interaction, &EntryNode), Changed<Interaction>>,
-    mut paused: ResMut<Paused>,
-    mut next: ResMut<NextState<PlayState>>,
     mut loads: MessageWriter<crate::save::LoadRequest>,
+    mut intro: MessageWriter<crate::intro::PlayIntro>,
     mut exit: MessageWriter<AppExit>,
     mut commands: Commands,
     roots: Query<Entity, With<MenuRoot>>,
@@ -421,13 +437,13 @@ fn choose(
             }
         }
         Entry::New => {
+            // The intro film plays first (`crate::intro`), then the held game begins.
             menu.open = false;
-            paused.0 = false;
-            next.set(PlayState::Playing);
             for r in &roots {
                 commands.entity(r).despawn();
             }
-            info!("main menu: closed, the opening begins");
+            intro.write(crate::intro::PlayIntro);
+            info!("main menu: closed, the intro film plays");
         }
         Entry::Load => request.0 = Some(Page::Load { selected: 0 }),
         Entry::Settings => request.0 = Some(Page::Settings { selected: 0 }),

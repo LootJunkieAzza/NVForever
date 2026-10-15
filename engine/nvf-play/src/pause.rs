@@ -608,9 +608,10 @@ fn choose(
     mut commands: Commands,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut menu: SaveMenu,
-    (mut request, main_menu): (ResMut<PageRequest>, Option<Res<crate::main_menu::MainMenu>>),
+    (mut request, main_menu, intro): (ResMut<PageRequest>, Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>),
 ) {
-    if !paused.0 {
+    // Held for the intro film, which takes the keys (`crate::intro`).
+    if !paused.0 || intro.is_some_and(|i| i.is_playing()) {
         return;
     }
     // Under the main menu the first page is the main menu's own (`crate::main_menu`): its

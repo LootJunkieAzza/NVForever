@@ -21,6 +21,7 @@ pub mod combat;
 pub mod console;
 pub mod control;
 pub mod corner_messages;
+pub mod cursor;
 pub mod crime;
 pub mod dialogue;
 pub mod dialogue_look;
@@ -31,6 +32,7 @@ pub mod flashlight;
 pub mod furniture;
 pub mod hitvol;
 pub mod interface;
+pub mod intro;
 pub mod hud;
 pub mod loading;
 pub mod main_menu;
@@ -253,7 +255,9 @@ impl Plugin for PlayPlugin {
             .add_plugins(crime::CrimePlugin)
             .add_plugins(console::ConsolePlugin)
             .add_plugins(save::SavePlugin)
-            .add_plugins(main_menu::MainMenuPlugin);
+            .add_plugins(main_menu::MainMenuPlugin)
+            .add_plugins(intro::IntroPlugin)
+            .add_plugins(cursor::CursorPlugin);
         test_aid::setup(app);
     }
 }

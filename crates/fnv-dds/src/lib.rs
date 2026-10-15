@@ -3,7 +3,8 @@
 //! Parses the 128-byte header, names the pixel format, computes the face/mip layout
 //! and checks it against the payload size. Block-compressed (DXT) data is meant to be
 //! uploaded to the GPU as is; the three uncompressed layouts in the game convert to
-//! RGBA8 here.
+//! RGBA8 here, and [`decode_blocks`] decodes DXT1/3/5 on the CPU for the few uses that
+//! need the pixels themselves (the mouse pointer).
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DdsError {
@@ -256,9 +257,132 @@ pub fn to_rgba8(format: Format, src: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// A colour as RGB565, widened to 8 bits a channel.
+fn rgb565(v: u16) -> [u8; 3] {
+    let (r, g, b) = ((v >> 11) & 31, (v >> 5) & 63, v & 31);
+    [((r << 3) | (r >> 2)) as u8, ((g << 2) | (g >> 4)) as u8, ((b << 3) | (b >> 2)) as u8]
+}
+
+/// The 16 colours of a DXT colour block (8 bytes), alpha 255 except DXT1's transparent
+/// entry. `four_always`: DXT3/5 always use the four-colour mode [documented: Microsoft,
+/// "Block Compression (Direct3D 10)", BC1–BC3].
+fn color_block(b: &[u8], four_always: bool) -> [[u8; 4]; 16] {
+    let (c0, c1) = (u16::from_le_bytes([b[0], b[1]]), u16::from_le_bytes([b[2], b[3]]));
+    let (p0, p1) = (rgb565(c0), rgb565(c1));
+    let mix = |a: u8, b: u8, wa: u16, wb: u16| ((u16::from(a) * wa + u16::from(b) * wb) / (wa + wb)) as u8;
+    let mut pal = [[0u8; 4]; 4];
+    pal[0] = [p0[0], p0[1], p0[2], 255];
+    pal[1] = [p1[0], p1[1], p1[2], 255];
+    if c0 > c1 || four_always {
+        for k in 0..3 {
+            pal[2][k] = mix(p0[k], p1[k], 2, 1);
+            pal[3][k] = mix(p0[k], p1[k], 1, 2);
+        }
+        pal[2][3] = 255;
+        pal[3][3] = 255;
+    } else {
+        for k in 0..3 {
+            pal[2][k] = mix(p0[k], p1[k], 1, 1);
+        }
+        pal[2][3] = 255;
+        pal[3] = [0, 0, 0, 0];
+    }
+    let bits = u32::from_le_bytes([b[4], b[5], b[6], b[7]]);
+    std::array::from_fn(|i| pal[((bits >> (2 * i)) & 3) as usize])
+}
+
+/// The 16 alphas of a DXT5 alpha block (8 bytes).
+fn alpha_block5(b: &[u8]) -> [u8; 16] {
+    let (a0, a1) = (u16::from(b[0]), u16::from(b[1]));
+    let mut pal = [0u8; 8];
+    pal[0] = a0 as u8;
+    pal[1] = a1 as u8;
+    if a0 > a1 {
+        for i in 1..7u16 {
+            pal[i as usize + 1] = ((a0 * (7 - i) + a1 * i) / 7) as u8;
+        }
+    } else {
+        for i in 1..5u16 {
+            pal[i as usize + 1] = ((a0 * (5 - i) + a1 * i) / 5) as u8;
+        }
+        pal[6] = 0;
+        pal[7] = 255;
+    }
+    let bits = b[2..8].iter().rev().fold(0u64, |acc, &x| (acc << 8) | u64::from(x));
+    std::array::from_fn(|i| pal[((bits >> (3 * i)) & 7) as usize])
+}
+
+/// Decode one level of DXT1/3/5 data of `w`×`h` texels to RGBA8 (row-major); `None` for
+/// other formats or data too short.
+pub fn decode_blocks(format: Format, w: u32, h: u32, src: &[u8]) -> Option<Vec<u8>> {
+    let block = format.block_bytes().filter(|_| matches!(format, Format::Dxt1 | Format::Dxt3 | Format::Dxt5))?;
+    let (bw, bh) = (w.div_ceil(4) as usize, h.div_ceil(4) as usize);
+    if src.len() < bw * bh * block {
+        return None;
+    }
+    let (w, h) = (w as usize, h as usize);
+    let mut out = vec![0u8; w * h * 4];
+    for by in 0..bh {
+        for bx in 0..bw {
+            let b = &src[(by * bw + bx) * block..][..block];
+            let texels: [[u8; 4]; 16] = match format {
+                Format::Dxt1 => color_block(b, false),
+                Format::Dxt3 => {
+                    let mut c = color_block(&b[8..], true);
+                    for (i, t) in c.iter_mut().enumerate() {
+                        let nib = (b[i / 2] >> (4 * (i % 2))) & 15;
+                        t[3] = nib * 17;
+                    }
+                    c
+                }
+                _ => {
+                    let a = alpha_block5(b);
+                    let mut c = color_block(&b[8..], true);
+                    for (t, a) in c.iter_mut().zip(a) {
+                        t[3] = a;
+                    }
+                    c
+                }
+            };
+            for (i, t) in texels.iter().enumerate() {
+                let (x, y) = (bx * 4 + i % 4, by * 4 + i / 4);
+                if x < w && y < h {
+                    out[(y * w + x) * 4..][..4].copy_from_slice(t);
+                }
+            }
+        }
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dxt_blocks_decode_to_their_colours_and_alphas() {
+        // DXT1: c0 white (0xFFFF) > c1 black: indices 0,1,2,3 across the first row.
+        let b = [0xFF, 0xFF, 0x00, 0x00, 0b11_10_01_00, 0, 0, 0];
+        let px = decode_blocks(Format::Dxt1, 4, 4, &b).unwrap();
+        assert_eq!(&px[0..16], &[255, 255, 255, 255, 0, 0, 0, 255, 170, 170, 170, 255, 85, 85, 85, 255]);
+        // c0 <= c1: index 3 is transparent.
+        let b = [0x00, 0x00, 0xFF, 0xFF, 0b11, 0, 0, 0];
+        assert_eq!(&decode_blocks(Format::Dxt1, 4, 4, &b).unwrap()[0..4], &[0, 0, 0, 0]);
+        // DXT5: alpha 255 / 0 with index 1 (0) on texel 0, index 0 (255) elsewhere.
+        let mut b = [0u8; 16];
+        b[0] = 255;
+        b[1] = 0;
+        b[2] = 1;
+        b[8..10].copy_from_slice(&0xFFFFu16.to_le_bytes());
+        let px = decode_blocks(Format::Dxt5, 4, 4, &b).unwrap();
+        assert_eq!((px[3], px[7]), (0, 255));
+        // DXT3: explicit 4-bit alphas.
+        let mut b = [0u8; 16];
+        b[0] = 0xF0;
+        let px = decode_blocks(Format::Dxt3, 4, 4, &b).unwrap();
+        assert_eq!((px[3], px[7]), (0, 255));
+        assert!(decode_blocks(Format::A8R8G8B8, 4, 4, &b).is_none());
+    }
 
     #[allow(clippy::too_many_arguments)]
     fn build(w: u32, h: u32, mips: u32, pf_flags: u32, fourcc: &[u8; 4], bits: u32, masks: [u32; 4], caps2: u32, payload: usize) -> Vec<u8> {

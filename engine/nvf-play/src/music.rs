@@ -681,14 +681,17 @@ fn play(
     mut sounds: MessageWriter<PlaySound>,
     state: Res<State<PlayState>>,
     mut assets: ResMut<Assets<LayeredMusic>>,
-    main_menu: Option<Res<crate::main_menu::MainMenu>>,
+    (main_menu, intro): (Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>),
 ) {
     let (Some(mut music), Some(places), Some(player), Some(data)) = (music, places, player, data) else { return };
     let music = &mut *music;
     let now = time.elapsed_secs();
     let eye = player.eye();
     let hour = game_hour(&sim);
-    let audible = settings.play && settings.volume > 0.0;
+    // The place's music is silent under the main menu, which plays its own theme, and
+    // under the intro film, which has its own sound.
+    let front = main_menu.is_some_and(|m| m.open) || intro.is_some_and(|i| i.is_playing());
+    let audible = settings.play && settings.volume > 0.0 && !front;
 
     // Music scripts asked for: beside the place's music.
     for m in std::mem::take(&mut cues.requests) {
@@ -885,8 +888,7 @@ fn play(
     }
 
     let dt = time.delta_secs();
-    // The place's music is silent under the main menu, which plays its own theme.
-    let volume = if settings.play && !main_menu.is_some_and(|m| m.open) { settings.volume.max(0.0) } else { 0.0 };
+    let volume = if settings.play && !front { settings.volume.max(0.0) } else { 0.0 };
     for t in music.current.iter_mut().chain(music.script.iter_mut()).chain(music.leaving.iter_mut()) {
         for k in 0..3 {
             t.level[k] = fade_step(t.level[k], t.target[k], dt, t.fade);

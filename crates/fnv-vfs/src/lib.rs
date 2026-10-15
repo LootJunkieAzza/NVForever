@@ -221,6 +221,16 @@ impl Vfs {
         }
     }
 
+    /// The file on disk of a loose `path` (for reading a large file as a stream); `None`
+    /// when no source has it or an archive does.
+    pub fn loose_path(&self, path: &str) -> Option<PathBuf> {
+        let key = normalize(path);
+        match self.index.get(&key)? {
+            Location::Loose => Some(self.data_dir.join(&self.loose[&key])),
+            Location::Archive { .. } => None,
+        }
+    }
+
     /// Decoded contents of `path`, or `None` when no source has it.
     pub fn read(&self, path: &str) -> Option<std::io::Result<Vec<u8>>> {
         let key = normalize(path);

@@ -18,6 +18,7 @@ fnv-collide.workspace = true
 fnv-script.workspace = true
 fnv-game.workspace = true
 fnv-save.workspace = true
+infinitier_bik_decoder = { workspace = true, optional = true }
 fnv-install.workspace = true
 fnv-combat.workspace = true
 fnv-actor.workspace = true
@@ -38,3 +39,9 @@ rodio = { version = "0.22", default-features = false, features = ["mp3", "vorbis
 # Save thumbnails (save.rs): PNG encoded and decoded directly, the version Bevy's images
 # already build (no second copy).
 png = "0.18"
+
+[features]
+# The intro film before a new game (src/intro.rs): its Bink decoder is GPL-3.0-or-later,
+# so it stays out of the default build until the owner settles the project's licence
+# (deny.toml keeps third-party dependencies permissive).
+intro-video = ["dep:infinitier_bik_decoder"]

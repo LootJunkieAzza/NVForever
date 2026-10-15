@@ -31,3 +31,7 @@ fnv-script.workspace = true
 fnv-voice.workspace = true
 clap.workspace = true
 serde_json = "1"
+
+[features]
+# The intro film before a new game (nvf-play's `intro-video`: a GPL-3.0-or-later decoder).
+intro-video = ["nvf-play/intro-video"]
