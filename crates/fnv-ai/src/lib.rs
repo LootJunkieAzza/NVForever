@@ -13,6 +13,7 @@
 //!   conversations
 
 pub mod alert;
+pub mod apart;
 pub mod carry;
 pub mod goal;
 pub mod process;
