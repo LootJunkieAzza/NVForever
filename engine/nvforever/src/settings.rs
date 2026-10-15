@@ -138,6 +138,17 @@ pub fn register(app: &mut App) {
             set: set_overlay,
         },
     );
+    add_setting(
+        app,
+        Setting {
+            key: "hit-markers",
+            group: GROUP_DEVELOPER,
+            label: "Shot markers",
+            note: "On: a cross is drawn at each impact and a line from the muzzle along each hitscan shot. (--hit-markers)",
+            get: |w| w.resource::<nvf_play::combat::HitMarks>().show,
+            set: |w, on| w.resource_mut::<nvf_play::combat::HitMarks>().show = on,
+        },
+    );
     if has_nav {
         add_setting(
             app,

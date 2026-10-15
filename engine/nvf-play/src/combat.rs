@@ -92,11 +92,12 @@
 //!   is held from then on (`ScriptState::locks`) and the screen says so [design: the
 //!   original's death camera and reload are not built]. Test aid `NVF_PLAY_TEST_GOD=1`:
 //!   the player takes no damage, so a long unattended run is not ended by a fight.
-//! - **Feedback** [design, until impact effects and audio exist]: a marker at each impact,
-//!   a line from the muzzle along each hitscan shot, a hit marker at the
+//! - **Feedback** [design]: a hit marker at the
 //!   crosshair (red on a kill), the last target's health for a few seconds, the player's
 //!   crippled limbs, and a line for kills with their XP. Health, condition and ammo are
-//!   on the HUD proper (`crate::hud`, [`Combat::hud_weapon`]).
+//!   on the HUD proper (`crate::hud`, [`Combat::hud_weapon`]). Developer markers, off
+//!   unless [`HitMarks`] says so: a cross at each impact and a line from the muzzle
+//!   along each hitscan shot.
 
 use bevy::prelude::*;
 use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
@@ -529,6 +530,15 @@ enum MarkKind {
     Flash,
 }
 
+/// Whether the developer markers are drawn: a cross at each impact, a line along each
+/// hitscan shot (settings page `hit-markers`, `--hit-markers`) [design]. Off by default:
+/// the shots' own impact effects stand for them in play. The test aid
+/// `NVF_PLAY_TEST_TRACERS` draws them whatever this says.
+#[derive(Resource, Default, Debug, Clone, Copy)]
+pub struct HitMarks {
+    pub show: bool,
+}
+
 /// A short-lived marker [design].
 struct Mark {
     from: V3,
@@ -639,6 +649,7 @@ impl Plugin for CombatPlugin {
             .add_message::<CasingFx>()
             .add_message::<ExplosionFx>()
             .init_resource::<HitFeedback>()
+            .init_resource::<HitMarks>()
             .init_resource::<PlayerLimbs>()
             .add_message::<ActorHit>()
             .add_message::<ActorPush>()
@@ -1922,14 +1933,18 @@ fn fly(
     }
 }
 
-fn draw_marks(time: Res<Time>, mut c: ResMut<Combat>, anim: Res<WeaponAnim>, mut gizmos: Gizmos) {
+fn draw_marks(time: Res<Time>, mut c: ResMut<Combat>, anim: Res<WeaponAnim>, show: Res<HitMarks>, mut gizmos: Gizmos) {
     let dt = time.delta_secs();
     // The test aid keeps its lines where they were drawn, for the record of a check.
     let follow = c.tracer_hold.is_none();
+    let draw = show.show || c.tracer_hold.is_some();
     for m in &mut c.marks {
         m.age += dt;
         if let (true, true, Some(muzzle)) = (follow, m.follow, anim.muzzle) {
             m.from = muzzle;
+        }
+        if !draw {
+            continue;
         }
         let fade = (1.0 - m.age / m.life).clamp(0.0, 1.0);
         match m.kind {

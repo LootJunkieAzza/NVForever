@@ -331,10 +331,11 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
 - **Hits.** Hits and blasts are logged with the damage the rules give (target DT 0, no
   body part); applying it is step C5.
 - **Feedback** [design, until impact effects and audio]:
-  - an impact marker for 0.3 s (0.6 s for explosions);
-  - a line from the muzzle along every hitscan shot for 0.08 s, to the hit or to the
-    end of the range (for other projectiles at the PROJ tracer chance); the muzzle
-    flash and the projectiles' models are §15;
+  - developer markers, drawn only when switched on (`--hit-markers`, settings page
+    Developer → Shot markers; off by default): an impact marker for 0.3 s (0.6 s for
+    explosions) and a line from the muzzle along every hitscan shot for 0.08 s, to the
+    hit or to the end of the range (for other projectiles at the PROJ tracer chance);
+    the muzzle flash and the projectiles' models are §15;
   - an ammo counter (magazine / carried, the ammo's abbreviation).
 - **Test aids.** `NVF_PLAY_TEST_CONTROL` presses `fire`, `reload`, `swap` and
   `aimactor` (look at the nearest actor's hit volume). `NVF_PLAY_TEST_TRACERS=<seconds>`

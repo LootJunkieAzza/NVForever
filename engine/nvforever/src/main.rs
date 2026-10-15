@@ -403,6 +403,10 @@ struct Args {
     /// Draw the navmesh near the camera and the travellers' paths.
     #[arg(long)]
     show_navmesh: bool,
+    /// With --play: draw the developer markers of shots: a cross at each impact and a
+    /// line from the muzzle along each hitscan shot (settings page: Developer).
+    #[arg(long)]
+    hit_markers: bool,
     /// With --play: start a new game: in Doc Mitchell's house at the opening's start
     /// marker, with the opening quest VCG00 started (docs/design/layer5-play.md); --cell,
     /// --pos and --heading are ignored.
@@ -887,6 +891,7 @@ fn main() -> AppExit {
     }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
     app.insert_resource(nvf_play::sfx::SfxSettings { play: !args.no_sound, ..Default::default() });
+    app.insert_resource(nvf_play::combat::HitMarks { show: args.hit_markers });
     app.insert_resource(nvf_play::music::MusicSettings { play: !args.no_music, volume: args.music_volume });
     app.insert_resource(if args.menu_pause == "original" { nvf_play::pause::MenuPause::Original } else { nvf_play::pause::MenuPause::Living });
     app.insert_resource(nvf_play::dialogue_look::LookSettings { enabled: !args.no_dialogue_look, recentre_on_choices: args.dialogue_recentre && !args.no_dialogue_recentre });
