@@ -174,13 +174,15 @@ report what the file holds and the export shows xEdit's own normalisation:
   the out-of-range index 02 is read as "this file", not as load-order slot 02
   (HonestHearts) and not dropped; the base FormID in NAME is mapped the same way. Before
   the cell was loaded, `BuildRef 5 2049` gave no form (a temporary reference exists only
-  while its cell is loaded [hypothesis]). Making `LoadOrder::to_global` do the same (index
-  master-count + 1 observed; larger ones assumed the same [hypothesis]) was tried: it adds
-  this one reference to `TestMentats` (98 instead of 97) and so fails
-  `L3.world.cells.interiors` / `L3.world.refs.interiors`, whose golden comes from
-  `oracle_world.py`, which drops such records like our old rule. Since the oracle there
-  follows the old reading, not the game, the change waits for an owner decision to
-  update oracle_world.py and regenerate that golden together with the loader.
+  while its cell is loaded [hypothesis]). `LoadOrder::to_global` does the same since 2026-10-15 (PR #281): any index at or beyond
+the master list is the plugin itself. Index master-count + 1 is the capture above; a far
+larger one is observed too: `CM4A1.esp` (a Colt M4A1 mod, one master) stores all its own
+records as 0x12xxxxxx, and the original game places its rifle in `GSDocMitchellHouse`
+(owner's screenshot 2026-10-15), which NVForever dropped under the old rule. The change
+adds GRA's reference to `TestMentats` (98 instead of 97), so `L3.world.cells.interiors` /
+`L3.world.refs.interiors` fail by that one reference: their golden comes from
+`oracle_world.py`, which drops such records like our old rule. Updating the oracle and
+regenerating that golden waits for the owner.
 
 Consequence: `L1.esm.inventory_xedit.{FalloutNV,DeadMoney,OldWorldBlues,GunRunnersArsenal}`
 fail by exactly these rows (scores 0.999998, 0.999975, 0.999981, 0.997433) and the other

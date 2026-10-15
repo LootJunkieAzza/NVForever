@@ -519,6 +519,12 @@ fn lodgen_job(args: &Args, world: &WorldData, game: &GameData) -> Result<lodgen:
     })
 }
 
+/// Which archives the game reads, lowest precedence first (mods' archives follow their
+/// plugins; loose files override them all).
+fn report_archives(data: Res<GameData>) {
+    info!("archives: {}", data.vfs.archives().collect::<Vec<_>>().join(", "));
+}
+
 fn main() -> AppExit {
     let args = Args::parse();
     // The run log and crash reports in NVForever's home (crash.rs).
@@ -528,7 +534,7 @@ fn main() -> AppExit {
         crash::early_exit(&e);
         AppExit::error()
     };
-    let game = match GameData::open(&args.data, &args.nif_schema) {
+    let game = match GameData::open_for_plugins(&args.data, &args.plugins, &args.nif_schema) {
         Ok(g) => g,
         Err(e) => return fail(e),
     };
@@ -856,7 +862,7 @@ fn main() -> AppExit {
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     .add_systems(Update, timelapse.after(sky::update_sky))
-    .add_systems(Startup, crash::report_start)
+    .add_systems(Startup, (crash::report_start, report_archives))
     .add_systems(Last, (crash::note_place, crash::report_exit));
     if let Some(probe) = actor_feet::from_env() {
         app.insert_resource(probe).add_systems(Last, actor_feet::probe);

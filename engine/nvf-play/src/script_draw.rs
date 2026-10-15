@@ -33,9 +33,9 @@ use nvf_assets::model::ModelCtx;
 use std::collections::{BTreeMap, HashMap};
 
 /// Base types render streaming draws (world.rs `DRAWN`), without TREE (SpeedTree).
-const DRAWN: [&[u8; 4]; 19] = [
+const DRAWN: [&[u8; 4]; 23] = [
     b"STAT", b"SCOL", b"MSTT", b"FURN", b"DOOR", b"CONT", b"ACTI", b"TACT", b"TERM", b"LIGH", b"MISC", b"WEAP", b"AMMO", b"ARMO",
-    b"ALCH", b"BOOK", b"NOTE", b"KEYM", b"PWAT",
+    b"ALCH", b"BOOK", b"NOTE", b"KEYM", b"PWAT", b"IMOD", b"CHIP", b"CCRD", b"CMNY",
 ];
 
 /// A reference render streaming leaves out at the start but this module can draw.

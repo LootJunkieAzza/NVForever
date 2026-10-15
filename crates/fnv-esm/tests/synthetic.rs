@@ -118,8 +118,9 @@ fn load_order_overrides_and_remap() {
     assert_eq!(lo.to_global(1, 0x0100_2000), Some(0x0100_2000));
     // DLC-local 0x00001001 refers to the master.
     assert_eq!(lo.to_global(1, 0x0000_1001), Some(0x0000_1001));
-    // Index beyond the master list + self is unmappable.
-    assert_eq!(lo.to_global(1, 0x0200_0001), None);
+    // An index beyond the master list means the plugin itself, as in the game.
+    assert_eq!(lo.to_global(1, 0x0200_0001), Some(0x0100_0001));
+    assert_eq!(lo.to_global(1, 0x1200_0001), Some(0x0100_0001));
     assert_eq!(lo.to_local(1, 0x0000_1001), Some(0x0000_1001));
     assert_eq!(lo.to_local(0, 0x0100_2000), None);
     let (wp, wr) = lo.winner(0x0000_1001).unwrap();

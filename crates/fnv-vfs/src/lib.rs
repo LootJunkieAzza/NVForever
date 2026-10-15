@@ -187,9 +187,20 @@ impl Vfs {
     /// that order. It exists to render the same scene under competing precedence rules and
     /// compare them with the original game (docs/spec-notes/bsa.md, "Precedence").
     pub fn open_default(data_dir: &Path) -> Result<Vfs, VfsError> {
+        Vfs::open_for_plugins(data_dir, &DEFAULT_PLUGINS)
+    }
+
+    /// [`Vfs::open_default`] for the plugins actually loaded, in load order: a mod's
+    /// archives (`<mod> - *.bsa`, `<mod>.bsa`) come above the base game's and DLC's when
+    /// its plugin loads after them, and loose files stay above every archive. The
+    /// [`ARCHIVE_ORDER_ENV`] override applies as there.
+    pub fn open_for_plugins<S: AsRef<str>>(data_dir: &Path, plugins: &[S]) -> Result<Vfs, VfsError> {
         let order = match std::env::var(ARCHIVE_ORDER_ENV) {
             Ok(list) if !list.trim().is_empty() => parse_archive_list(&list),
-            _ => Vfs::archive_order(data_dir, &DEFAULT_ARCHIVE_LIST, &DEFAULT_PLUGINS),
+            _ => {
+                let plugins: Vec<&str> = plugins.iter().map(AsRef::as_ref).collect();
+                Vfs::archive_order(data_dir, &DEFAULT_ARCHIVE_LIST, &plugins)
+            }
         };
         Vfs::open(data_dir, &order)
     }
@@ -292,6 +303,23 @@ mod tests {
         assert_eq!(vfs.source_of("MESHES\\SUB\\A.nif"), Some("loose"));
         assert_eq!(vfs.read("meshes\\sub\\a.nif").unwrap().unwrap(), b"loose");
         assert!(!vfs.exists("fallout - meshes.bsa"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn mod_archives_follow_their_plugins() {
+        let dir = std::env::temp_dir().join(format!("nvf-vfs-mods-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in ["Fallout - Meshes.bsa", "Update.bsa", "DeadMoney - Main.bsa", "MyMod.bsa", "MyMod - Textures.bsa", "Unused.bsa"] {
+            std::fs::write(dir.join(n), b"").unwrap();
+        }
+        // Base archives, then each plugin's own archives in load order; an archive no
+        // loaded plugin names stays out.
+        let order = Vfs::archive_order(&dir, &DEFAULT_ARCHIVE_LIST, &["FalloutNV.esm", "DeadMoney.esm", "MyMod.esp"]);
+        assert_eq!(order, ["Fallout - Meshes.bsa", "Update.bsa", "DeadMoney - Main.bsa", "MyMod - Textures.bsa", "MyMod.bsa"]);
+        // Without the plugin its archives are not read.
+        let order = Vfs::archive_order(&dir, &DEFAULT_ARCHIVE_LIST, &DEFAULT_PLUGINS);
+        assert!(!order.iter().any(|n| n.starts_with("MyMod")));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
