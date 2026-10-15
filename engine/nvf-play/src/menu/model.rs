@@ -31,6 +31,17 @@
 //! [observed: no Bottle Cap row in the barter screenshots, while the container
 //! screenshot lists one]. Accept moves the items and the caps the prices add up to; it
 //! is refused when the side that pays has too few caps [hypothesis: the wording is ours].
+//!
+//! "How many?" ([`Quantity`]): taking or storing one unit of a stack of more than
+//! [`ASK_QUANTITY_ABOVE`] units, putting one up for barter (or taking it back), and
+//! dropping one from the inventory ask how many first [owner, 2026-10-15: "buy, transfer,
+//! drop stacks of items when more than 5"; observed: the owner's screenshots of the
+//! original's prompt over the Pip-Boy, a stack of six Varmint Rifles]. The prompt starts
+//! at the whole stack [observed: the first screenshot shows 6 of 6, the later ones 4 and
+//! 3], goes from 1 to the stack [hypothesis: 0 would move nothing], and Ok moves that
+//! many; Cancel (or closing) moves nothing. While it is open the menu takes no other
+//! command. Smaller stacks still move one unit per press, and the Stack commands move the
+//! whole stack at once without asking [design: NVForever's shortcuts].
 
 use super::barter::{self, Prices};
 use fnv_sim::forms::{BaseData, FormStore, ItemKind};
@@ -45,6 +56,15 @@ pub const VISIBLE_ROWS: usize = 9;
 /// Rows the container and barter lists show at once: the list is 365 high and a row 51
 /// (docs/spec-notes/barter-menu.md §2).
 pub const LIST_ROWS: usize = 7;
+
+/// A stack of more than this many units asks how many to move ([`Quantity`]) [owner,
+/// 2026-10-15; the original's own threshold is a game setting not in FalloutNV.esm and
+/// not read].
+pub const ASK_QUANTITY_ABOVE: i32 = 5;
+
+/// What the quantity prompt's Page Up / Page Down move it by [design: the interface
+/// file's "jump size" is set by the original's code, not read].
+pub const QUANTITY_JUMP: i32 = 10;
 
 /// The caps item, Bottle Cap [documented: FalloutNV.esm MISC 0x0000000F, the item the
 /// vendor caps lists hold].
@@ -276,7 +296,43 @@ pub enum Command {
     Drop,
     /// Inventory: drop the whole selected stack.
     DropStack,
+    /// The "How many?" prompt: set its amount (clamped to 1 and the stack).
+    Amount(i32),
+    /// The prompt: change its amount by this much.
+    AmountStep(i32),
+    /// The prompt's Ok: do what asked with the amount chosen.
+    AmountOk,
+    /// The prompt's Cancel.
+    AmountCancel,
     Close,
+}
+
+/// The "How many?" prompt open over a menu (`menus\quantity_menu.xml`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Quantity {
+    /// What asked: [`Command::One`] (take, store, put up, take back) or
+    /// [`Command::Drop`]; done with [`Quantity::amount`] units on Ok.
+    pub cmd: Command,
+    /// The row it is for.
+    pub side: Side,
+    pub row: usize,
+    /// The stack's size, the most it can move.
+    pub max: i32,
+    pub amount: i32,
+}
+
+impl Quantity {
+    /// How full the prompt's meter is: the amount as a part of the stack.
+    pub fn part(&self) -> f32 {
+        self.amount as f32 / self.max.max(1) as f32
+    }
+}
+
+/// The amount at a point of the prompt's meter (`part` of its length from the left): that
+/// part of the stack, rounded [documented: quantity_menu.xml, the drag's 0 to 1 times the
+/// stack, rounded], at least 1.
+pub fn amount_at(part: f32, max: i32) -> i32 {
+    ((part.clamp(0.0, 1.0) * max as f32).round() as i32).clamp(1, max.max(1))
 }
 
 /// A trade being put together in the barter menu.
@@ -349,6 +405,10 @@ pub struct MenuModel {
     pub dropped: Vec<FormId>,
     /// The barter menu's trade.
     pub trade: Option<Trade>,
+    /// The "How many?" prompt, while it is open.
+    pub quantity: Option<Quantity>,
+    /// The amount the prompt chose, for the command it does on Ok.
+    amount: Option<i32>,
 }
 
 /// What a command did besides changing the model.
@@ -424,6 +484,8 @@ impl MenuModel {
             status: None,
             dropped: Vec::new(),
             trade: None,
+            quantity: None,
+            amount: None,
         }
     }
 
@@ -573,6 +635,9 @@ impl MenuModel {
     /// panics.
     pub fn apply(&mut self, world: &mut World<'_>, cmd: Command) -> Applied {
         let mut out = Applied::default();
+        if self.quantity.is_some() {
+            return self.apply_quantity(world, cmd);
+        }
         let page = self.page() as i64 - 1;
         match cmd {
             Command::Up => self.move_selection(-1),
@@ -621,8 +686,15 @@ impl MenuModel {
                 }
             }
             Command::Close => out.close = true,
+            Command::Amount(_) | Command::AmountStep(_) | Command::AmountOk | Command::AmountCancel => {}
             _ => {
+                if let Some(q) = self.asks_quantity(cmd) {
+                    self.quantity = Some(q);
+                    self.status = None;
+                    return out;
+                }
                 let r = self.act(world, cmd, &mut out);
+                self.amount = None;
                 self.status = Some(match r {
                     Ok(msg) => msg,
                     Err(e) => plain_error(world.forms, &e),
@@ -635,6 +707,45 @@ impl MenuModel {
             }
         }
         out
+    }
+
+    /// The prompt asked for by `cmd` on the selected row, if its stack is large enough.
+    fn asks_quantity(&self, cmd: Command) -> Option<Quantity> {
+        let asks = matches!((self.mode, cmd), (Mode::Container(_) | Mode::Barter(_), Command::One) | (Mode::Inventory, Command::Drop));
+        let r = self.selected_row(self.focus)?;
+        (asks && self.amount.is_none() && r.count > ASK_QUANTITY_ABOVE).then(|| Quantity {
+            cmd,
+            side: self.focus,
+            row: self.selected[self.focus as usize],
+            max: r.count,
+            amount: r.count,
+        })
+    }
+
+    /// A command while the prompt is open: only the prompt's own (and Close, as Cancel).
+    fn apply_quantity(&mut self, world: &mut World<'_>, cmd: Command) -> Applied {
+        let Some(q) = self.quantity.as_mut() else { return Applied::default() };
+        match cmd {
+            Command::Amount(n) => q.amount = n.clamp(1, q.max),
+            Command::AmountStep(d) => q.amount = q.amount.saturating_add(d).clamp(1, q.max),
+            Command::AmountCancel | Command::Close => self.quantity = None,
+            Command::AmountOk => {
+                let q = *q;
+                self.quantity = None;
+                // The rows stand still while the prompt is open.
+                self.focus = q.side;
+                self.selected[q.side as usize] = q.row;
+                self.amount = Some(q.amount);
+                return self.apply(world, q.cmd);
+            }
+            _ => {}
+        }
+        Applied::default()
+    }
+
+    /// The units a command moves: the prompt's amount, else one or the whole stack.
+    fn want(&mut self, single: bool, r: &Row) -> i32 {
+        self.amount.take().unwrap_or(if single { 1 } else { r.count })
     }
 
     /// The commands that change inventories; returns the status message.
@@ -663,7 +774,7 @@ impl MenuModel {
                     Side::Container => (c, PLAYER),
                     Side::Player => (PLAYER, c),
                 };
-                let want = if cmd == Command::One { 1 } else { r.count };
+                let want = self.want(cmd == Command::One, &r);
                 let n = world.transfer(from, to, r.item, want)?;
                 out.changed = n > 0;
                 if self.focus == Side::Container && n > 0 {
@@ -674,8 +785,8 @@ impl MenuModel {
             }
             (Mode::Barter(_), Command::One | Command::Stack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
+                let want = self.want(cmd == Command::One, &r);
                 let Some(t) = self.trade.as_mut() else { return Ok(String::new()) };
-                let want = if cmd == Command::One { 1 } else { r.count };
                 out.changed = true;
                 if r.bartered {
                     // Taken back by the side it came from.
@@ -713,7 +824,7 @@ impl MenuModel {
             }
             (Mode::Inventory, Command::Drop | Command::DropStack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
-                let want = if cmd == Command::Drop { 1 } else { r.count };
+                let want = self.want(cmd == Command::Drop, &r);
                 let created = match world.player_drop_item(r.item, want) {
                     Err(SimError::QuestItem(_)) => return Ok(format!("{} is a quest item and can't be dropped", name(&r))),
                     other => other?,

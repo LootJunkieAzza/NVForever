@@ -270,9 +270,15 @@ fn inventory_equip_use_drop_and_errors() {
     // Its effects (and effect scripts) go to the script runtime.
     assert_eq!(a.used, Some(FormId(AID)));
     assert_eq!(count(&mut w, 0x14, AID), 1);
-    // Drops create references at the player.
+    // Drops create references at the player. Ten rounds ask how many first (the prompt
+    // starts at the whole stack); one is chosen.
     select(&mut m, Side::Player, "Ammo");
     let a = m.apply(&mut w, Command::Drop);
+    assert!(a.created.is_empty());
+    assert_eq!(m.quantity.map(|q| (q.amount, q.max)), Some((10, 10)));
+    m.apply(&mut w, Command::Amount(1));
+    let a = m.apply(&mut w, Command::AmountOk);
+    assert_eq!(m.quantity, None);
     assert_eq!(a.created.len(), 1);
     assert!(a.created[0].is_dynamic());
     assert_eq!(count(&mut w, 0x14, BULLETS), 9);
@@ -528,4 +534,92 @@ fn hovering_selects_without_acting() {
     // A click on the row under the pointer then acts at once.
     assert!(m.apply(&mut w, Command::Select(Side::Player, 3)).changed);
     assert_eq!(count(&mut w, BOX_REF, PISTOL), 1);
+}
+
+#[test]
+fn stacks_of_more_than_five_ask_how_many() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    // 200 caps: taking "one" asks first, starting at the whole stack.
+    select(&mut m, Side::Container, "Bottle Cap");
+    let a = m.apply(&mut w, Command::One);
+    assert!(!a.changed);
+    let q = m.quantity.unwrap();
+    assert_eq!((q.cmd, q.side, q.max, q.amount), (Command::One, Side::Container, 200, 200));
+    // While it is open nothing else acts: no move, no other row, no close.
+    m.apply(&mut w, Command::Down);
+    m.apply(&mut w, Command::TakeAll);
+    assert_eq!(count(&mut w, BOX_REF, CAPS), 200);
+    assert_eq!(m.selected_row(Side::Container).unwrap().name, "Bottle Cap");
+    // The amount stays between 1 and the stack.
+    m.apply(&mut w, Command::AmountStep(5));
+    assert_eq!(m.quantity.unwrap().amount, 200);
+    m.apply(&mut w, Command::Amount(0));
+    assert_eq!(m.quantity.unwrap().amount, 1);
+    m.apply(&mut w, Command::AmountStep(QUANTITY_JUMP));
+    m.apply(&mut w, Command::AmountStep(1));
+    assert_eq!(m.quantity.unwrap().amount, 12);
+    let a = m.apply(&mut w, Command::AmountOk);
+    assert!(a.changed && !a.close);
+    assert_eq!(a.taken, vec![(FormId(CAPS), 12)]);
+    assert_eq!((count(&mut w, BOX_REF, CAPS), count(&mut w, 0x14, CAPS)), (188, 17));
+    assert_eq!(m.status.as_deref(), Some("Took Bottle Cap x12"));
+    // Cancel (or Close) moves nothing and leaves the menu open.
+    m.apply(&mut w, Command::One);
+    assert!(!m.apply(&mut w, Command::Close).close);
+    assert_eq!(m.quantity, None);
+    m.apply(&mut w, Command::One);
+    m.apply(&mut w, Command::AmountCancel);
+    assert_eq!(count(&mut w, BOX_REF, CAPS), 188);
+    // Storing a stack of 17 back asks too; Shift's whole stack never asks.
+    select(&mut m, Side::Player, "Bottle Cap");
+    m.apply(&mut w, Command::One);
+    assert_eq!(m.quantity.map(|q| q.max), Some(17));
+    m.apply(&mut w, Command::Amount(7));
+    m.apply(&mut w, Command::AmountOk);
+    assert_eq!(count(&mut w, BOX_REF, CAPS), 195);
+    m.apply(&mut w, Command::Stack);
+    assert_eq!((m.quantity, count(&mut w, BOX_REF, CAPS)), (None, 205));
+    // Five or fewer move one at a time.
+    select(&mut m, Side::Container, "tin can");
+    m.apply(&mut w, Command::One);
+    assert_eq!((m.quantity, count(&mut w, 0x14, CAN)), (None, 1));
+}
+
+#[test]
+fn barter_and_drops_ask_how_many_too() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = barter(&mut w);
+    // Sell 4 of the 10 rounds, then take 1 back from the 4 put up (5 or fewer: no prompt).
+    select(&mut m, Side::Player, "Ammo");
+    m.apply(&mut w, Command::One);
+    m.apply(&mut w, Command::Amount(4));
+    m.apply(&mut w, Command::AmountOk);
+    assert_eq!(m.trade.as_ref().unwrap().offered[Side::Player as usize].get(&FormId(BULLETS)), Some(&4));
+    assert_eq!(m.status.as_deref(), Some("Selling Ammo x4"));
+    select(&mut m, Side::Container, "Ammo");
+    assert!(m.selected_row(Side::Container).unwrap().bartered);
+    m.apply(&mut w, Command::One);
+    assert_eq!(m.quantity, None);
+    assert_eq!(m.trade.as_ref().unwrap().offered[Side::Player as usize].get(&FormId(BULLETS)), Some(&3));
+    // Inventory: drop 7 of the 10 rounds as one reference holding 7.
+    let mut m = MenuModel::open_inventory(&mut w).unwrap();
+    select(&mut m, Side::Player, "Ammo");
+    m.apply(&mut w, Command::Drop);
+    m.apply(&mut w, Command::Amount(7));
+    let a = m.apply(&mut w, Command::AmountOk);
+    assert_eq!(a.created.len(), 1);
+    assert_eq!(w.peek(a.created[0]).unwrap().count, 7);
+    assert_eq!(count(&mut w, 0x14, BULLETS), 3);
+}
+
+#[test]
+fn the_meter_gives_a_part_of_the_stack() {
+    assert_eq!(amount_at(1.0, 6), 6);
+    assert_eq!(amount_at(0.5, 6), 3);
+    assert_eq!(amount_at(0.0, 6), 1);
+    assert_eq!(amount_at(1.4, 6), 6);
+    assert_eq!(amount_at(0.66, 200), 132);
 }

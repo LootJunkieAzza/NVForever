@@ -10,9 +10,10 @@
 //! - Without the game's files the same layout is drawn with Bevy's font and plain lines.
 
 use super::barter::{self, Flow};
-use super::model::{Category, Command, MenuModel, Mode, Row, Side};
-use super::{CmdButton, RowButton};
-use crate::interface::{amber, at, face, plain_font, set_line, Face, Picture, Pictures};
+use super::model::{Category, Command, MenuModel, Mode, Quantity, Row, Side};
+use super::{AmountMeter, CmdButton, RowButton};
+use crate::interface::{amber, at, face, plain_font, set_line, texture, Face, Picture, Pictures};
+use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 use bevy::prelude::*;
 use fnv_font::{Font, Line};
 use fnv_sim::forms::ItemKind;
@@ -111,12 +112,15 @@ const SHADE: f32 = crate::interface::MENU_BACKING;
 
 const BODY_FONT: &str = "textures\\fonts\\monofonto_large.fnt";
 const TITLE_FONT: &str = "textures\\fonts\\glow_monofonto_vl_dialogs.fnt";
+const TICK_TEXTURE: &str = "textures\\interface\\hud\\hud_tick_mark.dds";
 
 /// What the menus are drawn with, read when the first one opens.
 pub struct Kit {
     body: Face,
     title: Face,
     pictures: Pictures,
+    /// The meters' tick mark (`hud_tick_mark.dds`, not in the atlas).
+    tick: Option<Handle<Image>>,
 }
 
 impl Kit {
@@ -125,6 +129,7 @@ impl Kit {
             body: face(BODY_FONT, plain_font(31.0, 12.0), data, images, bc),
             title: face(TITLE_FONT, plain_font(34.0, 14.0), data, images, bc),
             pictures: Pictures::load(data),
+            tick: data.and_then(|d| texture(TICK_TEXTURE, d, images, bc)).map(|t| t.0),
         }
     }
 }
@@ -479,6 +484,97 @@ fn card(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, y: f32, title: &str, 
     }
 }
 
+// ---- the "How many?" prompt -----------------------------------------------------------
+//
+// `menus\quantity_menu.xml` [documented; docs/spec-notes/barter-menu.md §7]: a 740 × 370
+// box centred on the screen; inside it, 22 in and 42 down, a 690-wide frame of a top
+// bracket and a bottom bracket 290 lower (lines with 50-long fading ends); "How many?" in
+// font 2 centred at 345, 50 down; the meter 149.5 in, 115 down, 391 × 24, with its
+// arrows (17.5 × 35) at 130 and 549; the amount in font 6 centred at 345, 170 down; Ok
+// and Cancel right-aligned at 665, 155 and 200 down. The meter is the interface's meter
+// (`meter.xml`): a ground at a quarter of the colour and over it tick marks as far as the
+// amount is a part of the stack. The owner's screenshots agree [observed: the frame 775 ×
+// 327 pixels at 1080 lines, 690 × 291 units; ticks 8 units apart].
+
+const Q_BOX: Vec2 = Vec2::new(740.0, 370.0);
+const Q_IN: Vec2 = Vec2::new(22.0, 42.0);
+const Q_W: f32 = 690.0;
+const Q_BOTTOM: f32 = 290.0;
+const Q_FADE: f32 = 50.0;
+const Q_CENTRE: f32 = 345.0;
+const Q_PROMPT_Y: f32 = 50.0;
+const Q_METER: Rect = Rect { min: Vec2::new(149.5, 115.0), max: Vec2::new(540.5, 139.0) };
+const Q_ARROWS: [f32; 2] = [130.0, 549.0];
+const Q_AMOUNT_Y: f32 = 170.0;
+const Q_BUTTONS_RIGHT: f32 = 665.0;
+const Q_BUTTONS_Y: [f32; 2] = [155.0, 200.0];
+/// A tick of the meter: 8 apart [observed], the picture's top 8 × 20 texels stretched to
+/// the meter's height (as the HUD's bars, `crate::hud`).
+const Q_TICK: f32 = 8.0;
+
+/// How many ticks of the meter show for a part of the stack (a tick partly in shows,
+/// cut).
+pub fn quantity_ticks(part: f32) -> usize {
+    let w = Q_METER.width() * part.clamp(0.0, 1.0);
+    (w / Q_TICK).ceil() as usize
+}
+
+/// Spawn the prompt under `root` (a node centring its children on the screen). A sheet
+/// behind it takes the pointer, so nothing under the prompt does.
+pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, kit: &mut Kit, data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) {
+    let mut c = Ctx { kit, data, images, bc };
+    let bright = amber(255.0);
+    let sheet = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+    root.spawn((sheet, FocusPolicy::Block, Interaction::default()));
+    let boxed = Node { width: crate::interface::u(Q_BOX.x), height: crate::interface::u(Q_BOX.y), ..default() };
+    root.spawn((boxed, FocusPolicy::Block)).with_children(|b| {
+        let shade = Color::srgba(0.0, 0.0, 0.0, SHADE);
+        if c.image(b, "interface\\shared\\background\\solid_black.dds", at(0.0, 0.0, Q_BOX.x, Q_BOX.y), shade).is_none() {
+            b.spawn((at(0.0, 0.0, Q_BOX.x, Q_BOX.y), BackgroundColor(shade)));
+        }
+        b.spawn(at(Q_IN.x, Q_IN.y, Q_W, Q_BOTTOM + THICK)).with_children(|p| {
+            for (y, up) in [(0.0, false), (Q_BOTTOM, true)] {
+                c.line(p, 0.0, y, Q_W, THICK, bright);
+                let (name, top) = if up { ("fade_to_top.dds", y - Q_FADE + 1.0) } else { ("fade_to_bottom.dds", y) };
+                for x in [0.0, Q_W - THICK] {
+                    if c.image(p, name, at(x, top, THICK, Q_FADE), bright).is_none() {
+                        p.spawn((at(x, top, THICK, Q_FADE), BackgroundColor(bright.with_alpha(0.5))));
+                    }
+                }
+            }
+            c.text(p, false, "How many?", Q_CENTRE, Q_PROMPT_Y, Align::Centre, bright);
+            // The meter: its ground, the ticks as far as the amount, and over them what
+            // takes the pointer.
+            let (mx, my, mw, mh) = (Q_METER.min.x, Q_METER.min.y, Q_METER.width(), Q_METER.height());
+            c.line(p, mx, my, mw, mh, bright.with_alpha(0.25));
+            let tick = c.kit.tick.clone();
+            for i in 0..quantity_ticks(q.part()) {
+                let x = mx + i as f32 * Q_TICK;
+                let w = Q_TICK.min(mx + mw - x);
+                match &tick {
+                    Some(image) => p.spawn((at(x, my, w, mh), ImageNode { rect: Some(Rect::new(0.0, 0.0, w, 20.0)), color: bright, ..ImageNode::new(image.clone()) })),
+                    None => p.spawn((at(x, my, (w - 3.0).max(1.0), mh), BackgroundColor(bright))),
+                };
+            }
+            p.spawn((AmountMeter, Button, RelativeCursorPosition::default(), at(mx, my - 6.0, mw, mh + 12.0)));
+            for (x, name, step) in [(Q_ARROWS[0], "main_arrow_left.dds", -1), (Q_ARROWS[1], "main_arrow_right.dds", 1)] {
+                let node = at(x, my - 5.5, ARROW.x, ARROW.y);
+                let button = (Button, CmdButton(Command::AmountStep(step)));
+                if c.image_with(p, &format!("interface\\main\\{name}"), node.clone(), bright, button).is_none() {
+                    p.spawn((node, BackgroundColor(bright.with_alpha(0.5)), Button, CmdButton(Command::AmountStep(step))));
+                }
+            }
+            c.text(p, true, &q.amount.to_string(), Q_CENTRE, Q_AMOUNT_Y, Align::Centre, bright);
+            let h = 31.0 + BUTTON_PAD;
+            for ((label, hint, cmd), y) in [("Ok", "A)", Command::AmountOk), ("Cancel", "E)", Command::AmountCancel)].into_iter().zip(Q_BUTTONS_Y) {
+                let w = c.text(p, false, label, Q_BUTTONS_RIGHT, y + BUTTON_PAD, Align::Right, bright);
+                c.text(p, false, hint, Q_BUTTONS_RIGHT + HINT_GAP, y + BUTTON_PAD, Align::Left, bright);
+                p.spawn((Button, CmdButton(cmd), at(Q_BUTTONS_RIGHT - w - 10.0, y, w + 20.0 + HINT_GAP + 30.0, h)));
+            }
+        });
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,6 +591,15 @@ mod tests {
         assert_eq!(flow_figure_x(Flow::Sell, 70.0), 20.0 + 449.0 + 20.0 + 32.5 + 7.5);
         assert_eq!(flow_figure_x(Flow::Buy, 90.0), 20.0 + 449.0 + 32.5 - 20.0);
         assert_eq!(flow_figure_x(Flow::Sell, 90.0), 20.0 + 449.0 + 20.0 + 40.0 + 20.0);
+    }
+
+    #[test]
+    fn the_quantity_meter_fills_by_the_amount() {
+        // 391 long, ticks 8 apart: a full stack shows 49 ticks (the last cut), half 25.
+        assert_eq!(quantity_ticks(1.0), 49);
+        assert_eq!(quantity_ticks(0.5), 25);
+        assert_eq!(quantity_ticks(0.0), 0);
+        assert_eq!(quantity_ticks(2.0), 49);
     }
 
     #[test]

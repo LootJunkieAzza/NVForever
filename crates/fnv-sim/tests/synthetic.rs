@@ -170,6 +170,7 @@ const WORLD2_PERSISTENT: u32 = 0x411;
 const WORLD2_CELL: u32 = 0x412; // exterior cell at grid (2, 1)
 const GATE_OUT: u32 = 0x30E; // persistent door in WORLD_PERSISTENT -> GATE_IN, in WORLD2
 const GATE_IN: u32 = 0x30F; // persistent door in WORLD2_PERSISTENT -> GATE_OUT, in WORLD
+const ROUNDS_REF: u32 = 0x3F0; // BULLETS without XCNT: the AMMO's Clip Rounds (10)
 
 fn plugin_bytes() -> Vec<u8> {
     let misc = cat(&[
@@ -258,6 +259,7 @@ fn plugin_bytes() -> Vec<u8> {
         &refr(CHILD_OPPOSITE, 0, STIMPAK, [0.0; 3], vec![xesp(KEY_REF, true)]),
         &refr(GRANDCHILD, 0, STIMPAK, [0.0; 3], vec![xesp(CHILD_OPPOSITE, false)]),
         &refr(GUN_REF, 0, PISTOL, [0.0; 3], vec![sub(b"XHLP", 0.25f32.to_le_bytes().to_vec())]),
+        &refr(ROUNDS_REF, 0, BULLETS, [0.0; 3], vec![]),
         &{
             // A placed explosive: same subrecords as REFR, record type PGRE.
             let mut v = refr(MINE_REF, 0, MINE_PROJ, [0.0; 3], vec![]);
@@ -397,7 +399,7 @@ fn forms_load_through_the_schema() {
 fn references_load_with_cells_and_extra_data() {
     let f = fixture();
     assert!(f.refs.issues.is_empty(), "{:?}", f.refs.issues.to_json());
-    assert_eq!(f.refs.refs.len(), 16);
+    assert_eq!(f.refs.refs.len(), 17);
     // Stored in the persistent cell, parented to the grid cell containing it.
     assert_eq!(f.refs.get(id(EXT_DOOR)).unwrap().stored_in, Some(id(WORLD_PERSISTENT)));
     assert_eq!(f.refs.get(id(EXT_DOOR)).unwrap().cell, Some(id(WORLD_CELL)));
@@ -1354,4 +1356,19 @@ fn set_quest_object_overrides_the_record_flag_and_is_saved() {
     // A world with no overrides writes no field (older snapshots stay byte-identical).
     let plain = World::new(&f.forms, &f.refs, SimConfig::default()).snapshot();
     assert!(!serde_json::to_string(&plain).unwrap().contains("quest_objects"));
+}
+
+#[test]
+fn placed_ammo_without_a_count_holds_its_clip_rounds() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    assert_eq!(f.forms.item(id(BULLETS)).unwrap().placed_count, Some(10));
+    assert_eq!(f.forms.placed_count(id(BULLETS), None), 10);
+    // XCNT wins; other items without one are one unit.
+    assert_eq!(f.forms.placed_count(id(BULLETS), Some(3)), 3);
+    assert_eq!(f.forms.placed_count(id(PISTOL), None), 1);
+    let before = w.item_count(p, id(BULLETS)).unwrap();
+    w.activate(p, id(ROUNDS_REF)).unwrap();
+    assert_eq!(w.item_count(p, id(BULLETS)).unwrap(), before + 10);
 }
