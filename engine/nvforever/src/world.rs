@@ -21,9 +21,9 @@ use std::path::Path;
 
 /// Base object types drawn as static models. NPCs and creatures are assembled from parts
 /// (`actors.rs`); sounds and idle markers have no model.
-const DRAWN: [&[u8; 4]; 20] = [
+const DRAWN: [&[u8; 4]; 24] = [
     b"STAT", b"SCOL", b"MSTT", b"TREE", b"FURN", b"DOOR", b"CONT", b"ACTI", b"TACT", b"TERM", b"LIGH", b"MISC",
-    b"WEAP", b"AMMO", b"ARMO", b"ALCH", b"BOOK", b"NOTE", b"KEYM", b"PWAT",
+    b"WEAP", b"AMMO", b"ARMO", b"ALCH", b"BOOK", b"NOTE", b"KEYM", b"PWAT", b"IMOD", b"CHIP", b"CCRD", b"CMNY",
 ];
 
 #[derive(Resource)]
