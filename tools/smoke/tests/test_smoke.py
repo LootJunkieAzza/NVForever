@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -392,6 +393,37 @@ class CheckCommandTests(unittest.TestCase):
             self.assertIn("music summary: 1 started", text)  # the similar line is shown
             self.assertIn("1 passed, 1 failed", text)
             self.assertLessEqual(len(text.splitlines()), 6)  # compact
+
+
+@unittest.skipUnless(sys.platform == "win32", "thread stacks are read on Windows only")
+class StackTests(unittest.TestCase):
+    def test_a_running_process_shows_every_thread_with_frames(self):
+        from smoke.stacks import dump
+        p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            time.sleep(0.5)
+            text = dump(p.pid)
+        finally:
+            p.kill()
+            p.wait()
+        self.assertIn("=== thread", text)
+        self.assertRegex(text, r"\n  [0-9a-f]{16} \S")
+
+    def test_a_launch_past_its_time_leaves_its_stacks(self):
+        from smoke.plan import Launch
+        from smoke.runner import Env, run_launch
+        from smoke.scenarios import GAME as GAME_KIND
+        s = load_text(game("hangs", extra="timeout = 1")).scenarios[0]
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            exe = out / "hangs.cmd"
+            exe.write_text(f'@"{sys.executable}" -c "import time; time.sleep(4)"\n')
+            launch = Launch(name="hangs", kind=GAME_KIND, scenarios=[s], run_seconds=1)
+            code, err, _ = run_launch(launch, Env(repo=out, out=out, exe=exe, data="D", fnvtool=None), None)
+            self.assertIsNone(code)
+            self.assertIn("thread stacks in", err)
+            self.assertIn("=== thread", (out / "hangs.stacks.txt").read_text(encoding="utf-8"))
+            time.sleep(4)  # the orphaned sleeper lets go of the log
 
 
 if __name__ == "__main__":

@@ -7,7 +7,9 @@
 
 Selection (default --changed origin/main): --changed [BASE] | --all | --only NAME… |
 --area AREA…. Logs go to <repo>/target/smoke/ (or --out / NVF_SMOKE_OUT); only a
-compact summary is printed. Exit code 1 when a scenario or check fails.
+compact summary is printed. Exit code 1 when a scenario or check fails. A game that
+runs past its time leaves every thread's stack in <launch>.stacks.txt before it is
+killed (Windows; `python -m smoke.stacks PID` takes them from a game that hangs now).
 """
 from __future__ import annotations
 

@@ -226,6 +226,14 @@ ours and never remapped.
   them; smoke `save-write` (changes through the console, a manual save, an autosave after
   `coc` and one from `Autosave`) then `save-load` (`--load`, and the changes are back:
   items, a disabled reference, an actor value, the position).
+- **Open: one frozen load run.** One `save-load` run of about 95 (2026-10-15) froze the
+  main loop in the frame after the two Gun Runners' Arsenal message boxes closed
+  [observed: its run log ends there; only the music decoder, on the audio thread, logged
+  for the next four minutes]. 91 later runs, 20 of them with the CPU kept busy, did not
+  freeze, so the cause is not known. A smoke launch that runs past its time now leaves
+  every thread's stack in `<launch>.stacks.txt` (`tools/smoke/smoke/stacks.py`), so the
+  next one shows where it stopped. The GRA boxes showing again after this load is
+  expected: `save-write` saves before that quest shows them.
 
 Not built: the thumbnail, a load menu, remapping another load order, in-place loading
 without a restart, AI agent progress, corpse poses beyond their position, the sitting or

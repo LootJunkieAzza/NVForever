@@ -14,6 +14,7 @@ from pathlib import Path
 from .expect import Outcome, check_forbid, check_one, check_order, clean
 from .plan import Launch, fmt
 from .scenarios import GAME, Scenario
+from .stacks import dump as dump_stacks
 
 AID_PREFIXES = ("NVF_PLAY_TEST_", "NVF_PLAY_DEBUG_")
 OWNER = "smoke-owner.txt"
@@ -268,6 +269,7 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
         cmd = [str(env.exe), "--data", str(env.data), *launch.args, "--run-seconds", fmt(launch.run_seconds)]
         (env.out / f"{launch.name}.cmd.txt").write_text(
             "".join(f"{k}={v}\n" for k, v in sorted(launch.env.items())) + subprocess.list2cmdline(cmd) + "\n")
+        (env.out / f"{launch.name}.stacks.txt").unlink(missing_ok=True)
         if locks:
             locks.acquire()
         started = time.monotonic()  # the launch's own time, without waiting for the locks
@@ -279,9 +281,12 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
                     code = p.wait(timeout=launch_timeout(launch))
                     err = ""
                 except subprocess.TimeoutExpired:
+                    # Where it stopped, before it goes: every thread's stack.
+                    stacks = env.out / f"{launch.name}.stacks.txt"
+                    stacks.write_text(dump_stacks(p.pid, Path(env.exe).parent), encoding="utf-8")
                     p.kill()
                     p.wait()
-                    code, err = None, f"timed out after {launch_timeout(launch):.0f} s"
+                    code, err = None, f"timed out after {launch_timeout(launch):.0f} s; thread stacks in {stacks}"
         finally:
             if locks:
                 locks.release()
