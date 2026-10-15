@@ -417,13 +417,14 @@ expect = [
 name = "wait-residents"
 source = "CLAUDE.md: after changes to the Wait and Sleep menu or the people during a wait, the wait with residents"
 areas = ["wait", "residents"]
-paths = ["engine/nvf-play/src/wait*", "crates/fnv-game/src/rest.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+paths = ["engine/nvf-play/src/wait*", "crates/fnv-game/src/rest.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/ui_sounds.rs"]
 env = { NVF_PLAY_TEST_WAIT = "30:open,31:hours=4,32:accept" }
 args = ["--cell", "Goodsprings", "--play", "--npc-packages", "EasyPeteRef,GSChetRef,GoodspringsSettler04Ref", "--hour", "18.5"]
 run_seconds = 50
 expect = [
   { re = 'ai summary.*\b3 there, 0 on their way' },
   { re = 'ai summary.*\b4 hours passed in the wait menu \(2 walks in them\)' },
+  "wait slider moved: UIMenuPrevNext",
 ]
 
 [[scenario]]
@@ -966,7 +967,9 @@ run_seconds = 30
 expect = [
   "001730E9 (0x00004323) picked up, sound ITMPistolUp",
   { text = "dropped, sound UIItemsClothingDown", known_failing = "main 2026-10-12, alone and shared: the inventory test aid drops the BB Gun picked up at 11 s (FF000000 (0x00004323) dropped, sound ITMPistolDown)" },
-  { re = 'world sounds summary:.*2 pick-ups, 1 drops; 5 items taken from and 1 put in containers; containers opened 1 and closed 1 times' },
+  { re = 'world sounds summary:.*2 pick-ups, 1 drops; 5 items taken from and 1 put in containers; containers opened 1 and closed 1 times', known_failing = "main 2026-10-15 (bisected: 39bd3a3 rolls 5, d6ea476 = #264 creature-data rolls 3): the refrigerator 0x00105658 is VLootFridgeClosed01Tier1Wasteland, five leveled-list entries that may each come up empty, rolled from the world's one seeded random stream when first read. Since #264 actors with an Inventory template roll their template's items (World::set_inventory_sources), so the draws before the fridge changed and it now holds 3 items (Absinthe, Mole Rat Meat, Pinyon Nuts; before: also Beer and Purified Water x2) and Take All takes 3. A different roll, not lost items; the counts that do not depend on the roll are checked on the next line" },
+  { re = 'world sounds summary:.*2 pick-ups, 1 drops; \d+ items taken from and 1 put in containers; containers opened 1 and closed 1 times', label = "the summary's pick-ups, drops, items put in and containers opened and closed (items taken depend on the fridge's roll)" },
+  { re = 'Took everything \((?P<n>\d+) items\)', range = [1, 1e9], label = "Take All took one or more items from the fridge" },
 ]
 
 [[scenario]]
@@ -982,9 +985,9 @@ expect = [
   "barter opened: UIMenuMode",
   "container take all: UIItemTakeAll",
   "inventory item used: NPCHumanUsingStimpak",
-  "wait slider moved: UIMenuPrevNext",
+  { text = "wait slider moved: UIMenuPrevNext", known_failing = "main 2026-10-15 (since crime in play, #242, 2026-10-12): the menu aid's Take All from Chet's cash register at 44 s is a theft Chet sees, so he turns on the player and the wait menu at 61 s is refused (You cannot wait when enemies are nearby.), as it should be; the slider is never moved. The slider sound is checked in wait-residents instead" },
   "settings switch flipped: UIMenuPrevNext",
-  { re = 'ui sounds summary:.*\b24 played', known_failing = "claude/smoke-regressions 2026-10-12: 23 played with every step done (the start-up boxes no longer swallow the menu aid's inventory pass); one UIPipBoyScroll short of the 24 of 2026-10-11: since the Pip-Boy ITEMS page (#213) the menu aid's inventory pass lists the Weapons tab, whose first row is the weapon it puts on and is already selected, so no selection move is heard (before: the Vault 13 jumpsuit, further down one list). Not a sound the engine loses" },
+  { re = 'ui sounds summary:.*\b24 played', known_failing = "claude/smoke-regressions 2026-10-12: 23 played with every step done (the start-up boxes no longer swallow the menu aid's inventory pass); one UIPipBoyScroll short of the 24 of 2026-10-11: since the Pip-Boy ITEMS page (#213) the menu aid's inventory pass lists the Weapons tab, whose first row is the weapon it puts on and is already selected, so no selection move is heard (before: the Vault 13 jumpsuit, further down one list). Not a sound the engine loses. Main 2026-10-15: 20 played, the refused wait menu's three (UIMenuMode, UIMenuPrevNext, UIMenuOK, all heard in wait-residents) on top; see the wait slider line" },
   { re = 'ui sounds summary:.*\b0 sounds not found' },
   { re = "ui sounds summary:.*(?P<n>\\d+) items' own sounds held back for Take All", range = [1, 1e9], label = "one or more items' own sounds held back for Take All" },
 ]
