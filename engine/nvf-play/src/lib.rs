@@ -34,6 +34,7 @@ pub mod hitvol;
 pub mod interface;
 pub mod intro;
 pub mod hud;
+pub mod hud_target;
 pub mod loading;
 pub mod main_menu;
 pub mod lockpick;

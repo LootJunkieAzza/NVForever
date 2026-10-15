@@ -4674,3 +4674,43 @@ reaches them, so they are on a shelf inside the counter's collision); drop part 
 from the Pip-Boy (X on the 20 rounds); buy part of a stack from Chet; store part of the
 caps in a container.
 
+
+## HUD: bars, enemy health, sneak word, dialogue (2026-10-16, session "l5-hud", list 5 D1)
+
+Playtest list 5, items 73, 32, 7 and 74 (`docs/spec-notes/hud.md` §4, §8–§10). Measured on
+your screenshots (`Target healthbar` at 1920 x 1080, the four `Sneak detection` frames);
+what they could not settle is a guess:
+
+- **73, bars.** Each bar is now 37 ticks from just inside the upright to the corner mark,
+  with "HP"/"AP" above it near the uprights; ticks are set on whole pixels so they are
+  all the same width (the old unevenness was 4.5-pixel ticks rounded at 720 lines). The
+  ticks use the game's tick picture, whose opacity fades towards the top, as the
+  original's do. Guess: a tick is lit for any part of its share (37 ticks, so a bar shows
+  one tick until the value is 0). Check: same width ticks at your usual resolution; the
+  labels' places against the original's.
+- **73, condition.** The bar now ends 15 units before the divider, its bottom on the line
+  "CND" stands on. The two black arrows are the game's own `repair_meter_pips.dds`
+  (named by the HUD file as `CNDArrows`), drawn as tall as the bar at 75 % of it (your
+  number; on your screenshot they sit at about 75–79 %). Check: whether the arrows are
+  as big as the original's.
+- **32, enemy health.** The game's enemy bracket picture in the HUD's red (255, 67, 42),
+  31 ticks between its corner marks, the name centred under the line; it empties from
+  both ends to the middle. **Guesses (the rule is not documented):** shown for a living
+  actor under the crosshair (up to 8192 units) that is hostile to you or fighting you,
+  or that you hit in the last 5 seconds; and for 5 seconds after you hit any actor,
+  aimed at or not. A friendly actor you only look at gets no bar. The old developer
+  text (`Name [|||...] hp/max` above the crosshair) is removed. Check: when the bar
+  appears and goes in the original, and whether a non-hostile actor you aim at shows it.
+- **7, sneak word.** `[HIDDEN]`, `[DETECTED]` in amber, `[CAUTION]`, `[DANGER]` in red,
+  centred at the top while you sneak, as on your screenshots (your list says "Cautious";
+  the screenshot says CAUTION, which is used). **Guess (not documented):** DANGER while
+  an actor fights you; CAUTION while a hostile actor searches for you (Alert/Lost state);
+  DETECTED while any actor detects you; else HIDDEN. Check: walk past a friendly settler
+  sneaking (should say DETECTED when seen), and provoke a Fiend camp.
+- **74, dialogue.** In a conversation every HUD element is gone. Other actors' lines
+  (Joe Cobb to Trudy) and radio lines are not drawn as subtitles while you talk. **Guess:**
+  corner messages and quest messages ("COMPLETED: Go and meet Trudy…") wait during the
+  conversation and come up after it, rather than over the dialogue screen; your
+  screenshot showed the quest message during the conversation, and I hid it because you
+  asked for every HUD element to go. Check: whether the original shows quest updates
+  during a conversation.
