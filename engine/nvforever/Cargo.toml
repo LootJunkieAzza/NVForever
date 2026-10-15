@@ -33,5 +33,7 @@ clap.workspace = true
 serde_json = "1"
 
 [features]
-# The intro film before a new game (nvf-play's `intro-video`: a GPL-3.0-or-later decoder).
+default = ["intro-video"]
+# The intro film before a new game (nvf-play's `intro-video`: a GPL-3.0-or-later decoder,
+# as NVForever is).
 intro-video = ["nvf-play/intro-video"]

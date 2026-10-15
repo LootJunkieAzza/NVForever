@@ -13,10 +13,9 @@
 //! dropped), the sound plays from a queue the decoder fills. The picture is fitted inside
 //! the window, black around it.
 //!
-//! **Built only with the cargo feature `intro-video`** (`cargo build -p nvforever --features
-//! intro-video`): its decoder is GPL-3.0-or-later and the default build keeps third-party
-//! code permissive (deny.toml) until the owner settles the project's licence. Without the
-//! feature New Game goes straight to the opening (`intro: not built in`).
+//! Built with the cargo feature `intro-video`, on by default (its decoder is
+//! GPL-3.0-or-later, as NVForever is: owner decision 2026-10-15). A build without it
+//! (`--no-default-features`) goes straight to the opening (`intro: not built in`).
 //!
 //! Log: `intro: playing <file> (<w>x<h>, <n> frames)`, `intro: skipped at <s> s` or
 //! `intro: ended after <s> s`, `intro: <file>: <why>` when it cannot play (the game then

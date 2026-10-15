@@ -1978,7 +1978,6 @@ expect = [
 [[scenario]]
 name = "main-menu"
 source = "owner 2026-10-15: the main menu (engine/nvf-play/src/main_menu.rs): loading screens behind it, its theme, Continue and Load greyed without saves, Settings, New Game starts the opening"
-note = "The intro film is in builds with the cargo feature intro-video only (its decoder is GPL): there the run also logs intro: playing / skipped (test aids NVF_PLAY_TEST_INTRO_SHOT, NVF_PLAY_TEST_INTRO_SKIP); checked that way on 2026-10-15"
 areas = ["main-menu", "save"]
 paths = ["engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/pause.rs"]
 env = { NVFOREVER_HOME = "menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "5:shot,6:continue,6.5:load,7:settings,11:new", NVF_PLAY_TEST_PAUSE_MENU = "9:back", NVF_PLAY_TEST_INTRO_SHOT = "6", NVF_PLAY_TEST_INTRO_SKIP = "8" }
@@ -1995,6 +1994,9 @@ expect = [
   "pause menu: Settings { selected: 0 } page for another menu",
   "main menu: New Game",
   "main menu: closed, the intro film plays",
+  { re = 'intro: playing .*FNVIntro\.bik \(1280x720, \d+ frames\)', label = "the intro film plays" },
+  "intro: screenshot intro.png",
+  { re = 'intro: skipped at 8\.\d s', label = "skipped (test aid) after 8 s" },
   "intro: the opening begins",
   "new game: VCG00 started at stage 0",
   "main menu: theme faded out",

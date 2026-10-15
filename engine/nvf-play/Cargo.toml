@@ -41,7 +41,7 @@ rodio = { version = "0.22", default-features = false, features = ["mp3", "vorbis
 png = "0.18"
 
 [features]
-# The intro film before a new game (src/intro.rs): its Bink decoder is GPL-3.0-or-later,
-# so it stays out of the default build until the owner settles the project's licence
-# (deny.toml keeps third-party dependencies permissive).
+default = ["intro-video"]
+# The intro film before a new game (src/intro.rs); its Bink decoder is GPL-3.0-or-later,
+# as NVForever is (owner decision 2026-10-15).
 intro-video = ["dep:infinitier_bik_decoder"]

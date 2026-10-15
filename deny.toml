@@ -1,8 +1,8 @@
 # cargo-deny policy (docs/design/dependencies.md, "Licence check"). Run: cargo deny check
 
 [licenses]
-# Permissive licences, compatible with the GPL-3.0-or-later placeholder and with a
-# permissive project licence if the owner chooses one.
+# NVForever is GPL-3.0-or-later (owner decision 2026-10-15): dependencies may be
+# permissive or GPL-3.0-compatible copyleft.
 allow = [
     "MIT",
     "Apache-2.0",
@@ -14,7 +14,8 @@ allow = [
     # option-ext (via directories): file-level copyleft; fine for an unmodified
     # dependency under either project licence.
     "MPL-2.0",
-    # NVForever's own crates.
+    # NVForever's own crates, and GPL dependencies (infinitier_bik_decoder for the intro
+    # film; owner decision 2026-10-15).
     "GPL-3.0-or-later",
 ]
 confidence-threshold = 0.9

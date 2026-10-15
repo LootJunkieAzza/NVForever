@@ -4647,3 +4647,9 @@ Port of the rescued 2026-10-11 commit 035c21ae onto main (dialogue.md §3.5, rad
   now plays its segments (Segment12 too) with Tabitha's and Raul's voices.
 Check in game: Black Mountain Radio (segments between songs, Tabitha's voice); two
 NPCs greeting each other (and a child answering an NPC's hello where children talk); Michael Angelo's 031/032/034 choices.
+
+## Licence settled: GPL-3.0-or-later (2026-10-15, owner)
+The owner decided NVForever stays GPL-3.0-or-later. GPL dependencies are allowed
+(`deny.toml`), and the intro film (`Video\FNVIntro.bik` before a new game, decoded by the
+GPL `infinitier_bik_decoder`) is now in the default build (cargo feature `intro-video`, on
+by default). Earlier notes that leave the licence open no longer apply.
