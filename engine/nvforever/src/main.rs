@@ -416,6 +416,12 @@ struct Args {
     /// --pos and --heading are ignored.
     #[arg(long, requires = "play")]
     new_game: bool,
+    /// With --play: load a save (a name in NVForever's saves folder, or a path to a
+    /// .nvfsave): start at its place and put its state back (nvf_play::save,
+    /// docs/design/save-load.md); --cell, --pos, --heading, --pitch, --hour, --weather and
+    /// --world are taken from the save.
+    #[arg(long, requires = "play", conflicts_with = "new_game")]
+    load: Option<String>,
     /// With --play: close message boxes that ask nothing (an OK button only, such as the
     /// add-on packs' start-up boxes) as soon as a script shows them; boxes with a choice
     /// stay open. For testing; the box's text is still logged.
@@ -538,13 +544,42 @@ fn report_archives(data: Res<GameData>) {
 }
 
 fn main() -> AppExit {
-    let args = Args::parse();
+    let mut args = Args::parse();
     // The run log and crash reports in NVForever's home (crash.rs).
     crash::install(&args.data);
     let fail = |e: String| {
         eprintln!("error: {e}");
         crash::early_exit(&e);
         AppExit::error()
+    };
+    // `--load`: the save's place decides where the world starts (its worldspace before
+    // the world is opened); its body waits for the scripts (nvf_play::save).
+    let loaded = match args.load.as_deref() {
+        Some(name) => match nvf_play::save::SaveConfig::default().path_of(name).and_then(|p| fnv_save::read(&p).map(|f| (p, f)).map_err(|e| e.to_string())) {
+            Ok((path, f)) => {
+                let pl = &f.header.place;
+                if let Some(w) = pl.world {
+                    args.world = format!("0x{w:08X}");
+                }
+                args.cell = match pl.interior {
+                    Some(c) => format!("0x{c:08X}"),
+                    None => format!("{},{}", (pl.feet[0] / fnv_world::CELL_SIZE).floor(), (pl.feet[1] / fnv_world::CELL_SIZE).floor()),
+                };
+                args.pos = Some(format!("{},{},{}", pl.feet[0], pl.feet[1], pl.feet[2] + nvf_play::player::EYE_HEIGHT));
+                args.eye_height = 0.0;
+                args.heading = pl.heading_deg;
+                args.pitch = pl.pitch_deg;
+                args.hour = f.header.game_hour;
+                if f.header.weather.is_some() {
+                    args.weather = f.header.weather.clone();
+                }
+                // Before the log is set up: straight to the output.
+                eprintln!("load: {} ({}, level {}, {}): starting at {:?}", path.display(), f.header.player_name, f.header.level, f.header.location, pl);
+                Some(path)
+            }
+            Err(e) => return fail(format!("--load {name}: {e}")),
+        },
+        None => None,
     };
     let game = match GameData::open_for_plugins(&args.data, &args.plugins, &args.nif_schema) {
         Ok(g) => g,
@@ -557,8 +592,19 @@ fn main() -> AppExit {
     };
     info!("world index built in {:.2}s", t0.elapsed().as_secs_f64());
 
+    // The save is read in full once the load order is known: it must be the one the save
+    // was made with.
+    let pending = match &loaded {
+        Some(path) => {
+            let plugins: Vec<fnv_save::PluginEntry> = world.lo.plugins.iter().map(|p| fnv_save::PluginEntry { name: p.name.clone(), size: p.file_size }).collect();
+            match nvf_play::save::read_for_load(path, &plugins) {
+                Ok((_, body)) => Some(nvf_play::save::PendingLoad { path: path.clone(), body }),
+                Err(e) => return fail(format!("--load: {e}")),
+            }
+        }
+        None => None,
+    };
     // A new game starts at the opening's marker (nvf-play).
-    let mut args = args;
     if args.new_game {
         match nvf_play::script::new_game_start(world.lo, world.schema, world.index) {
             Ok(s) => {
@@ -902,6 +948,9 @@ fn main() -> AppExit {
     app.insert_resource(nvf_play::music::MusicSettings { play: !args.no_music, volume: args.music_volume });
     app.insert_resource(if args.menu_pause == "original" { nvf_play::pause::MenuPause::Original } else { nvf_play::pause::MenuPause::Living });
     app.insert_resource(nvf_play::dialogue_look::LookSettings { enabled: !args.no_dialogue_look, recentre_on_choices: args.dialogue_recentre && !args.no_dialogue_recentre });
+    if let Some(p) = pending {
+        app.insert_resource(p);
+    }
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
@@ -1067,8 +1116,58 @@ fn main() -> AppExit {
     }
     if play.is_some() {
         settings::register(&mut app);
+        app.add_systems(Update, load_by_restart);
+        nvf_play::save::add_save_hook(&mut app, sky::SAVE_HOOK);
     }
     app.run()
+}
+
+/// Loading while playing (nvf_play::save::LoadRequest): NVForever starts again with the
+/// same arguments and `--load`, so the save lands in a world built fresh from the
+/// plugins, then this run ends. The arguments the save decides are left out.
+fn load_by_restart(mut asked: MessageReader<nvf_play::save::LoadRequest>, mut exit: MessageWriter<AppExit>) {
+    let Some(r) = asked.read().last().cloned() else { return };
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut keep = restart_args(&args);
+    keep.push("--load".into());
+    keep.push(r.path.display().to_string());
+    let exe = match std::env::current_exe() {
+        Ok(e) => e,
+        Err(e) => {
+            warn!("load: cannot find this program to start it again: {e}");
+            return;
+        }
+    };
+    info!("load: starting again with --load {}", r.path.display());
+    match std::process::Command::new(&exe).args(&keep).spawn() {
+        Ok(_) => {
+            exit.write(AppExit::Success);
+        }
+        Err(e) => warn!("load: could not start {}: {e}", exe.display()),
+    }
+}
+
+/// The arguments of this run without those a save decides (with their values, in both
+/// the `--flag value` and `--flag=value` forms).
+fn restart_args(args: &[String]) -> Vec<String> {
+    const VALUED: [&str; 9] = ["--load", "--cell", "--pos", "--heading", "--pitch", "--hour", "--weather", "--world", "--eye-height"];
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        let name = a.split('=').next().unwrap_or(a);
+        if a == "--new-game" {
+            i += 1;
+            continue;
+        }
+        if VALUED.contains(&name) {
+            i += if a.contains('=') { 1 } else { 2 };
+            continue;
+        }
+        out.push(a.clone());
+        i += 1;
+    }
+    out
 }
 
 /// `--graphics`, or its default: vanilla for the test runs, whose pictures, timings and
@@ -1387,7 +1486,13 @@ fn screenshot_and_exit(
 
 #[cfg(test)]
 mod tests {
-    use super::vertical_fov;
+    use super::{restart_args, vertical_fov};
+
+    #[test]
+    fn a_restart_for_a_load_drops_what_the_save_decides() {
+        let a: Vec<String> = ["--data", "D", "--cell", "Goodsprings", "--play", "--pos=-1,2,3", "--new-game", "--hour", "9", "--no-music", "--load", "old"].map(String::from).to_vec();
+        assert_eq!(restart_args(&a), ["--data", "D", "--play", "--no-music"]);
+    }
 
     #[test]
     fn fov_setting_is_horizontal_at_4_3() {

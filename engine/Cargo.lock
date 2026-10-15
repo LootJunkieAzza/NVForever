@@ -2875,6 +2875,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-save"
+version = "0.1.0"
+dependencies = [
+ "fnv-install",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "fnv-script"
 version = "0.1.0"
 dependencies = [
@@ -4229,8 +4239,10 @@ dependencies = [
  "fnv-esm",
  "fnv-font",
  "fnv-game",
+ "fnv-install",
  "fnv-nif",
  "fnv-phys",
+ "fnv-save",
  "fnv-script",
  "fnv-sim",
  "fnv-vfs",
@@ -4272,6 +4284,7 @@ dependencies = [
  "fnv-nav",
  "fnv-nif",
  "fnv-phys",
+ "fnv-save",
  "fnv-script",
  "fnv-sim",
  "fnv-spt",

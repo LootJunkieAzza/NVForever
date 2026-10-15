@@ -1,0 +1,12 @@
+[package]
+name = "fnv-save"
+description = "NVForever's own save files: container, header, atomic writes and the save list (docs/design/save-load.md)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+fnv-install = { path = "../fnv-install" }

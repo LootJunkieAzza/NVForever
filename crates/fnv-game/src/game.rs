@@ -834,6 +834,28 @@ pub struct GameSnapshot {
     /// Broken locks and the lockpicking help's first display (`crate::lockpick::Locks`).
     #[serde(default, skip_serializing_if = "crate::lockpick::Locks::is_empty")]
     pub locks: crate::lockpick::Locks,
+    /// Terminals hacked or locked out (`crate::terminal::Terminals::access`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub terminals: BTreeMap<FormId, crate::terminal::Access>,
+    /// The Pip-Boy radio as scripts and the player left it: on, and the station tuned.
+    #[serde(default)]
+    pub pipboy_radio_on: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipboy_station: Option<FormId>,
+    /// SetNPCRadio: actor -> the station's reference it plays.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub npc_radios: BTreeMap<FormId, FormId>,
+    /// The weather the sky showed and whether it rained (`crate::weather::WeatherState`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weather_shown: Option<FormId>,
+    #[serde(default)]
+    pub raining: bool,
+    /// Long-lived provocations: (actor, whom it fights) and why; when each actor last
+    /// accepted the player's yield (`crate::provocation::Provocations`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grudges: Vec<((FormId, FormId), crate::provocation::Grudge)>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub forgiven: BTreeMap<FormId, f64>,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
@@ -2320,6 +2342,14 @@ impl<'a> Game<'a> {
             next_effect: self.next_effect,
             image_modifiers: self.image_modifiers.clone(),
             locks: self.locks.clone(),
+            terminals: self.terminals.access.clone(),
+            pipboy_radio_on: self.radio.pipboy.on,
+            pipboy_station: self.radio.pipboy.station,
+            npc_radios: self.radio.npc_radios.clone(),
+            weather_shown: self.weather.shown,
+            raining: self.weather.raining,
+            grudges: self.provocations.grudges.iter().map(|(k, v)| (*k, *v)).collect(),
+            forgiven: self.provocations.forgiven.clone(),
         }
     }
 
@@ -2351,6 +2381,14 @@ impl<'a> Game<'a> {
         g.next_effect = s.next_effect.max(1);
         g.image_modifiers = s.image_modifiers.clone();
         g.locks = s.locks.clone();
+        g.terminals.access = s.terminals.clone();
+        g.radio.pipboy.on = s.pipboy_radio_on;
+        g.radio.pipboy.station = s.pipboy_station;
+        g.radio.npc_radios = s.npc_radios.clone();
+        g.weather.shown = s.weather_shown;
+        g.weather.raining = s.raining;
+        g.provocations.grudges = s.grudges.iter().copied().collect();
+        g.provocations.forgiven = s.forgiven.clone();
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)

@@ -146,7 +146,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | SetCombatStyle | 0x10B1 | 92 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
 | IsActorTalkingThroughActivator | 0x11AE | 0 | 92 | needs a system not built yet | dialogue (talking activators) |
 | StopMagicShaderVisuals | 0x1125 | 79 | 0 | needs a system not built yet | rendering (effect shaders) |
-| Autosave | 0x115E | 74 | 0 | needs a system not built yet | saving |
+| Autosave | 0x115E | 74 | 0 | implemented 2026-10-15 | saving: asks the engine for an autosave (`nvf_play::save`) |
 | GetGroupMemberCount | 0x11A0 | 0 | 66 | assigned to workstream | assigned to workstream E2 combat AI |
 | IsLimbGone | 0x118E | 51 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
 | GetAnimAction | 0x10DB | 44 | 1 | needs a system not built yet | animation |
@@ -238,7 +238,8 @@ Notes on the most used:
   blended material; not built.
 - **IsActorTalkingThroughActivator** (92 conditions): conversations through talking
   activators (intercoms, radios) are not built; with none, 0 is the right answer.
-- **Autosave / SystemSave / ForceSave** (81): there is no saved game yet.
+- **SystemSave / ForceSave** (7): saves exist now (docs/design/save-load.md) and Autosave
+  is implemented; these two are not.
 - **PushActorAway** (35): the engine's ragdolls (`ragdoll.rs`) are for corpses; a pushed
   live actor has to be knocked down and get up again (GetKnockedState), not built.
 

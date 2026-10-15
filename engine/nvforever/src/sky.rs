@@ -245,6 +245,24 @@ pub struct SkyState {
     script: Option<ScriptWeather>,
 }
 
+/// The sky's part of a save (nvf_play::save): the weather shown (the start takes it from
+/// the save's header) and whether a script holds it against the climate.
+pub const SAVE_HOOK: nvf_play::save::SaveHook = nvf_play::save::SaveHook {
+    key: "sky",
+    save: |w| {
+        let s = w.get_resource::<SkyState>()?;
+        Some(serde_json::json!({"weather": s.weather.edid, "held": s.script.is_some_and(|sw| sw.hold)}))
+    },
+    load: |w, v| {
+        if v.get("held").and_then(serde_json::Value::as_bool) == Some(true) {
+            if let Some(mut s) = w.get_resource_mut::<SkyState>() {
+                s.script = Some(ScriptWeather { hold: true, climate_pick: None });
+                info!("load: the weather stays held as a script left it");
+            }
+        }
+    },
+};
+
 /// A weather a script set: held until ReleaseWeatherOverride, or kept until the
 /// climate's own choice changes from the one it was when the script set it
 /// [documented: GECK wiki SetWeather, "the weather will change back in the normal

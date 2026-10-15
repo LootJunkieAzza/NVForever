@@ -45,6 +45,7 @@ pub mod player;
 pub mod quest_messages;
 pub mod radio;
 pub mod reticle;
+pub mod save;
 pub mod script;
 pub mod script_draw;
 pub mod script_events;
@@ -249,7 +250,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins(crime::CrimePlugin)
-            .add_plugins(console::ConsolePlugin);
+            .add_plugins(console::ConsolePlugin)
+            .add_plugins(save::SavePlugin);
         test_aid::setup(app);
     }
 }

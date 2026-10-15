@@ -614,6 +614,9 @@ pub struct Combat {
     /// Test aid `NVF_PLAY_TEST_NO_SPREAD=1`: shots leave exactly along the view (no
     /// spread, no bloom), so an unattended check hits what it aims at.
     no_spread: bool,
+    /// A save's weapon and magazine, applied when that weapon is next taken in hand
+    /// (`crate::save`).
+    load_magazine: Option<(u32, u32)>,
     /// Test aid `NVF_PLAY_TEST_TRACERS=<seconds>`: every projectile draws a line, and
     /// the lines and a marker at the muzzle stay that long, so one screenshot of an
     /// unattended check shows where the shots were drawn from. The muzzle flashes and
@@ -630,6 +633,23 @@ impl Combat {
     /// The Fists (WEAP `Fists`), the unarmed weapon.
     pub fn fists_id(&self) -> Option<FormId> {
         self.fists
+    }
+
+    /// The weapon in hand and the rounds in its magazine, for a save.
+    pub fn magazine_for_save(&self) -> Option<(u32, u32)> {
+        let cy = self.cycle.as_ref().filter(|c| !c.no_ammo)?;
+        Some((self.weapon?.0, cy.magazine))
+    }
+
+    /// A save's magazine: the rounds go back in when that weapon is in hand.
+    pub fn restore_magazine(&mut self, m: (u32, u32)) {
+        self.load_magazine = Some(m);
+        if let (Some(w), Some(cy)) = (self.weapon, self.cycle.as_mut()) {
+            if w.0 == m.0 {
+                cy.magazine = m.1.min(cy.clip_size.max(m.1));
+                self.load_magazine = None;
+            }
+        }
     }
 
     /// The PROJ the weapon in use fires with the ammunition loaded, if it fires one.
@@ -726,6 +746,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         time: 0.0,
         no_spread: std::env::var_os("NVF_PLAY_TEST_NO_SPREAD").is_some_and(|v| v != "0"),
         tracer_hold,
+        load_magazine: None,
     });
 }
 
@@ -775,6 +796,13 @@ fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut
     // Ranged weapons without a projectile (the detonator, binoculars) use no ammo.
     let no_ammo = melee || c.self_ammo || (chain.projectile.is_none() && chain.ammo_choices.is_empty());
     c.cycle = Some(Cycle::new(w, timing, no_ammo, carried));
+    // A save's magazine for this weapon (`crate::save`), no more than is carried.
+    if let (Some((sw, n)), Some(cy)) = (c.load_magazine, c.cycle.as_mut()) {
+        if sw == id.0 {
+            cy.magazine = n.min(carried);
+            c.load_magazine = None;
+        }
+    }
     anim.attack = w.attack_anim.clone();
     anim.reload = w.reload_anim.clone();
     info!(

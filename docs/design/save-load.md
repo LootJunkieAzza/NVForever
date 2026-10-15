@@ -2,8 +2,9 @@
 
 What NVForever must write to its own save file so that a session continues where it left
 off, mapped against what the original game keeps in its `.fos` saves
-([spec-notes/save-files.md](../spec-notes/save-files.md)), and a proposed format. This is
-a plan: nothing in it is built yet beyond the existing state snapshots (§2).
+([spec-notes/save-files.md](../spec-notes/save-files.md)), and the format. Built
+2026-10-15 with the owner's go-ahead on the recommendations of §5; what is built and what
+is not is §6.
 
 Charter points that shape it: NVForever never writes into the game folder or
 `Documents\My Games\FalloutNV` (install-layout.md), so saves go to
@@ -39,8 +40,8 @@ apply the snapshot.
   `engine/nvf-play/src/dropped/tests.rs`.
 - serde and serde_json are already dependencies of fnv-game, fnv-sim, fnv-ai, fnv-combat,
   fnv-actor and nvf-play.
-- Nothing writes a save file. `Control::QuickSave` is a key binding with no handler
-  (`engine/nvf-play/src/bindings.rs`).
+- (Before 2026-10-15) nothing wrote a save file and `Control::QuickSave` had no handler;
+  §6 is what was built since.
 - In nvf-play the `Game` lives in `ScriptState.rt` and the `World` in `SimState.world`,
   swapped into the game for each run (`engine/nvf-play/src/script.rs`): a save takes both
   at a point where the world is back in `SimState`.
@@ -167,37 +168,65 @@ normal case; a reordered list is remapped by name (rewrite the high byte of ever
 ID); a missing plugin drops the forms from it with a warning. Dynamic (created) IDs are
 ours and never remapped.
 
-## 5. Open questions
+## 5. Decisions (owner 2026-10-15: the recommendations below)
 
-1. **Save inside menus and dialogue?** The snapshot already holds `menu`, `message_box`,
-   `dialogue` and `speech`. The original saves from the pause menu and in Pip-Boy/console
-   but not in dialogue [hypothesis, from play]. Simplest: allow saving only when no menu
-   but the pause menu is open, so those fields are empty on save.
-2. **Autosave triggers.** The original autosaves on cell change through doors and from
-   the `Autosave` script function (VCG01 stage 55 wrote one, owner-review.md) [observed].
-   Which of these do we copy, and do we honour the INI switches the owner turned off?
-3. **RNG on load.** Restoring the RNG word position makes a reload replay the same rolls
-   (save-scumming gives the same result). The original's saves hold no RNG state that we
-   found. Re-seed on load, or keep determinism (useful for tests)?
-4. **AI continuity** (§3.3): rebuild agents from packages, or save patrol and sandbox
-   progress? Decide after watching a reload in a busy cell.
-5. **How much physics?** Dropped items load at rest where they were; items in flight at
-   save time land where they were. Acceptable?
-6. **Plugin changes between save and load** (§4): remap by name, or refuse to load?
-7. **Importing a `.fos`.** Not planned. The spec note decodes enough to read quests,
-   globals and positions, but actor, player and created-form layouts are open; an import
-   would be a separate project.
-8. **Screenshot**: render a small thumbnail from the main camera at save time (512×288,
-   the original's size, spec §3.2) or skip it at first.
+1. **When saving is allowed**: in the world, from the pause menu and from the console.
+   Not in a conversation, another menu, a script's menu or message box, or under a
+   loading screen; a save asked for then says why not, an autosave waits for its moment.
+   The snapshot's `menu`, `message_box`, `dialogue` and `speech` are therefore empty in
+   every save. Saving happens at the end of a frame, after the script frame's effects
+   reached the world, so no request a script made is still queued.
+2. **Autosaves**: after each loading screen (door travel, `coc`, a script moving the
+   player) and when a script calls `Autosave` [documented: GECK wiki Autosave], each with
+   its own switch on the settings page (group Saving), both on by default. Their timing
+   against the original is still to be checked with the owner, who turned the
+   original's autosaves off in its INI.
+3. **Random numbers**: a load re-seeds (a reload does not replay the same rolls); test aid
+   `NVF_PLAY_TEST_SAVE_SAME_ROLLS=1` keeps the saved positions.
+4. **AI continuity**: packages start again from where each actor stands; patrol and
+   sandbox progress is not saved. Revisit if a reload in a busy cell looks wrong.
+5. **Physics**: objects load at rest where they were.
+6. **Another load order**: forms would be remapped by name; **not built yet**: a save made
+   with other plugins (missing, added or reordered) is refused with the differences
+   listed.
+7. **Importing a `.fos`**: not planned.
+8. **Thumbnail**: 512×288 from the main camera; **not built yet** (the container has its
+   place, written empty; nothing shows saves in a menu yet).
 
-## 6. Build order (suggested)
+## 6. What is built
 
-1. `SaveHeader` + container read/write in a small crate (or in fnv-game) with tests:
-   round-trip, version check, plugin-list check, atomic write.
-2. Add the missing game-layer fields (§3.2 "yes: add") to `GameSnapshot` with
-   `#[serde(default)]`.
-3. `EngineSnapshot` in nvf-play for the §3.4 rows; save and load commands (console
-   `save <name>` / `load <name>`, quicksave/quickload keys) and a minimal load list.
-4. Smoke scenario: save, quit, load, compare a state dump (quests, refs, player) with the
-   one before saving.
-5. Autosaves and the load menu's look (questions 1–2, 8).
+- **`crates/fnv-save`**: the container of §4 (magic, version, header JSON, thumbnail,
+  body JSON), atomic writes (`.tmp` then rename; quick and auto slots keep the previous
+  file as `.bak`), names kept to safe characters, every path through
+  `fnv_install::guard_write`, the save list newest first, the plugin-list check. The body
+  is JSON: a short session's save is about 140 KB; measure a long game before choosing a
+  binary encoding.
+- **Game layer** (`fnv_game::GameSnapshot`, same format `fnv.game.state/1`, new fields with
+  `#[serde(default)]`): terminals hacked or locked out, the Pip-Boy radio (on, station),
+  NPC radios, the weather shown and rain, grudges and forgiveness. `Autosave` is no longer
+  a stub: it asks the engine for an autosave (`UiRequests::autosaves`).
+- **Engine** (`engine/nvf-play/src/save.rs`): `SaveRequest`, the QuickSave (F5) and
+  QuickLoad (F9) keys, autosaves, `EngineSnapshot` (`nvf.engine.state/1`: first/third
+  person and distance, sneak, always run, flashlight, the magazine of the weapon in hand,
+  the Pip-Boy's active quest, and parts of other crates through `SaveHook`: nvforever's
+  sky saves its weather and whether a script holds it). The body is
+  `nvf.save.body/1` = game snapshot + engine snapshot.
+- **Loading**: `nvforever --load <name|path>` reads the header first (its worldspace,
+  cell, position, heading, pitch, hour and weather start the world there), then the body
+  once the load order is known (refused if it differs); the script runtime restores the
+  game and the simulation as it is made, before its first frame, and sends `RefChanged`
+  for every reference the save changed so the drawn world follows; the engine part is put
+  back next. Loading while playing (console `load`, F9) starts NVForever again with the
+  same arguments and `--load` (those the save decides left out), so a save always lands in
+  a world built fresh from the plugins.
+- **Console**: `save <name>`, `load [name]` (the quicksave without a name), `saves` (the
+  list: name, level, place, game date, kind).
+- **Checks**: `crates/fnv-save` unit tests; the game snapshot round trip in
+  `crates/fnv-game/tests/synthetic.rs` covers the new fields and an older snapshot without
+  them; smoke `save-write` (changes through the console, a manual save, an autosave after
+  `coc` and one from `Autosave`) then `save-load` (`--load`, and the changes are back:
+  items, a disabled reference, an actor value, the position).
+
+Not built: the thumbnail, a load menu, remapping another load order, in-place loading
+without a restart, AI agent progress, corpse poses beyond their position, the sitting or
+lying pose (the player stands up), playback positions of music and radio.

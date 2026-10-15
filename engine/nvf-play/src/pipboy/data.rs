@@ -424,6 +424,21 @@ pub fn draw(
 
 /// Note the order quests are listed in, the markers the player finds, and where the
 /// player was last outdoors.
+impl DataState {
+    /// The active quest, for a save (`crate::save`).
+    pub fn active_quest(&self) -> Option<u32> {
+        self.active_quest
+    }
+
+    /// A save's active quest.
+    pub fn restore_active_quest(world: &mut bevy::prelude::World, q: u32) {
+        if !world.contains_resource::<DataState>() {
+            world.init_resource::<DataState>();
+        }
+        world.resource_mut::<DataState>().active_quest = Some(q);
+    }
+}
+
 fn track(st: &mut DataState, game: &Game) {
     if let Some(rt) = game.script.as_ref().and_then(|s| s.rt.as_ref()) {
         let mut new: Vec<u32> = rt.game.quests.iter().filter(|(q, s)| listed(&rt.game, **q, s) && !st.seen.contains_key(&q.0)).map(|(q, _)| q.0).collect();

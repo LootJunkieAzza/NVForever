@@ -434,7 +434,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1269, "SwapTexture", Stub("rendering")),
         (0x1225, "AutoDisplayObjectives", Stub("HUD")),
         (0x11DD, "ForceActiveQuest", Impl(ui::force_active_quest)),
-        (0x115E, "Autosave", Stub("saving")),
+        (0x115E, "Autosave", Impl(ui::autosave)),
         (0x11E1, "GetPlayerName", Impl(misc::get_player_name)),
         (0x10DA, "ShowRaceMenu", Impl(misc::show_race_menu)),
         (0x121A, "SetTagSkills", Impl(misc::set_tag_skills)),

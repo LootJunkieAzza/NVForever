@@ -221,12 +221,16 @@ fn typing(
     roots: Query<Entity, With<ConsoleRoot>>,
     mut clicks: Local<Vec<Vec2>>,
     (mut index, play): (ResMut<SearchIndex>, Res<PlayWorld>),
+    (mut saves, mut loads, save_cfg, mut save_log): (MessageWriter<crate::save::SaveRequest>, MessageWriter<crate::save::LoadRequest>, Res<crate::save::SaveConfig>, ResMut<crate::save::SaveLog>),
 ) {
     let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
     if !c.open {
         return;
     }
     index.start(&play.0, sim.refs);
+    for l in std::mem::take(&mut save_log.0) {
+        c.print(l);
+    }
     let mut submit: Vec<String> = Vec::new();
     let now = time.elapsed_secs();
     while aid.0.first().is_some_and(|(t, _)| *t <= now) {
@@ -286,7 +290,7 @@ fn typing(
                 if terms.is_empty() {
                     c.print("A line is a script function: [reference.]Function argument ...  e.g. player.additem 0000000F 100");
                     c.print("help <text>: records and functions whose name or Editor ID contains it (not case sensitive); \"two words\" for a phrase, several words must all match");
-                    c.print("prid <ref>, coc <cell>, tgm, cls. Click something to select it; calls without a reference run on it.");
+                    c.print("prid <ref>, coc <cell>, tgm, cls, save <name>, load [name], saves. Click something to select it; calls without a reference run on it.");
                 } else {
                     let funcs = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| matching_functions(&rt.game.data.table, &terms)).unwrap_or_default();
                     if !funcs.is_empty() {
@@ -305,6 +309,30 @@ fn typing(
             "close" => {
                 close(&mut c, &mut next, &mut commands, &roots);
                 return;
+            }
+            "save" => match fnv_save::check_name(rest) {
+                Ok(n) => {
+                    saves.write(crate::save::SaveRequest { name: n.to_string(), kind: fnv_save::SaveKind::Manual });
+                }
+                Err(e) => c.print(e.to_string()),
+            },
+            "load" => match save_cfg.path_of(if rest.is_empty() { fnv_save::QUICK_NAME } else { rest }) {
+                Ok(p) if p.exists() => {
+                    c.print(format!("Loading {}", p.display()));
+                    loads.write(crate::save::LoadRequest { path: p });
+                }
+                Ok(p) => c.print(format!("No save {}", p.display())),
+                Err(e) => c.print(e),
+            },
+            "saves" => {
+                let list = save_cfg.dir.as_deref().map(fnv_save::list).unwrap_or_default();
+                if list.is_empty() {
+                    c.print("No saves yet");
+                }
+                for (p, h) in list.iter().take(30) {
+                    let name = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                    c.print(format!("{name}: {} level {}, {}, {:02}.{:02}.{} {:02.0}:00 ({:?})", h.player_name, h.level, h.location, h.game_day, h.game_month + 1, h.game_year, h.game_hour.floor(), h.kind));
+                }
             }
             "tgm" => {
                 let on = !crate::combat::god_mode();
@@ -379,6 +407,17 @@ fn record_names(d: &PlayData, id: FormId) -> (String, Option<String>, Option<Str
     let subs = rec.subrecords().unwrap_or_default();
     let get = |want: &[u8; 4]| subs.iter().find(|s| &s.sig == want).map(|s| text(&s.data)).filter(|t| !t.is_empty());
     (sig, get(b"EDID"), get(b"FULL"))
+}
+
+/// A cell's name for a save's header: its Editor ID, else its worldspace and grid.
+pub fn place_name(d: &PlayData, cell: u32) -> String {
+    let (_, e, n) = record_names(d, FormId(cell));
+    n.or(e).unwrap_or_else(|| {
+        d.index.cells.get(&cell).and_then(|i| Some((i.world?, i.grid?))).map_or_else(
+            || FormId(cell).to_string(),
+            |(w, (x, y))| format!("{} ({x}, {y})", record_names(d, FormId(w)).1.unwrap_or_else(|| FormId(w).to_string())),
+        )
+    })
 }
 
 /// A reference's details, a line each.

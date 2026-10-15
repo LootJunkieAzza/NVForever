@@ -476,6 +476,16 @@ fn snapshots_round_trip() {
     // A lock broken by forcing it stays broken, and the lockpicking help stays shown.
     g.locks.broken.insert(FormId(ACT_REF));
     g.locks.help_shown = true;
+    // What the save adds (docs/design/save-load.md §3.2): terminals, radio, the weather
+    // shown, long-lived provocations.
+    g.terminals.access.insert(FormId(ACT_REF), fnv_game::terminal::Access::Hacked);
+    g.radio.pipboy.on = true;
+    g.radio.pipboy.station = Some(FormId(ACT_REF));
+    g.radio.npc_radios.insert(FormId::PLAYER_REF, FormId(ACT_REF));
+    g.weather.shown = Some(FormId(ACT_REF));
+    g.weather.raining = true;
+    g.provocations.grudges.insert((FormId(ACT_REF), FormId::PLAYER_REF), fnv_game::provocation::Grudge { why: fnv_game::provocation::Why::Assault, since: 3.0 });
+    g.provocations.forgiven.insert(FormId(ACT_REF), 7.5);
     let s = g.snapshot();
     let text = serde_json::to_string(&s).unwrap();
     let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
@@ -484,6 +494,19 @@ fn snapshots_round_trip() {
     let mut h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
     assert_eq!(h.locks, g.locks);
     assert!(text.contains("\"locks\""), "{text}");
+    assert_eq!(h.terminals.access, g.terminals.access);
+    assert_eq!((h.radio.pipboy.on, h.radio.pipboy.station), (true, Some(FormId(ACT_REF))));
+    assert_eq!(h.radio.npc_radios, g.radio.npc_radios);
+    assert_eq!((h.weather.shown, h.weather.raining), (g.weather.shown, true));
+    assert_eq!(h.provocations.grudges, g.provocations.grudges);
+    assert_eq!(h.provocations.forgiven, g.provocations.forgiven);
+    // A snapshot written before these fields existed still loads.
+    let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
+    for k in ["terminals", "pipboy_radio_on", "pipboy_station", "npc_radios", "weather_shown", "raining", "grudges", "forgiven"] {
+        old.as_object_mut().unwrap().remove(k);
+    }
+    let older: fnv_game::game::GameSnapshot = serde_json::from_value(old).unwrap();
+    assert!(older.terminals.is_empty() && older.grudges.is_empty());
     g.frames(90);
     h.frames(90);
     assert_eq!(g.quests, h.quests);
@@ -837,11 +860,20 @@ fn the_runner_runs_the_round_4_operations() {
 #[test]
 fn saving_functions_are_recorded_and_do_nothing() {
     use fnv_game::functions::{is_stub, lookup, Kind};
-    // Autosave, SaveGame-style functions: Layer 6 stubs, never a file write.
-    for (op, name) in [(0x115E, "Autosave"), (0x127B, "SystemSave"), (0x1217, "ForceSave")] {
+    // SaveGame-style functions: stubs, never a file write.
+    for (op, name) in [(0x127B, "SystemSave"), (0x1217, "ForceSave")] {
         assert!(is_stub(op), "{name}");
         assert!(matches!(lookup(op), Some(Kind::Stub(_))));
     }
+    // Autosave asks the engine for an autosave (nvf_play::save); the game layer itself
+    // writes nothing.
+    assert!(!is_stub(0x115E));
+    let f = fixture();
+    let mut g = game(&f);
+    let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode: 0x115E, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[]);
+    g.call_function(&ctx, &[]);
+    assert_eq!(g.ui.autosaves, 2);
 }
 
 #[test]

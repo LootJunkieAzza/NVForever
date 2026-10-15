@@ -32,6 +32,8 @@ pub struct UiRequests {
     /// SetGlobalTimeMultiplier: the game's speed (`None`: never set, 1). The engine
     /// applies it to its clock while no menu holds the game.
     pub time_multiplier: Option<f64>,
+    /// Autosave calls the engine has not taken yet.
+    pub autosaves: u32,
 }
 
 /// `IncrementScriptedChallenge challenge`: one step towards the challenge's threshold
@@ -65,6 +67,13 @@ pub fn increment_scripted_challenge(g: &mut Game, _ctx: &Ctx, a: &Args) -> Resul
 /// `ForceActiveQuest quest`: the quest becomes the active quest [documented: GECK wiki
 /// ForceActiveQuest]: the Pip-Boy's Quests list marks it and its notes and map markers
 /// follow (`nvf_play::pipboy` takes [`UiRequests::active_quest`]).
+/// `Autosave`: the game saves over the current autosave slot [documented: GECK wiki
+/// Autosave]. The engine takes the request at the end of the frame (`nvf_play::save`).
+pub fn autosave(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    g.ui.autosaves += 1;
+    Ok(Value::ZERO)
+}
+
 pub fn force_active_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = a.form(0)?;
     if !g.data.quests.contains_key(&q) {

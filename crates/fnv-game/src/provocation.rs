@@ -72,7 +72,7 @@ pub const ALLY: i64 = 2;
 pub const FRIEND: i64 = 3;
 
 /// Why an actor fights someone its records would leave alone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Why {
     /// It was attacked by them.
     Assault,
@@ -82,7 +82,7 @@ pub enum Why {
     Aggro,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Grudge {
     pub why: Why,
     /// `Game::time` the fight began for it: the yield timer counts from here.
@@ -164,8 +164,8 @@ pub enum Note {
     StaysOut { helper: FormId, victim: FormId },
 }
 
-/// The grudges, friendly hits and forgiveness of every actor. Not part of the saved state
-/// (fights are not saved either).
+/// The grudges, friendly hits and forgiveness of every actor. The grudges and the
+/// forgiveness times are saved (`GameSnapshot::grudges`, `forgiven`); the rest is not.
 #[derive(Debug, Clone, Default)]
 pub struct Provocations {
     /// (actor, whom it fights) → why.

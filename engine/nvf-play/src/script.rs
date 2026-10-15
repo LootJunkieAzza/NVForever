@@ -229,12 +229,23 @@ pub struct ScriptState {
     pub console: Vec<crate::console::ConsoleCall>,
     /// What the script frame answered to them.
     pub console_out: Vec<crate::console::ConsoleReply>,
+    /// A save to restore when the runtime is made (`crate::save`, nvforever `--load`).
+    pending_game: Option<PendingGame>,
 }
+
+/// A save's game snapshot for the runtime to restore when it is made (`crate::save`).
+#[derive(Resource)]
+pub struct PendingGame(pub Box<fnv_game::game::GameSnapshot>, pub PathBuf);
 
 impl ScriptState {
     /// The scripts are being loaded: not running yet, and not switched off.
     pub fn loading(&self) -> bool {
         self.rt.is_none() && self.off.is_none()
+    }
+
+    /// A save is waiting to be restored into the runtime.
+    pub fn pending_game_waiting(&self) -> bool {
+        self.pending_game.is_some()
     }
 }
 
@@ -319,7 +330,7 @@ impl ScriptState {
             }
         });
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, used: Vec::new(), console: Vec::new(), console_out: Vec::new() }
+        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, used: Vec::new(), console: Vec::new(), console_out: Vec::new(), pending_game: None }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -470,6 +481,31 @@ impl Runtime {
         let corpses = rt.game.extra.values().filter(|e| e.dead).count();
         info!("new game: {corpses} placed actors start dead (Base Health 0)");
         rt
+    }
+
+    /// Put a save's game state in place of the new game's (`crate::save`): the
+    /// simulation's world and the game's own state. The random numbers start from a
+    /// fresh position unless `NVF_PLAY_TEST_SAVE_SAME_ROLLS=1` (docs/design/save-load.md
+    /// §5 q3). Returns the references the save changed (to redraw).
+    pub(crate) fn restore_save(&mut self, sim: &mut SimState, mut s: fnv_game::game::GameSnapshot) -> Result<Vec<FormId>, String> {
+        if std::env::var_os("NVF_PLAY_TEST_SAVE_SAME_ROLLS").is_none_or(|v| v == "0") {
+            let jump = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()) << 16;
+            for pos in [&mut s.rng_word_pos, &mut s.sim.rng_word_pos] {
+                let p: u128 = pos.parse().map_err(|_| format!("bad rng_word_pos {pos:?}"))?;
+                *pos = p.wrapping_add(jump).to_string();
+            }
+        }
+        let world = World::restore(sim.forms, sim.refs, &s.sim)?;
+        let changed: Vec<FormId> = s.sim.refs.keys().copied().collect();
+        let data = self.game.data;
+        let cfg = self.game.cfg;
+        self.game = Game::restore(data, World::new(sim.forms, sim.refs, world.config()), cfg, &s)?;
+        sim.world = world;
+        sim.world.set_inventory_sources(data.inventory_sources(sim.refs));
+        self.opening_pending = false;
+        self.player_cell = None;
+        with_world(self, sim, |rt| rt.snapshot_inventory());
+        Ok(changed)
     }
 
     /// The New Game menu starts VCG00 [documented: GECK wiki SetStage notes, scripts.md
@@ -1033,8 +1069,16 @@ impl Plugin for ScriptPlugin {
         let no_messages = app.world().contains_resource::<NoMessages>();
         app.insert_resource(ScriptState::new(d, refs, new_game, unattended, no_messages))
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
-            .add_systems(Update, (crate::script_hud::menu_keys, run_scripts, sync_locks, walk_player, hold_player, time_multiplier).chain().in_set(PlaySet::Scripts))
+            .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, run_scripts, sync_locks, walk_player, hold_player, time_multiplier).chain().in_set(PlaySet::Scripts))
             .add_systems(Last, (crate::aid::report, write_final));
+    }
+}
+
+/// A save handed over by `crate::save` waits in the script state until the runtime is
+/// made.
+fn take_pending_game(world: &mut bevy::prelude::World) {
+    if let Some(p) = world.remove_resource::<PendingGame>() {
+        world.resource_mut::<ScriptState>().pending_game = Some(p);
     }
 }
 
@@ -1129,7 +1173,19 @@ pub(crate) fn run_scripts(
             }
             Some(Ok((data, secs))) => {
                 st.loader = None;
-                let rt = Runtime::new(data, &mut sim, st.new_game, play.0.packages);
+                let mut rt = Runtime::new(data, &mut sim, st.new_game, play.0.packages);
+                if let Some(PendingGame(snap, path)) = st.pending_game.take() {
+                    match rt.restore_save(&mut sim, *snap) {
+                        Ok(changed_refs) => {
+                            info!("load: restored {}: {} changed references, {} quests, {} script instances", path.display(), changed_refs.len(), rt.game.quests.len(), rt.game.instances.len());
+                            // The drawn world follows the restored simulation.
+                            for id in changed_refs {
+                                changed.write(RefChanged { form_id: id.0 });
+                            }
+                        }
+                        Err(e) => warn!("load: {}: {e}; the game goes on from the plugins", path.display()),
+                    }
+                }
                 let running = rt.game.quests.values().filter(|q| q.running).count();
                 info!(
                     "scripts ready in {secs:.2} s: {} units, {} scripts, {} quests ({running} start-game-enabled quests running)",

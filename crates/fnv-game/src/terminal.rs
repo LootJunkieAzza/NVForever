@@ -13,7 +13,7 @@ use fnv_sim::FormId;
 use std::collections::BTreeMap;
 
 /// What became of a terminal reference.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Access {
     /// Hacked: it opens straight away from now on [documented: GECK wiki Lock, "if
     /// player successfully hacked terminal … will still have terminal access"].

@@ -528,6 +528,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-save"
+version = "0.1.0"
+dependencies = [
+ "fnv-install",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "fnv-script"
 version = "0.1.0"
 dependencies = [
