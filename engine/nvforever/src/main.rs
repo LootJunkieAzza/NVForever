@@ -74,6 +74,7 @@ mod tree;
 mod treelod;
 mod underwater;
 mod water;
+mod window_icon;
 mod world;
 mod worldspace;
 
@@ -863,6 +864,7 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
+    .add_plugins(window_icon::WindowIconPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
     .add_plugins(grass::GrassPlugin(grass::GrassConfig {
