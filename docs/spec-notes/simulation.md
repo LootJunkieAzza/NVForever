@@ -548,6 +548,15 @@ draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten c
     interior) did not open its menu when activated by script, though `GetLocked`,
     `Unlock` and `RemoveAllItems` worked on it [observed, a mis-ordered first run]; the
     scenarios therefore activate containers in the player's cell only.
+- **Placed ammunition without a count** [documented: GECK wiki Ammo, "Clip rounds: the
+  number of rounds of ammo the object contains when placed in the world", a placed
+  reference's Count overriding it]: a REFR of an AMMO base with no XCNT stands for the
+  record's DATA Clip Rounds, not one round. The two `Ammo9mm` references on the Goodsprings
+  gas station's counter (0x0010ABA6, 0x0010ABA7) carry no XCNT and `Ammo9mm`'s Clip
+  Rounds is 20 [observed: `fnvtool esm decode`]; the owner reports 20 each in the game
+  (2026-10-15). The simulation's starting count of a placed item is XCNT, else the AMMO's
+  Clip Rounds, else 1 (`FormStore::placed_count`). Scripted activation still gives one
+  (below).
 - **Dropping and taking back** [observed 2026-10-08, `nvfdoc`, the player just outside Doc
   Mitchell's front door, `L4.sim.trace.goodsprings_drop_and_retake`, `ld_drop_refs`,
   `ld_drop_stack`]: `player.Drop <item> n` makes **one** reference holding all n (count 1,

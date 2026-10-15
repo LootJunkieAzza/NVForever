@@ -454,6 +454,12 @@ pub fn describe(id: u32, d: &PlayData, sim: &SimState, rt: Option<&mut Runtime>)
     }
     if let Some(s) = state {
         out.push(format!("{}{}{}", if s.enabled { "enabled" } else { "disabled" }, if s.deleted { ", removed" } else { "" }, if s.count != 1 { format!(", count {}", s.count) } else { String::new() }));
+    } else if let Some(p) = placed.filter(|p| sim.forms.item(p.base).is_some()) {
+        // Not touched yet: the stack it was placed with.
+        let n = sim.forms.placed_count(p.base, p.count);
+        if n != 1 {
+            out.push(format!("count {n} (as placed)"));
+        }
     }
     if let Some(rt) = rt {
         let g = &mut rt.game;

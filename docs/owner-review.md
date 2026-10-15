@@ -4653,3 +4653,24 @@ The owner decided NVForever stays GPL-3.0-or-later. GPL dependencies are allowed
 (`deny.toml`), and the intro film (`Video\FNVIntro.bik` before a new game, decoded by the
 GPL `infinitier_bik_decoder`) is now in the default build (cargo feature `intro-video`, on
 by default). Earlier notes that leave the licence open no longer apply.
+
+## Item stacks: placed ammo counts, "How many?" (2026-10-15, session "item-stacks")
+Your report: the two 9mm stacks in the Goodsprings gas station showed 1 round each. Their
+references have no count of their own; the AMMO record's Clip Rounds (20 for 9mm) is what
+a placed ammo reference holds (GECK wiki Ammo). Now read: both show 20 (`prid 0010ABA6` in
+the console prints "count 20 (as placed)"). Taking a stack takes all of it, a dropped stack
+was already one world object holding its count, and the crosshair says "9mm Round (20)".
+New: "How many?" from quantity_menu.xml, for stacks of more than 5: take, store, buy, sell,
+take back, drop. My choices, to confirm:
+- It asks above 5 (your words); the original's own threshold is not in the ESM. Does it ask
+  at exactly 5 too?
+- It opens at the whole stack (your first screenshot, 6 of 6) and never goes under 1.
+- Keys: Left/Right and the wheel ±1, Page Up/Down ±10, Home/End, A/Enter Ok, E/Esc Cancel;
+  Shift+Enter/click and Shift+X still move or drop the whole stack without asking.
+- Over the Pip-Boy it is drawn centred on the window, not on the Pip-Boy's screen.
+Check in game: the gas station's 9mm (can you get the crosshair on them? From the floor in
+front of and behind the checkout counter my test aids found no spot where the crosshair
+reaches them, so they are on a shelf inside the counter's collision); drop part of a stack
+from the Pip-Boy (X on the 20 rounds); buy part of a stack from Chet; store part of the
+caps in a container.
+

@@ -207,3 +207,42 @@ Checked this way on 2026-10-11 at 1280 x 720: Chet's menu matches the owner's ba
 screenshot's layout (headings, lists, prices' column, tiles, icon, buttons, bracket)
 within a few pixels; the refrigerator of GSHouseInterior03 matches the container
 screenshot.
+
+## 7. How many? (moving part of a stack)
+
+Sources: `menus\quantity_menu.xml` and its prefabs `meter.xml`, `top_bracket.xml`,
+`bottom_bracket.xml` [documented: the owner's extraction of the game's menu files, read in
+plain language here]; three screenshots of the original over the Pip-Boy, a stack of six
+Varmint Rifles being dropped, at 1920 × 1080 (C:\fnv-private\itemstacks) [observed].
+
+- **When it asks** [owner, 2026-10-15]: moving a stack of more than 5 units (take, store,
+  buy, sell, take back from the trade, drop from the inventory). The original's threshold
+  is a game setting with no record in FalloutNV.esm; it was not read, so "more than 5"
+  is the owner's word. Five or fewer move one unit per press, as before.
+- **Layout** (interface units, 960 to the screen's height): a 740 × 370 box centred on the
+  screen, on the shared black background picture at the menus' backing; inside it, 22 in
+  and 42 down, a frame 690 wide: a top bracket and a bottom bracket 290 lower, each a line
+  with 50-long ends fading towards the other. "How many?" (game string `sHowMany`, not in
+  the masters; the screenshots spell it) in font 2, centred at 345, 50 down. The meter at
+  149.5, 115, 391 × 24, with the left and right arrows (`main_arrow_left/right.dds`,
+  17.5 × 35) at 130 and 549. The amount in font 6 centred at 345, 170 down. Ok and
+  Cancel right-aligned at 665, 155 and 200 down, with their key hints "A)" and "E)".
+- **The meter**: a ground of the interface colour at a quarter of its opacity, and over it
+  `hud_tick_mark.dds` repeated as far as the value (0 to 1) reaches. The value shown is
+  the amount over the stack; the amount is the value times the stack, rounded. A drag
+  sets the value from the pointer; the arrows step it.
+- **The screenshots agree** [observed]: the frame is 775 × 327 pixels (690 × 291 units at
+  1080 lines), its ends fade over about 50 units, ticks are 9 pixels (8 units) apart,
+  and the first screenshot shows the whole stack (6 of 6), the later ones 4 and 3.
+
+What NVForever does (`engine/nvf-play/src/menu/model.rs` `Quantity`, `look.rs`
+`spawn_quantity`): the prompt opens at the whole stack, goes from 1 to the stack, Ok does
+what asked with that many, Cancel (or closing) does nothing and leaves the menu open. Keys:
+Left/Right and the wheel ±1, Page Up/Down ±10, Home/End 1 and the stack, A/Enter/Space
+Ok, E/Esc Cancel [documented: A) and E); the rest ours]. While it is open the menu and the
+Pip-Boy take no other key. Shift (whole stack) and Shift+X (drop the stack) still move the
+stack without asking [design]. Over the Pip-Boy the prompt is drawn centred on the window
+[hypothesis: the original draws it on the Pip-Boy's screen; the screenshots show it
+centred over it]. Smoke scenario `item-stacks`; `NVF_PLAY_TEST_DROP=<s>:<item>:ask`
+leaves it open for a screenshot.
+

@@ -319,7 +319,7 @@ impl<'a> World<'a> {
             rot: placed.map(|p| p.rot).unwrap_or_default(),
             enabled: !placed.is_some_and(|p| p.initially_disabled()),
             deleted: false,
-            count: placed.and_then(|p| p.count).unwrap_or(1),
+            count: self.forms.placed_count(base, placed.and_then(|p| p.count)),
             inventory,
             // A reference with lock data starts locked. [hypothesis]
             lock: placed.and_then(|p| p.lock).map(|l| LockState { level: l.level, key: l.key, locked: true }),

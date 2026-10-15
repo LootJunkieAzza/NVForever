@@ -121,6 +121,11 @@ fn run(
             }
             Step::Key(c) => {
                 menu.write(MenuInput(c));
+                // One unit, also of a stack that asks "How many?".
+                if c == Command::Drop {
+                    menu.write(MenuInput(Command::Amount(1)));
+                    menu.write(MenuInput(Command::AmountOk));
+                }
             }
             Step::Point(p) => {
                 aid.target = p.map(AidTarget::Canvas);

@@ -127,7 +127,7 @@ pub fn describe(sim: &SimState, index: &fnv_world::WorldIndex, form_id: u32) -> 
         None => unlocked,
     };
     let action = match &base.data {
-        BaseData::Item(_) => Action::Take { count: state.map(|s| s.count).or(placed.and_then(|p| p.count)).unwrap_or(1) },
+        BaseData::Item(_) => Action::Take { count: state.map_or_else(|| sim.forms.placed_count(base.id, placed.and_then(|p| p.count)), |s| s.count) },
         BaseData::Container(_) => locked(Action::Open),
         BaseData::Door(_) => locked(match placed.and_then(|p| p.teleport) {
             Some(tp) => Action::Travel { to: destination_name(sim, index, tp.door, tp.pos) },

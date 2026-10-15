@@ -10,11 +10,14 @@
 //! `NVF_PLAY_TEST_SHOT=<path.png>` it saves screenshots of the container menu (`<path>`)
 //! and of the inventory (`<path stem>-inventory.png`).
 //!
-//! `NVF_PLAY_TEST_DROP=<seconds>:<item FormID hex>[:stack|:use][,...]` drops (or uses) a
-//! carried item through the inventory menu: at that time (once no menu is open) it opens
-//! the inventory, half a second later selects the item's row and drops one unit (`Drop`,
-//! the X key), the whole stack (`DropStack`, Shift+X) or uses it (`One`, Enter: equips, or
-//! uses up an aid item) and logs the list, and half a second later closes the menu.
+//! `NVF_PLAY_TEST_DROP=<seconds>:<item FormID hex>[:stack|:use|:ask|:<count>][,...]` drops (or
+//! uses) a carried item through the inventory menu: at that time (once no menu is open) it
+//! opens the inventory, half a second later selects the item's row and drops one unit
+//! (`Drop`, the X key), the whole stack (`DropStack`, Shift+X), `<count>` units (`Drop`,
+//! then that amount and Ok on "How many?", which a stack of more than five asks; `ask`
+//! leaves the prompt open until the menu closes, for a screenshot) or uses
+//! it (`One`, Enter: equips, or uses up an aid item) and logs the list, and half a second
+//! later closes the menu. The other scripted checks answer "How many?" with 1.
 //! Dropping a quest item is refused: the logged status says so and the item stays (give
 //! one first with `NVF_PLAY_TEST_GIVE`, e.g. The Platinum Chip, 001164FB).
 //!
@@ -133,6 +136,9 @@ pub(super) fn run_barter(
         2 => {
             send(Command::Hover(Side::Player, 0));
             send(Command::One);
+            // One unit, also of a stack that asks "How many?".
+            send(Command::Amount(1));
+            send(Command::AmountOk);
         }
         3 => {
             log_trade("player's first row put up", m);
@@ -140,6 +146,8 @@ pub(super) fn run_barter(
             let own = m.and_then(|m| m.list(Side::Container).rows.iter().position(|r| !r.bartered)).unwrap_or(0);
             send(Command::Hover(Side::Container, own));
             send(Command::One);
+            send(Command::Amount(1));
+            send(Command::AmountOk);
         }
         4 => {
             log_trade("merchant's first row put up", m);
@@ -188,20 +196,25 @@ pub(super) struct DropJob {
     item: FormId,
     /// `Drop`, `DropStack` or `One` (use / equip).
     cmd: Command,
+    /// What a `Drop` answers "How many?" with (1 unless the job names a number); 0
+    /// leaves the prompt open (`ask`, for a screenshot) until the menu closes.
+    amount: i32,
 }
 
 pub(super) fn parse_drops(v: &str) -> Result<Vec<DropJob>, String> {
     crate::test_aid::timed(v)?
         .into_iter()
         .map(|(at, rest)| {
-            let (item, cmd) = match rest.split_once(':') {
-                Some((i, "stack")) => (i, Command::DropStack),
-                Some((i, "use")) => (i, Command::One),
-                Some((_, x)) => return Err(format!("{rest:?}: expected <item>[:stack|:use], not {x:?}")),
-                None => (rest, Command::Drop),
+            let (item, cmd, amount) = match rest.split_once(':') {
+                Some((i, "stack")) => (i, Command::DropStack, 1),
+                Some((i, "use")) => (i, Command::One, 1),
+                Some((i, "ask")) => (i, Command::Drop, 0),
+                Some((i, n)) if n.parse::<i32>().is_ok_and(|n| n > 0) => (i, Command::Drop, n.parse().expect("checked")),
+                Some((_, x)) => return Err(format!("{rest:?}: expected <item>[:stack|:use|:ask|:<count>], not {x:?}")),
+                None => (rest, Command::Drop, 1),
             };
             let item = item.parse::<FormId>().map_err(|e| format!("{rest:?}: {e}"))?;
-            Ok(DropJob { at, item, cmd })
+            Ok(DropJob { at, item, cmd, amount })
         })
         .collect()
 }
@@ -273,6 +286,11 @@ pub(super) fn run_drops(
                                 input.write(MenuInput(Command::Select(Side::Player, i)));
                             }
                             input.write(MenuInput(job.cmd));
+                            // A stack of more than five asks "How many?" first.
+                            if job.cmd == Command::Drop && job.amount > 0 {
+                                input.write(MenuInput(Command::Amount(job.amount)));
+                                input.write(MenuInput(Command::AmountOk));
+                            }
                         }
                         // The Pip-Boy's ITEMS page lists one tab's kind of item: turn to
                         // the item's tab and look again.
@@ -290,6 +308,10 @@ pub(super) fn run_drops(
                 }
                 (2, m) => {
                     log_menu("after test drop", m);
+                    // An open "How many?" takes the first Close (as its Cancel).
+                    if m.is_some_and(|m| m.quantity.is_some()) {
+                        input.write(MenuInput(Command::Close));
+                    }
                     input.write(MenuInput(Command::Close));
                     d.current = None;
                 }
@@ -392,6 +414,8 @@ pub(super) fn run(
         4 => {
             send(Command::Focus(Side::Player));
             send(Command::One);
+            send(Command::Amount(1));
+            send(Command::AmountOk);
         }
         5 => log_menu("after storing one back", m),
         6 => send(Command::Close),
@@ -424,6 +448,8 @@ pub(super) fn run(
         10 => {
             log_menu("after equip", m);
             send(Command::Drop);
+            send(Command::Amount(1));
+            send(Command::AmountOk);
         }
         11 => {
             log_menu("after drop", m);
@@ -453,10 +479,13 @@ mod tests {
     fn drop_jobs() {
         let j = parse_drops("12:00015169, 20.5:0x00015169:stack").unwrap();
         assert_eq!(j, vec![
-            DropJob { at: 12.0, item: FormId(0x15169), cmd: Command::Drop },
-            DropJob { at: 20.5, item: FormId(0x15169), cmd: Command::DropStack },
+            DropJob { at: 12.0, item: FormId(0x15169), cmd: Command::Drop, amount: 1 },
+            DropJob { at: 20.5, item: FormId(0x15169), cmd: Command::DropStack, amount: 1 },
         ]);
         assert_eq!(parse_drops("3:00015169:use").unwrap()[0].cmd, Command::One);
+        assert_eq!(parse_drops("3:0008ED03:7").unwrap()[0], DropJob { at: 3.0, item: FormId(0x8ED03), cmd: Command::Drop, amount: 7 });
+        assert!(parse_drops("3:0008ED03:0").is_err());
+        assert_eq!(parse_drops("3:0008ED03:ask").unwrap()[0].amount, 0);
         assert!(parse_drops("12:00015169:all").is_err());
         assert!(parse_drops("12:zz").is_err());
     }

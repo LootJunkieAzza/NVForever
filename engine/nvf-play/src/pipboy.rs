@@ -358,9 +358,20 @@ fn camera_on(pip: Res<PipBoy>, screen: Option<Res<PipBoyScreen>>, mut cams: Quer
 }
 
 /// Keys of the Pip-Boy: Tab, Esc and E close it; F1–F3 the pages; A/D and Left/Right
-/// the tabs. The ITEMS page's own keys are in [`items`].
-fn keys(keys: Res<ButtonInput<KeyCode>>, mut out: MessageWriter<PipBoyInput>, mut menu: MessageWriter<crate::menu::MenuInput>) {
+/// the tabs; none while the menus' "How many?" prompt is open. The ITEMS page's own keys
+/// are in [`items`].
+fn keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    prompt: Res<crate::menu::PromptKeys>,
+    active: Res<crate::menu::ActiveMenu>,
+    mut out: MessageWriter<PipBoyInput>,
+    mut menu: MessageWriter<crate::menu::MenuInput>,
+) {
     use KeyCode::*;
+    // "How many?" has the keys (`crate::menu`).
+    if prompt.held(&active) {
+        return;
+    }
     if keys.any_just_pressed([Tab, Escape]) {
         menu.write(crate::menu::MenuInput(crate::menu::model::Command::Close));
         return;

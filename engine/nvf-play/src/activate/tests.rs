@@ -34,7 +34,7 @@ fn base(id: u32, name: Option<&str>, data: BaseData) -> BaseForm {
 }
 
 fn item(kind: ItemKind) -> BaseData {
-    BaseData::Item(Item { kind, value: Some(1), weight: Some(0.5), slots: None, projectile: None, health: None, non_playable: false, armor_class: Default::default(), quest_item: false, icon: None })
+    BaseData::Item(Item { kind, value: Some(1), weight: Some(0.5), slots: None, projectile: None, health: None, non_playable: false, armor_class: Default::default(), quest_item: false, icon: None, placed_count: None })
 }
 
 fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {

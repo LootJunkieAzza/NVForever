@@ -37,6 +37,13 @@
 //!   collision. Each drop is logged.
 //! - Transfers between inventories do not change any reference's presence, so they send
 //!   no `RefChanged`.
+//! - "How many?" (`model::Quantity`, drawn by `look::spawn_quantity` over any of these
+//!   menus, the Pip-Boy's inventory included): Left/Right (and the wheel) change the
+//!   amount by one, Page Up/Page Down by ten, Home/End go to 1 and the whole stack; A,
+//!   Enter or Space is Ok, E or Esc Cancel [documented: the interface file's "A)" and
+//!   "E)"; the other keys are ours]. The meter takes a press and a drag, its arrows and
+//!   the two buttons a click. While it is open no other key of the menus or the Pip-Boy
+//!   acts ([`PromptKeys`]).
 //!
 //! Test aids (only with `--play`, since this plugin exists only then):
 //! - F10 while playing opens the container menu on the container reference nearest to
@@ -45,9 +52,9 @@
 //!   [`test_aid`]).
 //! - `NVF_PLAY_TEST_BARTER=<merchant FormID hex>[:discount]` opens the barter menu and
 //!   makes one trade (see [`test_aid`]).
-//! - `NVF_PLAY_TEST_DROP=<seconds>:<item FormID hex>[:stack][,...]` drops one unit (or
-//!   the stack) of a carried item through the inventory menu at those times (see
-//!   [`test_aid`]).
+//! - `NVF_PLAY_TEST_DROP=<seconds>:<item FormID hex>[:stack|:use|:ask|:<count>][,...]`
+//!   drops one unit (the stack, or that many through "How many?") of a carried item through
+//!   the inventory menu at those times (see [`test_aid`]).
 
 pub mod barter;
 mod look;
@@ -59,6 +66,7 @@ use crate::{space, ItemUsed, Location, OpenContainer, PlaySet, PlayState, Player
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use bevy::ui::RelativeCursorPosition;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use fnv_sim::forms::BaseData;
 use fnv_sim::FormId;
@@ -135,12 +143,30 @@ struct RowButton(Side, usize);
 #[derive(Component, Clone, Copy)]
 struct CmdButton(Command);
 
+/// The "How many?" prompt's meter, which takes a press and a drag.
+#[derive(Component)]
+struct AmountMeter;
+
+/// Whether the "How many?" prompt had the keys this frame: open when the menus' keys
+/// were read, or open now. Other key readers of the same frame (the Pip-Boy's) leave the
+/// keys alone, so the A that says Ok does not also change the Pip-Boy's tab.
+#[derive(Resource, Default)]
+pub struct PromptKeys(pub bool);
+
+impl PromptKeys {
+    /// Whether the keys are the prompt's this frame.
+    pub fn held(&self, active: &ActiveMenu) -> bool {
+        self.0 || active.0.as_ref().is_some_and(|m| m.quantity.is_some())
+    }
+}
+
 pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActiveMenu>()
             .init_resource::<FreshMenu>()
+            .init_resource::<PromptKeys>()
             .add_message::<MenuInput>()
             .add_message::<OpenInventory>()
             .add_message::<OpenNearestContainer>()
@@ -156,7 +182,7 @@ impl Plugin for MenuPlugin {
                     scripts_open_teammate_containers,
                     open_menus,
                     keep_menu_state,
-                    (menu_keys, menu_mouse, apply_input).chain().run_if(menu_open),
+                    (quantity_keys, menu_keys, menu_mouse, quantity_mouse, apply_input).chain().run_if(menu_open),
                     draw,
                 )
                     .chain()
@@ -198,13 +224,14 @@ fn f9_opens_nearest_container(
 pub(crate) fn add_open_and_keys<M>(app: &mut App, before: impl IntoScheduleConfigs<bevy::ecs::system::ScheduleSystem, M>) {
     app.init_resource::<ActiveMenu>()
         .init_resource::<FreshMenu>()
+        .init_resource::<PromptKeys>()
         .add_message::<MenuInput>()
         .add_message::<OpenBarter>()
         .add_message::<OpenInventory>()
         .add_message::<ItemUsed>()
         .add_message::<crate::ui_sounds::UiSound>()
         .add_message::<crate::crime::ItemsTaken>()
-        .add_systems(Update, (before, open_menus, (menu_keys, apply_input).chain().run_if(menu_open)).chain());
+        .add_systems(Update, (before, open_menus, (quantity_keys, menu_keys, apply_input).chain().run_if(menu_open)).chain());
 }
 
 /// Whether one of these menus is open.
@@ -352,7 +379,7 @@ fn menu_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut fresh
     if std::mem::take(&mut fresh.0) {
         return;
     }
-    let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory) else { return };
+    let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory && m.quantity.is_none()) else { return };
     let shift = keys.any_pressed([ShiftLeft, ShiftRight]);
     let mut send = |c| {
         out.write(MenuInput(c));
@@ -406,7 +433,7 @@ fn menu_mouse(
     mut lines: Local<f32>,
     mut out: MessageWriter<MenuInput>,
 ) {
-    let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory) else {
+    let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory && m.quantity.is_none()) else {
         wheel.clear();
         return;
     };
@@ -453,6 +480,70 @@ fn menu_mouse(
     }
 }
 
+/// The "How many?" prompt's keys, while it is open (see the module's notes).
+fn quantity_keys(keys: Res<ButtonInput<KeyCode>>, active: Res<ActiveMenu>, mut held: ResMut<PromptKeys>, mut out: MessageWriter<MenuInput>) {
+    use KeyCode::*;
+    held.0 = active.0.as_ref().is_some_and(|m| m.quantity.is_some());
+    if !held.0 {
+        return;
+    }
+    let map = [
+        (&[KeyA, Enter, NumpadEnter, Space][..], Command::AmountOk),
+        (&[KeyE, Escape][..], Command::AmountCancel),
+        (&[ArrowLeft][..], Command::AmountStep(-1)),
+        (&[ArrowRight][..], Command::AmountStep(1)),
+        (&[PageDown][..], Command::AmountStep(-model::QUANTITY_JUMP)),
+        (&[PageUp][..], Command::AmountStep(model::QUANTITY_JUMP)),
+        (&[Home][..], Command::Amount(1)),
+        (&[End][..], Command::Amount(i32::MAX)),
+    ];
+    for (k, c) in map {
+        if keys.any_just_pressed(k.iter().copied()) {
+            out.write(MenuInput(c));
+        }
+    }
+}
+
+/// The prompt's pointer: a press or drag on the meter sets the amount under it, the
+/// arrows and buttons act, the wheel moves the amount (up: more).
+fn quantity_mouse(
+    active: Res<ActiveMenu>,
+    meter: Query<(&Interaction, &RelativeCursorPosition), With<AmountMeter>>,
+    buttons: Query<(&Interaction, &CmdButton), Changed<Interaction>>,
+    mut wheel: MessageReader<MouseWheel>,
+    mut lines: Local<f32>,
+    mut out: MessageWriter<MenuInput>,
+) {
+    let Some(q) = active.0.as_ref().and_then(|m| m.quantity) else {
+        *lines = 0.0;
+        return;
+    };
+    for (i, at) in &meter {
+        if let (Interaction::Pressed, Some(p)) = (i, at.normalized) {
+            let n = model::amount_at(p.x + 0.5, q.max);
+            if n != q.amount {
+                out.write(MenuInput(Command::Amount(n)));
+            }
+        }
+    }
+    for (i, b) in &buttons {
+        if *i == Interaction::Pressed {
+            out.write(MenuInput(b.0));
+        }
+    }
+    for w in wheel.read() {
+        *lines += match w.unit {
+            MouseScrollUnit::Line => w.y,
+            MouseScrollUnit::Pixel => w.y / 20.0,
+        };
+    }
+    let whole = lines.trunc();
+    if whole != 0.0 {
+        out.write(MenuInput(Command::AmountStep(whole as i32)));
+        *lines -= whole;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_input(
     mut input: MessageReader<MenuInput>,
@@ -465,17 +556,23 @@ fn apply_input(
     script: Option<ResMut<crate::script::ScriptState>>,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut taken: MessageWriter<crate::crime::ItemsTaken>,
+    mut held: ResMut<PromptKeys>,
 ) {
     let mut script = script.map(|s| s.into_inner());
     for &MenuInput(cmd) in input.read() {
         let Some(m) = active.0.as_mut() else { return };
         let before = crate::ui_sounds::MenuBefore::of(m);
+        let asking = m.quantity.is_some();
         let a = m.apply(&mut sim.world, cmd);
+        held.0 |= m.quantity.is_some();
+        if let (false, Some(q)) = (asking, m.quantity) {
+            info!("menu: {cmd:?}: how many? ({} of {})", q.amount, q.max);
+        }
         // What the command did, for its sound (`crate::ui_sounds`).
         if let Some(event) = crate::ui_sounds::menu_event(cmd, &before, m, &a) {
             sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::of(m.mode), event });
         }
-        let moves_items = matches!(cmd, Command::One | Command::Stack | Command::TakeAll | Command::Drop | Command::DropStack | Command::Accept);
+        let moves_items = matches!(cmd, Command::One | Command::Stack | Command::TakeAll | Command::Drop | Command::DropStack | Command::Accept | Command::AmountOk);
         if moves_items || a.changed {
             if let Some(s) = m.status.as_deref().filter(|s| !s.is_empty()) {
                 info!("menu: {cmd:?}: {s}");
@@ -545,10 +642,13 @@ fn draw(
     for e in &roots {
         commands.entity(e).despawn();
     }
-    let Some(m) = active.0.as_ref().filter(|m| m.mode != Mode::Inventory) else { return };
+    let Some(m) = active.0.as_ref() else { return };
+    // The inventory itself is the Pip-Boy's; its prompt is drawn here.
+    if m.mode == Mode::Inventory && m.quantity.is_none() {
+        return;
+    }
     let bc = crate::interface::bc_supported(formats.as_deref());
     let kit = kit.get_or_insert_with(|| look::Kit::load(data.as_deref(), &mut images, bc));
-    let note = note(m, &sim);
     let screen = Node {
         position_type: PositionType::Absolute,
         width: Val::Percent(100.0),
@@ -557,7 +657,15 @@ fn draw(
         align_items: AlignItems::Center,
         ..default()
     };
-    commands.spawn((MenuRoot, screen, GlobalZIndex(100))).with_children(|root| {
-        look::spawn(root, m, note.as_deref(), kit, data.as_deref(), &mut images, bc);
-    });
+    if m.mode != Mode::Inventory {
+        let note = note(m, &sim);
+        commands.spawn((MenuRoot, screen.clone(), GlobalZIndex(100))).with_children(|root| {
+            look::spawn(root, m, note.as_deref(), kit, data.as_deref(), &mut images, bc);
+        });
+    }
+    if let Some(q) = &m.quantity {
+        commands.spawn((MenuRoot, screen, GlobalZIndex(101))).with_children(|root| {
+            look::spawn_quantity(root, q, kit, data.as_deref(), &mut images, bc);
+        });
+    }
 }

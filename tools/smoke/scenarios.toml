@@ -203,7 +203,7 @@ paths = [
 ]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16,19.5:20.5", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion,15:taa,15.5:light-shafts,20:taa", NVF_PLAY_TEST_LOOK = "17:90:0,17.5:120:0,18:150:0", NVF_PLAY_TEST_MOVE = "17:1:0,19:0:0" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--graphics", "enhanced"]
-run_seconds = 22
+run_seconds = 24
 order = [[
   "graphics: ambient occlusion, finer, longer shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections",
   { re = 'graphics: finer, longer shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water reflections$' },
@@ -916,7 +916,7 @@ areas = ["world-sounds", "audio", "combat"]
 paths = ["engine/nvf-play/src/world_sounds.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/fx.rs", "crates/fnv-collide/", "crates/fnv-phys/"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT = "3:start:VCG02,4:info:0x0010A1E6:SunnyRef", NVF_PLAY_TEST_CONTROL = "7:weapon,10:aimref=0010A202,10.5:fire,10.7:fire,13:aimref=0010A203,13.5:fire,13.7:fire,16:aimref=0010A204,16.5:fire,16.7:fire" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
-run_seconds = 22
+run_seconds = 24
 expect = [
   { re = 'world sounds summary:.*impacts by material: glass 3 \(0 on collision without a material\)' },
   { re = 'world sounds summary:.*knock', label = "some knocks" },
@@ -930,7 +930,7 @@ areas = ["combat", "controls"]
 paths = ["engine/nvf-play/src/control.rs", "engine/nvf-play/src/combat.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_SCRIPT = "3:start:VCG02,4:info:0x0010A1E6:SunnyRef", NVF_PLAY_TEST_CONTROL = "6:view,7:weapon,10:aimref=0010A202,10.5:fire,10.7:fire,13:aimref=0010A203,13.5:fire,13.7:fire,16:aimref=0010A204,16.5:fire,16.7:fire" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-messages"]
-run_seconds = 22
+run_seconds = 24
 expect = [
   "crosshair: the third-person camera's line",
   { re = 'world sounds summary:.*impacts by material: glass 3 \(0 on collision without a material\)', label = "the three bottles hit (glass 3)" },
@@ -2002,3 +2002,27 @@ expect = [
   "main menu: theme faded out",
 ]
 order = [["main menu: Settings", "main menu: New Game", "intro: the opening begins", "new game: VCG00 started at stage 0"]]
+
+[[scenario]]
+name = "item-stacks"
+source = "owner 2026-10-15: the two 9mm stacks on the Goodsprings gas station counter hold 20 rounds each (AMMO Clip Rounds, GECK wiki Ammo; fnv-sim Item::placed_count); a stack of more than 5 asks \"How many?\" (menu::model::Quantity) and a dropped stack is one reference holding the count"
+areas = ["menu", "items"]
+paths = ["crates/fnv-sim/src/forms.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/**", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/dropped*", "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0008ED03:20", NVF_PLAY_TEST_CONSOLE = "18:prid 0010ABA6;18.5:prid 0010ABA7;19:close", NVF_PLAY_TEST_DROP = "21:0008ED03:7" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice"]
+run_seconds = 25
+order = [[
+  "console: > prid 0010ABA6",
+  "console: count 20 (as placed)",
+  "console: > prid 0010ABA7",
+  "console: count 20 (as placed)",
+  "menu: Drop: how many? (20 of 20)",
+  "menu: AmountOk: Dropped 9mm Round x7",
+  { re = 'menu: dropped reference 0xFF0000\w\w \(count 7\)' },
+  { re = 'dropped: dropped reference 0xFF0000\w\w drawn: meshes.ammo.9mmammo\.nif' },
+]]
+expect = [
+  { text = "console: count 20 (as placed)", count = 2 },
+  { text = "menu: dropped reference", count = 1 },
+  { re = 'after test drop\]   Player: .*9mm Round x13' },
+]

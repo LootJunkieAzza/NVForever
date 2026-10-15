@@ -99,6 +99,15 @@ pub struct Item {
     /// items\...` on MISC, AMMO and ALCH records]. Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub icon: Option<String>,
+    /// How many units a reference placed in the world without a count (XCNT) stands for:
+    /// an AMMO record's DATA "Clip Rounds" [documented: GECK wiki Ammo, "the number of
+    /// rounds of ammo the object contains when placed in the world", a placed
+    /// reference's Count overriding it; observed: the two Ammo9mm references on the
+    /// Goodsprings gas station's counter carry no XCNT and Ammo9mm's Clip Rounds is 20,
+    /// which the owner says the game gives]. `None` for other items: one unit. Not part
+    /// of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub placed_count: Option<i32>,
 }
 
 /// The weight class of a piece of armour.
@@ -292,6 +301,12 @@ impl FormStore {
         }
     }
 
+    /// How many units a reference of `base` placed in the world stands for: its own count
+    /// (XCNT) when it has one, else the base's [`Item::placed_count`], else 1.
+    pub fn placed_count(&self, base: FormId, xcnt: Option<i32>) -> i32 {
+        xcnt.or_else(|| self.item(base).and_then(|i| i.placed_count)).unwrap_or(1)
+    }
+
     /// Whether the item's record carries the "Quest Item" header flag (the authored
     /// value; `World::is_quest_item` adds scripts' overrides).
     pub fn is_quest_item(&self, id: FormId) -> bool {
@@ -392,6 +407,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         armor_class: ArmorClass::Light,
                         quest_item: quest_flag(schema, r),
                         icon: None,
+                        placed_count: None,
                     }),
                 })),
                 None => Loaded::Skip,
@@ -546,6 +562,10 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         projectile: projectile.map(FormId),
         health,
         icon: first(d, b"ICON").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string),
+        placed_count: match kind {
+            ItemKind::Ammo => data.and_then(|v| int(v, "clip_rounds")).map(|n| n as i32).filter(|&n| n > 0),
+            _ => None,
+        },
     })
 }
 
