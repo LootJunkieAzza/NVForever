@@ -220,7 +220,7 @@ Still open:
    unattended capture (2026-10-09, job `l1_oob_formid`): the game places GRA's REFR
    0x02000801 in `TestMentats` as GRA's own 0x..000801 with GRA's own base 0x..000800,
    exactly as xEdit displays it. **Owner decision**: make `LoadOrder::to_global` read an
-   out-of-range index as the plugin's own (tried; it fails the two `L3.world.*.interiors`
+   out-of-range index as the plugin's own (done 2026-10-15, PR #281; it fails the two `L3.world.*.interiors`
    scenarios by exactly this reference because `oracle_world.py` and its golden follow the
    old rule, so oracle and golden would be updated with it; esm.md). Still open:
    whether the dangling DM INFO "Previous INFO" link (0x01011B23 → 0x010108DD) changes

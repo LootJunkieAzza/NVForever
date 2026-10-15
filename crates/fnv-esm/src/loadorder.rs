@@ -38,7 +38,8 @@ pub struct LoadOrder<'a> {
     pub records: Vec<Vec<&'a Record>>,
     /// Global FormID -> every definition in load order (last one wins).
     pub index: HashMap<u32, Vec<DefRef>>,
-    /// Records whose own FormID could not be mapped (top byte beyond the master list).
+    /// Records whose own FormID could not be mapped (none since an out-of-range master
+    /// index means the plugin itself; kept for reports).
     pub unmappable: Vec<(u8, u32)>,
 }
 
@@ -96,16 +97,15 @@ impl<'a> LoadOrder<'a> {
     }
 
     /// Convert a FormID local to plugin `pi` into a load-order (global) FormID.
+    ///
+    /// A master index at or beyond the plugin's master list means the plugin itself, as
+    /// the game reads it [observed: capture `l1_oob_formid`, GRA's 0x02000801 placed as
+    /// GRA's own; a mod whose own records all carry 0x12 with one master loads them in
+    /// the game; docs/spec-notes/esm.md]. So every FormID maps; `None` is kept for callers.
     pub fn to_global(&self, pi: usize, local: u32) -> Option<u32> {
         let idx = (local >> 24) as usize;
         let masters = &self.master_map[pi];
-        let target = if idx < masters.len() {
-            masters[idx]
-        } else if idx == masters.len() {
-            pi as u8
-        } else {
-            return None;
-        };
+        let target = if idx < masters.len() { masters[idx] } else { pi as u8 };
         Some(((target as u32) << 24) | (local & 0x00FF_FFFF))
     }
 
