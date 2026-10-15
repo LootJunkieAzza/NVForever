@@ -38,6 +38,7 @@ compared with independent readers and in-game captures) and the smoke runner
 | Particles and effect shaders | Partly | Particle systems for shot and impact effects (#179). Not built: effect shaders (EFSH: PlayMagicShaderVisuals, 284 script calls), SwapTexture (383 calls, the end slides), SetActorAlpha, ash piles | [particles](spec-notes/particles.md), [script-stubs](design/script-stubs.md) §4 |
 | Enhanced graphics (optional) | Done | `--graphics enhanced` or the settings page: SSAO, finer and longer shadows, bloom, sharpening, 16× anisotropic filtering, TAA, sun shafts, screen-space water reflections. Vanilla is the default and every test run's look. Not attempted: volumetric fog; contact shadows and CAS tried and dropped | [graphics-enhanced](design/graphics-enhanced.md) |
 | Loading screens | Done | Shown during travel between places | [loading-screen](design/loading-screen.md), [loading-screens](spec-notes/loading-screens.md) |
+| Developer console | Done | `` ` `` opens it: script functions by name (`player.additem 0000000F 100`), `help`, `prid`, `coc`, `tgm`; a click selects what is under the pointer and shows its details. Not built: `tcl`, `set`, several statements on a line | [console](design/console.md) |
 
 ## 3. Actors
 

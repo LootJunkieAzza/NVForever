@@ -225,6 +225,10 @@ pub struct ScriptState {
     /// Aid items the player used that the runtime has not taken yet (used before the
     /// scripts were ready, or under a loading screen or the pause menu).
     used: Vec<FormId>,
+    /// Console lines for the next script frame (`crate::console`).
+    pub console: Vec<crate::console::ConsoleCall>,
+    /// What the script frame answered to them.
+    pub console_out: Vec<crate::console::ConsoleReply>,
 }
 
 impl ScriptState {
@@ -315,7 +319,7 @@ impl ScriptState {
             }
         });
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, used: Vec::new() }
+        ScriptState { loader, rt: None, off, trace, aids, aids_started: false, gates: HashMap::new(), auto_close, no_messages, on_screen: None, walks: Vec::new(), new_game, used: Vec::new(), console: Vec::new(), console_out: Vec::new() }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -1151,6 +1155,8 @@ pub(crate) fn run_scripts(
     let now = time.elapsed_secs();
     let mut due = due_aids(st, now);
     let used = std::mem::take(&mut st.used);
+    let console = std::mem::take(&mut st.console);
+    let mut console_out = Vec::new();
     // A script's menu or box left open by an unattended run: answered with OK / Done.
     let on_screen = st.rt.as_ref().and_then(|rt| {
         let m = rt.game.menu.filter(|&m| is_script_menu(m))?;
@@ -1223,6 +1229,9 @@ pub(crate) fn run_scripts(
                 "t": secs(rt.started), "gt": rt.game.time}));
         }
         due.clear();
+        for c in &console {
+            console_out.push(crate::console::run_call(rt, c));
+        }
         let from = rt.game.events.len();
         // A conversation with the player pauses the game: nobody moves, and no trigger
         // block runs (OnTrigger would, every frame) until it is over.
@@ -1240,6 +1249,7 @@ pub(crate) fn run_scripts(
         marked = rt.newly_marked();
     });
     st.walks.extend(walks);
+    st.console_out.extend(console_out);
     let ms = t0.elapsed().as_secs_f64() * 1e3;
     rt.stats.frames += 1;
     rt.stats.total_ms += ms;
@@ -1386,14 +1396,14 @@ fn hold_player(
     active: Res<ActiveMenu>,
     paused: Res<crate::pause::Paused>,
     wait: Res<crate::wait::WaitMenu>,
-    (terminal, lockpick): (Res<crate::terminal::TerminalScreen>, Res<crate::lockpick::LockpickScreen>),
+    (terminal, lockpick, console): (Res<crate::terminal::TerminalScreen>, Res<crate::lockpick::LockpickScreen>, Res<crate::console::Console>),
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
     // The pause menu is also a `PlayState::Menu` without an engine menu: it is its own.
-    // So are the wait menu (`crate::wait`), a terminal (`crate::terminal`) and the
-    // lockpicking menu (`crate::lockpick`).
-    if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() {
+    // So are the wait menu (`crate::wait`), a terminal (`crate::terminal`), the
+    // lockpicking menu (`crate::lockpick`) and the console (`crate::console`).
+    if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() || console.open {
         return;
     }
     let held = script.rt.as_ref().and_then(|rt| rt.game.menu).is_some_and(is_script_menu);

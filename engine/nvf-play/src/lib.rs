@@ -18,6 +18,7 @@ pub mod bindings;
 pub mod blocking;
 pub mod chargen;
 pub mod combat;
+pub mod console;
 pub mod control;
 pub mod corner_messages;
 pub mod crime;
@@ -247,7 +248,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(lockpick::LockpickPlugin)
-            .add_plugins(crime::CrimePlugin);
+            .add_plugins(crime::CrimePlugin)
+            .add_plugins(console::ConsolePlugin);
         test_aid::setup(app);
     }
 }

@@ -1903,3 +1903,29 @@ expect = [
   { re = 'ai summary at .*0x0016518[BC]: VCrGeckoSandboxEditorLocation1024', label = "the chain ended on the sandbox" },
   { re = 'provocation: 0x0016518[BC] .*attacks the player, who stayed inside its aggro radius', label = "a gecko attacks after its warnings" },
 ]
+
+[[scenario]]
+name = "console"
+source = "owner 2026-10-15: the ` key opens a console that runs script functions and selects what is clicked (docs/design/console.md)"
+areas = ["console", "scripts"]
+paths = ["engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:help stimpak;11:player.additem Stimpak 3;12:player.getitemcount Stimpak;13:player.getav health;14:click 0.5 0.5;15:prid SunnyRef;16:getav health;17:tgm;18:frobnicate 3;19:player.additem 00015169 2;20:player.additem f 50;21:player.getitemcount Stimpak;22:player.getitemcount 0x0000000F;23:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 28
+expect = [
+  "console: open",
+  { re = 'console: 0x[0-9A-F]{8} ALCH Stimpak', label = "help lists the Stimpak" },
+  { re = 'console: AddItem on player >> ', label = "AddItem runs on the player" },
+  { re = 'console: GetItemCount on player >> [1-9]', label = "the player has the Stimpaks" },
+  { re = 'console: GetActorValue on player >> [1-9]', label = "the player's health" },
+  { re = 'console: picked 0x[0-9A-F]{8}', label = "a click selects a reference" },
+  { re = 'console: base 0x[0-9A-F]{8} [A-Z_]{4} [A-Za-z]', label = "its base form is named" },
+  { re = 'console: cell 0x[0-9A-F]{8} WastelandNV \(-?\d+, -?\d+\)  pos ', label = "its exterior cell is named by worldspace and grid" },
+  { re = 'console: 0x[0-9A-F]{8} ACHR SunnyRef', label = "prid selects Sunny" },
+  { re = 'console: GetActorValue on SunnyRef >> [1-9]', label = "a call without a reference runs on the selected one" },
+  "console: God mode on",
+  { re = 'console: Script command "frobnicate" not found', label = "an unknown command says so" },
+  { re = 'console: GetItemCount on player >> (1[0-9]|[2-9]\d)\.', label = "two more Stimpaks by FormID without 0x (00015169)" },
+  { re = 'console: GetItemCount on player >> ([5-9]\d|\d{3,})\.', label = "caps added by a short FormID (f)" },
+  "console: close",
+]
