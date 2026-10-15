@@ -90,8 +90,9 @@
 //!   looting balance is looked at].
 //! - **The player's death**: at 0 health the player dies (`Game::hit`); every control
 //!   is held from then on (`ScriptState::locks`) and the screen says so [design: the
-//!   original's death camera and reload are not built]. Test aid `NVF_PLAY_TEST_GOD=1`:
-//!   the player takes no damage, so a long unattended run is not ended by a fight.
+//!   original's death camera and reload are not built]. God mode ([`god_mode`]:
+//!   `--god`, the settings page's Developer switch, test aid `NVF_PLAY_TEST_GOD=1`): the
+//!   player takes no damage, so a long unattended run is not ended by a fight.
 //! - **Feedback** [design]: a hit marker at the
 //!   crosshair (red on a kill), the last target's health for a few seconds, the player's
 //!   crippled limbs, and a line for kills with their XP. Health, condition and ammo are
@@ -641,6 +642,9 @@ pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
+        if std::env::var_os("NVF_PLAY_TEST_GOD").is_some_and(|v| v != "0") {
+            set_god_mode(true);
+        }
         app.init_resource::<WeaponAnim>()
             .init_resource::<CombatStats>()
             .init_resource::<ShotVisuals>()
@@ -1312,10 +1316,19 @@ fn apply_hit(
     Some(r)
 }
 
-/// Whether the test aid `NVF_PLAY_TEST_GOD=1` keeps the player from taking damage.
-fn god_mode() -> bool {
-    static GOD: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *GOD.get_or_init(|| std::env::var_os("NVF_PLAY_TEST_GOD").is_some_and(|v| v != "0"))
+/// God mode: the player takes no damage from hits, so cannot be killed by them
+/// (settings page `god-mode`, `--god`, test aid `NVF_PLAY_TEST_GOD=1`) [design]. One
+/// switch for the process: hits reach the player from several systems.
+static GOD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether god mode is on.
+pub fn god_mode() -> bool {
+    GOD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Switch god mode on or off.
+pub fn set_god_mode(on: bool) {
+    GOD.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Another actor hits the player (module notes): the player's health takes the damage
@@ -1324,7 +1337,7 @@ fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, i
     let by = info.attacker.map_or("?".to_string(), |a| sim.ref_name(Some(rt.game.data), a.0).map_or_else(|| a.to_string(), str::to_string));
     stats.player_hits += 1;
     if god_mode() {
-        info!("combat: {by} hits the player for {dealt:.1} (test aid: no damage taken)");
+        info!("combat: {by} hits the player for {dealt:.1} (god mode: no damage taken)");
         let health = with_world(rt, sim, |rt| fnv_game::functions::actor_value(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::HEALTH).unwrap_or(0.0));
         return Some(HitResult { health, immune: true, ..HitResult::default() });
     }

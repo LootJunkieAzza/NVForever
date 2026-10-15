@@ -149,6 +149,17 @@ pub fn register(app: &mut App) {
             set: |w, on| w.resource_mut::<nvf_play::combat::HitMarks>().show = on,
         },
     );
+    add_setting(
+        app,
+        Setting {
+            key: "god-mode",
+            group: GROUP_DEVELOPER,
+            label: "God mode",
+            note: "On: the player takes no damage from hits and cannot be killed by them. (--god)",
+            get: |_| nvf_play::combat::god_mode(),
+            set: |_, on| nvf_play::combat::set_god_mode(on),
+        },
+    );
     if has_nav {
         add_setting(
             app,
