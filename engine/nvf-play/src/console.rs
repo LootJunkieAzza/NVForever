@@ -13,8 +13,8 @@
 //!   the selected reference. The call goes through `Game::call_function` inside the
 //!   script frame (`crate::script`), so what it changes reaches the world as a script's
 //!   changes do; its return value is printed (`>> 100.00`).
-//! - **Console commands of its own**: `help [text]` (functions and forms whose name
-//!   contains the text), `prid <reference>` (select it), `coc <cell>` (travel to the cell's
+//! - **Console commands of its own**: `help [text]` (every record and function whose name
+//!   or Editor ID contains the text, not case sensitive; `"two words"` is one phrase), `prid <reference>` (select it), `coc <cell>` (travel to the cell's
 //!   COC spot, `crate::player::safe::cell_spot`), `tgm` (god mode, `crate::combat`),
 //!   `tcl`-style clipping is not built, `cls` / `clear` (empty the scrollback).
 //! - **Click a thing in the world** while it is open: the reference under the pointer
@@ -51,8 +51,10 @@ const SCROLLBACK: usize = 400;
 const SHOWN: usize = 18;
 /// How far a click picks, game units [design: about a large interior or a town block].
 const CLICK_REACH: f32 = 20_000.0;
-/// Most matches `help` lists of each kind.
-const HELP_MAX: usize = 25;
+/// Most functions `help` lists.
+const HELP_FUNCTIONS: usize = 25;
+/// Most records `help` lists; the rest are counted.
+const HELP_RECORDS: usize = 200;
 
 /// A line for the script frame to run (`crate::script::run_scripts`).
 #[derive(Debug, Clone)]
@@ -137,7 +139,8 @@ impl Plugin for ConsolePlugin {
         };
         app.init_resource::<Console>()
             .insert_resource(ConsoleAid(aid))
-            .add_systems(Update, (toggle, typing, replies, click, draw, outline).chain().in_set(PlaySet::Ui))
+            .init_resource::<SearchIndex>()
+            .add_systems(Update, (toggle, typing, search_ready, replies, click, draw, outline).chain().in_set(PlaySet::Ui))
             .add_systems(OnExit(PlayState::Menu), close_on_exit);
     }
 }
@@ -217,11 +220,13 @@ fn typing(
     mut commands: Commands,
     roots: Query<Entity, With<ConsoleRoot>>,
     mut clicks: Local<Vec<Vec2>>,
+    (mut index, play): (ResMut<SearchIndex>, Res<PlayWorld>),
 ) {
     let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
     if !c.open {
         return;
     }
+    index.start(&play.0, sim.refs);
     let mut submit: Vec<String> = Vec::new();
     let now = time.elapsed_secs();
     while aid.0.first().is_some_and(|(t, _)| *t <= now) {
@@ -276,6 +281,27 @@ fn typing(
         let (head, rest) = line.split_once(char::is_whitespace).map_or((line.as_str(), ""), |(h, r)| (h, r.trim()));
         match head.to_ascii_lowercase().as_str() {
             "cls" | "clear" => c.lines.clear(),
+            "help" => {
+                let terms = query_terms(rest);
+                if terms.is_empty() {
+                    c.print("A line is a script function: [reference.]Function argument ...  e.g. player.additem 0000000F 100");
+                    c.print("help <text>: records and functions whose name or Editor ID contains it (not case sensitive); \"two words\" for a phrase, several words must all match");
+                    c.print("prid <ref>, coc <cell>, tgm, cls. Click something to select it; calls without a reference run on it.");
+                } else {
+                    let funcs = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| matching_functions(&rt.game.data.table, &terms)).unwrap_or_default();
+                    if !funcs.is_empty() {
+                        let more = funcs.len().saturating_sub(HELP_FUNCTIONS);
+                        c.print(format!("Functions: {}{}", funcs[..funcs.len().min(HELP_FUNCTIONS)].join(", "), if more > 0 { format!(" (+{more})") } else { String::new() }));
+                    }
+                    match index.ready.as_ref() {
+                        Some(ix) => print_records(&mut c, ix, &terms, rest),
+                        None => {
+                            c.print("Reading every record for the search (the first time only)...");
+                            index.waiting.push(rest.to_string());
+                        }
+                    }
+                }
+            }
             "close" => {
                 close(&mut c, &mut next, &mut commands, &roots);
                 return;
@@ -548,6 +574,119 @@ fn outline(c: Res<Console>, visuals: Query<(&RefVisual, &Aabb, &GlobalTransform,
     }
 }
 
+// ---- `help <text>`: every record by Editor ID and name ----
+
+/// One record for the search.
+#[derive(Debug, Clone)]
+pub struct Found {
+    pub id: FormId,
+    pub sig: [u8; 4],
+    pub edid: Option<String>,
+    pub name: Option<String>,
+}
+
+/// Placed records: searched only when they have an Editor ID (from the reference table),
+/// so the search does not read a million references.
+const PLACED: [&[u8; 4]; 14] = [b"REFR", b"ACHR", b"ACRE", b"PGRE", b"PMIS", b"PBEA", b"PFLA", b"PCBE", b"PARW", b"PBAR", b"PHZD", b"NAVM", b"NAVI", b"LAND"];
+
+/// Every record's Editor ID and name, read once on a thread when the console first opens.
+#[derive(Resource, Default)]
+pub struct SearchIndex {
+    building: Option<std::sync::Mutex<std::sync::mpsc::Receiver<Vec<Found>>>>,
+    pub ready: Option<Vec<Found>>,
+    /// Searches asked for before it was ready.
+    waiting: Vec<String>,
+}
+
+impl SearchIndex {
+    fn start(&mut self, d: &PlayData, refs: &'static fnv_sim::RefTable) {
+        if self.ready.is_some() || self.building.is_some() {
+            return;
+        }
+        let lo = d.lo;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let t0 = std::time::Instant::now();
+            let all = read_records(lo, refs);
+            info!("console: search index of {} records in {:.2} s", all.len(), t0.elapsed().as_secs_f64());
+            let _ = tx.send(all);
+        });
+        self.building = Some(std::sync::Mutex::new(rx));
+    }
+}
+
+fn read_records(lo: &fnv_esm::LoadOrder<'_>, refs: &fnv_sim::RefTable) -> Vec<Found> {
+    let text = |b: &[u8]| String::from_utf8_lossy(b.split(|&c| c == 0).next().unwrap_or_default()).trim().to_string();
+    let mut out: Vec<Found> = lo
+        .index
+        .keys()
+        .filter_map(|&id| {
+            let (_, rec) = lo.winner(id)?;
+            let sig = rec.header.sig;
+            if PLACED.contains(&&sig) {
+                return None;
+            }
+            let subs = rec.subrecords().ok()?;
+            let get = |want: &[u8; 4]| subs.iter().find(|s| &s.sig == want).map(|s| text(&s.data)).filter(|t| !t.is_empty());
+            Some(Found { id: FormId(id), sig, edid: get(b"EDID"), name: get(b"FULL") })
+        })
+        .collect();
+    out.extend(refs.edids.values().filter_map(|&r| {
+        let p = refs.get(r)?;
+        Some(Found { id: r, sig: p.sig, edid: p.edid.clone(), name: None })
+    }));
+    out.sort_by(|a, b| a.sig.cmp(&b.sig).then_with(|| a.name.cmp(&b.name)).then(a.id.cmp(&b.id)));
+    out
+}
+
+/// The search terms of `help`: a `"quoted phrase"` is one term, other words one each.
+/// Lower case: the search is not case sensitive.
+pub fn query_terms(text: &str) -> Vec<String> {
+    words(text).into_iter().map(|w| w.trim_matches('"').to_lowercase()).filter(|w| !w.is_empty()).collect()
+}
+
+/// Whether every term is in the record's name or Editor ID. An Editor ID has no spaces, so
+/// a phrase matches it with its spaces left out (`varmint rifle` finds `WeapNVVarmintRifle`).
+pub fn matches(f: &Found, terms: &[String]) -> bool {
+    let name = f.name.as_deref().map(str::to_lowercase).unwrap_or_default();
+    let edid = f.edid.as_deref().map(str::to_lowercase).unwrap_or_default();
+    terms.iter().all(|t| name.contains(t.as_str()) || edid.contains(&t.replace(' ', "")))
+}
+
+fn matching_functions(table: &fnv_script::FunctionTable, terms: &[String]) -> Vec<String> {
+    let has = |n: &str, t: &str| n.to_lowercase().contains(&t.replace(' ', ""));
+    let mut v: Vec<String> = table.functions.values().filter(|f| terms.iter().all(|t| has(&f.name, t) || f.aliases.iter().any(|a| has(a, t)))).map(|f| f.name.clone()).collect();
+    v.sort_unstable();
+    v
+}
+
+fn print_records(c: &mut Console, ix: &[Found], terms: &[String], asked: &str) {
+    let hits: Vec<&Found> = ix.iter().filter(|f| matches(f, terms)).collect();
+    if hits.is_empty() {
+        c.print(format!("No record named like {asked}"));
+        return;
+    }
+    c.print(format!("{} record(s) match {asked}:", hits.len()));
+    for f in hits.iter().take(HELP_RECORDS) {
+        let name = f.name.as_deref().map(|n| format!(" \"{n}\"")).unwrap_or_default();
+        c.print(format!("{} {} {}{name}", f.id, String::from_utf8_lossy(&f.sig), f.edid.as_deref().unwrap_or("-")));
+    }
+    if hits.len() > HELP_RECORDS {
+        c.print(format!("... {} more: narrow the search (\"a phrase\", or more words)", hits.len() - HELP_RECORDS));
+    }
+}
+
+/// The index came in: answer the searches that waited for it.
+fn search_ready(mut index: ResMut<SearchIndex>, mut c: ResMut<Console>) {
+    let got = index.building.as_ref().and_then(|rx| rx.lock().ok().and_then(|r| r.try_recv().ok()));
+    let Some(all) = got else { return };
+    index.building = None;
+    for q in std::mem::take(&mut index.waiting) {
+        print_records(&mut c, &all, &query_terms(&q), &q);
+    }
+    index.ready = Some(all);
+}
+
 // ---- the script side: run in the script frame (`crate::script::run_scripts`) ----
 
 /// Split a line into words; `"…"` keeps spaces, commas separate as spaces do.
@@ -602,13 +741,9 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
         _ => (None, first.clone()),
     };
     let args = &w[1..];
-    match func.to_ascii_lowercase().as_str() {
-        "help" => return Ok(help(rt, &args.join(" "))),
-        "prid" => {
-            let r = form(rt, args.first().ok_or("prid <reference>")?)?;
-            return Ok(ConsoleReply { lines: Vec::new(), select: Some(r.0) });
-        }
-        _ => {}
+    if func.eq_ignore_ascii_case("prid") {
+        let r = form(rt, args.first().ok_or("prid <reference>")?)?;
+        return Ok(ConsoleReply { lines: Vec::new(), select: Some(r.0) });
     }
     let g = &mut rt.game;
     let opcode = g.data.table.by_name(&func).ok_or_else(|| format!("Script command \"{func}\" not found."))?;
@@ -679,37 +814,6 @@ fn enum_code(g: &fnv_game::Game, e: &str, a: &str) -> Result<u16, String> {
     g.data.table.enums.get(e).and_then(|m| m.iter().find(|(_, n)| squash(n) == want).map(|(&c, _)| c)).ok_or_else(|| format!("no {e} named {a:?}"))
 }
 
-/// `help [text]`: the functions, then the forms, whose name contains the text.
-fn help(rt: &Runtime, text: &str) -> ConsoleReply {
-    let g = &rt.game;
-    let want = text.trim().to_ascii_lowercase();
-    let mut lines = Vec::new();
-    if want.is_empty() {
-        lines.push("A line is a script function: [reference.]Function argument ...  e.g. player.additem 0000000F 100".to_string());
-        lines.push("Console: help <text>, prid <ref>, coc <cell>, tgm, cls. Click something to select it; calls without a reference run on it.".to_string());
-        return ConsoleReply { lines, select: None };
-    }
-    let mut funcs: Vec<&str> = g.data.table.functions.values().filter(|f| f.name.to_ascii_lowercase().contains(&want) || f.aliases.iter().any(|a| a.to_ascii_lowercase().contains(&want))).map(|f| f.name.as_str()).collect();
-    funcs.sort_unstable();
-    let more = funcs.len().saturating_sub(HELP_MAX);
-    if !funcs.is_empty() {
-        lines.push(format!("Functions: {}{}", funcs.iter().take(HELP_MAX).copied().collect::<Vec<_>>().join(", "), if more > 0 { format!(" (+{more})") } else { String::new() }));
-    }
-    let mut forms: Vec<(FormId, &String)> = g.data.edid_of.iter().filter(|(_, e)| e.to_ascii_lowercase().contains(&want)).map(|(f, e)| (*f, e)).collect();
-    forms.sort_unstable();
-    for (f, e) in forms.iter().take(HELP_MAX) {
-        let sig = g.data.sigs.get(f).map(|s| String::from_utf8_lossy(s).to_string()).unwrap_or_default();
-        lines.push(format!("{f} {sig} {e}"));
-    }
-    if forms.len() > HELP_MAX {
-        lines.push(format!("... {} more forms", forms.len() - HELP_MAX));
-    }
-    if lines.is_empty() {
-        lines.push(format!("Nothing named like {text:?}"));
-    }
-    ConsoleReply { lines, select: None }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -719,6 +823,23 @@ mod tests {
         assert_eq!(words("player.additem 0000000F, 100"), ["player.additem", "0000000F", "100"]);
         assert_eq!(words("ShowMessage \"two words\" 3"), ["ShowMessage", "\"two words\"", "3"]);
         assert!(words("   ").is_empty());
+    }
+
+    #[test]
+    fn help_matches_names_and_editor_ids_without_case_and_phrases_narrow() {
+        let rifle = Found { id: FormId(1), sig: *b"WEAP", edid: Some("WeapNVVarmintRifle".into()), name: Some("Varmint Rifle".into()) };
+        let ammo = Found { id: FormId(2), sig: *b"AMMO", edid: Some("Ammo556mm".into()), name: Some("5.56mm Round (Varmint)".into()) };
+        assert_eq!(query_terms("VARMINT"), ["varmint"]);
+        assert_eq!(query_terms("\"varmint rifle\""), ["varmint rifle"]);
+        assert!(matches(&rifle, &query_terms("varmint")) && matches(&ammo, &query_terms("Varmint")));
+        assert!(matches(&rifle, &query_terms("\"varmint rifle\"")));
+        assert!(!matches(&ammo, &query_terms("\"varmint rifle\"")));
+        // By Editor ID: the phrase without its spaces.
+        let by_edid = Found { name: None, ..rifle.clone() };
+        assert!(matches(&by_edid, &query_terms("\"Varmint Rifle\"")));
+        // Several words: all must be there, in any order.
+        assert!(matches(&ammo, &query_terms("round varmint")));
+        assert!(!matches(&rifle, &query_terms("round varmint")));
     }
 
     #[test]

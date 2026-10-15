@@ -46,7 +46,7 @@ Console commands of its own:
 | Command | What it does |
 |---|---|
 | `help` | how lines are written |
-| `help <text>` | functions, then forms (FormID, record type, Editor ID), whose name contains the text |
+| `help <text>` | search every record: functions, then records (FormID, record type, Editor ID, name) whose name or Editor ID contains the text; see below |
 | `prid <reference>` | select the reference |
 | `coc <cell>` | travel to the cell's COC spot (`player::safe::cell_spot`: COCMarkerHeading, else XMarker, else a door arrival); interior or exterior cell by Editor ID or FormID |
 | `tgm` | god mode on or off (`combat::god_mode`, also the settings page's Developer switch) |
@@ -54,6 +54,23 @@ Console commands of its own:
 
 Not built: `tcl` (no clipping), `set … to`, variables, several statements on a line,
 `qqq`, saving and loading.
+
+## Searching records: `help`
+
+`help <text>` searches every record of the load order, not case sensitive:
+
+- `help varmint`: every record whose name (FULL) or Editor ID contains "varmint".
+- `help "varmint rifle"`: a quoted phrase is one term, so the search narrows to that
+  phrase. An Editor ID has no spaces, so the phrase also matches it with its spaces left
+  out (`WeapNVVarmintRifle`).
+- Several unquoted words must all be there, in any order (`help round varmint`).
+
+Placed references (REFR, ACHR, ACRE and the other placed types) are searched only when
+they have an Editor ID (`SunnyRef`), so the search does not read every reference. The
+index (Editor ID and FULL of each winning record) is read on a thread the first time
+the console opens; a search asked before it is ready is answered when it is. Matches
+are listed by record type, then name: up to 200 of them, with a count of the rest.
+Matching script functions are listed first.
 
 ## Selecting by clicking
 

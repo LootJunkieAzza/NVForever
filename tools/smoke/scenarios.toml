@@ -1909,9 +1909,9 @@ name = "console"
 source = "owner 2026-10-15: the ` key opens a console that runs script functions and selects what is clicked (docs/design/console.md)"
 areas = ["console", "scripts"]
 paths = ["engine/nvf-play/src/console.rs"]
-env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:help stimpak;11:player.additem Stimpak 3;12:player.getitemcount Stimpak;13:player.getav health;14:click 0.5 0.5;15:prid SunnyRef;16:getav health;17:tgm;18:frobnicate 3;19:player.additem 00015169 2;20:player.additem f 50;21:player.getitemcount Stimpak;22:player.getitemcount 0x0000000F;23:close" }
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:help stimpak;11:player.additem Stimpak 3;12:player.getitemcount Stimpak;13:player.getav health;14:click 0.5 0.5;15:prid SunnyRef;16:getav health;17:tgm;18:frobnicate 3;19:player.additem 00015169 2;20:player.additem f 50;21:player.getitemcount Stimpak;22:player.getitemcount 0x0000000F;22.5:help VARMINT;23:help \"varmint rifle\";24:close" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
-run_seconds = 28
+run_seconds = 29
 expect = [
   "console: open",
   { re = 'console: 0x[0-9A-F]{8} ALCH Stimpak', label = "help lists the Stimpak" },
@@ -1927,5 +1927,9 @@ expect = [
   { re = 'console: Script command "frobnicate" not found', label = "an unknown command says so" },
   { re = 'console: GetItemCount on player >> (1[0-9]|[2-9]\d)\.', label = "two more Stimpaks by FormID without 0x (00015169)" },
   { re = 'console: GetItemCount on player >> ([5-9]\d|\d{3,})\.', label = "caps added by a short FormID (f)" },
+  { re = 'console: search index of \d+ records', label = "every record read for the search" },
+  { re = 'console: \d+ record\(s\) match VARMINT:', label = "help is not case sensitive" },
+  { re = 'console: \d+ record\(s\) match "varmint rifle":', label = "a quoted phrase is searched" },
+  { re = 'console: 0x[0-9A-F]{8} WEAP \S+ "Varmint Rifle"', label = "the Varmint Rifle by its name" },
   "console: close",
 ]
