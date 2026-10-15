@@ -436,6 +436,12 @@ fn is_actor(refs: &RefTable, id: FormId) -> bool {
 }
 
 impl Residents {
+    /// Whether actors standing or walking inside each other are moved apart
+    /// (`fnv_ai::apart`; `--actors-pass-through` switches it off).
+    pub fn set_keep_apart(&mut self, on: bool) {
+        self.core.ai.cfg.keep_apart = on;
+    }
+
     /// Whether the AI runs this reference (it turns and moves its body).
     pub fn runs(&self, reference: u32) -> bool {
         self.core.ai.agents.contains_key(&FormId(reference))
@@ -816,6 +822,11 @@ impl Core {
         self.physics[0] += moved[0];
         self.physics[1] += moved[1];
         self.physics[2] = self.physics[2].max(moved[0]);
+        // Nobody stands inside anybody else (fnv_ai::apart): those the character
+        // controller walks, and those on furniture, are kept clear of but not moved.
+        let mut fixed = held.clone();
+        fixed.extend(phys.as_deref().into_iter().flat_map(|p| p.npcs.keys().copied()));
+        self.ai.keep_apart(game, &nav.graph, dt, &fixed);
         // Hellos to the player and random conversations.
         self.ai.social(game, &nav.graph, dt);
         // No character is kept for an actor that is not on its way.

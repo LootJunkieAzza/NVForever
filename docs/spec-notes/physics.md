@@ -1916,6 +1916,15 @@ on it]. What the engine does is [design]:
   (their ragdoll's bodies are in the world), and neither have perched birds (creatures
   that cannot walk and have the Flies flag, the ravens outside Doc Mitchell's house;
   `ActorBlocks::in_nobodys_way`, actor-behaviour.md §5.8) [engineering choice, 2026-10-11].
+- **Actors kept apart** (2026-10-15, owner: NPCs walked through each other and two
+  took the same spot). The navmesh walker meets nobody, and it walks the last stretch
+  to every place, every actor away from the player and any the controller gave up on.
+  After each AI update, two living actors standing or walking closer than 18 units each
+  (36 between them) are moved apart, at most 80 units a second, along the navmesh (not
+  off it): half the way each, or all of it for the one that may move when the other is
+  walked by the character controller or rooted. Actors on furniture are left out. One
+  within 52 units of its path's end that touches another counts as arrived and stands
+  beside it. `fnv_ai::apart`; `--actors-pass-through` switches it off [design].
 - **Characters are blocks too** (2026-10-10). An actor the character controller walks
   (`PhysState::npcs`) has its block where its character is, and so has the player for
   those actors; these blocks are made anew every fixed step (`nvf_play::player`), and

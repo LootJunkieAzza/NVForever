@@ -38,11 +38,14 @@ pub struct AiConfig {
     /// How long an unreachable package is set aside, game hours [our choice].
     pub retry_hours: f32,
     pub params: PathParams,
+    /// Actors standing or walking inside each other are moved apart ([`Ai::keep_apart`],
+    /// `crate::apart`) [design].
+    pub keep_apart: bool,
 }
 
 impl Default for AiConfig {
     fn default() -> Self {
-        AiConfig { walk_speed: 86.8, run_speed: 344.0, arrive: 32.0, retry_hours: 1.0, params: PathParams::default() }
+        AiConfig { walk_speed: 86.8, run_speed: 344.0, arrive: 32.0, retry_hours: 1.0, params: PathParams::default(), keep_apart: true }
     }
 }
 

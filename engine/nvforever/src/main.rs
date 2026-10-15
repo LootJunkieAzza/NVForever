@@ -396,6 +396,10 @@ struct Args {
     /// TimeScale is 30).
     #[arg(long, default_value_t = 30.0, requires = "npc_packages")]
     npc_timescale: f32,
+    /// NPCs and creatures may stand and walk inside each other (by default two that
+    /// overlap are moved apart; fnv_ai::apart).
+    #[arg(long)]
+    actors_pass_through: bool,
     /// Draw the navmesh near the camera and the travellers' paths.
     #[arg(long)]
     show_navmesh: bool,
@@ -723,7 +727,10 @@ fn main() -> AppExit {
         let rate = if sky_state.time_scale > 0.0 { sky_state.time_scale as f64 } else { args.npc_timescale.max(0.0) as f64 / 3600.0 };
         let clock = residents::Clock { hour: sky_state.hour, days_passed: sky_state.days_passed, rate };
         match residents::Residents::build(&world, &npc_packages, clock, args.npc_speed, args.play) {
-            Ok(r) => Some(r),
+            Ok(mut r) => {
+                r.set_keep_apart(!args.actors_pass_through);
+                Some(r)
+            }
             Err(e) => return fail(e),
         }
     };

@@ -36,8 +36,9 @@
 //! player stands still on the ground (`crate::player`). An actor on furniture, asleep
 //! or on its way is not pushed.
 //!
-//! Not done: an actor that walks on the navmesh surface (no character) is not stopped
-//! by anyone and pushes no one; two actors that both walk do not push each other.
+//! Not here: an actor that walks on the navmesh surface (no character) is not stopped
+//! by a block and pushes no one; actors are kept out of each other afterwards
+//! (`fnv_ai::apart`, run by `nvforever`'s residents; `--actors-pass-through` off).
 
 use crate::hitvol::PartSegment;
 use bevy::prelude::*;
