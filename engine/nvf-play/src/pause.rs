@@ -8,7 +8,9 @@
 //! settings pages and its quit question, C:\fnv-private\Pause Menu; start_menu.xml]: the
 //! pause screen over the held world, the column of entries at the right (Continue, Save,
 //! Load, Settings, Quit; the original's Help is left out), the highlight box round the
-//! chosen one. A page opened from the column dims the column but for its own entry.
+//! chosen one. A page opened from the column dims the column but for its own entry; a
+//! click on that entry again closes the page (back to the column), and a click on Quit
+//! while its question is up cancels it [owner 2026-10-16: the entries toggle their page].
 //! Up/Down choose, Enter or Space take, a click takes, the pointer chooses the entry it
 //! moves onto; Esc resumes; N saves, L opens the load page, S the settings, Q the quit
 //! question.
@@ -230,6 +232,16 @@ impl Page {
         match self {
             Page::Main | Page::Load { .. } => None,
             Page::Settings { selected } => Some(selected),
+        }
+    }
+
+    /// Whether `label`, an entry of the column, is the one this page stands for: a click
+    /// on it closes the page again [owner 2026-10-16].
+    fn opened_by(self, label: &str) -> bool {
+        match self {
+            Page::Main => false,
+            Page::Settings { .. } => label.starts_with("Settings"),
+            Page::Load { .. } => label.starts_with("Load"),
         }
     }
 }
@@ -955,12 +967,17 @@ fn choose(
     if act("defaults") && matches!(*page, Page::Settings { .. }) {
         clicked = Some(PauseButton::Defaults);
     }
-    // A click on the column's entry of another page, or on a category.
+    // A click on the column's entry of another page (the page's own entry closes it), or
+    // on a category.
     match clicked {
         Some(PauseButton::Column(i)) if !under_main && *page != Page::Main => {
+            let closes = ENTRIES.get(i).is_some_and(|e| page.opened_by(e.label()));
             *page = Page::Main;
             view.main_selected = i;
-            if ENTRIES.get(i).is_some_and(|e| matches!(e, Entry::Load | Entry::Settings)) {
+            if closes {
+                info!("pause menu: {} again, back to the column", ENTRIES[i].label());
+                clicked = None;
+            } else if ENTRIES.get(i).is_some_and(|e| matches!(e, Entry::Load | Entry::Settings)) {
                 clicked = Some(PauseButton::Column(i));
             } else {
                 clicked = None;
@@ -969,6 +986,10 @@ fn choose(
         Some(PauseButton::Column(i)) if under_main => {
             let label = main_menu.as_ref().and_then(|m| m.column().get(i).map(|c| c.0));
             match label {
+                Some(l) if page.opened_by(l) => {
+                    info!("pause menu: {l} again, back to the main menu");
+                    *page = Page::Main;
+                }
                 Some(l) if l.starts_with("Load") => *page = Page::Load { selected: 0 },
                 Some(l) if l.starts_with("Settings") => *page = Page::Settings { selected: 0 },
                 _ => {}
@@ -1006,6 +1027,9 @@ fn choose(
                 take = Some(2);
             } else if let Some(PauseButton::Confirm(i)) = clicked {
                 take = Some(i);
+            } else if matches!(clicked, Some(PauseButton::Column(i)) if ENTRIES.get(i) == Some(&Entry::Quit)) {
+                // Quit again: as Cancel.
+                take = Some(2);
             } else if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) || act("up") {
                 view.confirm = Some(step_row(sel, -1, CONFIRM.len()));
             } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) || act("down") {
@@ -1284,6 +1308,17 @@ mod tests {
         assert_eq!(step_category(&list, 1, 1), 2);
         assert_eq!(step_category(&list, 5, 1), 0);
         assert_eq!(step_category(&list, 0, -1), 5);
+    }
+
+    #[test]
+    fn a_page_is_closed_by_its_own_entry() {
+        // The pause menu's labels and the main menu's ("Load Game").
+        assert!(Page::Settings { selected: 3 }.opened_by("Settings"));
+        assert!(Page::Load { selected: 0 }.opened_by("Load"));
+        assert!(Page::Load { selected: 0 }.opened_by("Load Game"));
+        assert!(!Page::Load { selected: 0 }.opened_by("Settings"));
+        assert!(!Page::Settings { selected: 0 }.opened_by("Load Game"));
+        assert!(!Page::Main.opened_by("Settings"));
     }
 
     #[test]
