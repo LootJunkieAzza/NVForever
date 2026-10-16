@@ -54,18 +54,40 @@ Console commands of its own:
 | `tgm` | god mode on or off while no script runs (with scripts running it is ToggleGodMode, below) |
 | `cls`, `clear` | empty the scrollback |
 
-Not built: `set … to`, variables, several statements on a line, `qqq`.
+## Console-only functions
 
-## Console functions without an opcode
+About a hundred functions of the catalogue are console-only and have no opcode (they are
+never compiled into a script); the function table numbers them from
+`fnv_script::table::CONSOLE_OPCODE_BASE` (0xF000) in name order. The ones below, which
+print, are registered by catalogue name in `crates/fnv-game/src/functions/console.rs` (a
+test checks each name against `schemas/script/functions.json`) and run with the line's
+words. A command takes the
+line's words and prints lines; what only the engine can do (travel, quit, menus, saving)
+it asks through `Game::console_requests`, which the console carries out. Wording is ours. A function the table has as a stub answers
+`<Function>: not built (<system>)` instead of its 0.
 
-`functions.json` lists the console-only functions (ToggleCollision, ToggleGrass, …)
-without an opcode [documented: the catalogue has none for them; compiled scripts never
-hold them]. The function table (`fnv_script::table`) gives each of them a number from
-`CONSOLE_OPCODE_BASE` (`0xF000`) up, in case-insensitive name order: ours, not the
-game's, never written anywhere. fnv-game registers their implementations by catalogue name
-(`functions::console_registry`, checked against the catalogue by a test), and
-`Game::call_function` dispatches such a number by the function's name. A function the table
-has as a stub answers `<Function>: not built (<system>)` instead of its 0.
+| Command (alias) | What it does |
+|---|---|
+| `ShowQuests` (`sq`) | running quests: FormID, Editor ID, name, stage; a count of finished ones |
+| `ShowQuestTargets` (`sqt`) | each target of the active quest's objectives shown and not done: target reference, cell, position, and for a target indoors the door outdoors leading to it. Active quest: the Pip-Boy's; with none, every running quest with such an objective [hypothesis] |
+| `MoveToQuestTarget [n]` (`movetoqt`) | travel, as `coc` does, to the `n`-th target `sqt` lists (the first without `n`), arriving at the target's position [hypothesis] |
+| `ShowQuestStages <quest>` (`sqs`) | running/completed, the stage, and every stage the quest defines with done or not |
+| `ShowQuestVars <quest>` (`sqv`) | every variable the quest script declares, with its value |
+| `ShowVars [ref]` (`sv`) | the same for the selected reference's script (or the one named) |
+| `CompleteAllQuestStages` (`caqs`) | every stage of every quest marked done; stage result scripts are not run and quests are not completed [hypothesis] |
+| `ShowInventory` (`inv`) | the selected reference's items (the player without one; `player.inv`): count, FormID, Editor ID, name, equipped, condition |
+| `GetActorValueInfo <av>` (`getavinfo`) | an actor value on the selected actor (the player without one): now = base + modifier − damage |
+| `PickRefByID <ref>` (`prid`) | select the reference |
+| `SetGameSetting <gmst> <value>` (`setgs`), `SetStringSetting` | change a game setting for this run, of its own kind (`f`, `i`, `s`). The game layer reads it (`World::setting_f32`, `GetGameSetting`); values the engine read at start do not change, and it is not saved [hypothesis] |
+| `CloseAllMenus` (`cam`) | closes the console (it opens only when no other menu is open) |
+| `QuitGame` (`qqq`) | exit |
+| `SaveGame <name>` (`save`), `LoadGame [name]` (`load`) | as the console's own `save` / `load` |
+| `set <var> to <value>` | `set quest.var to 5`, `set ref.var to 5`, `set Global to 5`, or `set var to 5` on the selected reference's script; a number or a form; stored as a script's `set` stores it |
+
+Not built: `GetINISetting` / `SetINISetting` (the engine keeps no store of the original's
+INI values; they are constants in the code that uses them: the commands say so), the
+other console-only functions not listed here or in the camera/toggle tables,
+several statements on a line.
 
 ## World and render toggles
 

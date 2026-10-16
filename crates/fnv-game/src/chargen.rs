@@ -38,7 +38,7 @@ pub const NAME_MAX_CHARS: usize = 24;
 
 /// A string game setting.
 fn setting_str(g: &Game, name: &str) -> Option<String> {
-    match g.world.forms.settings.get(&name.to_ascii_lowercase())? {
+    match g.world.setting_value(name)? {
         fnv_sim::settings::Setting::Str(s) => Some(s.clone()),
         _ => None,
     }
@@ -294,7 +294,7 @@ impl TraitSheet {
         let mut traits: Vec<FormId> = g.data.perks.iter().filter(|(_, p)| p.is_trait && p.playable && !p.hidden).map(|(&id, _)| id).collect();
         traits.sort_by_key(|id| (g.data.perks[id].name.to_lowercase(), *id));
         let chosen = traits.iter().copied().filter(|t| g.player.perks.contains_key(t)).collect();
-        let max = g.world.forms.setting_f32("iTraitMenuMaxNumTraits").map_or(DEFAULT_MAX_TRAITS, |v| v.max(0.0) as usize);
+        let max = g.world.setting_f32("iTraitMenuMaxNumTraits").map_or(DEFAULT_MAX_TRAITS, |v| v.max(0.0) as usize);
         TraitSheet { traits, chosen, max }
     }
 
