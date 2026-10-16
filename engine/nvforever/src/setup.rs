@@ -74,6 +74,7 @@ pub fn game_install(cli: Option<&Path>) -> Result<GameInstall, String> {
     Ok(game)
 }
 
+#[cfg(windows)]
 const INTRO: &str = "Welcome to NVForever.\n\n\
     NVForever runs on your own copy of Fallout: New Vegas and only reads its files; it never \
     changes the game's folder.\n\n\
