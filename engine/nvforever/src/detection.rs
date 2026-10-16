@@ -25,8 +25,8 @@
 //!   the game's; whether it should show the player is undecided].
 //! - **Moving and running**: from how far an actor went since the last measurement
 //!   [engineering choice]; the player runs when moving at the run gait (not holding Walk)
-//!   [hypothesis: a sneaking run counts as running]. Actors never sneak (packages' Always
-//!   Sneak is not acted on yet).
+//!   [hypothesis: a sneaking run counts as running]. Other actors sneak while
+//!   `Game::sneaks` says so (SetForceSneak, a package's Always Sneak; `sneaking.rs`).
 //! - **Turning** (IsTurning): the heading changed by more than [`TURN_RATE`] per second
 //!   since the last measurement, left or right [hypothesis: the game's threshold is not
 //!   documented].
@@ -399,7 +399,7 @@ fn measure(
             forward: Some([flat.x, flat.y]),
             moving: speed > MOVING_SPEED,
             running: speed > RUNNING_SPEED,
-            sneaking: false,
+            sneaking: rt.game.sneaks(FormId(rig.reference)),
             turning: turning(rig.reference, flat.x.atan2(flat.y), &mut state.headings),
         });
     }

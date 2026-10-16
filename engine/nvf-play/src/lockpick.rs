@@ -353,7 +353,7 @@ fn open(
     mut script: Option<ResMut<ScriptState>>,
     aid: Res<LockpickAid>,
     time: AidTime,
-    (mut stats, mut hud, mut sounds, bindings): (ResMut<LockpickStats>, ResMut<crate::activate::HudMessage>, MessageWriter<UiSound>, Res<Bindings>),
+    (mut stats, mut corner, mut sounds, bindings): (ResMut<LockpickStats>, Option<ResMut<crate::corner_messages::CornerMessages>>, MessageWriter<UiSound>, Res<Bindings>),
 ) {
     let Some(asked) = requests.read().last().copied() else { return };
     stats.asked += 1;
@@ -378,7 +378,10 @@ fn open(
             stats.refused += 1;
             let line = refusal_line(r);
             info!("lockpick: {reference} {name} refused (Lockpick {skill:.0}): on screen: {line:?}");
-            hud.show(line);
+            // A top-left corner message (owner, list 5 item 45).
+            if let Some(c) = corner.as_deref_mut() {
+                c.push(line.into());
+            }
             sounds.write(UiSound { menu: UiMenu::Lockpick, event: UiEvent::Refused });
         }
         Opening::Pick { level, skill, pins } => {

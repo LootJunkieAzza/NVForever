@@ -48,6 +48,15 @@
 //!   the fight (running from it) is not built (combat-ai.md §11, "Avoiding threats out of
 //!   combat") [design: Unaggressive alone does not keep a helper out; the wiki's
 //!   Unaggressive only says whom an actor might avoid].
+//! - **A danger to itself** [design: owner's playtest list 5 item 35, "Sunny and her dog
+//!   should fight as soon as the geckos aggro on the player"]: an actor that detects an
+//!   attacker fighting the player or itself, where that attacker would attack it too
+//!   (Very Aggressive geckos attack everyone), takes up the fight against it at once, as
+//!   if helping the attacked one, instead of waiting to be hit. Not cowards, not actors
+//!   whose package is Defensive Combat, not against an ally or friend of its own. Fights
+//!   between other actors are left to assistance and alarms (above, and
+//!   `crate::combat_group`): with this rule there too, every NCR trooper near Cook-Cook's
+//!   camp took the fight up on its own and fewer alarmed the others.
 //!
 //! A grudge ends when its holder goes back to Normal, on StopCombat, and on an accepted
 //! yield. Hits by actors other than the player go to `Game::attacked_by_actor`
@@ -416,8 +425,55 @@ impl Game<'_> {
                 }
             }
         }
+        joined += self.join_against_dangers();
         // The player's teammates take up the player's fights (`crate::followers`).
         joined + self.teammates_assist()
+    }
+}
+
+impl Game<'_> {
+    /// Actors that detect an attacker which would attack them too join the fight against
+    /// it (module notes, "A danger to itself"). Returns how many joined.
+    fn join_against_dangers(&mut self) -> usize {
+        // Who fights whom: each attacker in a combat state and its targets.
+        let fights: Vec<(FormId, FormId)> = self
+            .awareness
+            .actors
+            .iter()
+            .filter(|(_, a)| a.state == State::Combat)
+            .flat_map(|(id, a)| a.targets.keys().map(move |t| (*id, *t)))
+            .collect();
+        let mut joined = 0;
+        for (attacker, victim) in fights {
+            let Some(at) = self.world.peek(attacker).map(|s| s.pos).or_else(|| self.world.placed.get(attacker).map(|p| p.pos)) else { continue };
+            let watchers: Vec<FormId> = self.detection.pairs.iter().filter(|((_, t), (d, _))| *t == attacker && d.band == Band::Detected).map(|((w, _), _)| *w).collect();
+            for helper in watchers {
+                // Another actor's fight counts only when it is the watcher's own.
+                if victim != FormId::PLAYER_REF && helper != victim {
+                    continue;
+                }
+                if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.awareness.state(helper) == State::Combat {
+                    continue;
+                }
+                if self.provocations.holds(helper, attacker) || self.would_attack(helper, attacker) || !self.would_attack(attacker, helper) {
+                    continue;
+                }
+                if matches!(self.reaction_to(helper, attacker), ALLY | FRIEND) || self.stays_out(helper, attacker) || self.package_has(helper, crate::package::flags::DEFENSIVE_COMBAT) {
+                    continue;
+                }
+                let now = self.time;
+                // Gone for itself: as if attacked; else as helping the one attacked.
+                let why = if victim == helper { Why::Assault } else { Why::Assist { victim } };
+                self.provocations.grudges.insert((helper, attacker), Grudge { why, since: now });
+                self.provocations.notes.push(Note::Assists { helper, victim, attacker });
+                // It noticed the danger itself, so it alarms its own allies in turn
+                // (`crate::combat_group`, which passes on no alarm from an ally).
+                let t = self.awareness.timers.unwrap_or_default();
+                self.awareness.actors.entry(helper).or_default().alarm(attacker, at, 0.0, Cause::Noticed, now, &t);
+                joined += 1;
+            }
+        }
+        joined
     }
 }
 

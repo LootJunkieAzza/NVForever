@@ -168,7 +168,13 @@ the view's height, from the top left of a 1024 × 800 rectangle centred on the s
 
 - The world behind is not blurred (the original blurs it); the dark picture is 0.4 alpha
   [observed: 33 against 54 brightness inside and just outside it].
-- Sounds (`UIMenuPrevNext`, `UIMenuOK`, `UIMenuFocus`) are not played.
+- Sounds (list 5 items 41, 42; `nvf_play::ui_sounds`, menus `tag skills` and `traits`):
+  the chosen row moving and the pointer onto Reset or Done `UIMenuFocus`, a row taken or
+  given back `UIMenuPrevNext`, a row refused `UIMenuCancel`, Reset `UIMenuCancel`, Done
+  `UIMenuOK`. The files silence the rows (CGM_SelectItem, LUM_SkillItem `&nosound;`)
+  [observed]; the owner wants them, so the rows take the template's pointer sound and
+  the trait file's perk-row click (LUM_Perk `UIMenuPrevNext`) [design]; Done's click
+  and the text boxes' pointer sound are the files' [observed]; Reset's is [design].
 - The keys besides the hints, Reset's meaning, the counters' other wordings, a trait the
   player cannot take, the name's length limit: [hypothesis], listed in
   docs/owner-review.md.

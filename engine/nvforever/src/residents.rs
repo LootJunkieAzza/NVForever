@@ -40,6 +40,10 @@
 //! along its path and physics decides where it ends up, so it goes round furniture and
 //! follows the floor. Stuck for a few seconds, or anywhere else (other cells, other
 //! spaces, without `--play`), it moves on the navmesh surface (`fnv_nav::Walker`).
+//!
+//! **Load doors** (`door_fade.rs`): an actor that goes through a door into another space
+//! fades out at it and in at the other side, and the doors' open sounds play where the
+//! listener is drawn (owner's playtest list 5 item 3).
 
 use crate::actors::ActorWorld;
 use crate::furniture::{GetUp, LeaveNow, OnFurniture, SitOn};
@@ -308,6 +312,12 @@ struct Resident {
     /// It cannot walk and its base has the Flies flag: a perched bird, in nobody's way
     /// ([`flies`]).
     perched: bool,
+    /// The space its walker was in at the last frame (the space of a door it has just
+    /// gone through).
+    last_space: Option<Space>,
+    /// The heading it is drawn with while it fights on the move, facing its target
+    /// (`Core::aims`), until it is back on the walker's.
+    aim_heading: Option<f32>,
 }
 
 /// ACBS flag bit 5, "Flies" [documented: xEdit wbDefinitionsFNV.pas CREA ACBS, schema
@@ -407,6 +417,12 @@ struct Core {
     /// Actors playing a hit reaction (the stagger of a crippled limb, `deaths.rs`) this
     /// frame: they stand until it ends (owner's playtest list 4 item 21) [design].
     staggering: HashSet<u32>,
+    /// Load doors used since the last frame: actor, door, the door it leads to.
+    door_uses: Vec<(FormId, u32, u32)>,
+    /// People in Combat on their way somewhere (closing in, to cover, a flank): where
+    /// their target is. They are drawn facing it and step sideways or back as they go,
+    /// so they can fire on the move (owner's playtest list 5 item 33) [design].
+    aims: HashMap<FormId, [f32; 3]>,
 }
 
 #[derive(Resource)]
@@ -480,6 +496,8 @@ impl Residents {
             standing_by: [0; 5],
             held_now: false,
             staggering: HashSet::new(),
+            door_uses: Vec::new(),
+            aims: HashMap::new(),
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -596,6 +614,8 @@ impl Core {
             rooted: (&placed.sig != b"ACRE").then_some(false),
             perched: false,
             moved: false,
+            last_space: None,
+            aim_heading: None,
         });
     }
 
@@ -840,7 +860,20 @@ impl Core {
         if own {
             game.events.clear();
         }
+        // Packages' door flags (`fnv_game::ai`).
+        for (actor, package, locked, n) in std::mem::take(&mut game.package_door_notes) {
+            info!("ai [{}] {}: {} {n} doors of its cell ({})", self.clock_text, game.data.name(actor), if locked { "locks" } else { "unlocks" }, game.data.name(package));
+        }
         self.tell(game, world);
+        // Fighters on the move face their target.
+        self.aims.clear();
+        for r in self.list.iter().filter(|r| !r.creature) {
+            let Some(a) = self.ai.agents.get(&r.actor).filter(|a| a.activity == Activity::Travelling) else { continue };
+            let Some((target, _)) = game.awareness.get(r.actor).filter(|x| x.state == fnv_game::awareness::State::Combat).and_then(|x| x.combat_target()) else { continue };
+            if let Some(p) = fnv_ai::goal::place_of_ref(game, target).filter(|p| p.space == a.walker.space) {
+                self.aims.insert(r.actor, p.pos);
+            }
+        }
         self.no_room.retain(|_, until| now < *until);
         self.note(game, blocks, &held, now);
     }
@@ -887,6 +920,7 @@ impl Core {
                 AiEvent::Chat { .. } => self.social[1] += 1,
                 AiEvent::ChatApproach { .. } => self.social[2] += 1,
                 AiEvent::ChatGaveUp { .. } => self.social[3] += 1,
+                AiEvent::Door { door, to_door } => self.door_uses.push((e.actor, door.0, to_door.0)),
                 AiEvent::Sandbox { doing, .. } => {
                     self.sandbox[match doing {
                         Doing::Standing => 0,
@@ -927,7 +961,8 @@ impl Core {
                 | AiEvent::FleeArrived { .. }
                 | AiEvent::Cornered { .. }
                 | AiEvent::SearchOver { .. }
-                | AiEvent::SearchBack { .. } => info!("{line}"),
+                | AiEvent::SearchBack { .. }
+                | AiEvent::BackHome { .. } => info!("{line}"),
                 _ => debug!("{line}"),
             }
         }
@@ -1101,6 +1136,10 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::Cornered { from } => format!("is cornered by {}: nowhere to flee, stands", if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
+        AiEvent::BackHome { away, length } => format!(
+            "has no package: walks back to where it was placed, {} off, {length:.0} units to go",
+            if away.is_finite() { format!("{away:.0} units") } else { "in another space".to_string() }
+        ),
     }
 }
 
@@ -1147,6 +1186,7 @@ pub fn drive(
     mut doors: ResMut<nvf_play::doors::Doors>,
     (script, sim, mut phys, mut blocks): PlayState,
     (seated, hours, flinches): Held,
+    (mut door_fades, mut door_sounds): (ResMut<crate::door_fade::DoorFades>, MessageWriter<nvf_play::world_sounds::DoorPassed>),
 ) {
     // Hours passed in the Wait menu since the last frame (`--play` only: without it
     // there is no menu and no such message).
@@ -1206,6 +1246,27 @@ pub fn drive(
         _ => return,
     }
     let core = &mut res.core;
+    // Load doors used: the doors' sounds where the listener is, the body left at the door
+    // fades out, the one drawn at the other side fades in (`door_fade.rs`).
+    for (actor, door, to_door) in std::mem::take(&mut core.door_uses) {
+        let Some(r) = core.list.iter_mut().find(|r| r.actor == actor) else { continue };
+        let now_space = core.ai.agents.get(&actor).map(|a| a.walker.space);
+        let at = |d: u32| fnv_world::placed::placement(world.lo, world.schema, d).map(|p| p.position);
+        for (space, d) in [(r.last_space, door), (now_space, to_door)] {
+            if let (Some(space), Some(p)) = (space, at(d)) {
+                if drawn(&world, &streamer, space, p) {
+                    door_sounds.write(nvf_play::world_sounds::DoorPassed { door: d, at: p });
+                }
+            }
+        }
+        if let Some(e) = r.root.take().filter(|_| r.spawned) {
+            commands.entity(e).remove::<(RefVisual, crate::limbs::ActorRig)>().insert(crate::door_fade::DoorFade { since: now, out: true });
+            door_fades.outs += 1;
+        }
+        r.spawned = false;
+        r.last_drawn = None;
+        door_fades.fade_in.insert(actor.0);
+    }
     if nav.travellers.is_empty() {
         nav.lead = core.list.first().and_then(|r| core.ai.agents.get(&r.actor)).map(|a| Lead { space: a.walker.space, feet: a.walker.feet, heading: a.walker.heading });
     }
@@ -1305,6 +1366,11 @@ pub fn drive(
         }
         r.drawn_feet = feet;
         r.last_feet = w.feet;
+        r.last_space = Some(w.space);
+        // Not drawn at the other side of its door: nothing to fade in.
+        if !visible {
+            door_fades.fade_in.remove(&r.actor.0);
+        }
         // How fast its drawn body turns (the turn summary): the AI's heading of an actor
         // drawn in this frame and the last, not on furniture, not through a door.
         let drawn_now = visible && r.spawned && !on;
@@ -1322,8 +1388,28 @@ pub fn drive(
             (None, true) => Some((w.heading, w.feet)),
             (_, false) => None,
         };
+        // A fighter on the move is drawn turning to face its target; afterwards it turns
+        // back to its walker's heading, at the walking turn rate either way.
+        let heading = match (core.aims.get(&r.actor), r.aim_heading) {
+            (Some(t), from) => {
+                let want = heading_of([t[0] - feet[0], t[1] - feet[1]]);
+                let h = turn_towards(from.unwrap_or(w.heading), want, fnv_nav::follow::WALK_TURN_RATE * 2.0 * dt);
+                r.aim_heading = Some(h);
+                h
+            }
+            (None, Some(from)) if heading_delta(from, w.heading).abs() > 0.05 && !on => {
+                let h = turn_towards(from, w.heading, fnv_nav::follow::WALK_TURN_RATE * 2.0 * dt);
+                r.aim_heading = Some(h);
+                h
+            }
+            _ => {
+                r.aim_heading = None;
+                w.heading
+            }
+        };
+        let strafe = r.aim_heading.is_some();
         let stage = (&mut r.spawned, &mut r.root);
-        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale }, stage, (feet, w.heading), moving, dt) {
+        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe }, stage, (feet, heading), moving, dt) {
             if r.named {
                 warn!("ai: {} could not be drawn ({e})", r.label);
             }

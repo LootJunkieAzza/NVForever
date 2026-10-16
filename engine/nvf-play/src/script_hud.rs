@@ -28,12 +28,12 @@
 //!   or the length fitted to its text without one). The response being said in the
 //!   conversation with the player (`Game::dialogue`, `crate::dialogue::subtitle`) is in
 //!   the log's `subtitle:` lines too, but drawn by the dialogue menu
-//!   (`crate::dialogue_menu`). A radio's talk line heard loudly enough is subtitled too
-//!   (`crate::radio::RadioSubtitle`). Every text is shown without its acting notes in
+//!   (`crate::dialogue_menu`). A radio's talk lines have none (`crate::radio`). Every
+//!   text is shown without its acting notes in
 //!   braces (`crate::dialogue::shown_text`). A line said where the player does not hear
 //!   it (another cell, or beyond `crate::voice::DIALOG_MAX_DISTANCE`) has no subtitle.
 //!   While the player is in a conversation no other line is drawn: the actors' lines to
-//!   each other and the radio's stay in the log only [owner's playtest list 5, item 74:
+//!   each other stay in the log only [owner's playtest list 5, item 74:
 //!   Joe Cobb's line to Trudy over the player's conversation with her].
 
 use crate::interface::{amber, bc_supported, face, plain_font, set_line, u, Face};
@@ -181,7 +181,7 @@ pub fn box_buttons(b: &BoxMessage) -> Vec<String> {
 
 /// What the overlay shows this frame: the panel (a message box or a menu placeholder),
 /// the box on screen, and the subtitles.
-fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&crate::radio::RadioSubtitle>, player: Option<&crate::player::Player>) -> (Option<PanelView>, Option<BoxMessage>, Subtitles) {
+fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&crate::player::Player>) -> (Option<PanelView>, Option<BoxMessage>, Subtitles) {
     let Some(rt) = script.rt.as_ref() else { return (None, None, Subtitles::default()) };
     let g = &rt.game;
     let front = match g.menu {
@@ -224,17 +224,6 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&cr
             on_screen.push(text);
         }
     }
-    // A radio's talk line (`crate::radio::RadioSubtitle`), the station's name as the speaker.
-    if let Some((station, info, response)) = radio.and_then(|r| r.0) {
-        if let Some(text) = hud.lines.get(&info.0).and_then(|t| t.get(response)).map(|t| crate::dialogue::shown_text(t)).filter(|t| !t.is_empty()) {
-            let base = sim.base_of(station.0).unwrap_or(station);
-            let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(station));
-            subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
-            if !talking {
-                on_screen.push(text);
-            }
-        }
-    }
     // The response being said in the conversation with the player: drawn by the dialogue
     // menu (`crate::dialogue_menu`), logged with the others.
     subs.extend(crate::dialogue::subtitle(g, sim));
@@ -258,15 +247,10 @@ fn draw(
     mut shown: Local<Subtitles>,
     mut commands: Commands,
     areas: Query<Entity, With<SubtitleArea>>,
-    (radio, play, player): (Option<Res<crate::radio::RadioSubtitle>>, Res<crate::PlayWorld>, Option<Res<crate::player::Player>>),
+    player: Option<Res<crate::player::Player>>,
     (data, mut images, formats, mut font): (Option<Res<GameData>>, ResMut<Assets<Image>>, Option<Res<CompressedImageFormatSupport>>, Local<Option<Face>>),
 ) {
-    if let Some((_, info, _)) = radio.as_deref().and_then(|r| r.0) {
-        if !hud.knows_line(info) {
-            hud.remember_line(info, crate::script::responses(&play, info));
-        }
-    }
-    let (p, front, subs) = view(&hud, &script, &sim, radio.as_deref(), player.as_deref());
+    let (p, front, subs) = view(&hud, &script, &sim, player.as_deref());
     hud.on_screen = front;
     if panel.view != p {
         panel.set(p);

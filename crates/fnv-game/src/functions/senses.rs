@@ -88,8 +88,8 @@ impl Game<'_> {
 }
 
 /// `actor.IsSneaking`: 1 while the actor is sneaking (crouched) [documented: GECK wiki
-/// IsSneaking]. The engine tells it ([`Game::set_motion`]); actors other than the player
-/// never sneak yet (packages' Always Sneak is not acted on).
+/// IsSneaking]. The engine tells it ([`Game::set_motion`]): the player's sneak control,
+/// and for other actors [`Game::sneaks`] (SetForceSneak, a package's Always Sneak).
 pub fn is_sneaking(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     yes(g.motion(r).sneaking)
@@ -163,4 +163,39 @@ pub fn is_turning(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 /// the load see 1.
 pub fn is_player_moving_into_new_space(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     yes(g.loading)
+}
+
+/// `actor.SetForceSneak flag`: forced sneaking on (non-zero) or off [documented: GECK
+/// wiki SetForceSneak]. The engine crouches the actor and walks it at the sneaking pace
+/// while it holds ([`Game::sneaks`]).
+pub fn set_force_sneak(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.extra.entry(r).or_default().force_sneak = a.num_or(0, 0.0) != 0.0;
+    none()
+}
+
+impl Game<'_> {
+    /// Whether `actor`'s current package (as last chosen) has the PKDT general flag `flag`
+    /// (`crate::package::flags`).
+    pub fn package_has(&self, actor: FormId, flag: u32) -> bool {
+        let data = self.data;
+        self.extra.get(&actor).and_then(|e| e.current_package).and_then(|p| data.package_defs.get(&p)).is_some_and(|d| d.has(flag))
+    }
+
+    /// Whether an actor other than the player sneaks: SetForceSneak holds, or its current
+    /// package has "Always Sneak" ("Actor always sneaks during this package"
+    /// [documented: GECK wiki Packages, Flags tab]). In a combat state an actor stands up
+    /// to fight unless its package goes on during combat ("Continue During Combat")
+    /// [hypothesis].
+    pub fn sneaks(&self, actor: FormId) -> bool {
+        if actor == FormId::PLAYER_REF || self.extra.get(&actor).is_some_and(|e| e.dead) {
+            return false;
+        }
+        if self.extra.get(&actor).is_some_and(|e| e.force_sneak) {
+            return true;
+        }
+        use crate::package::flags;
+        let fighting = self.awareness.state(actor) == crate::awareness::State::Combat;
+        self.package_has(actor, flags::ALWAYS_SNEAK) && (!fighting || self.package_has(actor, flags::CONTINUE_DURING_COMBAT))
+    }
 }

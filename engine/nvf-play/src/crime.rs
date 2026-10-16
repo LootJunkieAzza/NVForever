@@ -40,7 +40,9 @@ impl Plugin for CrimePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CrimeStats>()
             .add_message::<ItemsTaken>()
-            .add_systems(Update, (report_deeds, tick, show_notes).chain().after(PlaySet::Scripts).before(PlaySet::Sync))
+            // After the menus: items taken in a container menu are judged in the frame they
+            // are taken, while the menu still holds the world (Take All closes it).
+            .add_systems(Update, (report_deeds, tick, show_notes).chain().after(PlaySet::Scripts).after(crate::menu::MenuSystems).before(PlaySet::Sync))
             .add_systems(Last, summary);
     }
 }

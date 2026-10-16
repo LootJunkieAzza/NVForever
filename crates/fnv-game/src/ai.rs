@@ -174,6 +174,14 @@ impl Game<'_> {
         self.start_schedule_duration(actor);
         self.emit(EventKind::PackageChosen { actor, package });
         if self.runs_packages() {
+            // Doors the old package locks or unlocks as it ends, the new one as it starts.
+            if let Some(o) = old {
+                self.package_doors(actor, o, flags::LOCK_DOORS_AT_END, flags::UNLOCK_DOORS_AT_END);
+            }
+            if let Some(p) = package {
+                self.package_doors(actor, p, flags::LOCK_DOORS_AT_START, flags::UNLOCK_DOORS_AT_START);
+                self.package_doors(actor, p, flags::LOCK_DOORS_AT_LOCATION, flags::UNLOCK_DOORS_AT_LOCATION);
+            }
             if let Some(o) = old.filter(|_| !finished) {
                 self.package_event(actor, o, 2);
             }
@@ -187,6 +195,40 @@ impl Game<'_> {
                 e.current_package = package;
             }
         }
+    }
+
+    /// A package's door flags (`flags::LOCK_DOORS_AT_START` … `UNLOCK_DOORS_AT_LOCATION`):
+    /// "the actor will lock or unlock all the doors in the cell" when the package starts or
+    /// ends, and "for the duration of the package … will keep all doors in the cell locked
+    /// or unlocked" [documented: GECK wiki Packages, Door Flags]. The cell is the actor's;
+    /// only doors that have a lock (XLOC, or one a script gave them) are locked, at their
+    /// own level [design: a door without a lock has no level to lock at]. The "at
+    /// location" flags are applied as the package starts and at each periodic choice
+    /// ([`Game::tick_packages`]) [design: how often the original checks is not known].
+    /// Returns how many doors changed.
+    pub(crate) fn package_doors(&mut self, actor: FormId, package: FormId, lock: u32, unlock: u32) -> usize {
+        let data = self.data;
+        let Some(def) = data.package_defs.get(&package) else { return 0 };
+        let (locks, unlocks) = (def.has(lock), def.has(unlock));
+        if !locks && !unlocks {
+            return 0;
+        }
+        let Some(cell) = self.cell_of(actor) else { return 0 };
+        let placed = self.world.placed;
+        let doors: Vec<FormId> = placed.by_cell.get(&cell).into_iter().flatten().copied().filter(|r| data.sig(placed.get(*r).map_or(FormId(0), |p| p.base)).as_ref() == Some(b"DOOR")).collect();
+        let mut changed = 0;
+        for d in doors {
+            let Some(l) = self.world.peek(d).and_then(|s| s.lock) else { continue };
+            if locks && !l.locked {
+                changed += usize::from(self.world.lock(d, None).is_ok());
+            } else if unlocks && !locks && l.locked {
+                changed += usize::from(self.world.unlock(d).is_ok());
+            }
+        }
+        if changed > 0 {
+            self.package_door_notes.push((actor, package, locks, changed));
+        }
+        changed
     }
 
     /// `EvaluatePackage`: the actor picks its package again ([`Game::select_package`])
@@ -417,6 +459,10 @@ impl Game<'_> {
             };
             let due = if now >= due {
                 self.update_package(a);
+                // Doors kept locked or unlocked while the package runs.
+                if let Some(p) = self.extra.get(&a).and_then(|e| e.current_package) {
+                    self.package_doors(a, p, flags::LOCK_DOORS_AT_LOCATION, flags::UNLOCK_DOORS_AT_LOCATION);
+                }
                 due + interval * ((now - due) / interval).floor().max(0.0) + interval
             } else {
                 due

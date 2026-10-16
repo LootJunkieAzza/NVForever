@@ -244,6 +244,7 @@ impl Plugin for PlayPlugin {
             .add_message::<ItemUsed>()
             .add_message::<furniture::UseFurniture>()
             .add_message::<world_sounds::Activated>()
+            .add_message::<world_sounds::DoorPassed>()
             .add_message::<world_sounds::ImpactPicked>()
             .add_message::<ui_sounds::UiSound>()
             .init_resource::<furniture::PlayerSeat>()

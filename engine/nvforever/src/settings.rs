@@ -135,7 +135,7 @@ pub fn register(app: &mut App) {
             key: "overlay",
             group: GROUP_DEVELOPER,
             label: "Text overlay",
-            note: "On: the position, loading counts and key help are written over the picture. (--no-overlay)",
+            note: "On: the position, loading counts and key help are written over the picture. Off by default in the game. (--overlay, --no-overlay)",
             get: |w| !w.resource::<Args>().no_overlay,
             set: set_overlay,
         },

@@ -4916,6 +4916,141 @@ what they could not settle is a guess:
   after the Pip-Boy is up, then every 4–10 s: the interval is my guess, say if it should
   be denser or a single one. Mode buttons/F1–F3 play `UIPipBoyMode`; the flashlight plays
   `UIPipBoyLightOn`/`Off`.
+## List 5 — claude/l5-npc-ai
+NPC AI items of playtest list 5 (§4 numbers). Each: what changed, my decision or guess,
+what to check in game.
+- **3 Doors.** An NPC that goes through a load door fades out at it (its body walks on into
+  the door for 0.75 s while it dithers away) and fades in at the other side over the same
+  time; the door's open sound (DOOR SNAM, as for your own load doors) plays at the door it
+  went in by and at the one it came out of, wherever you are drawn. *Guess:* 0.75 s, and
+  the dither of the cell fades (meshes with other materials, if any, pop). *Check:* stand
+  outside the gas station when Ringo comes out (talk to him, leave); an NPC going into the
+  saloon.
+- **28 Random conversations** now start only with you within 300 units (the hello
+  distance) of one of the two; a due conversation waits for you instead of being skipped.
+  *Guess:* 300 for "right next to them". *Check:* Goodsprings NPCs chatting only when you
+  stand by them.
+- **29 Ranger Ghost** has no packages at all [observed: vMORangerGhost has no PKID and its
+  template does not give packages]. In a quiet 45 s run she stays on her sandbagged post
+  (11,320 up). What would have left her by the fence: an actor without packages that
+  searched, fought or was pushed stayed wherever that left it. Now it walks back to where
+  it was placed (from up to 4,096 units). *Guess:* that the game keeps such actors at their
+  editor location; that a search or a fight is what brought her down. *Check:* she is on
+  the roof by the chain-link gate idle after you arrive, and after a fight at the outpost.
+- **31 Friendly alert range:** an actor that starts fighting or notices a hostile alarms its
+  allies within 4,096 units (was 2,048). *Guess:* the number. *Check:* Goodsprings
+  settlers joining from across the town.
+- **33 Facing:** gunmen the AI moves fire only with the target within 30° of straight ahead
+  (they turn first); blows and bites are not held back, and actors without
+  `--npc-packages` fire as before. People in Combat on the move (closing in, to cover, to
+  a flank) are now drawn facing their target and step sideways or backwards with the
+  locomotion clips for those directions, so they can fire as they go. *Guesses:* 30°;
+  the turn to the target at twice the walking turn rate. *Check:* NCR troopers against
+  Cook-Cook's Fiends: nobody firing while looking away, and how the sideways steps look.
+  Fighters also turn to their target at twice the standing turn rate (240°/s), so a
+  new target holds their fire for at most about 0.75 s. *Guess:* that rate. (Without it,
+  `combat-cover` found no cover taken in 2 of 6 runs: the troopers lost the Cook-Cook
+  fight too fast; with it, 4 of 4 runs passed.)
+- **34 Package flags.** Done: Weapon Drawn (drawn during the package: Sunny runs to the
+  wells with her rifle out), Weapons Unequipped (holstered and hidden unless fighting),
+  HeadTracking Off (no head tracking unless a conversation or script look forces it),
+  Defensive Combat (no attacking NPCs or creatures on sight; being attacked or an ally's
+  call still counts), Always Sneak (36–37), the six door flags (lock/unlock all doors of
+  the actor's cell at start, at end, and kept while it runs; only doors that have a lock,
+  at their own level; the "at location" ones re-applied at each 10 s package choice).
+  Already honoured before: Must Complete, Must Reach Location, Continue If PC Near, Once
+  Per Day, Skip Fallout Behavior, Always Run, Continue During Combat, No Combat Alert, No
+  Idle Anims, Offers Services. Not built: Pretend In Combat, Allow Swimming, Allow Falls,
+  No Warn/Attack Behavior. *Guesses:* doors without a lock are left alone; an ended or
+  replaced package both count as "end".
+- **35 Sunny helps:** an actor that detects an attacker fighting someone, where the attacker
+  would attack it too, now joins against it at once (the VCG02 geckos are Very Aggressive,
+  so Sunny and Cheyenne join when they go for you). Not cowards, not Defensive Combat
+  packages. *Decision:* it covers fights against you and against the onlooker itself, for
+  everyone (settlers join against geckos that attack you nearby, too); fights between
+  other actors are left to the existing assistance and alarms (with the rule there too,
+  every NCR trooper took on Cook-Cook by itself and they stopped alarming each other).
+  *Check:* VCG02 at the wells.
+- **36–37 Sneaking:** an NPC sneaks while its package has Always Sneak or a script's
+  SetForceSneak holds (now implemented): it crouches with its skeleton's `sneakmt…`
+  locomotion clips, walks at fMoveSneakMult (0.57) of its pace, and detection and
+  IsSneaking count it as sneaking. Sunny crouches on VCG02SunnySneakCloserToWell and
+  stands up at "OK, you're on". Not built: sneaking with the Follow leader; the weapon's
+  sneak clips (with a weapon drawn the arms hold the standing aim over the crouched legs).
+  *Check:* how Sunny looks sneaking with her rifle out.
+- **40 Doc Mitchell's chair:** his exit clip (SpecialIdle_NVDocChairFrontExit, the one the
+  game's IDLE tree names for the front marker during VCG01 10–50) starts its Bip01 52 units
+  beside the seat, so he jumped about 75 units to the side before walking off. Exits now play
+  from where the body sits (no change for the plain exits, which start there anyway).
+  *Guess:* that the game aligns every exit so; what the clip's own travel then does (35
+  units sideways, 14 forward) is the clip's. *Check:* after "the stuff that mattered", which
+  side he steps off to; if still the wrong side, say so and I will mirror that clip's
+  sideways travel.
+
+
+## List 5 — claude/l5-ui-text-sounds
+
+Workstream L2 (laptop): the placeholder white text, menu sounds, Take All, the Goodbye
+hint, the text overlay, radio subtitles and the Fallout 3 music question.
+
+- **43, 50, 53 — no white text.** The white line under the crosshair is gone: nothing
+  draws `activate::HudMessage` any more; its lines ("Stimpak added", "Gate opened",
+  "… killed (+XP)", "… crippled", "You are dead.", "F5: not available yet", the
+  jukebox's "its script would run (scripts are not implemented yet)", "You cannot use
+  this (…)") are only logged. *Decision:* none of them became a corner message: they are
+  NVForever's placeholders, not the game's lines; items a script adds still show their
+  corner message as before. *Check:* pick up a stimpak, open the Goodsprings gate, press
+  F5, use the saloon jukebox, kill a gecko: no white text anywhere.
+- **44, 45 — refusals as corner messages.** The Wait/Sleep menu's refusals ("You cannot
+  sleep when enemies are nearby.", game text), the lockpick refusals ("You need a
+  Lockpick skill of 50 to pick this lock.", NVForever's wording, the game has none in its
+  plugins) and the terminal refusals ("You need a Science skill of N to hack this
+  terminal.") go to the top-left corner messages with the default icon for 2 s.
+  *Guess:* the default icon and time (the records give none). *Check:* the corner
+  message beside D1's reworked HUD; sleep with a gecko near; a lock above your skill.
+- **39 — Vigor Tester sounds.** Its menu file and models name no sounds, so it plays
+  Fallout 3's S.P.E.C.I.A.L. book records, which FalloutNV.esm keeps with two added for
+  New Vegas: page turn `OBJBookSpecialPageTurn`, raise `OBJBookSpecialNumber`, lower
+  `OBJBookSpecialNumberDown`, review row chosen `OBJBookSpecialFocus`, Done
+  `OBJBookSpecialNumberFinished`, refused `UIMenuCancel`. *Guess:* that these are the
+  Vigor Tester's sounds (by their names). *Check:* do they sound like the original's?
+- **41, 42 — tag-skill and trait menus.** Row moved (keys, wheel, pointer) and pointer
+  onto Reset/Done `UIMenuFocus`; a row taken or given back `UIMenuPrevNext`; refused
+  `UIMenuCancel`; Reset `UIMenuCancel`; Done `UIMenuOK`. The game's files silence the
+  rows (`&nosound;`); Done's `UIMenuOK` and the boxes' `UIMenuFocus` are the files'.
+  *Guess:* the row click `UIMenuPrevNext` (the trait file's perk rows) and Reset's
+  `UIMenuCancel`. *Check:* whether Reset should click `UIMenuOK` or `UIMenuPrevNext`.
+- **47 — hacking sounds.** Cursor or menu selection moved `UIHackingCharScroll`, a word
+  or row entered `UIHackingCharEnter`, password right `UIHackingPassGood`, wrong (and
+  the lockout) `UIHackingPassBad`. *Guess:* which record is which event (by name);
+  `UIHackingCharSingle`/`…Multiple` (presumably the text typing out, not built) and the
+  fan hum loop are not played. *Check:* hack the Easy terminal at Bison Steve.
+- **60 — Take All closes the menu** (when it took something). The container menu test
+  aid opens the container again to store one item back, so `house-items` now expects
+  the container opened and closed twice. *Check:* Take All on Doc Mitchell's fridge.
+- **62 — "TAB) Goodbye".** While a Goodbye choice is offered the hint stands left of the
+  dialogue band, level with the bottom bracket, on a dark box of the band's shade, in
+  the dialogue font; on a 4:3 screen (too narrow) it sits at the safe zone's left edge
+  over the band. *Guess:* the place, the wording's case and the box. *Check:* talk to
+  Trudy on a 16:9 screen; say if it belongs inside the band instead.
+- **68 — text overlay off by default** in the game (`--play`); `--overlay` turns it on,
+  and the settings page's Developer group still toggles it. The free-camera viewer mode
+  (no `--play`) keeps it on. *Check:* start the game: no position/key help text.
+- **27 — no radio subtitles.** A station's talk lines (Radio New Vegas, the NCR
+  Emergency Radio) are heard and never subtitled; `radio-pipboy` now expects none.
+- **69 — Fallout 3 music: no change made.** No missing condition found: FalloutNV.esm's
+  own controllers list 11 Fallout 3 location sets beside New Vegas, Fallout 1 and 2 sets
+  (18 controllers, 171 of the 572 audio markers, 64 out in the Mojave, e.g. the generic
+  Peaceful, Mystical, Dangerous and Military controllers, Novac, Boulder City, the Tops,
+  Gomorrah, the crashed B-29); the sets are built exactly like New Vegas's single-piece
+  sets. Only the controllers' `NAM1` (looping option, "Faction Not Found") is not
+  decoded: if the original plays a list in order rather than at random, the Fallout 3
+  pieces would come up in turn, not by chance (audio.md §13.5). *Check:* where did you
+  hear it? Round Goodsprings the nearest such marker is a generic "Mystical" one
+  (radius 3000) about 15,300 units from the town's marker; inside the town's radius the
+  Goodsprings set plays. If you heard it inside Goodsprings or Doc Mitchell's house,
+  that is a bug to chase with the `music:` log lines.
+
 
 ## List 5 — claude/l5-world-objects (2026-10-16, laptop L3: items 59, 65, 64, 4)
 
