@@ -32,6 +32,9 @@
 //!   text is shown without its acting notes in
 //!   braces (`crate::dialogue::shown_text`). A line said where the player does not hear
 //!   it (another cell, or beyond `crate::voice::DIALOG_MAX_DISTANCE`) has no subtitle.
+//!   While the player is in a conversation no other line is drawn: the actors' lines to
+//!   each other stay in the log only [owner's playtest list 5, item 74:
+//!   Joe Cobb's line to Trudy over the player's conversation with her].
 
 use crate::interface::{amber, bc_supported, face, plain_font, set_line, u, Face};
 use crate::message_menu::{MessagePanel, PanelView};
@@ -198,6 +201,8 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
     };
     let mut subs = Vec::new();
     let mut on_screen = Vec::new();
+    // In a conversation with the player only the dialogue menu's own line is on screen.
+    let talking = g.dialogue.is_some();
     for s in &g.speech {
         // A line the player does not hear has no subtitle (`crate::voice::audible`),
         // unless a script asked for the speaker's subtitles always
@@ -214,8 +219,10 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
         if text.is_empty() {
             continue;
         }
-        subs.push(format!("{who}: {text}"));
-        on_screen.push(text);
+        subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
+        if !talking {
+            on_screen.push(text);
+        }
     }
     // The response being said in the conversation with the player: drawn by the dialogue
     // menu (`crate::dialogue_menu`), logged with the others.

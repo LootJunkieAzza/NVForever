@@ -271,6 +271,20 @@ pub fn show_barter_menu(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
     open(g, menus::BARTER)
 }
 
+/// `station.ShowRecipeMenu category` (alias `Craft`): the recipe menu listing the
+/// recipes of a category or subcategory (`Game::recipe_requests`; the engine draws it and
+/// closes the menu) [documented: GECK wiki ShowRecipeMenu]. A form that is no recipe
+/// category is an error of the call.
+pub fn show_recipe_menu(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let category = a.form(0)?;
+    if !g.data.recipe_categories.contains_key(&category) {
+        return Err(format!("{category} is not a recipe category"));
+    }
+    let station = ctx.subject().ok();
+    g.recipe_requests.push(crate::crafting::RecipeRequest { station, category });
+    open(g, crate::crafting::RECIPE_MENU)
+}
+
 /// ShowLoveTesterMenuParams: the Vigor Tester's S.P.E.C.I.A.L. menu.
 pub fn show_love_tester_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     open(g, menus::LOVE_TESTER)

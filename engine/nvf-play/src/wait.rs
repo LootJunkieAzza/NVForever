@@ -218,7 +218,7 @@ impl Plugin for WaitPlugin {
                     run_aid,
                     script_requests,
                     open,
-                    (keys, mouse, apply, draw).chain().run_if(in_state(PlayState::Menu)),
+                    (keys, mouse, apply, draw, set_glyphs).chain().run_if(in_state(PlayState::Menu)),
                 )
                     .chain()
                     .after(crate::menu::open_menus)
@@ -658,7 +658,11 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<WaitStats>) {
 //
 // The layout is measured on the owner's 1280 x 720 screenshot of the original menu
 // [observed; docs/spec-notes/wait-menu.md §2] and drawn in parts of the view's height,
-// so it keeps its place and size on any window. The font is Bevy's, not the game's.
+// so it keeps its place and size on any window. Its colour is the HUD's and its texts are
+// in the game's fonts [documented: the original's `menus\sleep_wait_menu.xml`: system
+// colour `&hudmain;`, the question in font 1, the hours in font 6, the time in font 2;
+// the buttons' font is the text box prefab's, taken as font 2 (hypothesis); owner, todo 5
+// item 51: the menu looked faded beside the HUD].
 
 #[derive(Component)]
 struct WaitRoot;
@@ -683,8 +687,16 @@ struct SliderTrack;
 #[derive(Component, Clone, Copy)]
 struct WaitButton(Command);
 
-/// The colour of the slider's line in the screenshot [observed: (179, 140, 65)].
-const AMBER: Color = Color::srgb(0.70, 0.55, 0.255);
+/// The HUD's colour (`crate::interface::AMBER`) [documented: `&hudmain;`]. The first
+/// colour, the slider's line in the screenshot (179, 140, 65), was the HUD colour dimmed
+/// by the screenshot's own brightness [observed: the HP bar of the owner's screenshots is
+/// (255, 182, 66)].
+const AMBER: Color = Color::srgb(crate::interface::AMBER[0], crate::interface::AMBER[1], crate::interface::AMBER[2]);
+/// The fonts by the number the menu file gives them [documented: Fallout_default.ini].
+const TITLE_FONT: usize = 1;
+const HOURS_FONT: usize = 6;
+const TIME_FONT: usize = 2;
+const BUTTON_FONT: usize = 2;
 /// How opaque a text is: the three lines and the button under the pointer; a button the
 /// pointer is not on [documented: the interface file's buttons are at half opacity
 /// unless targeted; observed: "Wait E)" at 0.59 of "Cancel X)" in the screenshot]; the
@@ -710,6 +722,9 @@ const LINE_Y: f32 = 140.0;
 const MARKER: Vec2 = Vec2::new(27.0, 13.5);
 const MARKER_GAP: f32 = 17.0;
 
+/// A button's width: room for its label, which ends at its right [design].
+const BUTTON_WIDTH: f32 = 200.0;
+
 /// A length of the screenshot (720 pixels high) as a part of the view's height.
 fn u(px: f32) -> Val {
     Val::Vh(px / 7.2)
@@ -719,8 +734,31 @@ fn shade(part: f32) -> Color {
     AMBER.with_alpha(part)
 }
 
-fn font(px: f32) -> TextFont {
-    TextFont { font_size: FontSize::Vh(px / 7.2), ..default() }
+/// The menu's fonts, read when it is first drawn.
+#[derive(Resource)]
+struct WaitFaces(Vec<(usize, crate::interface::Face)>);
+
+impl WaitFaces {
+    fn get(&self, n: usize) -> Option<&crate::interface::Face> {
+        self.0.iter().find(|(k, _)| *k == n).map(|(_, f)| f)
+    }
+}
+
+/// A text drawn in a game font: what it says and its colour now, and what was drawn.
+#[derive(Component)]
+struct Glyphs {
+    font: usize,
+    text: String,
+    color: Color,
+    /// Right-aligned (the buttons) or centred.
+    right: bool,
+    drawn: Option<(String, Color)>,
+}
+
+impl Glyphs {
+    fn new(font: usize, right: bool) -> Glyphs {
+        Glyphs { font, text: String::new(), color: shade(BRIGHT), right, drawn: None }
+    }
 }
 
 fn at(left: f32, top: f32, width: f32, height: f32) -> Node {
@@ -755,7 +793,7 @@ fn spawn_menu(commands: &mut Commands) {
                     b.spawn((at(x, BOX.y - 10.0 - step, 1.5, 10.0), BackgroundColor(shade(part))));
                 }
             }
-            b.spawn((line(61.0), children![(TitleText, Text::new(""), font(21.0), TextColor(shade(BRIGHT)))]));
+            b.spawn((TitleText, Glyphs::new(TITLE_FONT, false), line(61.0)));
             // The slider: the line, the hour marks on it and the two end marks.
             b.spawn((at(65.0, LINE_Y, 516.0, 3.0), BackgroundColor(AMBER)));
             for k in 1..=MAX_HOURS {
@@ -778,12 +816,12 @@ fn spawn_menu(commands: &mut Commands) {
             // What takes the mouse: the slider's length, from above the marker to under
             // the line.
             b.spawn((SliderTrack, Button, RelativeCursorPosition::default(), at(MARK_X0, LINE_Y - 34.0, MARK_STEP * (MAX_HOURS + 1) as f32, 46.0)));
-            b.spawn((line(168.0), children![(HoursText, Text::new(""), font(24.0), TextColor(shade(BRIGHT)))]));
-            b.spawn((line(243.0), children![(DateText, Text::new(""), font(20.0), TextColor(shade(BRIGHT)))]));
+            b.spawn((HoursText, Glyphs::new(HOURS_FONT, false), line(168.0)));
+            b.spawn((DateText, Glyphs::new(TIME_FONT, false), line(243.0)));
             // The two buttons, their right ends a little outside the box's.
             for (y, cmd) in [(205.0, Command::Accept), (243.0, Command::Cancel)] {
-                let node = Node { position_type: PositionType::Absolute, right: u(-5.0), top: u(y - 15.0), height: u(30.0), align_items: AlignItems::Center, ..default() };
-                b.spawn((Button, WaitButton(cmd), node, children![(Text::new(""), font(21.0), TextColor(shade(NORMAL)))]));
+                let node = Node { position_type: PositionType::Absolute, right: u(-5.0), top: u(y - 15.0), width: u(BUTTON_WIDTH), height: u(30.0), ..default() };
+                b.spawn((Button, WaitButton(cmd), node, Glyphs { color: shade(NORMAL), ..Glyphs::new(BUTTON_FONT, true) }));
             }
         });
     });
@@ -799,13 +837,12 @@ fn draw(
     words: Res<Words>,
     roots: Query<Entity, With<WaitRoot>>,
     mut texts: ParamSet<(
-        Query<&mut Text, With<TitleText>>,
-        Query<&mut Text, With<HoursText>>,
-        Query<&mut Text, With<DateText>>,
-        Query<(&mut Text, &mut TextColor, &ChildOf)>,
+        Query<&mut Glyphs, With<TitleText>>,
+        Query<&mut Glyphs, With<HoursText>>,
+        Query<&mut Glyphs, With<DateText>>,
+        Query<(&mut Glyphs, &WaitButton, &Interaction)>,
     )>,
     mut marker: Query<&mut Node, With<Marker>>,
-    buttons: Query<(&WaitButton, &Interaction)>,
 ) {
     let Some(m) = menu.0.as_ref() else { return };
     if roots.is_empty() {
@@ -815,19 +852,19 @@ fn draw(
     }
     let Ok(cal) = sim.world.calendar() else { return };
     let view = m.view(&words, &cal);
-    let set = |t: &mut Text, s: &str| {
-        if t.0 != s {
-            t.0 = s.to_string();
+    let set = |g: &mut Glyphs, s: &str| {
+        if g.text != s {
+            g.text = s.to_string();
         }
     };
-    for mut t in &mut texts.p0() {
-        set(&mut t, &view.title);
+    for mut g in &mut texts.p0() {
+        set(&mut g, &view.title);
     }
-    for mut t in &mut texts.p1() {
-        set(&mut t, &view.hours);
+    for mut g in &mut texts.p1() {
+        set(&mut g, &view.hours);
     }
-    for mut t in &mut texts.p2() {
-        set(&mut t, &view.date);
+    for mut g in &mut texts.p2() {
+        set(&mut g, &view.date);
     }
     for mut node in &mut marker {
         let left = u(MARK_X0 + MARK_STEP * view.marker as f32 - MARKER.x / 2.0);
@@ -835,21 +872,70 @@ fn draw(
             node.left = left;
         }
     }
-    for (mut t, mut color, parent) in &mut texts.p3() {
-        let Ok((b, interaction)) = buttons.get(parent.parent()) else { continue };
+    for (mut g, b, interaction) in &mut texts.p3() {
         let (label, live) = match b.0 {
             Command::Accept => (&view.accept, view.can_accept),
             _ => (&view.cancel, true),
         };
-        set(&mut t, label);
+        set(&mut g, label);
         let part = match (live, interaction) {
             (false, _) => FAINT,
             (true, Interaction::None) => NORMAL,
             (true, _) => BRIGHT,
         };
-        if color.0 != shade(part) {
-            color.0 = shade(part);
+        if g.color != shade(part) {
+            g.color = shade(part);
         }
+    }
+}
+
+/// Set the texts that changed again in their fonts: centred in their line, or ending at
+/// its right.
+fn set_glyphs(
+    mut commands: Commands,
+    mut texts: Query<(Entity, &mut Glyphs, &Node)>,
+    faces: Option<Res<WaitFaces>>,
+    data: Option<Res<nvf_assets::GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<bevy::image::CompressedImageFormatSupport>>,
+) {
+    if texts.is_empty() {
+        return;
+    }
+    let Some(faces) = faces else {
+        let bc = crate::interface::bc_supported(formats.as_deref());
+        let mut loaded: Vec<(usize, crate::interface::Face)> = Vec::new();
+        for n in [TITLE_FONT, HOURS_FONT, TIME_FONT, BUTTON_FONT] {
+            if loaded.iter().any(|(k, _)| *k == n) {
+                continue;
+            }
+            let path = crate::pipboy::frame::FONTS[n - 1];
+            loaded.push((n, crate::interface::face(path, crate::interface::plain_font(32.0, 15.0), data.as_deref(), &mut images, bc)));
+        }
+        commands.insert_resource(WaitFaces(loaded));
+        return;
+    };
+    for (e, mut g, node) in &mut texts {
+        let now = (g.text.clone(), g.color);
+        if g.drawn.as_ref() == Some(&now) {
+            continue;
+        }
+        let Some(face) = faces.get(g.font) else { continue };
+        // The node's size in interface units (960 to the view's height).
+        let size = |v: Val| match v {
+            Val::Vh(x) => x * 9.6,
+            _ => 0.0,
+        };
+        let (w, h) = (size(node.width), size(node.height));
+        let mut entity = commands.entity(e);
+        entity.despawn_related::<Children>();
+        if let Some(line) = face.font.lines(&g.text, None).into_iter().next() {
+            let x = if g.right { w - line.width } else { (w - line.width) / 2.0 };
+            // The glyphs stand on a line a little below the middle [design].
+            let base = h / 2.0 + face.font.size * 0.3;
+            entity.with_children(|p| crate::interface::set_line(p, face, &line, x, base, now.1));
+        }
+        g.drawn = Some(now);
     }
 }
 

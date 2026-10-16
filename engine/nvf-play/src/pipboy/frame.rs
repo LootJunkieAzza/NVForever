@@ -336,14 +336,52 @@ fn tab_line(p: &mut ChildSpawnerCommands, c: &mut Ctx, page: Page, current: usiz
         let selected = i == current;
         if selected {
             c.boxed(p, r, line, Some(amber(FILL.0).with_alpha(FILL.1 / 255.0)));
+        } else {
+            // Under the pointer another tab is boxed, unfilled [hypothesis: the
+            // `text_box.xml` focus box; the original's look is not captured].
+            p.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), TabHoverBox(i), Visibility::Hidden, Pickable::IGNORE)).with_children(|b| c.boxed(b, r, line, None));
         }
         let top = r.min.y + (r.height() - text_h) / 2.0 + BOX_TEXT_DROP;
         c.text(p, 2, name, r.min.x + TAB_HORBUF / 2.0, top, Align::Left, bright);
         // The tab's box takes the pointer.
         p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), Clickable(PipBoyInput::Tab(i)), Pickable::default()))
-            .observe(super::on_click);
+            .observe(super::on_click)
+            .observe(on_tab_over)
+            .observe(on_tab_out);
     }
     c.line(p, x, TABLINE_Y - THICK / 2.0, MAIN.max.x - x, THICK, line);
+}
+
+/// The box shown round tab `.0` while the pointer is on it.
+#[derive(Component, Clone, Copy)]
+pub struct TabHoverBox(pub usize);
+
+fn on_tab_over(over: On<Pointer<Over>>, nodes: Query<&Clickable>, mut pip: ResMut<PipBoy>, mut out: MessageWriter<super::sounds::TabHovered>) {
+    if let Ok(Clickable(PipBoyInput::Tab(i))) = nodes.get(over.entity) {
+        pip.hover_tab = Some(*i);
+        out.write(super::sounds::TabHovered(*i));
+    }
+}
+
+fn on_tab_out(out: On<Pointer<Out>>, nodes: Query<&Clickable>, mut pip: ResMut<PipBoy>) {
+    if let Ok(Clickable(PipBoyInput::Tab(i))) = nodes.get(out.entity) {
+        if pip.hover_tab == Some(*i) {
+            pip.hover_tab = None;
+        }
+    }
+}
+
+/// Show the hover box of the tab under the pointer (none while the Pip-Boy is down).
+pub fn hover_boxes(mut pip: ResMut<PipBoy>, mut boxes: Query<(&TabHoverBox, &mut Visibility)>) {
+    if !pip.open() && pip.hover_tab.is_some() {
+        pip.hover_tab = None;
+    }
+    for (b, mut v) in &mut boxes {
+        let want = if pip.hover_tab == Some(b.0) { Visibility::Inherited } else { Visibility::Hidden };
+        if *v != want {
+            *v = want;
+        }
+    }
 }
 
 /// Rebuild the frame (and with it every page's body) when the Pip-Boy's page or tab

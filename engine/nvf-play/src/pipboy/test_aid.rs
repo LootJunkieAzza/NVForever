@@ -10,7 +10,9 @@
 //!   top left), through the model's screen where it is shown, as the mouse would be;
 //!   `point=off` gives the pointer back to the mouse;
 //! - `click=<x>:<y>`: the same, then a left click there;
-//! - `click=stats|items|data`: a left click on the page's button on the device.
+//! - `click=stats|items|data`: a left click on the page's button on the device;
+//! - `drag=<dx>:<dy>`: drag the map shown by that much (canvas units), as the left button
+//!   held on it and moved would.
 //!
 //! Each step is logged. Screenshots are `NVF_PLAY_TEST_SHOTS`'.
 
@@ -28,6 +30,7 @@ enum Step {
     Key(Command),
     Point(Option<Vec2>),
     Click(AidTarget),
+    Drag(Vec2),
 }
 
 fn page(p: &str) -> Option<Page> {
@@ -56,6 +59,7 @@ fn step(s: &str) -> Option<Step> {
             ("page", p) => Step::Page(page(p)?),
             ("point", "off") => Step::Point(None),
             ("point", p) => Step::Point(Some(canvas(p)?)),
+            ("drag", p) => Step::Drag(canvas(p)?),
             ("click", p) => Step::Click(page(p).map(AidTarget::Button).or_else(|| canvas(p).map(AidTarget::Canvas))?),
             ("tab", t) => Step::Tab(t.trim().parse().ok().filter(|t| *t < 5)?),
             ("key", k) => Step::Key(match k.trim() {
@@ -134,6 +138,9 @@ fn run(
                 aid.target = Some(t);
                 aid.click = 3;
             }
+            Step::Drag(d) => {
+                aid.drag += d;
+            }
         }
     }
 }
@@ -144,7 +151,7 @@ mod tests {
 
     #[test]
     fn steps_are_read_in_time_order() {
-        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2");
+        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25");
         assert_eq!(
             s,
             vec![
@@ -156,6 +163,7 @@ mod tests {
                 (8.5, Step::Click(AidTarget::Canvas(Vec2::new(100.0, 650.0)))),
                 (8.7, Step::Point(None)),
                 (8.8, Step::Point(Some(Vec2::new(1.0, 2.0)))),
+                (8.9, Step::Drag(Vec2::new(-40.0, 25.0))),
                 (9.0, Step::Close)
             ]
         );
