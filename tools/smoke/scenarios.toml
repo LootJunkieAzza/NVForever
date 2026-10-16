@@ -2717,6 +2717,8 @@ expect = [
   { text = 'window: windowed, 1280x800', label = "the live window turns into a window of --size again" },
 ]
 order = [["window: borderless full screen on the current monitor", "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
+
+[[scenario]]
 name = "controls-write"
 source = "owner 2026-10-16: keys are mapped in the INI's [Controls] and rebound on the settings page's Controls tab; the first half of the round trip (controls-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
