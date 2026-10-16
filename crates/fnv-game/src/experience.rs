@@ -3,8 +3,11 @@
 //! the player has earned a level (the level-up menu opens; `crate::levelup`).
 //!
 //! - Experience comes from kills (`crate::combat`), picked locks (`crate::lockpick`),
-//!   found places (the engine's compass) and scripts (`RewardXP`); each adds to
-//!   `PlayerState::xp`. Nothing here changes how much.
+//!   hacked terminals (`crate::terminal`), disarmed mines (activation), Fallout 3 style
+//!   speech challenges (`crate::dialogue`), found places (the engine's compass) and
+//!   scripts (`RewardXP`). Each goes through [`award`], which applies the perks' Adjust
+//!   Experience Points entry point (Swift Learner, Skilled, ...) and adds to
+//!   `PlayerState::xp`.
 //! - The level is `PlayerState::level` (the configuration's until something sets it);
 //!   reaching a level's experience does not raise it by itself: [`level_up_due`] says a
 //!   level is earned, and [`level_up`] raises it and opens the menu (the engine calls it
@@ -30,6 +33,97 @@ pub const DLC_LEVELS: i32 = 5;
 /// and no iXPBase].
 pub const DEFAULT_XP_BASE: f64 = 200.0;
 pub const DEFAULT_XP_BUMP: f64 = 150.0;
+
+/// Where experience came from ([`award`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    Kill,
+    PickLock,
+    HackTerminal,
+    DisarmMine,
+    SpeechChallenge,
+    Discovery,
+    /// `RewardXP` (quests, challenges, dialogue result scripts).
+    Script,
+}
+
+impl Source {
+    pub fn name(self) -> &'static str {
+        match self {
+            Source::Kill => "a kill",
+            Source::PickLock => "a picked lock",
+            Source::HackTerminal => "a hacked terminal",
+            Source::DisarmMine => "a disarmed mine",
+            Source::SpeechChallenge => "a speech challenge",
+            Source::Discovery => "a place found",
+            Source::Script => "a script",
+        }
+    }
+}
+
+/// The player earns `amount` experience from `source`: the perks' Adjust Experience
+/// Points entry point changes it, for every source [documented: GECK wiki Entry Point,
+/// "Adjust Experience Points: Run when the player gains any experience; Modifies the
+/// experience gained", its example Swift Learner; observed: code 9 is Swift Learner's
+/// Multiply 1.1, 1.2, 1.3 by rank, Skilled's 0.9, Well Rested's 1.1, Lessons Learned's
+/// 1.25 to 1.5 by level, Logan's Loophole's 0 (all with conditions on the player)], then
+/// it is added to `PlayerState::xp`. The result drops its fraction, as `RewardXP` does
+/// with its number, after rounding to thousandths [hypothesis: the meter and the Pip-Boy
+/// show whole numbers; design: the rounding undoes the 32-bit factors' error]. Nothing
+/// is earned from a gain of 0 or less, and a loss is not changed by perks (`RewardXP`
+/// with a negative number) [hypothesis]. The experience added. Logged `xp: +<n> XP from
+/// <source>[ (<amount> before <perk>, ...)]`.
+pub fn award(g: &mut Game, source: Source, amount: f64) -> f64 {
+    if amount == 0.0 {
+        return 0.0;
+    }
+    let (gained, by) = if amount > 0.0 {
+        let (v, by) = g.entry_point(FormId::PLAYER_REF, crate::perks::ADJUST_EXPERIENCE_POINTS, amount);
+        // The factors are 32-bit (1.3 is 1.2999999523): to thousandths first, so that
+        // 100 × 1.3 is 130, not 129.
+        (((v.max(0.0) * 1000.0).round() / 1000.0).trunc(), by)
+    } else {
+        (amount.trunc(), Vec::new())
+    };
+    g.player.xp += gained;
+    if by.is_empty() {
+        tracing::info!("xp: {gained:+} XP from {}", source.name());
+    } else {
+        let perks: Vec<String> = by.iter().map(|a| g.data.name(a.perk)).collect();
+        tracing::info!("xp: {gained:+} XP from {} ({amount} before {})", source.name(), perks.join(", "));
+    }
+    gained
+}
+
+/// `iMineDisarmExperience` when the load order lacks it [observed: 5 in FalloutNV.esm;
+/// documented: GECK wiki Projectile, "Can be Disabled": that much XP "will be awarded to
+/// the player on a successful deactivation"].
+pub const DEFAULT_MINE_DISARM_XP: f64 = 5.0;
+
+/// The XP for disarming a placed mine.
+pub fn mine_disarm_xp(g: &Game) -> f64 {
+    setting(g, "iMineDisarmExperience", DEFAULT_MINE_DISARM_XP)
+}
+
+/// The settings of a Fallout 3 style speech challenge's XP by its difficulty (INFO DNAM 1
+/// Very Easy to 5 Very Hard), with the default where one is known: FalloutNV.esm sets
+/// `iXPRewardSpeechChallengeVeryEasy` 5 and none of the other four, no other master sets
+/// any, and the GECK wiki's lists name none of them [observed]. A class without a
+/// setting gives nothing [design: no number is invented].
+pub const SPEECH_CHALLENGE_XP: [(&str, Option<f64>); 5] = [
+    ("iXPRewardSpeechChallengeVeryEasy", Some(5.0)),
+    ("iXPRewardSpeechChallengeEasy", None),
+    ("iXPRewardSpeechChallengeAverage", None),
+    ("iXPRewardSpeechChallengeHard", None),
+    ("iXPRewardSpeechChallengeVeryHard", None),
+];
+
+/// The XP for passing a speech challenge of DNAM `difficulty` (see
+/// [`SPEECH_CHALLENGE_XP`]); 0 for none or a code out of range.
+pub fn speech_challenge_xp(g: &Game, difficulty: u32) -> f64 {
+    let Some(&(name, default)) = (difficulty as usize).checked_sub(1).and_then(|i| SPEECH_CHALLENGE_XP.get(i)) else { return 0.0 };
+    g.world.setting_f32(name).map(f64::from).or(default).unwrap_or(0.0)
+}
 
 /// The level cap: `base` plus [`DLC_LEVELS`] for each story add-on among `plugins`
 /// (file names, any case).

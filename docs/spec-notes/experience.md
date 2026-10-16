@@ -19,7 +19,9 @@ menu it opens: levelup.md.
   `glow_xp_bar_pointer.dds` (`Fallout - Textures2.bsa`). Described in plain words; nothing
   is shipped.
 - **The masters' game settings** [observed: `fnvtool esm decode`, FalloutNV.esm].
-- **GECK wiki** Experience Settings (the owner's export).
+- **GECK wiki** Experience Settings, Entry Point, Projectile (the owner's export).
+- **The masters' perks** [observed: their PERK records read by `GameData` from
+  FalloutNV.esm and the five add-on masters, entry point effects listed by code].
 
 ## 2. What an enemy is worth
 
@@ -42,10 +44,50 @@ not, so the wiki's defaults hold. There is none when others did more than
 `100 − iXPDeathRewardHealthThreshold` (40) % of the damage. An actor's level is its
 record's, or the player's times its multiplier for a levelled (PC Level Mult) actor,
 within its minimum and maximum. The difficulty multipliers `fDiffMultXP…` are all 1 in the
-master. Other rewards: picked locks and hacked terminals `iXPRewardPickLock…` /
-`iXPRewardHackComputer…` (20–60), places found `iXPRewardDiscoverMapMarker` (10), disarmed
-mines `iMineDisarmExperience` (5), speech checks `iXPRewardSpeechChallenge…`, and scripts'
-`RewardXP` (quests, challenges).
+master. The other rewards:
+
+| Source | Settings (FalloutNV.esm; default) | Where (code) |
+| --- | --- | --- |
+| Picked lock | `iXPRewardPickLock<class>` 20, 30, 40, 50, 60 by the lock's level [observed; documented: wiki] | `lockpick::opened` |
+| Hacked terminal | `iXPRewardHackComputer<class>` 20 to 60 [observed; documented: wiki]; the class is the first whose `iXPLevelHackComputer<class>` (0 to 4 by the wiki, not in the master) the terminal's difficulty code does not pass [documented: wiki] | `terminal::hacked`, on success only |
+| Disarmed mine | `iMineDisarmExperience` 5 [observed]; given "on a successful deactivation" of a projectile that Can be Disabled [documented: wiki Projectile] | `Game::default_activation`, the player's Disarmed outcome |
+| Speech challenge | `iXPRewardSpeechChallenge<class>` by the line's DNAM (1 Very Easy … 5 Very Hard): only VeryEasy (5) is in any master, and the wiki lists none [observed]; a class without a setting gives nothing [design] | `Game::choose`, a line with the Speech Challenge flag |
+| Place found | `iXPRewardDiscoverMapMarker` 10 [observed; documented: wiki] | the engine's compass |
+| Scripts | `RewardXP <n>` (quests, challenges, dialogue result scripts) | `functions::player::reward_xp` |
+
+The master also has `iXPRewardHackComputer` (20) without a class [observed]; nothing
+known reads it and it is not used. **Skill checks in dialogue** (New Vegas's "[Speech
+50]" lines: KNAM, no Speech Challenge flag) give no XP of their own: 638 of the 1,499 such
+lines in the masters carry `RewardXP` in their result scripts [observed], so the data
+gives that XP, and an engine award on top would count it twice [hypothesis that the
+original gives none of its own]. Only three lines have the flag and a difficulty (all
+Hard, a Fallout 3 left-over topic, dialogue.md §3.3), so the speech-challenge award, with
+no Hard setting, gives nothing in the shipped data; the roll that could fail it is not
+modelled.
+
+### Perks and traits
+
+Every gain goes through one function, `fnv_game::experience::award`, which applies the
+player's perks' **Adjust Experience Points** entry point (code 9) [documented: GECK wiki
+Entry Point: "Run when the player gains any experience; Modifies the experience gained",
+example Swift Learner], so to **every source** above, scripts included. The masters'
+entries of code 9, all Multiply [observed]:
+
+| Perk | Factor | Conditions |
+| --- | --- | --- |
+| Swift Learner (3 ranks) | 1.1, 1.2, 1.3 (each rank's entry holds the whole bonus) | none |
+| Skilled (trait, OldWorldBlues.esm) | 0.9 | none |
+| Well Rested | 1.1 | one, on the player |
+| Lessons Learned (LonesomeRoad.esm) | 1.25 to 1.5, one entry per level | one each, on the player |
+| Logan's Loophole (trait, OldWorldBlues.esm) | 0 | one, on the player |
+
+The rules of `perks::entry_point` hold (aid-items.md §10): only the highest rank owned
+applies, the perk owner's conditions are evaluated on the player, entries apply in
+priority order and multiply together (Swift Learner 3 with Skilled: × 1.17). The result
+drops its fraction after rounding to thousandths (the factors are 32-bit: 1.3 is
+1.2999999523, and 100 × 1.3 must be 130) [hypothesis for the fraction; design for the
+rounding]. A loss (`RewardXP` with a negative number) is not changed [hypothesis]. Logged
+`xp: +<n> XP from <source>[ (<before> before <perk EDIDs>)]`.
 
 ## 3. Levels
 
@@ -131,11 +173,47 @@ mines `iMineDisarmExperience` (5), speech checks `iXPRewardSpeechChallenge…`, 
   at the console in Doc Mitchell's house; the meter, LEVEL UP, the three sounds, and the
   level-up menu opening by itself at level 2; screenshots `xp_meter.png`,
   `xp_level_up.png`, `xp_levelup_menu.png`.
+- Synthetic tests (`crates/fnv-game/tests/experience.rs`): Swift Learner by rank, with
+  Skilled, the fraction, a loss; RewardXP through the perks; a hacked terminal's XP by
+  class and none for a locked-out one; a disarmed mine's 5. In
+  `crates/fnv-game/tests/dialogue.rs`: a skill line gives none, a Very Easy speech
+  challenge 5, a Hard one nothing.
+- Smoke test `xp-perks`: `addperk SwiftLearner` then `rewardxp 100` gives 110, and the
+  meter shows it.
 
 ## 8. Not built, or open
 
-- The XP that hacked terminals, disarmed mines and speech checks give is not awarded yet
-  (their workstreams); kills, picked locks, places found and scripts are.
-- Perks and traits that change experience (Swift Learner, Skilled) are not applied.
-- Where the original puts the meter, how long it stays and whether it waits out combat
-  before the menu are not measured.
+- Speech challenges of the classes Easy to Very Hard give nothing: no master or wiki page
+  gives their settings (§2). Whether the original awards anything of its own for New
+  Vegas skill checks is [hypothesis: no, as their scripts carry RewardXP].
+- The mine's Explosives check and the chance to set it off are not built (disarming always
+  succeeds), and the projectile's Can be Disabled flag is not read.
+- **The meter's place and timing** are not measured; nothing in the data gives them
+  (§9).
+
+## 9. What would settle the meter's numbers (request to the owner)
+
+`engine/nvf-play/src/xp_meter.rs` uses five numbers that no file gives [hypothesis]:
+`HOLD` 3 s (how long the meter stays after the last gain), `SLIDE` 0.6 s (the pointer's
+move), `FADE` 0.25 s (in and out; the HUD's fade, documented for other HUD parts), the
+bar's line at the middle of the screen's height, and the upright 40 units from the right
+edge. The owner's screenshot (§1) is cropped to the meter, so it fixes the meter's own
+layout but not where it sits on the screen, and a still cannot time anything. They stay
+as they are until one of these comes:
+
+1. **A full-screen screenshot** of the original with the meter showing, at a known
+   resolution (say 1920 × 1080, HUD scale and safe-zone settings untouched): it gives the
+   bar's height on the screen and its distance from the right edge.
+2. **A short video** (30 or 60 fps, full screen, game sound on) of: picking a Very Easy
+   lock or killing a weak creature, waiting until the meter is gone, then two gains a
+   second or two apart (two kills, or `rewardxp 20` twice at the console), and a gain that
+   earns a level. From it: the fade in and out (frames from first to full and back), the
+   pointer's slide and its easing, how long the meter stays after the last gain and
+   whether a second gain restarts that time, what LEVEL UP looks like and when the
+   UILevelUp sound plays against it, and how long after the meter goes the level-up menu
+   opens.
+3. Any number from the original's own files the owner comes across (an INI setting or
+   menu file naming the meter's time).
+
+The same video, with an enemy still searching, would also show whether the level-up menu
+waits out [CAUTION] as the owner described (§3).

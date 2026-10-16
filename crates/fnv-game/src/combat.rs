@@ -314,7 +314,7 @@ impl Game<'_> {
                 self.extra.entry(target).or_default().unconscious = true;
             } else if self.kill(target, caster) && caster == Some(FormId::PLAYER_REF) {
                 let xp = self.kill_xp(target);
-                self.player.xp += xp;
+                crate::experience::award(self, crate::experience::Source::Kill, xp);
             }
         }
     }
@@ -357,8 +357,8 @@ impl Game<'_> {
             } else {
                 out.died = self.kill(target, info.attacker);
                 if out.died && info.attacker == Some(FormId::PLAYER_REF) {
-                    out.xp = self.kill_xp(target);
-                    self.player.xp += out.xp;
+                    let xp = self.kill_xp(target);
+                    out.xp = crate::experience::award(self, crate::experience::Source::Kill, xp);
                 }
             }
         }

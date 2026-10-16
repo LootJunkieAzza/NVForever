@@ -131,8 +131,8 @@ fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptSt
     let mut messages = messages;
     let xp = sim.forms.setting_f32("iXPRewardDiscoverMapMarker").map_or(DISCOVER_XP, |v| v as f64);
     for (form, name) in found {
-        info!("compass: discovered {name} ({}), +{xp} XP", FormId(form));
-        rt.game.player.xp += xp;
+        let gained = fnv_game::experience::award(&mut rt.game, fnv_game::experience::Source::Discovery, xp);
+        info!("compass: discovered {name} ({}), +{gained} XP", FormId(form));
         if let (Some(m), false) = (messages.as_deref_mut(), name.trim().is_empty()) {
             m.push(QuestNotice::Discovered(name));
         }
