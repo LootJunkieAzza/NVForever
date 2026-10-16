@@ -140,6 +140,25 @@ impl ActorWorld {
             })
             .clone()
     }
+
+    /// A creature's alert-stance set (`ClipSet::alert_from`: its `h2h` movement clips over
+    /// `calm`), loaded once per skeleton.
+    fn alert_set(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, calm: &ClipSet) -> Option<Arc<ClipSet>> {
+        let key = (fnv_vfs::normalize(skeleton), Body::Male, crate::locomotion::ALERT_STANCE);
+        self.sets
+            .lock()
+            .expect("clip sets")
+            .entry(key)
+            .or_insert_with(|| {
+                let (stance, line) = ClipSet::load_stance(ctx, skeleton, skel, Body::Male, crate::locomotion::ALERT_STANCE);
+                let set = ClipSet::alert_from(stance, calm);
+                if set.is_some() {
+                    info!("actor locomotion (alert stance): {line}");
+                }
+                set.map(Arc::new)
+            })
+            .clone()
+    }
 }
 
 /// Marks the root of an actor, or the light source of a light, spawned hidden because its
@@ -480,6 +499,8 @@ pub fn spawn_creature(
         match world.clip_set(ctx, &c.skeleton, &skel, Body::Male) {
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
+                // Some creatures move otherwise when alert (`creature_pace.rs`).
+                lo.alert = world.alert_set(ctx, &c.skeleton, &skel, &set);
                 if let Some(t) = world.pose_time {
                     let len = set.info(Move::Idle).map_or(1.0, |c| c.duration).max(f32::EPSILON);
                     lo.blend = Blend::new(Move::Idle, t / len);
