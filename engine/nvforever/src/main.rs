@@ -117,7 +117,8 @@ struct Args {
     /// it is always the Data folder.
     #[arg(long, env = "NVFOREVER_DATA")]
     data: Option<PathBuf>,
-    /// Plugins in load order (default: the base game and the DLC masters present).
+    /// Plugins in load order (default: those turned on in NVForever's own plugins.txt in
+    /// its home; with --data, the base game and the DLC masters present).
     #[arg(long, num_args = 1.., default_values_t = MASTERS.map(String::from))]
     plugins: Vec<String>,
     /// Record schema directory.
@@ -572,6 +573,7 @@ fn report_archives(data: Res<GameData>) {
 
 fn main() -> AppExit {
     let mut args = Args::parse();
+    let developer_data = args.data.is_some();
     // The game's folder: `--data`, NVForever.ini or asked for; its files checked (setup.rs).
     let install = match setup::game_install(args.data.as_deref()) {
         Ok(g) => g,
@@ -581,8 +583,19 @@ fn main() -> AppExit {
         }
     };
     args.data = Some(install.data.clone());
-    // Without --plugins: the DLC masters that are there (all of them are optional).
-    if args.plugins.iter().map(String::as_str).eq(MASTERS) {
+    let default_plugins = args.plugins.iter().map(String::as_str).eq(MASTERS);
+    // A player's start (no --data, no --plugins): the home's own plugins.txt (setup.rs).
+    // Developer and smoke runs keep the fixed masters below, whatever the list says.
+    if default_plugins && !developer_data {
+        match setup::plugin_list(&install) {
+            Ok(p) => args.plugins = p,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return AppExit::error();
+            }
+        }
+    } else if default_plugins {
+        // Without --plugins: the DLC masters that are there (all of them are optional).
         let addons = install.addon_masters();
         args.plugins.retain(|p| p == MASTERS[0] || addons.contains(&p.as_str()));
         if addons.len() < MASTERS.len() - 1 {
