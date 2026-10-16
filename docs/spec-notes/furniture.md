@@ -369,14 +369,17 @@ minimum–maximum, replay delays 0 unless given:
   rest of the tree is not built]. Dialogue and eating leaves under such a node are
   kept: the conditions choose them (a seated speaker under procedure 4, an eater under
   procedure 10) [hypothesis: they are the tree's state-3 idles like the others].
+  Since 2026-10-16 an actor in a conversation gets no furniture fidget: its talking
+  gestures (idles.md §12) walk the same branch for it.
 - **The player** walks the same way from the roots (the tree has the player's own
   chair nodes), only in third person [design: the tree's chair nodes want it, and on
   a bed a stir in first person would roll the lying view, §7].
 - **Conditions the rules cannot answer** [observed: the function catalogue]:
   `IsLastIdlePlayed` (index 451, 86 uses on IDLEs) has no opcode in the script
-  catalogue (animation.md §1 item 6) and answers 0, so `== 1` fails: the food-talk
-  nodes (`ChairFoodTalk`, `StoolFoodTalk`) are never entered and `WallLeanLegUpTalkA`
-  and `…ListenA` never chosen, the plain talk and listen idles are. `GetIsUsedItem`,
+  catalogue (animation.md §1 item 6); since 2026-10-16 it is answered from the last
+  idle the actor was reported playing (idles.md §12.2), so the food-talk nodes
+  (`ChairFoodTalk`, `StoolFoodTalk`) and `WallLeanLegUpTalkA` / `…ListenA` follow the
+  idle played before (headless, with nothing played, it still answers 0). `GetIsUsedItem`,
   `GetIsUsedItemType`, `GetUsedItemActivate` and `GetSandman` are stubs answering 0:
   eating takes the generic leaf (`SitChairEatB`, `SitStoolEatGeneric`), `!= 1` tests
   pass, the terminal-activation and Sandman nodes are never entered.
@@ -415,6 +418,4 @@ minimum–maximum, replay delays 0 unless given:
 - Whether the original walks the tree for seated actors continuously (here: every 2 s
   when nothing else plays), and whether a fidget plays out before getting off (here:
   it fades out at once).
-- `IsLastIdlePlayed`: an opcode for index 451 in the catalogue would let the
-  food-talk and leg-up wall-lean idles follow the idle played before.
 - Work spots (ID 22) need a way onto them before their idles can play.

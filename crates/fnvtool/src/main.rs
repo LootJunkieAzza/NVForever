@@ -13,6 +13,7 @@ mod actor_locomotion;
 mod actor_tri;
 mod actor_detect;
 mod actor_fidgets;
+mod actor_gestures;
 mod actor_factions;
 mod actor_karma;
 mod actor_values;
@@ -266,6 +267,27 @@ pub enum ActorCmd {
         /// The player's view is first person (`IsPC1stPerson`).
         #[arg(long)]
         first_person: bool,
+    },
+    /// Talking gestures (docs/spec-notes/idles.md §12): the player starts a
+    /// conversation with each actor in a game where nothing has happened, and the IDLE
+    /// tree is asked `--checks` times while it talks and as many while it listens; the
+    /// picks counted per idle and group (fnv.actor.gestures/1).
+    Gestures {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Script function catalogue (default: `script/functions.json` next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// Placed actors or actor bases, by Editor ID or FormID (repeatable).
+        #[arg(long, required = true)]
+        actor: Vec<String>,
+        /// The line the actor says (INFO by Editor ID or FormID): its mood; default none
+        /// (Neutral).
+        #[arg(long)]
+        line: Option<String>,
+        /// How many times the tree is asked for each actor and part.
+        #[arg(long, default_value_t = 1000)]
+        checks: u32,
     },
     /// Detection numbers (docs/design/detection.md §4): what one actor's records put
     /// into the detection formula against a target, and the value and band (hidden,

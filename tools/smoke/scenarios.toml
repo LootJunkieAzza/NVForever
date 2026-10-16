@@ -931,6 +931,54 @@ expect = [
 ]
 
 [[scenario]]
+name = "talk-gestures-tree"
+kind = "tool"
+source = "docs/spec-notes/idles.md §12: the IDLE tree's talking gestures, headless: an NPC in the dialogue screen gets a gesture of the dialogue groups at every walk, talking and listening; Neutral mood"
+areas = ["idles", "dialogue"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/cond.rs", "crates/fnv-game/src/functions/ai_state.rs", "crates/fnvtool/src/actor_gestures.rs"]
+commands = [
+  ["actor", "gestures", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "DocMitchellREF", "--actor", "GSChetRef", "--checks", "200"],
+]
+expect = [
+  { json = "actors.*.talking.none", schema = "fnv.actor.gestures/1", equals = 0, count = 2, label = "every walk while talking gives a gesture" },
+  { json = "actors.*.listening.none", schema = "fnv.actor.gestures/1", equals = 0, count = 2, label = "every walk while listening gives a gesture" },
+  { json = "actors.*.talking.by_group.NeutralNoWeightShift", schema = "fnv.actor.gestures/1", range = [1, 200], count = 2, label = "the Neutral talk group is reached" },
+  { json = "actors.*.talking.by_group.ArmsCrossedLoop", schema = "fnv.actor.gestures/1", range = [1, 200], count = 2, label = "once arms are crossed they stay crossed (IsLastIdlePlayed)" },
+]
+
+[[scenario]]
+name = "talk-gestures-menu"
+source = "docs/spec-notes/idles.md §12: an NPC in the dialogue screen plays the IDLE tree's talking gestures while it says its lines and a listening one while the player chooses"
+areas = ["idles", "dialogue"]
+paths = ["crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs", "crates/fnv-game/src/functions/ai_state.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "10:GSChetRef=leave", NVF_PLAY_TEST_TALK_DELAY = "4" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--hour", "12"]
+run_seconds = 40
+expect = [
+  { re = 'talk gesture: GSChetRef talks .* by DialogueIdles > TalkToPlayer > DialogTalking > ', min = 3, label = "Chet's talk clips from the dialogue screen's group, one per response at least (2026-10-16: 5 for 4 responses)" },
+  { re = 'talk gesture: GSChetRef listens .* by DialogueIdles > TalkToPlayer > DialogTalking > .*Listen', label = "a listen clip while the player chooses" },
+  { re = 'talk gesture summary: (?P<n>\d+) gestures picked while talking', range = [3, 20], label = "talk gestures counted" },
+  { re = 'idle summary: .* 0 by dialogue lines\)', label = "gestures are not counted as dialogue lines' idles (Chet's broom idle after the talk may be)" },
+]
+
+[[scenario]]
+name = "talk-gestures-npcs"
+source = "docs/spec-notes/idles.md §12: two NPCs in a conversation between actors (Joe Cobb and Trudy, started by the test aid) play the tree's NPC-to-NPC gestures"
+note = "Trudy, Joe Cobb and the quest are enabled and started by the aid (in a game they come from INFO 0015F8B6 and the saloon trigger, dialogue.md §5.1)"
+areas = ["idles", "dialogue"]
+paths = ["crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs", "crates/fnv-game/src/functions/ai_state.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "2:start:VFreeformGoodsprings,3:enable:GSJoeCobbRef,3.1:enable:TrudyRef,6:call:GSJoeCobbRef:StartConversation:TrudyRef:GSJoeCobbIntro" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 40
+expect = [
+  "dialogue: conversation between GSJoeCobbRef and TrudyRef started (topic GSJoeCobbIntro)",
+  { re = 'talk gesture: GSJoeCobbRef talks \(TrudyRef, line 0x00105219 .* by DialogueIdles > NPCtoNPC > NPCTalking > AngerTalk > ', label = "Joe Cobb's angry line: an anger talk clip of the NPC-to-NPC branch" },
+  { re = 'talk gesture: GSJoeCobbRef listens \(TrudyRef, line 0x00105218 .* by DialogueIdles > NPCtoNPC > NPCListening > ', label = "Joe Cobb listens to Trudy's answer" },
+  { re = 'idle: TrudyRef plays LooseStandingArmsFolded .*\(Listener\)', label = "Trudy's line idles (LNAM, SNAM) play instead of gestures" },
+  { re = 'talk gesture: TrudyRef ', count = 0, label = "no gesture for Trudy while her own line idles play" },
+]
+
+[[scenario]]
 name = "furniture-fidgets-tree"
 kind = "tool"
 source = "docs/spec-notes/furniture.md §8: the IDLE tree's fidgets on furniture, headless: a man on a chair relaxes (SitChairRelaxIdleA/B/C), a woman sits as women do (ChairFemaleSittingA), the player in third person has the player's relax idles and none in first person, a man in bed stirs (BedStirInSleepA/B/C), a bar stool gives none (the tree has only talk, food and gambling there)"
