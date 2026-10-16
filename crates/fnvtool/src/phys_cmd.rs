@@ -812,6 +812,7 @@ impl Script {
                 "bottom_slope" => c.bottom_slope = f,
                 "bottom_flat" => c.bottom_flat = f,
                 "step_height" => c.step_height = f,
+                "step_width" => c.step_width = f,
                 "max_slope_deg" => c.max_slope_deg = f,
                 "jump_height" => c.jump_height = f,
                 "skin" => c.skin = f,

@@ -17,6 +17,7 @@ mod actors;
 mod attack_anims;
 mod authored_pose;
 mod cell_buffer;
+mod clutter_pose;
 mod cell_resets;
 mod alert;
 mod anim_sounds;
@@ -1517,8 +1518,8 @@ fn screenshot_and_exit(
         *ready_at = Some(*elapsed);
         let s = &streamer.stats;
         info!(
-            "cells loaded in {:.2}s ({:.0} ms loading): refs drawn {} (animated {}, doors {}, with named sequences {}), disabled {}, not drawn {} {:?}, no model {}, shapes {}",
-            *elapsed, s.load_ms, s.refs_drawn, s.refs_animated, s.refs_doors, s.refs_group_rigs, s.refs_skipped_disabled, s.refs_skipped_type, s.skipped_types, s.refs_no_model, s.shapes
+            "cells loaded in {:.2}s ({:.0} ms loading): refs drawn {} (animated {}, doors {}, with named sequences {}, posed {}), disabled {}, not drawn {} {:?}, no model {}, shapes {}",
+            *elapsed, s.load_ms, s.refs_drawn, s.refs_animated, s.refs_doors, s.refs_group_rigs, s.refs_posed, s.refs_skipped_disabled, s.refs_skipped_type, s.skipped_types, s.refs_no_model, s.shapes
         );
     }
     let Some(r) = *ready_at else { return };

@@ -359,6 +359,22 @@ fn character_climbs_steps_but_not_walls() {
     }
 }
 
+#[test]
+fn character_climbs_shallow_steps_without_jumping() {
+    // Steps like the camper's door at the Powder Ganger camp (playtest list 5 item 17): a
+    // 10-unit step with a 24-unit top, then a 20-unit one. The cone bottom meets each edge
+    // with its own steep face, which rapier's autostep refused (`step_up_move`).
+    let mut w = ground();
+    w.add_ref(&at(1, [112.0, 0.0, 5.0]), &[object(boxed([12.0, 200.0, 5.0]), Motion::Static)]);
+    w.add_ref(&at(2, [324.0, 0.0, 15.0]), &[object(boxed([200.0, 200.0, 15.0]), Motion::Static)]);
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 1.0]);
+    settle(&mut w, &mut c, 30);
+    let steps = walk(&mut w, &mut c, [344.0, 0.0], 60);
+    assert!(c.feet[0] > 200.0 && (c.feet[2] - 30.0).abs() < 2.0, "{:?}", c.feet);
+    assert!(c.stepped > 0, "climbed by the step-up");
+    assert!(steps.iter().all(|s| s.landed_speed.is_none_or(|v| v < 100.0)), "no fall onto the steps");
+}
+
 /// A ramp rising eastwards at `deg` degrees from x = 100, as a rotated box.
 fn ramp(w: &mut PhysWorld, deg: f32) {
     let a = deg.to_radians();

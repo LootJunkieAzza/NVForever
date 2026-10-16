@@ -4917,6 +4917,39 @@ what they could not settle is a guess:
   be denser or a single one. Mode buttons/F1–F3 play `UIPipBoyMode`; the flashlight plays
   `UIPipBoyLightOn`/`Off`.
 
+## World: steps, cave skeletons, bobby pin (2026-10-16, session "l5-world", list 5 D6)
+
+Items 17, 71 and 63 of list 5. Items 59, 65, 64 and 4 of D6's queue are the laptop's L3.
+
+- **17 (ledged steps).** The camper at the Powder Ganger camp (your `physics ledged steps`
+  screenshot) has a 10-unit step with a 24-unit top, then a 20-unit step onto its floor.
+  The cause was not the step height: the player's cone-shaped bottom meets a step's edge
+  with a steep face, and the physics library's step-up refuses any steep contact, so every
+  step with a shallow top needed a jump. The controller now makes its own step up when a
+  wall stops it on the ground: up by the headroom (at most 24), across, down, kept only if
+  it lands higher on a walkable top. *Guesses:* the step height stays 24 (the original's
+  is not measured: if you find ledges you run up in the game that still need a jump,
+  tell me their place); a steep slope is still not climbed this way. *Check:* run up the
+  camper's steps into it; Doc Mitchell's porch steps, the saloon's and Goodsprings'
+  wooden walkways; also that you do not now climb things you should not (crates of about
+  knee height, fences, rocks: anything above 24 units still needs a jump).
+- **71 (cave skeletons).** The cave's three skeletons are clutter (not dead NPCs) whose
+  references store the pose the designers left them in (`XRGD`); it was read for corpses
+  only. They are now drawn in it, lying on the floor. *Guess:* how the entries of a body
+  part hanging directly under the model's root are read (under the reference, which lays
+  all three flat; the other reading put bones under the floor). *Not done:* their
+  collision stays upright as before (shots and pushes meet an invisible standing
+  skeleton); other skeleton clutter with the same data elsewhere is posed too. *Check:*
+  the cave's skeletons against the original (your `tposeskeletons` screenshot) and a
+  few others (the Mojave has many).
+- **63 (bobby pin).** The pin's model ends 1.47 units above the lock's centre as the two
+  files place it, so turned about the lock its tip swung round the keyhole into the
+  cylinder. It is now moved so its tip sits on the keyhole's middle and turns about it,
+  as on your `basegame` screenshot. Strain wobble: while you hold torque against a lock
+  that stopped, the pin shakes by 0.5° when new up to 4.5° just before it breaks, quickly
+  (23 and 37 Hz). *Guesses:* the shake's size and speed (the original's not measured);
+  none while the lock turns freely. *Check:* the pin's tip against `basegame.jpg` at a few
+  angles, and whether the shake reads well or should be bigger or slower.
 ## Compass marks, discovery, crosshair, reputation (2026-10-16, session "l5-compass", list 5 D7)
 
 - **57 (actor marks):** living NPCs and creatures of the loaded cells within Perception ×

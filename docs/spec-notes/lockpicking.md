@@ -143,6 +143,23 @@ stands where the screenshot has them.
   of the view's height as on the screenshots; the original's camera and its use of the
   files' lights are not known]; the picture is clear where nothing is drawn.
 
+- **The pin's place** (playtest list 5 item 63, 2026-10-16): the pin's keyhole end, the
+  short piece `bobbypin:0`, runs along the `bobbypin` node's own Y axis through its origin
+  [observed: its vertices average (−9.20, ·, −0.01) in a shape placed at (9.21, 3.70, 0)
+  under the node]. At the end of the pin's `Forward` that axis lies 1.47 units above the
+  cylinder's centre (`frame` and `lock` of `lockinterface01.nif` at the end of the lock's
+  `Forward`) [observed: same decode], so turned about the cylinder the pin's end swung
+  round the keyhole and cut into the cylinder, as the owner's screenshot shows; in the
+  original the pin turns about the keyhole's middle [observed: the owner's
+  `lockpickmisaligned` screenshots]. NVForever moves the whole pin across the cylinder's
+  axis by that offset (`lockpick_view::keyhole_shift`) before turning it, so it turns
+  about its own end [hypothesis: that the two files were meant to share one space and the
+  offset is the original's own correction is not known].
+- **The pin's shake** [design, the owner's wish]: while torque is held against a lock
+  that stopped short, the pin shakes about its end by up to 0.5° with a new pin plus 4° as
+  it wears out (health 1 to 0), two sines of 23 and 37 Hz; none while the lock turns
+  freely or rests. The original's amount is not measured.
+
 ## 3. The rules
 
 | What | Value | Source |
