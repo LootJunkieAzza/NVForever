@@ -480,6 +480,19 @@ fn a_travel_package_walks_through_the_door_and_meets_its_goal() {
 }
 
 #[test]
+fn a_restrained_actor_stays_in_place_until_released() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let start = s.feet(R_TRAVEL);
+    s.game.extra.entry(FormId(R_TRAVEL)).or_default().restrained = true;
+    s.run(30.0);
+    assert!(dist(s.feet(R_TRAVEL), start) < 1.0, "a restrained actor walked");
+    s.game.extra.get_mut(&FormId(R_TRAVEL)).unwrap().restrained = false;
+    s.run(30.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
+}
+
+#[test]
 fn time_passed_in_a_menu_takes_the_actor_to_its_packages_place() {
     let f = fixture();
     let mut s = sim(&f, &[R_TRAVEL]);
