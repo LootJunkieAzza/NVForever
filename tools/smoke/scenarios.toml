@@ -2797,6 +2797,27 @@ expect = [
 ]
 
 [[scenario]]
+name = "controller-menus"
+source = "owner 2026-10-16 controller layer, docs/design/controller.md §3: with a controller the menus take the buttons their files name and the hints show them; a virtual controller (NVF_PLAY_TEST_KEYS pad-…) opens the refrigerator with A, takes all with X (container_menu.xml), raises the Pip-Boy with B once the DLC load messages are answered, steps its pages with RT and LT, lowers it with B"
+areas = ["menus", "controls", "pipboy"]
+paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/menu/look.rs", "engine/nvf-play/src/pipboy/data.rs"]
+env = { NVFOREVER_HOME = "controller-menus-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105658", NVF_PLAY_TEST_PAUSE = "5:8", NVF_PLAY_TEST_SETTINGS = "6:device:Controller", NVF_PLAY_TEST_KEYS = "12:pad-a,15:pad-x,27:pad-b,30:pad-rt,31.5:pad-lt,32.5:pad-lt,34:pad-b" }
+args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
+run_seconds = 38
+expect = [
+  { re = 'reticle: (\d+) of \1 controller button pictures read', label = "every button picture of the HUD is in the interface atlas" },
+  { text = "controller: hints show the controller's buttons", label = "the hints follow the Input Device setting" },
+  { text = 'menu: open Container(0x00105658) "Refrigerator"', label = "A activates" },
+  { text = "controller: menu buttons for Container", label = "the container menu's own buttons" },
+  { re = 'menu: TakeAll: ', label = "X takes all (container_menu.xml CM_TakeAllButton)" },
+  { re = 'pipboy: up, page ', label = "B raises the Pip-Boy (Menu Mode)" },
+  { re = 'pipboy: DATA ', label = "RT steps to the next page" },
+  { re = 'pipboy: STATS ', label = "LT steps back" },
+  "pipboy: down",
+]
+order = [['menu: open Container(0x00105658) "Refrigerator"', "controller: menu buttons for Container", "menu: TakeAll: ", "menu: close", "pipboy: up, page ", "pipboy: DATA ", "pipboy: STATS ", "pipboy: down"]]
+
+[[scenario]]
 name = "death-cam-first"
 source = "owner 2026-10-16: when the player dies the body drops as a ragdoll with the first-person view fixed to its head, in slow motion and blurred (engine/nvforever/src/death_cam.rs)"
 areas = ["combat", "camera"]

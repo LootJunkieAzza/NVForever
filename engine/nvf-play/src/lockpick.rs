@@ -420,9 +420,13 @@ fn open(
     }
 }
 
-/// The keys and the mouse.
+/// The keys and the mouse; with a controller the right stick turns the pin as the mouse
+/// does (the look stick for the look device) and the left stick, the movement controls,
+/// holds the tension [design: the lockpick menu file names no stick].
+#[allow(clippy::too_many_arguments)]
 fn keys(
     keys: Res<ButtonInput<KeyCode>>,
+    (pads, bindings): (Query<&Gamepad>, Option<Res<crate::bindings::Bindings>>),
     motion: Option<Res<AccumulatedMouseMotion>>,
     time: AidTime,
     screen: Res<LockpickScreen>,
@@ -454,6 +458,9 @@ fn keys(
     }
     if keys.pressed(KeyCode::ArrowRight) {
         turn += KEY_DEGREES * dt;
+    }
+    if bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller) {
+        turn += crate::pad::stick(&pads, false).x * KEY_DEGREES * dt;
     }
     // The pointer on a button moves no pin [design: the original hides the pointer over
     // the lock only, `LPM_DetectArea`].

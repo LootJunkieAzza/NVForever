@@ -49,7 +49,10 @@
 //!   mouse button at each time and lets it go after the hold (default: the next frame),
 //!   through Bevy's input state, so the game's bindings (`crate::bindings`) are what
 //!   read it: `ctrl` (left Ctrl), `shift`, `space`, `tab`, `esc`, `enter`, a letter or
-//!   digit (`e`, `2`), `f1`..`f12`, or `mouse-left` / `mouse-right` / `mouse-middle`.
+//!   digit (`e`, `2`), `f1`..`f12`, or `mouse-left` / `mouse-right` / `mouse-middle`;
+//!   `pad-<button>` (`pad-a`, `pad-x`, `pad-lb`, `pad-start`, `pad-dpad-up`, any name
+//!   of `crate::pad::PAD_NAMES`, dashes for spaces) presses a button of a virtual
+//!   controller the aid connects at the start ("NVForever test aid controller").
 //!   Unlike `NVF_PLAY_TEST_CONTROL` it tests the key's path, not just what it does.
 //!
 //! The aids that stand in for the keys and the mouse (`NVF_PLAY_TEST_MOVE`,
@@ -214,6 +217,8 @@ fn press(rest: &str) -> Result<Press, String> {
 pub enum RealInput {
     Key(KeyCode),
     Mouse(MouseButton),
+    /// A button of the aid's virtual controller.
+    Pad(GamepadButton),
 }
 
 /// `<key>[:<hold seconds>]` of `NVF_PLAY_TEST_KEYS`.
@@ -245,6 +250,14 @@ pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
         "mouse-left" => RealInput::Mouse(MouseButton::Left),
         "mouse-right" => RealInput::Mouse(MouseButton::Right),
         "mouse-middle" => RealInput::Mouse(MouseButton::Middle),
+        l if l.starts_with("pad-") => {
+            let squash = |s: &str| s.to_ascii_lowercase().replace(['-', ' '], "");
+            let wanted = squash(&l["pad-".len()..]);
+            match crate::pad::PAD_NAMES.iter().find(|(_, n)| squash(n) == wanted) {
+                Some((crate::pad::PadInput::Button(b), _)) => RealInput::Pad(*b),
+                _ => return Err(format!("{rest:?}: unknown controller button {name:?}")),
+            }
+        }
         l if l.len() == 1 && l.as_bytes()[0].is_ascii_lowercase() => RealInput::Key(letters[(l.as_bytes()[0] - b'a') as usize]),
         l if l.len() == 1 && l.as_bytes()[0].is_ascii_digit() => RealInput::Key(digits[(l.as_bytes()[0] - b'0') as usize]),
         l => match l.strip_prefix('f').and_then(|n| n.parse::<usize>().ok()).filter(|n| (1..=12).contains(n)) {
@@ -260,12 +273,36 @@ pub fn real_input(rest: &str) -> Result<(RealInput, f32), String> {
 struct RealPresses {
     due: Vec<(f32, (RealInput, f32))>,
     down: Vec<(RealInput, f32)>,
+    /// The virtual controller, once connected.
+    pad: Option<Entity>,
 }
 
 /// Press and let go the `NVF_PLAY_TEST_KEYS` inputs, right after Bevy read the real ones.
-fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>) {
+/// A controller button press goes in as a raw controller event, read by Bevy's controller
+/// systems on the next frame as a real controller's would be.
+fn real_presses(
+    mut commands: Commands,
+    time: crate::pause::AidTime,
+    mut p: ResMut<RealPresses>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut mouse: ResMut<ButtonInput<MouseButton>>,
+    (mut raw, mut connect): (MessageWriter<bevy::input::gamepad::RawGamepadEvent>, MessageWriter<bevy::input::gamepad::GamepadConnectionEvent>),
+) {
+    use bevy::input::gamepad::{GamepadConnection, GamepadConnectionEvent, RawGamepadButtonChangedEvent, RawGamepadEvent};
     let now = time.elapsed_secs();
     let p = &mut *p;
+    let wants_pad = p.due.iter().any(|(_, (i, _))| matches!(i, RealInput::Pad(_)));
+    if wants_pad && p.pad.is_none() {
+        let e = commands.spawn_empty().id();
+        connect.write(GamepadConnectionEvent::new(e, GamepadConnection::Connected { name: "NVForever test aid controller".into(), vendor_id: None, product_id: None }));
+        p.pad = Some(e);
+    }
+    let pad = p.pad;
+    let mut button = |b: GamepadButton, value: f32| {
+        if let Some(e) = pad {
+            raw.write(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(e, b, value)));
+        }
+    };
     p.down.retain(|&(input, until)| {
         if now < until {
             return true;
@@ -273,6 +310,7 @@ fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut key
         match input {
             RealInput::Key(k) => keys.release(k),
             RealInput::Mouse(m) => mouse.release(m),
+            RealInput::Pad(b) => button(b, 0.0),
         }
         info!("test aid: real input {input:?} let go");
         false
@@ -281,6 +319,7 @@ fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut key
         match input {
             RealInput::Key(k) => keys.press(k),
             RealInput::Mouse(m) => mouse.press(m),
+            RealInput::Pad(b) => button(b, 1.0),
         }
         info!("test aid: real input {input:?} pressed");
         // At least one frame down.
@@ -392,7 +431,7 @@ pub(crate) fn setup(app: &mut App) {
     if let Some(v) = var("NVF_PLAY_TEST_KEYS") {
         match timed(&v).and_then(|items| items.into_iter().map(|(s, r)| real_input(r).map(|k| (s, k))).collect()) {
             Ok(due) => {
-                app.insert_resource(RealPresses { due, down: Vec::new() })
+                app.insert_resource(RealPresses { due, down: Vec::new(), pad: None })
                     .add_systems(PreUpdate, real_presses.after(bevy::input::InputSystems).before(bevy::ui::UiSystems::Focus));
             }
             Err(e) => warn!("NVF_PLAY_TEST_KEYS: {e}"),
@@ -663,6 +702,15 @@ fn goto_and_look(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn real_inputs_take_controller_buttons() {
+        assert_eq!(real_input("pad-x"), Ok((RealInput::Pad(GamepadButton::West), 0.0)));
+        assert_eq!(real_input("pad-dpad-up:0.5"), Ok((RealInput::Pad(GamepadButton::DPadUp), 0.5)));
+        assert_eq!(real_input("pad-lb"), Ok((RealInput::Pad(GamepadButton::LeftTrigger), 0.0)));
+        assert!(real_input("pad-left-stick-up").is_err());
+        assert_eq!(real_input("e"), Ok((RealInput::Key(KeyCode::KeyE), 0.0)));
+    }
 
     #[test]
     fn parses_and_fires_once() {

@@ -42,6 +42,7 @@ use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
 use crate::interface::{amber, at};
 use crate::menu::model::Command;
 use crate::menu::MenuInput;
+use crate::pad::{Hint, XButton};
 use crate::player::Player;
 use crate::radio::{Radio, RadioPlaces};
 use crate::script::ScriptState;
@@ -65,6 +66,11 @@ const WORLD: usize = 1;
 const QUESTS: usize = 2;
 const NOTES: usize = 3;
 const RADIO: usize = 4;
+
+/// The tab is the local or the world map.
+pub fn is_map_tab(tab: usize) -> bool {
+    tab == LOCAL || tab == WORLD
+}
 
 // ---- the menu file's places, inside the menus' rectangle [documented: map_menu.xml] ------
 
@@ -301,8 +307,30 @@ enum Right {
 #[derive(Debug, Clone, PartialEq)]
 struct Button {
     text: String,
-    key: Option<&'static str>,
+    /// Its key or controller button, as the device in use shows it.
+    hint: Option<Hint>,
     kind: ButtonKind,
+}
+
+/// The button X presses on a tab [documented: map_menu.xml MM_ButtonX `&xbuttonx;`, its
+/// title Place Marker on the local and world maps, Show Location on the quests, Show All
+/// Notes or Show Active Notes on the notes]; the keyboard's X too [design: the PC's menu
+/// has no key for it].
+fn x_button(tab: usize, l: &Lists) -> Option<ButtonKind> {
+    match tab {
+        LOCAL | WORLD => Some(ButtonKind::PlaceMarker),
+        QUESTS if !l.quests.is_empty() => Some(ButtonKind::ShowLocation),
+        NOTES => Some(ButtonKind::NotesFilter),
+        _ => None,
+    }
+}
+
+/// A button's hint: X's picture with a controller (`x_button`), else nothing.
+fn x_hint() -> Option<Hint> {
+    match crate::pad::hint("", Some(XButton::X)) {
+        Hint::Key(_) => None,
+        b => Some(b),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -380,7 +408,15 @@ pub struct Input<'w, 's> {
     time: Res<'w, Time<Real>>,
     buttons: Res<'w, ButtonInput<MouseButton>>,
     aid: ResMut<'w, PipBoyAid>,
+    pads: Query<'w, 's, &'static Gamepad>,
+    bindings: Option<Res<'w, crate::bindings::Bindings>>,
 }
+
+/// With a controller the left stick moves a map this many of the canvas's pixels a second
+/// at a full push, and the right stick pushed up zooms in by this many wheel notches a
+/// second [design: the PC's drag and wheel; the map menu file names no stick].
+const PAD_PAN: f32 = 600.0;
+const PAD_ZOOM: f32 = 4.0;
 
 /// The page's drawing tools.
 #[derive(SystemParam)]
@@ -693,6 +729,14 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         }
     }
     st.text_first = st.text_first.clamp(0.0, st.text_max.max(0.0));
+    if input.keys.just_pressed(KeyX) {
+        if let Some(k) = x_button(tab, l) {
+            button(st, k, input);
+        }
+    }
+    if input.keys.just_pressed(KeyR) && tab == NOTES {
+        button(st, ButtonKind::Challenges, input);
+    }
     if use_it && len > 0 {
         use_row(st, tab, st.sel[tab].min(len - 1), l, game);
     }
@@ -710,6 +754,15 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
     } else if let (Some(from), Some(p)) = (st.drag_from, pointer) {
         st.drag += p - from;
         st.drag_from = Some(p);
+    }
+    if (tab == LOCAL || tab == WORLD) && input.bindings.as_ref().is_some_and(|b| b.device == crate::bindings::InputDevice::Controller) {
+        let dt = input.time.delta_secs();
+        let pan = crate::pad::stick(&input.pads, true);
+        st.drag += Vec2::new(-pan.x, pan.y) * PAD_PAN * dt;
+        let zoom = crate::pad::stick(&input.pads, false).y * PAD_ZOOM * dt;
+        if zoom != 0.0 {
+            st.magnify[tab] = (st.magnify[tab].max(ZOOM.0) * ZOOM_STEP.powf(zoom)).clamp(ZOOM.0, ZOOM.1);
+        }
     }
     let aid_drag = std::mem::take(&mut input.aid.drag);
     st.drag += aid_drag;
@@ -791,12 +844,12 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
     let mut buttons = Vec::new();
     let body = match tab {
         LOCAL | WORLD => {
-            buttons.push(Button { text: "Place Marker".into(), key: None, kind: ButtonKind::PlaceMarker });
+            buttons.push(Button { text: "Place Marker".into(), hint: x_hint(), kind: ButtonKind::PlaceMarker });
             Body::Map(if tab == WORLD { world_map(st, game, pointer) } else { local_map(st, game, pointer) })
         }
         QUESTS => {
             if !l.quests.is_empty() {
-                buttons.push(Button { text: "Show Location".into(), key: None, kind: ButtonKind::ShowLocation });
+                buttons.push(Button { text: "Show Location".into(), hint: x_hint(), kind: ButtonKind::ShowLocation });
             }
             let rows = l
                 .quests
@@ -809,9 +862,10 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
         NOTES => {
             let text = if st.notes_of_active { "Show All Notes" } else { "Show Active Quest Notes" };
             if !l.notes.is_empty() || st.notes_of_active {
-                buttons.push(Button { text: text.into(), key: None, kind: ButtonKind::NotesFilter });
+                buttons.push(Button { text: text.into(), hint: x_hint(), kind: ButtonKind::NotesFilter });
             }
-            buttons.push(Button { text: "Challenges".into(), key: Some("R)"), kind: ButtonKind::Challenges });
+            // [documented: map_menu.xml `<xbuttony>` MM_ButtonY, `_PCButton_R`, "ChallengeToggle"].
+            buttons.push(Button { text: "Challenges".into(), hint: Some(crate::pad::hint("R)", Some(XButton::Y))), kind: ButtonKind::Challenges });
             let rows = l.notes.iter().map(|n| Row { text: n.name.clone(), mark: Mark::None, done: false }).collect();
             let right = match l.notes.get(st.sel[NOTES]) {
                 Some(n) if n.kind == 1 => Right::Text { text: n.text.clone().unwrap_or_default(), first: st.text_first },
@@ -1237,8 +1291,8 @@ fn buttons(p: &mut ChildSpawnerCommands, c: &mut Ctx, list: &[Button]) {
         let top = MAIN.min.y + BUTTONS.y + h * k as f32;
         let text_top = top + (h - c.line_height(2)) / 2.0 + BUTTON_TEXT_DROP;
         c.text(p, 2, &b.text, right - BUTTON_HORBUF / 2.0, text_top, Align::Right, bright);
-        if let Some(key) = b.key {
-            c.text(p, 2, key, right + KEY_GAP, text_top, Align::Left, bright);
+        if let Some(hint) = b.hint {
+            c.hint(p, 2, hint, right + KEY_GAP, text_top, top + h / 2.0, bright);
         }
         p.spawn((at(right - w, top, w, h), ButtonHit(b.kind), Pickable::default())).observe(on_button_click);
     }

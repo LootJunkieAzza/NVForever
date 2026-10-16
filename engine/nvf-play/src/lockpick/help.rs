@@ -219,7 +219,9 @@ pub fn spawn(r: &mut ChildSpawnerCommands, c: &mut Ctx, help: &Help, view_w: f32
         let right = w - BUTTONS_FROM_RIGHT;
         let top = bottom - FADE - body_h - 2.0 * VERBUF + CLOSE_LOWER;
         let cw = c.text_in(b, FontKind::Body, "Close", right, top + VERBUF, true, dim);
-        c.text_in(b, FontKind::Body, "E)", right + HINT_GAP, top + VERBUF, false, dim);
+        // With a controller: B [documented: tutorial_menu.xml's exit button `&xbuttonb;`].
+        let hint = crate::pad::hint("E)", Some(crate::pad::XButton::B));
+        c.hint(b, FontKind::Body, hint, right + HINT_GAP, top + VERBUF, top + VERBUF + body_h / 2.0, dim);
         b.spawn((Button, LockButton(LockpickInput::CloseHelp), at(right - cw - 10.0, top, cw + 2.0 * HINT_GAP + 40.0, body_h + 2.0 * VERBUF)));
     });
 }

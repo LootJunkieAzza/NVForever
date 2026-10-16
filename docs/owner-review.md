@@ -5262,8 +5262,34 @@ To check with a controller in the original, my guesses:
 3. The left stick walks under 0.6 of a full push (Always Run on), runs beyond.
 4. With Controller chosen the keyboard and mouse no longer work the controls (Esc and
    the console still do). Should both work at once instead?
-5. The prompt under the crosshair shows "A)" as text; the original shows the A button's
-   picture. Menus' own buttons and hints ("E) Exit") do not follow the controller yet.
+5. ~~The prompt under the crosshair shows "A)" as text~~: now the A button's picture
+   (branch claude/controller-menus, below).
+
+### Menus and prompts with a controller (2026-10-16, branch claude/controller-menus)
+
+With Controller chosen, the hint pictures are the game's own (`general_button_*`, the
+HUD's `glow_` ones under the crosshair) and each menu takes the buttons its menu file
+names: barter X accept / B exit, container X take all / B exit, "How many?" A / B,
+inventory A equip / X drop / B close, lockpick X force / B exit, its help box B,
+Pip-Boy DATA X (place marker, show location, the notes filter) / Y challenges, STATS
+A stimpak and RadAway, X Rad-X and General/Reputation, character menus Y reset / X done,
+level-up Y reset / X continue. My guesses, to check against the original on a controller:
+
+6. The Pip-Boy's pages on LT / RT (no menu file names them; LB / RB are the inventory's
+   Mod and Hotkey there, not built, so they still page lists up and down).
+7. In a conversation B says goodbye (as Tab); Start is the pause menu.
+8. Lockpicking: the right stick turns the pin (as the mouse), the left stick holds the
+   tension (it is the movement controls, as the help message says for the keys).
+9. The Pip-Boy maps: the left stick moves the map, the right stick up and down zooms;
+   the original moves a cursor over the map instead.
+10. Doctor's Bag on X on the STATS page (its button is set in code, not in the file);
+    the level-up menu's Back on B; the wait menu, recipe menu and the Goodbye hint show
+    A / B as letters, no picture (their files were not read; text inside a line).
+11. Where the picture stands: under the crosshair its right edge where "E)" ended, its
+    middle 12 above the action's line; in menus 22 by 30 where the key text started.
+    Screenshots of the original with a controller would settle the places.
+12. Hints already on screen change when the menu draws again, not at the moment the
+    setting is flipped.
 
 ## NPCs' holstered flamer: tank on the back, no gun (2026-10-16)
 

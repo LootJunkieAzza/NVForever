@@ -461,9 +461,12 @@ fn spawn(commands: &mut Commands, look: &RecipeLook, v: &View) {
                     y += wrapped(b, &look.row, &format!("{name} ({have}/{need})"), 110.0, y, 340.0, if ok { bright } else { amber(NOT_READY) }) + 8.0;
                 }
             });
-            // Accept and Exit [observed: "Accept  A)", "Exit  X)"].
+            // Accept and Exit [observed: "Accept  A)", "Exit  X)"]; with a controller A and B
+            // [design: the recipe menu's file was not read].
             let ready = v.rows.get(v.selected).is_some_and(|r| r.ready);
-            for (k, (label, b, on)) in [("Accept  A)", RecipeButton::Accept, ready), ("Exit  X)", RecipeButton::Exit, true)].into_iter().enumerate() {
+            let accept = format!("Accept  {}", crate::pad::hint_text("A)", Some(crate::pad::XButton::A)));
+            let exit = format!("Exit  {}", crate::pad::hint_text("X)", Some(crate::pad::XButton::B)));
+            for (k, (label, b, on)) in [(accept.as_str(), RecipeButton::Accept, ready), (exit.as_str(), RecipeButton::Exit, true)].into_iter().enumerate() {
                 let w = look.row.font.width(label);
                 m.spawn((Button, b, at(rx + BOX_WIDTH - w - 10.0, BUTTONS_TOP + k as f32 * 48.0, w + 10.0, 44.0))).with_children(|t| {
                     text(t, &look.row, label, 0.0, 0.0, if on { bright } else { amber(NOT_READY) });
