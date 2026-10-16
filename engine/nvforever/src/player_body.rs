@@ -551,6 +551,7 @@ struct Motion {
     attacks_seen: u32,
     reloads_seen: u32,
     reload_rounds_seen: u32,
+    jams_seen: u32,
     spin_ups_seen: u32,
     /// Interned clip names (attack stems, reload names) for the clip keys.
     names: HashMap<String, &'static str>,
@@ -590,6 +591,7 @@ impl Default for Motion {
             attacks_seen: 0,
             reloads_seen: 0,
             reload_rounds_seen: 0,
+            jams_seen: 0,
             spin_ups_seen: 0,
             names: HashMap::new(),
         }
@@ -1015,6 +1017,10 @@ struct Frame {
     /// The attack and reload clips of the weapon, and whether each starts this frame.
     attack: Option<&'static str>,
     reload: Option<&'static str>,
+    /// The weapon's jam animation (`JamA`), and whether a shot jammed it since the last
+    /// frame (combat, the owner's playtest list 5 item 9).
+    jam: Option<&'static str>,
+    jam_now: bool,
     attack_now: bool,
     reload_now: bool,
     /// A round-by-round reload starts on a round: the reload clip plays from its start.
@@ -1193,6 +1199,14 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             let fade = if f.reload_round_now { 0.0 } else { c.fade() };
             rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, fade);
             debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
+        }
+    }
+    // A jam: the weapon's jam clip (`1hpjama.kf`), played once on the reload layer as a
+    // reload is [observed: the clips sit beside the reload clips in both rigs' folders].
+    if f.hands.in_hand && f.jam_now {
+        if let Some(c) = f.jam.and_then(|j| rig.clip(ctx, ClipKey::Reload(f.stance, f.prefix, j))) {
+            rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, c.fade());
+            debug!("player {:?} rig: jam clip {}", rig.view, c.path);
         }
     }
     if matches!(f.hands.phase, WeaponPhase::Drawing | WeaponPhase::Holstering) {
@@ -1658,12 +1672,15 @@ fn drive_body(
     let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, control.aiming));
     let reload_clip = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, r)));
     let reload_open = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::ReloadOpen(stance, prefix, r)));
+    let jam = anim.jam.clone().map(|j| m.intern(j));
+    let jam_len = jam.and_then(|j| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, j))).map(|c| c.clip.length()).filter(|l| *l > 0.0);
     anim.timing = nvf_play::combat::clip_timing(
         attack_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit, c.keys.hit.zip(c.keys.loop_end).is_some_and(|(fire, back)| fire < back))),
         reload_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit)),
         reload_open.as_ref().map(|c| c.clip.length()),
         attack_clip.as_ref().and_then(|c| c.keys.next_attack.as_ref()).map(|(t, v)| (*t, v.as_str())),
     );
+    anim.timing.jam_len = jam_len;
     anim.timed = Some(attack.to_string());
     anim.ready = m.hands.phase == WeaponPhase::Drawn && m.hands.in_hand;
     let attack_now = anim.attacks != m.attacks_seen;
@@ -1673,6 +1690,8 @@ fn drive_body(
     m.attacks_seen = anim.attacks;
     m.reloads_seen = anim.reloads;
     m.reload_rounds_seen = anim.reload_rounds;
+    let jam_now = anim.jams != m.jams_seen;
+    m.jams_seen = anim.jams;
     m.spin_ups_seen = anim.spin_ups;
 
     let frame = Frame {
@@ -1693,6 +1712,8 @@ fn drive_body(
         speed: m.speed,
         attack: Some(attack),
         reload,
+        jam,
+        jam_now,
         attack_now,
         reload_now,
         reload_round_now,

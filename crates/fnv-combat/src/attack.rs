@@ -59,6 +59,8 @@ pub struct ClipTiming {
     /// The attack clip's `a:` key: its time and the attack it names next (melee combos,
     /// [`crate::melee`]).
     pub next_attack: Option<(f32, crate::melee::NextAttack)>,
+    /// Length of the weapon's jam clip (`1hpjama.kf`), when it has one.
+    pub jam_len: Option<f32>,
 }
 
 /// The intervals the cycle runs on.
@@ -136,6 +138,9 @@ pub enum Phase {
     ReloadRound { left: f32, stop: bool, taken: u32 },
     /// Round by round: closing the weapon.
     ReloadClose { left: f32, taken: u32 },
+    /// Jammed ([`Cycle::jam`]): no shot and no reload until `left` reaches 0, when the
+    /// jam clip has played (the owner's playtest list 5 item 9) [design].
+    Jammed { left: f32 },
 }
 
 /// One tick's input.
@@ -172,6 +177,8 @@ pub enum Event {
     Reloaded { taken: u32 },
     /// A regenerating weapon gained a round.
     Regenerated,
+    /// The jam is cleared: the weapon fires again.
+    Cleared,
 }
 
 /// The cycle of one wielded weapon.
@@ -233,6 +240,22 @@ impl Cycle {
             Some(r) => Phase::ReloadOpen { left: r.open, stop: false },
             None => Phase::Reloading { left: self.timing.reload },
         }
+    }
+
+    /// The shot just fired jammed the weapon: nothing fires and nothing reloads for
+    /// `seconds` (the jam clip's length). Ignored on a weapon that uses no ammo.
+    pub fn jam(&mut self, seconds: f32) {
+        if self.no_ammo {
+            return;
+        }
+        self.spun = false;
+        self.queued = None;
+        self.phase = Phase::Jammed { left: seconds.max(0.0) };
+    }
+
+    /// Whether the weapon is jammed now.
+    pub fn jammed(&self) -> bool {
+        matches!(self.phase, Phase::Jammed { .. })
     }
 
     pub fn step(&mut self, t: &CombatTuning, i: Input) -> Vec<Event> {
@@ -384,6 +407,16 @@ impl Cycle {
                         self.phase = Phase::ReloadRound { left: r.round, stop: false, taken };
                         out.push(Event::ReloadRound);
                     }
+                }
+                Phase::Jammed { left } => {
+                    if left > dt {
+                        self.phase = Phase::Jammed { left: left - dt };
+                        break;
+                    }
+                    self.phase = Phase::Ready;
+                    out.push(Event::Cleared);
+                    // It fires again from the next tick (a held automatic at once).
+                    break;
                 }
                 Phase::ReloadClose { left, taken } => {
                     if left > dt {

@@ -302,7 +302,11 @@ impl Game<'_> {
     /// record's karma.
     pub fn alignment(&mut self, r: FormId) -> Alignment {
         let b = self.crime_settings().bounds;
-        let karma = if self.data.actors.contains_key(&r) { self.data.actors[&r].karma } else { actor_value(self, r, KARMA).unwrap_or(0.0) };
+        let karma = if self.data.actors.contains_key(&r) {
+            self.data.template_source(r, r, |d| d.template_traits).map_or(self.data.actors[&r].karma, |(_, d)| d.karma)
+        } else {
+            actor_value(self, r, KARMA).unwrap_or(0.0)
+        };
         Alignment::of(karma, b)
     }
 
@@ -512,7 +516,10 @@ impl Game<'_> {
         let npc = base_of(self, victim).and_then(|b| self.data.actors.get(&b)).is_some_and(|d| &d.sig == b"NPC_");
         // Self-defence: it attacked the player by its records, a script or a crime of the
         // player's; a fight the player started (a grudge) is no defence.
-        let aggressor = self.awareness.forced.contains(&(victim, FormId::PLAYER_REF)) || (!self.provocations.holds(victim, FormId::PLAYER_REF) && self.would_attack(victim, FormId::PLAYER_REF));
+        // One fighting the player without a grudge chose that fight (item 22) [design].
+        let grudge = self.provocations.holds(victim, FormId::PLAYER_REF);
+        let fights_player = self.awareness.get(victim).is_some_and(|a| a.state.in_combat() && a.targets.contains_key(&FormId::PLAYER_REF));
+        let aggressor = self.awareness.forced.contains(&(victim, FormId::PLAYER_REF)) || (!grudge && (fights_player || self.would_attack(victim, FormId::PLAYER_REF)));
         let murder = npc && !alignment.evil() && (!aggressor || self.player.crime_enemies.contains(&victim));
         let name = self.data.name(victim);
         // NPCs only: creatures' karma includes plain animals (a dead radroach is Evil in

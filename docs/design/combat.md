@@ -548,7 +548,15 @@ engine:
   decisions 2026-10-11; combat-rules.md §4].
 - The loaded ammo is the first of the weapon's acceptable ammo list the actor carries
   (combat-data.md §2). Ammo Swap (hotkey 2) steps down the list to the next carried
-  type. Jamming comes later.
+  type.
+- **Jamming** (the owner's playtest list 5 item 9) [design]: below
+  `CombatTuning::jam_condition` (75 %) a shot of a weapon that uses ammo (not thrown)
+  jams it with `fnv_combat::condition::jam_chance` (0 at 75 %, `jam_chance_max` at 0 %,
+  along `jam_curve`). The shot leaves; the cycle is then `Jammed` for the jam clip's length
+  (`{prefix}jam{letter}.kf` beside `{prefix}reload{letter}.kf` [observed: file lists];
+  `jam_fallback` without one): no shot, no reload. The player only for now.
+- **God mode** (tgm, item 49) [design]: the magazine stays full, shots take nothing from
+  the inventory and Reload does nothing.
 - `fnv_actor::player_clips` gains attack, reload and hit-reaction clips. The text keys
   time them as documented (§4.2): `Hit` fires the shot, or ends a looping reload;
   `Fire`/`Loop` run an automatic weapon's loop; `Eject` throws a shell (speed and

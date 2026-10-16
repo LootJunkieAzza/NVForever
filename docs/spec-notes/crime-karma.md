@@ -69,9 +69,16 @@ Code: `crates/fnv-game/src/crime.rs` (the rules, the script functions), the reco
   VeryEvil]: karma at or beyond a bound is that side [hypothesis: the globals' names; the
   Pip-Boy's karma line uses them too, pipboy.md]. Records by their own karma [observed]:
   NPC_ 30 Very Evil, 568 Evil, 2,979 Neutral, 229 Good, 10 Very Good; CREA 398 Evil, 1,168
-  Neutral, 12 Good. Placed NPCs: 15 Very Evil (Cook-Cook, the Jackal and Viper bosses,
-  Vulpes Inculta), 236 Evil, 3,026 Neutral, 99 Good, 10 Very Good (Sunny Smiles, Julie
-  Farkas, Keely). Violet (`1EFiendViolet`) −500, Evil; Doc Mitchell 500, Good; Chet and
+  Neutral, 12 Good. Placed NPCs: 17 Very Evil (Cook-Cook, the Jackal and Viper bosses,
+  Vulpes Inculta), 575 Evil, 2,579 Neutral, 205 Good, 10 Very Good (Sunny Smiles, Julie
+  Farkas, Keely); placed creatures 540 Evil, 2,442 Neutral, 17 Good. An actor made from a
+  template whose Traits it takes reads the template's karma (`Game::alignment`, actor value
+  Karma) [hypothesis: which template flag carries Karma is not documented]: by their own
+  records 15 / 236 / 3,026 / 99 / 10, the leveled Powder Gangers and NCRCF convicts
+  (`LvlPowderGangerGunVar`, `LvlNCRCFPowderGangerMelee`, Primm's deputies) Neutral, so
+  killing one counted as murder (the owner's playtest list 5 item 22); through their
+  templates they are Evil, and the Nipton Jackal bosses Very Evil [observed: `fnvtool actor
+  karma --survey`, 2026-10-16]. Violet (`1EFiendViolet`) −500, Evil; Doc Mitchell 500, Good; Chet and
   Easy Pete 0, Neutral.
 - **GetIsAlignment's code** in conditions: 0 Good, 1 Neutral, 2 Evil, 3 Very Good, 4 Very
   Evil [hypothesis: xEdit's enumeration as remembered]. The three conditions in
