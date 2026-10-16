@@ -122,12 +122,21 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   edge. Each bracket picture is drawn texel for unit at its piece's top left corner.
 - The bars stand on the long line, about 4 above it. A full bar is 37 ticks, 296 long
   (the file's "total width" is 300), from the upright's inner edge to just short of the
-  bracket's corner mark: x 21–317 on the left, 67–363 on the right [observed: on the
+  bracket's corner mark: x 21–317 on the left, 68–364 on the right [observed: on the
   `Target healthbar` screenshot the first tick starts at the upright's inner edge and
-  the last ends about 2 pixels before the mark, and before the right upright; owner's
-  playtest 2026-10-16, after x 24–320 / 70–366 ran the last ticks into the mark and the
-  upright]. Where the tick step `round(8 × scale)` is rounded up so far that 37 ticks
-  would not fit in the bar's room, the step is a pixel less [design].
+  the last ends about 2 pixels before the mark; on the right the first starts about 2
+  pixels after the mark and the last meets the upright; owner's playtest 2026-10-16,
+  after x 24–320 / 70–366 ran the last ticks into the mark and the upright; measured
+  again 2026-10-16: left tick edges at x 69, 78 … 384 on both, right at 1520 … 1844 on
+  the original against 1518 … 1842 with 67–363].
+- The ticks are all as wide (whole pixels), and a full bar spans its room at any view
+  size: the first tick at the bar's start, the last ending the tick's clear strip
+  (`round(8 × scale) − round(6 × scale)`) short of its end on the left, the first that
+  far in on the right; the ticks between stand on whole pixels evenly spread, so the
+  gaps differ by a pixel at most [design: a whole-pixel step `round(8 × scale)` left a
+  full bar up to 25 pixels short of the mark or the upright at sizes where 8 × scale is
+  not whole, 1280 × 800 or a maximised window; owner's playtest 2026-10-16, "a gap at
+  the end of each"]. At 720, 1080 and 1440 lines the gaps are all equal, as before.
 - "HP" and "AP" stand **above** their bars, near the uprights: "HP" starting at x 23,
   "AP" ending at x 355, on the line y 33 (their capitals 23 high) [observed: measured
   again on the same screenshot 2026-10-16; 33 and 362 before stood 11 and 8 pixels
