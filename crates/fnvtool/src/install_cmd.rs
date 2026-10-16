@@ -9,9 +9,7 @@ use std::path::{Path, PathBuf};
 fn home_from(args: &HomeArg) -> anyhow::Result<EngineHome> {
     match &args.home {
         Some(h) => Ok(EngineHome::new(h)),
-        None => EngineHome::default_root()
-            .map(EngineHome::new)
-            .context("cannot determine a home directory; pass --home or set NVFOREVER_HOME"),
+        None => EngineHome::user().context("cannot determine a home directory; pass --home or set NVFOREVER_HOME"),
     }
 }
 
@@ -37,6 +35,8 @@ fn report(home: &EngineHome, game: Option<&GameInstall>) -> Value {
             let viol: Vec<String> = check_separation(home, g, exe.as_deref()).into_iter().map(|x| x.0).collect();
             v["game_install"] = path_str(&g.root);
             v["game_data_read_only"] = path_str(&g.data);
+            v["missing_game_files"] = json!(g.missing_files());
+            v["addon_masters"] = json!(g.addon_masters());
             v["separated"] = json!(viol.is_empty());
             v["violations"] = json!(viol);
         }
@@ -61,6 +61,7 @@ pub fn paths(args: &HomeArg) -> anyhow::Result<Value> {
 pub fn setup(game_dir: &Path, args: &HomeArg) -> anyhow::Result<Value> {
     let home = home_from(args)?;
     let game = GameInstall::open(game_dir)?;
+    game.check_files()?;
     let viol = check_separation(&home, &game, std::env::current_exe().ok().as_deref());
     if !viol.is_empty() {
         bail!(fnv_install::InstallError::Overlap(viol));

@@ -44,7 +44,7 @@ touches `Documents\My Games\FalloutNV`. The game's `Data` folder is read-only in
 |---|---|
 | Original game (read-only) | e.g. `F:\SteamLibrary\steamapps\common\Fallout New Vegas` |
 | NVForever programs | any folder outside the game, e.g. `C:\Games\NVForever` |
-| NVForever home (config, saves, logs, cache, mods) | `%LOCALAPPDATA%\NVForever` or `NVFOREVER_HOME` |
+| NVForever home (NVForever.ini, saves, logs, mods) | `Documents\My Games\NVForever` or `NVFOREVER_HOME` (caches: `%LOCALAPPDATA%\NVForever\cache`) |
 
 ```
 fnvtool setup --game "F:\SteamLibrary\steamapps\common\Fallout New Vegas"
@@ -116,7 +116,7 @@ another place shows one of the game's loading screens while the destination load
 ([docs/design/loading-screen.md](docs/design/loading-screen.md)). The bindings:
 [docs/spec-notes/controls.md](docs/spec-notes/controls.md).
 
-A crash leaves a report with a backtrace in `%LOCALAPPDATA%\NVForever\logs`.
+A crash leaves a report with a backtrace in `Documents\My Games\NVForever\logs`.
 
 Without `--play` the camera flies freely: W/A/S/D move, Q/E down/up, Shift faster, right
 mouse drag look, wheel speed, `[`/`]` hour, F12 screenshot, Esc quit.

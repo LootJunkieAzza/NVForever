@@ -29,7 +29,7 @@ They run in Windows PowerShell 5.1 and in PowerShell 7.
   worktree still runs.
 - The main menu: run nvforever with `--play --menu` (no place): Continue, New Game, Load
   Game, Settings, Quit; pass it with `-Extra '--menu'` here.
-- The log goes to the console and to `%LOCALAPPDATA%\NVForever\logs` (crash reports too).
+- The log goes to the console and to `Documents\My Games\NVForever\logs` (crash reports too).
 
 To add a place, add a line to the `$places` table in `Play.ps1` and its name to the
 `ValidateSet` above it.

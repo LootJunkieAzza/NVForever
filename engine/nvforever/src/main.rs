@@ -63,6 +63,7 @@ mod residents;
 mod script_look;
 mod ripples;
 mod settings;
+mod setup;
 mod shadow_probe;
 mod shafts;
 mod imagespace;
@@ -110,10 +111,12 @@ const MASTERS: [&str; 10] = [
 #[derive(Parser, Clone, Resource)]
 #[command(name = "nvforever", version)]
 struct Args {
-    /// The game's Data folder (read-only). Defaults to $NVFOREVER_DATA.
+    /// The game's folder or its Data folder (read-only). Defaults to $NVFOREVER_DATA, else
+    /// the folder stored in NVForever.ini, else it is asked for (setup.rs). After start-up
+    /// it is always the Data folder.
     #[arg(long, env = "NVFOREVER_DATA")]
-    data: PathBuf,
-    /// Plugins in load order (default: the base game and all DLC masters).
+    data: Option<PathBuf>,
+    /// Plugins in load order (default: the base game and the DLC masters present).
     #[arg(long, num_args = 1.., default_values_t = MASTERS.map(String::from))]
     plugins: Vec<String>,
     /// Record schema directory.
@@ -502,6 +505,13 @@ struct Args {
     no_dialogue_recentre: bool,
 }
 
+impl Args {
+    /// The game's Data folder, settled at the start of `main` (setup.rs).
+    fn data(&self) -> &std::path::Path {
+        self.data.as_deref().expect("the game folder is settled before anything reads it")
+    }
+}
+
 #[derive(Component)]
 struct Overlay;
 
@@ -532,11 +542,11 @@ fn lodgen_job(args: &Args, world: &WorldData, game: &GameData) -> Result<lodgen:
     }
     let params = lodgen::GenParams { res, step, tile: args.terrain_tile };
     let world_name = world.index.worldspaces[&world.world].edid.clone().unwrap_or_default();
-    let cache = fnv_install::EngineHome::default_root().map(|root| {
-        let (key, manifest) = lodgen::cache_key(&params, &world_name, &args.data, &args.plugins);
-        let dir = fnv_install::EngineHome::new(root).cache().join("lod").join(world_name.to_ascii_lowercase()).join(key);
+    let cache = fnv_install::EngineHome::user().map(|home| {
+        let (key, manifest) = lodgen::cache_key(&params, &world_name, args.data(), &args.plugins);
+        let dir = home.cache().join("lod").join(world_name.to_ascii_lowercase()).join(key);
         info!("generated LOD cache: {}", dir.display());
-        lodgen::GenCache { dir, manifest, game: fnv_install::GameInstall::open(&args.data).ok() }
+        lodgen::GenCache { dir, manifest, game: fnv_install::GameInstall::open(args.data()).ok() }
     });
     if cache.is_none() {
         warn!("no NVForever home folder: generated LOD is not cached");
@@ -561,8 +571,25 @@ fn report_archives(data: Res<GameData>) {
 
 fn main() -> AppExit {
     let mut args = Args::parse();
+    // The game's folder: `--data`, NVForever.ini or asked for; its files checked (setup.rs).
+    let install = match setup::game_install(args.data.as_deref()) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return AppExit::error();
+        }
+    };
+    args.data = Some(install.data.clone());
+    // Without --plugins: the DLC masters that are there (all of them are optional).
+    if args.plugins.iter().map(String::as_str).eq(MASTERS) {
+        let addons = install.addon_masters();
+        args.plugins.retain(|p| p == MASTERS[0] || addons.contains(&p.as_str()));
+        if addons.len() < MASTERS.len() - 1 {
+            eprintln!("setup: playing without the add-ons not installed; masters: {}", args.plugins.join(", "));
+        }
+    }
     // The run log and crash reports in NVForever's home (crash.rs).
-    crash::install(&args.data);
+    crash::install(args.data());
     let fail = |e: String| {
         eprintln!("error: {e}");
         crash::early_exit(&e);
@@ -597,12 +624,12 @@ fn main() -> AppExit {
         },
         None => None,
     };
-    let game = match GameData::open_for_plugins(&args.data, &args.plugins, &args.nif_schema) {
+    let game = match GameData::open_for_plugins(args.data(), &args.plugins, &args.nif_schema) {
         Ok(g) => g,
         Err(e) => return fail(e),
     };
     let t0 = std::time::Instant::now();
-    let world = match WorldData::open(&args.data, &args.esm_schema, &args.plugins, &args.world) {
+    let world = match WorldData::open(args.data(), &args.esm_schema, &args.plugins, &args.world) {
         Ok(w) => w,
         Err(e) => return fail(e),
     };

@@ -1,6 +1,6 @@
 #!/bin/sh
-# Runs NVForever with the schemas shipped beside it. Game data: set NVFOREVER_DATA to your
-# Fallout New Vegas Data folder (read-only), or pass --data .../Data.
+# Runs NVForever with the schemas shipped beside it. Game data: pass --data with your
+# Fallout New Vegas folder (read-only) or set Path= under [Game] in the home's NVForever.ini.
 # Example: ./nvforever.sh --play --cell Goodsprings
 here=$(cd "$(dirname "$0")" && pwd)
 : "${NVF_PLAY_SCRIPT_FUNCTIONS:=$here/schemas/script/functions.json}"
