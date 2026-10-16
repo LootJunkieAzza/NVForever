@@ -5245,3 +5245,19 @@ a lot), and his hands did not line up on the flamer, as with the minigun before.
    (no spin-up), since their shots leave at once. A game look at Cook-Cook firing,
    from the side, would confirm the arms.
 
+
+## Key names in tutorial messages (2026-10-16, session "key-tokens")
+
+Branch `claude/key-tokens`: the sneak tutorial read "To sneak or crouch, &sUActnCrouch;."
+(owner's screenshot).
+
+**Fix.** The game's texts use 16 control strings (every `&…;` in FalloutNV.esm); five are
+not the INI's names: Sldleft and Sldright (mapped before), and now Crouch (Crouch/Sneak),
+Rdyitem (Ready Item) and ToggleRun. A control bound only to a mouse button names the
+button ("Left Mouse: Attack"). The keys are read when the message appears, so a key
+rebound on the Controls page shows in the next message.
+*Guesses for you to check:*
+1. ToggleRun ("To toggle between run and walk, …") is the Always Run key (Caps Lock).
+2. The original's words for keys are not known: modifiers read "Left Ctrl", "Left Shift",
+   mouse buttons "Left Mouse", and `&sDeviceMouse;` ("… Look around") reads "Mouse".
+   A screenshot of the sneak tutorial or the controls help in the game would settle them.
