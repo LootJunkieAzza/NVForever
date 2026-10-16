@@ -2312,6 +2312,8 @@ expect = [
   { re = 'reputation: Powder Gangers \S.* -> Vilified', label = "the Powder Gangers' last box Vilified" },
   { re = 'pipboy stats: .* 2 reputations', label = "both reputations in the Pip-Boy's list" },
   { re = 'pipboy stats: LVL 1, .*, XP 10/', label = "the discovery's 10 XP" },
+]
+
 # ------------------------------------------------------------------ playtest list 5, NPC AI (claude/l5-npc-ai)
 
 [[scenario]]
