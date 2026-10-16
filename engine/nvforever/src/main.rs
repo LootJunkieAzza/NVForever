@@ -76,6 +76,7 @@ mod taa;
 mod speech_look;
 mod terrain;
 mod texture_swap;
+mod effect_particles;
 mod effect_shaders;
 mod tree;
 mod treelod;

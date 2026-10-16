@@ -2028,7 +2028,12 @@ impl<'a> Game<'a> {
                     .iter_mut()
                     .find(|x| !x.permanent && x.target == target && x.source == source && x.index == index);
                 if let Some(x) = active {
-                    x.duration += seconds;
+                    if mods.hit {
+                        // A hit's effect starts its time again (hit-effects.md §2).
+                        x.duration = x.duration.max(x.elapsed + seconds);
+                    } else {
+                        x.duration += seconds;
+                    }
                     // The usage monitor counts every use while it lasts (aid-items.md §5).
                     if e.effect == crate::aid::USAGE_MONITOR {
                         x.usage += e.magnitude as f64;
@@ -2042,7 +2047,19 @@ impl<'a> Game<'a> {
             let id = self.next_effect;
             self.next_effect += 1;
             let script = data.magic_effects.get(&e.effect).and_then(|m| m.script).filter(|s| data.scripts.contains_key(s));
-            let change = data.magic_effects.get(&e.effect).and_then(|m| crate::aid::value_change(m, e, mods.potency, permanent)).map(|c| mods.on_change(c));
+            let resisted = if mods.hit { self.resisted(target, data.magic_effects.get(&e.effect)) } else { 0.0 };
+            if resisted >= 1.0 {
+                continue;
+            }
+            let change = data
+                .magic_effects
+                .get(&e.effect)
+                .and_then(|m| crate::aid::value_change(m, e, mods.potency, permanent))
+                .map(|c| mods.on_change(c))
+                .map(|mut c| {
+                    c.amount *= 1.0 - resisted;
+                    c
+                });
             let usage = if e.effect == crate::aid::USAGE_MONITOR { e.magnitude as f64 } else { 0.0 };
             self.effects.push(ActiveEffect {
                 id,

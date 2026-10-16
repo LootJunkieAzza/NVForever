@@ -451,6 +451,16 @@ pub struct ActorDef {
     /// not include the Quest Item, No Knockdowns, No VATS Melee, Is CharGen Face Preset,
     /// or Can Be All Races flags"].
     pub template_base: bool,
+    /// `EITM` "Unarmed Attack Effect" and `EAMT` "Unarmed Attack Animation": the magic
+    /// item (an ENCH or a Poison SPEL) the actor's own unarmed blows apply, and the
+    /// attack animation they must be ("Any", "AttackForwardPower", …) [documented: xEdit
+    /// field names, schema `gameplay.json`; GECK wiki GetActorUnarmedEffect].
+    pub unarmed_effect: Option<FormId>,
+    pub unarmed_anim: Option<String>,
+    /// ACBS template flag "Actor Effect List": the template supplies the actor effects,
+    /// read here as covering the unarmed attack effect too [hypothesis: EITM and EAMT
+    /// sit beside SPLO in the record].
+    pub template_spells: bool,
 }
 
 /// A leveled actor list (LVLN, LVLC) [documented: xEdit; schema `gameplay.json`]: the
@@ -502,6 +512,11 @@ pub struct MagicEffectDef {
     /// DATA "Effect Shader": the EFSH played on the target while the effect lasts
     /// (docs/spec-notes/effect-shaders.md §3).
     pub shader: Option<FormId>,
+    /// DATA "Resistance Type": the actor value that resists the effect, a percentage of
+    /// its magnitude ignored (`None` for "None") [documented: xEdit field; GECK wiki
+    /// Stats Tab - Creatures, "Poison Resist: the percentage of poison damage that is
+    /// ignored"; docs/spec-notes/hit-effects.md §3].
+    pub resistance: Option<u16>,
 }
 
 impl MagicEffectDef {
@@ -514,6 +529,10 @@ impl MagicEffectDef {
     /// "FX Persist": the effect shader's persistent part shows while the effect lasts
     /// [documented: xEdit MGEF flags; GECK wiki EffectShader].
     pub const FX_PERSIST: u32 = 1 << 10;
+    /// "No Death Dispel": the effect goes on after its target dies [documented: xEdit
+    /// MGEF flags; hypothesis: without it the effect ends at the death,
+    /// docs/spec-notes/hit-effects.md §4].
+    pub const NO_DEATH_DISPEL: u32 = 1 << 28;
 
     pub fn has(&self, flag: u32) -> bool {
         self.flags & flag != 0
@@ -2002,6 +2021,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"VTCK" => a.voice = fid(v),
                     b"PKID" => a.packages.extend(fid(v)),
                     b"TPLT" => a.template = fid(v),
+                    b"EITM" => a.unarmed_effect = fid(v).filter(|f| f.0 != 0),
+                    b"EAMT" => a.unarmed_anim = v.as_ref().and_then(Json::as_str).map(str::to_string),
                     b"ZNAM" => a.combat_style = fid(v).filter(|f| f.0 != 0),
                     b"RNAM" if &sig == b"NPC_" => a.race = fid(v),
                     b"RNAM" if &sig == b"CREA" => a.attack_reach = v.as_ref().and_then(Json::as_u64).map(|n| n.min(255) as u8),
@@ -2056,6 +2077,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.template_model = has_flag(tf, "Model/Animation");
                         a.template_inventory = has_flag(tf, "Inventory");
                         a.template_script = has_flag(tf, "Script");
+                        a.template_spells = has_flag(tf, "Actor Effect List");
                     }
                     _ => {}
                 }
@@ -2126,12 +2148,14 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 let archetype = v.get("archetype").and_then(|t| field_code(schema, &sig, b"DATA", Some("archetype"), t)).unwrap_or(-1);
                 let item = v.get("associated_item").and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId);
                 let actor_value = v.get("actor_value").and_then(|t| field_code(schema, &sig, b"DATA", Some("actor_value"), t));
+                let resistance = v.get("resistance_type").and_then(|t| field_code(schema, &sig, b"DATA", Some("resistance_type"), t));
                 out.magic_effect = Some(MagicEffectDef {
                     flags: flag_bits(v.get("flags")),
                     archetype,
                     script: item.filter(|_| archetype == ARCHETYPE_SCRIPT),
                     actor_value: actor_value.and_then(|c| u16::try_from(c).ok()),
                     shader: v.get("effect_shader").and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId),
+                    resistance: resistance.and_then(|c| u16::try_from(c).ok()),
                 });
             }
         }

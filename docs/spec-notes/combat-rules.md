@@ -524,7 +524,8 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   - damages destructible objects whose collision overlaps its radius;
   - pushes dynamic bodies with its force (`PhysWorld::push_dynamic`: a speed change of
     the EXPL force in units/s at the centre, falling to 0 at the radius [design]).
-  - Radiation, the enchantment and the placed impact object are logged and not built.
+  - the enchantment (EXPL `EITM`) applies to every actor damaged (hit-effects.md §1);
+    radiation and the placed impact object are logged and not built.
 - **Destructible objects** (`Game::damage_object`, now also behind `DamageObject` /
   `do`, so scripts and combat share it) [documented: GECK wiki Destructible Object
   Stage]:

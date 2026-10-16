@@ -170,11 +170,16 @@ pub struct Mods {
     pub duration: f64,
     /// Multiplies the rads an effect gives (perks' "Modify Radiation Consumed").
     pub rads: f64,
+    /// Applied by a hit (a weapon's, a creature's or a blast's effect,
+    /// [`Game::apply_hit_effect`]): the target's resistances cut the harmful magnitudes,
+    /// and the same item's active effect is refreshed rather than lengthened
+    /// (docs/spec-notes/hit-effects.md §2, §3).
+    pub hit: bool,
 }
 
 impl Default for Mods {
     fn default() -> Mods {
-        Mods { potency: 1.0, duration: 1.0, rads: 1.0 }
+        Mods { potency: 1.0, duration: 1.0, rads: 1.0, hit: false }
     }
 }
 
@@ -264,7 +269,7 @@ impl Game<'_> {
         // take"; the GECK wiki's entry point says "any ingestible"].
         let duration = if def.equip_type == EQUIP_CHEMS { perk(self, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0) } else { 1.0 };
         let rads = perk(self, crate::perks::MODIFY_RADIATION_CONSUMED, 1.0);
-        let mods = Mods { potency, duration, rads };
+        let mods = Mods { potency, duration, rads, hit: false };
         self.emit(EventKind::Ingested { actor, item, potency });
         let applied = self.apply_magic_item_with(actor, item, Some(actor), false, &mods);
         let effects = applied.iter().filter(|a| !a.extended).map(|a| a.id).collect();
@@ -330,8 +335,11 @@ impl Game<'_> {
 
     /// Change an actor value at once by `amount` (positive restores, negative damages);
     /// a value that grows (rads) moves the other way (see [`grows`]).
-    fn change_value(&mut self, actor: FormId, code: u16, amount: f64, parts: bool) {
-        if grows(code) {
+    fn change_value(&mut self, actor: FormId, code: u16, amount: f64, parts: bool, caster: Option<FormId>) {
+        if code == crate::actor_values::HEALTH && amount < 0.0 {
+            // Health damage can kill (a burn, a poison; hit-effects.md §4).
+            self.effect_health_damage(actor, -amount, caster);
+        } else if grows(code) {
             let now = fa::actor_value(self, actor, code).unwrap_or(0.0);
             let to = (now - amount).max(0.0);
             let _ = fa::shift_base(self, actor, code, to - now);
@@ -406,7 +414,8 @@ impl Game<'_> {
                 }
             }
             ChangeKind::Once => {
-                self.change_value(target, c.code, c.amount, c.parts);
+                let caster = self.effects.iter().find(|e| e.id == id).and_then(|e| e.caster);
+                self.change_value(target, c.code, c.amount, c.parts, caster);
                 c.applied = c.amount;
             }
             ChangeKind::PerSecond => {}
@@ -435,8 +444,9 @@ impl Game<'_> {
         if seconds <= 0.0 {
             return;
         }
+        let caster = e.caster;
         let amount = c.amount * seconds;
-        self.change_value(target, c.code, amount, c.parts);
+        self.change_value(target, c.code, amount, c.parts, caster);
         c.applied += amount;
         self.set_change(id, c);
     }
@@ -490,7 +500,7 @@ mod tests {
     use super::*;
 
     fn mgef(archetype: i64, flags: u32, av: Option<u16>) -> MagicEffectDef {
-        MagicEffectDef { flags, archetype, script: None, actor_value: av, shader: None }
+        MagicEffectDef { flags, archetype, script: None, actor_value: av, shader: None, resistance: None }
     }
 
     fn item(magnitude: u32, duration: u32, av: Option<u16>) -> EffectItem {
