@@ -387,7 +387,7 @@ pub fn draw(
     if new {
         let f = |v: Option<(f64, f64)>| v.map_or("--".to_string(), |(a, b)| format!("{}/{}", model::whole(a), model::whole(b)));
         info!(
-            "pipboy stats: LVL {}, HP {}, AP {}, XP {}; {} S.P.E.C.I.A.L., {} skills, {} perks, {} effects, {} reputations{}",
+            "pipboy stats: LVL {}, HP {}, AP {}, XP {}; {} S.P.E.C.I.A.L., {} skills, {} perks, {} effects, {} reputations, karma title {}{}",
             snap.level.map_or("--".into(), |l| l.to_string()),
             f(snap.hp),
             f(snap.ap),
@@ -397,6 +397,7 @@ pub fn draw(
             snap.perks.len(),
             snap.effects.len(),
             snap.standings.len(),
+            snap.karma_title.as_deref().unwrap_or("--"),
             if snap.game { "" } else { " (no scripts' game: figures not read)" }
         );
     }
@@ -864,14 +865,19 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
         }
     } else if let Some((karma, word, picture)) = s.karma {
         // The block: the alignment at its top, the picture 60 above it and 310 high, the
-        // title 20 under the picture [hypothesis: the karma's number there; the titles
-        // by level and karma are not in the masters].
-        let h = 270.0 + th;
+        // karma title 20 under the picture and the karma's number a line under that
+        // [hypothesis: the places; the title by level and karma, `model::karma_title`].
+        let h = 270.0 + 2.0 * th;
         let top = r.min.y + (GENERAL_HEIGHT - h) / 2.0;
         centred(p, c, &format!("Karma: {word}"), mid, top, bw);
         let path = format!("Interface\\Icons\\PipboyImages\\Karma Icons\\{picture}.dds");
         c.image_cut(p, &path, bx - 32.0, top - 60.0, 256.0 * ICON_ZOOM, 310.0, ICON_ZOOM, bright());
-        centred(p, c, &model::whole(karma), mid, top + 270.0, bw);
+        let mut y = top + 270.0;
+        if let Some(title) = &s.karma_title {
+            centred(p, c, title, mid, y, bw);
+            y += th;
+        }
+        centred(p, c, &model::whole(karma), mid, y, bw);
     }
     // The switch: the other list's name [hypothesis], its key after it.
     let name = if v.reputation { "General" } else { "Reputation" };
