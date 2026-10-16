@@ -2604,6 +2604,33 @@ expect = [
 ]
 
 [[scenario]]
+name = "controls-write"
+source = "owner 2026-10-16: keys are mapped in the INI's [Controls] and rebound on the settings page's Controls tab; the first half of the round trip (controls-read starts in the same home), run them together"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:controls,12:bind:Jump=J,13:bind:Activate=F", NVF_PLAY_TEST_PAUSE_MENU = "11.5:defaults" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 18
+expect = [
+  { text = "controls: every control back to the game's keys", label = "Defaults on the Controls tab puts back the game's keys (what an earlier run stored is undone)" },
+  { text = "controls: Jump bound to J (was Space)", label = "a free key is bound" },
+  { text = "controls: Activate bound to F (was E) (Toggle POV now E, Middle Mouse)", label = "a key another control had is swapped" },
+]
+order = [["controls: every control back to the game's keys", "controls: Jump bound to J", "controls: Activate bound to F"]]
+
+[[scenario]]
+name = "controls-read"
+source = "owner 2026-10-16: the second half of the controls round trip: a new start in controls-write's home takes the keys it bound from [Controls] of NVForever.ini"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 12
+expect = [
+  { re = 'controls: 31 of 31 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse', label = "the stored keys are bound at the start" },
+]
+
+[[scenario]]
 name = "death-cam-first"
 source = "owner 2026-10-16: when the player dies the body drops as a ragdoll with the first-person view fixed to its head, in slow motion and blurred (engine/nvforever/src/death_cam.rs)"
 areas = ["combat", "camera"]
