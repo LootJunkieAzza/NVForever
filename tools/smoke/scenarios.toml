@@ -2113,6 +2113,9 @@ expect = [
   { re = 'menu pause: the picture stands still \(the free camera\)', label = "tfc 1 holds the picture" },
   "menu pause: the picture runs again",
   { re = 'console: open', min = 4, label = "the console opens again while the world is held" },
+]
+
+[[scenario]]
 name = "console-toggles"
 source = "console world and render toggles (docs/design/console.md): each switches and prints its state, and switches back"
 areas = ["console", "scripts"]
@@ -2146,6 +2149,9 @@ expect = [
   "console: Distant land on",
   "console: God mode off",
   "console: close",
+]
+
+[[scenario]]
 name = "console-quest-info"
 source = "console info and quest-debug commands (docs/design/console.md): console-only functions registered by catalogue name (crates/fnv-game/src/functions/console.rs)"
 areas = ["console", "scripts", "quests"]
