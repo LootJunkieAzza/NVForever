@@ -6,7 +6,9 @@ things in the world to see what they are. It is for testing and debugging. Nothi
 the original console's look or text is copied; the behaviour below is our design unless
 it is tagged otherwise.
 
-Code: `engine/nvf-play/src/console.rs`. Smoke test: `console` in `tools/smoke/scenarios.toml`.
+Code: `engine/nvf-play/src/console.rs`, the toggles also in
+`crates/fnv-game/src/functions/toggles.rs` and `engine/nvforever/src/console_toggles.rs`.
+Smoke tests: `console` and `console-toggles` in `tools/smoke/scenarios.toml`.
 
 ## Opening and closing
 
@@ -49,7 +51,7 @@ Console commands of its own:
 | `help <text>` | search every record: functions, then records (FormID, record type, Editor ID, name) whose name or Editor ID contains the text; see below |
 | `prid <reference>` | select the reference |
 | `coc <cell>` | travel to the cell's COC spot (`player::safe::cell_spot`: COCMarkerHeading, else XMarker, else a door arrival); interior or exterior cell by Editor ID or FormID |
-| `tgm` | god mode on or off (`combat::god_mode`, also the settings page's Developer switch) |
+| `tgm` | god mode on or off while no script runs (with scripts running it is ToggleGodMode, below) |
 | `cls`, `clear` | empty the scrollback |
 
 ## Console-only functions
@@ -61,7 +63,8 @@ print, are registered by catalogue name in `crates/fnv-game/src/functions/consol
 test checks each name against `schemas/script/functions.json`) and run with the line's
 words. A command takes the
 line's words and prints lines; what only the engine can do (travel, quit, menus, saving)
-it asks through `Game::console_requests`, which the console carries out. Wording is ours.
+it asks through `Game::console_requests`, which the console carries out. Wording is ours. A function the table has as a stub answers
+`<Function>: not built (<system>)` instead of its 0.
 
 | Command (alias) | What it does |
 |---|---|
@@ -83,8 +86,36 @@ it asks through `Game::console_requests`, which the console carries out. Wording
 
 Not built: `GetINISetting` / `SetINISetting` (the engine keeps no store of the original's
 INI values; they are constants in the code that uses them: the commands say so), the
-other console-only functions not listed here or in the sibling camera/toggle tables,
+other console-only functions not listed here or in the camera/toggle tables,
 several statements on a line.
+
+## World and render toggles
+
+Each is a function of the table, typed by name or alias, and prints its new state
+(`Collision off`, `Grass on`, …) instead of a value. The game switches its own
+(`fnv_game::functions::toggles::Toggles`); the engine switches the rest
+(`console::replies`, nvforever's `console_toggles.rs`). They are not saved: a load
+starts with the game's toggles on [design].
+
+| Command | What it does |
+|---|---|
+| `tcl` ToggleCollision | the player passes through everything, falls no more and flies where they look: forward and back along the view, sideways level, at the walking and running speeds; again: collision and gravity back, falling from where they are (`player::NoClip`) [hypothesis: as the original plays; its speed not measured] |
+| `tai` ToggleActorsAI | (`tai` is the console's own word: the catalogue lists no alias) every actor's AI off or on: no package choice, walking, detecting or fighting, on top of each actor's SetActorsAI (`Game::ai_off`) [hypothesis: global whatever is selected; the catalogue speaks of the calling actor] |
+| IsActorsAIOff | 1 when the calling actor's AI is off by SetActorsAI 0 or `tai` |
+| `tdetect` ToggleDetection | nobody perceives the player: its detection pairs and detection events are not measured, as the test aid `NVF_PLAY_TEST_UNSEEN` (actors still see each other) [hypothesis] |
+| `tgm` ToggleGodMode | god mode (`combat::god_mode`, also the settings page's Developer switch) |
+| `tscr` ToggleScripts | no GameMode or MenuMode block runs (quests, references, carried items); event blocks still do [hypothesis] |
+| `tg` ToggleGrass | grass, as the settings page's switch (`GrassConfig::enabled`) |
+| `ts` ToggleSky | the sky dome, clouds, stars and moons hidden; the sun's light stays [hypothesis: the catalogue's plain horizon] |
+| `tws` ToggleWaterSystem | water surfaces hidden |
+| `tt` ToggleTrees | SpeedTrees and their distant billboards hidden [hypothesis: the catalogue says the original stops their animated parts; hiding them is our choice] |
+| ToggleLODLand | distant land, as the settings page's switch and `--no-lod` |
+| ToggleNavmesh | the navmesh drawing (`NavState::show`, the settings page's switch); a run without navmesh says so |
+| `twf` ToggleWireframe | not built: Bevy's wireframe needs a GPU line mode the renderer does not ask for |
+
+Sky, water and trees have no switch of their own: while one is off, its meshes are
+hidden each frame after the systems that show and hide them, and get back the visibility
+those systems gave them when it is on again.
 
 ## Searching records: `help`
 

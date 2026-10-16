@@ -16,11 +16,16 @@
 //! - **Console commands of its own**: `help [text]` (every record and function whose name
 //!   or Editor ID contains the text, not case sensitive; `"two words"` is one phrase), `prid <reference>` (select it), `coc <cell>` (travel to the cell's
 //!   COC spot, `crate::player::safe::cell_spot`), `tgm` (god mode, `crate::combat`),
-//!   `tcl`-style clipping is not built, `cls` / `clear` (empty the scrollback).
+//!   `cls` / `clear` (empty the scrollback).
 //! - **Console-only functions** (no opcode: `sq`, `sqt`, `movetoqt`, `sqs`, `sqv`, `sv`,
 //!   `caqs`, `inv`, `getavinfo`, `setgs`, `cam`, `qqq` …) run from
 //!   `fnv_game::functions::console`; what they ask of the engine (travel, quit, saving)
 //!   comes back as [`ConsoleRequest`]s. `set <var> to <value>` sets a variable or global.
+//! - **The world and render toggles** (`tcl`, `tai`, `tdetect`, `tgm`, `tscr`, `tg`, `ts`,
+//!   `tws`, `tt`, `ToggleLODLand`, `ToggleNavmesh`) are functions of the table
+//!   (`fnv_game::functions::toggles`): the game switches its own and asks the engine for
+//!   the rest, which [`replies`] switches (collision: `crate::player::NoClip`; god mode)
+//!   or hands to the renderer ([`RenderToggles`]); each prints its new state.
 //! - **Click a thing in the world** while it is open: the reference under the pointer
 //!   (the collision ray, else the render bounds, as the crosshair picks) is selected and
 //!   its details printed and kept over the scrollback, and a box drawn around it: FormID,
@@ -97,7 +102,17 @@ pub struct Console {
     selected_text: String,
 }
 
+/// Render toggles the console asked for, for the renderer (nvforever) to switch and
+/// report with [`Console::say`].
+#[derive(Resource, Default)]
+pub struct RenderToggles(pub Vec<fnv_game::functions::toggles::Toggle>);
+
 impl Console {
+    /// Print a reply line (and log it).
+    pub fn say(&mut self, line: impl Into<String>) {
+        self.print(line);
+    }
+
     fn print(&mut self, line: impl Into<String>) {
         let line = line.into();
         info!("console: {line}");
@@ -149,6 +164,7 @@ impl Plugin for ConsolePlugin {
         app.init_resource::<Console>()
             .insert_resource(ConsoleAid(aid))
             .init_resource::<SearchIndex>()
+            .init_resource::<RenderToggles>()
             .add_systems(Update, (toggle, typing, search_ready, replies, click, draw, outline).chain().in_set(PlaySet::Ui))
             .add_systems(OnExit(PlayState::Menu), close_on_exit);
     }
@@ -302,6 +318,7 @@ fn typing(
                     c.print("help <text>: records and functions whose name or Editor ID contains it (not case sensitive); \"two words\" for a phrase, several words must all match");
                     c.print("prid <ref>, coc <cell>, tgm, cls, save <name>, load [name], saves, set <var> to <value>. Click something to select it; calls without a reference run on it.");
                     c.print("Quests and info: sq, sqt, movetoqt [n], sqs <quest>, sqv <quest>, sv, caqs, inv, getavinfo <av>, setgs <setting> <value>, cam, qqq");
+                    c.print("Toggles: tcl (collision), tai (actors' AI), tdetect, tgm, tscr (scripts), tg (grass), ts (sky), tws (water), tt (trees), ToggleLODLand, ToggleNavmesh");
                 } else {
                     let funcs = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| matching_functions(&rt.game.data.table, &terms)).unwrap_or_default();
                     if !funcs.is_empty() {
@@ -345,7 +362,8 @@ fn typing(
                     c.print(format!("{name}: {} level {}, {}, {} ({:?})", h.player_name, h.level, h.location, crate::save::game_date(h), h.kind));
                 }
             }
-            "tgm" => {
+            // With scripts running, `tgm` is ToggleGodMode of the table (below).
+            "tgm" if !script.as_deref().is_some_and(|s| s.rt.is_some()) => {
                 let on = !crate::combat::god_mode();
                 crate::combat::set_god_mode(on);
                 c.print(format!("God mode {}", if on { "on" } else { "off" }));
@@ -395,8 +413,30 @@ fn replies(
         MessageWriter<AppExit>,
     ),
     (mut next, mut commands, roots): (ResMut<NextState<PlayState>>, Commands, Query<Entity, With<ConsoleRoot>>),
+    (mut noclip, mut render): (ResMut<crate::player::NoClip>, ResMut<RenderToggles>),
 ) {
     let Some(mut st) = script else { return };
+    if let Some(rt) = st.rt.as_mut() {
+        use fnv_game::functions::toggles::Toggle;
+        let state = |off: bool| if off { "off" } else { "on" };
+        for t in std::mem::take(&mut rt.game.toggles.asked) {
+            match t {
+                Toggle::Collision => {
+                    noclip.0 = !noclip.0;
+                    c.print(format!("Collision {}", state(noclip.0)));
+                }
+                Toggle::GodMode => {
+                    let on = !crate::combat::god_mode();
+                    crate::combat::set_god_mode(on);
+                    c.print(format!("God mode {}", state(!on)));
+                }
+                Toggle::ActorsAI => c.print(format!("Actors' AI {}", state(rt.game.toggles.actors_ai_off))),
+                Toggle::Detection => c.print(format!("Detection of the player {}", state(rt.game.toggles.detection_off))),
+                Toggle::Scripts => c.print(format!("Scripts {}", state(rt.game.toggles.scripts_off))),
+                t => render.0.push(t),
+            }
+        }
+    }
     let out = std::mem::take(&mut st.console_out);
     for r in out {
         for l in r.lines {
@@ -846,6 +886,12 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
         _ => (None, first.clone()),
     };
     let args = &w[1..];
+    // Words of the console's own for functions the catalogue gives no alias
+    // [hypothesis: `tai` is the word players type for the AI toggle; not in the catalogue].
+    let func = match func.to_ascii_lowercase().as_str() {
+        "tai" => "ToggleActorsAI".to_string(),
+        _ => func,
+    };
     let on = match &on_name {
         Some(n) => Some(form(rt, n)?),
         None => call.selected.map(FormId),
@@ -903,9 +949,19 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
     }
     let ctx = Ctx { unit: "console".into(), opcode, on, self_ref: on, action_ref: None, quest: None, inst: None, in_condition: false };
     let from = g.events.len();
+    let asked = g.toggles.asked.len();
     let v = g.call_function(&ctx, &values);
     if let Some(EventKind::CallFailed { error, .. }) = g.events[from..].iter().map(|e| &e.kind).find(|k| matches!(k, EventKind::CallFailed { .. })) {
         return Err(format!("{fname}: {error}"));
+    }
+    // A function of a system not built says so instead of its 0.
+    let kind = fnv_game::functions::lookup(opcode).or_else(|| fnv_game::functions::lookup_console(&fname));
+    if let Some(fnv_game::functions::Kind::Stub(why)) = kind {
+        return Ok(ConsoleReply { lines: vec![format!("{fname}: not built ({why})")], ..Default::default() });
+    }
+    // A toggle: [`replies`] prints its new state.
+    if g.toggles.asked.len() > asked {
+        return Ok(ConsoleReply::default());
     }
     let name = |r: FormId| if r == FormId::PLAYER_REF { "player".to_string() } else { g.data.name(r) };
     let shown = match v {

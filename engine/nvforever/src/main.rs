@@ -44,6 +44,7 @@ mod lockpick_view;
 mod lod;
 mod locomotion;
 mod combat_tactics;
+mod console_toggles;
 mod npc_combat;
 mod provoked;
 mod weapons;
@@ -1176,6 +1177,7 @@ fn main() -> AppExit {
     }
     if play.is_some() {
         settings::register(&mut app);
+        console_toggles::register(&mut app);
         app.add_systems(Update, load_by_restart);
         nvf_play::save::add_save_hook(&mut app, sky::SAVE_HOOK);
     }
