@@ -2390,3 +2390,29 @@ run_seconds = 45
 expect = [
   { re = 'ai summary at .*vMORangerGhostREF: no package, \S+ in \S+, walked (?P<n>\d+) units', range = [0, 50], label = "Ghost stays at her post (walked under 50 units)" },
 ]
+
+[[scenario]]
+name = "settings-write"
+source = "owner 2026-10-16: every settings switch is kept in NVForever.ini, so a start or a save's load does not reset it; the first half of the round trip (settings-read starts in the same home), run them together"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-install/src/lib.rs"]
+env = { NVFOREVER_HOME = "settings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:page,13:hit-markers", NVF_PLAY_TEST_PAUSE_MENU = "12:defaults" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 18
+expect = [
+  { text = "pause menu: settings back to their defaults", label = "Defaults puts back the command line's switches (what an earlier run stored is undone)" },
+  { text = "settings: hit-markers on", label = "the switch is flipped" },
+]
+order = [["pause menu: settings back to their defaults", "settings: hit-markers on"]]
+
+[[scenario]]
+name = "settings-read"
+source = "owner 2026-10-16: the second half of the settings round trip: a new start in settings-write's home takes the switch it flipped from NVForever.ini"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/settings.rs", "crates/fnv-install/src/lib.rs"]
+env = { NVFOREVER_HOME = "settings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 12
+expect = [
+  { re = 'settings: \d+ of \d+ switch\(es\) read from .*NVForever\.ini, \d+ changed: (.*, )?hit-markers on', label = "the stored switch is set at the start" },
+]

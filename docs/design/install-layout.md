@@ -41,6 +41,12 @@ The game's folder comes from, in order:
 A stored folder that no longer works (moved, files missing) brings back the picker with the
 reason. Saving the INI changes only `Path` and keeps other lines and comments.
 
+The settings page's switches (pause menu and main menu) are kept in the same INI, one
+`key=1` / `key=0` line each under `[Settings]` (`nvf_play::settings`). Every flip writes
+all of them; each start, including the restart that loads a save, sets the listed
+switches to their stored values, so the INI wins over the command line. Unattended runs
+(test aids) neither read nor write the INI of the player's own home.
+
 **Before every start** the folder must pass (`fnv_install::GameInstall`):
 
 - `Data\FalloutNV.esm` exists (the folder is a game install at all);
