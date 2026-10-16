@@ -54,6 +54,8 @@ pub enum CombatRequest {
     /// Set off the placed explosives of this actor that detonate
     /// (`DetonatePlacedExplosives`).
     Detonate(FormId),
+    /// `from` fires one shot of `weapon` from its centre, straight ahead (`FireWeapon`).
+    Fire { from: FormId, weapon: FormId },
 }
 
 /// What damage did to a destructible reference (step C7).
