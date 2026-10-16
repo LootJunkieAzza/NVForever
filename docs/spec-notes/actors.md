@@ -1197,6 +1197,25 @@ stopped and started, as Victor's walk had before #258). Code:
   observation]: outside the Normal detection state (Alert, Combat, Lost) such a creature
   moves on its `h2h` clips (missing moves taken from the `mt` set) at their speeds by the
   rule above; the change of set is not cross-faded.
+- **Clip rate** [hypothesis: the movement comes from the clips, §8.2]: the clips play
+  Speed Mult × 0.70 faster (`Locomotion::pace`) and the walk or run is chosen for the
+  velocity divided by that, so a medium cazador walking at 379 units/s plays its walk
+  clip at 1.75, not its run clip at 0.7.
+- **Turning** [observed: the calm session's headings, 0.16 s apart]: medium cazadors
+  turned at up to 304°/s, young ones up to 137°/s, both plateaus; 85–89% of their
+  turns faster than 60°/s happened while they moved (over 20 units/s). Rule
+  [hypothesis: proportional to scale, fitted on these two kinds; CREA `TNAM`, 720 and
+  90 on these records, does not match]: a creature turns at 300°/s × its scale walking
+  and standing (`CREATURE_TURN_RATE`), and turns on the spot before setting off only
+  when its way is more than 60° off (`CREATURE_SPOT_TURN_START`, design; people: 20°,
+  §8.9). With the people's 120°/s and 20°, a fast cazador stopped to turn at the start
+  of nearly every short sandbox walk.
+- **Walk/run changes** [design]: the gait changes only when a speed smoothed over 0.2 s
+  (`Locomotion::gait_speed`) is 15% past the switch point (`GAIT_HYSTERESIS`). In
+  NVForever a creature's drawn speed jumped to two or three times its walk for a single
+  frame (455 → 1,363 → 455 units/s, logged at the Tribal Village), and each jump began a
+  0.2 s cross-fade to the run clip and back: a hitch in the walk, the stop-and-start the
+  owner saw. Where the jumps come from is not found.
 - **Deathclaw's walk**: its walk clip is `locomotion\mtfoward.kf` (sequence Forward, 120
   units/s) [observed]; `clip_candidates` looks for that spelling last, so deathclaws now
   have a walk.

@@ -71,6 +71,11 @@ pub struct Speeds {
 pub struct ActorSpeeds {
     pub calm: Speeds,
     pub alert: Speeds,
+    /// Its own turn rate (radians per second, walking and standing) and how far off its
+    /// way it may be before it turns on the spot (radians); `None`: the walker's defaults
+    /// (`fnv_nav::follow::WALK_TURN_RATE`, `SPOT_TURN_RATE`, `SPOT_TURN_START`).
+    pub turn_rate: Option<f32>,
+    pub spot_turn_start: Option<f32>,
 }
 
 /// What an actor is doing about its package.
@@ -336,6 +341,16 @@ pub struct Ai {
     pub speeds: BTreeMap<FormId, ActorSpeeds>,
 }
 
+/// A walker turning at its actor's own rate ([`ActorSpeeds::turn_rate`]).
+fn own_turning(w: &mut Walker, s: &ActorSpeeds) {
+    if let Some(r) = s.turn_rate {
+        (w.turn_rate, w.spot_turn_rate) = (r, r);
+    }
+    if let Some(t) = s.spot_turn_start {
+        w.spot_turn_start = t;
+    }
+}
+
 fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
     (a[0] - b[0]).hypot(a[1] - b[1])
 }
@@ -343,6 +358,14 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
         Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), speeds: BTreeMap::new() }
+    }
+
+    /// Give `actor` speeds of its own; its walker turns at its own rate from now on.
+    pub fn set_speeds(&mut self, actor: FormId, speeds: ActorSpeeds) {
+        self.speeds.insert(actor, speeds);
+        if let Some(a) = self.agents.get_mut(&actor) {
+            own_turning(&mut a.walker, &speeds);
+        }
     }
 
     /// `actor`'s calm speeds: its own, or the configured ones.
@@ -359,7 +382,10 @@ impl Ai {
     pub fn add(&mut self, game: &Game, actor: FormId) -> Result<(), String> {
         let place = goal::place_of_ref(game, actor).ok_or_else(|| format!("{actor} is in no cell"))?;
         let heading = game.world.peek(actor).map(|s| s.rot[2]).or_else(|| game.world.placed.get(actor).map(|p| p.rot[2])).unwrap_or(0.0);
-        let walker = Walker::new(place.space, place.pos, heading, self.calm_speeds(actor).walk);
+        let mut walker = Walker::new(place.space, place.pos, heading, self.calm_speeds(actor).walk);
+        if let Some(s) = self.speeds.get(&actor) {
+            own_turning(&mut walker, s);
+        }
         self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false });
         Ok(())
     }

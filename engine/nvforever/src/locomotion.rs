@@ -8,7 +8,7 @@
 //! (actors.md §8.9), which plays its turn clip; `--actor-turn-test` ([`TurnTest`]) tries it.
 
 use bevy::prelude::*;
-use fnv_actor::locomotion::{choose, Blend, Body, ClipInfo, LocomotionSet, Move};
+use fnv_actor::locomotion::{choose, direction, Blend, Body, Choice, ClipInfo, LocomotionSet, Move, RATE_MAX, RATE_MIN};
 use fnv_nav::follow::{heading_delta, SPOT_TURN_RATE, SPOT_TURN_START};
 use nvf_assets::actor::{bind_clip, clip_binding, ActorCtx, PreparedSkeleton};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
@@ -182,11 +182,14 @@ pub struct Locomotion {
     /// (`creature_pace.rs`), 1 for people. The move is chosen for the velocity divided by
     /// it, so a fast creature's walk is still its walk clip.
     pub pace: f32,
+    /// The speed (at the clips' pace) smoothed over [`GAIT_SMOOTHING`], which decides
+    /// between walking and running.
+    pub gait_speed: f32,
 }
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, sneaking: false, alert: None, alerted: false, pace: 1.0 }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, sneaking: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0 }
     }
 
     /// The upright set: the alert stance's while alerted, else the standing one.
@@ -230,7 +233,14 @@ impl Locomotion {
     pub fn step(&mut self, dt: f32) {
         let set = &self.set;
         let pace = if self.pace > 0.0 { self.pace } else { 1.0 };
-        let mut choice = choose(|m| set.info(m), [self.velocity[0] / pace, self.velocity[1] / pace], self.turn);
+        let v = [self.velocity[0] / pace, self.velocity[1] / pace];
+        let speed = v[0].hypot(v[1]);
+        self.gait_speed += (speed - self.gait_speed) * (1.0 - (-dt.max(0.0) / GAIT_SMOOTHING).exp());
+        let mut choice = choose(|m| set.info(m), v, self.turn);
+        let cur = self.blend.cur.mv;
+        if let Some(kept) = held_gait(set, cur, choice.mv, v, self.gait_speed) {
+            choice = kept;
+        }
         if choice.mv.is_moving() {
             choice.rate *= pace;
         }
@@ -244,6 +254,40 @@ impl Locomotion {
         player.layers[0] = layer(self.blend.cur.mv, self.blend.cur.phase, w);
         player.layers[1] = self.blend.prev.and_then(|p| layer(p.mv, p.phase, 1.0 - w));
     }
+}
+
+/// How far past the walk/run switch point the speed must go before the gait changes,
+/// as a ratio [design: a speed hovering at the switch point, from uneven frame times or a
+/// slow-down at a corner, swapped the clips back and forth].
+const GAIT_HYSTERESIS: f32 = 1.15;
+
+/// Time constant of [`Locomotion::gait_speed`], seconds [design: a creature's drawn speed
+/// jumped to two or three times its walk for a frame (455 to 1,363 units/s and back, the
+/// Tribal Village cazadors), which started a cross-fade to the run clip and back: a
+/// hitch].
+const GAIT_SMOOTHING: f32 = 0.2;
+
+/// The walk or run clip `cur` kept instead of `chosen`, when the two are the same move at
+/// the other gait and the smoothed speed `gait` has not gone [`GAIT_HYSTERESIS`] past the
+/// switch point; its rate for the speed of `v`.
+fn held_gait(set: &ClipSet, cur: Move, chosen: Move, v: [f32; 2], gait: f32) -> Option<Choice> {
+    if !cur.is_moving() || !chosen.is_moving() || cur == chosen {
+        return None;
+    }
+    let dir = direction(v);
+    let (walk, run) = (Move::moving(dir, false), Move::moving(dir, true));
+    if !((cur == walk && chosen == run) || (cur == run && chosen == walk)) {
+        return None;
+    }
+    let (w, r) = (set.info(walk)?, set.info(run)?);
+    if w.speed <= 0.0 || r.speed <= 0.0 {
+        return None;
+    }
+    let switch = (w.speed * r.speed).sqrt();
+    let speed = v[0].hypot(v[1]);
+    let keep = if cur == walk { gait < switch * GAIT_HYSTERESIS } else { gait > switch / GAIT_HYSTERESIS };
+    let c = if cur == walk { w } else { r };
+    keep.then(|| Choice { mv: cur, rate: (speed / c.speed).clamp(RATE_MIN, RATE_MAX) })
 }
 
 /// Time spent posing actors, for the `--run-seconds` summary (actors.md §8.6).
