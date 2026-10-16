@@ -5177,3 +5177,29 @@ hint, the text overlay, radio subtitles and the Fallout 3 music question.
   The clips are picked and blended the way the game's actors do it (idle or movement,
   then aim, then attack, by track priority). *Not covered:* aim up and down, reloads,
   jams, equip and holster. *Check:* run it for each type and list the broken cases.
+
+## Combat lines and effort sounds (2026-10-16, session "combat dialogue", branch claude/combat-dialogue)
+
+The Combat tab's topics are now said in fights (docs/spec-notes/combat-dialogue.md). From the
+GECK wiki's Combat Tab page: Hit when a hit takes more than `fCombatSpeakHitThreshold` (1 %) of
+the actor's health or by `fCombatSpeakHitChance`; Attack and PowerAttack at most once per
+5–30 s per actor (`fCombatDialogueAttack…ElapsedTime`); Death always. The player's lines are the
+`GenericPlayer` quest's (PlayerVoiceMale grunts for Hit, PowerAttack and Death). Creatures and
+robots say Hit and Death lines whose response is a sound (`NPCBrahminInjured`,
+`FXExplosionRobotBuzz`, …): it plays where they stand instead of a voice.
+
+*Guesses:* "health" for the Hit threshold and for HealthHalf/HealthQuarter is the actor's
+base health; `fCombatSpeakAttackChance` (0.01) is not used, the timer alone decides (a 1 %
+chance per attack would make Attack lines rare); FireExplosive shares Attack's timer;
+Crippled, HealthHalf and HealthQuarter replace that hit's Hit line when the actor has one;
+a Death line goes on after its speaker died; the nearest living member of the dead actor's
+group within 1,536 units says DeathResponse after the Death line; combat lines get no group
+cooldown (unlike the Detection lines), so every dog of a pack yelps when hit; no combat line
+is said by an actor already saying a line.
+*Check:* fight the Goodsprings dogs or Fiends with sound on: do you hear your own grunts when
+hit and on a held (power) melee swing, the dogs' injured yelps, NPCs' battle cries no more
+often than every few seconds, and a death line when someone dies? Is anything too frequent?
+*Not built:* NPC power attacks and grenades (so their PowerAttack and FireExplosive lines),
+AvoidThreat, Yield, KnockedBack, OnFire, Poisoned, Wake and the Response topics other than
+DeathResponse.
+

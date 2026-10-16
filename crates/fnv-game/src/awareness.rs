@@ -477,7 +477,7 @@ impl Awarenesses {
 }
 
 /// Where a reference is now, game space.
-fn position(g: &Game, r: FormId) -> Option<[f32; 3]> {
+pub(crate) fn position(g: &Game, r: FormId) -> Option<[f32; 3]> {
     g.world.peek(r).map(|s| s.pos).or_else(|| g.world.placed.get(r).map(|p| p.pos))
 }
 
