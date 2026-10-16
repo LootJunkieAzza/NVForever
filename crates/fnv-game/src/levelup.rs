@@ -26,7 +26,7 @@ pub const SKILL_MAX: i32 = 100;
 /// is 2 (default)"; observed: not among FalloutNV.esm's GMST].
 pub const DEFAULT_LEVELS_PER_PERK: i32 = 2;
 
-/// Perks chosen at a perk level [hypothesis: one; no screenshot of the perk page].
+/// Perks chosen at a perk level [observed: "CHOOSE 1 PERK" at level 4].
 pub const PERKS_PER_LEVEL: usize = 1;
 
 /// The skill points a level brings at a permanent Intelligence:
@@ -206,39 +206,67 @@ pub fn title(level: i32) -> String {
 
 // ---- the perks page ----------------------------------------------------------------------
 
-/// The perks page: the perks the player may take and the one taken.
+/// The perks page: every perk of which the player has a rank to come, those that can be
+/// taken now first, and the ones taken.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PerkSheet {
     pub perks: Vec<FormId>,
+    /// Whether each can be taken now (the others are drawn faint and refused).
+    pub available: Vec<bool>,
     pub chosen: BTreeSet<FormId>,
     pub count: usize,
 }
 
 impl PerkSheet {
-    /// Every playable, not hidden perk that is not a trait, whose least level the player
-    /// has reached, of which the player has a rank to come, and whose requirements the
-    /// player meets, by name [documented: xEdit PERK DATA Trait, Min Level, Ranks,
-    /// Playable, Hidden; hypothesis: the original lists only perks the player can take].
+    /// Every playable, not hidden perk that is not a trait and of which the player has a
+    /// rank to come [documented: xEdit PERK DATA Trait, Min Level, Ranks, Playable,
+    /// Hidden]: those whose least level the player has reached and whose requirements
+    /// the player meets first, then the others, each part by least level, then by name
+    /// [observed: the owner's level-4 screenshots: Confirmed Bachelor … Swift Learner
+    /// (level 2), Cannibal, Comprehension, Educated (4) bright; then faint In Shining
+    /// Armor, Junk Rounds, Light Touch, Old World Gourmet (1) … Toughness, Vigilant
+    /// Recycler (6), Commando, Cowboy, Grunt … Stonewall (8)]. A perk of which the player
+    /// has every rank is left out [hypothesis: none was seen], and so are the perks of
+    /// least level 0, the challenges' rewards scripts give [observed: Bug Stomper and Set
+    /// Lasers for Fun, level 0 without conditions, are not on the owner's list, which
+    /// starts with Confirmed Bachelor].
     pub fn of_player(g: &mut Game, level: i32) -> PerkSheet {
         let offered: Vec<FormId> = g
             .data
             .perks
             .iter()
-            .filter(|(id, p)| !p.is_trait && p.playable && !p.hidden && p.min_level as i32 <= level && g.player.perks.get(id).copied().unwrap_or(0) < p.ranks.max(1))
+            .filter(|(id, p)| !p.is_trait && p.playable && !p.hidden && p.min_level > 0 && g.player.perks.get(id).copied().unwrap_or(0) < p.ranks.max(1))
             .map(|(&id, _)| id)
             .collect();
-        let mut perks: Vec<FormId> = offered.into_iter().filter(|&p| chargen::requirements_met(g, p)).collect();
-        perks.sort_by_key(|id| (g.data.perks[id].name.to_lowercase(), *id));
-        PerkSheet { perks, chosen: BTreeSet::new(), count: PERKS_PER_LEVEL }
+        let mut rows: Vec<(bool, u8, String, FormId)> = offered
+            .into_iter()
+            .map(|id| {
+                let p = &g.data.perks[&id];
+                let (min, name) = (p.min_level, p.name.to_lowercase());
+                (min as i32 <= level && chargen::requirements_met(g, id), min, name, id)
+            })
+            .collect();
+        rows.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2)).then(a.3.cmp(&b.3)));
+        PerkSheet { perks: rows.iter().map(|r| r.3).collect(), available: rows.iter().map(|r| r.0).collect(), chosen: BTreeSet::new(), count: PERKS_PER_LEVEL }
     }
 
-    /// Take a perk while fewer than the count are taken, or give a taken one back.
-    /// Whether anything changed.
+    /// A sheet of perks that can all be taken (tests).
+    pub fn new(perks: Vec<FormId>) -> PerkSheet {
+        let available = vec![true; perks.len()];
+        PerkSheet { perks, available, chosen: BTreeSet::new(), count: PERKS_PER_LEVEL }
+    }
+
+    pub fn can_take(&self, p: FormId) -> bool {
+        self.perks.iter().position(|&q| q == p).is_some_and(|i| self.available[i])
+    }
+
+    /// Take a perk that can be taken while fewer than the count are taken, or give a
+    /// taken one back. Whether anything changed.
     pub fn toggle(&mut self, p: FormId) -> bool {
         if self.chosen.remove(&p) {
             return true;
         }
-        if self.chosen.len() < self.count && self.perks.contains(&p) {
+        if self.chosen.len() < self.count && self.can_take(p) {
             self.chosen.insert(p);
             return true;
         }
@@ -249,21 +277,23 @@ impl PerkSheet {
         self.count.saturating_sub(self.chosen.len())
     }
 
-    /// Whether Done may be pressed: the perks taken, or none on offer [design].
+    /// Whether Done may be pressed: the perks taken [observed: "Done A)" dim with none
+    /// taken, bright with Intense Training taken], or none can be taken [design].
     pub fn complete(&self) -> bool {
-        self.left() == 0 || self.perks.is_empty()
+        self.left() == 0 || !self.available.contains(&true)
     }
 
-    /// Done: one more rank of each perk taken.
+    /// Done: one more rank of each perk taken, with what gaining it does
+    /// (`crate::perks::gain_rank`: Intense Training opens the attributes page).
     pub fn apply(&self, g: &mut Game) {
         for p in &self.chosen {
-            *g.player.perks.entry(*p).or_default() += 1;
+            crate::perks::gain_rank(g, *p);
         }
     }
 }
 
-/// The perks page's counter [hypothesis: no screenshot of it; worded as the skills
-/// page's].
+/// The perks page's counter [observed: "CHOOSE 1 PERK", nothing once it is taken;
+/// hypothesis: "CHOOSE 2 PERKS"].
 pub fn perk_counter(left: usize) -> String {
     match left {
         0 => String::new(),
@@ -272,10 +302,23 @@ pub fn perk_counter(left: usize) -> String {
     }
 }
 
-/// The text beside a perk [hypothesis: as the trait menu's, "Req:", "Ranks:", an empty
-/// line, the description; the rank the player would reach of the most].
-pub fn perk_info(requirements: &str, rank: u8, ranks: u8, description: &str) -> String {
-    format!("Req: {requirements}\nRanks: {rank}/{ranks}\n\n{}", description.trim())
+/// A perk's row: its name, and the rank it would reach in brackets when the player has a
+/// rank of it already [observed: "Swift Learner (2)"].
+pub fn perk_row(name: &str, has: u8) -> String {
+    if has == 0 {
+        name.to_string()
+    } else {
+        format!("{name} ({})", u16::from(has) + 1)
+    }
+}
+
+/// The text beside a perk [observed: "Req: Level 2, INT 4", "Ranks: 3" (Swift Learner's
+/// ranks of all), an empty line, the description; as the trait menu's].
+pub fn perk_info(requirements: &str, ranks: u8, description: &str) -> String {
+    format!("Req: {requirements}
+Ranks: {ranks}
+
+{}", description.trim())
 }
 
 #[cfg(test)]
@@ -339,15 +382,24 @@ mod tests {
 
     #[test]
     fn one_perk_is_taken() {
-        let mut p = PerkSheet { perks: vec![FormId(1), FormId(2)], chosen: BTreeSet::new(), count: PERKS_PER_LEVEL };
+        let mut p = PerkSheet::new(vec![FormId(1), FormId(2), FormId(4)]);
+        p.available[2] = false;
         assert!(!p.complete());
         assert_eq!(perk_counter(p.left()), "CHOOSE 1 PERK");
+        assert!(!p.toggle(FormId(4)), "a faint perk is refused");
         assert!(p.toggle(FormId(1)));
         assert!(!p.toggle(FormId(2)), "a second perk is refused");
         assert!(p.complete());
+        assert_eq!(perk_counter(p.left()), "");
         assert!(p.toggle(FormId(1)) && p.chosen.is_empty());
         assert!(!p.toggle(FormId(3)), "a perk not on offer");
-        assert!(PerkSheet { perks: vec![], chosen: BTreeSet::new(), count: 1 }.complete());
-        assert_eq!(perk_info("STR >= 5", 1, 3, " Hits hard. "), "Req: STR >= 5\nRanks: 1/3\n\nHits hard.");
+        let mut none = PerkSheet::new(vec![FormId(1)]);
+        none.available[0] = false;
+        assert!(none.complete(), "nothing can be taken");
+        assert_eq!(perk_info("Level 2, INT 4", 3, " More XP. "), "Req: Level 2, INT 4
+Ranks: 3
+
+More XP.");
+        assert_eq!((perk_row("Swift Learner", 1), perk_row("Hunter", 0)), ("Swift Learner (2)".to_string(), "Hunter".to_string()));
     }
 }

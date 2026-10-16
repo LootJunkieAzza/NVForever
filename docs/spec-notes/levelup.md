@@ -8,6 +8,10 @@ pieces with the character-creation menus (chargen.md).
 
 ## 1. Sources
 
+- **Nine more screenshots from the owner**, 2026-10-16 (`C:\fnv-private\perkmenu`, kept
+  privately): the perks page at level 4 with the pointer on six perks, the list
+  scrolled, Intense Training taken, then the attributes page it opens before and after
+  the point is given (§8).
 - **Five screenshots from the owner**, 2026-10-16, 3840 × 2160 (kept privately): the
   menu at level 3 with 12 points to assign, the pointer on Barter, Lockpick and Energy
   Weapons; then 5 points spent on Science (17 → 22, "ASSIGN 7 SKILL POINTS"); then all
@@ -86,11 +90,9 @@ pieces with the character-creation menus (chargen.md).
 - **The values shown** are the skills' current values (effects included), as the file's
   base + extra; a skill at or over 100 takes no point.
 - **Perk levels**: every `iLevelsPerPerk` (2) levels: 2, 4, 6 … [hypothesis: counted
-  from 0]. The perks page offers every playable, not hidden, non-trait perk whose Min
-  Level the player has reached, of which a rank is left, whose requirements (the CTDA
-  before its first effect, chargen.md §2) the player meets, by name [hypothesis: only
-  the perks that can be taken are listed]. One perk per perk level [hypothesis]. Done
-  adds a rank. Its effects are `crate::perks`' (what is built of them).
+  from 0]. The perks page lists every perk (§8). One perk per perk level [observed:
+  "CHOOSE 1 PERK" at level 4]. Done adds a rank (`crate::perks::gain_rank`), with its
+  Quest + Stage effects; its other effects are `crate::perks`' (what is built of them).
 - **Continue to the perks** writes the skill points into the game first, so requirements
   on skills see them; Back takes them out again [design].
 - **Done** may be pressed with every point spent, or when no skill can take one [design:
@@ -121,8 +123,6 @@ pieces with the character-creation menus (chargen.md).
   lightning square there, and none on Barter, Lockpick or Science. No skill's AVIF has a
   second icon [observed: AVIF ICON only, no MICO, on the fourteen skills]; what the
   program puts there is not known. Not drawn.
-- The perks page has not been seen: its title, counter ("CHOOSE 1 PERK") and the text
-  beside a perk (as the trait menu's, with "Ranks: n/m") are guesses.
 - Perks and traits that change the points (Educated, Skilled) or the perk rate are not
   applied; nor are several levels in a row (one menu per call).
 - The world behind is darkened, not blurred (as chargen.md §8).
@@ -134,7 +134,67 @@ pieces with the character-creation menus (chargen.md).
   (`fnv_game::levelup`); the menu model (pages, scrolling), the test aid, the sounds
   (`nvf-play`).
 - Smoke test `levelup-menu` (tools/smoke/scenarios.toml): the test aid
-  `NVF_PLAY_TEST_LEVELUP` levels to 2 and plays both pages (refusals, a perk taken,
-  given back, Back, Done), then the console's `advlevel` opens level 3, which has no
-  perks page; screenshots of both pages and level 3.
+  `NVF_PLAY_TEST_LEVELUP` levels to 2 and plays both pages (refusals, a faint perk
+  refused, a perk taken, given back, Back, Done with Intense Training), then
+  `NVF_PLAY_TEST_CHARGEN` plays the attributes page (Done refused, a point given, taken
+  back, given again, Done), then the console's `advlevel` opens level 3, which has no
+  perks page; screenshots of the pages, the attributes page before and after, and level 3.
 - Open it by hand: the console (`` ` ``), `advlevel`.
+
+## 8. The perks page and the attributes page (seen 2026-10-16)
+
+[observed: the owner's nine screenshots, unless tagged]
+- **The perks page**: title "WELCOME TO LEVEL 4", counter "CHOOSE 1 PERK" (gone once a
+  perk is taken), Reset, Done (dim until a perk is taken) and Back; thirteen rows shown.
+- **What is listed**: every playable, not hidden perk that is not a trait and of which
+  the player has a rank to come, not only those that can be taken. The ones the player
+  can take (least level reached, requirements met) come first, bright; the others after
+  them, faint (about half as bright: 119 against 206 at the letters' brightest)
+  [documented: the perk row's `_TextAlpha`, set by the program]. Each part is in order of
+  least level, then name: Confirmed Bachelor, Hunter, Intense Training, Lady Killer,
+  Retention, Swift Learner (2), then Cannibal, Comprehension, Educated (4); then faint In
+  Shining Armor, Junk Rounds, Light Touch, Old World Gourmet (Dead Money's, level 1) …
+  Toughness, Vigilant Recycler (6), Commando, Cowboy, Grunt, Home on the Range, Living
+  Anatomy, Pack Rat, Quick Draw, Rad Resistance, Scrounger, Sneering Imperialist,
+  Stonewall (8) [observed: the levels are the records' DATA, `fnvtool esm decode`].
+  Bug Stomper and Set Lasers for Fun (level 0, no condition: challenge rewards) are not
+  listed. A faint row can be chosen to read it; taking it is refused [design: no sound
+  or message was seen].
+- **A row**: the perk's name, and the rank it would reach in brackets when the player
+  has one already ("Swift Learner (2)"). A taken perk has the small square at its left.
+- **The text**: "Req: …", "Ranks: n" (all the perk's ranks: Swift Learner 3, Intense
+  Training 10), an empty line, the description — the trait menu's form.
+- **The "Req:" line** (`chargen::requirement_line`, the trait menu's too): "Level n"
+  when the least level is over 1 (Junk Rounds, level 1, has none); then each condition
+  before the first effect after a comma when anything came before it, an "at least"
+  written without its sign ("INT 4", "Repair 45", "END 6, STR 6" in record order), a
+  condition on another function written as nothing but still taking its comma
+  ("Level 2," for Confirmed Bachelor, whose one condition is GetIsSex); "--" right after
+  the rest when there is no condition ("Level 2--", Intense Training). Conditions joined
+  with OR are written with "or" [hypothesis: none seen].
+- **Intense Training**: its effects are Quest + Stage, one per rank: Generic (`0x38B2`)
+  stage 101 for rank 1 … 110 for rank 10 [observed: PRKE DATA, the quest's FormID then
+  the stage byte]; each stage's result script is `AddSpecialPoints 1`. Taking it and
+  pressing Done leaves the level-up menu for the **attributes page** [observed], which is
+  the character menu's (char_gen_menu.xml, CharGenMenu, the tag-skill menu's file)
+  [documented: its attribute template and `_OnlyAdd`, "don't allow player to decrease
+  attributes past base value"; the function catalogue, "Opens the character-generation
+  Attributes page"]. NVForever opens it as menu 1048 [hypothesis: the MenuMode code is
+  not captured]. When a perk's stage opens a menu during Done, that menu takes the
+  level-up menu's place (`nvf_play::chargen::finish`).
+- **The attributes page**: title "ATTRIBUTES: 0/1 Points Assigned", then "1/1"; counter
+  "Distribute 1 Point" in the body font, gone at 1/1 ("Distribute 2 Points"
+  [hypothesis]); Reset and Done, Done dim until every point is given; no Back. Seven
+  rows, Strength to Luck, with the value and a "+" after it while points are left and
+  the attribute is under 10 (none on Luck 10); a raised row shows the "−" before its
+  value and goes no lower than its value at the start. The picture and the text are the
+  attribute's AVIF ICON and DESC. Numbers [documented: char_gen_menu.xml]: the list at
+  −15, 450 wide; a row's name at 15, 20, its value centred at 325, the "−" at 230, −5 and
+  the "+" at 355, −5 (64 square); the picture 400 square at 500, 20; the info rectangle
+  at 445, 420, 580 wide, lines 560 long at its top and 300 down; Done 52 under Reset. The
+  list's top, "set in code", is 105 [observed: the highlight box 768–881 pixels at
+  3840 × 2160, 2.25 to the unit].
+- Keys of the attributes page [hypothesis]: Up/Down the row, Right/Left (repeating) and
+  Enter raise and lower, R Reset, A Done; a click on "+" or "−" raises or lowers its row.
+  Sounds: the arrows `UIMenuPrevNext` [documented: CGM_Template_LeftArrow, RightArrow],
+  the rest as the tag-skill menu's.
