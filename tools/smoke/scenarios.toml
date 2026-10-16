@@ -1348,17 +1348,19 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # GetAlarmed, GetMajorCrimeCount: 100 calls, 32 condition uses) and the unregistered GetIsAlignment.
 # claude/script-stubs-2 implemented seven (34 calls, 9 condition uses), moved PushActorAway and
 # SetForceSneak to "needs a system", and registered AddItemToLeveledList, IsDLCInstalled and
-# GetXPForNextLevel (§3.2).
+# GetXPForNextLevel (§3.2). Then four more (§3.3, §3.4): the followers' OpenTeammateContainer
+# (26 calls, the last stub assigned to H, so no "H followers" row is left), Autosave (74 calls),
+# the crafting ShowRecipeMenu (15 calls, PR #292) and claude/l5-render-fx's SwapTexture (383
+# calls): 81 → 77 stubs, 1,418 → 920 calls, condition uses unchanged.
 expect = [
-  { json = "summary.stubs", equals = 81 },
-  { json = "summary.by_status.assigned", equals = 17 },
+  { json = "summary.stubs", equals = 77 },
+  { json = "summary.by_status.assigned", equals = 16 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 63 },
+  { json = "summary.by_status.needs_system", equals = 60 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.E2 combat AI", equals = 15 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.by_workstream.H followers", equals = 1 },
-  { json = "summary.stub_calls", equals = 1418 },
+  { json = "summary.stub_calls", equals = 920 },
   { json = "summary.stub_condition_uses", equals = 614 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -2114,6 +2116,8 @@ expect = [
   { re = 'shot fx: impact meshes.effects.impactexplosiondirt.nif' },
   { re = 'particles: model meshes.effects.explosiongrenadefrag.nif: 4 system' },
   { re = 'shot fx:.*\b1 explosions' },
+]
+
 # ------------------------------------------------------------------ playtest list 5: HUD (workstream D1)
 
 [[scenario]]
