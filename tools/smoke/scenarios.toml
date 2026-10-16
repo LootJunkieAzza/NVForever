@@ -3177,8 +3177,10 @@ order = [[
   "script: test aid calls IsRunning on … = 1",
   "script: test aid calls GetOpenState on … = 3",
   "script: test aid calls GetOpenState on … = 0",
-  "script: test aid calls IsWeaponOut on … = 0",
+  "script: test aid calls SetAlert on …",
   "script: test aid calls IsWeaponOut on … = 1",
   "script: test aid calls GetAnimAction on … = -1",
   "script: test aid calls IsWeaponOut on … = 0",
 ]]
+# Ringo starts this run with his weapon out (the alert state of a new game's start, not the
+# progressed save nvftest the original was read in), so his first IsWeaponOut is not checked.
