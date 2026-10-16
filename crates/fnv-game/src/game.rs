@@ -698,6 +698,9 @@ pub struct Game<'a> {
     /// Fights started by being hit, friendly hits, yields and allies joining
     /// (`crate::provocation`). Not part of the saved state.
     pub provocations: crate::provocation::Provocations,
+    /// Combat-tab lines: attack timers, health marks, DeathResponse lines due
+    /// (`crate::combat_lines`). Not part of the saved state.
+    pub combat_lines: crate::combat_lines::CombatLines,
     /// What switched radio receivers on and off (`crate::radio`); the engine plays the
     /// stations. Not part of the saved state.
     pub radio: crate::radio::Radios,
@@ -930,6 +933,7 @@ impl<'a> Game<'a> {
             detection: Default::default(),
             awareness: Default::default(),
             provocations: Default::default(),
+            combat_lines: Default::default(),
             radio: Default::default(),
             terminals: Default::default(),
             locks: Default::default(),
@@ -1698,10 +1702,12 @@ impl<'a> Game<'a> {
         let mut ended = Vec::new();
         let mut cut = Vec::new();
         self.speech_responses();
+        // A Death line goes on after its speaker died (`crate::combat_lines`).
+        let death = self.data.by_edid("Death");
         for s in &mut self.speech {
             s.remaining -= dt;
             let here = self.world.peek(s.speaker).is_none_or(|w| !w.deleted) && self.world.is_enabled(s.speaker).unwrap_or(false);
-            if !here || self.extra.get(&s.speaker).is_some_and(|e| e.dead) {
+            if !here || (self.extra.get(&s.speaker).is_some_and(|e| e.dead) && Some(s.topic) != death) {
                 cut.push(s.speaker);
             } else if s.remaining <= 1e-9 {
                 ended.push((s.speaker, s.info));
@@ -1747,6 +1753,7 @@ impl<'a> Game<'a> {
             // tutorials, docs/spec-notes/level-design.md §11.2 D1].
             self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
         }
+        self.combat_lines_tick();
     }
 
     /// `r` was enabled: when it is in a loaded cell and its script has an OnLoad block,

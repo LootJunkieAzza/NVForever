@@ -449,6 +449,10 @@ pub struct CombatStats {
     pub xp: f64,
     pub swings: u32,
     pub power_attacks: u32,
+    /// Combat-tab lines said by anyone (Hit, Attack, PowerAttack, Death …), and tries by
+    /// actors that have no line of the topic (`fnv_game::combat_lines`).
+    pub combat_lines: u32,
+    pub combat_lines_none: u32,
     /// Swings that went on from the last one's `a:` key (combos).
     pub chained_swings: u32,
     pub melee_hits: u32,
@@ -696,7 +700,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hit_hud).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -1111,11 +1115,13 @@ fn fire(
                 if c.self_ammo && !god {
                     let _ = sim.world.remove_item(FormId::PLAYER_REF, id, 1);
                 }
-                // The weapon's OnFire blocks (the detonator's DetonatePlacedExplosives).
+                // The weapon's OnFire blocks (the detonator's DetonatePlacedExplosives),
+                // and the player's Attack or FireExplosive line (a thrown weapon).
                 if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
                     if with_world(rt, &mut sim, |rt| rt.game.weapon_fired(FormId::PLAYER_REF, id)) {
                         info!("combat: OnFire of {} ran", w.edid.as_deref().unwrap_or("?"));
                     }
+                    with_world(rt, &mut sim, |rt| rt.game.attack_line(FormId::PLAYER_REF, None, false, c.self_ammo));
                 }
                 let Some(proj) = chain.projectile else {
                     debug!("combat: {} fires no projectile", w.edid.as_deref().unwrap_or("?"));
@@ -1216,7 +1222,7 @@ fn fire(
                     // only; a thrown one spends itself [design].
                     let jams = c.ammo.is_some() && c.rng.next_f32() < condition::jam_chance(&c.tuning, item_condition(&sim, FormId::PLAYER_REF, id));
                     let points = condition::weapon_wear(&c.rules, &w, &effects);
-                    if wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, FormId::PLAYER_REF, id, points, None).is_some_and(|w| w.broke) {
+                    if wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, script.as_deref_mut(), FormId::PLAYER_REF, id, points, None).is_some_and(|w| w.broke) {
                         break;
                     }
                     if jams {
@@ -1253,6 +1259,9 @@ fn fire(
             Event::DryFire => {
                 if let Some(sound) = weapon_fx.and_then(|f| f.no_ammo) {
                     sounds.write(PlaySound { sound, at: None });
+                }
+                if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                    with_world(rt, &mut sim, |rt| rt.game.combat_line(FormId::PLAYER_REF, None, "NoAmmo"));
                 }
                 stats.dry_fires += 1;
                 info!("combat: click (no ammo)");
@@ -1325,6 +1334,7 @@ pub fn wear_weapon(
     stats: &mut CombatStats,
     hud: Option<&mut HudMessage>,
     broken: Option<&mut MessageWriter<WeaponBroken>>,
+    script: Option<&mut ScriptState>,
     actor: FormId,
     item: FormId,
     points: f32,
@@ -1339,6 +1349,10 @@ pub fn wear_weapon(
         return Some(w);
     }
     stats.weapons_broken += 1;
+    // Its owner says WeaponBroke (docs/spec-notes/combat-dialogue.md).
+    if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
+        with_world(rt, sim, |rt| rt.game.combat_line(actor, None, "WeaponBroke"));
+    }
     let name = item_name(sim, item);
     if actor == FormId::PLAYER_REF {
         let _ = sim.world.unequip(actor, item);
@@ -1382,6 +1396,7 @@ fn strike_weapon(
     feedback: &mut HitFeedback,
     hud: Option<&mut HudMessage>,
     broken: &mut MessageWriter<WeaponBroken>,
+    script: Option<&mut ScriptState>,
     parts: &ActorParts,
     target: FormId,
     points: f32,
@@ -1394,7 +1409,7 @@ fn strike_weapon(
     stats.weapon_hits += 1;
     feedback.marker_age = Some(0.0);
     feedback.kill = false;
-    match wear_weapon(forms, sim, stats, hud, Some(broken), target, item, points, Some(at)) {
+    match wear_weapon(forms, sim, stats, hud, Some(broken), script, target, item, points, Some(at)) {
         Some(w) => info!("combat: hit {target}'s {} for {points:.1}: condition {:.1}% -> {:.1}%", item_name(sim, item), w.before * 100.0, w.after * 100.0),
         None => info!("combat: hit {target}'s {} ({item}): it does not wear", item_name(sim, item)),
     }
@@ -1546,6 +1561,10 @@ fn melee(
                 }
                 stats.swings += 1;
                 stats.chained_swings += u32::from(chained);
+                // The player's PowerAttack or Attack line (docs/spec-notes/combat-dialogue.md).
+                if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                    with_world(rt, &mut sim, |rt| rt.game.attack_line(FormId::PLAYER_REF, None, power.is_some(), false));
+                }
                 info!("combat: {} swing {stem}{}", w.edid.as_deref().unwrap_or("?"), if chained { " (chained)" } else { "" });
                 anim.swing = Some(stem);
                 anim.attacks += 1;
@@ -1604,7 +1623,7 @@ fn melee(
             }
         }
         if !hits.is_empty() {
-            wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, FormId::PLAYER_REF, id, condition::weapon_wear(&c.rules, &w, &[]), None);
+            wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, script.as_deref_mut(), FormId::PLAYER_REF, id, condition::weapon_wear(&c.rules, &w, &[]), None);
         }
         for (actor, hit) in hits {
             let target = FormId(actor as u32);
@@ -1618,7 +1637,7 @@ fn melee(
             let roll = c.rng.next_f32();
             if hit.part == Some(WEAPON_PART) {
                 let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
-                strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut broken, &parts, target, d.raw, hit.point);
+                strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut broken, script.as_deref_mut(), &parts, target, d.raw, hit.point);
                 continue;
             }
             let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
@@ -2094,7 +2113,7 @@ fn fly(
         // A shot on the weapon the actor holds wears the weapon, not the actor (§17).
         if p.part == Some(WEAPON_PART) {
             let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
-            strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut effects.3, &parts, target, d.raw, p.point);
+            strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut effects.3, script.as_deref_mut(), &parts, target, d.raw, p.point);
             continue;
         }
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
@@ -2185,6 +2204,28 @@ impl Combat {
     }
 }
 
+/// The Combat-tab lines said this frame (`fnv_game::combat_lines`), one log line each:
+/// `combat line: <who> says <topic> line <info>`; tries without a line at debug level.
+fn log_combat_lines(mut script: Option<ResMut<ScriptState>>, mut stats: ResMut<CombatStats>) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let g = &mut rt.game;
+    if g.combat_lines.said.is_empty() {
+        return;
+    }
+    for (topic, who, line) in std::mem::take(&mut g.combat_lines.said) {
+        match line {
+            Some(l) => {
+                stats.combat_lines += 1;
+                info!("combat line: {} says {topic} line {:08X}", g.data.name(who), l.0);
+            }
+            None => {
+                stats.combat_lines_none += 1;
+                debug!("combat line: {} has no {topic} line", g.data.name(who));
+            }
+        }
+    }
+}
+
 fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
     if exit.read().last().is_some() {
         let s = &*stats;
@@ -2192,6 +2233,7 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
             "combat: {} shots ({} drawn from the muzzle, {} from behind cover), {} projectiles, {} actor hits, {} world hits ({} objects' hit blocks, {} objects knocked away), {} explosions ({} knockdowns), {} swings ({} chained, {} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires, {} jams, {} melee impacts",
             s.shots, s.muzzle_shots, s.covered_shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.chained_swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires, s.jams, s.melee_impacts
         );
+        info!("combat lines: {} said, {} tries without a line", s.combat_lines, s.combat_lines_none);
         info!(
             "condition summary: the player's weapons lost {:.1} health, {} hits on held weapons, {} weapons broken, armour lost {:.1} health, {} pieces worn to nothing",
             s.weapon_wear, s.weapon_hits, s.weapons_broken, s.armor_wear, s.armor_broken

@@ -245,6 +245,7 @@ impl Game<'_> {
         if let Some(e) = self.extra.get_mut(&r) {
             e.teammate = false;
         }
+        self.death_line(r, killer);
         true
     }
 
@@ -290,6 +291,12 @@ impl Game<'_> {
                     self.player.xp += out.xp;
                 }
             }
+        }
+        // What the target says (`crate::combat_lines`): Death was said by `kill`.
+        if out.knocked_out {
+            self.combat_line(target, info.attacker, "KOed");
+        } else if !out.died {
+            self.hit_lines(target, info.attacker, before, health, max_health, out.crippled);
         }
         out
     }
