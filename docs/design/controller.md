@@ -54,7 +54,35 @@ Start cannot be bound.
   controller, its button ("A)") (`Bindings::prompt`). The original shows the button's
   picture there (`&xbuttona;`, `general_button_a.dds`); letters are the first step.
 
-## 4. Not built yet
+## 4. Rumble
+
+The original rumbles the pad by its `bGamePadRumble` switch (`1` in the owner's
+`FalloutPrefs.ini` [observed 2026-10-16]); how strongly and on what is not captured, so
+everything below is [design] (combat is not a parity target). Built in
+`engine/nvf-play/src/rumble.rs`.
+
+- **When:** only while Controller works the controls and `Rumble=1` in `[Controller]` of
+  NVForever.ini (default 1, the game's switch). With Controller chosen the settings page's
+  Controls tab has a last row **Rumble** (ON/OFF). Each rumble is a Bevy
+  `GamepadRumbleRequest` sent to every connected controller (gilrs plays it); pulses of one
+  frame are joined (the strongest of each motor, the longest). The first of each kind is
+  logged: `rumble: first shot (strong …, weak …, … s) on N controller(s)`.
+- **The player fires** (each `ShotFired` of the player; melee swings fire no projectile
+  and do not rumble): by the weapon's WEAP weight `w` (pounds), `h = min(w / 20, 1)`:
+  strong `0.7 h`, weak `0.3 + 0.4 h`, `0.07 + 0.13 h` s. A 9mm pistol (2) is a short buzz,
+  the minigun (25) and Fat Man (30) the full thump.
+- **The player takes damage** (each `ActorHit` on the player that took health): by the
+  share `s` of the maximum health it took, `t = min(4 s, 1)`: strong `0.35 + 0.65 t`, weak
+  `0.5`, `0.15 + 0.30 t` s.
+- **A hard landing** (the physics step's touchdown speed; there is no fall damage yet):
+  from 600 units/s (a drop of about 260 units under gravity 687 units/s²; a jump lands at
+  about 290), `t` up to 1 at 1200 (a drop of about 1050): strong `0.45 + 0.55 t`, weak
+  `0.3`, `0.15 + 0.25 t` s.
+- **An explosion near the player** (each `ExplosionFx`): full inside the EXPL's radius,
+  fading to none 1400 units (about 20 m) beyond it, `t`: strong `t`, weak `0.6 t`,
+  `0.25 + 0.35 t` s; none under `t = 0.05`.
+
+## 5. Not built yet
 
 - The button pictures from `Interface\Shared\Button\` in place of letters.
 - Each menu's own controller buttons (the original's `<xbuttonx>` etc.: barter X/B,
@@ -62,5 +90,4 @@ Start cannot be bound.
   hints in menus ("E) Exit", lockpick, Pip-Boy, container) following the device.
 - A pointer moved by a stick for the mouse-only parts of menus (the dialogue list, the
   Pip-Boy map).
-- Rumble (`bGamePadRumble=1`).
 - Several controllers told apart; the first pressed is not singled out.

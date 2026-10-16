@@ -5264,6 +5264,17 @@ To check with a controller in the original, my guesses:
    the console still do). Should both work at once instead?
 5. The prompt under the crosshair shows "A)" as text; the original shows the A button's
    picture. Menus' own buttons and hints ("E) Exit") do not follow the controller yet.
+6. **Rumble** (branch claude/controller-rumble; docs/design/controller.md §4): `Rumble=1`
+   in `[Controller]`, a Rumble row at the end of the Controls tab with Controller chosen.
+   All my guesses, to feel with a pad against the original:
+   - firing: by weapon weight, a 2 lb pistol a short buzz (weak 0.38, 0.08 s), 20 lb and
+     up the most (strong 0.7, weak 0.7, 0.2 s); melee swings do not rumble;
+   - taking damage: strong 0.35 to 1 by the share of health lost (a quarter or more the
+     most), 0.15 to 0.45 s;
+   - a hard landing from 600 units/s (a drop of about 260 units), the most at 1200;
+   - explosions: full within the blast radius, none 1400 units beyond it, up to 0.6 s.
+   Does the original rumble on other things (being hit by melee only, low health, V.A.T.S.,
+   the Pip-Boy)?
 
 ## NPCs' holstered flamer: tank on the back, no gun (2026-10-16)
 

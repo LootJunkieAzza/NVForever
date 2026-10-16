@@ -2766,7 +2766,7 @@ env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 62 of 62 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
+  { re = 'controls: 63 of 63 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse; input device Keyboard and Mouse', label = "the stored keys are bound at the start (the INI also lists the input device and the controller's buttons)" },
 ]
 
 [[scenario]]
@@ -2774,13 +2774,14 @@ name = "controller-write"
 source = "owner 2026-10-16: keyboard and mouse or a controller by a setting under Controls, the controller's defaults the game's (docs/design/controller.md); the first half of a round trip (controller-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
 paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pad.rs", "engine/nvf-play/src/pause.rs"]
-env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:device:Controller,12:padbind:Jump=RB", NVF_PLAY_TEST_PAUSE_MENU = "11.5:defaults" }
+env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:device:Controller,12:padbind:Jump=RB,13:rumble:0", NVF_PLAY_TEST_PAUSE_MENU = "11.5:defaults" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 18
 expect = [
   { text = "controls: input device Controller", label = "the Controls tab's first row picks the controller" },
   { text = "controls: every control back to the game's controller buttons", label = "Defaults with the controller chosen puts back the game's buttons" },
   { text = "controls: Jump bound to controller RB (was Y) (Vats now Y)", label = "a controller button another control had is swapped (Jump is Y and V.A.T.S. RB by the game's values)" },
+  { text = "controls: controller rumble off", label = "the Controls tab's Rumble row turns the rumble off" },
 ]
 order = [["controls: input device Controller", "controls: every control back to the game's controller buttons", "controls: Jump bound to controller RB"]]
 
@@ -2793,8 +2794,23 @@ env = { NVFOREVER_HOME = "controller-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
-  { re = 'controls: 62 of 62 line\(s\) read from .*NVForever\.ini, 3 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y; input device Controller', label = "the stored device and buttons are taken at the start" },
+  { re = 'controls: 63 of 63 line\(s\) read from .*NVForever\.ini, 4 changed: Input Device Controller, \[Controller\] Jump Y -> RB, \[Controller\] Vats RB -> Y, \[Controller\] Rumble 0; input device Controller', label = "the stored device, buttons and Rumble off are taken at the start" },
 ]
+
+[[scenario]]
+name = "controller-rumble"
+source = "controller rumble (docs/design/controller.md §4, engine/nvf-play/src/rumble.rs): with Controller chosen the pad rumbles when the player fires, by the weapon's weight; compass-reticle's firing at the bighorner pen with the varmint rifle"
+note = "the strengths are [design]; a run without a pad connected still sends and logs the rumble (on 0 controllers)"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/rumble.rs", "engine/nvf-play/src/pad.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_PAUSE = "4:7", NVF_PLAY_TEST_SETTINGS = "5:device:Controller,6:rumble:1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "10:weapon,13:aimactor,15:fire,15.6:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12", "--size", "1280x720"]
+run_seconds = 19
+expect = [
+  { text = "controls: input device Controller", label = "the controller works the controls" },
+  { re = 'rumble: first shot \(strong 0\.[0-9]{2}, weak 0\.[0-9]{2}, 0\.[0-9]{2} s\) on \d+ controller\(s\)', label = "the shot rumbles the pad" },
+]
+order = [["controls: input device Controller", { re = 'rumble: first shot' }]]
 
 [[scenario]]
 name = "death-cam-first"

@@ -304,6 +304,8 @@ pub struct ActorHit {
     pub part_crippled: bool,
     /// Who hit it.
     pub by: Option<FormId>,
+    /// The share of its maximum health the hit took (0 to 1; `crate::rumble`).
+    pub share: f32,
 }
 
 /// An actor's weapon reached zero condition in its hand and fell (§17): the renderer
@@ -1487,7 +1489,7 @@ fn apply_hit(
             feedback.kill = r.died;
             feedback.target = Some((name, r.health as f32, r.max_health as f32, 0.0));
         }
-        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), by: info.attacker });
+        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 } });
     }
     Some(r)
 }
