@@ -5319,6 +5319,26 @@ a lot), and his hands did not line up on the flamer, as with the minigun before.
    from the side, would confirm the arms.
 
 
+## Draw-distance sliders (2026-10-16, branch claude/render-distance-sliders)
+
+Settings → Display has five sliders, drawn like the "How many?" meter (ticks, an arrow
+at each end, the value as a percentage): Object, Actor, Item, Shadow and Grass distance.
+Each is a part of a full distance, 10% to 100% in 5% steps; Left/Right, the arrows or a
+press/drag on the meter move it; it is kept in `NVForever.ini` [Settings] (`object-distance=0.50`).
+Choices I made, each easy to change:
+- **Full distance for objects, actors and items**: nothing culled them before but their
+  cells, so 100% is the farthest a loaded cell reaches, `(--radius + 1)` cells along both
+  axes (17,377 units with the default radius 2), and 100% draws exactly as before. 50%
+  draws what is within 8,689 units of the camera.
+- **Fade**: past its distance a mesh dithers out over a further 10% of it (the cell fades'
+  dither), then is culled, shadow included.
+- **What counts as what**: actors are NPCs and creatures with everything they wear and
+  hold; items are references whose base is an item you can take (WEAP, ARMO, AMMO, MISC,
+  ALCH, BOOK, NOTE, KEYM, IMOD, CHIP, CCRD, CMNY) and items dropped in the game; objects
+  are every other placed model in a loaded cell. Distant LOD, imposters, terrain, water and
+  trees are not touched.
+- **Shadows** are a part of `--shadow-distance` (8,000) and **grass** of `--grass-distance`
+  plus its fade range (7,000 + 1,000).
 ## NPCs crouch, block and close in by context (2026-10-16, branch claude/npc-crouch-block)
 
 Your request: NPCs crouch to fire at a distance or block with a melee weapon, by context,

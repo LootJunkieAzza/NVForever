@@ -32,8 +32,12 @@
 //! right, the version at the bottom left. Up/Down (or W/S) choose a row within the
 //! category, Tab or Page Down the next category (Page Up the one before), a click on a
 //! category shows it; Enter, Space, Left or Right flip the row, as does a click on it; a
-//! flip acts at once and is kept in `NVForever.ini` (`crate::settings`). Defaults puts
-//! back every switch as the command line left it before the INI was read
+//! flip acts at once and is kept in `NVForever.ini` (`crate::settings`). A slider's row
+//! shows a meter as the "How many?" prompt's (`crate::menu::look`: a ground at a quarter
+//! of the colour, tick marks 8 apart as far as the value, an arrow at each end) and the
+//! value as a percentage; Left/Right or the arrows move it a step, a press or drag on the
+//! meter sets the value under the pointer, and it is kept in the INI too. Defaults puts
+//! back every row as the command line left it before the INI was read
 //! (`crate::settings::StartStates`; without it, as the page was first shown in this run).
 //! Esc or Backspace go back.
 //!
@@ -69,9 +73,10 @@
 //! first time (as Esc) and resumes at the second (as Esc again, from either page), on
 //! the aids' clock. `NVF_PLAY_TEST_SETTINGS=<seconds>:<key>[,…]`: at each time, with the
 //! pause menu open, shows the settings page and flips the switch of that key (as a
-//! click on its row); the key `page` only shows the page, `controls` the Controls tab,
-//! and `bind:<control>=<input>` (INI names, e.g. `bind:Jump=J`) binds a control there as
-//! Enter on its row and that key would.
+//! click on its row); `<key>=<value>` sets a slider (e.g. `actor-distance=0.5`); the key
+//! `page` only shows the page, `controls` the Controls tab, and `bind:<control>=<input>`
+//! (INI names, e.g. `bind:Jump=J`) binds a control there as Enter on its row and that key
+//! would.
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
 //! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page or
 //! the quit question), `back` (from the load or the settings page, or the question),
@@ -86,6 +91,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
+use bevy::ui::RelativeCursorPosition;
 use fnv_save::{SaveHeader, SaveKind};
 use nvf_assets::GameData;
 use std::path::{Path, PathBuf};
@@ -381,6 +387,10 @@ enum PauseButton {
     ControlRow(usize),
     /// A save's row on the load page (its index in [`LoadList`]).
     LoadRow(usize),
+    /// A slider's arrow: its row and the steps it moves (-1 or 1).
+    SliderStep(usize, i32),
+    /// A slider's meter (its row): a press or drag sets the value under the pointer.
+    Meter(usize),
     /// The settings page's Defaults.
     Defaults,
     /// From the settings or load page back to the first page.
@@ -443,6 +453,20 @@ const OPTION_ROW: f32 = 52.0;
 const OPTIONS_WIDTH: f32 = 820.0;
 const OPTIONS_LEFT: f32 = -470.0;
 const VALUE_AT: f32 = 700.0;
+/// A slider's meter in its row: its left edge, width and height, the arrows' left edges
+/// and the value's centre [design: the "How many?" meter's height and arrows
+/// (`crate::menu::look`), fitted into the row's right part].
+const METER_LEFT: f32 = 445.0;
+const METER_WIDTH: f32 = 240.0;
+const METER_HEIGHT: f32 = 24.0;
+const METER_ARROWS: [f32; 2] = [420.0, 692.0];
+const METER_ARROW: Vec2 = Vec2::new(17.5, 35.0);
+const PERCENT_AT: f32 = 765.0;
+/// A tick of the meter: 8 apart, the picture's top 8 × 20 texels stretched to the meter's
+/// height (as the "How many?" meter's [observed]).
+const METER_TICK: f32 = 8.0;
+const TICK_TEXTURE: &str = "textures\\interface\\hud\\hud_tick_mark.dds";
+const ARROW_TEXTURES: [&str; 2] = ["textures\\interface\\main\\main_arrow_left.dds", "textures\\interface\\main\\main_arrow_right.dds"];
 /// The darkened band behind a page's list [documented: `container_background`
 /// `fuzzy.dds` at alpha 160 the height of the screen, a little wider than the list].
 const BAND: &str = "textures\\interface\\shared\\background\\fuzzy.dds";
@@ -490,6 +514,9 @@ struct PauseLook {
     faces: Faces,
     band: Option<Handle<Image>>,
     screen: Option<Handle<Image>>,
+    /// The sliders' tick mark and arrows (left, right).
+    tick: Option<Handle<Image>>,
+    arrows: [Option<Handle<Image>>; 2],
 }
 
 impl PauseLook {
@@ -498,7 +525,13 @@ impl PauseLook {
         world.resource_scope(|world, mut images: Mut<Assets<Image>>| {
             let data = world.get_resource::<GameData>();
             let pic = |path: &str, images: &mut Assets<Image>| data.and_then(|d| crate::interface::texture(path, d, images, bc)).map(|(h, _)| h);
-            let look = PauseLook { faces: Faces::load(data, &mut images, bc), band: pic(BAND, &mut images), screen: pic(SCREEN, &mut images) };
+            let look = PauseLook {
+                faces: Faces::load(data, &mut images, bc),
+                band: pic(BAND, &mut images),
+                screen: pic(SCREEN, &mut images),
+                tick: pic(TICK_TEXTURE, &mut images),
+                arrows: ARROW_TEXTURES.map(|a| pic(a, &mut images)),
+            };
             info!("pause menu: the original's look (band {}, pause screen {})", look.band.is_some(), look.screen.is_some());
             look
         })
@@ -506,7 +539,7 @@ impl PauseLook {
 
     #[cfg(test)]
     fn plain() -> PauseLook {
-        PauseLook { faces: Faces::plain(), band: None, screen: None }
+        PauseLook { faces: Faces::plain(), band: None, screen: None, tick: None, arrows: [None, None] }
     }
 }
 
@@ -516,8 +549,10 @@ impl PauseLook {
 struct PauseView {
     main_selected: usize,
     confirm: Option<usize>,
-    defaults: Option<Vec<bool>>,
+    defaults: Option<Vec<f32>>,
     drawn: Option<Drawn>,
+    /// The slider whose meter is being dragged (pressed and held).
+    dragging: Option<usize>,
 }
 
 /// Everything the page drawn shows: drawn again when it changes.
@@ -526,7 +561,8 @@ struct Drawn {
     page: Page,
     main_selected: usize,
     confirm: Option<usize>,
-    states: Vec<bool>,
+    /// Every row's state (`Setting::value`).
+    states: Vec<f32>,
     status: String,
     /// The column's labels and whether each can be taken.
     column: Vec<(&'static str, bool)>,
@@ -625,6 +661,7 @@ impl Plugin for PausePlugin {
                 note: "On: while a conversation, the inventory, a container or a message box is open, animations, wind, water and sky stand still, as in the original. Off: only game logic waits and the world lives on. This menu always holds everything. (--menu-pause original|living)",
                 get: |w| *w.resource::<MenuPause>() == MenuPause::Original,
                 set: |w, on| *w.resource_mut::<MenuPause>() = if on { MenuPause::Original } else { MenuPause::Living },
+                slider: None,
             },
         );
     }
@@ -740,7 +777,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                     });
                 }
             }
-            Page::Settings { selected } => settings_page(root, d, f, settings, selected, top),
+            Page::Settings { selected } => settings_page(root, d, look, settings, selected, top),
             Page::Controls { selected, listening } => controls_page(root, d, f, settings, selected, listening, top),
             Page::Load { selected } => load_page(root, d, f, list, selected),
         }
@@ -756,7 +793,8 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
 
 /// The settings page: the categories left of the column, the chosen category's switches
 /// in the middle with the chosen one's note under them, the version at the bottom left.
-fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &[Setting], selected: usize, top: f32) {
+fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], selected: usize, top: f32) {
+    let f = &look.faces;
     category_column(root, f, list, list.get(selected).map(|s| s.group), top);
     if list.is_empty() {
         root.spawn(from_middle(OPTIONS_LEFT, top, OPTIONS_WIDTH, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, "Nothing to switch.", 10.0, BASE, color(Shade::Dim)));
@@ -766,11 +804,15 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &[
     let first = rows.start.max((selected + 1).saturating_sub(OPTION_ROWS)).min(rows.end.saturating_sub(OPTION_ROWS).max(rows.start));
     for (n, i) in (first..rows.end).take(OPTION_ROWS).enumerate() {
         let s = &list[i];
-        let on = d.states.get(i).copied().unwrap_or(false);
+        let v = d.states.get(i).copied().unwrap_or(0.0);
         root.spawn((Button, PauseButton::Switch(i), boxed(from_middle(OPTIONS_LEFT, top + n as f32 * OPTION_ROW, OPTIONS_WIDTH, OPTION_ROW), i == selected)))
         .with_children(|r| {
             sm_text(r, &f.entry, s.label, 10.0, BASE + 2.0, color(Shade::Bright));
-            let value = if on { "ON" } else { "OFF" };
+            if s.slider.is_some() {
+                slider_row(r, look, i, v);
+                return;
+            }
+            let value = if v > 0.5 { "ON" } else { "OFF" };
             let vw = f.entry.font.width(value);
             r.spawn((SwitchState(i), Text::new(value), Node { display: Display::None, ..default() }));
             sm_text(r, &f.entry, value, VALUE_AT - vw / 2.0, BASE + 2.0, color(Shade::Bright));
@@ -834,6 +876,45 @@ fn version(root: &mut ChildSpawnerCommands, f: &Faces) {
     root.spawn(Node { position_type: PositionType::Absolute, left: u(30.0), top: u(960.0 - 60.0), width: u(400.0), height: u(40.0), ..default() }).with_children(|t| {
         sm_text(t, &f.small, concat!("NVForever ", env!("CARGO_PKG_VERSION")), 0.0, 26.0, color(Shade::Bright));
     });
+}
+
+/// A node at `x`, `y` in its parent, `w` × `h`.
+fn at(x: f32, y: f32, w: f32, h: f32) -> Node {
+    Node { position_type: PositionType::Absolute, left: u(x), top: u(y), width: u(w), height: u(h), ..default() }
+}
+
+/// How many ticks of a slider's meter show for value `v` (a tick partly in shows, cut).
+fn meter_ticks(v: f32) -> usize {
+    (METER_WIDTH * v.clamp(0.0, 1.0) / METER_TICK).ceil() as usize
+}
+
+/// A slider's meter, arrows and percentage in its row `i` (value `v`).
+fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: usize, v: f32) {
+    let bright = color(Shade::Bright);
+    let my = (OPTION_ROW - METER_HEIGHT) / 2.0;
+    // The ground, then the ticks as far as the value.
+    r.spawn((at(METER_LEFT, my, METER_WIDTH, METER_HEIGHT), BackgroundColor(bright.with_alpha(0.25))));
+    for t in 0..meter_ticks(v) {
+        let x = METER_LEFT + t as f32 * METER_TICK;
+        let w = METER_TICK.min(METER_LEFT + METER_WIDTH - x);
+        match &look.tick {
+            Some(image) => r.spawn((at(x, my, w, METER_HEIGHT), ImageNode { rect: Some(Rect::new(0.0, 0.0, w, 20.0)), color: bright, ..ImageNode::new(image.clone()) })),
+            None => r.spawn((at(x, my, (w - 3.0).max(1.0), METER_HEIGHT), BackgroundColor(bright))),
+        };
+    }
+    // Over them what takes the pointer, a little taller than the meter.
+    r.spawn((Button, PauseButton::Meter(i), RelativeCursorPosition::default(), at(METER_LEFT, my - 6.0, METER_WIDTH, METER_HEIGHT + 12.0)));
+    for (k, (x, step)) in [(METER_ARROWS[0], -1), (METER_ARROWS[1], 1)].into_iter().enumerate() {
+        let node = at(x, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y);
+        match &look.arrows[k] {
+            Some(image) => r.spawn((Button, PauseButton::SliderStep(i, step), node, ImageNode { color: bright, ..ImageNode::new(image.clone()) })),
+            None => r.spawn((Button, PauseButton::SliderStep(i, step), node, BackgroundColor(bright.with_alpha(0.5)))),
+        };
+    }
+    let value = format!("{:.0}%", v * 100.0);
+    let vw = look.faces.entry.font.width(&value);
+    r.spawn((SwitchState(i), Text::new(value.clone()), Node { display: Display::None, ..default() }));
+    sm_text(r, &look.faces.entry, &value, PERCENT_AT - vw / 2.0, BASE + 2.0, bright);
 }
 
 /// The load page: the chosen save's thumbnail and details over the saves' rows (a window
@@ -964,6 +1045,7 @@ fn choose(
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut menu: SaveMenu,
     (mut request, main_menu, intro, mut to_main, mouse): (ResMut<PageRequest>, Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>, MessageWriter<MainMenuRequest>, Res<ButtonInput<MouseButton>>),
+    meters: Query<(&PauseButton, &RelativeCursorPosition)>,
 ) {
     use crate::bindings::{Bindings, Input, GAME_CONTROLS};
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
@@ -993,12 +1075,17 @@ fn choose(
     }
     let list = settings.list();
     let mut flips = Vec::new();
-    // The settings aid: show the page and flip the switch, as a click on its row.
+    // Sliders moved: (row, steps), and set: (row, value).
+    let mut steps: Vec<(usize, i32)> = Vec::new();
+    let mut sets: Vec<(usize, f32)> = Vec::new();
+    let is_slider = |i: usize| list.get(i).is_some_and(|s| s.slider.is_some());
+    // The settings aid: show the page and flip the switch, as a click on its row, or set
+    // the slider (`key=value`).
     let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut aid.switches).into_iter().partition(|(t, _)| *t <= now);
     aid.switches = later;
-    for (_, key) in due {
-        info!("test aid NVF_PLAY_TEST_SETTINGS: {key}");
-        if let Some(b) = key.strip_prefix("bind:") {
+    for (_, item) in due {
+        info!("test aid NVF_PLAY_TEST_SETTINGS: {item}");
+        if let Some(b) = item.strip_prefix("bind:") {
             // `bind:<control>=<key or button>`: as Enter on its row and that key.
             let parsed = b.split_once('=').and_then(|(c, i)| Some((Bindings::by_name(c)?, crate::bindings::parse_input(i)?)));
             match parsed {
@@ -1007,11 +1094,22 @@ fn choose(
                     *page = Page::Controls { selected, listening: false };
                     commands.queue(move |world: &mut World| crate::bindings::rebind(world, c, input));
                 }
-                None => warn!("NVF_PLAY_TEST_SETTINGS: {key:?}: expected bind:<control>=<key or mouse button name>"),
+                None => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected bind:<control>=<key or mouse button name>"),
             }
             continue;
         }
+        let (key, value) = match item.split_once('=') {
+            Some((k, v)) => (k.trim().to_string(), v.trim().parse::<f32>().ok()),
+            None => (item.clone(), None),
+        };
         match (settings.index(&key), key.as_str()) {
+            (Some(i), _) if is_slider(i) => {
+                *page = Page::Settings { selected: i };
+                match value {
+                    Some(v) => sets.push((i, v)),
+                    None => warn!("NVF_PLAY_TEST_SETTINGS: {key} is a slider: give it a value, {key}=0.5"),
+                }
+            }
             (Some(i), _) => {
                 *page = Page::Settings { selected: i };
                 flips.push(i);
@@ -1073,6 +1171,10 @@ fn choose(
     let (main_before, confirm_before) = (view.main_selected, view.confirm);
     for (interaction, b) in &buttons {
         match (interaction, b, &mut *page) {
+            (Interaction::Pressed, PauseButton::Meter(i), Page::Settings { selected }) => {
+                *selected = *i;
+                view.dragging = Some(*i);
+            }
             (Interaction::Pressed, ..) => clicked = Some(*b),
             (Interaction::Hovered, PauseButton::Switch(i), Page::Settings { selected }) if moved => *selected = *i,
             (Interaction::Hovered, PauseButton::ControlRow(i), Page::Controls { selected, .. }) if moved => *selected = *i,
@@ -1133,11 +1235,8 @@ fn choose(
             if let Some(d) = view.defaults.clone() {
                 info!("pause menu: settings back to their defaults");
                 commands.queue(move |world: &mut World| {
-                    let list = world.resource::<Settings>().list().to_vec();
-                    for (i, s) in list.iter().enumerate() {
-                        if d.get(i).is_some_and(|&on| on != (s.get)(world)) {
-                            crate::settings::flip(world, i);
-                        }
+                    for (i, v) in d.into_iter().enumerate() {
+                        crate::settings::restore(world, i, v);
                     }
                 });
                 sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
@@ -1252,7 +1351,17 @@ fn choose(
                 *page = Page::Main;
             } else if let Some(PauseButton::Switch(i)) = clicked {
                 *selected = i;
-                flips.push(i);
+                // A click on a slider's row only chooses it.
+                if !is_slider(i) {
+                    flips.push(i);
+                }
+            } else if let Some(PauseButton::SliderStep(i, step)) = clicked {
+                *selected = i;
+                steps.push((i, step));
+            } else if is_slider(*selected) && keys.any_just_pressed([KeyCode::ArrowLeft, KeyCode::KeyA]) {
+                steps.push((*selected, -1));
+            } else if is_slider(*selected) && keys.any_just_pressed([KeyCode::ArrowRight, KeyCode::KeyD]) {
+                steps.push((*selected, 1));
             } else if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) {
                 *selected = step_in_group(list, *selected, -1);
             } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) {
@@ -1272,8 +1381,24 @@ fn choose(
                 } else {
                     *selected = before;
                 }
-            } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space, KeyCode::ArrowLeft, KeyCode::ArrowRight]) && *selected < list.len() {
+            } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space, KeyCode::ArrowLeft, KeyCode::ArrowRight]) && *selected < list.len() && !is_slider(*selected) {
                 flips.push(*selected);
+            }
+            // A drag on a meter: the value under the pointer while the button is held
+            // (the page is drawn again as the value changes, so the meter is looked up
+            // by its row each frame).
+            if let Some(i) = view.dragging {
+                if mouse.pressed(MouseButton::Left) {
+                    let under = meters.iter().find(|(b, _)| **b == PauseButton::Meter(i)).and_then(|(_, at)| at.normalized);
+                    if let Some(p) = under {
+                        let v = (p.x + 0.5).clamp(0.0, 1.0);
+                        if list.get(i).and_then(|s| s.slider).is_some_and(|s| s.fit(v) != s.fit(view_value(&view, i))) {
+                            sets.push((i, v));
+                        }
+                    }
+                } else {
+                    view.dragging = None;
+                }
             }
         }
         Page::Controls { selected, listening } => {
@@ -1339,6 +1464,22 @@ fn choose(
             crate::settings::flip(world, i);
         });
     }
+    for (i, n) in steps {
+        sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+        commands.queue(move |world: &mut World| {
+            crate::settings::step_slider(world, i, n);
+        });
+    }
+    for (i, v) in sets {
+        commands.queue(move |world: &mut World| {
+            crate::settings::set_slider(world, i, v);
+        });
+    }
+}
+
+/// Row `i`'s value as the page last drew it.
+fn view_value(view: &PauseView, i: usize) -> f32 {
+    view.drawn.as_ref().and_then(|d| d.states.get(i).copied()).unwrap_or(0.0)
 }
 
 /// The main page's status line: the save asked from this menu, once written.
@@ -1359,7 +1500,7 @@ fn show_status(mut done: MessageReader<crate::save::SaveDone>, mut status: ResMu
 fn drawn_now(world: &mut World) -> Drawn {
     let page = *world.resource::<Page>();
     let list = world.resource::<Settings>().list().to_vec();
-    let states: Vec<bool> = list.iter().map(|s| (s.get)(world)).collect();
+    let states: Vec<f32> = list.iter().map(|s| s.value(world)).collect();
     if matches!(page, Page::Settings { .. }) && world.resource::<PauseView>().defaults.is_none() {
         let start = world.get_resource::<crate::settings::StartStates>().map(|s| s.0.clone()).filter(|s| s.len() == states.len());
         world.resource_mut::<PauseView>().defaults = Some(start.unwrap_or_else(|| states.clone()));
@@ -1414,6 +1555,7 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
     *list = LoadList::default();
     view.drawn = None;
     view.confirm = None;
+    view.dragging = None;
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -1463,7 +1605,7 @@ mod tests {
 
     #[test]
     fn the_keys_stay_in_a_category_and_tab_goes_to_the_next() {
-        let s = |key: &'static str, group: &'static str| Setting { key, group, label: key, note: "", get: |_| false, set: |_, _| {} };
+        let s = |key: &'static str, group: &'static str| Setting { key, group, label: key, note: "", get: |_| false, set: |_, _| {}, slider: None };
         let list = [s("a", "Gameplay"), s("b", "Gameplay"), s("c", "Display"), s("d", "Display"), s("e", "Display"), s("f", "Debug")];
         assert_eq!(categories(&list), vec![("Gameplay", 0), ("Display", 2), ("Debug", 5)]);
         assert_eq!(group_rows(&list, 3), 2..5);
@@ -1550,7 +1692,7 @@ mod tests {
     fn the_settings_page_shows_each_switch_as_the_game_has_it() {
         let mut app = App::new();
         app.init_resource::<Lamp>().init_resource::<Paused>().insert_resource(Page::Settings { selected: 0 });
-        add_setting(&mut app, Setting { key: "lamp", group: "Test", label: "Lamp", note: "A lamp.", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on });
+        add_setting(&mut app, Setting { key: "lamp", group: "Test", label: "Lamp", note: "A lamp.", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on, slider: None });
         app.init_resource::<PauseView>().init_resource::<LoadList>().init_resource::<PauseStatus>().insert_resource(PauseLook::plain());
         app.world_mut().resource_mut::<Paused>().0 = true;
         app.add_systems(Update, draw);
@@ -1564,10 +1706,41 @@ mod tests {
         crate::settings::flip(app.world_mut(), 0);
         assert_eq!(state(&mut app), "ON");
         // Defaults go back to the state the page was first shown with.
-        assert_eq!(app.world().resource::<PauseView>().defaults, Some(vec![false]));
+        assert_eq!(app.world().resource::<PauseView>().defaults, Some(vec![0.0]));
         let world = app.world_mut();
         let mut note = world.query_filtered::<&Text, With<SwitchNote>>();
         assert_eq!(note.single(world).unwrap().0, "A lamp.");
+    }
+
+    #[derive(Resource)]
+    struct Reach(f32);
+
+    #[test]
+    fn a_slider_row_shows_its_value_as_a_meter_and_a_percentage() {
+        let mut app = App::new();
+        app.insert_resource(Reach(0.5)).init_resource::<Paused>().insert_resource(Page::Settings { selected: 0 });
+        let slider = crate::settings::Slider { get: |w| w.resource::<Reach>().0, set: |w, v| w.resource_mut::<Reach>().0 = v, min: 0.1, step: 0.05 };
+        add_setting(&mut app, Setting::slider("reach", "Test", "Reach", "How far.", slider));
+        app.init_resource::<PauseView>().init_resource::<LoadList>().init_resource::<PauseStatus>().insert_resource(PauseLook::plain());
+        app.world_mut().resource_mut::<Paused>().0 = true;
+        app.add_systems(Update, draw);
+        let shown = |app: &mut App| {
+            app.update();
+            let world = app.world_mut();
+            let mut q = world.query::<(&SwitchState, &Text)>();
+            let value = q.single(world).unwrap().1 .0.clone();
+            let mut b = world.query::<&PauseButton>();
+            let buttons: Vec<PauseButton> = b.iter(world).copied().collect();
+            assert!(buttons.contains(&PauseButton::Meter(0)) && buttons.contains(&PauseButton::SliderStep(0, -1)) && buttons.contains(&PauseButton::SliderStep(0, 1)), "{buttons:?}");
+            value
+        };
+        assert_eq!(shown(&mut app), "50%");
+        crate::settings::step_slider(app.world_mut(), 0, -2);
+        assert_eq!(shown(&mut app), "40%");
+        assert_eq!(app.world().resource::<PauseView>().defaults, Some(vec![0.5]));
+        assert_eq!(meter_ticks(1.0), 30);
+        assert_eq!(meter_ticks(0.5), 15);
+        assert_eq!(meter_ticks(0.0), 0);
     }
 
     #[test]

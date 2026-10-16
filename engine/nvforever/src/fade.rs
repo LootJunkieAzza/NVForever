@@ -72,6 +72,25 @@ pub fn drawn(k: u8) -> VisibilityRange {
     VisibilityRange { start_margin: x..x + W, end_margin: 2.0 * W..3.0 * W, use_aabb: false }
 }
 
+/// The range of a fully drawn mesh that is culled beyond `distance` (game units from the
+/// camera), dithering out over `fade` × `distance` past it (`draw_distance.rs`);
+/// `None`: [`drawn`]`(STEPS)`, never culled.
+pub fn drawn_within(distance: Option<f32>, fade: f32) -> VisibilityRange {
+    match distance {
+        None => drawn(STEPS),
+        Some(d) => {
+            let d = d.max(1.0);
+            VisibilityRange { start_margin: drawn(STEPS).start_margin, end_margin: d..d * (1.0 + fade.max(0.01)), use_aabb: false }
+        }
+    }
+}
+
+/// Whether a mesh's range is a fully drawn one ([`drawn`]`(STEPS)` or a
+/// [`drawn_within`]), not a fade's step.
+pub fn at_rest(r: &VisibilityRange) -> bool {
+    r.start_margin == drawn(STEPS).start_margin
+}
+
 /// Draws exactly the pixels [`drawn`]`(k)` leaves out (Bevy's fading-out side); `k` =
 /// [`STEPS`] culls the mesh.
 pub fn complement(k: u8) -> VisibilityRange {

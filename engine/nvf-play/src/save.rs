@@ -274,7 +274,7 @@ impl Plugin for SavePlugin {
             app.insert_resource(PendingEngine(body.engine, path.clone()));
             app.insert_resource(crate::script::PendingGame(Box::new(body.game), path));
         }
-        let setting = |key, label, note, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: GROUP, label, note, get, set };
+        let setting = |key, label, note, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: GROUP, label, note, get, set, slider: None };
         crate::settings::add_setting(
             app,
             setting("autosave-travel", "Autosave after travel", "On: the game saves to the autosave slot after each loading screen (doors, coc, a script moving the player).", |w| w.resource::<SaveConfig>().autosave_travel, |w, on| w.resource_mut::<SaveConfig>().autosave_travel = on),
