@@ -330,11 +330,18 @@ pub fn get_dead(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     yes(g.extra.get(&r).is_some_and(|e| e.dead))
 }
 
-/// The actor dies; its OnDeath blocks run [hypothesis: at once], and the kill counts
-/// for GetDeadCount of its base (`Game::kill`, shared with combat deaths).
+/// `actor.KillActor [killer] [limb] [cause]`: the actor dies; its OnDeath blocks run
+/// [hypothesis: at once], and the kill counts for GetDeadCount of its base (`Game::kill`,
+/// shared with combat deaths). The cause is what GetCauseofDeath then reads [documented:
+/// GECK wiki KillActor, "See GetCauseofDeath for death values"]. The limb to dismember is
+/// not acted on (no dismemberment yet).
 pub fn kill_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    g.kill(r, a.opt_form(0));
+    if g.kill(r, a.opt_form(0)) {
+        if let Ok(cause) = a.int(2) {
+            g.extra.entry(r).or_default().death_cause = Some(cause);
+        }
+    }
     none()
 }
 
@@ -411,9 +418,19 @@ impl Game<'_> {
     }
 }
 
+/// `actor.ResurrectActor [anim]`: the actor comes back "from the dead or unconscious
+/// state" [documented: GECK wiki ResurrectActor] at full health, its killer and cause of
+/// death forgotten [hypothesis: a resurrected actor reads as never killed; the wiki
+/// shows it standing and acting again]. Limb damage stays [hypothesis: the wiki notes
+/// that body data is not updated with anim 1].
 pub fn resurrect_actor(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    g.extra.entry(r).or_default().dead = false;
+    set_damage(g, r, crate::combat::HEALTH, 0.0);
+    let e = g.extra.entry(r).or_default();
+    e.dead = false;
+    e.unconscious = false;
+    e.killer = None;
+    e.death_cause = None;
     none()
 }
 
@@ -823,13 +840,16 @@ pub fn get_is_current_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
     yes(g.current_package(r) == Some(p))
 }
 
-/// Current health over base health [documented: catalogue notes]; a dead actor is at 0.
+/// `GetActorValue Health` over `GetBaseActorValue Health`, 1.0 when the base is 0, with
+/// no upper bound (effects raising Health give more than 1) [documented: GECK wiki
+/// GetHealthPercentage notes, the code the function is equivalent to]; a dead actor is at
+/// 0 [hypothesis: KillActor leaves its health as it was here].
 pub fn get_health_percentage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if g.extra.get(&r).is_some_and(|e| e.dead) {
         return Ok(Value::Num(0.0));
     }
-    let base = permanent(g, r, crate::combat::HEALTH)?;
-    let now = base - damage(g, r, crate::combat::HEALTH);
-    Ok(Value::Num(if base > 0.0 { (now / base).clamp(0.0, 1.0) } else { 0.0 }))
+    let base = base(g, r, crate::combat::HEALTH)?;
+    let now = actor_value(g, r, crate::combat::HEALTH)?;
+    Ok(Value::Num(if base != 0.0 { (now / base).max(0.0) } else { 1.0 }))
 }

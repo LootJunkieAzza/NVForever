@@ -244,6 +244,9 @@ pub struct RefExtra {
     /// Who killed the actor (KillActor's killer), for IsKiller.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub killer: Option<FormId>,
+    /// KillActor's cause of death, which GetCauseofDeath reads before the last hit.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub death_cause: Option<i32>,
     /// The furniture the actor is on, getting on or getting off.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub furniture: Option<FurnitureUse>,
@@ -467,6 +470,13 @@ pub struct PlayerState {
     /// Map markers ShowMap made visible.
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub map_markers: BTreeSet<FormId>,
+    /// Map markers ShowMap made fast-travel targets (its canTravel argument).
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub travel_markers: BTreeSet<FormId>,
+    /// Map markers the player found by coming near them: the engine's discovery
+    /// (`nvf-play` compass), told to the rules (`Game::set_found_markers`).
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub found_markers: BTreeSet<FormId>,
     /// ShowAllMapMarkers: every marker shown at once; `None` before any call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub all_markers: Option<AllMarkers>,
@@ -1886,8 +1896,9 @@ impl<'a> Game<'a> {
         for c in reset {
             self.cell_reset_blocks(c);
         }
-        // Actors of the new cells choose their package at the next tick.
+        // Actors of the new cells choose their package at the next tick, and dress now.
         self.package_scan_due = 0.0;
+        self.outfit_loaded_actors();
         for c in new {
             let refs = self.data.scripted_by_cell.get(&c).cloned().unwrap_or_default();
             for r in refs {
@@ -1895,6 +1906,15 @@ impl<'a> Game<'a> {
                     self.ref_event(r, event::ON_LOAD, None, None);
                 }
             }
+        }
+    }
+
+    /// Actors in loaded cells that never were loaded put on their outfit and take up
+    /// their weapon (`fnv_sim::World::outfit`), dead ones too [hypothesis: a corpse
+    /// placed dead wears its outfit as the living do].
+    pub fn outfit_loaded_actors(&mut self) {
+        for a in self.package_actors() {
+            let _ = self.world.outfit(a);
         }
     }
 

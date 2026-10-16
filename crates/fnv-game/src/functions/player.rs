@@ -107,15 +107,14 @@ pub fn get_player_controls_disabled(g: &mut Game, _ctx: &Ctx, a: &Args) -> Resul
     yes(g.player.controls_disabled.iter().zip(which).any(|(d, w)| *d && w))
 }
 
-/// The player's level: SetLevel's, else the configuration's. Another actor's level is
-/// known only after SetLevel (NPC_ levels are not read yet).
+/// An actor's current level [documented: GECK wiki GetLevel]: the player's SetLevel,
+/// else the configuration's; another actor's SetLevel, else its record's level (fixed,
+/// or PC Level Mult with its bounds: `Game::actor_level`). [observed: Sunny Smiles read 2
+/// and Trudy 5 in the capture `fa_batch1_queries`.]
 pub fn get_level(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     if r != FormId::PLAYER_REF {
-        return match g.extra.get(&r).and_then(|e| e.level) {
-            Some(l) => Ok(Value::Num(l as f64)),
-            None => Err("levels of actors other than the player are not modelled".into()),
-        };
+        return Ok(Value::Num(g.actor_level(r).round()));
     }
     Ok(Value::Num(g.player.level.unwrap_or(g.world.config().player_level as i32) as f64))
 }
@@ -162,9 +161,14 @@ pub fn set_hardcore(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String>
     none()
 }
 
-/// Map markers made visible (fast travel is Layer 6).
+/// `ShowMap marker [canTravel]`: the marker goes on the world map, and with canTravel
+/// becomes a fast-travel target [documented: GECK wiki ShowMap].
 pub fn show_map(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.map_markers.insert(a.form(0)?);
+    let m = a.form(0)?;
+    g.player.map_markers.insert(m);
+    if a.num_or(1, 0.0) != 0.0 {
+        g.player.travel_markers.insert(m);
+    }
     none()
 }
 
@@ -175,13 +179,30 @@ impl Game<'_> {
     pub fn map_marker_shown(&self, marker: FormId, hidden: bool) -> bool {
         self.player.map_markers.contains(&marker) || self.player.all_markers.is_some_and(|a| a.shown && !(a.skip_hidden && hidden))
     }
+
+    /// The map markers the player has found (the engine's discovery, kept in its save
+    /// too): they are on the map and fast-travel targets.
+    pub fn set_found_markers(&mut self, found: impl IntoIterator<Item = FormId>) {
+        self.player.found_markers = found.into_iter().collect();
+    }
 }
 
-/// The marker's Hidden flag is not read here: a marker counts as not hidden
-/// [engineering choice: the game crate has no marker data; the Pip-Boy map reads it].
+/// `marker.GetMapMarkerVisible`: 0 not on the map, 1 on it without fast travel, 2 on it
+/// and a fast-travel target [documented: GECK wiki GetMapMarkerVisible, "Marker State"].
+/// A marker the player found reads 2 [observed: the Goodsprings marker in the save
+/// nvftest, capture `fa_batch1_queries`]; ShowMap's canTravel and ShowAllMapMarkers'
+/// travel flag give 2 to the others. The marker's Hidden flag is not read here: a marker
+/// counts as not hidden [engineering choice: the game crate has no marker data; the
+/// Pip-Boy map reads it]; markers authored Visible are not known here either (0 until
+/// found or shown).
 pub fn get_map_marker_visible(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(g.map_marker_shown(r, false))
+    let found = g.player.found_markers.contains(&r);
+    if !(found || g.map_marker_shown(r, false)) {
+        return Ok(Value::Num(0.0));
+    }
+    let travel = found || g.player.travel_markers.contains(&r) || g.player.all_markers.is_some_and(|a| a.shown && a.travel);
+    Ok(Value::Num(if travel { 2.0 } else { 1.0 }))
 }
 
 /// `ShowAllMapMarkers show [canTravel] [skipHidden]`: every map marker on the world map

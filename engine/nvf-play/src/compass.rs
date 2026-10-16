@@ -120,6 +120,10 @@ fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptSt
     let Some(mut state) = state else { return };
     // Found before the game runs (the first frames): kept until it does, for the XP.
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    // The rules hear which markers are found (GetMapMarkerVisible), also after a load.
+    if rt.game.player.found_markers.len() != state.discovered().len() {
+        rt.game.set_found_markers(state.discovered().iter().map(|&f| FormId(f)));
+    }
     let found = state.take_newly_found();
     if found.is_empty() {
         return;

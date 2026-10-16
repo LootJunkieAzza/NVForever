@@ -1331,22 +1331,29 @@ fn the_player_starts_wearing_non_playable_armour_and_keeps_it() {
 fn an_npc_starts_with_its_outfit_and_weapon_equipped() {
     // The engine's wearing and arming rules (World::equip_default): the helmet (first
     // carried, no DT anywhere) takes Head|Hair, so the hat (Hair) stays in the pack; the
-    // suit has a slot of its own; of the weapons only the long gun can be drawn.
+    // suit has a slot of its own; of the weapons only the long gun can be drawn. A
+    // created actor is outfitted at once.
     let f = fixture();
     let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
     let g = w.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert!(w.get(g).unwrap().outfitted);
     let inv = w.inventory_mut(g).unwrap();
     for (item, worn) in [(HELMET, true), (HAT, false), (SUIT, true), (LONG_GUN, true), (PISTOL, false), (RIFLE, false), (MINE, false)] {
         assert_eq!(inv.is_equipped(id(item)), worn, "{item:#X}");
     }
     assert_eq!(inv.count(id(MINE)), 2);
-    // A container's items are never equipped.
-    let s = w.place(id(SAFE), None, [0.0; 3], [0.0; 3], 1).unwrap();
-    assert!(w.inventory_mut(s).unwrap().equipped().is_empty());
-    // ResetInventory rolls again and equips again.
+    // Once only: what is taken off later stays off.
     w.unequip(g, id(SUIT)).unwrap();
+    assert!(!w.outfit(g).unwrap());
+    assert!(!w.inventory_mut(g).unwrap().is_equipped(id(SUIT)));
+    // ResetInventory rolls again and an outfitted actor dresses again.
     assert!(w.reset_inventory(g).unwrap());
     assert!(w.inventory_mut(g).unwrap().is_equipped(id(SUIT)));
+    // A container's items are never equipped; the player is never outfitted this way.
+    let s = w.place(id(SAFE), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert!(w.inventory_mut(s).unwrap().equipped().is_empty());
+    assert!(!w.get(s).unwrap().outfitted);
+    assert!(!w.outfit(FormId::PLAYER_REF).unwrap());
 }
 
 // ---- quest items ----------------------------------------------------------------

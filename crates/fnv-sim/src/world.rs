@@ -108,6 +108,10 @@ pub struct RefState {
     /// not restocked since the simulation started).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_restock: Option<f32>,
+    /// An actor other than the player has put on its outfit and taken up its weapon
+    /// ([`World::outfit`]): done the first time its cell is loaded.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub outfitted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -302,11 +306,8 @@ impl<'a> World<'a> {
             None if id == FormId::PLAYER_REF => (FormId::PLAYER_BASE, None),
             None => return Err(SimError::UnknownRef(id)),
         };
-        let source = self.inventory_base(id, base);
-        let mut inventory = self.roll_inventory(source)?;
-        if id != FormId::PLAYER_REF {
-            self.equip_default(source, &mut inventory);
-        } else {
+        let mut inventory = self.roll_inventory(self.inventory_base(id, base))?;
+        if id == FormId::PLAYER_REF {
             // The player wears the non-playable armour it carries: the Pip-Boy Glove and
             // the Pip-Boy 3000 that the base form NPC_ 0x7 lists. [observed in game,
             // docs/spec-notes/simulation.md §2: `GetEquipped` 1 for both in the saves
@@ -342,6 +343,7 @@ impl<'a> World<'a> {
             },
             actor_values: BTreeMap::new(),
             last_restock: None,
+            outfitted: false,
         })
     }
 
@@ -388,15 +390,12 @@ impl<'a> World<'a> {
     /// ties. These are the rules the engine dresses and arms NPCs by (`fnv_actor::resolve`,
     /// docs/spec-notes/actors.md §2.3 and §9.3) [observed rule for armour: the owner's
     /// statement of 2026-10-08; the weapon rule is the engine's choice standing in for the
-    /// original's]. `GetEquipped` takes any calling actor [documented: GECK wiki
-    /// GetEquipped, reference type Actor]; that the original reports an NPC's outfit and
-    /// weapon as equipped is checked in game (docs/design/script-function-audit.md §3).
-    /// `inventory_source`
-    /// is the form whose carried items were rolled; nothing happens for other bases.
-    fn equip_default(&self, inventory_source: FormId, inventory: &mut Option<Inventory>) {
-        let Some(inv) = inventory.as_mut() else { return };
+    /// original's]. `inventory_source` is the form whose carried items were rolled;
+    /// nothing happens for other bases (returns false).
+    fn equip_default(&self, inventory_source: FormId, inventory: &mut Option<Inventory>) -> bool {
+        let Some(inv) = inventory.as_mut() else { return false };
         if !matches!(self.forms.get(inventory_source).map(|b| &b.data), Some(BaseData::Actor(_))) {
-            return;
+            return false;
         }
         // Carried order is the inventory's order (FormID order here; the engine uses the
         // record's entry order, so ties between equal pieces may fall the other way).
@@ -429,6 +428,29 @@ impl<'a> World<'a> {
         for id in wear.into_iter().chain(weapon.map(|w| w.1)) {
             inv.set_equipped(id);
         }
+        true
+    }
+
+    /// The first time an actor other than the player is loaded, it puts on its outfit
+    /// and takes up its weapon ([`World::equip_default`]); later calls do nothing.
+    /// Returns whether it was outfitted now. [observed in game (capture
+    /// `fa_batch2_loaded_npcs`, 2026-10-16, docs/design/script-function-audit.md §3):
+    /// Sunny Smiles read `GetEquipped` 0 for her leather armour and varmint rifle while
+    /// her cell had never been loaded (`GetItemCount` 1 each), 1 for both once the player
+    /// stood next to her, and still 1 after the player left her cell.] Called by the
+    /// rules when a cell loads (`fnv_game::Game::set_loaded`).
+    pub fn outfit(&mut self, id: FormId) -> Result<bool, SimError> {
+        if id == FormId::PLAYER_REF || self.get(id)?.outfitted {
+            return Ok(false);
+        }
+        let base = self.get(id)?.base;
+        let source = self.inventory_base(id, base);
+        let mut inv = self.get(id)?.inventory.take();
+        let done = self.equip_default(source, &mut inv);
+        let s = self.get(id)?;
+        s.inventory = inv;
+        s.outfitted = done;
+        Ok(done)
     }
 
     /// Whether `id` is a merchant container that restocks: an actor names it in XMRC and
@@ -668,6 +690,7 @@ impl<'a> World<'a> {
                     extra,
                     actor_values: BTreeMap::new(),
                     last_restock: None,
+                    outfitted: false,
                 },
             );
             out.push(id);
@@ -1045,7 +1068,8 @@ impl<'a> World<'a> {
             return Err(SimError::UnknownForm(base));
         }
         let mut inventory = self.roll_inventory(base)?;
-        self.equip_default(base, &mut inventory);
+        // A created actor appears where the player is: it is outfitted at once.
+        let outfitted = self.equip_default(base, &mut inventory);
         let id = FormId(self.next_dynamic);
         self.next_dynamic += 1;
         self.refs.insert(
@@ -1064,6 +1088,7 @@ impl<'a> World<'a> {
                 extra: Extra::default(),
                 actor_values: BTreeMap::new(),
                 last_restock: None,
+                outfitted,
             },
         );
         Ok(id)
@@ -1090,7 +1115,7 @@ impl<'a> World<'a> {
         let base = self.get(id)?.base;
         let source = self.inventory_base(id, base);
         let mut inv = self.roll_inventory(source)?;
-        if id != FormId::PLAYER_REF {
+        if self.get(id)?.outfitted {
             self.equip_default(source, &mut inv);
         }
         let s = self.get(id)?;

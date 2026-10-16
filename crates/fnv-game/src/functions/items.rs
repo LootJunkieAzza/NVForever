@@ -48,10 +48,15 @@ pub fn remove_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
+/// `Container.GetItemCount item`: how many are carried; for a form list, the sum over its
+/// members [documented: GECK wiki GetItemCount notes].
 pub fn get_item_count(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let of = ctx.subject()?;
-    let item = a.form(0)?;
-    Ok(Value::Num(g.world.item_count(of, item).map_err(|e| e.to_string())? as f64))
+    let mut n = 0;
+    for item in items(g, a.form(0)?) {
+        n += g.world.item_count(of, item).map_err(|e| e.to_string())?;
+    }
+    Ok(Value::Num(n as f64))
 }
 
 /// `RemoveAllItems [target]`: into the target container, or destroyed.
@@ -101,11 +106,14 @@ pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     none()
 }
 
+/// `actor.GetEquipped item`: 1 when the actor has the item equipped; for a form list,
+/// when any member is [documented: GECK wiki GetEquipped notes]. An NPC has its outfit
+/// and weapon equipped once it has been loaded (`fnv_sim::World::outfit`).
 pub fn get_equipped(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
-    let item = a.form(0)?;
+    let wanted = items(g, a.form(0)?);
     let s = g.world.get(actor).map_err(|e| e.to_string())?;
-    yes(s.inventory.as_ref().is_some_and(|i| i.is_equipped(item)))
+    yes(s.inventory.as_ref().is_some_and(|i| wanted.iter().any(|&w| i.is_equipped(w))))
 }
 
 /// The condition of the equipped weapon in percent [documented: GECK wiki

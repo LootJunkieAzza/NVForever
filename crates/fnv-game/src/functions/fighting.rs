@@ -129,13 +129,17 @@ pub fn cause_code(record_type: Option<i64>) -> i32 {
 }
 
 /// `actor.GetCauseofDeath`: how the actor died, by [`cause_code`] of the last hit it took
-/// (`RefExtra::last_hit`: the killing blow, hits on a corpse do not count); −1 while it
+/// (`RefExtra::last_hit`: the killing blow, hits on a corpse do not count), unless
+/// KillActor named a cause (`RefExtra::death_cause`); −1 while it
 /// lives, or dead with no hit (KillActor, dead from the start) [hypothesis: "none"].
 /// Poison and radiation deaths are not told apart yet.
 pub fn get_cause_of_death(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if !g.is_dead(r) {
         return Ok(Value::Num(-1.0));
+    }
+    if let Some(cause) = g.extra.get(&r).and_then(|e| e.death_cause) {
+        return Ok(Value::Num(cause as f64));
     }
     let Some(hit) = g.extra.get(&r).and_then(|e| e.last_hit) else { return Ok(Value::Num(-1.0)) };
     let record_type = match hit.weapon {

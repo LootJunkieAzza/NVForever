@@ -390,9 +390,9 @@ fn day_of_week_schedules_follow_the_calendar() {
     let sunday = seen.iter().position(|p| *p == P_SUNDAY).unwrap();
     let saturday = seen.iter().position(|p| *p == P_WEEKEND).unwrap();
     assert_eq!((saturday + 1) % 7, sunday);
-    // The weekday agrees with GetDayOfWeek's: 19 October 2281 is a Wednesday on the
-    // Gregorian calendar, so the Sunday of 10..17 is the 16th.
-    assert_eq!(sunday, 6);
+    // The weekday agrees with GetDayOfWeek's: 13 October 2281 is a Sunday on the game's
+    // calendar (observed, `functions::misc::weekday`), so the Sunday of 10..17 is the 13th.
+    assert_eq!(sunday, 3);
 }
 
 #[test]

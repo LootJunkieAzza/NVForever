@@ -23,6 +23,8 @@ pub struct Motion {
     pub sneaking: bool,
     /// It is turning: 0 not, 1 left, 2 right (IsTurning's codes).
     pub turning: u8,
+    /// Its speed mode is run, whether or not it moves (the player: Walk not toggled).
+    pub run_mode: bool,
 }
 
 /// What the engine told the scripts, and the switches scripts set for it.
@@ -90,9 +92,11 @@ impl Game<'_> {
 /// `actor.IsSneaking`: 1 while the actor is sneaking (crouched) [documented: GECK wiki
 /// IsSneaking]. The engine tells it ([`Game::set_motion`]): the player's sneak control,
 /// and for other actors [`Game::sneaks`] (SetForceSneak, a package's Always Sneak).
+/// An actor the engine does not measure (not drawn, far) sneaks by the same rule
+/// ([`Game::sneaks`]).
 pub fn is_sneaking(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
-    yes(g.motion(r).sneaking)
+    yes(g.senses.motion.get(&r).map_or_else(|| g.sneaks(r), |m| m.sneaking))
 }
 
 /// `actor.IsMoving`: 0 not moving, 1 forward, 2 backward, 3 left, 4 right: the
@@ -104,12 +108,16 @@ pub fn is_moving(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     Ok(Value::Num(if g.motion(r).moving { 1.0 } else { 0.0 }))
 }
 
-/// `actor.IsRunning`: 1 when the actor's speed mode is run rather than walk
-/// [documented: catalogue summary]. Read from the engine's measure: running while it
-/// moves at its run speed [hypothesis: an actor standing still in run mode reads 0].
+/// `actor.IsRunning`: 1 when the actor's speed mode is run rather than walk, "even if
+/// they are standing still" [documented: GECK wiki IsRunning notes; observed: the player
+/// standing still read 1 and Sunny Smiles standing still 0, capture `fa_batch1_queries`].
+/// The player's mode is the Walk toggle (`Motion::run_mode`); another actor's is read
+/// from the engine's measure, running while it moves at its run speed [hypothesis for
+/// NPCs: their mode while standing is not told].
 pub fn is_running(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
-    yes(g.motion(r).running)
+    let m = g.motion(r);
+    yes(m.running || m.run_mode)
 }
 
 /// `actor.GetLineOfSight target`: 1 when the calling actor can see the target: nothing

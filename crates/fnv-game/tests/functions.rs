@@ -586,8 +586,9 @@ fn ownership_destruction_regions_challenges_and_calendar() {
     g.player_entered(Some(FormId(CELL)));
     g.player_entered(Some(FormId(EXT_CELL)));
     assert!(!g.player.fast_travel.travel_disabled);
-    // 18 October 2281 (month 9 counted from 0) is a Tuesday on the Gregorian calendar.
-    assert_eq!(call(&mut g, 0x10AA, None, &[]), 2.0);
+    // 18 October 2281 (month 9 counted from 0) is a Friday on the game's calendar, five
+    // days after Sunday 13 October (observed: 25 October 2281 read 5, a Friday).
+    assert_eq!(call(&mut g, 0x10AA, None, &[]), 5.0);
     // GetHeadingAngle: a target due east of a caller facing north is 90° to the right.
     g.world.get(FormId(ADULT_REF)).unwrap().pos = [0.0, 0.0, 0.0];
     g.world.get(FormId(CHILD_REF)).unwrap().pos = [100.0, 0.0, 0.0];
@@ -742,11 +743,11 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
 
     // Movement and sneaking as the engine told them; nothing told is standing still.
     assert_eq!(call(&mut g, 0x111E, None, &[]), 0.0);
-    g.set_motion(FormId::PLAYER_REF, Motion { moving: true, running: false, sneaking: true, turning: 0 });
+    g.set_motion(FormId::PLAYER_REF, Motion { moving: true, running: false, sneaking: true, turning: 0, run_mode: false });
     assert_eq!(call(&mut g, 0x111E, None, &[]), 1.0);
     assert_eq!(call(&mut g, 0x1019, None, &[]), 1.0);
     assert_eq!(call(&mut g, 0x111F, None, &[]), 0.0);
-    g.set_motion(adult, Motion { moving: true, running: true, sneaking: false, turning: 0 });
+    g.set_motion(adult, Motion { moving: true, running: true, sneaking: false, turning: 0, run_mode: true });
     assert_eq!(call(&mut g, 0x111F, Some(ADULT_REF), &[]), 1.0);
     g.forget_motion(adult);
     assert_eq!(call(&mut g, 0x1019, Some(ADULT_REF), &[]), 0.0);
@@ -963,4 +964,61 @@ fn reset_3d_state_forgets_the_animation() {
     assert_eq!(g.anims.playing(on), None);
     assert!(g.anims.requests.is_empty());
     assert_eq!(g.anims.resets, vec![on]);
+}
+
+/// The gaps the script function audit fixed (docs/design/script-function-audit.md).
+#[test]
+fn script_function_audit_fixes() {
+    use fnv_game::functions::senses::Motion;
+    let f = fixture();
+    let mut g = game(&f);
+    let av = |c: u16| ArgValue::Enum(c);
+    let adult = FormId(ADULT_REF);
+    // Form lists: GetItemCount sums the members, GetEquipped asks whether any is worn.
+    assert_eq!(call(&mut g, 0x102F, Some(CONT_REF), &[r(FLST)]), 1.0);
+    call(&mut g, 0x1002, Some(PLAYER), &[r(WEAP), n(1.0)]);
+    assert_eq!(call(&mut g, 0x10B6, Some(PLAYER), &[r(FLST)]), 0.0);
+    call(&mut g, 0x10EE, Some(PLAYER), &[r(WEAP)]);
+    assert_eq!(call(&mut g, 0x10B6, Some(PLAYER), &[r(FLST)]), 1.0);
+    // A setting the masters do not define: the game's own value (observed).
+    assert_eq!(call(&mut g, 0x1100, None, &[ArgValue::Str("iLockLevelMaxHard".into())]), 75.0);
+    // GetAnimAction: none.
+    assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), -1.0);
+    // KillActor's cause of death; ResurrectActor brings the actor back unharmed.
+    call(&mut g, 0x1181, Some(ADULT_REF), &[av(16), n(5.0)]);
+    call(&mut g, 0x108B, Some(ADULT_REF), &[r(CHILD_REF), n(0.0), n(6.0)]);
+    assert_eq!(call(&mut g, 0x118D, Some(ADULT_REF), &[]), 6.0);
+    call(&mut g, 0x108C, Some(ADULT_REF), &[n(0.0)]);
+    assert_eq!(call(&mut g, 0x102E, Some(ADULT_REF), &[]), 0.0);
+    assert_eq!(call(&mut g, 0x118D, Some(ADULT_REF), &[]), -1.0);
+    assert!(g.extra[&adult].av_damage.is_empty() && g.extra[&adult].killer.is_none());
+    // SetGhost: no damage.
+    assert!(!g.is_immune(adult));
+    call(&mut g, 0x10EC, Some(ADULT_REF), &[n(1.0)]);
+    assert!(g.is_immune(adult));
+    // GetHealthPercentage: 1.0 with no base health; above 1 when effects raise Health.
+    assert_eq!(call(&mut g, 0x11AF, Some(ADULT_REF), &[]), 1.0);
+    call(&mut g, 0x100F, Some(ADULT_REF), &[av(16), n(100.0)]);
+    call(&mut g, 0x1010, Some(ADULT_REF), &[av(16), n(50.0)]);
+    assert_eq!(call(&mut g, 0x11AF, Some(ADULT_REF), &[]), 1.5);
+    // GetLevel of an NPC without SetLevel: its record's level.
+    assert_eq!(call(&mut g, 0x1050, Some(ADULT_REF), &[]), 1.0);
+    // IsSneaking of an actor the engine does not measure; IsRunning's speed mode.
+    call(&mut g, 0x10D3, Some(ADULT_REF), &[n(1.0)]);
+    assert_eq!(call(&mut g, 0x111E, Some(ADULT_REF), &[]), 1.0);
+    g.set_motion(FormId::PLAYER_REF, Motion { run_mode: true, ..Default::default() });
+    assert_eq!(call(&mut g, 0x111F, None, &[]), 1.0);
+    // GetMapMarkerVisible: 0 off the map, 1 shown, 2 a travel target or found.
+    assert_eq!(call(&mut g, 0x11EC, Some(ACTI_REF), &[]), 0.0);
+    call(&mut g, 0x1055, None, &[r(ACTI_REF)]);
+    assert_eq!(call(&mut g, 0x11EC, Some(ACTI_REF), &[]), 1.0);
+    call(&mut g, 0x1055, None, &[r(ACTI_REF), n(1.0)]);
+    assert_eq!(call(&mut g, 0x11EC, Some(ACTI_REF), &[]), 2.0);
+    g.set_found_markers([FormId(CONT_REF)]);
+    assert_eq!(call(&mut g, 0x11EC, Some(CONT_REF), &[]), 2.0);
+    // The actors of the loaded cell were outfitted when it loaded (the game starts in
+    // it); a far one was not.
+    assert!(g.world.get(FormId(CHILD_REF)).unwrap().outfitted);
+    let far = g.world.place(FormId(NPC_ADULT), Some(FormId(EXT_CELL)), [0.0; 3], [0.0; 3], 1).unwrap();
+    assert!(g.world.get(far).unwrap().outfitted, "a created actor is outfitted at once");
 }
