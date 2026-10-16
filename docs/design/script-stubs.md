@@ -109,7 +109,7 @@ each function; call sites are from `fnvtool script decompile` over the ten maste
 | IsTurning | 0x101A | 0 | 1 | `Motion::turning` | `detection.rs`: heading change over 0.5 rad/s (left 1, right 2) [hypothesis: threshold] |
 | AddItemToLeveledList | 0x1236 | 20 | 0 | `fnv_sim::World::add_to_leveled_list`: entries added after the authored ones, in snapshots; health not kept | containers and AddItem through `leveled::resolve_with`; actors' drawn equipment (`fnv-actor`) does not see them |
 | IsDLCInstalled | 0x126F | 8 | 0 | a load-order plugin whose name matches, spaces, case and extension ignored [hypothesis: "tribal pack" ↔ TribalPack.esm] | none |
-| GetXPForNextLevel | 0x1215 | 3 | 0 | the next level's total, (n − 1)((n − 2)/2 · iXPBumpBase + iXPBase) [documented: GECK wiki Experience Settings], less the player's XP [hypothesis: remaining, from the Here and Now perk's stage] | none (levelling up is not built) |
+| GetXPForNextLevel | 0x1215 | 3 | 0 | the next level's total, (n − 1)((n − 2)/2 · iXPBumpBase + iXPBase) [documented: GECK wiki Experience Settings], less the player's XP [hypothesis: remaining, from the Here and Now perk's stage] | levelling up by experience: experience.md |
 
 Left, with the reason (§4): PushActorAway (ragdolls are for corpses only; a live
 knockdown and getting up is not built, with GetKnockedState), SetForceSneak (since built,

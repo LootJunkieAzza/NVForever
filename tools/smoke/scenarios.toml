@@ -1025,7 +1025,7 @@ order = [[
   { re = 'levelup: done, level 3: skills Medicine \+\d+; perk none' },
 ]]
 expect = [
-  { text = "ui sounds: level up opened: UILevelUp", label = "the level's sound" },
+  { text = "ui sounds: level up opened: UILevelUpText", label = "the level-up screen's music" },
   { text = "ui sounds: level up value raised: UIMenuPrevNext", label = "a + clicked" },
   { text = "ui sounds: level up value lowered: UIMenuPrevNext", label = "a - clicked" },
   { text = "ui sounds: level up refused: UIMenuCancel", label = "Continue with points left" },
@@ -1038,6 +1038,29 @@ expect = [
   { text = "levelup: menu closed", label = "the level-up menu gives way to the attributes page" },
 ]
 manual = "the screenshots levelup_skills.png, levelup_perks.png, levelup_attributes.png, levelup_attributes_done.png and levelup_level3.png in the run's folder against the owner's (kept privately)"
+
+[[scenario]]
+name = "xp-meter"
+source = "the HUD's XP meter and levelling by experience (docs/spec-notes/experience.md §6): RewardXP at the console shows the meter, a second reward reaches level 2, LEVEL UP, then the level-up menu opens by itself"
+areas = ["levelup", "hud"]
+paths = ["engine/nvf-play/src/xp_meter.rs", "crates/fnv-game/src/experience.rs", "engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:rewardxp 54;14.3:close;22:rewardxp 150;22.3:close", NVF_PLAY_TEST_SHOTS = "15.5:xp_meter.png,23.4:xp_level_up.png,29:xp_levelup_menu.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 31
+order = [[
+  { re = 'xp: level cap \d+ \(\d story add-ons\)' },
+  "xp meter: +54 XP (54 in all): level 1, 27 % to 2",
+  "xp meter: +150 XP (204 in all): level 1, 100 % to 2, next level earned",
+  "xp meter: LEVEL UP (1 -> 2)",
+  { re = 'xp: level up taken: level 2 \(cap \d+\)' },
+  { re = 'levelup: menu open, level 2, \d+ skill points, perk due' },
+]]
+expect = [
+  { text = "xp meter: sound UIPopUpExperienceUp", label = "a sound for each gain", count = 2 },
+  { text = "xp meter: sound UILevelUp", label = "the level-up sting" },
+  { text = "ui sounds: level up opened: UILevelUpText", label = "the level-up screen's music" },
+]
+manual = "xp_meter.png against the owner's screenshot (2026-10-16): the bar at the middle right, 1 at its left, 2 at its right, the pointer about a quarter along, +54 XP under its right end; xp_level_up.png the pointer at the end and LEVEL UP; xp_levelup_menu.png the level-up menu"
 
 [[scenario]]
 name = "vigor-tester"

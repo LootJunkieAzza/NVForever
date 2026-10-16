@@ -137,7 +137,7 @@ impl Plugin for LevelUpPlugin {
             }),
             Err(_) => Vec::new(),
         };
-        app.init_resource::<LevelUpMenu>().insert_resource(LevelUpAid(aid)).add_systems(Update, (sync, input, draw_menu).chain().in_set(PlaySet::Ui));
+        app.init_resource::<LevelUpMenu>().insert_resource(LevelUpAid(aid)).add_systems(Update, (sync, input, draw_menu).chain().in_set(PlaySet::Ui).after(chargen::ChargenSet));
     }
 }
 
