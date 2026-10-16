@@ -540,7 +540,7 @@ pub fn read_controls(
             c.orbit = c.orbit.released(c.pov);
         }
     }
-    if c.third_person_view() && scroll.delta.y != 0.0 {
+    if c.third_person_view() && scroll.delta.y != 0.0 && !input.suppressed() {
         c.distance = zoom(c.distance, scroll.delta.y);
     }
     if let Some(m) = message {

@@ -1286,7 +1286,7 @@ struct StartPose {
 /// ("Hor+"), so Bevy's vertical `fov` needs no update on resize [hypothesis; matched at 16:9
 /// on four reference frames, docs/spec-notes/camera.md].
 fn vertical_fov(setting_deg: f32) -> f32 {
-    2.0 * ((setting_deg.to_radians() / 2.0).tan() * 3.0 / 4.0).atan()
+    nvf_play::free_cam::vertical_fov(setting_deg)
 }
 
 fn setup(mut commands: Commands, start: Res<StartPose>) {

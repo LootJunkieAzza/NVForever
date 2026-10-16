@@ -17,6 +17,7 @@
 
 pub(crate) mod actor;
 mod ai_state;
+pub mod camera;
 pub(crate) mod furniture;
 mod items;
 mod magic;
@@ -561,6 +562,11 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1189, "PurgeCellBuffers", NoOp("memory: the original's cell buffers; cells here load and unload by distance")),
         (0x1163, "PreloadMagicEffect", NoOp("loading: effect particles load when drawn")),
         (0x1223, "ForceTerminalBack", Impl(ui::force_terminal_back)),
+        // The console's camera (camera.rs; opcodes of our own, fnv_script::table::CONSOLE_OPCODE_BASE).
+        (0xF04B, "ToggleFlyCam", Impl(camera::toggle_fly_cam)),
+        (0xF033, "SetUFOCamSpeedMult", Impl(camera::set_ufo_cam_speed_mult)),
+        (0xF02B, "SetCameraFOV", Impl(camera::set_camera_fov)),
+        (0xF055, "ToggleMenus", Impl(camera::toggle_menus)),
         (0x125A, "ShowCaravanMenu", Stub("menus (Caravan)")),
         (0x125B, "AddCardToPlayer", Stub("Caravan")),
         (0x11C8, "OpenTeammateContainer", Impl(crate::followers::open_teammate_container)),

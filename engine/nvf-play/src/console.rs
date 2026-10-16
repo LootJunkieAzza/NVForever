@@ -168,13 +168,17 @@ fn toggle(
     mut next: ResMut<NextState<PlayState>>,
     mut commands: Commands,
     roots: Query<Entity, With<ConsoleRoot>>,
+    free_cam: Res<crate::free_cam::FreeCam>,
 ) {
     let by_aid = aid.0.first().is_some_and(|(t, _)| *t <= time.elapsed_secs());
     if !c.open {
-        let free = *state.get() == PlayState::Playing && active.0.is_none() && !loading.active();
+        // The free camera's mode 1 holds the world in `Menu` with no menu open (`crate::free_cam`).
+        let world = *state.get() == PlayState::Playing || (free_cam.holds_world() && *state.get() == PlayState::Menu);
+        let free = world && active.0.is_none() && !loading.active();
         if free && (keys.just_pressed(KeyCode::Backquote) || by_aid) {
             c.open = true;
-            next.set(PlayState::Menu);
+            // Already `Menu` under the free camera: no change of state, which would close it.
+            NextState::set_if_neq(&mut *next, PlayState::Menu);
             spawn(&mut commands);
             info!("console: open");
         }
@@ -511,6 +515,7 @@ fn click(
     play: Res<PlayWorld>,
     mut script: Option<ResMut<ScriptState>>,
     panel: Query<&Interaction, With<ConsoleRoot>>,
+    free_cam: Res<crate::free_cam::FreeCam>,
 ) {
     if !c.open {
         return;
@@ -530,6 +535,11 @@ fn click(
     let Ok((cam, cam_t)) = camera.single() else { return };
     let Ok(ray) = cam.viewport_to_world(cam_t, at) else { return };
     let (o, d) = (ray.origin, *ray.direction);
+    if free_cam.on {
+        // The camera is the free camera (`crate::free_cam`): the ray starts there.
+        let g = space::to_game(o);
+        info!("console: the ray from the free camera at ({:.0}, {:.0}, {:.0})", g[0], g[1], g[2]);
+    }
     let (eye, dir) = (space::to_game(o), {
         let p = space::to_game(o + d);
         let e = space::to_game(o);

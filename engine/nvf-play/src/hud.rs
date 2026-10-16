@@ -435,7 +435,7 @@ fn load_art(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Ar
 }
 
 #[derive(Component)]
-struct HudRoot;
+pub(crate) struct HudRoot;
 
 #[derive(Component, Clone, Copy, PartialEq, Debug)]
 enum Bar {
