@@ -6,7 +6,8 @@ use fnv_script::vm::Value;
 use fnv_sim::FormId;
 
 pub fn reward_xp(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.xp += a.num(0)?.trunc();
+    let n = a.num(0)?.trunc();
+    crate::experience::award(g, crate::experience::Source::Script, n);
     none()
 }
 

@@ -1984,6 +1984,11 @@ impl<'a> Game<'a> {
                 self.player_entered(cell);
                 self.bring_teammates();
             }
+            // A placed mine disarmed by the player gives its XP (`crate::experience`).
+            Outcome::Disarmed { .. } if actor == FormId::PLAYER_REF => {
+                let x = crate::experience::mine_disarm_xp(self);
+                crate::experience::award(self, crate::experience::Source::DisarmMine, x);
+            }
             _ => {}
         }
         Ok(v)

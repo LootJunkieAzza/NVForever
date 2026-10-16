@@ -4,6 +4,7 @@
 //! note, its sub menu). The screens are the engine's; the hacking game itself is
 //! [`crate::hacking`].
 
+use crate::combat::setting;
 use crate::data::{terminal_flag, TerminalDef};
 use crate::functions::actor::actor_value_capped;
 use crate::game::{Game, RunCtx};
@@ -79,10 +80,34 @@ pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Optio
     })
 }
 
-/// The hacking game ended.
-pub fn hacked(g: &mut Game, reference: FormId, success: bool) {
+/// The hacking game ended; a hacked terminal gives the player its XP ([`xp`]). The
+/// experience earned.
+pub fn hacked(g: &mut Game, reference: FormId, success: bool) -> f64 {
     let a = if success { Access::Hacked } else { Access::LockedOut };
     g.terminals.access.insert(reference, a);
+    if !success {
+        return 0.0;
+    }
+    let difficulty = crate::functions::base_of(g, reference).and_then(|b| g.data.terminals.get(&b)).map(|t| Difficulty::from_code(t.difficulty));
+    let x = difficulty.map_or(0.0, |d| xp(g, d));
+    crate::experience::award(g, crate::experience::Source::HackTerminal, x)
+}
+
+/// The XP for hacking a terminal of `difficulty` [documented: GECK wiki Experience
+/// Settings]: the difficulty's code picks the first class whose
+/// `iXPLevelHackComputer<class>` (defaults 0 to 4; not in the masters) it does not pass,
+/// and the class gives `iXPRewardHackComputer<class>` (defaults 20 to 60; FalloutNV.esm
+/// sets the same five [observed]). None for Requires Key, which cannot be hacked. The
+/// master also has an `iXPRewardHackComputer` of 20 without a class [observed]; what
+/// reads it is unknown and it is not used.
+pub fn xp(g: &Game, difficulty: Difficulty) -> f64 {
+    const CLASSES: [(&str, f64, f64); 5] = [("VeryEasy", 0.0, 20.0), ("Easy", 1.0, 30.0), ("Average", 2.0, 40.0), ("Hard", 3.0, 50.0), ("VeryHard", 4.0, 60.0)];
+    if difficulty == Difficulty::RequiresKey {
+        return 0.0;
+    }
+    let code = f64::from(difficulty.code());
+    let class = CLASSES.iter().find(|(c, level, _)| code <= setting(g, &format!("iXPLevelHackComputer{c}"), *level)).unwrap_or(&CLASSES[4]);
+    setting(g, &format!("iXPRewardHackComputer{}", class.0), class.2)
 }
 
 /// The items of terminal `base` listed now, by index: those whose conditions hold, run

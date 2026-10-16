@@ -512,7 +512,7 @@ pub fn opened(g: &mut Game, reference: FormId, level: Level, picked: bool) -> Op
     let _ = g.world.unlock(reference);
     if picked {
         let x = xp(g, level);
-        g.player.xp += x;
+        crate::experience::award(g, crate::experience::Source::PickLock, x);
     }
     owner(g, reference)
 }

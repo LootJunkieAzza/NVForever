@@ -1,6 +1,6 @@
 //! Perk entry points: a perk the player has changes a number the game is about to use
-//! (docs/spec-notes/aid-items.md §10). Only the entry points of aid items are asked for
-//! here; the others (combat's, `fnv_combat::damage::PerkHooks`) are not yet read from the
+//! (docs/spec-notes/aid-items.md §10). Only the entry points of aid items and of
+//! experience (docs/spec-notes/experience.md §2) are asked for here; the others (combat's, `fnv_combat::damage::PerkHooks`) are not yet read from the
 //! records.
 //!
 //! An entry point effect of a PERK names the entry point, a function (Set, Add,
@@ -23,6 +23,10 @@ use crate::data::{PerkEffect, PerkEntry};
 use crate::game::Game;
 use fnv_sim::FormId;
 
+/// "Adjust Experience Points" [documented: GECK wiki Entry Point, "Run when the player
+/// gains any experience", the example Swift Learner; observed: Swift Learner's and
+/// Skilled's entries have code 9] (`crate::experience::award`).
+pub const ADJUST_EXPERIENCE_POINTS: u8 = 9;
 /// "Modify Addiction Chance" [observed: Chem Resistant; documented: GECK wiki Entry
 /// Point, "Run when the actor takes a drug"].
 pub const MODIFY_ADDICTION_CHANCE: u8 = 23;

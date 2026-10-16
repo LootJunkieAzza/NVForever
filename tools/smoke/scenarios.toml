@@ -1049,6 +1049,7 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 31
 order = [[
   { re = 'xp: level cap \d+ \(\d story add-ons\)' },
+  "xp: +54 XP from a script",
   "xp meter: +54 XP (54 in all): level 1, 27 % to 2",
   "xp meter: +150 XP (204 in all): level 1, 100 % to 2, next level earned",
   "xp meter: LEVEL UP (1 -> 2)",
@@ -1061,6 +1062,19 @@ expect = [
   { text = "ui sounds: level up opened: UILevelUpText", label = "the level-up screen's music" },
 ]
 manual = "xp_meter.png against the owner's screenshot (2026-10-16): the bar at the middle right, 1 at its left, 2 at its right, the pointer about a quarter along, +54 XP under its right end; xp_level_up.png the pointer at the end and LEVEL UP; xp_levelup_menu.png the level-up menu"
+
+[[scenario]]
+name = "xp-perks"
+source = "experience from every source goes through one function and the perks' Adjust Experience Points entry point (docs/spec-notes/experience.md §2): Swift Learner rank 1 makes RewardXP 100 worth 110, and the meter shows 110"
+areas = ["levelup", "hud", "perks"]
+paths = ["crates/fnv-game/src/experience.rs", "crates/fnv-game/src/perks.rs", "crates/fnv-game/src/functions/player.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:addperk SwiftLearner;14.2:rewardxp 100;14.5:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  "xp: +110 XP from a script (100 before SwiftLearner)",
+  "xp meter: +110 XP (110 in all): level 1, 55 % to 2",
+]]
 
 [[scenario]]
 name = "vigor-tester"
@@ -1402,6 +1416,7 @@ run_seconds = 48
 expect = [
   "hacking, Easy (Science 25): 20 words",
   "Exact match! access granted",
+  { text = "xp: +30 XP from a hacked terminal", label = "the Easy terminal's iXPRewardHackComputerEasy (experience.md §2)" },
   'menu of DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"',
   "result script",
   "terminal summary: 1 opened (0 refused), 1 hacking games (1 hacked, 0 locked out)",
@@ -1426,6 +1441,7 @@ order = [[
   "lockpick: help message closed",
   "lockpick: the bobby pin broke, 2 left",
   "lockpick: a new bobby pin is in",
+  "xp: +40 XP from a picked lock",
   "picked open (Average lock, 40 XP)",
   "lockpick: crime hook: 0x00105229",
   "lockpick: leaving (the game is over)",
