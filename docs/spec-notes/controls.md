@@ -20,7 +20,7 @@ Each value is four bytes, written as eight hex digits `00KKMMJJ`:
   `FF` none.
 - `MM`: a mouse button, `FF` none; 0 is the left button (`Use`, attack), 1 the right
   (`Block`), 2 the middle (`Toggle POV`) [hypothesis: from the controls they sit on].
-- `JJ`: a gamepad button (not used here).
+- `JJ`: a controller button, `FF` none (§2.1).
 
 ## 2. The bindings [observed: owner's FalloutPrefs.ini; hypothesis: the game's defaults]
 
@@ -53,6 +53,36 @@ Other `[Controls]` values: `bAlwaysRunByDefault=1`, `bInvertYValues=0`,
 unit]), `fXenonVertLookSpeed=1200`, `fXenonHorizLookSpeed=1500`, `bGamePadRumble=1`.
 The second hotkey's line is named `Ammo Swap`.
 
+### 2.1 The controller byte `JJ`
+
+What the `JJ` values are [observed]: `0A` Activate, `0B` Menu Mode, `0C` Ready Item,
+`0D` Jump, `0E` Vats, `0F` Toggle POV, `10` Block, `11` Use, `07` Rest, `08`
+Crouch/Sneak, `09` Grab, `01` Ammo Swap, `13` Forward, `14` Back, `16` Slide Right, `17`
+Slide Left; `FF` for Run, Always Run, Auto Move, Hotkey1, Hotkey3–8, QuickSave, QuickLoad.
+
+The console version's layout [documented: published Xbox 360 control lists for the
+game, e.g. magicgameworld.com "Fallout: New Vegas Controls"]: left stick moves, right
+stick looks, A activates, B opens the Pip-Boy, X readies and reloads, Y jumps, LT aims,
+RT attacks, RB is V.A.T.S., Back waits, a press of the left stick crouches, the D-pad
+holds the quick keys.
+
+Reading [hypothesis]: `0A`–`0D` are A, B, X, Y and `10`, `11` are LT, RT, `0E` is RB,
+`07` Back and `08` the left stick's press, as those controls sit in the console layout.
+A to Y and Back, left stick press, right stick press follow the order of XInput's
+button bits [documented: Microsoft `XINPUT_GAMEPAD` `wButtons`], so `09` (Grab) is read
+as the right stick's press and `0F` (Toggle POV) as LB, the one shoulder left. `13`,
+`14`, `16`, `17` are read as the left stick pushed up, down, right, left. `01` is not
+placed.
+
+The menu files name controller buttons for their hotkeys and hints [observed:
+`_xbox_button` traits and `<xbuttona>`…`<xbuttonrt>` elements in the interface XMLs,
+e.g. `&xbuttona;` on the HUD's activate prompt, `hud_main_menu.xml`], and
+`prefabs/button_xbox_hint.xml` lists the button pictures in this order:
+`Interface\Shared\Button\general_button_a.dds`, `_b`, `_x`, `_y`, `_lt`, `_rt`, `_lb`,
+`_rb`, `_ls`, `_rs`. With a controller in use the hint shows the picture in place of the
+key text [observed: the prefab's `_xbox` switch]. `FalloutPrefs.ini` also holds
+`bDisable360Controller=0` (another section) [observed].
+
 ## 3. Behaviour [hypothesis unless tagged]
 
 - Running is the default while Always Run is on; Run held walks (and runs when Always Run
@@ -80,6 +110,9 @@ The second hotkey's line is named `Ammo Swap`.
 - Whether the bindings above are the defaults (a fresh `FalloutPrefs.ini`, or the
   game's Controls menu "Default" button).
 - The open points of §5.4 (controls turned off by scripts).
+- With a controller in the original: which button each control answers to (§2.1 is
+  read from the INI and the console layout), how fast the right stick turns at
+  `fXenonHorizLookSpeed=1500`, and whether a light push of the left stick walks.
 
 ## 5. Controls turned off by scripts
 

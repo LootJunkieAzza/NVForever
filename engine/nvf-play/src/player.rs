@@ -338,6 +338,7 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MoveIntent>()
+            .add_message::<crate::rumble::Landed>()
             .init_resource::<Controls>()
             .init_resource::<Status>()
             .init_resource::<Net>()
@@ -494,6 +495,17 @@ fn read_input(
     intent.forward = if control.auto_move { 1.0 } else { axis(Control::Forward, Control::Back) };
     intent.right = axis(Control::SlideRight, Control::SlideLeft);
     intent.walk = control.always_run == input.pressed(Control::Run);
+    // A controller's left stick moves the way it is pushed; pushed a little the player
+    // walks (with Always Run on) [design, `crate::pad`].
+    if let Some(v) = input.move_stick().filter(|v| *v != Vec2::ZERO) {
+        if !control.auto_move {
+            intent.forward = v.y;
+        }
+        intent.right = v.x;
+        if control.always_run && v.length() < crate::pad::STICK_WALK_BELOW {
+            intent.walk = true;
+        }
+    }
     intent.sneak = control.sneak;
     if input.just_pressed(Control::Jump) {
         intent.jump = true;
@@ -554,12 +566,14 @@ impl Default for RunPace {
     }
 }
 
-/// Mouse look while the cursor is grabbed; while Toggle POV is held it circles the camera
-/// instead (control.rs). Not while a script has locked looking: the view stays where it
-/// is [documented: GECK wiki DisablePlayerControls, LookingFlag].
+/// Mouse look while the cursor is grabbed, or with a controller working the controls the
+/// right stick's (`crate::pad`); while Toggle POV is held it circles the camera instead
+/// (control.rs). Not while a script has locked looking: the view stays where it is
+/// [documented: GECK wiki DisablePlayerControls, LookingFlag].
 #[allow(clippy::too_many_arguments)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
+    (pads, time): (Query<&Gamepad>, Res<Time>),
     state: Res<State<PlayState>>,
     bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
@@ -578,27 +592,42 @@ fn mouse_look(
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
     // The player looks around freely while an actor speaks in a conversation.
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
-    if !grabbed || !playing || locks.looking || motion.delta == Vec2::ZERO {
+    // The right stick's turn this frame, as mouse counts of a thousandth of a radian
+    // (`crate::bindings::LOOK_SPEED_HORIZONTAL`), pushed a little turning slowly
+    // (squared) [design].
+    let (delta, s) = if bindings.device == crate::bindings::InputDevice::Controller {
+        let v = crate::pad::stick(&pads, false);
+        let curve = |x: f32| x * x.abs();
+        let dt = time.delta_secs();
+        (Vec2::new(curve(v.x) * bindings.look_speed[0] * dt, -curve(v.y) * bindings.look_speed[1] * dt), STICK_LOOK_RADIANS)
+    } else {
+        (motion.delta, bindings.mouse_sensitivity)
+    };
+    if !grabbed || !playing || locks.looking || delta == Vec2::ZERO {
         return;
     }
-    let (s, inv) = (bindings.mouse_sensitivity, bindings.invert_y);
+    let inv = bindings.invert_y;
     if control.orbit.held {
         let o = &mut control.orbit;
-        let (yaw, pitch) = look_with(o.yaw, o.pitch, motion.delta, s, inv);
+        let (yaw, pitch) = look_with(o.yaw, o.pitch, delta, s, inv);
         // Keep the yaw in (−π, π] so the swing back takes the short way.
         o.yaw = (yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         o.pitch = pitch;
         o.moved = true;
         return;
     }
-    (player.heading, player.pitch) = look_with(player.heading, player.pitch, motion.delta, s, inv);
+    (player.heading, player.pitch) = look_with(player.heading, player.pitch, delta, s, inv);
     if seat.hold.is_some() {
         // Held by furniture: what was asked for, for a holder with a frame of its own.
-        let dy = if inv { -motion.delta.y } else { motion.delta.y };
-        seat.look[0] += motion.delta.x * s;
+        let dy = if inv { -delta.y } else { delta.y };
+        seat.look[0] += delta.x * s;
         seat.look[1] -= dy * s;
     }
 }
+
+/// Radians per unit of the right stick's turn (a look speed of 1000 turns a radian a
+/// second) [hypothesis, `crate::bindings::LOOK_SPEED_HORIZONTAL`].
+const STICK_LOOK_RADIANS: f32 = 0.001;
 
 /// Put the character on the ground under the start position once its cell is loaded: a
 /// ray down from the start eye, else (outdoors) from far above (a start under the
@@ -850,7 +879,7 @@ fn step(
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
     (limbs, pace): (Option<Res<crate::combat::PlayerLimbs>>, Option<Res<RunPace>>),
-    mut seat: ResMut<crate::furniture::PlayerSeat>,
+    (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
 ) {
     if *state.get() != PlayState::Playing {
@@ -1003,6 +1032,9 @@ fn step(
             b.list = all;
         }
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
+        if let Some(speed) = s.landed_speed {
+            landed.write(crate::rumble::Landed { speed });
+        }
         // Pushed and held by something: the actors walk round the player for a while.
         let want = pushed[0].hypot(pushed[1]);
         if want > 1e-4 {

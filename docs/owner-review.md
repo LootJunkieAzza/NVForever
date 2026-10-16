@@ -5318,6 +5318,37 @@ a lot), and his hands did not line up on the flamer, as with the minigun before.
    (no spin-up), since their shots leave at once. A game look at Cook-Cook firing,
    from the side, would confirm the arms.
 
+## Controller support (2026-10-16, branch claude/controller, stacked on claude/key-rebinding)
+
+Design: docs/design/controller.md; facts: docs/spec-notes/controls.md §2.1. Settings page
+→ Controls → first row **Input Device** (Keyboard and Mouse / Controller), also `Input
+Device=` in `[Controls]` of NVForever.ini; the buttons are in `[Controller]`.
+
+To check with a controller in the original, my guesses:
+
+1. The game's controller byte read as buttons: Grab on a press of the right stick and
+   Toggle POV on LB are guesses (A/B/X/Y, LT/RT, RB = V.A.T.S., Back = Wait, left stick
+   press = Sneak follow the published console layout). Ammo Swap's code `01` is not
+   placed; I put Hotkey1, Ammo Swap, Hotkey3, Hotkey4 on the D-pad (up, right, down, left).
+2. Right stick look speed: the game's `fXenonHorizLookSpeed=1500` / `Vert…=1200` read as
+   1.5 / 1.2 radians a second at full push, the push squared. Too fast or slow?
+3. The left stick walks under 0.6 of a full push (Always Run on), runs beyond.
+4. With Controller chosen the keyboard and mouse no longer work the controls (Esc and
+   the console still do). Should both work at once instead?
+5. The prompt under the crosshair shows "A)" as text; the original shows the A button's
+   picture. Menus' own buttons and hints ("E) Exit") do not follow the controller yet.
+6. **Rumble** (branch claude/controller-rumble; docs/design/controller.md §4): `Rumble=1`
+   in `[Controller]`, a Rumble row at the end of the Controls tab with Controller chosen.
+   All my guesses, to feel with a pad against the original:
+   - firing: by weapon weight, a 2 lb pistol a short buzz (weak 0.38, 0.08 s), 20 lb and
+     up the most (strong 0.7, weak 0.7, 0.2 s); melee swings do not rumble;
+   - taking damage: strong 0.35 to 1 by the share of health lost (a quarter or more the
+     most), 0.15 to 0.45 s;
+   - a hard landing from 600 units/s (a drop of about 260 units), the most at 1200;
+   - explosions: full within the blast radius, none 1400 units beyond it, up to 0.6 s.
+   Does the original rumble on other things (being hit by melee only, low health, V.A.T.S.,
+   the Pip-Boy)?
+
 
 ## Draw-distance sliders (2026-10-16, branch claude/render-distance-sliders)
 

@@ -48,7 +48,11 @@
 //! bound (`crate::bindings::rebind`: a control that had it gets the old one), Esc
 //! cancels. Delete clears the row's key; Defaults puts back the game's keys. Each change
 //! acts at once and is kept in `[Controls]` of `NVForever.ini`. Tab after the last
-//! category goes to Controls and from there to the first again.
+//! category goes to Controls and from there to the first again. Its first row, Input
+//! Device, switches between the keyboard and mouse and a controller (`crate::pad`);
+//! with Controller chosen the list shows and rebinds each control's controller button
+//! (kept in `[Controller]`), a row waiting for the next button pressed ("Press a
+//! button..."), Start cancelling.
 //!
 //! **Quit** asks first [observed: the original's question and its choices]: Main Menu
 //! (nvforever starts again with `--menu`, [`MainMenuRequest`]), Exit Game, Cancel.
@@ -76,7 +80,9 @@
 //! click on its row); `<key>=<value>` sets a slider (e.g. `actor-distance=0.5`); the key
 //! `page` only shows the page, `controls` the Controls tab, and `bind:<control>=<input>`
 //! (INI names, e.g. `bind:Jump=J`) binds a control there as Enter on its row and that key
-//! would.
+//! would, `padbind:<control>=<button>` (`padbind:Jump=RB`) a controller button,
+//! `device:<name>` (`device:Controller`) picks the input device, `rumble:1` or `rumble:0`
+//! sets the controller's Rumble row.
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
 //! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page or
 //! the quit question), `back` (from the load or the settings page, or the question),
@@ -449,6 +455,27 @@ const OPTION_ROWS: usize = 9;
 const CONTROLS_TAB: &str = "Controls";
 /// A control's value while it waits for its new key.
 const WAITING: &str = "Press a key...";
+/// The same with a controller.
+const WAITING_PAD: &str = "Press a button...";
+/// The Controls tab's first row.
+const DEVICE_ROW: &str = "Input Device";
+/// The Controls tab's last row with a controller chosen (`crate::rumble`).
+const RUMBLE_ROW: &str = "Rumble";
+
+/// The control on the Controls tab's row `row` (row 0 is the input device).
+fn control_at(row: usize) -> Option<crate::bindings::Control> {
+    row.checked_sub(1).and_then(|i| crate::bindings::GAME_CONTROLS.get(i)).map(|x| x.0)
+}
+
+/// The Controls tab's Rumble row, after the controls (shown with a controller only).
+fn rumble_row() -> usize {
+    crate::bindings::GAME_CONTROLS.len() + 1
+}
+
+/// The Controls tab's rows: the device, the controls, and with a controller Rumble.
+fn control_rows(controller: bool) -> usize {
+    rumble_row() + usize::from(controller)
+}
 const OPTION_ROW: f32 = 52.0;
 const OPTIONS_WIDTH: f32 = 820.0;
 const OPTIONS_LEFT: f32 = -470.0;
@@ -570,8 +597,12 @@ struct Drawn {
     under_main: bool,
     /// The load page's thumbnail: the row it is of and whether there is one.
     thumb: Option<(usize, bool)>,
-    /// The Controls tab's values, in `GAME_CONTROLS`' order.
+    /// The Controls tab's values, in `GAME_CONTROLS`' order, on the device in use.
     controls: Vec<String>,
+    /// The device in use: its name, and whether it is a controller.
+    device: (&'static str, bool),
+    /// The controller rumbles.
+    rumble: bool,
 }
 
 impl Drawn {
@@ -842,28 +873,47 @@ fn category_column(root: &mut ChildSpawnerCommands, f: &Faces, list: &[Setting],
 /// window of [`OPTION_ROWS`] round the chosen one, the chosen one's note under them.
 #[allow(clippy::too_many_arguments)]
 fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &[Setting], selected: usize, listening: bool, top: f32) {
-    use crate::bindings::{label, GAME_CONTROLS};
+    use crate::bindings::{label, Bindings};
     category_column(root, f, list, None, top);
-    let n = GAME_CONTROLS.len();
+    let (device, controller) = d.device;
+    let n = control_rows(controller);
+    let selected = selected.min(n - 1);
     let first = (selected + 1).saturating_sub(OPTION_ROWS).min(n.saturating_sub(OPTION_ROWS));
     for (row, i) in (first..n).take(OPTION_ROWS).enumerate() {
-        let (c, _, _) = GAME_CONTROLS[i];
-        let value = if listening && i == selected { WAITING.to_string() } else { d.controls.get(i).cloned().unwrap_or_default() };
+        let (name, value) = match control_at(i) {
+            None if i == rumble_row() => (RUMBLE_ROW, (if d.rumble { "ON" } else { "OFF" }).to_string()),
+            None => (DEVICE_ROW, device.to_string()),
+            Some(_) if listening && i == selected => ("", (if controller { WAITING_PAD } else { WAITING }).to_string()),
+            Some(_) => ("", d.controls.get(i - 1).cloned().unwrap_or_default()),
+        };
+        let name = control_at(i).map_or(name, label);
         root.spawn((Button, PauseButton::ControlRow(i), boxed(from_middle(OPTIONS_LEFT, top + row as f32 * OPTION_ROW, OPTIONS_WIDTH, OPTION_ROW), i == selected)))
         .with_children(|r| {
-            sm_text(r, &f.entry, label(c), 10.0, BASE + 2.0, color(Shade::Bright));
+            sm_text(r, &f.entry, name, 10.0, BASE + 2.0, color(Shade::Bright));
             let vw = f.entry.font.width(&value);
             r.spawn((SwitchState(i), Text::new(value.clone()), Node { display: Display::None, ..default() }));
             sm_text(r, &f.entry, &value, (VALUE_AT - vw / 2.0).min(OPTIONS_WIDTH - vw - 14.0), BASE + 2.0, color(Shade::Bright));
         });
     }
-    let note = match GAME_CONTROLS.get(selected) {
-        Some(&(c, _, _)) if listening => format!("Press the new key or mouse button for {}. Esc cancels.", label(c)),
-        Some(&(c, name, _)) => format!(
-            "Enter or a click: bind a new key or mouse button to {} (a key replaces its key, a button its button; a control that had it gets the old one). Delete clears its key. Kept as \"{name}\" in [Controls] of NVForever.ini.",
-            label(c)
+    let note = match control_at(selected) {
+        None if selected == rumble_row() => format!(
+            "A or a click: the controller shakes when you fire (harder for a heavier weapon), take damage, land a hard fall or an explosion goes off near you. Kept as \"{RUMBLE_ROW}\" in [Controller] of NVForever.ini."
         ),
-        None => String::new(),
+        None => format!(
+            "Enter or a click: work the controls with the keyboard and mouse or with a controller. With a controller the left stick moves, the right stick looks, Start opens this menu, and in menus the D-pad, A and B are the arrow keys, Enter and Esc. Kept as \"{DEVICE_ROW}\" in [Controls] of NVForever.ini."
+        ),
+        Some(c) if listening && controller => format!("Press the new controller button for {}. Start cancels.", label(c)),
+        Some(c) if listening => format!("Press the new key or mouse button for {}. Esc cancels.", label(c)),
+        Some(c) if controller => format!(
+            "A or a click: bind a new controller button to {} (a control that had it gets the old one). Delete clears it. Kept as \"{}\" in [Controller] of NVForever.ini.",
+            label(c),
+            Bindings::name(c)
+        ),
+        Some(c) => format!(
+            "Enter or a click: bind a new key or mouse button to {} (a key replaces its key, a button its button; a control that had it gets the old one). Delete clears its key. Kept as \"{}\" in [Controls] of NVForever.ini.",
+            label(c),
+            Bindings::name(c)
+        ),
     };
     root.spawn((SwitchNote, Text::new(note.clone()), Node { display: Display::None, ..default() }));
     let shown = (n - first).min(OPTION_ROWS) as f32;
@@ -1045,9 +1095,11 @@ fn choose(
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut menu: SaveMenu,
     (mut request, main_menu, intro, mut to_main, mouse): (ResMut<PageRequest>, Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>, MessageWriter<MainMenuRequest>, Res<ButtonInput<MouseButton>>),
+    (bindings, pads, sticks): (Option<Res<crate::bindings::Bindings>>, Query<&Gamepad>, Option<Res<crate::pad::StickButtons>>),
     meters: Query<(&PauseButton, &RelativeCursorPosition)>,
 ) {
-    use crate::bindings::{Bindings, Input, GAME_CONTROLS};
+    use crate::bindings::{Bindings, Input, InputDevice, GAME_CONTROLS};
+    use crate::pad::PadInput;
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
     // Held for the intro film, which takes the keys (`crate::intro`).
     if !paused.0 || intro.is_some_and(|i| i.is_playing()) {
@@ -1090,11 +1142,46 @@ fn choose(
             let parsed = b.split_once('=').and_then(|(c, i)| Some((Bindings::by_name(c)?, crate::bindings::parse_input(i)?)));
             match parsed {
                 Some((c, input)) => {
-                    let selected = GAME_CONTROLS.iter().position(|(k, _, _)| *k == c).unwrap_or(0);
+                    let selected = GAME_CONTROLS.iter().position(|(k, _, _)| *k == c).map_or(0, |i| i + 1);
                     *page = Page::Controls { selected, listening: false };
                     commands.queue(move |world: &mut World| crate::bindings::rebind(world, c, input));
                 }
                 None => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected bind:<control>=<key or mouse button name>"),
+            }
+            continue;
+        }
+        if let Some(b) = item.strip_prefix("padbind:") {
+            // `padbind:<control>=<button>`: as A on its row and that button.
+            let parsed = b.split_once('=').and_then(|(c, i)| Some((Bindings::by_name(c)?, crate::pad::parse_pad(i)?)));
+            match parsed {
+                Some((c, p)) => {
+                    let selected = GAME_CONTROLS.iter().position(|(k, _, _)| *k == c).map_or(0, |i| i + 1);
+                    *page = Page::Controls { selected, listening: false };
+                    commands.queue(move |world: &mut World| crate::bindings::rebind_pad(world, c, p));
+                }
+                None => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected padbind:<control>=<controller button name>"),
+            }
+            continue;
+        }
+        if let Some(v) = item.strip_prefix("rumble:") {
+            // `rumble:1` or `rumble:0`: the Rumble row set so.
+            match v {
+                "1" | "0" => {
+                    let on = v == "1";
+                    *page = Page::Controls { selected: rumble_row(), listening: false };
+                    commands.queue(move |world: &mut World| crate::bindings::set_rumble(world, on));
+                }
+                _ => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected rumble:1 or rumble:0"),
+            }
+            continue;
+        }
+        if let Some(d) = item.strip_prefix("device:") {
+            match InputDevice::parse(d) {
+                Some(d) => {
+                    *page = Page::Controls { selected: 0, listening: false };
+                    commands.queue(move |world: &mut World| crate::bindings::set_device(world, d));
+                }
+                None => warn!("NVF_PLAY_TEST_SETTINGS: {item:?}: expected device:Keyboard and Mouse or device:Controller"),
             }
             continue;
         }
@@ -1139,31 +1226,57 @@ fn choose(
         acts.push(a);
     }
     let act = |name: &str| acts.iter().any(|a| a == name);
+    let controller = bindings.as_ref().is_some_and(|b| b.device == InputDevice::Controller);
+    let device = bindings.as_ref().map_or(InputDevice::KeyboardMouse, |b| b.device);
     // A control waiting for its new key takes the next key or mouse button, whatever it
-    // is over; Esc cancels.
+    // is over (with a controller, the next controller button); Esc (Start) cancels.
     if let Page::Controls { selected, listening } = &mut *page {
         if *listening {
-            let c = GAME_CONTROLS.get(*selected).map(|x| x.0);
+            let c = control_at(*selected);
             let key = keys.get_just_pressed().copied().find(|k| crate::bindings::key_name(*k).is_some() || *k == KeyCode::Escape);
+            let start = pads.iter().any(|g| g.just_pressed(GamepadButton::Start));
+            if key == Some(KeyCode::Escape) || (controller && start) {
+                info!("controls: rebinding cancelled");
+                *listening = false;
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Back });
+                return;
+            }
+            let pad = crate::pad::PAD_NAMES.iter().map(|(p, _)| *p).filter(|p| !crate::pad::RESERVED_PAD.contains(p)).find(|p| match p {
+                PadInput::Button(b) => pads.iter().any(|g| g.just_pressed(*b)),
+                PadInput::Stick(d) => sticks.as_ref().is_some_and(|s| s.just_pressed(*d)),
+            });
             let input = match key {
-                Some(KeyCode::Escape) => {
-                    info!("controls: rebinding cancelled");
-                    *listening = false;
-                    sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Back });
-                    return;
-                }
+                _ if controller => None,
                 Some(k) if crate::bindings::RESERVED_KEYS.contains(&k) => None,
                 Some(k) => Some(Input::Key(k)),
                 None => mouse.get_just_pressed().next().map(|m| Input::Mouse(*m)),
             };
-            if let (Some(c), Some(input)) = (c, input) {
-                *listening = false;
-                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
-                commands.queue(move |world: &mut World| crate::bindings::rebind(world, c, input));
+            match (c, input, pad) {
+                (Some(c), Some(input), _) => {
+                    *listening = false;
+                    sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+                    commands.queue(move |world: &mut World| crate::bindings::rebind(world, c, input));
+                }
+                (Some(c), None, Some(p)) if controller => {
+                    *listening = false;
+                    sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+                    commands.queue(move |world: &mut World| crate::bindings::rebind_pad(world, c, p));
+                }
+                _ => {}
             }
             return;
         }
     }
+    // The Controls tab's first row switches the input device.
+    let switch_device = |commands: &mut Commands| {
+        let d = device.other();
+        commands.queue(move |world: &mut World| crate::bindings::set_device(world, d));
+    };
+    // The Rumble row flips the controller's rumble.
+    let rumble_on = bindings.as_ref().is_some_and(|b| b.rumble);
+    let flip_rumble = |commands: &mut Commands| {
+        commands.queue(move |world: &mut World| crate::bindings::set_rumble(world, !rumble_on));
+    };
     let mut clicked = None;
     // A list takes the row the pointer moves onto (not one it rests on while the keys
     // move the choice, nor the one a redrawn page puts under it).
@@ -1402,13 +1515,30 @@ fn choose(
             }
         }
         Page::Controls { selected, listening } => {
-            let n = GAME_CONTROLS.len();
-            let control = GAME_CONTROLS.get(*selected).map(|x| x.0);
+            let n = control_rows(controller);
+            // Back to keyboard and mouse on the Rumble row: the last control.
+            *selected = (*selected).min(n - 1);
+            let control = control_at(*selected);
+            let on_rumble = *selected == rumble_row();
             if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
                 *page = Page::Main;
             } else if let Some(PauseButton::ControlRow(i)) = clicked {
                 *selected = i;
-                *listening = true;
+                if control_at(i).is_some() {
+                    *listening = true;
+                } else if i == rumble_row() {
+                    flip_rumble(&mut commands);
+                    sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+                } else {
+                    switch_device(&mut commands);
+                    sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+                }
+            } else if on_rumble && keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space, KeyCode::ArrowLeft, KeyCode::ArrowRight]) {
+                flip_rumble(&mut commands);
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+            } else if control.is_none() && keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space, KeyCode::ArrowLeft, KeyCode::ArrowRight]) {
+                switch_device(&mut commands);
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
             } else if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) {
                 *selected = step_row(*selected, -1, n);
             } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) {
@@ -1425,7 +1555,9 @@ fn choose(
                 sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
             }
             if let (Page::Controls { listening: true, selected }, Some(_)) = (*page, control) {
-                info!("controls: {} waits for its new key", Bindings::name(GAME_CONTROLS[selected].0));
+                if let Some(c) = control_at(selected) {
+                    info!("controls: {} waits for its new {}", Bindings::name(c), if controller { "controller button" } else { "key" });
+                }
             }
         }
         Page::Load { selected } => {
@@ -1517,7 +1649,9 @@ fn drawn_now(world: &mut World) -> Drawn {
         under_main: main.is_some(),
         column: main.unwrap_or_else(|| ENTRIES.iter().map(|e| (e.label(), true)).collect()),
         thumb,
-        controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(_, x)| x.text()).collect()).unwrap_or_default(),
+        controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
+        device: world.get_resource::<crate::bindings::Bindings>().map_or(("Keyboard and Mouse", false), |b| (b.device.name(), b.device == crate::bindings::InputDevice::Controller)),
+        rumble: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.rumble),
     }
 }
 
@@ -1666,7 +1800,7 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![] };
+        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true };
         app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list), drawn).unwrap();
         let world = app.world_mut();
         let mut rows = world.query::<(&PauseButton, &BorderColor)>();
@@ -1746,7 +1880,8 @@ mod tests {
     #[test]
     fn the_controls_tab_shows_each_key_and_waits_for_a_new_one() {
         use crate::bindings::{Bindings, Control, Input};
-        let jump = crate::bindings::GAME_CONTROLS.iter().position(|(c, _, _)| *c == Control::Jump).unwrap();
+        // Row 0 is the input device.
+        let jump = crate::bindings::GAME_CONTROLS.iter().position(|(c, _, _)| *c == Control::Jump).unwrap() + 1;
         let mut app = App::new();
         app.init_resource::<Paused>().init_resource::<Settings>().init_resource::<Bindings>().insert_resource(Page::Controls { selected: jump, listening: false });
         app.init_resource::<PauseView>().init_resource::<LoadList>().init_resource::<PauseStatus>().insert_resource(PauseLook::plain());
@@ -1764,5 +1899,30 @@ mod tests {
         *app.world_mut().resource_mut::<Page>() = Page::Controls { selected: jump, listening: true };
         assert_eq!(value(&mut app).as_deref(), Some(WAITING));
         assert!(Page::Controls { selected: 0, listening: false }.opened_by("Settings"));
+        // With a controller the rows show its buttons: Jump is Y [hypothesis, `crate::pad`].
+        crate::bindings::set_device(app.world_mut(), crate::bindings::InputDevice::Controller);
+        *app.world_mut().resource_mut::<Page>() = Page::Controls { selected: jump, listening: false };
+        assert_eq!(value(&mut app).as_deref(), Some("Y"));
+        let device = |app: &mut App| {
+            app.update();
+            let world = app.world_mut();
+            let mut q = world.query::<(&SwitchState, &Text)>();
+            q.iter(world).find(|(s, _)| s.0 == 0).map(|(_, t)| t.0.clone())
+        };
+        *app.world_mut().resource_mut::<Page>() = Page::Controls { selected: 0, listening: false };
+        assert_eq!(device(&mut app).as_deref(), Some("Controller"));
+        // With a controller the last row is Rumble, on by default.
+        let rumble = |app: &mut App| {
+            app.update();
+            let world = app.world_mut();
+            let mut q = world.query::<(&SwitchState, &Text)>();
+            q.iter(world).find(|(s, _)| s.0 == rumble_row()).map(|(_, t)| t.0.clone())
+        };
+        *app.world_mut().resource_mut::<Page>() = Page::Controls { selected: rumble_row(), listening: false };
+        assert_eq!(rumble(&mut app).as_deref(), Some("ON"));
+        crate::bindings::set_rumble(app.world_mut(), false);
+        assert_eq!(rumble(&mut app).as_deref(), Some("OFF"));
+        crate::bindings::set_device(app.world_mut(), crate::bindings::InputDevice::KeyboardMouse);
+        assert_eq!(rumble(&mut app), None, "no Rumble row with keyboard and mouse");
     }
 }

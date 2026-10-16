@@ -82,8 +82,10 @@ const WEIGHT_END: f32 = -21.0;
 const VAL_X: f32 = 9.5;
 const VALUE_END: f32 = 135.0;
 
-/// The key that activates [hypothesis: the key's name and ")", as the screenshots show for
-/// E, the Activate control's default (bindings.rs)].
+/// The key that activates when no binding says [hypothesis: the key's name and ")", as
+/// the screenshots show for E, the Activate control's default (bindings.rs)]. The prompt
+/// names the Activate control's own key, or its controller button while a controller
+/// works the controls (`crate::bindings::Bindings::prompt`: "A)").
 const KEY: &str = "E)";
 const WG: &str = "WG";
 const VAL: &str = "VAL";
@@ -97,6 +99,8 @@ pub struct Prompt {
     pub figures: Option<[String; 2]>,
     /// Drawn in the crime colour: someone else owns the target (`crate::crime`).
     pub crime: bool,
+    /// The Activate control's key or button and ")"; empty: [`KEY`].
+    pub key: String,
 }
 
 impl Prompt {
@@ -115,7 +119,7 @@ impl Prompt {
             BaseData::Item(i) => Some([weight_text(i.weight), value_text(i.value)]),
             _ => None,
         });
-        Prompt { action, name, figures, crime: t.crime }
+        Prompt { action, name, figures, crime: t.crime, key: String::new() }
     }
 }
 
@@ -151,7 +155,7 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let line = |s: &str| font.lines(s, None).into_iter().next().unwrap_or_default();
     let set = |line: Line, x: f32, base: f32| Set { line, x, base };
     let action = line(&p.action);
-    let key = line(KEY);
+    let key = line(if p.key.is_empty() { KEY } else { &p.key });
     let name = line(&p.name);
     let action_x = ACTION_X - action.width / 2.0;
     let name_base = ACTION_BASE + LINE_PITCH;
@@ -317,7 +321,7 @@ fn draw(
     (combat, hostile, bar, camera, time): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>),
     mut spread: Local<f32>,
     mut logged: Local<(bool, i32)>,
-    locks: Option<Res<ControlLocks>>,
+    (locks, bindings): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
@@ -382,8 +386,9 @@ fn draw(
             }
         }
     }
+    let key = bindings.as_ref().map(|b| b.prompt(crate::bindings::Control::Activate)).unwrap_or_default();
     let barred = |t: &Targeted| bar.as_ref().and_then(|b| b.0.as_ref()).is_some_and(|b| under_bar(t, b.form_id));
-    let want = target.0.as_ref().filter(|t| !locks.rollover && !barred(t)).map(|t| Prompt::of(t, &sim));
+    let want = target.0.as_ref().filter(|t| !locks.rollover && !barred(t)).map(|t| Prompt { key: key.clone(), ..Prompt::of(t, &sim) });
     if *shown != want {
         let Ok(e) = texts.single() else { return };
         commands.entity(e).despawn_related::<Children>().with_children(|p| {
@@ -405,7 +410,7 @@ mod tests {
     }
 
     fn prompt(action: &str, name: &str, figures: Option<[&str; 2]>) -> Prompt {
-        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false }
+        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new() }
     }
 
     #[test]
