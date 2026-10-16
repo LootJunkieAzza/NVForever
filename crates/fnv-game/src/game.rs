@@ -57,6 +57,7 @@ pub mod event {
     pub const ON_HIT: u16 = 0x08;
     pub const ON_HIT_WITH: u16 = 0x09;
     pub const ON_DEATH: u16 = 0x0A;
+    pub const ON_COMBAT_END: u16 = 0x0C;
     pub const ON_PACKAGE_START: u16 = 0x0F;
     pub const ON_PACKAGE_DONE: u16 = 0x10;
     pub const ON_PACKAGE_CHANGE: u16 = 0x14;
@@ -67,6 +68,8 @@ pub mod event {
     pub const ON_DESTRUCTION_STAGE_CHANGE: u16 = 0x23;
     pub const ON_FIRE: u16 = 0x24;
     pub const ON_TRIGGER: u16 = 0x18;
+    pub const ON_START_COMBAT: u16 = 0x19;
+    pub const ON_RESET: u16 = 0x1E;
     pub const ON_TRIGGER_ENTER: u16 = 0x1A;
     pub const ON_TRIGGER_LEAVE: u16 = 0x1B;
 }
@@ -170,6 +173,10 @@ pub struct RefExtra {
     pub marked_for_delete: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub teammate: bool,
+    /// SetCombatStyle's combat style for this reference, over its base form's
+    /// (`Game::combat_style`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub combat_style: Option<FormId>,
     /// SetAlert's alerted animation state (weapon drawn) [documented: GECK wiki SetAlert,
     /// savebaked].
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
@@ -749,6 +756,14 @@ pub struct Game<'a> {
     /// References Rotate turned in the latest [`Game::tick`], for the engine to draw at
     /// their new angle. Not saved.
     pub turned: BTreeSet<FormId>,
+    /// Actors whose OnStartCombat block was fired and whose OnCombatEnd was not yet
+    /// (`Game::combat_blocks`). Not saved, as the combat states are not [documented:
+    /// GECK wiki event handler table, OnStartCombat does not run again on loading a save
+    /// with combat already going].
+    pub fighting: BTreeSet<FormId>,
+    /// The target of the condition list being evaluated ([`Game::conditions_pass`]), for
+    /// the functions that ask for it (Exists). Not saved.
+    pub condition_target: Option<FormId>,
     /// Cell resets since the engine last took them ([`Game::take_cell_resets`],
     /// `crate::respawn`). Not saved.
     pub cell_resets: Vec<crate::respawn::CellReset>,
@@ -964,6 +979,8 @@ impl<'a> Game<'a> {
             rotations: BTreeMap::new(),
             turned: BTreeSet::new(),
             cell_resets: Vec::new(),
+            fighting: BTreeSet::new(),
+            condition_target: None,
             menu: None,
             loading: false,
             message_box: None,
@@ -1357,6 +1374,7 @@ impl<'a> Game<'a> {
                 self.ref_event(r, event::ON_LOAD, None, None);
             }
         }
+        self.combat_blocks();
         let ev = if in_menu { event::MENU_MODE } else { event::GAME_MODE };
         let subject = self.open_menu_code().map(|m| Value::Num(m as f64));
         let data = self.data;
@@ -1842,10 +1860,13 @@ impl<'a> Game<'a> {
         // Cells left start their reset clock; cells entered whose clock ran out are reset
         // before anything in them runs (`crate::respawn`).
         self.cells_left(&left);
-        for &c in &new {
-            self.cell_entered(c);
-        }
+        let reset: Vec<FormId> = new.iter().copied().filter(|&c| self.cell_entered(c).is_some()).collect();
         self.loaded_cells = cells;
+        // The references of a reset cell run their OnReset blocks, before OnLoad
+        // (`crate::respawn`).
+        for c in reset {
+            self.cell_reset_blocks(c);
+        }
         // Actors of the new cells choose their package at the next tick.
         self.package_scan_due = 0.0;
         for c in new {
@@ -2228,6 +2249,7 @@ impl<'a> Game<'a> {
             return true;
         }
         let mut results = Vec::with_capacity(conds.len());
+        let outer = std::mem::replace(&mut self.condition_target, target);
         for c in conds {
             let on = match c.run_on {
                 RunOn::Subject => subject,
@@ -2244,6 +2266,7 @@ impl<'a> Game<'a> {
             };
             results.push((c.cmp.test(v, rhs), c.or));
         }
+        self.condition_target = outer;
         cond::combine(&results)
     }
 

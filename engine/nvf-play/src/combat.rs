@@ -621,6 +621,8 @@ pub struct Combat {
     /// The next [`ShotVisual::id`].
     next_visual: u64,
     pending: Vec<Pending>,
+    /// Shots scripts asked for (`FireWeapon`), fired with the actors' shots next frame.
+    script_shots: Vec<ActorFire>,
     marks: Vec<Mark>,
     rng: SplitMix,
     /// The melee swings' own rolls (variants), so they leave the hit rolls as they were.
@@ -771,6 +773,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         looping: None,
         next_visual: 0,
         pending: Vec::new(),
+        script_shots: Vec::new(),
         marks: Vec::new(),
         rng: SplitMix(1),
         swing_rng: SplitMix(2),
@@ -1757,7 +1760,8 @@ fn actor_attacks(
 ) {
     let c = &mut *c;
     let gravity = phys.world.params.gravity;
-    for s in shots.read() {
+    let script_shots = std::mem::take(&mut c.script_shots);
+    for s in shots.read().chain(script_shots.iter()) {
         let carried = |a: FormId| sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).is_some_and(|i| i.count(a) > 0);
         let ammo = c.forms.ammo_for(s.weapon, carried);
         let Some(chain) = c.forms.chain(s.weapon, ammo) else { continue };
@@ -1830,6 +1834,22 @@ fn actor_attacks(
     }
 }
 
+/// The shot `FireWeapon` asks of `from` (`fnv_game::functions` fighting): from the
+/// reference's centre straight ahead along its rotation, with no spread [documented:
+/// GECK wiki FireWeapon, "from the center of the reference … straight out"]. The centre
+/// is the reference's origin, an actor's raised to its middle (half of 128 units)
+/// [hypothesis]; ahead is its heading (z, clockwise from north) tilted by its x angle,
+/// a positive x looking down [hypothesis: the game turns both clockwise]. The model's
+/// projectile node is not used yet.
+fn script_shot(sim: &SimState, from: FormId, weapon: FormId) -> Option<ActorFire> {
+    let s = sim.world.peek(from)?;
+    let actor = from == FormId::PLAYER_REF || sim.world.placed.get(from).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
+    let [x, _, z] = s.rot;
+    let aim = [z.sin() * x.cos(), z.cos() * x.cos(), -x.sin()];
+    let origin = [s.pos[0], s.pos[1], s.pos[2] + if actor { 64.0 } else { 0.0 }];
+    Some(ActorFire { shooter: from, weapon, origin, aim, cone: 0.0, muzzle: None })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn fly(
     time: Res<Time>,
@@ -1854,7 +1874,16 @@ fn fly(
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
         let (requests, burning) = with_world(rt, &mut sim, |rt| (std::mem::take(&mut rt.game.combat_requests), rt.game.destruction_tick(dt as f64)));
         for req in requests {
-            let CombatRequest::Detonate(actor) = req;
+            let actor = match req {
+                CombatRequest::Detonate(actor) => actor,
+                CombatRequest::Fire { from, weapon } => {
+                    match script_shot(&sim, from, weapon) {
+                        Some(shot) => c.script_shots.push(shot),
+                        None => debug!("combat: FireWeapon on {from}: no such reference in the world"),
+                    }
+                    continue;
+                }
+            };
             let shooter = if actor == FormId::PLAYER_REF { Some(PLAYER) } else { Some(actor.0 as ActorId) };
             let mut n = 0;
             for f in c.flying.iter_mut().filter(|f| f.p.shooter == shooter) {

@@ -1501,7 +1501,7 @@ name = "script-stubs"
 kind = "tool"
 source = "docs/design/script-stubs.md §1-§2: the audit of the stubbed script functions over the ten masters"
 areas = ["scripts", "stubs"]
-paths = ["crates/fnv-game/src/functions/mod.rs", "crates/fnv-game/src/functions/stubs.rs", "crates/fnvtool/src/script_cmd.rs"]
+paths = ["crates/fnv-game/src/functions/mod.rs", "crates/fnv-game/src/functions/stubs.rs", "crates/fnv-game/src/functions/fighting.rs", "crates/fnvtool/src/script_cmd.rs"]
 commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"]]
 # The counts of script-stubs.md §1 (a function implemented later lowers them: update the
 # doc's tables and these together). Karma and crime (claude/karma-crime) implemented six
@@ -1517,16 +1517,18 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # (claude/effect-shaders, §3.6) implemented five more (PlayMagicShaderVisuals,
 # StopMagicShaderVisuals, SetActorAlpha, SetSecuritronExpression, Reset3DState: 460 calls,
 # no condition uses): 76 → 71 stubs, 917 → 457 calls.
+# The combat round (§3.7) implemented eleven of the fifteen stubs assigned to E2 combat AI
+# (144 calls, 132 condition uses) and moved the other four to "needs a system", so no
+# "E2 combat AI" row is left: 71 → 60 stubs, 457 → 313 calls, 614 → 482 condition uses.
 expect = [
-  { json = "summary.stubs", equals = 71 },
-  { json = "summary.by_status.assigned", equals = 16 },
+  { json = "summary.stubs", equals = 60 },
+  { json = "summary.by_status.assigned", equals = 1 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 54 },
+  { json = "summary.by_status.needs_system", equals = 58 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.by_workstream.E2 combat AI", equals = 15 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 457 },
-  { json = "summary.stub_condition_uses", equals = 614 },
+  { json = "summary.stub_calls", equals = 313 },
+  { json = "summary.stub_condition_uses", equals = 482 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
 
