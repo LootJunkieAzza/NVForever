@@ -960,6 +960,13 @@ cell and position with its angles [documented: catalogue notes; the distance and
 direction arguments do nothing, documented bug]: an inventory item as one reference
 holding the count, other forms one reference per count, the last one returned
 [hypothesis]; a leveled actor list is placed as the list (Layer 6 resolves it). A
+created actor (an NPC_, CREA or leveled actor list placed so, `Game::created_actors`)
+is an actor from the frame after: the engine makes it a resident where it was put
+(nvforever `residents.rs` `take_created`: drawn with its rig, walked by the AI,
+measured by detection both ways, fighting as placed actors do), it chooses packages,
+and counts as kin of placed actors of its base; it is not drawn as a dropped item
+[design; until 2026-10-16 it was drawn as a static model and never fought, owner's
+report; smoke `placeatme-fights`]. A
 created reference with a script runs it like a placed one from the next frame (OnLoad
 then, in a loaded cell) [hypothesis]; trace event `placed`. DropMe and Drop use fnv-sim's
 drop rule; DropMe acts as a return and neither runs OnDrop [documented: catalogue notes].

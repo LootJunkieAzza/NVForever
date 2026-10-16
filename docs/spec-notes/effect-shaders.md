@@ -38,7 +38,7 @@ full list is in the schema):
 | 84 | f32 | fill full alpha ratio | alpha at the top of the cycle |
 | 88 | f32 | edge full alpha ratio | |
 | 92 | u32 | membrane dest blend | blend mode enum |
-| 96 … | | particle shader, holes, add-on models | not drawn here (§4) |
+| 96 … | | particle shader (§6), holes, add-on models | holes and add-on models not drawn (§4) |
 
 Blend mode enum: 1 Zero, 2 One, 3 Source Colour, 4 Source Inverse Colour, 5 Source
 Alpha, 6 Source Inverted Alpha, 7 Dest Alpha, 8 Dest Inverted Alpha, 9 Dest Colour,
@@ -113,8 +113,8 @@ Read here as [hypothesis where marked]:
   [design: the wiki's "darken rather than lighten" needs a subtractive blend].
 - Z test: the overlay is drawn at the surface (Equal To is the only value in the
   masters' membranes); "Greater Than" (seen through walls) is not built.
-- Not built: the particle shader (particles born on the surface), holes, add-on
-  models, "Affect Skin Only" (the whole actor is covered), texture counts U/V.
+- The particle shader: §6. Not built: holes, add-on models, "Affect Skin Only" (the
+  whole actor is covered).
 - A shader on the player: drawn on whatever body the player has (the wiki notes the
   original keeps it on the perspective it started in).
 
@@ -140,3 +140,58 @@ Read here as [hypothesis where marked]:
   (`SwapTexture`'s machinery); not saved yet [design]. [observed 2026-10-16, smoke
   `securitron-expression`: `VStreetSecuritron` 0x0013BB1F on the Strip shows its police face,
   then Victor's alert face after the call.]
+
+## 6. The particle shader (nvforever `effect_particles.rs`)
+
+Layout [documented: xEdit EFSH, field order of `schemas/fnv/effects.json`; byte offsets
+counted from it]: 96 particle source blend, 100 blend operation, 104 z test, 108 dest
+blend (u32 each); 112 birth ramp up time, 116 full birth time, 120 ramp down time, 124
+full birth ratio, 128 persistent birth ratio, 132 lifetime, 136 lifetime ±, 140 initial
+speed along normal, 144 acceleration along normal, 148–156 initial velocity X, Y, Z,
+160–168 acceleration X, Y, Z, 172 scale key 1, 176 scale key 2, 180 and 184 their times,
+188–196 colour keys 1–3 (4 bytes each, RGB and an unused byte), 200–208 their alphas,
+212–220 their times, 224 initial speed along normal ±, 228 initial rotation, 232 its ±,
+236 rotation speed, 240 its ±, 244 add-on models (DEBR), …, 276 and 280 texture count U
+and V, to 308 (all f32 but the counts and colours). The 224-byte records end before the
+speed range: the particles of a record shorter than 244 bytes are not read; under 284
+bytes the texture is one frame.
+
+Meanings [documented: GECK wiki EffectShader, "Particle Shader"]: the birth ramps and
+ratios as the membrane's alpha cycle; the lifetime ± range; the speed along "the mostly
+random direction that a particle is given when it is spawned", its acceleration; the
+velocity and acceleration "in world coordinates" ("to make particles drift upwards,
+apply a positive velocity to the Z axis"); key times are shares of the particle's life;
+"all particles are spawned with a scale of 0 and increase in size until" key 1; a first
+colour key after 0 begins "with the raw color of the texture file", a last one before 1
+returns to it; "if you do not select a DDS file, the particle will not display". The flag
+"No Particle Shader" (bit 3) leaves the particles out.
+
+Example [observed, `fnvtool esm decode` 2026-10-16]: `Flames01` 0x0005F9B6 (the flamer's
+burning): texture `Effects\FXFlameSmallSub02.dds` in 4 × 2 frames, ramp up 0.5 s to
+ratio 30, persistent 15; life 0.35 ± 0.1 s; along the normal 50 ± 50, −5; velocity (10,
+10, 195), acceleration (0, 0, 50); scale 30 at 5 % of the life, 3 at its end; colour keys
+(255, 107, 64), (255, 156, 23), (244, 80, 0) at 0.2, 0.5, 0.9; rotation ± 180°, spin 5 ±
+5°/s; dest blend One. Its membrane: no fill, an orange edge (215, 86, 0), fall off 3,
+persistent 1. Its add-on models are `debrisFlameMesh` 0x0005F9B7
+(`Effects\ActorFireFX\FireBall01–04.NIF`), not drawn. `Smoke01` 0x0005F9B8: particles
+only (No Membrane Shader), `Effects\FXDustSmoke01.dds`.
+
+Drawn here [hypothesis or design where marked]:
+
+- Births: birth ratio × 6 particles a second [design: the wiki gives no unit; "a value of
+  1 will cause the maximum amount of particles to spawn" does not fit Flames01's 30;
+  fitted by eye], at most 600 alive per play; after the ramps the persistent ratio only
+  while the persistent part shows ("FX Persist", §3), as for the membrane [hypothesis].
+- Where: at one of the bones the reference's skinned meshes are bound to, 10 units out
+  along the particle's normal (a bone lies inside the body), or anywhere in an unskinned
+  mesh's bounds [design: the game's surface points are not documented]. The normal is a
+  random direction.
+- Scale: linear from 0 to key 1 and to key 2, held after; the scale is the particle's
+  width in game units [hypothesis]. Colour: linear between keys, from and back to white
+  at alpha 1 (the texture's own colour) [hypothesis: linear]; taken as display values as
+  NIF particles are (particles.md §2). One frame of the U × V grid per particle, at
+  random [hypothesis].
+- Blend: as the membrane's destination blend (One: added) [design, §4]. Not built: the
+  particle z test "Always Show" (seen through walls).
+- When the play ends, no more are born; those alive live out their time.
+

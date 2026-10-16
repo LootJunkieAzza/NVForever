@@ -528,7 +528,7 @@ impl PhysState {
             .sim
             .world
             .created()
-            .filter(|(_, s)| dropped::present(s) && dropped::phys_cell(d.index, world, space, s) == Some(cell))
+            .filter(|(_, s)| dropped::present(s) && !fnv_game::ai::is_actor_base(ctx.sim.world.forms, s.base) && dropped::phys_cell(d.index, world, space, s) == Some(cell))
             .map(|(id, _)| id.0)
             .collect();
         for r in created {

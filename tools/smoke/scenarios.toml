@@ -2732,6 +2732,83 @@ expect = [
   { re = 'ai summary at .*vMORangerGhostREF: no package, \S+ in \S+, walked (?P<n>\d+) units', range = [0, 50], label = "Ghost stays at her post (walked under 50 units)" },
 ]
 
+# ------------------------------------------------------------------ hit effects (playtest 2026-10-16: fire and poison)
+
+[[scenario]]
+name = "flamer-burns-player"
+source = "owner's playtest 2026-10-16: a flamer's hit sets its target on fire (the WEAP's object effect EnchFlamerEffect: FlamerFireDamage drains 2 health a second for 5 s, its effect shader Flames01 burns on the body; docs/spec-notes/hit-effects.md)"
+note = "Cook-Cook (FiendCookCookRef 000F5704) fires his flamer at the player, put 100 units in front of him at 9 s; no god mode, the player's health raised to 5000 by the console at 8 s (once the scripts run) so the burn can be watched; third person from 10 s"
+areas = ["combat", "effects"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "engine/nvforever/src/effect_particles.rs", "engine/nvforever/src/effect_shaders.rs", "crates/fnv-world/src/effect_shader.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 5000;8.5:close", NVF_PLAY_TEST_FACE = "9:000F5704", NVF_PLAY_TEST_CONTROL = "10:view,10.5:zoom=250", NVF_PLAY_TEST_SHOTS = "14:player_burning.png,17:player_burning2.png" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'hit effect: EnchFlamerEffect on the player by \S+: FlamerFireDamage -2\.0 Health/s for 5 s', label = "the flamer's Burning on the player: 2 health a second for 5 s" },
+  { re = 'effect shader: Flames01 on \S+ \(no fill and edge, while the effect lasts\)', label = "Flames01's orange edge on the player while burning" },
+  { re = 'effect shader: Flames01 covers (?P<n>\d+) meshes of 0x00000014', range = [1, 1000], label = "Flames01 covers the player's third-person body" },
+  { re = 'effect particles summary: \d+ plays drew particles, (?P<n>\d+) born', range = [50, 100000000], label = "flames born on the burning player" },
+  { re = 'effect particles: Flames01 on the player \(textures\\effects\\fxflamesmallsub02\.dds', label = "Flames01's flames drawn on the player" },
+  { re = 'hit effects summary: (?P<n>\d+) applied', range = [1, 1000000], label = "hit effects applied" },
+  { re = 'hit effects summary: .* (?P<n>\d+) refreshed by later hits', range = [1, 1000000], label = "later hits start the burn's time again" },
+]
+
+[[scenario]]
+name = "flamer-burns-npc"
+source = "owner's playtest 2026-10-16: the player's flamer sets an NPC on fire; the burn has No Death Dispel, so a corpse burns on for the rest of its time (docs/spec-notes/hit-effects.md §4)"
+note = "god mode; the player is given a flamer (0000432D) and its fuel (00029371), put in front of Cook-Cook (000F5704) at 5 s and holds the trigger at his torso from 6 s"
+areas = ["combat", "effects"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "engine/nvforever/src/effect_particles.rs", "engine/nvforever/src/effect_shaders.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000432D", NVF_PLAY_TEST_GIVE = "00029371:400", NVF_PLAY_TEST_FACE = "5:000F5704", NVF_PLAY_TEST_CONTROL = "5.5:weapon,6.5:aimnpc,7:fire,10:fire", NVF_PLAY_TEST_SHOTS = "9:npc_burning.png,12:npc_burning2.png" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'hit effect: EnchFlamerEffect on \S+ by the player: FlamerFireDamage', label = "the player's flamer burns an NPC" },
+  { re = 'effect particles: Flames01 on ', label = "the NPC's flames drawn" },
+  { re = 'hit effect: EnchFlamerEffect on \S+ ends', label = "a burn ends" },
+]
+
+[[scenario]]
+name = "radscorpion-poison"
+source = "owner's playtest 2026-10-16: radscorpion stings poison (the creature's unarmed attack effect, EITM RadScorpion1Poison / RadScorpion2Poison; health drained by the second; docs/spec-notes/hit-effects.md §1)"
+note = "the player, health raised to 5000 by the console at 8 s (no god mode, so the poison lands), is put in front of the radscorpion VERGSRadscorpion5REF 00157B4D south of Goodsprings at 9 s, which is set on the player at 10 s"
+areas = ["combat", "effects"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 5000;8.5:close", NVF_PLAY_TEST_FACE = "9:00157B4D", NVF_PLAY_TEST_SCRIPT = "10:call:0x00157B4D:StartCombat:player" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'hit effect: RadScorpion\dPoison on the player by \S+: Poison -[\d.]+ Health/s for \d+ s', label = "a radscorpion's sting poisons the player" },
+  { re = 'hit effect: RadScorpion\dPoison names the attack AttackForwardPower', label = "its AttackForwardPower filter reported as not told apart" },
+]
+
+[[scenario]]
+name = "cazador-poison"
+source = "owner's playtest 2026-10-16: cazador stings poison (EITM CazadorPoison on the creature, animation Any: on the player 5 health a second for 30 s and 25 Action Points, by the record's own conditions; docs/spec-notes/hit-effects.md §2)"
+note = "the player, health raised to 5000 by the console at 8 s, is put in front of the cazador VERT3NovacCazador01REF 00168CC2 near Novac at 9 s, which is set on the player at 14 s"
+areas = ["combat", "effects"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 5000;8.5:close", NVF_PLAY_TEST_FACE = "9:00168CC2", NVF_PLAY_TEST_SCRIPT = "14:call:0x00168CC2:StartCombat:player" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 45
+expect = [
+  { re = 'hit effect: CazadorPoison on the player by \S+: Poison -4\.0 Health/s for 30 s, ReduceActionPoints -25\.0 Action Points for 30 s', label = "a cazador's sting poisons the player: the player's lines of CazadorPoison, 5 health a second less its 20 % Poison Resistance (Endurance 5) for 30 s, and 25 AP" },
+]
+
+[[scenario]]
+name = "placeatme-fights"
+source = "owner 2026-10-16: creatures a script places (PlaceAtMe) never fought; they should sense the enemies around them from the moment they are placed (engine/nvforever/src/residents.rs take_created, fnv_game::Game::created_actors)"
+note = "a cazador (NVCrCazador 000E584D) placed at the player at 10 s by the script test aid in Goodsprings; the player's health raised to 5000 by the console, no god mode; the cazador should become a resident, sense the player and attack, its sting poisoning"
+areas = ["ai", "combat"]
+paths = ["engine/nvforever/src/residents.rs", "engine/nvf-play/src/dropped.rs", "crates/fnv-game/src/ai.rs", "crates/fnv-game/src/functions/objects.rs", "crates/fnv-sim/src/world.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 5000;8.5:close", NVF_PLAY_TEST_SCRIPT = "10:call:player:PlaceAtMe:NVCrCazador:1" }
+args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'ai \[[^\]]*\] .*(0x)?FF[0-9A-F]{6}: created by a script \(PlaceAtMe\)', label = "the placed cazador becomes a resident" },
+  { re = 'npc combat: .*(0x)?FF[0-9A-F]{6} fights the player', label = "it fights the player" },
+  { re = 'hit effect: CazadorPoison on the player by ', label = "its sting poisons the player" },
+]
 [[scenario]]
 name = "crippled-limp"
 source = "owner 2026-10-16: a crippled leg plays the limping walk and run (locomotion/hurt/) for NPCs and the player (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11)"
