@@ -17,7 +17,10 @@
 
 pub(crate) mod actor;
 mod ai_state;
+pub mod camera;
+pub mod console;
 mod fighting;
+pub mod toggles;
 pub(crate) mod furniture;
 mod items;
 mod magic;
@@ -563,6 +566,11 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1189, "PurgeCellBuffers", NoOp("memory: the original's cell buffers; cells here load and unload by distance")),
         (0x1163, "PreloadMagicEffect", NoOp("loading: effect particles load when drawn")),
         (0x1223, "ForceTerminalBack", Impl(ui::force_terminal_back)),
+        // The console's camera (camera.rs; opcodes of our own, fnv_script::table::CONSOLE_OPCODE_BASE).
+        (0xF04B, "ToggleFlyCam", Impl(camera::toggle_fly_cam)),
+        (0xF033, "SetUFOCamSpeedMult", Impl(camera::set_ufo_cam_speed_mult)),
+        (0xF02B, "SetCameraFOV", Impl(camera::set_camera_fov)),
+        (0xF055, "ToggleMenus", Impl(camera::toggle_menus)),
         (0x125A, "ShowCaravanMenu", Stub("menus (Caravan)")),
         (0x125B, "AddCardToPlayer", Stub("Caravan")),
         (0x11C8, "OpenTeammateContainer", Impl(crate::followers::open_teammate_container)),
@@ -595,6 +603,35 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x126F, "IsDLCInstalled", Impl(misc::is_dlc_installed)),
         (0x1215, "GetXPForNextLevel", Impl(player::get_xp_for_next_level)),
     ]
+}
+
+/// Console functions the catalogue lists without an opcode, by catalogue name: the
+/// function table gives them numbers of ours (`fnv_script::table::CONSOLE_OPCODE_BASE`),
+/// which [`crate::game::Game::call_function`] dispatches here by name. A test checks
+/// each name against the catalogue.
+pub fn console_registry() -> &'static [(&'static str, Kind)] {
+    use Kind::*;
+    &[
+        // World and render toggles (console.rs; the engine switches its own).
+        ("ToggleCollision", Impl(toggles::toggle_collision)),
+        ("ToggleActorsAI", Impl(toggles::toggle_actors_ai)),
+        ("IsActorsAIOff", Impl(toggles::is_actors_ai_off)),
+        ("ToggleDetection", Impl(toggles::toggle_detection)),
+        ("ToggleGodMode", Impl(toggles::toggle_god_mode)),
+        ("ToggleScripts", Impl(toggles::toggle_scripts)),
+        ("ToggleGrass", Impl(toggles::toggle_grass)),
+        ("ToggleSky", Impl(toggles::toggle_sky)),
+        ("ToggleWaterSystem", Impl(toggles::toggle_water_system)),
+        ("ToggleTrees", Impl(toggles::toggle_trees)),
+        ("ToggleLODLand", Impl(toggles::toggle_lod_land)),
+        ("ToggleNavmesh", Impl(toggles::toggle_navmesh)),
+        ("ToggleWireframe", Stub("rendering (wireframe: the renderer does not ask the GPU for its line mode)")),
+    ]
+}
+
+/// The implementation registered for a console function by catalogue name (any case).
+pub fn lookup_console(name: &str) -> Option<&'static Kind> {
+    console_registry().iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, k)| k)
 }
 
 fn index() -> &'static HashMap<u16, usize> {

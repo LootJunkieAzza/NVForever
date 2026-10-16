@@ -34,6 +34,8 @@ pub struct UiRequests {
     pub time_multiplier: Option<f64>,
     /// Autosave calls the engine has not taken yet.
     pub autosaves: u32,
+    /// The console's camera functions (`super::camera`).
+    pub camera: super::camera::CameraRequests,
 }
 
 /// `IncrementScriptedChallenge challenge`: one step towards the challenge's threshold

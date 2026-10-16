@@ -264,7 +264,7 @@ impl Plugin for QuestMessagesPlugin {
 }
 
 #[derive(Component)]
-struct AreaRoot;
+pub(crate) struct AreaRoot;
 
 /// A piece that comes and goes with the line, from `0` seconds after it appears.
 #[derive(Component, Clone)]

@@ -59,6 +59,13 @@ pub const MAX_PITCH: f32 = 89.0 * std::f32::consts::PI / 180.0;
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ViewDriven(pub bool);
 
+/// The console's ToggleCollision (`tcl`, `crate::console`): the character passes through
+/// everything, falls no more and flies where the player looks, by the swimming rule
+/// (forward and back along the view, sideways level) at the walking and running speeds [hypothesis: as the
+/// original's `tcl` plays; its speed not measured]. Off again, it falls from where it is.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NoClip(pub bool);
+
 /// The player's pose in game space.
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct Player {
@@ -340,6 +347,7 @@ impl Plugin for PlayerPlugin {
             .init_resource::<Bindings>()
             .init_resource::<crate::control::BodyView>()
             .init_resource::<ViewDriven>()
+            .init_resource::<NoClip>()
             .insert_resource(NearAid::from_env())
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
@@ -399,6 +407,7 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
 /// The cursor is grabbed and hidden while playing in a focused window, released in menus
 /// and while a script's message box is on screen (its buttons are clickable). Not with
 /// `--auto-walk` (a test aid: the window must not hold the desktop's mouse).
+#[allow(clippy::too_many_arguments)]
 fn grab_cursor(
     state: Res<State<PlayState>>,
     d: Res<PlayWorld>,
@@ -406,6 +415,7 @@ fn grab_cursor(
     hud: Option<Res<crate::script_hud::ScriptHud>>,
     look: Option<Res<crate::dialogue::FreeLook>>,
     over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
+    free_cam: Option<Res<crate::free_cam::FreeCam>>,
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
@@ -413,7 +423,8 @@ fn grab_cursor(
     let boxed = hud.is_some_and(|h| h.front().is_some());
     // Also while an actor speaks in a conversation (free look, `crate::dialogue`), and
     // kept through a loading screen: the player is back in the world after it.
-    let playing = matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0);
+    // And while the console's free camera flies, also when it holds the world.
+    let playing = matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active);
     let grab = playing && !driven && !boxed && window.focused;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
     let mode = match (grab, cfg!(target_os = "windows")) {
@@ -542,8 +553,10 @@ fn mouse_look(
     mut player: ResMut<Player>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     driven: Option<Res<ViewDriven>>,
+    free_cam: Option<Res<crate::free_cam::FreeCam>>,
 ) {
-    if driven.is_some_and(|d| d.0) {
+    // The console's free camera takes the mouse (`crate::free_cam`).
+    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) {
         return;
     }
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
@@ -735,10 +748,16 @@ fn interior_net(
     mut net: ResMut<Net>,
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
+    noclip: Res<NoClip>,
 ) {
     if travel.read().count() > 0 {
         net.last_grounded = None;
         net.check_arrival = true;
+    }
+    // ToggleCollision: it may fly below the floor; where it stood is not where it flies.
+    if noclip.0 {
+        net.last_grounded = None;
+        return;
     }
     let Space::Interior(cell) = phys.space else {
         net.check_arrival = false;
@@ -816,7 +835,7 @@ fn step(
     mut status: ResMut<Status>,
     (limbs, pace): (Option<Res<crate::combat::PlayerLimbs>>, Option<Res<RunPace>>),
     mut seat: ResMut<crate::furniture::PlayerSeat>,
-    mut blocks: Option<ResMut<crate::blocking::ActorBlocks>>,
+    (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
 ) {
     if *state.get() != PlayState::Playing {
         phys.stepper = default();
@@ -844,6 +863,31 @@ fn step(
         }
         p.prev_feet = at;
         player.feet = at;
+        return;
+    }
+    if noclip.0 && phys.player.is_some() {
+        // ToggleCollision: moved where the player asks, through everything; the cells
+        // ahead load as the camera reaches them.
+        let p = &mut *phys;
+        let dt = p.world.params.dt;
+        let n = p.stepper.advance(&p.world.params, time.delta_secs());
+        let v = swim_velocity(&intent, player.heading, player.pitch, *speeds);
+        intent.jump = false;
+        let c = p.player.as_mut().expect("placed");
+        for _ in 0..n {
+            p.prev_feet = c.feet;
+            let to = [c.feet[0] + v[0] * dt, c.feet[1] + v[1] * dt, c.feet[2] + v[2] * dt];
+            p.world.place_character(c, to);
+            // Not falling: no fall, landing or fall damage while it flies.
+            c.grounded = true;
+            c.ground_gap = Some(0.0);
+            p.world.step();
+        }
+        if v != [0.0; 3] {
+            player.placed = None;
+        }
+        let alpha = (p.stepper.accumulated / dt).clamp(0.0, 1.0);
+        player.feet = lerp3(p.prev_feet, c.feet, alpha);
         return;
     }
     let Some(feet) = phys.player.as_ref().map(|c| c.feet) else { return };

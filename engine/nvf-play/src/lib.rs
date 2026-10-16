@@ -32,6 +32,7 @@ pub mod dialogue_menu;
 pub mod doors;
 pub mod dropped;
 pub mod flashlight;
+pub mod free_cam;
 pub mod furniture;
 pub mod hitvol;
 pub mod interface;
@@ -261,6 +262,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin))
             .add_plugins(console::ConsolePlugin)
+            .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)
             .add_plugins(intro::IntroPlugin)
