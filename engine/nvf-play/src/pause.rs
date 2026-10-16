@@ -30,8 +30,10 @@
 //! right, the version at the bottom left. Up/Down (or W/S) choose a row within the
 //! category, Tab or Page Down the next category (Page Up the one before), a click on a
 //! category shows it; Enter, Space, Left or Right flip the row, as does a click on it; a
-//! flip acts at once. Defaults puts back every switch as it was when the page was first
-//! shown in this run (as the command line left it). Esc or Backspace go back.
+//! flip acts at once and is kept in `NVForever.ini` (`crate::settings`). Defaults puts
+//! back every switch as the command line left it before the INI was read
+//! (`crate::settings::StartStates`; without it, as the page was first shown in this run).
+//! Esc or Backspace go back.
 //!
 //! **Quit** asks first [observed: the original's question and its choices]: Main Menu
 //! (nvforever starts again with `--menu`, [`MainMenuRequest`]), Exit Game, Cancel.
@@ -60,6 +62,7 @@
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
 //! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page or
 //! the quit question), `back` (from the load or the settings page, or the question),
+//! `defaults` (the settings page's Defaults),
 //! `quit` (the question), `shot` (a screenshot `pause_<page>.png` in the working folder).
 
 use crate::interface::{bc_supported, u, Face};
@@ -466,8 +469,8 @@ impl PauseLook {
     }
 }
 
-/// What the keys have on the first page and in the quit question, and the switches' states
-/// when the settings page was first shown (what Defaults goes back to).
+/// What the keys have on the first page and in the quit question, and what Defaults goes
+/// back to (taken when the settings page is first shown).
 #[derive(Resource, Default)]
 struct PauseView {
     main_selected: usize,
@@ -949,6 +952,9 @@ fn choose(
             _ => {}
         }
     }
+    if act("defaults") && matches!(*page, Page::Settings { .. }) {
+        clicked = Some(PauseButton::Defaults);
+    }
     // A click on the column's entry of another page, or on a category.
     match clicked {
         Some(PauseButton::Column(i)) if !under_main && *page != Page::Main => {
@@ -1167,7 +1173,8 @@ fn drawn_now(world: &mut World) -> Drawn {
     let list = world.resource::<Settings>().list().to_vec();
     let states: Vec<bool> = list.iter().map(|s| (s.get)(world)).collect();
     if matches!(page, Page::Settings { .. }) && world.resource::<PauseView>().defaults.is_none() {
-        world.resource_mut::<PauseView>().defaults = Some(states.clone());
+        let start = world.get_resource::<crate::settings::StartStates>().map(|s| s.0.clone()).filter(|s| s.len() == states.len());
+        world.resource_mut::<PauseView>().defaults = Some(start.unwrap_or_else(|| states.clone()));
     }
     let main = world.get_resource::<crate::main_menu::MainMenu>().filter(|m| m.open).map(|m| m.column());
     let view = world.resource::<PauseView>();

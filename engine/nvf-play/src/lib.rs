@@ -270,6 +270,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(crafting::CraftingPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin);
         test_aid::setup(app);
+        settings::setup(app);
     }
 }
 
