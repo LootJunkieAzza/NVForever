@@ -81,6 +81,9 @@ pub struct ObjectAnims {
     /// The last group and flag traced per reference: a script repeating the same call
     /// every frame is traced once [design, as stubs are].
     traced: HashMap<FormId, (u16, i32)>,
+    /// References whose animation state a script reset (`Reset3DState`), for the engine
+    /// to stop their groups.
+    pub resets: Vec<FormId>,
 }
 
 impl ObjectAnims {
@@ -94,6 +97,20 @@ impl ObjectAnims {
             None => {
                 self.playing.remove(&on);
             }
+        }
+    }
+
+    /// Forget what `on` plays and was asked to (`Reset3DState`): its requests not taken
+    /// yet are dropped and the engine is told to stop its group.
+    pub fn reset(&mut self, on: FormId) {
+        self.playing.remove(&on);
+        self.traced.remove(&on);
+        self.requests.retain(|r| r.on != on);
+        if !self.resets.contains(&on) {
+            if self.resets.len() >= crate::sound::MAX_PENDING {
+                self.resets.remove(0);
+            }
+            self.resets.push(on);
         }
     }
 

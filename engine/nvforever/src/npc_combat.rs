@@ -72,6 +72,9 @@
 //!   flank places for a group's gunmen, and no shot while a friend stands in the line of
 //!   fire.
 //!
+//! - **Attack lines**: each shot or blow it begins tries its Attack line, said at most
+//!   once per its attack timer (`fnv_game::combat_lines`, docs/spec-notes/combat-dialogue.md).
+//!
 //! Whom it fights is the detection states' (its combat target). Not built: grenades,
 //! ammunition use, weapon choice among several, blocking, dodging and power attacks of
 //! NPCs.
@@ -865,6 +868,8 @@ fn fight(
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights });
                                 f.stats.shots += 1;
+                                // Its Attack line, on its own timer (fnv_game::combat_lines).
+                                g.attack_line(me, Some(target), false, false);
                             }
                             Event::ReloadStarted => f.stats.reloads += 1,
                             _ => {}
@@ -923,6 +928,7 @@ fn fight(
                         fighter.blows.push((delay, ActorStrike { attacker: me, target, weapon, creature_damage, point: tchest, dir }));
                         anims.write(PlayAttack { actor: id, weapon, melee: true, sights: false });
                         f.stats.strikes += 1;
+                        g.attack_line(me, Some(target), false, false);
                     }
                 }
             }

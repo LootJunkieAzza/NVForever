@@ -1,0 +1,420 @@
+{
+ "format": "fnv.schema/1",
+ "types": {
+  "EfshBlend": {
+   "enum": "u32",
+   "values": {
+    "1": "Zero",
+    "2": "One",
+    "3": "Source Color",
+    "4": "Source Inverse Color",
+    "5": "Source Alpha",
+    "6": "Source Inverted Alpha",
+    "7": "Dest Alpha",
+    "8": "Dest Inverted Alpha",
+    "9": "Dest Color",
+    "10": "Dest Inverse Color",
+    "11": "Source Alpha SAT"
+   }
+  },
+  "EfshBlendOp": {
+   "enum": "u32",
+   "values": {
+    "1": "Add",
+    "2": "Subtract",
+    "3": "Reverse Subtract",
+    "4": "Minimum",
+    "5": "Maximum"
+   }
+  },
+  "EfshZTest": {
+   "enum": "u32",
+   "values": {
+    "3": "Equal To",
+    "4": "Normal",
+    "5": "Greater Than",
+    "7": "Greater Than or Equal To",
+    "8": "Always Show"
+   }
+  }
+ },
+ "records": {
+  "EFSH": {
+   "name": "Effect Shader",
+   "confidence": "documented",
+   "subrecords": {
+    "ICON": {
+     "name": "Fill Texture",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas EFSH record"
+    },
+    "ICO2": {
+     "name": "Particle Shader Texture",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas EFSH record"
+    },
+    "NAM7": {
+     "name": "Holes Texture",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas EFSH record"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "No Membrane Shader",
+          "3": "No Particle Shader",
+          "4": "Edge Effect - Inverse",
+          "5": "Membrane Shader - Affect Skin Only"
+         }
+        }
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 3
+        }
+       },
+       {
+        "name": "membrane_source_blend",
+        "type": "EfshBlend"
+       },
+       {
+        "name": "membrane_blend_op",
+        "type": "EfshBlendOp"
+       },
+       {
+        "name": "membrane_z_test",
+        "type": "EfshZTest"
+       },
+       {
+        "name": "fill_color",
+        "type": "ByteColor"
+       },
+       {
+        "name": "fill_alpha_fade_in_time",
+        "type": "f32"
+       },
+       {
+        "name": "fill_full_alpha_time",
+        "type": "f32"
+       },
+       {
+        "name": "fill_alpha_fade_out_time",
+        "type": "f32"
+       },
+       {
+        "name": "fill_persistent_alpha_ratio",
+        "type": "f32"
+       },
+       {
+        "name": "fill_alpha_pulse_amplitude",
+        "type": "f32"
+       },
+       {
+        "name": "fill_alpha_pulse_frequency",
+        "type": "f32"
+       },
+       {
+        "name": "fill_texture_speed_u",
+        "type": "f32"
+       },
+       {
+        "name": "fill_texture_speed_v",
+        "type": "f32"
+       },
+       {
+        "name": "edge_fall_off",
+        "type": "f32"
+       },
+       {
+        "name": "edge_color",
+        "type": "ByteColor"
+       },
+       {
+        "name": "edge_alpha_fade_in_time",
+        "type": "f32"
+       },
+       {
+        "name": "edge_full_alpha_time",
+        "type": "f32"
+       },
+       {
+        "name": "edge_alpha_fade_out_time",
+        "type": "f32"
+       },
+       {
+        "name": "edge_persistent_alpha_ratio",
+        "type": "f32"
+       },
+       {
+        "name": "edge_alpha_pulse_amplitude",
+        "type": "f32"
+       },
+       {
+        "name": "edge_alpha_pulse_frequency",
+        "type": "f32"
+       },
+       {
+        "name": "fill_full_alpha_ratio",
+        "type": "f32"
+       },
+       {
+        "name": "edge_full_alpha_ratio",
+        "type": "f32"
+       },
+       {
+        "name": "membrane_dest_blend",
+        "type": "EfshBlend"
+       },
+       {
+        "name": "particle_source_blend",
+        "type": "EfshBlend"
+       },
+       {
+        "name": "particle_blend_op",
+        "type": "EfshBlendOp"
+       },
+       {
+        "name": "particle_z_test",
+        "type": "EfshZTest"
+       },
+       {
+        "name": "particle_dest_blend",
+        "type": "EfshBlend"
+       },
+       {
+        "name": "particle_birth_ramp_up_time",
+        "type": "f32"
+       },
+       {
+        "name": "full_particle_birth_time",
+        "type": "f32"
+       },
+       {
+        "name": "particle_birth_ramp_down_time",
+        "type": "f32"
+       },
+       {
+        "name": "full_particle_birth_ratio",
+        "type": "f32"
+       },
+       {
+        "name": "persistent_particle_birth_ratio",
+        "type": "f32"
+       },
+       {
+        "name": "particle_lifetime",
+        "type": "f32"
+       },
+       {
+        "name": "particle_lifetime_range",
+        "type": "f32"
+       },
+       {
+        "name": "initial_speed_along_normal",
+        "type": "f32"
+       },
+       {
+        "name": "acceleration_along_normal",
+        "type": "f32"
+       },
+       {
+        "name": "initial_velocity_x",
+        "type": "f32"
+       },
+       {
+        "name": "initial_velocity_y",
+        "type": "f32"
+       },
+       {
+        "name": "initial_velocity_z",
+        "type": "f32"
+       },
+       {
+        "name": "acceleration_x",
+        "type": "f32"
+       },
+       {
+        "name": "acceleration_y",
+        "type": "f32"
+       },
+       {
+        "name": "acceleration_z",
+        "type": "f32"
+       },
+       {
+        "name": "scale_key_1",
+        "type": "f32"
+       },
+       {
+        "name": "scale_key_2",
+        "type": "f32"
+       },
+       {
+        "name": "scale_key_1_time",
+        "type": "f32"
+       },
+       {
+        "name": "scale_key_2_time",
+        "type": "f32"
+       },
+       {
+        "name": "color_key_1",
+        "type": "ByteColor"
+       },
+       {
+        "name": "color_key_2",
+        "type": "ByteColor"
+       },
+       {
+        "name": "color_key_3",
+        "type": "ByteColor"
+       },
+       {
+        "name": "color_key_1_alpha",
+        "type": "f32"
+       },
+       {
+        "name": "color_key_2_alpha",
+        "type": "f32"
+       },
+       {
+        "name": "color_key_3_alpha",
+        "type": "f32"
+       },
+       {
+        "name": "color_key_1_time",
+        "type": "f32"
+       },
+       {
+        "name": "color_key_2_time",
+        "type": "f32"
+       },
+       {
+        "name": "color_key_3_time",
+        "type": "f32"
+       },
+       {
+        "name": "initial_speed_along_normal_range",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "initial_rotation_deg",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "initial_rotation_deg_range",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "rotation_speed_deg",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "rotation_speed_deg_range",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "addon_models",
+        "type": "formid",
+        "optional": true
+       },
+       {
+        "name": "holes_start_time",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "holes_end_time",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "holes_start_value",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "holes_end_value",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "edge_width_alpha_units",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "edge_color_2",
+        "type": "ByteColor",
+        "optional": true
+       },
+       {
+        "name": "explosion_wind_speed",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "texture_count_u",
+        "type": "u32",
+        "optional": true
+       },
+       {
+        "name": "texture_count_v",
+        "type": "u32",
+        "optional": true
+       },
+       {
+        "name": "addon_models_fade_in_time",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "addon_models_fade_out_time",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "addon_models_scale_start",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "addon_models_scale_end",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "addon_models_scale_in_time",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "addon_models_scale_out_time",
+        "type": "f32",
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas EFSH record (dev-4.1.6; blend, blend-operation and z-test values from wbBlendModeEnum, wbBlendOpEnum, wbZTestFuncEnum in wbDefinitionsCommon.pas; fields from element 57 on optional, SetOptionalFrom(57)) [documented]; meanings in docs/spec-notes/effect-shaders.md"
+    }
+   }
+  }
+ }
+}

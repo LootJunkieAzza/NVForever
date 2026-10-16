@@ -8,7 +8,9 @@
 //! settings pages and its quit question, C:\fnv-private\Pause Menu; start_menu.xml]: the
 //! pause screen over the held world, the column of entries at the right (Continue, Save,
 //! Load, Settings, Quit; the original's Help is left out), the highlight box round the
-//! chosen one. A page opened from the column dims the column but for its own entry.
+//! chosen one. A page opened from the column dims the column but for its own entry; a
+//! click on that entry again closes the page (back to the column), and a click on Quit
+//! while its question is up cancels it [owner 2026-10-16: the entries toggle their page].
 //! Up/Down choose, Enter or Space take, a click takes, the pointer chooses the entry it
 //! moves onto; Esc resumes; N saves, L opens the load page, S the settings, Q the quit
 //! question.
@@ -30,8 +32,10 @@
 //! right, the version at the bottom left. Up/Down (or W/S) choose a row within the
 //! category, Tab or Page Down the next category (Page Up the one before), a click on a
 //! category shows it; Enter, Space, Left or Right flip the row, as does a click on it; a
-//! flip acts at once. Defaults puts back every switch as it was when the page was first
-//! shown in this run (as the command line left it). Esc or Backspace go back.
+//! flip acts at once and is kept in `NVForever.ini` (`crate::settings`). Defaults puts
+//! back every switch as the command line left it before the INI was read
+//! (`crate::settings::StartStates`; without it, as the page was first shown in this run).
+//! Esc or Backspace go back.
 //!
 //! **Quit** asks first [observed: the original's question and its choices]: Main Menu
 //! (nvforever starts again with `--menu`, [`MainMenuRequest`]), Exit Game, Cancel.
@@ -60,6 +64,7 @@
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
 //! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page or
 //! the quit question), `back` (from the load or the settings page, or the question),
+//! `defaults` (the settings page's Defaults),
 //! `quit` (the question), `shot` (a screenshot `pause_<page>.png` in the working folder).
 
 use crate::interface::{bc_supported, u, Face};
@@ -227,6 +232,16 @@ impl Page {
         match self {
             Page::Main | Page::Load { .. } => None,
             Page::Settings { selected } => Some(selected),
+        }
+    }
+
+    /// Whether `label`, an entry of the column, is the one this page stands for: a click
+    /// on it closes the page again [owner 2026-10-16].
+    fn opened_by(self, label: &str) -> bool {
+        match self {
+            Page::Main => false,
+            Page::Settings { .. } => label.starts_with("Settings"),
+            Page::Load { .. } => label.starts_with("Load"),
         }
     }
 }
@@ -427,6 +442,14 @@ const BACK_TOP: f32 = 960.0 - 30.0 - ITEM;
 /// over the picture, not added to it, it came out a dark slab [observed 2026-10-16].
 const SCREEN: &str = "textures\\interface\\pause\\pausescreen01.dds";
 const SCREEN_ALPHA: f32 = 0.82;
+/// How much of the pause screen picture lies past the view's edges, as parts of the drawn
+/// picture: its outer side (the left of the half picture, mirrored at the right), its top
+/// and its bottom, so the frame's edge meets the view's [observed: the owner's screenshot
+/// of 2026-10-16 marking where the edge belongs, at about 7% in from the sides, 5% from
+/// the top and 9% from the bottom of the stretched picture].
+const SCREEN_CROP_SIDE: f32 = 0.147;
+const SCREEN_CROP_TOP: f32 = 0.051;
+const SCREEN_CROP_BOTTOM: f32 = 0.088;
 const WORLD_SHADE: f32 = 0.35;
 
 /// The settings page's group of switches about conversations, sound and menus.
@@ -458,8 +481,8 @@ impl PauseLook {
     }
 }
 
-/// What the keys have on the first page and in the quit question, and the switches' states
-/// when the settings page was first shown (what Defaults goes back to).
+/// What the keys have on the first page and in the quit question, and what Defaults goes
+/// back to (taken when the settings page is first shown).
 #[derive(Resource, Default)]
 struct PauseView {
     main_selected: usize,
@@ -634,7 +657,17 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
         if !d.under_main {
             root.spawn((full(), BackgroundColor(Color::BLACK.with_alpha(WORLD_SHADE))));
             if let Some(s) = &look.screen {
-                let half = |left: bool| Node { position_type: PositionType::Absolute, left: Val::Percent(if left { 0.0 } else { 50.0 }), width: Val::Percent(50.0), height: Val::Percent(100.0), ..default() };
+                // Each half drawn larger than the view's half, its cropped parts off the view.
+                let width = 50.0 / (1.0 - SCREEN_CROP_SIDE);
+                let height = 100.0 / (1.0 - SCREEN_CROP_TOP - SCREEN_CROP_BOTTOM);
+                let half = |left: bool| Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Percent(if left { 50.0 - width } else { 50.0 }),
+                    top: Val::Percent(-SCREEN_CROP_TOP * height),
+                    width: Val::Percent(width),
+                    height: Val::Percent(height),
+                    ..default()
+                };
                 let img = |flip: bool| ImageNode { color: Color::WHITE.with_alpha(SCREEN_ALPHA), flip_x: flip, image_mode: NodeImageMode::Stretch, ..ImageNode::new(s.clone()) };
                 root.spawn((half(true), img(false)));
                 root.spawn((half(false), img(true)));
@@ -931,12 +964,20 @@ fn choose(
             _ => {}
         }
     }
-    // A click on the column's entry of another page, or on a category.
+    if act("defaults") && matches!(*page, Page::Settings { .. }) {
+        clicked = Some(PauseButton::Defaults);
+    }
+    // A click on the column's entry of another page (the page's own entry closes it), or
+    // on a category.
     match clicked {
         Some(PauseButton::Column(i)) if !under_main && *page != Page::Main => {
+            let closes = ENTRIES.get(i).is_some_and(|e| page.opened_by(e.label()));
             *page = Page::Main;
             view.main_selected = i;
-            if ENTRIES.get(i).is_some_and(|e| matches!(e, Entry::Load | Entry::Settings)) {
+            if closes {
+                info!("pause menu: {} again, back to the column", ENTRIES[i].label());
+                clicked = None;
+            } else if ENTRIES.get(i).is_some_and(|e| matches!(e, Entry::Load | Entry::Settings)) {
                 clicked = Some(PauseButton::Column(i));
             } else {
                 clicked = None;
@@ -945,6 +986,10 @@ fn choose(
         Some(PauseButton::Column(i)) if under_main => {
             let label = main_menu.as_ref().and_then(|m| m.column().get(i).map(|c| c.0));
             match label {
+                Some(l) if page.opened_by(l) => {
+                    info!("pause menu: {l} again, back to the main menu");
+                    *page = Page::Main;
+                }
                 Some(l) if l.starts_with("Load") => *page = Page::Load { selected: 0 },
                 Some(l) if l.starts_with("Settings") => *page = Page::Settings { selected: 0 },
                 _ => {}
@@ -982,6 +1027,9 @@ fn choose(
                 take = Some(2);
             } else if let Some(PauseButton::Confirm(i)) = clicked {
                 take = Some(i);
+            } else if matches!(clicked, Some(PauseButton::Column(i)) if ENTRIES.get(i) == Some(&Entry::Quit)) {
+                // Quit again: as Cancel.
+                take = Some(2);
             } else if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) || act("up") {
                 view.confirm = Some(step_row(sel, -1, CONFIRM.len()));
             } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) || act("down") {
@@ -1149,7 +1197,8 @@ fn drawn_now(world: &mut World) -> Drawn {
     let list = world.resource::<Settings>().list().to_vec();
     let states: Vec<bool> = list.iter().map(|s| (s.get)(world)).collect();
     if matches!(page, Page::Settings { .. }) && world.resource::<PauseView>().defaults.is_none() {
-        world.resource_mut::<PauseView>().defaults = Some(states.clone());
+        let start = world.get_resource::<crate::settings::StartStates>().map(|s| s.0.clone()).filter(|s| s.len() == states.len());
+        world.resource_mut::<PauseView>().defaults = Some(start.unwrap_or_else(|| states.clone()));
     }
     let main = world.get_resource::<crate::main_menu::MainMenu>().filter(|m| m.open).map(|m| m.column());
     let view = world.resource::<PauseView>();
@@ -1259,6 +1308,17 @@ mod tests {
         assert_eq!(step_category(&list, 1, 1), 2);
         assert_eq!(step_category(&list, 5, 1), 0);
         assert_eq!(step_category(&list, 0, -1), 5);
+    }
+
+    #[test]
+    fn a_page_is_closed_by_its_own_entry() {
+        // The pause menu's labels and the main menu's ("Load Game").
+        assert!(Page::Settings { selected: 3 }.opened_by("Settings"));
+        assert!(Page::Load { selected: 0 }.opened_by("Load"));
+        assert!(Page::Load { selected: 0 }.opened_by("Load Game"));
+        assert!(!Page::Load { selected: 0 }.opened_by("Settings"));
+        assert!(!Page::Settings { selected: 0 }.opened_by("Load Game"));
+        assert!(!Page::Main.opened_by("Settings"));
     }
 
     #[test]

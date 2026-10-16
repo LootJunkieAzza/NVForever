@@ -23,6 +23,7 @@
 //!   damage, killer, factions, packages: `RefExtra` dropped). The wiki's "with 0 HP" is not
 //!   copied: it comes back with its full health [design: an actor alive at 0 health has no
 //!   meaning here; the owner checks].
+//! - The cell's scripted references run their OnReset blocks (`Game::cell_reset_blocks`).
 //! - Respawning containers in the cell go back to their authored contents
 //!   (`fnv_sim::World::attach_cell`, docs/spec-notes/simulation.md §3).
 //! - Not done: the encounter zone flag "Never Resets" [documented: GECK wiki, containers in
@@ -102,6 +103,21 @@ impl Game<'_> {
         let _ = self.world.reset_inventory(r);
         // The layer that moves actors starts it again from its authored place.
         self.teleported.insert(r);
+    }
+
+    /// The references of the reset `cell` with a script run its OnReset block, the block's
+    /// subject the reference itself [documented: GECK wiki Reference, the cell's reset
+    /// "trigger[s] OnReset blocks in scripts attached to the reference"; the event handler
+    /// table's WhatsReset]. Every scripted reference placed there and present, not only
+    /// those that respawned, after the reset and before their OnLoad [hypothesis: the
+    /// order; the wiki ties the blocks to the cell's reset, not to respawning].
+    pub(crate) fn cell_reset_blocks(&mut self, cell: FormId) {
+        let refs = self.data.scripted_by_cell.get(&cell).cloned().unwrap_or_default();
+        for r in refs {
+            if self.present(r) {
+                self.ref_event(r, crate::game::event::ON_RESET, Some(fnv_script::vm::Value::Ref(r.0)), None);
+            }
+        }
     }
 
     /// The cell resets since the last call (the engine draws their actors alive again).

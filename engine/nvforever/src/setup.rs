@@ -14,6 +14,10 @@
 //! The home (`Documents\My Games\NVForever` on Windows) is made here, and on its first
 //! start the settings and saves of an earlier build's home (`%LOCALAPPDATA%\NVForever`)
 //! are copied into it (`fnv_install::EngineHome::adopt_legacy`).
+//!
+//! A player's start loads the plugins turned on in the home's own `plugins.txt`
+//! (`fnv_install::plugins`), made at the first start with the game's masters on and every
+//! other plugin in `Data` off.
 
 use fnv_install::{check_separation, Config, EngineHome, GameInstall, InstallError};
 use std::path::Path;
@@ -141,4 +145,31 @@ fn ask(home: &EngineHome, problem: Option<String>) -> Result<GameInstall, String
         Some(p) => format!("{p}\n{how}"),
         None => format!("no Fallout: New Vegas folder is set: {how}"),
     })
+}
+
+/// The plugins to load, in order, from the home's `plugins.txt` (made or given new lines
+/// here); says what the player may want to know about it.
+pub fn plugin_list(game: &GameInstall) -> Result<Vec<String>, String> {
+    let home = EngineHome::user().ok_or("no folder for NVForever's settings and saves could be found (set NVFOREVER_HOME)")?;
+    let file = home.plugins_file();
+    let s = fnv_install::plugins::sync(&home, game).map_err(|e| e.to_string())?;
+    if s.written {
+        eprintln!("setup: plugin list written: {}", file.display());
+    }
+    let off: Vec<&String> = s.added.iter().filter(|a| !s.load.contains(a)).collect();
+    if !off.is_empty() {
+        eprintln!(
+            "setup: plugins found in Data and left off (turn them on with a * in {}): {}",
+            file.display(),
+            off.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+        );
+    }
+    if !s.missing.is_empty() {
+        eprintln!("setup: plugins turned on in {} but not in Data, skipped: {}", file.display(), s.missing.join(", "));
+    }
+    if s.base_forced {
+        eprintln!("setup: FalloutNV.esm loads first whatever {} says", file.display());
+    }
+    eprintln!("setup: plugins: {}", s.load.join(", "));
+    Ok(s.load)
 }

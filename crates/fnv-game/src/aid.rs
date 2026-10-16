@@ -490,7 +490,7 @@ mod tests {
     use super::*;
 
     fn mgef(archetype: i64, flags: u32, av: Option<u16>) -> MagicEffectDef {
-        MagicEffectDef { flags, archetype, script: None, actor_value: av }
+        MagicEffectDef { flags, archetype, script: None, actor_value: av, shader: None }
     }
 
     fn item(magnitude: u32, duration: u32, av: Option<u16>) -> EffectItem {

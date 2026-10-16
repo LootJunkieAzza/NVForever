@@ -3,14 +3,19 @@
 //! Policy (docs/design/install-layout.md):
 //! - The original game install is **read-only input**. NVForever never writes into it,
 //!   never runs from inside it, and never touches the original game's per-user folder
-//!   (`Documents\My Games\FalloutNV`: its INIs, saves and plugin list).
+//!   (`Documents\My Games\FalloutNV`: its INIs and saves) or its plugin list
+//!   (`%LOCALAPPDATA%\FalloutNV\plugins.txt`).
 //! - Everything NVForever writes (settings, saves, logs, its own mods) lives under its own
 //!   **home** directory, chosen by `NVFOREVER_HOME` or a platform default (Windows:
 //!   `Documents\My Games\NVForever`); caches go to the local data folder.
 //! - The game's location is kept in the home's `NVForever.ini`; before a run,
 //!   [`GameInstall::missing_files`] names any base game file NVForever needs that is absent.
+//! - Which plugins load, and in what order, is NVForever's own `plugins.txt` in the home
+//!   ([`plugins`]), never the original game's list.
 //!
 //! Path containment is checked on canonicalized paths, case-insensitively on Windows.
+
+pub mod plugins;
 
 use serde::Deserialize;
 use std::fmt;
@@ -260,7 +265,8 @@ impl EngineHome {
     }
 }
 
-/// The original game's per-user folder (INIs, saves, plugins.txt). NVForever must not
+/// The original game's per-user folder (INIs, saves; its plugins.txt is in
+/// `%LOCALAPPDATA%\FalloutNV` [observed]). NVForever must not
 /// read or write it. Windows: `Documents\My Games\FalloutNV` [documented: community/xEdit
 /// docs; verify on the user's PC], where Documents is the Documents known folder, so a
 /// Documents folder redirected (e.g. to OneDrive or another drive) is followed.
