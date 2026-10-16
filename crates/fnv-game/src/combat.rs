@@ -322,6 +322,14 @@ impl Game<'_> {
         ran
     }
 
+    /// Tell the rules which weapon the animating side draws for `actor`
+    /// (`RefExtra::held_weapon`).
+    pub fn set_held_weapon(&mut self, actor: FormId, weapon: Option<FormId>) {
+        if self.extra.get(&actor).and_then(|e| e.held_weapon) != weapon {
+            self.extra.entry(actor).or_default().held_weapon = weapon;
+        }
+    }
+
     /// Tell the scripts whether an actor has its weapon out (IsWeaponOut).
     pub fn set_weapon_out(&mut self, actor: FormId, out: bool) {
         if self.extra.get(&actor).is_some_and(|e| e.weapon_out) != out {

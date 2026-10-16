@@ -43,7 +43,7 @@
 use crate::limbs::ActorRig;
 use crate::locomotion::Locomotion;
 use crate::residents::Residents;
-use crate::weapons::WeaponHold;
+use crate::weapons::{HeldWeapon, WeaponHold};
 use bevy::prelude::*;
 use fnv_actor::idle::meshes_path;
 use fnv_actor::idle_play::{IdleKeys, IdlePlay};
@@ -344,6 +344,7 @@ pub fn drive(
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut actors: Query<Drawn>,
+    held: Query<&HeldWeapon>,
 ) {
     let dt = time.delta_secs().min(0.1);
     let st = &mut *st;
@@ -378,7 +379,12 @@ pub fn drive(
     }
     let mut busy: HashMap<u32, bool> = HashMap::new();
     // The rules are told which NPCs hold their weapon in the hand (`IsWeaponOut`, as for
-    // the player: once the weapon is on the hand [documented: catalogue notes]).
+    // the player: once the weapon is on the hand [documented: catalogue notes]), and
+    // which weapon that is (`GetWeaponAnimType`: NPCs' weapons are not equipped in the
+    // rules' inventories).
+    for h in &held {
+        game.set_held_weapon(FormId(h.reference), Some(h.weapon));
+    }
     for (_, v, _, _, _, hold) in &actors {
         if let Some(h) = hold {
             game.set_weapon_out(FormId(v.0), h.anim.stage == Stage::Drawn);

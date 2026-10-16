@@ -389,11 +389,21 @@ record order; `GetRandomPercent` in percent):
 - **Ends** [design]: a fidget fades out when its actor moves or puts the weapon away
   (the player also: aims, fires, reloads, goes to first person, or a script package
   starts).
-- **IsWeaponOut on NPCs**: the rules are now told each drawn NPC's weapon state
-  (in the hand once the equip clip has put it there), as they were already told the
-  player's [documented: the value changes when the weapon is attached to the weapon
-  node, catalogue notes of IsWeaponOut].
-- Smoke test: `weapon-fidgets` (tools/smoke/scenarios.toml).
+- **IsWeaponOut and GetWeaponAnimType on NPCs**: the rules are now told each drawn
+  NPC's weapon state (in the hand once the equip clip has put it there), as they were
+  already told the player's [documented: the value changes when the weapon is attached
+  to the weapon node, catalogue notes of IsWeaponOut], and which weapon the engine
+  draws for it: NPCs' weapons are not equipped in the rules' inventories, so
+  `GetWeaponAnimType` said unarmed (1) for every NPC before. It now falls back to that
+  weapon when nothing is equipped [design].
+- Checks: `fnvtool actor fidgets` (headless: an actor's weapon put out, the tree asked
+  1,000 times; with a varmint rifle about 15% of checks give a fidget, split between
+  the three rifle idles, with a service rifle about 5% the scan, with a 9mm pistol
+  none, for an NPC and the player alike [observed]); smoke tests `weapon-fidgets-tree`
+  and `weapon-fidgets` (tools/smoke/scenarios.toml).
+- In a game where nothing has happened, Sunny Smiles is in the dialogue procedure
+  (`GetCurrentAIProcedure` 4, she is to greet the player) and the walk enters
+  `DialogueIdles` for her: no fidget [observed with `fnvtool actor fidgets`].
 
 ### 11.3 Open
 
