@@ -962,7 +962,9 @@ impl Core {
                 | AiEvent::Cornered { .. }
                 | AiEvent::SearchOver { .. }
                 | AiEvent::SearchBack { .. }
-                | AiEvent::BackHome { .. } => info!("{line}"),
+                | AiEvent::BackHome { .. }
+                | AiEvent::WeaponUse { .. }
+                | AiEvent::WeaponUseOver => info!("{line}"),
                 _ => debug!("{line}"),
             }
         }
@@ -1140,6 +1142,12 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             "has no package: walks back to where it was placed, {} off, {length:.0} units to go",
             if away.is_finite() { format!("{away:.0} units") } else { "in another space".to_string() }
         ),
+        AiEvent::WeaponUse { target, length } => format!(
+            "is to use its weapon on {}: {}",
+            if *target == FormId::PLAYER_REF { "the player".to_string() } else { n(target) },
+            if *length > 0.0 { format!("walks to its place, {length:.0} units to go") } else { "from where it stands".to_string() }
+        ),
+        AiEvent::WeaponUseOver => "has used its weapon: back to its package".into(),
     }
 }
 

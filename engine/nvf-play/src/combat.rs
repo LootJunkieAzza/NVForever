@@ -203,6 +203,9 @@ pub struct ActorFire {
     pub aim: V3,
     pub cone: f32,
     pub muzzle: Option<V3>,
+    /// The shot does no damage (a weapon use's Do No Damage, nvforever `use_weapon`):
+    /// it flies, strikes and is seen and heard as any other.
+    pub harmless: bool,
 }
 
 /// An actor other than the player strikes `target` within its reach (combat AI): with
@@ -225,6 +228,8 @@ pub struct By {
     pub actor: FormId,
     pub weapon: FormId,
     pub ammo: Option<FormId>,
+    /// It does no damage ([`ActorFire::harmless`]).
+    pub harmless: bool,
 }
 
 /// One projectile to draw this frame.
@@ -476,6 +481,8 @@ pub struct CombatStats {
     pub player_hits: u32,
     pub player_damage: f32,
     pub player_died: bool,
+    /// Hits of harmless shots ([`ActorFire::harmless`]): no damage dealt.
+    pub harmless_hits: u32,
 }
 
 /// A projectile in flight with where it left from, where it is drawn and whether it
@@ -1203,7 +1210,7 @@ fn fire(
                     let dir = vec::normalize(p.vel);
                     c.next_visual += 1;
                     let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
-                    let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo };
+                    let by = By { actor: FormId::PLAYER_REF, weapon: id, ammo: c.ammo, harmless: false };
                     c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force, by });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
@@ -1788,7 +1795,7 @@ fn actor_attacks(
             sounds.write(PlaySound { sound, at: Some(seen_from) });
         }
         let (tracer_chance, force) = c.forms.projectiles.get(&proj).map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
-        let by = By { actor: s.shooter, weapon: s.weapon, ammo };
+        let by = By { actor: s.shooter, weapon: s.weapon, ammo, harmless: s.harmless };
         let rng = &mut c.rng;
         let mut rand = || rng.next_f32();
         let ps = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, s.cone, Some(s.shooter.0 as ActorId), gravity, &c.tuning, &mut rand);
@@ -1855,7 +1862,7 @@ fn script_shot(sim: &SimState, from: FormId, weapon: FormId) -> Option<ActorFire
     let [x, _, z] = s.rot;
     let aim = [z.sin() * x.cos(), z.cos() * x.cos(), -x.sin()];
     let origin = [s.pos[0], s.pos[1], s.pos[2] + if actor { 64.0 } else { 0.0 }];
-    Some(ActorFire { shooter: from, weapon, origin, aim, cone: 0.0, muzzle: None })
+    Some(ActorFire { shooter: from, weapon, origin, aim, cone: 0.0, muzzle: None, harmless: false })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1953,7 +1960,9 @@ fn fly(
                             c.ghosts.push(ghost(point));
                         }
                     }
-                    ProjEvent::Explode { explosion, point } => c.boom.push((explosion, point)),
+                    // A harmless shot sets nothing off [design].
+                    ProjEvent::Explode { explosion, point } if !f.by.harmless => c.boom.push((explosion, point)),
+                    ProjEvent::Explode { .. } => {}
                     // A tracer that meets nothing is drawn to where it ends.
                     ProjEvent::Expired { point } => {
                         if f.tracer {
@@ -2111,6 +2120,11 @@ fn fly(
             }
             let hit = p.actor.map(|a| a as u32).or(p.object.map(|o| o as u32));
             effects.4.write(crate::world_sounds::log_impact(s, hit, p.actor.is_some(), p.material, material, impact));
+        }
+        // A harmless shot is seen and heard where it lands, and does nothing more.
+        if p.by.harmless {
+            stats.harmless_hits += 1;
+            continue;
         }
         let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, shooter, w.skill.as_deref(), false);

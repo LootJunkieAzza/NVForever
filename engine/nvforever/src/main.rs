@@ -47,6 +47,7 @@ mod locomotion;
 mod combat_tactics;
 mod console_toggles;
 mod npc_combat;
+mod use_weapon;
 mod provoked;
 mod weapons;
 mod lodgen;
@@ -1084,6 +1085,8 @@ fn main() -> AppExit {
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
+            // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).
+            app.add_plugins(use_weapon::UseWeaponPlugin);
             app.add_plugins(combat_tactics::CombatTacticsPlugin);
             // Fights started by hits; the player's yield (provoked.rs).
             app.add_plugins(provoked::ProvokedPlugin);
