@@ -156,7 +156,7 @@ impl Plugin for DoorsPlugin {
         app.init_resource::<Doors>()
             .add_message::<DoorSound>()
             .configure_sets(Update, DoorSystems.before(crate::PlaySet::Physics))
-            .add_systems(Update, (sync_sim.run_if(resource_exists::<SimState>), advance).chain().in_set(DoorSystems));
+            .add_systems(Update, (sync_sim.run_if(resource_exists::<SimState>), advance, tell_scripts).chain().in_set(DoorSystems));
     }
 }
 
@@ -182,6 +182,26 @@ fn sync_sim(mut doors: ResMut<Doors>, mut sim: ResMut<SimState>) {
             _ => {}
         }
         d.sim_seen = Some(open);
+    }
+}
+
+/// Tell the scripts the open state of every door and animated container known here
+/// (GetOpenState: 1 open, 2 opening, 3 closed, 4 closing).
+fn tell_scripts(doors: Res<Doors>, script: Option<ResMut<crate::script::ScriptState>>) {
+    use fnv_collide::anim::DoorPhase;
+    let Some(mut script) = script else { return };
+    let code = |d: &Door| match d.motion.phase {
+        DoorPhase::Open => 1,
+        DoorPhase::Opening => 2,
+        DoorPhase::Closed => 3,
+        DoorPhase::Closing => 4,
+    };
+    let Some(states) = script.rt.as_ref().map(|rt| &rt.game.senses.open_states) else { return };
+    if states.len() == doors.map.len() && doors.map.iter().all(|(&id, d)| states.get(&FormId(id)) == Some(&code(d))) {
+        return;
+    }
+    if let Some(rt) = script.rt.as_mut() {
+        rt.game.senses.open_states = doors.map.iter().map(|(&id, d)| (FormId(id), code(d))).collect();
     }
 }
 

@@ -120,6 +120,10 @@ fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptSt
     let Some(mut state) = state else { return };
     // Found before the game runs (the first frames): kept until it does, for the XP.
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    // The rules hear which markers are found (GetMapMarkerVisible), also after a load.
+    if rt.game.player.found_markers.len() != state.discovered().len() {
+        rt.game.set_found_markers(state.discovered().iter().map(|&f| FormId(f)));
+    }
     let found = state.take_newly_found();
     if found.is_empty() {
         return;
@@ -127,8 +131,8 @@ fn discover(state: Option<ResMut<DataState>>, mut script: Option<ResMut<ScriptSt
     let mut messages = messages;
     let xp = sim.forms.setting_f32("iXPRewardDiscoverMapMarker").map_or(DISCOVER_XP, |v| v as f64);
     for (form, name) in found {
-        info!("compass: discovered {name} ({}), +{xp} XP", FormId(form));
-        rt.game.player.xp += xp;
+        let gained = fnv_game::experience::award(&mut rt.game, fnv_game::experience::Source::Discovery, xp);
+        info!("compass: discovered {name} ({}), +{gained} XP", FormId(form));
         if let (Some(m), false) = (messages.as_deref_mut(), name.trim().is_empty()) {
             m.push(QuestNotice::Discovered(name));
         }

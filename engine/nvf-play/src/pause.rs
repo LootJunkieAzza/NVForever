@@ -86,10 +86,11 @@
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
 //! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page or
 //! the quit question), `back` (from the load or the settings page, or the question),
-//! `defaults` (the settings page's Defaults),
+//! `defaults` (the settings page's Defaults), `wheel-down`, `wheel-up` (a notch of the
+//! mouse wheel on the settings page or the Controls tab),
 //! `quit` (the question), `shot` (a screenshot `pause_<page>.png` in the working folder).
 
-use crate::interface::{bc_supported, u, Face};
+use crate::interface::{bc_supported, u, Face, Picture, Pictures};
 use crate::settings::{add_setting, Setting, Settings};
 use crate::start_menu::{color, highlight_colors, text as sm_text, wrapped, Faces, Shade, BASE, COLUMN, ITEM, LINE, RIGHT, SUB_RIGHT, SUB_WIDTH};
 use crate::{PlaySet, PlayState};
@@ -397,6 +398,10 @@ enum PauseButton {
     SliderStep(usize, i32),
     /// A slider's meter (its row): a press or drag sets the value under the pointer.
     Meter(usize),
+    /// The scroll bar's arrow: the rows it moves the list (-1 or 1).
+    ScrollStep(i32),
+    /// The scroll bar's track: a press or drag puts the marker under the pointer.
+    ScrollTrack,
     /// The settings page's Defaults.
     Defaults,
     /// From the settings or load page back to the first page.
@@ -477,6 +482,16 @@ fn control_rows(controller: bool) -> usize {
     rumble_row() + usize::from(controller)
 }
 const OPTION_ROW: f32 = 52.0;
+/// The scroll bar right of the settings page's rows when not all of them fit, 32 wide
+/// with 16-high arrows at its ends, its marker 6 wide, 12 in [design: as the barter
+/// menu's (`crate::menu::look`), from the game's `interface\shared\scrollbar` pictures].
+const BAR_W: f32 = 32.0;
+const BAR_ARROW: f32 = 16.0;
+const BAR_GAP: f32 = 4.0;
+const BAR_MARKER_MIN: f32 = 32.0;
+const BAR_PICTURES: [&str; 3] = ["interface\\shared\\scrollbar\\arrow_up.dds", "interface\\shared\\scrollbar\\arrow_down.dds", "interface\\shared\\scrollbar\\vert_marker.dds"];
+/// Mouse wheel movement counted in pixels (a touchpad): this many make a notch.
+const WHEEL_PIXELS: f32 = 20.0;
 const OPTIONS_WIDTH: f32 = 820.0;
 const OPTIONS_LEFT: f32 = -470.0;
 const VALUE_AT: f32 = 700.0;
@@ -544,6 +559,8 @@ struct PauseLook {
     /// The sliders' tick mark and arrows (left, right).
     tick: Option<Handle<Image>>,
     arrows: [Option<Handle<Image>>; 2],
+    /// The scroll bar's arrows (up, down) and marker.
+    bar: [Option<Picture>; 3],
 }
 
 impl PauseLook {
@@ -558,6 +575,10 @@ impl PauseLook {
                 screen: pic(SCREEN, &mut images),
                 tick: pic(TICK_TEXTURE, &mut images),
                 arrows: ARROW_TEXTURES.map(|a| pic(a, &mut images)),
+                bar: {
+                    let mut pictures = Pictures::load(data);
+                    BAR_PICTURES.map(|b| pictures.picture(b, data, &mut images, bc))
+                },
             };
             info!("pause menu: the original's look (band {}, pause screen {})", look.band.is_some(), look.screen.is_some());
             look
@@ -566,7 +587,7 @@ impl PauseLook {
 
     #[cfg(test)]
     fn plain() -> PauseLook {
-        PauseLook { faces: Faces::plain(), band: None, screen: None, tick: None, arrows: [None, None] }
+        PauseLook { faces: Faces::plain(), band: None, screen: None, tick: None, arrows: [None, None], bar: [None, None, None] }
     }
 }
 
@@ -580,6 +601,13 @@ struct PauseView {
     drawn: Option<Drawn>,
     /// The slider whose meter is being dragged (pressed and held).
     dragging: Option<usize>,
+    /// The settings page's (or the Controls tab's) first row shown, counted from its
+    /// category's first.
+    scroll: usize,
+    /// The scroll bar's marker is being dragged.
+    bar_dragging: bool,
+    /// The wheel's movement short of a notch.
+    wheel: f32,
 }
 
 /// Everything the page drawn shows: drawn again when it changes.
@@ -603,6 +631,8 @@ struct Drawn {
     device: (&'static str, bool),
     /// The controller rumbles.
     rumble: bool,
+    /// The settings page's first row shown ([`PauseView::scroll`]).
+    scroll: usize,
 }
 
 impl Drawn {
@@ -635,6 +665,36 @@ fn group_rows(list: &[Setting], selected: usize) -> std::ops::Range<usize> {
     let first = list.iter().position(|s| s.group == g).unwrap_or(0);
     let end = list.iter().rposition(|s| s.group == g).map_or(first, |i| i + 1);
     first..end
+}
+
+/// The first row shown of a list of `rows`, [`OPTION_ROWS`] at once: `first` moved as
+/// little as keeps `selected` in view.
+fn follow(first: usize, selected: usize, rows: usize) -> usize {
+    first.max((selected + 1).saturating_sub(OPTION_ROWS)).min(selected).min(rows.saturating_sub(OPTION_ROWS))
+}
+
+/// The height of the scroll bar's track, between its arrows.
+fn bar_track() -> f32 {
+    OPTION_ROWS as f32 * OPTION_ROW - 2.0 * BAR_ARROW
+}
+
+/// The scroll bar's marker for a list of `rows` from `first`: its top in the track and
+/// its height, or `None` when all the rows fit.
+fn bar_marker(rows: usize, first: usize) -> Option<(f32, f32)> {
+    let last = rows.checked_sub(OPTION_ROWS).filter(|l| *l > 0)?;
+    let track = bar_track();
+    let h = (track * OPTION_ROWS as f32 / rows as f32).clamp(BAR_MARKER_MIN, track);
+    Some((first.min(last) as f32 / last as f32 * (track - h), h))
+}
+
+/// The first row shown with the marker's middle at `y` down the track (0 its top, 1 its
+/// bottom).
+fn bar_first(rows: usize, y: f32) -> usize {
+    let Some((_, h)) = bar_marker(rows, 0) else { return 0 };
+    let last = rows - OPTION_ROWS;
+    let track = bar_track();
+    let at = ((y * track - h / 2.0) / (track - h)).clamp(0.0, 1.0);
+    ((at * last as f32).round() as usize).min(last)
 }
 
 pub struct PausePlugin;
@@ -776,7 +836,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
         }
         // The band behind a page's list.
         match d.page {
-            Page::Settings { .. } | Page::Controls { .. } => band(root, look, Node { top: u(0.0), height: Val::Percent(100.0), ..from_middle(OPTIONS_LEFT - BAND_MARGIN, 0.0, OPTIONS_WIDTH + 2.0 * BAND_MARGIN, 0.0) }),
+            Page::Settings { .. } | Page::Controls { .. } => band(root, look, Node { top: u(0.0), height: Val::Percent(100.0), ..from_middle(OPTIONS_LEFT - BAND_MARGIN, 0.0, OPTIONS_WIDTH + 2.0 * BAND_MARGIN + BAR_GAP + BAR_W, 0.0) }),
             Page::Load { .. } => band(root, look, Node { height: Val::Percent(100.0), ..from_right(RIGHT + COLUMN, 0.0, LOAD_WIDTH + BAND_MARGIN, 0.0) }),
             Page::Main => {}
         }
@@ -809,7 +869,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                 }
             }
             Page::Settings { selected } => settings_page(root, d, look, settings, selected, top),
-            Page::Controls { selected, listening } => controls_page(root, d, f, settings, selected, listening, top),
+            Page::Controls { selected, listening } => controls_page(root, d, look, settings, selected, listening, top),
             Page::Load { selected } => load_page(root, d, f, list, selected),
         }
         // Back (and Defaults) at the bottom right.
@@ -831,8 +891,9 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
         root.spawn(from_middle(OPTIONS_LEFT, top, OPTIONS_WIDTH, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, "Nothing to switch.", 10.0, BASE, color(Shade::Dim)));
     }
     let rows = group_rows(list, selected);
-    // A window of the group's rows round the chosen one.
-    let first = rows.start.max((selected + 1).saturating_sub(OPTION_ROWS)).min(rows.end.saturating_sub(OPTION_ROWS).max(rows.start));
+    // A window of the group's rows from the one scrolled to, the chosen one in it.
+    let first = rows.start + follow(d.scroll, selected.saturating_sub(rows.start), rows.len());
+    scroll_bar(root, look, rows.len(), first - rows.start, top);
     for (n, i) in (first..rows.end).take(OPTION_ROWS).enumerate() {
         let s = &list[i];
         let v = d.states.get(i).copied().unwrap_or(0.0);
@@ -872,13 +933,15 @@ fn category_column(root: &mut ChildSpawnerCommands, f: &Faces, list: &[Setting],
 /// The settings page's Controls tab: every control with its key and mouse button, a
 /// window of [`OPTION_ROWS`] round the chosen one, the chosen one's note under them.
 #[allow(clippy::too_many_arguments)]
-fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &[Setting], selected: usize, listening: bool, top: f32) {
+fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, list: &[Setting], selected: usize, listening: bool, top: f32) {
     use crate::bindings::{label, Bindings};
+    let f = &look.faces;
     category_column(root, f, list, None, top);
     let (device, controller) = d.device;
     let n = control_rows(controller);
     let selected = selected.min(n - 1);
-    let first = (selected + 1).saturating_sub(OPTION_ROWS).min(n.saturating_sub(OPTION_ROWS));
+    let first = follow(d.scroll, selected, n);
+    scroll_bar(root, look, n, first, top);
     for (row, i) in (first..n).take(OPTION_ROWS).enumerate() {
         let (name, value) = match control_at(i) {
             None if i == rumble_row() => (RUMBLE_ROW, (if d.rumble { "ON" } else { "OFF" }).to_string()),
@@ -919,6 +982,28 @@ fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &[
     let shown = (n - first).min(OPTION_ROWS) as f32;
     root.spawn(from_middle(OPTIONS_LEFT + 10.0, top + shown * OPTION_ROW + 20.0, OPTIONS_WIDTH - 20.0, 160.0)).with_children(|t| wrapped(t, &f.small, &note, OPTIONS_WIDTH - 20.0, 26.0, color(Shade::Bright)));
     version(root, f);
+}
+
+/// The scroll bar right of the rows when not all `rows` fit, from `first`: its arrows
+/// step the list, a press or drag on its track puts the marker there.
+fn scroll_bar(root: &mut ChildSpawnerCommands, look: &PauseLook, rows: usize, first: usize, top: f32) {
+    let Some((y, h)) = bar_marker(rows, first) else { return };
+    let bright = color(Shade::Bright);
+    let track = bar_track();
+    let piece = |p: &mut ChildSpawnerCommands, k: usize, node: Node, b: Option<PauseButton>| {
+        let mut e = match &look.bar[k] {
+            Some((image, rect)) => p.spawn((node, ImageNode { rect: *rect, color: bright, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) })),
+            None => p.spawn((node, BackgroundColor(bright.with_alpha(if k == 2 { 1.0 } else { 0.5 })))),
+        };
+        if let Some(b) = b {
+            e.insert((Button, b));
+        }
+    };
+    root.spawn(from_middle(OPTIONS_LEFT + OPTIONS_WIDTH + BAR_GAP, top, BAR_W, OPTION_ROWS as f32 * OPTION_ROW)).with_children(|p| {
+        piece(p, 0, at(0.0, 0.0, BAR_W, BAR_ARROW), Some(PauseButton::ScrollStep(-1)));
+        p.spawn((Button, PauseButton::ScrollTrack, RelativeCursorPosition::default(), at(0.0, BAR_ARROW, BAR_W, track))).with_children(|t| piece(t, 2, at(12.0, y, 6.0, h), None));
+        piece(p, 1, at(0.0, BAR_ARROW + track, BAR_W, BAR_ARROW), Some(PauseButton::ScrollStep(1)));
+    });
 }
 
 /// The version at the bottom left [observed: the original shows its own there].
@@ -1288,6 +1373,7 @@ fn choose(
                 *selected = *i;
                 view.dragging = Some(*i);
             }
+            (Interaction::Pressed, PauseButton::ScrollTrack, _) => view.bar_dragging = true,
             (Interaction::Pressed, ..) => clicked = Some(*b),
             (Interaction::Hovered, PauseButton::Switch(i), Page::Settings { selected }) if moved => *selected = *i,
             (Interaction::Hovered, PauseButton::ControlRow(i), Page::Controls { selected, .. }) if moved => *selected = *i,
@@ -1582,6 +1668,60 @@ fn choose(
             }
         }
     }
+    // The settings page's and the Controls tab's window of rows: the wheel, the scroll
+    // bar's arrows and its marker move it, and the choice with it where it would leave
+    // the window; else the window follows the choice.
+    let window = match *page {
+        Page::Settings { selected } => {
+            let r = group_rows(list, selected);
+            Some((r.len(), selected.saturating_sub(r.start)))
+        }
+        Page::Controls { selected, .. } => Some((control_rows(controller), selected)),
+        _ => None,
+    };
+    if let Some((n, sel)) = window.filter(|w| w.0 > 0) {
+        use bevy::input::mouse::MouseScrollUnit;
+        view.wheel += menu.scroll.as_ref().map_or(0.0, |s| match s.unit {
+            MouseScrollUnit::Line => s.delta.y,
+            MouseScrollUnit::Pixel => s.delta.y / WHEEL_PIXELS,
+        });
+        let notches = view.wheel.trunc();
+        view.wheel -= notches;
+        // The wheel turned down shows the rows further down.
+        let mut by = -(notches as i64) + i64::from(act("wheel-down")) - i64::from(act("wheel-up"));
+        if let Some(PauseButton::ScrollStep(s)) = clicked {
+            by += i64::from(s);
+        }
+        let last = n.saturating_sub(OPTION_ROWS);
+        let mut first = view.scroll.min(last);
+        let mut scrolled = by != 0;
+        if view.bar_dragging {
+            if mouse.pressed(MouseButton::Left) {
+                if let Some(p) = meters.iter().find(|(b, _)| **b == PauseButton::ScrollTrack).and_then(|(_, at)| at.normalized) {
+                    first = bar_first(n, p.y + 0.5);
+                    scrolled = true;
+                }
+            } else {
+                view.bar_dragging = false;
+            }
+        }
+        let sel = if scrolled {
+            first = (first as i64 + by).clamp(0, last as i64) as usize;
+            sel.clamp(first, (first + OPTION_ROWS).min(n) - 1)
+        } else {
+            first = follow(first, sel, n);
+            sel
+        };
+        if first != view.scroll {
+            info!("pause menu: rows {}-{} of {} shown", first + 1, (first + OPTION_ROWS).min(n), n);
+            view.scroll = first;
+        }
+        match &mut *page {
+            Page::Settings { selected } => *selected = group_rows(list, *selected).start + sel,
+            Page::Controls { selected, .. } => *selected = sel,
+            _ => {}
+        }
+    }
     if let Page::Load { selected } = *page {
         let SaveMenu { list, images, .. } = &mut menu;
         list.ensure_thumb(selected, images);
@@ -1652,6 +1792,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(c, _)| b.text_on(c)).collect()).unwrap_or_default(),
         device: world.get_resource::<crate::bindings::Bindings>().map_or(("Keyboard and Mouse", false), |b| (b.device.name(), b.device == crate::bindings::InputDevice::Controller)),
         rumble: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.rumble),
+        scroll: view.scroll,
     }
 }
 
@@ -1690,6 +1831,8 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
     view.drawn = None;
     view.confirm = None;
     view.dragging = None;
+    view.bar_dragging = false;
+    view.scroll = 0;
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -1772,6 +1915,34 @@ mod tests {
     }
 
     #[test]
+    fn the_window_moves_only_as_far_as_keeps_the_choice_in_view() {
+        // Down past the window's foot: it moves one row; back up inside it: it stays.
+        assert_eq!(follow(0, 8, 20), 0);
+        assert_eq!(follow(0, 9, 20), 1);
+        assert_eq!(follow(1, 5, 20), 1);
+        assert_eq!(follow(5, 2, 20), 2);
+        // Never past the last full window, nor anywhere when all rows fit.
+        assert_eq!(follow(15, 19, 20), 11);
+        assert_eq!(follow(3, 2, 6), 0);
+    }
+
+    #[test]
+    fn the_scroll_bar_shows_only_when_rows_are_hidden_and_its_marker_follows_the_list() {
+        assert_eq!(bar_marker(9, 0), None);
+        assert_eq!(bar_marker(4, 0), None);
+        let (top, h) = bar_marker(30, 0).unwrap();
+        assert_eq!(top, 0.0);
+        assert!((h - bar_track() * 9.0 / 30.0).abs() < 1e-3);
+        let (end, _) = bar_marker(30, 21).unwrap();
+        assert!((end + h - bar_track()).abs() < 1e-3);
+        // A press at the track's ends scrolls to the list's ends, its middle halfway.
+        assert_eq!(bar_first(30, 0.0), 0);
+        assert_eq!(bar_first(30, 1.0), 21);
+        assert_eq!(bar_first(30, 0.5), 11);
+        assert_eq!(bar_first(5, 0.7), 0);
+    }
+
+    #[test]
     fn a_new_save_takes_the_next_number() {
         assert_eq!(next_save_name([]), "Save 1");
         assert_eq!(next_save_name(["quicksave", "Save 2", "Save 10", "Save x", "autosave"]), "Save 11");
@@ -1800,7 +1971,7 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true };
+        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true, scroll: 0 };
         app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list), drawn).unwrap();
         let world = app.world_mut();
         let mut rows = world.query::<(&PauseButton, &BorderColor)>();

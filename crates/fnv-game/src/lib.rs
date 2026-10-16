@@ -48,6 +48,7 @@ pub mod data;
 pub mod detection;
 pub mod followers;
 pub mod dialogue;
+pub mod experience;
 pub mod functions;
 pub mod hacking;
 pub mod game;

@@ -210,11 +210,13 @@ impl Game<'_> {
         self.extra.get(&r).and_then(|e| e.essential).unwrap_or_else(|| self.base_data_def(r).is_some_and(|d| d.essential))
     }
 
-    /// Whether the actor takes no damage: its race has the Child flag, or the creature is
-    /// Invulnerable.
+    /// Whether the actor takes no damage: its race has the Child flag, the creature is
+    /// Invulnerable, or a script made it a ghost (SetGhost: "cannot be harmed by a weapon
+    /// or spell/magic effect in any way" [documented: GECK wiki SetGhost notes]).
     pub fn is_immune(&self, r: FormId) -> bool {
         let invulnerable = self.base_data_def(r).is_some_and(|d| d.invulnerable);
-        invulnerable || self.traits_def(r).and_then(|d| d.race).is_some_and(|race| self.data.child_races.contains(&race))
+        let ghost = self.extra.get(&r).is_some_and(|e| e.ghost);
+        invulnerable || ghost || self.traits_def(r).and_then(|d| d.race).is_some_and(|race| self.data.child_races.contains(&race))
     }
 
     /// A creature's own attack: its damage (CREA DATA Damage) and its reach (RNAM Attack
@@ -312,7 +314,7 @@ impl Game<'_> {
                 self.extra.entry(target).or_default().unconscious = true;
             } else if self.kill(target, caster) && caster == Some(FormId::PLAYER_REF) {
                 let xp = self.kill_xp(target);
-                self.player.xp += xp;
+                crate::experience::award(self, crate::experience::Source::Kill, xp);
             }
         }
     }
@@ -355,8 +357,8 @@ impl Game<'_> {
             } else {
                 out.died = self.kill(target, info.attacker);
                 if out.died && info.attacker == Some(FormId::PLAYER_REF) {
-                    out.xp = self.kill_xp(target);
-                    self.player.xp += out.xp;
+                    let xp = self.kill_xp(target);
+                    out.xp = crate::experience::award(self, crate::experience::Source::Kill, xp);
                 }
             }
         }
@@ -396,11 +398,40 @@ impl Game<'_> {
         }
     }
 
-    /// Tell the scripts whether an actor has its weapon out (IsWeaponOut).
+    /// Tell the scripts whether an actor has its weapon out (IsWeaponOut). The animating
+    /// side tells it every frame for the actors it draws; for the others the rule decides
+    /// ([`Game::wants_weapon_out`]).
     pub fn set_weapon_out(&mut self, actor: FormId, out: bool) {
+        self.senses.weapon_told.insert(actor, self.time);
         if self.extra.get(&actor).is_some_and(|e| e.weapon_out) != out {
             self.extra.entry(actor).or_default().weapon_out = out;
         }
+    }
+
+    /// Tell the scripts the special animation action an actor is doing (GetAnimAction's
+    /// code), `None` for none; told with [`Game::set_weapon_out`].
+    pub fn set_anim_action(&mut self, actor: FormId, action: Option<i32>) {
+        match action {
+            Some(a) => {
+                self.senses.anim_actions.insert(actor, a);
+            }
+            None => {
+                self.senses.anim_actions.remove(&actor);
+            }
+        }
+    }
+
+    /// Whether an actor wants its weapon out: alerted (SetAlert, or fighting), its
+    /// package's Weapon Drawn flag, or a scripted weapon use (UseWeapon); never under its
+    /// package's Weapons Unequipped flag while it does not fight. The rule the engine
+    /// draws and holsters NPCs' weapons by (`nvforever` alert.rs), kept here so that
+    /// IsWeaponOut answers for actors the engine does not draw [engineering choice; the
+    /// flags' meanings: docs/spec-notes/packages.md].
+    pub fn wants_weapon_out(&self, actor: FormId) -> bool {
+        use crate::package::flags;
+        let fighting = self.awareness.state(actor).in_combat();
+        let unequipped = !fighting && self.package_has(actor, flags::WEAPONS_UNEQUIPPED);
+        !unequipped && (self.is_alerted(actor) || self.package_has(actor, flags::WEAPON_DRAWN) || self.active_weapon_use(actor).is_some())
     }
 
     /// Lower a limb's condition by a hit (see the module notes): its condition after, and

@@ -224,7 +224,8 @@ the compass the eight directions' letters in Bevy's font.
   condition bar).
 - Compass markers: quest targets, places, the player's own marker, actors nearby.
 - The compass's faded ends.
-- The messages at the top left with their icons, subtitles, the XP bar, the radiation meter, the breath meter, the crippled-limb
+- The XP meter is built: experience.md (`xp_meter.rs`).
+- The messages at the top left with their icons, subtitles, the radiation meter, the breath meter, the crippled-limb
   picture, the armour-piercing icons, the ammo type's label, Hardcore mode's words.
   (The crosshair and the prompt under it are drawn as the original's: `reticle.md`.)
   The developer's stand-ins for some of these (`activate.rs`, `combat.rs`,

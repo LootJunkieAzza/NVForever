@@ -1108,6 +1108,39 @@ fn a_skill_line_is_tagged_and_routed_by_its_conditions() {
     assert_eq!(c.challenge.unwrap().have, Some(other));
 }
 
+/// A New Vegas skill line gives no XP of its own (its result script would); a Fallout 3
+/// style speech challenge (the flag and a difficulty) gives `iXPRewardSpeechChallenge
+/// <class>` when it is said, nothing for a class no setting gives
+/// (docs/spec-notes/experience.md §2).
+#[test]
+fn a_speech_challenge_gives_its_xp_and_a_skill_line_none() {
+    let mut f = fixture();
+    let skill_xp = {
+        let mut g = at_topic_list(&f);
+        fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, SPEECH as u16, 60.0).unwrap();
+        pick(&mut g, T_TOP2);
+        listen(&mut g);
+        assert_eq!(pick(&mut g, T_SKILL), FormId(H_PASS));
+        g.player.xp
+    };
+    assert_eq!(skill_xp, 0.0);
+    let mut challenge = |difficulty: u32| {
+        let line = f.data.infos.get_mut(&FormId(H_PASS)).unwrap();
+        line.flags |= info_flag::SPEECH_CHALLENGE;
+        line.challenge_difficulty = Some(difficulty);
+        let mut g = at_topic_list(&f);
+        fnv_game::functions::set_actor_value_current(&mut g, FormId::PLAYER_REF, SPEECH as u16, 60.0).unwrap();
+        pick(&mut g, T_TOP2);
+        listen(&mut g);
+        assert_eq!(pick(&mut g, T_SKILL), FormId(H_PASS));
+        g.player.xp
+    };
+    // Very Easy: the master's 5 (the default here, the test plugin sets none).
+    assert_eq!(challenge(1), 5.0);
+    // Hard (the masters' three lines): no setting, nothing.
+    assert_eq!(challenge(4), 0.0);
+}
+
 #[test]
 fn start_conversation_and_the_dialogue_functions() {
     let f = fixture();

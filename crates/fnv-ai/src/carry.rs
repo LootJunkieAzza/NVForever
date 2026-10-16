@@ -636,8 +636,11 @@ impl Ai {
 
     /// One update of one actor (see [`Ai::step`]).
     pub(crate) fn step_actor(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, open: &mut dyn Mover, quiet: bool) {
-        // SetActorsAI 0: no packages, no walking, until it is switched on again.
-        if !game.present(actor) || game.extra.get(&actor).is_some_and(|e| e.dead) || game.ai_off(actor) || self.agents[&actor].rooted {
+        // SetActorsAI 0: no packages, no walking, until it is switched on again. A
+        // restrained actor stays in place though it still thinks and talks [documented:
+        // catalogue summary of SetRestrained]; an unconscious one does nothing [hypothesis].
+        let held = game.extra.get(&actor).is_some_and(|e| e.dead || e.restrained || e.unconscious);
+        if !game.present(actor) || held || game.ai_off(actor) || self.agents[&actor].rooted {
             return;
         }
         let current = game.current_package(actor);

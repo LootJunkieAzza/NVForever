@@ -169,11 +169,18 @@ impl Plugin for ChargenPlugin {
         app.init_resource::<ChargenMenus>()
             .insert_resource(ChargenAid(aid))
             .add_plugins(vigor::VigorPlugin)
-            .add_systems(Update, (sync, input, draw_menus).chain().in_set(PlaySet::Ui));
+            .add_systems(Update, (sync, input, draw_menus).chain().in_set(ChargenSet).in_set(PlaySet::Ui));
     }
 }
 
 /// Open the menu the scripts opened, close the one they closed.
+/// The character menus' systems. The level-up menu's run after them, so a menu its Done
+/// opens in its place (Intense Training's attributes page) opens on the next frame,
+/// after the scripts have run the perk's stage (left unordered, the order changed when
+/// other plugins were added: the `levelup-menu` smoke test, 2026-10-16).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ChargenSet;
+
 fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>) {
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
     let code = open_code(&script).filter(|&c| has_own_menu(c) && c != menus::LOVE_TESTER);
