@@ -976,6 +976,9 @@ expect = [
   { re = 'talk gesture: GSJoeCobbRef listens \(TrudyRef, line 0x00105218 .* by DialogueIdles > NPCtoNPC > NPCListening > ', label = "Joe Cobb listens to Trudy's answer" },
   { re = 'idle: TrudyRef plays LooseStandingArmsFolded .*\(Listener\)', label = "Trudy's line idles (LNAM, SNAM) play instead of gestures" },
   { re = 'talk gesture: TrudyRef ', count = 0, label = "no gesture for Trudy while her own line idles play" },
+]
+
+[[scenario]]
 name = "furniture-fidgets-tree"
 kind = "tool"
 source = "docs/spec-notes/furniture.md §8: the IDLE tree's fidgets on furniture, headless: a man on a chair relaxes (SitChairRelaxIdleA/B/C), a woman sits as women do (ChairFemaleSittingA), the player in third person has the player's relax idles and none in first person, a man in bed stirs (BedStirInSleepA/B/C), a bar stool gives none (the tree has only talk, food and gambling there)"
