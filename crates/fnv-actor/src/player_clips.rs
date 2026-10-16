@@ -126,7 +126,7 @@ pub fn move_clips(stance: Stance, female: bool, fast: bool, dir: Dir, drawn: Opt
 /// [`move_clips`] [observed: both human folders have the four directions walking and
 /// running for `mt`, `1hm` and `1hp`, `_male` also `h2hforward_hurt.kf`; design: a
 /// weapon without limping clips limps with the unarmed legs and holds the weapon by its
-/// aim clip, as it does where it has no movement clips; docs/spec-notes/actors.md §8.10].
+/// aim clip, as it does where it has no movement clips; docs/spec-notes/actors.md §8.11].
 pub fn limping_move_clips(female: bool, fast: bool, dir: Dir, drawn: Option<&str>) -> Vec<String> {
     let f = if fast { "fast" } else { "" };
     let d = dir.name();

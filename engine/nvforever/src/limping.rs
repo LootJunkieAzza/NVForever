@@ -6,7 +6,7 @@
 //!
 //! - **Which clips**: people use `characters\_male\locomotion\hurt\` (walk and run in four
 //!   directions, the idle and the turns); 30 creature folders have their own, mostly the
-//!   walk and run forward and the walk back (docs/spec-notes/actors.md §8.10) [observed].
+//!   walk and run forward and the walk back (docs/spec-notes/actors.md §8.11) [observed].
 //!   A move the folder has no clip for keeps its standing clip. Skeletons without the
 //!   folder (nightstalker, bighorner, the Old World Blues and Dead Money robots and
 //!   ghosts) do not limp.

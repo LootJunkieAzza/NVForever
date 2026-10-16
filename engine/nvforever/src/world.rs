@@ -225,7 +225,7 @@ pub fn stream(
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     let frame_start = std::time::Instant::now();
-    let behind_screen = loading.is_some_and(|l| l.active());
+    let behind_screen = loading.is_some_and(|l| l.unseen_frames());
     let mut actors = actor_world.as_deref().map(|w| (w, &mut *actor_parts));
     if let Some(id) = streamer.interior {
         if streamer.loaded.is_empty() {

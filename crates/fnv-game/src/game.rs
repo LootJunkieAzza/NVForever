@@ -57,6 +57,7 @@ pub mod event {
     pub const ON_HIT: u16 = 0x08;
     pub const ON_HIT_WITH: u16 = 0x09;
     pub const ON_DEATH: u16 = 0x0A;
+    pub const ON_COMBAT_END: u16 = 0x0C;
     pub const ON_PACKAGE_START: u16 = 0x0F;
     pub const ON_PACKAGE_DONE: u16 = 0x10;
     pub const ON_PACKAGE_CHANGE: u16 = 0x14;
@@ -67,6 +68,8 @@ pub mod event {
     pub const ON_DESTRUCTION_STAGE_CHANGE: u16 = 0x23;
     pub const ON_FIRE: u16 = 0x24;
     pub const ON_TRIGGER: u16 = 0x18;
+    pub const ON_START_COMBAT: u16 = 0x19;
+    pub const ON_RESET: u16 = 0x1E;
     pub const ON_TRIGGER_ENTER: u16 = 0x1A;
     pub const ON_TRIGGER_LEAVE: u16 = 0x1B;
 }
@@ -170,6 +173,10 @@ pub struct RefExtra {
     pub marked_for_delete: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub teammate: bool,
+    /// SetCombatStyle's combat style for this reference, over its base form's
+    /// (`Game::combat_style`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub combat_style: Option<FormId>,
     /// SetAlert's alerted animation state (weapon drawn) [documented: GECK wiki SetAlert,
     /// savebaked].
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
@@ -428,6 +435,11 @@ pub struct PlayerState {
     pub female: Option<bool>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub tag_skills: BTreeSet<u16>,
+    /// The points spent on each skill in the level-up menu (`crate::levelup`), added to
+    /// the skill's formula [documented: GECK wiki ActorValue, the player's spent skill
+    /// points sit on top of the derived base; docs/spec-notes/levelup.md §4].
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub skill_points: BTreeMap<u16, f64>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub achievements: BTreeSet<i32>,
     /// Actors killed, by base form (GetDeadCount).
@@ -532,6 +544,9 @@ pub mod menus {
     pub const LOVE_TESTER: u16 = 1074;
     /// The trait menu (ShowTraitMenu).
     pub const TRAITS: u16 = 1084;
+    /// The level-up menu (AdvancePCLevel; `crate::levelup`) [documented: GECK wiki
+    /// MenuMode, the example "if MenuMode 1027 ; level-up menu is active"; not captured].
+    pub const LEVEL_UP: u16 = 1027;
     /// The lockpicking menu [documented: GECK wiki GetMenuTargetRef, owner export: "1014
     /// The door/container being picked"].
     pub const LOCKPICK: u16 = 1014;
@@ -654,6 +669,10 @@ pub struct Game<'a> {
     /// The idle animations actors were asked to play (`crate::idles::IdleRequest`), for
     /// the layer that animates actors to take.
     pub idle_requests: Vec<crate::idles::IdleRequest>,
+    /// Actors' weapon uses (`crate::use_weapon`: UseWeapon, Use Weapon packages), and
+    /// the last number given to one. Not part of the saved state.
+    pub weapon_uses: BTreeMap<FormId, crate::use_weapon::WeaponUse>,
+    pub weapon_use_seq: u64,
     /// The sounds scripts asked for (`crate::sound::SoundRequest`), for the engine to
     /// take. Not part of the saved state.
     pub sound_requests: Vec<crate::sound::SoundRequest>,
@@ -664,6 +683,9 @@ pub struct Game<'a> {
     /// `crate::functions::misc::swap_texture`), for the engine to draw. Not part of the
     /// saved state.
     pub texture_swaps: crate::functions::misc::TextureSwaps,
+    /// Effect shaders and actor alpha scripts asked for (`crate::functions::misc::ScriptLooks`),
+    /// for the engine to draw. Not part of the saved state.
+    pub script_looks: crate::functions::misc::ScriptLooks,
     /// Animation groups scripts asked objects to play, and what the engine reports they
     /// play (`crate::anims`). Not part of the saved state.
     pub anims: crate::anims::ObjectAnims,
@@ -700,6 +722,9 @@ pub struct Game<'a> {
     /// Fights started by being hit, friendly hits, yields and allies joining
     /// (`crate::provocation`). Not part of the saved state.
     pub provocations: crate::provocation::Provocations,
+    /// Combat-tab lines: attack timers, health marks, DeathResponse lines due
+    /// (`crate::combat_lines`). Not part of the saved state.
+    pub combat_lines: crate::combat_lines::CombatLines,
     /// What switched radio receivers on and off (`crate::radio`); the engine plays the
     /// stations. Not part of the saved state.
     pub radio: crate::radio::Radios,
@@ -743,6 +768,14 @@ pub struct Game<'a> {
     /// References Rotate turned in the latest [`Game::tick`], for the engine to draw at
     /// their new angle. Not saved.
     pub turned: BTreeSet<FormId>,
+    /// Actors whose OnStartCombat block was fired and whose OnCombatEnd was not yet
+    /// (`Game::combat_blocks`). Not saved, as the combat states are not [documented:
+    /// GECK wiki event handler table, OnStartCombat does not run again on loading a save
+    /// with combat already going].
+    pub fighting: BTreeSet<FormId>,
+    /// The target of the condition list being evaluated ([`Game::conditions_pass`]), for
+    /// the functions that ask for it (Exists). Not saved.
+    pub condition_target: Option<FormId>,
     /// Cell resets since the engine last took them ([`Game::take_cell_resets`],
     /// `crate::respawn`). Not saved.
     pub cell_resets: Vec<crate::respawn::CellReset>,
@@ -922,9 +955,12 @@ impl<'a> Game<'a> {
             toggles: Default::default(),
             combat_requests: Vec::new(),
             idle_requests: Vec::new(),
+            weapon_uses: BTreeMap::new(),
+            weapon_use_seq: 0,
             sound_requests: Vec::new(),
             music_requests: Vec::new(),
             texture_swaps: Default::default(),
+            script_looks: Default::default(),
             anims: Default::default(),
             barter_requests: Vec::new(),
             recipe_requests: Vec::new(),
@@ -935,6 +971,7 @@ impl<'a> Game<'a> {
             detection: Default::default(),
             awareness: Default::default(),
             provocations: Default::default(),
+            combat_lines: Default::default(),
             radio: Default::default(),
             terminals: Default::default(),
             locks: Default::default(),
@@ -956,6 +993,8 @@ impl<'a> Game<'a> {
             rotations: BTreeMap::new(),
             turned: BTreeSet::new(),
             cell_resets: Vec::new(),
+            fighting: BTreeSet::new(),
+            condition_target: None,
             menu: None,
             loading: false,
             message_box: None,
@@ -1349,6 +1388,7 @@ impl<'a> Game<'a> {
                 self.ref_event(r, event::ON_LOAD, None, None);
             }
         }
+        self.combat_blocks();
         let ev = if in_menu { event::MENU_MODE } else { event::GAME_MODE };
         let subject = self.open_menu_code().map(|m| Value::Num(m as f64));
         let data = self.data;
@@ -1706,10 +1746,12 @@ impl<'a> Game<'a> {
         let mut ended = Vec::new();
         let mut cut = Vec::new();
         self.speech_responses();
+        // A Death line goes on after its speaker died (`crate::combat_lines`).
+        let death = self.data.by_edid("Death");
         for s in &mut self.speech {
             s.remaining -= dt;
             let here = self.world.peek(s.speaker).is_none_or(|w| !w.deleted) && self.world.is_enabled(s.speaker).unwrap_or(false);
-            if !here || self.extra.get(&s.speaker).is_some_and(|e| e.dead) {
+            if !here || (self.extra.get(&s.speaker).is_some_and(|e| e.dead) && Some(s.topic) != death) {
                 cut.push(s.speaker);
             } else if s.remaining <= 1e-9 {
                 ended.push((s.speaker, s.info));
@@ -1755,6 +1797,7 @@ impl<'a> Game<'a> {
             // tutorials, docs/spec-notes/level-design.md §11.2 D1].
             self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
         }
+        self.combat_lines_tick();
     }
 
     /// `r` was enabled: when it is in a loaded cell and its script has an OnLoad block,
@@ -1831,10 +1874,13 @@ impl<'a> Game<'a> {
         // Cells left start their reset clock; cells entered whose clock ran out are reset
         // before anything in them runs (`crate::respawn`).
         self.cells_left(&left);
-        for &c in &new {
-            self.cell_entered(c);
-        }
+        let reset: Vec<FormId> = new.iter().copied().filter(|&c| self.cell_entered(c).is_some()).collect();
         self.loaded_cells = cells;
+        // The references of a reset cell run their OnReset blocks, before OnLoad
+        // (`crate::respawn`).
+        for c in reset {
+            self.cell_reset_blocks(c);
+        }
         // Actors of the new cells choose their package at the next tick.
         self.package_scan_due = 0.0;
         for c in new {
@@ -2217,6 +2263,7 @@ impl<'a> Game<'a> {
             return true;
         }
         let mut results = Vec::with_capacity(conds.len());
+        let outer = std::mem::replace(&mut self.condition_target, target);
         for c in conds {
             let on = match c.run_on {
                 RunOn::Subject => subject,
@@ -2233,6 +2280,7 @@ impl<'a> Game<'a> {
             };
             results.push((c.cmp.test(v, rhs), c.or));
         }
+        self.condition_target = outer;
         cond::combine(&results)
     }
 

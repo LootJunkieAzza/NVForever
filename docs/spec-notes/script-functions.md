@@ -133,6 +133,14 @@ Named from the aligned `Begin <Name>` line. "Scripts" counts how many use each c
 | 0x12 | ScriptEffectFinish | 57 | 0x23 | OnDestructionStageChange | 16 |
 | | | | 0x24 | OnFire | 6 |
 
+OnStartCombat, OnCombatEnd and OnReset are fired since 2026-10-16
+(docs/design/script-stubs.md §3.6): OnStartCombat with the actor's combat target as its
+subject, when it reaches Combat; OnCombatEnd when it is back to Normal; OnReset on the
+scripted references of a cell that resets [documented: GECK wiki event handler table,
+OnStartCombat "Target, Starter", OnCombatEnd "Target, Ender", OnReset "WhatsReset"; GECK
+wiki Reference, a cell's reset triggers its references' OnReset blocks; hypothesis: the
+moments in the fight].
+
 Codes 0x0B, 0x0D, 0x0E and 0x1D are not used by any shipped script. Their block names are
 unknown; do not guess them.
 

@@ -54,6 +54,8 @@ pub enum CombatRequest {
     /// Set off the placed explosives of this actor that detonate
     /// (`DetonatePlacedExplosives`).
     Detonate(FormId),
+    /// `from` fires one shot of `weapon` from its centre, straight ahead (`FireWeapon`).
+    Fire { from: FormId, weapon: FormId },
 }
 
 /// What damage did to a destructible reference (step C7).
@@ -245,6 +247,7 @@ impl Game<'_> {
         if let Some(e) = self.extra.get_mut(&r) {
             e.teammate = false;
         }
+        self.death_line(r, killer);
         true
     }
 
@@ -290,6 +293,12 @@ impl Game<'_> {
                     self.player.xp += out.xp;
                 }
             }
+        }
+        // What the target says (`crate::combat_lines`): Death was said by `kill`.
+        if out.knocked_out {
+            self.combat_line(target, info.attacker, "KOed");
+        } else if !out.died {
+            self.hit_lines(target, info.attacker, before, health, max_health, out.crippled);
         }
         out
     }

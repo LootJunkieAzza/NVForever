@@ -99,6 +99,9 @@ the view's height, from the top left of a 1024 × 800 rectangle centred on the s
   it; an untagged one is tagged while fewer than three are [observed: the owner's
   screenshots, 2/3 then 3/3]. Reset goes back to the opening state [hypothesis].
 
+- **The attributes page**: the same file's attribute rows, which AddSPECIALPoints opens
+  (Intense Training): levelup.md §8.
+
 ## 4. The trait menu (1084)
 
 [documented: trait_menu.xml unless tagged]

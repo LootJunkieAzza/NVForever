@@ -29,7 +29,7 @@
 use crate::detection::{Band, Detection};
 use crate::functions::actor::{actor_value, faction_relation, factions_of};
 use crate::functions::{none, yes, Args, Ctx};
-use crate::game::Game;
+use crate::game::{event, Game};
 use crate::package::flags;
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
@@ -477,7 +477,7 @@ impl Awarenesses {
 }
 
 /// Where a reference is now, game space.
-fn position(g: &Game, r: FormId) -> Option<[f32; 3]> {
+pub(crate) fn position(g: &Game, r: FormId) -> Option<[f32; 3]> {
     g.world.peek(r).map(|s| s.pos).or_else(|| g.world.placed.get(r).map(|p| p.pos))
 }
 
@@ -795,6 +795,44 @@ impl Game<'_> {
             if a.state != State::Normal {
                 self.awareness.changes.push(Change { actor, from: a.state, to: State::Normal, time: self.time, about: None, cause: None, at: None, value: None });
             }
+        }
+    }
+}
+
+impl Game<'_> {
+    /// The OnStartCombat and OnCombatEnd blocks, run at the start of each
+    /// [`Game::tick`] for the changes of state since the last one:
+    ///
+    /// - an actor that reaches Combat runs OnStartCombat with its combat target as the
+    ///   block's subject (`Begin OnStartCombat player` runs only when it fights the
+    ///   player) [documented: GECK wiki event handler table, OnStartCombat's Target and
+    ///   Starter; observed: 86 of the 140 OnStartCombat blocks of the six masters name
+    ///   the player, the rest nothing or one Dead Money actor, decompiled];
+    /// - one that then goes back to Normal runs OnCombatEnd [documented: the table's
+    ///   OnCombatEnd, Target and Ender]. Losing the target and searching (Lost) and
+    ///   finding it again is the same fight [hypothesis]: the blocks run once a fight;
+    /// - Alert alone (noticed, not fighting) runs neither [hypothesis: Alert has no
+    ///   target to start combat with];
+    /// - an actor that dies or is disabled while fighting runs no OnCombatEnd
+    ///   [hypothesis: OnDeath tells the end].
+    pub fn combat_blocks(&mut self) {
+        let started: Vec<(FormId, Option<FormId>)> = self
+            .awareness
+            .actors
+            .iter()
+            .filter(|(id, a)| a.state == State::Combat && !self.fighting.contains(id))
+            .map(|(id, a)| (*id, a.combat_target().map(|(t, _)| t)))
+            .collect();
+        let ended: Vec<FormId> = self.fighting.iter().copied().filter(|id| self.awareness.state(*id) == State::Normal).collect();
+        for r in ended {
+            self.fighting.remove(&r);
+            if !self.is_dead(r) && self.world.is_enabled(r).unwrap_or(false) {
+                self.ref_event(r, event::ON_COMBAT_END, None, None);
+            }
+        }
+        for (r, target) in started {
+            self.fighting.insert(r);
+            self.ref_event(r, event::ON_START_COMBAT, target.map(|t| Value::Ref(t.0)), target);
         }
     }
 }

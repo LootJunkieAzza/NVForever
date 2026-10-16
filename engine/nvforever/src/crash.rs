@@ -106,7 +106,9 @@ fn ended_abnormally(text: &str) -> bool {
 
 /// Open the run log and set the panic hook. Call first thing in `main`; afterwards the
 /// log plugin takes [`file_layer`]. Failing to open the log only costs the file.
-pub fn install(data: &Path) {
+/// `previous_running`: the run before this one is still going (it handed a load over to
+/// this one, handoff.rs), so its unfinished log is no sign of a crash.
+pub fn install(data: &Path, previous_running: bool) {
     let _ = COMMAND.set(std::env::args().collect::<Vec<_>>().join(" "));
     let dir = match logs_dir(data) {
         Ok(d) => d,
@@ -135,7 +137,7 @@ pub fn install(data: &Path) {
     set_hook();
     test_panic();
     // Said once the log plugin is up (`report_start`).
-    let unclean = previous.filter(|p| std::fs::read_to_string(p).is_ok_and(|t| ended_abnormally(&t)));
+    let unclean = previous.filter(|p| !previous_running && std::fs::read_to_string(p).is_ok_and(|t| ended_abnormally(&t)));
     let _ = UNCLEAN.set(unclean);
 }
 

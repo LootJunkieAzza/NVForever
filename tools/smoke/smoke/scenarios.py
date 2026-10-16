@@ -20,7 +20,7 @@ from .expect import Expect, ScenarioError
 GAME, TOOL = "game", "tool"
 SCENARIO_KEYS = {
     "name", "kind", "source", "areas", "paths", "args", "run_seconds", "env", "launch", "offset",
-    "expect", "order", "forbid", "manual", "requires", "commands", "exit", "note", "timeout",
+    "expect", "order", "forbid", "manual", "requires", "commands", "exit", "note", "timeout", "ends",
 }
 
 
@@ -59,6 +59,7 @@ class Scenario:
     exit: int = 0
     note: str = ""
     timeout: float = 0.0  # seconds; 0 = derived from run_seconds
+    ends: str = "run finished"  # game scenarios: the line the run ends with (always expected)
 
     def all_expectations(self):
         yield from self.expect
@@ -103,6 +104,7 @@ def parse_scenario(d: dict) -> Scenario:
     s.args = [str(a) for a in d.get("args", [])]
     s.run_seconds = float(d.get("run_seconds", 0))
     s.env = {k: str(v) for k, v in d.get("env", {}).items()}
+    s.ends = str(d.get("ends", s.ends))
     s.offset = float(d.get("offset", 0))
     s.requires = list(d.get("requires", []))
     s.commands = [[str(a) for a in c] for c in d.get("commands", [])]
@@ -119,8 +121,9 @@ def parse_scenario(d: dict) -> Scenario:
             raise ScenarioError(f"{name}: a game scenario needs run_seconds")
         if any(a.startswith("--run-seconds") or a == "--data" for a in s.args):
             raise ScenarioError(f"{name}: give run_seconds as its own key and leave --data to the runner")
-        # Every unattended run ends with this line (nvforever main.rs); always expected.
-        s.expect.insert(0, Expect.parse("run finished"))
+        # Every unattended run ends with this line (nvforever main.rs), or with the one the
+        # scenario names for a run that ends another way (`ends`); always expected.
+        s.expect.insert(0, Expect.parse(s.ends))
     elif not s.commands:
         raise ScenarioError(f"{name}: a tool scenario needs commands")
     if not s.paths and not s.areas:

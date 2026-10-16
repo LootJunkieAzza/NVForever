@@ -8,7 +8,9 @@
 //! settings pages and its quit question, C:\fnv-private\Pause Menu; start_menu.xml]: the
 //! pause screen over the held world, the column of entries at the right (Continue, Save,
 //! Load, Settings, Quit; the original's Help is left out), the highlight box round the
-//! chosen one. A page opened from the column dims the column but for its own entry.
+//! chosen one. A page opened from the column dims the column but for its own entry; a
+//! click on that entry again closes the page (back to the column), and a click on Quit
+//! while its question is up cancels it [owner 2026-10-16: the entries toggle their page].
 //! Up/Down choose, Enter or Space take, a click takes, the pointer chooses the entry it
 //! moves onto; Esc resumes; N saves, L opens the load page, S the settings, Q the quit
 //! question.
@@ -30,8 +32,19 @@
 //! right, the version at the bottom left. Up/Down (or W/S) choose a row within the
 //! category, Tab or Page Down the next category (Page Up the one before), a click on a
 //! category shows it; Enter, Space, Left or Right flip the row, as does a click on it; a
-//! flip acts at once. Defaults puts back every switch as it was when the page was first
-//! shown in this run (as the command line left it). Esc or Backspace go back.
+//! flip acts at once and is kept in `NVForever.ini` (`crate::settings`). Defaults puts
+//! back every switch as the command line left it before the INI was read
+//! (`crate::settings::StartStates`; without it, as the page was first shown in this run).
+//! Esc or Backspace go back.
+//!
+//! **The Controls tab**, the settings page's last category [design; owner 2026-10-16:
+//! keys can be mapped from the settings], lists every control of `crate::bindings` with
+//! its key and mouse button. Up/Down (W/S) choose; Enter, Space or a click on a row make
+//! it wait for its new key ("Press a key..."): the next key or mouse button pressed is
+//! bound (`crate::bindings::rebind`: a control that had it gets the old one), Esc
+//! cancels. Delete clears the row's key; Defaults puts back the game's keys. Each change
+//! acts at once and is kept in `[Controls]` of `NVForever.ini`. Tab after the last
+//! category goes to Controls and from there to the first again.
 //!
 //! **Quit** asks first [observed: the original's question and its choices]: Main Menu
 //! (nvforever starts again with `--menu`, [`MainMenuRequest`]), Exit Game, Cancel.
@@ -56,10 +69,13 @@
 //! first time (as Esc) and resumes at the second (as Esc again, from either page), on
 //! the aids' clock. `NVF_PLAY_TEST_SETTINGS=<seconds>:<key>[,…]`: at each time, with the
 //! pause menu open, shows the settings page and flips the switch of that key (as a
-//! click on its row); the key `page` only shows the page.
+//! click on its row); the key `page` only shows the page, `controls` the Controls tab,
+//! and `bind:<control>=<input>` (INI names, e.g. `bind:Jump=J`) binds a control there as
+//! Enter on its row and that key would.
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
 //! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page or
 //! the quit question), `back` (from the load or the settings page, or the question),
+//! `defaults` (the settings page's Defaults),
 //! `quit` (the question), `shot` (a screenshot `pause_<page>.png` in the working folder).
 
 use crate::interface::{bc_supported, u, Face};
@@ -219,6 +235,12 @@ pub enum Page {
     Load {
         selected: usize,
     },
+    /// The settings page's Controls tab: the chosen control (index in
+    /// `crate::bindings::GAME_CONTROLS`), and whether it waits for its new key.
+    Controls {
+        selected: usize,
+        listening: bool,
+    },
 }
 
 impl Page {
@@ -227,9 +249,23 @@ impl Page {
         match self {
             Page::Main | Page::Load { .. } => None,
             Page::Settings { selected } => Some(selected),
+            Page::Controls { selected, .. } => Some(CONTROL_ROWS_BASE + selected),
+        }
+    }
+
+    /// Whether `label`, an entry of the column, is the one this page stands for: a click
+    /// on it closes the page again [owner 2026-10-16].
+    fn opened_by(self, label: &str) -> bool {
+        match self {
+            Page::Main => false,
+            Page::Settings { .. } | Page::Controls { .. } => label.starts_with("Settings"),
+            Page::Load { .. } => label.starts_with("Load"),
         }
     }
 }
+
+/// [`Page::settings_row`] of a control's row: past any switch's.
+const CONTROL_ROWS_BASE: usize = 10_000;
 
 /// The saves the load page lists, newest first, and the chosen one's thumbnail.
 #[derive(Resource, Default)]
@@ -339,6 +375,10 @@ enum PauseButton {
     Category(usize),
     /// The row of a switch (its index in [`Settings`]).
     Switch(usize),
+    /// The settings page's Controls category.
+    ControlsTab,
+    /// A control's row on the Controls tab (its index in `GAME_CONTROLS`).
+    ControlRow(usize),
     /// A save's row on the load page (its index in [`LoadList`]).
     LoadRow(usize),
     /// The settings page's Defaults.
@@ -395,6 +435,10 @@ const CONFIRM: [&str; 3] = ["Main Menu", "Exit Game", "Cancel"];
 /// centred this far into a row [design: the original's list is 520 wide and centred, its
 /// values at 360; NVForever's labels are longer].
 const OPTION_ROWS: usize = 9;
+/// The settings page's last category: the controls' keys [design].
+const CONTROLS_TAB: &str = "Controls";
+/// A control's value while it waits for its new key.
+const WAITING: &str = "Press a key...";
 const OPTION_ROW: f32 = 52.0;
 const OPTIONS_WIDTH: f32 = 820.0;
 const OPTIONS_LEFT: f32 = -470.0;
@@ -427,6 +471,14 @@ const BACK_TOP: f32 = 960.0 - 30.0 - ITEM;
 /// over the picture, not added to it, it came out a dark slab [observed 2026-10-16].
 const SCREEN: &str = "textures\\interface\\pause\\pausescreen01.dds";
 const SCREEN_ALPHA: f32 = 0.82;
+/// How much of the pause screen picture lies past the view's edges, as parts of the drawn
+/// picture: its outer side (the left of the half picture, mirrored at the right), its top
+/// and its bottom, so the frame's edge meets the view's [observed: the owner's screenshot
+/// of 2026-10-16 marking where the edge belongs, at about 7% in from the sides, 5% from
+/// the top and 9% from the bottom of the stretched picture].
+const SCREEN_CROP_SIDE: f32 = 0.147;
+const SCREEN_CROP_TOP: f32 = 0.051;
+const SCREEN_CROP_BOTTOM: f32 = 0.088;
 const WORLD_SHADE: f32 = 0.35;
 
 /// The settings page's group of switches about conversations, sound and menus.
@@ -458,8 +510,8 @@ impl PauseLook {
     }
 }
 
-/// What the keys have on the first page and in the quit question, and the switches' states
-/// when the settings page was first shown (what Defaults goes back to).
+/// What the keys have on the first page and in the quit question, and what Defaults goes
+/// back to (taken when the settings page is first shown).
 #[derive(Resource, Default)]
 struct PauseView {
     main_selected: usize,
@@ -482,6 +534,8 @@ struct Drawn {
     under_main: bool,
     /// The load page's thumbnail: the row it is of and whether there is one.
     thumb: Option<(usize, bool)>,
+    /// The Controls tab's values, in `GAME_CONTROLS`' order.
+    controls: Vec<String>,
 }
 
 impl Drawn {
@@ -491,7 +545,7 @@ impl Drawn {
         match self.page {
             Page::Main if self.confirm.is_some() => find("Quit"),
             Page::Main => self.main_selected,
-            Page::Settings { .. } => find("Settings"),
+            Page::Settings { .. } | Page::Controls { .. } => find("Settings"),
             Page::Load { .. } => find("Load"),
         }
     }
@@ -634,7 +688,17 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
         if !d.under_main {
             root.spawn((full(), BackgroundColor(Color::BLACK.with_alpha(WORLD_SHADE))));
             if let Some(s) = &look.screen {
-                let half = |left: bool| Node { position_type: PositionType::Absolute, left: Val::Percent(if left { 0.0 } else { 50.0 }), width: Val::Percent(50.0), height: Val::Percent(100.0), ..default() };
+                // Each half drawn larger than the view's half, its cropped parts off the view.
+                let width = 50.0 / (1.0 - SCREEN_CROP_SIDE);
+                let height = 100.0 / (1.0 - SCREEN_CROP_TOP - SCREEN_CROP_BOTTOM);
+                let half = |left: bool| Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Percent(if left { 50.0 - width } else { 50.0 }),
+                    top: Val::Percent(-SCREEN_CROP_TOP * height),
+                    width: Val::Percent(width),
+                    height: Val::Percent(height),
+                    ..default()
+                };
                 let img = |flip: bool| ImageNode { color: Color::WHITE.with_alpha(SCREEN_ALPHA), flip_x: flip, image_mode: NodeImageMode::Stretch, ..ImageNode::new(s.clone()) };
                 root.spawn((half(true), img(false)));
                 root.spawn((half(false), img(true)));
@@ -644,7 +708,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
         }
         // The band behind a page's list.
         match d.page {
-            Page::Settings { .. } => band(root, look, Node { top: u(0.0), height: Val::Percent(100.0), ..from_middle(OPTIONS_LEFT - BAND_MARGIN, 0.0, OPTIONS_WIDTH + 2.0 * BAND_MARGIN, 0.0) }),
+            Page::Settings { .. } | Page::Controls { .. } => band(root, look, Node { top: u(0.0), height: Val::Percent(100.0), ..from_middle(OPTIONS_LEFT - BAND_MARGIN, 0.0, OPTIONS_WIDTH + 2.0 * BAND_MARGIN, 0.0) }),
             Page::Load { .. } => band(root, look, Node { height: Val::Percent(100.0), ..from_right(RIGHT + COLUMN, 0.0, LOAD_WIDTH + BAND_MARGIN, 0.0) }),
             Page::Main => {}
         }
@@ -677,12 +741,13 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                 }
             }
             Page::Settings { selected } => settings_page(root, d, f, settings, selected, top),
+            Page::Controls { selected, listening } => controls_page(root, d, f, settings, selected, listening, top),
             Page::Load { selected } => load_page(root, d, f, list, selected),
         }
         // Back (and Defaults) at the bottom right.
         if d.page != Page::Main {
             right_entry(root, &f.entry, "Back", from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, false, PauseButton::Back);
-            if matches!(d.page, Page::Settings { .. }) {
+            if matches!(d.page, Page::Settings { .. } | Page::Controls { .. }) {
                 right_entry(root, &f.entry, "Defaults", from_right(RIGHT, BACK_TOP - ITEM, 200.0, ITEM), 200.0, Shade::Bright, false, PauseButton::Defaults);
             }
         }
@@ -692,12 +757,7 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
 /// The settings page: the categories left of the column, the chosen category's switches
 /// in the middle with the chosen one's note under them, the version at the bottom left.
 fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &[Setting], selected: usize, top: f32) {
-    let group = list.get(selected).map(|s| s.group);
-    for (i, (name, first)) in categories(list).into_iter().enumerate() {
-        let w = SUB_WIDTH.max(f.entry.font.width(name) + 20.0);
-        let shade = if Some(name) == group { Shade::Bright } else { Shade::Dim };
-        right_entry(root, &f.entry, name, from_right(SUB_RIGHT, top + i as f32 * ITEM, w, ITEM), w, shade, false, PauseButton::Category(first));
-    }
+    category_column(root, f, list, list.get(selected).map(|s| s.group), top);
     if list.is_empty() {
         root.spawn(from_middle(OPTIONS_LEFT, top, OPTIONS_WIDTH, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, "Nothing to switch.", 10.0, BASE, color(Shade::Dim)));
     }
@@ -721,7 +781,56 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &[
     root.spawn((SwitchNote, Text::new(note), Node { display: Display::None, ..default() }));
     let shown = (rows.end - first).min(OPTION_ROWS) as f32;
     root.spawn(from_middle(OPTIONS_LEFT + 10.0, top + shown * OPTION_ROW + 20.0, OPTIONS_WIDTH - 20.0, 160.0)).with_children(|t| wrapped(t, &f.small, note, OPTIONS_WIDTH - 20.0, 26.0, color(Shade::Bright)));
-    // The version at the bottom left [observed: the original shows its own there].
+    version(root, f);
+}
+
+/// The categories left of the column: the switches' groups, then Controls; `current`
+/// bright (`None`: Controls).
+fn category_column(root: &mut ChildSpawnerCommands, f: &Faces, list: &[Setting], current: Option<&str>, top: f32) {
+    let cats = categories(list);
+    let tabs = cats.iter().map(|&(name, first)| (name, Some(name) == current, PauseButton::Category(first))).chain([(CONTROLS_TAB, current.is_none(), PauseButton::ControlsTab)]);
+    for (i, (name, on, b)) in tabs.enumerate() {
+        let w = SUB_WIDTH.max(f.entry.font.width(name) + 20.0);
+        let shade = if on { Shade::Bright } else { Shade::Dim };
+        right_entry(root, &f.entry, name, from_right(SUB_RIGHT, top + i as f32 * ITEM, w, ITEM), w, shade, false, b);
+    }
+}
+
+/// The settings page's Controls tab: every control with its key and mouse button, a
+/// window of [`OPTION_ROWS`] round the chosen one, the chosen one's note under them.
+#[allow(clippy::too_many_arguments)]
+fn controls_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &[Setting], selected: usize, listening: bool, top: f32) {
+    use crate::bindings::{label, GAME_CONTROLS};
+    category_column(root, f, list, None, top);
+    let n = GAME_CONTROLS.len();
+    let first = (selected + 1).saturating_sub(OPTION_ROWS).min(n.saturating_sub(OPTION_ROWS));
+    for (row, i) in (first..n).take(OPTION_ROWS).enumerate() {
+        let (c, _, _) = GAME_CONTROLS[i];
+        let value = if listening && i == selected { WAITING.to_string() } else { d.controls.get(i).cloned().unwrap_or_default() };
+        root.spawn((Button, PauseButton::ControlRow(i), boxed(from_middle(OPTIONS_LEFT, top + row as f32 * OPTION_ROW, OPTIONS_WIDTH, OPTION_ROW), i == selected)))
+        .with_children(|r| {
+            sm_text(r, &f.entry, label(c), 10.0, BASE + 2.0, color(Shade::Bright));
+            let vw = f.entry.font.width(&value);
+            r.spawn((SwitchState(i), Text::new(value.clone()), Node { display: Display::None, ..default() }));
+            sm_text(r, &f.entry, &value, (VALUE_AT - vw / 2.0).min(OPTIONS_WIDTH - vw - 14.0), BASE + 2.0, color(Shade::Bright));
+        });
+    }
+    let note = match GAME_CONTROLS.get(selected) {
+        Some(&(c, _, _)) if listening => format!("Press the new key or mouse button for {}. Esc cancels.", label(c)),
+        Some(&(c, name, _)) => format!(
+            "Enter or a click: bind a new key or mouse button to {} (a key replaces its key, a button its button; a control that had it gets the old one). Delete clears its key. Kept as \"{name}\" in [Controls] of NVForever.ini.",
+            label(c)
+        ),
+        None => String::new(),
+    };
+    root.spawn((SwitchNote, Text::new(note.clone()), Node { display: Display::None, ..default() }));
+    let shown = (n - first).min(OPTION_ROWS) as f32;
+    root.spawn(from_middle(OPTIONS_LEFT + 10.0, top + shown * OPTION_ROW + 20.0, OPTIONS_WIDTH - 20.0, 160.0)).with_children(|t| wrapped(t, &f.small, &note, OPTIONS_WIDTH - 20.0, 26.0, color(Shade::Bright)));
+    version(root, f);
+}
+
+/// The version at the bottom left [observed: the original shows its own there].
+fn version(root: &mut ChildSpawnerCommands, f: &Faces) {
     root.spawn(Node { position_type: PositionType::Absolute, left: u(30.0), top: u(960.0 - 60.0), width: u(400.0), height: u(40.0), ..default() }).with_children(|t| {
         sm_text(t, &f.small, concat!("NVForever ", env!("CARGO_PKG_VERSION")), 0.0, 26.0, color(Shade::Bright));
     });
@@ -854,8 +963,9 @@ fn choose(
     mut commands: Commands,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut menu: SaveMenu,
-    (mut request, main_menu, intro, mut to_main): (ResMut<PageRequest>, Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>, MessageWriter<MainMenuRequest>),
+    (mut request, main_menu, intro, mut to_main, mouse): (ResMut<PageRequest>, Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>, MessageWriter<MainMenuRequest>, Res<ButtonInput<MouseButton>>),
 ) {
+    use crate::bindings::{Bindings, Input, GAME_CONTROLS};
     use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
     // Held for the intro film, which takes the keys (`crate::intro`).
     if !paused.0 || intro.is_some_and(|i| i.is_playing()) {
@@ -888,12 +998,26 @@ fn choose(
     aid.switches = later;
     for (_, key) in due {
         info!("test aid NVF_PLAY_TEST_SETTINGS: {key}");
+        if let Some(b) = key.strip_prefix("bind:") {
+            // `bind:<control>=<key or button>`: as Enter on its row and that key.
+            let parsed = b.split_once('=').and_then(|(c, i)| Some((Bindings::by_name(c)?, crate::bindings::parse_input(i)?)));
+            match parsed {
+                Some((c, input)) => {
+                    let selected = GAME_CONTROLS.iter().position(|(k, _, _)| *k == c).unwrap_or(0);
+                    *page = Page::Controls { selected, listening: false };
+                    commands.queue(move |world: &mut World| crate::bindings::rebind(world, c, input));
+                }
+                None => warn!("NVF_PLAY_TEST_SETTINGS: {key:?}: expected bind:<control>=<key or mouse button name>"),
+            }
+            continue;
+        }
         match (settings.index(&key), key.as_str()) {
             (Some(i), _) => {
                 *page = Page::Settings { selected: i };
                 flips.push(i);
             }
             (None, "page") => *page = Page::Settings { selected: 0 },
+            (None, "controls") => *page = Page::Controls { selected: 0, listening: false },
             (None, _) => warn!("NVF_PLAY_TEST_SETTINGS: no switch {key:?}; there are {:?}", list.iter().map(|s| s.key).collect::<Vec<_>>()),
         }
     }
@@ -908,6 +1032,7 @@ fn choose(
                 Page::Main if view.confirm.is_some() => "quit",
                 Page::Main => "main",
                 Page::Settings { .. } => "settings",
+                Page::Controls { .. } => "controls",
                 Page::Load { .. } => "load",
             });
             info!("pause menu: screenshot {name}");
@@ -916,6 +1041,31 @@ fn choose(
         acts.push(a);
     }
     let act = |name: &str| acts.iter().any(|a| a == name);
+    // A control waiting for its new key takes the next key or mouse button, whatever it
+    // is over; Esc cancels.
+    if let Page::Controls { selected, listening } = &mut *page {
+        if *listening {
+            let c = GAME_CONTROLS.get(*selected).map(|x| x.0);
+            let key = keys.get_just_pressed().copied().find(|k| crate::bindings::key_name(*k).is_some() || *k == KeyCode::Escape);
+            let input = match key {
+                Some(KeyCode::Escape) => {
+                    info!("controls: rebinding cancelled");
+                    *listening = false;
+                    sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Back });
+                    return;
+                }
+                Some(k) if crate::bindings::RESERVED_KEYS.contains(&k) => None,
+                Some(k) => Some(Input::Key(k)),
+                None => mouse.get_just_pressed().next().map(|m| Input::Mouse(*m)),
+            };
+            if let (Some(c), Some(input)) = (c, input) {
+                *listening = false;
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+                commands.queue(move |world: &mut World| crate::bindings::rebind(world, c, input));
+            }
+            return;
+        }
+    }
     let mut clicked = None;
     // A list takes the row the pointer moves onto (not one it rests on while the keys
     // move the choice, nor the one a redrawn page puts under it).
@@ -925,18 +1075,27 @@ fn choose(
         match (interaction, b, &mut *page) {
             (Interaction::Pressed, ..) => clicked = Some(*b),
             (Interaction::Hovered, PauseButton::Switch(i), Page::Settings { selected }) if moved => *selected = *i,
+            (Interaction::Hovered, PauseButton::ControlRow(i), Page::Controls { selected, .. }) if moved => *selected = *i,
             (Interaction::Hovered, PauseButton::LoadRow(i), Page::Load { selected }) if moved => *selected = *i,
             (Interaction::Hovered, PauseButton::Column(i), Page::Main) if moved && view.confirm.is_none() && !under_main => view.main_selected = *i,
             (Interaction::Hovered, PauseButton::Confirm(i), Page::Main) if moved && view.confirm.is_some() => view.confirm = Some(*i),
             _ => {}
         }
     }
-    // A click on the column's entry of another page, or on a category.
+    if act("defaults") && matches!(*page, Page::Settings { .. } | Page::Controls { .. }) {
+        clicked = Some(PauseButton::Defaults);
+    }
+    // A click on the column's entry of another page (the page's own entry closes it), or
+    // on a category.
     match clicked {
         Some(PauseButton::Column(i)) if !under_main && *page != Page::Main => {
+            let closes = ENTRIES.get(i).is_some_and(|e| page.opened_by(e.label()));
             *page = Page::Main;
             view.main_selected = i;
-            if ENTRIES.get(i).is_some_and(|e| matches!(e, Entry::Load | Entry::Settings)) {
+            if closes {
+                info!("pause menu: {} again, back to the column", ENTRIES[i].label());
+                clicked = None;
+            } else if ENTRIES.get(i).is_some_and(|e| matches!(e, Entry::Load | Entry::Settings)) {
                 clicked = Some(PauseButton::Column(i));
             } else {
                 clicked = None;
@@ -945,6 +1104,10 @@ fn choose(
         Some(PauseButton::Column(i)) if under_main => {
             let label = main_menu.as_ref().and_then(|m| m.column().get(i).map(|c| c.0));
             match label {
+                Some(l) if page.opened_by(l) => {
+                    info!("pause menu: {l} again, back to the main menu");
+                    *page = Page::Main;
+                }
                 Some(l) if l.starts_with("Load") => *page = Page::Load { selected: 0 },
                 Some(l) if l.starts_with("Settings") => *page = Page::Settings { selected: 0 },
                 _ => {}
@@ -957,6 +1120,14 @@ fn choose(
         Some(PauseButton::Category(first)) => {
             *page = Page::Settings { selected: first };
             sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Picked });
+        }
+        Some(PauseButton::ControlsTab) => {
+            *page = Page::Controls { selected: 0, listening: false };
+            sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Picked });
+        }
+        Some(PauseButton::Defaults) if matches!(*page, Page::Controls { .. }) => {
+            commands.queue(crate::bindings::reset);
+            sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
         }
         Some(PauseButton::Defaults) => {
             if let Some(d) = view.defaults.clone() {
@@ -982,6 +1153,9 @@ fn choose(
                 take = Some(2);
             } else if let Some(PauseButton::Confirm(i)) = clicked {
                 take = Some(i);
+            } else if matches!(clicked, Some(PauseButton::Column(i)) if ENTRIES.get(i) == Some(&Entry::Quit)) {
+                // Quit again: as Cancel.
+                take = Some(2);
             } else if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) || act("up") {
                 view.confirm = Some(step_row(sel, -1, CONFIRM.len()));
             } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) || act("down") {
@@ -1084,11 +1258,49 @@ fn choose(
             } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) {
                 *selected = step_in_group(list, *selected, 1);
             } else if keys.any_just_pressed([KeyCode::Tab, KeyCode::PageDown]) {
-                *selected = step_category(list, *selected, 1);
+                // After the last category, Controls.
+                let next = step_category(list, *selected, 1);
+                if next <= *selected {
+                    *page = Page::Controls { selected: 0, listening: false };
+                } else {
+                    *selected = next;
+                }
             } else if keys.just_pressed(KeyCode::PageUp) {
-                *selected = step_category(list, *selected, -1);
+                let before = step_category(list, *selected, -1);
+                if before >= group_rows(list, *selected).start {
+                    *page = Page::Controls { selected: 0, listening: false };
+                } else {
+                    *selected = before;
+                }
             } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space, KeyCode::ArrowLeft, KeyCode::ArrowRight]) && *selected < list.len() {
                 flips.push(*selected);
+            }
+        }
+        Page::Controls { selected, listening } => {
+            let n = GAME_CONTROLS.len();
+            let control = GAME_CONTROLS.get(*selected).map(|x| x.0);
+            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
+                *page = Page::Main;
+            } else if let Some(PauseButton::ControlRow(i)) = clicked {
+                *selected = i;
+                *listening = true;
+            } else if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) {
+                *selected = step_row(*selected, -1, n);
+            } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) {
+                *selected = step_row(*selected, 1, n);
+            } else if keys.any_just_pressed([KeyCode::Tab, KeyCode::PageDown]) {
+                // After Controls, the first category again.
+                *page = Page::Settings { selected: 0 };
+            } else if keys.just_pressed(KeyCode::PageUp) {
+                *page = Page::Settings { selected: categories(list).last().map_or(0, |c| c.1) };
+            } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) {
+                *listening = true;
+            } else if let (true, Some(c)) = (keys.just_pressed(KeyCode::Delete), control) {
+                commands.queue(move |world: &mut World| crate::bindings::clear_key(world, c));
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+            }
+            if let (Page::Controls { listening: true, selected }, Some(_)) = (*page, control) {
+                info!("controls: {} waits for its new key", Bindings::name(GAME_CONTROLS[selected].0));
             }
         }
         Page::Load { selected } => {
@@ -1149,7 +1361,8 @@ fn drawn_now(world: &mut World) -> Drawn {
     let list = world.resource::<Settings>().list().to_vec();
     let states: Vec<bool> = list.iter().map(|s| (s.get)(world)).collect();
     if matches!(page, Page::Settings { .. }) && world.resource::<PauseView>().defaults.is_none() {
-        world.resource_mut::<PauseView>().defaults = Some(states.clone());
+        let start = world.get_resource::<crate::settings::StartStates>().map(|s| s.0.clone()).filter(|s| s.len() == states.len());
+        world.resource_mut::<PauseView>().defaults = Some(start.unwrap_or_else(|| states.clone()));
     }
     let main = world.get_resource::<crate::main_menu::MainMenu>().filter(|m| m.open).map(|m| m.column());
     let view = world.resource::<PauseView>();
@@ -1163,6 +1376,7 @@ fn drawn_now(world: &mut World) -> Drawn {
         under_main: main.is_some(),
         column: main.unwrap_or_else(|| ENTRIES.iter().map(|e| (e.label(), true)).collect()),
         thumb,
+        controls: world.get_resource::<crate::bindings::Bindings>().map(|b| b.all().map(|(_, x)| x.text()).collect()).unwrap_or_default(),
     }
 }
 
@@ -1262,6 +1476,17 @@ mod tests {
     }
 
     #[test]
+    fn a_page_is_closed_by_its_own_entry() {
+        // The pause menu's labels and the main menu's ("Load Game").
+        assert!(Page::Settings { selected: 3 }.opened_by("Settings"));
+        assert!(Page::Load { selected: 0 }.opened_by("Load"));
+        assert!(Page::Load { selected: 0 }.opened_by("Load Game"));
+        assert!(!Page::Load { selected: 0 }.opened_by("Settings"));
+        assert!(!Page::Settings { selected: 0 }.opened_by("Load Game"));
+        assert!(!Page::Main.opened_by("Settings"));
+    }
+
+    #[test]
     fn the_keys_go_round_the_rows() {
         assert_eq!(step_row(0, 1, 3), 1);
         assert_eq!(step_row(2, 1, 3), 0);
@@ -1299,7 +1524,7 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None };
+        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![] };
         app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list), drawn).unwrap();
         let world = app.world_mut();
         let mut rows = world.query::<(&PauseButton, &BorderColor)>();
@@ -1343,5 +1568,28 @@ mod tests {
         let world = app.world_mut();
         let mut note = world.query_filtered::<&Text, With<SwitchNote>>();
         assert_eq!(note.single(world).unwrap().0, "A lamp.");
+    }
+
+    #[test]
+    fn the_controls_tab_shows_each_key_and_waits_for_a_new_one() {
+        use crate::bindings::{Bindings, Control, Input};
+        let jump = crate::bindings::GAME_CONTROLS.iter().position(|(c, _, _)| *c == Control::Jump).unwrap();
+        let mut app = App::new();
+        app.init_resource::<Paused>().init_resource::<Settings>().init_resource::<Bindings>().insert_resource(Page::Controls { selected: jump, listening: false });
+        app.init_resource::<PauseView>().init_resource::<LoadList>().init_resource::<PauseStatus>().insert_resource(PauseLook::plain());
+        app.world_mut().resource_mut::<Paused>().0 = true;
+        app.add_systems(Update, draw);
+        let value = |app: &mut App| {
+            app.update();
+            let world = app.world_mut();
+            let mut q = world.query::<(&SwitchState, &Text)>();
+            q.iter(world).find(|(s, _)| s.0 == jump).map(|(_, t)| t.0.clone())
+        };
+        assert_eq!(value(&mut app).as_deref(), Some("Space"));
+        crate::bindings::rebind(app.world_mut(), Control::Jump, Input::Key(KeyCode::KeyJ));
+        assert_eq!(value(&mut app).as_deref(), Some("J"));
+        *app.world_mut().resource_mut::<Page>() = Page::Controls { selected: jump, listening: true };
+        assert_eq!(value(&mut app).as_deref(), Some(WAITING));
+        assert!(Page::Controls { selected: 0, listening: false }.opened_by("Settings"));
     }
 }

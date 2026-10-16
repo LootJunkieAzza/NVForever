@@ -194,7 +194,8 @@ impl Ai {
             }
             // Aiming down the sights slows it to a walk, also on a way already planned.
             let aiming = game.awareness.aiming.contains(&actor);
-            let (walk, run) = (self.cfg.walk_speed, self.cfg.run_speed * game.awareness.pace_of(actor));
+            let own = self.alert_speeds(actor);
+            let (walk, run) = (own.walk, own.run * game.awareness.pace_of(actor));
             let a = self.agents.get_mut(&actor).expect("listed");
             if let Some(Search::Closing { target, .. }) = a.search {
                 let speed = if aiming { walk } else { run };
@@ -264,7 +265,7 @@ impl Ai {
     #[allow(clippy::too_many_arguments)]
     fn search_at(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, to: [f32; 3], centre: [f32; 3], alarm: [f32; 3], points: u32, about: FormId) {
         let params = self.path_params(game, actor);
-        let speed = self.cfg.walk_speed;
+        let speed = self.alert_speeds(actor).walk;
         let now = game.time;
         let a = self.agents.get_mut(&actor).expect("listed");
         // A sandbox's own walk is given up; it chooses again after the search.
@@ -303,7 +304,8 @@ impl Ai {
     fn close_in(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, target: FormId, at: [f32; 3], away: f32, stop: f32) {
         let params = self.path_params(game, actor);
         let aiming = game.awareness.aiming.contains(&actor);
-        let speed = if aiming { self.cfg.walk_speed } else { self.cfg.run_speed * game.awareness.pace_of(actor) };
+        let own = self.alert_speeds(actor);
+        let speed = if aiming { own.walk } else { own.run * game.awareness.pace_of(actor) };
         let now = game.time;
         let a = self.agents.get_mut(&actor).expect("listed");
         let space = a.walker.space;
@@ -363,7 +365,8 @@ impl Ai {
         }
         let params = self.path_params(game, actor);
         let aiming = game.awareness.aiming.contains(&actor);
-        let speed = if post.run && !aiming { self.cfg.run_speed * game.awareness.pace_of(actor) } else { self.cfg.walk_speed };
+        let own = self.alert_speeds(actor);
+        let speed = if post.run && !aiming { own.run * game.awareness.pace_of(actor) } else { own.walk };
         let a = self.agents.get_mut(&actor).expect("listed");
         let from = a.walker.feet;
         let point = nav.nearest(space, post.at, 256.0).map(|(_, p)| p);
@@ -420,7 +423,7 @@ impl Ai {
         let params = self.path_params(game, actor);
         let gs = game.group_settings();
         let now = game.time;
-        let speed = self.cfg.run_speed * game.awareness.pace_of(actor);
+        let speed = self.alert_speeds(actor).run * game.awareness.pace_of(actor);
         let a = self.agents.get_mut(&actor).expect("listed");
         let (space, feet) = (a.walker.space, a.walker.feet);
         if let Some(s) = a.sandbox.as_mut() {

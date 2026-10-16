@@ -794,7 +794,7 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
 
     // The S.P.E.C.I.A.L. menu with two points to add, the old values its floor.
     call(&mut g, 0x1219, None, &[n(2.0)]);
-    assert_eq!((g.menu, g.ui.special), (Some(1074), Some(SpecialMenu::Add(2))));
+    assert_eq!((g.menu, g.ui.special), (Some(1048), Some(SpecialMenu::Add(2))));
     let s = SpecialSheet::for_menu(&mut g);
     assert_eq!((s.remaining(), s.floor), (2, s.values));
     assert_eq!(g.ui.special, None, "used up by the opening");
@@ -884,14 +884,83 @@ fn second_round_stubs() {
 }
 
 /// SwapTexture (playtest list 5 item 38): the shape's name and the texture's path kept
-/// per reference for the engine, the last call per shape winning.
+/// per reference for the engine, the last call per shape winning. The reference is the
+/// first parameter, the calls having no calling reference (Doc Mitchell's lines:
+/// `SwapTexture TempRorschachTest01REF "PipBoyCard01:0" "…"`).
 #[test]
 fn swap_texture_keeps_the_last_texture_per_shape() {
     let f = fixture();
     let mut g = game(&f);
     let card = FormId(ADULT_REF);
-    call(&mut g, 0x1269, Some(ADULT_REF), &[s("pipboycard01:0"), s(r"clutter\rorchachtest\inkblot03")]);
-    call(&mut g, 0x1269, Some(ADULT_REF), &[s("##PipBoyCard01:0"), s(r"clutter\rorchachtest\inkblot01")]);
+    call(&mut g, 0x1269, None, &[r(ADULT_REF), s("pipboycard01:0"), s(r"clutter\rorchachtest\inkblot03")]);
+    call(&mut g, 0x1269, None, &[r(ADULT_REF), s("##PipBoyCard01:0"), s(r"clutter\rorchachtest\inkblot01")]);
     assert_eq!(g.texture_swaps.generation, 2);
     assert_eq!(g.texture_swaps.by_ref[&card], vec![("pipboycard01:0".to_string(), r"textures\clutter\rorchachtest\inkblot01.dds".to_string())]);
+}
+
+/// PlayMagicShaderVisuals / StopMagicShaderVisuals: one play per (reference, shader), a
+/// second call starting it over; a duration kept; no calling reference plays it on the
+/// player; Stop takes it away (docs/spec-notes/effect-shaders.md §3).
+#[test]
+fn magic_shader_visuals_play_and_stop() {
+    let f = fixture();
+    let mut g = game(&f);
+    const SHADER: u32 = 0x0007_EA60;
+    call(&mut g, 0x1123, Some(ADULT_REF), &[r(SHADER)]);
+    call(&mut g, 0x1123, Some(ADULT_REF), &[r(SHADER), n(5.0)]);
+    call(&mut g, 0x1123, None, &[r(SHADER)]);
+    let plays = &g.script_looks.shaders;
+    assert_eq!(plays.len(), 2);
+    assert_eq!((plays[0].on, plays[0].duration), (FormId(ADULT_REF), Some(5.0)));
+    assert_eq!((plays[1].on, plays[1].duration), (FormId::PLAYER_REF, None));
+    assert!(plays[1].serial > plays[0].serial);
+    call(&mut g, 0x1125, Some(ADULT_REF), &[r(SHADER)]);
+    assert_eq!(g.script_looks.shaders.len(), 1);
+    let serial = g.script_looks.shaders[0].serial;
+    g.script_looks.end(serial);
+    assert!(g.script_looks.shaders.is_empty());
+}
+
+/// SetActorAlpha: kept per actor below 1, held to 0..1; 1 takes it away.
+#[test]
+fn set_actor_alpha_is_kept_below_one() {
+    let f = fixture();
+    let mut g = game(&f);
+    let who = FormId(ADULT_REF);
+    call(&mut g, 0x1129, Some(ADULT_REF), &[n(0.5)]);
+    assert_eq!(g.script_looks.alpha.get(&who), Some(&0.5));
+    call(&mut g, 0x1129, Some(ADULT_REF), &[n(-2.0)]);
+    assert_eq!(g.script_looks.alpha.get(&who), Some(&0.0));
+    call(&mut g, 0x1129, Some(ADULT_REF), &[n(1.0)]);
+    assert!(g.script_looks.alpha.is_empty());
+}
+
+/// SetSecuritronExpression: the face and expression name the screen's texture, swapped on
+/// the screen shape of the target (effect-shaders.md §5).
+#[test]
+fn securitron_expression_swaps_the_screen() {
+    let f = fixture();
+    let mut g = game(&f);
+    call(&mut g, 0x1248, None, &[r(ADULT_REF), s("Victor"), s("Alert")]);
+    assert_eq!(
+        g.texture_swaps.by_ref[&FormId(ADULT_REF)],
+        vec![("screen01:0".to_string(), r"textures\creatures\securitron\victor_alert.dds".to_string())]
+    );
+}
+
+/// Reset3DState: the reference's group no longer counts as playing, its waiting requests
+/// are dropped and the engine is told once.
+#[test]
+fn reset_3d_state_forgets_the_animation() {
+    let f = fixture();
+    let mut g = game(&f);
+    let on = FormId(ADULT_REF);
+    g.anims.driven = true;
+    g.ask_anim(fnv_game::anims::AnimRequest { on, group: 1, name: Some("Forward".into()), start: fnv_game::anims::Start::Normal });
+    assert_eq!(g.anims.playing(on), Some(1));
+    call(&mut g, 0x1146, Some(ADULT_REF), &[]);
+    call(&mut g, 0x1146, Some(ADULT_REF), &[]);
+    assert_eq!(g.anims.playing(on), None);
+    assert!(g.anims.requests.is_empty());
+    assert_eq!(g.anims.resets, vec![on]);
 }

@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7); 59 (1 assigned, 1 implementable, 57 need a system) after UseWeapon (§3.8) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5) |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6); 795 (313 calls, 482 condition uses) after the combat round (§3.7); 782 (300 calls, 482 condition uses) after UseWeapon (§3.8) |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -63,7 +63,7 @@ evidence tags are on each function (`functions/ai_state.rs`, `senses.rs`, `ui.rs
 | GetLineOfSight | 0x101B | 49 | 0 | the detection last measured for the pair (`Detection::seen`: line of sight within ±95°) | `detection.rs` (already) |
 | IsMoving | 0x1019 | 0 | 49 | `Senses::motion` (moving reads 1, forward) | `detection.rs` |
 | GetCurrentAIPackage | 0x106E | 16 | 15 | package type codes; 5 combat, 29 search, 6 conversation | none |
-| AddSPECIALPoints | 0x1219 | 21 | 0 | `SpecialSheet::for_menu`: more points, the old values the floor; opens 1074 | the Vigor Tester's menu opens with those rules |
+| AddSPECIALPoints | 0x1219 | 21 | 0 | `SpecialSheet::for_menu`: more points, the old values the floor; opens 1048 as its attributes page (levelup.md §8) | the attributes page opens with those rules (Intense Training) |
 | AlwaysShowActorSubtitles | 0x1277 | 16 | 0 | `Senses::always_subtitles` | `script_hud.rs` shows the subtitle out of hearing too |
 | SetWeather / ForceWeather | 0x1104 / 0x112D | 14 / 13 | 0 | `WeatherState::request` (a fade or at once, held or not) | `main.rs` `script_weather` → `SkyState::script_weather` |
 | IsPC1stPerson | 0x1188 | 2 | 9 | `Senses::first_person` | `control::tell_scripts` |
@@ -71,7 +71,7 @@ evidence tags are on each function (`functions/ai_state.rs`, `senses.rs`, `ui.rs
 | IsRaining | 0x103E | 6 | 3 | the sky's weather is Rainy (WTHR DATA) and fully faded in | `script_weather` tells the game |
 | IsRunning | 0x111F | 0 | 4 | `Senses::motion` | `detection.rs` |
 | AddTagSkills | 0x121B | 3 | 0 | `TagSheet::for_menu`: the count raised, the old tags locked; opens 1048 | the tag-skill menu ("SKILLS: n/4 Selected") |
-| SetSPECIALPoints | 0x1218 | 2 | 0 | `SpecialSheet::for_menu`: the total; opens 1074 | as AddSPECIALPoints |
+| SetSPECIALPoints | 0x1218 | 2 | 0 | `SpecialSheet::for_menu`: the total; opens 1074 | the Vigor Tester's menu opens with those rules |
 | GetIsCurrentWeather | 0x1095 | 2 | 0 | the weather shown, or one just asked for | `script_weather` |
 
 In all, 1,807 uses moved from stubs to implementations.
@@ -146,10 +146,78 @@ actor in its `sneakmt…` locomotion clips, walks it at fMoveSneakMult and measu
 sneaking (nvforever `sneaking.rs`; owner's playtest list 5 items 36–37). GetForceSneak has
 no opcode in the catalogue and stays unregistered.
 
+### 3.6 Effect shaders (claude/effect-shaders, 2026-10-16)
+
+Five rendering stubs are implemented, none with condition uses (460 calls): 76 → 71 stubs,
+917 → 457 calls. Facts and evidence: docs/spec-notes/effect-shaders.md.
+
+| Function | Opcode | Calls | Over | Engine hook |
+|---|---|---|---|---|
+| PlayMagicShaderVisuals / StopMagicShaderVisuals | 0x1123 / 0x1125 | 205 / 79 | `Game::script_looks` (`functions::misc::ScriptLooks`): one play per reference and shader, with its duration | nvforever `effect_shaders.rs`: the EFSH membrane (fill and edge) as overlays on every mesh of the reference, timed by the record's cycle; also the shaders of active magic effects (MGEF "effect shader"). Particles, holes and add-on models not drawn |
+| SetActorAlpha | 0x1129 | 127 | `ScriptLooks::alpha` | `effect_shaders.rs`: blended copies of the actor's materials |
+| SetSecuritronExpression | 0x1248 | 37 | a texture swap of `Screen01:0` to `textures\creatures\securitron\<face>_<expression>.dds` | `texture_swap.rs`, which now also finds actors' part shapes by name (`nvf_assets::actor::ShapeName`) |
+| Reset3DState | 0x1146 | 12 | `ObjectAnims::reset`: the group no longer counts as playing, requests dropped | `object_anims.rs`: the object's group stops where it is |
+
+Smoke scenarios `effect-shaders` (a script's shader on Sunny, a timed one, SetActorAlpha) and
+`securitron-expression` (a street Securitron by the Strip's north gate turns from its police face
+to Victor's alert one).
+Not saved: the shaders, alphas and expressions are lost on load [design, as SwapTexture].
+
+### 3.7 Combat (2026-10-16)
+
+The fifteen stubs assigned to E2 combat AI, over the merged combat AI (`crate::awareness`,
+`crate::combat_group`, `crate::combat_style`, `crate::combat`); the functions are in
+`functions/fighting.rs` with their evidence tags. Call sites are from `fnvtool script
+decompile` over the six masters [observed].
+
+| Function | Opcode | Calls | Conditions | Over | Engine hook |
+|---|---|---|---|---|---|
+| SetCombatStyle | 0x10B1 | 92 | 0 | `RefExtra::combat_style`, read first by `Game::combat_style` [documented: the reference only, not its base] | the combat AI reads `combat_style` already (melee only, attack chances, flee by personal survival) |
+| GetGroupMemberCount | 0x11A0 | 0 | 66 | `Game::combat_group`; 0 outside a combat state | none |
+| GetKnockedState | 0x106B | 5 | 35 | 1 while unconscious, else 0 [documented codes; fatigue −1 and knockdown 2 not built] | none |
+| FireWeapon | 0x11E2 | 24 | 0 | `CombatRequest::Fire` | `nvf_play::combat`: an `ActorFire` from the reference's origin (an actor's raised 64) along its rotation, no spread [hypothesis: the angles' sense]; the model's projectile node not used |
+| Exists | 0x119F | 0 | 21 | the condition's target (`Game::condition_target`) differs from the subject; in a combat state, another member in its combat group [hypothesis: our combat lines target the foe, the game's a group member] | none |
+| GetShouldAttack | 0x1042 | 7 | 4 | `Game::would_attack` [hypothesis: no wiki page; the six decompiled uses are `GetShouldAttack player == 0`] | none |
+| ForceFlee | 0x10F5 | 8 | 0 | `Game::start_flight` from the combat target or the first foe; a destination reference's place as the spot; a conversation with the actor ends; no threat, nothing | `fnv_ai` runs the flight |
+| IsCombatTarget | 0x1203 | 6 | 1 | the target list while in a combat state | none |
+| GetGroupTargetCount | 0x11A1 | 0 | 3 | the group's targets and alarm owners, once each | none |
+| GetArmorRating | 0x1051 | 1 | 1 | equipped armour's DNAM DR (`fnv_sim::forms::Item::armor_dr`, stored × 100), rounded down | none |
+| GetCauseofDeath | 0x118D | 1 | 1 | the killing hit's weapon animation type (`functions::cause_code`) [hypothesis: the type → code map]; −1 alive or dead without a hit | none |
+
+Left, with the reason (§4): UseWeapon (13 calls: the combat AI fights only the hostiles it
+chose; a scripted stand spot, shot count, always-hit and no-damage shots were not built;
+implemented since, §3.8), IsLimbGone (no dismemberment), GetForceHitReaction and GetPlantedExplosive (no hit
+reactions forced by power attacks, no live explosives planted on actors; no shipped
+calls).
+
+**Begin blocks** (docs/spec-notes/script-functions.md §3.3), fired since this round:
+
+- **OnStartCombat** (0x19, 147 scripts) when an actor reaches Combat, its combat target
+  the block's subject (86 of the blocks name the player); once a fight: Lost and back is
+  the same fight, Alert alone runs nothing [hypothesis]. `Game::combat_blocks`, at the
+  start of each tick.
+- **OnCombatEnd** (0x0C, 36) when such an actor is back to Normal; not on death or
+  disabling [hypothesis].
+- **OnReset** (0x1E, 45) on every present scripted reference of a cell that resets
+  (`crate::respawn`), before OnLoad [documented: GECK wiki Reference, a cell's reset
+  "trigger[s] OnReset blocks in scripts attached to the reference"; hypothesis: the
+  order].
+
+Tests: `crates/fnv-game/tests/combat_blocks.rs`. Smoke: `script-stubs` (the counts of §1).
+No in-game scenario: the blocks need a fight with a scripted actor, and the tests drive
+the same `Game` path the engine calls each frame.
+
+### 3.8 UseWeapon (claude/use-weapon, 2026-10-16)
+
+UseWeapon (0x119C, 13 calls) is implemented with the Use Weapon package
+(docs/design/use-weapon.md): the actor walks to where it is to stand, turns to its target
+and fires the number of shots, with the always-hit, no-damage, crouch-to-reload and
+hold-fire flags. 60 → 59 stubs, 313 → 300 calls.
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is
-building it now or next: E2 combat AI, H followers, J karma and crime; the aid workstream's
+building it now or next: E2 combat AI (none left since §3.7), H followers, J karma and crime; the aid workstream's
 functions, AddSpell, RemoveSpell, CastImmediateOnSelf and Dispel, were implementations
 before this audit and are not stubs); **implementable, left for later** (the system
 exists; the note says what is missing); **deliberately no-op**.
@@ -158,40 +226,40 @@ exists; the note says what is missing); **deliberately no-op**.
 |---|---|---|---|---|---|
 | SwapTexture | 0x1269 | 383 | 0 | implemented 2026-10-16 (claude/l5-render-fx) | rendering |
 | GetVATSValue | 0x1198 | 0 | 250 | needs a system not built yet | combat (VATS) |
-| PlayMagicShaderVisuals | 0x1123 | 205 | 0 | needs a system not built yet | rendering (effect shaders) |
-| SetActorAlpha | 0x1129 | 127 | 0 | needs a system not built yet | rendering |
-| SetCombatStyle | 0x10B1 | 92 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
+| PlayMagicShaderVisuals | 0x1123 | 205 | 0 | implemented 2026-10-16 (claude/effect-shaders, §3.6) | rendering (effect shaders) |
+| SetActorAlpha | 0x1129 | 127 | 0 | implemented 2026-10-16 (§3.6) | rendering |
+| SetCombatStyle | 0x10B1 | 92 | 0 | implemented 2026-10-16 (§3.7) | `RefExtra::combat_style` over the record's |
 | IsActorTalkingThroughActivator | 0x11AE | 0 | 92 | needs a system not built yet | dialogue (talking activators) |
-| StopMagicShaderVisuals | 0x1125 | 79 | 0 | needs a system not built yet | rendering (effect shaders) |
+| StopMagicShaderVisuals | 0x1125 | 79 | 0 | implemented 2026-10-16 (§3.6) | rendering (effect shaders) |
 | Autosave | 0x115E | 74 | 0 | implemented 2026-10-15 | saving: asks the engine for an autosave (`nvf_play::save`) |
-| GetGroupMemberCount | 0x11A0 | 0 | 66 | assigned to workstream | assigned to workstream E2 combat AI |
-| IsLimbGone | 0x118E | 51 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
+| GetGroupMemberCount | 0x11A0 | 0 | 66 | implemented 2026-10-16 (§3.7) | `Game::combat_group` |
+| IsLimbGone | 0x118E | 51 | 0 | needs a system not built yet | combat (dismemberment: no limb is ever severed) |
 | GetAnimAction | 0x10DB | 44 | 1 | needs a system not built yet | animation |
 | IsFacingUp | 0x106A | 0 | 41 | needs a system not built yet | animation (ragdoll) |
-| GetKnockedState | 0x106B | 5 | 35 | assigned to workstream | assigned to workstream E2 combat AI |
-| SetSecuritronExpression | 0x1248 | 37 | 0 | needs a system not built yet | rendering |
+| GetKnockedState | 0x106B | 5 | 35 | implemented 2026-10-16 (§3.7) | 1 unconscious, else 0 (no fatigue or live knockdown) |
+| SetSecuritronExpression | 0x1248 | 37 | 0 | implemented 2026-10-16 (§3.6) | rendering (a texture swap) |
 | PushActorAway | 0x118A | 35 | 0 | needs a system not built yet | physics: ragdolls are for corpses only; a live actor knocked down and getting up is not built |
 | PurgeCellBuffers | 0x1189 | 32 | 0 | deliberately no-op | memory: the original's cell buffers; cells here load and unload by distance |
 | ShowCaravanMenu | 0x125A | 29 | 0 | needs a system not built yet | menus (Caravan) |
-| FireWeapon | 0x11E2 | 24 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
+| FireWeapon | 0x11E2 | 24 | 0 | implemented 2026-10-16 (§3.7) | `CombatRequest::Fire`: the engine fires it as an actor's shot |
 | IsLeftUp | 0x111D | 0 | 22 | needs a system not built yet | animation |
-| Exists | 0x119F | 0 | 21 | assigned to workstream | assigned to workstream E2 combat AI |
+| Exists | 0x119F | 0 | 21 | implemented 2026-10-16 (§3.7) | the condition's target; in combat, another group member |
 | SetRumble | 0x11FB | 17 | 0 | deliberately no-op | controller rumble: no controller rumble on the PC version |
 | GetIsUsedItem | 0x10F6 | 0 | 16 | needs a system not built yet | AI (used items) |
 | GetDisposition | 0x104C | 0 | 15 | needs a system not built yet | dialogue (disposition) |
 | ShowRepairMenu | 0x117A | 15 | 0 | needs a system not built yet | menus (repair) |
 | ShowRecipeMenu | 0x1250 | 15 | 0 | implemented 2026-10-16 (claude/l5-crafting) | menus (crafting) |
-| UseWeapon | 0x119C | 13 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
-| Reset3DState | 0x1146 | 12 | 0 | needs a system not built yet | rendering |
-| GetShouldAttack | 0x1042 | 7 | 4 | assigned to workstream | assigned to workstream E2 combat AI |
+| UseWeapon | 0x119C | 13 | 0 | implemented 2026-10-16 (claude/use-weapon) | combat AI: docs/design/use-weapon.md |
+| Reset3DState | 0x1146 | 12 | 0 | implemented 2026-10-16 (§3.6) | animation state |
+| GetShouldAttack | 0x1042 | 7 | 4 | implemented 2026-10-16 (§3.7) | `Game::would_attack` |
 | HasBeenEaten | 0x107F | 6 | 4 | needs a system not built yet | AI (Cannibal perk) |
 | SetVatsTarget | 0x11EB | 10 | 0 | needs a system not built yet | combat (VATS) |
-| ForceFlee | 0x10F5 | 8 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
+| ForceFlee | 0x10F5 | 8 | 0 | implemented 2026-10-16 (§3.7) | `Game::start_flight` from the combat target |
 | TriggerScreenSplatter | 0x1240 | 8 | 0 | needs a system not built yet | image space |
 | IsSwimming | 0x10B9 | 0 | 7 | needs a system not built yet | movement (swimming) |
 | GetVATSTargetHeight | 0x10EB | 0 | 7 | needs a system not built yet | combat (VATS) |
 | GetRadiationLevel | 0x11F7 | 0 | 7 | needs a system not built yet | radiation (environment) |
-| IsCombatTarget | 0x1203 | 6 | 1 | assigned to workstream | assigned to workstream E2 combat AI |
+| IsCombatTarget | 0x1203 | 6 | 1 | implemented 2026-10-16 (§3.7) | the target list in a combat state |
 | GetIsUsedItemType | 0x10F7 | 0 | 6 | needs a system not built yet | AI (used items) |
 | ShowBlackJackMenuParams | 0x1254 | 6 | 0 | needs a system not built yet | menus (casino) |
 | ShowRouletteMenuParams | 0x1256 | 6 | 0 | needs a system not built yet | menus (casino) |
@@ -210,16 +278,16 @@ exists; the note says what is missing); **deliberately no-op**.
 | AddCardToPlayer | 0x125B | 4 | 0 | needs a system not built yet | Caravan |
 | GetUsedItemActivate | 0x1103 | 0 | 3 | needs a system not built yet | AI (used items) |
 | SetNoAvoidance | 0x115B | 3 | 0 | needs a system not built yet | AI |
-| GetGroupTargetCount | 0x11A1 | 0 | 3 | assigned to workstream | assigned to workstream E2 combat AI |
+| GetGroupTargetCount | 0x11A1 | 0 | 3 | implemented 2026-10-16 (§3.7) | the group's foes |
 | PlaceAtReticle | 0x1263 | 3 | 0 | needs a system not built yet | HUD (reticle) |
-| GetArmorRating | 0x1051 | 1 | 1 | assigned to workstream | assigned to workstream E2 combat AI |
+| GetArmorRating | 0x1051 | 1 | 1 | implemented 2026-10-16 (§3.7) | equipped ARMO DNAM DR |
 | PickIdle | 0x1064 | 2 | 0 | needs a system not built yet | animation |
 | GetSandman | 0x10E2 | 0 | 2 | needs a system not built yet | AI (Mister Sandman perk) |
 | setAllReachable | 0x1159 | 2 | 0 | needs a system not built yet | navigation |
 | SetSceneIsComplex | 0x115D | 2 | 0 | deliberately no-op | performance switch of the original's AI |
 | IsPlayerActionActive | 0x1170 | 2 | 0 | needs a system not built yet | player input |
 | SetDisposition | 0x1184 | 2 | 0 | needs a system not built yet | dialogue (disposition) |
-| GetCauseofDeath | 0x118D | 1 | 1 | assigned to workstream | assigned to workstream E2 combat AI |
+| GetCauseofDeath | 0x118D | 1 | 1 | implemented 2026-10-16 (§3.7) | the killing hit's weapon type |
 | SetCellImageSpace | 0x1196 | 2 | 0 | needs a system not built yet | image space |
 | DisableNavmesh | 0x11BF | 2 | 0 | needs a system not built yet | navigation |
 | ShowTutorialMenu | 0x11E3 | 2 | 0 | needs a system not built yet | menus (tutorial) |
@@ -228,22 +296,24 @@ exists; the note says what is missing); **deliberately no-op**.
 | ForceSave | 0x1217 | 2 | 0 | needs a system not built yet | saving |
 | AutoDisplayObjectives | 0x1225 | 2 | 0 | implementable, left for later | objectives already show at the left as scripts set them; what the switch adds is not documented beyond the summary |
 | SetScreenSplatterFade | 0x1243 | 2 | 0 | needs a system not built yet | image space |
-| GetForceHitReaction | 0x1259 | 0 | 2 | assigned to workstream | assigned to workstream E2 combat AI |
+| GetForceHitReaction | 0x1259 | 0 | 2 | needs a system not built yet | combat (hit reactions forced by power attacks) |
 | EnableLoadingMenu | 0x1270 | 2 | 0 | needs a system not built yet | menus (loading) |
 | StartMisterSandman | 0x107C | 1 | 0 | needs a system not built yet | AI (Mister Sandman perk) |
 | GetCannibal | 0x10E3 | 0 | 1 | needs a system not built yet | AI (Cannibal perk) |
 | trapUpdate | 0x110C | 1 | 0 | needs a system not built yet | physics (traps) |
 | IsWaterObject | 0x1130 | 0 | 1 | needs a system not built yet | AI (drinking) |
 | PreloadMagicEffect | 0x1163 | 1 | 0 | deliberately no-op | loading: effect particles load when drawn |
-| GetPlantedExplosive | 0x11AC | 0 | 1 | assigned to workstream | assigned to workstream E2 combat AI |
+| GetPlantedExplosive | 0x11AC | 0 | 1 | needs a system not built yet | combat (live explosives planted by reverse pickpocketing) |
 | ExitGame | 0x11B5 | 1 | 0 | needs a system not built yet | menus (credits, main menu) |
 | GetIsUsedItemEquipType | 0x11E0 | 0 | 1 | needs a system not built yet | AI (used items) |
 | ClearScreenSplatter | 0x1241 | 1 | 0 | needs a system not built yet | image space |
 
 Notes on the most used:
 
-- **SwapTexture** (383 calls) [observed: decoded scripts]: `ref.SwapTexture "##<node>:<n>"
-  "<texture>"`, mostly the end slides (`interface\endgame\endscrn_*` on `##gs01`), the
+- **SwapTexture** (383 calls) [observed: decoded scripts]: `SwapTexture <ref> "##<node>:<n>"
+  "<texture>"`, the reference a parameter and no calling reference (all 242 calls in
+  FalloutNV.esm; first implemented as `ref.SwapTexture "shape" "texture"`, so every call
+  failed on its first parameter until 2026-10-16, claude/rorschach-cards), mostly the end slides (`interface\endgame\endscrn_*` on `##gs01`), the
   Rorschach cards of Doc Mitchell's test (`pipboycard01:0`) and the Euclid's C-Finder's
   screen. No GECK wiki page. Implemented 2026-10-16: the game keeps the last texture per
   shape of each reference (`fnv_game::functions::misc::swap_texture`), the engine puts
@@ -251,10 +321,8 @@ Notes on the most used:
   `##` is dropped [hypothesis]. Not part of saves.
 - **GetVATSValue** (250 conditions): VATS is not built; outside VATS 0 is what the
   conditions read anyway [hypothesis].
-- **PlayMagicShaderVisuals / StopMagicShaderVisuals** (284 calls): effect shaders (EFSH)
-  are not drawn yet. A rendering system, not the aid workstream's actor effects.
-- **SetActorAlpha** (127): see-through actors (Dead Money's holograms) need a per-actor
-  blended material; not built.
+- **PlayMagicShaderVisuals / StopMagicShaderVisuals** (284 calls) and **SetActorAlpha**
+  (127): implemented 2026-10-16, §3.6.
 - **IsActorTalkingThroughActivator** (92 conditions): conversations through talking
   activators (intercoms, radios) are not built; with none, 0 is the right answer.
 - **SystemSave / ForceSave** (7): saves exist now (docs/design/save-load.md) and Autosave

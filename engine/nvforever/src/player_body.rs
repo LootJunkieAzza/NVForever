@@ -41,7 +41,8 @@
 //! arms are up the body's own arms and hands are hidden, and its weapon while it is in
 //! the hand. On furniture the seated body is drawn without its head, the view turns no
 //! further from the way the body faces than a neck does ([`seated_heading`]) and the eyes
-//! go round the neck with it.
+//! go round the neck with it. While an idle drives the first-person view (the opening's
+//! wake-up) the body is not drawn: the arms rig plays the idle alone.
 //!
 //! **The shadow** [engineering choice; the original casts no sun shadows from the world]:
 //! the third-person body casts the player's shadow in every view, head, arms and weapon
@@ -383,8 +384,9 @@ struct Rig {
     /// First person: the nodes above the root that draw the rig bigger about the eye
     /// ([`place_lens`]).
     lens: Option<[Entity; 2]>,
-    /// The skeleton's folder (`meshes\characters\_male\`).
+    /// The skeleton's folder (`meshes\characters\_male\`), and its path.
     folder: String,
+    skeleton: String,
     animator: Animator,
     clips: HashMap<ClipKey, Option<Arc<ClipInfo>>>,
     /// The up and down forms of clips, by path (failures too).
@@ -645,6 +647,20 @@ impl PlayerBody {
         self.muzzle_entity
     }
 
+    /// The third-person rig as an actor's rig of the player's reference, for its ragdoll
+    /// (`death_cam.rs`): its root entity and the rig.
+    pub fn third_rig(&self) -> Option<(Entity, crate::limbs::ActorRig)> {
+        let r = &self.body.as_ref()?.third;
+        let rig = crate::limbs::ActorRig {
+            reference: FormId::PLAYER_REF.0,
+            base: FormId::PLAYER_BASE.0,
+            skeleton: r.skeleton.clone(),
+            skel: r.animator.skel.clone(),
+            nodes: r.animator.nodes.clone(),
+        };
+        Some((r.root, rig))
+    }
+
     /// The clips heard (`anim_sounds.rs`): the animator of the rig in view (the
     /// first-person rig while it is shown, else the body), whether that is the
     /// first-person rig, and the armour worn.
@@ -730,9 +746,11 @@ fn ensure_body(
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
+    death: Res<crate::death_cam::DeathCam>,
 ) {
     let (Some(world), Ok(world_root)) = (world, root.single()) else { return };
-    if state.failed.is_some() {
+    // The dead player's body lies as its ragdoll left it: it is not rebuilt.
+    if state.failed.is_some() || death.down() {
         return;
     }
     let (worn, weapon) = equipped(&sim, &world);
@@ -981,6 +999,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         root: spawned.root,
         lens,
         folder,
+        skeleton: a.skeleton.clone(),
         animator,
         clips: HashMap::new(),
         variants: HashMap::new(),
@@ -1525,7 +1544,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, death): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -1533,6 +1552,7 @@ fn drive_body(
         Query<&Projection, With<nvf_play::PlayerCamera>>,
         Option<Res<nvf_play::free_cam::FirstPersonFov>>,
         Option<Res<nvf_play::combat::PlayerLimbs>>,
+        Res<crate::death_cam::DeathCam>,
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
@@ -1550,6 +1570,16 @@ fn drive_body(
         state.muzzle_entity = None;
         return;
     };
+    if death.down() {
+        // Dead: the clips stop and the ragdoll has the body (`death_cam.rs`). The whole
+        // body is drawn, but for its head while the view is inside it.
+        anim.ready = false;
+        anim.muzzle = None;
+        anim.casing = None;
+        state.muzzle_entity = None;
+        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person(), arms: true, weapon: true }, false);
+        return;
+    }
     let dt = time.delta_secs();
     let m = &mut state.motion;
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
@@ -1710,6 +1740,21 @@ fn drive_body(
     m.jams_seen = anim.jams;
     m.spin_ups_seen = anim.spin_ups;
 
+    // While an idle turns the first-person view, its rig keeps the heading the idle
+    // started at and the camera node alone places the view: mouse look and movement are
+    // ignored (`nvf_play::player::ViewDriven`) [design: the owner's wish, playtest of
+    // 2026-10-11; the opening's scripts leave looking on, so the original may let the
+    // view turn; hypothesis that the body does not swing round with the view].
+    if idles.first.is_empty() && idles.held.take().is_some() {
+        seat.hold = None;
+    }
+    if driven.0 != idles.held.is_some() {
+        driven.0 = idles.held.is_some();
+        info!("player view: {}", if driven.0 { "driven by an idle's camera node; mouse look and movement ignored" } else { "back to the player" });
+        if own_body {
+            info!("player body: {} in first person", if driven.0 { "not drawn while the idle drives the view" } else { "drawn again" });
+        }
+    }
     let frame = Frame {
         dt,
         stance,
@@ -1724,7 +1769,10 @@ fn drive_body(
         landing,
         turn_rate: m.turn_rate,
         pitch: player.pitch,
-        upright: own_body && !third_view && body.first.is_some(),
+        // Not while an idle drives the view (the opening's wake-up): the arms rig plays
+        // the idle and the body would stand where the view lies [design: owner report
+        // 2026-10-16, "the players own body standing over themselves"].
+        upright: own_body && !third_view && body.first.is_some() && idles.held.is_none(),
         aiming: control.aiming,
         speed: m.speed,
         attack: Some(attack),
@@ -1739,18 +1787,6 @@ fn drive_body(
     let root = Transform { translation: Vec3::from_array(feet), rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e);
-    // While an idle turns the first-person view, its rig keeps the heading the idle
-    // started at and the camera node alone places the view: mouse look and movement are
-    // ignored (`nvf_play::player::ViewDriven`) [design: the owner's wish, playtest of
-    // 2026-10-11; the opening's scripts leave looking on, so the original may let the
-    // view turn; hypothesis that the body does not swing round with the view].
-    if idles.first.is_empty() && idles.held.take().is_some() {
-        seat.hold = None;
-    }
-    if driven.0 != idles.held.is_some() {
-        driven.0 = idles.held.is_some();
-        info!("player view: {}", if driven.0 { "driven by an idle's camera node; mouse look and movement ignored" } else { "back to the player" });
-    }
     let (held, pitch, at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
     if let Some(h) = idles.held {
         // The character stays where the scene plays (and collides with nothing there).

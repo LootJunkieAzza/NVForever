@@ -15,7 +15,11 @@
 //!   shaded by its slope as lit from the north-west, and a step of [`EDGE_STEP`] between
 //!   neighbours (a building's wall, a cliff) is drawn bright.
 //!
-//! What is not loaded in the physics world (cells far off) stays empty.
+//! The physics world holds only the 3×3 cells round the player (`phys::cells`), so a ray
+//! outdoors that lands nowhere is answered by the cell's landscape heights instead (the
+//! caller's `ray`): the 5×5 cells round the player, as the original's local map shows
+//! [observed: uGridsToLoad=5, the owner's INI], are drawn, their buildings only where
+//! the physics world holds them.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
@@ -33,6 +37,9 @@ pub const EXTERIOR_STEP: f32 = 96.0;
 /// The grid covers the map's window at a magnification of 1 and this much more each way
 /// [design].
 const MARGIN: f32 = 1.15;
+/// Outdoors the grid spans at least this many cells each way, game units: the 5×5 cells
+/// round the player and the margin [design].
+const EXTERIOR_SPAN: f32 = 5.0 * 4096.0 * MARGIN;
 /// Where the rays start above the player's feet and how far down they reach, game units
 /// [design: under an ordinary ceiling indoors; over the hills round the player outdoors].
 pub const INTERIOR_START: f32 = 150.0;
@@ -56,6 +63,17 @@ const GROUND_ALPHA: (f32, f32) = (6.0, 50.0);
 
 /// The player's height steps that make a new grid (another floor), game units [design].
 const FEET_SNAP: f32 = 128.0;
+
+/// The game units a grid covers across and down: the window at a magnification of 1 and
+/// the margin, outdoors at least [`EXTERIOR_SPAN`].
+fn extent(interior: bool, window: Vec2, scale: f32) -> Vec2 {
+    let e = window * scale * MARGIN;
+    if interior {
+        e
+    } else {
+        e.max(Vec2::splat(EXTERIOR_SPAN))
+    }
+}
 
 /// What a grid was made for (see [`Outline::key`]).
 pub type OutlineKey = (Option<u32>, u32, [i32; 3]);
@@ -85,7 +103,7 @@ impl Outline {
     /// panning keeps it.
     pub fn new(interior: Option<u32>, world: u32, centre: [f32; 2], feet: f32, window: Vec2, scale: f32) -> Outline {
         let step = if interior.is_some() { INTERIOR_STEP } else { EXTERIOR_STEP };
-        let extent = window * scale * MARGIN;
+        let extent = extent(interior.is_some(), window, scale);
         let snap = extent / 4.0;
         let key = Outline::key_for(interior, world, centre, feet, window, scale);
         let anchor = key.2;
@@ -105,7 +123,7 @@ impl Outline {
 
     /// The key a grid for these would have (to tell whether the one made still serves).
     pub fn key_for(interior: Option<u32>, world: u32, centre: [f32; 2], feet: f32, window: Vec2, scale: f32) -> OutlineKey {
-        let snap = window * scale * MARGIN / 4.0;
+        let snap = extent(interior.is_some(), window, scale) / 4.0;
         (interior, world, [(centre[0] / snap.x).round() as i32, (centre[1] / snap.y).round() as i32, (feet / FEET_SNAP).round() as i32])
     }
 
@@ -237,8 +255,9 @@ mod tests {
         assert_ne!(a, Outline::key_for(None, 7, [1000.0, 1000.0], 300.0, w, 28.0));
         let o = Outline::new(None, 7, [1000.0, 1000.0], 0.0, w, 28.0);
         assert_eq!(o.key, a);
-        // It covers the window round its anchor.
+        // It covers the window round its anchor, and the 5×5 cells.
         assert!(o.size[0] as f32 * o.step >= w.x * 28.0);
+        assert!(o.size[1] as f32 * o.step >= 5.0 * 4096.0);
     }
 
     #[test]

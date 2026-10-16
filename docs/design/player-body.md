@@ -125,6 +125,11 @@ and "Body in first person" on the settings page (key `first-person-body`).
   of the body"). The eyes go round the neck (`Bip01 Head`) with the view, as a turned
   head's do. With the switch off the seated view is as it was: free, not turned by the
   body, and no body.
+- While an idle drives the first-person view (its camera node places the view and mouse
+  look is ignored: the opening's wake-up in Doc Mitchell's house) the body is not drawn,
+  only the arms rig playing the idle, as with the switch off (owner report 2026-10-16:
+  with the switch on, loading in showed "the players own body standing over
+  themselves"). The body casts its shadow still, from where it stands.
 - On a bed (owner requests 2026-10-10: lie down as a sleeping NPC does, "sideways the
   camera when laying") the view is the lying body's, with the switch on or off
   (`lying_view`). That code does not assume an upright body: the frame is the pelvis's

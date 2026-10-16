@@ -499,6 +499,9 @@ pub struct MagicEffectDef {
     pub script: Option<FormId>,
     /// DATA "Actor Value" (`None` for the record's "None").
     pub actor_value: Option<u16>,
+    /// DATA "Effect Shader": the EFSH played on the target while the effect lasts
+    /// (docs/spec-notes/effect-shaders.md §3).
+    pub shader: Option<FormId>,
 }
 
 impl MagicEffectDef {
@@ -508,6 +511,9 @@ impl MagicEffectDef {
     pub const DETRIMENTAL: u32 = 4;
     pub const NO_DURATION: u32 = 1 << 7;
     pub const NO_MAGNITUDE: u32 = 1 << 8;
+    /// "FX Persist": the effect shader's persistent part shows while the effect lasts
+    /// [documented: xEdit MGEF flags; GECK wiki EffectShader].
+    pub const FX_PERSIST: u32 = 1 << 10;
 
     pub fn has(&self, flag: u32) -> bool {
         self.flags & flag != 0
@@ -816,7 +822,13 @@ pub enum PerkEffect {
     Ability(FormId),
     /// Type 2.
     EntryPoint(EntryPointDef),
-    /// Type 0 (quest and stage), or a DATA that could not be read.
+    /// Type 0: the quest is set to the stage when the rank is gained (`crate::perks::
+    /// gain_rank`) [documented: xEdit wbDefinitionsFNV.pas PERK effect type "Quest +
+    /// Stage"; observed: DATA is the quest's FormID then the stage in one byte, three
+    /// bytes after it unused, Intense Training's `b2380000 65 cdcdcd` for Generic stage
+    /// 101, whose result script reads "triggered by Intense Training perk rank 1"].
+    QuestStage { quest: FormId, stage: u8 },
+    /// A DATA that could not be read.
     #[default]
     Other,
 }
@@ -2125,6 +2137,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     archetype,
                     script: item.filter(|_| archetype == ARCHETYPE_SCRIPT),
                     actor_value: actor_value.and_then(|c| u16::try_from(c).ok()),
+                    shader: v.get("effect_shader").and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId),
                 });
             }
         }
@@ -2216,6 +2229,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"PRKE" => {
                         let b = |k: usize| s.data.get(k).copied().unwrap_or(0);
                         let effect = match b(0) {
+                            0 => PerkEffect::QuestStage { quest: FormId(0), stage: 0 },
                             1 => PerkEffect::Ability(FormId(0)),
                             2 => PerkEffect::EntryPoint(EntryPointDef { conditions: Some(Vec::new()), ..Default::default() }),
                             _ => PerkEffect::Other,
@@ -2231,6 +2245,13 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                                 Some(g) => PerkEffect::Ability(FormId(g)),
                                 None => PerkEffect::Other,
                             },
+                            PerkEffect::QuestStage { .. } if s.data.len() >= 5 => {
+                                let id = u32::from_le_bytes([s.data[0], s.data[1], s.data[2], s.data[3]]);
+                                match map(id) {
+                                    Some(q) => PerkEffect::QuestStage { quest: FormId(q), stage: s.data[4] },
+                                    None => PerkEffect::Other,
+                                }
+                            }
                             PerkEffect::EntryPoint(ep) if s.data.len() >= 2 => {
                                 PerkEffect::EntryPoint(EntryPointDef { point: s.data[0], function: s.data[1], ..ep.clone() })
                             }

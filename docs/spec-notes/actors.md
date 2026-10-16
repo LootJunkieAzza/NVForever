@@ -895,7 +895,7 @@ sequences): 70 directly in it, 9 in `male\`, 9 in `female\`, 8 in `child\` and 2
   takes the first sequence of a file.
 - `hurt\` holds `mt`, `1hm`, `1hp` and `h2h` walk and run variants ending `_hurt`
   (e.g. `mtforward_hurt.kf`), plus `mtidle`, `pamtidle` and the `mt` turns: the
-  crippled-leg locomotion (§8.10).
+  crippled-leg locomotion (§8.11).
 
 ### 8.2 Root motion
 
@@ -1152,7 +1152,101 @@ only in the walk test and on the player's body. All rules here are engine choice
   `clip_candidates`, not checked on screen); scaling the clip's rate with the turn
   speed; an actor facing its target on arrival (left to AI packages).
 
-### 8.10 Limping on a crippled leg
+### 8.10 Creature speeds and the alert stance
+
+Added 2026-10-16 (owner's playtest: cazadors moved far too slowly and their movement
+stopped and started, as Victor's walk had before #258). Code:
+`engine/nvforever/src/creature_pace.rs`, `fnv_ai::Ai::speeds`.
+
+- **Cause in NVForever** [observed in the code]: every actor walked at 86.8 and ran at
+  344 units/s (`fnv_ai::AiConfig`, the player's speeds); in combat a creature could only
+  be slowed below 344 (`npc_combat::pace`, list 5 item 25). The cazador's `mtforward.kf`
+  moves 216.73 units/s and `mtfastforward.kf` 545.54 [observed: `fnvtool actor
+  locomotion --folder meshes\creatures\nvcazadores`], so its walk played at the slowest
+  clip rate (0.4) and 344 sat on the walk/run switch (the geometric mean of the two
+  clips' speeds, 343.9, §8.3): any slow-down swapped the clips back and forth.
+- **Measured in the original game** [observed: AI observer (ai-observer.md), save
+  `nvftest`, 2026-10-16; outputs in `C:\fnv-private\capture\out\obs_cazador_*`, not
+  committed]. Positions every 5 game loops (about 0.16 s), horizontal speed between
+  samples.
+  - Calm: non-hostile cazadors at the Tribal Village (cell -19, 7; `tgm`, `tdetect`; the
+    owner's tip), sandbox package, not running, 1,665 samples over a game hour: young
+    cazadors (VCrTier3CazadorSmall: base scale 0.5, Speed Mult 300) held 224–233
+    units/s (median and 90th percentile), the medium ones (scale 1.0, Speed Mult 250)
+    373–386.
+  - Charging: NVCrCazador and VCrTier3CazadorSmall spawned in Goodsprings by
+    `PlaceAtMe`, god mode, in Combat and running (IsRunning, IsMoving forward): the
+    medium ones up to 920–974 units/s, the young up to 576. With combat AI off (`tcai`)
+    they hovered at 75–120.
+- **Rule** [observed fit; hypothesis for other creatures]: a creature moves at its clip's
+  root-motion speed × its scale × Speed Mult / 100 × 0.70 (`CREATURE_SPEED_FIT`): the
+  walk 216.73 × 0.5 × 3.0 × 0.70 = 228 and 216.73 × 1 × 2.5 × 0.70 = 379; the run
+  545.54 × 0.5 × 3.0 × 0.70 = 573 and 545.54 × 2.5 × 0.70 = 955, all within the
+  measurements. The share is the same for both kinds (0.701 and 0.701 when walking), so it
+  is proportional to Speed Mult, not an offset. No game setting gives 0.70
+  (`fMoveBaseSpeed` 77, `fMoveRunMult` 4, `fMoveSneakMult` 0.57 are the only movement
+  ones [observed: `fnvtool esm inventory`]); people at Speed Mult 100 walk at their clip's
+  speed (§8.3, physics.md §6.3), so why creatures keep 0.70 is open. Other creatures
+  are not measured.
+- **Alert stance** [observed: the owner, 2026-10-16: "the cazadors scurry along the
+  ground when not alert and fly when they are alert/in combat"]: the cazador's folder
+  has `h2hforward.kf` (298.15 units/s), `h2hfastforward.kf` (545.54) and `h2hidle.kf`
+  beside its `mt` clips; the dog has `h2hforward` and `h2hfastforward`, the mirelurk king
+  `h2hforward`, no other creature folder of the base archives has `h2h` movement clips
+  [observed: the meshes and Update archive listings]. Rule [design on the owner's
+  observation]: outside the Normal detection state (Alert, Combat, Lost) such a creature
+  moves on its `h2h` clips (missing moves taken from the `mt` set) at their speeds by the
+  rule above; the change of set is not cross-faded.
+- **Deathclaw's walk**: its walk clip is `locomotion\mtfoward.kf` (sequence Forward, 120
+  units/s) [observed]; `clip_candidates` looks for that spelling last, so deathclaws now
+  have a walk.
+- **Alert look** (`engine/nvforever/src/creature_stance.rs`) [design on the owner's
+  description, 2026-10-16: "it's like they are drawing a weapon, i.e. the hands"]: a
+  creature that is alerted (Alert, Combat, Lost, or SetAlert; as people draw their
+  weapons, alert.md §5) plays its `h2hequip.kf` once, then holds `h2haim.kf` over its
+  locomotion by track priority; calm again, `h2hunequip.kf` (else `h2hholster.kf`) once,
+  then its locomotion alone. The draw cycle is the weapons' (`WeaponAnim`, §9.4) on blend
+  layers 2 and 3; a creature needs no `Weapon` node and gets no `WeaponHold`, so its
+  attacks are found as before (`attack_anims.rs`) and play over the aim (layers 4 and 5).
+  At rest none of its stance plays: the creatures' holster clips are whole-body poses.
+  Creatures with an `h2h` movement set (cazador, dog, mirelurk king, above) are left
+  out: that set is their alert look [design]. With the stance a dog that stopped at the
+  player (body gap 5–17 units, measured from the posed torso, `npc_combat`) was 27–42
+  away moments later, past the 24-unit hit gap, and ran in again: 7 blows instead of 15
+  in smoke `combat-dogs` [observed in NVForever, 2026-10-16; hypothesis: the dog's aim
+  pose holds its torso further back than its idle].
+  - Which creatures [observed: `Fallout - Meshes.bsa` listing]: the 25 creature folders
+    with `h2haim.kf` at their root, all with `h2hequip.kf` and `h2hunequip.kf` except
+    `nvsporeplant` (aim only): brahmin, centaur, deathclaw, dog, ghoul, giantant,
+    mirelurk, mirelurkking, molerat, nightstalker, nvbighorner, nvcazadores, nvgecko,
+    nvgiantrat, nvmantis, nvsecuritron, nvsporecarrier, nvsporeplant, protectron,
+    queenant, radroach, radscorpion, smbehemoth, smspinebreaker, yaoguai.
+  - Priorities [observed: `kf_layer_survey`]: the aim clips sit under the walk and run
+    clips (priority 30 on every bone): deathclaw aim legs and tail 20, spine and upper
+    arms 30, forearms and hands 35 (its `mtidle.kf` is 20 throughout); ghoul legs 25,
+    spine and upper arms 30, hands 35 (idle 20); dog 25, cazador 21, mirelurk king 20.
+    So a moving creature keeps its legs (and shares its spine and upper arms with the
+    aim at equal priority, §9.4 blending) and raises its forearms and hands; a standing
+    one takes the aim's pose (the deathclaw's legs half its idle's, both at 20).
+    Equip and unequip: deathclaw legs 25, upper body 55; ghoul equip (3.0 s) 55 on
+    every bone, legs included, so a ghoul that runs at once slides with still legs for
+    the equip's length; cazador equip 33
+    throughout [observed; whether the original holds a creature still meanwhile is
+    open].
+  - Seen in NVForever [observed: smoke `creature-alert-stance` and
+    `creature-alert-stance-ghoul`, screenshots not committed, 2026-10-16]: calm, the
+    deathclaw's arms hang and the ghoul stands upright; alerted, the deathclaw raises
+    its claws over its shoulders and the ghoul hunches with its hands raised; both go
+    back after the unequip clip. Deathclaws fighting a feral ghoul play their attacks
+    with the stance drawn.
+- **Not done**: the aim's up and down forms for creatures that have them (ghoul,
+  protectron, smbehemoth, smspinebreaker: `h2haimup.kf`, `h2haimdown.kf`; people's are
+  in `attack_anims.rs`); the creature alert look is not compared with the original game
+  (when the equip plays, whether a creature stops for it); speeds of a creature not yet
+  drawn (it moves at the people's speeds until its clips load); creature turn speed
+  (CREA `TNAM`, §8.9).
+
+### 8.11 Limping on a crippled leg
 
 Owner's request (2026-10-16): with a leg crippled, people, creatures and the player walk
 and run with the limping clips. `engine/nvforever/src/limping.rs` (NPCs, creatures),
@@ -1230,7 +1324,7 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
 |---|---|---|---|---|
 | `h2h` | Hand to Hand | 0.40 / 0.37 | `Bip01 R ForeTwist` | `Bip01 R ForeTwist` |
 | `1hm` | Melee (1 Hand) | 0.90 / 1.10 | `Bip01 Pelvis` | `Bip01 R Hand` |
-| `2hm` | Melee (2 Hand) | 1.20 / 1.20 | `Bip01 Spine2` | `Bip01 L Hand` |
+| `2hm` | Melee (2 Hand) | 1.20 / 1.20 | `Bip01 Spine2` | `Bip01 R Hand` (its aim clip names `Bip01 L Hand`, animation.md §9.10) |
 | `1hp` | Pistol (Ballistic, Energy) | 0.37 / 0.47 | `Bip01 Pelvis` | `Bip01 R Hand` |
 | `2hr` | Rifle (Ballistic, Energy) | 0.67 / 0.83 | `Bip01 Spine2` | `Bip01 R Hand` |
 | `2ha` | Rifle - Automatic | 1.00 / 0.83 | `Bip01 Spine2` | `Bip01 R Hand` |
@@ -1259,12 +1353,18 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
   `prn: Bip01 R Hand` at 0.13 s), unequip clips on the holster bone (`1hpunequip`:
   `prn: Bip01 Pelvis` at 0.20 s), holster clips name the holster bone. `Attach`/`Detach`
   come close to the `prn:` keys but not always in the same order (`2haequip`: `Attach`
-  0.37 s, `prn: Bip01 R Hand` 0.93 s); they are not used.
+  0.37 s, `prn: Bip01 R Hand` 0.93 s). The clips' `Weapon` track jumps from the holster
+  pose to the hand pose at `Attach` and back at `Detach`, not at the `prn:` keys
+  [observed: animation.md §9.10].
 - Engine rule (`fnv_actor::weapon::mount_bones`, `WeaponAnim::parent`): holstered, the
   weapon hangs from the holster clip's last `prn:` bone (else the unequip clip's); drawn,
-  from the aim clip's (else the equip clip's, else `Weapon`'s skeleton parent); while
-  equipping or unequipping, from the last `prn:` bone the clip has passed, starting from
-  where it was.
+  from the equip clip's (else the aim clip's, else `Weapon`'s skeleton parent), as the
+  player body; while equipping or unequipping, it changes from one to the other at the
+  clip's `Attach` / `Detach` key (a clip without one: the last `prn:` bone it has
+  passed, starting from where it was). Until 2026-10-16 the drawn bone was the aim
+  clip's and the change came at the `prn:` keys: NPCs held the baseball bat end over
+  end (hung from the left hand, owner's playtest 2026-10-16), and every stance's weapon
+  sat in the wrong place between the `prn:` key and `Attach` / `Detach`.
 - That NPCs show holstered weapons at the pelvis or on the back is [hypothesis, from the
   holster clips]; an in-game screenshot of an NPC with a holstered pistol and one with a
   rifle would settle it.

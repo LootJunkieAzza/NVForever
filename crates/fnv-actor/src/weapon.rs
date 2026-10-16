@@ -161,12 +161,19 @@ pub fn prn_bone(key: &str) -> Option<String> {
 }
 
 /// What a stance clip says about the weapon: its `prn:` keys as (phase 0–1, bone) in
-/// time order, and its length and blend-in time.
+/// time order, the phase of its first `Attach` or `Detach` key, and its length and
+/// blend-in time.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct ClipFacts {
     pub duration: f32,
     pub blend_time: f32,
     pub prn: Vec<(f32, String)>,
+    /// `Attach` (equip) or `Detach` (unequip): when the weapon changes bones. The clips'
+    /// `Weapon` track jumps from its holster pose to its hand pose there and nowhere else,
+    /// while their `prn:` keys sit elsewhere (`2hmequip.kf`: `prn:` 0.03 s, `Attach`
+    /// 0.30 s; `2hrequip.kf`: `Attach` 0.30 s, `prn:` 0.63 s) [observed: animation.md
+    /// §9.10].
+    pub switch: Option<f32>,
 }
 
 impl ClipFacts {
@@ -177,7 +184,12 @@ impl ClipFacts {
             .filter_map(|(t, k)| Some((if len > 0.0 { ((t - start) / len).clamp(0.0, 1.0) } else { 0.0 }, prn_bone(k)?)))
             .collect();
         prn.sort_by(|a, b| a.0.total_cmp(&b.0));
-        ClipFacts { duration: len, blend_time: blend_time_of(text_keys).unwrap_or(DEFAULT_BLEND), prn }
+        let switch = text_keys
+            .iter()
+            .filter(|(_, k)| k.split(['\r', '\n']).map(str::trim).any(|l| l.eq_ignore_ascii_case("attach") || l.eq_ignore_ascii_case("detach")))
+            .map(|(t, _)| if len > 0.0 { ((t - start) / len).clamp(0.0, 1.0) } else { 0.0 })
+            .min_by(f32::total_cmp);
+        ClipFacts { duration: len, blend_time: blend_time_of(text_keys).unwrap_or(DEFAULT_BLEND), prn, switch }
     }
 
     /// The bone of the last `prn:` key at or before `phase`.
@@ -194,13 +206,17 @@ impl ClipFacts {
 pub type StanceFacts = BTreeMap<EquipClip, ClipFacts>;
 
 /// Where a stance's weapon hangs when holstered and when drawn: the holster clip's last
-/// `prn:` (else the unequip clip's), and the aim clip's (else the equip clip's, else
+/// `prn:` (else the unequip clip's), and the equip clip's (else the aim clip's, else
 /// `drawn_default`) [observed: holster clips name `Bip01 Pelvis` (pistols, one-handed
 /// melee, grenades, mines), `Bip01 Spine2` (rifles, two-handed melee, launchers) or the
-/// right arm (`h2h`, `2hh`); actors.md §9.2].
+/// right arm (`h2h`, `2hh`); actors.md §9.2]. The equip clip's, as the player body
+/// takes it: `2hmaim.kf` alone names another bone (`Bip01 L Hand`) than its equip clip,
+/// yet its `Weapon` track is the pose the equip clip ends in under the right hand, and
+/// hung from the left hand the bat turned end over end in the hands [observed:
+/// animation.md §9.10, owner's playtest 2026-10-16].
 pub fn mount_bones(facts: &StanceFacts, drawn_default: &str) -> (String, String) {
     let last = |c: EquipClip| facts.get(&c).and_then(|f| f.last_parent().map(str::to_string));
-    let drawn = last(EquipClip::Aim).or_else(|| last(EquipClip::Equip)).unwrap_or_else(|| drawn_default.to_string());
+    let drawn = last(EquipClip::Equip).or_else(|| last(EquipClip::Aim)).unwrap_or_else(|| drawn_default.to_string());
     let holster = last(EquipClip::Holster).or_else(|| last(EquipClip::Unequip)).unwrap_or_else(|| drawn.clone());
     (holster, drawn)
 }
@@ -308,15 +324,24 @@ impl WeaponAnim {
         [Some((c, Self::phase(c, self.time, facts), w)), self.prev.map(|(p, t)| (p, Self::phase(p, t, facts), 1.0 - w))]
     }
 
-    /// The bone the weapon hangs from now: the holster or hand bone at rest, else the last
-    /// `prn:` key the playing clip has passed, starting from where the weapon was.
+    /// The bone the weapon hangs from now: the holster or hand bone at rest; while drawing
+    /// or putting away, the other one from the clip's `Attach` / `Detach` key on, as the
+    /// player body does ([`ClipFacts::switch`]), else (a clip without one) the last
+    /// `prn:` key the clip has passed, starting from where the weapon was.
     pub fn parent<'a>(&self, holster: &'a str, drawn: &'a str, facts: &'a StanceFacts) -> &'a str {
-        let passed = |c: EquipClip| facts.get(&c).and_then(|f| f.parent_at(Self::phase(c, self.time, facts)));
+        let passed = |c: EquipClip, from: &'a str, to: &'a str| {
+            let f = facts.get(&c)?;
+            let phase = Self::phase(c, self.time, facts);
+            match f.switch {
+                Some(at) => Some(if phase >= at { to } else { from }),
+                None => f.parent_at(phase),
+            }
+        };
         match self.stage {
             Stage::Holstered => holster,
             Stage::Drawn => drawn,
-            Stage::Equipping => passed(EquipClip::Equip).unwrap_or(holster),
-            Stage::Unequipping => passed(EquipClip::Unequip).unwrap_or(drawn),
+            Stage::Equipping => passed(EquipClip::Equip, holster, drawn).unwrap_or(holster),
+            Stage::Unequipping => passed(EquipClip::Unequip, drawn, holster).unwrap_or(drawn),
         }
     }
 }
@@ -373,12 +398,13 @@ mod tests {
         assert!((f.prn[0].0 - 0.3635).abs() < 1e-3);
         assert_eq!(f.parent_at(0.2), None);
         assert_eq!(f.parent_at(0.5), Some("Bip01 R Hand"));
+        assert!((f.switch.unwrap() - 0.4546).abs() < 1e-3);
         assert_eq!(f.blend_time, DEFAULT_BLEND);
     }
 
     /// A pistol stance shaped like `1hp*.kf` (actors.md §9.1).
     fn pistol() -> StanceFacts {
-        let f = |duration: f32, blend_time: f32, prn: &[(f32, &str)]| ClipFacts { duration, blend_time, prn: prn.iter().map(|&(p, b)| (p, b.to_string())).collect() };
+        let f = |duration: f32, blend_time: f32, prn: &[(f32, &str)]| ClipFacts { duration, blend_time, prn: prn.iter().map(|&(p, b)| (p, b.to_string())).collect(), switch: None };
         BTreeMap::from([
             (EquipClip::Holster, f(0.1, 1.0 / 30.0, &[(0.33, "Bip01 Pelvis")])),
             (EquipClip::Equip, f(0.3667, 0.2, &[(0.36, "Bip01 R Hand")])),
@@ -391,6 +417,50 @@ mod tests {
     fn mounts_from_prn_keys() {
         assert_eq!(mount_bones(&pistol(), "Bip01 R Hand"), ("Bip01 Pelvis".to_string(), "Bip01 R Hand".to_string()));
         assert_eq!(mount_bones(&StanceFacts::new(), "Bip01 R Hand"), ("Bip01 R Hand".to_string(), "Bip01 R Hand".to_string()));
+        // `2hm*.kf`: the aim clip names the left hand, the equip clip the right; the
+        // equip clip's wins.
+        let mut bat = two_hand_melee();
+        assert_eq!(mount_bones(&bat, "Bip01 R Hand"), ("Bip01 Spine2".to_string(), "Bip01 R Hand".to_string()));
+        bat.remove(&EquipClip::Equip);
+        assert_eq!(mount_bones(&bat, "Bip01 R Hand").1, "Bip01 L Hand");
+    }
+
+    /// A two-handed melee stance shaped like `2hm*.kf` (animation.md §9.10): `prn:` keys
+    /// near the start of the equip and unequip clips, `Attach` / `Detach` later.
+    fn two_hand_melee() -> StanceFacts {
+        let f = |duration: f32, prn: (f32, &str), switch: Option<f32>| ClipFacts { duration, blend_time: 0.2, prn: vec![(prn.0, prn.1.to_string())], switch };
+        BTreeMap::from([
+            (EquipClip::Holster, f(0.1, (0.67, "Bip01 Spine2"), None)),
+            (EquipClip::Equip, f(1.2, (0.028, "Bip01 R Hand"), Some(0.25))),
+            (EquipClip::Aim, f(3.5, (0.038, "Bip01 L Hand"), None)),
+            (EquipClip::Unequip, f(1.2, (0.028, "Bip01 Spine2"), Some(0.72))),
+        ])
+    }
+
+    #[test]
+    fn bones_change_at_attach_and_detach() {
+        let facts = two_hand_melee();
+        let (h, d) = mount_bones(&facts, "Bip01 R Hand");
+        let mut w = WeaponAnim::new(false);
+        w.step(true, 0.01, &facts);
+        assert_eq!(w.stage, Stage::Equipping);
+        // Past the equip clip's `prn:` key (0.03 s) but before `Attach` (0.30 s): still
+        // on the back.
+        w.step(true, 0.1, &facts);
+        assert_eq!(w.parent(&h, &d, &facts), "Bip01 Spine2");
+        w.step(true, 0.25, &facts);
+        assert_eq!(w.parent(&h, &d, &facts), "Bip01 R Hand");
+        while w.stage != Stage::Drawn {
+            w.step(true, 0.05, &facts);
+        }
+        assert_eq!(w.parent(&h, &d, &facts), "Bip01 R Hand");
+        // Putting it away: in the hand until `Detach` (0.87 s), on the back after.
+        w.step(false, 0.01, &facts);
+        assert_eq!(w.stage, Stage::Unequipping);
+        w.step(false, 0.5, &facts);
+        assert_eq!(w.parent(&h, &d, &facts), "Bip01 R Hand");
+        w.step(false, 0.4, &facts);
+        assert_eq!(w.parent(&h, &d, &facts), "Bip01 Spine2");
     }
 
     #[test]
