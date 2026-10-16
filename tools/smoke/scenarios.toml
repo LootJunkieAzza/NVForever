@@ -73,6 +73,8 @@ sep = ","
 [timed.NVF_PLAY_TEST_PAUSE]
 sep = ","
 shift = "all"
+[timed.NVF_PLAY_TEST_AUDIO_REOPEN]
+sep = ","
 
 
 # ------------------------------------------------------------------ checks before every push
@@ -672,6 +674,27 @@ expect = [
   "music summary: 1 started, 0 changes of layers, 0 files not played",
   "ambient summary: 2 placed loops started, … 1 background loops started",
 ]
+
+[[scenario]]
+name = "audio-reopen"
+source = "after changes to the sound output (engine/nvf-play/src/audio_out.rs): the device dropped and opened again twice under the Goodsprings music; the music plays on (not started again) and sound is mixed after the last reopen"
+areas = ["audio", "music"]
+paths = ["engine/nvf-play/src/audio_out.rs"]
+env = { NVF_PLAY_TEST_AUDIO_REOPEN = "15,25" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-69000,3500,8900", "--hour", "12"]
+run_seconds = 40
+expect = [
+  "audio output: reopening (test aid)",
+  "music summary: 1 started, 0 changes of layers, 0 files not played",
+  { re = 'audio output summary: opened 3 times, 2 reopens, [0-9.]+ s mixed, [1-9][0-9]*\.[0-9] s since the last open', label = "audio output summary: opened 3 times, 2 reopens, … s mixed, ≥1 s since the last open" },
+]
+order = [[
+  "audio output: opened",
+  "audio output: reopening (test aid)",
+  "audio output: opened",
+  "audio output: reopening (test aid)",
+  "audio output: opened",
+]]
 
 [[scenario]]
 name = "music-script-trigger"
