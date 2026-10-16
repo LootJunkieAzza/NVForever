@@ -5,8 +5,8 @@ Clean-room notes in plain language on the idles an actor is *told* to play: by a
 an idle marker, and by a dialogue response. The IDLE records, the idle tree and the `.kf`
 files are in docs/spec-notes/animation.md; the editor documentation on packages, idle
 collections and markers is paraphrased in docs/spec-notes/actor-behaviour.md §1.4, §1.5
-and §5. The idle manager (idles chosen from the tree by their conditions with nobody
-asking) is not part of this note and is not built.
+and §5. Of the idle manager (idles chosen from the tree by their conditions with nobody
+asking) only the drawn-weapon fidgets are built (§11).
 
 Tags: **[documented]** cites a public source, **[observed]** was read from the owner's
 install (FNV 1.4.0.525, `FalloutNV.esm`, `Fallout - Meshes.bsa` and `Update.bsa` only, with
@@ -247,7 +247,8 @@ below 30).
 
 ## 8. Not done, and questions for the owner
 
-1. The idle manager: `PickIdle`, fidgets, talking gestures, hit reactions from the tree.
+1. The idle manager: `PickIdle`, fidgets other than the drawn-weapon ones (§11),
+   talking gestures, hit reactions from the tree.
 2. Sounds and other text keys of idle clips; the response flag "Use Emotion Animation"
    and facial emotions. (Animated objects: §10.)
 3. Package begin / end / change **topics** (TNAM), and the idles of actors that are not
@@ -327,3 +328,75 @@ words, with where ours stands:
   the smoking one and the cigarette gone with it).
 - Not done: the player's idles, the objects' own animation, and checking against the
   game how long an object stays (the whole idle, as here, or only between keys).
+
+## 11. Drawn-weapon fidgets from the IDLE tree
+
+The owner asked (2026-10-16) for NPCs with a weapon out to fidget (a rifle held up
+one-handed to rest the arm), from the game's own idles, and for the player too while
+standing still.
+
+### 11.1 What the data holds [observed: `fnvtool actor anims`, FalloutNV.esm]
+
+The people's branch with the weapon out, from the root `GeneralIdles` (conditions in
+record order; `GetRandomPercent` in percent):
+
+| Node | Section | Loops | Replay delay | Conditions |
+|---|---|---|---|---|
+| `GeneralIdles` | Special Idle | | | `GetEquipped` 0x168A7E != 1, `IsInCombat` != 1, `IsSneaking` == 0 |
+| `NPCOnlyIdles` | Special Idle | | | package / procedure tests, `GetIsID` player == 0 |
+| `NPCWeaponIdles` | Special Idle | | | `IsWeaponOut` == 1 |
+| `NPC2hrIdles` | Special Idle | | | `GetWeaponAnimType` == 5 (rifles) |
+| `2hrLoiter` (`2hrloiter.kf`, 18.4 s) | Upper Body | 1–5 | 10 | random < 5 |
+| `2hrLoiterOnehanded` (9.7 s) | Upper Body | 0 | 0 | random < 5 |
+| `2hrShiftWeight` (5.5 s) | Upper Body | 0 | 10 | random < 5 |
+| `2hrCrouch` (34.9 s) | Whole Body | 1–3 | 45 | random < 0 (never) |
+| `NPC2haIdles` | Special Idle | | | `GetWeaponAnimType` == 6 (automatic rifles) |
+| `2haAlertScan` (12.9 s) | Upper Body | 0 | 0 | random < 5 |
+
+- All five clips are in `meshes\characters\_male\idleanims\` with 62 tracks, all bound to
+  the people's skeleton (body and legs, though the section says Upper Body).
+- No other weapon type has a branch: pistols, melee and heavy weapons have no drawn-weapon
+  fidgets in the tree. Childless `Loose…` roots with a drawn weapon exist (`3rdP1HPShrugs`,
+  `3rdP2HRSearch`, `LOOSE2hrLoiter`, `LooseCheering2HA` …) and are for scripts.
+- The player's branch `PlayerOrNPCIdles` (`IsWeaponOut` == 1, and third person or not the
+  player) has one child, `3rdPMTIdles`, which wants the weapon away: the player has no
+  drawn-weapon fidget in the tree.
+- The creatures' branches share the roots with the people's (`CommonIdle`, `SBIdles`, …);
+  each inner node's `MODL` names the folder of its idles (`Characters\_Male\IdleAnims`,
+  `Creatures\…`).
+
+### 11.2 Rules as built (`Game::weapon_fidget`, `engine/nvforever/src/idles.rs`)
+
+- **The walk** [hypothesis, animation.md §2.2]: roots in chain order, those of the
+  actor's folder only [hypothesis: the inner nodes' `MODL`] and with children (childless
+  roots are played on request). The first node whose conditions pass is gone into; its
+  children in chain order the same way; the first leaf that passes is the pick. A node
+  whose children all fail is left for its next sibling [hypothesis].
+- **Only drawn-weapon fidgets** [design]: the pick is played only when a node on its way
+  requires `IsWeaponOut == 1`; any other leaf (the rest of the idle manager) is not built.
+- **The player** [design, owner 2026-10-16]: the walk starts at each node that requires
+  the weapon out below the roots (`NPCWeaponIdles`, `PlayerOrNPCIdles`), judging its own
+  conditions and those below, so the player gets the people's rifle fidgets. Only in
+  third person (a fidget would sway the first-person view, which follows the body), with
+  the feet still, the weapon ready and not aiming, firing or reloading, and no script
+  package.
+- **When** [design]: an NPC standing still (no walking velocity) with its weapon in the
+  hand, not in an idle collection and not playing another idle, is checked every 2 s;
+  with the rifle branch's three 5% leaves that is a fidget about every 14 s, an automatic
+  rifle's about every 40 s.
+- **Replay delay** [hypothesis: seconds]: a leaf is skipped for its replay delay after
+  the same actor last started it.
+- **Ends** [design]: a fidget fades out when its actor moves or puts the weapon away
+  (the player also: aims, fires, reloads, goes to first person, or a script package
+  starts).
+- **IsWeaponOut on NPCs**: the rules are now told each drawn NPC's weapon state
+  (in the hand once the equip clip has put it there), as they were already told the
+  player's [documented: the value changes when the weapon is attached to the weapon
+  node, catalogue notes of IsWeaponOut].
+- Smoke test: `weapon-fidgets` (tools/smoke/scenarios.toml).
+
+### 11.3 Open
+
+- How often the original looks at its tree, and the unit of the replay delay.
+- Whether the original walks on after a branch without a passing leaf (here: yes).
+- Whether a fidget is cut by moving or plays out on the upper body (here: cut).

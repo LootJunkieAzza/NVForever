@@ -27,17 +27,27 @@
 //! - The slot also plays the animation groups scripts ask of actors (`PlayGroup`,
 //!   `actor_groups.rs`); those are not idles for `IsIdlePlaying`.
 //!
-//! Not done: the idle manager (idles chosen from the IDLE tree by their conditions:
-//! `PickIdle`, fidgets, talking gestures), the sounds and other text keys of idle clips,
+//! - **Drawn-weapon fidgets** (idles.md §11). An NPC standing still with its weapon out
+//!   (a rifle loitering, lifting it one-handed to rest the arm, shifting its weight; an
+//!   automatic rifle scanning), and the player standing still in third person with a
+//!   weapon out and not aiming or firing, is checked every [`FIDGET_CHECK_SECONDS`]
+//!   for a fidget from the IDLE tree (`Game::weapon_fidget`); the tree's own random
+//!   percentages decide whether one plays. A fidget ends when its actor moves, puts the
+//!   weapon away, or (the player) aims, fires, reloads or goes to first person.
+//!
+//! Not done: the rest of the idle manager (idles chosen from the IDLE tree by their
+//! conditions: `PickIdle`, other fidgets, talking gestures), the sounds and other text keys of idle clips,
 //! and package idles of actors that are not residents. The props idles hold (ANIO) are
 //! drawn by `anim_objects.rs`.
 
 use crate::limbs::ActorRig;
 use crate::locomotion::Locomotion;
 use crate::residents::Residents;
+use crate::weapons::WeaponHold;
 use bevy::prelude::*;
 use fnv_actor::idle::meshes_path;
 use fnv_actor::idle_play::{IdleKeys, IdlePlay};
+use fnv_actor::weapon::Stage;
 use fnv_game::game::Game;
 use fnv_game::idles::{IdlePicker, IdleRequest, IdleSource, Loops};
 use fnv_game::package::flags;
@@ -45,6 +55,7 @@ use fnv_sim::FormId;
 use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Clip, Layer};
 use nvf_assets::model::ModelCtx;
+use nvf_play::control::PlayerControl;
 use nvf_play::player::Player;
 use nvf_play::script::ScriptState;
 use nvf_play::RefVisual;
@@ -61,6 +72,19 @@ pub const CAMERA_NODE: &str = "Camera1st";
 /// After a collection's idle could not be started (its actor is not drawn, its clip does
 /// not load), seconds until the collection is tried again [engineering choice].
 const RETRY_SECONDS: f32 = 5.0;
+
+/// Seconds between two looks at the idle tree for an actor's drawn-weapon fidget
+/// [design: how often the original evaluates its tree is not known; with the rifle
+/// branch's three 5% leaves a standing rifleman fidgets about every 14 s].
+pub const FIDGET_CHECK_SECONDS: f32 = 2.0;
+
+/// The player moved when their feet went further than this in a frame, game units
+/// [engineering choice: above the collision's settling].
+const PLAYER_STILL: f32 = 0.5;
+
+/// The animation folder of people (NPC_ and the player) below `meshes\`
+/// [observed: animation.md §3.1].
+const PEOPLE_FOLDER: &str = "characters\\_male";
 
 /// One idle playing, with the clip as its rig takes it.
 pub struct Playing<C> {
@@ -234,6 +258,9 @@ pub struct Stats {
     pub player_started: u32,
     pub not_drawn: u32,
     pub no_clip: u32,
+    /// Drawn-weapon fidgets started on actors and on the player.
+    pub actor_fidgets: u32,
+    pub player_fidgets: u32,
 }
 
 /// A small deterministic generator (SplitMix64) for loop counts and random picks: the
@@ -253,6 +280,14 @@ impl Rng {
 #[derive(Resource)]
 pub struct Idles {
     collections: HashMap<u32, Collection>,
+    /// Seconds until each actor's next look for a fidget.
+    fidget_check: HashMap<u32, f32>,
+    /// When each actor last started each fidget (seconds of `clock`), for the replay
+    /// delay.
+    fidget_last: HashMap<(u32, u32), f32>,
+    clock: f32,
+    /// The player's feet the frame before.
+    player_feet: Option<[f32; 3]>,
     /// What each actor was last reported to the rules as playing.
     told: HashMap<u32, u32>,
     rng: Rng,
@@ -261,7 +296,13 @@ pub struct Idles {
 
 impl Default for Idles {
     fn default() -> Self {
-        Idles { collections: HashMap::new(), told: HashMap::new(), rng: Rng(0x1D1E_5EED), stats: Stats::default() }
+        Idles {
+            collections: HashMap::new(),
+            fidget_check: HashMap::new(),
+            fidget_last: HashMap::new(),
+            clock: 0.0,
+            player_feet: None,
+            told: HashMap::new(), rng: Rng(0x1D1E_5EED), stats: Stats::default() }
     }
 }
 
@@ -286,7 +327,7 @@ fn describe(game: &Game, idle: FormId, play: &IdlePlay) -> String {
 }
 
 /// What [`drive`] reads and writes of a drawn actor.
-type Drawn = (Entity, &'static RefVisual, &'static ActorRig, Option<&'static mut ActorIdle>, Option<&'static Locomotion>);
+type Drawn = (Entity, &'static RefVisual, &'static ActorRig, Option<&'static mut ActorIdle>, Option<&'static Locomotion>, Option<&'static WeaponHold>);
 
 /// Take the idles asked for, run the collections, start and advance what plays.
 #[allow(clippy::too_many_arguments)]
@@ -299,6 +340,7 @@ pub fn drive(
     mut residents: Option<ResMut<Residents>>,
     mut sim: Option<ResMut<nvf_play::sim::SimState>>,
     player: Option<Res<Player>>,
+    control: Option<Res<PlayerControl>>,
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     mut actors: Query<Drawn>,
@@ -335,7 +377,14 @@ pub fn drive(
         slot.check_owner(|s| owner_now(game, player_ref, s));
     }
     let mut busy: HashMap<u32, bool> = HashMap::new();
-    for (_, v, _, idle, lo) in &mut actors {
+    // The rules are told which NPCs hold their weapon in the hand (`IsWeaponOut`, as for
+    // the player: once the weapon is on the hand [documented: catalogue notes]).
+    for (_, v, _, _, _, hold) in &actors {
+        if let Some(h) = hold {
+            game.set_weapon_out(FormId(v.0), h.anim.stage == Stage::Drawn);
+        }
+    }
+    for (_, v, _, idle, lo, _) in &mut actors {
         let Some(mut idle) = idle else { continue };
         idle.0.check_owner(|s| owner_now(game, v.0, s));
         // A collection's idle ends when its actor walks off [design].
@@ -343,7 +392,27 @@ pub fn drive(
         if let Some(c) = idle.0.cur.as_mut().filter(|c| walking && matches!(c.source, IdleSource::PackageIdles | IdleSource::MarkerIdles)) {
             c.play.stop();
         }
+        // A fidget ends when its actor moves or puts the weapon away [design].
+        let moving = lo.is_some_and(|l| l.velocity != [0.0; 2]);
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Fidget && (moving || !weapon_out(game, v.0))) {
+            c.play.stop();
+        }
         busy.insert(v.0, idle.0.playing().is_some());
+    }
+    // The player stands still with a weapon ready in third person: may fidget [design,
+    // owner 2026-10-16]; a fidget playing ends otherwise.
+    let feet = player.as_deref().map(|p| p.feet);
+    let moved = match (feet, st.player_feet) {
+        (Some(a), Some(b)) => (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f32>().sqrt() > PLAYER_STILL,
+        _ => true,
+    };
+    st.player_feet = feet;
+    let player_still = !moved
+        && control.as_deref().is_some_and(|c| c.weapon_out && !c.aiming && !c.trigger && !c.reload && c.third_person_view())
+        && weapon_out(game, player_ref)
+        && package_of(game, player_ref).is_none();
+    if let Some(c) = pi.third.cur.as_mut().filter(|c| c.source == IdleSource::Fidget && !player_still) {
+        c.play.stop();
     }
     busy.insert(player_ref, pi.first.playing().is_some() || pi.third.playing().is_some());
     // An idle asked for this frame (a package's begin idle) comes before its collection.
@@ -397,18 +466,58 @@ pub fn drive(
         game.ask_idle(FormId(actor), idle, source);
     }
 
+    // Drawn-weapon fidgets: NPCs standing still with a weapon out, and the player.
+    st.clock += dt;
+    let mut still: Vec<(u32, String)> = actors
+        .iter()
+        .filter(|(_, v, _, _, lo, _)| lo.is_some_and(|l| l.velocity == [0.0; 2]) && !live.contains(&v.0) && weapon_out(game, v.0) && !game.is_dead(FormId(v.0)))
+        .filter_map(|(_, v, rig, _, _, _)| Some((v.0, skeleton_folder(&rig.skeleton)?)))
+        .collect();
+    if player_still {
+        still.push((player_ref, PEOPLE_FOLDER.to_string()));
+    }
+    let mut fidgets: Vec<(u32, FormId)> = Vec::new();
+    st.fidget_check.retain(|a, _| still.iter().any(|(s, _)| s == a));
+    for (actor, folder) in still {
+        let check = st.fidget_check.entry(actor).or_insert(FIDGET_CHECK_SECONDS);
+        *check -= dt;
+        if *check > 0.0 || busy.get(&actor).copied().unwrap_or(false) {
+            continue;
+        }
+        *check = FIDGET_CHECK_SECONDS;
+        let (clock, last, data) = (st.clock, &st.fidget_last, game.data);
+        // An idle is held back for its replay delay after it started [hypothesis: the
+        // DATA replay delay is in seconds].
+        let held_back = |idle: FormId| {
+            let delay = data.idles.get(&idle).map_or(0.0, |d| d.replay_delay.max(0) as f32);
+            delay > 0.0 && last.get(&(actor, idle.0)).is_some_and(|t| clock - t < delay)
+        };
+        let mut pick = None;
+        with_world(game, &mut |game| pick = game.weapon_fidget(FormId(actor), &folder, &held_back));
+        if let Some(idle) = pick {
+            fidgets.push((actor, idle));
+        }
+    }
+    for (actor, idle) in fidgets {
+        st.fidget_last.insert((actor, idle.0), st.clock);
+        game.ask_idle(FormId(actor), idle, IdleSource::Fidget);
+    }
+
     // Start what was asked for.
     let requests = std::mem::take(&mut game.idle_requests);
     if !requests.is_empty() {
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
         for IdleRequest { actor, idle, source } in requests {
-            st.stats.asked += 1;
+            if source != IdleSource::Fidget {
+                st.stats.asked += 1;
+            }
             match source {
                 IdleSource::Script => st.stats.script += 1,
                 IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
                 IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
                 IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
+                IdleSource::Fidget => {}
             }
             let name = game.data.name(actor);
             let failed = |st: &mut Idles, why: &str| {
@@ -439,7 +548,11 @@ pub fn drive(
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), heading: p.heading, pitch: p.pitch });
                 }
                 if first { &mut pi.first } else { &mut pi.third }.start(idle.0, source, owner, clip, play);
-                st.stats.player_started += 1;
+                if source == IdleSource::Fidget {
+                    st.stats.player_fidgets += 1;
+                } else {
+                    st.stats.player_started += 1;
+                }
                 let facing = player.as_deref().map_or(String::new(), |p| {
                     // A first-person idle plays where the player is held.
                     let at = pi.held.filter(|_| first).map_or(p.feet, |h| h.feet);
@@ -448,7 +561,7 @@ pub fn drive(
                 info!("idle: the player plays {what} on the {} rig ({source:?}){facing}", if first { "first-person" } else { "third-person" });
                 continue;
             }
-            let Ok((e, _, rig, slot, _)) = actors.get_mut(drawn[&actor.0]) else { continue };
+            let Ok((e, _, rig, slot, _, _)) = actors.get_mut(drawn[&actor.0]) else { continue };
             let bound = bind_clip(&rig.skel, clip);
             if bound.tracks.is_empty() {
                 st.stats.no_clip += 1;
@@ -464,7 +577,11 @@ pub fn drive(
                     commands.entity(e).insert(s);
                 }
             }
-            st.stats.started += 1;
+            if source == IdleSource::Fidget {
+                st.stats.actor_fidgets += 1;
+            } else {
+                st.stats.started += 1;
+            }
             match source {
                 IdleSource::PackageIdles | IdleSource::MarkerIdles => debug!("idle: {name} plays {what} ({source:?})"),
                 _ => info!("idle: {name} plays {what} ({source:?})"),
@@ -474,7 +591,7 @@ pub fn drive(
 
     // Advance, and tell the rules what plays.
     let mut now: HashMap<u32, u32> = HashMap::new();
-    for (e, v, _, idle, _) in &mut actors {
+    for (e, v, _, idle, _, _) in &mut actors {
         let Some(mut idle) = idle else { continue };
         idle.0.advance(dt);
         match idle.0.playing() {
@@ -506,6 +623,19 @@ pub fn drive(
     st.told = now;
 }
 
+/// Whether the rules hold `actor`'s weapon out (`IsWeaponOut`).
+fn weapon_out(game: &Game, actor: u32) -> bool {
+    game.extra.get(&FormId(actor)).is_some_and(|e| e.weapon_out)
+}
+
+/// The animation folder of a skeleton below `meshes\`
+/// (`meshes\characters\_male\skeleton.nif` → `characters\_male`).
+fn skeleton_folder(skeleton: &str) -> Option<String> {
+    let s = skeleton.to_ascii_lowercase().replace('/', "\\");
+    let s = s.strip_prefix("meshes\\").unwrap_or(&s);
+    Some(s.rsplit_once('\\')?.0.to_string())
+}
+
 /// The idle line of the run summary.
 pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
     if exit.read().next().is_none() {
@@ -516,6 +646,7 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
         "idle summary: {} idles asked for ({} by scripts, {} by packages' begin, end and change, {} from collections, {} by dialogue lines); {} started on actors, {} on the player; {} for actors not drawn, {} without a usable clip",
         s.asked, s.script, s.package, s.collection, s.dialogue, s.started, s.player_started, s.not_drawn, s.no_clip
     );
+    info!("fidget summary: {} drawn-weapon fidgets started on actors, {} on the player", s.actor_fidgets, s.player_fidgets);
 }
 
 #[cfg(test)]

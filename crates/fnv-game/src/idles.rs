@@ -35,6 +35,8 @@ pub enum IdleSource {
     /// The speaker's or the listener's idle of a dialogue response (INFO `SNAM`, `LNAM`).
     Speaker,
     Listener,
+    /// A drawn-weapon fidget picked from the idle tree ([`Game::weapon_fidget`]).
+    Fidget,
 }
 
 impl IdleSource {
@@ -178,6 +180,75 @@ impl<'a> Game<'a> {
         (!c.idles.is_empty()).then_some((p, c))
     }
 
+    /// A drawn-weapon fidget for `actor` from the idle tree, or `None`. `folder` is the
+    /// actor's animation folder below `meshes\` (`characters\_male`); `held_back` says
+    /// which idles are still within their replay delay. The rules
+    /// (docs/spec-notes/idles.md §11):
+    ///
+    /// - Only the branches of the actor's own folder: an inner node's `MODL` names the
+    ///   folder its idles are for (`Characters\_Male\IdleAnims`), and the creatures'
+    ///   branches share the roots with the people's [observed; the folder match is a
+    ///   hypothesis].
+    /// - An NPC: from the roots in chain order, the first node whose conditions pass is
+    ///   gone into, and the first leaf found that way is the pick; a node whose children
+    ///   all fail is left for its next sibling [hypothesis: animation.md §2.2]. Roots
+    ///   without children are idles played on request and are not walked. The pick is
+    ///   kept only when a node on its way requires the weapon out (`IsWeaponOut == 1`):
+    ///   the rest of the tree (talking, eating, other fidgets) is not built [design].
+    /// - The player [design, owner 2026-10-16: fidgets for the player standing still]:
+    ///   the tree gives the player none with a weapon out (the people's weapon branch is
+    ///   under an NPC-only node, the player's under a node that wants the weapon away),
+    ///   so the walk starts at each node that requires the weapon out, its own
+    ///   conditions and those below it judged, those above it not.
+    pub fn weapon_fidget(&mut self, actor: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<FormId> {
+        let data = self.data;
+        let folder = folder.to_ascii_lowercase();
+        let own = |id: &FormId| data.idles.get(id).and_then(|d| d.model.as_deref()).is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder));
+        let roots: Vec<FormId> = data.idle_children.get(&None).into_iter().flatten().copied().filter(|r| own(r) && data.idle_children.contains_key(&Some(*r))).collect();
+        if actor != FormId::PLAYER_REF {
+            for root in roots {
+                if !self.idle_allowed(actor, root) {
+                    continue;
+                }
+                if let Some((leaf, weapon)) = self.first_leaf(actor, root, wants_weapon_out(data, root), held_back) {
+                    return weapon.then_some(leaf);
+                }
+            }
+            return None;
+        }
+        let mut starts = Vec::new();
+        let mut stack: Vec<FormId> = roots;
+        while let Some(n) = stack.pop() {
+            let kids = data.idle_children.get(&Some(n)).map(Vec::as_slice).unwrap_or_default();
+            if data.idles[&n].parent.is_some() && wants_weapon_out(data, n) && !kids.is_empty() {
+                starts.push(n);
+            } else {
+                stack.extend(kids.iter().rev());
+            }
+        }
+        starts.into_iter().find_map(|s| self.idle_allowed(actor, s).then(|| self.first_leaf(actor, s, true, held_back)).flatten().map(|(leaf, _)| leaf))
+    }
+
+    /// The first leaf below `node` whose way down passes, and whether a node on that
+    /// way (or `weapon`, said of those above) requires the weapon out.
+    fn first_leaf(&mut self, actor: FormId, node: FormId, weapon: bool, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, bool)> {
+        let data = self.data;
+        for &child in data.idle_children.get(&Some(node)).into_iter().flatten() {
+            let leaf = !data.idle_children.contains_key(&Some(child));
+            if (leaf && (!data.idles[&child].has_file() || held_back(child))) || !self.idle_allowed(actor, child) {
+                continue;
+            }
+            let weapon = weapon || wants_weapon_out(data, child);
+            if leaf {
+                return Some((child, weapon));
+            }
+            if let Some(found) = self.first_leaf(actor, child, weapon, held_back) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
     /// The Begin (0), End (1) or Change (2) idle of a package, asked of its actor
     /// ([`Game::package_event`]).
     pub(crate) fn ask_package_idle(&mut self, actor: FormId, package: FormId, which: usize) {
@@ -203,6 +274,19 @@ impl<'a> Game<'a> {
         }
     }
 }
+
+/// Whether an IDLE's conditions require the weapon out: an `IsWeaponOut == 1` that is
+/// not joined to another by OR.
+fn wants_weapon_out(data: &crate::data::GameData, idle: FormId) -> bool {
+    let conds = data.idles.get(&idle).and_then(|d| d.conditions.as_deref()).unwrap_or_default();
+    conds.iter().enumerate().any(|(i, c)| {
+        let joined = c.or || (i > 0 && conds[i - 1].or);
+        c.opcode() == IS_WEAPON_OUT && c.cmp == crate::cond::Cmp::Eq && c.rhs == crate::cond::Operand::Value(1.0) && !joined
+    })
+}
+
+/// `IsWeaponOut`'s opcode (`functions::mod`).
+const IS_WEAPON_OUT: u16 = 0x1065;
 
 /// `actor.PlayIdle name`: the actor plays the idle whose Editor ID is `name`, whatever
 /// its conditions say [documented: catalogue notes on PickIdle, "the forced-idle
@@ -267,7 +351,7 @@ mod tests {
 
     #[test]
     fn loop_counts() {
-        let d = |loop_min, loop_max| IdleDef { model: None, loop_min, loop_max, conditions: None };
+        let d = |loop_min, loop_max| IdleDef { model: None, loop_min, loop_max, conditions: None, ..Default::default() };
         assert_eq!(d(0, 0).loops(|_| 0), Loops::Times(1));
         assert_eq!(d(255, 255).loops(|_| 0), Loops::Forever);
         // Loop Forever is both at 255; a range up to 255 is a range.
@@ -287,5 +371,29 @@ mod tests {
         let d = IdleDef::from_raw(Some(b"Characters\\_Male\\IdleAnims\0"), Some(&[0, 255, 255, 0, 0, 0]));
         assert_eq!((d.has_file(), d.loop_min, d.loop_max), (false, 255, 255));
         assert!(!IdleDef::from_raw(None, None).has_file());
+        // The replay delay is the i16 after the unused byte.
+        assert_eq!(IdleDef::from_raw(None, Some(&[0, 0, 0, 0, 45, 0])).replay_delay, 45);
+    }
+
+    #[test]
+    fn the_tree_orders_siblings_by_their_previous_links() {
+        let node = |parent: Option<u32>, previous: Option<u32>| IdleDef { parent: parent.map(FormId), previous: previous.map(FormId), ..Default::default() };
+        // Root 1 with children 4 → 2 → 3 (chained), and 9 outside the chain; root 10 after 1.
+        let idles: std::collections::HashMap<FormId, IdleDef> = [
+            (1, node(None, None)),
+            (10, node(None, Some(1))),
+            (2, node(Some(1), Some(4))),
+            (3, node(Some(1), Some(2))),
+            (4, node(Some(1), None)),
+            (9, node(Some(1), Some(77))),
+        ]
+        .into_iter()
+        .map(|(id, d)| (FormId(id), d))
+        .collect();
+        let t = crate::data::idle_children(&idles);
+        assert_eq!(t[&None], vec![FormId(1), FormId(10)]);
+        // 9's previous is not a sibling: it starts a chain of its own, after 4's.
+        assert_eq!(t[&Some(FormId(1))], vec![FormId(4), FormId(2), FormId(3), FormId(9)]);
+        assert!(!t.contains_key(&Some(FormId(2))));
     }
 }

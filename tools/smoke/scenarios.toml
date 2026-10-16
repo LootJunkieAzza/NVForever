@@ -805,6 +805,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "weapon-fidgets"
+source = "docs/spec-notes/idles.md §11 (owner 2026-10-16): NPCs standing with a rifle out fidget from the IDLE tree (2hrLoiter, 2hrLoiterOnehanded, 2hrShiftWeight, 2haAlertScan), and so does the player standing still in third person"
+note = "every NPC's weapon is drawn (--actor-weapons drawn); the player draws a varmint rifle (0007EA24) at 3 s and goes to third person at 4 s, then stands still"
+areas = ["idles"]
+paths = ["crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0007EA24", NVF_PLAY_TEST_CONTROL = "3:weapon,4:view" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "drawn"]
+run_seconds = 90
+expect = [
+  { re = 'fidget summary: (?P<n>\d+) drawn-weapon fidgets started on actors', range = [1, 10000], label = "NPCs with rifles out fidget" },
+  { re = 'fidget summary: .*, (?P<n>\d+) on the player', range = [1, 100], label = "the player standing still with a rifle out fidgets" },
+  { re = 'idle: the player plays (2hrLoiter|2hrLoiterOnehanded|2hrShiftWeight) ', label = "the player's fidget is a rifle one" },
+]
+
+[[scenario]]
 name = "idles-opening-own-body"
 source = "owner report 2026-10-16: with the body in first person on, the wake-up showed the player's own body standing over the view (docs/design/player-body.md §1.5)"
 areas = ["idles", "player-body"]
