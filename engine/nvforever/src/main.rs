@@ -888,7 +888,7 @@ fn main() -> AppExit {
     // Furniture: used by the player in play mode and by --npc-sit travellers.
     let mut trips = args.npc_travel.clone();
     let furnishings = if args.play || !args.npc_sit.is_empty() || residents.is_some() {
-        match furniture::Furnishings::build(&world, &args.npc_sit, trips.len()) {
+        match furniture::Furnishings::build(&world, &game, &args.npc_sit, trips.len()) {
             Ok((f, sit_trips)) => {
                 trips.extend(sit_trips);
                 Some(f)

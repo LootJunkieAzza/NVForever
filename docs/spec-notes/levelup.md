@@ -101,8 +101,9 @@ pieces with the character-creation menus (chargen.md).
   is left alone [hypothesis]. The catalogue lists it without an opcode or the console
   category (no shipped script calls it), so the console knows it by name
   (`advlevel`, `AdvancePCLevel`) and closes itself so the menu is on top [design].
-  `fnv_game::levelup::open` opens the menu for the level the player has: what raises
-  the level by experience calls it.
+  `fnv_game::levelup::open` opens the menu for the level the player has. Levelling by
+  experience (`fnv_game::experience::level_up`, experience.md §3) raises the level and
+  opens it the same way.
 
 ## 5. Drawing and keys (`nvf_play::levelup`)
 
@@ -114,8 +115,9 @@ pieces with the character-creation menus (chargen.md).
 - Sounds (`ui_sounds`, menu `level up`): the arrows and perk rows `UIMenuPrevNext`,
   Continue, Back and Done `UIMenuOK` [documented]; the row moving and the pointer onto a
   button `UIMenuFocus`, Reset and anything refused `UIMenuCancel` [design, as the
-  tag-skill menu]; opening `UILevelUp` [observed: the record; design: played here until
-  a "level up" HUD message plays it].
+  tag-skill menu]; opening `UILevelUpText`, the music-like piece (4.9 s) [owner,
+  2026-10-16; observed: the record]; the short `UILevelUp` plays with the XP meter's
+  LEVEL UP (experience.md §6).
 
 ## 6. Not built, or guessed
 

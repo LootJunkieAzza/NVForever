@@ -392,6 +392,13 @@ pub fn drive(
     for (_, v, _, _, _, hold) in &actors {
         if let Some(h) = hold {
             game.set_weapon_out(FormId(v.0), h.anim.stage == Stage::Drawn);
+            // GetAnimAction: 0 drawing the weapon, 1 putting it away.
+            let action = match h.anim.stage {
+                Stage::Equipping => Some(0),
+                Stage::Unequipping => Some(1),
+                Stage::Holstered | Stage::Drawn => None,
+            };
+            game.set_anim_action(FormId(v.0), action);
         }
     }
     for (_, v, _, idle, lo, _) in &mut actors {

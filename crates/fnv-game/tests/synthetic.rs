@@ -1042,3 +1042,43 @@ fn furniture_functions_answer_from_the_use_set_on_the_actor() {
     assert_eq!(ask(&mut g, SLEEPING, npc, None), 0.0);
     assert_eq!(g.furniture_use(npc), None);
 }
+
+#[test]
+fn a_level_is_earned_by_experience_and_waits_for_no_one_hunting_the_player() {
+    use fnv_game::awareness::{Awareness, State, Target};
+    use fnv_game::detection::Band;
+    use fnv_game::experience;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    // The test plugin has no story add-on: the master's cap, or its default 30.
+    assert_eq!(experience::max_level(&g), 30);
+    assert_eq!(g.player_level(), 1.0);
+    g.player.xp = 199.0;
+    assert!(!experience::level_up_due(&g));
+    g.player.xp = 204.0;
+    assert!(experience::level_up_due(&g));
+    // An actor searching for the player (Alert, the [CAUTION] state) keeps the menu shut.
+    let npc = FormId(NPC_REF);
+    let target = Target { band: Band::Detected, value: 10.0, at: [0.0; 3], detected: Some(0.0), hidden_since: None };
+    let mut searching = Awareness { state: State::Alert, ..Default::default() };
+    searching.targets.insert(FormId::PLAYER_REF, target);
+    g.awareness.actors.insert(npc, searching.clone());
+    assert_eq!(experience::hunters(&g), 1);
+    // Not when it searches for someone else, nor when it is back to Normal.
+    let mut other = searching.clone();
+    other.targets.clear();
+    g.awareness.actors.insert(npc, other);
+    assert_eq!(experience::hunters(&g), 0);
+    g.awareness.actors.insert(npc, Awareness { state: State::Normal, ..searching.clone() });
+    assert_eq!(experience::hunters(&g), 0);
+    // Nor once it is dead.
+    g.awareness.actors.insert(npc, Awareness { state: State::Combat, ..searching });
+    assert_eq!(experience::hunters(&g), 1);
+    g.kill(npc, Some(FormId::PLAYER_REF));
+    assert_eq!(experience::hunters(&g), 0);
+    // Taking the level: level 2, the level-up menu open; no more is due.
+    assert_eq!(experience::level_up(&mut g), 2);
+    assert!(g.menu_open(fnv_game::game::menus::LEVEL_UP));
+    assert!(!experience::level_up_due(&g));
+}

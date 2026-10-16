@@ -227,9 +227,14 @@ Code: `engine/nvforever/src/furniture.rs` (actors and the player), `nvf_play::fu
 `player_body.rs` (`pose_furniture`).
 
 - **Actors.** A `SitOn { furniture, stay }` component on an actor's root starts a use:
-  the nearest enabled, free marker is the entry point; the actor is moved the last steps
-  to it at walking speed (no path; refused beyond 400 units) [design]; then the clips and
-  frames of §3–4. `GetUp`, or `stay` seconds on the furniture, starts getting off. When
+  the nearest enabled, free marker is the entry point; the actor takes the last steps to
+  it as a person does: it turns on the spot to face the way, walks there forwards at
+  walking speed, and turns on the spot to the entry heading (under 16 units it only
+  shuffles there without turning round; no path; refused beyond 400 units) [design];
+  then the clips and frames of §3–4. Before, it slid there in one straight move while
+  turning, and the walk clip played forwards whichever way it went: Easy Pete, walked
+  to his chair's origin by `--npc-sit`, went backwards out of the chair to the front
+  marker before sitting (owner's playtest 2026-10-16: "moonwalks"). `GetUp`, or `stay` seconds on the furniture, starts getting off. When
   it is off, the components are removed and a traveller's position and heading are
   updated. One user per reference, except where every marker has ID 14 or 15 (one per
   marker) [design, §5 item 3].
@@ -247,7 +252,10 @@ Code: `engine/nvforever/src/furniture.rs` (actors and the player), `nvf_play::fu
   --play --hour 11.9` with Pete on 0010634A, the saloon entered, two hours waited inside
   and the saloon left].
 - **`--npc-sit ACTOR=FURNITURE[:SECONDS]`** sends a travelling NPC (docs/design/navmesh.md
-  §5) to a furniture reference (hex FormID) and gives it a `SitOn` on arrival.
+  §5) to a furniture reference (hex FormID) and gives it a `SitOn` on arrival. The trip
+  ends at the enabled entry point nearest the actor's placed position (trip target
+  `x,y,z@FURNITURE`), not at the furniture's origin, so it no longer walks into the seat
+  first [design].
 - **The player** uses furniture by activating it. The third-person body plays the clips
   at the frames of §4; movement, jumping and the character's collision are off
   (`PlayerSeat`), the weapon is put away [design], and a movement control or activating

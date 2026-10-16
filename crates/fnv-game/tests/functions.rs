@@ -31,6 +31,7 @@ const CREA: u32 = 0x832;
 const MISC: u32 = 0x840;
 const WEAP: u32 = 0x841;
 const FLST: u32 = 0x842;
+const NOTE: u32 = 0x843;
 const MGEF: u32 = 0x850;
 const EFFECT_SCRIPT: u32 = 0x851;
 const ALCH: u32 = 0x852;
@@ -109,6 +110,7 @@ fn plugin_bytes() -> Vec<u8> {
     let misc = record(b"MISC", 0, MISC, &[sub(b"EDID", z("Junk")), sub(b"DATA", [1i32.to_le_bytes().to_vec(), f32b(1.0)].concat())]);
     let weap_data = [10i32.to_le_bytes().to_vec(), 100i32.to_le_bytes().to_vec(), f32b(2.0), 5i16.to_le_bytes().to_vec(), vec![6]].concat();
     let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("Gun")), sub(b"DATA", weap_data)]);
+    let note = record(b"NOTE", 0, NOTE, &[sub(b"EDID", z("TestHolotape"))]);
     let flst = record(b"FLST", 0, FLST, &[sub(b"EDID", z("GunList")), sub(b"LNAM", WEAP.to_le_bytes().to_vec())]);
     // The base effect: archetype 1 (Script), its script 0x851 (scripts.md §7.6).
     let mgef_data = [u32s(&[0]), f32b(0.0), u32s(&[EFFECT_SCRIPT]), vec![0xFF; 8], vec![0; 4], vec![0; 4], f32b(1.0), vec![0; 24], vec![0; 8], u32s(&[1]), vec![0xFF; 4]].concat();
@@ -196,6 +198,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"MISC", &misc),
         top(b"WEAP", &weap),
         top(b"FLST", &flst),
+        top(b"NOTE", &note),
         top(b"MGEF", &mgef),
         top(b"SCPT", &scpt),
         top(b"ALCH", &alch),
@@ -586,8 +589,9 @@ fn ownership_destruction_regions_challenges_and_calendar() {
     g.player_entered(Some(FormId(CELL)));
     g.player_entered(Some(FormId(EXT_CELL)));
     assert!(!g.player.fast_travel.travel_disabled);
-    // 18 October 2281 (month 9 counted from 0) is a Tuesday on the Gregorian calendar.
-    assert_eq!(call(&mut g, 0x10AA, None, &[]), 2.0);
+    // 18 October 2281 (month 9 counted from 0) is a Friday on the game's calendar, five
+    // days after Sunday 13 October (observed: 25 October 2281 read 5, a Friday).
+    assert_eq!(call(&mut g, 0x10AA, None, &[]), 5.0);
     // GetHeadingAngle: a target due east of a caller facing north is 90° to the right.
     g.world.get(FormId(ADULT_REF)).unwrap().pos = [0.0, 0.0, 0.0];
     g.world.get(FormId(CHILD_REF)).unwrap().pos = [100.0, 0.0, 0.0];
@@ -742,11 +746,11 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
 
     // Movement and sneaking as the engine told them; nothing told is standing still.
     assert_eq!(call(&mut g, 0x111E, None, &[]), 0.0);
-    g.set_motion(FormId::PLAYER_REF, Motion { moving: true, running: false, sneaking: true, turning: 0 });
+    g.set_motion(FormId::PLAYER_REF, Motion { moving: true, running: false, sneaking: true, turning: 0, run_mode: false });
     assert_eq!(call(&mut g, 0x111E, None, &[]), 1.0);
     assert_eq!(call(&mut g, 0x1019, None, &[]), 1.0);
     assert_eq!(call(&mut g, 0x111F, None, &[]), 0.0);
-    g.set_motion(adult, Motion { moving: true, running: true, sneaking: false, turning: 0 });
+    g.set_motion(adult, Motion { moving: true, running: true, sneaking: false, turning: 0, run_mode: true });
     assert_eq!(call(&mut g, 0x111F, Some(ADULT_REF), &[]), 1.0);
     g.forget_motion(adult);
     assert_eq!(call(&mut g, 0x1019, Some(ADULT_REF), &[]), 0.0);
@@ -963,4 +967,114 @@ fn reset_3d_state_forgets_the_animation() {
     assert_eq!(g.anims.playing(on), None);
     assert!(g.anims.requests.is_empty());
     assert_eq!(g.anims.resets, vec![on]);
+}
+
+/// The gaps the script function audit fixed (docs/design/script-function-audit.md).
+#[test]
+fn script_function_audit_fixes() {
+    use fnv_game::functions::senses::Motion;
+    let f = fixture();
+    let mut g = game(&f);
+    let av = |c: u16| ArgValue::Enum(c);
+    let adult = FormId(ADULT_REF);
+    // Form lists: GetItemCount sums the members, GetEquipped asks whether any is worn.
+    assert_eq!(call(&mut g, 0x102F, Some(CONT_REF), &[r(FLST)]), 1.0);
+    call(&mut g, 0x1002, Some(PLAYER), &[r(WEAP), n(1.0)]);
+    assert_eq!(call(&mut g, 0x10B6, Some(PLAYER), &[r(FLST)]), 0.0);
+    call(&mut g, 0x10EE, Some(PLAYER), &[r(WEAP)]);
+    assert_eq!(call(&mut g, 0x10B6, Some(PLAYER), &[r(FLST)]), 1.0);
+    // A setting the masters do not define: the game's own value (observed).
+    assert_eq!(call(&mut g, 0x1100, None, &[ArgValue::Str("iLockLevelMaxHard".into())]), 75.0);
+    // GetAnimAction: none, unless the engine tells a drawing (0).
+    assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), -1.0);
+    g.set_weapon_out(adult, false);
+    g.set_anim_action(adult, Some(0));
+    assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), 0.0);
+    g.set_anim_action(adult, None);
+    // Perks for the player's teammates are their own list.
+    call(&mut g, 0x1176, None, &[r(MISC), n(1.0)]);
+    assert_eq!(call(&mut g, 0x11C1, None, &[r(MISC), n(1.0)]), 1.0);
+    assert_eq!(call(&mut g, 0x11C1, None, &[r(MISC)]), 0.0);
+    call(&mut g, 0x11A8, None, &[r(MISC), n(1.0)]);
+    assert_eq!(call(&mut g, 0x11C1, None, &[r(MISC), n(1.0)]), 0.0);
+    // A note added as an item: GetHasNote 1, GetItemCount 0; RemoveNote takes it.
+    call(&mut g, 0x1002, Some(PLAYER), &[r(NOTE), n(1.0)]);
+    assert_eq!(call(&mut g, 0x117E, None, &[r(NOTE)]), 1.0);
+    assert_eq!(call(&mut g, 0x102F, Some(PLAYER), &[r(NOTE)]), 0.0);
+    call(&mut g, 0x117D, None, &[r(NOTE)]);
+    assert_eq!(call(&mut g, 0x117E, None, &[r(NOTE)]), 0.0);
+    // KillActor's cause of death; ResurrectActor brings the actor back unharmed.
+    call(&mut g, 0x1181, Some(ADULT_REF), &[av(16), n(5.0)]);
+    call(&mut g, 0x108B, Some(ADULT_REF), &[r(CHILD_REF), n(0.0), n(6.0)]);
+    assert_eq!(call(&mut g, 0x118D, Some(ADULT_REF), &[]), 6.0);
+    call(&mut g, 0x108C, Some(ADULT_REF), &[n(0.0)]);
+    assert_eq!(call(&mut g, 0x102E, Some(ADULT_REF), &[]), 0.0);
+    assert_eq!(call(&mut g, 0x118D, Some(ADULT_REF), &[]), -1.0);
+    assert!(g.extra[&adult].av_damage.is_empty() && g.extra[&adult].killer.is_none());
+    // SetGhost: no damage.
+    assert!(!g.is_immune(adult));
+    call(&mut g, 0x10EC, Some(ADULT_REF), &[n(1.0)]);
+    assert!(g.is_immune(adult));
+    // GetHealthPercentage: 1.0 with no base health; above 1 when effects raise Health.
+    assert_eq!(call(&mut g, 0x11AF, Some(ADULT_REF), &[]), 1.0);
+    call(&mut g, 0x100F, Some(ADULT_REF), &[av(16), n(100.0)]);
+    call(&mut g, 0x1010, Some(ADULT_REF), &[av(16), n(50.0)]);
+    assert_eq!(call(&mut g, 0x11AF, Some(ADULT_REF), &[]), 1.5);
+    // GetLevel of an NPC without SetLevel: its record's level.
+    assert_eq!(call(&mut g, 0x1050, Some(ADULT_REF), &[]), 1.0);
+    // IsSneaking of an actor the engine does not measure; IsRunning's speed mode.
+    call(&mut g, 0x10D3, Some(ADULT_REF), &[n(1.0)]);
+    assert_eq!(call(&mut g, 0x111E, Some(ADULT_REF), &[]), 1.0);
+    g.set_motion(FormId::PLAYER_REF, Motion { run_mode: true, ..Default::default() });
+    assert_eq!(call(&mut g, 0x111F, None, &[]), 1.0);
+    // GetMapMarkerVisible: 0 off the map, 1 shown, 2 a travel target or found.
+    assert_eq!(call(&mut g, 0x11EC, Some(ACTI_REF), &[]), 0.0);
+    call(&mut g, 0x1055, None, &[r(ACTI_REF)]);
+    assert_eq!(call(&mut g, 0x11EC, Some(ACTI_REF), &[]), 1.0);
+    call(&mut g, 0x1055, None, &[r(ACTI_REF), n(1.0)]);
+    assert_eq!(call(&mut g, 0x11EC, Some(ACTI_REF), &[]), 2.0);
+    g.set_found_markers([FormId(CONT_REF)]);
+    assert_eq!(call(&mut g, 0x11EC, Some(CONT_REF), &[]), 2.0);
+    // SetPos and SetAngle reach what moves things: an actor starts again from its new
+    // place, an object is drawn there.
+    let ax = |c: char| ArgValue::Axis(c);
+    call(&mut g, 0x1007, Some(ADULT_REF), &[ax('X'), n(120.0)]);
+    assert_eq!(g.world.get(adult).unwrap().pos[0], 120.0);
+    assert!(g.teleported.contains(&adult));
+    call(&mut g, 0x1009, Some(ACTI_REF), &[ax('Z'), n(90.0)]);
+    assert!(g.turned.contains(&FormId(ACTI_REF)));
+    g.turned.clear();
+    call(&mut g, 0x109E, Some(ACTI_REF), &[r(CONT_REF)]);
+    assert!(g.turned.contains(&FormId(ACTI_REF)), "MoveTo redraws an object too");
+    // GetOpenState: any object reads 3 closed, an actor 0; what the engine animates, its
+    // state.
+    assert_eq!(call(&mut g, 0x109D, Some(CONT_REF), &[]), 3.0);
+    assert_eq!(call(&mut g, 0x109D, Some(ACTI_REF), &[]), 3.0);
+    assert_eq!(call(&mut g, 0x109D, Some(CHILD_REF), &[]), 0.0);
+    g.senses.open_states.insert(FormId(ACTI_REF), 2);
+    assert_eq!(call(&mut g, 0x109D, Some(ACTI_REF), &[]), 2.0);
+    // The actors of the loaded cell were outfitted when it loaded (the game starts in
+    // it); a far one was not.
+    assert!(g.world.get(FormId(CHILD_REF)).unwrap().outfitted);
+    let far = g.world.place(FormId(NPC_ADULT), Some(FormId(EXT_CELL)), [0.0; 3], [0.0; 3], 1).unwrap();
+    assert!(g.world.get(far).unwrap().outfitted, "a created actor is outfitted at once");
+}
+
+/// IsWeaponOut of an actor the engine does not draw follows the rule the engine draws by;
+/// one it draws reads what it told.
+#[test]
+fn is_weapon_out_answers_for_undrawn_actors() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(call(&mut g, 0x1065, Some(ADULT_REF), &[]), 0.0);
+    call(&mut g, 0x105A, Some(ADULT_REF), &[n(1.0)]);
+    assert_eq!(call(&mut g, 0x1065, Some(ADULT_REF), &[]), 1.0);
+    // Drawn: the engine's word (still holstering) wins while it keeps telling.
+    g.set_weapon_out(FormId(ADULT_REF), false);
+    assert_eq!(call(&mut g, 0x1065, Some(ADULT_REF), &[]), 0.0);
+    g.time += 2.0;
+    assert_eq!(call(&mut g, 0x1065, Some(ADULT_REF), &[]), 1.0);
+    // The dead hold nothing out.
+    call(&mut g, 0x108B, Some(ADULT_REF), &[]);
+    assert_eq!(call(&mut g, 0x1065, Some(ADULT_REF), &[]), 0.0);
 }

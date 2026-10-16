@@ -1,11 +1,15 @@
 //! The menus as plain data over `fnv_sim::World`, without Bevy: rows, selection,
 //! scrolling, and the commands that move items, all unit-tested on a synthetic plugin.
 //!
-//! Rows are one per base item (a stack), whatever extra data its units carry; the
-//! simulation decides which units move (its removal order). Rows are sorted by display
-//! name in byte order, capitals before small letters, FormID breaking ties [observed: the
-//! owner's barter screenshot lists "LAER+" before "Lad's Life", and "$5 NCR" and ".223
-//! Round" before letters; docs/spec-notes/barter-menu.md §3].
+//! Rows are one per base item (a stack), except that weapons and armour get one row per
+//! condition: units stack only with units at the same condition [owner, 2026-10-16: six
+//! Varmint Rifles, one at 95 %, list as a row of five at full condition and below it a row
+//! of one]. Owner and the equipped mark do not split a row. A row moves, drops and
+//! equips only its own units (`Row::at`); within them the simulation decides which go
+//! (its removal order). Rows are sorted by display name in byte order, capitals before
+//! small letters, FormID breaking ties [observed: the owner's barter screenshot lists
+//! "LAER+" before "Lad's Life", and "$5 NCR" and ".223 Round" before letters;
+//! docs/spec-notes/barter-menu.md §3], then the best condition first [owner, as above].
 //!
 //! The container and barter menus list one category at a time, chosen with the arrows
 //! beside each list's title: all items, weapons, apparel, aid, misc, ammunition
@@ -74,6 +78,9 @@ pub const CAPS: FormId = FormId(0x0000000F);
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
     pub item: FormId,
+    /// The units the row stands for (`Extra::is_at`): weapons' and armour's at this
+    /// condition, every unit (`None`) of other items.
+    pub at: Option<f32>,
     pub name: String,
     pub count: i32,
     /// Weight of one unit as authored (`None`: not decoded). Ammunition weighs nothing in
@@ -87,7 +94,7 @@ pub struct Row {
     pub equipped: bool,
     /// A quest item: the player cannot drop it (`World::is_quest_item`).
     pub quest: bool,
-    /// The condition of the unit in use, 0 to 1 (weapons and armour).
+    /// The condition of the row's units, 0 to 1 (weapons and armour).
     pub condition: Option<f32>,
     /// The item's picture (ICON, a path under `textures\`).
     pub icon: Option<String>,
@@ -109,8 +116,7 @@ pub struct Listing {
 }
 
 /// What a row says of a worn weapon or piece of armour after its name: the condition
-/// of the unit in use (the equipped one, else the one that would be equipped), nothing
-/// at full condition (docs/spec-notes/combat-rules.md §17).
+/// of its units, nothing at full condition (docs/spec-notes/combat-rules.md §17).
 pub fn condition_note(kind: Option<ItemKind>, condition: Option<f32>) -> String {
     match (kind, condition) {
         (Some(ItemKind::Weapon | ItemKind::Armor), Some(c)) if c <= 0.0 => " (broken)".into(),
@@ -140,9 +146,21 @@ pub fn plain_error(forms: &FormStore, e: &SimError) -> String {
     }
 }
 
-/// The order rows are listed in: put-up rows first, then by name in byte order.
+/// What tells a row's units apart: the item and the condition's bits (a condition is
+/// never negative, so the bits order as the numbers do).
+pub type Units = (FormId, Option<u32>);
+
+impl Row {
+    pub fn units(&self) -> Units {
+        (self.item, self.at.map(f32::to_bits))
+    }
+}
+
+/// The order rows are listed in: put-up rows first, then by name in byte order, then the
+/// best condition first.
 fn sort_rows(rows: &mut [Row]) {
-    rows.sort_by(|a, b| (!a.bartered, a.name.as_bytes(), a.item).cmp(&(!b.bartered, b.name.as_bytes(), b.item)));
+    let key = |r: &Row| (!r.bartered, r.name.as_bytes().to_vec(), r.item, std::cmp::Reverse(r.at.map(f32::to_bits)));
+    rows.sort_by_cached_key(key);
 }
 
 /// The rows of `holder`'s inventory, sorted by name.
@@ -155,28 +173,36 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
     }
     let inv = s.inventory.as_ref().ok_or(SimError::NoInventory(holder))?;
     let totals = inv.totals(forms, hardcore);
-    let mut rows: Vec<Row> = inv
-        .iter()
-        .filter(|&(item, _)| !forms.item(item).is_some_and(|i| i.non_playable))
-        .map(|(item, count)| {
-            let it = forms.item(item);
-            let kind = it.map(|i| i.kind);
-            Row {
-                item,
-                name: display_name(forms, item),
-                count,
-                weight: it.and_then(|i| i.weight),
-                value: it.and_then(|i| i.value),
-                kind,
-                equipped: inv.is_equipped(item),
-                quest: false, // below, once the inventory is no longer borrowed
-                condition: inv.condition_in_use(item).filter(|_| matches!(kind, Some(ItemKind::Weapon | ItemKind::Armor))),
-                icon: it.and_then(|i| i.icon.clone()),
-                price: None,
-                bartered: false,
-            }
-        })
-        .collect();
+    let mut rows: Vec<Row> = Vec::new();
+    for (item, extra, count) in inv.groups() {
+        let it = forms.item(item);
+        if it.is_some_and(|i| i.non_playable) {
+            continue;
+        }
+        let kind = it.map(|i| i.kind);
+        let at = matches!(kind, Some(ItemKind::Weapon | ItemKind::Armor)).then(|| extra.condition_or_whole());
+        // Groups of one item come together (`Inventory::groups`).
+        if let Some(r) = rows.iter_mut().rev().take_while(|r| r.item == item).find(|r| r.at == at) {
+            r.count += count;
+            r.equipped |= extra.equipped;
+            continue;
+        }
+        rows.push(Row {
+            item,
+            at,
+            name: display_name(forms, item),
+            count,
+            weight: it.and_then(|i| i.weight),
+            value: it.and_then(|i| i.value),
+            kind,
+            equipped: extra.equipped,
+            quest: false, // below, once the inventory is no longer borrowed
+            condition: at,
+            icon: it.and_then(|i| i.icon.clone()),
+            price: None,
+            bartered: false,
+        });
+    }
     for r in &mut rows {
         r.quest = world.is_quest_item(r.item);
     }
@@ -352,7 +378,7 @@ pub struct Trade {
     pub skill: f32,
     pub prices: Prices,
     /// Units put up, by the side they come from (`Side as usize`).
-    pub offered: [BTreeMap<FormId, i32>; 2],
+    pub offered: [BTreeMap<Units, i32>; 2],
     /// The caps each side holds (`Side as usize`).
     pub purse: [i32; 2],
     /// The caps the trade moves: positive when the player is paid.
@@ -523,7 +549,7 @@ impl MenuModel {
     /// Re-read the inventories from the simulation, keeping each column's selection on
     /// the same row when it is still there (else on the same position).
     pub fn refresh(&mut self, world: &mut World<'_>) -> Result<(), SimError> {
-        let keep = [Side::Container, Side::Player].map(|s| self.selected_row(s).map(|r| (r.item, r.bartered)));
+        let keep = [Side::Container, Side::Player].map(|s| self.selected_row(s).map(|r| (r.units(), r.bartered)));
         if self.trade.is_some() {
             self.refresh_trade(world)?;
         } else {
@@ -540,7 +566,7 @@ impl MenuModel {
         for &side in self.columns() {
             let i = side as usize;
             let rows = &self.lists[i].rows;
-            let at = keep[i].and_then(|k| rows.iter().position(|r| (r.item, r.bartered) == k));
+            let at = keep[i].and_then(|k| rows.iter().position(|r| (r.units(), r.bartered) == k));
             self.selected[i] = at.unwrap_or(self.selected[i]).min(rows.len().saturating_sub(1));
             self.ensure_visible(side);
         }
@@ -572,7 +598,7 @@ impl MenuModel {
                 .collect();
             // What is no longer there cannot stay put up.
             let rows = &own[i];
-            t.offered[i].retain(|item, n| match rows.iter().find(|r| r.item == *item) {
+            t.offered[i].retain(|units, n| match rows.iter().find(|r| r.units() == *units) {
                 Some(r) => {
                     *n = (*n).min(r.count);
                     *n > 0
@@ -585,7 +611,7 @@ impl MenuModel {
         for side in [Side::Container, Side::Player] {
             let i = side as usize;
             for r in &own[i] {
-                let up = t.offered[i].get(&r.item).copied().unwrap_or(0);
+                let up = t.offered[i].get(&r.units()).copied().unwrap_or(0);
                 if r.count > up {
                     shown[i].push(Row { count: r.count - up, ..r.clone() });
                 }
@@ -758,7 +784,7 @@ impl MenuModel {
                 // The listed stacks only: non-playable items stay hidden in the container.
                 let mut moved = Vec::new();
                 for r in &self.lists[Side::Container as usize].rows {
-                    let n = world.transfer(c, PLAYER, r.item, r.count)?;
+                    let n = world.transfer_at(c, PLAYER, r.item, r.count, r.at)?;
                     if n > 0 {
                         moved.push((r.item, n));
                     }
@@ -777,7 +803,7 @@ impl MenuModel {
                     Side::Player => (PLAYER, c),
                 };
                 let want = self.want(cmd == Command::One, &r);
-                let n = world.transfer(from, to, r.item, want)?;
+                let n = world.transfer_at(from, to, r.item, want, r.at)?;
                 out.changed = n > 0;
                 if self.focus == Side::Container && n > 0 {
                     out.taken.push((r.item, n));
@@ -793,15 +819,15 @@ impl MenuModel {
                 if r.bartered {
                     // Taken back by the side it came from.
                     let from = self.focus.other() as usize;
-                    let left = t.offered[from].get(&r.item).copied().unwrap_or(0) - want;
+                    let left = t.offered[from].get(&r.units()).copied().unwrap_or(0) - want;
                     if left > 0 {
-                        t.offered[from].insert(r.item, left);
+                        t.offered[from].insert(r.units(), left);
                     } else {
-                        t.offered[from].remove(&r.item);
+                        t.offered[from].remove(&r.units());
                     }
                     return Ok(format!("Took back {} x{want}", name(&r)));
                 }
-                *t.offered[self.focus as usize].entry(r.item).or_insert(0) += want;
+                *t.offered[self.focus as usize].entry(r.units()).or_insert(0) += want;
                 let verb = if self.focus == Side::Player { "Selling" } else { "Buying" };
                 Ok(format!("{verb} {} x{want}", name(&r)))
             }
@@ -813,7 +839,7 @@ impl MenuModel {
                     world.unequip(PLAYER, r.item)?;
                     return Ok(format!("Unequipped {}", name(&r)));
                 }
-                let e = world.equip(PLAYER, r.item)?;
+                let e = world.equip_at(PLAYER, r.item, r.at)?;
                 if e.consumed {
                     out.used = Some(r.item);
                 }
@@ -827,7 +853,7 @@ impl MenuModel {
             (Mode::Inventory, Command::Drop | Command::DropStack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 let want = self.want(cmd == Command::Drop, &r);
-                let created = match world.player_drop_item(r.item, want) {
+                let created = match world.player_drop_item_at(r.item, want, r.at) {
                     Err(SimError::QuestItem(_)) => return Ok(format!("{} is a quest item and can't be dropped", name(&r))),
                     other => other?,
                 };
@@ -855,11 +881,11 @@ impl MenuModel {
         if t.balance > 0 && (t.purse[merchant] as i64) < t.balance {
             return Ok(format!("{} doesn't have enough caps.", self.title));
         }
-        for (&item, &n) in &t.offered[player] {
-            world.transfer(PLAYER, t.stock, item, n)?;
+        for (&(item, at), &n) in &t.offered[player] {
+            world.transfer_at(PLAYER, t.stock, item, n, at.map(f32::from_bits))?;
         }
-        for (&item, &n) in &t.offered[merchant] {
-            world.transfer(t.stock, PLAYER, item, n)?;
+        for (&(item, at), &n) in &t.offered[merchant] {
+            world.transfer_at(t.stock, PLAYER, item, n, at.map(f32::from_bits))?;
         }
         let paid = t.balance;
         match paid {
