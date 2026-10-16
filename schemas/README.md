@@ -14,6 +14,7 @@ so a wrong layout is fixed by editing JSON, not code.
 - `gameplay.json` — GLOB, SCPT, QUST, DIAL, INFO, NPC_, CREA, RACE, HAIR, EYES, HDPT, FACT, levelled lists, …
 - `ai.json` — PACK (AI packages) and IDLM (idle markers); facts in `docs/spec-notes/packages.md`
 - `audio.json` — MUSC, MSET, ALOC, ASPC (music types, media sets, media location controllers, acoustic spaces); facts in `docs/spec-notes/audio.md`
+- `effects.json` — EFSH (effect shaders); facts in `docs/spec-notes/effect-shaders.md`
 
 **Record header flags.** A record entry may name bits of its record header's flags
 field (the u32 after the data size), next to `name` and `subrecords`:

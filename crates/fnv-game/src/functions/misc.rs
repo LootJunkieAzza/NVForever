@@ -389,3 +389,108 @@ pub fn swap_texture(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String>
     g.texture_swaps.generation += 1;
     none()
 }
+
+/// `ref.SetSecuritronExpression target face expression`: the Securitron's monitor shows
+/// `textures\creatures\securitron\<face>_<expression>.dds` [documented: GECK wiki
+/// SetSecuritronExpression; observed: the screen models draw `<face>_Neutral.dds` on the
+/// shape `Screen01:0`, docs/spec-notes/effect-shaders.md §5]. A texture swap of that
+/// shape on the target (`TextureSwaps`); not saved yet [design].
+pub fn set_securitron_expression(g: &mut Game, _: &Ctx, a: &Args) -> Result<Value, String> {
+    let on = a.form(0)?;
+    let texture = format!(r"creatures\securitron\{}_{}", a.str(1)?.trim(), a.str(2)?.trim());
+    let (shape, texture) = texture_swap_names(SECURITRON_SCREEN, &texture);
+    let swaps = g.texture_swaps.by_ref.entry(on).or_default();
+    swaps.retain(|(s, _)| *s != shape);
+    swaps.push((shape, texture));
+    g.texture_swaps.generation += 1;
+    none()
+}
+
+/// The shape of a Securitron's screen models that shows its face [observed:
+/// `nvsecuritron*screen01.nif`, effect-shaders.md §5].
+pub const SECURITRON_SCREEN: &str = "Screen01:0";
+
+/// An effect shader a script plays on a reference (`PlayMagicShaderVisuals`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShaderPlay {
+    pub on: fnv_sim::FormId,
+    /// The EFSH record.
+    pub shader: fnv_sim::FormId,
+    /// Seconds asked for; `None`: until stopped. The engine ends it after
+    /// max(duration, one cycle) (docs/spec-notes/effect-shaders.md §3).
+    pub duration: Option<f64>,
+    /// Counts the plays, so the engine can tell a shader played again from one playing on.
+    pub serial: u64,
+}
+
+/// What scripts asked of references' looks (effect shaders, actor alpha), for the engine
+/// to draw. Not part of the saved state [design].
+#[derive(Debug, Clone, Default)]
+pub struct ScriptLooks {
+    /// Effect shaders playing by script: one per (reference, shader), the last call kept.
+    pub shaders: Vec<ShaderPlay>,
+    next_serial: u64,
+    /// Actors' alpha (`SetActorAlpha`), below 1 only.
+    pub alpha: std::collections::BTreeMap<fnv_sim::FormId, f32>,
+    /// Counts the changes of `shaders` and `alpha`.
+    pub generation: u64,
+}
+
+impl ScriptLooks {
+    /// The engine has ended a play (its time is up).
+    pub fn end(&mut self, serial: u64) {
+        self.shaders.retain(|p| p.serial != serial);
+        self.generation += 1;
+    }
+}
+
+/// `ref.PlayMagicShaderVisuals shader [duration]`: play an effect shader on the calling
+/// reference (the player without one) for the duration, or until stopped [documented:
+/// GECK wiki PlayMagicShaderVisuals]. The same shader played again on the same reference
+/// starts over [hypothesis].
+pub fn play_magic_shader_visuals(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let on = ctx.subject_or_player();
+    let shader = a.form(0)?;
+    let duration = a.num(1).ok().filter(|d| *d > 0.0);
+    let looks = &mut g.script_looks;
+    looks.shaders.retain(|p| !(p.on == on && p.shader == shader));
+    looks.next_serial += 1;
+    looks.shaders.push(ShaderPlay { on, shader, duration, serial: looks.next_serial });
+    looks.generation += 1;
+    none()
+}
+
+/// `ref.StopMagicShaderVisuals shader`: stop the effect shader a script plays on the
+/// calling reference [documented: GECK wiki StopMagicShaderVisuals].
+pub fn stop_magic_shader_visuals(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let on = ctx.subject_or_player();
+    let shader = a.form(0)?;
+    let looks = &mut g.script_looks;
+    looks.shaders.retain(|p| !(p.on == on && p.shader == shader));
+    looks.generation += 1;
+    none()
+}
+
+/// `ref.SetActorAlpha alpha`: how opaque the calling actor is drawn, 0 (unseen) to 1
+/// [documented: GECK wiki SetActorAlpha]; held to 0..1, 1 draws it as before.
+pub fn set_actor_alpha(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let on = ctx.subject()?;
+    let alpha = (a.num(0)? as f32).clamp(0.0, 1.0);
+    let looks = &mut g.script_looks;
+    if alpha >= 1.0 {
+        looks.alpha.remove(&on);
+    } else {
+        looks.alpha.insert(on, alpha);
+    }
+    looks.generation += 1;
+    none()
+}
+
+/// `ref.Reset3DState`: forget the calling reference's animation state (traps triggered
+/// before are set again by their scripts) [documented: GECK wiki Reset3DState; what the
+/// state covers here, docs/spec-notes/effect-shaders.md §5, hypothesis].
+pub fn reset_3d_state(g: &mut Game, ctx: &Ctx, _: &Args) -> Result<Value, String> {
+    let on = ctx.subject()?;
+    g.anims.reset(on);
+    none()
+}

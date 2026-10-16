@@ -513,6 +513,11 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
     out
 }
 
+/// On a drawn shape of an actor's part: the shape's name in its model, lower case (what
+/// `SwapTexture` names; nvforever `texture_swap.rs`).
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+pub struct ShapeName(pub String);
+
 /// Spawn every part's shapes on the skeleton nodes of `out` (an actor spawned already:
 /// [`spawn_actor`], or parts put on later, as armour taken off shows the body), adding
 /// them to its `drawn`, `part_of` (indices into `parts`) and `shape_of`.
@@ -563,6 +568,9 @@ pub fn spawn_parts(commands: &mut Commands, skel: &PreparedSkeleton, parts: &[Pa
                     e
                 }
             };
+            if let Some(n) = &s.name {
+                commands.entity(e).insert(ShapeName(n.to_ascii_lowercase()));
+            }
             out.drawn.push(e);
             out.part_of.push(pi);
             out.shape_of.push(i);
