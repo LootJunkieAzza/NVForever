@@ -10,11 +10,6 @@
 //!   is observed in the shipped masters (docs/spec-notes/scripts.md §2.4).
 //!
 //! The interpreter dispatches on opcode; names are for diagnostics and the decompiler.
-//!
-//! Console functions the catalogue lists without an opcode (`ToggleCollision`, …; the
-//! console types them by name, compiled scripts never hold them) get a *console number*
-//! from [`CONSOLE_NUMBERS`] up, in catalogue order: ours, not the game's, so the console
-//! can dispatch them as it does every other function (`Function::console_number`).
 
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -22,9 +17,6 @@ use std::path::Path;
 
 /// The encodings file compiled into the crate.
 pub const ENCODINGS_JSON: &str = include_str!("../data/encodings.json");
-
-/// The first console number (see the module notes); above every opcode the catalogue lists.
-pub const CONSOLE_NUMBERS: u16 = 0xF000;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TableError {
@@ -94,8 +86,6 @@ pub struct Function {
     pub scripts_using: u64,
     pub condition_uses: u64,
     pub console_only: bool,
-    /// `opcode` is a console number given by this table, not an opcode of the game's.
-    pub console_number: bool,
     pub encodings: Vec<ParamEnc>,
     pub trailer: Vec<TrailerEnc>,
     pub encoding_source: EncodingSource,
@@ -193,20 +183,11 @@ impl FunctionTable {
                 }
             }
         }
-        let funcs: Vec<&Value> = f.get("functions").and_then(Value::as_array).into_iter().flatten().collect();
-        let opcodes = |func: &Value| -> Vec<u16> { strings(func.get("opcodes")).iter().filter_map(|s| parse_hex16(s)).collect() };
-        let console = |func: &Value| {
-            func.get("console_only").and_then(Value::as_bool).unwrap_or(false) || strings(func.get("categories")).iter().any(|c| c == "Console Functions")
-        };
-        // Functions with opcodes first, so their names and aliases win over a console
-        // function's; then the console functions without one, numbered in order.
-        let mut next_console = CONSOLE_NUMBERS;
-        let mut listed: Vec<(&Value, Vec<u16>, bool)> = funcs.iter().map(|f| (*f, opcodes(f), false)).filter(|(_, ops, _)| !ops.is_empty()).collect();
-        for func in funcs.iter().filter(|f| opcodes(f).is_empty() && console(f)) {
-            listed.push((func, vec![next_console], true));
-            next_console = next_console.checked_add(1).ok_or_else(|| TableError::Format("too many console functions".into()))?;
-        }
-        for (func, ops, console_number) in listed {
+        for func in f.get("functions").and_then(Value::as_array).into_iter().flatten() {
+            let ops: Vec<u16> = strings(func.get("opcodes")).iter().filter_map(|s| parse_hex16(s)).collect();
+            if ops.is_empty() {
+                continue;
+            }
             let name = func.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
             let params: Vec<Param> = func
                 .get("params")
@@ -247,7 +228,6 @@ impl FunctionTable {
                     scripts_using: n("scripts_using"),
                     condition_uses: n("condition_uses"),
                     console_only: func.get("console_only").and_then(Value::as_bool).unwrap_or(false),
-                    console_number,
                     encodings,
                     trailer,
                     encoding_source: source,
