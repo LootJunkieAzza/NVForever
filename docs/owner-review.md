@@ -5277,3 +5277,34 @@ below is my choice; tell me any you want changed.
   10–25 s pass.
 - Not built: the player recoiling when an NPC blocks; switching a guard to whoever
   rushes the gunman it guards (it fights its own combat target).
+## NPCs' holstered flamer: tank on the back, no gun (2026-10-16)
+
+Your request: an unequipped flamer should show the flame tank on the back and no weapon,
+as your minigun does. Branch `claude/npc-heavy-holster`. Facts: `docs/spec-notes/animation.md` §9.7.
+
+1. **Built:** NPCs now read the same two things from the game files as your character:
+   the flamer's tank (and the minigun's backpack) hangs from the upper back, and the gun
+   part is switched off while holstered and on half way through the draw, by the
+   animations' own show/hide tracks. Checked on Cook-Cook: holstered, the tank on his
+   back and empty hands; drawn, the flamer in both hands with the tank still on the back.
+2. **Also:** NPCs' miniguns and gatling lasers get the same. Under a package that keeps
+   weapons put away, the tank is hidden with the rest of the weapon; it is not counted as
+   part of the gun when hits on the weapon are worked out.
+3. **Your character's flamer** already worked this way (it uses the same rule as the
+   minigun); I did not take a new look at it.
+
+## Key names in tutorial messages (2026-10-16, session "key-tokens")
+
+Branch `claude/key-tokens`: the sneak tutorial read "To sneak or crouch, &sUActnCrouch;."
+(owner's screenshot).
+
+**Fix.** The game's texts use 16 control strings (every `&…;` in FalloutNV.esm); five are
+not the INI's names: Sldleft and Sldright (mapped before), and now Crouch (Crouch/Sneak),
+Rdyitem (Ready Item) and ToggleRun. A control bound only to a mouse button names the
+button ("Left Mouse: Attack"). The keys are read when the message appears, so a key
+rebound on the Controls page shows in the next message.
+*Guesses for you to check:*
+1. ToggleRun ("To toggle between run and walk, …") is the Always Run key (Caps Lock).
+2. The original's words for keys are not known: modifiers read "Left Ctrl", "Left Shift",
+   mouse buttons "Left Mouse", and `&sDeviceMouse;` ("… Look around") reads "Mouse".
+   A screenshot of the sneak tutorial or the controls help in the game would settle them.

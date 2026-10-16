@@ -30,7 +30,7 @@ use nvf_play::hitvol::{ActorParts, PartSegment, PosedParts, WEAPON_PART};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::weapons::{HeldWeapon, WeaponHold};
+use crate::weapons::{HeldWeapon, OnBack, WeaponHold};
 
 /// Joints closer than this to the previous kept joint are merged, game units [design].
 pub const MIN_SEGMENT: f32 = 4.0;
@@ -240,7 +240,7 @@ fn publish_limbs(
     mut out: ResMut<ActorParts>,
     rigs: Query<(&ActorRig, &LimbRig, &InheritedVisibility, Option<&WeaponHold>)>,
     nodes: Query<&GlobalTransform>,
-    held: Query<(&HeldWeapon, &GlobalTransform, &Aabb)>,
+    held: Query<(&HeldWeapon, &GlobalTransform, &Aabb), Without<OnBack>>,
 ) {
     out.by_ref.clear();
     // The shapes of the weapons in hand, by actor.

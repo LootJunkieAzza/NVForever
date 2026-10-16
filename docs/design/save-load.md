@@ -216,9 +216,25 @@ ours and never remapped.
   once the load order is known (refused if it differs); the script runtime restores the
   game and the simulation as it is made, before its first frame, and sends `RefChanged`
   for every reference the save changed so the drawn world follows; the engine part is put
-  back next. Loading while playing (console `load`, F9) starts NVForever again with the
-  same arguments and `--load` (those the save decides left out), so a save always lands in
-  a world built fresh from the plugins.
+  back next. Loading while playing (console `load`, F9, the pause and main menus) starts
+  NVForever again with the same arguments and `--load` (those the save decides left out),
+  so a save always lands in a world built fresh from the plugins and nothing of the run
+  before carries over.
+- **The change of run is hidden** (`engine/nvforever/src/handoff.rs`) [design, owner
+  2026-10-16: the window closing and another opening was jarring]: the old run puts a
+  loading screen up (its picture one for the save's place) and holds the game, then
+  starts the new run with `--handoff <file>` and its window's place and size
+  (`--window-at`, `--size`, `--window-maximized`), and updates only 20 times a second
+  while it waits. The new run opens its window hidden, streams with long frames as behind
+  a loading screen and holds its sounds; once the cells around the player are drawn and
+  in physics and the save is put back (and 0.25 s more), it shows its window over the old
+  one, takes the focus and writes the file, and the old run ends. The pause menu's return
+  to the main menu (`--menu`) goes the same way. If the new run ends first, the screen
+  comes down and the old game goes on; closing the old window while it waits ends the new
+  run; a new run still hidden after 120 s shows itself. The new run gets none of the old
+  run's test aids (`NVF_PLAY_TEST_*`) except `NVF_PLAY_TEST_HANDOFF_EXIT=1` (end once it
+  has taken over; smoke `load-handoff`). For the seconds of the load both runs hold the
+  game in memory.
 - **Console**: `save <name>`, `load [name]` (the quicksave without a name), `saves` (the
   list: name, level, place, game date, kind).
 - **Thumbnail** (`save.rs`): the snapshot is taken at the end of the frame as before; that
@@ -253,5 +269,5 @@ ours and never remapped.
   expected: `save-write` saves before that quest shows them.
 
 Not built: deleting or renaming saves from the menu, remapping another load order, in-place loading
-without a restart, AI agent progress, corpse poses beyond their position, the sitting or
+without a new run (by design, see above), AI agent progress, corpse poses beyond their position, the sitting or
 lying pose (the player stands up), playback positions of music and radio.

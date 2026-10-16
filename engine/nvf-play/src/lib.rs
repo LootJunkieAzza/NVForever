@@ -15,6 +15,7 @@ pub mod activate;
 pub mod aid;
 pub mod aim_zoom;
 pub mod ambient;
+pub mod audio_out;
 pub mod bindings;
 pub mod blocking;
 pub mod chargen;

@@ -158,6 +158,9 @@ fn main() -> AppExit {
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
+            .build()
+            // The viewer plays no sound: no output device opened.
+            .disable::<bevy::audio::AudioPlugin>()
             .set(ImagePlugin {
                 default_sampler: ImageSamplerDescriptor {
                     address_mode_u: ImageAddressMode::Repeat,

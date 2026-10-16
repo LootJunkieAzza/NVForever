@@ -399,6 +399,12 @@ impl PlayerLimbs {
         }
     }
 
+    /// A leg is crippled: the body limps (`locomotion\hurt\` clips) [design: either leg,
+    /// owner's request 2026-10-16].
+    pub fn limping(&self) -> bool {
+        self.crippled(29) || self.crippled(30)
+    }
+
     /// The crippled limbs, named.
     pub fn crippled_names(&self) -> Vec<&'static str> {
         (25u16..=31).filter(|&c| self.crippled(c)).map(|c| LIMB_NAMES[(c - 25) as usize]).collect()

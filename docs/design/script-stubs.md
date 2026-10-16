@@ -63,7 +63,7 @@ evidence tags are on each function (`functions/ai_state.rs`, `senses.rs`, `ui.rs
 | GetLineOfSight | 0x101B | 49 | 0 | the detection last measured for the pair (`Detection::seen`: line of sight within ±95°) | `detection.rs` (already) |
 | IsMoving | 0x1019 | 0 | 49 | `Senses::motion` (moving reads 1, forward) | `detection.rs` |
 | GetCurrentAIPackage | 0x106E | 16 | 15 | package type codes; 5 combat, 29 search, 6 conversation | none |
-| AddSPECIALPoints | 0x1219 | 21 | 0 | `SpecialSheet::for_menu`: more points, the old values the floor; opens 1074 | the Vigor Tester's menu opens with those rules |
+| AddSPECIALPoints | 0x1219 | 21 | 0 | `SpecialSheet::for_menu`: more points, the old values the floor; opens 1048 as its attributes page (levelup.md §8) | the attributes page opens with those rules (Intense Training) |
 | AlwaysShowActorSubtitles | 0x1277 | 16 | 0 | `Senses::always_subtitles` | `script_hud.rs` shows the subtitle out of hearing too |
 | SetWeather / ForceWeather | 0x1104 / 0x112D | 14 / 13 | 0 | `WeatherState::request` (a fade or at once, held or not) | `main.rs` `script_weather` → `SkyState::script_weather` |
 | IsPC1stPerson | 0x1188 | 2 | 9 | `Senses::first_person` | `control::tell_scripts` |
@@ -71,7 +71,7 @@ evidence tags are on each function (`functions/ai_state.rs`, `senses.rs`, `ui.rs
 | IsRaining | 0x103E | 6 | 3 | the sky's weather is Rainy (WTHR DATA) and fully faded in | `script_weather` tells the game |
 | IsRunning | 0x111F | 0 | 4 | `Senses::motion` | `detection.rs` |
 | AddTagSkills | 0x121B | 3 | 0 | `TagSheet::for_menu`: the count raised, the old tags locked; opens 1048 | the tag-skill menu ("SKILLS: n/4 Selected") |
-| SetSPECIALPoints | 0x1218 | 2 | 0 | `SpecialSheet::for_menu`: the total; opens 1074 | as AddSPECIALPoints |
+| SetSPECIALPoints | 0x1218 | 2 | 0 | `SpecialSheet::for_menu`: the total; opens 1074 | the Vigor Tester's menu opens with those rules |
 | GetIsCurrentWeather | 0x1095 | 2 | 0 | the weather shown, or one just asked for | `script_weather` |
 
 In all, 1,807 uses moved from stubs to implementations.

@@ -60,6 +60,9 @@ pub struct RowView {
     pub plus: bool,
     /// A perk taken: the small square.
     pub marked: bool,
+    /// A perk that cannot be taken now: drawn faint [documented: the perk row's
+    /// `_TextAlpha`; observed: about half as bright on the owner's screenshots].
+    pub dim: bool,
 }
 
 /// What the menu shows, read from its state and the game.
@@ -181,21 +184,20 @@ impl LevelUp {
                 let rows = p
                     .perks
                     .iter()
-                    .map(|id| RowView {
-                        text: g.data.perks.get(id).map(|d| d.name.clone()).unwrap_or_else(|| id.to_string()),
+                    .enumerate()
+                    .map(|(i, id)| RowView {
+                        text: rules::perk_row(&g.data.perks.get(id).map(|d| d.name.clone()).unwrap_or_else(|| id.to_string()), g.player.perks.get(id).copied().unwrap_or(0)),
                         value: None,
                         minus: false,
                         plus: false,
                         marked: p.chosen.contains(id),
+                        dim: !p.available[i],
                     })
                     .collect();
                 let id = p.perks.get(self.selected).copied();
                 let d = id.and_then(|id| g.data.perks.get(&id));
                 let info = match (id, d) {
-                    (Some(id), Some(d)) => {
-                        let has = g.player.perks.get(&id).copied().unwrap_or(0);
-                        rules::perk_info(&chargen::requirement_line(g, id), has.saturating_add(1), d.ranks.max(1), &d.description)
-                    }
+                    (Some(id), Some(d)) => rules::perk_info(&chargen::requirement_line(g, id), d.ranks.max(1), &d.description),
                     _ => String::new(),
                 };
                 (rows, d.and_then(|d| d.icon.clone()), info, rules::perk_counter(p.left()))
@@ -208,6 +210,7 @@ impl LevelUp {
                         minus: skills.can_lower(i),
                         plus: skills.can_raise(i),
                         marked: false,
+                        dim: false,
                     })
                     .collect();
                 let a = skills.skills.get(self.selected).and_then(|&s| g.data.actor_value_info(s));
@@ -236,7 +239,6 @@ impl LevelUp {
 mod tests {
     use super::*;
     use fnv_sim::FormId;
-    use std::collections::BTreeSet;
 
     fn menu(perk_due: bool) -> LevelUp {
         LevelUp::new(3, SkillSheet::new(vec![32, 34, 40], vec![17, 17, 17], vec![1, 1, 1], 12), perk_due)
@@ -258,7 +260,7 @@ mod tests {
     fn the_perks_page_and_back() {
         let mut m = menu(true);
         m.select(2);
-        let perks = PerkSheet { perks: (1..=20).map(FormId).collect(), chosen: BTreeSet::new(), count: 1 };
+        let perks = PerkSheet::new((1..=20).map(FormId).collect());
         m.to_perks(perks);
         assert_eq!((m.page, m.selected, m.rows()), (Page::Perks, 0, 20));
         assert!(!m.can_continue());
