@@ -259,10 +259,7 @@ pub fn show_all_map_markers(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value,
 /// Settings]. The settings default to 200 and 150 [documented: same page] when the load
 /// order lacks them.
 pub fn xp_for_level(g: &Game, level: i32) -> f64 {
-    let base = g.world.setting_f32("iXPBase").unwrap_or(200.0) as f64;
-    let bump = g.world.setting_f32("iXPBumpBase").unwrap_or(150.0) as f64;
-    let n = level as f64;
-    (n - 1.0) * ((n - 2.0) / 2.0 * bump + base)
+    crate::experience::xp_for_level(g, level)
 }
 
 /// `GetXPForNextLevel`: the experience the player still needs to reach the next level
@@ -270,8 +267,8 @@ pub fn xp_for_level(g: &Game, level: i32) -> f64 {
 /// level"]: the next level's total ([`xp_for_level`]) less the experience the player
 /// has, at least 0 [hypothesis: remaining rather than the total; the Here and Now perk's
 /// stage rewards exactly this amount, `QUST 0x000038B2` stage 10, which levels the
-/// player up at once only if it is what is left]. Levelling up is not built: the level
-/// is SetLevel's or the configuration's.
+/// player up at once only if it is what is left]. The level goes up when the player takes
+/// the level-up menu (`crate::experience`).
 pub fn get_xp_for_next_level(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let level = g.player.level.unwrap_or(g.world.config().player_level as i32);
     Ok(Value::Num((xp_for_level(g, level + 1) - g.player.xp).max(0.0).round()))
