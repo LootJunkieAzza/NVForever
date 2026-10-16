@@ -272,6 +272,7 @@ type ActorAnimParts = (
     Option<&'static crate::furniture::OnFurniture>,
     Option<&'static crate::idles::ActorIdle>,
     Option<&'static mut crate::attack_anims::CombatPose>,
+    Option<&'static mut crate::creature_stance::CreatureStance>,
 );
 
 /// Choose, blend and pose every actor with a [`Locomotion`], with its weapon clips
@@ -286,7 +287,7 @@ pub fn drive(
     let t0 = std::time::Instant::now();
     let (dt, now) = (time.delta_secs(), time.elapsed_secs());
     let mut n = 0;
-    for (mut lo, mut player, weapon, dying, flinch, seated, idle, pose) in &mut actors {
+    for (mut lo, mut player, weapon, dying, flinch, seated, idle, pose, creature) in &mut actors {
         if let Some(mut d) = dying {
             // Dead: the death pose to its end and held; without one the pose stays.
             let Some(clip) = d.clip.clone() else { continue };
@@ -332,6 +333,13 @@ pub fn drive(
                 w.step(dt);
             }
             w.layers(&mut player);
+        }
+        // A creature's unarmed stance (`creature_stance.rs`) on the same layers.
+        if let Some(mut c) = creature {
+            if !lo.hold {
+                c.step(dt);
+            }
+            c.layers(&mut player);
         }
         let idles = crate::idles::IDLE_LAYER;
         (player.layers[idles], player.layers[idles + 1]) = (None, None);

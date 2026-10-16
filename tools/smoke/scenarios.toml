@@ -2473,3 +2473,46 @@ run_seconds = 45
 expect = [
   { re = 'ai summary at .*vMORangerGhostREF: no package, \S+ in \S+, walked (?P<n>\d+) units', range = [0, 50], label = "Ghost stays at her post (walked under 50 units)" },
 ]
+
+[[scenario]]
+name = "creature-alert-stance"
+source = "claude/creature-alert-stance (docs/spec-notes/actors.md §8.10): an alerted creature raises its claws as people draw a weapon (h2hequip once, h2haim held, h2hunequip when calm), and its attacks still play"
+note = "the deathclaw QJDeathclawWanderer01 0x000E62E5 about 1,100 units north of the player at Quarry Junction; the feral ghoul 0x000CE9E7 is put 500 units north of the player at 2 s and the deathclaws fight it (first draw, attacks); nobody perceives the player (UNSEEN); SetAlert 1 at 6 s and 0 at 16 s (second draw)"
+areas = ["alert", "creatures"]
+paths = ["engine/nvforever/src/creature_stance.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-actor/src/weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT = "2:moveto:0x000CE9E7:player:0:500:0,6:call:0x000E62E5:SetAlert:1,16:call:0x000E62E5:SetAlert:0" }
+args = ["--pos=-14138,25200,4700", "--heading", "0", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'creature stance: meshes.creatures.deathclaw: clips \[Equip, Aim, Unequip\]', label = "the deathclaw's stance clips" },
+  { re = 'attack anims: 000E62E5 plays meshes.creatures.deathclaw.h2hattack', label = "the alerted deathclaw's attacks still play" },
+]
+order = [[
+  { re = 'creature stance: QJDeathclawWanderer01 000E62E5 draws \(alerted\)' },
+  { re = 'creature stance: QJDeathclawWanderer01 000E62E5 Equipping' },
+  { re = 'creature stance: QJDeathclawWanderer01 000E62E5 Drawn' },
+  { re = 'creature stance: QJDeathclawWanderer01 000E62E5 puts away \(calm\)' },
+  { re = 'creature stance: QJDeathclawWanderer01 000E62E5 Unequipping' },
+  { re = 'creature stance: QJDeathclawWanderer01 000E62E5 Holstered' },
+]]
+
+[[scenario]]
+name = "creature-alert-stance-ghoul"
+source = "claude/creature-alert-stance (docs/spec-notes/actors.md §8.10): a feral ghoul raises its hands when alerted and lowers them when calm"
+note = "the feral ghoul 0x000CE9E7 at its corpse idle marker about 1,000 units north of the player; nobody perceives the player (UNSEEN); SetAlert 1 at 6 s and 0 at 16 s"
+areas = ["alert", "creatures"]
+paths = ["engine/nvforever/src/creature_stance.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT = "6:call:0x000CE9E7:SetAlert:1,16:call:0x000CE9E7:SetAlert:0" }
+args = ["--pos=9244,-33900,7500", "--heading", "0", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'creature stance: meshes.creatures.ghoul: clips \[Equip, Aim, Unequip\]', label = "the ghoul's stance clips" },
+]
+order = [[
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 draws \(alerted\)' },
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 Equipping' },
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 Drawn' },
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 puts away \(calm\)' },
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 Unequipping' },
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 Holstered' },
+]]
