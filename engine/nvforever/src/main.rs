@@ -76,6 +76,7 @@ mod taa;
 mod speech_look;
 mod terrain;
 mod texture_swap;
+mod effect_shaders;
 mod tree;
 mod treelod;
 mod underwater;
@@ -1019,6 +1020,8 @@ fn main() -> AppExit {
         app.add_plugins(flashlight::FlashlightPlugin);
         // Textures scripts swap on references' shapes (texture_swap.rs).
         app.add_plugins(texture_swap::TextureSwapPlugin);
+        // Effect shaders and actor alpha scripts and magic effects ask for (effect_shaders.rs).
+        app.add_plugins(effect_shaders::EffectShadersPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
         app.add_plugins(lockpick_view::LockpickViewPlugin);
     }

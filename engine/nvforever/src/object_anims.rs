@@ -108,6 +108,7 @@ struct Stats {
     no_sequence: u32,
     sounds: u32,
     to_actors: u32,
+    resets: u32,
     by_group: BTreeMap<String, u32>,
 }
 
@@ -179,6 +180,22 @@ pub fn drive(
             game.anims.set_playing(r.on, None);
         }
         info!("playgroup: {} drawn, shows {name} as asked while it was not", game.data.name(r.on));
+    }
+
+    // Reset3DState: the group stops where it is and nothing waits to be shown (a request
+    // made after the reset, in the same frame, still plays below).
+    for on in std::mem::take(&mut game.anims.resets) {
+        st.waiting.remove(&on.0);
+        st.logged.remove(&on.0);
+        st.stats.resets += 1;
+        let drawn = by_ref.get(&on.0).and_then(|&e| rigs.get_mut(e).ok());
+        if let Some((root, mut rig, ..)) = drawn {
+            rig.current = None;
+            rig.next = None;
+            rig.last = None;
+            commands.entity(root).remove::<Playing>();
+        }
+        info!("playgroup: {} reset (Reset3DState)", game.data.name(on));
     }
 
     for r in requests {
@@ -326,7 +343,7 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<ObjectAnims>) {
     let s = &st.stats;
     let groups: Vec<String> = s.by_group.iter().map(|(g, n)| format!("{g} {n}")).collect();
     info!(
-        "playgroup summary: {} asked ({}); {} started, {} waited for the playing one, {} loops already playing, {} played once and ended, {} for objects not drawn ({} shown when drawn), {} without a sequence of that name; {} sound keys; {} for actors (actor group summary)",
+        "playgroup summary: {} asked ({}); {} started, {} waited for the playing one, {} loops already playing, {} played once and ended, {} for objects not drawn ({} shown when drawn), {} without a sequence of that name; {} sound keys; {} for actors (actor group summary); {} resets (Reset3DState)",
         s.asked,
         if groups.is_empty() { "-".to_string() } else { groups.join(", ") },
         s.started,
@@ -337,7 +354,8 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<ObjectAnims>) {
         s.shown_when_drawn,
         s.no_sequence,
         s.sounds,
-        s.to_actors
+        s.to_actors,
+        s.resets
     );
 }
 
