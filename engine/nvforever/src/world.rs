@@ -471,6 +471,8 @@ fn load_cell(
                 cell_e,
                 world,
                 base.form_id,
+                base.model.as_deref(),
+                models,
                 (to_cell * ref_affine(&p)).translation.into(),
                 light_scale,
                 &p,
@@ -498,10 +500,50 @@ fn load_cell(
             stats.refs_speedtree += 1;
             continue;
         }
+        // Placeable water: its model's shapes drawn as its water type's surface.
+        if &base.sig == b"PWAT" && spawn_placed_water(commands, cell_e, world, &base, r, to_cell * ref_affine(&p), models, water, stats) {
+            continue;
+        }
         // The reference transform replaces the model root's own (world.md §4).
         spawn_model(commands, cell_e, world, &p, r, &base, to_cell * ref_affine(&p), models, emittance, hide, stats);
     }
     cell_e
+}
+
+/// A placeable water reference (PWAT): the shapes of its model (a flat square, e.g.
+/// `water_placeable\waterp512x512.nif`, whose one shape has a `WaterShaderProperty` and
+/// no texture) drawn with the water material of the PWAT's water type, as a cell's water
+/// plane is (water.rs) [hypothesis: that the game draws them with the WATR's look; drawn
+/// as an ordinary model they were untextured and pure white: the Goodsprings cave's
+/// pools, owner's playtest list 5 item 70; world.md §6]. False when it has no water type
+/// or model, to be drawn as a model.
+#[allow(clippy::too_many_arguments)]
+fn spawn_placed_water(
+    commands: &mut Commands,
+    cell_e: Entity,
+    world: &WorldData,
+    base: &BaseObject,
+    r: u32,
+    rt: Affine3A,
+    models: &mut ModelCtx,
+    water: &mut WaterCtx,
+    stats: &mut StreamStats,
+) -> bool {
+    let Some(wid) = fnv_world::sky::placeable_water_type(world.lo, world.schema, base.form_id) else { return false };
+    let Some(path) = base.world_model_path() else { return false };
+    let Some(model) = models.model(&path) else { return false };
+    let Some(mat) = water_material(world, wid, models, water) else { return false };
+    for s in &model.shapes {
+        commands.entity(cell_e).with_child((
+            Mesh3d(s.mesh.clone()),
+            MeshMaterial3d(mat.clone()),
+            Transform::from_matrix(Mat4::from(rt * s.transform)),
+            bevy::camera::visibility::RenderLayers::layer(crate::reflection::WATER_LAYER),
+            RefVisual(r),
+        ));
+    }
+    stats.water_planes += 1;
+    true
 }
 
 /// Draw a reference's model as children of `parent`, `rt` being the reference's
@@ -625,7 +667,7 @@ fn spawn_dormant(
         }
         (b"LIGH", _) => {
             let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(cell_e))).id();
-            if crate::lights::spawn_light(commands, holder, world, base.form_id, rt.translation.into(), light_scale, p, emittance) {
+            if crate::lights::spawn_light(commands, holder, world, base.form_id, base.model.as_deref(), models, rt.translation.into(), light_scale, p, emittance) {
                 crate::actors::spawn_hidden(commands, holder, r);
                 stats.lights_hidden += 1;
             } else {

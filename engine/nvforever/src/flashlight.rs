@@ -1,23 +1,23 @@
 //! The flashlight's light (`nvf_play::flashlight`; owner request 2026-10-11): while it is
-//! on, a spot light on the player's camera lights a cone ahead of the view. [design: not
-//! a light of the game's; colour, reach, cone and brightness are chosen to look like other
-//! games' flashlights, in the display units of `lights::spawn_light`.]
+//! on, a spot light on the front of the player's body lights a cone ahead of the view.
+//! [design: not a light of the game's; colour, reach, cone and brightness are chosen to
+//! look like other games' flashlights, in the display units of `lights::spawn_light`.]
 //!
-//! - It sits a little right of and under the eye, so what it lights shows short shadows,
-//!   and casts shadows: walls stop it instead of it lighting the rooms behind them. It
+//! - It sits on the body, in front of the face a little under the eye, facing where the
+//!   player looks (owner, playtest list 5 items 66 and 67): in a view from outside it
+//!   lights what is ahead of the body, not the body's back from the camera, and nearly on
+//!   the line of the eye its shadows fall behind what casts them instead of beside it.
+//!   Being in front of the body, the body casts nothing on what it lights.
+//! - It casts shadows: walls stop it instead of it lighting the rooms behind them. It
 //!   falls off as the game's lights do (`lights.rs`).
 //! - Shadow casters are the world's layer (0), as the light's own layers are: the
 //!   first-person arms and weapon (`sky::ARMS_LAYER`) and the unseen body
-//!   (`sky::SHADOW_LAYER`) cast none. In a view from outside, nothing nearer to the light
-//!   than the player's eye and a margin casts ([`shadow_near`]): the body would otherwise
-//!   throw its shadow over all it lights.
+//!   (`sky::SHADOW_LAYER`) cast none.
 //! - Detection does not count it (`detection.rs`).
 
 use bevy::prelude::*;
-use nvf_play::control::PlayerControl;
 use nvf_play::flashlight::Flashlight;
 use nvf_play::player::Player;
-use nvf_play::PlayerCamera;
 
 /// Marks the flashlight's light entity.
 #[derive(Component)]
@@ -32,13 +32,12 @@ const RANGE: f32 = 2800.0;
 /// Half-angle of the cone's edge, and of its fully lit middle, degrees.
 const OUTER_DEG: f32 = 30.0;
 const INNER_DEG: f32 = 14.0;
-/// Where the light sits in the camera's frame (right, up, back), game units.
-const OFFSET: Vec3 = Vec3::new(9.0, -11.0, 0.0);
-/// Shadow near plane in first person, game units.
+/// Where the light sits from the player's eye: ahead along the body's heading, and
+/// down, game units [design].
+const AHEAD: f32 = 14.0;
+const DOWN: f32 = 6.0;
+/// Shadow near plane, game units.
 const NEAR: f32 = 8.0;
-/// What is this far beyond the eye in a view from outside still casts no shadow (the
-/// body's depth from the eye, and the weapon held before it), game units.
-const BODY_MARGIN: f32 = 60.0;
 
 pub struct FlashlightPlugin;
 
@@ -48,38 +47,29 @@ impl Plugin for FlashlightPlugin {
     }
 }
 
-/// The shadow near plane: in a view from outside, past the player's eye seen from the
-/// light, so the body casts nothing.
-fn shadow_near(outside: bool, light: Vec3, eye: Vec3) -> f32 {
-    if outside {
-        (light.distance(eye) + BODY_MARGIN).max(NEAR)
-    } else {
-        NEAR
-    }
+/// The light's place and rotation (Bevy space) for the player's eye (game space),
+/// heading and pitch.
+fn placement(eye: [f32; 3], heading: f32, pitch: f32) -> Transform {
+    let at = [eye[0] + AHEAD * heading.sin(), eye[1] + AHEAD * heading.cos(), eye[2] - DOWN];
+    // A spot light looks down its -z, as a camera does.
+    Transform::from_translation(nvf_play::space::to_bevy(at)).with_rotation(nvf_play::space::look_rotation(heading, pitch))
 }
 
 fn sync(
     mut commands: Commands,
     flashlight: Res<Flashlight>,
-    control: Res<PlayerControl>,
     player: Option<Res<Player>>,
-    cam: Query<(Entity, &GlobalTransform), With<PlayerCamera>>,
-    mut lights: Query<(Entity, &mut SpotLight), With<PlayerFlashlight>>,
+    mut lights: Query<(Entity, &mut Transform), With<PlayerFlashlight>>,
 ) {
-    if !flashlight.on {
+    let Some(player) = player.filter(|_| flashlight.on) else {
         for (e, _) in &lights {
             commands.entity(e).despawn();
         }
         return;
-    }
-    let Ok((cam_e, cam_t)) = cam.single() else { return };
-    let light_at = cam_t.transform_point(OFFSET);
-    let outside = control.third_person_view();
-    let near = player.map_or(NEAR, |p| shadow_near(outside, light_at, nvf_play::space::to_bevy(p.eye())));
-    if let Some((_, mut l)) = lights.iter_mut().next() {
-        if (l.shadow_map_near_z - near).abs() > 1.0 {
-            l.shadow_map_near_z = near;
-        }
+    };
+    let place = placement(player.eye(), player.heading, player.pitch);
+    if let Some((_, mut t)) = lights.iter_mut().next() {
+        *t = place;
         return;
     }
     commands.spawn((
@@ -92,12 +82,10 @@ fn sync(
             outer_angle: OUTER_DEG.to_radians(),
             inner_angle: INNER_DEG.to_radians(),
             shadow_maps_enabled: true,
-            shadow_map_near_z: near,
+            shadow_map_near_z: NEAR,
             ..default()
         },
-        // A camera looks down its -z, and so does a spot light.
-        Transform::from_translation(OFFSET),
-        ChildOf(cam_e),
+        place,
     ));
 }
 
@@ -106,11 +94,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_body_casts_no_shadow_in_a_view_from_outside() {
-        let eye = Vec3::new(0.0, 120.0, 0.0);
-        let cam = eye + Vec3::new(30.0, 10.0, 200.0);
-        let near = shadow_near(true, cam, eye);
-        assert!(near > cam.distance(eye) + 40.0, "{near}");
-        assert_eq!(shadow_near(false, eye, eye), NEAR);
+    fn the_light_is_ahead_of_the_eye_and_looks_where_the_player_looks() {
+        // Facing east (+x in game space), level.
+        let t = placement([100.0, 0.0, 120.0], std::f32::consts::FRAC_PI_2, 0.0);
+        let at = nvf_play::space::to_game(t.translation);
+        assert!((at[0] - (100.0 + AHEAD)).abs() < 1e-3 && at[1].abs() < 1e-3, "{at:?}");
+        assert!((at[2] - (120.0 - DOWN)).abs() < 1e-3);
+        let dir = nvf_play::space::to_game(t.forward().as_vec3());
+        assert!(dir[0] > 0.99, "{dir:?}");
     }
 }

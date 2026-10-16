@@ -200,6 +200,17 @@ pub(crate) fn uses_falloff(shader_flags: i64) -> bool {
     shader_flags & (1 << 6) != 0
 }
 
+/// Whether a shader property's shapes take their vertex alpha: with BSShaderFlags bit 3
+/// "Vertex_Alpha", and on an unlit shape (BSShaderNoLightingProperty) also with bit 19
+/// "Dynamic_Alpha" [documented: nif.xml flag names; hypothesis for the second: the
+/// dust vortex sheets of `effects\nv\sanddust\sanddust02.nif` set bit 19, not bit 3,
+/// and their vertex alpha is 0 along the sheets' edges and 1 inside; without it they drew
+/// as a dense sheet with hard vertical edges where the game shows a soft column of dust
+/// (owner, playtest list 5 item 1; docs/spec-notes/nif.md §6 "Vertex colours")].
+pub(crate) fn uses_vertex_alpha(property_type: &str, shader_flags: i64) -> bool {
+    shader_flags & (1 << 3) != 0 || (property_type == "BSShaderNoLightingProperty" && shader_flags & (1 << 19) != 0)
+}
+
 /// The view-angle falloff of a BSShaderNoLightingProperty with these shader flags and
 /// falloff fields (start angle, stop angle, start opacity, stop opacity; absent in files
 /// of stream version 26 or lower): none without the flag ([`uses_falloff`]), whatever
@@ -226,7 +237,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
     if shader {
         let flags = s.int("shader_flags").unwrap_or(0);
         p.specular = flags & 1 != 0;
-        p.vertex_alpha = flags & (1 << 3) != 0;
+        p.vertex_alpha = uses_vertex_alpha(ty, flags);
         p.hair = flags & (1 << 18) != 0;
         p.skin = s.int("shader_type") == Some(SHADER_SKIN);
         p.external_emittance = flags & (1 << 29) != 0;
@@ -940,6 +951,15 @@ mod tests {
         };
         assert_eq!(get(&mesh), vec![[0.5, 1.0, 1.0, 1.0], [0.2, 0.3, 0.4, 1.0]]);
         assert_eq!(get(&flagged), vec![[0.5, 1.0, 1.0, 0.0], [0.2, 0.3, 0.4, 0.25]]);
+    }
+
+    #[test]
+    fn unlit_dynamic_alpha_shapes_take_their_vertex_alpha() {
+        // The dust vortex's unlit sheets: 0xA2080140 (bits 6, 8, 19, 25, 29, 31).
+        assert!(uses_vertex_alpha("BSShaderNoLightingProperty", 0xA208_0140));
+        assert!(!uses_vertex_alpha("BSShaderPPLightingProperty", 0xA208_0140));
+        assert!(uses_vertex_alpha("BSShaderPPLightingProperty", 1 << 3));
+        assert!(!uses_vertex_alpha("BSShaderNoLightingProperty", 0x8000_0000));
     }
 
     #[test]

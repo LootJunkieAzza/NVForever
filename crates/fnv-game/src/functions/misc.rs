@@ -343,3 +343,46 @@ pub fn set_global_time_multiplier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<
     g.ui.time_multiplier = Some(m);
     none()
 }
+
+/// The textures scripts swapped on references' shapes: per reference, the shape's name
+/// (lower case, without the leading `#`s) and the texture path under `textures\` with
+/// its extension, the last call per shape kept; `generation` counts the calls, so the
+/// engine sees new ones.
+#[derive(Debug, Clone, Default)]
+pub struct TextureSwaps {
+    pub by_ref: std::collections::BTreeMap<fnv_sim::FormId, Vec<(String, String)>>,
+    pub generation: u64,
+}
+
+/// The shape name and texture path a `SwapTexture` call names, as the engine looks
+/// them up: `"##gs01:0"` → `gs01:0`; `"interface\endgame\endscrn_pf05"` →
+/// `textures\interface\endgame\endscrn_pf05.dds` [hypothesis: the calls name a shape
+/// of the reference's model (`pipboycard01:0` is the only shape of
+/// `pipboycard01.nif`) and a texture without `textures\` and extension (the files exist
+/// so: `textures\clutter\rorchachtest\inkblot03.dds`); the meaning of `##` is not
+/// known, read as "the shape of that name anywhere in the model"].
+pub fn texture_swap_names(shape: &str, texture: &str) -> (String, String) {
+    let shape = shape.trim().trim_start_matches('#').to_ascii_lowercase();
+    let mut t = texture.trim().replace('/', "\\").to_ascii_lowercase();
+    if !t.starts_with("textures\\") {
+        t = format!(r"textures\{t}");
+    }
+    if !t.ends_with(".dds") {
+        t.push_str(".dds");
+    }
+    (shape, t)
+}
+
+/// `ref.SwapTexture "shape" "texture"`: draw `texture` on the named shape of the calling
+/// reference's model (the end slides, the Rorschach cards of Doc Mitchell's test, the
+/// Euclid's C-Finder's screen) [observed: the decoded calls, docs/design/script-stubs.md
+/// §4; no GECK wiki page]. Kept per reference for the engine (`TextureSwaps`).
+pub fn swap_texture(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let on = ctx.subject()?;
+    let (shape, texture) = texture_swap_names(a.str(0)?, a.str(1)?);
+    let swaps = g.texture_swaps.by_ref.entry(on).or_default();
+    swaps.retain(|(s, _)| *s != shape);
+    swaps.push((shape, texture));
+    g.texture_swaps.generation += 1;
+    none()
+}

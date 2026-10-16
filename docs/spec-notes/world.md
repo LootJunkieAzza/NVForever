@@ -870,6 +870,17 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   Saloon 0.750 -> 0.806, 0.721 -> 0.742, 0.701 -> 0.721; in the living-room frame the base
   radius left the left wall dark where the game lights it [observed]. The renderer's range
   is max(0, base + `XRDS`) (`fnv_world::lighting::placed_light_radius`).
+- **Black LIGH colours**: some lights store colour 0, 0, 0 in `DATA` and hold their
+  colour in their model instead [observed: `LamplightWarm` (0x0003A595, the Goodsprings
+  gas station's lantern light, radius 312) has a black DATA colour; its model
+  `dungeons\caves\lamplight\lamplightwarm.nif` holds an `NiPointLight` with diffuse
+  (0.78, 0.58, 0.16), dimmer 1, under an `Idle` sequence whose `NiLightColorController`
+  flickers it between about 0.62 and 0.78 red over 3 s, and an `NiAmbientLight`]. In
+  game the lantern lights the counter warm (owner's screenshot, playtest list 5 item 6).
+  The renderer takes, for a black DATA colour, the diffuse colour times the dimmer of the
+  first `NiPointLight` or `NiSpotLight` of the LIGH's model, as display values like the
+  DATA colour [hypothesis], and draws no light when there is none
+  (`nvf_assets::model_light`, nvforever `lights.rs`). Not done: the flicker.
 - **External emittance**: a placed reference's `XEMI` names a region (REGN) or a light
   (LIGH) as its "Emittance" [documented: xEdit wbDefinitionsFNV.pas REFR], and
   BSShaderFlags bit 29 is "External_Emittance" [documented: nif.xml]. REGN `RDAT` heads

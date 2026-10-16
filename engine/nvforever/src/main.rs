@@ -70,6 +70,7 @@ mod ssao;
 mod taa;
 mod speech_look;
 mod terrain;
+mod texture_swap;
 mod tree;
 mod treelod;
 mod underwater;
@@ -977,8 +978,10 @@ fn main() -> AppExit {
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
         // Animation groups scripts play on objects (object_anims.rs).
         app.add_plugins(object_anims::ObjectAnimsPlugin);
-        // The flashlight's light on the player's camera (flashlight.rs).
+        // The flashlight's light on the front of the player's body (flashlight.rs).
         app.add_plugins(flashlight::FlashlightPlugin);
+        // Textures scripts swap on references' shapes (texture_swap.rs).
+        app.add_plugins(texture_swap::TextureSwapPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
         app.add_plugins(lockpick_view::LockpickViewPlugin);
     }
