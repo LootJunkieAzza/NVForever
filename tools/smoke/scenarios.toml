@@ -785,6 +785,22 @@ expect = [
   { re = 'furniture: 00104C0F: SpecialIdle_DocSitLeftExit starts (?P<n>\d+) units from where the body sits: played from the seat', range = [40, 100], label = "Doc Mitchell's exit played from his seat" },
 ]
 
+[[scenario]]
+name = "rorschach-cards"
+source = "SwapTexture (playtest list 5 item 38; docs/design/script-stubs.md §4): Doc Mitchell's lines put the psych test's cards on TempRorschachTest01REF behind him; the line that enables the card shows card 1, an inkblot answer's line swaps in the inkblot"
+areas = ["scripts", "rendering"]
+paths = ["engine/nvforever/src/texture_swap.rs", "engine/nvf-play/src/script_draw.rs", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "3:info:0x00105599,6:info:0x00105575,9:info:0x0010559D" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 14
+order = [[
+  'reference 0x001084B0 drawn (enabled at run time): meshes\clutter\rorchachtest\pipboycard01.nif',
+  'SwapTexture: reference 001084B0 shape pipboycard01:0: textures\clutter\rorchachtest\pipboycard01.dds',
+  'SwapTexture: reference 001084B0 shape pipboycard01:0: textures\clutter\rorchachtest\inkblot01.dds',
+  'SwapTexture: reference 001084B0 shape pipboycard01:0: textures\clutter\rorchachtest\inkblot02.dds',
+]]
+expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no swapped texture missing" }]
+
 # ------------------------------------------------------------------ messages and menus
 
 [[scenario]]

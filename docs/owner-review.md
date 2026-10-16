@@ -4775,6 +4775,13 @@ Frames are kept privately; each was one run with test aids.
   `textures\<texture>.dds` on that shape of the reference's model (the Rorschach cards in
   Doc Mitchell's test, the end slides, the Euclid's C-Finder screen); `##` before a
   name is dropped (**guess**: meaning unknown). Not kept in saves. Not seen in a run.
+  **Fixed 2026-10-16 (claude/rorschach-cards)** after your report that the cards behind
+  Doc Mitchell never changed: the calls are `SwapTexture <ref> "shape" "texture"` (the
+  card `TempRorschachTest01REF` is the first parameter, no calling reference), so every
+  call had failed. Now seen in a run: card 1 when the test starts, then each inkblot
+  (`C:\fnv-private\frames\rorschach\card1-then-inkblot1.png`); smoke `rorschach-cards`.
+  The Euclid's C-Finder screen and the end slides use the same form and are fixed with it
+  (not looked at).
 ## Pause, settings and main menus, pointer, wait menu (2026-10-16, session "l5-menus")
 List 5 items 8, 46, 19 and 51. Frames before and after: `C:\fnv-private\frames\l5-menus`.
 - **Pause menu (8)** now has the original's look, from `start_menu.xml` and your
