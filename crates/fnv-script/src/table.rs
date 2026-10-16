@@ -15,6 +15,14 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
+/// The first opcode given to console functions, which the catalogue lists without one
+/// (they are typed at the console, never compiled into a shipped script). They take
+/// `CONSOLE_OPCODE_BASE + i`, `i` their place among those functions in case-insensitive
+/// name order [decision: our numbering, outside the 0x1000–0x1FFF range scripts use; a
+/// function the catalogue gains moves the later ones, which the function registry's
+/// name test catches]. docs/design/console.md.
+pub const CONSOLE_OPCODE_BASE: u16 = 0xF000;
+
 /// The encodings file compiled into the crate.
 pub const ENCODINGS_JSON: &str = include_str!("../data/encodings.json");
 
@@ -183,8 +191,20 @@ impl FunctionTable {
                 }
             }
         }
-        for func in f.get("functions").and_then(Value::as_array).into_iter().flatten() {
-            let ops: Vec<u16> = strings(func.get("opcodes")).iter().filter_map(|s| parse_hex16(s)).collect();
+        let funcs: Vec<&Value> = f.get("functions").and_then(Value::as_array).into_iter().flatten().collect();
+        let mut console: Vec<usize> = (0..funcs.len())
+            .filter(|&i| {
+                strings(funcs[i].get("opcodes")).is_empty()
+                    && strings(funcs[i].get("categories")).iter().any(|c| c == "Console Functions")
+            })
+            .collect();
+        let lower = |i: usize| funcs[i].get("name").and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
+        console.sort_by_key(|&i| lower(i));
+        let console_ops: HashMap<usize, u16> =
+            console.iter().enumerate().map(|(n, &i)| (i, CONSOLE_OPCODE_BASE + n as u16)).collect();
+        for (i, func) in funcs.iter().enumerate() {
+            let mut ops: Vec<u16> = strings(func.get("opcodes")).iter().filter_map(|s| parse_hex16(s)).collect();
+            ops.extend(console_ops.get(&i));
             if ops.is_empty() {
                 continue;
             }
