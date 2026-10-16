@@ -202,8 +202,7 @@ stands where the screenshot has them.
   password (hacking.md).
 - A broken lock stays locked: only its key opens it [documented: the help message].
   Broken locks are kept in the game state (`fnv_game::lockpick::Locks`), which is part of
-  the save-agnostic snapshot (`GameSnapshot.locks`, absent when empty); NVForever has no
-  save files yet, so today they last the session and go into any snapshot taken of it.
+  the save-agnostic snapshot (`GameSnapshot.locks`, absent when empty), so they are kept in NVForever's save files.
 - **Crime hook.** Picking or forcing an owned lock is a crime in the original; NVForever
   sends `LockOpened { reference, owner, forced }` and logs "lockpick: crime hook: …"
   with the owner (the reference's XOWN, else its cell's as `SetCellOwnership` set it).

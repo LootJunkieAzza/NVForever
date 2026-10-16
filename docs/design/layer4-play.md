@@ -112,7 +112,8 @@ worldspace asks for it: world.md §6).
 
 ### Part A — activation (`activate.rs`, visual sync)
 - Crosshair and a prompt naming what is under it (base form name; "Open", "Take",
-  "Talk", locked level); ray from the eye along the view, reach [hypothesis value,
+  "Talk", locked level); ray from the eye along the view (in third person the camera's line, the crosshair's,
+  `control::Crosshair`, #259), reach [hypothesis value,
   documented], filter out the player's capsule. E activates: `World::activate(player,
   target)`; apply the `Outcome`: `PickedUp` → `RefChanged` (hide visuals, remove
   collision), `Teleported` → `Travel`, `OpenedContainer` → `OpenContainer`,
@@ -385,7 +386,11 @@ keep the positions. Changed in `nvf-play` (`player.rs` `keys`, `read_keys`):
   using. Up/Down (or W/S) choose a row, Enter, Space, Left, Right or a click flip it,
   Esc or Backspace go back. A flip acts at once and nothing is saved: the next start
   goes by the command line again. Not the original's settings menu: neither its entries
-  nor its layout are copied [decision].
+  nor its layout are copied [decision]. Since 2026-10-16 (playtest list 5, #290) the
+  pause menu is Continue / Save / Load / Settings / Quit in the original's look
+  (`start_menu.rs`, from `start_menu.xml`), Quit asks Main Menu / Exit Game / Cancel, and
+  Settings groups the switches by category (Gameplay, World, Display, Graphics, Debug,
+  Saving) as ON/OFF rows; the entries are still NVForever's own switches.
   - A switch is an `nvf_play::settings::Setting`: a key, a label, a note, and a `get` and
     `set` over the state its module already uses (so there is no second copy to keep in
     step). The owning module registers it (`add_setting`): nvf-play its own in its

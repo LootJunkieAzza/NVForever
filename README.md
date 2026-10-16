@@ -7,16 +7,20 @@ NVForever is an independent project, not affiliated with or endorsed by Bethesda
 Softworks, ZeniMax Media, Microsoft or Obsidian Entertainment; *Fallout* and *Fallout:
 New Vegas* are their trademarks. See [LEGAL.md](LEGAL.md).
 
-Status (2026-10-12, FNV 1.4.0.525, base game + all DLC): the archive and plugin readers,
+Status (2026-10-16, FNV 1.4.0.525, base game + all DLC): the archive and plugin readers,
 the asset formats, the world renderer, physics, the simulation core and the script runtime
-run on the whole game. `nvforever --play` is a playable slice of the game: walk the Mojave
+run on the whole game. `nvforever --play --menu` opens on the original's main menu
+(Continue, New Game, Load Game, Settings, Quit); New Game plays the intro film and the
+opening at Doc Mitchell's. From there it is a playable slice of the game: walk the Mojave
 with collision; talk to NPCs in the original's dialogue menu with their recorded voices;
 NPCs live by their AI packages, detect you, fight, flee and take cover; shoot, strike and
 throw with the player's side of combat; companions such as Boone follow you through doors
-and fight with you; pick locks, hack terminals, use aid items, wait and sleep; crime and
-karma are tracked; the HUD, Pip-Boy, inventory, barter and container menus are drawn from
-the game's own menu files; music, sounds and radio play. Not started: saved games, VATS,
-levelling up and perks, repair and crafting, the Caravan and casino games.
+and fight with you; pick locks, hack terminals, use aid items, craft at workbenches and
+campfires, wait and sleep; crime, karma and reputation are tracked; the HUD, Pip-Boy,
+inventory, barter, container, pause and main menus are drawn from the game's own menu
+files; music, sounds and radio play; save and load games (F5/F9, the pause menu,
+autosaves). Not started: VATS, levelling up and perks, repair, the Caravan and casino
+games.
 
 **The full map of what is complete, partly built and not started, per system, with links to
 each design and spec note: [docs/status.md](docs/status.md).**
@@ -28,9 +32,9 @@ each design and spec note: [docs/status.md](docs/status.md).**
 | 2 | NIF, DDS, KF assets, viewer | done ([docs/design/layer2.md](docs/design/layer2.md)) |
 | 3 | World and rendering | done, with known gaps: exterior lighting and clouds against the game's frames, effect shaders, depth of field; an optional enhanced look (`--graphics enhanced`) ([docs/design/layer3.md](docs/design/layer3.md)) |
 | 4 | Core simulation, collision, physics, play | done; 3 accepted physics residuals ([docs/design/layer4.md](docs/design/layer4.md)) |
-| 5 | Scripting | done; 80 script functions remain stubs that need systems not built yet ([docs/design/layer5.md](docs/design/layer5.md), [docs/design/script-stubs.md](docs/design/script-stubs.md)) |
-| 6 | Gameplay: AI, dialogue, combat, followers, crime, aid | mostly done; VATS, levelling up, repair/crafting not started |
-| 7 | Interface, audio, saves | mostly done; saved games, the main menu and the minigame menus not started |
+| 5 | Scripting | done; 76 script functions remain stubs that need systems not built yet ([docs/design/layer5.md](docs/design/layer5.md), [docs/design/script-stubs.md](docs/design/script-stubs.md)) |
+| 6 | Gameplay: AI, dialogue, combat, followers, crime, aid | mostly done; crafting first version; VATS, levelling up and repair not started |
+| 7 | Interface, audio, saves | mostly done; saved games and the main menu first versions; the companion wheel, credits and the Caravan and casino menus not started |
 
 Decisions taken by working sessions while the owner was away, and questions for the
 owner, are listed in [docs/owner-review.md](docs/owner-review.md).
@@ -52,6 +56,17 @@ fnvtool paths
 ```
 
 Details: [docs/design/install-layout.md](docs/design/install-layout.md).
+
+## Download
+
+Pre-release builds for Windows and Linux are on the
+[releases page](https://github.com/LootJunkieAzza/NVForever/releases) (v0.1.0, 2026-10-13,
+built before saved games, crafting and the main menu). Unpack outside the game folder and
+start through the launchers beside the programs, which point them at the shipped schemas:
+`nvforever.cmd` (Windows) or `./nvforever.sh` (Linux); `README-release.md` in the archive
+explains the rest. v0.1.0 needs `NVFOREVER_DATA` set to your game's `Data` folder and has
+no `--menu`: start it with `--play` or `--play --new-game`. From the next release on, the
+first start asks for the game folder and remembers it, and `--play --menu` opens the main menu.
 
 ## Build and test
 
@@ -89,34 +104,51 @@ From `engine/`, with `$D` your game's `Data` folder (Windows PowerShell shown):
 
 ```powershell
 $D = "F:\SteamLibrary\steamapps\common\Fallout New Vegas\Data"
+cargo run --release --bin nvforever -- --data $D --play --menu                 # the main menu
+cargo run --release --bin nvforever -- --data $D --play --new-game             # straight into the opening at Doc Mitchell's
+cargo run --release --bin nvforever -- --data $D --play --load "Save 3"        # a saved game
 cargo run --release --bin nvforever -- --data $D --cell Goodsprings --play     # walk in Goodsprings
-cargo run --release --bin nvforever -- --data $D --play --new-game             # the opening at Doc Mitchell's
 cargo run --release --bin nvforever -- --data $D --cell GSDocMitchellHouse --play --no-messages --graphics enhanced
 ```
 
+`--data` (or `$env:NVFOREVER_DATA`) is for development runs; without it the game folder
+comes from `NVForever.ini`, and the first start asks for it in a folder dialog
+([docs/design/install-layout.md](docs/design/install-layout.md)). For playtests, `tools/play/Play.ps1` starts
+the game at named places ([tools/play/README.md](tools/play/README.md)).
+
+- `--play --menu`: the main menu over the plugins' loading screens, with the original's
+  logo and theme. Continue loads the newest save; New Game plays `Video\FNVIntro.bik` (any
+  key or click skips it) and then the opening; Load Game and Settings open the pause
+  menu's pages.
 - `--play`: you are the player (without it the camera flies freely); NPCs live by their AI
   packages unless `--no-npc-packages` is given.
 - `--cell <EditorID or x,y>`: where to start (an interior's Editor ID such as
   `GSDocMitchellHouse` opens that interior); `--pos x,y,z`, `--heading` and `--hour`
-  refine it. `--new-game` (with `--play`) starts the opening instead.
+  refine it. `--new-game` (with `--play`) starts the opening instead, `--load <save>` a
+  saved game (saves live in `Documents\My Games\NVForever\saves`).
 - `--no-messages` (with `--play`): message boxes with only an OK button (such as the
   add-on packs' start-up boxes) close at once; their text is still logged.
 - `--graphics enhanced`: the optional modern look (ambient occlusion, finer shadows,
   bloom, sharpening, anisotropic filtering, sun shafts, water reflections;
   [docs/design/graphics-enhanced.md](docs/design/graphics-enhanced.md)). The default,
   `vanilla`, is the original's look and the one every test compares. Each improvement is
-  also on the settings page of the Esc menu.
+  also on the settings page of the Esc menu. Sun shadows are off by default in both looks;
+  `--sun-shadows` (or the settings page) turns them on.
 - `--no-voice`, `--no-sound`, `--no-music` silence parts of the audio.
 
 Keys in `--play` (the game's defaults): W/A/S/D move, Shift walk/run, Caps Lock always run,
 Ctrl sneak, Q auto move, Space jump, mouse look, left mouse attack, right mouse aim, R
 reload, E use (doors, containers, items, people), F first/third person, Tab Pip-Boy (hold:
-flashlight), T wait, Esc pause menu, `[`/`]` hour, F12 screenshot. Going through a door to
+flashlight), T wait, F5 quicksave, F9 quickload, Esc pause menu (Continue, Save, Load,
+Settings, Quit), `` ` `` developer console, `[`/`]` hour, F12 screenshot. Going through a door to
 another place shows one of the game's loading screens while the destination loads
 ([docs/design/loading-screen.md](docs/design/loading-screen.md)). The bindings:
 [docs/spec-notes/controls.md](docs/spec-notes/controls.md).
 
-A crash leaves a report with a backtrace in `Documents\My Games\NVForever\logs`.
+A crash leaves a report with a backtrace in `Documents\My Games\NVForever\logs`. Report bugs,
+crashes and differences from the original with the
+[issue forms](https://github.com/LootJunkieAzza/NVForever/issues/new/choose); never
+attach game files.
 
 Without `--play` the camera flies freely: W/A/S/D move, Q/E down/up, Shift faster, right
 mouse drag look, wheel speed, `[`/`]` hour, F12 screenshot, Esc quit.
@@ -125,7 +157,8 @@ More options: `--world <WRLD>`, `--pitch`, `--weather`, `--fov` (the game's sett
 default 75), `--size WxH`, `--msaa 1|2|4|8`, `--no-actors`, `--actor-pose idle|bind`,
 `--screenshot <png>` (render once and exit), `--time-scale <game hours per second>` with
 `--timelapse <dir>` (day/night sequences), `--run-seconds <s>` (exit after that long, for
-tests). `nvforever --help` lists them all.
+tests), `--plugins <files…>` (the load order, mods included; their archives follow),
+`--actors-pass-through` (actors no longer kept apart from each other). `nvforever --help` lists them all.
 
 The asset viewer:
 

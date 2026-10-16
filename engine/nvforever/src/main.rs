@@ -1,13 +1,13 @@
-//! nvforever — the NVForever game binary. At milestone M3 it is a free-camera explorer:
+//! nvforever — the NVForever game binary. Without `--play` it is a free-camera explorer:
 //! terrain and objects of a worldspace from the user's own game data, streamed around the
 //! camera (docs/design/layer3.md). Read-only: plugins and archives are only read.
 //!
 //! Keys: W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed,
 //! F12 screenshot, Esc quit. With `--play` the camera is the player instead (Layer 4,
 //! `nvf-play`: walking with collision, activation, menus; docs/design/layer4-play.md),
-//! Esc opens the pause menu (Resume / Settings / Quit; the settings page switches what
-//! `settings.rs` and `nvf_play::settings` list while the game runs) and closes the open
-//! menu.
+//! Esc opens the pause menu (Continue / Save / Load / Settings / Quit; the settings page
+//! switches what `settings.rs` and `nvf_play::settings` list while the game runs) and
+//! closes the open menu. `--play --menu` opens on the main menu (`nvf_play::main_menu`).
 
 mod activators;
 mod actor_feet;
@@ -1366,7 +1366,7 @@ fn keys(
     mut commands: Commands,
     mut n: Local<u32>,
 ) {
-    // With --play, Esc is nvf-play's: it opens the pause menu (Resume / Quit) or closes
+    // With --play, Esc is nvf-play's: it opens the pause menu (Continue / Save / Load / Settings / Quit) or closes
     // the open menu, instead of quitting.
     if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);

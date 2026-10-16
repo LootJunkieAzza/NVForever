@@ -479,4 +479,5 @@ fourth row, and a click on a row equips what it selects.
 - `fDefault1stPersonFOV=55` for the arms outside the Pip-Boy.
 - What `fBlurIntensityPipboy`, `fScanlineScalePipboy` and `fBrightenPipboy` scale.
 - The mouse pointer: the screenshots show an amber arrow (`interface\icons\misc\
-  glow_cursor.dds` is in the archives); NVForever shows the system's.
+  glow_cursor.dds` is in the archives); NVForever now shows the game's own `cursor.dds`
+  tinted amber everywhere in the window (`engine/nvf-play/src/cursor.rs`, 2026-10-16).

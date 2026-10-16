@@ -107,8 +107,8 @@ Subrecords [documented][observed]:
 - **Out-of-range index** [observed]: GunRunnersArsenal.esm has one REFR with FormID
   0x02000801 although it has only one master (valid indices 0 and 1). The game treats the
   index as the file's own [observed in game, 2026-10-09; see "Cross-check against
-  xEdit"]. Our loader still reports the record as `unmappable` and leaves it out of the
-  index (change proposed, see below).
+  xEdit"]. Our loader reads such an index as the file's own, as the game does
+  (`LoadOrder::to_global`, #281; see below).
 - FormIDs below 0x800 in the first master are reserved for engine built-ins
   [hypothesis, community knowledge]; references into that range need not resolve to a
   record.
