@@ -200,6 +200,10 @@ impl Game<'_> {
         }
         use crate::package::flags;
         let fighting = self.awareness.state(actor) == crate::awareness::State::Combat;
+        // Crouched to fire by the combat AI (docs/design/combat-ai.md §14.2).
+        if fighting && self.awareness.crouching.contains(&actor) {
+            return true;
+        }
         self.package_has(actor, flags::ALWAYS_SNEAK) && (!fighting || self.package_has(actor, flags::CONTINUE_DURING_COMBAT))
     }
 }

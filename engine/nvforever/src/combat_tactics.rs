@@ -99,6 +99,9 @@ pub struct Cover {
     pub peek: [f32; 3],
     pub edge: CoverEdge,
     pub phase: Phase,
+    /// Low cover: it hides crouched behind it and stands to fire, the peek point where it
+    /// hides (docs/design/combat-ai.md §14.2).
+    pub low: bool,
 }
 
 /// One fighter's tactics.
@@ -121,6 +124,8 @@ pub struct Tactic {
     pub last_post: Option<fnv_game::combat_group::PostKind>,
     pub no_post: Option<(fnv_game::combat_group::PostKind, f32)>,
     pub bad_cover: Vec<[f32; 3]>,
+    /// A shift sideways it is on its way to (docs/design/combat-ai.md §14.2).
+    pub shift: Option<[f32; 3]>,
 }
 
 /// A name for logs: the reference's name (its Editor ID or FULL), else its base form's
@@ -206,10 +211,14 @@ fn flat(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 /// Look for cover for a fighter at `feet` against a target whose chest is at `chest`
 /// (module notes): `eye` its eye height, `radius` how far to look, `max_range` how far
-/// from the target it may fight, `taken` places others hold.
+/// from the target it may fight, `taken` places others hold. `crouch`: it can crouch,
+/// so cover that hides only its crouched eyes is low cover it hides behind crouched and
+/// stands up from to fire (docs/design/combat-ai.md §14.2).
 #[allow(clippy::too_many_arguments)]
-pub fn find_cover(nav: &NavGraph, mut phys: Option<&mut PhysState>, space: Space, feet: [f32; 3], chest: [f32; 3], eye: f32, radius: f32, max_range: f32, taken: &[[f32; 3]]) -> Option<Cover> {
-    let sees = |phys: &mut Option<&mut PhysState>, at: [f32; 3]| crate::detection::clear_sight(phys.as_deref_mut(), [at[0], at[1], at[2] + eye], chest);
+pub fn find_cover(nav: &NavGraph, mut phys: Option<&mut PhysState>, space: Space, feet: [f32; 3], chest: [f32; 3], eye: f32, radius: f32, max_range: f32, taken: &[[f32; 3]], crouch: bool) -> Option<Cover> {
+    let sees_from = |phys: &mut Option<&mut PhysState>, at: [f32; 3], eye: f32| crate::detection::clear_sight(phys.as_deref_mut(), [at[0], at[1], at[2] + eye], chest);
+    let sees = |phys: &mut Option<&mut PhysState>, at: [f32; 3]| sees_from(phys, at, eye);
+    let mut low: Option<Cover> = None;
     for e in nav.cover_edges_near(space, feet, radius).into_iter().filter(|e| e.faces(chest)).take(COVER_CANDIDATES) {
         let d = flat(e.mid, chest);
         if !(COVER_MIN_TARGET..=max_range).contains(&d) {
@@ -219,16 +228,44 @@ pub fn find_cover(nav: &NavGraph, mut phys: Option<&mut PhysState>, space: Space
         if taken.iter().any(|t| flat(*t, behind) < TAKEN_RADIUS) {
             continue;
         }
-        // Covered: the target cannot be seen from its eyes there.
+        // Covered: the target cannot be seen from its eyes there. Seen standing but not
+        // crouched: low cover, kept in case no full cover is found.
         if sees(&mut phys, behind) {
+            if crouch && low.is_none() && !sees_from(&mut phys, behind, eye * crate::combat_stance::CROUCH_EYE) {
+                low = Some(Cover { behind, peek: behind, edge: e, phase: Phase::Going, low: true });
+            }
             continue;
         }
         let peek = peek_points(&e).into_iter().filter_map(|p| nav.nearest(space, p, 96.0).map(|x| x.1)).find(|p| sees(&mut phys, *p));
         if let Some(peek) = peek {
-            return Some(Cover { behind, peek, edge: e, phase: Phase::Going });
+            return Some(Cover { behind, peek, edge: e, phase: Phase::Going, low: false });
         }
     }
-    None
+    low
+}
+
+/// A bound for a melee fighter at `feet` closing on a gunman whose eyes are at `eyes`
+/// (docs/design/combat-ai.md §14.4): the back point of a cover edge that gains ground
+/// within the lane (`combat_stance::bound_gain`), hidden from the gunman's eyes at
+/// `chest` height above it, not taken. Of those, one of the two that gain the most, by
+/// `pick` (0 or 1). Returns the point and its gain.
+#[allow(clippy::too_many_arguments)]
+pub fn find_bound(nav: &NavGraph, mut phys: Option<&mut PhysState>, space: Space, feet: [f32; 3], target: [f32; 3], eyes: [f32; 3], chest: f32, taken: &[[f32; 3]], pick: usize) -> Option<([f32; 3], f32)> {
+    use crate::combat_stance::{bound_gain, BOUND_RADIUS};
+    let mut found: Vec<([f32; 3], f32)> = Vec::new();
+    for e in nav.cover_edges_near(space, feet, BOUND_RADIUS).into_iter().filter(|e| e.faces(eyes)).take(COVER_CANDIDATES * 2) {
+        let Some((_, behind)) = nav.nearest(space, e.behind(COVER_STANDOFF), 96.0) else { continue };
+        let Some(gain) = bound_gain(feet, target, behind) else { continue };
+        if taken.iter().any(|t| flat(*t, behind) < TAKEN_RADIUS) {
+            continue;
+        }
+        if crate::detection::clear_sight(phys.as_deref_mut(), eyes, [behind[0], behind[1], behind[2] + chest]) {
+            continue;
+        }
+        found.push((behind, gain));
+    }
+    found.sort_by(|a, b| b.1.total_cmp(&a.1));
+    found.get(pick.min(found.len().saturating_sub(1))).copied()
 }
 
 /// Counts for one side of the fight.

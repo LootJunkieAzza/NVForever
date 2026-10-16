@@ -432,6 +432,10 @@ pub struct Awarenesses {
     /// Actors aiming down their sights now (the engine's combat AI says): the AI that
     /// moves actors has them walk, not run (`fnv_ai::alert`).
     pub aiming: std::collections::BTreeSet<FormId>,
+    /// Fighters crouched to fire (the engine's combat AI says, docs/design/combat-ai.md
+    /// §14.2): `Game::sneaks` reads it while they are in Combat; the AI that moves actors
+    /// stands them up when it sets off (`fnv_ai::alert`).
+    pub crouching: std::collections::BTreeSet<FormId>,
     /// The share of the running speed each actor keeps (the engine's combat AI says):
     /// below 1 with a two-handed weapon drawn, or for a creature whose own run is slower
     /// (the owner's playtest list 5 items 61 and 25). Not set: 1.

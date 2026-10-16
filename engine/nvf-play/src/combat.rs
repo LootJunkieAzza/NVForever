@@ -222,6 +222,16 @@ pub struct ActorStrike {
     pub dir: V3,
 }
 
+/// A melee or unarmed blow a blocker stopped part of (docs/design/combat-ai.md §14.3).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BlockedBlow {
+    pub attacker: FormId,
+    pub blocker: FormId,
+    /// Damage before and after the block.
+    pub damage: f32,
+    pub dealt: f32,
+}
+
 /// Who fired a projectile: the actor, its weapon and the ammunition it was loaded with.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct By {
@@ -461,6 +471,8 @@ pub struct CombatStats {
     pub xp: f64,
     pub swings: u32,
     pub power_attacks: u32,
+    /// Melee blows a blocker stopped part of (docs/design/combat-ai.md §14.3).
+    pub blows_blocked: u32,
     /// Combat-tab lines said by anyone (Hit, Attack, PowerAttack, Death …), and tries by
     /// actors that have no line of the topic (`fnv_game::combat_lines`).
     pub combat_lines: u32,
@@ -636,6 +648,11 @@ pub struct Combat {
     pending: Vec<Pending>,
     /// Shots scripts asked for (`FireWeapon`), fired with the actors' shots next frame.
     script_shots: Vec<ActorFire>,
+    /// People blocking now and the way each faces (horizontal, game space): the engine's
+    /// combat AI says each frame (docs/design/combat-ai.md §14.3).
+    pub guarding: HashMap<FormId, [f32; 2]>,
+    /// Blows blocked since the combat AI last took them.
+    pub blocked_blows: Vec<BlockedBlow>,
     marks: Vec<Mark>,
     rng: SplitMix,
     /// The melee swings' own rolls (variants), so they leave the hit rolls as they were.
@@ -795,6 +812,8 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         next_visual: 0,
         pending: Vec::new(),
         script_shots: Vec::new(),
+        guarding: HashMap::new(),
+        blocked_blows: Vec::new(),
         marks: Vec::new(),
         rng: SplitMix(1),
         swing_rng: SplitMix(2),
@@ -1665,7 +1684,15 @@ fn melee(
                 strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut broken, script.as_deref_mut(), &parts, target, d.raw, hit.point);
                 continue;
             }
-            let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
+            let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
+            // A person blocking it from the front stops part of it (combat-ai.md §14.3).
+            if c.guarding.get(&target).is_some_and(|f| damage::from_front(*f, player.look_dir())) {
+                let before = d.dealt;
+                d.dealt = damage::blocked(&c.tuning, before);
+                stats.blows_blocked += 1;
+                info!("combat: {target} blocks the player's blow: {:.1} of {before:.1} stopped", before - d.dealt);
+                c.blocked_blows.push(BlockedBlow { attacker: FormId::PLAYER_REF, blocker: target, damage: before, dealt: d.dealt });
+            }
             let agility = actor_av(script.as_deref_mut(), &mut sim, target, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
             let push = damage::knockback_force(&c.rules, d.dealt, agility);
             let location = bp.as_ref().map_or(0, BodyPart::location);
@@ -1763,6 +1790,9 @@ type ShotEffects<'w> = (MessageWriter<'w, PlaySound>, MessageWriter<'w, ImpactFx
 
 /// Fly the projectiles, deliver hits when due, set off explosions (and what they set
 /// off: destruction stages, detonations).
+/// What says whether the player blocks: its controls, its weapon's state, where it looks.
+type Guard<'w> = (Option<Res<'w, PlayerControl>>, Option<Res<'w, WeaponAnim>>, Option<Res<'w, Player>>);
+
 /// Other actors' attacks (module notes): their shots go into flight as the player's do,
 /// their blows are dealt at once.
 #[allow(clippy::too_many_arguments)]
@@ -1778,9 +1808,13 @@ fn actor_attacks(
     (mut fired, mut sounds, mut messages, mut pushes): (MessageWriter<ShotFired>, MessageWriter<PlaySound>, MessageWriter<ActorHit>, MessageWriter<ActorPush>),
     sfx: Option<Res<Sfx>>,
     mut impacts: MessageWriter<ImpactFx>,
+    (control, anim, player): Guard,
 ) {
     let c = &mut *c;
     let gravity = phys.world.params.gravity;
+    // The player blocks with Block held and fists or a melee weapon drawn (combat.md §5.4);
+    // NPC blows from its front are then blocked as an NPC's are (combat-ai.md §14.3).
+    let player_guard = (c.melee && control.as_deref().is_some_and(|k| k.aiming) && anim.as_deref().is_some_and(|a| a.ready)).then(|| player.as_deref().map(|p| p.look_dir())).flatten().map(|d| [d[0], d[1]]);
     let script_shots = std::mem::take(&mut c.script_shots);
     for s in shots.read().chain(script_shots.iter()) {
         let carried = |a: FormId| sim.world.peek(s.shooter).and_then(|st| st.inventory.as_ref()).is_some_and(|i| i.count(a) > 0);
@@ -1828,7 +1862,16 @@ fn actor_attacks(
         let h = HitInput { weapon: &w, projectiles: 1, condition: item_condition(&sim, b.attacker, id), ammo_effects: &[], part: HitPart::default(), power: 1.0 };
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, b.target);
         let roll = c.rng.next_f32();
-        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
+        let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
+        // A blocker facing the blow stops part of it (docs/design/combat-ai.md §14.3).
+        let guard = if b.target == FormId::PLAYER_REF { player_guard } else { c.guarding.get(&b.target).copied() };
+        if guard.is_some_and(|f| damage::from_front(f, b.dir)) {
+            let before = d.dealt;
+            d.dealt = damage::blocked(&c.tuning, before);
+            stats.blows_blocked += 1;
+            info!("combat: {} blocks {}'s blow: {:.1} of {before:.1} stopped", b.target, b.attacker, before - d.dealt);
+            c.blocked_blows.push(BlockedBlow { attacker: b.attacker, blocker: b.target, damage: before, dealt: d.dealt });
+        }
         let info = HitInfo { attacker: Some(b.attacker), weapon: b.weapon, location: 0, critical: d.critical, limb: None };
         if b.target != FormId::PLAYER_REF {
             pushes.write(ActorPush { form_id: b.target.0, point: b.point, dv: vec::scale(b.dir, MELEE_PUSH) });
