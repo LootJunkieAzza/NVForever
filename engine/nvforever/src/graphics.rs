@@ -10,9 +10,12 @@
 //!   lies around it, thresholded on the tonemapped picture (`post.rs`).
 //! - **Sharpening**: contrast-adaptive sharpening of the picture (`post.rs`).
 //! - **Anisotropic filtering 16x** (8x in vanilla) for the game's textures loaded from then on.
-//! - **Temporal anti-aliasing** instead of multisampling (`taa.rs`; its own switch, not
-//!   part of `enhanced`): the view is drawn without multisampling and smoothed over the
-//!   frames; switching it off brings back `--msaa`.
+//! - **Anti-aliasing**, one choice and not part of `enhanced`: multisampling (`--msaa`,
+//!   off, 2x, 4x or 8x), or the view drawn without it and smoothed afterwards by Bevy's
+//!   FXAA or SMAA or by temporal anti-aliasing over the frames (`taa.rs`) ([`ScreenAa`]).
+//! - **Shadow filtering** of the sun's shadow maps, also not part of `enhanced`: Bevy's
+//!   default (Gaussian) as in vanilla, its cheaper hardware 2x2 or its temporal filter
+//!   (meant for temporal anti-aliasing).
 //! - **Sun shafts**: light streaming past what stands in front of the sun, as strong as
 //!   the weather's fog makes the air hazy (`shafts.rs`).
 //! - **Screen-space water reflections** where the mirrored reflection camera does not
@@ -25,10 +28,12 @@
 use crate::fly::FlyCam;
 use crate::sky::{SkyState, Sun};
 use crate::ssao::AmbientOcclusion;
-use bevy::light::DirectionalLightShadowMap;
+use bevy::light::{DirectionalLightShadowMap, ShadowFilteringMethod};
 use crate::post::PostEffects;
 use crate::shafts::LightShafts;
 use bevy::prelude::*;
+use bevy::anti_alias::fxaa::Fxaa;
+use bevy::anti_alias::smaa::Smaa;
 use bevy::render::camera::{MipBias, TemporalJitter};
 
 /// The look as a whole (`--graphics`).
@@ -46,6 +51,20 @@ pub enum Preset {
 /// §5), so it is asked for with `--graphics enhanced` or switched on in the settings.
 pub const PLAY_DEFAULT: Preset = Preset::Vanilla;
 
+/// Anti-aliasing of the finished picture instead of multisampling (the view is then drawn
+/// without it). `Off`: the multisampling of [`MsaaSetting`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ScreenAa {
+    #[default]
+    Off,
+    /// Bevy's FXAA (`bevy::anti_alias::fxaa`), at its default thresholds.
+    Fxaa,
+    /// Bevy's SMAA (`bevy::anti_alias::smaa`), at its default (high) preset.
+    Smaa,
+    /// Our temporal anti-aliasing (`taa.rs`).
+    Taa,
+}
+
 /// Which improvements are on (the settings page switches each).
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Graphics {
@@ -54,13 +73,29 @@ pub struct Graphics {
     pub bloom: bool,
     pub sharpen: bool,
     pub anisotropic: bool,
-    pub taa: bool,
+    pub screen_aa: ScreenAa,
     pub light_shafts: bool,
     pub water_reflections: bool,
+    /// How the sun's shadow maps are filtered (Bevy's default, Gaussian, in vanilla).
+    pub shadow_filter: ShadowFilteringMethod,
 }
 
-/// The settings page's keys of the switches, in the order of [`Graphics::describe`].
-pub const KEYS: [&str; 8] = ["ambient-occlusion", "fine-shadows", "bloom", "sharpen", "anisotropic", "taa", "light-shafts", "water-reflections"];
+/// The keys of `--graphics-only`: the settings page's switches and the anti-aliasing and
+/// shadow-filter choices that are not vanilla's, in the order of [`Graphics::describe`].
+pub const KEYS: [&str; 12] = [
+    "ambient-occlusion",
+    "fine-shadows",
+    "bloom",
+    "sharpen",
+    "anisotropic",
+    "fxaa",
+    "smaa",
+    "taa",
+    "light-shafts",
+    "water-reflections",
+    "shadow-filter-hardware",
+    "shadow-filter-temporal",
+];
 
 impl Graphics {
     pub fn preset(p: Preset) -> Self {
@@ -71,12 +106,14 @@ impl Graphics {
             bloom: on,
             sharpen: on,
             anisotropic: on,
-            // Temporal anti-aliasing is the other choice to multisampling, not part of the
-            // enhanced look: it softens textures while the view moves, and the owner plays
-            // with 8x multisampling (docs/design/graphics-enhanced.md §3.6).
-            taa: false,
+            // Anti-aliasing after the picture is the other choice to multisampling, not
+            // part of the enhanced look: temporal softens textures while the view moves,
+            // and the owner plays with 8x multisampling (docs/design/graphics-enhanced.md
+            // §3.6). The shadow filter stays Bevy's default too (§3.9).
+            screen_aa: ScreenAa::Off,
             light_shafts: on,
             water_reflections: on,
+            shadow_filter: ShadowFilteringMethod::Gaussian,
         }
     }
 
@@ -88,20 +125,27 @@ impl Graphics {
             "bloom" => &mut self.bloom,
             "sharpen" => &mut self.sharpen,
             "anisotropic" => &mut self.anisotropic,
-            "taa" => &mut self.taa,
             "light-shafts" => &mut self.light_shafts,
             "water-reflections" => &mut self.water_reflections,
             _ => return None,
         })
     }
 
-    /// Exactly the improvements named (the settings page's keys) on (`--graphics-only`).
+    /// Exactly the improvements named ([`KEYS`]) on (`--graphics-only`); of the
+    /// anti-aliasings and of the shadow filters the last named wins.
     pub fn only(keys: &[String]) -> Result<Self, String> {
         let mut g = Graphics::preset(Preset::Vanilla);
         for k in keys.iter().map(|k| k.trim()).filter(|k| !k.is_empty()) {
-            match g.switch(k) {
-                Some(on) => *on = true,
-                None => return Err(format!("--graphics-only {k}: expected one of {}", KEYS.join(", "))),
+            match k {
+                "fxaa" => g.screen_aa = ScreenAa::Fxaa,
+                "smaa" => g.screen_aa = ScreenAa::Smaa,
+                "taa" => g.screen_aa = ScreenAa::Taa,
+                "shadow-filter-hardware" => g.shadow_filter = ShadowFilteringMethod::Hardware2x2,
+                "shadow-filter-temporal" => g.shadow_filter = ShadowFilteringMethod::Temporal,
+                _ => match g.switch(k) {
+                    Some(on) => *on = true,
+                    None => return Err(format!("--graphics-only {k}: expected one of {}", KEYS.join(", "))),
+                },
             }
         }
         Ok(g)
@@ -115,9 +159,13 @@ impl Graphics {
             (self.bloom, "bloom"),
             (self.sharpen, "sharpening"),
             (self.anisotropic, "16x anisotropic filtering"),
-            (self.taa, "temporal anti-aliasing"),
+            (self.screen_aa == ScreenAa::Fxaa, "FXAA"),
+            (self.screen_aa == ScreenAa::Smaa, "SMAA"),
+            (self.screen_aa == ScreenAa::Taa, "temporal anti-aliasing"),
             (self.light_shafts, "sun shafts"),
             (self.water_reflections, "screen-space water reflections"),
+            (self.shadow_filter == ShadowFilteringMethod::Hardware2x2, "hardware 2x2 shadow filtering"),
+            (self.shadow_filter == ShadowFilteringMethod::Temporal, "temporal shadow filtering"),
         ];
         let on: Vec<&str> = names.iter().filter(|(on, _)| *on).map(|(_, n)| *n).collect();
         if on.is_empty() {
@@ -134,10 +182,55 @@ const SHADOW_MAP: usize = 2048;
 /// With finer shadows they reach this many times `--shadow-distance`.
 pub const FINE_SHADOW_REACH: f32 = 1.5;
 
-/// The multisampling of the main view from `--msaa`, put back when temporal
-/// anti-aliasing is switched off.
-#[derive(Resource, Clone, Copy)]
+/// The multisampling of the main view: `--msaa`, then the settings page's anti-aliasing
+/// choice; used while [`Graphics::screen_aa`] is off.
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MsaaSetting(pub Msaa);
+
+/// The settings page's anti-aliasing choices, in its order: the multisampling levels,
+/// then the anti-aliasing after the picture.
+pub const AA_CHOICES: [(&str, ScreenAa, Msaa); 7] = [
+    ("Off", ScreenAa::Off, Msaa::Off),
+    ("2x", ScreenAa::Off, Msaa::Sample2),
+    ("4x", ScreenAa::Off, Msaa::Sample4),
+    ("8x", ScreenAa::Off, Msaa::Sample8),
+    ("FXAA", ScreenAa::Fxaa, Msaa::Off),
+    ("SMAA", ScreenAa::Smaa, Msaa::Off),
+    ("TAA", ScreenAa::Taa, Msaa::Off),
+];
+
+/// The anti-aliasing choice now, an index of [`AA_CHOICES`].
+pub fn aa_choice(world: &World) -> usize {
+    let (aa, msaa) = (world.resource::<Graphics>().screen_aa, world.resource::<MsaaSetting>().0);
+    AA_CHOICES.iter().position(|&(_, a, m)| a == aa && (aa != ScreenAa::Off || m == msaa)).unwrap_or(0)
+}
+
+/// Choose anti-aliasing `i` of [`AA_CHOICES`]: a multisampling level is also the one the
+/// others give back to when chosen away from; the others keep the level.
+pub fn set_aa_choice(world: &mut World, i: usize) {
+    let (_, aa, msaa) = AA_CHOICES[i.min(AA_CHOICES.len() - 1)];
+    if aa == ScreenAa::Off {
+        world.resource_mut::<MsaaSetting>().0 = msaa;
+    }
+    world.resource_mut::<Graphics>().screen_aa = aa;
+}
+
+/// The settings page's shadow-filter choices, in its order.
+pub const SHADOW_FILTERS: [(&str, ShadowFilteringMethod); 3] = [
+    ("Fast", ShadowFilteringMethod::Hardware2x2),
+    ("Smooth", ShadowFilteringMethod::Gaussian),
+    ("Temporal", ShadowFilteringMethod::Temporal),
+];
+
+/// `--msaa`'s samples as a word for the log.
+fn msaa_name(m: Msaa) -> &'static str {
+    match m {
+        Msaa::Off => "off",
+        Msaa::Sample2 => "2x",
+        Msaa::Sample4 => "4x",
+        Msaa::Sample8 => "8x",
+    }
+}
 
 /// Test aid for measuring (`--log-frame-times`, `--graphics-cycle`): log the frame time
 /// every `every` seconds of real time and then, with a cycle, switch to its next set of
@@ -290,18 +383,19 @@ fn apply(
     mut shadow_map: ResMut<DirectionalLightShadowMap>,
     cams: Query<(Entity, &Msaa), With<FlyCam>>,
     suns: Query<(Entity, &DirectionalLight), With<Sun>>,
-    mut done: Local<Option<(Graphics, usize)>>,
+    mut done: Local<Option<(Graphics, Msaa, usize)>>,
 ) {
     let cam_count = cams.iter().count();
     let suns_count = suns.iter().count();
     if cam_count == 0 || suns_count == 0 {
         return;
     }
-    if done.as_ref().is_some_and(|(d, n)| *d == *g && *n == cam_count + suns_count) {
+    if done.as_ref().is_some_and(|(d, m, n)| *d == *g && *m == msaa.0 && *n == cam_count + suns_count) {
         return;
     }
     let first = done.is_none();
-    *done = Some((*g, cam_count + suns_count));
+    let msaa_changed = done.is_some_and(|(_, m, _)| m != msaa.0);
+    *done = Some((*g, msaa.0, cam_count + suns_count));
     for (cam, cam_msaa) in &cams {
         let mut e = commands.entity(cam);
         if g.ambient_occlusion {
@@ -314,15 +408,31 @@ fn apply(
         } else {
             e.remove::<PostEffects>();
         }
-        // Temporal anti-aliasing replaces the multisampling.
-        let want_msaa = if g.taa { Msaa::Off } else { msaa.0 };
+        // Anti-aliasing after the picture replaces the multisampling.
+        let want_msaa = if g.screen_aa == ScreenAa::Off { msaa.0 } else { Msaa::Off };
         if *cam_msaa != want_msaa {
             e.insert(want_msaa);
         }
-        if g.taa {
+        if g.screen_aa == ScreenAa::Taa {
             e.insert(crate::taa::components());
         } else {
             e.remove::<(crate::taa::TemporalAa, TemporalJitter, MipBias)>();
+        }
+        if g.screen_aa == ScreenAa::Fxaa {
+            e.insert(Fxaa::default());
+        } else {
+            e.remove::<Fxaa>();
+        }
+        if g.screen_aa == ScreenAa::Smaa {
+            e.insert(Smaa::default());
+        } else {
+            e.remove::<Smaa>();
+        }
+        // Without the component Bevy filters as Gaussian: vanilla leaves the camera as it was.
+        if g.shadow_filter == ShadowFilteringMethod::Gaussian {
+            e.remove::<ShadowFilteringMethod>();
+        } else {
+            e.insert(g.shadow_filter);
         }
         if g.light_shafts {
             e.insert(LightShafts::default());
@@ -347,6 +457,9 @@ fn apply(
     if !first {
         info!("graphics: {}", g.describe());
     }
+    if msaa_changed {
+        info!("graphics: multisampling {}", msaa_name(msaa.0));
+    }
 }
 
 #[cfg(test)]
@@ -356,10 +469,13 @@ mod tests {
     #[test]
     fn every_key_is_a_switch_and_enhanced_leaves_taa_off() {
         let all = Graphics::only(&KEYS.map(String::from)).expect("keys");
-        // "finer, longer shadows" has a comma of its own.
-        assert_eq!(all.describe().split(", ").count(), KEYS.len() + 1);
+        // "finer, longer shadows" has a comma of its own; of the three anti-aliasings and
+        // the two shadow filters the last named is on.
+        assert_eq!(all.describe().split(", ").count(), KEYS.len() + 1 - 3);
+        assert_eq!((all.screen_aa, all.shadow_filter), (ScreenAa::Taa, ShadowFilteringMethod::Temporal));
         let enhanced = Graphics::preset(Preset::Enhanced);
-        assert!(!enhanced.taa && enhanced.light_shafts && enhanced.water_reflections);
+        assert!(enhanced.screen_aa == ScreenAa::Off && enhanced.light_shafts && enhanced.water_reflections);
+        assert_eq!(enhanced.shadow_filter, ShadowFilteringMethod::Gaussian);
         assert!(Graphics::only(&["nonsense".into()]).is_err());
         let cycle = FrameTimes::parse_cycle("vanilla; taa,light-shafts ;enhanced;vanilla,no-sun-shadows;shadow-distance=8000,cascades=3").expect("cycle");
         let graphics: Vec<Graphics> = cycle.iter().map(|c| c.graphics).collect();

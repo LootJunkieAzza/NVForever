@@ -36,6 +36,7 @@ mod fade;
 mod facegen;
 mod flashlight;
 mod fly;
+mod frame_pace;
 mod handoff;
 mod furniture;
 mod graphics;
@@ -316,14 +317,15 @@ struct Args {
     /// The look: `vanilla` (the picture the parity and picture checks compare) or
     /// `enhanced` (ambient occlusion, finer and longer sun shadows, bloom, sharpening,
     /// 16x anisotropic filtering, sun shafts, screen-space water reflections; each also on
-    /// the settings page, which also offers temporal anti-aliasing instead of --msaa;
+    /// the settings page, which also offers FXAA, SMAA or temporal anti-aliasing instead of --msaa;
     /// docs/design/graphics-enhanced.md). Default: vanilla (`graphics::PLAY_DEFAULT`); test
     /// runs (--screenshot, --timelapse, --frame-json, --run-seconds) always default to it.
     #[arg(long, value_enum)]
     graphics: Option<graphics::Preset>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
-    /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, taa, light-shafts,
-    /// water-reflections), for comparing them one at a time.
+    /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
+    /// water-reflections) and choices (fxaa, smaa or taa instead of --msaa;
+    /// shadow-filter-hardware or shadow-filter-temporal), for comparing them one at a time.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
     graphics_only: Option<Vec<String>>,
     /// Test aid: log the mean and the slowest frame time every this many seconds (real
@@ -961,6 +963,8 @@ fn main() -> AppExit {
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
+    // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
+    .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { vsync: args.log_frame_times.is_none(), cap: 0 }))
     .add_plugins(grass::GrassPlugin(grass::GrassConfig {
         enabled: !args.no_grass,
         fade_start: args.grass_distance.max(0.0),

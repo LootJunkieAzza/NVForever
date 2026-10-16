@@ -52,7 +52,8 @@ Constraints that decide what fits:
 | Sun in-scattering in the fog (Bevy `DistanceFog` directional light) | Low: NVWastelandClear's fog reaches 200,000 units, so nothing showed | A shadow-map fetch per fragment | Tried, rejected |
 | Bevy TAA | Medium | Needs motion vectors from every material's prepass (the custom NIF, grass, tree and water prepasses write depth only; wind-animated grass and trees would need last frame's wind) and MSAA off | Not used: own pass instead |
 | TAA from depth and camera alone (own pass) | Medium: smooth edges and plant cut-outs without multisampling, cheaper than MSAA 4x | Softer textures while the view moves; what moves by itself is not followed | **Built**, as the other choice to MSAA, not in `enhanced` (§3.6) |
-| SMAA | Low | On top of MSAA it adds little | Not now |
+| Bevy FXAA, Bevy SMAA | Low-medium: smooth edges without multisampling, cheaper than MSAA; on top of MSAA they add little | Blur fine texture detail (FXAA more); plants' cut-outs are not smoothed (no multisampling) | **Offered** in the anti-aliasing choice instead of MSAA, not in `enhanced` (§3.6, 2026-10-16) |
+| Shadow filtering method (Bevy `ShadowFilteringMethod`) | Low: harder or softer sun-shadow edges | Temporal is grainy without TAA | **Offered** as a choice, Bevy's default (Gaussian) kept (§3.9) |
 | Sun shafts (own screen-space pass), tied to the weather's fog | Medium: dusk and dawn, the sun behind roofs and poles | ~0.03 ms here | **Built** (§3.7) |
 | Bevy volumetric fog | Would replace the game's fog look | Tried: darkens the whole picture on the non-HDR view, box edges | Rejected (§4) |
 | SSR on water | Low: the planar reflection is better where it reaches | Own march in the water shader from the depth prepass | **Built** for where the planar reflection does not reach (§3.8) |
@@ -67,13 +68,16 @@ menu's settings page (category "Graphics") and can be compared alone with
 `--graphics-only <keys>`. The log says what is on: `graphics: ambient occlusion, finer, longer
 shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water
 reflections` (or `graphics: vanilla (no engine-level improvements)`), again whenever a switch
-changes. Temporal anti-aliasing (`taa`) is a switch of its own, not part of `enhanced` (§3.6).
+changes. Anti-aliasing (`anti-aliasing`: multisampling off/2x/4x/8x, FXAA, SMAA or TAA) and
+shadow filtering (`shadow-filter`) are choices of their own, not part of `enhanced` (§3.6,
+§3.9); the field of view, vertical sync and a frame-rate limit are on the Display page (§3.10).
 Code: `graphics.rs` (preset, switches, applying them), `ssao.rs`/`ssao.wgsl`,
 `post.rs`/`post.wgsl`, `taa.rs`/`taa.wgsl`, `shafts.rs`/`shafts.wgsl`, `water.wgsl` (`ssr`),
-`sky.rs` (`shadow_reach`), `nvf_assets::texture::set_anisotropy`.
+`sky.rs` (`shadow_reach`), `nvf_assets::texture::set_anisotropy`, `frame_pace.rs`, the rows in
+`settings.rs`.
 
-Pass order after the main pass: tonemapping → ambient occlusion → temporal anti-aliasing → sun
-shafts → bloom and sharpening → the game's image-space blur and grade (imagespace.rs) → UI. So the game's grade and its modifiers
+Pass order after the main pass: tonemapping → ambient occlusion → temporal anti-aliasing, FXAA or
+SMAA → sun shafts → bloom and sharpening → the game's image-space blur and grade (imagespace.rs) → UI. So the game's grade and its modifiers
 (fades, blur, double vision) work on top of the improvements exactly as on the vanilla picture,
 and nothing repeats them.
 
@@ -125,7 +129,25 @@ sampler (generated LOD and other engine-made images) 16x instead of none. The sw
 textures loaded after it changes (cells loaded next); the start's textures follow the command
 line.
 
-### 3.6 Temporal anti-aliasing (`taa`; not part of `enhanced`)
+### 3.6 Anti-aliasing (`anti-aliasing`; not part of `enhanced`)
+
+One choice on the settings page (since 2026-10-16; before, temporal anti-aliasing was a switch
+`taa` of its own and the multisampling only `--msaa`): **Off, 2x, 4x, 8x** (multisampling, the
+start being `--msaa`, default 4x), **FXAA**, **SMAA** or **TAA**. The last three draw the view
+without multisampling and smooth the picture after tonemapping, before the sun shafts, bloom and
+the game's image space (the same place as TAA, so the grade is not smoothed). Choosing one of them
+keeps the multisampling level for when a level is chosen again. Stored as a part in the INI like
+any slider (`anti-aliasing=0.33` is 4x; the seven choices are the steps 0, 1/6, … 1). Unattended
+runs keep `--msaa`, so `--graphics vanilla` draws as before.
+
+- **FXAA**: Bevy's (`bevy::anti_alias::fxaa::Fxaa`) at its default thresholds (High, High)
+  [engineering choice, not tuned by eye]. Cheapest; softens fine texture detail and does not
+  smooth the plants' cut-outs (tested per pixel without multisampling).
+- **SMAA**: Bevy's (`bevy::anti_alias::smaa::Smaa`) at its default preset (High) [engineering
+  choice]. Sharper than FXAA, a little dearer; the same limit on the cut-outs.
+- **TAA**: ours, as follows.
+
+#### Temporal anti-aliasing
 
 The other choice to multisampling, not on top of it: while it is on the main view is drawn
 without multisampling (`Msaa::Off`); switching it off puts back `--msaa`. The alpha-tested
@@ -162,7 +184,7 @@ over the frames instead of by alpha to coverage.
   second]: edges as smooth as MSAA 4x standing still, plants' cut-outs smoother; textures a
   little softer standing still and clearly softer while the view moves (the usual TAA trade);
   the arms stay sharp. **Not in `enhanced`** for that softness and because the owner plays with
-  8x multisampling; the settings page offers it (`taa`).
+  8x multisampling; the settings page offers it (`anti-aliasing` TAA).
 - Cost: see §5.1; the pass itself ~0.05 ms here, and the main pass and the prepass are cheaper
   without multisampling, so TAA costs less than MSAA 4x.
 
@@ -207,6 +229,32 @@ Las Vegas (`--pos=28500,59000,3500 --heading 200 --pitch -12`, a temporary shade
 far shore's cliffs show in the water as with the planar reflection, without artefacts; that water
 reflects weakly, so the difference is small. It runs only on the water pixels it applies to, so
 its cost was not measured.
+
+### 3.9 Shadow filtering (`shadow-filter`; not part of `enhanced`)
+
+How the sun's shadow maps are sampled at a shadow's edge, Bevy's `ShadowFilteringMethod` on the
+main camera: **Fast** (`Hardware2x2`: one hardware-filtered tap, harder and more stair-stepped
+edges), **Smooth** (`Gaussian`, Bevy's default and what vanilla has always drawn: the camera then
+carries no component at all) or **Temporal** (a rotated 8-tap pattern that changes every frame:
+soft but grainy unless TAA is the anti-aliasing, which it is meant for). Matters only with sun
+shadows on. The names are engineering choices; Bevy's PCSS is not offered (it needs the
+`experimental_pbr_pcss` feature).
+
+### 3.10 Field of view, vertical sync, frame-rate limit (Display page)
+
+Settings rows that are not improvements and do not change the vanilla picture unless chosen:
+
+- **Field of view** (`field-of-view`): the game's FOV setting (the horizontal angle at 4:3, as
+  `--fov`, default 75) from 50 to 110 in steps of 5, shown in degrees. It sets the player
+  camera's projection at once; aiming down sights zooms from it (aim_zoom.rs takes a changed
+  angle as its new base).
+- **Vertical sync** (`vsync`): on as Bevy's default (`PresentMode::AutoVsync`), off is
+  `AutoNoVsync`. Not on the page while `--log-frame-times` measures (which turns it off).
+- **Frame rate limit** (`frame-cap`): Off, 30, 60, 90, 120 or 144 frames a second
+  (`frame_pace.rs`): the main world's frame waits at its end until 1/limit s has passed since the
+  last (sleep, then spin the last millisecond); a late frame does not catch up. Bevy has no
+  limiter of its own (`bevy_framepace` is a separate crate); this plain one is enough to keep
+  a fast GPU from drawing hundreds of frames a second in menus [engineering choice].
 
 ## 4. Tried and dropped
 
@@ -325,6 +373,33 @@ builds them for every active camera, with no way to leave one out), doubling the
 while water is in view; casters are not thinned by size with distance (no per-cascade filter in
 Bevy).
 
+### 5.4 Anti-aliasing and shadow-filter choices (2026-10-16, this machine)
+
+GeForce RTX 4070 (not the owner's GTX 1050), 1280 × 720, free camera standing still at
+Goodsprings 14:00 (`--pos=-69000,3500,8900 --heading 30 --pitch=-8 --sun-shadows`),
+`--log-frame-times 4|5 --graphics-cycle` over vanilla (MSAA 4x), fxaa, smaa, taa and the two
+shadow filters, five runs. Other sessions shared the machine; the frame time (11.8-12.5 ms in the
+quiet runs) was the CPU's and did not tell the choices apart, so the GPU passes are the measure:
+
+| Pass | GPU ms |
+|---|---|
+| Main opaque pass, MSAA 4x / without multisampling (FXAA, SMAA, TAA) | 0.72-0.78 / 0.56-0.58 |
+| Depth prepass, MSAA 4x / without | 0.30-0.31 / 0.24 |
+| FXAA pass | 0.04 |
+| SMAA (its three passes) | 0.08-0.11 |
+| Main opaque pass with the shadow filter Fast / Smooth / Temporal | 0.69-0.77 / 0.73-0.78 / 0.73-0.76 (within the noise) |
+
+So FXAA and SMAA, like TAA, cost less than MSAA 4x in all (the main pass and the prepass save more
+than their own pass), FXAA the least; the shadow filters' difference does not show at this
+scale. On the GTX 1050 every figure would be several times larger [hypothesis, not measured
+there], with the same order: MSAA 8x dearest, then 4x, then SMAA, TAA, FXAA.
+
+One run stopped on a validation error ("A query of type PipelineStatistics was not ended") at
+a switch into vanilla after the cycle had gone through SMAA and the shadow filters; four more
+runs making the same switches (about 45 in all) did not repeat it. PipelineStatistics queries
+come only from the measuring aid's `RenderDiagnosticsPlugin`; the smoke scenario
+`graphics-settings`, which makes every switch without it, saw no error.
+
 ## 6. Test aids for measuring
 
 `--log-frame-times <seconds>` logs the mean and slowest frame time and the GPU time of the
@@ -333,7 +408,9 @@ driver may still impose); `--graphics-cycle "<set>;<set>;..."` switches between 
 improvements after each logged period (`vanilla`, `enhanced` or keys as for `--graphics-only`;
 the first half second after a switch is left out), so one run compares them under the same load.
 A set may also change the sun's shadows: `no-sun-shadows`, `shadow-distance=<units>`,
-`cascades=<n>` among its keys (`vanilla;no-sun-shadows;shadow-distance=16000,cascades=4`); the
+`cascades=<n>` among its keys (`vanilla;no-sun-shadows;shadow-distance=16000,cascades=4`). The
+anti-aliasing and shadow filters have keys too: `fxaa`, `smaa`, `taa`, `shadow-filter-hardware`,
+`shadow-filter-temporal` (a set without one of them has `--msaa` and the Gaussian filter); the
 log then gives the sun's shadow reach and cascades with each frame time, the sun's heading and
 elevation, and the casters each cascade of each light drew.
 
