@@ -10,5 +10,6 @@ publish = false
 bevy.workspace = true
 nvf-assets.workspace = true
 fnv-nif.workspace = true
+fnv-actor.workspace = true
 fnv-vfs.workspace = true
 clap.workspace = true
