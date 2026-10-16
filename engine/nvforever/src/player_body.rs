@@ -552,6 +552,9 @@ struct Motion {
     turn_rate: f32,
     /// The view an idle gave the first-person camera last frame (`Player::body_view`).
     idle_view: Option<Quat>,
+    /// Seconds until the line saying where the character stands after an idle let it
+    /// go.
+    after_idle: Option<f32>,
     /// Once-a-second status (debug log).
     log_elapsed: f32,
     /// On furniture with the body in first person: the view has come within the neck's
@@ -598,6 +601,7 @@ impl Default for Motion {
             last_heading: None,
             turn_rate: 0.0,
             idle_view: None,
+            after_idle: None,
             log_elapsed: 0.0,
             seat_settled: false,
             seat_facing: None,
@@ -1535,7 +1539,7 @@ fn drive_body(
     d: Res<PlayWorld>,
     intent: Res<MoveIntent>,
     control: Res<PlayerControl>,
-    phys: Res<PhysState>,
+    mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     mut view: ResMut<BodyView>,
     mut state: ResMut<PlayerBody>,
@@ -1745,8 +1749,35 @@ fn drive_body(
     // ignored (`nvf_play::player::ViewDriven`) [design: the owner's wish, playtest of
     // 2026-10-11; the opening's scripts leave looking on, so the original may let the
     // view turn; hypothesis that the body does not swing round with the view].
-    if idles.first.is_empty() && idles.held.take().is_some() {
-        seat.hold = None;
+    if idles.first.is_empty() {
+        if let Some(h) = idles.held.take() {
+            seat.hold = None;
+            // The character stands where it stood before the idles held it, clear of what
+            // it collides with: let go where it was held (the opening's marker, against
+            // the bed), it was pushed up onto the bed frame [design: owner report
+            // 2026-10-16; idles.md §4]. The stand-up ends with the view over the marker,
+            // so the view steps aside by that much (22 units in the opening).
+            let hit = phys.place_player(h.free, 60.0, 200.0);
+            let stood = phys.player.as_ref().map_or(h.free, |c| c.feet);
+            info!(
+                "player view: idle over; the character stands at ({:.0}, {:.0}, {:.0}), {:.0} units from where it was held{}",
+                stood[0],
+                stood[1],
+                stood[2],
+                (stood[0] - h.feet[0]).hypot(stood[1] - h.feet[1]),
+                if hit.is_some() { "" } else { " (no ground under it)" }
+            );
+            player.feet = stood;
+            m.after_idle = Some(1.0);
+        }
+    }
+    // A second later: where the collision has left the character (a smoke check).
+    if let Some(t) = m.after_idle.as_mut() {
+        *t -= dt;
+        if *t <= 0.0 {
+            m.after_idle = None;
+            info!("player view: a second after the idle the character stands at ({:.0}, {:.0}, {:.0})", feet[0], feet[1], feet[2]);
+        }
     }
     if driven.0 != idles.held.is_some() {
         driven.0 = idles.held.is_some();

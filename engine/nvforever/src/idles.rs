@@ -207,6 +207,10 @@ pub struct Held {
     /// is in Doc Mitchell's bed, and the collision pushes the character about 10 units
     /// off it before the wake-up starts; idles.md §4].
     pub feet: [f32; 3],
+    /// Where the character stood when the idle began, clear of what it collides with:
+    /// it stands there again when the idles let it go [design: let go at `feet`, the
+    /// opening's character was pushed up onto the bed frame; owner report 2026-10-16].
+    pub free: [f32; 3],
     pub heading: f32,
     pub pitch: f32,
 }
@@ -436,7 +440,7 @@ pub fn drive(
             if actor.0 == player_ref {
                 let first = clip.tracks.iter().any(|(n, _)| n == CAMERA_NODE);
                 if first && pi.held.is_none() {
-                    pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), heading: p.heading, pitch: p.pitch });
+                    pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
                 if first { &mut pi.first } else { &mut pi.third }.start(idle.0, source, owner, clip, play);
                 st.stats.player_started += 1;

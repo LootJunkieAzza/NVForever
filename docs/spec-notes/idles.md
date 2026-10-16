@@ -147,6 +147,15 @@ below 30).
   moved by themselves since, and the character is held there, colliding with nothing,
   while such idles play. What the game does with the player's collision in this scene is
   not known.
+- **Letting go** [design: owner report 2026-10-16]: when the last such idle is over, the
+  character stands where it stood when the first one began (where the collision had
+  pushed it, clear of the bed), not where it was held. The stand-up ends with the view
+  over the marker (eye 0.0, 3.7, 118 units from it [observed in ours]), but a character
+  let go at the marker rose 20 units onto the bed frame (z 7360.7 to 7380.6, nothing
+  sideways) [observed in ours]; let go at the earlier spot, 22 units west, it stays on the
+  floor, and the view steps that far aside as the idle ends. Logged as "player view: idle
+  over; the character stands at …" and, a second later, "… a second after the idle the
+  character stands at …" (smoke `idles-opening`).
 - Errors found against the owner's capture (2026-10-10) and fixed: the hand-over of the
   view at the end of an idle fired in the one frame between the sit-up and the sitting
   loop and turned the view 11° to the right; and the character was 10 units off the
