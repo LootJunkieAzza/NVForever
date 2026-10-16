@@ -64,6 +64,10 @@ const FOV_DEG: f32 = 17.0;
 const AIM_BELOW: f32 = 0.7;
 /// The pin model's sequences.
 const PIN_CLIPS: [&str; 3] = ["Forward", "Backward", "Left"];
+/// The pin's shake against a stopped lock, degrees: with a new pin, and added as it wears
+/// out ([`wobble`]) [design].
+const WOBBLE_MIN_DEG: f32 = 0.5;
+const WOBBLE_WORN_DEG: f32 = 4.0;
 
 pub struct LockpickViewPlugin;
 
@@ -81,6 +85,9 @@ struct Model {
     /// Nodes posed each frame: those the `Forward` sequence moves and the turning ones.
     posed: Vec<usize>,
     turned: Vec<usize>,
+    /// Moved by this (model space) before turning: the pin's, so its keyhole end lies on
+    /// the cylinder's axis ([`keyhole_shift`]); zero for the lock.
+    shift: Vec3,
 }
 
 impl Model {
@@ -91,16 +98,16 @@ impl Model {
         posed.extend(turned.iter().copied());
         posed.sort_unstable();
         posed.dedup();
-        Some(Model { rig, by_name, posed, turned })
+        Some(Model { rig, by_name, posed, turned, shift: Vec3::ZERO })
     }
 
-    /// Pose the nodes: the sequence `clip` at `t`, the turning nodes turned by `turn`
-    /// about the axis through `centre`.
+    /// Pose the nodes: the sequence `clip` at `t`, the turning nodes moved by `shift` and
+    /// turned by `turn` about the axis through `centre`.
     fn pose(&self, clip: &str, t: f32, centre: Vec3, turn: f32, transforms: &mut Query<&mut Transform>) {
         let clip = self.rig.group(clip);
         // Played once from its start, then held at its end.
         let t = clip.map_or(0.0, |c| (c.start + t.max(0.0) * c.frequency).min(c.stop));
-        let m = turn_about(centre, turn);
+        let m = turn_about(centre, turn) * Affine3A::from_translation(self.shift);
         let mut world: Vec<Affine3A> = Vec::with_capacity(self.rig.nodes.len());
         for (i, n) in self.rig.nodes.iter().enumerate() {
             let local = if i == 0 { Affine3A::IDENTITY } else { sampled(&self.rig, clip, i, t).compute_affine() };
@@ -201,6 +208,37 @@ fn turn_about(centre: Vec3, deg: f32) -> Affine3A {
     Affine3A::from_translation(centre) * Affine3A::from_quat(Quat::from_rotation_y(deg.to_radians())) * Affine3A::from_translation(-centre)
 }
 
+/// How far the pin must move (across the cylinder's axis, +Y) for its keyhole end to lie
+/// on that axis once in: the pin model's `bobbypin` node at the end of its `Forward`
+/// sequence, whose own Y axis through its origin is the axis of the short piece that goes
+/// into the keyhole [observed: `fnvtool nif decode` of bobbypin01.nif: the short piece's
+/// vertices average (−9.20, ·, −0.01) in a shape placed at (9.21, 3.70, 0) under the
+/// node]. As the files place it, the pin ends 1.47 units above the cylinder's centre
+/// [observed: same decode, lockinterface01.nif's `frame` and `lock`], so turned about the
+/// cylinder its end swung round the keyhole and cut into the cylinder (playtest list 5
+/// item 63); in the original the pin turns about the keyhole's middle [observed: the
+/// owner's screenshot `lockpickmisalignedasegame.jpg`].
+fn keyhole_shift(pin: &Rig, centre: Vec3) -> Option<Vec3> {
+    let forward = pin.group("Forward");
+    let end = model_space(pin, forward, forward.map_or(0.0, |c| c.stop));
+    let tip: Vec3 = end[node_index(pin, "bobbypin")?].translation.into();
+    let d = centre - tip;
+    Some(Vec3::new(d.x, 0.0, d.z))
+}
+
+/// The pin's shake under strain, degrees: none while the lock turns freely or rests;
+/// against a stopped lock it shakes, more as the pin wears out (`health` 1 new, 0 broken)
+/// [design: the owner asked for a pin that wobbles more as its health drops; the
+/// original's amount is not measured]. Two sines of unrelated frequencies, so it does not
+/// look like a plain vibration.
+pub fn wobble(t: f32, health: f32, strained: bool) -> f32 {
+    if !strained {
+        return 0.0;
+    }
+    let amp = WOBBLE_MIN_DEG + WOBBLE_WORN_DEG * (1.0 - health.clamp(0.0, 1.0));
+    amp * (0.6 * (t * 23.0 * std::f32::consts::TAU).sin() + 0.4 * (t * 37.0 * std::f32::consts::TAU).sin())
+}
+
 fn local_of(world: Affine3A, parent: Affine3A) -> Transform {
     Transform::from_matrix(Mat4::from(parent.inverse() * world))
 }
@@ -259,7 +297,8 @@ fn show(
         let forward = lock_rig.group("Forward");
         let end = model_space(&lock_rig, forward, forward.map_or(0.0, |c| c.stop));
         let centre: Option<Vec3> = node_index(&lock_rig, "lock").map(|i| end[i].translation.into());
-        let models = (Model::new(lock_rig, lock_names, &["lock", "screwdriver"]), Model::new(pin_rig, pin_names, &["bobbypin"]));
+        let shift = centre.and_then(|c| keyhole_shift(&pin_rig, c)).unwrap_or(Vec3::ZERO);
+        let models = (Model::new(lock_rig, lock_names, &["lock", "screwdriver"]), Model::new(pin_rig, pin_names, &["bobbypin"]).map(|m| Model { shift, ..m }));
         let (Some(centre), (Some(lock_model), Some(pin_model))) = (centre, models) else {
             warn!("lockpick view: the models lack the lock, screwdriver or bobbypin node");
             commands.entity(holder).despawn();
@@ -302,7 +341,7 @@ fn show(
         let pin_long = pin_model.entity("Pin2");
         drawn.parts = Some(Parts { lock: lock_model, pin: pin_model, centre, pin_long });
         commands.insert_resource(LockView { image });
-        info!("lockpick view: the lock drawn ({} and {} shapes), the camera {CAMERA_DISTANCE} in front of the cylinder at {centre:?}", lock_drawn.len(), pin_drawn.len());
+        info!("lockpick view: the lock drawn ({} and {} shapes), the camera {CAMERA_DISTANCE} in front of the cylinder at {centre:?}, the pin moved {shift:?} onto its axis", lock_drawn.len(), pin_drawn.len());
     }
     let Some(p) = drawn.parts.as_ref() else { return };
     let now = time.elapsed_secs();
@@ -315,9 +354,11 @@ fn show(
     } else {
         p.lock.pose("Backward", g.turn / FULL_TURN * p.lock.length("Backward"), p.centre, 0.0, &mut transforms);
     }
-    // The pin turns from upright by its own angle only: it stays put as the lock turns.
+    // The pin turns from upright by its own angle only: it stays put as the lock turns,
+    // and shakes while it strains against a stopped lock.
     let (clip, t, long) = pin_pose(&p.pin, s.pin_clip, now - s.pin_since);
-    p.pin.pose(clip, t, p.centre, g.pin - PIN_RANGE / 2.0, &mut transforms);
+    let strained = g.torque && g.stopped && g.phase == fnv_game::lockpick::Phase::Picking;
+    p.pin.pose(clip, t, p.centre, g.pin - PIN_RANGE / 2.0 + wobble(now, g.health, strained), &mut transforms);
     if let Some(v) = p.pin_long.and_then(|e| visibility.get_mut(e).ok()) {
         let mut v = v;
         v.set_if_neq(if long { Visibility::Inherited } else { Visibility::Hidden });
