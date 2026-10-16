@@ -23,6 +23,7 @@ fn report(home: &EngineHome, game: Option<&GameInstall>) -> Value {
         "schema": "nvforever.paths/1",
         "home": path_str(&home.root),
         "config_file": path_str(&home.config_file()),
+        "plugins_file": path_str(&home.plugins_file()),
         "saves": path_str(&home.saves()),
         "logs": path_str(&home.logs()),
         "cache": path_str(&home.cache()),

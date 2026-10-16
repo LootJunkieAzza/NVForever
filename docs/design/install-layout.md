@@ -9,7 +9,7 @@ beyond reading the game data.
 |---|---|---|---|
 | **Original game** | `F:\SteamLibrary\steamapps\common\Fallout New Vegas` | Steam only | `Data\*.esm`, `*.bsa`, loose files: **read-only input** for NVForever |
 | **NVForever program** | `C:\Games\NVForever\` (any folder outside the game) | installer / you | `nvforever.exe`, `fnvtool.exe`, `schemas\` |
-| **NVForever home** | `Documents\My Games\NVForever\` (or `NVFOREVER_HOME`) | NVForever | `NVForever.ini`, `saves\`, `logs\` (run logs, crash reports), `mods\` |
+| **NVForever home** | `Documents\My Games\NVForever\` (or `NVFOREVER_HOME`) | NVForever | `NVForever.ini`, `plugins.txt` (its own load order), `saves\`, `logs\` (run logs, crash reports), `mods\` |
 | NVForever cache | `%LOCALAPPDATA%\NVForever\cache\` (`<home>\cache` with `NVFOREVER_HOME`) | NVForever | generated LOD; can be deleted |
 
 The home is beside the original game's own `My Games\FalloutNV` (owner request
@@ -17,9 +17,10 @@ The home is beside the original game's own `My Games\FalloutNV` (owner request
 gigabytes and Documents is often synced (OneDrive).
 
 Never touched at all: the original game's user folder
-`%USERPROFILE%\Documents\My Games\FalloutNV` (its `Fallout.ini`, `FalloutPrefs.ini`, saves
-and `plugins.txt`). NVForever keeps its own settings, saves and load order, so playing
-either game never changes the other.
+`%USERPROFILE%\Documents\My Games\FalloutNV` (its `Fallout.ini`, `FalloutPrefs.ini` and
+saves) and its plugin list `%LOCALAPPDATA%\FalloutNV\plugins.txt` [observed: there, not in
+`My Games`, on the owner's PC]. NVForever keeps its own settings, saves and load order, so
+playing either game never changes the other.
 
 ## First start (`engine/nvforever/src/setup.rs`)
 
@@ -50,8 +51,31 @@ reason. Saving the INI changes only `Path` and keeps other lines and comments.
   match without case. The message names each missing file;
 - the separation rules below.
 
-The add-on masters (Dead Money … Caravan Pack) are optional: without `--plugins` the game
-loads the ones present and says which are missing.
+The add-on masters (Dead Money … Caravan Pack) are optional: with `--data` and without
+`--plugins` the game loads the ones present and says which are missing.
+
+## Plugins: NVForever's own list (`crates/fnv-install/src/plugins.rs`)
+
+Which plugins load, and in what order, is `<home>\plugins.txt` (owner decision 2026-10-16:
+NVForever's own list, not the original game's). Every `.esm`/`.esp` in the game's `Data`
+has a line; `*` in front turns it on; the lines' order is the load order; `;` and `#`
+start comments. Format and rules are our choice:
+
+- The first start writes it: the game's masters present (`FalloutNV.esm`, then the add-on
+  masters in their usual order) on, every other plugin in `Data` off. The original game's
+  list is not read, so a mod on there is not on here until the player turns it on.
+- At each start a plugin new in `Data` gets a line: off (a game master: on); a new `.esm`
+  after the last `.esm` line, a new `.esp` at the end [hypothesis: the extension stands
+  for the header's master flag].
+- Lines are never removed. A plugin on in the list but no longer in `Data` is skipped
+  with a warning; `FalloutNV.esm` always loads first, whatever the file says.
+- A plugin on whose master is off stops the start with the load order's error naming
+  both (`fnv_esm::LoadOrder`).
+- Only a player's start reads it: `--plugins` replaces it, and `--data` (developers, the
+  smoke tests) keeps the fixed masters so a run never depends on a player's list.
+
+The original game orders its plugins by the files' modified dates, not by its list
+[hypothesis: modding tools' documentation, not checked]; NVForever uses the lines' order.
 
 On the first start of the new home, the settings and saves of the earlier home
 (`%LOCALAPPDATA%\NVForever`, builds before 2026-10-16) are **copied** over once (the old
