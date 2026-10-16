@@ -349,7 +349,7 @@ pub fn drive(
         let visible = tr.walker.space == drawn;
         let moving = ev == WalkEvent::Moved;
         let stage = (&mut tr.spawned, &mut tr.root);
-        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
+        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale, strafe: false }, stage, (tr.walker.feet, tr.walker.heading), moving, dt) {
             warn!("nav: {} could not be drawn", tr.label);
             tr.failed = Some(e.into());
         }
@@ -364,6 +364,9 @@ pub(crate) struct Who {
     pub base: u32,
     pub creature: bool,
     pub scale: f32,
+    /// Drawn facing a heading of its own while it moves (a fighter facing its target):
+    /// the locomotion gets its velocity in the body's axes, so it steps sideways or back.
+    pub strafe: bool,
 }
 
 /// Keep the visual of an actor that a walker moves in step with it: drawn while
@@ -386,7 +389,7 @@ pub(crate) fn show_actor(
     moving: bool,
     dt: f32,
 ) -> Result<(), &'static str> {
-    let Who { reference, base, creature, scale } = who;
+    let Who { reference, base, creature, scale, strafe } = who;
     if !visible {
         if let Some(e) = root.take() {
             commands.entity(e).despawn();
@@ -425,9 +428,16 @@ pub(crate) fn show_actor(
     // turns the other way).
     if let Some(mut lo) = lo {
         let scale = t.scale.x.max(1e-3);
-        let moved = before.0.truncate().distance(t.translation.truncate());
-        let speed = if dt > 0.0 && moving { moved / dt } else { 0.0 };
-        lo.velocity = [0.0, speed / scale];
+        let step = t.translation.truncate() - before.0.truncate();
+        let speed = if dt > 0.0 && moving { step.length() / dt } else { 0.0 };
+        lo.velocity = if strafe && speed > 0.0 {
+            // The step in the body's axes (x right, y forward; heading 0 faces +y).
+            let (s, c) = heading.sin_cos();
+            let v = step / dt / scale;
+            [v.x * c - v.y * s, v.x * s + v.y * c]
+        } else {
+            [0.0, speed / scale]
+        };
         let d = (heading - before.1 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         lo.turn = if dt > 0.0 { -d / dt } else { 0.0 };
     }

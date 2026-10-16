@@ -545,6 +545,12 @@ impl Game<'_> {
             if self.kin(actor, other) {
                 return false;
             }
+            // "Defensive Combat": "The actor will not attack an NPC or creature, unless he
+            // is attacked first" [documented: GECK wiki Packages, Flags tab]; being
+            // attacked is a grudge, which counts above.
+            if self.package_has(actor, flags::DEFENSIVE_COMBAT) {
+                return false;
+            }
         }
         let relation = faction_relation(self, actor, other);
         let aggression = actor_value(self, actor, AGGRESSION).unwrap_or(0.0) as i64;

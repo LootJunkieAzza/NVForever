@@ -30,7 +30,10 @@
 //!   nearest actor that may take part, for whom the starter has a HELLO line (Link From
 //!   blank) and to whom it has a way, within `fAISocialRadiusToTriggerConversationInterior`
 //!   (1000) indoors and `fAISocialRadiusToTriggerConversation` outdoors (not in the
-//!   masters: the indoor value stands in).
+//!   masters: the indoor value stands in). Only an actor the player stands next to
+//!   starts one: the player within [`CHAT_NEAR_PLAYER`] of the starter or its partner, in
+//!   the same space [owner's playtest list 5 item 28: "NPC idle conversations trigger too
+//!   far away: the player must stand next to them"; the distance is a stand-in].
 //!
 //! **The walk** ([`Chat`]): the starter goes up to the partner, who waits where it stands
 //! and turns to it, and they talk once the starter is within [`TALK_DISTANCE`] (or as
@@ -69,6 +72,10 @@ pub const HELLO_REARM: f32 = 2.0;
 /// Dialogue package, iActivatePickLength (Dialogue Package); hypothesis for random
 /// conversations].
 pub const TALK_DISTANCE: f32 = 150.0;
+/// A random conversation starts only with the player this close to the starter or its
+/// partner, game units [stand-in: the owner's "right next to them", playtest list 5 item
+/// 28; the hello distance, so the player who is greeted can also overhear].
+pub const CHAT_NEAR_PLAYER: f32 = HELLO_DISTANCE;
 /// A walk up to a partner that takes longer than this, seconds, is given up [stand-in].
 pub const CHAT_WALK_SECONDS: f64 = 30.0;
 /// The settings' values when the load order does not set them [the indoor values of
@@ -187,7 +194,8 @@ impl Ai {
         for (actor, e) in events {
             self.log(game, actor, e);
         }
-        // Random conversations.
+        // Random conversations, only next to the player.
+        let near_player = |at: &Place| player.is_some_and(|p| p.space == at.space && dist(p.pos, at.pos) <= CHAT_NEAR_PLAYER);
         let mut taken: BTreeSet<FormId> = BTreeSet::new();
         for f in &free {
             if taken.contains(&f.actor) || !STARTERS.contains(&f.def.ty) || !chats(f.def) {
@@ -198,21 +206,26 @@ impl Ai {
             if now < due {
                 continue;
             }
-            let next = self.social.rng.range(lo, hi);
-            self.social.next_chat.insert(f.actor, now + next as f64);
             let indoors = matches!(f.at.space, Space::Interior(_));
-            let chance = setting(game, if indoors { "fAISocialchanceForConversationInterior" } else { "fAISocialchanceForConversation" }, CHANCE);
-            if self.social.rng.next() * 100.0 >= chance || game.is_talking(f.actor) || game.in_actor_conversation(f.actor) {
-                continue;
-            }
             let interior = setting(game, "fAISocialRadiusToTriggerConversationInterior", RADIUS);
             let radius = if indoors { interior } else { setting(game, "fAISocialRadiusToTriggerConversation", interior) };
             let mut near: Vec<(f32, &Free)> = free
                 .iter()
-                .filter(|o| o.actor != f.actor && !taken.contains(&o.actor) && o.at.space == f.at.space && chats(o.def))
+                .filter(|o| o.actor != f.actor && !taken.contains(&o.actor) && o.at.space == f.at.space && chats(o.def) && (near_player(&f.at) || near_player(&o.at)))
                 .map(|o| (dist(o.at.pos, f.at.pos), o))
                 .filter(|(d, _)| *d <= radius)
                 .collect();
+            // Nobody to talk to next to the player: it is due again as soon as there is
+            // (the timer is not drawn again, so a player who comes up hears one soon).
+            if near.is_empty() {
+                continue;
+            }
+            let next = self.social.rng.range(lo, hi);
+            self.social.next_chat.insert(f.actor, now + next as f64);
+            let chance = setting(game, if indoors { "fAISocialchanceForConversationInterior" } else { "fAISocialchanceForConversation" }, CHANCE);
+            if self.social.rng.next() * 100.0 >= chance || game.is_talking(f.actor) || game.in_actor_conversation(f.actor) {
+                continue;
+            }
             near.sort_by(|a, b| a.0.total_cmp(&b.0));
             for (away, o) in near {
                 // A seated starter does not get up to go to someone.

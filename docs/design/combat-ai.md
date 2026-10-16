@@ -512,7 +512,7 @@ ratio at or above (confidence threshold + 0.5) × the alarm confidence multiplie
 wiki's example, 3: no game setting of FalloutNV.esm names it) [documented]. An actor that
 **noticed** a hostile (Normal → Alert) alarms them too [design: the owner's "alerting
 their friends when they sense an enemy presence"]. Who hears it: the actors measured in
-that round (drawn, near the player) within `ALARM_RADIUS` (2,048 units [design]) that are
+that round (drawn, near the player) within `ALARM_RADIUS` (4,096 units, a whole exterior cell [design]; 2,048 until the owner's playtest list 5 item 31) that are
 its own kind (§12.4) or an ally or friend whose Assistance helps it; never against their
 own ally or friend. An alarmed actor gets an alarm at the foe's position (`Cause::Ally`)
 and holds a grudge (`Assist`) when its records would not attack the foe; it goes Alert,
