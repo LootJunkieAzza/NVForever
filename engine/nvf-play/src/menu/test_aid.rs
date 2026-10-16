@@ -228,6 +228,8 @@ pub(super) fn parse_drops(v: &str) -> Result<Vec<DropJob>, String> {
 pub(super) struct Drops {
     jobs: Vec<DropJob>,
     current: Option<(DropJob, u8, f32)>,
+    /// Times the inventory was asked for again because it did not open.
+    retries: u32,
 }
 
 fn setup_drops(app: &mut App) {
@@ -235,7 +237,7 @@ fn setup_drops(app: &mut App) {
     match parse_drops(&v) {
         Ok(mut jobs) => {
             jobs.sort_by(|a, b| b.at.total_cmp(&a.at));
-            app.insert_resource(Drops { jobs, current: None });
+            app.insert_resource(Drops { jobs, current: None, retries: 0 });
         }
         Err(e) => warn!("NVF_PLAY_TEST_DROP: {e}"),
     }
@@ -316,6 +318,15 @@ pub(super) fn run_drops(
                         input.write(MenuInput(Command::Close));
                     }
                     input.write(MenuInput(Command::Close));
+                    d.current = None;
+                }
+                // A script's box closed in the same frame and the inventory request
+                // was ignored (the game had not left the menu yet): ask again (a few
+                // times), as the container aid does.
+                (1, None) if d.retries < 5 => {
+                    d.retries += 1;
+                    info!("test aid: drop {}: the inventory did not open: asking again", job.item);
+                    d.jobs.push(job);
                     d.current = None;
                 }
                 _ => {
