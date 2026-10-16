@@ -68,6 +68,9 @@ pub enum QuestNotice {
     Added(String),
     Completed(String),
     Failed(String),
+    /// "You have discovered" over a map marker's name: the player came within its radius
+    /// (`crate::compass`).
+    Discovered(String),
     /// Objectives shown or completed, in the order it happened.
     Objectives(Vec<Objective>),
 }

@@ -8,6 +8,15 @@
 //! - Under it, the key and the action ("E) Take"), the target's name, and for an item a
 //!   line across with its weight and value either side of a stem (§3). [`layout`] sets
 //!   them out (pure, tested) from the measurements of §3, in the HUD's font 7.
+//! - **Spread**: while a weapon with a firing cycle is drawn the plain crosshair's two
+//!   arrows stand apart by the cone a shot would leave in now (`Combat::crosshair_cone`,
+//!   bloom included), each arrow's tip on the cone's edge [hypothesis: the HUD file's
+//!   `_SpreadPercentage` trait says the code sets a spread; owner's playtest list 5,
+//!   item 15]; they move there at `_SpreadChangeSpeed` [documented: 0.125, in
+//!   hud_main_menu.xml; hypothesis: a share of the way per frame at 60 frames a second].
+//! - **Hostile**: over an actor hostile to the player the crosshair is red, the crime
+//!   colour (`crate::hud_target::AimHostile`) [owner's playtest list 5, item 58;
+//!   documented: GECK wiki IsCrimeOrEnemy, "the red color of the crosshair"].
 //! - Hidden outside play. A script's DisablePlayerControls hides the crosshair with the
 //!   movement flag and the texts with the rollover text flag [documented: GECK wiki
 //!   DisablePlayerControls, MovementFlag and RolloverTextFlag; controls.md §5].
@@ -32,6 +41,13 @@ const FILLED: &str = "interface\\hud\\glow_crosshair_filled.dds";
 /// The crosshair's picture, 64 by 64, its middle on the view's middle [observed: the
 /// arrows' middle is the picture's, and on the screenshots the view's].
 const RETICLE: f32 = 64.0;
+/// The arrows' tips stand this far either side of the middle in the picture [observed:
+/// `glow_crosshair.dds`, the left arrow's tip at texel 30, the right's at 34].
+const TIP: f32 = 2.0;
+/// [documented: hud_main_menu.xml `_SpreadChangeSpeed`].
+const SPREAD_SPEED: f32 = 0.125;
+/// The arrows go no further apart than this from the middle [design].
+const MAX_SPREAD: f32 = 240.0;
 /// Font 7 [documented: the prompt's text box with the glow set and no font of its own;
 /// Fallout_default.ini `sFontFile_7`].
 const FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
@@ -202,10 +218,34 @@ impl Kit {
 #[derive(Component)]
 struct Root;
 
-/// One of the two crosshairs: the filled one is shown while something can be used.
+/// One of the two crosshairs: the filled one is shown while something can be used. The
+/// plain one is drawn in two halves (`side` −1 left, 1 right) that the spread moves apart.
 #[derive(Component)]
 struct Cross {
     filled: bool,
+    side: f32,
+}
+
+/// How far an arrow's tip stands from the view's middle for a cone of `cone` degrees
+/// (half-angle) in a view `fov` radians high, in the interface's units (960 to the view's
+/// height): where the cone's edge meets the screen.
+pub fn spread_units(cone: f32, fov: f32) -> f32 {
+    let half = (fov / 2.0).tan();
+    if half <= 0.0 {
+        return 0.0;
+    }
+    (cone.to_radians().tan() / half * 480.0).clamp(0.0, MAX_SPREAD)
+}
+
+/// The half of a picture: its left or right half.
+fn half_rect(rect: Option<Rect>, side: f32) -> Rect {
+    let r = rect.unwrap_or(Rect::new(0.0, 0.0, RETICLE, RETICLE));
+    let mid = (r.min.x + r.max.x) / 2.0;
+    if side < 0.0 {
+        Rect::new(r.min.x, r.min.y, mid, r.max.y)
+    } else {
+        Rect::new(mid, r.min.y, r.max.x, r.max.y)
+    }
 }
 
 /// The prompt's texts and divider, set again when what they say changes.
@@ -227,13 +267,24 @@ fn spawn(commands: &mut Commands, kit: &Kit) {
     };
     let color = amber(255.0);
     commands.spawn((Root, middle, Visibility::Hidden, Pickable::IGNORE)).with_children(|r| {
-        for (filled, picture) in [(false, &kit.plain), (true, &kit.filled)] {
-            let half = RETICLE / 2.0;
-            match picture.clone() {
-                Some(p) => r.spawn((Cross { filled }, at(-half, -half, RETICLE, RETICLE), picture_node(p, color), Visibility::Hidden)),
-                None => r.spawn((Cross { filled }, at(-3.0, -3.0, 6.0, 6.0), BackgroundColor(color), Visibility::Hidden)),
-            };
+        let half = RETICLE / 2.0;
+        match kit.plain.clone() {
+            Some((image, rect)) => {
+                for side in [-1.0, 1.0] {
+                    let x = if side < 0.0 { -half } else { 0.0 };
+                    r.spawn((Cross { filled: false, side }, at(x, -half, half, RETICLE), picture_node((image.clone(), Some(half_rect(rect, side))), color), Visibility::Hidden));
+                }
+            }
+            None => {
+                for side in [-1.0, 1.0] {
+                    r.spawn((Cross { filled: false, side }, at(if side < 0.0 { -5.0 } else { 2.0 }, -1.5, 3.0, 3.0), BackgroundColor(color), Visibility::Hidden));
+                }
+            }
         }
+        match kit.filled.clone() {
+            Some(p) => r.spawn((Cross { filled: true, side: 0.0 }, at(-half, -half, RETICLE, RETICLE), picture_node(p, color), Visibility::Hidden)),
+            None => r.spawn((Cross { filled: true, side: 0.0 }, at(-3.0, -3.0, 6.0, 6.0), BackgroundColor(color), Visibility::Hidden)),
+        };
         r.spawn((Texts, Node { position_type: PositionType::Absolute, ..default() }));
     });
 }
@@ -255,6 +306,9 @@ fn draw(
     state: Res<State<PlayState>>,
     target: Res<Target>,
     sim: Res<SimState>,
+    (combat, hostile, camera, time): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>),
+    mut spread: Local<f32>,
+    mut logged: Local<(bool, i32)>,
     locks: Option<Res<ControlLocks>>,
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
@@ -262,7 +316,7 @@ fn draw(
     mut kit: Local<Option<Kit>>,
     mut shown: Local<Option<Prompt>>,
     mut root: Query<&mut Visibility, With<Root>>,
-    mut crosses: Query<(&Cross, &mut Visibility, Option<&mut ImageNode>), Without<Root>>,
+    mut crosses: Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
     texts: Query<Entity, With<Texts>>,
 ) {
     let playing = *state.get() == PlayState::Playing;
@@ -283,11 +337,41 @@ fn draw(
     }
     let locks = locks.as_deref().copied().unwrap_or_default();
     let aimed = target.0.is_some();
-    let colour = if target.0.as_ref().is_some_and(|t| t.crime) { crime_colour() } else { amber(255.0) };
-    for (c, mut v, image) in &mut crosses {
+    let foe = hostile.is_some_and(|h| h.0);
+    let colour = if foe || target.0.as_ref().is_some_and(|t| t.crime) { crime_colour() } else { amber(255.0) };
+    // The arrows' tips on the cone's edge, moving there a share of the way each frame.
+    let fov = camera.iter().find_map(|p| match p {
+        Projection::Perspective(p) => Some(p.fov),
+        _ => None,
+    });
+    let want = match (combat.as_ref().and_then(|c| c.crosshair_cone), fov) {
+        (Some(cone), Some(fov)) => spread_units(cone, fov),
+        _ => 0.0,
+    };
+    let share = (SPREAD_SPEED * time.delta_secs() * 60.0).min(1.0);
+    *spread += (want - *spread) * share;
+    if (want - *spread).abs() < 0.05 {
+        *spread = want;
+    }
+    // One line when the colour changes or the spread settles somewhere new.
+    let now = (foe, spread.round() as i32);
+    if now.0 != logged.0 || (*spread == want && (now.1 - logged.1).abs() >= 2) {
+        info!("reticle: {} spread {:.1} (cone {:.2} deg)", if foe { "hostile" } else { "plain" }, *spread, combat.as_ref().and_then(|c| c.crosshair_cone).unwrap_or(0.0));
+        *logged = now;
+    }
+    let shift = (*spread - TIP).max(0.0);
+    for (c, mut v, mut node, image) in &mut crosses {
         v.set_if_neq(show(!locks.movement && c.filled == aimed));
         if let Some(mut image) = image.filter(|i| i.color != colour) {
             image.color = colour;
+        }
+        if !c.filled {
+            let half = RETICLE / 2.0;
+            let x = if c.side < 0.0 { -half - shift } else { shift };
+            let want_left = crate::interface::u(x);
+            if node.left != want_left && kit.plain.is_some() {
+                node.left = want_left;
+            }
         }
     }
     let want = target.0.as_ref().filter(|_| !locks.rollover).map(|t| Prompt::of(t, &sim));
@@ -342,6 +426,17 @@ mod tests {
         assert_eq!(weight.x + weight.line.width, STEM_X + WEIGHT_END);
         assert_eq!(val.x, STEM_X + VAL_X);
         assert_eq!(value.x + value.line.width, STEM_X + VALUE_END);
+    }
+
+    #[test]
+    fn the_arrows_stand_on_the_cones_edge() {
+        let fov = 2.0 * (0.5f32).atan();
+        // tan(fov / 2) = 0.5: a cone of 45 degrees reaches twice the half height, capped.
+        assert_eq!(spread_units(0.0, fov), 0.0);
+        assert!((spread_units(1.0, fov) - 1f32.to_radians().tan() / 0.5 * 480.0).abs() < 1e-3);
+        assert_eq!(spread_units(45.0, fov), MAX_SPREAD);
+        assert_eq!(half_rect(None, -1.0), Rect::new(0.0, 0.0, 32.0, 64.0));
+        assert_eq!(half_rect(Some(Rect::new(10.0, 0.0, 30.0, 20.0)), 1.0), Rect::new(20.0, 0.0, 30.0, 20.0));
     }
 
     #[test]

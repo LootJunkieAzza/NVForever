@@ -2283,6 +2283,42 @@ expect = [
   { re = 'subtitle: .*\(not drawn: in dialogue\)', label = "another actor's line logged, not drawn" },
 ]
 
+[[scenario]]
+name = "compass-reticle"
+source = "owner's playtest list 5, items 15, 57 and 58 (docs/spec-notes/hud.md §11, reticle.md §6): at the bighorner pen with the varmint rifle drawn the crosshair's arrows open with the spread; the bighorners are ticks on the compass, red once shot; the crosshair is red over one that turned on the player"
+areas = ["hud", "combat"]
+paths = ["engine/nvf-play/src/compass.rs", "engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/hud_target.rs", "engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "10:weapon,13:aimactor,15:fire,15.6:fire,16.2:fire,17:aimactor,18:fire,19:aimactor", NVF_PLAY_TEST_SHOTS = "14.5,20.5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12", "--size", "1280x720"]
+run_seconds = 24
+expect = [
+  { re = 'reticle: plain spread [1-9]\d*\.\d \(cone [0-9.]+ deg\)', label = "the arrows open with the weapon drawn" },
+  { re = 'compass: [1-9]\d* actors \(\d+ hostile\)', label = "actors near the player on the compass" },
+  { re = 'compass: \d+ actors \([1-9]\d* hostile\)', label = "a shot bighorner turns red on the compass" },
+  { re = 'reticle: hostile spread', label = "the crosshair red over a hostile" },
+]
+order = [[
+  { re = 'reticle: plain spread [1-9]' },
+  { re = 'reticle: hostile spread' },
+]]
+
+[[scenario]]
+name = "reputation-box"
+source = "owner's playtest list 5, items 12 and 13 (docs/spec-notes/reputation.md, hud.md §11): leaving the start finds Goodsprings ('You have discovered'); fame with Goodsprings opens its 'Liked' box, infamy with the Powder Gangers their boxes up to 'Vilified'; the Pip-Boy's General page lists both"
+areas = ["hud", "pipboy"]
+paths = ["engine/nvf-play/src/reputation.rs", "engine/nvf-play/src/message_menu.rs", "engine/nvf-play/src/crime.rs", "engine/nvf-play/src/compass.rs", "engine/nvf-play/src/pipboy/stats/*", "crates/fnv-game/src/functions/reputation.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "2.5", NVF_PLAY_TEST_CONSOLE = "12:player.addreputation 00104C22 1 5;12.3:close;17:player.addreputation 001558E6 0 5;17.2:player.addreputation 001558E6 0 5;17.4:player.addreputation 001558E6 0 5;17.6:close", NVF_PLAY_TEST_PIPBOY = "32:open,33:page=stats,34:tab=4,36:close", NVF_PLAY_TEST_SHOTS = "6,14,19,35" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--size", "1280x720"]
+run_seconds = 38
+expect = [
+  { re = 'quest message on screen: You have discovered: GOODSPRINGS', label = "the start's town found" },
+  { re = 'compass: \d+ actors \(\d+ hostile\), [1-9]\d* map markers \([1-9]\d* found\)', label = "the found town's marker on the compass" },
+  "reputation: Goodsprings Neutral -> Liked (fame 12, infamy 0)",
+  { re = 'reputation: Powder Gangers \S.* -> Vilified', label = "the Powder Gangers' last box Vilified" },
+  { re = 'pipboy stats: .* 2 reputations', label = "both reputations in the Pip-Boy's list" },
+  { re = 'pipboy stats: LVL 1, .*, XP 10/', label = "the discovery's 10 XP" },
+]
+
 # ------------------------------------------------------------------ playtest list 5, NPC AI (claude/l5-npc-ai)
 
 [[scenario]]

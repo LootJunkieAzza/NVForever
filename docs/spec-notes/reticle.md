@@ -100,7 +100,30 @@ pixels (the font's glyphs start a little after their pen position).
   item [hypothesis].
 - **The key's text** is "E)" for the Activate control's default key [hypothesis: where
   the game gets the letter is not in the files].
-- **Not built**: the crosshair's red colour on a hostile, the sneak meter's
+- **Not built**: the sneak meter's
   "[HIDDEN]" and similar words, the extra lines the original adds for some targets
   (lock level, owned items in red, "Steal"), weapon damage and condition in the item
   row, and the HUD's fading.
+
+## 6. Spread and hostiles (owner's playtest list 5, items 15 and 58)
+
+- [documented: `menus\main\hud_main_menu.xml`] The HUD menu carries the traits
+  `_SpreadPercentage` (1.0), `_SpreadChangeSpeed` (0.125), `_CrosshairVisible`,
+  `_CrosshairAlpha` and `_ReticleAlpha`: the game's code sets a spread on the crosshair.
+- [observed: `glow_crosshair.dds`] The plain crosshair is two arrows pointing in, their
+  tips at texels 30 and 34 of the 64-texel picture.
+- [hypothesis] NVForever draws the picture in two halves and moves them apart so that
+  each arrow's tip stands where the cone a shot would leave in now meets the screen:
+  tan(cone half-angle) / tan(half the vertical field of view) × 480 units, at most 240.
+  The cone is the combat model's (`fnv_combat::spread::cone_deg`, actor spread and bloom,
+  docs/design/combat.md), so it widens when running, after shots and with crippled arms
+  and narrows when aiming or crouched. The arrows move a share of 0.125 of the way to it
+  each 60th of a second. Only weapons with a firing cycle (guns, energy weapons,
+  launchers, thrown weapons) open it; melee, unarmed and a holstered weapon leave it
+  closed. The filled crosshair (something to use) does not open.
+- [documented: GECK wiki IsCrimeOrEnemy, "the red color of the crosshair"] The crosshair
+  is red, the crime colour, over an actor hostile to the player: the crosshair's ray to
+  [`AIM_RANGE`] meets a living actor fighting the player or ready to attack it
+  (`hud_target::AimHostile`, the enemy bar's rule).
+- Log: `reticle: plain|hostile spread <units> (cone <degrees> deg)` when the colour
+  changes or the spread settles somewhere new.

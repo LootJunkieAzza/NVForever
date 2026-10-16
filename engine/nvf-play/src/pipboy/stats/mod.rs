@@ -853,15 +853,15 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
     if v.reputation {
         if let Some(st) = s.standings.get(v.selected[4]) {
             // The block: the picture 80 above it, 350 high; the title 20 under the
-            // picture, a second line 50 lower [hypothesis: fame and infamy there; the
-            // file leaves it to the code].
+            // picture, the reputation's name 50 lower [observed: the owner's screenshots,
+            // "Liked" over "Goodsprings"; the file leaves it to the code].
             let h = 290.0 + th;
             let top = r.min.y + (GENERAL_HEIGHT - h) / 2.0;
             if let Some(icon) = &st.icon {
                 c.image_cut(p, icon, bx - 32.0, top - 80.0, 256.0 * ICON_ZOOM, 350.0, ICON_ZOOM, bright());
             }
             centred(p, c, st.title, mid, top + 290.0, bw);
-            centred(p, c, &format!("Fame {}, Infamy {}", model::whole(st.fame), model::whole(st.infamy)), mid, top + 340.0, bw);
+            centred(p, c, &st.name, mid, top + 340.0, bw);
         }
     } else if let Some((karma, word, picture)) = s.karma {
         // The block: the alignment at its top, the picture 60 above it and 310 high, the

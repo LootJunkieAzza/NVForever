@@ -220,6 +220,9 @@ pub enum Note {
     FactionEnemy { faction: FormId },
     /// The player started or stopped trespassing in `cell` (owned by `owner`).
     Trespassing { cell: FormId, owner: FormId, now: bool },
+    /// A seen theft or kill raised the player's infamy with `reputation`
+    /// (`functions::crime_infamy`).
+    Infamy { reputation: FormId, before: f64, after: f64 },
 }
 
 /// The settings of karma and crime (§1, §4) with the values FalloutNV.esm gives them
@@ -501,7 +504,16 @@ impl Game<'_> {
         if owners.is_empty() {
             self.count_crime(o.owner, kind);
         }
+        let seen = !seen_by.is_empty();
         self.crimes.notes.push(Note::Crime { kind, victim: Some(o.owner), seen_by, hostile });
+        self.crime_infamy(kind, o.owner, seen);
+    }
+
+    /// Infamy with the victim's reputations for a seen theft or kill, noted.
+    fn crime_infamy(&mut self, kind: Kind, victim: FormId, seen: bool) {
+        for (reputation, before, after) in crate::functions::crime_infamy(self, kind, victim, seen) {
+            self.crimes.notes.push(Note::Infamy { reputation, before, after });
+        }
     }
 
     /// The player is about to kill `victim` (`Game::kill`, before it is dead): karma by
@@ -534,6 +546,11 @@ impl Game<'_> {
         if change != 0.0 {
             self.change_karma(change, format!("killing {name} ({})", alignment.name()));
         }
+        // Any kill of a reputation's people while someone (the victim too) sees the
+        // player, fighting or not [documented: Fallout wiki "Reputation (Fallout: New
+        // Vegas)", killing members openly; only a kill from a hidden state gives none].
+        let seen = !self.crime_witnesses().is_empty();
+        self.crime_infamy(Kind::Murder, victim, seen);
         if !murder {
             return;
         }

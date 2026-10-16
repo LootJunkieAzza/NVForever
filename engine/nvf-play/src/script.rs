@@ -1224,7 +1224,9 @@ pub(crate) fn run_scripts(
         (Some((m, f)), _) => st.on_screen = Some((m, f, now)),
         (None, _) => st.on_screen = None,
     }
-    if let (true, Some((MENU_MESSAGE, Some(front), _))) = (st.no_messages, st.on_screen) {
+    // A reputation's box (`crate::reputation`) is the engine's, not a plugin's message.
+    let reputation_box = |st: &ScriptState, f: FormId| st.rt.as_ref().is_some_and(|rt| crate::reputation::is_reputation(&rt.game, f));
+    if let (true, Some((MENU_MESSAGE, Some(front), _))) = (st.no_messages, st.on_screen.filter(|o| !o.1.is_some_and(|f| reputation_box(st, f)))) {
         let buttons = st.rt.as_ref().and_then(|rt| rt.game.data.messages.get(&front)).map_or(0, |m| m.buttons.len());
         if buttons <= 1 && st.answer(None, "--no-messages") {
             info!("--no-messages: closed message box {front}");

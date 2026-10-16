@@ -4916,6 +4916,51 @@ what they could not settle is a guess:
   after the Pip-Boy is up, then every 4–10 s: the interval is my guess, say if it should
   be denser or a single one. Mode buttons/F1–F3 play `UIPipBoyMode`; the flashlight plays
   `UIPipBoyLightOn`/`Off`.
+
+## Compass marks, discovery, crosshair, reputation (2026-10-16, session "l5-compass", list 5 D7)
+
+- **57 (actor marks):** living NPCs and creatures of the loaded cells within Perception ×
+  300 units (Perception 5: about 21 m) show as the HUD file's tick over the compass at
+  their bearing; red when fighting you or ready to attack you (the enemy bar's rule),
+  amber otherwise. The range is my guess (no setting in the masters): say if they should
+  appear further out. Tick size and height are fitted to your screenshot; dead actors and
+  disabled ones have none.
+- **12 (map markers, discovery):** markers of the worldspace within Perception × 2048
+  units (Perception 5: about 146 m), outdoors only, hollow until you have been within the
+  marker's radius, filled after (the game's two triangle pictures, size fitted to your
+  screenshot). The range is a guess; check against how early the game shows Goodsprings
+  Cave. A new place shows "You have discovered" over the name where "Quest added" stands
+  (same fonts and place as your screenshot) with `UIPopUpMapMarkerAdded` (guessed by its
+  name) and gives `iXPRewardDiscoverMapMarker` (10) XP. Saves now keep the places found
+  (they were forgotten on load before). Not built: the "+10 XP" bar at the right and the
+  "Locations Discovered" statistic; interiors show no markers.
+- **15 (dynamic crosshair):** with a gun, energy weapon, launcher or thrown weapon drawn
+  the two arrows part so each tip sits on the edge of the cone a shot would leave in now
+  (the combat model's spread with bloom: wider running, after shots, with crippled arms,
+  narrower aimed or crouched), easing there at the HUD file's `_SpreadChangeSpeed` 0.125
+  (my reading: a share of the way per 60th of a second). Capped at 240 units from the
+  middle. Check how wide it looks against the game's for the varmint rifle and the
+  9mm pistol, hip and aimed. The filled crosshair (something to use) does not open.
+- **58 (red crosshair):** red (the crime colour) while the crosshair's ray meets a living
+  actor that is hostile by the same rule as the compass.
+- **13 (reputation):** the scripts' fame and infamy were already kept; added:
+  - crimes: a theft someone saw adds 2 infamy and any kill while someone (the victim too)
+    sees you adds 30, with every reputation the victim's factions name (FACT WMI1), up to
+    the reputation's scale (the wiki's numbers). Killing hostile Powder Gangers counts, as
+    your Vilified box shows. Lockpicking, trespass and assault change nothing. Not built:
+    the hidden-silent-one-shot exception beyond "nobody detects you", disguises, resets.
+  - the box: when a title changes, the game's message box (stops the game, queued with
+    other boxes) titled with the reputation's name, the title and its description, a Vault
+    Boy face at the left (very happy with more fame, sad with more infamy as on your two
+    screenshots; the neutral face for mixed titles is my guess) and "Ok". Descriptions are
+    the wiki's unless a plugin has the `sRepTitlePos<n>Neg<m>Desc` setting (FalloutNV.esm
+    overrides one). Sounds `UIRepGood` when fame rose a level, else `UIRepBad` (guess).
+  - fixed: Dark Hero and Soft-Hearted Devil were swapped in the Pip-Boy's list
+    (FalloutNV.esm's `sRepTitlePosTwoNegThreeDesc` is the Soft-Hearted Devil's text).
+  - Pip-Boy Stats > General, reputation mode: under the picture the title, then the
+    reputation's name (was "Fame x, Infamy y"), as on your screenshot.
+  - Check: shoot a Powder Ganger in view of others, see the box; GetReputation in the
+    console.
 ## List 5 — claude/l5-npc-ai
 NPC AI items of playtest list 5 (§4 numbers). Each: what changed, my decision or guess,
 what to check in game.

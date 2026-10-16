@@ -272,3 +272,34 @@ actors' lines (Joe Cobb's to Trudy while the player talks to her) and the radio'
 not drawn as subtitles; they stay in the log's `subtitle:` lines with
 `(not drawn: in dialogue)` after them. The conversation's own line is the dialogue
 menu's (`dialogue_menu.rs`).
+
+## 11. Compass marks and discovered places (owner's playtest list 5, items 12 and 57)
+
+- [documented: `menus\prefabs\hudtemplates.xml`, `compassicon.xml`] The compass has
+  groups of icons: `compass_npc_icon` (`glow_hud_tick_mark.dds`, 32 × 32, y −10 in a
+  group at y 5), the map marker icon (`glow_hud_compass_landmark.dds`, 40 × 50 at y 5),
+  the quest target and the player's marker. An icon's x is `_Heading`, "heading, in
+  compass pixels of this object, based on compass width in pixels", and `_Distance` the
+  distance to it; both are set by the code.
+- [observed: the owner's screenshots in `C:nv-private\Creature Markers` and
+  `Map Markers`] An actor is a tick over the strip, red when hostile and amber (the HUD's
+  colour) otherwise; a map marker is a small triangle under the letters, hollow before
+  the player has been there (`glow_hud_compass_landmark.dds`) and filled after
+  (`…_landmark_discovered.dds`). The sizes and places NVForever uses are fitted to those
+  screenshots: the tick drawn 26 units high with its top 9 below the window's (its bar
+  from under the bracket's line to the strip's), the triangle drawn at 0.6 of its
+  texture with its middle 46.7 down the window.
+- [hypothesis] Which actors: the living NPCs and creatures of the loaded cells within
+  Perception × 300 units of the player; which markers: those of the worldspace within
+  Perception × 2048, while outdoors. No game setting for these ranges is in the masters.
+  Hostile is the enemy bar's rule (§8). Each mark stands at its bearing from the
+  player's heading at 1024 units for 360 degrees, the strip's scale.
+- [observed: the owner's screenshot "Discovered"] Finding a place shows "You have
+  discovered" over its name in large capitals, where and as "Quest added" is drawn
+  (quest-messages.md), and "+10 XP" (`iXPRewardDiscoverMapMarker` is 10 in
+  FalloutNV.esm). A place is found when the player comes within its marker's radius
+  (`XRDS`), as the Pip-Boy's map counts it (pipboy.md §5.3); saves keep the places found.
+  The sound is `UIPopUpMapMarkerAdded` [hypothesis: by its name].
+- Log: `compass: <n> actors (<h> hostile), <m> map markers (<f> found) on the compass,
+  Perception <p>` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`.
+

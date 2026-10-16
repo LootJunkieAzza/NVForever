@@ -77,6 +77,9 @@ fn label(n: &QuestNotice) -> Option<&'static str> {
         QuestNotice::Added(_) => Some("Quest added"),
         QuestNotice::Completed(_) => Some("Quest completed"),
         QuestNotice::Failed(_) => Some("Quest failed"),
+        // [observed: the owner's screenshot "Discovered", the same place and fonts as
+        // "Quest added"].
+        QuestNotice::Discovered(_) => Some("You have discovered"),
         QuestNotice::Objectives(_) => None,
     }
 }
@@ -87,6 +90,7 @@ fn sound(n: &QuestNotice) -> Option<&'static str> {
         QuestNotice::Added(_) => Some("UIPopUpQuestNew"),
         QuestNotice::Completed(_) => Some("UIPopUpQuestComplete"),
         QuestNotice::Failed(_) => None,
+        QuestNotice::Discovered(_) => Some("UIPopUpMapMarkerAdded"),
         QuestNotice::Objectives(_) => Some("UIQuestUpdate"),
     }
 }
@@ -102,7 +106,7 @@ fn objective_text(o: &Objective) -> String {
 /// A line for the log.
 pub fn describe(n: &QuestNotice) -> String {
     match n {
-        QuestNotice::Added(name) | QuestNotice::Completed(name) | QuestNotice::Failed(name) => format!("{}: {}", label(n).unwrap_or_default(), name.to_uppercase()),
+        QuestNotice::Added(name) | QuestNotice::Completed(name) | QuestNotice::Failed(name) | QuestNotice::Discovered(name) => format!("{}: {}", label(n).unwrap_or_default(), name.to_uppercase()),
         QuestNotice::Objectives(list) => list.iter().map(objective_text).collect::<Vec<_>>().join(" | "),
     }
 }
@@ -201,7 +205,7 @@ pub enum Piece {
 pub fn layout(n: &QuestNotice, label_font: &Font, title_font: &Font) -> Vec<Piece> {
     let mut out = Vec::new();
     match n {
-        QuestNotice::Added(name) | QuestNotice::Completed(name) | QuestNotice::Failed(name) => {
+        QuestNotice::Added(name) | QuestNotice::Completed(name) | QuestNotice::Failed(name) | QuestNotice::Discovered(name) => {
             if let Some(line) = label_font.lines(label(n).unwrap_or_default(), None).into_iter().next() {
                 out.push(Piece::Text { set: Set { line, x: TEXT_X, base: LABEL_BASE }, title: false, from: 0.0 });
             }
