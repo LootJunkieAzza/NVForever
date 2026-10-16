@@ -585,17 +585,40 @@ impl Core {
 
     fn add(&mut self, refs: &RefTable, id: FormId, name: Option<&str>) {
         let Some(placed) = refs.get(id) else { return };
+        let label = name.map(str::to_string).or_else(|| placed.edid.clone()).unwrap_or_else(|| id.to_string());
+        self.add_resident(id, placed.base.0, &placed.sig == b"ACRE", placed.scale.unwrap_or(1.0), placed.pos, label, name.is_some());
+    }
+
+    /// The actors scripts created since the last frame (PlaceAtMe of an NPC_, CREA or
+    /// leveled actor list, `fnv_game::Game::created_actors`): residents from where they
+    /// were put, so they are drawn, walk, sense and fight as placed actors do [until
+    /// 2026-10-16 they were drawn as a static model and never fought: owner's playtest].
+    fn take_created(&mut self, game: &Game) {
+        for id in game.created_actors() {
+            if self.known.contains(&id.0) {
+                continue;
+            }
+            let Some(s) = game.world.peek(id) else { continue };
+            let (base, pos) = (s.base, s.pos);
+            let creature = matches!(game.world.forms.sig(base), Some(sig) if &sig == b"CREA" || &sig == b"LVLC");
+            let label = format!("{} {id}", game.data.name(base));
+            info!("ai [{}] {label}: created by a script (PlaceAtMe) at ({:.0}, {:.0}, {:.0}): a resident from there", self.clock_text, pos[0], pos[1], pos[2]);
+            self.add_resident(id, base.0, creature, 1.0, pos, label, true);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn add_resident(&mut self, id: FormId, base: u32, creature: bool, scale: f32, pos: [f32; 3], label: String, named: bool) {
         if !self.known.insert(id.0) {
             return;
         }
-        let label = name.map(str::to_string).or_else(|| placed.edid.clone()).unwrap_or_else(|| id.to_string());
         self.list.push(Resident {
             actor: id,
-            base: placed.base.0,
-            creature: &placed.sig == b"ACRE",
-            scale: placed.scale.unwrap_or(1.0),
+            base,
+            creature,
+            scale,
             label,
-            named: name.is_some(),
+            named,
             joined: false,
             spawned: false,
             root: None,
@@ -603,15 +626,15 @@ impl Core {
             present: false,
             waiting: None,
             doors_opened: 0,
-            last_feet: placed.pos,
-            drawn_feet: placed.pos,
+            last_feet: pos,
+            drawn_feet: pos,
             standing_frames: 0,
             seat: Seat::None,
             stand: None,
             last_drawn: None,
             wants: None,
             // Only creatures: people walk with the race's clips.
-            rooted: (&placed.sig != b"ACRE").then_some(false),
+            rooted: (!creature).then_some(false),
             perched: false,
             moved: false,
             last_space: None,
@@ -1217,6 +1240,9 @@ pub fn drive(
             }
             res.core.check_rooted(&world, &models.data);
             res.core.take_moved(game, all, None);
+            if all {
+                res.core.take_created(game);
+            }
             res.core.process_levels(game, &world, &streamer);
             res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now, 0);
         }
@@ -1239,6 +1265,9 @@ pub fn drive(
             nvf_play::script::with_world(rt, &mut sim, |rt| {
                 let mut phys = phys;
                 core.take_moved(&mut rt.game, all, phys.as_deref_mut());
+                if all {
+                    core.take_created(&rt.game);
+                }
                 core.process_levels(&rt.game, world_ref, streamer_ref);
                 core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now, waited)
             });

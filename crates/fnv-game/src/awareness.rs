@@ -746,7 +746,8 @@ impl Game<'_> {
         if faction_relation(self, a, b) == 1 || faction_relation(self, b, a) == 1 {
             return false;
         }
-        let base = |r: FormId| self.world.placed.get(r).map(|p| p.base);
+        // Placed or created at run time (PlaceAtMe).
+        let base = |r: FormId| crate::functions::base_of(self, r);
         if base(a).is_some() && base(a) == base(b) {
             return true;
         }

@@ -194,7 +194,10 @@ fn sync_drawn(
         }
         kept
     });
-    let wanted = Placed::wanted(d.index, sim.world.created());
+    // Created actors (PlaceAtMe of an actor base) are actors, drawn and moved by the
+    // engine's residents (nvforever `residents.rs`), not dropped items.
+    let forms = sim.world.forms;
+    let wanted = Placed::wanted(d.index, sim.world.created().filter(|(_, s)| !fnv_game::ai::is_actor_base(forms, s.base)));
     let was: BTreeMap<u32, Placed> = drawn.0.iter().map(|(&id, r)| (id, r.at)).collect();
     let p = plan(&wanted, &was, |c| loaded.contains_key(&c));
     for id in &p.despawn {

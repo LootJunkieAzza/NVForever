@@ -396,6 +396,14 @@ impl Game<'_> {
         self.evaluate_package(actor)
     }
 
+    /// The actors scripts created at run time (PlaceAtMe of an NPC_, CREA or leveled
+    /// actor list) that are still in the world: they take part in the AI, detection and
+    /// combat as placed actors do.
+    pub fn created_actors(&self) -> Vec<FormId> {
+        let forms = self.world.forms;
+        self.world.created().filter(|(_, s)| !s.deleted && is_actor_base(forms, s.base)).map(|(id, _)| id).collect()
+    }
+
     /// Placed actors whose packages the periodic choice covers: those in loaded cells
     /// and those that already run a package [hypothesis: the game goes on choosing for
     /// actors it has started; observed: actors in unloaded interiors changed package at
@@ -408,6 +416,8 @@ impl Game<'_> {
             out.extend(placed.by_cell.get(c).into_iter().flatten().filter(|r| is_actor(r)));
         }
         out.extend(self.moved.iter().filter(|r| is_actor(r)));
+        // Actors scripts created (PlaceAtMe) choose packages as placed ones do.
+        out.extend(self.created_actors());
         out.retain(|r| self.cell_of(*r).is_some_and(|c| self.loaded_cells.contains(&c)));
         out.extend(self.extra.iter().filter(|(r, e)| e.current_package.is_some() && is_actor(r)).map(|(r, _)| *r));
         out
@@ -472,4 +482,10 @@ impl Game<'_> {
         }
         self.package_scan_due = next.max(now + SCAN_STEP);
     }
+}
+
+/// Whether `base` is an actor base: an NPC_, a CREA, or a leveled list of them (LVLN,
+/// LVLC), whose placed reference stands for one of its entries (`crate::templates`).
+pub fn is_actor_base(forms: &fnv_sim::FormStore, base: FormId) -> bool {
+    matches!(forms.sig(base), Some(s) if [b"NPC_", b"CREA", b"LVLN", b"LVLC"].contains(&&s))
 }
