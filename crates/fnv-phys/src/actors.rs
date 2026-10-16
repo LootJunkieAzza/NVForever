@@ -205,10 +205,12 @@ impl PhysWorld {
     }
 
     /// A point to aim at on an actor: with parts, the centre of its widest part capsule
-    /// (the torso of a person), else the middle of its capsule. Game units.
+    /// (the torso of a person), the first of equally wide ones (a part's own chain comes
+    /// before its side branches, which share its radius: a creature's legs), else the
+    /// middle of its capsule. Game units.
     pub fn actor_aim_point(&self, form_id: u32) -> Option<[f32; 3]> {
         let a = self.actors.get(&form_id)?;
-        let widest = a.colliders.iter().filter(|c| c.1 != WHOLE).max_by(|x, y| x.3.total_cmp(&y.3));
+        let widest = a.colliders.iter().filter(|c| c.1 != WHOLE).reduce(|best, c| if c.3 > best.3 { c } else { best });
         match widest.and_then(|c| self.w.colliders.get(c.0)) {
             Some(co) => {
                 let t = co.position().translation / self.k;

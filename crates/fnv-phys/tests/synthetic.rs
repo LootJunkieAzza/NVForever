@@ -1209,6 +1209,14 @@ fn part_capsules_say_which_part_was_hit() {
     let head = w.actor_part_center(0x10, 1).unwrap();
     assert!((head[2] - 125.0).abs() < 1e-3, "{head:?}");
     assert!(w.actor_part_center(0x10, 9).is_none());
+    // A side branch of the torso (a creature's leg) as wide as the torso does not take
+    // the aim point: the first of the widest, the part's own chain, keeps it.
+    let mut branched = parts.to_vec();
+    branched.push(PartCapsule { part: 0, a: [200.0, 0.0, 70.0], b: [200.0, 0.0, 20.0], radius: 15.0 });
+    w.set_actor_parts(0x11, person([400.0, 0.0, 0.0], false), &branched.iter().map(|p| PartCapsule { a: [p.a[0] + 200.0, p.a[1], p.a[2]], b: [p.b[0] + 200.0, p.b[1], p.b[2]], ..*p }).collect::<Vec<_>>());
+    w.update_queries();
+    let aim = w.actor_aim_point(0x11).unwrap();
+    assert!((aim[2] - 90.0).abs() < 1e-3, "{aim:?}");
     let shot = |w: &mut PhysWorld, z: f32| w.queries().ray([0.0, 0.0, z], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).map(|h| (h.owner, h.distance));
     let (o, d) = shot(&mut w, 90.0).unwrap();
     assert_eq!(o, Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: 0 });

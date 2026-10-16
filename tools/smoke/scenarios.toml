@@ -1032,7 +1032,11 @@ args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-69850,5700,8650
 run_seconds = 40
 expect = [
   { re = 'anim sounds summary:.*creatures: \d+ sounds \(Left Back Foot \d+' },
-  { re = 'anim sounds summary:.*\b4 hits, 1 deaths' },
+  # 3 or 4 since playtest list 5 item 16 (claude/l5-combat-fixback, 2026-10-16): the hits
+  # land on the body part capsules, and a shot that meets the turning bighorner's head
+  # does double damage, so it can die on the fourth hit (3 hit sounds and the death), as
+  # in the run of that day (Torso, Head, Torso, Torso), or the fifth.
+  { re = 'anim sounds summary:.*\b[34] hits, 1 deaths', label = "3 or 4 hits and the death" },
   { re = 'anim sounds summary:.*the player jumped 1 and landed 1 times' },
   { re = 'ambient summary:.*random', label = "a source heard with some random sounds played" },
   { re = 'shot fx:.*casing knocks heard' },
