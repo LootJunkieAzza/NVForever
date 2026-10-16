@@ -435,6 +435,11 @@ pub struct PlayerState {
     pub female: Option<bool>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub tag_skills: BTreeSet<u16>,
+    /// The points spent on each skill in the level-up menu (`crate::levelup`), added to
+    /// the skill's formula [documented: GECK wiki ActorValue, the player's spent skill
+    /// points sit on top of the derived base; docs/spec-notes/levelup.md §4].
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub skill_points: BTreeMap<u16, f64>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub achievements: BTreeSet<i32>,
     /// Actors killed, by base form (GetDeadCount).
@@ -539,6 +544,9 @@ pub mod menus {
     pub const LOVE_TESTER: u16 = 1074;
     /// The trait menu (ShowTraitMenu).
     pub const TRAITS: u16 = 1084;
+    /// The level-up menu (AdvancePCLevel; `crate::levelup`) [documented: GECK wiki
+    /// MenuMode, the example "if MenuMode 1027 ; level-up menu is active"; not captured].
+    pub const LEVEL_UP: u16 = 1027;
     /// The lockpicking menu [documented: GECK wiki GetMenuTargetRef, owner export: "1014
     /// The door/container being picked"].
     pub const LOCKPICK: u16 = 1014;

@@ -53,6 +53,7 @@ pub mod hacking;
 pub mod game;
 pub mod idles;
 pub mod intro;
+pub mod levelup;
 pub mod lockpick;
 pub mod needs;
 pub mod package;

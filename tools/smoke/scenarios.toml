@@ -50,6 +50,8 @@ sep = ","
 sep = ","
 [timed.NVF_PLAY_TEST_VIGOR]
 sep = ","
+[timed.NVF_PLAY_TEST_LEVELUP]
+sep = ","
 [timed.NVF_PLAY_TEST_TERMINAL]
 sep = ","
 [timed.NVF_PLAY_TEST_LOCKPICK]
@@ -911,6 +913,41 @@ expect = [
   { text = "ui sounds: traits accepted: UIMenuOK", label = "Done" },
 ]
 manual = "with the owner's load order (Old World Blues in it) the trait menu has 16 rows"
+
+[[scenario]]
+name = "levelup-menu"
+source = "the level-up menu (docs/spec-notes/levelup.md §7): both pages by the test aid, then advlevel at the console"
+areas = ["levelup", "menus"]
+paths = ["engine/nvf-play/src/levelup.rs", "engine/nvf-play/src/levelup/**", "crates/fnv-game/src/levelup.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_LEVELUP = "16:advance,17:continue,17.5:raise:Science:5,18:lower:Science,18.5:lower:Barter,19:raise:Guns:30,20.5:continue,21:pick:Intense Training,21.2:pick:Intense Training,21.4:pick:Intense Training,22.5:back,23:continue,23.5:pick:Intense Training,24:done,28:raise:Medicine:30,29:done", NVF_PLAY_TEST_CONSOLE = "26:advlevel", NVF_PLAY_TEST_SHOTS = "18.2:levelup_skills.png,22:levelup_perks.png,28.5:levelup_level3.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 32
+order = [[
+  { re = 'levelup: menu open, level 2, \d+ skill points, perk due' },
+  { re = 'levelup: Continue refused: \d+ points left' },
+  { re = 'levelup: Science \d+ -> \d+' },
+  "levelup: Barter lower refused",
+  "levelup: Guns raise refused",
+  { re = 'levelup: skills .*Science \+4.*; perks page: \d+ perks on offer' },
+  "levelup: Intense Training chosen",
+  "levelup: Intense Training given back",
+  "levelup: back to the skills",
+  { re = 'levelup: done, level 2: skills .*Science \+4.*; perk Intense Training' },
+  "levelup: menu closed",
+  { re = 'levelup: menu open, level 3, \d+ skill points, perk not due' },
+  { re = 'levelup: done, level 3: skills Medicine \+\d+; perk none' },
+]]
+expect = [
+  { text = "ui sounds: level up opened: UILevelUp", label = "the level's sound" },
+  { text = "ui sounds: level up value raised: UIMenuPrevNext", label = "a + clicked" },
+  { text = "ui sounds: level up value lowered: UIMenuPrevNext", label = "a - clicked" },
+  { text = "ui sounds: level up refused: UIMenuCancel", label = "Continue with points left" },
+  { text = "ui sounds: level up category changed: UIMenuOK", label = "Continue to the perks, Back" },
+  { text = "ui sounds: level up row or button picked: UIMenuPrevNext", label = "a perk taken" },
+  { text = "ui sounds: level up accepted: UIMenuOK", label = "Done", count = 2 },
+  { text = "console: AdvancePCLevel >> level 3", label = "advlevel at the console" },
+]
+manual = "the screenshots levelup_skills.png, levelup_perks.png and levelup_level3.png in the run's folder against the owner's (kept privately)"
 
 [[scenario]]
 name = "vigor-tester"
