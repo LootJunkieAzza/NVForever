@@ -419,6 +419,14 @@ const BACK_TOP: f32 = 960.0 - 30.0 - ITEM;
 /// over the picture, not added to it, it came out a dark slab [observed 2026-10-16].
 const SCREEN: &str = "textures\\interface\\pause\\pausescreen01.dds";
 const SCREEN_ALPHA: f32 = 0.82;
+/// How much of the pause screen picture lies past the view's edges, as parts of the drawn
+/// picture: its outer side (the left of the half picture, mirrored at the right), its top
+/// and its bottom, so the frame's edge meets the view's [observed: the owner's screenshot
+/// of 2026-10-16 marking where the edge belongs, at about 7% in from the sides, 5% from
+/// the top and 9% from the bottom of the stretched picture].
+const SCREEN_CROP_SIDE: f32 = 0.147;
+const SCREEN_CROP_TOP: f32 = 0.051;
+const SCREEN_CROP_BOTTOM: f32 = 0.088;
 const WORLD_SHADE: f32 = 0.35;
 
 /// The settings page's group of switches about conversations, sound and menus.
@@ -626,7 +634,17 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
         if !d.under_main {
             root.spawn((full(), BackgroundColor(Color::BLACK.with_alpha(WORLD_SHADE))));
             if let Some(s) = &look.screen {
-                let half = |left: bool| Node { position_type: PositionType::Absolute, left: Val::Percent(if left { 0.0 } else { 50.0 }), width: Val::Percent(50.0), height: Val::Percent(100.0), ..default() };
+                // Each half drawn larger than the view's half, its cropped parts off the view.
+                let width = 50.0 / (1.0 - SCREEN_CROP_SIDE);
+                let height = 100.0 / (1.0 - SCREEN_CROP_TOP - SCREEN_CROP_BOTTOM);
+                let half = |left: bool| Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Percent(if left { 50.0 - width } else { 50.0 }),
+                    top: Val::Percent(-SCREEN_CROP_TOP * height),
+                    width: Val::Percent(width),
+                    height: Val::Percent(height),
+                    ..default()
+                };
                 let img = |flip: bool| ImageNode { color: Color::WHITE.with_alpha(SCREEN_ALPHA), flip_x: flip, image_mode: NodeImageMode::Stretch, ..ImageNode::new(s.clone()) };
                 root.spawn((half(true), img(false)));
                 root.spawn((half(false), img(true)));
