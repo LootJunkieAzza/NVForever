@@ -55,6 +55,8 @@ pub enum UiMenu {
     Lockpick,
     /// The main menu (`crate::main_menu`).
     MainMenu,
+    /// The recipe menu (`crate::crafting`).
+    Recipe,
 }
 
 impl UiMenu {
@@ -78,6 +80,7 @@ impl UiMenu {
             UiMenu::Settings => "settings",
             UiMenu::Lockpick => "lockpick",
             UiMenu::MainMenu => "main menu",
+            UiMenu::Recipe => "recipe",
         }
     }
 }
@@ -213,9 +216,9 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         (Container, Opened | Closed) => Silent("the container's own sound (world_sounds)"),
         // The rows' mouse-over sound [observed: list_box_template.xml, included by the
         // container, barter, dialogue and pause menus' rows]; for the keys too [design].
-        (Container | Barter | Dialogue | Settings, Focus) => Named("UIMenuFocus"),
+        (Container | Barter | Dialogue | Settings | Recipe, Focus) => Named("UIMenuFocus"),
         // The arrows of other menus' lists (level up, character, tutorial) [design].
-        (Container | Barter, Switch) => Named("UIMenuPrevNext"),
+        (Container | Barter | Recipe, Switch) => Named("UIMenuPrevNext"),
         (Container, TakeAll) => Named("UIItemTakeAll"),
         // The rows' click sound [observed: list_box_template.xml].
         (Barter, Picked) => Named("UIMenuOK"),
@@ -224,10 +227,10 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         (Barter, Traded { caps }) if caps < 0 => Caps { up: false },
         (Barter, Traded { .. }) => Named("UIMenuOK"),
         // The menu modes' sound by its name [design].
-        (Barter | Wait | Sleep | Pause, Opened) => Named("UIMenuMode"),
+        (Barter | Wait | Sleep | Pause | Recipe, Opened) => Named("UIMenuMode"),
         // Exit and cancel as the settings' back button [observed: start_menu.xml
         // main_back_button `UIMenuCancel`; design for these menus].
-        (Barter | Wait | Sleep | Pause | Settings, Back | Closed) => Named("UIMenuCancel"),
+        (Barter | Wait | Sleep | Pause | Settings | Recipe, Back | Closed) => Named("UIMenuCancel"),
         // Lockpicking (lockpicking.md §6): the SOUN records named for it [observed:
         // FalloutNV.esm `UILockpicking…`; design: which event each is for, by its name].
         // Opening: the lock model's own sound key [observed: lockinterface01.nif
@@ -256,6 +259,9 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         (Wait | Sleep, Finished) => Silent("the hours have passed"),
         // The pause menu's rows [observed: start_menu.xml, list_box_template.xml].
         (Settings | Pause | MainMenu, Opened | Picked) => Named("UIMenuOK"),
+        // Making a recipe: the list's click [observed: list_box_template.xml `clicksound`;
+        // design: no crafting sound is named in the files].
+        (Recipe, Picked) => Named("UIMenuOK"),
         // The pause and main menus' entries are list rows too [observed: start_menu.xml
         // `main_container` includes list_box.xml; list_box_template.xml `mouseoversound`].
         (Pause | MainMenu, Focus) => Named("UIMenuFocus"),
