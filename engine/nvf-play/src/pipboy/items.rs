@@ -382,6 +382,7 @@ mod tests {
     fn a_stack_shows_its_count() {
         let mut r = Row {
             item: FormId(1),
+            at: None,
             name: "Stimpak".into(),
             count: 9,
             weight: None,
