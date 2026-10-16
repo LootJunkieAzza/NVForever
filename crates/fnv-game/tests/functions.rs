@@ -862,3 +862,16 @@ fn second_round_stubs() {
     assert_eq!(g.world.get(FormId(ACTI_REF)).unwrap().rot[2], z1, "no call, no turn");
     assert!(g.turned.is_empty());
 }
+
+/// SwapTexture (playtest list 5 item 38): the shape's name and the texture's path kept
+/// per reference for the engine, the last call per shape winning.
+#[test]
+fn swap_texture_keeps_the_last_texture_per_shape() {
+    let f = fixture();
+    let mut g = game(&f);
+    let card = FormId(ADULT_REF);
+    call(&mut g, 0x1269, Some(ADULT_REF), &[s("pipboycard01:0"), s(r"clutter\rorchachtest\inkblot03")]);
+    call(&mut g, 0x1269, Some(ADULT_REF), &[s("##PipBoyCard01:0"), s(r"clutter\rorchachtest\inkblot01")]);
+    assert_eq!(g.texture_swaps.generation, 2);
+    assert_eq!(g.texture_swaps.by_ref[&card], vec![("pipboycard01:0".to_string(), r"textures\clutter\rorchachtest\inkblot01.dds".to_string())]);
+}

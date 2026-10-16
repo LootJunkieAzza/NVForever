@@ -2029,3 +2029,18 @@ expect = [
   { text = "menu: dropped reference", count = 1 },
   { re = 'after test drop\]   Player: .*9mm Round x13' },
 ]
+
+[[scenario]]
+name = "grenade-explosion"
+source = "playtest list 5 item 10 (claude/l5-render-fx): a 40 mm grenade fired at the ground by the Prospector Saloon shows its EXPL model's particle systems (flash, sparks, smoke, shrapnel) and the dirt impact of the EXPL's data set under it (docs/spec-notes/particles.md §2, shot_fx.rs)"
+areas = ["combat", "particles"]
+paths = ["engine/nvforever/src/shot_fx.rs", "engine/nvforever/src/particles.rs", "engine/nvf-assets/src/particles.rs", "crates/fnv-combat/src/fx.rs"]
+env = { NVF_PLAY_TEST_EQUIP = "0007EA25", NVF_PLAY_TEST_GIVE = "0007EA26:8", NVF_PLAY_TEST_LOOK = "2:46:-4", NVF_PLAY_TEST_CONTROL = "3:weapon,6:fire" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-67900,1400,8500", "--hour", "12"]
+run_seconds = 12
+expect = [
+  { re = 'combat: explosion 40mmGrenadeExplosion at' },
+  { re = 'shot fx: impact meshes.effects.impactexplosiondirt.nif' },
+  { re = 'particles: model meshes.effects.explosiongrenadefrag.nif: 4 system' },
+  { re = 'shot fx:.*\b1 explosions' },
+]

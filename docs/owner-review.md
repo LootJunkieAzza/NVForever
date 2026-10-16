@@ -4674,3 +4674,52 @@ reaches them, so they are on a shelf inside the counter's collision); drop part 
 from the Pip-Boy (X on the 20 rounds); buy part of a stack from Chet; store part of the
 caps in a container.
 
+
+## Render effects of playtest list 5 (2026-10-16, session "l5-render-fx", D5)
+
+Items 1, 48, 10, 6, 18, 70, 66–67, 26 and 38 (`docs/handoff/playtest-list-5.md` §4).
+Frames are kept privately; each was one run with test aids.
+
+- **1 Dust storm "tornado"**: the column by the saloon and on the street is the dust
+  vortex `effects\nv\sanddust\sanddust02.nif` (FXDust02, two placed in Goodsprings): two
+  curved sheets fading in and out for about 5 s of every 45 s. Their vertex alpha (0 at
+  the sheets' edges) was dropped because their shader sets flag bit 19 "Dynamic_Alpha",
+  not bit 3 "Vertex_Alpha"; we drew a dense grey sheet with hard vertical edges. Unlit
+  shapes with bit 19 now keep their vertex alpha. **Guess**: that rule; **check**: the
+  column is now soft-edged and thinner, still grey rather than the game's brown (the
+  texture is drawn as stored). The other "tornadoes" (`fxdustwhirlwind01.nif`,
+  FXDustWhirlWind01) are particle systems on a moving mesh emitter and are still not drawn
+  at all (particle systems of placed models are not built).
+- **48 Bullet smoke**: particle colours (impact dust, metal smoke) are now taken as
+  display values like unlit shapes' vertex colours, so the 0.27–0.43 greys are darker and
+  less of a pale cloud. **Check**: this applies to every particle system, blood too
+  (MPSBloodSplat): tell me if blood got too dark.
+- **10 Explosions**: an EXPL now shows its model (`effects\explosiongrenadefrag.nif`: a
+  flash, sparks, smoke and shrapnel burst from its sequence), its light (LIGH, fading
+  over 0.6 s: **guess**, the LIGH has no duration) and the impact of its data set on the
+  ground under it (`ImpactExplosionDirt.nif`: thrown debris). The grenade in flight
+  (`grenlaunchprojectile.nif`) is drawn. **Not done**: the dirt impact's rising dust
+  meshes (`FastMesh01–03`) are moved by transform controllers that our impact models do
+  not play, so the brown column of your second frame is missing; the smoke fades after
+  15 % of its life as its data says, which looks short; the debris flakes are large
+  (radius 5, read as half the square's side).
+- **6 Lantern light**: `LamplightWarm` stores a black colour; its warm colour is in its
+  model's `NiPointLight` (0.78, 0.58, 0.16). Lights with a black record colour now take
+  the model light's colour. **Not done**: the flicker (its colour controller).
+- **18 Weapon quality**: the first-person model is the same file (`1stPerson9mm` names
+  `9mm.nif`); the difference was the view: the game draws the arms and weapon through
+  `fDefault1stPersonFOV=55`, we drew them through the world's 75, so the gun was smaller
+  with coarser mips. Now magnified as through 55 (the Pip-Boy's 47 eases in as before).
+  **Check**: size and place of the held weapons; iron sights while aiming.
+- **70 White cave water**: the cave's pools are placeable water (PWAT `WaterBlood`, five
+  `waterp512x512.nif` squares) drawn as a plain model, untextured: white. PWAT shapes are
+  now drawn with their water type's material (WaterTypeBlood: dark).
+- **66–67 Flashlight**: the light now sits on the body, 14 units ahead of the eye and 6
+  below (**guess**), facing where the player looks, so it lights ahead of the body in
+  third person and its shadows fall behind what casts them. **Check** the ghost shadow.
+- **26 Beards**: beards (head parts with the hair shader) now take the hair colour like
+  the hair. **Check** Sgt Kilborn and Joe Cobb.
+- **38 SwapTexture**: implemented: `ref.SwapTexture "shape" "texture"` puts
+  `textures\<texture>.dds` on that shape of the reference's model (the Rorschach cards in
+  Doc Mitchell's test, the end slides, the Euclid's C-Finder screen); `##` before a
+  name is dropped (**guess**: meaning unknown). Not kept in saves. Not seen in a run.

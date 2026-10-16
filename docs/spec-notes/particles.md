@@ -1,8 +1,9 @@
 # Particle effects: add-on nodes and master particle systems
 
 Status 2026-10-11: built for the effects of the player's shots (muzzle sparks and smoke,
-a missile's trail, the flamer's flame, impact dust and debris). Not built for particle
-systems inside ordinary models (fires and steam placed in cells). Code:
+a missile's trail, the flamer's flame, impact dust and debris) and, since 2026-10-16, for
+the systems inside explosion and impact models (§3 `ModelEmitter`). Not built for particle
+systems of models placed in cells (fires, steam, dust devils). Code:
 `engine/nvf-assets/src/particles.rs` (the reader), `engine/nvforever/src/particles.rs`
 (the simulation and drawing). Claim tags as in CLAUDE.md.
 
@@ -85,6 +86,22 @@ systems inside ordinary models (fires and steam placed in cells). Code:
   0.25 × 0.25 covering the texture]; a particle shows one, picked at random at birth.
 - **Radius** is half the side of the square drawn.
 
+- **Emitters driven by a model's sequence** [observed, `explosiongrenadefrag.nif`,
+  2026-10-16]: an explosion model's systems sit under its own `NiControllerSequence`
+  (`SpecialIdle_AreaEffect`, cycle type 2, stop time 5.03 s). Their `NiPSysEmitterCtlr`s
+  carry blend interpolators; the sequence's controlled blocks give, per system name,
+  interpolator ID `BirthRate` (a float interpolator: 400,000 for the flash, 800,000
+  sparks, 2,400,000 smoke, 12,000,000 shrapnel) and `EmitterActive` (bool keys: on at 0,
+  off at 0.00001 s). Reading [hypothesis]: a burst, rate × time on = 4, 8, 24 and 120
+  particles, within each system's vertex count. Births are the rate times the time the
+  emitter was on during the frame (`ParticleSystemDef::on_time`), so a burst is not
+  lost or multiplied by the frame length.
+- **Particle colours** are display values (the simple colour modifier's and the
+  emitter's): converted to linear before they tint the unlit texture [hypothesis, as for
+  unlit shapes' vertex colours, nif.md §6; the impact dust's 0.27–0.43 greys drew as
+  0.57–0.69 when used as linear values, too pale and too visible on walls (owner,
+  playtest list 5 item 48)].
+
 ## 3. Engine
 
 - `ModelNode::addon` carries a `BSValueNode`'s value; the shot effects
@@ -99,6 +116,10 @@ systems inside ordinary models (fires and steam placed in cells). Code:
   single frame are not rounded away [design]), `simulate`, `draw` (one mesh per system
   rebuilt each frame, a camera-facing square per particle, with texture rectangle and
   vertex colour).
+- `ModelEmitter`: a model's own systems emitted from where its emitter objects are in
+  the file, under the model's entity; the shot effects put one on each explosion model
+  (`shot_fx`, the EXPL's `MODL`) and each impact model (an explosion's dirt impact,
+  `ImpactExplosionDirt.nif`, throws debris particles of its own).
 - Log: `particles: add-on node <n> <model>: <systems>` on first use; at exit
   `particles: <born> born in <n> add-on systems, at most <n> alive at once`.
 
@@ -119,7 +140,8 @@ systems inside ordinary models (fires and steam placed in cells). Code:
 - Not built: turbulence, spawn on death, `NiPSysModifierActiveCtlr` (modifiers switched
   on and off over time), strip and mesh particle systems, other emitter shapes than
   box, sphere and cylinder, colour-key modifiers, the ADDN's sound and particle cap,
-  particle systems of ordinary models. Placed smoke that is built so (not drawn at
+  particle systems of models placed in cells (the dust devils `fxdustwhirlwind01.nif`
+  emit from a mesh emitter that moves along a path). Placed smoke that is built so (not drawn at
   all): `effects/fxlightsmoke.nif` (10 placed in FalloutNV.esm), `dlc03/effects/
   dlc03fxdarksmoke.nif` (13, Primm), `effects/nv/fxtiresmoke.nif` (16),
   `clutter/ashtray/ashtray03smoke.nif` (19), `effects/fxhelios_steam.nif` (8)

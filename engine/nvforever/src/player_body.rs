@@ -116,6 +116,14 @@ const PIPBOY_BLEND: f32 = 8.0 / 30.0;
 /// `Fallout.ini` the same].
 pub const PIPBOY_FOV: f32 = 47.0;
 
+/// The field of view the first-person arms and weapon are drawn with otherwise, degrees
+/// as [`PIPBOY_FOV`] [documented: `Fallout_default.ini` `fDefault1stPersonFOV=55`,
+/// docs/design/layer3.md; hypothesis: that it is the view of the arms' own camera, so
+/// they are drawn bigger than through the world's 75: our 9mm pistol was drawn smaller
+/// than the game's, with less of its detail and a coarser mip (owner's `Weapon Quality`
+/// screenshots, playtest list 5 item 18)].
+pub const FIRST_PERSON_FOV: f32 = 55.0;
+
 /// How much of the Pip-Boy clip shows at `t` seconds into it: up over its first
 /// [`PIPBOY_BLEND`], down over its last (smoothstep).
 pub fn pipboy_ease(t: f32) -> f32 {
@@ -1714,14 +1722,19 @@ fn drive_body(
     let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy };
     let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
     let first_eye = first.map(|(e, _)| e);
-    // While the Pip-Boy shows, the arms are drawn as through its narrower view.
+    // The arms and the weapon are drawn as through the first-person view, narrower than
+    // the world's, and narrower still while the Pip-Boy shows.
     if let (Some(f), Some(eye)) = (body.first.as_ref(), first_eye) {
         let vfov = cams.single().ok().and_then(|p| match p {
             Projection::Perspective(p) => Some(p.fov),
             _ => None,
         });
         let k = match (pip.shown(), vfov) {
-            (true, Some(v)) => 1.0 + (arms_magnification(v, PIPBOY_FOV) - 1.0) * pipboy_ease(pip.clip_time),
+            (true, Some(v)) => {
+                let normal = arms_magnification(v, FIRST_PERSON_FOV);
+                normal + (arms_magnification(v, PIPBOY_FOV) - normal) * pipboy_ease(pip.clip_time)
+            }
+            (false, Some(v)) => arms_magnification(v, FIRST_PERSON_FOV),
             _ => 1.0,
         };
         let forward = Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch));

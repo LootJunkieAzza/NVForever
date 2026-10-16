@@ -139,7 +139,7 @@ exists; the note says what is missing); **deliberately no-op**.
 
 | Function | Opcode | Calls | Conditions | Status | System / note |
 |---|---|---|---|---|---|
-| SwapTexture | 0x1269 | 383 | 0 | needs a system not built yet | rendering |
+| SwapTexture | 0x1269 | 383 | 0 | implemented 2026-10-16 (claude/l5-render-fx) | rendering |
 | GetVATSValue | 0x1198 | 0 | 250 | needs a system not built yet | combat (VATS) |
 | PlayMagicShaderVisuals | 0x1123 | 205 | 0 | needs a system not built yet | rendering (effect shaders) |
 | SetActorAlpha | 0x1129 | 127 | 0 | needs a system not built yet | rendering |
@@ -227,9 +227,12 @@ exists; the note says what is missing); **deliberately no-op**.
 Notes on the most used:
 
 - **SwapTexture** (383 calls) [observed: decoded scripts]: `ref.SwapTexture "##<node>:<n>"
-  "<texture>"`, mostly the end slides (`interface\endgame\endscrn_*` on `##gs01`) and the
-  Euclid's C-Finder's screen. No GECK wiki page and no catalogue summary: it needs a
-  texture swap on a drawn model's named node; not built.
+  "<texture>"`, mostly the end slides (`interface\endgame\endscrn_*` on `##gs01`), the
+  Rorschach cards of Doc Mitchell's test (`pipboycard01:0`) and the Euclid's C-Finder's
+  screen. No GECK wiki page. Implemented 2026-10-16: the game keeps the last texture per
+  shape of each reference (`fnv_game::functions::misc::swap_texture`), the engine puts
+  `textures\<texture>.dds` on the drawn shape of that name (nvforever `texture_swap.rs`);
+  `##` is dropped [hypothesis]. Not part of saves.
 - **GetVATSValue** (250 conditions): VATS is not built; outside VATS 0 is what the
   conditions read anyway [hypothesis].
 - **PlayMagicShaderVisuals / StopMagicShaderVisuals** (284 calls): effect shaders (EFSH)

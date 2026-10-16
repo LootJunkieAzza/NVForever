@@ -73,6 +73,8 @@ pub struct ProjectileFx {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ExplosionFx {
     pub model: Option<String>,
+    /// `DATA` light (LIGH).
+    pub light: Option<FormId>,
     pub sound_1: Option<FormId>,
     pub sound_2: Option<FormId>,
     pub impact_dataset: Option<FormId>,
@@ -276,6 +278,7 @@ fn load_one(r: &Record, d: &[Decoded], edid: Option<String>, fid: &dyn Fn(Option
             let v = first(d, b"DATA");
             Loaded::Explosion(ExplosionFx {
                 model: path(first(d, b"MODL")),
+                light: field(v, "light"),
                 sound_1: field(v, "sound_1"),
                 sound_2: field(v, "sound_2"),
                 impact_dataset: field(v, "impact_dataset"),
