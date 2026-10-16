@@ -42,6 +42,7 @@
 pub mod data;
 pub mod frame;
 pub mod items;
+pub mod sounds;
 pub mod stats;
 mod test_aid;
 
@@ -139,6 +140,8 @@ pub struct PipBoy {
     pub tabs: [usize; 3],
     /// The view before the Pip-Boy came up, given back when it is down.
     saved_pov: Option<Pov>,
+    /// The tab of the tab line under the pointer ([`frame::hover_boxes`]).
+    pub hover_tab: Option<usize>,
 }
 
 impl PipBoy {
@@ -243,6 +246,9 @@ pub struct PipBoyAid {
     pub target: Option<AidTarget>,
     /// A click on the target in progress: 3 asked, 2 the pointer is on it, 1 pressed.
     pub click: u8,
+    /// A drag of the map shown (canvas units), as the left button held and moved would
+    /// (`drag=`), taken by the DATA page.
+    pub drag: Vec2,
 }
 
 /// Where the test aid points.
@@ -277,6 +283,7 @@ impl Plugin for PipBoyPlugin {
             .init_resource::<PipBoyAid>()
             .init_resource::<frame::Kit>()
             .add_message::<PipBoyInput>()
+            .add_message::<sounds::TabHovered>()
             .add_systems(Startup, setup_screen)
             .add_systems(
                 Update,
@@ -289,6 +296,7 @@ impl Plugin for PipBoyPlugin {
                     flat_screen,
                     frame::draw,
                     (stats::draw, items::draw, data::draw),
+                    (frame::hover_boxes, sounds::play),
                 )
                     .chain()
                     .in_set(PlaySet::Ui),
@@ -410,7 +418,11 @@ fn flat_screen(
     aid: Res<PipBoyAid>,
 ) {
     let Some(mut screen) = screen else { return };
-    let want = pip.open() && !screen.on_model;
+    // Only once the arm is all the way up: the body takes the screen a frame or more after
+    // the Pip-Boy starts up (later still from third person, the first-person body not yet
+    // drawn), and the flat image flashed in the middle of the window until it did (the
+    // owner's playtest list 5, item 2).
+    let want = pip.phase == Phase::Up && !screen.on_model;
     match (want, flat.iter().next()) {
         (true, None) => {
             let node = Node {

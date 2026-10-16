@@ -111,6 +111,65 @@ pub fn karma_alignment(karma: f64, very_evil: f64, evil: f64, good: f64, very_go
     }
 }
 
+/// The karma titles by level (1 to 30, 30 standing for 30 and over) and karma (good,
+/// neutral, evil), as the owner's table gives them (`todo 5.txt`, 2026-10-16) [observed:
+/// the owner's list]. Only a fallback: FalloutNV.esm holds most of them as the game
+/// settings `sKarmicTitle<Good|Neutral|Evil><level>` [observed: 50 of the 90; the others
+/// are presumably the executable's defaults], which win where present.
+pub const KARMA_TITLES: [[&str; 3]; 30] = [
+    ["Samaritan", "Drifter", "Grifter"],
+    ["Martyr", "Renegade", "Outlaw"],
+    ["Sentinel", "Seeker", "Opportunist"],
+    ["Defender", "Wanderer", "Plunderer"],
+    ["Dignitary", "Citizen", "Fat Cat"],
+    ["Peacekeeper", "Adventurer", "Marauder"],
+    ["Ranger of the Wastes", "Vagabond of the Wastes", "Pirate of the Wastes"],
+    ["Protector", "Mercenary", "Betrayer"],
+    ["Desert Avenger", "Desert Scavenger", "Desert Terror"],
+    ["Exemplar", "Observer", "Ne'er-do-well"],
+    ["Vegas Crusader", "Vegas Councilor", "Vegas Crime lord"],
+    ["Paladin", "Keeper", "Defiler"],
+    ["Mojave Legend", "Mojave Myth", "Mojave Boogeyman"],
+    ["Shield of Hope", "Pinnacle of Survival", "Sword of Despair"],
+    ["Vegas Legend", "Vegas Myth", "Vegas Boogeyman"],
+    ["Hero of the Wastes", "Strider of the Wastes", "Villain of the Wastes"],
+    ["Paragon", "Beholder", "Fiend"],
+    ["Wasteland Savior", "Wasteland Watcher", "Wasteland Destroyer"],
+    ["Saint", "Super-Human", "Evil Incarnate"],
+    ["Guardian of the Wastes", "Renegade of the Wastes", "Scourge of the Wastes"],
+    ["Restorer of Faith", "Soldier of Fortune", "Architect of Doom"],
+    ["Model of Selflessness", "Profiteer", "Bringer of Sorrow"],
+    ["Shepherd", "Egocentric", "Deceiver"],
+    ["Friend of the People", "Loner", "Consort of Discord"],
+    ["Champion of Justice", "Hero for Hire", "Stuff of Nightmares"],
+    ["Symbol of Order", "Model of Apathy", "Agent of Chaos"],
+    ["Herald of Tranquility", "Person of Refinement", "Instrument of Ruin"],
+    ["Last, Best Hope of Humanity", "Moneygrubber", "Soultaker"],
+    ["Savior of the Damned", "Gray Stranger", "Demon's Spawn"],
+    ["Messiah", "True Mortal", "Devil"],
+];
+
+/// The karma title's column for an alignment ([`karma_alignment`]'s word): good for Good
+/// and Very Good, evil for Evil and Very Evil [hypothesis: three columns over five
+/// alignments].
+pub fn karma_column(alignment: &str) -> usize {
+    match alignment {
+        "Good" | "Very Good" => 0,
+        "Evil" | "Very Evil" => 2,
+        _ => 1,
+    }
+}
+
+/// The karma title at a level for an alignment: the game setting
+/// `sKarmicTitle<Good|Neutral|Evil><level>` where the plugins hold it (`setting`), else
+/// [`KARMA_TITLES`]. Levels above 30 take 30's title, below 1 level 1's.
+pub fn karma_title(level: i64, alignment: &str, setting: impl Fn(&str) -> Option<String>) -> String {
+    let level = level.clamp(1, 30) as usize;
+    let column = karma_column(alignment);
+    let name = format!("sKarmicTitle{}{level}", ["Good", "Neutral", "Evil"][column]);
+    setting(&name).filter(|s| !s.is_empty()).unwrap_or_else(|| KARMA_TITLES[level - 1][column].to_string())
+}
+
 /// The title of a reputation from the levels (0–3) of fame and infamy
 /// (`fnv_game::functions::reputation_tiers`' grid) [documented: the names, GECK wiki
 /// GetReputationThreshold; observed: the grid, layer5-captures.md §9.3 a; hypothesis:
@@ -236,6 +295,8 @@ pub struct Snapshot {
     pub general: Vec<Row>,
     pub standings: Vec<Standing>,
     pub karma: Option<(f64, &'static str, &'static str)>,
+    /// The karma title for the player's level and alignment ([`karma_title`]).
+    pub karma_title: Option<String>,
 }
 
 impl Snapshot {
@@ -318,6 +379,13 @@ mod tests {
         assert_eq!(karma_alignment(0.0, -750.0, -250.0, 250.0, 750.0).0, "Neutral");
         assert_eq!(karma_alignment(250.0, -750.0, -250.0, 250.0, 750.0).0, "Good");
         assert_eq!(karma_alignment(-800.0, -750.0, -250.0, 250.0, 750.0), ("Very Evil", "karma_evil"));
+        // The plugins' setting wins; the owner's table fills the rest; 30 and over share.
+        let esm = |n: &str| (n == "sKarmicTitleEvil29").then(|| "Demon Spawn".to_string());
+        assert_eq!(karma_title(29, "Very Evil", esm), "Demon Spawn");
+        assert_eq!(karma_title(29, "Neutral", esm), "Gray Stranger");
+        assert_eq!(karma_title(1, "Good", |_| None), "Samaritan");
+        assert_eq!(karma_title(45, "Evil", |_| None), "Devil");
+        assert_eq!(karma_title(7, "Neutral", |_| None), "Vagabond of the Wastes");
         assert_eq!(reputation_title(0, 0), "Neutral");
         assert_eq!(reputation_title(3, 0), "Idolized");
         assert_eq!(reputation_title(1, 1), "Mixed");

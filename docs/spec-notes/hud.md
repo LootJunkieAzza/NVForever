@@ -5,7 +5,8 @@ looked at, `[hypothesis]` is a reading that nothing has confirmed yet. `[design]
 what is NVForever's own. Implementation: `engine/nvf-play/src/hud.rs` (the HUD),
 `interface.rs` (what it shares with the message box and the corner messages: units,
 colour, fonts, textures),
-`combat.rs` `Combat::hud_weapon` (condition and ammo), `crates/fnv-font` (`fonts.md`).
+`combat.rs` `Combat::hud_weapon` (condition and ammo), `hud_target.rs` (whose health the
+enemy bar shows), `crates/fnv-font` (`fonts.md`).
 
 ## 1. Sources
 
@@ -23,6 +24,12 @@ colour, fonts, textures),
   nothing in this note is measured on it yet; every place it would settle is marked
   `[hypothesis]` in §4 and listed in §7.
 - **The GECK wiki's "DisablePlayerControls" page**, from the owner's export.
+- **The owner's screenshots for playtest list 5** (2026-10-14/15, private, in
+  `C:\fnv-private`): the original's HUD at 1920 x 1080 in a fight with radscorpions
+  (`Target healthbar`), a side-by-side of NVForever's and the original's bars at the
+  same size (`HPAPMisaligned`), the four sneak words at 1280 x 720 (`Sneak detection`),
+  and NVForever in a conversation with Trudy while Joe Cobb talks to her (`DialogueUI`).
+  The measurements of §4, §8 and §9 are taken on them.
 
 ## 2. What the files say
 
@@ -107,30 +114,45 @@ partially disabled: Action Points, Health, Crosshair".
 
 ## 4. How NVForever sets it out
 
-What the files leave to the game's code is set here, and is `[hypothesis]` until it is
-measured on the owner's screenshot:
+What the files leave to the game's code is set here. The places of the pieces in the
+corners are `[hypothesis]`; the bars, labels and the condition bar were measured on the
+original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observed]`:
 
 - The two pieces stand in the bottom corners, 40 from the side and 30 from the bottom
   edge. Each bracket picture is drawn texel for unit at its piece's top left corner.
-- The bars stand on the long line, 4 above it. A full bar is 256 long (32 ticks) and
-  ends at the bracket's corner mark: at x 64–320 on the left, 70–326 on the right. The
-  file's own 300 would run a bar over its label or past the bracket's end, so the
-  length must be set by the code as well.
-- "HP" stands between the left upright and the health bar; "AP" between the action
-  points bar and the right upright. The words are written here as on the screenshot
-  [hypothesis: the game takes them from its settings].
-- A bar's length is its value times the full length; a tick that does not fit whole is
-  cut. The health bar empties from the right, the action points bar from the left
-  (towards its label).
+- The bars stand on the long line, about 4 above it. A full bar is 37 ticks, 296 long
+  (the file's "total width" is 300), from just inside the upright to the bracket's
+  corner mark: x 24–320 on the left, 70–366 on the right [observed: the bar starts
+  about 3 units right of the upright's inner edge and its last tick ends at the mark].
+- "HP" and "AP" stand **above** their bars, near the uprights: "HP" starting at x 33,
+  "AP" ending at x 362, on the line y 33 (their capitals 23 high) [observed]. The words
+  are written as on the screenshots [hypothesis: the game takes them from its settings].
+- A tick is the picture `hud_tick_mark.dds`: a block 6 texels wide (2 clear after it),
+  its opacity rising from about an eighth at the top to full at the bottom [observed:
+  the texture], so the ticks look darker than the lines over the world. Each tick is
+  set on whole pixels — the step `round(8 × scale)`, the width `round(6 × scale)` — so
+  all ticks are as wide as each other at any view size [design: the owner's "clean
+  straight lines, not some bigger than others"; at 720 lines a 6-of-8 tick is 4.5
+  pixels and rounded unevenly before].
+- A bar lights a tick for any part of its share (`ceil(value × 37)`) [hypothesis]. The
+  health bar empties from the right, the action points bar from the left (towards its
+  label).
 - The compass window is where the file puts it. The heading is in its middle: the
   strip is shifted by heading / 360 x 1024. The window's middle (x 192) is not where
   the bracket's triangle is (x 165); which of the two the original uses is open.
   The ends are cut off sharp.
-- Under the right bracket's long line: "CND", then the condition's bar at x 90 over a
-  ground 60 long [documented: the ground's place and size] at a quarter of the bar's
-  strength [hypothesis: as `meter.xml`'s ground], left of the divider; right of the
-  divider the ammo, right-justified near the upright, as "rounds in the weapon/rounds
-  carried besides".
+- Under the right bracket's long line: "CND", then the condition's bar over a ground 60
+  long and 20 high [documented: the size] at a quarter of the bar's strength
+  [hypothesis: as `meter.xml`'s ground]. The bar ends 15 before the divider (x 132–192)
+  and its bottom is on the line "CND" stands on (y 106), its top level with the
+  letters' tops [observed]. Right of the divider the ammo, right-justified near the
+  upright, as "rounds in the weapon/rounds carried besides".
+- Over the condition bar, the jamming threshold: `CNDArrows`, the picture
+  `interface\shared\arrow\repair_meter_pips.dds` [documented: hud_main_menu.xml, its
+  place "set in code"], two black arrows at the picture's top and bottom edges pointing
+  at each other. The picture is drawn as high as the bar (20 × 20) with the arrows'
+  middle at three quarters of the bar [owner: "the 75% threshold on condition … when
+  jamming occurs"; observed: at about 0.75–0.79 of the bar on the screenshot].
 - Everything is in the interface's amber at full brightness.
 
 ## 5. Where the numbers come from
@@ -149,7 +171,7 @@ measured on the owner's screenshot:
   known].
 
 [design] The HUD is on the screen while the player is in the world (`PlayState::Playing`)
-and off in every menu, in dialogue and behind loading screens. The interface file does
+and off in every menu, in dialogue and behind loading screens (§10 for dialogue). The interface file does
 not say which menus hide it. [documented, §2] While a script holds the player's
 movement (the opening at Doc Mitchell's) both corner pieces are hidden, the compass,
 condition and ammo with them, being parts of the same two rectangles [hypothesis].
@@ -170,20 +192,83 @@ the compass the eight directions' letters in Bevy's font.
   (expect "HP" and a full bar, "SW" and "W" on the compass, "AP" and a full bar,
   "CND" with the bar at six tenths, "13/37").
 
+- Smoke scenarios `hud-sneak-target` (the sneak word and a bighorner's health on the
+  enemy bar) and `hud-dialogue` (Trudy's lines while Sunny talks to the player are logged
+  `(not drawn: in dialogue)`), `tools/smoke/scenarios.toml`.
+
 ## 7. Not built, and open
 
-- **Not measured on the screenshot** (see §1): the pieces' places on the screen, the
-  bars' length and height above the line, the labels' places, the compass's middle,
-  the ammo's place, the brightness of lines against text.
+- **Not measured**: the pieces' places on the screen, the compass's middle, the ammo's
+  place, the brightness of lines against text (§4 measured the bars, labels and the
+  condition bar).
 - Compass markers: quest targets, places, the player's own marker, actors nearby.
 - The compass's faded ends.
-- The enemy's health, the sneak meter, the messages at the top left with their icons,
-  subtitles, the XP bar, the radiation meter, the breath meter, the crippled-limb
+- The messages at the top left with their icons, subtitles, the XP bar, the radiation meter, the breath meter, the crippled-limb
   picture, the armour-piercing icons, the ammo type's label, Hardcore mode's words.
   (The crosshair and the prompt under it are drawn as the original's: `reticle.md`.)
   The developer's stand-ins for some of these (`activate.rs`, `combat.rs`,
   `script_hud.rs`) are unchanged; the crippled limbs stay a line of words.
 - The HUD's fading in and out, its opacity setting, and the glow the game adds over it
   (`[InterfaceFX]` `fBlurIntensityHUD`).
-- The condition arrows (`CNDArrows`) and what the bar looks like for a weapon being
-  repaired or broken.
+- What the condition bar looks like for a weapon being repaired or broken.
+- Weapon jamming itself (playtest list 5, item 9) is another workstream's; the arrows
+  only mark the threshold.
+
+## 8. The enemy's health
+
+[documented: hud_main_menu.xml, hudtemplates.xml] `EnemyHealth` is a piece 350 x 52;
+its bracket `glow_enemy_health_seperator.dds` (512 x 64) stands at (-7, 3) in it.
+[observed: the texture] A long line (upper edge at y 19, from x 36 to 327) with a corner
+mark rising at each end; their inner edges at x 56 and 307.
+
+[observed: the `Target healthbar` screenshot] The piece is centred across the view; its
+long line is level with the corner pieces' long lines; the ticks (the same tick picture
+as the player's bars) stand on it between the corner marks, about 32 of them (31 here,
+as many as fit); the actor's name is centred under the line in font 7, standing on
+y 53 of the piece. All of it is in the HUD's alternative colour, red: about
+(248, 68, 45) on the screenshot, `iSystemColorHUDAlt*` 255, 67, 42 (`reticle.md`).
+
+[owner, playtest list 5, item 32] The bar empties from both ends towards its middle:
+the lit ticks are the middle `ceil(value × 31)`, an odd one gone from the right first.
+
+Whose health [hypothesis; the original's rule is not documented]: the living actor under
+the crosshair (a ray along the crosshair's line through the collision world, up to 8192
+units, to the first actor hit volume or capsule) when it is hostile to the player
+(`Game::would_attack`) or in combat with the player, or when the player hit it within
+5 seconds; and for 5 seconds after the player hits an actor, aimed at or not. Logged as
+`hud: enemy health <name> 0x<ref> <percent> %` and `hud: enemy health off`. The
+developer's stand-in (a line of `|` characters over the crosshair, `combat.rs`) is gone.
+
+## 9. The sneak word
+
+[documented: hud_main_menu.xml] `SneakMeter` is a piece 356 x 34 with a model in it
+(`sneak_nif`); the template `sneak_bracket` (`glow_stealth_metre_seperator.dds`) is a
+bracket like the enemy's. [observed: the owner's four screenshots] The original shows
+neither: only a word in brackets, centred at the top of the view, its line at y 51 from
+the top, in font 7: `[HIDDEN]` and `[DETECTED]` in the HUD's colour, `[CAUTION]` and
+`[DANGER]` in its alternative red. The words are not in `FalloutNV.esm`'s settings
+(they would be the program's defaults); they are written here as the screenshots show
+them.
+
+Shown while the player sneaks (`PlayerControl::sneak`), with the rest of the HUD. Which
+word [hypothesis: the meaning players give the words; not documented]: `[DANGER]` when
+an actor is in Combat with the player as its target; else `[CAUTION]` when an actor in
+Alert or Lost has the player among its threats or an alarm the player caused
+(`fnv_game::awareness`); else `[DETECTED]` when some actor's latest detection of the
+player is in the detected band (`Game::detection`, value above 0); else `[HIDDEN]`.
+Logged as `hud: sneak [WORD]` on each change. (`fnv_game::detection::Band::meter`
+names the bands HIDDEN, CAUTION, DANGER for the detection log; that older mapping is not
+what the HUD shows.)
+
+## 10. In dialogue
+
+[owner, playtest list 5, item 74] While the player is in a conversation every HUD
+element goes: the corner pieces, the enemy bar and the sneak word (`PlayState::Dialogue`
+is not `Playing`), the crosshair (`reticle.rs`), and the messages at the top left — the
+corner messages and the quest messages (`corner_messages.rs`, `quest_messages.rs`)
+wait, their time held, and come back when the conversation ends [hypothesis: whether the
+original holds them or shows them over the dialogue screen is not checked]. Other
+actors' lines (Joe Cobb's to Trudy while the player talks to her) and the radio's are
+not drawn as subtitles; they stay in the log's `subtitle:` lines with
+`(not drawn: in dialogue)` after them. The conversation's own line is the dialogue
+menu's (`dialogue_menu.rs`).

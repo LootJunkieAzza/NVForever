@@ -12,19 +12,28 @@
 //! - The pieces are spawned once; after that only the bars' lengths, the compass strip's
 //!   place and the ammo's digits change.
 //! - Without the game's textures the bars are plain blocks and the brackets plain lines.
+//! - The enemy health bar (bottom middle, `crate::hud_target` says whose) and the sneak
+//!   word (top middle, while sneaking) are parts of the same HUD (§8, §9).
+//! - A bar's pips are set on whole pixels, all as wide as each other, whatever the
+//!   view's size (§4).
 
 use crate::combat::{Combat, HudWeapon};
 use crate::control::ControlLocks;
+use crate::hud_target::HudTarget;
 use crate::player::Player;
+use crate::reticle::crime_colour;
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
 use crate::interface::{amber, at, bc_supported, face, plain_font, set_line, texture, u, Face};
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use fnv_sim::FormId;
 use fnv_font::Font;
 use fnv_game::actor_values::ACTION_POINTS;
+use fnv_game::awareness::State as Awake;
+use fnv_game::detection::Band;
 use nvf_assets::GameData;
 
 // ---- the interface files' numbers [documented: hud.md §2, §3] -------------------------
@@ -34,16 +43,38 @@ const HP_PANEL: Vec2 = Vec2::new(369.0, 127.0);
 const AP_PANEL: Vec2 = Vec2::new(386.0, 127.0);
 /// The bracket pictures' room; the pictures are drawn texel for unit.
 const BRACKET: Vec2 = Vec2::new(512.0, 256.0);
-/// One tick of a bar. (The file's own length for a full bar, 300, is not used: §4.)
+/// One tick of a bar: the room it takes and its height. (The file's own length for a full
+/// bar, 300, is about the 296 measured, §4.)
 const TICK: Vec2 = Vec2::new(8.0, 20.0);
+/// The tick picture's block: 6 texels wide, then 2 clear [observed: `hud_tick_mark.dds`,
+/// its opacity rising from top to bottom].
+const TICK_BLOCK: f32 = 6.0;
 /// The compass window in the health piece: place and size.
 const COMPASS_AT: Vec2 = Vec2::new(20.0, 65.0);
 const COMPASS: Vec2 = Vec2::new(345.0, 64.0);
 /// The whole strip, north to north: 1024 texels for 360 degrees [observed: the texture].
 const STRIP: Vec2 = Vec2::new(1024.0, 64.0);
-/// The solid bar's ground (weapon condition): place across, length and height.
-const CND_X: f32 = 90.0;
+/// The solid bar's ground (weapon condition): length and height [documented: the file
+/// puts it at x 90 of a frame the code sets; where it stands is measured, below].
 const CND_BAR: Vec2 = Vec2::new(60.0, 20.0);
+/// The condition's arrows, `CNDArrows`: a 16 x 16 picture, placed by the code
+/// [documented: hud_main_menu.xml]; black arrows at the picture's top and bottom edges
+/// pointing in, their middle 3.5 texels from its left [observed: the texture].
+const CND_ARROWS: &str = "textures\\interface\\shared\\arrow\\repair_meter_pips.dds";
+const ARROWS_MIDDLE: f32 = 3.5 / 16.0;
+/// Where the arrows stand on the condition bar: below this condition a weapon may jam
+/// [owner's playtest list 5, item 73: "the 75% threshold on condition … when jamming
+/// occurs"; observed: the arrows at about three quarters on the owner's screenshot].
+pub const JAM_CONDITION: f32 = 0.75;
+
+/// The enemy's health piece, `EnemyHealth`, and its bracket picture's place and size in
+/// it (`glow_enemy_health_seperator.dds`) [documented: hud_main_menu.xml,
+/// hudtemplates.xml].
+const ENEMY: Vec2 = Vec2::new(350.0, 52.0);
+const ENEMY_BRACKET_AT: Vec2 = Vec2::new(-7.0, 3.0);
+const ENEMY_BRACKET: Vec2 = Vec2::new(512.0, 64.0);
+/// The sneak piece, `SneakMeter`: width and height [documented: hud_main_menu.xml].
+const SNEAK: Vec2 = Vec2::new(356.0, 34.0);
 
 // ---- what the bracket pictures show [observed: the textures, §3] ----------------------
 
@@ -57,6 +88,10 @@ const DIVIDER: f32 = 207.0;
 /// starts on the right one.
 const LEFT_MARK: f32 = 320.0;
 const RIGHT_MARK: f32 = 70.0;
+/// The enemy bracket's long line's upper edge, and the inner edges of its two corner
+/// marks, between which its bar stands [observed: the texture].
+const ENEMY_LINE_Y: f32 = 19.0;
+const ENEMY_MARKS: (f32, f32) = (56.0, 307.0);
 
 // ---- set here; the files leave these to the game's code [hypothesis, §4] --------------
 
@@ -65,16 +100,33 @@ const MARGIN_X: f32 = 40.0;
 const MARGIN_Y: f32 = 30.0;
 /// The bars stand this far above the long line.
 const METER_GAP: f32 = 4.0;
-/// Room between a label and what it labels, and between an upright and a label.
+/// Room between a label and what it labels.
 const LABEL_GAP: f32 = 6.0;
-/// A full bar's length: from the label to the bracket's corner mark, in whole ticks.
-const METER_WIDTH: f32 = 256.0;
-/// The line the texts of the lower row stand on, and where the upper row's stand.
+/// The line the texts of the lower row stand on.
 const LOWER_BASE: f32 = 106.0;
-const UPPER_BASE: f32 = LINE_Y - METER_GAP - 2.0;
 /// The ground of the condition bar is this much of the bar's own brightness
 /// [hypothesis: as `meter.xml`'s ground, a quarter].
 const GROUND: f32 = 0.25;
+
+// ---- measured on the owner's 1920 x 1080 screenshot of the original [observed, §4] -----
+
+/// A full bar: 37 ticks, from just inside the bracket's upright to its corner mark (on
+/// the left; mirrored on the right).
+const PIPS: usize = 37;
+const METER_WIDTH: f32 = PIPS as f32 * TICK.x;
+/// "HP" and "AP" stand above their bars near the uprights: the line they stand on, where
+/// "HP" starts and where "AP" ends.
+const UPPER_BASE: f32 = 33.0;
+const HP_LABEL_X: f32 = 33.0;
+const AP_LABEL_END: f32 = 362.0;
+/// The condition bar ends this far before the divider.
+const CND_BEFORE_DIVIDER: f32 = 15.0;
+/// The enemy bar's pips: as many as fit between the bracket's corner marks.
+const ENEMY_PIPS: usize = 31;
+/// The enemy's name: the line it stands on in its piece, centred.
+const ENEMY_NAME_BASE: f32 = 53.0;
+/// The sneak word: the line it stands on, from the view's top, centred.
+const SNEAK_BASE: f32 = 51.0;
 
 /// The labels [hypothesis: the game takes them from its settings (`sStats…`); the
 /// owner's screenshot shows these words].
@@ -100,29 +152,104 @@ pub struct HudView {
     /// Compass heading in degrees (0 north, 90 east).
     pub heading: f32,
     pub weapon: HudWeapon,
+    /// The sneak word, while the player sneaks (§9).
+    pub sneak: Option<Sneak>,
 }
 
 impl Default for HudView {
     fn default() -> Self {
-        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default() }
+        HudView { shown: false, health: 1.0, action_points: 1.0, heading: 0.0, weapon: HudWeapon::default(), sneak: None }
     }
+}
+
+/// The sneak word at the top middle while the player sneaks (§9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sneak {
+    Hidden,
+    Detected,
+    Caution,
+    Danger,
+}
+
+impl Sneak {
+    /// [observed: the owner's four screenshots of the original.]
+    pub fn word(self) -> &'static str {
+        match self {
+            Sneak::Hidden => "[HIDDEN]",
+            Sneak::Detected => "[DETECTED]",
+            Sneak::Caution => "[CAUTION]",
+            Sneak::Danger => "[DANGER]",
+        }
+    }
+
+    /// The two warnings are in the HUD's alternative colour, the others in its own
+    /// [observed: the screenshots].
+    pub fn warning(self) -> bool {
+        matches!(self, Sneak::Caution | Sneak::Danger)
+    }
+
+    /// Which word: someone fights the player; else someone hostile searches for the
+    /// player; else someone detects the player; else hidden [hypothesis: the words'
+    /// meaning as players describe them; the original's rule is not documented].
+    pub fn of(fighting: bool, searching: bool, detected: bool) -> Sneak {
+        if fighting {
+            Sneak::Danger
+        } else if searching {
+            Sneak::Caution
+        } else if detected {
+            Sneak::Detected
+        } else {
+            Sneak::Hidden
+        }
+    }
+}
+
+/// The sneak word from the game's detection states (`fnv_game::awareness`) and the
+/// latest detection values (`Game::detection`).
+fn sneak_now(g: &fnv_game::Game) -> Sneak {
+    let me = FormId::PLAYER_REF;
+    let (mut fighting, mut searching) = (false, false);
+    for (id, a) in &g.awareness.actors {
+        if g.is_dead(*id) {
+            continue;
+        }
+        match a.state {
+            Awake::Combat => fighting |= a.combat_target().is_some_and(|(t, _)| t == me),
+            Awake::Alert | Awake::Lost => searching |= a.targets.contains_key(&me) || a.alarms.iter().any(|x| x.owner == me),
+            Awake::Normal => {}
+        }
+    }
+    let detected = g.detection.highest(me).is_some_and(|(_, d)| d.band == Band::Detected);
+    Sneak::of(fighting, searching, detected)
 }
 
 // ---- layout --------------------------------------------------------------------------
 
-/// The length of a bar at `value` (0 to 1) [hypothesis: a tick that does not fit whole
-/// is cut].
-pub fn meter_length(value: f32) -> f32 {
+/// How many of a bar's `count` ticks are lit at `value` (0 to 1): a tick for any part of
+/// its share [hypothesis], none at 0 or below.
+pub fn lit(value: f32, count: usize) -> usize {
     if value.is_finite() {
-        value.clamp(0.0, 1.0) * METER_WIDTH
+        ((value.clamp(0.0, 1.0) * count as f32).ceil() as usize).min(count)
     } else {
-        0.0
+        0
     }
 }
 
-/// How many ticks a full bar takes, the cut one included.
-fn tick_count() -> usize {
-    (METER_WIDTH / TICK.x).ceil() as usize
+/// The ticks lit of a bar that empties from both ends towards its middle (the enemy's,
+/// owner's playtest list 5, item 32): from and to (exclusive), counted from the left. An
+/// odd tick left over goes from the right end first.
+pub fn lit_middle(value: f32, count: usize) -> (usize, usize) {
+    let n = lit(value, count);
+    let from = (count - n) / 2;
+    (from, from + n)
+}
+
+/// A tick's step and width in whole pixels for a view `height` pixels high, so that every
+/// tick is as wide as the next.
+pub fn tick_pixels(height: f32) -> (f32, f32) {
+    let s = height / 960.0;
+    let step = (TICK.x * s).round().max(2.0);
+    (step, (TICK_BLOCK * s).round().clamp(1.0, step - 1.0))
 }
 
 /// Where the doubled compass strip starts in its window (0 or less), so that `heading`
@@ -152,26 +279,32 @@ pub struct Places {
     pub ap_label: f32,
     /// The bars' top.
     pub meter_y: f32,
-    /// The "CND" label's start, the condition bar's top, and where the ammo's text ends.
+    /// The "CND" label's start, the condition bar's start and top (its bottom on the
+    /// label's line), the arrows' left, and where the ammo's text ends.
     pub cnd_label: f32,
+    pub cnd_x: f32,
     pub cnd_y: f32,
+    pub arrows_x: f32,
     pub ammo_right: f32,
 }
 
 impl Places {
     pub fn new(font: &Font) -> Places {
-        // [hypothesis, §4] A full bar reaches the bracket's corner mark; its label
-        // stands at its outer end, between the bar and the bracket's upright.
+        // [observed, §4] A full bar runs from just inside the upright to the bracket's
+        // corner mark; its label stands above it, near the upright.
         let hp_meter = LEFT_MARK - METER_WIDTH;
         let ap_meter = RIGHT_MARK;
+        let cnd_x = DIVIDER - CND_BEFORE_DIVIDER - CND_BAR.x;
         Places {
-            hp_label: hp_meter - LABEL_GAP - font.width(HP),
+            hp_label: HP_LABEL_X,
             hp_meter,
             ap_meter,
-            ap_label: ap_meter + METER_WIDTH + LABEL_GAP,
+            ap_label: AP_LABEL_END - font.width(AP),
             meter_y: LINE_Y - METER_GAP - TICK.y,
-            cnd_label: CND_X - LABEL_GAP - font.width(CND),
+            cnd_label: cnd_x - LABEL_GAP - font.width(CND),
+            cnd_x,
             cnd_y: LOWER_BASE - CND_BAR.y,
+            arrows_x: cnd_x + JAM_CONDITION * CND_BAR.x - ARROWS_MIDDLE * CND_BAR.y,
             ammo_right: RIGHT_UPRIGHT - 2.0 * LABEL_GAP,
         }
     }
@@ -181,11 +314,13 @@ impl Places {
 
 /// Read what the HUD shows. Health and action points come from the script runtime's
 /// actor values; until it runs they read full.
+#[allow(clippy::too_many_arguments)]
 fn gather(
     state: Res<State<PlayState>>,
     player: Option<Res<Player>>,
     combat: Option<Res<Combat>>,
     locks: Option<Res<ControlLocks>>,
+    control: Option<Res<crate::control::PlayerControl>>,
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     mut view: ResMut<HudView>,
@@ -200,7 +335,9 @@ fn gather(
     if let Some(c) = &combat {
         now.weapon = c.hud_weapon(&sim);
     }
+    let sneaking = control.is_some_and(|c| c.sneak);
     if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        now.sneak = sneaking.then(|| sneak_now(&rt.game));
         (now.health, now.action_points) = with_world(rt, &mut sim, |rt| {
             // An aid item's temporary modifier (Buffout's Health, Jet's Action Points) raises
             // the maximum with the value [hypothesis: the bar stays a share of the whole].
@@ -222,17 +359,31 @@ fn gather(
             };
             (if max > 0.0 { (health / max) as f32 } else { 0.0 }, ap as f32)
         });
+    } else {
+        now.sneak = sneaking.then_some(Sneak::Hidden);
+    }
+    if now.sneak != view.sneak && now.shown {
+        match now.sneak {
+            Some(s) => info!("hud: sneak {}", s.word()),
+            None => info!("hud: sneak off"),
+        }
     }
     view.set_if_neq(now);
 }
 
 // ---- drawing ---------------------------------------------------------------------------
 
+/// The HUD's systems: what it shows is read, then drawn.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HudSet;
+
 pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<HudView>().add_systems(Update, (gather, draw).chain().in_set(PlaySet::Ui));
+        app.init_resource::<HudView>()
+            .add_plugins(crate::hud_target::HudTargetPlugin)
+            .add_systems(Update, (gather, draw, pips, texts).chain().in_set(HudSet).in_set(PlaySet::Ui));
     }
 }
 
@@ -241,25 +392,50 @@ struct Art {
     font: Face,
     left_bracket: Option<Handle<Image>>,
     right_bracket: Option<Handle<Image>>,
-    tick: Option<Handle<Image>>,
+    enemy_bracket: Option<Handle<Image>>,
     strip: Option<Handle<Image>>,
+    arrows: Option<Handle<Image>>,
 }
 
 fn load_art(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Art {
-    let mut hud = |name: &str| data.and_then(|d| texture(&format!("{HUD_TEXTURES}{name}.dds"), d, images, bc)).map(|t| t.0);
-    let (left_bracket, right_bracket) = (hud("glow_hud_left_seperatorglow"), hud("glow_hud_right_seperatorglow"));
-    let (tick, strip) = (hud("hud_tick_mark"), hud("glow_hud_comp_direction_strip"));
-    Art { font: face(FONT, plain_font(36.0, 15.0), data, images, bc), left_bracket, right_bracket, tick, strip }
+    let mut read = |path: &str| data.and_then(|d| texture(path, d, images, bc)).map(|t| t.0);
+    let hud = |name: &str| format!("{HUD_TEXTURES}{name}.dds");
+    let (left_bracket, right_bracket) = (read(&hud("glow_hud_left_seperatorglow")), read(&hud("glow_hud_right_seperatorglow")));
+    let enemy_bracket = read(&hud("glow_enemy_health_seperator"));
+    let strip = read(&hud("glow_hud_comp_direction_strip"));
+    let arrows = read(CND_ARROWS);
+    Art { font: face(FONT, plain_font(36.0, 15.0), data, images, bc), left_bracket, right_bracket, enemy_bracket, strip, arrows }
 }
 
 #[derive(Component)]
 struct HudRoot;
 
-#[derive(Component, Clone, Copy, PartialEq)]
+#[derive(Component, Clone, Copy, PartialEq, Debug)]
 enum Bar {
     Health,
     ActionPoints,
-    Condition,
+    Enemy,
+}
+
+/// The weapon condition's bar.
+#[derive(Component)]
+struct ConditionBar;
+
+/// A bar's row of ticks: which bar, its colour, and how the ticks stand in it.
+#[derive(Component, Clone, Copy)]
+struct PipRow {
+    bar: Bar,
+    color: Color,
+    /// The row's width (interface units) and its tick count.
+    width: f32,
+    count: usize,
+}
+
+/// A tick of a bar, `index` from the bar's left end.
+#[derive(Component)]
+struct Pip {
+    bar: Bar,
+    index: usize,
 }
 
 /// The doubled compass strip in its window.
@@ -274,30 +450,20 @@ struct ConditionRow;
 #[derive(Component)]
 struct AmmoText;
 
-/// A bar of ticks: a window `length` long over a row of ticks; `from_right` keeps the
-/// window's right end in place (the action points bar empties from the left).
-fn spawn_meter(p: &mut ChildSpawnerCommands, bar: Bar, x: f32, y: f32, from_right: bool, art: &Art, color: Color) {
-    let mut window = at(x, y, METER_WIDTH, TICK.y);
-    window.overflow = Overflow::clip();
-    if from_right {
-        (window.left, window.right) = (Val::Auto, u(AP_PANEL.x - x - METER_WIDTH));
-    }
-    p.spawn((bar, window)).with_children(|w| {
-        for i in 0..tick_count() {
-            let mut tick = at(i as f32 * TICK.x, 0.0, TICK.x, TICK.y);
-            if from_right {
-                (tick.left, tick.right) = (Val::Auto, u(i as f32 * TICK.x));
-            }
-            match &art.tick {
-                // The picture is taller than a tick: its top part is the tick.
-                Some(image) => w.spawn((tick, ImageNode { rect: Some(Rect::new(0.0, 0.0, TICK.x, TICK.y)), color, ..ImageNode::new(image.clone()) })),
-                None => {
-                    tick.width = u(TICK.x - 3.0);
-                    w.spawn((tick, BackgroundColor(color)))
-                }
-            };
-        }
-    });
+/// The enemy's health piece, and the node that holds its name's letters.
+#[derive(Component)]
+struct EnemyPiece;
+#[derive(Component)]
+struct EnemyName;
+
+/// Holds the sneak word's letters.
+#[derive(Component)]
+struct SneakText;
+
+/// A bar's row of ticks at `x`, `y` (`width` long); the ticks are set in it on whole
+/// pixels by [`pips`].
+fn spawn_row(p: &mut ChildSpawnerCommands, bar: Bar, x: f32, y: f32, width: f32, count: usize, color: Color) {
+    p.spawn((PipRow { bar, color, width, count }, at(x, y, width, TICK.y)));
 }
 
 /// A bracket: the game's picture, or plain lines where its lines are.
@@ -329,7 +495,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
         root.spawn(piece).with_children(|p| {
             spawn_bracket(p, &art.left_bracket, &[LEFT_UPRIGHT], color);
             label(p, HP, places.hp_label, UPPER_BASE);
-            spawn_meter(p, Bar::Health, places.hp_meter, places.meter_y, false, art, color);
+            spawn_row(p, Bar::Health, places.hp_meter, places.meter_y, METER_WIDTH, PIPS, color);
             let mut window = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
             window.overflow = Overflow::clip();
             p.spawn(window).with_children(|w| {
@@ -354,15 +520,56 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
         let piece = Node { position_type: PositionType::Absolute, right: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(AP_PANEL.x), height: u(AP_PANEL.y), ..default() };
         root.spawn(piece).with_children(|p| {
             spawn_bracket(p, &art.right_bracket, &[RIGHT_UPRIGHT, DIVIDER], color);
-            spawn_meter(p, Bar::ActionPoints, places.ap_meter, places.meter_y, true, art, color);
+            spawn_row(p, Bar::ActionPoints, places.ap_meter, places.meter_y, METER_WIDTH, PIPS, color);
             label(p, AP, places.ap_label, UPPER_BASE);
             p.spawn((ConditionRow, at(0.0, 0.0, DIVIDER, AP_PANEL.y), Visibility::Inherited)).with_children(|row| {
                 label(row, CND, places.cnd_label, LOWER_BASE);
-                row.spawn((at(CND_X, places.cnd_y, CND_BAR.x, CND_BAR.y), BackgroundColor(color.with_alpha(GROUND))));
-                row.spawn((Bar::Condition, at(CND_X, places.cnd_y, CND_BAR.x, CND_BAR.y), BackgroundColor(color)));
+                row.spawn((at(places.cnd_x, places.cnd_y, CND_BAR.x, CND_BAR.y), BackgroundColor(color.with_alpha(GROUND))));
+                row.spawn((ConditionBar, at(places.cnd_x, places.cnd_y, CND_BAR.x, CND_BAR.y), BackgroundColor(color)));
+                // The jamming threshold's two arrows, over the bar (§4).
+                match &art.arrows {
+                    Some(image) => {
+                        row.spawn((at(places.arrows_x, places.cnd_y, CND_BAR.y, CND_BAR.y), ImageNode::new(image.clone())));
+                    }
+                    None => {
+                        let x = places.cnd_x + JAM_CONDITION * CND_BAR.x - 2.0;
+                        row.spawn((at(x, places.cnd_y, 4.0, 5.0), BackgroundColor(Color::BLACK)));
+                        row.spawn((at(x, places.cnd_y + CND_BAR.y - 5.0, 4.0, 5.0), BackgroundColor(Color::BLACK)));
+                    }
+                }
             });
             p.spawn((AmmoText, at(0.0, 0.0, AP_PANEL.x, AP_PANEL.y)));
         });
+        // The enemy's health, bottom middle: its long line level with the corner pieces'
+        // (§8).
+        let red = crime_colour();
+        let enemy_top = HP_PANEL.y - LINE_Y + ENEMY_LINE_Y + ENEMY_BRACKET_AT.y - ENEMY.y;
+        let piece = Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(50.0),
+            margin: UiRect::left(u(-ENEMY.x / 2.0)),
+            bottom: u(MARGIN_Y + enemy_top),
+            width: u(ENEMY.x),
+            height: u(ENEMY.y),
+            ..default()
+        };
+        root.spawn((EnemyPiece, piece, Visibility::Hidden)).with_children(|p| {
+            let (bx, by) = (ENEMY_BRACKET_AT.x, ENEMY_BRACKET_AT.y);
+            match &art.enemy_bracket {
+                Some(image) => {
+                    p.spawn((at(bx, by, ENEMY_BRACKET.x, ENEMY_BRACKET.y), ImageNode { color: red, ..ImageNode::new(image.clone()) }));
+                }
+                None => {
+                    p.spawn((at(bx + ENEMY_MARKS.0 - 20.0, by + ENEMY_LINE_Y, ENEMY_MARKS.1 - ENEMY_MARKS.0 + 40.0, 2.0), BackgroundColor(red)));
+                }
+            }
+            let (from, to) = (bx + ENEMY_MARKS.0, bx + ENEMY_MARKS.1);
+            spawn_row(p, Bar::Enemy, from, by + ENEMY_LINE_Y - METER_GAP - TICK.y, to - from, ENEMY_PIPS, red);
+            p.spawn((EnemyName, at(0.0, 0.0, ENEMY.x, ENEMY.y)));
+        });
+        // The sneak word, top middle.
+        let piece = Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(-SNEAK.x / 2.0)), top: u(0.0), width: u(SNEAK.x), height: u(SNEAK.y + SNEAK_BASE), ..default() };
+        root.spawn((SneakText, piece));
     });
 }
 
@@ -370,18 +577,18 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
 fn draw(
     mut commands: Commands,
     view: Res<HudView>,
+    target: Res<HudTarget>,
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
     mut art: Local<Option<Art>>,
-    mut ammo_shown: Local<Option<String>>,
-    mut root: Query<&mut Visibility, (With<HudRoot>, Without<ConditionRow>)>,
-    mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>)>,
-    mut bars: Query<(&Bar, &mut Node), Without<Strip>>,
-    mut strip: Query<&mut Node, With<Strip>>,
-    ammo: Query<Entity, With<AmmoText>>,
+    mut root: Query<&mut Visibility, (With<HudRoot>, Without<ConditionRow>, Without<EnemyPiece>)>,
+    mut condition: Query<&mut Visibility, (With<ConditionRow>, Without<HudRoot>, Without<EnemyPiece>)>,
+    mut enemy: Query<&mut Visibility, (With<EnemyPiece>, Without<HudRoot>, Without<ConditionRow>)>,
+    mut bar: Query<&mut Node, (With<ConditionBar>, Without<Strip>)>,
+    mut strip: Query<&mut Node, (With<Strip>, Without<ConditionBar>)>,
 ) {
-    let Some(art) = art.as_ref() else {
+    if art.is_none() {
         // The first frame the HUD is wanted: read the game's pictures and set it up.
         if view.shown {
             let loaded = load_art(data.as_deref(), &mut images, bc_supported(formats.as_deref()));
@@ -389,7 +596,7 @@ fn draw(
             *art = Some(loaded);
         }
         return;
-    };
+    }
     let show = |on: bool| if on { Visibility::Inherited } else { Visibility::Hidden };
     for mut v in &mut root {
         v.set_if_neq(show(view.shown));
@@ -400,12 +607,11 @@ fn draw(
     for mut v in &mut condition {
         v.set_if_neq(show(view.weapon.condition.is_some()));
     }
-    for (bar, mut node) in &mut bars {
-        let width = match bar {
-            Bar::Health => u(meter_length(view.health)),
-            Bar::ActionPoints => u(meter_length(view.action_points)),
-            Bar::Condition => u(view.weapon.condition.unwrap_or(0.0).clamp(0.0, 1.0) * CND_BAR.x),
-        };
+    for mut v in &mut enemy {
+        v.set_if_neq(show(target.0.is_some()));
+    }
+    let width = u(view.weapon.condition.unwrap_or(0.0).clamp(0.0, 1.0) * CND_BAR.x);
+    for mut node in &mut bar {
         if node.width != width {
             node.width = width;
         }
@@ -416,16 +622,133 @@ fn draw(
             node.left = left;
         }
     }
-    let text = ammo_text(view.weapon.ammo);
-    if ammo_shown.as_deref() != Some(text.as_str()) {
-        if let Ok(e) = ammo.single() {
-            let places = Places::new(&art.font.font);
-            commands.entity(e).despawn_related::<Children>().with_children(|p| {
-                if let Some(line) = art.font.font.lines(&text, None).into_iter().next() {
-                    set_line(p, &art.font, &line, places.ammo_right - line.width, LOWER_BASE, amber(255.0));
+}
+
+/// Set the bars' ticks on whole pixels when the view's size changes, and light those the
+/// values call for.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn pips(
+    mut commands: Commands,
+    view: Res<HudView>,
+    target: Res<HudTarget>,
+    data: Option<Res<GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<CompressedImageFormatSupport>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    rows: Query<(Entity, &PipRow)>,
+    mut ticks: Query<(&Pip, &mut Visibility)>,
+    mut set_for: Local<Option<(f32, f32)>>,
+    mut tick: Local<Option<Option<Handle<Image>>>>,
+) {
+    if !view.shown {
+        return;
+    }
+    let Ok(window) = windows.single() else { return };
+    let key = (window.physical_height() as f32, window.scale_factor());
+    if rows.is_empty() {
+        return;
+    }
+    if *set_for != Some(key) {
+        let image = tick
+            .get_or_insert_with(|| data.as_deref().and_then(|d| texture(&format!("{HUD_TEXTURES}hud_tick_mark.dds"), d, &mut images, bc_supported(formats.as_deref()))).map(|t| t.0))
+            .clone();
+        let (height, sf) = key;
+        let (step, width) = tick_pixels(height);
+        let px = |v: f32| Val::Px(v / sf);
+        for (e, row) in &rows {
+            // The ticks fill from the bar's outer end: from the left for health, from the
+            // right for action points; the enemy's stand in the middle of their room.
+            let span = row.count as f32 * step - (step - width);
+            let room = row.width * height / 960.0;
+            let first = match row.bar {
+                Bar::Health => 0.0,
+                Bar::ActionPoints => room - span,
+                Bar::Enemy => (room - span) / 2.0,
+            }
+            .round();
+            commands.entity(e).despawn_related::<Children>().with_children(|r| {
+                for index in 0..row.count {
+                    let node = Node { position_type: PositionType::Absolute, left: px(first + index as f32 * step), top: Val::Px(0.0), width: px(width), height: Val::Percent(100.0), ..default() };
+                    let pip = Pip { bar: row.bar, index };
+                    match &image {
+                        // The picture's block: its top part, as high as a tick.
+                        Some(image) => r.spawn((pip, node, ImageNode { rect: Some(Rect::new(0.0, 0.0, TICK_BLOCK, TICK.y)), color: row.color, ..ImageNode::new(image.clone()) })),
+                        None => r.spawn((pip, node, BackgroundColor(row.color))),
+                    };
                 }
             });
-            *ammo_shown = Some(text);
+        }
+        *set_for = Some(key);
+        return;
+    }
+    let enemy = target.0.as_ref().map_or(0.0, |t| t.health);
+    for (pip, mut v) in &mut ticks {
+        let on = match pip.bar {
+            Bar::Health => pip.index < lit(view.health, PIPS),
+            Bar::ActionPoints => PIPS - 1 - pip.index < lit(view.action_points, PIPS),
+            Bar::Enemy => {
+                let (from, to) = lit_middle(enemy, ENEMY_PIPS);
+                (from..to).contains(&pip.index)
+            }
+        };
+        v.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
+    }
+}
+
+/// The texts that change: the ammo counter, the enemy's name, the sneak word.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn texts(
+    mut commands: Commands,
+    view: Res<HudView>,
+    target: Res<HudTarget>,
+    data: Option<Res<GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<CompressedImageFormatSupport>>,
+    mut face_: Local<Option<Face>>,
+    mut shown: Local<(Option<String>, Option<String>, Option<Sneak>)>,
+    ammo: Query<Entity, With<AmmoText>>,
+    name: Query<Entity, With<EnemyName>>,
+    sneak: Query<Entity, With<SneakText>>,
+) {
+    if !view.shown || ammo.is_empty() {
+        return;
+    }
+    let face_ = face_.get_or_insert_with(|| face(FONT, plain_font(36.0, 15.0), data.as_deref(), &mut images, bc_supported(formats.as_deref())));
+    let font = &face_.font;
+    let text = ammo_text(view.weapon.ammo);
+    if shown.0.as_deref() != Some(text.as_str()) {
+        if let Ok(e) = ammo.single() {
+            let places = Places::new(font);
+            commands.entity(e).despawn_related::<Children>().with_children(|p| {
+                if let Some(line) = font.lines(&text, None).into_iter().next() {
+                    set_line(p, face_, &line, places.ammo_right - line.width, LOWER_BASE, amber(255.0));
+                }
+            });
+            shown.0 = Some(text);
+        }
+    }
+    let enemy = target.0.as_ref().map(|t| t.name.clone());
+    if shown.1 != enemy {
+        if let Ok(e) = name.single() {
+            commands.entity(e).despawn_related::<Children>().with_children(|p| {
+                if let Some(line) = enemy.as_deref().and_then(|n| font.lines(n, None).into_iter().next()) {
+                    set_line(p, face_, &line, (ENEMY.x - line.width) / 2.0, ENEMY_NAME_BASE, crime_colour());
+                }
+            });
+            shown.1 = enemy;
+        }
+    }
+    if shown.2 != view.sneak {
+        if let Ok(e) = sneak.single() {
+            commands.entity(e).despawn_related::<Children>().with_children(|p| {
+                if let Some(s) = view.sneak {
+                    if let Some(line) = font.lines(s.word(), None).into_iter().next() {
+                        let colour = if s.warning() { crime_colour() } else { amber(255.0) };
+                        set_line(p, face_, &line, (SNEAK.x - line.width) / 2.0, SNEAK_BASE, colour);
+                    }
+                }
+            });
+            shown.2 = view.sneak;
         }
     }
 }
@@ -440,15 +763,48 @@ mod tests {
     }
 
     #[test]
-    fn a_bar_is_as_long_as_its_value() {
-        assert_eq!(meter_length(1.0), 256.0);
-        assert_eq!(meter_length(0.5), 128.0);
-        assert_eq!(meter_length(0.0), 0.0);
+    fn a_bar_lights_a_tick_for_any_part_of_its_share() {
+        assert_eq!(lit(1.0, PIPS), 37);
+        assert_eq!(lit(0.5, PIPS), 19);
+        assert_eq!(lit(0.01, PIPS), 1);
+        assert_eq!(lit(0.0, PIPS), 0);
         // Out of range, or not a number: an empty or a full bar, never more.
-        assert_eq!(meter_length(-0.2), 0.0);
-        assert_eq!(meter_length(1.7), 256.0);
-        assert_eq!(meter_length(f32::NAN), 0.0);
-        assert_eq!(tick_count(), 32);
+        assert_eq!(lit(-0.2, PIPS), 0);
+        assert_eq!(lit(1.7, PIPS), 37);
+        assert_eq!(lit(f32::NAN, PIPS), 0);
+    }
+
+    #[test]
+    fn the_enemy_bar_empties_from_both_ends() {
+        assert_eq!(lit_middle(1.0, 31), (0, 31));
+        assert_eq!(lit_middle(0.0, 31), (15, 15));
+        // Half: 16 lit, 15 gone, 7 from the left and 8 from the right.
+        assert_eq!(lit_middle(0.5, 31), (7, 23));
+        for i in 0..=100 {
+            let (from, to) = lit_middle(i as f32 / 100.0, 31);
+            assert!(to <= 31 && (31 - to) - from <= 1, "{i}: {from}..{to}");
+        }
+    }
+
+    #[test]
+    fn ticks_stand_on_whole_pixels() {
+        // The screenshots' sizes: 6 of 8 at 720 lines, 9 at 1080.
+        assert_eq!(tick_pixels(720.0), (6.0, 5.0));
+        assert_eq!(tick_pixels(1080.0), (9.0, 7.0));
+        assert_eq!(tick_pixels(1440.0), (12.0, 9.0));
+        // Never a tick without a gap, even tiny.
+        let (step, width) = tick_pixels(100.0);
+        assert!(width >= 1.0 && width < step);
+    }
+
+    #[test]
+    fn the_sneak_word_is_the_worst_news() {
+        assert_eq!(Sneak::of(false, false, false), Sneak::Hidden);
+        assert_eq!(Sneak::of(false, false, true), Sneak::Detected);
+        assert_eq!(Sneak::of(false, true, true), Sneak::Caution);
+        assert_eq!(Sneak::of(true, true, true), Sneak::Danger);
+        assert!(Sneak::Danger.warning() && Sneak::Caution.warning() && !Sneak::Detected.warning());
+        assert_eq!(Sneak::Hidden.word(), "[HIDDEN]");
     }
 
     #[test]
@@ -479,17 +835,26 @@ mod tests {
     #[test]
     fn the_pieces_stand_inside_their_brackets() {
         let p = Places::new(&font());
-        // A full bar ends at the corner mark on the left and starts at it on the right.
+        // A full bar ends at the corner mark on the left and starts at it on the right,
+        // and runs to just inside the upright.
         assert_eq!(p.hp_meter + METER_WIDTH, LEFT_MARK);
         assert_eq!(p.ap_meter, RIGHT_MARK);
-        // The bars stand on the long line, above it.
+        assert!(p.hp_meter > LEFT_UPRIGHT && p.hp_meter - LEFT_UPRIGHT < 10.0);
+        assert!(p.ap_meter + METER_WIDTH < RIGHT_UPRIGHT && RIGHT_UPRIGHT - (p.ap_meter + METER_WIDTH) < 10.0);
+        // The bars stand on the long line, above it; the labels above the bars.
         assert_eq!(p.meter_y + TICK.y + METER_GAP, LINE_Y);
-        // The labels stand between their bars and the uprights.
-        assert!(p.hp_label > LEFT_UPRIGHT && p.hp_label + font().width(HP) < p.hp_meter);
-        assert!(p.ap_label > p.ap_meter + METER_WIDTH && p.ap_label + font().width(AP) < RIGHT_UPRIGHT);
-        // Condition's label, then its bar, left of the divider; the ammo right of it.
-        assert_eq!(p.cnd_label + font().width(CND) + LABEL_GAP, CND_X);
-        assert!(CND_X + CND_BAR.x < DIVIDER && p.ammo_right > DIVIDER && p.ammo_right < RIGHT_UPRIGHT);
+        assert!(UPPER_BASE < p.meter_y);
+        assert!(p.hp_label > LEFT_UPRIGHT && p.ap_label + font().width(AP) < RIGHT_UPRIGHT);
+        // Condition's label, then its bar next to the divider; the ammo right of it.
+        assert_eq!(p.cnd_label + font().width(CND) + LABEL_GAP, p.cnd_x);
+        assert_eq!(p.cnd_x + CND_BAR.x + CND_BEFORE_DIVIDER, DIVIDER);
+        assert!(p.ammo_right > DIVIDER && p.ammo_right < RIGHT_UPRIGHT);
+        // The bar's bottom is on the label's line.
+        assert_eq!(p.cnd_y + CND_BAR.y, LOWER_BASE);
         assert!(p.cnd_y > LINE_Y);
+        // The arrows' middle at three quarters of the bar.
+        assert!((p.arrows_x + ARROWS_MIDDLE * CND_BAR.y - (p.cnd_x + 0.75 * CND_BAR.x)).abs() < 1e-3);
+        // The enemy's ticks fit between its bracket's marks.
+        assert!(ENEMY_PIPS as f32 * TICK.x - (TICK.x - TICK_BLOCK) <= ENEMY_MARKS.1 - ENEMY_MARKS.0);
     }
 }
