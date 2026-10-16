@@ -278,6 +278,7 @@ pub(crate) fn open_menus(
     stats: Option<ResMut<crate::control::LockStats>>,
     wait: Option<Res<crate::wait::WaitMenu>>,
     mut fresh: ResMut<FreshMenu>,
+    animated: (Option<ResMut<crate::doors::Doors>>, Option<ResMut<crate::container_anim::ContainerOpening>>),
 ) {
     let mut script = script.map(|s| s.into_inner());
     let container = containers.read().last().copied();
@@ -302,6 +303,13 @@ pub(crate) fn open_menus(
             crate::script::engine_menu_closed(script.as_deref_mut(), Mode::Barter(FormId(b.merchant)));
         }
         return;
+    }
+    // A container whose model opens (a locker, a safe): its "Open" plays first
+    // (`crate::container_anim`).
+    if let (None, Some(c), (Some(mut doors), Some(mut opening))) = (barter, container, animated) {
+        if opening.hold(&mut doors, c.container) {
+            return;
+        }
     }
     let opened = match (barter, container) {
         (Some(b), _) => {

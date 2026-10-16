@@ -255,9 +255,30 @@ fn hold_jointed(objects: &mut [fnv_collide::CollisionObject], tallies: &mut Vec<
     tallies.push("jointed_held");
 }
 
+/// A placed static (base STAT, or a static collection SCOL) never moves, whatever its
+/// model's Havok data says: its dynamic bodies are made fixed (physics.md §4.3.2;
+/// playtest list 5 item 59). Tallied as `static_base_fixed`.
+///
+/// [observed: the three motorcycles outside the Goodsprings saloon are STAT
+/// `Motorcycle01Static` references whose model, `vehicles\motorcycle01.nif`, has one dynamic
+/// body (Props layer, 600 kg), the same model as the MSTT `Motorcycle01`; the owner reports
+/// they do not move in the game. 1,131 STAT and 19 SCOL references placed in FalloutNV.esm use a
+/// model with dynamic bodies, most of them `1stPerson…` weapon statics; hypothesis: the
+/// game simulates Havok only for the moveable record types]
+pub(super) fn fix_static_base(base_sig: Option<[u8; 4]>, objects: &mut [fnv_collide::CollisionObject], tallies: &mut Vec<&'static str>) {
+    use fnv_collide::Motion;
+    if !matches!(base_sig.as_ref(), Some(b"STAT" | b"SCOL")) || !objects.iter().any(|o| o.motion == Motion::Dynamic) {
+        return;
+    }
+    for o in objects.iter_mut().filter(|o| o.motion == Motion::Dynamic) {
+        o.motion = Motion::Static;
+    }
+    tallies.push("static_base_fixed");
+}
+
 /// Prepare one placed reference's collision (`fnv_phys::ref_collision`, the rule
-/// `fnvtool phys cell` uses), its dynamic bodies asleep and a jointed object's held
-/// ([`hold_jointed`]).
+/// `fnvtool phys cell` uses), its dynamic bodies asleep, a static's fixed
+/// ([`fix_static_base`]) and a jointed object's held ([`hold_jointed`]).
 pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShapes {
     let t0 = Instant::now();
     let before = *times;
@@ -281,6 +302,7 @@ pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShap
     let in_models = (times.read - before.read) + (times.parse - before.parse) + (times.convert - before.convert);
     times.records += ms_since(t0) - in_models;
     let mut rc = rc;
+    fix_static_base(rc.base_sig, &mut rc.objects, &mut tallies);
     hold_jointed(&mut rc.objects, &mut tallies);
     // Clutter starts asleep (physics.md §4.3.1).
     let prepared = (!rc.objects.is_empty()).then(|| {

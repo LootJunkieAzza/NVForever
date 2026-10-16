@@ -505,6 +505,15 @@ load order: 219 of 226 [observed, `nvforever --play` start-up].
 | Wait/Sleep | the hours accepted | `UIMenuOK` | [design] the basic button's click (`_sound_button_click`) |
 | Wait/Sleep | closed after the last hour | none | [design] |
 
+Added for the owner's list 5 (items 39, 41, 42, 47; their sources in each menu's note):
+
+| Menu | Event | Sound | Source |
+|---|---|---|---|
+| Vigor Tester | page turned; attribute raised, lowered; review row chosen; Done; refused | `OBJBookSpecialPageTurn`; `OBJBookSpecialNumber`, `…NumberDown`; `OBJBookSpecialFocus`; `OBJBookSpecialNumberFinished`; `UIMenuCancel` | [hypothesis] by the records' names (vigor-tester.md) |
+| tag skills, traits | row chosen (keys, pointer), pointer onto Reset or Done; a row taken or given back; refused; Reset; Done | `UIMenuFocus`; `UIMenuPrevNext`; `UIMenuCancel`; `UIMenuCancel`; `UIMenuOK` | [observed] Done's click, the text boxes' pointer sound; [design] the rest (chargen.md §8) |
+| terminal | cursor or selection moved; entered; password right; wrong | `UIHackingCharScroll`; `UIHackingCharEnter`; `UIHackingPassGood`; `UIHackingPassBad` | [hypothesis] by the records' names (hacking.md) |
+| container | Take All | `UIItemTakeAll`, and the menu closes (owner, list 5 item 60) | |
+
 All at the listener. The caps (MISC 0x0000000F `Caps001`) name no sound [observed in the
 run: a trade's caps fall back to `UIItemGenericUp` / `…Down`, §11.3]; `ITMBottlecapsUp`
 and `…Down` exist but nothing links them [observed].
@@ -677,6 +686,34 @@ Seen [observed 2026-10-11, `nvforever --play`, the owner's load order]:
   a group, and whether the original plays the intro before the loop or over it.
 - What a dungeon set's "suspense" answers to, and how a controller with both dungeon
   sets and a battle list chooses.
+
+### 13.5 Fallout 3 music (owner, list 5 item 69)
+
+The owner hears Fallout 3's ambient music and asked whether a condition on the tracks is
+missing. What the records say [observed 2026-10-16, FalloutNV.esm]:
+
+- Eleven location sets play Fallout 3 pieces (`musSetOldFO3Base2`, `…Base3`, `…Base5`,
+  `…Dungeon1`–`3`, `…Explore1`, `…3`–`6`, files `music\old\fo3\mus_fo3_*.mp3`,
+  shipped loose in `Data\Music\OLD\FO3`). Their fields are those of the New Vegas
+  single-piece location sets (`musSetLOCDesExplBothA` and the like): type 1, enable flags
+  0x09, the day outer and night outer layers naming the same file. Nothing in a set marks
+  it apart.
+- 18 of the 89 controllers list them, beside New Vegas, Fallout 1 and Fallout 2 sets, in
+  their location (and for two camps their neutral) lists: the generic
+  `musCtrlGnrcPeaceful`, `…Mystical`, `…Dangerous`, `…Military`, `…NCRCamp`,
+  `…LegionCamp` and `musCtrlGnrcFallout3Military`, `musCtrlNovac`,
+  `musCtrlBoulderCityExternal`, `…Memorial`, `musCtrlNorthVegas`, the Gomorrah, Tops and
+  NCR embassy controllers and `musCtrlCrashedB29`. 171 of the 572 audio markers name one
+  of them, 64 out in the Mojave (`WastelandNV`); round Goodsprings the nearest are a
+  `musCtrlGnrcMystical` marker (radius 3000) about 15,300 units from the town's marker,
+  whose own controller `musCtrlGoodsprings` lists none.
+- So the masters themselves ask for these pieces at those places: no condition on a set
+  or a list keeps them out. The one field not understood is the controllers' `NAM1`
+  (§13.1; the GECK's looping options and "Faction Not Found" are presumably in it): if
+  the original plays a list in order ("Loop") rather than at random, the Fallout 3 pieces
+  would come up in a fixed turn instead of NVForever's random picks [hypothesis]. Nothing
+  changed in NVForever for this item; docs/owner-review.md asks the owner where it was
+  heard.
 
 ## 14. Creatures, movement, objects' own sounds, placement
 

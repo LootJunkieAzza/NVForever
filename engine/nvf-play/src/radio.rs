@@ -64,9 +64,8 @@
 //!   (the AMLRadio template's). Receivers and actors are panned as the sound effects are
 //!   (`crate::sfx::Panned`, `SoundAt`); the Pip-Boy plays flat, at the listener. A
 //!   receiver is heard only within that maximum distance.
-//! - **Subtitles** [design]: the talk line (not a song) heard loudest, at a quarter of
-//!   full level or more, is shown with the station's name as the speaker
-//!   ([`RadioSubtitle`], drawn by `crate::script_hud`).
+//! - **No subtitles**: a station's talk lines are heard, never subtitled (owner, list 5
+//!   item 27).
 //! - The Esc pause menu and a loading screen hold the radios and the programmes, as for
 //!   the placed loops (`crate::ambient`).
 //! - Test aid: `NVF_PLAY_TEST_RADIO=<seconds>:<next|previous|on|off|tune=<station>>[,...]`
@@ -114,8 +113,6 @@ const PIPBOY: u32 = u32::MAX;
 const PIPBOY_STATIC: u32 = u32::MAX - 1;
 /// The Pip-Boy's static (see the module notes).
 const STATIC_SOUND: &str = "UIRadioStaticLP";
-/// Lowest level (before the volume setting) whose talk line is subtitled.
-const SUBTITLE_LEVEL: f32 = 0.25;
 
 // ---- playback -------------------------------------------------------------------------
 
@@ -322,10 +319,6 @@ struct Playing {
 
 #[derive(Component)]
 struct RadioEntity;
-
-/// The talk line subtitled now: the station's placed reference, the line and the response.
-#[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
-pub struct RadioSubtitle(pub Option<(FormId, FormId, usize)>);
 
 /// A Pip-Boy radio control: a key or the test aid.
 #[derive(Debug, Clone, PartialEq)]
@@ -667,7 +660,7 @@ fn play(
     (loc, state, paused, pw): (Res<Location>, Res<State<PlayState>>, Res<Paused>, Res<PlayWorld>),
     player: Option<Res<Player>>,
     data: Option<Res<nvf_assets::GameData>>,
-    (mut assets, mut panned, mut subtitle): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>, ResMut<RadioSubtitle>),
+    (mut assets, mut panned): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>),
     (sinks, mut placed): (Query<&AudioSink, With<RadioEntity>>, Query<&mut SoundAt, With<RadioEntity>>),
 ) {
     let (Some(places), Some(sfx), Some(player), Some(data)) = (places, sfx, player, data) else { return };
@@ -926,17 +919,6 @@ fn play(
         }
     }
 
-    // The talk line heard loudest is subtitled.
-    let sub = wants
-        .iter()
-        .filter(|w| w.level >= SUBTITLE_LEVEL)
-        .filter_map(|w| w.response.filter(|r| !r.2).map(|r| (w.level, w.station, r)))
-        .max_by(|a, b| a.0.total_cmp(&b.0))
-        .and_then(|(_, st, (info, response, _))| Some((FormId(*places.station_ref.get(&st)?), info, response)));
-    if subtitle.0 != sub {
-        subtitle.0 = sub;
-    }
-
     let mut sounding: HashSet<u32> = HashSet::new();
     for w in &wants {
         let gain = w.level * volume;
@@ -1080,7 +1062,6 @@ pub struct RadioPlugin;
 impl Plugin for RadioPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Radio>()
-            .init_resource::<RadioSubtitle>()
             .add_audio_source::<RadioSound>()
             .add_audio_source::<Panned<RadioSound>>()
             .add_systems(Startup, (init, load_aids))

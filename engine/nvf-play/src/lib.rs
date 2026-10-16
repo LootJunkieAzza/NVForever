@@ -20,6 +20,7 @@ pub mod chargen;
 pub mod combat;
 pub mod compass;
 pub mod console;
+pub mod container_anim;
 pub mod control;
 pub mod corner_messages;
 pub mod crafting;
@@ -245,6 +246,7 @@ impl Plugin for PlayPlugin {
             .add_message::<ItemUsed>()
             .add_message::<furniture::UseFurniture>()
             .add_message::<world_sounds::Activated>()
+            .add_message::<world_sounds::DoorPassed>()
             .add_message::<world_sounds::ImpactPicked>()
             .add_message::<ui_sounds::UiSound>()
             .init_resource::<furniture::PlayerSeat>()
@@ -263,7 +265,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(main_menu::MainMenuPlugin)
             .add_plugins(intro::IntroPlugin)
             .add_plugins(cursor::CursorPlugin)
-            .add_plugins(crafting::CraftingPlugin);
+            .add_plugins(crafting::CraftingPlugin)
+            .add_plugins(container_anim::ContainerAnimPlugin);
         test_aid::setup(app);
     }
 }

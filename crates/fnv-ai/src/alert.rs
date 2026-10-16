@@ -58,6 +58,12 @@ use fnv_nav::{NavGraph, Place, Space};
 use fnv_sim::FormId;
 use serde::Serialize;
 
+/// A fighter turns to face its target this many times faster than the standing turn
+/// rate (240 degrees a second): the engine's gunmen fire only facing their target
+/// (nvforever npc_combat, owner's playtest list 5 item 33), and at the standing rate a
+/// turn to a new target held their fire for up to 1.5 s [design].
+pub const COMBAT_TURN: f32 = 2.0;
+
 /// Seconds an actor looks about where it searched before it searches on
 /// [engineering choice].
 pub const LOOK_SECONDS: f64 = 4.0;
@@ -198,7 +204,7 @@ impl Ai {
                 }
             }
             if self.agents[&actor].activity != Activity::Travelling {
-                self.face(game, actor, Place { space, pos: at }, dt);
+                self.face(game, actor, Place { space, pos: at }, dt * COMBAT_TURN);
             }
             return true;
         }
@@ -350,7 +356,7 @@ impl Ai {
                 return true;
             }
             Some(Search::AtPost { kind, at: here, .. }) if kind == post.kind && flat(here, post.at) < POST_SLACK => {
-                self.face(game, actor, Place { space, pos: at }, dt);
+                self.face(game, actor, Place { space, pos: at }, dt * COMBAT_TURN);
                 return true;
             }
             _ => {}

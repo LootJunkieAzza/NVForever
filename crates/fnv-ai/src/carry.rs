@@ -43,6 +43,13 @@ pub struct AiConfig {
     pub keep_apart: bool,
 }
 
+/// An actor without a package walks back to where it was placed from at most this far,
+/// game units [design: a cell; farther away a script has put it there].
+const HOME_REACH: f32 = 4096.0;
+
+/// fMoveSneakMult when the load order does not set it [observed: FalloutNV.esm].
+const SNEAK_MULT: f32 = 0.57;
+
 impl Default for AiConfig {
     fn default() -> Self {
         AiConfig { walk_speed: 86.8, run_speed: 344.0, arrive: 32.0, retry_hours: 1.0, params: PathParams::default(), keep_apart: true }
@@ -161,6 +168,9 @@ pub enum AiEvent {
     SearchOver { why: &'static str },
     /// After a search it goes back to its package's place, `away` units off.
     SearchBack { package: FormId, away: f32 },
+    /// An actor without a package, moved away by a search, a fight or a push, walks back
+    /// to where it was placed ([`Ai::back_to_package`]).
+    BackHome { away: f32, length: f32 },
 }
 
 /// How far an actor is with its Dialogue package ([`goal::Talk`]).
@@ -443,11 +453,45 @@ impl Ai {
     /// package and how far away its place is.
     pub(crate) fn back_to_package(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, why: impl FnOnce(FormId, f32) -> AiEvent) {
         let a = &self.agents[&actor];
+        if a.package.is_none() {
+            self.back_home(game, nav, actor);
+            return;
+        }
         let (Some(package), Activity::There, None, None, None) = (a.package, a.activity, &a.sandbox, a.wait_until, a.talk) else { return };
         let feet = Place { space: a.walker.space, pos: a.walker.feet };
         let Some(to) = a.goal.clone().and_then(|g| self.way_to(feet, &g)) else { return };
         self.log(game, actor, why(package, hdist(feet.pos, to.pos)));
         self.plan(game, nav, actor, package, to, None);
+    }
+
+    /// An actor with no package keeps to where it was placed in the editor: moved off it
+    /// (by a search, a fight, a push), it walks back there [hypothesis: as the game's
+    /// DefaultStayAtEditorLocation; owner's playtest list 5 item 29: Ranger Ghost, who has
+    /// no packages, was found on the ground by the Mojave Outpost's chain-link fence
+    /// instead of on her post on the roof]. One that walks back stands where it arrives,
+    /// facing as placed.
+    fn back_home(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
+        let a = &self.agents[&actor];
+        if a.rooted || a.activity == Activity::Travelling || a.talk.is_some() || a.chat.is_some() {
+            return;
+        }
+        let Some(home) = goal::editor_place(game.world.placed, actor) else { return };
+        let feet = Place { space: a.walker.space, pos: a.walker.feet };
+        // Not one a script put somewhere else (MoveTo): only back from nearby.
+        let away = if feet.space == home.space { hdist(feet.pos, home.pos) } else { f32::INFINITY };
+        if self.within(feet, home, 0.0) || away > HOME_REACH {
+            return;
+        }
+        let params = self.path_params(game, actor);
+        let speed = self.cfg.walk_speed;
+        let a = self.agents.get_mut(&actor).expect("listed");
+        a.walker.speed = speed;
+        let Ok(length) = a.walker.go_to(nav, home, &params).map(|p| p.length) else { return };
+        a.activity = Activity::Travelling;
+        a.trip_started = game.time;
+        a.trip_from = a.walker.travelled;
+        a.face_to = game.world.placed.get(actor).map(|p| p.rot[2]);
+        self.log(game, actor, AiEvent::BackHome { away, length });
     }
 
     pub(crate) fn log(&mut self, game: &Game, actor: FormId, event: AiEvent) {
@@ -742,8 +786,9 @@ impl Ai {
     fn follow_plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, f: goal::Follow, target: Place, away: f32, first: bool) {
         let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN)) || away > FOLLOW_RUN_FROM;
         let params = self.path_params(game, actor);
+        let speed = self.pace(game, actor, running);
         let a = self.agents.get_mut(&actor).expect("listed");
-        a.walker.speed = if running { self.cfg.run_speed } else { self.cfg.walk_speed };
+        a.walker.speed = speed;
         match a.walker.go_to(nav, target, &params) {
             Ok(path) => {
                 let (length, doors) = (path.length, path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect());
@@ -771,7 +816,7 @@ impl Ai {
     fn approach(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, talk: &Talk, target: Place, first: bool) {
         let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN));
         let params = self.path_params(game, actor);
-        let speed = if running { self.cfg.run_speed } else { self.cfg.walk_speed };
+        let speed = self.pace(game, actor, running);
         let a = self.agents.get_mut(&actor).expect("listed");
         a.walker.speed = speed;
         let from = Place { space: a.walker.space, pos: a.walker.feet };
@@ -1061,11 +1106,24 @@ impl Ai {
         feet.space == place.space && hdist(feet.pos, place.pos) <= radius.max(self.cfg.arrive) && (feet.pos[2] - place.pos[2]).abs() <= 256.0
     }
 
+    /// The pace of a package's walk: the walking or running speed, times
+    /// fMoveSneakMult (0.57 in FalloutNV.esm [observed]) while the actor sneaks
+    /// (`Game::sneaks`: SetForceSneak, the package's Always Sneak) [hypothesis: the
+    /// setting's name; the player's sneaking pace uses it too].
+    fn pace(&self, game: &Game, actor: FormId, running: bool) -> f32 {
+        let speed = if running { self.cfg.run_speed } else { self.cfg.walk_speed };
+        if game.sneaks(actor) {
+            speed * game.world.forms.setting_f32("fMoveSneakMult").unwrap_or(SNEAK_MULT)
+        } else {
+            speed
+        }
+    }
+
     /// Plan a walk to `to`; without a way there the package is set aside.
     fn plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, to: Place, patrol_point: Option<FormId>) {
         let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN));
         let params = self.path_params(game, actor);
-        let speed = if running { self.cfg.run_speed } else { self.cfg.walk_speed };
+        let speed = self.pace(game, actor, running);
         let a = self.agents.get_mut(&actor).expect("listed");
         a.walker.speed = speed;
         match a.walker.go_to(nav, to, &params) {
@@ -1152,7 +1210,12 @@ impl Ai {
             a.following = None;
             return;
         }
-        let Some(package) = a.package else { return };
+        let Some(package) = a.package else {
+            // Back where it was placed (`back_home`): it stands there, facing as placed.
+            a.activity = Activity::There;
+            a.face_to = game.world.placed.get(actor).map(|p| p.rot[2]);
+            return;
+        };
         let (seconds, travelled) = (game.time - a.trip_started, a.walker.travelled - a.trip_from);
         // The end of a sandbox's own walk: the behaviour it chose begins.
         if let Some(choice) = a.sandbox.as_mut().and_then(|s| s.pending.take()) {

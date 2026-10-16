@@ -24,6 +24,7 @@ mod crash;
 mod deaths;
 mod detection;
 mod dialogue_look;
+mod door_fade;
 mod doors;
 mod emittance;
 mod fade;
@@ -66,6 +67,7 @@ mod shafts;
 mod imagespace;
 mod imposters;
 mod sky;
+mod sneaking;
 mod ssao;
 mod taa;
 mod speech_look;
@@ -277,9 +279,15 @@ struct Args {
     /// Test aid: exit with success after this many seconds (smoke tests).
     #[arg(long)]
     run_seconds: Option<f32>,
-    /// Do not draw the text overlay (implied by --frame-json).
+    /// Do not draw the text overlay (implied by --frame-json, and by --play unless
+    /// --overlay is given).
     #[arg(long)]
     no_overlay: bool,
+    /// With --play: draw the text overlay (the developer's position, loading counts and
+    /// key help), which the game leaves off (owner, list 5 item 68); the settings page's
+    /// Developer group turns it on and off too.
+    #[arg(long, conflicts_with = "no_overlay")]
+    overlay: bool,
     /// The look: `vanilla` (the picture the parity and picture checks compare) or
     /// `enhanced` (ambient occlusion, finer and longer sun shadows, bloom, sharpening,
     /// 16x anisotropic filtering, sun shafts, screen-space water reflections; each also on
@@ -760,7 +768,7 @@ fn main() -> AppExit {
     });
     let open_doors = args.open_doors;
     // What the overlay system and the settings page go by.
-    args.no_overlay |= args.frame_json.is_some();
+    args.no_overlay |= args.frame_json.is_some() || (args.play && !args.overlay);
     if args.follow_npc && args.npc_travel.is_empty() && args.npc_sit.is_empty() && args.npc_packages.is_empty() {
         return fail("--follow-npc needs --npc-travel, --npc-sit or --npc-packages".to_string());
     }
@@ -1014,6 +1022,8 @@ fn main() -> AppExit {
             app.add_plugins(detection::DetectionPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
+            // Actors sneaking by script or package (sneaking.rs).
+            app.add_plugins(sneaking::SneakingPlugin);
             // Heads held by a script's Look (script_look.rs).
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
@@ -1063,6 +1073,11 @@ fn main() -> AppExit {
                 .add_systems(Startup, residents::log_startup)
                 .add_systems(Update, residents::drive.after(world::stream).after(nvf_play::PlaySet::Scripts).before(nav::drive))
                 .add_systems(Last, residents::report);
+            // Load doors: bodies fade out and in, the doors sound (door_fade.rs).
+            app.init_resource::<door_fade::DoorFades>()
+                .add_message::<nvf_play::world_sounds::DoorPassed>()
+                .add_systems(Update, door_fade::fade.after(residents::drive).before(locomotion::walk_test))
+                .add_systems(Last, door_fade::report);
         }
         if play.is_none() {
             // Travellers' door trips (and the camera following one) use the play mode's
