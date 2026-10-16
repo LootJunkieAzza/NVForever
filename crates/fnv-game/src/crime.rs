@@ -320,10 +320,10 @@ impl Game<'_> {
         let p = FormId::PLAYER_REF;
         let before = actor_value(self, p, KARMA).unwrap_or(0.0);
         let mut v = before + change;
-        if let Some(max) = self.world.forms.setting_f32("iKarmaMax") {
+        if let Some(max) = self.world.setting_f32("iKarmaMax") {
             v = v.min(max as f64);
         }
-        if let Some(min) = self.world.forms.setting_f32("iKarmaMin") {
+        if let Some(min) = self.world.setting_f32("iKarmaMin") {
             v = v.max(min as f64);
         }
         if v != before {

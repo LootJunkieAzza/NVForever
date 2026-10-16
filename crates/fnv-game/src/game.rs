@@ -715,6 +715,8 @@ pub struct Game<'a> {
     /// What scripts asked of the Pip-Boy and the character-creation menus, and to end
     /// the game (`functions::ui`), for the engine to take. Not part of the saved state.
     pub ui: crate::functions::ui::UiRequests,
+    /// What console commands asked of the engine (`functions::console`), for it to take.
+    pub console_requests: Vec<crate::functions::console::ConsoleRequest>,
     /// Crimes being reported, trespass warnings and karma changes for the engine
     /// (`crate::crime`); what lasts is in [`PlayerState`]. Not part of the saved state.
     pub crimes: crate::crime::Crimes,
@@ -936,6 +938,7 @@ impl<'a> Game<'a> {
             senses: Default::default(),
             weather: Default::default(),
             ui: Default::default(),
+            console_requests: Vec::new(),
             crimes: Default::default(),
             world,
             cfg,

@@ -17,6 +17,10 @@
 //!   or Editor ID contains the text, not case sensitive; `"two words"` is one phrase), `prid <reference>` (select it), `coc <cell>` (travel to the cell's
 //!   COC spot, `crate::player::safe::cell_spot`), `tgm` (god mode, `crate::combat`),
 //!   `tcl`-style clipping is not built, `cls` / `clear` (empty the scrollback).
+//! - **Console-only functions** (no opcode: `sq`, `sqt`, `movetoqt`, `sqs`, `sqv`, `sv`,
+//!   `caqs`, `inv`, `getavinfo`, `setgs`, `cam`, `qqq` …) run from
+//!   `fnv_game::functions::console`; what they ask of the engine (travel, quit, saving)
+//!   comes back as [`ConsoleRequest`]s. `set <var> to <value>` sets a variable or global.
 //! - **Click a thing in the world** while it is open: the reference under the pointer
 //!   (the collision ray, else the render bounds, as the crosshair picks) is selected and
 //!   its details printed and kept over the scrollback, and a box drawn around it: FormID,
@@ -38,6 +42,7 @@ use bevy::camera::primitives::Aabb;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use fnv_game::functions::console::{ConsoleCtx, ConsoleRequest};
 use fnv_game::functions::Ctx;
 use fnv_game::trace::EventKind;
 use fnv_phys::{layers, Filter, Owner};
@@ -62,6 +67,8 @@ pub struct ConsoleCall {
     pub line: String,
     /// The selected reference: what the call runs on without `reference.`.
     pub selected: Option<u32>,
+    /// The Pip-Boy's active quest (`sqt`, `movetoqt`).
+    pub active_quest: Option<u32>,
 }
 
 /// What the script frame answers to a [`ConsoleCall`].
@@ -70,6 +77,8 @@ pub struct ConsoleReply {
     pub lines: Vec<String>,
     /// `prid`: the reference to select.
     pub select: Option<u32>,
+    /// What console-only commands asked of the engine (`fnv_game::functions::console`).
+    pub requests: Vec<ConsoleRequest>,
 }
 
 /// The console's state.
@@ -222,6 +231,7 @@ fn typing(
     mut clicks: Local<Vec<Vec2>>,
     (mut index, play): (ResMut<SearchIndex>, Res<PlayWorld>),
     (mut saves, mut loads, save_cfg, mut save_log): (MessageWriter<crate::save::SaveRequest>, MessageWriter<crate::save::LoadRequest>, Res<crate::save::SaveConfig>, ResMut<crate::save::SaveLog>),
+    pipboy: Option<Res<crate::pipboy::data::DataState>>,
 ) {
     let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
     if !c.open {
@@ -290,7 +300,8 @@ fn typing(
                 if terms.is_empty() {
                     c.print("A line is a script function: [reference.]Function argument ...  e.g. player.additem 0000000F 100");
                     c.print("help <text>: records and functions whose name or Editor ID contains it (not case sensitive); \"two words\" for a phrase, several words must all match");
-                    c.print("prid <ref>, coc <cell>, tgm, cls, save <name>, load [name], saves. Click something to select it; calls without a reference run on it.");
+                    c.print("prid <ref>, coc <cell>, tgm, cls, save <name>, load [name], saves, set <var> to <value>. Click something to select it; calls without a reference run on it.");
+                    c.print("Quests and info: sq, sqt, movetoqt [n], sqs <quest>, sqv <quest>, sv, caqs, inv, getavinfo <av>, setgs <setting> <value>, cam, qqq");
                 } else {
                     let funcs = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| matching_functions(&rt.game.data.table, &terms)).unwrap_or_default();
                     if !funcs.is_empty() {
@@ -354,7 +365,7 @@ fn typing(
                 Err(e) => c.print(e),
             },
             _ => match script.as_deref_mut() {
-                Some(st) if st.rt.is_some() => st.console.push(ConsoleCall { line, selected: c.selected }),
+                Some(st) if st.rt.is_some() => st.console.push(ConsoleCall { line, selected: c.selected, active_quest: pipboy.as_ref().and_then(|p| p.active_quest()) }),
                 _ => c.print("Scripts are not running: only cls, tgm and coc work"),
             },
         }
@@ -369,8 +380,22 @@ fn typing(
 #[derive(Resource)]
 struct AidClicks(Vec<Vec2>);
 
-/// The script frame's answers.
-fn replies(mut c: ResMut<Console>, script: Option<ResMut<ScriptState>>, sim: Res<SimState>, play: Res<PlayWorld>) {
+/// The script frame's answers, and what console-only commands asked of the engine.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn replies(
+    mut c: ResMut<Console>,
+    script: Option<ResMut<ScriptState>>,
+    sim: Res<SimState>,
+    play: Res<PlayWorld>,
+    (mut travel, mut saves, mut loads, save_cfg, mut exit): (
+        MessageWriter<crate::loading::TravelRequest>,
+        MessageWriter<crate::save::SaveRequest>,
+        MessageWriter<crate::save::LoadRequest>,
+        Res<crate::save::SaveConfig>,
+        MessageWriter<AppExit>,
+    ),
+    (mut next, mut commands, roots): (ResMut<NextState<PlayState>>, Commands, Query<Entity, With<ConsoleRoot>>),
+) {
     let Some(mut st) = script else { return };
     let out = std::mem::take(&mut st.console_out);
     for r in out {
@@ -379,6 +404,41 @@ fn replies(mut c: ResMut<Console>, script: Option<ResMut<ScriptState>>, sim: Res
         }
         if let Some(id) = r.select {
             select(&mut c, id, &play.0, &sim, st.rt.as_mut());
+        }
+        for q in r.requests {
+            match q {
+                ConsoleRequest::Select(id) => select(&mut c, id.0, &play.0, &sim, st.rt.as_mut()),
+                ConsoleRequest::Travel { world, interior, feet, heading_deg, label } => {
+                    info!("console: travelling to {label}");
+                    travel.write(crate::loading::TravelRequest(Travel { world: world.map(|w| w.0), interior: interior.map(|i| i.0), feet, heading_deg }));
+                }
+                ConsoleRequest::Quit => {
+                    info!("console: quit");
+                    exit.write(AppExit::Success);
+                }
+                // The console opens only when no other menu is open, so closing every
+                // menu is closing the console [hypothesis: as the original's CloseAllMenus
+                // typed into its console].
+                ConsoleRequest::CloseMenus => {
+                    if c.open {
+                        close(&mut c, &mut next, &mut commands, &roots);
+                    }
+                }
+                ConsoleRequest::Save(name) => match fnv_save::check_name(&name) {
+                    Ok(n) => {
+                        saves.write(crate::save::SaveRequest { name: n.to_string(), kind: fnv_save::SaveKind::Manual });
+                    }
+                    Err(e) => c.print(e.to_string()),
+                },
+                ConsoleRequest::Load(name) => match save_cfg.path_of(if name.is_empty() { fnv_save::QUICK_NAME } else { &name }) {
+                    Ok(p) if p.exists() => {
+                        c.print(format!("Loading {}", p.display()));
+                        loads.write(crate::save::LoadRequest { path: p });
+                    }
+                    Ok(p) => c.print(format!("No save {}", p.display())),
+                    Err(e) => c.print(e),
+                },
+            }
         }
     }
     // Keep the details at the top current (health, position change).
@@ -774,7 +834,7 @@ fn form(rt: &Runtime, s: &str) -> Result<FormId, String> {
 pub(crate) fn run_call(rt: &mut Runtime, call: &ConsoleCall) -> ConsoleReply {
     match run_line(rt, call) {
         Ok(r) => r,
-        Err(e) => ConsoleReply { lines: vec![e], select: None },
+        Err(e) => ConsoleReply { lines: vec![e], ..Default::default() },
     }
 }
 
@@ -786,19 +846,30 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
         _ => (None, first.clone()),
     };
     let args = &w[1..];
-    if func.eq_ignore_ascii_case("prid") {
-        let r = form(rt, args.first().ok_or("prid <reference>")?)?;
-        return Ok(ConsoleReply { lines: Vec::new(), select: Some(r.0) });
-    }
-    let g = &mut rt.game;
-    let opcode = g.data.table.by_name(&func).ok_or_else(|| format!("Script command \"{func}\" not found."))?;
-    let def = g.data.table.get(opcode).cloned();
-    let fname = def.as_ref().map_or(func.clone(), |d| d.name.clone());
     let on = match &on_name {
         Some(n) => Some(form(rt, n)?),
         None => call.selected.map(FormId),
     };
     let g = &mut rt.game;
+    let console_ctx = ConsoleCtx { on, active_quest: call.active_quest.map(FormId) };
+    // The `set <variable> to <value>` statement.
+    if on_name.is_none() && func.eq_ignore_ascii_case("set") {
+        let lines = fnv_game::functions::console::set_statement(g, &console_ctx, args)?;
+        return Ok(ConsoleReply { lines, ..Default::default() });
+    }
+    // A console-only command (numbered from `CONSOLE_OPCODE_BASE`) that prints lines,
+    // registered by name in `fnv_game::functions::console`; the others go through
+    // `Game::call_function` as every function does.
+    let console_fn = g.data.table.by_name(&func).filter(|&op| op >= fnv_script::table::CONSOLE_OPCODE_BASE).and_then(|op| g.data.table.get(op)).and_then(|f| Some((f.name.clone(), fnv_game::functions::console::lookup(&f.name)?)));
+    if let Some((name, run)) = console_fn {
+        let r = run(g, &console_ctx, args);
+        let requests = std::mem::take(&mut g.console_requests);
+        let lines = r.map_err(|e| format!("{name}: {e}"))?;
+        return Ok(ConsoleReply { lines, requests, ..Default::default() });
+    }
+    let opcode = g.data.table.by_name(&func).ok_or_else(|| format!("Script command \"{func}\" not found."))?;
+    let def = g.data.table.get(opcode).cloned();
+    let fname = def.as_ref().map_or(func.clone(), |d| d.name.clone());
     let mut values = Vec::new();
     for (i, a) in args.iter().enumerate() {
         let kind = def.as_ref().and_then(|d| d.params.get(i)).map(|p| p.kind.to_ascii_lowercase()).unwrap_or_default();
@@ -843,7 +914,7 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
         Value::Ref(r) => format!("{} {}", FormId(r), name(FormId(r))),
     };
     let on_text = on.map(|r| format!(" on {}", name(r))).unwrap_or_default();
-    Ok(ConsoleReply { lines: vec![format!("{fname}{on_text} >> {shown}")], select: None })
+    Ok(ConsoleReply { lines: vec![format!("{fname}{on_text} >> {shown}")], ..Default::default() })
 }
 
 /// An enumeration code by name or number (`actor_value` by the game's own names too).

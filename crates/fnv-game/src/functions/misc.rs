@@ -102,7 +102,7 @@ pub fn get_current_time(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, St
 
 pub fn get_game_setting(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let name = a.str(0)?;
-    let v = g.world.forms.setting_f32(name).ok_or_else(|| format!("game setting {name:?} is not defined"))?;
+    let v = g.world.setting_f32(name).ok_or_else(|| format!("game setting {name:?} is not defined"))?;
     Ok(Value::Num(v as f64))
 }
 
