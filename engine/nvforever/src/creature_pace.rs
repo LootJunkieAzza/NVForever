@@ -14,6 +14,10 @@
 //!   (`Locomotion::pace`), as the movement comes from them, and the move is chosen for the
 //!   velocity divided by that: a medium cazador walking at 379 units/s plays its walk clip
 //!   at 1.75, not its run clip at 0.7.
+//! - **Turning**: a creature turns at [`CREATURE_TURN_RATE`] × its scale, walking and
+//!   standing, and turns on the spot only when its way is more than 60 degrees off; the
+//!   people's 120 degrees a second and 20 degrees made a fast cazador stop at the start of
+//!   every short walk.
 //! - **Stance**: a creature whose folder has `h2h` movement clips (the cazador, the dog,
 //!   the mirelurk king) moves on them while it is not in the Normal detection state
 //!   (Alert, Combat, Lost: `locomotion::Locomotion::set_alert`), on its `mt` clips
@@ -40,6 +44,21 @@ use nvf_play::script::ScriptState;
 /// both; charging, they reached 576 and 974 (run clip pace 818 and 1364, again 0.70);
 /// hypothesis: the same share for every creature; why 0.70 is open, actors.md §8.10].
 pub const CREATURE_SPEED_FIT: f32 = 0.70;
+
+/// A creature's turn rate at scale 1, degrees per second, walking and standing; it
+/// scales with the creature's size [observed: the same observations' headings, 0.16 s
+/// apart: medium cazadors (scale 1) turned at up to 304 degrees a second, young ones
+/// (scale 0.5) at up to 137 (300 × 0.5 = 150); hypothesis: the rule and other
+/// creatures; CREA TNAM (720 and 90 on these records) does not match it].
+pub const CREATURE_TURN_RATE: f32 = 300.0;
+
+/// How far off its way a standing creature may be before it turns on the spot instead
+/// of turning as it sets off, radians [design: the cazadors made 85-89% of their fast
+/// turns while moving].
+pub const CREATURE_SPOT_TURN_START: f32 = 60.0 * std::f32::consts::PI / 180.0;
+
+/// Changes between walk and run clips logged, the first ones only.
+const SWAPS_LOGGED: usize = 20;
 
 pub struct CreaturePacePlugin;
 
@@ -113,13 +132,15 @@ fn give_speeds(
             let calm = clip_speeds(&lo.stand, scale, mult, default);
             let alert = lo.alert.as_deref().map_or(calm, |a| clip_speeds(a, scale, mult, default));
             info!(
-                "creature pace: {} {id} walks {:.0} and runs {:.0} units/s{} (scale {scale:.2}, Speed Mult {mult:.0})",
+                "creature pace: {} {id} walks {:.0} and runs {:.0} units/s, turns {:.0} degrees/s{} (scale {scale:.2}, Speed Mult {mult:.0})",
                 game.data.name(FormId(rig.base)),
                 calm.walk,
                 calm.run,
+                CREATURE_TURN_RATE * scale,
                 if lo.alert.is_some() { format!(", alert {:.0} and {:.0}", alert.walk, alert.run) } else { String::new() }
             );
-            given.push((id, ActorSpeeds { calm, alert }));
+            let turn = CREATURE_TURN_RATE.to_radians() * scale;
+            given.push((id, ActorSpeeds { calm, alert, turn_rate: Some(turn), spot_turn_start: Some(CREATURE_SPOT_TURN_START) }));
         }
     }
     for (id, s) in given {
@@ -132,18 +153,28 @@ fn give_speeds(
 fn stance(script: Option<Res<ScriptState>>, mut actors: Query<(&ActorRig, &mut Locomotion), With<PacedCreature>>, mut stats: ResMut<PaceStats>) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     for (rig, mut lo) in &mut actors {
+        let id = FormId(rig.reference);
         let mv = lo.blend.cur.mv;
         if mv.is_moving() {
             stats.moving_frames += 1;
             let fast = matches!(mv, Move::FastForward | Move::FastBackward | Move::FastLeft | Move::FastRight);
             if stats.last.insert(rig.reference, fast).is_some_and(|was| was != fast) {
                 stats.swaps += 1;
+                if stats.swaps <= SWAPS_LOGGED {
+                    let v = lo.velocity[0].hypot(lo.velocity[1]);
+                    info!(
+                        "creature pace: {} {id} changes to its {} clip at {v:.0} units/s in its own scale ({:.0} at its clips' pace){}",
+                        game.data.name(FormId(rig.base)),
+                        if fast { "run" } else { "walk" },
+                        v / lo.pace.max(0.01),
+                        if game.awareness.state(id) != State::Normal { ", alert" } else { "" }
+                    );
+                }
             }
         }
         if lo.alert.is_none() {
             continue;
         }
-        let id = FormId(rig.reference);
         let want = game.awareness.state(id) != State::Normal;
         if lo.set_alert(want) {
             if want {
@@ -151,7 +182,7 @@ fn stance(script: Option<Res<ScriptState>>, mut actors: Query<(&ActorRig, &mut L
             } else {
                 stats.calmed += 1;
             }
-            info!("creature pace: {} {id} {}", game.data.name(id), if want { "takes its alert stance" } else { "is calm again" });
+            info!("creature pace: {} {id} {}", game.data.name(FormId(rig.base)), if want { "takes its alert stance" } else { "is calm again" });
         }
     }
 }
@@ -225,6 +256,27 @@ mod tests {
         lo.step(0.016);
         assert_eq!(lo.blend.cur.mv, Move::Forward);
         assert!((lo.blend.cur.rate - 1.75).abs() < 0.01, "{}", lo.blend.cur.rate);
+        // Near the switch point (343.9) the gait holds: walk until 395, run down to 299.
+        let mut lo = Locomotion::new(Arc::new(caz.clone()), 0.0);
+        let mut seen = Vec::new();
+        for v in [216.0, 360.0, 420.0, 330.0, 250.0] {
+            lo.velocity = [0.0, v];
+            // Past any cross-fade, so the chosen move is taken.
+            for _ in 0..60 {
+                lo.step(0.016);
+            }
+            seen.push(lo.blend.cur.mv);
+        }
+        assert_eq!(seen, [Move::Forward, Move::Forward, Move::FastForward, Move::FastForward, Move::Forward]);
+        // A one-frame spike to three times the walk does not change the gait.
+        let mut lo = Locomotion::new(Arc::new(caz.clone()), 0.0);
+        let mut gaits = Vec::new();
+        for v in [216.0; 30].into_iter().chain([650.0]).chain([216.0; 30]) {
+            lo.velocity = [0.0, v];
+            lo.step(1.0 / 60.0);
+            gaits.push(lo.blend.cur.mv);
+        }
+        assert!(gaits.iter().all(|m| *m == Move::Forward), "{gaits:?}");
         // No run clip: the default run.
         assert_eq!(clip_speeds(&set(100.0, None), 1.0, 100.0, d).run, 344.0);
     }
