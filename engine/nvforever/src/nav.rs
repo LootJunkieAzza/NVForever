@@ -92,12 +92,22 @@ pub(crate) fn space_name(world: &WorldData, s: Space) -> String {
     }
 }
 
-/// A place: a placed reference (Editor ID or hex FormID), or "x,y,z" in `space`.
+fn p_label([x, y, z]: [f32; 3]) -> String {
+    format!("({x:.0}, {y:.0}, {z:.0})")
+}
+
+/// A place: a placed reference (Editor ID or hex FormID), "x,y,z" in `space`, or
+/// "x,y,z@REF" in the space of that reference's cell.
 fn resolve(world: &WorldData, refs: &RefTable, spec: &str, space: Space) -> Result<(Place, Option<u32>, String), String> {
+    if let Some((point, at)) = spec.split_once('@') {
+        let (place, _, label) = resolve(world, refs, at.trim(), space)?;
+        let (p, ..) = resolve(world, refs, point, place.space)?;
+        return Ok((p, None, format!("{label} {}", p_label(p.pos))));
+    }
     let parts: Vec<&str> = spec.split(',').map(str::trim).collect();
     if let [x, y, z] = parts[..] {
         if let (Ok(x), Ok(y), Ok(z)) = (x.parse(), y.parse(), z.parse()) {
-            return Ok((Place { space, pos: [x, y, z] }, None, format!("({x:.0}, {y:.0}, {z:.0})")));
+            return Ok((Place { space, pos: [x, y, z] }, None, p_label([x, y, z])));
         }
     }
     let id = match refs.by_edid(spec) {
