@@ -532,7 +532,7 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 30
 expect = [
-  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "claude/playtest-combat 2026-10-12, 2 of 2 runs: 11 and 12 blows (main: 17), by design: the combat style's melee decision (GECK wiki Combat Style, combat-ai.md §10.4) has the dogs attack at 55 % each time they may and hold for the style's Hold Timer otherwise, where CA1 bit at a fixed rhythm" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary" },
   { re = 'attack anims summary.*h2hattack' },
   { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines" },
 ]
@@ -549,7 +549,7 @@ run_seconds = 55
 expect = [
   { re = 'FiendVioletRef 0x000F570B aims down the sights, its target (?P<n>[\d,]+) units away \(beyond 1400\)', range = [1400, 3500], label = "Violet aims down the sights beyond 1,400 units" },
   { re = 'FiendVioletRef: walks on, aiming down the sights at the player|FiendVioletRef: walks at the player, .* aiming down the sights', label = "she walks while aiming" },
-  { re = 'FiendVioletRef 0x000F570B fires from the hip, its target (?P<n>[\d,]+) units away \(within 1400\)', range = [0, 1400], label = "Violet fires from the hip within 1,400 units", known_failing = "claude/combat-ai-2 2026-10-12, 1 of 1 runs, by design: she takes cover (combat-ai.md §12.6) and fires only from its peek point, 1,800 units from the player's first place; the cover roll is by chance, so this can pass" },
+  { re = 'FiendVioletRef 0x000F570B fires from the hip, its target (?P<n>[\d,]+) units away \(within 1400\)', range = [0, 1400], label = "Violet fires from the hip within 1,400 units" },
   { re = 'npc combat summary:.*?(?P<n>\d+) down the sights', range = [1, 1000], label = "shots down the sights in the npc combat summary" },
   { re = 'npc combat summary:.*?down the sights, (?P<n>\d+) from the hip', range = [1, 1000], label = "shots from the hip in the npc combat summary" },
   { re = 'attack anims summary.*2hrattack3is\.kf', label = "the iron-sights attack clip played" },
@@ -1589,7 +1589,10 @@ expect = [
   { json = "survey.cells.counts.owned_not_public_interior", equals = 23 },
   { json = "survey.factions.counts.evil", equals = 44 },
   { json = "survey.factions.counts.track_crime", equals = 188 },
-  { json = "survey.actors.placed_by_karma.NPC.Very Evil", equals = 15 },
+  # 17 since claude/l5-combat (playtest list 5 item 22): placed actors made from a template
+  # whose Traits they take read the template's karma; the two Nipton Jackal boss
+  # references join the 15 (crime-karma.md §2).
+  { json = "survey.actors.placed_by_karma.NPC.Very Evil", equals = 17 },
 ]
 manual = "on a failure, explain the change against docs/spec-notes/crime-karma.md §2"
 
