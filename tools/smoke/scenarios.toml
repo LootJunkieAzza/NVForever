@@ -2798,12 +2798,12 @@ expect = [
 
 [[scenario]]
 name = "controller-menus"
-source = "owner 2026-10-16 controller layer, docs/design/controller.md §3: with a controller the menus take the buttons their files name and the hints show them; a virtual controller (NVF_PLAY_TEST_KEYS pad-…) opens the refrigerator with A, takes all with X (container_menu.xml), raises the Pip-Boy with B once the DLC load messages are answered, steps its pages with RT and LT, lowers it with B"
+source = "owner 2026-10-16 controller layer, docs/design/controller.md §3: with a controller the menus take the buttons their files name and the hints show them; a virtual controller (NVF_PLAY_TEST_KEYS pad-…), after the start's DLC and pre-order message boxes, opens the refrigerator with A, takes all with X (container_menu.xml), raises the Pip-Boy with B, steps its pages with RT and LT, lowers it with B"
 areas = ["menus", "controls", "pipboy"]
 paths = ["engine/nvf-play/src/pad.rs", "engine/nvf-play/src/reticle.rs", "engine/nvf-play/src/menu/look.rs", "engine/nvf-play/src/pipboy/data.rs"]
-env = { NVFOREVER_HOME = "controller-menus-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105658", NVF_PLAY_TEST_PAUSE = "5:8", NVF_PLAY_TEST_SETTINGS = "6:device:Controller", NVF_PLAY_TEST_KEYS = "12:pad-a,15:pad-x,27:pad-b,30:pad-rt,31.5:pad-lt,32.5:pad-lt,34:pad-b" }
-args = ["--cell", "GSHouseInterior03", "--play", "--no-voice"]
-run_seconds = 38
+env = { NVFOREVER_HOME = "controller-menus-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "00105658", NVF_PLAY_TEST_PAUSE = "5:8", NVF_PLAY_TEST_SETTINGS = "6:device:Controller", NVF_PLAY_TEST_KEYS = "24:pad-a,27:pad-x,31:pad-b,34:pad-rt,35.5:pad-lt,36.5:pad-lt,38:pad-b" }
+args = ["--cell", "GSHouseInterior03", "--play", "--no-voice", "--no-messages"]
+run_seconds = 42
 expect = [
   { re = 'reticle: (\d+) of \1 controller button pictures read', label = "every button picture of the HUD is in the interface atlas" },
   { text = "controller: hints show the controller's buttons", label = "the hints follow the Input Device setting" },
