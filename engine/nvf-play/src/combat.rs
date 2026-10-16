@@ -672,6 +672,14 @@ impl Combat {
         }
     }
 
+    /// The weapon in use and its Sight FOV (degrees), when it is a gun with sights (Sight
+    /// FOV above 0; melee weapons block instead) (`crate::aim_zoom`).
+    pub fn sight_fov(&self) -> Option<(FormId, f32)> {
+        let w = self.weapon.filter(|_| !self.melee)?;
+        let fov = self.forms.weapons.get(&w)?.sight_fov;
+        (fov > 0.0).then_some((w, fov))
+    }
+
     /// The PROJ the weapon in use fires with the ammunition loaded, if it fires one.
     pub fn projectile(&self) -> Option<FormId> {
         self.forms.chain(self.weapon?, self.ammo)?.projectile
