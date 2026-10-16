@@ -589,6 +589,7 @@ name = "fnv-vfs"
 version = "0.1.0"
 dependencies = [
  "fnv-bsa",
+ "fnv-install",
  "thiserror",
 ]
 

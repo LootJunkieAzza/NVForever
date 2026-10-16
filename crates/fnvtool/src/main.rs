@@ -57,7 +57,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Record the game install (read-only) and create NVForever's own home.
+    /// Record the game install (read-only) in NVForever.ini and create NVForever's own
+    /// home; refused when the game lacks files NVForever needs.
     Setup {
         /// The Fallout New Vegas folder (or its Data folder).
         #[arg(long)]
@@ -797,7 +798,8 @@ pub enum DdsCmd {
 
 #[derive(Args)]
 pub struct HomeArg {
-    /// NVForever home directory (default: NVFOREVER_HOME or the platform data dir).
+    /// NVForever home directory (default: NVFOREVER_HOME, else Documents\My Games\NVForever
+    /// on Windows, the platform data dir elsewhere).
     #[arg(long)]
     pub home: Option<PathBuf>,
 }

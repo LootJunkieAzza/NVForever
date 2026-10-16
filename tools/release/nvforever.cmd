@@ -1,6 +1,6 @@
 @echo off
-rem Runs NVForever with the schemas shipped beside it. Game data: set NVFOREVER_DATA to your
-rem Fallout New Vegas Data folder (read-only), or pass --data "...\Data".
+rem Runs NVForever with the schemas shipped beside it. Game data: asked for at the first start
+rem and kept in Documents\My Games\NVForever\NVForever.ini; --data "..." or NVFOREVER_DATA overrides it.
 rem Example: nvforever.cmd --play --cell Goodsprings
 set "HERE=%~dp0"
 if not defined NVF_PLAY_SCRIPT_FUNCTIONS set "NVF_PLAY_SCRIPT_FUNCTIONS=%HERE%schemas\script\functions.json"

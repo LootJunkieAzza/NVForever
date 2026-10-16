@@ -17,19 +17,22 @@ NVForever only reads the game's `Data` folder and never writes into the game fol
 
 ## Running
 
-Unpack anywhere outside the game folder (e.g. `C:\Games\NVForever`), then:
+Unpack anywhere outside the game folder (e.g. `C:\Games\NVForever`) and start it. At the
+first start NVForever asks for your Fallout: New Vegas folder (the one holding `Data`, e.g.
+`F:\SteamLibrary\steamapps\common\Fallout New Vegas`), checks that the game files it needs
+are there and remembers the folder in `Documents\My Games\NVForever\NVForever.ini`
+(edit or delete that file to change it; `--data` overrides it for one run). Then:
 
 ```
-fnvtool setup --game "F:\SteamLibrary\steamapps\common\Fallout New Vegas"
-set NVFOREVER_DATA=F:\SteamLibrary\steamapps\common\Fallout New Vegas\Data
 nvforever.cmd --play                     # Goodsprings, playing
 nvforever.cmd --play --cell Primm
 nvforever.cmd --help                     # every option
 nvf-viewer.cmd --mesh meshes\clutter\...
 ```
 
-On Linux use the `.sh` launchers and `export NVFOREVER_DATA=...`. Config, logs and
-crash reports go to `%LOCALAPPDATA%\NVForever` (or `NVFOREVER_HOME`).
+On Linux use the `.sh` launchers and pass `--data` (or set `Path=` under `[Game]` in the
+home's `NVForever.ini`). Settings, saves, logs and crash reports go to
+`Documents\My Games\NVForever` (or `NVFOREVER_HOME`); caches to `%LOCALAPPDATA%\NVForever\cache`.
 
 Run the programs through the launchers (or pass `--esm-schema`, `--nif-schema` and set
 `NVF_PLAY_SCRIPT_FUNCTIONS` yourself): the built-in schema defaults point at the build

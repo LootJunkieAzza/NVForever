@@ -8,7 +8,7 @@ is not is §6.
 
 Charter points that shape it: NVForever never writes into the game folder or
 `Documents\My Games\FalloutNV` (install-layout.md), so saves go to
-`%LOCALAPPDATA%\NVForever\saves\` (the `saves\` folder that layout already reserves). We
+`Documents\My Games\NVForever\saves\` (the `saves\` folder that layout already reserves). We
 do not read or write `.fos` files; our format is our own.
 
 ## 1. The principle: save the difference from the plugins
@@ -125,7 +125,7 @@ original lacks it); **Save?**: *yes* (must be saved), *have* (already in the sna
 | Corpse poses | `Ragdolls.rest` | REFR/ACHR moved data [hypothesis] | optional: the corpse's `RefState.pos` is enough at first |
 | Music, radio playback position | `Music`, `Radio` | global type 10 [hypothesis] | drop: start a new track |
 | Menus, messages, dialogue screen, hacking/lockpick sessions, Wait menu, physics world, drawn items | Bevy resources | none | drop (see §5 on saving inside menus) |
-| Settings, key bindings, volumes | `Settings`, `Bindings` etc. | the INI files, not the save | **not in the save**: a separate preferences file (`nvforever.json` in the home folder) |
+| Settings, key bindings, volumes | `Settings`, `Bindings` etc. | the INI files, not the save | **not in the save**: a separate preferences file (`NVForever.ini` in the home folder) |
 | Hotkeys | not built | not found | later, when hotkeys exist |
 
 ## 4. Format (recommendation)

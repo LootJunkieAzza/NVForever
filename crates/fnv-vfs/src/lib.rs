@@ -269,6 +269,17 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> 
 mod tests {
     use super::*;
 
+    /// The install check (fnv-install) asks for every archive of the default list and
+    /// knows the same add-on masters.
+    #[test]
+    fn install_check_covers_default_archives() {
+        for a in DEFAULT_ARCHIVE_LIST {
+            assert!(fnv_install::REQUIRED_DATA_FILES.contains(&a), "{a}");
+        }
+        assert_eq!(fnv_install::REQUIRED_DATA_FILES[0], DEFAULT_PLUGINS[0]);
+        assert_eq!(fnv_install::ADDON_MASTERS[..], DEFAULT_PLUGINS[1..]);
+    }
+
     #[test]
     fn paths_normalise() {
         assert_eq!(normalize("/Meshes/Clutter/X.NIF"), "meshes\\clutter\\x.nif");

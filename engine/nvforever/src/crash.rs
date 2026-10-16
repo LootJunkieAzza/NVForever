@@ -3,7 +3,7 @@
 //!
 //! **The run log.** Everything the game logs (the console's lines, without colours) is
 //! also written to `<home>\logs\nvforever-<UTC time>-<pid>.log`, NVForever's own home
-//! (`fnv_install::EngineHome`: `%LOCALAPPDATA%\NVForever` or `NVFOREVER_HOME`), never the
+//! (`fnv_install::EngineHome`: `Documents\My Games\NVForever` or `NVFOREVER_HOME`), never the
 //! game's folder nor `Documents\My Games\FalloutNV` (docs/design/install-layout.md;
 //! every path is checked by `fnv_install::guard_write`). Lines are written as they come,
 //! so the log holds everything up to a crash. The last [`KEEP_LOGS`] run logs are kept.

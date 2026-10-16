@@ -15,7 +15,7 @@ game-derived dumps (CLAUDE.md charter, README "Ship no game data"):
 | Rule | How generated LOD follows it |
 |---|---|
 | Ship no game data | Generated files are never committed, never part of a release, never uploaded or offered as a download (no "LOD pack"). Every user generates their own from their own install. |
-| Never write into the game folder | Output goes only to the engine home's `cache\` (`%LOCALAPPDATA%\NVForever\cache\lod\`, install-layout.md). Every write passes `fnv_install::guard_write`. The game's `Data` folder and `Documents\My Games\FalloutNV` are only read / never touched. |
+| Never write into the game folder | Output goes only to the engine home's `cache\` (`%LOCALAPPDATA%\NVForever\cache\lod\`, the home's cache folder, install-layout.md). Every write passes `fnv_install::guard_write`. The game's `Data` folder and `Documents\My Games\FalloutNV` are only read / never touched. |
 | Clean room | Built from our own spec notes only: LAND heights, normals, vertex colours and texture layers (world.md §3), LTEX texture paths, the LOD chunk grid (world.md §7), DDS layout (dds.md, Microsoft's public DDS documentation for the header we write). No Bethesda code, nothing from xLODGen/TES5Edit/nv-rs code. Sampling heights and rendering terrain textures into an image is a generic graphics technique, not a game format fact. |
 | No DRM circumvention | Reads `.esm`/`.esp` and `.bsa` data only, as the rest of the engine does. The executable is never touched. |
 | Tag facts | New format facts it relies on go into the spec notes as `[documented]`, `[observed]` or `[hypothesis]`. |
