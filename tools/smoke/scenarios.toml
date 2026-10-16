@@ -910,7 +910,7 @@ expect = [
   { re = 'talk gesture: GSChetRef talks .* by DialogueIdles > TalkToPlayer > DialogTalking > ', min = 3, label = "Chet's talk clips from the dialogue screen's group, one per response at least (2026-10-16: 5 for 4 responses)" },
   { re = 'talk gesture: GSChetRef listens .* by DialogueIdles > TalkToPlayer > DialogTalking > .*Listen', label = "a listen clip while the player chooses" },
   { re = 'talk gesture summary: (?P<n>\d+) gestures picked while talking', range = [3, 20], label = "talk gestures counted" },
-  "idle summary: 0 idles asked for",
+  { re = 'idle summary: .* 0 by dialogue lines\)', label = "gestures are not counted as dialogue lines' idles (Chet's broom idle after the talk may be)" },
 ]
 
 [[scenario]]
