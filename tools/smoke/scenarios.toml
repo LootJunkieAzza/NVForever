@@ -2326,6 +2326,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "feet-on-ground"
+source = "owner report 2026-10-16 (screenshot in Goodsprings, third person): the player's boots hung above the ground (Camp Golf's open ground: 3.7 units before the fix); the body was drawn at the character's feet, which rest the terrain's 3.5-unit contact shell above it (physics.md §6.2); docs/spec-notes/floating-actors.md §6"
+areas = ["player-body", "actors"]
+paths = ["engine/nvforever/src/actor_feet.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_TEST_ACTOR_FEET = "12:3500", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "6:view" }
+args = ["--play", "--pos=29500,62000,3400", "--heading", "0", "--pitch", "-10", "--hour", "12", "--no-voice"]
+run_seconds = 18
+expect = [
+  { re = 'actor feet: player body at .*, root (?P<n>-?[\d.]+) above it', range = [-1.5, 1.5], label = "the drawn body stands on the drawn landscape" },
+]
+
+[[scenario]]
 name = "follower-boone"
 source = "owner's list 2 (H followers): a companion hired by the game's own recruit line follows the player through a door, ignores the player's friendly fire, joins the player's fight and waits when told (docs/design/followers.md)"
 note = "Boone's recruit line INFO 0x0015F30D runs at 3 s (its result script hires him: SetPlayerTeammate, SetIgnoreFriendlyHits, VNPCFollowers.bBooneHired); the player shoots him twice at 18 s, leaves his room by its door at 26 s, walks off at 32 s; a feral ghoul is put 600 units from the player at 45 s; Boone's Waiting variable is set at 62 s"
