@@ -50,11 +50,13 @@
 //!   Unaggressive only says whom an actor might avoid].
 //! - **A danger to itself** [design: owner's playtest list 5 item 35, "Sunny and her dog
 //!   should fight as soon as the geckos aggro on the player"]: an actor that detects an
-//!   attacker fighting someone (the player, another actor, or itself), where that attacker
-//!   would attack it too (Very Aggressive geckos attack everyone), takes up the fight
-//!   against it at once, as if helping the attacked one, instead of waiting to be hit.
-//!   Not cowards, not actors whose package is Defensive Combat, not against an ally or
-//!   friend of its own.
+//!   attacker fighting the player or itself, where that attacker would attack it too
+//!   (Very Aggressive geckos attack everyone), takes up the fight against it at once, as
+//!   if helping the attacked one, instead of waiting to be hit. Not cowards, not actors
+//!   whose package is Defensive Combat, not against an ally or friend of its own. Fights
+//!   between other actors are left to assistance and alarms (above, and
+//!   `crate::combat_group`): with this rule there too, every NCR trooper near Cook-Cook's
+//!   camp took the fight up on its own and fewer alarmed the others.
 //!
 //! A grudge ends when its holder goes back to Normal, on StopCombat, and on an accepted
 //! yield. Hits by actors other than the player go to `Game::attacked_by_actor`
@@ -446,6 +448,10 @@ impl Game<'_> {
             let Some(at) = self.world.peek(attacker).map(|s| s.pos).or_else(|| self.world.placed.get(attacker).map(|p| p.pos)) else { continue };
             let watchers: Vec<FormId> = self.detection.pairs.iter().filter(|((_, t), (d, _))| *t == attacker && d.band == Band::Detected).map(|((w, _), _)| *w).collect();
             for helper in watchers {
+                // Another actor's fight counts only when it is the watcher's own.
+                if victim != FormId::PLAYER_REF && helper != victim {
+                    continue;
+                }
                 if helper == FormId::PLAYER_REF || self.is_dead(helper) || !self.present(helper) || self.awareness.state(helper) == State::Combat {
                     continue;
                 }

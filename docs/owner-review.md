@@ -4947,9 +4947,10 @@ what to check in game.
   locomotion clips for those directions, so they can fire as they go. *Guesses:* 30°;
   the turn to the target at twice the walking turn rate. *Check:* NCR troopers against
   Cook-Cook's Fiends: nobody firing while looking away, and how the sideways steps look.
-  (Before the strafing the facing rule kept troopers on their way to posts from firing:
-  they lost the Cook-Cook fight within 42 s and took no cover; with it the combat smoke
-  scenarios pass again.)
+  Fighters also turn to their target at twice the standing turn rate (240°/s), so a
+  new target holds their fire for at most about 0.75 s. *Guess:* that rate. (Without it,
+  `combat-cover` found no cover taken in 2 of 6 runs: the troopers lost the Cook-Cook
+  fight too fast; with it, 4 of 4 runs passed.)
 - **34 Package flags.** Done: Weapon Drawn (drawn during the package: Sunny runs to the
   wells with her rifle out), Weapons Unequipped (holstered and hidden unless fighting),
   HeadTracking Off (no head tracking unless a conversation or script look forces it),
@@ -4965,8 +4966,11 @@ what to check in game.
 - **35 Sunny helps:** an actor that detects an attacker fighting someone, where the attacker
   would attack it too, now joins against it at once (the VCG02 geckos are Very Aggressive,
   so Sunny and Cheyenne join when they go for you). Not cowards, not Defensive Combat
-  packages. *Decision:* this applies to everyone (settlers join against geckos that attack
-  you nearby, too). *Check:* VCG02 at the wells.
+  packages. *Decision:* it covers fights against you and against the onlooker itself, for
+  everyone (settlers join against geckos that attack you nearby, too); fights between
+  other actors are left to the existing assistance and alarms (with the rule there too,
+  every NCR trooper took on Cook-Cook by itself and they stopped alarming each other).
+  *Check:* VCG02 at the wells.
 - **36–37 Sneaking:** an NPC sneaks while its package has Always Sneak or a script's
   SetForceSneak holds (now implemented): it crouches with its skeleton's `sneakmt…`
   locomotion clips, walks at fMoveSneakMult (0.57) of its pace, and detection and
