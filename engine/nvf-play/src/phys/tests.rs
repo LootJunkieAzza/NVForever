@@ -322,3 +322,19 @@ fn placed_clutter_moved_by_physics_is_written_back_and_reloads_there() {
     assert!(fnv_world::transform::max_diff(&b.rotation, &fnv_world::transform::ref_rotation(rot)) < 1e-4);
     assert!(!p.placed_dynamic[&id].moved, "a fresh start from where it rests");
 }
+
+/// A STAT's dynamic bodies are fixed (the saloon's motorcycles, playtest list 5 item 59);
+/// a moveable static's stay dynamic.
+#[test]
+fn statics_never_move_whatever_their_model_says() {
+    let model = || vec![object(10.0, Motion::Dynamic), object(5.0, Motion::Keyframed)];
+    let mut tallies = Vec::new();
+    let mut stat = model();
+    prepare::fix_static_base(Some(*b"STAT"), &mut stat, &mut tallies);
+    assert_eq!(stat.iter().map(|o| o.motion).collect::<Vec<_>>(), [Motion::Static, Motion::Keyframed]);
+    assert_eq!(tallies, ["static_base_fixed"]);
+    let mut mstt = model();
+    prepare::fix_static_base(Some(*b"MSTT"), &mut mstt, &mut tallies);
+    assert_eq!(mstt[0].motion, Motion::Dynamic);
+    assert_eq!(tallies.len(), 1);
+}
