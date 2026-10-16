@@ -4,7 +4,13 @@
 //! - **Weapon**: an actor in the alerted animation state (a combat state, or SetAlert)
 //!   draws its weapon; back in Normal it holsters it again [documented: Alert is "weapon
 //!   out", GECK wiki Category:Detection]. Only actors drawn with a weapon in hand or
-//!   holster (`--actor-weapons`, holstered by default) have one to draw.
+//!   holster (`--actor-weapons`, holstered by default) have one to draw. Its current
+//!   package has its say too [documented: GECK wiki Packages, Flags tab]: "Weapon
+//!   Drawn" ("Actor will have weapon out during package") draws it, and "Weapons
+//!   Unequipped" ("will not show any visible weapon while running this package, even if
+//!   he has one equipped") holsters it and hides it, unless the actor is in a combat
+//!   state [hypothesis: a fight comes first] (owner's playtest list 5 item 34: Sunny ran
+//!   to the geckos without her weapon drawn; VCG02SunnyTravelToWell1 has Weapon Drawn).
 //! - **Head**: an Alert or Lost actor looks at where its latest alarm is (what it
 //!   noticed, heard or last saw), at chest height; one in Combat looks at its target.
 //!   The look is a [`LookOverride`] this module puts on and takes off again, never over
@@ -18,6 +24,7 @@ use crate::limbs::ActorRig;
 use crate::weapons::{WeaponHold, WeaponMode};
 use bevy::prelude::*;
 use fnv_game::awareness::State;
+use fnv_game::package::flags;
 use fnv_sim::FormId;
 use nvf_play::player::EYE_HEIGHT;
 use nvf_play::script::ScriptState;
@@ -34,20 +41,39 @@ impl Plugin for AlertPlugin {
 #[derive(Component)]
 struct AlertLook(LookAt);
 
+/// On an actor's root while its package hides its weapon (Weapons Unequipped).
+#[derive(Component)]
+struct WeaponHidden;
+
 /// The chest, as a fraction of the eye height (as `detection.rs` measures).
 const CHEST: f32 = 0.75;
 
-type Actors<'w> = (Entity, &'w ActorRig, Option<&'w mut WeaponHold>, Option<&'w LookOverride>, Option<&'w AlertLook>);
+type Actors<'w> = (Entity, &'w ActorRig, Option<&'w mut WeaponHold>, Option<&'w LookOverride>, Option<&'w AlertLook>, Has<WeaponHidden>);
 
 fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<Res<ActorWorld>>, mut actors: Query<Actors>) {
     let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
     let drawn_by_default = world.is_some_and(|w| w.weapon_mode == WeaponMode::Drawn);
-    for (e, rig, hold, forced, ours) in &mut actors {
+    for (e, rig, hold, forced, ours, hidden) in &mut actors {
         let id = FormId(rig.reference);
         if let Some(mut hold) = hold {
-            let want = drawn_by_default || game.is_alerted(id);
+            let fighting = game.awareness.state(id).in_combat();
+            let unequipped = !fighting && game.package_has(id, flags::WEAPONS_UNEQUIPPED);
+            let want = !unequipped && (drawn_by_default || game.is_alerted(id) || game.package_has(id, flags::WEAPON_DRAWN));
             if hold.test.is_none() && hold.drawn != want {
                 hold.drawn = want;
+                info!("alert: {} {id} {} its weapon{}", game.data.name(id), if want { "draws" } else { "holsters" }, if !fighting && want != game.is_alerted(id) { " (its package's flags)" } else { "" });
+            }
+            // Hidden while holstered under Weapons Unequipped.
+            let hide = unequipped && hold.anim.stage == fnv_actor::weapon::Stage::Holstered;
+            if hide != hidden {
+                if let Some(&node) = rig.nodes.get(hold.stance.weapon_node) {
+                    commands.entity(node).insert(if hide { Visibility::Hidden } else { Visibility::Inherited });
+                }
+                if hide {
+                    commands.entity(e).insert(WeaponHidden);
+                } else {
+                    commands.entity(e).remove::<WeaponHidden>();
+                }
             }
         }
         let aware = game.awareness.get(id);

@@ -22,6 +22,14 @@
 //! While a clip plays, `GetSitting` / `GetSleeping` and the other furniture functions of
 //! the script runtime answer for the user (`nvf_play::furniture::set_use`).
 //!
+//! Getting off plays in a frame placed so that the getting-off clip's first `Bip01`
+//! position is where the getting-on clip left the body: the plain exits start where their
+//! enter clips stop (furniture.md §4), so for them nothing changes; Doc Mitchell's
+//! `SpecialIdle_NVDocChairFrontExit` (sequence `SpecialIdle_DocSitLeftExit`) starts its
+//! `Bip01` at (−52.2, 0.1) instead of the seat's (0, 54.3) [observed: the KF], and the
+//! body jumped 75 units to the side before walking off (owner's playtest list 5 item 40)
+//! [hypothesis: the game plays every exit from where the body sits].
+//!
 //! Not done: work spots without getting-on clips (marker 22), fidgets and eating while
 //! seated (state 3 of the IDLE tree), checking the entry point against the navmesh, and
 //! sandboxing actors choosing furniture themselves (residents use the furniture their
@@ -130,6 +138,14 @@ fn clip_body(clip: &Clip, t: f32) -> BodyAt {
     let track = |n: &str| clip.tracks.iter().find(|(name, _)| name == n).map(|(_, t)| t);
     let yaw = |n: &str| track(n).and_then(|tt| tt.rotation_at(t)).map_or(0.0, yaw_of);
     BodyAt { bip01: track("Bip01").and_then(|tt| tt.translation.sample(t)).unwrap_or([0.0; 3]), yaw: yaw("Bip01") + yaw("Bip01 NonAccum") }
+}
+
+/// The frame a getting-off clip `off` plays in so that its first `Bip01` position is
+/// where the getting-on clip `on`, played in `clip`, left it.
+fn exit_frame(clip: Frame, on: &ClipEnds, off: &ClipEnds) -> Frame {
+    let (e, s) = (on.stop.bip01, off.start.bip01);
+    let seat = Frame { pos: clip.point([e[0], e[1], 0.0]), heading: clip.heading };
+    Frame { pos: seat.point([-s[0], -s[1], 0.0]), heading: clip.heading }
 }
 
 fn clip_ends(clip: &Clip) -> ClipEnds {
@@ -333,6 +349,9 @@ pub struct OnFurniture {
     get_on: Arc<BoundClip>,
     stay: Option<Arc<BoundClip>>,
     get_off: Option<(Arc<BoundClip>, ClipEnds)>,
+    /// The frame the getting-off clip plays in: placed so that its first `Bip01`
+    /// position is where the getting-on clip left the body (module notes).
+    exit_frame: Option<Frame>,
     /// The actor's parent's place in game space (its own transform is relative to it).
     origin: Vec3,
     stay_left: Option<f32>,
@@ -443,6 +462,7 @@ pub fn drive_actors(
                     get_on,
                     stay,
                     get_off: None,
+                    exit_frame: None,
                     origin,
                     stay_left: sit.stay,
                 });
@@ -519,6 +539,18 @@ pub fn drive_actors(
                         info!("furniture: {:08X} gets off {:08X} by clip {}", on.who.reference, on.plan.furniture, clip.as_ref().map_or("none", |c| c.name.as_str()));
                         let bound = clip.map(|c| (clip_ends(&c), Arc::new(bind_clip(&rig.skel, c))));
                         usage.begin_leaving(bound.as_ref().map_or(0.0, |(_, b)| b.clip.length()));
+                        // Played from where the body sits: the plain exits start where
+                        // their enter clips stop, a special one (Doc Mitchell's
+                        // SpecialIdle_NVDocChairFrontExit, whose Bip01 starts 52 units to
+                        // the side) would otherwise jump there first.
+                        let on_stop = clip_ends(&on.plan.get_on).stop.bip01;
+                        if let Some((ends, b)) = &bound {
+                            let off = (ends.start.bip01[0] - on_stop[0]).hypot(ends.start.bip01[1] - on_stop[1]);
+                            if off > 10.0 {
+                                info!("furniture: {:08X}: {} starts {off:.0} units from where the body sits: played from the seat", on.who.reference, b.clip.name);
+                            }
+                        }
+                        on.exit_frame = bound.as_ref().map(|(ends, _)| exit_frame(clip_frame, &clip_ends(&on.plan.get_on), ends));
                         on.get_off = bound.map(|(ends, b)| (b, ends));
                         tell_scripts(&mut script, on.who.reference, Some((&on.plan, state::GETTING_OFF)));
                     }
@@ -545,13 +577,14 @@ pub fn drive_actors(
                         if let Some((clip, ends)) = &on.get_off {
                             let travel = Vec3::from_array(ends.stop.bip01) - Vec3::from_array(ends.start.bip01);
                             on.pose = Some((clip.clone(), phase));
-                            place(Frame { pos: clip_frame.point([travel.x * phase, travel.y * phase, 0.0]), heading: clip_frame.heading });
+                            let frame = on.exit_frame.unwrap_or(clip_frame);
+                            place(Frame { pos: frame.point([travel.x * phase, travel.y * phase, 0.0]), heading: frame.heading });
                         }
                     }
                     Phase::GettingOff => {
                         // Back on its feet: at the entry point, turned as the clip left it.
                         let end = match &on.get_off {
-                            Some((_, ends)) => on.plan.frames.after(ends, on.plan.standing_yaw),
+                            Some((_, ends)) => UseFrames { clip: on.exit_frame.unwrap_or(clip_frame), on: on.plan.frames.on }.after(ends, on.plan.standing_yaw),
                             None => Frame { pos: on.plan.entry.pos, heading: on.plan.entry.heading },
                         };
                         place(end);
@@ -780,6 +813,24 @@ pub fn report(mut exit: MessageReader<AppExit>, f: Res<Furnishings>) {
 mod tests {
     use super::*;
     use std::f32::consts::{FRAC_PI_2, PI, TAU};
+
+    /// The numbers of `chair_forwardenter`, `chair_forwardexit` and Doc Mitchell's
+    /// `SpecialIdle_NVDocChairFrontExit` (furniture.md §4; Bip01 from the KF's B-spline).
+    #[test]
+    fn exits_start_where_the_body_sits() {
+        let at = |x: f32, y: f32| BodyAt { bip01: [x, y, 0.0], yaw: 0.0 };
+        let on = ClipEnds { start: at(0.0, -1.1), stop: at(0.0, 54.3) };
+        let plain = ClipEnds { start: at(0.0, 54.3), stop: at(0.0, -1.1) };
+        let doc = ClipEnds { start: at(-52.2, 0.1), stop: at(-17.5, -14.1) };
+        let clip = Frame { pos: [100.0, 200.0, 0.0], heading: FRAC_PI_2 };
+        let same = exit_frame(clip, &on, &plain);
+        assert!((same.pos[0] - 100.0).abs() < 1e-3 && (same.pos[1] - 200.0).abs() < 1e-3 && same.heading == clip.heading);
+        // The special exit's first body position is the seat, not 52 units beside it.
+        let seat = clip.point([0.0, 54.3, 0.0]);
+        let f = exit_frame(clip, &on, &doc);
+        let first = f.point([-52.2, 0.1, 0.0]);
+        assert!((first[0] - seat[0]).abs() < 1e-3 && (first[1] - seat[1]).abs() < 1e-3, "{first:?} {seat:?}");
+    }
 
     #[test]
     fn uses_of_actors_no_longer_drawn_are_let_go() {

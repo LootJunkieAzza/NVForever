@@ -773,7 +773,7 @@ expect = [
 name = "idles-opening"
 source = "CLAUDE.md: after idle animation changes (docs/spec-notes/idles.md §7), the opening"
 areas = ["idles"]
-paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-actor/src/idle*.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/player_body.rs"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-actor/src/idle*.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/furniture.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
 args = ["--play", "--new-game", "--no-voice"]
 run_seconds = 90
@@ -781,6 +781,8 @@ expect = [
   "VCG01 stage 55 set",
   "idle summary: 10 idles asked for (1 by scripts, 4 by packages' begin, end and change, 1 from collections, 4 by dialogue lines); 5 started on actors, 5 on the player; 0 for actors not drawn, 0 without a usable clip",
   { re = 'furniture:.*by clip SpecialIdle_DocSitLeftExit', label = "Doc Mitchell getting off his chair by clip SpecialIdle_DocSitLeftExit" },
+  # playtest list 5 item 40: that clip's Bip01 starts 52 units beside the seat; it is played from the seat.
+  { re = 'furniture: 00104C0F: SpecialIdle_DocSitLeftExit starts (?P<n>\d+) units from where the body sits: played from the seat', range = [40, 100], label = "Doc Mitchell's exit played from his seat" },
 ]
 
 # ------------------------------------------------------------------ messages and menus
@@ -1413,19 +1415,20 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # GetAlarmed, GetMajorCrimeCount: 100 calls, 32 condition uses) and the unregistered GetIsAlignment.
 # claude/script-stubs-2 implemented seven (34 calls, 9 condition uses), moved PushActorAway and
 # SetForceSneak to "needs a system", and registered AddItemToLeveledList, IsDLCInstalled and
+# claude/l5-npc-ai implemented SetForceSneak (3 calls): 77 stubs and 920 calls before it.
 # GetXPForNextLevel (§3.2). Then four more (§3.3, §3.4): the followers' OpenTeammateContainer
 # (26 calls, the last stub assigned to H, so no "H followers" row is left), Autosave (74 calls),
 # the crafting ShowRecipeMenu (15 calls, PR #292) and claude/l5-render-fx's SwapTexture (383
 # calls): 81 → 77 stubs, 1,418 → 920 calls, condition uses unchanged.
 expect = [
-  { json = "summary.stubs", equals = 77 },
+  { json = "summary.stubs", equals = 76 },
   { json = "summary.by_status.assigned", equals = 16 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 60 },
+  { json = "summary.by_status.needs_system", equals = 59 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.E2 combat AI", equals = 15 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 920 },
+  { json = "summary.stub_calls", equals = 917 },
   { json = "summary.stub_condition_uses", equals = 614 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -2231,4 +2234,47 @@ run_seconds = 40
 expect = [
   "dialogue: conversation with SunnyRef started (topic GREETING)",
   { re = 'subtitle: .*\(not drawn: in dialogue\)', label = "another actor's line logged, not drawn" },
+]
+
+# ------------------------------------------------------------------ playtest list 5, NPC AI (claude/l5-npc-ai)
+
+[[scenario]]
+name = "npc-door-fade"
+source = "playtest list 5 item 3 (engine/nvforever/src/door_fade.rs, nvf-play world_sounds DoorPassed): an NPC going through a load door fades out at it and in at the other side, and the doors' open sounds play where the listener is"
+note = "the ringo-comes-out run: Ringo comes out of the gas station door into the drawn exterior where the player stands"
+areas = ["ai", "doors"]
+paths = ["engine/nvforever/src/door_fade.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/world_sounds.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "4:0010903F", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10", "--npc-packages", "all,RingoRef"]
+run_seconds = 60
+expect = [
+  { re = 'world sounds: an actor passed load door \w+, sound ', label = "a load door's open sound for an NPC passing it" },
+  { re = 'door fade summary: \d+ actors faded out at a door, (?P<n>\d+) faded in', range = [1, 1000], label = "an NPC faded in at the other side of a door" },
+]
+
+[[scenario]]
+name = "npc-sneak-sunny"
+source = "playtest list 5 items 34-37 (engine/nvforever/src/sneaking.rs, alert.rs; fnv_game::Game::sneaks): Sunny's VCG02 packages: Weapon Drawn on the run to the wells, Always Sneak on the walk to the geckos"
+note = "the sunny-wells run (Sunny takes the player to the wells), then at 115 s VCG02's two geckos go for the player (StartCombat, as when the player opens fire), who stands by Sunny; she and Cheyenne join in as the geckos come up (the geckos, Very Aggressive, would attack them too)"
+areas = ["ai", "sneaking"]
+paths = ["engine/nvforever/src/sneaking.rs", "engine/nvforever/src/alert.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/provocation.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor,1@VCG02=10:stage:VCG02:25,3@VCG02=10:activate:0x0010618E,115:call:0x0010A1FE:StartCombat:player,115:call:0x0010A1FD:StartCombat:player", NVF_PLAY_TEST_TALK = "0:*=VFreeformGoodspringsGSSunnySmilesTopic019", NVF_PLAY_TEST_GOTO = "90:-67150:-9100:7650", NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "10"]
+run_seconds = 180
+expect = [
+  { re = 'alert: (SunnyRef|GSSunnySmiles) \S+ draws its weapon \(its package.s flags\)', label = "Sunny draws her weapon for VCG02SunnyTravelToWell1 (Weapon Drawn)" },
+  { re = 'sneaking: (SunnyRef|GSSunnySmiles) \S+ crouches and sneaks', label = "Sunny sneaks on VCG02SunnySneakCloserToWell (Always Sneak)" },
+  { re = 'npc combat: SunnyRef \S+ fights VCG02Gecko', label = "Sunny fights the geckos that went for the player" },
+]
+
+[[scenario]]
+name = "ranger-ghost-post"
+source = "playtest list 5 item 29: Ranger Ghost (vMORangerGhostREF, no packages) stays on her sandbagged post on top of the Mojave Outpost building, 300 units above the ground by the chain-link fence"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1" }
+args = ["--play", "--pos=-82300,-101700,11100", "--heading", "180", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "all,vMORangerGhostREF"]
+run_seconds = 45
+expect = [
+  { re = 'ai summary at .*vMORangerGhostREF: no package, \S+ in \S+, walked (?P<n>\d+) units', range = [0, 50], label = "Ghost stays at her post (walked under 50 units)" },
 ]

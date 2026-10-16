@@ -444,6 +444,24 @@ fn an_ally_that_sees_a_fight_helps() {
 }
 
 #[test]
+fn an_actor_that_sees_a_danger_to_itself_fight_joins_against_it() {
+    // Playtest list 5 item 35: the wolf (aggression 2, Raiders) would attack the helper
+    // (aggression 0, Average confidence, Rats), who would not attack it; seeing it fight
+    // the player, the helper takes the wolf on at once.
+    let f = fixture();
+    let mut g = game(&f);
+    let (wolf, loafer) = (FormId(LIST_REF), FormId(HELPER_REF));
+    assert!(g.would_attack(wolf, loafer) && !g.would_attack(loafer, wolf));
+    fighting(&mut g, LIST_REF, 0x14);
+    assert_eq!(g.call_allies(), 0, "not seen yet");
+    g.detection.pairs.insert((loafer, wolf), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
+    assert_eq!(g.call_allies(), 1);
+    assert!(g.would_attack(loafer, wolf));
+    assert!(g.awareness.get(loafer).is_some_and(|a| a.alarms.iter().any(|x| x.owner == wolf && x.cause == Cause::Noticed)));
+    assert_eq!(g.call_allies(), 0, "once");
+}
+
+#[test]
 fn an_actor_hit_by_another_fights_it_but_not_an_ally() {
     // NPC against NPC (combat-ai.md §12.4): the leader (Raiders) is neutral to the helper
     // (Rats); hit by it, it holds a grudge and fights it. The helper's own ally (Own, a
