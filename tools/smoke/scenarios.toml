@@ -816,6 +816,8 @@ expect = [
   "player body: drawn again in first person",
 ]
 order = [["player body: not drawn while the idle drives the view in first person", "player body: drawn again in first person"]]
+
+[[scenario]]
 name = "rorschach-cards"
 source = "SwapTexture (playtest list 5 item 38; docs/design/script-stubs.md §4): Doc Mitchell's lines put the psych test's cards on TempRorschachTest01REF behind him; the line that enables the card shows card 1, an inkblot answer's line swaps in the inkblot"
 areas = ["scripts", "rendering"]
@@ -2599,6 +2601,9 @@ args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 12
 expect = [
   { re = 'settings: \d+ of \d+ switch\(es\) read from .*NVForever\.ini, \d+ changed: (.*, )?hit-markers on', label = "the stored switch is set at the start" },
+]
+
+[[scenario]]
 name = "death-cam-first"
 source = "owner 2026-10-16: when the player dies the body drops as a ragdoll with the first-person view fixed to its head, in slow motion and blurred (engine/nvforever/src/death_cam.rs)"
 areas = ["combat", "camera"]
@@ -2624,6 +2629,9 @@ run_seconds = 22
 expect = [
   "death camera: the player died in third person: the body drops as a ragdoll, the camera stays on it",
   { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
+]
+
+[[scenario]]
 name = "aim-zoom"
 source = "owner's request 2026-10-16: aiming down the sights zooms the view to the weapon's WEAP Sight FOV (engine/nvf-play/src/aim_zoom.rs; the Varmint Rifle zooms further than the Sturdy Caravan Shotgun)"
 note = "the weapon drawn at 9 s, Block held from 12 s to 15 s; the zoom takes 0.25 s each way"
@@ -2636,6 +2644,8 @@ expect = [
   { re = 'aim zoom: \S+ \(\S+\) sight FOV (?P<n>[\d.]+)°', range = [1, 74.9], label = "aiming zooms in to the weapon's sight FOV" },
   { re = 'aim zoom: back to the unzoomed view', label = "letting go of Block zooms back out" },
 ]
+
+[[scenario]]
 name = "weapon-mount-bones"
 kind = "tool"
 source = "owner's playtest 2026-10-16 (Fiends held the baseball bat the wrong way round): the drawn bone is the equip clip's, docs/spec-notes/animation.md §9.10"
