@@ -5202,6 +5202,7 @@ often than every few seconds, and a death line when someone dies? Is anything to
 *Not built:* NPC power attacks and grenades (so their PowerAttack and FireExplosive lines),
 AvoidThreat, Yield, KnockedBack, OnFire, Poisoned, Wake and the Response topics other than
 DeathResponse.
+
 ## Cook-Cook's flamer: steady fire and hands on the gun (2026-10-16)
 
 Your report: firing, Cook-Cook jittered as if the flamer had recoil (his shoulders moved
