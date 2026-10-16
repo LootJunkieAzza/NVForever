@@ -89,8 +89,9 @@
 //!   a hit counts as the torso]. Actors fire without spending ammunition [design: until
 //!   looting balance is looked at].
 //! - **The player's death**: at 0 health the player dies (`Game::hit`); every control
-//!   is held from then on (`ScriptState::locks`) and the screen says so [design: the
-//!   original's death camera and reload are not built]. God mode ([`god_mode`]:
+//!   is held from then on (`ScriptState::locks`) and the screen says so; the death
+//!   camera (`nvforever` `death_cam.rs`) drops the body, slows the clock and blurs the
+//!   picture [design: reloading the last save is not built]. God mode ([`god_mode`]:
 //!   `--god`, the settings page's Developer switch, test aid `NVF_PLAY_TEST_GOD=1`): the
 //!   player takes no damage, so a long unattended run is not ended by a fight.
 //! - **Feedback** [design]: a hit marker at the

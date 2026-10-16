@@ -17,6 +17,9 @@
 //!   physics world.
 //! - A corpse that gets under the terrain is lifted back above it (a guard, as for the
 //!   player).
+//! - The player's own body drops the same way when the player dies (`death_cam.rs`): its
+//!   third-person rig carries a [`PlayerRig`] in place of an [`ActorRig`], so that the
+//!   systems of placed actors (head tracking, hit volumes, outfits) leave it alone.
 
 use crate::limbs::{ActorRig, LimbRig};
 use crate::locomotion::Dying;
@@ -101,6 +104,18 @@ impl Ragdolls {
     }
 }
 
+/// The player's third-person rig while it lies as a ragdoll (`death_cam.rs`): the rig of
+/// reference [`fnv_sim::FormId::PLAYER_REF`], on the rig's root.
+#[derive(Component, Clone)]
+pub struct PlayerRig(pub ActorRig);
+
+/// The rig of a corpse: a placed actor's or the player's.
+type AnyRig = AnyOf<(&'static ActorRig, &'static PlayerRig)>;
+
+fn rig_of<'a>((actor, player): (Option<&'a ActorRig>, Option<&'a PlayerRig>)) -> &'a ActorRig {
+    actor.or(player.map(|p| &p.0)).expect("AnyOf holds one of them")
+}
+
 /// A dead actor with a ragdoll (on the actor's root, next to its [`ActorRig`]).
 #[derive(Component)]
 pub struct Corpse {
@@ -169,7 +184,7 @@ fn body_parts(rig: &ActorRig, corpse: &Corpse, limbs: Option<&LimbRig>) -> Vec<u
 }
 
 /// What [`start`] reads of a corpse.
-type Waiting = (&'static ActorRig, &'static mut Corpse, Option<&'static mut Dying>, Option<&'static LimbRig>, &'static InheritedVisibility);
+type Waiting = (AnyRig, &'static mut Corpse, Option<&'static mut Dying>, Option<&'static LimbRig>, &'static InheritedVisibility);
 
 /// Put waiting corpses' ragdolls in the world where the ground is loaded, and pass on
 /// the frame's shoves.
@@ -181,6 +196,7 @@ fn start(
     globals: Query<&GlobalTransform>,
 ) {
     for (rig, mut c, dying, limbs, vis) in &mut corpses {
+        let rig = rig_of(rig);
         if c.live || !vis.get() || c.lifts > MAX_LIFTS {
             continue;
         }
@@ -226,16 +242,17 @@ fn start(
 
 /// Write the ragdolls' bodies to their bones, and take out of the world the ragdolls
 /// whose ground or whose actor is gone.
-fn pose(
+pub(crate) fn pose(
     time: Res<Time>,
     mut phys: ResMut<PhysState>,
     mut ragdolls: ResMut<Ragdolls>,
-    mut corpses: Query<(&ActorRig, &mut Corpse, &InheritedVisibility)>,
+    mut corpses: Query<(AnyRig, &mut Corpse, &InheritedVisibility)>,
     globals: Query<&GlobalTransform>,
     mut transforms: Query<&mut Transform>,
 ) {
     let mut seen = HashSet::new();
     for (rig, mut c, vis) in &mut corpses {
+        let rig = rig_of(rig);
         if !c.live {
             continue;
         }

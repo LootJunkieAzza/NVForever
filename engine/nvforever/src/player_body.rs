@@ -372,8 +372,9 @@ struct Rig {
     /// First person: the nodes above the root that draw the rig bigger about the eye
     /// ([`place_lens`]).
     lens: Option<[Entity; 2]>,
-    /// The skeleton's folder (`meshes\characters\_male\`).
+    /// The skeleton's folder (`meshes\characters\_male\`), and its path.
     folder: String,
+    skeleton: String,
     animator: Animator,
     clips: HashMap<ClipKey, Option<Arc<ClipInfo>>>,
     /// The up and down forms of clips, by path (failures too).
@@ -633,6 +634,20 @@ impl PlayerBody {
         self.muzzle_entity
     }
 
+    /// The third-person rig as an actor's rig of the player's reference, for its ragdoll
+    /// (`death_cam.rs`): its root entity and the rig.
+    pub fn third_rig(&self) -> Option<(Entity, crate::limbs::ActorRig)> {
+        let r = &self.body.as_ref()?.third;
+        let rig = crate::limbs::ActorRig {
+            reference: FormId::PLAYER_REF.0,
+            base: FormId::PLAYER_BASE.0,
+            skeleton: r.skeleton.clone(),
+            skel: r.animator.skel.clone(),
+            nodes: r.animator.nodes.clone(),
+        };
+        Some((r.root, rig))
+    }
+
     /// The clips heard (`anim_sounds.rs`): the animator of the rig in view (the
     /// first-person rig while it is shown, else the body), whether that is the
     /// first-person rig, and the armour worn.
@@ -718,9 +733,11 @@ fn ensure_body(
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
+    death: Res<crate::death_cam::DeathCam>,
 ) {
     let (Some(world), Ok(world_root)) = (world, root.single()) else { return };
-    if state.failed.is_some() {
+    // The dead player's body lies as its ragdoll left it: it is not rebuilt.
+    if state.failed.is_some() || death.down() {
         return;
     }
     let (worn, weapon) = equipped(&sim, &world);
@@ -969,6 +986,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         root: spawned.root,
         lens,
         folder,
+        skeleton: a.skeleton.clone(),
         animator,
         clips: HashMap::new(),
         variants: HashMap::new(),
@@ -1511,12 +1529,13 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams): (
+    (furniture, mut idles, mut seat, pip, cams, death): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
         Res<nvf_play::pipboy::PipBoy>,
         Query<&Projection, With<nvf_play::PlayerCamera>>,
+        Res<crate::death_cam::DeathCam>,
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
@@ -1534,6 +1553,16 @@ fn drive_body(
         state.muzzle_entity = None;
         return;
     };
+    if death.down() {
+        // Dead: the clips stop and the ragdoll has the body (`death_cam.rs`). The whole
+        // body is drawn, but for its head while the view is inside it.
+        anim.ready = false;
+        anim.muzzle = None;
+        anim.casing = None;
+        state.muzzle_entity = None;
+        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person(), arms: true, weapon: true }, false);
+        return;
+    }
     let dt = time.delta_secs();
     let m = &mut state.motion;
     let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
