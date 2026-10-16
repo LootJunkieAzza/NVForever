@@ -2310,6 +2310,8 @@ expect = [
   { re = 'clutter pose: 0x00153171 \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
   { re = 'clutter pose: 0x001531F5 \S*skeletonmale50scasual\.nif drawn in its stored pose' },
   { re = 'clutter pose: 0x0017B38F \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
+]
+
 # ------------------------------------------------------------------ playtest list 5, NPC AI (claude/l5-npc-ai)
 
 [[scenario]]
