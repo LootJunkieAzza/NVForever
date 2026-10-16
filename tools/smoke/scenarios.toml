@@ -2382,6 +2382,28 @@ expect = [
 ]
 
 [[scenario]]
+name = "load-handoff"
+source = "owner 2026-10-16: loading a save while playing keeps the window: the old run's loading screen stays up while a new run loads behind it with its window hidden, then the new window takes over (engine/nvforever/src/handoff.rs)"
+areas = ["save"]
+paths = ["engine/nvforever/src/handoff.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/save.rs"]
+env = { NVFOREVER_HOME = "handoff-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:save handoff-test;14:load handoff-test", NVF_PLAY_TEST_HANDOFF_EXIT = "1" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 90
+# The old run ends by handing over, not at run_seconds; the new one by its test aid.
+ends = "test aid NVF_PLAY_TEST_HANDOFF_EXIT: the new run took over"
+expect = [
+  { re = 'save: wrote .*handoff-test\.nvfsave', label = "the save is written" },
+  { re = 'loading screen up: .* for worldspace 000DA726 ', label = "a loading screen for the save's place comes up" },
+  { re = 'load: handing over to a new run with --load .*handoff-test\.nvfsave', count = 1, label = "a new run starts behind it" },
+  { re = 'load: .*handoff-test\.nvfsave .*starting at', label = "the new run starts at the saved place" },
+  { re = 'load: restored .*handoff-test\.nvfsave: \d+ changed references', label = "the new run restores the save" },
+  { re = 'handoff: window shown after [\d.]+ s$', label = "the new window is shown once the world is in" },
+  { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends when the new one is up" },
+  { re = 'the previous run did not end normally', count = 0, label = "the new run does not take the old one for a crash" },
+  { re = 'before the world was in|before it was ready', count = 0, label = "no time limit or failure" },
+]
+
+[[scenario]]
 name = "main-menu"
 source = "owner 2026-10-15: the main menu (engine/nvf-play/src/main_menu.rs): loading screens behind it, its theme, Continue and Load greyed without saves, Settings, New Game starts the opening"
 areas = ["main-menu", "save"]
