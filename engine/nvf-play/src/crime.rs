@@ -12,6 +12,8 @@
 //!   (`sKarmaMinorGained` … and their `…Image` settings) and plays `UIKarmaUp` or
 //!   `UIKarmaDown` [observed: the settings and sounds in FalloutNV.esm; hypothesis: which
 //!   is used when, a change of `fKarmaModKillingEvilActor` or more being "major"].
+//! - **Reputation**: a seen theft or kill adds infamy with the victim's reputations
+//!   (`fnv_game::functions::crime_infamy`, noted as `Note::Infamy`).
 //! - **Log**: `crime:` lines for each crime, warning and karma change, and a
 //!   `crime summary` at exit.
 //!
@@ -208,6 +210,8 @@ fn show_notes(
                 stats.warnings += 1;
                 info!("crime: {} warns the trespassing player (warning {level})", name(g, actor));
             }
+            // A new title shows its box (`crate::reputation`).
+            Note::Infamy { reputation, before, after } => info!("crime: infamy with {} {before} -> {after}", crate::reputation::name(g, reputation)),
             Note::FactionEnemy { faction } => {
                 stats.faction_enemies += 1;
                 info!("crime: the player is now an enemy of {}", g.data.name(faction));

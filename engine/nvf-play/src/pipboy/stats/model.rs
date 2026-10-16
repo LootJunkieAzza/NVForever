@@ -171,17 +171,9 @@ pub fn karma_title(level: i64, alignment: &str, setting: impl Fn(&str) -> Option
 }
 
 /// The title of a reputation from the levels (0–3) of fame and infamy
-/// (`fnv_game::functions::reputation_tiers`' grid) [documented: the names, GECK wiki
-/// GetReputationThreshold; observed: the grid, layer5-captures.md §9.3 a; hypothesis:
-/// which of "Dark Hero" and "Soft-Hearted Devil" goes with more infamy].
+/// (`crate::reputation::TITLES`).
 pub fn reputation_title(fame: usize, infamy: usize) -> &'static str {
-    const NAMES: [[&str; 4]; 4] = [
-        ["Neutral", "Shunned", "Hated", "Vilified"],
-        ["Accepted", "Mixed", "Sneering Punk", "Merciful Thug"],
-        ["Liked", "Smiling Troublemaker", "Unpredictable", "Dark Hero"],
-        ["Idolized", "Good-Natured Rascal", "Soft-Hearted Devil", "Wild Child"],
-    ];
-    NAMES[fame.min(3)][infamy.min(3)]
+    crate::reputation::title(fame, infamy)
 }
 
 /// The New Vegas statistics the player's General list names [documented: GECK wiki

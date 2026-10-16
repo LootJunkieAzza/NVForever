@@ -660,6 +660,8 @@ pub struct GameData {
     pub scripted_by_cell: BTreeMap<FormId, Vec<FormId>>,
     /// REPU DATA: the reputation's scale (maximum fame or infamy).
     pub reputations: HashMap<FormId, f32>,
+    /// REPU FULL: the reputation's name as the player sees it.
+    pub reputation_names: HashMap<FormId, String>,
     /// CHAL DATA flags (1 Start Disabled, 2 Recurring, 4 Show Zero Progress).
     pub challenges: HashMap<FormId, u32>,
     /// CHAL DATA threshold: the progress at which the challenge is completed.
@@ -683,6 +685,10 @@ pub struct GameData {
     /// [documented: xEdit wbDefinitionsFNV.pas FACT, schema `gameplay.json`; the numbering
     /// is the GECK wiki GetFactionFlags'] (docs/spec-notes/crime-karma.md §2).
     pub faction_flags: HashMap<FormId, u16>,
+    /// FACT WMI1: the reputation a faction's members count towards [documented: xEdit
+    /// wbDefinitionsFNV.pas FACT "Reputation", schema `gameplay.json`; observed:
+    /// GoodspringsFaction 00104C6E names RepNVGoodsprings 00104C22].
+    pub faction_reputations: HashMap<FormId, FormId>,
     /// Cells with an owner, the Public place flag or the Off Limits form flag
     /// (`crate::crime::CellDef`).
     pub cells: HashMap<FormId, crate::crime::CellDef>,
@@ -940,6 +946,7 @@ struct Read {
     leveled_actor: Option<LeveledActorDef>,
     package: Option<PackageDef>,
     reputation: Option<f32>,
+    reputation_name: Option<String>,
     /// CHAL DATA flags and threshold.
     challenge: Option<(u32, u32)>,
     region: Option<RegionDef>,
@@ -950,6 +957,7 @@ struct Read {
     child_race: bool,
     faction: Option<Vec<(FormId, i64)>>,
     faction_flags: Option<u16>,
+    faction_reputation: Option<FormId>,
     cell: Option<crate::crime::CellDef>,
     owner_rank: Option<i32>,
     destruction: Option<DestructionDef>,
@@ -1019,6 +1027,7 @@ impl GameData {
             sigs: HashMap::new(),
             scripted_by_cell: BTreeMap::new(),
             reputations: HashMap::new(),
+            reputation_names: HashMap::new(),
             challenges: HashMap::new(),
             challenge_thresholds: HashMap::new(),
             regions: HashMap::new(),
@@ -1029,6 +1038,7 @@ impl GameData {
             child_races: HashSet::new(),
             faction_reactions: HashMap::new(),
             faction_flags: HashMap::new(),
+            faction_reputations: HashMap::new(),
             cells: HashMap::new(),
             owner_ranks: HashMap::new(),
             destructibles: HashMap::new(),
@@ -1163,6 +1173,9 @@ impl GameData {
             if let Some(v) = r.reputation {
                 d.reputations.insert(id, v);
             }
+            if let Some(v) = r.reputation_name {
+                d.reputation_names.insert(id, v);
+            }
             if let Some((flags, threshold)) = r.challenge {
                 d.challenges.insert(id, flags);
                 d.challenge_thresholds.insert(id, threshold);
@@ -1223,6 +1236,9 @@ impl GameData {
             }
             if let Some(v) = r.faction_flags {
                 d.faction_flags.insert(id, v);
+            }
+            if let Some(v) = r.faction_reputation {
+                d.faction_reputations.insert(id, v);
             }
             if let Some(v) = r.cell.filter(crate::crime::CellDef::matters) {
                 d.cells.insert(id, v);
@@ -1567,6 +1583,14 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         b"FACT" => {
             let data = subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()).unwrap_or_default();
             out.faction_flags = Some(u16::from(data.first().copied().unwrap_or(0)) | (u16::from(data.get(1).copied().unwrap_or(0)) << 8));
+            out.faction_reputation = subs
+                .iter()
+                .find(|s| &s.sig == b"WMI1")
+                .and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok())
+                .map(u32::from_le_bytes)
+                .filter(|&l| l != 0)
+                .and_then(map)
+                .map(FormId);
         }
         _ => {}
     }
@@ -2057,6 +2081,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         }
         b"REPU" => {
             out.reputation = decoded.iter().find(|(s, _)| *s == b"DATA").and_then(|(_, v)| v.as_ref()?.as_f64()).map(|x| x as f32);
+            out.reputation_name = decoded.iter().find(|(s, _)| *s == b"FULL").and_then(|(_, v)| v.as_ref()?.as_str().map(str::to_string)).filter(|n| !n.trim().is_empty());
         }
         b"CHAL" => {
             out.challenge = decoded

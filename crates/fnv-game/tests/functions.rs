@@ -93,7 +93,7 @@ fn plugin_bytes() -> Vec<u8> {
     let chal = record(b"CHAL", 0, CHAL, &[sub(b"EDID", z("ChalTest")), sub(b"DATA", [u32s(&[13, 1, 1, 0]), vec![0; 8]].concat())]);
     let race = record(b"RACE", 0, RACE_CHILD, &[sub(b"EDID", z("ChildRace")), sub(b"DATA", [vec![0; 16], vec![0; 16], u32s(&[4])].concat())]);
     let fact = [
-        record(b"FACT", 0, F1, &[sub(b"EDID", z("F1")), sub(b"XNAM", u32s(&[F2, 0, 1]))]),
+        record(b"FACT", 0, F1, &[sub(b"EDID", z("F1")), sub(b"XNAM", u32s(&[F2, 0, 1])), sub(b"WMI1", REP.to_le_bytes().to_vec())]),
         record(b"FACT", 0, F2, &[sub(b"EDID", z("F2"))]),
     ]
     .concat();
@@ -520,6 +520,26 @@ fn actor_flags_factions_and_essential_state() {
     call(&mut g, 0x108B, Some(CHILD_REF), &[r(PLAYER)]);
     assert_eq!(call(&mut g, 0x1199, Some(CHILD_REF), &[r(PLAYER)]), 1.0);
     assert_eq!(call(&mut g, 0x1199, Some(CHILD_REF), &[r(ADULT_REF)]), 0.0);
+}
+
+/// Seen thefts and murders against a faction's people add infamy with its reputation
+/// (FACT WMI1), up to the scale; unseen ones and other factions' people none.
+#[test]
+fn crimes_against_a_factions_people_add_infamy() {
+    use fnv_game::crime::Kind;
+    use fnv_game::functions::{crime_infamy, reputations_of};
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(reputations_of(&g, FormId(F1)), vec![FormId(REP)]);
+    assert_eq!(reputations_of(&g, FormId(CHILD_REF)), vec![FormId(REP)]);
+    assert!(reputations_of(&g, FormId(ADULT_REF)).is_empty());
+    assert!(crime_infamy(&mut g, Kind::Theft, FormId(F1), false).is_empty());
+    assert_eq!(crime_infamy(&mut g, Kind::Theft, FormId(F1), true), vec![(FormId(REP), 0.0, 2.0)]);
+    assert!(crime_infamy(&mut g, Kind::Trespass, FormId(F1), true).is_empty());
+    assert!(crime_infamy(&mut g, Kind::Murder, FormId(ADULT_REF), true).is_empty());
+    // 2 + 30 stops at the scale, 20.
+    assert_eq!(crime_infamy(&mut g, Kind::Murder, FormId(CHILD_REF), true), vec![(FormId(REP), 2.0, 20.0)]);
+    assert_eq!(g.player.reputation[&FormId(REP)], [20.0, 0.0]);
 }
 
 #[test]

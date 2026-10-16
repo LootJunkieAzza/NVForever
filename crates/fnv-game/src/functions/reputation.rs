@@ -182,3 +182,49 @@ pub fn get_reputation_threshold(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Va
     let t = tiers(level(fame, s), level(infamy, s));
     Ok(Value::Num(t[axis as usize] as f64))
 }
+
+// ---- crimes against a reputation's people (owner's playtest list 5, item 13) ----------
+
+/// Infamy for a crime someone saw, against every reputation the victim counts towards:
+/// 2 for a theft and 30 for a kill (`Kind::Murder`: any kill of its people, self-defence
+/// too) [documented: Fallout wiki "Reputation (Fallout: New
+/// Vegas)", "Negative reputation for all towns and factions": being caught stealing, −2
+/// each; killing people affiliated with a faction or town openly, −30 each (owner's copy
+/// in C:nv-privateallout fandom); hypothesis: "caught" and "openly" are the crime
+/// being seen, and the points are infamy added with [`change`], so up to the scale].
+/// Other crimes change no reputation [hypothesis: the page names only these two].
+pub const THEFT_INFAMY: f64 = 2.0;
+pub const MURDER_INFAMY: f64 = 30.0;
+
+/// The reputations `who` counts towards: a faction's own (FACT WMI1), or those of every
+/// faction an actor is in now [documented: FACT "Reputation", xEdit wbDefinitionsFNV.pas;
+/// hypothesis: an actor counts towards each of its factions' reputations once].
+pub fn reputations_of(g: &Game, who: FormId) -> Vec<FormId> {
+    if let Some(&r) = g.data.faction_reputations.get(&who) {
+        return vec![r];
+    }
+    let mut out: Vec<FormId> = super::factions_of(g, who).into_iter().filter_map(|f| g.data.faction_reputations.get(&f).copied()).collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Give the infamy of a crime (see [`THEFT_INFAMY`]); returns each reputation changed
+/// with its infamy before and after.
+pub fn crime_infamy(g: &mut Game, kind: crate::crime::Kind, victim: FormId, seen: bool) -> Vec<(FormId, f64, f64)> {
+    let points = match kind {
+        crate::crime::Kind::Theft => THEFT_INFAMY,
+        crate::crime::Kind::Murder => MURDER_INFAMY,
+        _ => return Vec::new(),
+    };
+    if !seen {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for r in reputations_of(g, victim) {
+        let before = values(g, r)[0];
+        change(g, r, 0, points);
+        out.push((r, before, values(g, r)[0]));
+    }
+    out
+}

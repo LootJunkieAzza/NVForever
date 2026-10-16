@@ -632,6 +632,9 @@ pub struct Combat {
     /// unattended check shows where the shots were drawn from. The muzzle flashes and
     /// the projectile models are not held: they are drawn as in play.
     tracer_hold: Option<f32>,
+    /// The spread cone's half-angle in degrees a shot would leave in now, while a weapon
+    /// with a firing cycle is drawn and ready; for the crosshair (`crate::reticle`).
+    pub crosshair_cone: Option<f32>,
 }
 
 impl Combat {
@@ -770,7 +773,25 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         no_spread: std::env::var_os("NVF_PLAY_TEST_NO_SPREAD").is_some_and(|v| v != "0"),
         tracer_hold,
         load_magazine: None,
+        crosshair_cone: None,
     });
+}
+
+/// The player's stance for the spread: aiming, moving, running, sneaking, in the air,
+/// the weapon's skill and Strength, crippled arms.
+fn player_stance(control: &PlayerControl, phys: &PhysState, limbs: &PlayerLimbs, skill: f32, strength: f32) -> Stance {
+    Stance {
+        aiming: control.aiming,
+        moving: phys.player.as_ref().is_some_and(|ch| ch.velocity[0].hypot(ch.velocity[1]) > 1.0),
+        running: control.always_run,
+        sneaking: control.sneak,
+        airborne: phys.player.as_ref().is_some_and(|ch| !ch.grounded && !ch.swimming),
+        skill,
+        strength,
+        aiming_move_divisor: 1.0,
+        left_arm_crippled: limbs.arms().0,
+        right_arm_crippled: limbs.arms().1,
+    }
 }
 
 /// How many of `item` the player carries.
@@ -1030,6 +1051,7 @@ fn fire(
     player.pitch = (player.pitch - back.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
     let reload = std::mem::take(&mut control.reload);
     let swap = std::mem::take(&mut control.ammo_swap);
+    c.crosshair_cone = None;
     if c.melee {
         return;
     }
@@ -1063,6 +1085,14 @@ fn fire(
     let carried = total.saturating_sub(cycle.magazine);
     let events = cycle.step(&c.tuning, Input { trigger: control.trigger, reload: reload && !god, dt, carried });
     let Some(chain) = c.forms.chain(id, c.ammo) else { return };
+    // The cone a shot would leave in now, for the crosshair (bloom included).
+    {
+        let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
+        let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, w.skill.as_deref(), false);
+        let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength);
+        let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, &w, &stance), c.kick.bloom, &w, &effects);
+        c.crosshair_cone = Some(if c.no_spread { 0.0 } else { cone });
+    }
     let weapon_fx = sfx.as_deref().and_then(|s| s.forms.weapons.get(&id));
     for e in events {
         match e {
@@ -1115,18 +1145,7 @@ fn fire(
                 }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
                 let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, w.skill.as_deref(), false);
-                let stance = Stance {
-                    aiming: control.aiming,
-                    moving: phys.player.as_ref().is_some_and(|ch| ch.velocity[0].hypot(ch.velocity[1]) > 1.0),
-                    running: control.always_run,
-                    sneaking: control.sneak,
-                    airborne: phys.player.as_ref().is_some_and(|ch| !ch.grounded && !ch.swimming),
-                    skill: shooter.skill,
-                    strength: shooter.strength,
-                    aiming_move_divisor: 1.0,
-                    left_arm_crippled: limbs.arms().0,
-                    right_arm_crippled: limbs.arms().1,
-                };
+                let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength);
                 let actor_spread = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
                 let cone = if c.no_spread { 0.0 } else { spread::cone_deg(actor_spread, c.kick.bloom, &w, &effects) };
                 let eye = player.eye();
