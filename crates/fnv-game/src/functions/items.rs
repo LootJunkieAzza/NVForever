@@ -49,11 +49,16 @@ pub fn remove_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 }
 
 /// `Container.GetItemCount item`: how many are carried; for a form list, the sum over its
-/// members [documented: GECK wiki GetItemCount notes].
+/// members [documented: GECK wiki GetItemCount notes]. Notes do not count ("does not
+/// work with Notes" [documented: same notes]; observed 0 for a holotape just added,
+/// capture `fa_batch3_actions`).
 pub fn get_item_count(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let of = ctx.subject()?;
     let mut n = 0;
     for item in items(g, a.form(0)?) {
+        if g.data.sig(item).as_ref() == Some(b"NOTE") {
+            continue;
+        }
         n += g.world.item_count(of, item).map_err(|e| e.to_string())?;
     }
     Ok(Value::Num(n as f64))

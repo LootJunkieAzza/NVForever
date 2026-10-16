@@ -31,6 +31,7 @@ const CREA: u32 = 0x832;
 const MISC: u32 = 0x840;
 const WEAP: u32 = 0x841;
 const FLST: u32 = 0x842;
+const NOTE: u32 = 0x843;
 const MGEF: u32 = 0x850;
 const EFFECT_SCRIPT: u32 = 0x851;
 const ALCH: u32 = 0x852;
@@ -109,6 +110,7 @@ fn plugin_bytes() -> Vec<u8> {
     let misc = record(b"MISC", 0, MISC, &[sub(b"EDID", z("Junk")), sub(b"DATA", [1i32.to_le_bytes().to_vec(), f32b(1.0)].concat())]);
     let weap_data = [10i32.to_le_bytes().to_vec(), 100i32.to_le_bytes().to_vec(), f32b(2.0), 5i16.to_le_bytes().to_vec(), vec![6]].concat();
     let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("Gun")), sub(b"DATA", weap_data)]);
+    let note = record(b"NOTE", 0, NOTE, &[sub(b"EDID", z("TestHolotape"))]);
     let flst = record(b"FLST", 0, FLST, &[sub(b"EDID", z("GunList")), sub(b"LNAM", WEAP.to_le_bytes().to_vec())]);
     // The base effect: archetype 1 (Script), its script 0x851 (scripts.md §7.6).
     let mgef_data = [u32s(&[0]), f32b(0.0), u32s(&[EFFECT_SCRIPT]), vec![0xFF; 8], vec![0; 4], vec![0; 4], f32b(1.0), vec![0; 24], vec![0; 8], u32s(&[1]), vec![0xFF; 4]].concat();
@@ -196,6 +198,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"MISC", &misc),
         top(b"WEAP", &weap),
         top(b"FLST", &flst),
+        top(b"NOTE", &note),
         top(b"MGEF", &mgef),
         top(b"SCPT", &scpt),
         top(b"ALCH", &alch),
@@ -982,8 +985,18 @@ fn script_function_audit_fixes() {
     assert_eq!(call(&mut g, 0x10B6, Some(PLAYER), &[r(FLST)]), 1.0);
     // A setting the masters do not define: the game's own value (observed).
     assert_eq!(call(&mut g, 0x1100, None, &[ArgValue::Str("iLockLevelMaxHard".into())]), 75.0);
-    // GetAnimAction: none.
+    // GetAnimAction: none, unless the engine tells a drawing (0).
     assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), -1.0);
+    g.set_weapon_out(adult, false);
+    g.set_anim_action(adult, Some(0));
+    assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), 0.0);
+    g.set_anim_action(adult, None);
+    // A note added as an item: GetHasNote 1, GetItemCount 0; RemoveNote takes it.
+    call(&mut g, 0x1002, Some(PLAYER), &[r(NOTE), n(1.0)]);
+    assert_eq!(call(&mut g, 0x117E, None, &[r(NOTE)]), 1.0);
+    assert_eq!(call(&mut g, 0x102F, Some(PLAYER), &[r(NOTE)]), 0.0);
+    call(&mut g, 0x117D, None, &[r(NOTE)]);
+    assert_eq!(call(&mut g, 0x117E, None, &[r(NOTE)]), 0.0);
     // KillActor's cause of death; ResurrectActor brings the actor back unharmed.
     call(&mut g, 0x1181, Some(ADULT_REF), &[av(16), n(5.0)]);
     call(&mut g, 0x108B, Some(ADULT_REF), &[r(CHILD_REF), n(0.0), n(6.0)]);
@@ -1024,6 +1037,13 @@ fn script_function_audit_fixes() {
     assert!(g.teleported.contains(&adult));
     call(&mut g, 0x1009, Some(ACTI_REF), &[ax('Z'), n(90.0)]);
     assert!(g.turned.contains(&FormId(ACTI_REF)));
+    // GetOpenState: any object reads 3 closed, an actor 0; what the engine animates, its
+    // state.
+    assert_eq!(call(&mut g, 0x109D, Some(CONT_REF), &[]), 3.0);
+    assert_eq!(call(&mut g, 0x109D, Some(ACTI_REF), &[]), 3.0);
+    assert_eq!(call(&mut g, 0x109D, Some(CHILD_REF), &[]), 0.0);
+    g.senses.open_states.insert(FormId(ACTI_REF), 2);
+    assert_eq!(call(&mut g, 0x109D, Some(ACTI_REF), &[]), 2.0);
     // The actors of the loaded cell were outfitted when it loaded (the game starts in
     // it); a far one was not.
     assert!(g.world.get(FormId(CHILD_REF)).unwrap().outfitted);

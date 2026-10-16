@@ -43,11 +43,19 @@ pub struct Senses {
     /// When ([`Game::time`]) the animating side last told whether each actor has its
     /// weapon out (`Game::set_weapon_out`): it tells every frame while it draws the actor.
     pub weapon_told: BTreeMap<FormId, f64>,
+    /// The open state of every object the engine animates open and closed (doors,
+    /// animated containers), as GetOpenState numbers it: 1 open, 2 opening, 3 closed,
+    /// 4 closing. Told by the engine's door animation (`nvf-play` doors.rs).
+    pub open_states: BTreeMap<FormId, u8>,
+    /// The special animation action each drawn actor is doing, as GetAnimAction numbers
+    /// it (0 equipping a weapon, 1 unequipping), told with its weapon state
+    /// (`Game::set_anim_action`); absent: none.
+    pub anim_actions: BTreeMap<FormId, i32>,
 }
 
 impl Default for Senses {
     fn default() -> Senses {
-        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new() }
+        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim_actions: BTreeMap::new() }
     }
 }
 

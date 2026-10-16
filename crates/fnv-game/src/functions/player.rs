@@ -32,8 +32,14 @@ pub fn remove_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
+/// `GetHasNote note`: the player has the note: added with AddNote, or carried as an
+/// item (AddItem, picked up) [observed: `player.AddItem` of a holotape made GetHasNote 1
+/// while GetItemCount of it read 0, capture `fa_batch3_actions`; the GECK wiki
+/// GetItemCount notes say it "does not work with Notes"].
 pub fn get_has_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    yes(g.player.notes.contains(&a.form(0)?))
+    let note = a.form(0)?;
+    let carried = g.world.item_count(FormId::PLAYER_REF, note).unwrap_or(0) > 0;
+    yes(carried || g.player.notes.contains(&note))
 }
 
 pub fn add_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -119,8 +125,14 @@ pub fn get_level(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     Ok(Value::Num(g.player.level.unwrap_or(g.world.config().player_level as i32) as f64))
 }
 
+/// `RemoveNote note`: the player no longer has it, carried or added.
 pub fn remove_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.notes.remove(&a.form(0)?);
+    let note = a.form(0)?;
+    g.player.notes.remove(&note);
+    let carried = g.world.item_count(FormId::PLAYER_REF, note).unwrap_or(0);
+    if carried > 0 {
+        let _ = g.world.remove_item(FormId::PLAYER_REF, note, carried);
+    }
     none()
 }
 
