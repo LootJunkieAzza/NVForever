@@ -254,6 +254,11 @@ pub struct RefExtra {
     /// ([`Game::set_weapon_out`]).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub weapon_out: bool,
+    /// The weapon the animating side draws for an actor whose inventory here has none
+    /// equipped (an NPC's weapon as its appearance resolves it), for GetWeaponAnimType
+    /// ([`Game::set_held_weapon`]). Not saved: told again when the actor is drawn.
+    #[serde(skip)]
+    pub held_weapon: Option<FormId>,
     /// Health damage taken from the player, and from anyone (kill XP's share rule).
     #[serde(skip_serializing_if = "is_zero_f64", default)]
     pub player_damage: f64,

@@ -12,6 +12,7 @@ mod actor_furniture;
 mod actor_locomotion;
 mod actor_tri;
 mod actor_detect;
+mod actor_fidgets;
 mod actor_factions;
 mod actor_karma;
 mod actor_values;
@@ -236,6 +237,26 @@ pub enum ActorCmd {
         cell: Vec<String>,
         #[arg(long)]
         survey: bool,
+    },
+    /// Drawn-weapon fidgets (docs/spec-notes/idles.md §11): each actor's weapon put out
+    /// in a game where nothing has happened, the IDLE tree asked `--checks` times, the
+    /// picks counted per idle (fnv.actor.fidgets/1).
+    Fidgets {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Script function catalogue (default: `script/functions.json` next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// Placed actors or actor bases, by Editor ID or FormID, or `player` (repeatable).
+        #[arg(long, required = true)]
+        actor: Vec<String>,
+        /// The weapon in every actor's hands, by Editor ID or FormID (none is equipped
+        /// in a fresh game).
+        #[arg(long)]
+        weapon: Option<String>,
+        /// How many times the tree is asked for each actor.
+        #[arg(long, default_value_t = 1000)]
+        checks: u32,
     },
     /// Detection numbers (docs/design/detection.md §4): what one actor's records put
     /// into the detection formula against a target, and the value and band (hidden,

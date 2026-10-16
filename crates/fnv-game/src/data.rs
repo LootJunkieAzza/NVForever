@@ -733,6 +733,9 @@ pub struct GameData {
     pub idle_markers: HashMap<FormId, crate::package::IdleCollection>,
     /// IDLE: what playing an idle animation needs (`crate::idles`).
     pub idles: HashMap<FormId, IdleDef>,
+    /// The idle tree: each IDLE's children (the roots under `None`), siblings in the
+    /// order their `previous` links chain them (animation.md §2.1).
+    pub idle_children: HashMap<Option<FormId>, Vec<FormId>>,
     /// IMAD: how long each image space modifier plays.
     pub image_modifiers: HashMap<FormId, ImageModifierDef>,
     /// TACT: the record-header flags of every talking activator (radio stations: the
@@ -768,6 +771,12 @@ pub struct IdleDef {
     /// The record's conditions; `None` when one of them could not be read (the idle is
     /// then never chosen by its conditions, `Game::idle_allowed`).
     pub conditions: Option<Vec<Condition>>,
+    /// ANAM: the parent and the previous sibling in the idle tree [documented: xEdit
+    /// IDLE ANAM; animation.md §2.1].
+    pub parent: Option<FormId>,
+    pub previous: Option<FormId>,
+    /// DATA replay delay (i16) [documented: xEdit IDLE DATA].
+    pub replay_delay: i16,
 }
 
 impl IdleDef {
@@ -778,13 +787,47 @@ impl IdleDef {
             .map(|b| String::from_utf8_lossy(b.split(|c| *c == 0).next().unwrap_or_default()).trim().to_string())
             .filter(|s| !s.is_empty());
         let byte = |i: usize| data.and_then(|d| d.get(i)).copied().unwrap_or(0);
-        IdleDef { model, loop_min: byte(1), loop_max: byte(2), conditions: Some(Vec::new()) }
+        let replay_delay = i16::from_le_bytes([byte(4), byte(5)]);
+        IdleDef { model, loop_min: byte(1), loop_max: byte(2), conditions: Some(Vec::new()), parent: None, previous: None, replay_delay }
     }
 
     /// Whether the record names an animation file.
     pub fn has_file(&self) -> bool {
         self.model.as_deref().is_some_and(|m| m.to_ascii_lowercase().ends_with(".kf"))
     }
+}
+
+/// The children of each IDLE (roots under `None`). Siblings follow their `previous`
+/// chain: first a sibling whose previous is not in the group, then the one naming it,
+/// and so on; siblings outside any chain come last in FormID order [observed: 357 of 364
+/// sibling groups form one chain, animation.md §2.1].
+pub fn idle_children(idles: &HashMap<FormId, IdleDef>) -> HashMap<Option<FormId>, Vec<FormId>> {
+    let mut groups: HashMap<Option<FormId>, Vec<FormId>> = HashMap::new();
+    for (id, d) in idles {
+        groups.entry(d.parent).or_default().push(*id);
+    }
+    for list in groups.values_mut() {
+        list.sort();
+        let members: std::collections::HashSet<FormId> = list.iter().copied().collect();
+        let mut after: HashMap<FormId, FormId> = HashMap::new();
+        for id in list.iter() {
+            if let Some(p) = idles[id].previous.filter(|p| members.contains(p)) {
+                after.entry(p).or_insert(*id);
+            }
+        }
+        let mut ordered = Vec::with_capacity(list.len());
+        let mut seen = std::collections::HashSet::new();
+        for first in list.iter().filter(|id| idles[id].previous.is_none_or(|p| !members.contains(&p))) {
+            let mut at = Some(*first);
+            while let Some(id) = at.filter(|id| seen.insert(*id)) {
+                ordered.push(id);
+                at = after.get(&id).copied();
+            }
+        }
+        ordered.extend(list.iter().filter(|id| !seen.contains(id)).copied());
+        *list = ordered;
+    }
+    groups
 }
 
 /// A stage of rads or of a Hardcore need (RADS, DEHY, HUNG, SLPD).
@@ -1087,6 +1130,7 @@ impl GameData {
             furniture: HashMap::new(),
             idle_markers: HashMap::new(),
             idles: HashMap::new(),
+            idle_children: HashMap::new(),
             image_modifiers: HashMap::new(),
             station_flags: winners.iter().filter(|w| &w.2.header.sig == b"TACT").map(|w| (FormId(w.0), w.2.header.flags)).collect(),
             perks: HashMap::new(),
@@ -1293,6 +1337,7 @@ impl GameData {
         for stages in d.need_stages.values_mut() {
             stages.sort_by_key(|s| (s.threshold, s.stage));
         }
+        d.idle_children = idle_children(&d.idles);
         let (lines, order) = topic_lines(lo);
         d.topics = lines;
         for (topic, lines) in &d.topics {
@@ -2336,6 +2381,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             let conds: Vec<Option<Condition>> = decoded.iter().filter(|(s, _)| *s == b"CTDA").map(|(_, v)| cond(v, &mut unread)).collect();
             if let Some(i) = out.idle.as_mut() {
                 i.conditions = conds.into_iter().collect();
+                // ANAM: parent and previous IDLE, file-local FormIDs (null: none).
+                let anam = subs.iter().find(|s| &s.sig == b"ANAM").map(|s| s.data.as_slice()).unwrap_or_default();
+                let link = |at: usize| anam.get(at..at + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).filter(|l| *l != 0).and_then(map).map(FormId);
+                i.parent = link(0);
+                i.previous = link(4);
             }
         }
         b"IDLM" => {

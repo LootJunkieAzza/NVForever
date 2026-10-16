@@ -397,8 +397,18 @@ pub fn weapon_anim_code(record_type: i64) -> i64 {
 /// armed].
 pub fn get_weapon_anim_type(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    let record_type = super::items::equipped_weapon(g, r).and_then(|w| g.data.weapon_anim_types.get(&w).copied());
-    Ok(Value::Num(record_type.map_or(1, weapon_anim_code) as f64))
+    Ok(Value::Num(g.weapon_anim_type(r) as f64))
+}
+
+impl Game<'_> {
+    /// What `GetWeaponAnimType` answers for `actor` ([`get_weapon_anim_type`]): the
+    /// equipped weapon's type, else that of the weapon the animating side draws for it
+    /// (`Game::set_held_weapon`: NPCs' weapons are not equipped in the inventories here).
+    pub fn weapon_anim_type(&mut self, actor: FormId) -> i64 {
+        let held = self.extra.get(&actor).and_then(|e| e.held_weapon);
+        let record_type = super::items::equipped_weapon(self, actor).or(held).and_then(|w| self.data.weapon_anim_types.get(&w).copied());
+        record_type.map_or(1, weapon_anim_code)
+    }
 }
 
 pub fn resurrect_actor(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
