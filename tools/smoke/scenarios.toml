@@ -56,6 +56,8 @@ sep = ","
 sep = ","
 [timed.NVF_PLAY_TEST_PIPBOY]
 sep = ","
+[timed.NVF_PLAY_TEST_PIPBOY_STATS]
+sep = ","
 [timed.NVF_PLAY_TEST_SETTINGS]
 sep = ","
 [timed.NVF_PLAY_TEST_SHOTS]
@@ -1089,6 +1091,25 @@ order = [[
   "pipboy: STATS Status",
   "pipboy: down",
 ]]
+
+[[scenario]]
+name = "pipboy-list5"
+source = "playtest list 5 items 2, 11, 14, 30, 52, 54-56 (docs/spec-notes/pipboy.md §5, §6.1): item figures, karma title, local map outline and drag, the Pip-Boy's sounds"
+areas = ["pipboy", "audio"]
+paths = ["engine/nvf-play/src/pipboy*", "engine/nvf-play/src/flashlight.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONTROL = "8:flashlight", NVF_PLAY_TEST_PIPBOY = "12:open,14:tab=2,16:page=stats,17:tab=4,20:page=data,20.5:tab=0,23.5:drag=-100:0,25:close", NVF_PLAY_TEST_PIPBOY_STATS = "18:mode", NVF_PLAY_TEST_SHOTS = "15,19.5,23,24.5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
+run_seconds = 27
+expect = [
+  "pipboy sound: UIPipBoyLightOn",
+  { re = 'pipboy items: .* selected: Info', label = "pipboy items: the selected item's figures" },
+  "pipboy sound: UIPipBoyTab",
+  "pipboy sound: UIPipBoyMode",
+  "pipboy sound: UIPipBoyStatic",
+  { re = 'pipboy stats: .*karma title Drifter', label = "pipboy stats: the karma title of level 1, neutral (Drifter, sKarmicTitleNeutral1)" },
+  { re = 'pipboy data: local map outline \d+x\d+ samples 96 apart, [1-9]\d* landed \(exterior\)', label = "pipboy data: the local map's outline made outdoors" },
+  "pipboy data: map dragged by (-100, 0)",
+]
 
 [[scenario]]
 name = "pipboy-pointer"

@@ -19,8 +19,13 @@
 //!   quest's markers and the player's arrow; dragged to pan, the wheel zooms; the
 //!   highlight box follows the pointer and takes a marker's name when over one.
 //! - **Local Map**: the doors leading elsewhere, the known map markers and the quest
-//!   markers around the player, with the player's arrow, on an empty map: the original's
-//!   picture of the place from above is not drawn.
+//!   markers around the player, with the player's arrow, over an outline of the place
+//!   made from the physics world's collision ([`outline`]; the original's picture of the
+//!   place from above is not drawn). Indoors the map is drawn closer
+//!   ([`outline::INTERIOR_SCALE`]).
+//! - Both maps pan while the left button is held on them and the pointer moves (the
+//!   pointer's own movement, not Bevy's drag: the map's nodes are drawn again as the
+//!   highlight box follows the pointer, which ended a drag at once).
 //!
 //! Selection: Up/Down (W/S) and the pointer (the row under it is selected and boxed);
 //! the test aid's `key=down|up|use` steps (`crate::menu::MenuInput`) do the same here.
@@ -29,10 +34,11 @@
 //! plugin knows only [`draw`]).
 
 mod model;
+mod outline;
 mod read;
 
 use super::frame::{base, Align, Ctx, Kit, FADE, LINE, MAIN, TEXT, THICK};
-use super::{Page, PageBody, PipBoy, PipBoyInput, PipBoyScreen};
+use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
 use crate::interface::{amber, at};
 use crate::menu::model::Command;
 use crate::menu::MenuInput;
@@ -47,6 +53,7 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use fnv_sim::FormId;
 use model::{ObjectiveLine, QuestKey, WorldMap};
+use outline::Outline;
 use nvf_assets::GameData;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeSet, HashMap};
@@ -252,6 +259,10 @@ pub struct DataState {
     poll: f32,
     acts: Vec<Act>,
     drag: Vec2,
+    /// Where the pointer was while the left button is held on a map (dragging it).
+    drag_from: Option<Vec2>,
+    /// The Local Map's outline of the place, as far as it is made.
+    outline: Option<Outline>,
     /// How many markers the world map showed when last logged.
     world_logged: Option<usize>,
 }
@@ -311,6 +322,8 @@ impl MapMark {
 struct MapShown {
     /// The map picture and where it lies in the window.
     picture: Option<(String, Rect)>,
+    /// The Local Map's outline picture and where it lies in the window.
+    outline: Option<(Handle<Image>, Rect)>,
     marks: Vec<MapMark>,
     /// The player's arrow: its middle and heading (radians).
     player: Option<(Vec2, f32)>,
@@ -349,6 +362,7 @@ pub struct Game<'w> {
     player: Option<Res<'w, Player>>,
     radio: Option<Res<'w, Radio>>,
     places: Option<Res<'w, RadioPlaces>>,
+    phys: Option<ResMut<'w, crate::phys::PhysState>>,
 }
 
 /// What the player presses.
@@ -359,6 +373,8 @@ pub struct Input<'w, 's> {
     menu: MessageReader<'w, 's, MenuInput>,
     pip_out: MessageWriter<'w, PipBoyInput>,
     time: Res<'w, Time<Real>>,
+    buttons: Res<'w, ButtonInput<MouseButton>>,
+    aid: ResMut<'w, PipBoyAid>,
 }
 
 /// The page's drawing tools.
@@ -413,6 +429,9 @@ pub fn draw(
     let lists = lists(st, &game);
     let pointer = screen.as_ref().and_then(|s| s.pointer);
     take_input(st, tab, &lists, &mut game, &mut input, pointer);
+    if tab == LOCAL {
+        advance_outline(st, &mut game, &mut tools.images);
+    }
     let view = build(st, tab, &lists, &game, pointer);
     if added.get(body).is_err() && st.shown.as_ref() == Some(&view) {
         return;
@@ -647,8 +666,23 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         st.sel[tab] = st.sel[tab].min(len - 1);
         st.first[tab] = model::keep_in_view(st.sel[tab], st.first[tab].min(len - 1), st.fit[tab]);
     }
-    // Dragging a map moves the point at its middle.
+    // Dragging a map moves the point at its middle: the left button held down on it, the
+    // pointer moving (or the test aid's drag).
+    let held = input.buttons.pressed(MouseButton::Left);
+    if !held || !(tab == LOCAL || tab == WORLD) {
+        st.drag_from = None;
+    } else if input.buttons.just_pressed(MouseButton::Left) {
+        st.drag_from = in_map(pointer).and(pointer);
+    } else if let (Some(from), Some(p)) = (st.drag_from, pointer) {
+        st.drag += p - from;
+        st.drag_from = Some(p);
+    }
+    let aid_drag = std::mem::take(&mut input.aid.drag);
+    st.drag += aid_drag;
     let drag = std::mem::take(&mut st.drag);
+    if aid_drag != Vec2::ZERO {
+        info!("pipboy data: map dragged by ({:.0}, {:.0}), centre was {:?}", aid_drag.x, aid_drag.y, st.centre.get(tab).copied().flatten());
+    }
     if drag != Vec2::ZERO && (tab == LOCAL || tab == WORLD) {
         let mag = st.magnify[tab].max(ZOOM.0);
         let size = map_of(st, game).map_or(Vec2::splat(2048.0), |m| Vec2::from(m.usable)) * mag;
@@ -657,8 +691,9 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
                 c[0] = (c[0] - drag.x / size.x).clamp(0.0, 1.0);
                 c[1] = (c[1] - drag.y / size.y).clamp(0.0, 1.0);
             } else {
-                c[0] -= drag.x * LOCAL_SCALE / mag;
-                c[1] += drag.y * LOCAL_SCALE / mag;
+                let scale = local_scale(game.location.as_ref().is_some_and(|l| l.interior.is_some()));
+                c[0] -= drag.x * scale / mag;
+                c[1] += drag.y * scale / mag;
             }
         }
     }
@@ -866,6 +901,7 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     let (cursor, label) = place_cursor(st, WORLD, pointer, &mut marks, &names);
     MapShown {
         picture: Some((m.texture.clone(), Rect::from_corners(left, left + size))),
+        outline: None,
         marks,
         player: player.map(|(p, h)| (on_map(p[0], p[1]), h)),
         quests,
@@ -875,18 +911,75 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
 }
 
 fn empty_map() -> MapShown {
-    MapShown { picture: None, marks: Vec::new(), player: None, quests: Vec::new(), cursor: MAP_MID, label: None }
+    MapShown { picture: None, outline: None, marks: Vec::new(), player: None, quests: Vec::new(), cursor: MAP_MID, label: None }
 }
 
-/// The local map: the player's surroundings at [`LOCAL_SCALE`], the doors leading
-/// elsewhere and the known map markers [design: the scale; the picture from above is not
-/// drawn].
+/// The local map's scale, game units to a canvas unit at a magnification of 1: outdoors
+/// [`LOCAL_SCALE`], indoors closer ([`outline::INTERIOR_SCALE`]).
+fn local_scale(interior: bool) -> f32 {
+    if interior {
+        outline::INTERIOR_SCALE
+    } else {
+        LOCAL_SCALE
+    }
+}
+
+/// How long the Local Map's outline may cast rays each frame, and how many at a time.
+const OUTLINE_BUDGET: std::time::Duration = std::time::Duration::from_millis(6);
+const OUTLINE_BATCH: usize = 256;
+
+/// Make the Local Map's outline of the place (a grid of rays down through the physics
+/// world, [`outline`]) a few hundred rays a frame, and its picture when it is done; a new
+/// one when the map is panned off it or the player is elsewhere.
+fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Image>) {
+    let (Some(loc), Some(player)) = (game.location.as_ref(), game.player.as_ref()) else { return };
+    let (interior, world, feet) = (loc.interior, loc.world, player.feet);
+    let scale = local_scale(interior.is_some());
+    let centre = st.centre[LOCAL].unwrap_or([feet[0], feet[1]]);
+    let key = Outline::key_for(interior, world, centre, feet[2], MAP.size(), scale);
+    if st.outline.as_ref().is_none_or(|o| o.key != key) {
+        st.outline = Some(Outline::new(interior, world, centre, feet[2], MAP.size(), scale));
+    }
+    let Some(o) = st.outline.as_mut().filter(|o| !o.done()) else { return };
+    let Some(phys) = game.phys.as_mut() else { return };
+    let player_key = phys.player.as_ref().map(|c| c.key());
+    phys.world.update_queries();
+    let q = phys.world.queries();
+    let mut filter = fnv_phys::Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), no_dynamic: true, ..Default::default() };
+    filter.exclude.extend(player_key);
+    let started = std::time::Instant::now();
+    while !o.done() && started.elapsed() < OUTLINE_BUDGET {
+        o.advance(OUTLINE_BATCH, |p, reach| q.ray(p, [0.0, 0.0, -1.0], reach, &filter).map(|h| h.point[2]));
+    }
+    if o.done() {
+        o.image = Some(images.add(o.picture()));
+        info!(
+            "pipboy data: local map outline {}x{} samples {} apart, {} landed ({})",
+            o.size[0],
+            o.size[1],
+            o.step,
+            o.hits(),
+            if o.interior { "interior" } else { "exterior" }
+        );
+    }
+}
+
+/// The local map: the player's surroundings at [`local_scale`], the outline of the place,
+/// the doors leading elsewhere and the known map markers [design: the scale; the outline
+/// stands for the original's picture from above].
 fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown {
     let (Some(loc), Some(player)) = (game.location.as_ref(), game.player.as_ref()) else { return empty_map() };
     let (feet, heading) = (player.feet, player.heading);
     let mag = st.magnify[LOCAL].max(ZOOM.0);
     let centre = *st.centre[LOCAL].get_or_insert([feet[0], feet[1]]);
-    let on_map = |x: f32, y: f32| MAP_MID + Vec2::new(x - centre[0], centre[1] - y) * mag / LOCAL_SCALE;
+    let scale = local_scale(loc.interior.is_some());
+    let on_map = |x: f32, y: f32| MAP_MID + Vec2::new(x - centre[0], centre[1] - y) * mag / scale;
+    let outline = st.outline.as_ref().and_then(|o| {
+        let image = o.image.clone()?;
+        let top_left = on_map(o.origin[0], o.origin[1]);
+        let size = Vec2::new(o.size[0] as f32, o.size[1] as f32) * o.step * mag / scale;
+        Some((image, Rect::from_corners(top_left, top_left + size)))
+    });
     let inside = |p: Vec2| p.x >= -MARKER && p.y >= -MARKER && p.x <= MAP.width() + MARKER && p.y <= MAP.height() + MARKER;
     let grid = ((centre[0] / model::CELL).floor() as i32, (centre[1] / model::CELL).floor() as i32);
     let key = (loc.interior, if loc.interior.is_some() { (0, 0) } else { grid });
@@ -939,7 +1032,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         })
         .collect();
     let (cursor, label) = place_cursor(st, LOCAL, pointer, &mut marks, &names);
-    MapShown { picture: None, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, cursor, label }
+    MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, cursor, label }
 }
 
 /// A quest marker's top left for a target at `at` in the window.
@@ -1033,12 +1126,6 @@ fn on_row_click(e: On<Pointer<Click>>, rows: Query<&RowHit>, state: Option<ResMu
 fn on_button_click(e: On<Pointer<Click>>, buttons: Query<&ButtonHit>, state: Option<ResMut<DataState>>) {
     if let (Ok(b), Some(mut s)) = (buttons.get(e.entity), state) {
         s.acts.push(Act::Button(b.0));
-    }
-}
-
-fn on_map_drag(e: On<Pointer<Drag>>, state: Option<ResMut<DataState>>) {
-    if let Some(mut s) = state {
-        s.drag += e.delta;
     }
 }
 
@@ -1160,7 +1247,7 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, origin: Vec2, height: f32, ba
 
 /// A scroll bar: an arrow at each end and a line between them for the part shown
 /// [hypothesis: the marker's look; the arrows are the file's, 32 × 16].
-fn scroll_bar(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, height: f32, from: f32, part: f32) {
+pub(super) fn scroll_bar(p: &mut ChildSpawnerCommands, c: &mut Ctx, x: f32, height: f32, from: f32, part: f32) {
     let line = amber(LINE);
     c.image(p, "Interface\\Shared\\scrollbar\\arrow_up.dds", at(x, 0.0, SCROLLBAR, ARROW_H), line);
     c.image(p, "Interface\\Shared\\scrollbar\\arrow_down.dds", at(x, height - ARROW_H, SCROLLBAR, ARROW_H), line);
@@ -1244,6 +1331,9 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
         if let Some((path, r)) = &m.picture {
             c.image(p, path, at(r.min.x, r.min.y, r.width(), r.height()), amber(TEXT).with_alpha(MAP_ALPHA / 255.0));
         }
+        if let Some((image, r)) = &m.outline {
+            p.spawn((at(r.min.x, r.min.y, r.width(), r.height()), ImageNode { color: amber(TEXT), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }, Pickable::IGNORE));
+        }
         // In the menu file's depth order: markers 1, quest markers 4, the player's arrow
         // 7, the highlighted marker 11 [documented: map_menu.xml].
         let marker = |p: &mut ChildSpawnerCommands, c: &mut Ctx, mk: &MapMark| {
@@ -1270,7 +1360,7 @@ fn map(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MapShown) {
             marker(p, c, mk);
         }
         highlight(p, c, m.cursor, m.label.as_deref());
-        p.spawn((at(0.0, 0.0, MAP.width(), MAP.height()), MapHit, Pickable::default())).observe(on_map_drag);
+        p.spawn((at(0.0, 0.0, MAP.width(), MAP.height()), MapHit, Pickable::default()));
     });
 }
 

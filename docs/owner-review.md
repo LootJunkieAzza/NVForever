@@ -4714,3 +4714,40 @@ what they could not settle is a guess:
   screenshot showed the quest message during the conversation, and I hid it because you
   asked for every HUD element to go. Check: whether the original shows quest updates
   during a conversation.
+## Pip-Boy: list 5 items 2, 11, 14, 30, 52, 54–56 (2026-10-16, session "l5-pipboy")
+
+- **2 (flash on Tab):** what flashed was the Pip-Boy's flat fallback image, drawn in the
+  middle of the window for the frame(s) before the arm model takes the screen (longer from
+  third person). It now shows only once the Pip-Boy is all the way up and no model screen
+  took it. Check: Tab from first and third person, nothing flashes.
+- **11 (karma title):** the titles are in the game data as `sKarmicTitle<Good|Neutral|Evil>
+  <level>` settings, but FalloutNV.esm holds only 50 of the 90 (the rest live in the exe);
+  those 50 win, your table fills the other 40. Two differ from your table: the ESM spells
+  "Demon Spawn" (yours "Demon's Spawn") and "Vegas Crimelord"/"Vegas Councillor". Choices:
+  Very Good and Good use the good column, Very Evil and Evil the evil one; levels over 30
+  use 30's. Shown on STATS > General in the statistics mode (R switches from reputations)
+  under the karma picture, the karma number a line below. The reputation list stays as
+  the hook for the reputation workstream (D7).
+- **14 (ITEMS):** the hovered row is the selected row (it already sounded
+  `UIPipBoyScroll`, whose file is ui_menu_focus.wav). New: the item's picture and figure
+  cards at the right, laid out from the menu files. Guesses: DAM is the weapon's base
+  damage (not condition- or perk-scaled); WG and VAL are the whole stack's (VAL matches
+  your Stimpak 9 × 75 = 675; WG is a guess); the ammo card reads "<short name>
+  (clip/carried)" with clip = what a clip holds of what you carry; armour shows its class
+  word (Light/Medium/Heavy) beside CND; EFFECTS uses the STATS EFF wording. Not built: DPS,
+  the small ammo badge, the Maintain/Mod/Repair hints. Sub-tab hover: the hovered tab gets
+  an unfilled box and `UIMenuFocus`; switching tabs plays `UIPipBoyTab`. Check the box
+  look against the game.
+- **30 (scroll bar):** at the list's left only when rows are hidden, arrows at both ends
+  and a line for the part shown (as the DATA lists). Check the line's look.
+- **52 (maps):** drag never worked because the map was redrawn under the pointer each move,
+  which cancelled Bevy's drag; the map now follows the held left button itself. The local
+  map has an outline made from the collision (rays down through the physics world):
+  outdoors slope-shaded ground with bright edges at buildings and cliffs, indoors a floor
+  plan (walls bright). Indoors the map is drawn 3.5× closer (8 units a pixel instead of
+  28), my choice so rooms are not specks. Only what the physics world has loaded shows.
+  Check Goodsprings outside and Doc Mitchell's house.
+- **54–56 (sounds):** static crackles (`UIPipBoyStatic`, random file of the folder) 0.5–2 s
+  after the Pip-Boy is up, then every 4–10 s: the interval is my guess, say if it should
+  be denser or a single one. Mode buttons/F1–F3 play `UIPipBoyMode`; the flashlight plays
+  `UIPipBoyLightOn`/`Off`.
