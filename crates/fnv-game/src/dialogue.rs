@@ -958,7 +958,7 @@ impl<'a> Game<'a> {
     }
 
     /// The emotion type code of the response an actor is saying (GetDialogueEmotion):
-    /// in a conversation, or the first response of a SayTo line; 0 (Neutral) otherwise
+    /// in a conversation, or the response of a SayTo line being said; 0 (Neutral) otherwise
     /// [documented: GECK wiki GetDialogueEmotion, the codes; hypothesis: 0 when silent].
     pub fn dialogue_emotion(&self, actor: FormId) -> u8 {
         let data = self.data;
@@ -970,8 +970,11 @@ impl<'a> Game<'a> {
         self.speech
             .iter()
             .find(|s| s.speaker == actor)
-            .and_then(|s| data.infos.get(&s.info))
-            .and_then(|def| def.response_order().first().map(|&r| def.responses[r].emotion))
+            .and_then(|s| data.infos.get(&s.info).map(|def| (def, s.response)))
+            .and_then(|(def, at)| {
+                let order = def.response_order();
+                order.get(at).or(order.first()).map(|&r| def.responses[r].emotion)
+            })
             .unwrap_or(0)
     }
 }

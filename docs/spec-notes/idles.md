@@ -6,7 +6,7 @@ an idle marker, and by a dialogue response. The IDLE records, the idle tree and 
 files are in docs/spec-notes/animation.md; the editor documentation on packages, idle
 collections and markers is paraphrased in docs/spec-notes/actor-behaviour.md §1.4, §1.5
 and §5. Of the idle manager (idles chosen from the tree by their conditions with nobody
-asking) only the drawn-weapon fidgets are built (§11).
+asking) the drawn-weapon fidgets (§11) and the talking gestures (§12) are built.
 
 Tags: **[documented]** cites a public source, **[observed]** was read from the owner's
 install (FNV 1.4.0.525, `FalloutNV.esm`, `Fallout - Meshes.bsa` and `Update.bsa` only, with
@@ -256,8 +256,8 @@ below 30).
 
 ## 8. Not done, and questions for the owner
 
-1. The idle manager: `PickIdle`, fidgets other than the drawn-weapon ones (§11),
-   talking gestures, hit reactions from the tree.
+1. The idle manager: `PickIdle`, fidgets other than the drawn-weapon ones (§11), hit
+   reactions from the tree. (Talking gestures: §12.)
 2. Sounds and other text keys of idle clips; the response flag "Use Emotion Animation"
    and facial emotions. (Animated objects: §10.)
 3. Package begin / end / change **topics** (TNAM), and the idles of actors that are not
@@ -419,3 +419,160 @@ record order; `GetRandomPercent` in percent):
 - How often the original looks at its tree, and the unit of the replay delay.
 - Whether the original walks on after a branch without a passing leaf (here: yes).
 - Whether a fidget is cut by moving or plays out on the upper body (here: cut).
+
+## 12. Talking gestures from the IDLE tree
+
+The owner noticed (2026-10-16) that NPCs' lips move while they talk but their heads and
+bodies stand still; in the original they nod, shift and gesture. The head and body
+movement comes from the idle manager's dialogue groups of the IDLE tree, which were not
+walked. (The `.lip` file's head and look channels, lipsync.md §3.3, are a separate,
+smaller part of it and are left for later.)
+
+### 12.1 What the data holds [observed: `fnvtool actor anims`, `fnvtool esm decode`, FalloutNV.esm]
+
+The people's roots, in chain order (those with children): `KnockedDownIdles`,
+`HitReactionIdles`, `GreetIdles`, `MenuModeIdles`, `FurnitureIdles`,
+`PanicExplosivePlanted`, `VATSMeleeAttacks`, `ActivateIdles`, **`DialogueIdles`**,
+`EatIdles`, `GeneralIdles`. So a seated or sleeping actor goes into `FurnitureIdles`
+before the dialogue root is looked at, and that branch has its own dialogue groups.
+
+`DialogueIdles` (0x00003BDF): its conditions want both leg conditions (actor values 29
+and 30) above 0 and the dialogue procedure (`GetCurrentAIProcedure == 4`) OR the dialogue
+menu (`MenuMode 1009 == 1`). Below it, in order (conditions abridged):
+
+| Node | Conditions | What is below |
+|---|---|---|
+| `TalkCombat` | `IsWeaponOut == 1` OR in combat | a leaf, `SIRelaxed.kf` |
+| `BartenderDialogue`, `PushUpsTalk` | heading to the player within 30°, last idle a bartender's / push-ups | leaves |
+| `TalkToPlayer` | dialogue menu, `IsWeaponOut != 1` | Colonel Autumn's group; `DialogTalking`; `DialogListen` |
+| `NPCtoNPC` | the target is not the player, `IsWeaponOut != 1` | `NPCTalking` (`IsTalking == 1`) and `NPCListening` |
+
+- **`DialogTalking`** (no conditions) holds the groups of the dialogue screen, in order:
+  the bartender's loop; `BulkyArmorDialogue` (power armour equipped: its own listen and
+  talk clips, `DialogPANoBodyShift…`); `ArmsCrossedLoop` (the last idle played was one of
+  the arms-crossed ones: go on with arms crossed, its own listen clip while not
+  talking); `FemaleWeightShiftRightLoop` (the same for the weight shift);
+  `FemaleWeightShiftRight` (random < 10, female, not of four races, not a child, not of
+  six classes); `ArmsCrossed` (no particular outfit, mood not Happy, random < 5, replay
+  delay 240); and `NoWeightShift`, which ends the list for everybody else: its first
+  child `NoWeightShiftListen` (`IsTalking != 1`) gives `DialogNoBodyShiftListenA` (loops
+  for ever), then mood groups by `GetDialogueEmotion` (Anger, Happy, Surprise, Sad or
+  Disgust, each also random < 10), then `NeutralNoWeightShift` (no conditions):
+  `DialogNoBodyShiftTalkSubtle` (random < 90, the listen clip played twice) and
+  `DialogNoBodyShiftTalkA`–`E` (random < 20, 40, 60, 80, none).
+- **`DialogListen`** holds only the bartender's listen loop: everyone else has their
+  listen clip inside `DialogTalking`.
+- **`NPCTalking`** has Colonel Autumn's group and the mood groups `NeutralTalk`,
+  `AngerTalk`, `DisgustTalk`, `FearTalk`, `SadTalk`, `HappyTalk`, `SurprisedTalk`
+  (`GetDialogueEmotion` 0–6), each with 4–9 `ttnpc…` and `Talk…Casual…` leaves chosen by
+  rising random thresholds (Neutral: < 11, 22, 33, 44, 55, 66, 77, 88, none), and two
+  `IgnoreThis` nodes that can never pass (random < 0). **`NPCListening`** has the same
+  seven moods with listen clips.
+- **Furniture** (below `FurnitureIdles` > `Sitting`): `ChairDialogueIdles` (chairs, an
+  NPC, `GetCurrentAIProcedure == 4`: eating or drinking talk, then `ChairTalk`
+  (`IsTalking == 1`, the `SitChairTalkPlayerA`–`D` clips that Doc Mitchell's responses
+  also name as speaker idles, §2) and `ChairListen`); `SittIngDialogIdlesStool` (stools);
+  `WallLeanDialogIdles`; `FloorSitDialogueIdles`; `NVCrucifixDialogueIdles`. Each asks
+  for the dialogue procedure.
+- **Other folders**: `RobotDialogueIdles` (protectrons), `MRRobotsDialogueIdles`
+  (Mister Gutsy), `RoboDialogueIdles` (robobrains) and `NVSDialogueIdles` (securitrons)
+  want `GetCurrentAIPackage == 6` and then the dialogue menu; `MrHousedialogueIdles` the
+  dialogue procedure; Festus' `TalkingIdles` `IsTalking == 1`.
+- **The clips**: the people's talk and listen clips lie in
+  `meshes\characters\_male\idleanims\`, are 3–10 s long (`ttnpcNTRLHandsDownTalkA` 3.03 s,
+  `DialogNoBodyShiftTalkA` 3.33 s, `DialogArmsCrossedTalkC` and `SitChairTalkA` 6.73 s,
+  `DialogNoBodyShiftListenA` 7.07 s, `ttpNTRLHandsDownListenA` 10.03 s), clamp at their
+  end (cycle type 2), and have 58–59 tracks, all bound to the people's skeleton,
+  `Bip01 Head`, `Bip01 Neck` and `Bip01 Neck1` among them: that is the head movement the
+  owner missed. The talk clips play once (loop 0–0); most listen clips and the
+  arms-crossed and weight-shift talk clips loop for ever (255–255).
+- **`IsLastIdlePlayed`** (condition index 451, 86 uses on IDLE) has no page in the script
+  catalogue; xEdit names it and gives it an IDLE parameter [documented: xEdit
+  wbCTDAFunctions; animation.md §1.2]. The dialogue groups use it to keep a pose going.
+- Loose head nods and shakes (`Talk_HeadNod_Neutral.kf` and others) are childless roots
+  for scripts, not part of the walk.
+
+### 12.2 Rules as built (`Game::talk_gesture`, `Game::talk_parts`, `engine/nvforever/src/idles.rs`)
+
+- **Who** [design]: the NPC the player talks with in the dialogue screen (talking while
+  it says a line, listening while the player chooses), and both sides of a conversation
+  between actors (§5.1 of dialogue.md: the one saying the line talks, the one it is said
+  to listens). Not the player; not lines said outside a conversation (SayTo, Say,
+  hellos): the editor's documentation asks the idle manager "by the speaker and by the
+  listener each time a new line of a conversation is said" [documented: §9], and the
+  dialogue root wants the dialogue procedure or the dialogue menu anyway.
+- **The walk** [hypothesis: the fidgets' walk, §11.2, the editor's picking of §9]: the
+  roots of the actor's folder in chain order; the first node whose conditions pass is
+  gone into, its children the same way, the first leaf that passes is the pick; a node
+  whose children all fail is left for its next sibling. Conditions are judged with the
+  one the actor talks with as their target (`NPCtoNPC` asks whether the target is the
+  player). Whether the original walks on after a branch without a passing leaf is not
+  known. Of all the picks only those under a **dialogue node** are played: a node that
+  asks for the dialogue procedure, the dialogue menu or `IsTalking == 1` [design: the
+  rest of the idle manager is not built; any other leaf the walk reaches (a chair's
+  relax clip, say) is not played].
+- **The tree decides the rest**: talking or listening (`IsTalking`), the mood
+  (`GetDialogueEmotion` of the response being said; the listener's is Neutral
+  [hypothesis: the function is about the actor's own line]), power armour, sitting or
+  standing, and whether a pose goes on (`IsLastIdlePlayed`).
+- **`IsLastIdlePlayed`** [hypothesis from the name]: 1 when the last idle the actor was
+  reported playing (`Game::set_idle_playing`) is the one named. It is evaluated inside
+  condition evaluation by its index, since it has no script opcode. With it the
+  arms-crossed and weight-shift poses, once started, carry on for the rest of the
+  conversation (`fnvtool actor gestures`, 500 picks: after the first arms-crossed pick
+  every later talk pick is one of the arms-crossed loops and every listen pick the
+  arms-crossed listen clip [observed in ours]).
+- **Conversations between actors use the dialogue procedure** [hypothesis]: both sides
+  of a conversation between actors now answer `GetCurrentAIProcedure` 4 and
+  `GetCurrentAIPackage` 6 (as the actor in the dialogue screen already did). The tree's
+  `NPCtoNPC` branch lies under a root that wants the dialogue procedure or the dialogue
+  menu, so it could not be reached otherwise.
+- **`GetRandomPercent`** in the walk draws from a generator of its own (seeded from the
+  game's seed) [engineering choice: so that gestures do not move the scripts' random
+  numbers]. Each condition is a new roll [documented: the function "returns a random
+  integer" each time it is called; that conditions call it once each is ours]. The rising thresholds of the mood groups (11, 22, …, 88) would split the
+  picks evenly if one roll served the whole list; with a roll per condition the later
+  clips come up more often. Which the original does is not known [hypothesis].
+- **Replay delay** [hypothesis: seconds, as for fidgets]: a leaf is skipped for its
+  replay delay after the same actor last started it
+  (`ArmsCrossed` 240, `DialogBodyShiftRightFemaleTalkA` 120).
+- **When a gesture is picked** [design]: when the actor starts a response (a new line,
+  or the next response of the same line), when it stops talking (the player chooses),
+  and whenever its gesture ends while it is still in the same part, so a long response
+  gets one clip after another (the talk clips are 3–7 s). A listen clip that loops for
+  ever plays until the part changes. When the tree gives nothing the walk is tried
+  again after 1 s.
+- **What comes first** [design]: an idle the response names for its speaker or listener
+  (INFO `SNAM`, `LNAM`), or any other idle asked for (a script's `PlayIdle`), replaces
+  the gesture as idles replace each other (cross-faded), and no gesture is picked while
+  it plays; when it ends the next gesture is picked. The gestures wait while the actor
+  walks or turns on the spot to face the other (the turn clips step the feet), and end
+  when it walks or the conversation ends.
+- **Furniture** [from the data]: a seated actor goes into `FurnitureIdles` first, so it
+  gets the chair's talk and listen clips, laid over its sitting clip as the speaker
+  idles already are (§7). An actor whose furniture branch gives a leaf outside the
+  dialogue groups gets no gesture.
+- **Lip sync and head tracking** [design]: lip sync moves the face's vertices, not
+  bones, so it plays on top of whatever the head does. Head tracking (dialogue-play.md
+  §8.1) turns the head bone after the frame's animation, so the clip's head movement
+  goes on underneath the turn toward the player.
+- Log: one line per gesture picked, `talk gesture: <actor> talks|listens (<the other>,
+  line <INFO> response <n>): <idle> by <root> > … > <idle>`; the idle itself is logged at
+  debug level (`idle: … plays …`). At exit: `talk gesture summary: N gestures picked
+  while talking, M while listening; K walks of the tree gave none`. Gestures are not
+  counted in the `idle summary` line.
+- Checks: `fnvtool actor gestures` (headless: the actor put in a conversation with the
+  player, the tree asked many times while it talks and while it listens; `--line` sets
+  the mood from a line); smoke tests `talk-gestures-menu`, `talk-gestures-npcs` and
+  `talk-gestures-tree` (tools/smoke/scenarios.toml).
+
+### 12.3 Open
+
+- How often the original asks the tree during a long response (here: whenever a
+  gesture ends), and whether it cuts a talk clip when the next response starts (here:
+  cross-faded at once).
+- One roll of `GetRandomPercent` per walk or per condition (above).
+- What the listener's `GetDialogueEmotion` is (here Neutral).
+- The robots' and Mr. House's groups want `GetCurrentAIPackage == 6`; ours answers 6 in
+  conversations, but the robots' skeletons were not tried.
+- The `.lip` head and look channels (lipsync.md §3.3) are not played.

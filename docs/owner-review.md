@@ -5432,3 +5432,32 @@ rebound on the Controls page shows in the next message.
 2. The original's words for keys are not known: modifiers read "Left Ctrl", "Left Shift",
    mouse buttons "Left Mouse", and `&sDeviceMouse;` ("… Look around") reads "Mouse".
    A screenshot of the sneak tutorial or the controls help in the game would settle them.
+
+## Talking gestures (2026-10-16, branch claude/talk-gestures-bc034f)
+
+Your report: lips move but heads and bodies stand still while NPCs talk. NPCs in the
+dialogue screen, and both actors of a conversation between NPCs, now play the IDLE
+tree's talking and listening clips (spec: docs/spec-notes/idles.md §12). The tree picks
+mood, sitting or standing, power armour and arms crossed by itself. My guesses, each
+worth a look in the original:
+
+- **When a new clip starts**: at each new response, when the NPC stops talking (it
+  listens while you choose), and whenever a clip ends while it is still talking. Talk
+  clips are 3–7 s, so a long response gets several. A new response cross-fades the clip
+  at once rather than letting it finish.
+- **Random rolls**: each `GetRandomPercent` condition is a fresh roll. The mood groups'
+  rising thresholds (11, 22, … 88) look written for one shared roll, which would split
+  the clips evenly; with fresh rolls the later clips in a list come up more often.
+- **Arms crossed sticks**: once an NPC crosses its arms (5 %, at most once per 240 s)
+  the tree keeps them crossed for the rest of the conversation (`IsLastIdlePlayed`, a
+  function the GECK docs do not describe; I read it as "the last idle played was X").
+- **NPC-to-NPC conversations** count as the dialogue procedure for the tree
+  (`GetCurrentAIProcedure` 4, `GetCurrentAIPackage` 6), else their branch could never
+  be reached.
+- **The listener's mood** is Neutral (`GetDialogueEmotion` is read from the actor's own
+  line).
+- **SayTo lines, hellos and barks** get no gestures: the tree's dialogue root wants the
+  dialogue screen or a conversation. Doc Mitchell's SayTo lines in the opening therefore
+  still use only their own speaker idles.
+- **Replay delays** are read as seconds (as for the weapon fidgets).
+- Not done: the `.lip` files' head and look channels.

@@ -883,6 +883,48 @@ expect = [
 ]
 
 [[scenario]]
+name = "talk-gestures-tree"
+kind = "tool"
+source = "docs/spec-notes/idles.md §12: the IDLE tree's talking gestures, headless: an NPC in the dialogue screen gets a gesture of the dialogue groups at every walk, talking and listening; Neutral mood"
+areas = ["idles", "dialogue"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/cond.rs", "crates/fnv-game/src/functions/ai_state.rs", "crates/fnvtool/src/actor_gestures.rs"]
+commands = [
+  ["actor", "gestures", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "DocMitchellREF", "--actor", "GSChetRef", "--checks", "200"],
+]
+expect = [
+  { json = "actors.*.talking.none", schema = "fnv.actor.gestures/1", equals = 0, count = 2, label = "every walk while talking gives a gesture" },
+  { json = "actors.*.listening.none", schema = "fnv.actor.gestures/1", equals = 0, count = 2, label = "every walk while listening gives a gesture" },
+  { json = "actors.*.talking.by_group.NeutralNoWeightShift", schema = "fnv.actor.gestures/1", range = [1, 200], count = 2, label = "the Neutral talk group is reached" },
+  { json = "actors.*.talking.by_group.ArmsCrossedLoop", schema = "fnv.actor.gestures/1", range = [1, 200], count = 2, label = "once arms are crossed they stay crossed (IsLastIdlePlayed)" },
+]
+
+[[scenario]]
+name = "talk-gestures-menu"
+source = "docs/spec-notes/idles.md §12: an NPC in the dialogue screen plays the IDLE tree's talking gestures while it says its lines and a listening one while the player chooses"
+areas = ["idles", "dialogue"]
+paths = ["crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs", "crates/fnv-game/src/functions/ai_state.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "8:DocMitchellREF=leave", NVF_PLAY_TEST_TALK_DELAY = "4" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'talk gesture: \S+ talks ', label = "a gesture while the NPC talks" },
+  { re = 'talk gesture: \S+ listens ', label = "a gesture while the player chooses" },
+]
+
+[[scenario]]
+name = "talk-gestures-npcs"
+source = "docs/spec-notes/idles.md §12: two NPCs in a conversation between actors (Joe Cobb and Trudy, started by the test aid) play the tree's NPC-to-NPC gestures"
+areas = ["idles", "dialogue"]
+paths = ["crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs", "crates/fnv-game/src/functions/ai_state.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "3:enable:GSJoeCobbRef,6:call:GSJoeCobbRef:StartConversation:TrudyRef:GSJoeCobbIntro" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'talk gesture: \S+ talks ', label = "a gesture while one talks" },
+  { re = 'talk gesture: \S+ listens ', label = "a gesture while the other listens" },
+]
+
+[[scenario]]
 name = "idles-opening-own-body"
 source = "owner report 2026-10-16: with the body in first person on, the wake-up showed the player's own body standing over the view (docs/design/player-body.md §1.5)"
 areas = ["idles", "player-body"]

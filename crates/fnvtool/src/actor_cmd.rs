@@ -39,6 +39,9 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
         ActorCmd::Fidgets { w, functions, actor, weapon, checks } => {
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_fidgets::run(lo, schema, data, refs, &actor, weapon.as_deref(), checks))
         }
+        ActorCmd::Gestures { w, functions, actor, line, checks } => {
+            crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_gestures::run(lo, schema, data, refs, &actor, line.as_deref(), checks))
+        }
         ActorCmd::Detect { w, functions, detector, target, interior, light, dark } => {
             let o = crate::actor_detect::Options { detector, target, interior, light, dark };
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_detect::run(lo, schema, data, refs, &o))

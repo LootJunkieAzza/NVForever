@@ -37,6 +37,9 @@ pub enum IdleSource {
     Listener,
     /// A drawn-weapon fidget picked from the idle tree ([`Game::weapon_fidget`]).
     Fidget,
+    /// A talking or listening gesture picked from the idle tree
+    /// ([`Game::talk_gesture`]).
+    Gesture,
 }
 
 impl IdleSource {
@@ -152,17 +155,28 @@ impl<'a> Game<'a> {
     /// and he does not smoke; idles.md §5]. An idle with a condition that could not be
     /// read is not allowed [design: what cannot be judged is not chosen].
     pub fn idle_allowed(&mut self, actor: FormId, idle: FormId) -> bool {
+        self.idle_allowed_with(actor, None, idle)
+    }
+
+    /// As [`Game::idle_allowed`], with `target` as the conditions' target (Run On
+    /// Target): the one the actor talks with, for the talking gestures.
+    fn idle_allowed_with(&mut self, actor: FormId, target: Option<FormId>, idle: FormId) -> bool {
         let data = self.data;
         match data.idles.get(&idle).map(|d| d.conditions.as_deref()) {
-            Some(Some(c)) => c.is_empty() || self.conditions_pass(c, Some(actor), None, &format!("IDLE {idle}")),
+            Some(Some(c)) => c.is_empty() || self.conditions_pass(c, Some(actor), target, &format!("IDLE {idle}")),
             _ => false,
         }
     }
 
     /// The animating layer says what special idle `actor` plays now (`None`: none).
+    /// An idle told is also the actor's last idle played (IsLastIdlePlayed).
     pub fn set_idle_playing(&mut self, actor: FormId, idle: Option<FormId>) {
         if idle.is_some() || self.extra.contains_key(&actor) {
-            self.extra.entry(actor).or_default().idle = idle;
+            let e = self.extra.entry(actor).or_default();
+            e.idle = idle;
+            if idle.is_some() {
+                e.last_idle = idle;
+            }
         }
     }
 
@@ -210,7 +224,7 @@ impl<'a> Game<'a> {
                 if !self.idle_allowed(actor, root) {
                     continue;
                 }
-                if let Some((leaf, weapon)) = self.first_leaf(actor, root, wants_weapon_out(data, root), held_back) {
+                if let Some((leaf, weapon)) = self.first_leaf(actor, None, root, wants_weapon_out(data, root), &wants_weapon_out, held_back, &mut Vec::new()) {
                     return weapon.then_some(leaf);
                 }
             }
@@ -226,27 +240,101 @@ impl<'a> Game<'a> {
                 stack.extend(kids.iter().rev());
             }
         }
-        starts.into_iter().find_map(|s| self.idle_allowed(actor, s).then(|| self.first_leaf(actor, s, true, held_back)).flatten().map(|(leaf, _)| leaf))
+        starts.into_iter().find_map(|s| self.idle_allowed(actor, s).then(|| self.first_leaf(actor, None, s, true, &wants_weapon_out, held_back, &mut Vec::new())).flatten().map(|(leaf, _)| leaf))
     }
 
     /// The first leaf below `node` whose way down passes, and whether a node on that
-    /// way (or `weapon`, said of those above) requires the weapon out.
-    fn first_leaf(&mut self, actor: FormId, node: FormId, weapon: bool, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, bool)> {
+    /// way (or `marked`, said of those above) is one `mark` picks out. `target` is the
+    /// conditions' target; `way` gets the nodes gone into, the leaf last.
+    #[allow(clippy::too_many_arguments)]
+    fn first_leaf(
+        &mut self,
+        actor: FormId,
+        target: Option<FormId>,
+        node: FormId,
+        marked: bool,
+        mark: &dyn Fn(&crate::data::GameData, FormId) -> bool,
+        held_back: &dyn Fn(FormId) -> bool,
+        way: &mut Vec<FormId>,
+    ) -> Option<(FormId, bool)> {
         let data = self.data;
         for &child in data.idle_children.get(&Some(node)).into_iter().flatten() {
             let leaf = !data.idle_children.contains_key(&Some(child));
-            if (leaf && (!data.idles[&child].has_file() || held_back(child))) || !self.idle_allowed(actor, child) {
+            if (leaf && (!data.idles[&child].has_file() || held_back(child))) || !self.idle_allowed_with(actor, target, child) {
                 continue;
             }
-            let weapon = weapon || wants_weapon_out(data, child);
+            let marked = marked || mark(data, child);
+            way.push(child);
             if leaf {
-                return Some((child, weapon));
+                return Some((child, marked));
             }
-            if let Some(found) = self.first_leaf(actor, child, weapon, held_back) {
+            if let Some(found) = self.first_leaf(actor, target, child, marked, mark, held_back, way) {
                 return Some(found);
             }
+            way.pop();
         }
         None
+    }
+
+    /// The actors in a conversation and their part in it, for the talking gestures
+    /// (docs/spec-notes/idles.md §12): the actor the player talks with (saying a line,
+    /// or listening while the player chooses), and both sides of a conversation between
+    /// actors (the one saying the line, and the one it says it to). The player is left
+    /// out.
+    pub fn talk_parts(&self) -> Vec<TalkPart> {
+        let mut out: Vec<TalkPart> = Vec::new();
+        if let Some(c) = self.dialogue.as_ref() {
+            let line = c.line.as_ref();
+            out.push(TalkPart { actor: c.actor, partner: FormId::PLAYER_REF, talking: line.is_some(), info: line.map(|l| l.info), response: line.map_or(0, |l| l.response) });
+        }
+        for s in self.speech.iter().filter(|s| s.conversation.is_some()) {
+            let Some(to) = s.target else { continue };
+            for (actor, partner, talking) in [(s.speaker, to, true), (to, s.speaker, false)] {
+                if actor != FormId::PLAYER_REF && !out.iter().any(|p| p.actor == actor) {
+                    out.push(TalkPart { actor, partner, talking, info: Some(s.info), response: s.response });
+                }
+            }
+        }
+        out
+    }
+
+    /// A talking or listening gesture for `actor`, who is in a conversation with
+    /// `partner`, from the idle tree, with the nodes gone into on the way (the root
+    /// first, the pick last); `None` when the walk finds nothing, or finds a leaf that
+    /// is not under a node of the tree's dialogue groups. `folder` and `held_back` as
+    /// for [`Game::weapon_fidget`]. The rules (docs/spec-notes/idles.md §12):
+    ///
+    /// - The walk is the fidgets' [hypothesis: animation.md §2.2; idles.md §9, the
+    ///   editor's picking]: roots of the actor's folder in chain order, the first whose
+    ///   conditions pass is gone into, and so on down; a node whose children all fail is
+    ///   left for its next sibling. The conditions' target is `partner` (the people's
+    ///   branch for conversations between actors asks whether the target is the player).
+    /// - The pick is kept only when a node on its way is a dialogue node
+    ///   ([`talk_node`]) [design: the rest of the idle manager is not built]. The tree
+    ///   itself chooses between talking and listening (`IsTalking`), the mood
+    ///   (`GetDialogueEmotion`), sitting or standing, power armour, and keeps a pose
+    ///   going (`IsLastIdlePlayed`).
+    /// - `GetRandomPercent` in these conditions draws from its own generator, so the
+    ///   picks do not move the scripts' random numbers [engineering choice].
+    pub fn talk_gesture(&mut self, actor: FormId, partner: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, Vec<FormId>)> {
+        let data = self.data;
+        let folder = folder.to_ascii_lowercase();
+        let own = |id: &FormId| data.idles.get(id).and_then(|d| d.model.as_deref()).is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder));
+        let roots: Vec<FormId> = data.idle_children.get(&None).into_iter().flatten().copied().filter(|r| own(r) && data.idle_children.contains_key(&Some(*r))).collect();
+        std::mem::swap(&mut self.rng, &mut self.idle_rng);
+        let mut found = None;
+        for root in roots {
+            if !self.idle_allowed_with(actor, Some(partner), root) {
+                continue;
+            }
+            let mut way = vec![root];
+            if let Some((leaf, talk)) = self.first_leaf(actor, Some(partner), root, talk_node(data, root), &talk_node, held_back, &mut way) {
+                found = talk.then_some((leaf, way));
+                break;
+            }
+        }
+        std::mem::swap(&mut self.rng, &mut self.idle_rng);
+        found
     }
 
     /// The Begin (0), End (1) or Change (2) idle of a package, asked of its actor
@@ -272,6 +360,66 @@ impl<'a> Game<'a> {
         if let (Some(idle), Some(listener)) = (l, listener) {
             self.ask_idle(listener, idle, IdleSource::Listener);
         }
+    }
+}
+
+/// One actor's part in a conversation ([`Game::talk_parts`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct TalkPart {
+    pub actor: FormId,
+    /// The one it talks with (the player, or the other actor).
+    pub partner: FormId,
+    /// Saying a line (else listening).
+    pub talking: bool,
+    /// The line being said (by the actor, or to it), and the position of its response
+    /// in the order they are said.
+    pub info: Option<FormId>,
+    pub response: usize,
+}
+
+/// Whether an IDLE is a node of the tree's dialogue groups: one of its conditions asks
+/// for the dialogue procedure (`GetCurrentAIProcedure == 4`), the dialogue menu
+/// (`MenuMode 1009 == 1`) or the actor saying a line (`IsTalking == 1`) [observed: the
+/// people's `DialogueIdles` and its chair, stool, wall-lean and floor-sitting groups,
+/// and the robots' and Mr. House's dialogue groups, each have one of these; idles.md
+/// §12.1].
+pub fn talk_node(data: &crate::data::GameData, idle: FormId) -> bool {
+    use crate::cond::{Cmp, Operand};
+    let conds = data.idles.get(&idle).and_then(|d| d.conditions.as_deref()).unwrap_or_default();
+    conds.iter().any(|c| {
+        let is = |v: f64| c.cmp == Cmp::Eq && c.rhs == Operand::Value(v);
+        match c.opcode() {
+            GET_CURRENT_AI_PROCEDURE => is(4.0),
+            IS_TALKING => is(1.0),
+            MENU_MODE => is(1.0) && matches!(c.params.first(), Some(ArgValue::Enum(m)) if *m == crate::dialogue::DIALOGUE_MENU),
+            _ => false,
+        }
+    })
+}
+
+const GET_CURRENT_AI_PROCEDURE: u16 = 0x108F;
+const IS_TALKING: u16 = 0x108D;
+const MENU_MODE: u16 = 0x1024;
+
+/// IsLastIdlePlayed's condition index: it has no page in the script catalogue and no
+/// script opcode [documented: xEdit wbCTDAFunctions names index 451 IsLastIdlePlayed,
+/// parameter an IDLE; animation.md §1.2]. 86 IDLE conditions use it [observed].
+pub const IS_LAST_IDLE_PLAYED: u16 = 451;
+
+/// IsLastIdlePlayed `idle`: 1 when the last idle the actor played is `idle` [hypothesis
+/// from the name: the dialogue groups use it to keep a pose going, arms crossed once
+/// crossed; idles.md §12.1]. The last idle played is the last one the animating layer
+/// reported ([`Game::set_idle_playing`]).
+pub(crate) fn is_last_idle_played(g: &Game, on: Option<FormId>, params: &[ArgValue]) -> f64 {
+    let want = match params.first() {
+        Some(ArgValue::Value(Value::Ref(r))) if *r != 0 => FormId(*r),
+        _ => return 0.0,
+    };
+    let last = on.and_then(|a| g.extra.get(&a)).and_then(|e| e.last_idle);
+    if last == Some(want) {
+        1.0
+    } else {
+        0.0
     }
 }
 
