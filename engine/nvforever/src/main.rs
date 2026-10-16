@@ -888,6 +888,8 @@ fn main() -> AppExit {
                     ..ImageSamplerDescriptor::linear()
                 },
             })
+            // Sound goes through nvf_play::audio_out, which follows the output device.
+            .disable::<bevy::audio::AudioPlugin>()
             // The console's lines go to the run log too (crash.rs).
             .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, ..default() })
             .set(WindowPlugin {
@@ -903,6 +905,7 @@ fn main() -> AppExit {
             }),
     )
     .add_plugins(window_icon::WindowIconPlugin)
+    .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
     .add_plugins(grass::GrassPlugin(grass::GrassConfig {
