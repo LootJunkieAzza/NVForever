@@ -316,10 +316,13 @@ fn draw(
     mut texts: Query<(&mut TextColor, &Part)>,
     mut fills: Query<(&mut BackgroundColor, &Fill)>,
     mut kit: Local<Option<Kit>>,
+    state: Option<Res<State<crate::PlayState>>>,
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
 ) {
-    // Behind a message box or a script's menu: hidden, and no time passes.
-    let held = panel.view.is_some();
+    // Behind a message box or a script's menu, and in a conversation (every HUD element
+    // goes then: the owner's playtest list 5, item 74): hidden, and no time passes, so
+    // the line comes back when the conversation ends.
+    let held = panel.view.is_some() || state.is_some_and(|s| *s.get() == crate::PlayState::Dialogue);
     for (_, mut v) in &mut roots {
         v.set_if_neq(if held { Visibility::Hidden } else { Visibility::Inherited });
     }

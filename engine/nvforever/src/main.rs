@@ -72,6 +72,7 @@ mod ssao;
 mod taa;
 mod speech_look;
 mod terrain;
+mod texture_swap;
 mod tree;
 mod treelod;
 mod underwater;
@@ -979,8 +980,10 @@ fn main() -> AppExit {
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
         // Animation groups scripts play on objects (object_anims.rs).
         app.add_plugins(object_anims::ObjectAnimsPlugin);
-        // The flashlight's light on the player's camera (flashlight.rs).
+        // The flashlight's light on the front of the player's body (flashlight.rs).
         app.add_plugins(flashlight::FlashlightPlugin);
+        // Textures scripts swap on references' shapes (texture_swap.rs).
+        app.add_plugins(texture_swap::TextureSwapPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
         app.add_plugins(lockpick_view::LockpickViewPlugin);
     }
@@ -1149,9 +1152,20 @@ fn main() -> AppExit {
 /// same arguments and `--load`, so the save lands in a world built fresh from the
 /// plugins, then this run ends. The arguments the save decides are left out. A save not
 /// yet on disk (its thumbnail, its writer thread) is waited for.
-fn load_by_restart(mut asked: MessageReader<nvf_play::save::LoadRequest>, writes: Res<nvf_play::save::SaveWrites>, mut waiting: Local<Option<nvf_play::save::LoadRequest>>, mut exit: MessageWriter<AppExit>) {
+/// The pause menu's quit question asks for the main menu the same way, with `--menu`
+/// (`None` below).
+fn load_by_restart(
+    mut asked: MessageReader<nvf_play::save::LoadRequest>,
+    mut to_menu: MessageReader<nvf_play::pause::MainMenuRequest>,
+    writes: Res<nvf_play::save::SaveWrites>,
+    mut waiting: Local<Option<Option<nvf_play::save::LoadRequest>>>,
+    mut exit: MessageWriter<AppExit>,
+) {
     if let Some(r) = asked.read().last().cloned() {
-        *waiting = Some(r);
+        *waiting = Some(Some(r));
+    }
+    if to_menu.read().last().is_some() {
+        *waiting = Some(None);
     }
     if writes.busy() {
         return;
@@ -1159,6 +1173,18 @@ fn load_by_restart(mut asked: MessageReader<nvf_play::save::LoadRequest>, writes
     let Some(r) = waiting.take() else { return };
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut keep = restart_args(&args);
+    let Some(r) = r else {
+        keep.push("--menu".into());
+        let Ok(exe) = std::env::current_exe() else { return };
+        info!("load: starting again with --menu");
+        match std::process::Command::new(&exe).args(&keep).spawn() {
+            Ok(_) => {
+                exit.write(AppExit::Success);
+            }
+            Err(e) => warn!("load: could not start {}: {e}", exe.display()),
+        }
+        return;
+    };
     keep.push("--load".into());
     keep.push(r.path.display().to_string());
     let exe = match std::env::current_exe() {

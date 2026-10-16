@@ -15,8 +15,10 @@
 //!   forward until Forward or Back is pressed (player.rs).
 //! - Toggle POV (F, middle mouse): a tap switches first and third person; held while the
 //!   mouse moves, it circles the camera around the player without turning them
-//!   ([`Orbit`]; from first person the view goes to third person meanwhile), and the
-//!   camera swings back behind when it is let go [hypothesis: the game's hold-POV camera].
+//!   ([`Orbit`]; from first person the view goes to third person meanwhile), and when it
+//!   is let go the camera swings back behind, or from first person goes straight back to
+//!   the eye [hypothesis: the game's hold-POV camera; design: the owner's playtest list 5
+//!   item 23].
 //!   The mouse wheel zooms the third-person camera.
 //! - The game's other controls (Rest, VATS, the hotkeys, Ammo Swap, Quick Save, Quick
 //!   Load, Grab) are bound but not built: pressing one says so on screen.
@@ -64,6 +66,17 @@ impl Orbit {
     /// Whether the camera is off its place behind the player (circling, or swinging back).
     pub fn active(&self) -> bool {
         (self.held && self.moved) || self.yaw.abs() + self.pitch.abs() > 1e-3
+    }
+
+    /// Toggle POV let go after circling, the view being `pov`: from first person the view
+    /// goes straight back to the eye; in third person the camera swings back behind the
+    /// player (the owner's playtest list 5 item 23: back to first person when the player
+    /// was in it) [design: the original's hold-POV camera is not captured].
+    pub fn released(self, pov: Pov) -> Orbit {
+        match pov {
+            Pov::First => Orbit::default(),
+            Pov::Third => Orbit { held: false, ..self },
+        }
     }
 }
 
@@ -523,6 +536,8 @@ pub fn read_controls(
                 Pov::First => Pov::Third,
                 Pov::Third => Pov::First,
             };
+        } else {
+            c.orbit = c.orbit.released(c.pov);
         }
     }
     if c.third_person_view() && scroll.delta.y != 0.0 {
@@ -783,13 +798,24 @@ mod tests {
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Middle);
         app.update();
         assert!(control(&app).orbit.held);
-        app.world_mut().resource_mut::<PlayerControl>().orbit.moved = true; // mouse_look's part
+        // mouse_look's part: the camera circled half round.
+        let mut c = app.world_mut().resource_mut::<PlayerControl>();
+        (c.orbit.moved, c.orbit.yaw, c.orbit.pitch) = (true, 3.0, 0.3);
         let mut m = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
         m.clear();
         m.release(MouseButton::Middle);
         app.update();
+        // Let go in first person: straight back to the first-person view (item 23).
         let c = control(&app);
-        assert!(!c.orbit.held && c.pov == Pov::First);
+        assert!(!c.orbit.held && c.pov == Pov::First && !c.orbit.active() && !c.third_person_view());
+    }
+
+    #[test]
+    fn orbit_released_in_third_person_swings_back() {
+        let o = Orbit { yaw: 1.0, pitch: 0.2, held: true, moved: true };
+        assert_eq!(o.released(Pov::Third), Orbit { held: false, ..o });
+        assert!(o.released(Pov::Third).active());
+        assert_eq!(o.released(Pov::First), Orbit::default());
     }
 
     #[test]

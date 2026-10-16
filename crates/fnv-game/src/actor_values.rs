@@ -272,8 +272,12 @@ impl<'a> Game<'a> {
             // and a creature's Fatigue. Hypothesis: an NPC's Fatigue is the field too.]
             SPEED_MULTIPLIER => self.stats_def(r).map_or(100.0, |d| d.speed_mult as f64),
             FATIGUE => self.stats_def(r).map_or(0.0, |d| d.fatigue as f64),
-            // [documented: xEdit ACBS Karma; GECK wiki GetBaseKarma.]
-            KARMA => base_of(self, r).and_then(|b| self.data.actors.get(&b)).map_or(0.0, |d| d.karma),
+            // [documented: xEdit ACBS Karma; GECK wiki GetBaseKarma.] From the template
+            // when the base takes its traits from one [hypothesis: which template flag
+            // carries Karma is not documented; an NPC made from a template has 0 of its
+            // own, so a templated Evil convict read as Neutral and killing it cost karma,
+            // the owner's playtest list 5 item 22]; with Stats only, its own.
+            KARMA => self.traits_def(r).map_or(0.0, |d| d.karma),
             // [documented: xEdit AIDT; hypothesis: the value is the enumeration's code.]
             AGGRESSION | CONFIDENCE | ENERGY | RESPONSIBILITY | MOOD | ASSISTANCE => {
                 let d = self.def_following(r, |d| d.template_ai);

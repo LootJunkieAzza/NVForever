@@ -129,9 +129,28 @@ it), `engine/nvf-assets/src/texture.rs` (`pc_texture`).
 - **ITEMS** (`items.rs`): the inventory model (`menu::model`, `Mode::Inventory`), the
   tab choosing the kind of item. Built: the heading (Wg and Caps; HP and DT not read
   yet), the list (name, count in brackets, the filled square of what is equipped, the
-  selected row boxed), 9 rows at once (51 a row in a list 468 high). Not built: the
-  item's picture and figures (`item_stats_display.xml`), the buttons and their key hints
-  ("Maintain R)", "Mod X)", "Repair R)"), the scroll bar.
+  selected row boxed), 9 rows at once (51 a row in a list 468 high).
+  - The scroll bar at the list's left (32 wide), only while some rows do not show: the
+    arrows at its ends and a line for the part shown [observed: the owner's scroll
+    screenshot; the line's look as the DATA lists' (hypothesis)].
+  - The selected item (the row under the pointer is selected) at the right
+    [documented: places, `inventory_menu.xml`, `item_stats_display.xml`]: its picture
+    (ICON) in `IM_ItemIcon` (450, 10, 380 square); its figures in `IM_ItemInfoRect`
+    (385, 340, 446 × 150), cards a third of it wide and high, 10 apart: DAM (WEAP base
+    damage) or DT (ARMO DNAM) at the left, WG and VAL; a weapon's STR (its Strength
+    requirement) over VAL; the second row CND (a bar 62 in, 15 down, 20 high, 72 short
+    of the card) and beside it, two cards and 10 wide, the ammunition ("20ga (2/30)":
+    the AMMO short name, then what a clip holds of what is carried over what is
+    carried, hypothesis) or armour's class ("Light", "Medium", "Heavy"); EFFECTS across
+    the three cards on the first free row: an aid item's own effects, apparel's or a
+    weapon's enchantment's (EITM), written as the STATS EFF list writes them ("HP +40",
+    "AGL -1") [observed: the owner's ITEMS screenshots, all five tabs]. WG and VAL are
+    the stack's (the Stimpak's VAL 675 is 9 × 75; WG "--" for nothing) [observed: VAL;
+    hypothesis: WG]. Not built: DPS, the ammunition's picture badge (`IM_ItemIconBadge`),
+    the buttons and their key hints ("Maintain R)", "Mod X)", "Repair R)"), mods.
+  - The flat image (no model's screen) shows only once the Pip-Boy is all the way up:
+    before, it flashed for a frame or more on every Tab while the body took the screen
+    (the owner's list 5, item 2).
 - **STATS** (`stats/`): §5.1.
 - **DATA** (`data.rs`, `data/`): §5.3.
 
@@ -229,10 +248,16 @@ is the top left 85 × 92 of `head.dds`) [observed].
   "Fame n, Infamy n" [design]. Statistics: the 43 New Vegas names [documented: GECK wiki
   GetPCMiscStat, its order] with "--": the game's own counters are not kept, and
   ModPCMiscStat's are kept by code, whose names are not known. Beside them the karma:
-  "Karma: <alignment>", the picture and the karma's number [hypothesis: alignments by
-  the globals `KarmaVeryEvil`, `KarmaEvil`, `KarmaGood`, `KarmaVeryGood`; pictures
-  `karma_evil`, `_bad`, `_neutral`, `_good`, `_saintly`; the original's karma titles are
-  not in the masters].
+  "Karma: <alignment>", the picture, the karma title and the karma's number
+  [hypothesis: alignments by the globals `KarmaVeryEvil`, `KarmaEvil`, `KarmaGood`,
+  `KarmaVeryGood`; pictures `karma_evil`, `_bad`, `_neutral`, `_good`, `_saintly`].
+  The karma title is the game setting `sKarmicTitle<Good|Neutral|Evil><level>` (levels
+  1–30, 30 for 30 and over) [observed: FalloutNV.esm holds 50 of the 90, e.g.
+  `sKarmicTitleNeutral1` "Drifter", `sKarmicTitleEvil29` "Demon Spawn"; the rest are
+  presumably the executable's defaults], else the owner's table (`todo 5.txt`,
+  `stats::model::KARMA_TITLES`); Good and Very Good take the good column, Evil and Very
+  Evil the evil one [hypothesis]. The reputation list (the other mode) is the hook for
+  the reputation workstream.
 - **Keys** [design]: the arrows choose CND, RAD, EFF (S, E, A, X are the hints' keys
   there, logged only; A also steps the tab); Up/Down and W/S select in a list, Page
   Up/Down scroll the description; the wheel scrolls the list, or the description when
@@ -362,10 +387,26 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   zoom then is not known]. Doors leading elsewhere (`XTEL`) in the 7 × 5 cells round the
   view (or the interior) show `interface\icons\local map\icon_local_door.dds`, named by the
   place their destination door stands in [observed: the screenshot's door is named
-  "Goodsprings Gas Station", the cell `GSGasStation`]. Not built: the picture of the place
-  from above (the original renders the area; the screenshot shows it dark save a few
-  shapes, as unexplored), which doors and markers the original shows (its screenshot shows
-  only the gas station's door), Place Marker.
+  "Goodsprings Gas Station", the cell `GSGasStation`]. Under them an outline of the place
+  (`data/outline.rs`) [design: the original renders the area from above, its screenshot
+  dark save a few shapes; the owner asked for an outline]: a grid of rays straight down
+  through the physics world's collision (not actors, triggers or loose clutter), 96
+  units apart outdoors from 8000 over the feet, 28 apart indoors from 150 over the feet
+  (under the ceiling), cast a few hundred a frame (6 ms) and made into one picture when
+  done; outdoors the ground shaded by its slope lit from the north-west, indoors the
+  floor (a ray landing within 120 below and 40 above the feet) filled faintly, what
+  stands on it brighter, and the floor's edge to nothing (the walls) or a step of 64
+  down to a neighbour drawn bright on the higher side; outdoors a step of 192 (walls,
+  cliffs, not the hills' slopes at that spacing). The grid covers the window at a
+  magnification of 1 and 15% more round its anchor, kept while a pan stays within a
+  quarter of it, made again for another floor (128 up or down) or place. Indoors the
+  map is 8 units to a canvas unit (outdoors 28) [design]. What the physics world has not
+  loaded stays empty. Not built: which doors and markers the original shows (its
+  screenshot shows only the gas station's door), Place Marker, fog of the unexplored.
+- **Dragging** (both maps): the left button held down on the map and the pointer moved
+  pans it [design]; the pointer's own moves are followed, not Bevy's drag events, which
+  ended at once because the map's nodes are drawn again as the highlight box follows the
+  pointer (the owner's list 5, item 52). Test aid: `drag=<dx>:<dy>`.
 - Checking it: as §7 with `page=data` and `tab=<0-4>`; `key=down|up|use` steps move and
   act on the DATA lists too. A run with a note, quests and the radio on:
   `NVF_PLAY_TEST_SCRIPT=3:info:0x001057E8:DocMitchellREF,4:start:VCG02,4.5:objective:VCG02:3,5:objective_done:VCG02:3,5.1:objective:VCG02:5`
@@ -392,6 +433,19 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
   Until 2026-10-11 Bevy's mesh ray cast was used, which sees neither the skinning nor a
   mesh kept on the GPU only, so no click on the model did anything (the owner's
   playtest). The button under the pointer glows as the page shown's does [design].
+
+## 6.1 Sounds [observed: the SOUN records, FalloutNV.esm; the owner's list 5]
+
+At the listener: another tab `UIPipBoyTab` (`fx\ui\pipboy\ui_pipboy_tab.wav`); another
+page (the device's buttons, F1–F3) `UIPipBoyMode` (`ui_pipboy_mode.wav`); the pointer
+onto another tab of the tab line `UIMenuFocus` (`fx\ui\menu\ui_menu_focus.wav`), that
+tab then boxed without a fill [hypothesis: the look]; the ITEMS rows sound as before
+(`UIPipBoyScroll`, the same file); the Pip-Boy light (`crate::flashlight`)
+`UIPipBoyLightOn` / `UIPipBoyLightOff`; while up, a static crackle `UIPipBoyStatic` (the
+folder `fx\ui\pipboy\static\`, a file at random) 0.5–2 s after it is up and then every
+4–10 s [hypothesis: how often the original plays them is not captured]. Coming up and
+going down keep `UIPipBoyAccessUp` / `UIPipBoyAccessDown` (`crate::ui_sounds`). Each is
+logged "pipboy sound: <EditorID>" (the focus sound at debug level).
 
 ## 7. Checking it
 

@@ -21,6 +21,7 @@ pub mod combat;
 pub mod console;
 pub mod control;
 pub mod corner_messages;
+pub mod crafting;
 pub mod cursor;
 pub mod crime;
 pub mod dialogue;
@@ -34,6 +35,7 @@ pub mod hitvol;
 pub mod interface;
 pub mod intro;
 pub mod hud;
+pub mod hud_target;
 pub mod loading;
 pub mod main_menu;
 pub mod lockpick;
@@ -55,6 +57,7 @@ pub mod script_events;
 pub mod script_hud;
 pub mod script_trigger;
 pub mod settings;
+pub mod start_menu;
 pub mod sim;
 pub mod space;
 pub mod terminal;
@@ -258,7 +261,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)
             .add_plugins(intro::IntroPlugin)
-            .add_plugins(cursor::CursorPlugin);
+            .add_plugins(cursor::CursorPlugin)
+            .add_plugins(crafting::CraftingPlugin);
         test_aid::setup(app);
     }
 }

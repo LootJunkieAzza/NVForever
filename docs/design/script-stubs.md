@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 78 (16 assigned, 1 implementable, 61 need a system) after NPC sneaking (§3.4; 79 before it) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,929 (1,315 calls, 614 condition uses) after NPC sneaking (§3.4) |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5) |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -113,7 +113,7 @@ each function; call sites are from `fnvtool script decompile` over the ten maste
 
 Left, with the reason (§4): PushActorAway (ragdolls are for corpses only; a live
 knockdown and getting up is not built, with GetKnockedState), SetForceSneak (since built,
-§3.4), AutoDisplayObjectives
+§3.5), AutoDisplayObjectives
 (objectives already show as scripts set them; what the switch adds is not documented
 beyond the summary), GetIsObjectType (its condition parameter is a form type code, and
 the code table is not in the local GECK wiki export; one condition use).
@@ -129,7 +129,16 @@ assigned to H any more. Wait, StopWaiting and IsWaiting are not registered and u
 script of the masters [observed]; the companions wait by their `Waiting` variable and Guard
 packages.
 
-### 3.4 NPC sneaking (claude/l5-npc-ai, 2026-10-16)
+### 3.4 Saving, crafting and rendering (2026-10-15 and 16)
+
+Three stubs that needed a system are implemented, all without condition uses:
+Autosave (0x115E, 74 calls; saving, 2026-10-15), ShowRecipeMenu (0x1250, 15 calls; the
+crafting menus, claude/l5-crafting, PR #292) and SwapTexture (0x1269, 383 calls; the
+texture swap on a reference's shape, claude/l5-render-fx, §4 notes). With the followers'
+OpenTeammateContainer (§3.3, 26 calls, the last stub assigned to H) the audit's counts went
+from 81 stubs and 1,418 calls to 77 and 920; the smoke scenario `script-stubs` checks these.
+
+### 3.5 NPC sneaking (claude/l5-npc-ai, 2026-10-16)
 
 SetForceSneak (0x10D3, 3 calls) is implemented: `RefExtra::force_sneak`, read by
 `Game::sneaks` together with the current package's Always Sneak; the engine crouches the
@@ -147,7 +156,7 @@ exists; the note says what is missing); **deliberately no-op**.
 
 | Function | Opcode | Calls | Conditions | Status | System / note |
 |---|---|---|---|---|---|
-| SwapTexture | 0x1269 | 383 | 0 | needs a system not built yet | rendering |
+| SwapTexture | 0x1269 | 383 | 0 | implemented 2026-10-16 (claude/l5-render-fx) | rendering |
 | GetVATSValue | 0x1198 | 0 | 250 | needs a system not built yet | combat (VATS) |
 | PlayMagicShaderVisuals | 0x1123 | 205 | 0 | needs a system not built yet | rendering (effect shaders) |
 | SetActorAlpha | 0x1129 | 127 | 0 | needs a system not built yet | rendering |
@@ -171,7 +180,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetIsUsedItem | 0x10F6 | 0 | 16 | needs a system not built yet | AI (used items) |
 | GetDisposition | 0x104C | 0 | 15 | needs a system not built yet | dialogue (disposition) |
 | ShowRepairMenu | 0x117A | 15 | 0 | needs a system not built yet | menus (repair) |
-| ShowRecipeMenu | 0x1250 | 15 | 0 | needs a system not built yet | menus (crafting) |
+| ShowRecipeMenu | 0x1250 | 15 | 0 | implemented 2026-10-16 (claude/l5-crafting) | menus (crafting) |
 | UseWeapon | 0x119C | 13 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
 | Reset3DState | 0x1146 | 12 | 0 | needs a system not built yet | rendering |
 | GetShouldAttack | 0x1042 | 7 | 4 | assigned to workstream | assigned to workstream E2 combat AI |
@@ -234,9 +243,12 @@ exists; the note says what is missing); **deliberately no-op**.
 Notes on the most used:
 
 - **SwapTexture** (383 calls) [observed: decoded scripts]: `ref.SwapTexture "##<node>:<n>"
-  "<texture>"`, mostly the end slides (`interface\endgame\endscrn_*` on `##gs01`) and the
-  Euclid's C-Finder's screen. No GECK wiki page and no catalogue summary: it needs a
-  texture swap on a drawn model's named node; not built.
+  "<texture>"`, mostly the end slides (`interface\endgame\endscrn_*` on `##gs01`), the
+  Rorschach cards of Doc Mitchell's test (`pipboycard01:0`) and the Euclid's C-Finder's
+  screen. No GECK wiki page. Implemented 2026-10-16: the game keeps the last texture per
+  shape of each reference (`fnv_game::functions::misc::swap_texture`), the engine puts
+  `textures\<texture>.dds` on the drawn shape of that name (nvforever `texture_swap.rs`);
+  `##` is dropped [hypothesis]. Not part of saves.
 - **GetVATSValue** (250 conditions): VATS is not built; outside VATS 0 is what the
   conditions read anyway [hypothesis].
 - **PlayMagicShaderVisuals / StopMagicShaderVisuals** (284 calls): effect shaders (EFSH)

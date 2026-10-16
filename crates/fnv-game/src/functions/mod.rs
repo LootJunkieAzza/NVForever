@@ -20,7 +20,7 @@ mod ai_state;
 pub(crate) mod furniture;
 mod items;
 mod magic;
-pub(crate) mod misc;
+pub mod misc;
 mod objects;
 mod player;
 mod quest;
@@ -431,7 +431,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x112D, "ForceWeather", Impl(crate::weather::force_weather)),
         (0x1158, "ReleaseWeatherOverride", Impl(crate::weather::release_weather_override)),
         (0x1186, "SetGlobalTimeMultiplier", Impl(misc::set_global_time_multiplier)),
-        (0x1269, "SwapTexture", Stub("rendering")),
+        (0x1269, "SwapTexture", Impl(misc::swap_texture)),
         (0x1225, "AutoDisplayObjectives", Stub("HUD")),
         (0x11DD, "ForceActiveQuest", Impl(ui::force_active_quest)),
         (0x115E, "Autosave", Impl(ui::autosave)),
@@ -567,7 +567,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1219, "AddSPECIALPoints", Impl(ui::add_special_points)),
         (0x1218, "SetSPECIALPoints", Impl(ui::set_special_points)),
         (0x117A, "ShowRepairMenu", Stub("menus (repair)")),
-        (0x1250, "ShowRecipeMenu", Stub("menus (crafting)")),
+        (0x1250, "ShowRecipeMenu", Impl(misc::show_recipe_menu)),
         (0x1254, "ShowBlackJackMenuParams", Stub("menus (casino)")),
         (0x1256, "ShowRouletteMenuParams", Stub("menus (casino)")),
         (0x1252, "ShowSlotMachineMenuParams", Stub("menus (casino)")),

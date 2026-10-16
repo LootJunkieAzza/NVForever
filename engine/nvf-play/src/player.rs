@@ -343,7 +343,8 @@ impl Plugin for PlayerPlugin {
             .insert_resource(NearAid::from_env())
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
-            .add_systems(Update, (crate::control::enforce_locks, aiming_walks).chain().after(PlaySet::Input).before(PlaySet::Physics))
+            .init_resource::<RunPace>()
+            .add_systems(Update, (crate::control::enforce_locks, aiming_walks, encumbered_walks).chain().after(PlaySet::Input).before(PlaySet::Physics))
             .add_systems(Update, crate::control::tell_scripts.after(PlaySet::Input).before(PlaySet::Scripts))
             .add_systems(Last, crate::control::report_locks)
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
@@ -484,6 +485,45 @@ pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>,
     if aiming != *was {
         *was = aiming;
         info!("aiming: {}", if aiming { "the player moves at walking speed" } else { "over, running speed again" });
+    }
+}
+
+/// Over-encumbered, the player can only walk [observed: with capacity 200 the player
+/// walked at 85 units/s carrying 201 and more, xNVSE capture `cl_b_encumbrance_speed`,
+/// docs/spec-notes/simulation.md §3; the owner's playtest list 5 item 21]. Not in god
+/// mode [hypothesis: the original's tgm lifts the carry limit]. The weight is read twice
+/// a second [design].
+pub fn encumbered_walks(time: Res<Time>, sim: Option<ResMut<crate::sim::SimState>>, mut intent: ResMut<MoveIntent>, mut st: Local<(f32, bool)>) {
+    let Some(mut sim) = sim else { return };
+    st.0 -= time.delta_secs();
+    if st.0 <= 0.0 {
+        st.0 = ENCUMBRANCE_CHECK;
+        let e = sim.world.encumbrance(fnv_sim::FormId::PLAYER_REF).ok();
+        let over = e.as_ref().is_some_and(|e| e.over) && !crate::combat::god_mode();
+        if over != st.1 {
+            st.1 = over;
+            match (over, e) {
+                (true, Some(e)) => info!("encumbrance: {:.1} / {:.0}, over the limit: the player walks", e.weight, e.capacity),
+                _ => info!("encumbrance: within the limit (or god mode), running again"),
+            }
+        }
+    }
+    if st.1 && !intent.walk {
+        intent.walk = true;
+    }
+}
+
+/// Seconds between reads of the player's carried weight ([`encumbered_walks`]).
+const ENCUMBRANCE_CHECK: f32 = 0.5;
+
+/// A share of the running speed the player keeps: below 1 with a two-handed weapon drawn
+/// (`crate::combat`, the owner's playtest list 5 item 61). Walking is not slowed.
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct RunPace(pub f32);
+
+impl Default for RunPace {
+    fn default() -> Self {
+        RunPace(1.0)
     }
 }
 
@@ -774,7 +814,7 @@ fn step(
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
-    limbs: Option<Res<crate::combat::PlayerLimbs>>,
+    (limbs, pace): (Option<Res<crate::combat::PlayerLimbs>>, Option<Res<RunPace>>),
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     mut blocks: Option<ResMut<crate::blocking::ActorBlocks>>,
 ) {
@@ -849,6 +889,8 @@ fn step(
             *stroke_time = 0.0;
             // Crippled legs slow the player (combat C8) [design].
             let k = limbs.as_deref().map_or(1.0, crate::combat::PlayerLimbs::speed_mult);
+            // Running with a two-handed weapon drawn is slower (`RunPace`).
+            let k = if intent.walk { k } else { k * pace.as_deref().map_or(1.0, |p| p.0) };
             let [x, y] = velocity(&intent, player.heading, *speeds);
             [x * k, y * k, 0.0]
         };

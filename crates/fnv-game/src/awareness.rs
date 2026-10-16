@@ -432,6 +432,10 @@ pub struct Awarenesses {
     /// Actors aiming down their sights now (the engine's combat AI says): the AI that
     /// moves actors has them walk, not run (`fnv_ai::alert`).
     pub aiming: std::collections::BTreeSet<FormId>,
+    /// The share of the running speed each actor keeps (the engine's combat AI says):
+    /// below 1 with a two-handed weapon drawn, or for a creature whose own run is slower
+    /// (the owner's playtest list 5 items 61 and 25). Not set: 1.
+    pub pace: BTreeMap<FormId, f32>,
     /// (actor, target) pairs StartCombat made hostile whatever the records say, until
     /// StopCombat.
     pub forced: std::collections::BTreeSet<(FormId, FormId)>,
@@ -441,6 +445,11 @@ pub struct Awarenesses {
 }
 
 impl Awarenesses {
+    /// The share of the running speed `actor` keeps ([`Self::pace`]).
+    pub fn pace_of(&self, actor: FormId) -> f32 {
+        self.pace.get(&actor).copied().unwrap_or(1.0)
+    }
+
     pub fn state(&self, actor: FormId) -> State {
         self.actors.get(&actor).map_or(State::Normal, |a| a.state)
     }

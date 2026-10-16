@@ -21,10 +21,12 @@ use bevy::prelude::*;
 use nvf_play::pause::GROUP_MENUS;
 use nvf_play::settings::{add_setting, Setting};
 
+// The pause menu shows the groups as the original's settings categories (Gameplay,
+// Display, …), one short word each (nvf_play::pause).
 const GROUP_WORLD: &str = "World";
-const GROUP_PICTURE: &str = "Picture";
-const GROUP_DEVELOPER: &str = "Developer";
-const GROUP_GRAPHICS: &str = "Enhanced graphics";
+const GROUP_PICTURE: &str = "Display";
+const GROUP_DEVELOPER: &str = "Debug";
+const GROUP_GRAPHICS: &str = "Graphics";
 
 /// List the renderer's switches: those whose module is part of this run.
 pub fn register(app: &mut App) {

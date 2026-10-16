@@ -136,6 +136,10 @@ actor meshes`]:
   colour: red 0.04–0.39 with green and blue at 1 in `hairbase.nif` and
   `beardmustachecurly.nif` [observed]; multiplied in, hair turns cyan. They are not
   applied [hypothesis: what the mask does in the game's hair shader is open].
+- Hair colour (`HCLR`) tints the hair model and, since 2026-10-16, every hair-shader shape
+  of the head parts (HDPT models: beards such as `beardmustachecurly.nif`) the same way
+  [hypothesis: the owner saw Sgt Kilborn's and Joe Cobb's beards white in ours, unlike
+  their hair; an untinted beard texture is near grey-white; playtest list 5 item 26].
 - Every hair model has a `NoHat` and a `Hat` shape (58 of 58). Upper bodies and armour
   carry dismemberment caps (`meatneck01`, `meathead01`, `bodycaps`, `limbcaps`,
   `MeatCap*`).

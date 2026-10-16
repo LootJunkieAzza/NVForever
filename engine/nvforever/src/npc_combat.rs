@@ -83,7 +83,8 @@ use fnv_game::combat_group::{Post, PostKind, Strength};
 use fnv_nav::Space;
 use nvf_play::Location;
 use crate::limbs::ActorRig;
-use crate::locomotion::{Dying, Flinch};
+use crate::locomotion::{Dying, Flinch, Locomotion};
+use fnv_actor::locomotion::Move;
 use crate::ragdoll::Corpse;
 use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 use crate::world::bevy_to_game;
@@ -335,7 +336,23 @@ fn is_gun(c: &Combat, w: &WeaponStats, id: FormId) -> bool {
 /// The navmesh, the player's place, the battle's counts, and who the AI moves.
 type Where<'w> = (Option<Res<'w, NavState>>, Option<Res<'w, Location>>, ResMut<'w, Battle>, Option<Res<'w, crate::residents::Residents>>);
 
-type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>, Option<&'w Flinch>);
+type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>, Option<&'w Flinch>, Option<&'w Locomotion>);
+
+/// The share of the running speed a fighter keeps (`Awarenesses::pace`, read by the AI
+/// that moves it): a creature runs at its own run clip's pace (the root motion of its
+/// `fastforward` clip at its scale, times its Speed Mult) where that is slower than the running speed all
+/// actors are given [design: the owner's playtest list 5 item 25, radscorpions ran far
+/// too fast; the clip speed as the creature's speed is a hypothesis]; a two-handed weapon
+/// drawn costs `fMove2HBigPenalty` of it (item 61).
+fn pace(creature_run: Option<f32>, two_handed_drawn: bool, penalty: f32) -> f32 {
+    let own = creature_run.filter(|v| *v > 1.0).map_or(1.0, |v| (v / nvf_play::player::MoveSpeeds::OBSERVED.run).clamp(MIN_PACE, 1.0));
+    let weapon = if two_handed_drawn { (1.0 - penalty).clamp(0.1, 1.0) } else { 1.0 };
+    own * weapon
+}
+
+/// The slowest pace [`pace`] gives a creature, so a clip with little root motion does
+/// not stop it [design].
+const MIN_PACE: f32 = 0.25;
 
 /// One frame of every fight (module notes).
 #[allow(clippy::too_many_arguments)]
@@ -364,7 +381,7 @@ fn fight(
     let muzzle_at: HashMap<u32, V3> = muzzles.iter().map(|(m, g)| (m.reference, bevy_to_game(g.translation()).to_array())).collect();
     // Where everyone is: feet and chest (game space), and size.
     let mut places: HashMap<u32, (V3, V3, f32)> = HashMap::new();
-    for (rig, g, vis, _, dying, corpse, _) in &actors {
+    for (rig, g, vis, _, dying, corpse, _, _) in &actors {
         if vis.get() && !dying && !corpse {
             let feet = bevy_to_game(g.translation()).to_array();
             let scale = g.affine().transform_vector3(Vec3::Z).length().max(0.1);
@@ -390,7 +407,7 @@ fn fight(
     let mut still: Vec<u32> = Vec::new();
     with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
-        for (rig, global, _, hold, _, _, flinch) in &actors {
+        for (rig, global, _, hold, _, _, flinch, loco) in &actors {
             let id = rig.reference;
             let me = FormId(id);
             let Some(&(feet, eyes, scale)) = places.get(&id) else { continue };
@@ -404,6 +421,32 @@ fn fight(
             let Some((target, _)) = aw.combat_target().or_else(latest) else { continue };
             let Some(&(tfeet, teyes, _)) = places.get(&target.0) else { continue };
             still.push(id);
+            // How fast it runs (`pace`).
+            // A creature's own run: its clip's root motion at its scale, times its Speed
+            // Mult (CREA ACBS; a small radscorpion: 315 units/s × 0.5 × 150 % = 236
+            // [observed: the clip and the record]).
+            let creature = g.data.actors.get(&FormId(rig.base)).filter(|d| &d.sig == b"CREA");
+            let speed_mult = creature.map_or(100.0, |d| if d.speed_mult > 0 { d.speed_mult as f32 } else { 100.0 });
+            let creature_run = loco.filter(|_| creature.is_some()).and_then(|l| l.set.info(Move::FastForward)).map(|i| i.speed * scale * speed_mult / 100.0);
+            let two = crate::attack_anims::drawn(hold) && weapons.get(&id).and_then(|w| c.forms.weapons.get(w)).is_some_and(WeaponStats::two_handed);
+            let p = pace(creature_run, two, c.rules.move_2h_penalty);
+            if g.awareness.pace_of(me) != p {
+                info!(
+                    "npc combat: {} {me} runs at {:.0}% of the running speed ({})",
+                    g.data.name(me),
+                    p * 100.0,
+                    match (creature_run, two) {
+                        (Some(v), _) if p < 1.0 && !two => format!("its run clip moves {v:.0} units/s"),
+                        (_, true) => "a two-handed weapon drawn".to_string(),
+                        _ => "its own pace".to_string(),
+                    }
+                );
+            }
+            if p < 1.0 {
+                g.awareness.pace.insert(me, p);
+            } else {
+                g.awareness.pace.remove(&me);
+            }
             // What it fights with; its combat style may keep it to melee.
             let style = g.combat_style(me);
             let melee_only = style.is_some_and(|s| s.weapon_restrictions == 1);
@@ -886,6 +929,7 @@ fn fight(
             f.fighters.remove(&id);
             g.awareness.engage.remove(&FormId(id));
             g.awareness.aiming.remove(&FormId(id));
+            g.awareness.pace.remove(&FormId(id));
             g.awareness.tactics.posts.remove(&FormId(id));
         }
     });
@@ -947,6 +991,21 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn creatures_run_at_their_clip_pace_and_two_handed_weapons_slow() {
+        let run = nvf_play::player::MoveSpeeds::OBSERVED.run;
+        // People, and creatures whose clips run faster than the running speed: full pace.
+        assert_eq!(pace(None, false, 0.1), 1.0);
+        assert_eq!(pace(Some(run * 1.5), false, 0.1), 1.0);
+        // A creature whose run clip moves half as fast runs at half pace, never below
+        // the floor.
+        assert!((pace(Some(run / 2.0), false, 0.1) - 0.5).abs() < 1e-4);
+        assert_eq!(pace(Some(5.0), false, 0.1), MIN_PACE);
+        assert_eq!(pace(Some(0.0), false, 0.1), 1.0);
+        // A rifle drawn costs fMove2HBigPenalty.
+        assert!((pace(None, true, 0.1) - 0.9).abs() < 1e-6);
+    }
 
     #[test]
     fn guns_engage_within_their_range_and_melee_within_reach() {

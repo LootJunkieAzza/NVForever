@@ -17,8 +17,10 @@
 //!   serves at most `max_emitters` emitters a frame.
 //! - **Drawn** as one mesh per system, a square facing the camera for each particle,
 //!   with the system's own texture, blending and vertex colours.
+//! - **Model emitters** ([`ModelEmitter`]): a model's own particle systems, emitted from
+//!   where its emitter objects are in the file (explosions, `shot_fx`).
 //! - Not built: turbulence, spawn-on-death, modifier on/off controllers, strip and mesh
-//!   particle systems, particle systems inside ordinary models (fires, steam in cells).
+//!   particle systems, particle systems of models placed in cells (fires, steam).
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::light::NotShadowCaster;
@@ -52,6 +54,30 @@ impl AddonEmitter {
     }
 }
 
+/// A model in the world that emits the particle systems inside its own file (an
+/// explosion's flash, smoke and shrapnel) while it exists, each from its emitter object's
+/// place in the file under this entity [hypothesis: as an add-on node emits its ADDN's;
+/// the systems' rate and on/off keys come from the model's sequence when its emitter
+/// controllers leave them to it, nvf_assets::particles].
+#[derive(Component)]
+pub struct ModelEmitter {
+    pub path: String,
+    age: f32,
+}
+
+impl ModelEmitter {
+    pub fn new(path: impl Into<String>) -> ModelEmitter {
+        ModelEmitter { path: path.into(), age: 0.0 }
+    }
+}
+
+/// Whose systems: an ADDN's (by node index) or a model file's own (by path).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Source {
+    Addon(i32),
+    Model(String),
+}
+
 struct Particle {
     pos: Vec3,
     vel: Vec3,
@@ -79,9 +105,9 @@ struct Live {
 
 #[derive(Resource)]
 pub struct Particles {
-    /// The live systems of each ADDN index; `None`: it has no model we can read.
-    systems: HashMap<i32, Option<Vec<Live>>>,
-    reported: HashSet<i32>,
+    /// The live systems of each ADDN index or model file; `None`: none we can read.
+    systems: HashMap<Source, Option<Vec<Live>>>,
+    reported: HashSet<Source>,
     rng: SplitMix,
     pub born: u64,
     pub most_alive: usize,
@@ -122,19 +148,24 @@ pub fn game_affine(e: Entity, transforms: &Query<&Transform>, parents: &Query<&C
 
 fn systems_of<'a>(
     p: &'a mut Particles,
-    index: i32,
+    source: &Source,
     sfx: Option<&Sfx>,
     models: &mut ModelCtx,
     commands: &mut Commands,
     root: Entity,
 ) -> Option<&'a mut Vec<Live>> {
-    if !p.systems.contains_key(&index) {
-        let addon = sfx.and_then(|s| s.forms.addons.get(&index));
-        let path = addon.and_then(|a| a.model.as_deref()).map(fnv_actor::resolve::mesh_path);
+    if !p.systems.contains_key(source) {
+        let (path, what) = match source {
+            Source::Addon(index) => {
+                let addon = sfx.and_then(|s| s.forms.addons.get(index));
+                (addon.and_then(|a| a.model.as_deref()).map(fnv_actor::resolve::mesh_path), format!("add-on node {index}"))
+            }
+            Source::Model(path) => (Some(path.clone()), "model".to_string()),
+        };
         let prepared: Option<Arc<PreparedParticles>> = path.as_deref().and_then(|p| models.particles(p));
         let live = prepared.filter(|pp| !pp.systems.is_empty()).map(|pp| {
             info!(
-                "particles: add-on node {index} {}: {} system(s) [{}]{}",
+                "particles: {what} {}: {} system(s) [{}]{}",
                 path.as_deref().unwrap_or("?"),
                 pp.systems.len(),
                 pp.systems.iter().map(|s| format!("{} {}/s, at most {}", s.name, s.rate, s.max)).collect::<Vec<_>>().join("; "),
@@ -151,12 +182,13 @@ fn systems_of<'a>(
                 })
                 .collect()
         });
-        if live.is_none() && p.reported.insert(index) {
-            warn!("particles: add-on node {index}: no particle systems ({})", path.as_deref().unwrap_or("no ADDN record or model"));
+        // A model without systems of its own is the common case (bullet impacts).
+        if live.is_none() && matches!(source, Source::Addon(_)) && p.reported.insert(source.clone()) {
+            warn!("particles: {what}: no particle systems ({})", path.as_deref().unwrap_or("no ADDN record or model"));
         }
-        p.systems.insert(index, live);
+        p.systems.insert(source.clone(), live);
     }
-    p.systems.get_mut(&index).and_then(Option::as_mut)
+    p.systems.get_mut(source).and_then(Option::as_mut)
 }
 
 /// A number in −1..1.
@@ -164,7 +196,8 @@ fn spread(rng: &mut SplitMix) -> f32 {
     rng.next_f32() * 2.0 - 1.0
 }
 
-/// Births: each add-on node in the world emits into the systems of its ADDN.
+/// Births: each add-on node in the world emits into the systems of its ADDN, each
+/// model emitter into its file's own.
 #[allow(clippy::too_many_arguments)]
 fn emit(
     mut commands: Commands,
@@ -174,6 +207,7 @@ fn emit(
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
     mut emitters: Query<(Entity, &mut AddonEmitter)>,
+    mut model_emitters: Query<(Entity, &mut ModelEmitter)>,
     transforms: Query<&Transform>,
     parents: Query<&ChildOf>,
 ) {
@@ -183,22 +217,29 @@ fn emit(
     for live in p.systems.values_mut().flatten().flatten() {
         live.served = 0;
     }
+    let mut sources = Vec::new();
     for (e, mut em) in &mut emitters {
-        let index = em.index;
-        let age = em.age;
+        sources.push((e, Source::Addon(em.index), em.age));
         em.age += dt;
+    }
+    for (e, mut em) in &mut model_emitters {
+        sources.push((e, Source::Model(em.path.clone()), em.age));
+        em.age += dt;
+    }
+    for (e, source, age) in sources {
         let mut rng = SplitMix(p.rng.0);
-        let Some(systems) = systems_of(p, index, sfx.as_deref(), &mut models, &mut commands, root) else { continue };
+        let Some(systems) = systems_of(p, &source, sfx.as_deref(), &mut models, &mut commands, root) else { continue };
         let node = game_affine(e, &transforms, &parents, root);
         let mut born = 0;
         for live in systems.iter_mut() {
             let owed = &mut live.owed;
             let d = &live.def;
-            if !d.emitting(age) || (d.max_emitters > 0 && live.served >= d.max_emitters) {
+            let on = d.on_time(age, age + dt);
+            if on <= 0.0 || (d.max_emitters > 0 && live.served >= d.max_emitters) {
                 continue;
             }
             live.served += 1;
-            *owed += d.rate * dt;
+            *owed += d.rate * on;
             let frame = node * d.emitter.frame;
             let (_, turn, origin) = frame.to_scale_rotation_translation();
             while *owed >= 1.0 {
@@ -314,7 +355,7 @@ fn draw(
             uvs.extend([[u, v + h], [u + w, v + h], [u + w, v], [u, v]]);
             let tint = d.color.as_ref().map_or([1.0; 4], |c| c.at(t));
             let e = d.emitter.color;
-            colors.extend([[tint[0] * e[0], tint[1] * e[1], tint[2] * e[2], tint[3] * e[3]]; 4]);
+            colors.extend([display_colour([tint[0] * e[0], tint[1] * e[1], tint[2] * e[2], tint[3] * e[3]]); 4]);
             let b = (k * 4) as u32;
             indices.extend([b, b + 1, b + 2, b, b + 2, b + 3]);
         }
@@ -326,8 +367,31 @@ fn draw(
     }
 }
 
+/// A particle's colour (the colour modifier's times the emitter's) taken as display
+/// values: converted to linear, the alpha kept. The particle systems are unlit
+/// (BSShaderNoLightingProperty), and an unlit shape's texture × vertex colour is formed
+/// in display values [hypothesis, as `nvf_assets::nif_spawn::unlit_vertex_colors` for
+/// placed smoke, nif.md §6 "Vertex colours"]: multiplied in as linear values, the impact
+/// dust's 0.27–0.43 greys drew as 0.57–0.69, a pale cloud on every wall hit (owner,
+/// playtest list 5 item 48; particles.md §2 "Simple colour").
+fn display_colour(c: [f32; 4]) -> [f32; 4] {
+    let l = |v: f32| Color::srgb(v.max(0.0), 0.0, 0.0).to_linear().red;
+    [l(c[0]), l(c[1]), l(c[2]), c[3]]
+}
+
 fn report(mut exit: MessageReader<AppExit>, p: Res<Particles>) {
     if exit.read().last().is_some() && p.born > 0 {
         info!("particles: {} born in {} add-on systems, at most {} alive at once", p.born, p.systems.values().flatten().count(), p.most_alive);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn particle_colours_are_display_values() {
+        let c = display_colour([0.5, 1.0, 0.0, 0.3]);
+        assert!((c[0] - 0.214).abs() < 1e-3 && (c[1] - 1.0).abs() < 1e-6 && c[2] == 0.0 && c[3] == 0.3, "{c:?}");
     }
 }

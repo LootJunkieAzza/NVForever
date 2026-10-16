@@ -32,13 +32,21 @@
 //! The INI's main menu colour (`iSystemColorMainMenu…` 199, 255, 165) is not used: the
 //! owner's screenshot shows the entries in the interface's amber.
 //!
+//! **The look is the pause menu's** (`crate::start_menu`) [owner, todo 5 items 8 and 46]:
+//! every entry that can be taken at full strength, a greyed one at half, the highlight
+//! box round the chosen one; the pointer coming onto an entry and the keys moving the
+//! choice play `UIMenuFocus`, taking one `UIMenuOK` [observed: list_box_template.xml
+//! `mouseoversound`, `clicksound`]. While a page of the pause menu is up (Load Game,
+//! Settings) the pause menu draws the column itself, dimmed but for that page's entry.
+//!
 //! Keys: Up/Down (W/S) choose, Enter or Space take; the pointer chooses, a click takes.
 //! Test aid `NVF_PLAY_TEST_MAIN_MENU=<seconds>:<action>[,…]` (`up`, `down`, `pick`, or an
 //! entry: `continue`, `new`, `load`, `settings`, `quit`; `shot` saves a screenshot
 //! `main_menu.png` in the working folder).
 //! Log: `main menu: open (…)`, `main menu: <entry>`, `main menu: slide <texture>`.
 
-use crate::interface::{amber, bc_supported, face, plain_font, set_line, u, Face};
+use crate::interface::{bc_supported, face, plain_font, set_line, u, Face};
+use crate::start_menu::{color, highlight_colors, Shade, BASE, COLUMN, FONT, ITEM, LINE, RIGHT};
 use crate::pause::{AidTime, Page, PageRequest, Paused};
 use crate::{PlaySet, PlayState, PlayWorld};
 use bevy::asset::RenderAssetUsages;
@@ -56,9 +64,6 @@ pub const FADE_SECS: f32 = 0.9;
 /// The loading screens are dimmed behind the menu so its amber reads over them [design].
 const SLIDE_BRIGHTNESS: f32 = 0.55;
 
-/// Font 7 [documented: Fallout_default.ini `sFontFile_7`; start_menu.xml sets the entries in
-/// font 7].
-const FONT: &str = "textures\\fonts\\baked-in_monofonto_large.fnt";
 const LOGO: &str = "textures\\interface\\main\\main_title.dds";
 /// The theme [documented: Fallout_default.ini `SMainMenuMusicTrack`, `fMainMenuMusicVolume`].
 const THEME: &str = "music\\special\\maintitle.mp3";
@@ -66,11 +71,6 @@ const THEME_VOLUME: f32 = 0.6;
 /// Seconds the theme takes to fade out after New Game [design].
 pub const THEME_FADE: f32 = 1.5;
 
-/// The column, in interface units (960 to the view's height): its right edge this far
-/// from the view's [observed: about 56 of 1080 pixels on the owner's screenshot], and one
-/// entry this high [observed: 54 of 1080 pixels].
-const RIGHT: f32 = 50.0;
-const ITEM: f32 = 48.0;
 /// The logo: its picture's left and top, and its width (the texture is 4 to 1; the
 /// lettering fills about three quarters of its width) [design, after the screenshot].
 const LOGO_LEFT: f32 = 40.0;
@@ -194,6 +194,10 @@ struct MenuAid(Vec<(f32, String)>);
 struct MenuRoot;
 #[derive(Component)]
 struct Slide;
+/// The logo, hidden while a page of the pause menu is up [design: it showed through the
+/// settings' list].
+#[derive(Component)]
+struct Logo;
 #[derive(Component, Clone, Copy)]
 struct EntryNode(usize);
 
@@ -212,6 +216,14 @@ impl Plugin for MainMenuPlugin {
             aid.sort_by(|a, b| a.0.total_cmp(&b.0));
         }
         app.init_resource::<MainMenu>().insert_resource(MenuAid(aid)).add_systems(Update, (open_at_start, choose, slideshow, show_entries, theme).chain().in_set(PlaySet::Ui));
+    }
+}
+
+impl MainMenu {
+    /// The entries' labels and whether each can be taken (the pause menu draws them under
+    /// its pages).
+    pub fn column(&self) -> Vec<(&'static str, bool)> {
+        Entry::ALL.iter().map(|e| (e.label(), e.enabled(self.saves))).collect()
     }
 }
 
@@ -337,23 +349,26 @@ fn spawn(commands: &mut Commands, menu: &MainMenu, logo: Option<(Handle<Image>, 
             root.spawn((ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(shade) }, Node { position_type: PositionType::Absolute, right: Val::Px(0.0), top: Val::Px(0.0), width: Val::Percent(40.0), height: Val::Percent(100.0), ..default() }));
             if let Some((image, size)) = logo {
                 let h = LOGO_WIDTH * size.y / size.x.max(1.0);
-                root.spawn((ImageNode::new(image), Node { position_type: PositionType::Absolute, left: u(LOGO_LEFT), top: u(LOGO_TOP), width: u(LOGO_WIDTH), height: u(h), ..default() }));
+                root.spawn((Logo, ImageNode::new(image), Node { position_type: PositionType::Absolute, left: u(LOGO_LEFT), top: u(LOGO_TOP), width: u(LOGO_WIDTH), height: u(h), ..default() }));
             }
             let Some(f) = menu.face.as_ref() else { return };
             let n = Entry::ALL.len() as f32;
             let top = (960.0 - n * ITEM) / 2.0;
+            let width = COLUMN - 5.0;
             for (i, e) in Entry::ALL.iter().enumerate() {
                 let line = f.font.lines(e.label(), None).into_iter().next();
                 let w = f.font.width(e.label());
+                // The whole row takes the pointer; its border is the highlight box (`show_entries`).
                 root.spawn((
                     EntryNode(i),
                     Button,
-                    Node { position_type: PositionType::Absolute, right: u(RIGHT), top: u(top + i as f32 * ITEM), width: u(w), height: u(ITEM), ..default() },
+                    Node { position_type: PositionType::Absolute, right: u(RIGHT), top: u(top + i as f32 * ITEM), width: u(width), height: u(ITEM), border: UiRect::all(u(LINE)), ..default() },
+                    BorderColor::all(Color::NONE),
+                    BackgroundColor(Color::NONE),
                 ))
                 .with_children(|p| {
                     if let Some(line) = line {
-                        // The glyphs stand on a line at about three quarters of the entry.
-                        set_line(p, f, &line, 0.0, ITEM * 0.72, amber(255.0));
+                        set_line(p, f, &line, width - w - 10.0 - 2.0 * LINE, BASE - LINE, color(Shade::Bright));
                     }
                 });
             }
@@ -375,7 +390,9 @@ fn choose(
     mut commands: Commands,
     roots: Query<Entity, With<MenuRoot>>,
     mut last_page: Local<Option<Page>>,
+    mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
 ) {
+    use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
     if !menu.open {
         return;
     }
@@ -393,6 +410,7 @@ fn choose(
         return;
     }
     let saves = menu.saves;
+    let before = menu.selected;
     let mut take = None;
     for (i, e) in &entries {
         let ok = Entry::ALL[e.0].enabled(saves);
@@ -427,8 +445,12 @@ fn choose(
     if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) && Entry::ALL[menu.selected].enabled(saves) {
         take = Some(Entry::ALL[menu.selected]);
     }
+    if menu.selected != before {
+        sounds.write(UiSound { menu: UiMenu::MainMenu, event: UiEvent::Focus });
+    }
     let Some(e) = take else { return };
     info!("main menu: {}", e.label());
+    sounds.write(UiSound { menu: UiMenu::MainMenu, event: UiEvent::Picked });
     match e {
         Entry::Continue => {
             if let Some(p) = menu.newest.clone() {
@@ -504,20 +526,33 @@ fn slideshow(
     }
 }
 
-/// The chosen entry bright, the others dimmer, a greyed one dark.
-fn show_entries(menu: Res<MainMenu>, entries: Query<(&EntryNode, &Children)>, mut glyphs: Query<&mut ImageNode, Without<Slide>>, mut texts: Query<&mut TextColor>) {
+/// Every entry that can be taken bright, a greyed one at half, the highlight box round
+/// the chosen one; the column hidden while a page of the pause menu draws it.
+#[allow(clippy::type_complexity)]
+fn show_entries(
+    menu: Res<MainMenu>,
+    page: Res<Page>,
+    mut entries: Query<(&EntryNode, &Children, &mut BorderColor, &mut BackgroundColor, &mut Visibility)>,
+    mut glyphs: Query<&mut ImageNode, Without<Slide>>,
+    mut texts: Query<&mut TextColor>,
+    mut logo: Query<&mut Visibility, (With<Logo>, Without<EntryNode>)>,
+) {
     if !menu.open {
         return;
     }
-    for (e, children) in &entries {
+    for mut v in &mut logo {
+        v.set_if_neq(if *page == Page::Main { Visibility::Inherited } else { Visibility::Hidden });
+    }
+    let (line, fill) = highlight_colors();
+    for (e, children, mut border, mut bg, mut vis) in &mut entries {
+        let shown = if *page == Page::Main { Visibility::Inherited } else { Visibility::Hidden };
+        vis.set_if_neq(shown);
         let entry = Entry::ALL[e.0];
-        let c = if !entry.enabled(menu.saves) {
-            Color::srgba(0.42, 0.40, 0.36, 0.45)
-        } else if e.0 == menu.selected {
-            amber(255.0)
-        } else {
-            amber(165.0)
-        };
+        let c = color(if entry.enabled(menu.saves) { Shade::Bright } else { Shade::Dim });
+        let chosen = e.0 == menu.selected;
+        let want = if chosen { BorderColor::all(line) } else { BorderColor::all(Color::NONE) };
+        border.set_if_neq(want);
+        bg.set_if_neq(BackgroundColor(if chosen { fill } else { Color::NONE }));
         for &child in children {
             if let Ok(mut g) = glyphs.get_mut(child) {
                 if g.color != c {
