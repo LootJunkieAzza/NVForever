@@ -1199,6 +1199,7 @@ expect = [
   "ui sounds: lockpick refused: DRSLocked",
   "ui sounds: lockpick pin broke: UILockpickingPickBreak",
   "ui sounds: lockpick lock opened: UILockpickingUnlock",
+  { re = 'lockpick view: the lock drawn .*the pin moved Vec3\(-?[0-9.]+, 0\.0, -?[0-9.]+\) onto its axis', label = "the pin's keyhole end on the cylinder's axis (item 63)" },
   "lockpick summary: 2 asked, 1 opened (1 refused); 1 picked, 0 forced, 0 broken by forcing; 2 torque tries, 1 pins broken, 0 times out of pins; 0 left before the end",
 ]
 
@@ -2184,4 +2185,32 @@ run_seconds = 40
 expect = [
   "dialogue: conversation with SunnyRef started (topic GREETING)",
   { re = 'subtitle: .*\(not drawn: in dialogue\)', label = "another actor's line logged, not drawn" },
+]
+
+# ------------------------------------------------------------------ playtest list 5: world (workstream D6)
+
+[[scenario]]
+name = "camper-steps"
+source = "owner's playtest list 5, item 17 (docs/spec-notes/physics.md §6.9): the camper at the Powder Ganger camp south of Goodsprings; running north up its two door steps (10 and 20 units, 24-unit top) into it without a jump"
+areas = ["physics", "controls"]
+paths = ["crates/fnv-phys/src/character.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_PLAY_TEST_MOVE = "10:1:0,13:0:0" }
+args = ["--play", "--pos=-53760,-24200,6200", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'physics: the player stepped up [1-9]\d* times, feet at \(-5\d{4}, -2(39|40)\d\d, 6(1[89]\d|2[0-4]\d)\)', label = "up the steps and inside the camper (floor 6185-6215)" },
+]
+
+[[scenario]]
+name = "cave-skeletons"
+source = "owner's playtest list 5, item 71 (docs/spec-notes/dead-on-spawn.md §5.1): the Goodsprings cave's four clutter skeletons (MSTT with XRGD) drawn lying in their stored pose"
+areas = ["world", "ragdoll"]
+paths = ["engine/nvforever/src/clutter_pose.rs", "engine/nvforever/src/authored_pose.rs", "engine/nvforever/src/world.rs"]
+args = ["--cell", "SLGoodspringsCaveINT", "--play", "--no-voice", "--no-messages"]
+run_seconds = 14
+expect = [
+  { re = 'clutter pose: 0x00153170 \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
+  { re = 'clutter pose: 0x00153171 \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
+  { re = 'clutter pose: 0x001531F5 \S*skeletonmale50scasual\.nif drawn in its stored pose' },
+  { re = 'clutter pose: 0x0017B38F \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
 ]
