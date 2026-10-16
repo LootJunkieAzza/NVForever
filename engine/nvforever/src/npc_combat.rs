@@ -12,7 +12,8 @@
 //!   weapon's or creature's reach [design].
 //! - **When it fires**: only while it detects and sees its target (the latest
 //!   detection of the pair: above 0, in sight), after a reaction time from the moment it
-//!   first saw it in this fight, with its weapon drawn. A gun keeps its own cycle
+//!   first saw it in this fight, with its weapon drawn, facing it (within
+//!   [`FIRE_FACING`] of straight ahead; owner's playtest list 5 item 33). A gun keeps its own cycle
 //!   (`fnv_combat::attack::Cycle`: fire rate, magazine, reload) as the player's does;
 //!   the trigger is held for automatic weapons and pulled once a shot for the others
 //!   [design].
@@ -137,6 +138,22 @@ pub const SIGHTS_HYSTERESIS: f32 = 50.0;
 const MUZZLE_AHEAD: f32 = 24.0;
 /// The chest as a fraction of the eye height (as `detection.rs` aims its sight).
 const CHEST: f32 = 0.75;
+/// An actor attacks only while its target is within this angle of straight ahead,
+/// radians (30°) [design: owner's playtest list 5 item 33, "NPCs must face their target
+/// before shooting"].
+pub const FIRE_FACING: f32 = 30.0 * std::f32::consts::PI / 180.0;
+
+/// How far (radians, 0 to π) the target at `to` lies off the heading of the actor whose
+/// root is at `global`, standing at `feet` (game space).
+fn facing_off(global: &GlobalTransform, feet: V3, to: V3) -> f32 {
+    let ahead = bevy_to_game(global.transform_point(Vec3::Y)) - bevy_to_game(global.translation());
+    let want = Vec2::new(to[0] - feet[0], to[1] - feet[1]);
+    let have = ahead.truncate();
+    if want.length() < 1.0 || have.length() < 1e-6 {
+        return 0.0;
+    }
+    have.angle_to(want).abs()
+}
 
 pub struct NpcCombatPlugin;
 
@@ -237,6 +254,8 @@ struct Stats {
     /// swung that they cut short.
     staggers: usize,
     blows_cut: usize,
+    /// Frames in which a fighter that could have attacked waited to face its target.
+    unfaced: usize,
 }
 
 /// A number in [0, 1) from the module's own sequence `rng` [design].
@@ -313,6 +332,9 @@ fn is_gun(c: &Combat, w: &WeaponStats, id: FormId) -> bool {
     AttackKind::of(w) == AttackKind::Gun && c.forms.chain(id, None).is_some_and(|ch| ch.projectile.is_some())
 }
 
+/// The navmesh, the player's place, the battle's counts, and who the AI moves.
+type Where<'w> = (Option<Res<'w, NavState>>, Option<Res<'w, Location>>, ResMut<'w, Battle>, Option<Res<'w, crate::residents::Residents>>);
+
 type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>, Option<&'w Flinch>);
 
 /// One frame of every fight (module notes).
@@ -325,7 +347,7 @@ fn fight(
     mut sim: ResMut<SimState>,
     player: Option<Res<Player>>,
     (blocks, mut phys): (Option<Res<ActorBlocks>>, Option<ResMut<PhysState>>),
-    (nav, location, mut battle): (Option<Res<NavState>>, Option<Res<Location>>, ResMut<Battle>),
+    (nav, location, mut battle, residents): Where,
     actors: Query<Fought>,
     held: Query<&HeldWeapon>,
     muzzles: Query<(&Muzzle, &GlobalTransform)>,
@@ -368,7 +390,7 @@ fn fight(
     let mut still: Vec<u32> = Vec::new();
     with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
-        for (rig, _, _, hold, _, _, flinch) in &actors {
+        for (rig, global, _, hold, _, _, flinch) in &actors {
             let id = rig.reference;
             let me = FormId(id);
             let Some(&(feet, eyes, scale)) = places.get(&id) else { continue };
@@ -711,7 +733,15 @@ fn fight(
                     info!("npc combat: {me_name} holds its attacks while it staggers ({:.1} s){}", fl.at + fl.clip.clip.length() - clock, if cut > 0 { format!("; {cut} blow(s) cut short") } else { String::new() });
                 }
             }
-            let ready = sees && !hold_fire && staggering.is_none() && fighter.seen_for >= REACTION_SECONDS && hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
+            // It attacks only facing its target (owner's playtest list 5 item 33: NPCs fired
+            // while looking 90° away); the AI turns it (`fnv_ai::alert`).
+            let off = facing_off(global, feet, tfeet);
+            // Who the AI does not turn (no `--npc-packages`) fires as it stands.
+            let facing = off <= FIRE_FACING || residents.as_deref().is_none_or(|r| !r.runs(id));
+            if !facing && sees && fighter.seen_for >= REACTION_SECONDS {
+                f.stats.unfaced += 1;
+            }
+            let ready = sees && facing && !hold_fire && staggering.is_none() && fighter.seen_for >= REACTION_SECONDS && hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
             let pitch = (tchest[2] - eyes[2]).atan2((tchest[0] - eyes[0]).hypot(tchest[1] - eyes[1]));
             // Down the sights while it fires at a far target, from the hip near.
             let sight_fov = match &arm {
@@ -891,7 +921,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
     let s = &fighters.stats;
     let (hits, damage, died) = stats.map_or((0, 0.0, false), |c| (c.player_hits, c.player_damage, c.player_died));
     info!(
-        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} missed: out of reach when they landed; {} melee decisions to hold), {} reloads; {} flee checks, {} fled; the player was hit {hits} times for {damage:.1}{}; {} staggers held a fighter's attacks ({} blows cut short)",
+        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} missed: out of reach when they landed; {} melee decisions to hold), {} reloads; {} flee checks, {} fled; the player was hit {hits} times for {damage:.1}{}; {} staggers held a fighter's attacks ({} blows cut short); {} frames a fighter waited to face its target",
         s.fighters.len(),
         s.fighters.values().cloned().collect::<Vec<_>>().join(", "),
         s.shots,
@@ -909,6 +939,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         if died { " and died" } else { "" },
         s.staggers,
         s.blows_cut,
+        s.unfaced,
     );
 }
 

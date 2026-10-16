@@ -37,7 +37,10 @@
 //!   sound goes round, a Play At Random one sounds now and then) [design: the records'
 //!   sounds carry either flag, audio.md §14].
 //! - **Load doors** [hypothesis]: activating a door that leads elsewhere plays its open
-//!   sound (DOOR `SNAM`), at the listener, as the player goes through.
+//!   sound (DOOR `SNAM`), at the listener, as the player goes through. An actor going
+//!   through one ([`DoorPassed`], sent by nvforever) plays it at the door it went in by
+//!   and at the one it came out of, where the listener is [design: owner's playtest list
+//!   5 item 3, "like the player"].
 //! - Not built: a knock between two loose objects told apart from one on the ground
 //!   (both play the moving body's sound). The casings' sounds are nvforever's
 //!   (`shot_fx.rs`).
@@ -243,6 +246,14 @@ impl SoundForms {
     }
 }
 
+/// An actor other than the player went through the load door `door` (or came out of
+/// it), which stands at `at` in the space being played: its open sound plays there.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct DoorPassed {
+    pub door: u32,
+    pub at: [f32; 3],
+}
+
 /// The player activated a reference by hand (`crate::activate`): its activation sound.
 #[derive(Message, Clone, Copy, Debug)]
 pub struct Activated {
@@ -274,6 +285,8 @@ pub struct WorldSoundStats {
     pub activations: u32,
     /// Load doors gone through with an open sound.
     pub load_doors: u32,
+    /// … by other actors (each side counted).
+    pub actor_doors: u32,
     /// Placed objects with a sound of their own, and those in reach (sent to the ambient).
     pub object_sources: usize,
     pub object_sources_sent: HashSet<u32>,
@@ -456,6 +469,7 @@ fn objects(
     mut ws: ResMut<WorldSounds>,
     mut changed: MessageReader<RefChanged>,
     mut activated: MessageReader<Activated>,
+    mut passed: MessageReader<DoorPassed>,
     mut impacts: MessageReader<ImpactPicked>,
     menu: Option<Res<ActiveMenu>>,
     state: Res<State<PlayState>>,
@@ -608,6 +622,12 @@ fn objects(
         ws.container = open;
     }
 
+    for &DoorPassed { door, at } in passed.read() {
+        let Some(&sound) = sim.base_of(door).and_then(|b| ws.forms.door_open.get(&b)) else { continue };
+        ws.stats.actor_doors += 1;
+        info!("world sounds: an actor passed load door {door:08X}, sound {}", sound_name(sfx, Some(sound)));
+        out.write(PlaySound { sound, at: Some(at) });
+    }
     for &Activated { reference } in activated.read() {
         // A load door: its open sound as the player goes through [hypothesis].
         let leads_away = sim.refs.get(FormId(reference)).is_some_and(|p| p.teleport.is_some());
@@ -690,7 +710,7 @@ fn report(mut exit: MessageReader<AppExit>, ws: Option<Res<WorldSounds>>) {
     let s = &ws.stats;
     let impacts: Vec<String> = s.impacts.iter().map(|(m, n)| format!("{m} {n}")).collect();
     info!(
-        "world sounds summary: impacts by material: {} ({} on collision without a material); {} knocks ({} hard, {} of a material without a sound); {} pick-ups, {} drops; {} items taken from and {} put in containers; containers opened {} and closed {} times; {} activator sounds; {} message boxes opened, {} closed; scripts played {} sounds and {} placed; {} load doors; {} objects' own sounds in reach",
+        "world sounds summary: impacts by material: {} ({} on collision without a material); {} knocks ({} hard, {} of a material without a sound); {} pick-ups, {} drops; {} items taken from and {} put in containers; containers opened {} and closed {} times; {} activator sounds; {} message boxes opened, {} closed; scripts played {} sounds and {} placed; {} load doors ({} sides passed by other actors); {} objects' own sounds in reach",
         if impacts.is_empty() { "none".to_string() } else { impacts.join(", ") },
         s.impacts_no_material,
         s.knocks,
@@ -708,6 +728,7 @@ fn report(mut exit: MessageReader<AppExit>, ws: Option<Res<WorldSounds>>) {
         s.script_2d,
         s.script_3d,
         s.load_doors,
+        s.actor_doors,
         s.object_sources_sent.len()
     );
 }

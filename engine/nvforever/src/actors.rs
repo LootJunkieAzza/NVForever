@@ -85,7 +85,7 @@ pub struct ActorWorld {
     stances: Mutex<Stances>,
 }
 
-type ClipSets = HashMap<(String, Body), Option<Arc<ClipSet>>>;
+type ClipSets = HashMap<(String, Body, &'static str), Option<Arc<ClipSet>>>;
 type Stances = HashMap<(String, String), Option<Arc<Stance>>>;
 
 impl ActorWorld {
@@ -123,13 +123,18 @@ impl ActorWorld {
 
     /// The locomotion clip set of a skeleton and body (loaded once), if it has an idle.
     fn clip_set(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body) -> Option<Arc<ClipSet>> {
-        let key = (fnv_vfs::normalize(skeleton), body);
+        self.clip_set_stance(ctx, skeleton, skel, body, crate::locomotion::STANCE)
+    }
+
+    /// [`Self::clip_set`] of a stance prefix (`locomotion::SNEAK_STANCE`).
+    fn clip_set_stance(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, stance: &'static str) -> Option<Arc<ClipSet>> {
+        let key = (fnv_vfs::normalize(skeleton), body, stance);
         self.sets
             .lock()
             .expect("clip sets")
             .entry(key)
             .or_insert_with(|| {
-                let (set, line) = ClipSet::load(ctx, skeleton, skel, body);
+                let (set, line) = ClipSet::load_stance(ctx, skeleton, skel, body, stance);
                 info!("actor locomotion: {line}");
                 set.clips.contains_key(&Move::Idle).then(|| Arc::new(set))
             })
@@ -375,6 +380,8 @@ pub fn spawn(
         match world.clip_set(ctx, &a.skeleton, &skel, body) {
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
+                // People crouch to sneak (`sneaking.rs`).
+                lo.sneak = world.clip_set_stance(ctx, &a.skeleton, &skel, body, crate::locomotion::SNEAK_STANCE);
                 let walk = world.walk_test.filter(|w| w.radius <= 0.0 || at.distance(w.center) <= w.radius);
                 let mut player = blend_player(&spawned, &skel);
                 if let Some(w) = walk {
