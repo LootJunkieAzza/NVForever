@@ -73,7 +73,7 @@ use bevy::prelude::*;
 use fnv_actor::first_person::{self, is_first_person_shape, shape_shows, Show};
 use fnv_actor::player_clips::{
     aim_clips, aim_variant, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
-    move_clips, reload_clips, reload_open_clips, turn_clips, Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
+    limping_idle_clips, limping_move_clips, limping_turn_clips, move_clips, reload_clips, reload_open_clips, turn_clips, Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
 };
 use fnv_actor::weapon::AnimType;
 use fnv_actor::Appearance;
@@ -268,14 +268,17 @@ fn shade_light(
 /// A clip choice, for the clip caches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum ClipKey {
-    Idle(Stance),
-    Move(Stance, bool, bool, Dir, Option<&'static str>),
+    /// Posture; limping (a leg crippled, standing).
+    Idle(Stance, bool),
+    /// Posture, female, running, direction, the weapon drawn; limping.
+    Move(Stance, bool, bool, Dir, Option<&'static str>, bool),
     Aim(Stance, &'static str, Aim, bool),
     Block(Stance, &'static str),
     Holster(Stance, &'static str),
     Equip(Stance, &'static str, bool),
     Jump(Stance, Option<&'static str>, Option<Dir>, bool),
-    Turn(Stance, Option<&'static str>, bool),
+    /// Posture, the weapon drawn, to the left; limping.
+    Turn(Stance, Option<&'static str>, bool, bool),
     /// Weapon prefix, attack clip stem (`attackright`), down the sights.
     Attack(Stance, &'static str, &'static str, bool),
     /// Weapon prefix, WEAP reload animation (`ReloadL`).
@@ -287,16 +290,24 @@ enum ClipKey {
 }
 
 impl ClipKey {
+    /// A crippled leg's choice (standing).
+    fn limping(self) -> bool {
+        matches!(self, ClipKey::Idle(Stance::Stand, true) | ClipKey::Move(Stance::Stand, .., true) | ClipKey::Turn(Stance::Stand, .., true))
+    }
+
     fn candidates(self) -> Vec<String> {
         match self {
-            ClipKey::Idle(s) => idle_clips(s),
-            ClipKey::Move(s, female, fast, d, w) => move_clips(s, female, fast, d, w),
+            ClipKey::Idle(Stance::Stand, true) => limping_idle_clips(),
+            ClipKey::Idle(s, _) => idle_clips(s),
+            ClipKey::Move(Stance::Stand, female, fast, d, w, true) => limping_move_clips(female, fast, d, w),
+            ClipKey::Move(s, female, fast, d, w, _) => move_clips(s, female, fast, d, w),
             ClipKey::Aim(s, p, a, sights) => aim_clips(s, p, a, sights),
             ClipKey::Block(s, p) => block_clips(s, p),
             ClipKey::Holster(s, p) => holster_clips(s, p),
             ClipKey::Equip(s, p, e) => equip_clips(s, p, e),
             ClipKey::Jump(s, w, d, land) => jump_clips(s, w, d, land),
-            ClipKey::Turn(s, w, left) => turn_clips(s, w, left),
+            ClipKey::Turn(Stance::Stand, w, left, true) => limping_turn_clips(w, left),
+            ClipKey::Turn(s, w, left, _) => turn_clips(s, w, left),
             ClipKey::Attack(s, p, a, sights) => attack_clips(s, p, a, sights),
             ClipKey::Reload(s, p, r) => reload_clips(s, p, r),
             ClipKey::ReloadOpen(s, p, r) => reload_open_clips(s, p, r),
@@ -482,6 +493,7 @@ impl Rig {
             Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
         });
         match &found {
+            Some(c) if key.limping() => info!("player {:?} rig: limping {key:?} plays {}", self.view, c.path),
             Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
             None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(), self.folder),
         }
@@ -1019,6 +1031,8 @@ struct Frame {
     dirs: Option<[(Dir, f32); 2]>,
     fast: bool,
     female: bool,
+    /// A leg is crippled: standing, the body limps (`locomotion\hurt\` clips).
+    limping: bool,
     /// The weapon prefix, and whether the weapon is out.
     prefix: &'static str,
     drawn: Option<&'static str>,
@@ -1115,7 +1129,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
 
     // The frame's clips.
     let mut want: Vec<(Arc<ClipInfo>, u32, f32, Mode)> = Vec::with_capacity(8);
-    if let Some(c) = rig.clip(ctx, ClipKey::Idle(f.stance)) {
+    if let Some(c) = rig.clip(ctx, ClipKey::Idle(f.stance, f.limping)) {
         want.push((c, TAG_IDLE, 1.0, Mode::Loop));
     }
     let mut expected_speed = 0.0;
@@ -1129,14 +1143,14 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             if weight <= 0.0 {
                 continue;
             }
-            if let Some(c) = rig.clip(ctx, ClipKey::Move(f.stance, f.female, f.fast, dir, f.drawn)) {
+            if let Some(c) = rig.clip(ctx, ClipKey::Move(f.stance, f.female, f.fast, dir, f.drawn, f.limping)) {
                 expected_speed += weight * c.speed.unwrap_or(0.0);
                 want.push((c, TAG_MOVE + i as u32, weight, Mode::Synced));
             }
         }
     } else if f.turn_rate.abs() > TURN_RATE {
         // Heading grows clockwise: a negative rate turns left.
-        if let Some(c) = rig.clip(ctx, ClipKey::Turn(f.stance, f.drawn, f.turn_rate < 0.0)) {
+        if let Some(c) = rig.clip(ctx, ClipKey::Turn(f.stance, f.drawn, f.turn_rate < 0.0, f.limping)) {
             want.push((c, TAG_TURN, 1.0, Mode::Loop));
         }
     }
@@ -1530,13 +1544,14 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, death): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, death): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
         Res<nvf_play::pipboy::PipBoy>,
         Query<&Projection, With<nvf_play::PlayerCamera>>,
         Option<Res<nvf_play::free_cam::FirstPersonFov>>,
+        Option<Res<nvf_play::combat::PlayerLimbs>>,
         Res<crate::death_cam::DeathCam>,
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
@@ -1746,6 +1761,7 @@ fn drive_body(
         dirs: direction_weights(forward, right),
         fast,
         female: body.female,
+        limping: limbs.as_deref().is_some_and(|l| l.limping()),
         prefix,
         drawn: (m.hands.phase == WeaponPhase::Drawn).then_some(prefix),
         hands: m.hands,
