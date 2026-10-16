@@ -4714,3 +4714,28 @@ List 5 items 8, 46, 19 and 51. Frames before and after: `C:\fnv-private\frames\l
 Check in game: Esc in the world (the pause screen's strength, the box), Settings
 (categories, the wide list, Defaults), Quit (Main Menu restarts to the main menu), the main
 menu's box and hover sound, the pointer in any menu, T for the wait menu next to the HP bar.
+
+## Crafting menus (2026-10-16, session "l5-menus")
+List 5 item 72. The workbench, the campfire and the reloading bench now open one recipe
+menu, the way the benches' own scripts ask for it (`ShowRecipeMenu`). The recipes,
+categories, skills, ingredients and outputs come from the RCPE and RCCT records (notes in
+docs/spec-notes/crafting.md). The campfire's list starts exactly as in your screenshot.
+Frame: `C:\fnv-private\frames\l5-menus\after_recipe_menu.png`. My choices:
+- **Arrows beside RECIPES**: they filter the list by subcategory (all, then Aid, Chems,
+  Food, … that the list holds), with the title showing the subcategory. That is my
+  reading of the original's filter arrows. Is it what they do?
+- **Recipes that cannot be made yet** are a shade dimmer (brightness 190 of 255) than
+  ones that can. Your screenshots only show recipes that could not be made. Accept is
+  dim and refuses them, with UIMenuCancel.
+- **Making**: Accept makes the recipe once. The ingredients leave the inventory, the
+  outputs arrive, and an "X (n) added" line shows in the corner, with the menu's click
+  sound (UIMenuOK). I found no crafting sound named in the files. There is no "how many
+  times" choice yet.
+- **The backing** is the darkened sheet of our other menus (0.75 black). The original
+  blurs the world behind the menu.
+- **Not drawn yet**: the output's icon and the EFFECTS line under WG/VAL.
+- The keys: A or Enter to accept; X, Esc or Tab to exit; Up/Down and the wheel to move;
+  Left/Right for the filter.
+Check in game: a workbench, a campfire (the Goodsprings ones) and a reloading bench.
+Check the list, the skill line (e.g. "Survival (32/40)"), the ingredient counts, and that
+making something takes the ingredients and gives the items.

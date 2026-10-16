@@ -21,6 +21,7 @@ pub mod combat;
 pub mod console;
 pub mod control;
 pub mod corner_messages;
+pub mod crafting;
 pub mod cursor;
 pub mod crime;
 pub mod dialogue;
@@ -258,7 +259,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)
             .add_plugins(intro::IntroPlugin)
-            .add_plugins(cursor::CursorPlugin);
+            .add_plugins(cursor::CursorPlugin)
+            .add_plugins(crafting::CraftingPlugin);
         test_aid::setup(app);
     }
 }
