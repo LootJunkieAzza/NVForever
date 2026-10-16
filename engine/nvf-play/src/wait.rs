@@ -386,7 +386,7 @@ fn open(
     mut script: Option<ResMut<ScriptState>>,
     locks: Option<Res<ControlLocks>>,
     lock_stats: Option<ResMut<LockStats>>,
-    (phys, location, actors, mut hud): (Res<crate::phys::PhysState>, Res<crate::Location>, Res<crate::hitvol::HitVolumes>, ResMut<crate::activate::HudMessage>),
+    (phys, location, actors, mut corner): (Res<crate::phys::PhysState>, Res<crate::Location>, Res<crate::hitvol::HitVolumes>, Option<ResMut<crate::corner_messages::CornerMessages>>),
 ) {
     // One menu a frame: the last request stands.
     let Some(asked) = requests.read().last().copied() else { return };
@@ -419,7 +419,10 @@ fn open(
         if let Some((why, detail)) = no {
             let line = refusals.line(why, sleep);
             info!("wait menu: refused ({}): {detail}; on screen: {line:?}", if sleep { "sleep" } else { "wait" });
-            hud.show(line.to_string());
+            // A top-left corner message (owner, list 5 item 44).
+            if let Some(c) = corner.as_deref_mut() {
+                c.push(line.into());
+            }
             stats.turned_down[why as usize] += 1;
             return;
         }

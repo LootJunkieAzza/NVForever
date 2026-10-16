@@ -129,6 +129,11 @@ From these, all [hypothesis] fitted to the pictures:
   The subtitles and radio subtitles are shown the same way (corner-messages.md §8); the
   log's `dialogue:` lines keep the record's text.
 - The list scrolls by whole choices to keep the selected one in sight [design].
+- While a Goodbye choice is offered, "TAB) Goodbye" (font 6) stands left of the band,
+  its right end 20 units from the band, level with the bottom bracket, on its own dark
+  box at the band's shade; on a screen too narrow for it, at the safe zone's left edge
+  over the band [owner, list 5 item 62; design: the place; dialog_menu.xml has no such
+  hint, observed]. Tab picks that choice (dialogue-play.md §2).
 - The keys are dialogue-play.md §2's; the old on-screen key hint and the "You cannot
   leave this conversation yet." note are gone (the original shows neither; a refused
   Tab is in the log).

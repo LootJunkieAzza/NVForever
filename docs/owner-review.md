@@ -4674,3 +4674,66 @@ reaches them, so they are on a shelf inside the counter's collision); drop part 
 from the Pip-Boy (X on the 20 rounds); buy part of a stack from Chet; store part of the
 caps in a container.
 
+
+## List 5 — claude/l5-ui-text-sounds
+
+Workstream L2 (laptop): the placeholder white text, menu sounds, Take All, the Goodbye
+hint, the text overlay, radio subtitles and the Fallout 3 music question.
+
+- **43, 50, 53 — no white text.** The white line under the crosshair is gone: nothing
+  draws `activate::HudMessage` any more; its lines ("Stimpak added", "Gate opened",
+  "… killed (+XP)", "… crippled", "You are dead.", "F5: not available yet", the
+  jukebox's "its script would run (scripts are not implemented yet)", "You cannot use
+  this (…)") are only logged. *Decision:* none of them became a corner message: they are
+  NVForever's placeholders, not the game's lines; items a script adds still show their
+  corner message as before. *Check:* pick up a stimpak, open the Goodsprings gate, press
+  F5, use the saloon jukebox, kill a gecko: no white text anywhere.
+- **44, 45 — refusals as corner messages.** The Wait/Sleep menu's refusals ("You cannot
+  sleep when enemies are nearby.", game text), the lockpick refusals ("You need a
+  Lockpick skill of 50 to pick this lock.", NVForever's wording, the game has none in its
+  plugins) and the terminal refusals ("You need a Science skill of N to hack this
+  terminal.") go to the top-left corner messages with the default icon for 2 s.
+  *Guess:* the default icon and time (the records give none). *Check:* the corner
+  message beside D1's reworked HUD; sleep with a gecko near; a lock above your skill.
+- **39 — Vigor Tester sounds.** Its menu file and models name no sounds, so it plays
+  Fallout 3's S.P.E.C.I.A.L. book records, which FalloutNV.esm keeps with two added for
+  New Vegas: page turn `OBJBookSpecialPageTurn`, raise `OBJBookSpecialNumber`, lower
+  `OBJBookSpecialNumberDown`, review row chosen `OBJBookSpecialFocus`, Done
+  `OBJBookSpecialNumberFinished`, refused `UIMenuCancel`. *Guess:* that these are the
+  Vigor Tester's sounds (by their names). *Check:* do they sound like the original's?
+- **41, 42 — tag-skill and trait menus.** Row moved (keys, wheel, pointer) and pointer
+  onto Reset/Done `UIMenuFocus`; a row taken or given back `UIMenuPrevNext`; refused
+  `UIMenuCancel`; Reset `UIMenuCancel`; Done `UIMenuOK`. The game's files silence the
+  rows (`&nosound;`); Done's `UIMenuOK` and the boxes' `UIMenuFocus` are the files'.
+  *Guess:* the row click `UIMenuPrevNext` (the trait file's perk rows) and Reset's
+  `UIMenuCancel`. *Check:* whether Reset should click `UIMenuOK` or `UIMenuPrevNext`.
+- **47 — hacking sounds.** Cursor or menu selection moved `UIHackingCharScroll`, a word
+  or row entered `UIHackingCharEnter`, password right `UIHackingPassGood`, wrong (and
+  the lockout) `UIHackingPassBad`. *Guess:* which record is which event (by name);
+  `UIHackingCharSingle`/`…Multiple` (presumably the text typing out, not built) and the
+  fan hum loop are not played. *Check:* hack the Easy terminal at Bison Steve.
+- **60 — Take All closes the menu** (when it took something). The container menu test
+  aid opens the container again to store one item back, so `house-items` now expects
+  the container opened and closed twice. *Check:* Take All on Doc Mitchell's fridge.
+- **62 — "TAB) Goodbye".** While a Goodbye choice is offered the hint stands left of the
+  dialogue band, level with the bottom bracket, on a dark box of the band's shade, in
+  the dialogue font; on a 4:3 screen (too narrow) it sits at the safe zone's left edge
+  over the band. *Guess:* the place, the wording's case and the box. *Check:* talk to
+  Trudy on a 16:9 screen; say if it belongs inside the band instead.
+- **68 — text overlay off by default** in the game (`--play`); `--overlay` turns it on,
+  and the settings page's Developer group still toggles it. The free-camera viewer mode
+  (no `--play`) keeps it on. *Check:* start the game: no position/key help text.
+- **27 — no radio subtitles.** A station's talk lines (Radio New Vegas, the NCR
+  Emergency Radio) are heard and never subtitled; `radio-pipboy` now expects none.
+- **69 — Fallout 3 music: no change made.** No missing condition found: FalloutNV.esm's
+  own controllers list 11 Fallout 3 location sets beside New Vegas, Fallout 1 and 2 sets
+  (18 controllers, 171 of the 572 audio markers, 64 out in the Mojave, e.g. the generic
+  Peaceful, Mystical, Dangerous and Military controllers, Novac, Boulder City, the Tops,
+  Gomorrah, the crashed B-29); the sets are built exactly like New Vegas's single-piece
+  sets. Only the controllers' `NAM1` (looping option, "Faction Not Found") is not
+  decoded: if the original plays a list in order rather than at random, the Fallout 3
+  pieces would come up in turn, not by chance (audio.md §13.5). *Check:* where did you
+  hear it? Round Goodsprings the nearest such marker is a generic "Mystical" one
+  (radius 3000) about 15,300 units from the town's marker; inside the town's radius the
+  Goodsprings set plays. If you heard it inside Goodsprings or Doc Mitchell's house,
+  that is a bug to chase with the `music:` log lines.

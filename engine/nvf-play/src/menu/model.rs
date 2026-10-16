@@ -764,6 +764,8 @@ impl MenuModel {
                     }
                 }
                 out.changed = !moved.is_empty();
+                // Taking everything closes the menu (owner, list 5 item 60).
+                out.close = out.changed;
                 let n: i64 = moved.iter().map(|m| m.1 as i64).sum();
                 out.taken.clone_from(&moved);
                 Ok(if moved.is_empty() { "Nothing to take".into() } else { format!("Took everything ({n} items)") })

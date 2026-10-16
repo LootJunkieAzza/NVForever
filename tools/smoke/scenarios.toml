@@ -731,7 +731,7 @@ expect = [
   { re = 'the Pip-Boy tuned to vCountryRadio playing sound\\songs\\radionv\\.*mp3' },
   "vNCREmergencyRadioTA starts a conversation (StartRadioConversation)",
   { re = 'the Pip-Boy tuned to vNCREmergencyRadioTA playing sound\\voice\\' },
-  "subtitle: NCR Emergency Radio: ",
+  { text = "subtitle: NCR Emergency Radio: ", count = 0, label = "no subtitle for the station's talk (owner, list 5 item 27; before: one was expected)" },
   "ends its conversation: silent",
   "ui_radio_static_lp.wav (loop",
   "pipboy radio summary: off at exit",
@@ -850,6 +850,14 @@ order = [[
   "Wild Wasteland refused",
   "done, traits: Early Bird, Four Eyes",
 ]]
+expect = [
+  { text = "ui sounds: tag skills row or button picked: UIMenuPrevNext", label = "a skill tagged or untagged (list 5 item 41)" },
+  { text = "ui sounds: tag skills refused: UIMenuCancel", label = "Done or a fourth tag refused" },
+  { text = "ui sounds: tag skills accepted: UIMenuOK", label = "Done" },
+  { text = "ui sounds: traits row or button picked: UIMenuPrevNext", label = "a trait taken (list 5 item 42)" },
+  { text = "ui sounds: traits refused: UIMenuCancel", label = "a third trait refused" },
+  { text = "ui sounds: traits accepted: UIMenuOK", label = "Done" },
+]
 manual = "with the owner's load order (Old World Blues in it) the trait menu has 16 rows"
 
 [[scenario]]
@@ -866,6 +874,25 @@ expect = [
   "Endurance 6, 0 points remaining",
   "done, S.P.E.C.I.A.L. 7 5 6 5 5 5 7 (click)",
   "vigor tester summary: opened 1 times, 5 changes, 8 page turns, 2 clicks on its buttons, done 1 times",
+]
+
+[[scenario]]
+name = "vigor-sounds"
+source = "playtest list 5 item 39 (2026-10-16): the Vigor Tester's sounds between pages and raising and lowering an attribute (docs/spec-notes/vigor-tester.md §6)"
+note = "vigor-tester's steps with Luck lowered once and raised once more, so that every sound is heard; not shared with it (a launch of its own, as vigor-tester)"
+areas = ["chargen", "vigor", "menus", "ui-sounds"]
+paths = ["engine/nvf-play/src/chargen/vigor*", "engine/nvf-play/src/ui_sounds.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1074", NVF_PLAY_TEST_VIGOR = "2:click:LookInside_Btn:0,4.5:raise,4.6:raise,4.7:done,5.5:page:review,8:select:luck,8.1:raise,8.15:lower,8.2:raise:L,8.3:raise:endurance,8.4:raise:L,8.5:click:P1_RT_Btn:0" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 20
+expect = [
+  "ui sounds: vigor tester category changed: OBJBookSpecialPageTurn",
+  "ui sounds: vigor tester value raised: OBJBookSpecialNumber",
+  "ui sounds: vigor tester value lowered: OBJBookSpecialNumberDown",
+  "ui sounds: vigor tester refused: UIMenuCancel",
+  "ui sounds: vigor tester accepted: OBJBookSpecialNumberFinished",
+  "done, S.P.E.C.I.A.L. 7 5 6 5 5 5 7 (click)",
+  { re = 'ui sounds summary:.*\b0 sounds not found' },
 ]
 
 [[scenario]]
@@ -968,8 +995,9 @@ expect = [
   "001730E9 (0x00004323) picked up, sound ITMPistolUp",
   { text = "dropped, sound UIItemsClothingDown", known_failing = "main 2026-10-12, alone and shared: the inventory test aid drops the BB Gun picked up at 11 s (FF000000 (0x00004323) dropped, sound ITMPistolDown)" },
   { re = 'world sounds summary:.*2 pick-ups, 1 drops; 5 items taken from and 1 put in containers; containers opened 1 and closed 1 times', known_failing = "main 2026-10-15 (bisected: 39bd3a3 rolls 5, d6ea476 = #264 creature-data rolls 3): the refrigerator 0x00105658 is VLootFridgeClosed01Tier1Wasteland, five leveled-list entries that may each come up empty, rolled from the world's one seeded random stream when first read. Since #264 actors with an Inventory template roll their template's items (World::set_inventory_sources), so the draws before the fridge changed and it now holds 3 items (Absinthe, Mole Rat Meat, Pinyon Nuts; before: also Beer and Purified Water x2) and Take All takes 3. A different roll, not lost items; the counts that do not depend on the roll are checked on the next line" },
-  { re = 'world sounds summary:.*2 pick-ups, 1 drops; \d+ items taken from and 1 put in containers; containers opened 1 and closed 1 times', label = "the summary's pick-ups, drops, items put in and containers opened and closed (items taken depend on the fridge's roll)" },
+  { re = 'world sounds summary:.*2 pick-ups, 1 drops; \d+ items taken from and 1 put in containers; containers opened 2 and closed 2 times', label = "the summary's pick-ups, drops, items put in and containers opened and closed (items taken depend on the fridge's roll; opened and closed twice since Take All closes the menu, list 5 item 60: before, once)" },
   { re = 'Took everything \((?P<n>\d+) items\)', range = [1, 1e9], label = "Take All took one or more items from the fridge" },
+  "test aid: Take All closed the menu; open container 0x00105658 again",
 ]
 
 [[scenario]]
@@ -985,6 +1013,8 @@ expect = [
   "barter opened: UIMenuMode",
   "container take all: UIItemTakeAll",
   "inventory item used: NPCHumanUsingStimpak",
+  { text = 'corner message: "You cannot wait when enemies are nearby."', label = "the refused wait menu's line as a top-left corner message (list 5 item 44)" },
+  { text = "dialogue menu: TAB) Goodbye shown at the left of the choices", label = "the Goodbye hint while Chet offers a Goodbye choice (list 5 item 62)" },
   { text = "wait slider moved: UIMenuPrevNext", known_failing = "main 2026-10-15 (since crime in play, #242, 2026-10-12): the menu aid's Take All from Chet's cash register at 44 s is a theft Chet sees, so he turns on the player and the wait menu at 61 s is refused (You cannot wait when enemies are nearby.), as it should be; the slider is never moved. The slider sound is checked in wait-residents instead" },
   "settings switch flipped: UIMenuPrevNext",
   { re = 'ui sounds summary:.*\b24 played', known_failing = "claude/smoke-regressions 2026-10-12: 23 played with every step done (the start-up boxes no longer swallow the menu aid's inventory pass); one UIPipBoyScroll short of the 24 of 2026-10-11: since the Pip-Boy ITEMS page (#213) the menu aid's inventory pass lists the Weapons tab, whose first row is the weapon it puts on and is already selected, so no selection move is heard (before: the Vault 13 jumpsuit, further down one list). Not a sound the engine loses. Main 2026-10-15: 20 played, the refused wait menu's three (UIMenuMode, UIMenuPrevNext, UIMenuOK, all heard in wait-residents) on top; see the wait slider line" },
@@ -1118,6 +1148,9 @@ expect = [
   'menu of DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"',
   "result script",
   "terminal summary: 1 opened (0 refused), 1 hacking games (1 hacked, 0 locked out)",
+  { text = "ui sounds: terminal row or button picked: UIHackingCharEnter", label = "a word or row entered (list 5 item 47)" },
+  { text = "ui sounds: terminal refused: UIHackingPassBad", label = "a wrong word" },
+  { text = "ui sounds: terminal access granted: UIHackingPassGood", label = "the password" },
 ]
 
 [[scenario]]
@@ -1144,6 +1177,7 @@ order = [[
 ]]
 expect = [
   "ui sounds: lockpick refused: DRSLocked",
+  { text = 'corner message: "You need a Lockpick skill of 50 to pick this lock."', label = "the refusal as a top-left corner message (list 5 item 45)" },
   "ui sounds: lockpick pin broke: UILockpickingPickBreak",
   "ui sounds: lockpick lock opened: UILockpickingUnlock",
   "lockpick summary: 2 asked, 1 opened (1 refused); 1 picked, 0 forced, 0 broken by forcing; 2 torque tries, 1 pins broken, 0 times out of pins; 0 left before the end",

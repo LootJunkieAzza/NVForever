@@ -32,6 +32,7 @@ use crate::interface::bc_supported;
 use crate::pause::{AidTime, Paused};
 use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
+use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -292,7 +293,7 @@ fn open(
     aid: Res<TerminalAid>,
     time: AidTime,
     mut stats: ResMut<TerminalStats>,
-    mut hud: ResMut<crate::activate::HudMessage>,
+    mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>,
 ) {
     let Some(asked) = requests.read().last().copied() else { return };
     if *state.get() != PlayState::Playing || screen.0.is_some() || paused.0 {
@@ -341,7 +342,10 @@ fn open(
                 fnv_game::hacking::Refusal::Science { needed } => format!("You need a Science skill of {needed:.0} to hack this terminal."),
             };
             info!("terminal: {reference} {name} refused (Science {sci:.0}): on screen: {line:?}");
-            hud.show(line);
+            // A top-left corner message (owner, list 5 item 45).
+            if let Some(c) = corner.as_deref_mut() {
+                c.push(line.into());
+            }
             return;
         }
         Opening::Hack { difficulty, words: n } => {
@@ -509,8 +513,13 @@ fn apply(
     time: AidTime,
     mut stats: ResMut<TerminalStats>,
     mut rng: Local<Option<ChaCha8Rng>>,
+    mut sounds: MessageWriter<UiSound>,
 ) {
     let now = time.elapsed_secs();
+    // The hacking menu's sounds (list 5 item 47; `crate::ui_sounds`).
+    let mut sound = |event| {
+        sounds.write(UiSound { menu: UiMenu::Terminal, event });
+    };
     for &cmd in input.read() {
         let Some(s) = screen.0.as_mut() else { return };
         let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
@@ -527,6 +536,7 @@ fn apply(
                     continue;
                 }
                 let p = &mut h.puzzle;
+                let (cursor_was, hidden_was) = (h.cursor, h.hidden);
                 let pick = match cmd {
                     TerminalInput::Point(i) => {
                         (h.cursor, h.hidden) = (i, false);
@@ -549,18 +559,27 @@ fn apply(
                     TerminalInput::Aid(a) => aid_pick(p, a),
                     _ => None,
                 };
-                let Some(at) = pick else { continue };
+                let Some(at) = pick else {
+                    // The cursor moved onto another character (or showed again).
+                    if !h.hidden && (h.cursor != cursor_was || hidden_was) {
+                        sound(UiEvent::Focus);
+                    }
+                    continue;
+                };
                 h.cursor = at;
                 h.hidden = false;
+                sound(UiEvent::Picked);
                 let entered = p.text(p.target(at));
                 let rng = rng.get_or_insert_with(|| ChaCha8Rng::seed_from_u64(seed(reference, now)));
                 let o = p.choose(at, rng);
                 match o {
                     Outcome::Denied { likeness } => {
+                        sound(UiEvent::Refused);
                         stats.guesses += 1;
                         info!("terminal: >{entered}: Entry denied, {likeness}/{} correct, {} attempts left", p.password().len(), p.attempts);
                     }
                     Outcome::Granted => {
+                        sound(UiEvent::Granted);
                         stats.guesses += 1;
                         stats.hacked += 1;
                         info!("terminal: >{entered}: Exact match! access granted");
@@ -568,6 +587,7 @@ fn apply(
                         h.ended = Some(now);
                     }
                     Outcome::LockedOut => {
+                        sound(UiEvent::Refused);
                         stats.guesses += 1;
                         stats.locked_out += 1;
                         info!("terminal: >{entered}: Entry denied, no attempts left: the terminal is locked for good");
@@ -595,6 +615,7 @@ fn apply(
                 }
             }
             Page::Menu(m) => {
+                let (selected_was, hidden_was) = (m.selected, m.hidden);
                 let take = match cmd {
                     TerminalInput::Exit => {
                         leave(&mut next, "Esc");
@@ -640,7 +661,14 @@ fn apply(
                     }
                     _ => None,
                 };
-                let Some(item) = take else { continue };
+                let Some(item) = take else {
+                    let moves = matches!(cmd, TerminalInput::Step(..) | TerminalInput::Row(_) | TerminalInput::Select);
+                    if moves && m.note.is_none() && !m.hidden && (m.selected != selected_was || hidden_was) {
+                        sound(UiEvent::Focus);
+                    }
+                    continue;
+                };
+                sound(UiEvent::Picked);
                 let terminal = m.terminal;
                 let from = rt.game.events.len();
                 let chosen = with_world(rt, &mut sim, |rt| rules::choose(&mut rt.game, reference, terminal, item));

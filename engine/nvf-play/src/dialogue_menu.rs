@@ -11,6 +11,9 @@
 //!   chooses: the choices between two brackets on the band, the selected one framed, a
 //!   scroll bar at the left when not all of them fit.
 //! - The actor's name stands at the top right throughout.
+//! - While a Goodbye choice is offered, "TAB) Goodbye" stands at the left of the band,
+//!   level with the bottom bracket (owner, list 5 item 62; the interface file has no
+//!   such hint [observed: dialog_menu.xml]): Tab picks that choice (`crate::dialogue`).
 //! - The menu is rebuilt when what it shows changes; the pointer chooses the choice it
 //!   is on (`crate::dialogue` reads the clicks).
 
@@ -93,6 +96,15 @@ const SHADE: f32 = 0.87;
 /// Between a check's tag and the line.
 pub const TAG_GAP: &str = "  ";
 
+// ---- NVForever's own [design, owner list 5 item 62] -------------------------------------
+
+/// The hint shown while a Goodbye choice is offered.
+pub const GOODBYE_HINT: &str = "TAB) Goodbye";
+/// The hint's right end stands this far left of the band; its own dark box reaches this
+/// far round the text.
+const HINT_GAP: f32 = 20.0;
+const HINT_PAD: f32 = 10.0;
+
 /// A choice as the menu shows it.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ChoiceRow {
@@ -110,6 +122,8 @@ pub struct MenuView {
     pub speaker: String,
     pub line: Option<String>,
     pub choices: Vec<ChoiceRow>,
+    /// One of the choices is the Goodbye one: Tab says it.
+    pub goodbye: bool,
 }
 
 /// The menu to draw (set by `crate::dialogue`), its selected choice and the first choice
@@ -167,6 +181,8 @@ pub struct Layout {
     pub band: Option<Area>,
     pub text: Vec<Placed>,
     pub list: Option<ListPlace>,
+    /// "TAB) Goodbye" and its dark box, while a Goodbye choice is offered.
+    pub hint: Option<(Placed, Area)>,
     /// The first choice shown.
     pub first: usize,
 }
@@ -238,7 +254,7 @@ pub fn layout(view: &MenuView, first: usize, selected: usize, width: f32, body: 
         let right = width - 2.0 * crop_x(width) - NAME_RIGHT;
         Placed { x: right - line.width, base: 2.0 * CROP_Y + NAME_TOP + NAME_BASE, line }
     });
-    let mut out = Layout { name, band: None, text: Vec::new(), list: None, first: 0 };
+    let mut out = Layout { name, band: None, text: Vec::new(), list: None, hint: None, first: 0 };
     if view.choices.is_empty() {
         let Some(text) = view.line.as_deref().map(str::trim).filter(|t| !t.is_empty()) else { return out };
         let lines = body.lines(text, Some(BAND_WIDTH - 2.0 * TEXT_IN));
@@ -283,6 +299,14 @@ pub fn layout(view: &MenuView, first: usize, selected: usize, width: f32, body: 
     out.band = Some([band_x, top_line - LIST_BAND_UP, BAND_WIDTH, bottom_line - top_line + LIST_BAND_UP + LIST_BAND_DOWN]);
     out.list = Some(ListPlace { area: [list_x, top, LIST_WIDTH, height], top_line, bottom_line, bracket_x: list_x + BRACKET_IN, bracket_width: LIST_WIDTH, choices, scroll });
     out.first = first;
+    if view.goodbye {
+        let line = body.lines(GOODBYE_HINT, None).remove(0);
+        // Left of the band where the screen has room, else at the safe zone's edge.
+        let x = (band_x - HINT_GAP - line.width).max(crop_x(width) + HINT_PAD);
+        let top = bottom_line - LINE / 2.0;
+        let area = [x - HINT_PAD, top - HINT_PAD / 2.0, line.width + 2.0 * HINT_PAD, LINE + HINT_PAD];
+        out.hint = Some((Placed { x, base: top + TEXT_BASE, line }, area));
+    }
     out
 }
 
@@ -368,6 +392,14 @@ fn spawn_menu(commands: &mut Commands, view: &MenuView, l: &Layout, kit: &Kit, s
         }
         if let Some(n) = &l.name {
             set_line(s, &kit.name, &n.line, n.x, n.base, bright);
+        }
+        if let Some((hint, [x, y, w, h])) = &l.hint {
+            let shade = Color::srgba(0.0, 0.0, 0.0, SHADE);
+            match image(kit.band.as_ref(), shade) {
+                Some(i) => s.spawn((at(*x, *y, *w, *h), i)),
+                None => s.spawn((at(*x, *y, *w, *h), BackgroundColor(shade))),
+            };
+            set_line(s, &kit.body, &hint.line, hint.x, hint.base, bright);
         }
         for t in &l.text {
             set_line(s, &kit.body, &t.line, t.x, t.base, bright);
@@ -458,6 +490,9 @@ fn draw(
         }
         if let Some((view, first, _)) = &key {
             let l = layout(view, *first, selected, width, &kit.body.font, &kit.name.font);
+            if l.hint.is_some() && shown.as_ref().is_none_or(|s| !s.0.goodbye) {
+                info!("dialogue menu: {GOODBYE_HINT} shown at the left of the choices");
+            }
             spawn_menu(&mut commands, view, &l, kit, selected);
         }
         *shown = key;
@@ -480,14 +515,33 @@ mod tests {
     }
 
     fn choices(labels: &[&str]) -> MenuView {
-        MenuView { speaker: "Trudy".into(), line: None, choices: labels.iter().map(|l| ChoiceRow { label: l.to_string(), ..default() }).collect() }
+        MenuView { speaker: "Trudy".into(), line: None, choices: labels.iter().map(|l| ChoiceRow { label: l.to_string(), ..default() }).collect(), goodbye: false }
+    }
+
+    #[test]
+    fn the_goodbye_hint_stands_left_of_the_band() {
+        let mut v = choices(&["What happened here?", "Goodbye."]);
+        let l = layout(&v, 0, 0, 1707.0, &font(34.0), &font(36.0));
+        assert!(l.hint.is_none(), "no hint without a Goodbye choice");
+        v.goodbye = true;
+        let l = layout(&v, 0, 0, 1707.0, &font(34.0), &font(36.0));
+        let (hint, area) = l.hint.expect("the hint");
+        let band = l.band.unwrap();
+        let list = l.list.unwrap();
+        assert!(hint.line.width > 0.0);
+        // Its right end is left of the band, its line level with the bottom bracket.
+        assert!(hint.x + hint.line.width <= band[0] - HINT_GAP + 0.01);
+        assert!(area[1] < list.bottom_line && list.bottom_line < area[1] + area[3]);
+        // On a 4:3 screen it keeps inside the safe zone.
+        let l = layout(&v, 0, 0, 1280.0, &font(34.0), &font(36.0));
+        assert!(l.hint.unwrap().0.x >= crop_x(1280.0));
     }
 
     #[test]
     fn the_line_is_centred_on_its_band() {
         // Two lines on a 16:9 screen, as the owner's screenshot of Bruce Isaac.
         let text = format!("{} {}", "a".repeat(55), "b".repeat(5));
-        let v = MenuView { speaker: "Bruce Isaac".into(), line: Some(text), choices: Vec::new() };
+        let v = MenuView { speaker: "Bruce Isaac".into(), line: Some(text), choices: Vec::new(), goodbye: false };
         let width = 960.0 * 16.0 / 9.0;
         let l = layout(&v, 0, 0, width, &font(34.0), &font(36.0));
         assert_eq!(l.text.len(), 2);

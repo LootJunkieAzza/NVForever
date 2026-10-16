@@ -159,7 +159,13 @@ within a pixel in every one of these (§7).
 - **The other short lines** [design; nothing documents where the original shows them].
   NVForever's own lines for items a script added or removed and a default activation's
   message ("Gate is locked") go through the same area, with the default icon and the 2
-  seconds. The wording of these lines is NVForever's. Quests added, completed or failed
+  seconds. The wording of these lines is NVForever's. So do the refusals of the
+  lockpicking menu, of a terminal and of the Wait and Sleep menu ("You cannot sleep when
+  enemies are nearby.", "You need a Lockpick skill of 50 to pick this lock.") [owner,
+  list 5 items 44, 45]. The engine's own placeholder lines that were drawn white under
+  the crosshair (an item picked up, a door opened or closed, a kill, a crippled limb, a
+  control not built yet such as F5) are no longer drawn at all, only logged
+  (`activate::HudMessage`) [owner, list 5 items 43, 50, 53]. Quests added, completed or failed
   and objectives shown or completed have their own place, as in the original
   (`quest-messages.md`); they no longer come here.
 - **Icons.** A message's icon is its Menu Icon's file, from the atlas if the index has

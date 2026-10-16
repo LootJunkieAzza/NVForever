@@ -53,6 +53,14 @@ pub enum UiMenu {
     Settings,
     /// The lockpicking menu (`crate::lockpick`).
     Lockpick,
+    /// The Vigor Tester's S.P.E.C.I.A.L. menu (`crate::chargen::vigor`).
+    Vigor,
+    /// The tag-skill menu (`crate::chargen`).
+    TagSkills,
+    /// The trait menu (`crate::chargen`).
+    Traits,
+    /// A terminal: its hacking game and its menu (`crate::terminal`).
+    Terminal,
 }
 
 impl UiMenu {
@@ -75,6 +83,10 @@ impl UiMenu {
             UiMenu::Pause => "pause",
             UiMenu::Settings => "settings",
             UiMenu::Lockpick => "lockpick",
+            UiMenu::Vigor => "vigor tester",
+            UiMenu::TagSkills => "tag skills",
+            UiMenu::Traits => "traits",
+            UiMenu::Terminal => "terminal",
         }
     }
 }
@@ -127,6 +139,12 @@ pub enum UiEvent {
     Unlocked,
     /// Lockpicking: forcing the lock broke it.
     ForceFailed,
+    /// A value raised (`up`) or lowered: a S.P.E.C.I.A.L. attribute.
+    Value { up: bool },
+    /// Reset: the menu's choices back to where they started.
+    Reset,
+    /// The hacking game: the password entered, access granted.
+    Granted,
 }
 
 impl UiEvent {
@@ -157,6 +175,10 @@ impl UiEvent {
             UiEvent::PinBroke => "pin broke",
             UiEvent::Unlocked => "lock opened",
             UiEvent::ForceFailed => "lock broken by forcing",
+            UiEvent::Value { up: true } => "value raised",
+            UiEvent::Value { up: false } => "value lowered",
+            UiEvent::Reset => "reset",
+            UiEvent::Granted => "access granted",
         }
     }
 }
@@ -241,6 +263,38 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         (Lockpick, ForceFailed) => Named("UILockpickingForceFail"),
         // A lock the player cannot pick [hypothesis: by the record's name, `DRSLocked`].
         (Lockpick, Refused) => Named("DRSLocked"),
+        // The Vigor Tester (list 5 item 39): its menu file names no sound and its models
+        // no sound key [observed: love_tester_menu.xml, the two nv_vitomaticvigortester
+        // models]. Fallout 3's S.P.E.C.I.A.L. book sounds, kept in the masters with two
+        // added for New Vegas (`…NumberDown`, `…NumberFinished`) [observed: FalloutNV.esm
+        // SOUN; hypothesis: that the Vigor Tester plays them, by their names]: a page
+        // turned, an attribute raised or lowered, a row chosen, Done.
+        (Vigor, Switch) => Named("OBJBookSpecialPageTurn"),
+        (Vigor, Value { up: true }) => Named("OBJBookSpecialNumber"),
+        (Vigor, Value { up: false }) => Named("OBJBookSpecialNumberDown"),
+        (Vigor, Focus) => Named("OBJBookSpecialFocus"),
+        (Vigor, Accepted) => Named("OBJBookSpecialNumberFinished"),
+        // The tag-skill and trait menus (items 41, 42). Their rows' templates silence
+        // both sounds [observed: char_gen_menu.xml CGM_SelectItem, trait_menu.xml
+        // LUM_SkillItem `&nosound;`]; the owner wants them, so the pointer's is the one of
+        // the template they include (`UIMenuFocus`, list_box_template.xml) and a row taken
+        // or given back clicks as the trait file's perk rows do (`UIMenuPrevNext`,
+        // trait_menu.xml LUM_Perk) [design]. Reset and Done are text boxes (`UIMenuFocus`
+        // under the pointer, text_box.xml); Done clicks `UIMenuOK` [observed:
+        // CGM_DoneButton, LUM_ContinueButton]; Reset names no click: `UIMenuCancel` as
+        // the settings' back button [design].
+        (TagSkills | Traits, Focus) => Named("UIMenuFocus"),
+        (TagSkills | Traits, Picked) => Named("UIMenuPrevNext"),
+        (TagSkills | Traits, Reset) => Named("UIMenuCancel"),
+        (TagSkills | Traits, Accepted) => Named("UIMenuOK"),
+        // Terminals (item 47): the SOUN records named for hacking [observed:
+        // FalloutNV.esm `UIHacking…`, their files in `Fallout - Sound.bsa`; hypothesis:
+        // which event each is for, by its name]: the cursor moving over the characters or
+        // the menu's rows, a word or a row entered, the password right or wrong.
+        (Terminal, Focus) => Named("UIHackingCharScroll"),
+        (Terminal, Picked) => Named("UIHackingCharEnter"),
+        (Terminal, Granted) => Named("UIHackingPassGood"),
+        (Terminal, Refused) => Named("UIHackingPassBad"),
         (_, Refused) => Named("UIMenuCancel"),
         // The topics silence the click [observed: dialog_menu.xml DM_Topic].
         (Dialogue, Answered) => Silent("&nosound; in dialog_menu.xml"),
@@ -554,6 +608,28 @@ mod tests {
         // start_menu.xml: toggles UIMenuPrevNext, the back button UIMenuCancel.
         assert_eq!(sound_for(UiMenu::Settings, UiEvent::Flipped), Choice::Named("UIMenuPrevNext"));
         assert_eq!(sound_for(UiMenu::Settings, UiEvent::Back), Choice::Named("UIMenuCancel"));
+    }
+
+    #[test]
+    fn the_chargen_and_terminal_menus_sound() {
+        // Vigor Tester: the S.P.E.C.I.A.L. book's records.
+        assert_eq!(sound_for(UiMenu::Vigor, UiEvent::Switch), Choice::Named("OBJBookSpecialPageTurn"));
+        assert_eq!(sound_for(UiMenu::Vigor, UiEvent::Value { up: true }), Choice::Named("OBJBookSpecialNumber"));
+        assert_eq!(sound_for(UiMenu::Vigor, UiEvent::Value { up: false }), Choice::Named("OBJBookSpecialNumberDown"));
+        assert_eq!(sound_for(UiMenu::Vigor, UiEvent::Accepted), Choice::Named("OBJBookSpecialNumberFinished"));
+        // Tag skills and traits: hover, take, reset, Done (char_gen_menu.xml's Done click).
+        for m in [UiMenu::TagSkills, UiMenu::Traits] {
+            assert_eq!(sound_for(m, UiEvent::Focus), Choice::Named("UIMenuFocus"));
+            assert_eq!(sound_for(m, UiEvent::Picked), Choice::Named("UIMenuPrevNext"));
+            assert_eq!(sound_for(m, UiEvent::Reset), Choice::Named("UIMenuCancel"));
+            assert_eq!(sound_for(m, UiEvent::Accepted), Choice::Named("UIMenuOK"));
+            assert_eq!(sound_for(m, UiEvent::Refused), Choice::Named("UIMenuCancel"));
+        }
+        // Terminals: the hacking records.
+        assert_eq!(sound_for(UiMenu::Terminal, UiEvent::Focus), Choice::Named("UIHackingCharScroll"));
+        assert_eq!(sound_for(UiMenu::Terminal, UiEvent::Picked), Choice::Named("UIHackingCharEnter"));
+        assert_eq!(sound_for(UiMenu::Terminal, UiEvent::Granted), Choice::Named("UIHackingPassGood"));
+        assert_eq!(sound_for(UiMenu::Terminal, UiEvent::Refused), Choice::Named("UIHackingPassBad"));
     }
 
     #[test]
