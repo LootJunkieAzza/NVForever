@@ -18,7 +18,15 @@
 //! - **Creatures' blows.** The creature's own `h2hattack….kf` clips in its skeleton's
 //!   folder (the dog's `h2hattackleft.kf` and `h2hattackright.kf`, the radscorpion's
 //!   `h2hattackleft_mid.kf` …) [observed: the base meshes archive, 2026-10-11], power and
-//!   forward attacks left out, taken in turn [design].
+//!   forward attacks left out, taken in turn [design]; a blow that goes on a combo takes
+//!   the clip its last clip's `a:` key named first, where the creature has one.
+//! - **Melee combos** (`fnv_combat::melee`, as the player's swings): a blow carries a
+//!   [`SwingPick`], the attack group the last swing's `a:` text key named (`a:L` on
+//!   `AttackRight` clips, `a:R` on `AttackLeft` ones [observed, `fnv_combat::melee`]) or
+//!   none for a run's first swing, which plays the weapon's own attack group; each swing
+//!   takes its `_a` or `_b` form by a roll. The started clip's `Hit` key, `a:` key and
+//!   length go back to `npc_combat` ([`AttackTimes::swings`]), which decides at the `a:`
+//!   key whether to go on (docs/design/combat-ai.md §15).
 //! - **When a blow lands**: at the clip's `Hit` text key [documented:
 //!   NiTextKeyExtraData; observed: 931 `hit` keys in the clips, animation.md §3.2]; the
 //!   key's time is told to `npc_combat` ([`AttackTimes`]), which delays the blow's damage
@@ -55,6 +63,7 @@ use crate::weapons::WeaponHold;
 use bevy::prelude::*;
 use fnv_actor::player_clips::{aim_variant, aim_weights, attack_clips, attack_stem, block_clips, Aim, ClipKeys, Stance};
 use fnv_actor::weapon::{AnimType, Stage};
+use fnv_combat::melee::{swing_stem, NextAttack};
 use fnv_sim::FormId;
 use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts, PreparedSkeleton};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
@@ -89,6 +98,27 @@ pub struct PlayAttack {
     pub sights: bool,
     /// An attack, or a block's reactions (docs/design/combat-ai.md §14.3).
     pub kind: Move,
+    /// A melee blow's place in its combo (module notes); `None` for shots and reactions.
+    pub swing: Option<SwingPick>,
+}
+
+/// Which swing a melee blow plays (module notes).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SwingPick {
+    /// The attack group the last swing's `a:` key named; `None`: the weapon's own (the
+    /// first swing of a run).
+    pub next: Option<NextAttack>,
+    /// Rolls in 0..1: the `_a` or `_b` form, and the group of a blank `a:` key.
+    pub rolls: [f32; 2],
+}
+
+/// The clip a melee blow started: seconds into it of its `Hit` key and its `a:` key
+/// (with what it names), and its length.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SwingClip {
+    pub hit: f32,
+    pub chain: Option<(f32, NextAttack)>,
+    pub len: f32,
 }
 
 /// What [`PlayAttack`] plays.
@@ -107,6 +137,9 @@ pub enum Move {
 #[derive(Resource, Default)]
 pub struct AttackTimes {
     pub hit: HashMap<u32, f32>,
+    /// The clip each actor's last melee blow with a [`SwingPick`] started, until
+    /// `npc_combat` takes it.
+    pub swings: HashMap<u32, SwingClip>,
 }
 
 /// One attack clip playing.
@@ -261,6 +294,8 @@ struct Stats {
     kept: usize,
     missing: BTreeMap<String, usize>,
     clips: BTreeMap<String, usize>,
+    /// Blows that went on a combo from the last one's `a:` key.
+    chained: usize,
 }
 
 impl AttackClips {
@@ -392,8 +427,11 @@ fn start(
                     .clone();
                 let k = clips.turn.entry(id).or_insert(0);
                 let n = list.len();
-                let names: Vec<String> = (0..n).map(|i| list[(*k + i) % n.max(1)].clone()).collect();
+                let mut names: Vec<String> = (0..n).map(|i| list[(*k + i) % n.max(1)].clone()).collect();
                 *k = (*k + 1) % n.max(1);
+                if let Some(p) = a.swing.filter(|_| a.kind == Move::Attack) {
+                    put_chained_first(&mut names, p);
+                }
                 clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &names)
             } else {
                 let prefix = weapon_prefix(a.weapon);
@@ -401,7 +439,12 @@ fn start(
                 let names = match a.kind {
                     Move::Attack => {
                         let attack = a.weapon.and_then(|w| combat.as_deref().and_then(|c| c.forms.weapons.get(&w))).and_then(|w| w.attack_anim.clone());
-                        attack_clips(stance, prefix, &attack_stem(attack.as_deref()), a.sights)
+                        let stem = attack_stem(attack.as_deref());
+                        match a.swing {
+                            // A swing: the group named (or the weapon's own), its `_a` or `_b` form.
+                            Some(p) => attack_clips(stance, prefix, &swing_stem(&p.next.map_or(stem, |n| n.stem(p.rolls[1])), p.rolls[0]), false),
+                            None => attack_clips(stance, prefix, &stem, a.sights),
+                        }
                     }
                     Move::BlockHit => reaction_clips(stance, prefix, "blockhit"),
                     Move::Recoil => reaction_clips(stance, prefix, "recoil"),
@@ -423,6 +466,14 @@ fn start(
             let len = clip.clip.length().max(0.05);
             if a.melee {
                 times.hit.insert(id, hit_time(&clip).unwrap_or(DEFAULT_HIT).min(len));
+            }
+            if let Some(p) = a.swing.filter(|_| a.kind == Move::Attack) {
+                let keys = ClipKeys::parse(&clip.clip.text_keys);
+                let chain = keys.next_attack.and_then(|(t, v)| NextAttack::parse(&v).map(|n| ((t - clip.clip.start).clamp(0.0, len), n)));
+                times.swings.insert(id, SwingClip { hit: hit_time(&clip).unwrap_or(DEFAULT_HIT).min(len), chain, len });
+                if p.next.is_some() {
+                    clips.stats.chained += 1;
+                }
             }
             let st = &mut clips.stats;
             st.started += 1;
@@ -470,6 +521,14 @@ pub fn reaction_clips(stance: Stance, prefix: &str, kind: &str) -> Vec<String> {
     out
 }
 
+/// A creature's attack clips (file names, in turn) with those of the group a combo goes
+/// on with first (`h2hattackleft.kf`, `h2hattackleft_mid.kf` for [`NextAttack::Left`]).
+fn put_chained_first(names: &mut [String], p: SwingPick) {
+    let Some(n) = p.next else { return };
+    let want = format!("h2h{}", n.stem(p.rolls[1]));
+    names.sort_by_key(|c| !c.strip_prefix(&want).is_some_and(|rest| rest.starts_with(['.', '_'])));
+}
+
 /// Whether a weapon hold has its weapon drawn (the aim clip playing).
 pub fn drawn(hold: Option<&WeaponHold>) -> bool {
     hold.is_some_and(|h| h.anim.stage == Stage::Drawn)
@@ -482,10 +541,11 @@ fn report(mut exit: MessageReader<AppExit>, clips: Res<AttackClips>) {
     let s = &clips.stats;
     let list = |m: &BTreeMap<String, usize>| if m.is_empty() { "none".to_string() } else { m.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ") };
     info!(
-        "attack anims summary: {} attack clips started ({} shots, {} blows), {} shots went on with a looping clip: {}; without a clip: {}",
+        "attack anims summary: {} attack clips started ({} shots, {} blows, {} blows went on a combo), {} shots went on with a looping clip: {}; without a clip: {}",
         s.started,
         s.shots,
         s.blows,
+        s.chained,
         s.kept,
         list(&s.clips),
         list(&s.missing)
@@ -519,6 +579,15 @@ mod tests {
         assert_eq!(reaction_clips(Stance::Stand, "h2h", "blockhit")[0], "mtblockhit.kf");
         assert_eq!(reaction_clips(Stance::Sneak, "2hm", "recoil")[..2], ["sneak2hmrecoil.kf", "2hmrecoil.kf"]);
         assert_eq!(reaction_clips(Stance::Stand, "h2h", "recoil")[0], "h2hrecoil.kf");
+    }
+
+    #[test]
+    fn a_creature_combo_takes_the_named_group_first() {
+        let mut names: Vec<String> = ["h2hattackright.kf", "h2hattackleft_mid.kf", "h2hattackleft2.kf"].map(String::from).into();
+        put_chained_first(&mut names, SwingPick { next: Some(NextAttack::Left), rolls: [0.0; 2] });
+        assert_eq!(names, ["h2hattackleft_mid.kf", "h2hattackright.kf", "h2hattackleft2.kf"]);
+        put_chained_first(&mut names, SwingPick { next: None, rolls: [0.0; 2] });
+        assert_eq!(names[0], "h2hattackleft_mid.kf");
     }
 
     #[test]

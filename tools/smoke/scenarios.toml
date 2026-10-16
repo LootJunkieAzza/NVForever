@@ -2075,6 +2075,22 @@ expect = [
 forbid = [{ re = 'npc combat: .* crouches ', label = "a fist fighter crouches" }]
 
 [[scenario]]
+name = "combat-melee-combo"
+source = "owner request 2026-10-16: melee enemies chain attacks into combos of different clips (docs/design/combat-ai.md §15)"
+note = "the combat-block fist fight (NCR troopers against the Fiends, --actor-weapons none): blows go on combos by the clips' a: keys, AttackLeft clips play after AttackRight ones"
+areas = ["combat", "combat-groups"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-combat/src/melee.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice", "--actor-weapons", "none"]
+run_seconds = 90
+expect = [
+  { re = 'npc combat: .* goes on its combo with Left \(blow 2\)', label = "a fighter goes on its combo from AttackRight to AttackLeft" },
+  { re = 'attack anims summary: .*? (?P<n>\d+) blows went on a combo', range = [3, 100000], label = "blows went on combos in the attack anims summary" },
+  { re = 'attack anims summary: .*h2hattackleft_[ab]\.kf', label = "an AttackLeft fist clip played" },
+  { re = 'npc combat summary: .*? went on a combo, the longest (?P<n>\d+)', range = [2, 100], label = "the longest combo in the npc combat summary" },
+]
+
+[[scenario]]
 name = "combat-bound"
 source = "owner request 2026-10-16: melee NPCs close on a gunman from cover to cover, or charge when there is none (docs/design/combat-ai.md §14.4)"
 note = "six NCR troopers with no weapons drawn put about 2,500 units south of the player, who draws a gun at 3 s; StartCombat sets them on the player at 5 s"
