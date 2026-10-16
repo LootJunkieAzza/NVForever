@@ -932,6 +932,11 @@ still get through, and a reaction slower than the blow comes too late.
   of it is stopped (`fnv_combat::damage::blocked`; combat.md §5.4: "Block reduces
   incoming melee damage and staggers an attacker who hits it") [design: the share]. Shots
   and explosions are never blocked.
+- A **power attack** (the player's, a creature's) breaks through the block instead
+  (owner request 2026-10-16; `damage::against_block`, combat-rules.md §12): all of it
+  is dealt, its attacker does not recoil, and the blocker staggers (its torso hit
+  reaction), which ends its block and holds its attacks while it plays. A player whose
+  block is broken cannot block for `CombatTuning::guard_break` (1 s) [design].
 - The NPC whose blow was blocked **recoils**: it plays its stance's recoil clip
   (`1hmrecoil.kf`, `2hmrecoil.kf`, `h2hrecoil.kf` [observed: the archive]) and cannot
   strike for 1.0 s [design]. While it recoils its opponent gets the Recoil/Stagger
