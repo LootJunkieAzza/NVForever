@@ -51,9 +51,9 @@ const TICK: Vec2 = Vec2::new(8.0, 20.0);
 const TICK_BLOCK: f32 = 6.0;
 /// The compass window in the health piece: place and size.
 const COMPASS_AT: Vec2 = Vec2::new(20.0, 65.0);
-const COMPASS: Vec2 = Vec2::new(345.0, 64.0);
+pub const COMPASS: Vec2 = Vec2::new(345.0, 64.0);
 /// The whole strip, north to north: 1024 texels for 360 degrees [observed: the texture].
-const STRIP: Vec2 = Vec2::new(1024.0, 64.0);
+pub const STRIP: Vec2 = Vec2::new(1024.0, 64.0);
 /// The solid bar's ground (weapon condition): length and height [documented: the file
 /// puts it at x 90 of a frame the code sets; where it stands is measured, below].
 const CND_BAR: Vec2 = Vec2::new(60.0, 20.0);
@@ -442,6 +442,11 @@ struct Pip {
 #[derive(Component)]
 struct Strip;
 
+/// The marks over the compass (`crate::compass` fills it): the window's place and size,
+/// clipped at its sides only, as the marks reach above and below the strip.
+#[derive(Component)]
+pub struct CompassMarks;
+
 /// The lower row of the right piece: the condition's label and bar.
 #[derive(Component)]
 struct ConditionRow;
@@ -515,6 +520,9 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
                     }
                 });
             });
+            let mut marks = at(COMPASS_AT.x, COMPASS_AT.y, COMPASS.x, COMPASS.y);
+            marks.overflow = Overflow::clip_x();
+            p.spawn((CompassMarks, marks));
         });
         // Action points, condition and ammo, bottom right.
         let piece = Node { position_type: PositionType::Absolute, right: u(MARGIN_X), bottom: u(MARGIN_Y), width: u(AP_PANEL.x), height: u(AP_PANEL.y), ..default() };

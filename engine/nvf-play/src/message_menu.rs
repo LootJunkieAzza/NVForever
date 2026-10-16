@@ -42,6 +42,10 @@ const BUTTON_PAD: f32 = 20.0;
 const BUTTON_WRAP_LESS: f32 = 60.0;
 /// The thickness of every line [documented: menus\globals.xml, on a PC].
 const THICK: f32 = 2.0;
+/// The icon left of the text, when the code turns it on: its size, and how much further
+/// right the text starts (and how much narrower it wraps) [documented].
+const ICON: f32 = 100.0;
+const ICON_ROOM: f32 = 120.0;
 
 // ---- measured on the owner's screenshot [observed, §3] ------------------------------
 
@@ -65,6 +69,9 @@ pub struct PanelView {
     pub title: Option<String>,
     pub text: String,
     pub buttons: Vec<String>,
+    /// A picture left of the text (a path under the archives' `textures\`, whole), as
+    /// the reputation boxes have (`crate::reputation`).
+    pub icon: Option<String>,
 }
 
 /// The box to draw (set by `script_hud`) and its chosen button.
@@ -114,6 +121,8 @@ pub struct Layout {
     pub buttons: Vec<ButtonRow>,
     /// The frame's left edge and width, the same for every button.
     pub frame: (f32, f32),
+    /// The icon's top left corner ([`ICON`] square).
+    pub icon: Option<Vec2>,
 }
 
 /// The height of a text of `lines` lines.
@@ -125,7 +134,8 @@ fn text_height(font: &Font, lines: usize) -> f32 {
 }
 
 pub fn layout(view: &PanelView, body: &Font, title_font: &Font) -> Layout {
-    let wrap = MAX_WIDTH - 2.0 * HOR_BUF;
+    let room = if view.icon.is_some() { ICON_ROOM } else { 0.0 };
+    let wrap = MAX_WIDTH - 2.0 * HOR_BUF - room;
     let text = view.text.trim_end();
     let lines = if text.is_empty() { Vec::new() } else { body.lines(text, Some(wrap)) };
     let buttons: Vec<Vec<Line>> = view.buttons.iter().map(|b| body.lines(b.trim(), Some(wrap - BUTTON_WRAP_LESS))).collect();
@@ -136,7 +146,7 @@ pub fn layout(view: &PanelView, body: &Font, title_font: &Font) -> Layout {
     // the file's limits [hypothesis: the screenshot's full-width text gives 700], and
     // never less than the title or a button's frame needs [design].
     let need = [
-        widest(&lines) + 2.0 * HOR_BUF,
+        widest(&lines) + 2.0 * HOR_BUF + room,
         title.as_ref().map_or(0.0, |t| TITLE_X + t.width + TITLE_GAP + TITLE_X),
         widest_button + FRAME_PAD + 2.0 * HOR_BUF,
     ];
@@ -150,8 +160,15 @@ pub fn layout(view: &PanelView, body: &Font, title_font: &Font) -> Layout {
     // [documented] The text starts under the title's room; the buttons under the text.
     let text_y = TITLE_Y + TITLE_HEIGHT + VER_BUF - 5.0;
     let pitch = body.size + LEADING;
-    let text_sets = lines.iter().enumerate().map(|(i, l)| Set { line: l.clone(), x: HOR_BUF, base: text_y + TEXT_BASE + pitch * i as f32 }).collect();
+    let text_sets = lines.iter().enumerate().map(|(i, l)| Set { line: l.clone(), x: HOR_BUF + room, base: text_y + TEXT_BASE + pitch * i as f32 }).collect();
     let mut y = text_y - 10.0 + if lines.is_empty() { 0.0 } else { text_height(body, lines.len()) + 30.0 };
+    // The icon at the text's top, at the free room's end [hypothesis: the file gives
+    // its size and the text's shift; the owner's screenshot of a reputation box shows its
+    // middle about 90 in and 90 down]; the buttons stay under it.
+    let icon = view.icon.as_ref().map(|_| Vec2::new(HOR_BUF, text_y));
+    if icon.is_some() {
+        y = y.max(text_y - 10.0 + ICON + 30.0);
+    }
     let middle = width / 2.0 + FRAME_SHIFT;
     let mut rows = Vec::new();
     for b in &buttons {
@@ -161,7 +178,7 @@ pub fn layout(view: &PanelView, body: &Font, title_font: &Font) -> Layout {
         y += height;
     }
     let frame_width = widest_button + FRAME_PAD;
-    Layout { width, height: y + VER_BUF, title, top, text: text_sets, buttons: rows, frame: (middle - frame_width / 2.0, frame_width) }
+    Layout { width, height: y + VER_BUF, title, top, text: text_sets, buttons: rows, frame: (middle - frame_width / 2.0, frame_width), icon }
 }
 
 // ---- the game's fonts and textures ----------------------------------------------------
@@ -213,7 +230,7 @@ struct BoxRoot;
 #[derive(Component)]
 struct Frame(usize);
 
-fn spawn_box(commands: &mut Commands, view: &PanelView, faces: &Faces, selected: usize) {
+fn spawn_box(commands: &mut Commands, view: &PanelView, faces: &Faces, selected: usize, icon: Option<Handle<Image>>) {
     let l = layout(view, &faces.body.font, &faces.title.font);
     let screen = Node {
         position_type: PositionType::Absolute,
@@ -252,6 +269,9 @@ fn spawn_box(commands: &mut Commands, view: &PanelView, faces: &Faces, selected:
             }
             for t in &l.text {
                 set_text(b, &faces.body, t, Vec2::ZERO, bright, ());
+            }
+            if let (Some(at_), Some(image)) = (l.icon, icon) {
+                b.spawn((at(at_.x, at_.y, ICON, ICON), ImageNode { color: bright, image_mode: NodeImageMode::Stretch, ..ImageNode::new(image) }));
             }
             let (frame_x, frame_w) = l.frame;
             for (i, row) in l.buttons.iter().enumerate() {
@@ -309,7 +329,8 @@ fn draw(
             let faces = faces.get_or_insert_with(|| {
                 load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref()))
             });
-            spawn_box(&mut commands, view, faces, panel.selected);
+            let icon = view.icon.as_deref().and_then(|p| data.as_deref().and_then(|d| texture(p, d, &mut images, bc_supported(formats.as_deref())))).map(|t| t.0);
+            spawn_box(&mut commands, view, faces, panel.selected, icon);
         }
         shown.clone_from(&panel.view);
         return;
@@ -331,7 +352,22 @@ mod tests {
     }
 
     fn view(title: Option<&str>, text: &str, buttons: &[&str]) -> PanelView {
-        PanelView { title: title.map(str::to_string), text: text.into(), buttons: buttons.iter().map(|b| b.to_string()).collect() }
+        PanelView { title: title.map(str::to_string), text: text.into(), buttons: buttons.iter().map(|b| b.to_string()).collect(), icon: None }
+    }
+
+    #[test]
+    fn an_icon_moves_the_text_right_and_keeps_the_buttons_under_it() {
+        let mut v = view(Some("Goodsprings"), "Liked
+People like you.", &["Ok"]);
+        let plain = layout(&v, &font(31.0), &font(34.0));
+        v.icon = Some(r"textures\interface\icons\message icons\glow_message_vaultboy_very_happy.dds".into());
+        let l = layout(&v, &font(31.0), &font(34.0));
+        assert_eq!(l.icon, Some(Vec2::new(40.0, 43.0)));
+        assert_eq!(l.text[0].x, 160.0);
+        assert_eq!(l.text[0].base, plain.text[0].base);
+        // Two lines are shorter than the icon: the button moves down below it.
+        assert!(l.buttons[0].y >= 43.0 + ICON);
+        assert!(plain.icon.is_none());
     }
 
     #[test]

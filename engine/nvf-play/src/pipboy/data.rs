@@ -242,6 +242,8 @@ pub struct DataState {
     cursor: [Option<Vec2>; 2],
     /// Map markers the player has been within the radius of.
     discovered: BTreeSet<u32>,
+    /// Markers found since `crate::compass` last took them (for "You have discovered").
+    newly_found: Vec<u32>,
     /// Where the player was last outdoors: worldspace, feet, heading.
     outdoors: Option<(u32, [f32; 3], f32)>,
     // The plugins' records, read when first wanted.
@@ -456,6 +458,34 @@ impl DataState {
         }
         world.resource_mut::<DataState>().active_quest = Some(q);
     }
+
+    /// The map markers the player found, for a save (`crate::compass`).
+    pub fn discovered(&self) -> &BTreeSet<u32> {
+        &self.discovered
+    }
+
+    /// A save's found markers: found already, so no "You have discovered" for them.
+    pub fn restore_discovered(world: &mut bevy::prelude::World, found: BTreeSet<u32>) {
+        if !world.contains_resource::<DataState>() {
+            world.init_resource::<DataState>();
+        }
+        let mut st = world.resource_mut::<DataState>();
+        st.newly_found.retain(|f| !found.contains(f));
+        st.discovered = found;
+    }
+
+    /// The markers found since the last call, with their names.
+    pub fn take_newly_found(&mut self) -> Vec<(u32, String)> {
+        let new = std::mem::take(&mut self.newly_found);
+        let name = |f: u32| self.markers.as_ref().and_then(|ms| ms.iter().find(|m| m.form == f)).map(|m| m.name.clone()).unwrap_or_default();
+        new.into_iter().map(|f| (f, name(f))).collect()
+    }
+
+    /// The named map markers of worldspace `world` the plugins place (read once the DATA
+    /// page first tracked the player): reference, place and whether the player found it.
+    pub fn markers_of(&self, world: u32) -> Vec<(u32, [f32; 3], bool)> {
+        self.markers.iter().flatten().filter(|m| m.world == world).map(|m| (m.form, m.pos, self.discovered.contains(&m.form))).collect()
+    }
 }
 
 fn track(st: &mut DataState, game: &Game) {
@@ -483,6 +513,7 @@ fn track(st: &mut DataState, game: &Game) {
         for f in found {
             if st.discovered.insert(f) {
                 info!("pipboy data: map marker {} found", FormId(f));
+                st.newly_found.push(f);
             }
         }
     }

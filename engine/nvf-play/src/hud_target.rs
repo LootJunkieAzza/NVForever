@@ -34,6 +34,11 @@ pub const HIT_SECONDS: f32 = 5.0;
 #[derive(Resource, Debug, Clone, PartialEq, Default)]
 pub struct HudTarget(pub Option<TargetHealth>);
 
+/// The actor under the crosshair (the same ray, [`AIM_RANGE`]) is alive and hostile to
+/// the player, by the same rule: the crosshair turns red (`crate::reticle`).
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Default)]
+pub struct AimHostile(pub bool);
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TargetHealth {
     pub form_id: u32,
@@ -52,7 +57,7 @@ pub struct HudTargetPlugin;
 
 impl Plugin for HudTargetPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<HudTarget>().add_systems(Update, aim.in_set(PlaySet::Ui).before(crate::hud::HudSet));
+        app.init_resource::<HudTarget>().init_resource::<AimHostile>().add_systems(Update, aim.in_set(PlaySet::Ui).before(crate::hud::HudSet));
     }
 }
 
@@ -68,6 +73,7 @@ fn aim(
     mut hits: MessageReader<ActorHit>,
     mut hit_ago: Local<HashMap<u32, f32>>,
     mut target: ResMut<HudTarget>,
+    mut aim_hostile: ResMut<AimHostile>,
 ) {
     let dt = time.delta_secs();
     for t in hit_ago.values_mut() {
@@ -82,6 +88,7 @@ fn aim(
         }
     }
     if *state.get() != PlayState::Playing {
+        aim_hostile.set_if_neq(AimHostile(false));
         return;
     }
     let Some(player) = player else { return };
@@ -101,8 +108,13 @@ fn aim(
         candidates.push((h, false));
     }
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
-    let found = with_world(rt, &mut sim, |rt| {
-        candidates.into_iter().find_map(|(id, is_aimed)| {
+    let (found, foe) = with_world(rt, &mut sim, |rt| {
+        let foe = aimed.is_some_and(|a| {
+            let (r, g) = (FormId(a), &mut rt.game);
+            let fighting = g.awareness.get(r).and_then(|x| x.combat_target()).is_some_and(|(t, _)| t == FormId::PLAYER_REF);
+            !g.is_dead(r) && (fighting || g.would_attack(r, FormId::PLAYER_REF))
+        });
+        let found = candidates.into_iter().find_map(|(id, is_aimed)| {
             let r = FormId(id);
             let g = &mut rt.game;
             if g.is_dead(r) {
@@ -116,8 +128,10 @@ fn aim(
             let max = g.max_health(r);
             let health = fnv_game::functions::actor_health(g, r).unwrap_or(max);
             Some((id, if max > 0.0 { (health / max).clamp(0.0, 1.0) as f32 } else { 0.0 }))
-        })
+        });
+        (found, foe)
     });
+    aim_hostile.set_if_neq(AimHostile(foe));
     let now = found.map(|(form_id, health)| {
         let name = sim.ref_name(script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| rt.game.data), form_id).unwrap_or_default().to_string();
         TargetHealth { form_id, name, health }

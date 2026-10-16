@@ -114,6 +114,7 @@ pub fn menu_panel(code: u16) -> PanelView {
         title: Some(menu_name(code)),
         text: format!("Menu {code}.\n\nCharacter creation is not built yet (Layer 7); nothing is chosen here."),
         buttons: vec!["Done".into()],
+        icon: None,
     }
 }
 
@@ -189,11 +190,14 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&cr
         _ => None,
     };
     let panel = match g.menu {
+        // A reputation's box (`crate::reputation`).
+        Some(MENU_MESSAGE) if g.boxes.first().is_some_and(|&m| crate::reputation::is_reputation(g, m)) => g.boxes.first().map(|&m| crate::reputation::panel(g, sim, m)),
         // The title is the message's own (MESG FULL).
         Some(MENU_MESSAGE) => front.as_ref().map(|b| PanelView {
             title: g.data.messages.get(&FormId(b.message)).and_then(|d| d.title.clone()),
             text: b.text.trim_end().to_string(),
             buttons: box_buttons(b),
+            icon: None,
         }),
         // The name, S.P.E.C.I.A.L., tag-skill and trait menus draw themselves.
         Some(code) if crate::script::is_script_menu(code) && !crate::chargen::has_own_menu(code) => Some(menu_panel(code)),
