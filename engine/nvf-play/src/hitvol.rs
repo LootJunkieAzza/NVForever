@@ -111,8 +111,10 @@ pub fn part_capsules(segments: &[PartSegment], size: f32) -> Vec<PartCapsule> {
     let mut out: Vec<PartCapsule> = Vec::with_capacity(segments.len());
     let mut i = 0;
     while i < segments.len() {
+        // A chain: the segments of one part that follow on from each other (a part can
+        // have side branches, `nvforever` limbs).
         let part = segments[i].part;
-        let j = segments[i..].iter().position(|s| s.part != part).map_or(segments.len(), |n| i + n);
+        let j = (i + 1..segments.len()).find(|&n| segments[n].part != part || segments[n].a != segments[n - 1].b).unwrap_or(segments.len());
         let radius = limb_radius(segments[i].limb, size);
         for (k, s) in segments[i..j].iter().enumerate() {
             let (mut a, mut b) = (Vec3::from(s.a), Vec3::from(s.b));
@@ -349,5 +351,18 @@ mod tests {
         // segment collapses to its middle.
         assert!((caps[1].b[2] + caps[1].radius - 110.0).abs() < 1e-3);
         assert_eq!((caps[2].a[2], caps[2].b[2]), (120.0, 120.0));
+    }
+
+    #[test]
+    fn a_side_branch_is_a_chain_of_its_own() {
+        let seg = |a: [f32; 3], b: [f32; 3]| PartSegment { part: 0, limb: Limb::Torso, a, b };
+        // A body along the abdomen and a leg branching from its start.
+        let segs = [seg([0.0, 0.0, 100.0], [0.0, -20.0, 100.0]), seg([0.0, -20.0, 100.0], [0.0, -40.0, 100.0]), seg([0.0, 0.0, 100.0], [0.0, 0.0, 70.0])];
+        let caps = part_capsules(&segs, 100.0);
+        let r = limb_radius(Limb::Torso, 100.0);
+        // The abdomen's far end is pulled in; the leg is its own chain: its far end too.
+        assert!((caps[1].b[1] + 40.0 - r).abs() < 1e-3, "{caps:?}");
+        assert!((caps[2].b[2] - 70.0 - r).abs() < 1e-3, "{caps:?}");
+        assert_eq!(caps[2].a, [0.0, 0.0, 100.0]);
     }
 }

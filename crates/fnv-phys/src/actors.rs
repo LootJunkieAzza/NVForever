@@ -218,6 +218,21 @@ impl PhysWorld {
         }
     }
 
+    /// The centres of an actor's body part capsules, widest first (none without parts),
+    /// game units.
+    pub fn actor_part_centers(&self, form_id: u32) -> Vec<[f32; 3]> {
+        let Some(a) = self.actors.get(&form_id) else { return Vec::new() };
+        let mut caps: Vec<(f32, [f32; 3])> = a
+            .colliders
+            .iter()
+            .filter(|c| c.1 != WHOLE)
+            .filter_map(|c| self.w.colliders.get(c.0).map(|co| (c.3, co.position().translation / self.k)))
+            .map(|(r, t)| (r, [t.x, t.y, t.z]))
+            .collect();
+        caps.sort_by(|x, y| y.0.total_cmp(&x.0));
+        caps.into_iter().map(|c| c.1).collect()
+    }
+
     /// The centre of an actor's first capsule for body part `part`, game units.
     pub fn actor_part_center(&self, form_id: u32, part: u8) -> Option<[f32; 3]> {
         let c = self.actors.get(&form_id)?.colliders.iter().find(|c| c.1 == part && part != WHOLE)?;

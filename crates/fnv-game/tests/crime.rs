@@ -21,6 +21,10 @@ const SHOPKEEPER: u32 = 0x830;
 const TOWNSMAN: u32 = 0x831;
 const FIEND: u32 = 0x832;
 const STRANGER: u32 = 0x833;
+/// An NPC made from the Fiend's template (traits from the template), with 0 karma of its
+/// own.
+const CONVICT: u32 = 0x834;
+const CONVICT_REF: u32 = 0x324;
 const TRINKET: u32 = 0x850;
 const SHOP: u32 = 0x200;
 const SHOPKEEPER_REF: u32 = 0x320;
@@ -42,13 +46,18 @@ const KARMA: u16 = 23;
 
 /// ACBS with a karma value.
 fn acbs(karma: f32) -> fnv_esm::raw::Subrecord {
+    acbs_templated(karma, 0)
+}
+
+/// ACBS with a karma value and template flags (0x01 Use Traits [documented: xEdit]).
+fn acbs_templated(karma: f32, template_flags: u16) -> fnv_esm::raw::Subrecord {
     let mut d = 0u32.to_le_bytes().to_vec();
     for v in [50u16, 0, 1, 0, 0, 100] {
         d.extend(v.to_le_bytes());
     }
     d.extend(karma.to_le_bytes());
     d.extend(0i16.to_le_bytes());
-    d.extend(0u16.to_le_bytes());
+    d.extend(template_flags.to_le_bytes());
     sub(b"ACBS", d)
 }
 
@@ -84,6 +93,7 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"NPC_", 0, TOWNSMAN, &[sub(b"EDID", z("Townsman")), acbs(500.0), snam(TOWN), aidt(0)]),
         record(b"NPC_", 0, FIEND, &[sub(b"EDID", z("Fiend")), acbs(-500.0), snam(GANG), aidt(0)]),
         record(b"NPC_", 0, STRANGER, &[sub(b"EDID", z("Stranger")), acbs(0.0), aidt(0)]),
+        record(b"NPC_", 0, CONVICT, &[sub(b"EDID", z("Convict")), acbs_templated(0.0, 0x01), sub(b"TPLT", FIEND.to_le_bytes().to_vec()), aidt(0)]),
     ]
     .concat();
     let misc = record(b"MISC", 0, TRINKET, &[sub(b"EDID", z("Trinket")), sub(b"DATA", [5i32.to_le_bytes(), 1f32.to_le_bytes()].concat())]);
@@ -94,6 +104,7 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", TOWNSMAN_REF, TOWNSMAN, vec![]),
         placed(b"ACHR", FIEND_REF, FIEND, vec![]),
         placed(b"ACHR", STRANGER_REF, STRANGER, vec![]),
+        placed(b"ACHR", CONVICT_REF, CONVICT, vec![]),
         placed(b"REFR", TRINKET_REF, TRINKET, vec![]),
         placed(b"REFR", GANG_TRINKET_REF, TRINKET, vec![sub(b"XOWN", GANG.to_le_bytes().to_vec()), sub(b"XRNK", 1i32.to_le_bytes().to_vec())]),
     ]
@@ -247,6 +258,12 @@ fn killing_by_alignment_and_murder() {
     // A Neutral stranger murdered unseen: a quarter of the setting.
     assert!(g.kill(FormId(STRANGER_REF), Some(FormId::PLAYER_REF)));
     assert_eq!(karma(&mut g), -25.0);
+    // A convict made from the Fiend's template is as Evil as the Fiend: killing it gains
+    // karma (the owner's playtest list 5 item 22).
+    assert_eq!(g.alignment(FormId(CONVICT_REF)), Alignment::Evil);
+    assert_eq!(g.alignment(FormId(CONVICT)), Alignment::Evil);
+    assert!(g.kill(FormId(CONVICT_REF), Some(FormId::PLAYER_REF)));
+    assert_eq!(karma(&mut g), 75.0);
 }
 
 #[test]

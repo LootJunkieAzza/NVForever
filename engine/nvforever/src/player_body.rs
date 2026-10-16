@@ -116,6 +116,14 @@ const PIPBOY_BLEND: f32 = 8.0 / 30.0;
 /// `Fallout.ini` the same].
 pub const PIPBOY_FOV: f32 = 47.0;
 
+/// The field of view the first-person arms and weapon are drawn with otherwise, degrees
+/// as [`PIPBOY_FOV`] [documented: `Fallout_default.ini` `fDefault1stPersonFOV=55`,
+/// docs/design/layer3.md; hypothesis: that it is the view of the arms' own camera, so
+/// they are drawn bigger than through the world's 75: our 9mm pistol was drawn smaller
+/// than the game's, with less of its detail and a coarser mip (owner's `Weapon Quality`
+/// screenshots, playtest list 5 item 18)].
+pub const FIRST_PERSON_FOV: f32 = 55.0;
+
 /// How much of the Pip-Boy clip shows at `t` seconds into it: up over its first
 /// [`PIPBOY_BLEND`], down over its last (smoothstep).
 pub fn pipboy_ease(t: f32) -> f32 {
@@ -543,6 +551,7 @@ struct Motion {
     attacks_seen: u32,
     reloads_seen: u32,
     reload_rounds_seen: u32,
+    jams_seen: u32,
     spin_ups_seen: u32,
     /// Interned clip names (attack stems, reload names) for the clip keys.
     names: HashMap<String, &'static str>,
@@ -582,6 +591,7 @@ impl Default for Motion {
             attacks_seen: 0,
             reloads_seen: 0,
             reload_rounds_seen: 0,
+            jams_seen: 0,
             spin_ups_seen: 0,
             names: HashMap::new(),
         }
@@ -1007,6 +1017,10 @@ struct Frame {
     /// The attack and reload clips of the weapon, and whether each starts this frame.
     attack: Option<&'static str>,
     reload: Option<&'static str>,
+    /// The weapon's jam animation (`JamA`), and whether a shot jammed it since the last
+    /// frame (combat, the owner's playtest list 5 item 9).
+    jam: Option<&'static str>,
+    jam_now: bool,
     attack_now: bool,
     reload_now: bool,
     /// A round-by-round reload starts on a round: the reload clip plays from its start.
@@ -1185,6 +1199,14 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &
             let fade = if f.reload_round_now { 0.0 } else { c.fade() };
             rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, fade);
             debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
+        }
+    }
+    // A jam: the weapon's jam clip (`1hpjama.kf`), played once on the reload layer as a
+    // reload is [observed: the clips sit beside the reload clips in both rigs' folders].
+    if f.hands.in_hand && f.jam_now {
+        if let Some(c) = f.jam.and_then(|j| rig.clip(ctx, ClipKey::Reload(f.stance, f.prefix, j))) {
+            rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, c.fade());
+            debug!("player {:?} rig: jam clip {}", rig.view, c.path);
         }
     }
     if matches!(f.hands.phase, WeaponPhase::Drawing | WeaponPhase::Holstering) {
@@ -1650,12 +1672,15 @@ fn drive_body(
     let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, control.aiming));
     let reload_clip = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, r)));
     let reload_open = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::ReloadOpen(stance, prefix, r)));
+    let jam = anim.jam.clone().map(|j| m.intern(j));
+    let jam_len = jam.and_then(|j| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, j))).map(|c| c.clip.length()).filter(|l| *l > 0.0);
     anim.timing = nvf_play::combat::clip_timing(
         attack_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit, c.keys.hit.zip(c.keys.loop_end).is_some_and(|(fire, back)| fire < back))),
         reload_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit)),
         reload_open.as_ref().map(|c| c.clip.length()),
         attack_clip.as_ref().and_then(|c| c.keys.next_attack.as_ref()).map(|(t, v)| (*t, v.as_str())),
     );
+    anim.timing.jam_len = jam_len;
     anim.timed = Some(attack.to_string());
     anim.ready = m.hands.phase == WeaponPhase::Drawn && m.hands.in_hand;
     let attack_now = anim.attacks != m.attacks_seen;
@@ -1665,6 +1690,8 @@ fn drive_body(
     m.attacks_seen = anim.attacks;
     m.reloads_seen = anim.reloads;
     m.reload_rounds_seen = anim.reload_rounds;
+    let jam_now = anim.jams != m.jams_seen;
+    m.jams_seen = anim.jams;
     m.spin_ups_seen = anim.spin_ups;
 
     let frame = Frame {
@@ -1685,6 +1712,8 @@ fn drive_body(
         speed: m.speed,
         attack: Some(attack),
         reload,
+        jam,
+        jam_now,
         attack_now,
         reload_now,
         reload_round_now,
@@ -1714,14 +1743,19 @@ fn drive_body(
     let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first, pipboy };
     let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
     let first_eye = first.map(|(e, _)| e);
-    // While the Pip-Boy shows, the arms are drawn as through its narrower view.
+    // The arms and the weapon are drawn as through the first-person view, narrower than
+    // the world's, and narrower still while the Pip-Boy shows.
     if let (Some(f), Some(eye)) = (body.first.as_ref(), first_eye) {
         let vfov = cams.single().ok().and_then(|p| match p {
             Projection::Perspective(p) => Some(p.fov),
             _ => None,
         });
         let k = match (pip.shown(), vfov) {
-            (true, Some(v)) => 1.0 + (arms_magnification(v, PIPBOY_FOV) - 1.0) * pipboy_ease(pip.clip_time),
+            (true, Some(v)) => {
+                let normal = arms_magnification(v, FIRST_PERSON_FOV);
+                normal + (arms_magnification(v, PIPBOY_FOV) - normal) * pipboy_ease(pip.clip_time)
+            }
+            (false, Some(v)) => arms_magnification(v, FIRST_PERSON_FOV),
             _ => 1.0,
         };
         let forward = Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch));

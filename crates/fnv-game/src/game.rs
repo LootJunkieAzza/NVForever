@@ -654,6 +654,10 @@ pub struct Game<'a> {
     /// The music types scripts asked for (`PlayMusic`, `crate::sound`), for the engine to
     /// take. Not part of the saved state.
     pub music_requests: Vec<FormId>,
+    /// The textures scripts put on references' shapes (`SwapTexture`,
+    /// `crate::functions::misc::swap_texture`), for the engine to draw. Not part of the
+    /// saved state.
+    pub texture_swaps: crate::functions::misc::TextureSwaps,
     /// Animation groups scripts asked objects to play, and what the engine reports they
     /// play (`crate::anims`). Not part of the saved state.
     pub anims: crate::anims::ObjectAnims,
@@ -908,6 +912,7 @@ impl<'a> Game<'a> {
             idle_requests: Vec::new(),
             sound_requests: Vec::new(),
             music_requests: Vec::new(),
+            texture_swaps: Default::default(),
             anims: Default::default(),
             barter_requests: Vec::new(),
             recipe_requests: Vec::new(),

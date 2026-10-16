@@ -32,14 +32,20 @@
 //! - **Shell casings.** [`CasingFx`]: the WEAP's casing model, falling and bouncing; a
 //!   bounce from at least [`CASING_KNOCK`] units/s plays the casing's PHY sound
 //!   ([`casing_sound`]) where it lands, up to [`CASING_SOUNDS`] times a casing [design].
+//! - **Explosions.** [`ExplosionFx`]: the EXPL's model at the point, upright, emitting
+//!   its own particle systems (flash, sparks, smoke, shrapnel: `crate::particles::
+//!   ModelEmitter`) for [`EXPLOSION_SECS`], and the EXPL's light (LIGH) fading out over
+//!   [`EXPLOSION_LIGHT_SECS`] [design: the LIGH's time is -1, no duration of its own].
+//!   The dirt thrown up is the impact of the EXPL's data set on the ground below
+//!   (`nvf_play::combat`), shown as any impact.
 //! - Not built: the controllers inside the flash and impact models (they grow and
-//!   fade), impact decals, explosion models, NPCs' shots.
+//!   fade), impact decals, NPCs' shots.
 
 use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use nvf_assets::model::{ModelCtx, PreparedModel};
-use nvf_play::combat::{CasingFx, Combat, ImpactFx, ShotFired, ShotVisuals};
+use nvf_play::combat::{CasingFx, Combat, ExplosionFx, ImpactFx, ShotFired, ShotVisuals};
 use nvf_play::phys::PhysState;
 use fnv_sim::FormId;
 use nvf_play::sfx::{PlaySound, Sfx};
@@ -100,6 +106,19 @@ struct Flash {
     left: f32,
 }
 
+/// How long an explosion's model stays and emits, and how long its light takes to fade,
+/// seconds [design: about the grenade explosion's sequence, 5.03 s, and its flash's
+/// emitter, on for 0.33 s].
+pub const EXPLOSION_SECS: f32 = 5.0;
+pub const EXPLOSION_LIGHT_SECS: f32 = 0.6;
+
+/// An explosion's light: its full intensity and how long it has been fading.
+#[derive(Component)]
+struct FadingLight {
+    full: f32,
+    age: f32,
+}
+
 /// The systems that put shot effects in the world; particles are emitted after them.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ShotFxSet;
@@ -119,6 +138,7 @@ struct ShotFx {
     casings: u32,
     casing_knocks: u32,
     impacts: u32,
+    explosions: u32,
 }
 
 pub struct ShotFxPlugin;
@@ -126,7 +146,7 @@ pub struct ShotFxPlugin;
 impl Plugin for ShotFxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ShotFx>()
-            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, face_camera).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, explosions, face_camera).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -402,7 +422,7 @@ fn impacts(
     };
     for hit in landed.read() {
         let Some(i) = sfx.forms.impacts.get(&hit.impact) else { continue };
-        let Some(pm) = i.model.as_deref().and_then(|m| load(&mut models, &mut fx, "impact", m)) else { continue };
+        let Some((model, pm)) = i.model.as_deref().and_then(|m| Some((m, load(&mut models, &mut fx, "impact", m)?))) else { continue };
         let (normal, dir) = (Vec3::from_array(hit.normal).normalize_or(Vec3::Z), Vec3::from_array(hit.dir).normalize_or(Vec3::NEG_Z));
         let along = match i.orientation.as_deref() {
             Some("Projectile Vector") => dir,
@@ -411,8 +431,65 @@ fn impacts(
         };
         let place = Transform { translation: Vec3::from_array(hit.point), rotation: Quat::from_rotation_arc(Vec3::Z, along), scale: Vec3::ONE };
         let holder = spawn_model(&mut commands, world_root, &pm, place);
-        commands.entity(holder).insert(Flash { left: i.effect_duration });
+        // Its own particle systems, if any (the debris of an explosion's dirt impact).
+        commands.entity(holder).insert((Flash { left: i.effect_duration }, crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(model))));
         fx.impacts += 1;
+    }
+}
+
+/// Explosions: the EXPL's model emitting its particle systems, and its light fading.
+#[allow(clippy::too_many_arguments)]
+fn explosions(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut boom: MessageReader<ExplosionFx>,
+    sfx: Option<Res<Sfx>>,
+    world: Option<Res<WorldData>>,
+    mut models: ModelCtx,
+    mut fx: ResMut<ShotFx>,
+    root: Query<Entity, With<WorldRoot>>,
+    mut lights: Query<(Entity, &mut FadingLight, &mut PointLight)>,
+) {
+    let dt = time.delta_secs();
+    for (e, mut f, mut l) in &mut lights {
+        f.age += dt;
+        let k = 1.0 - f.age / EXPLOSION_LIGHT_SECS;
+        if k <= 0.0 {
+            commands.entity(e).try_despawn();
+        } else {
+            l.intensity = f.full * k;
+        }
+    }
+    let (Some(sfx), Ok(world_root)) = (sfx, root.single()) else {
+        boom.clear();
+        return;
+    };
+    for b in boom.read() {
+        let Some(x) = sfx.forms.explosions.get(&b.explosion) else { continue };
+        let place = Transform::from_translation(Vec3::from_array(b.point));
+        let holder = match x.model.as_deref().and_then(|m| load(&mut models, &mut fx, "explosion", m).map(|pm| (m, pm))) {
+            Some((m, pm)) => {
+                let h = spawn_model(&mut commands, world_root, &pm, place);
+                commands.entity(h).insert(crate::particles::ModelEmitter::new(fnv_actor::resolve::mesh_path(m)));
+                h
+            }
+            None => commands.spawn((place, Visibility::Inherited, ChildOf(world_root))).id(),
+        };
+        commands.entity(holder).insert(Flash { left: EXPLOSION_SECS });
+        fx.explosions += 1;
+        let light = x.light.zip(world.as_deref()).and_then(|(id, w)| fnv_world::lighting::light_data(w.lo, w.schema, id.0));
+        if let Some(l) = light.filter(|l| l.radius > 0.0) {
+            let lin = l.color.map(fnv_world::sky::srgb_to_linear);
+            let color = Color::LinearRgba(LinearRgba::rgb(lin[0], lin[1], lin[2]));
+            let intensity = crate::lights::lumens(l.fade.max(0.0), crate::sky::light_unit());
+            // Above the point, so the ground it went off on is lit [design].
+            commands.spawn((
+                PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() },
+                FadingLight { full: intensity, age: 0.0 },
+                Transform::from_translation(Vec3::from_array(b.point) + Vec3::Z * 32.0),
+                ChildOf(world_root),
+            ));
+        }
     }
 }
 
@@ -458,8 +535,8 @@ fn face_camera(
 fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
     if exit.read().last().is_some() && fx.flashes + fx.projectiles + fx.no_model > 0 {
         info!(
-            "shot fx: {} muzzle flashes ({} with a light), {} projectile models drawn, {} projectiles without a model, {} shell casings, {} impact effects, {} casing knocks heard",
-            fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings, fx.impacts, fx.casing_knocks
+            "shot fx: {} muzzle flashes ({} with a light), {} projectile models drawn, {} projectiles without a model, {} shell casings, {} impact effects, {} explosions, {} casing knocks heard",
+            fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings, fx.impacts, fx.explosions, fx.casing_knocks
         );
     }
 }
