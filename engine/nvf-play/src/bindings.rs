@@ -11,9 +11,25 @@
 //! `Use` = 0 attacks, `Block` = 1 aims, by their names) and a gamepad button `JJ`
 //! (not used). NVForever never reads the game's INIs at run time
 //! (docs/design/install-layout.md); the values are built in.
+//!
+//! **The player's own keys** are kept in `[Controls]` of the home's `NVForever.ini`
+//! (beside `[Settings]`, `crate::settings::SettingsFile`), one line per control by its
+//! game INI name, the key and mouse button by name: `Forward=W`, `Block=Left Alt, Right
+//! Mouse`, `Use=Left Mouse`, `Auto Move=None` ([`KEY_NAMES`], [`MOUSE_NAMES`]), and
+//! `Always Run By Default`, `Invert Y` (1/0) and `Mouse Sensitivity`. Each start reads
+//! them ([`apply_stored`], `PostStartup`); a line missing from an INI that exists is
+//! written with the control's key then, so the file always lists every control to edit.
+//! A value that does not parse is skipped with a warning (the default stays). The pause
+//! menu's Controls page (`crate::pause`) rebinds a control ([`rebind`]): the new key or
+//! button is taken from any other control that had it, which gets the old one instead
+//! (a swap, so no control is left without its input by accident), and the section is
+//! written again. Esc and the console's key (`` ` ``) cannot be bound [design: they
+//! open the pause menu and the console].
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use fnv_install::{guard_write, ini_get, ini_set};
+use std::path::Path;
 
 /// The game's controls, in the INI's order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -240,6 +256,341 @@ impl Bindings {
     pub fn name(c: Control) -> &'static str {
         GAME_CONTROLS.iter().find(|(k, _, _)| *k == c).map_or("?", |(_, n, _)| n)
     }
+
+    /// The control of an INI name (without case).
+    pub fn by_name(name: &str) -> Option<Control> {
+        GAME_CONTROLS.iter().find(|(_, n, _)| n.eq_ignore_ascii_case(name.trim())).map(|(c, _, _)| *c)
+    }
+
+    pub fn set(&mut self, c: Control, b: Binding) {
+        match self.map.iter_mut().find(|(k, _)| *k == c) {
+            Some((_, x)) => *x = b,
+            None => self.map.push((c, b)),
+        }
+    }
+
+    /// Bind `input` to `c`; any other control that had it gets `c`'s old input of that
+    /// kind instead (a swap). The controls that gave it up.
+    pub fn rebind(&mut self, c: Control, input: Input) -> Vec<Control> {
+        let old = self.get(c);
+        let mut swapped = Vec::new();
+        for (k, b) in self.map.iter_mut().filter(|(k, _)| *k != c) {
+            match input {
+                Input::Key(key) if b.key == Some(key) => b.key = old.key,
+                Input::Mouse(m) if b.mouse == Some(m) => b.mouse = old.mouse,
+                _ => continue,
+            }
+            swapped.push(*k);
+        }
+        let mut new = old;
+        match input {
+            Input::Key(key) => new.key = Some(key),
+            Input::Mouse(m) => new.mouse = Some(m),
+        }
+        self.set(c, new);
+        swapped
+    }
+
+    /// Every control's binding, in the INI's order.
+    pub fn all(&self) -> impl Iterator<Item = (Control, Binding)> + '_ {
+        GAME_CONTROLS.iter().map(|&(c, _, _)| (c, self.get(c)))
+    }
+}
+
+/// The control's name on the Controls page [design: what it does in NVForever, not the
+/// original menu's wording].
+pub fn label(c: Control) -> &'static str {
+    use Control::*;
+    match c {
+        Forward => "Forward",
+        Back => "Back",
+        SlideLeft => "Strafe Left",
+        SlideRight => "Strafe Right",
+        Use => "Attack",
+        Activate => "Activate",
+        Block => "Aim / Block",
+        ReadyItem => "Ready / Reload",
+        CrouchSneak => "Sneak",
+        Run => "Run / Walk",
+        AlwaysRun => "Always Run",
+        AutoMove => "Auto Move",
+        Jump => "Jump",
+        TogglePov => "Toggle View",
+        MenuMode => "Pip-Boy",
+        Rest => "Wait",
+        Vats => "V.A.T.S.",
+        Hotkey1 => "Hotkey 1",
+        AmmoSwap => "Ammo Swap",
+        Hotkey3 => "Hotkey 3",
+        Hotkey4 => "Hotkey 4",
+        Hotkey5 => "Hotkey 5",
+        Hotkey6 => "Hotkey 6",
+        Hotkey7 => "Hotkey 7",
+        Hotkey8 => "Hotkey 8",
+        QuickSave => "Quick Save",
+        QuickLoad => "Quick Load",
+        Grab => "Grab",
+    }
+}
+
+/// A key or a mouse button, as the Controls page takes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Input {
+    Key(KeyCode),
+    Mouse(MouseButton),
+}
+
+/// The keys a control can be bound to and their names in the INI and on the Controls
+/// page [design]. Punctuation is named in words, so a value's comma only ever parts the
+/// key from the mouse button.
+pub const KEY_NAMES: &[(KeyCode, &str)] = {
+    use KeyCode::*;
+    &[
+        (KeyA, "A"), (KeyB, "B"), (KeyC, "C"), (KeyD, "D"), (KeyE, "E"), (KeyF, "F"), (KeyG, "G"),
+        (KeyH, "H"), (KeyI, "I"), (KeyJ, "J"), (KeyK, "K"), (KeyL, "L"), (KeyM, "M"), (KeyN, "N"),
+        (KeyO, "O"), (KeyP, "P"), (KeyQ, "Q"), (KeyR, "R"), (KeyS, "S"), (KeyT, "T"), (KeyU, "U"),
+        (KeyV, "V"), (KeyW, "W"), (KeyX, "X"), (KeyY, "Y"), (KeyZ, "Z"),
+        (Digit1, "1"), (Digit2, "2"), (Digit3, "3"), (Digit4, "4"), (Digit5, "5"),
+        (Digit6, "6"), (Digit7, "7"), (Digit8, "8"), (Digit9, "9"), (Digit0, "0"),
+        (F1, "F1"), (F2, "F2"), (F3, "F3"), (F4, "F4"), (F5, "F5"), (F6, "F6"),
+        (F7, "F7"), (F8, "F8"), (F9, "F9"), (F10, "F10"), (F11, "F11"), (F12, "F12"),
+        (Space, "Space"), (Tab, "Tab"), (Enter, "Enter"), (Backspace, "Backspace"), (CapsLock, "Caps Lock"),
+        (ShiftLeft, "Left Shift"), (ShiftRight, "Right Shift"), (ControlLeft, "Left Ctrl"), (ControlRight, "Right Ctrl"),
+        (AltLeft, "Left Alt"), (AltRight, "Right Alt"),
+        (ArrowUp, "Up"), (ArrowDown, "Down"), (ArrowLeft, "Left"), (ArrowRight, "Right"),
+        (Insert, "Insert"), (Delete, "Delete"), (Home, "Home"), (End, "End"), (PageUp, "Page Up"), (PageDown, "Page Down"),
+        (Minus, "Minus"), (Equal, "Equals"), (BracketLeft, "Left Bracket"), (BracketRight, "Right Bracket"),
+        (Semicolon, "Semicolon"), (Quote, "Apostrophe"), (Backslash, "Backslash"), (Comma, "Comma"), (Period, "Period"), (Slash, "Slash"),
+        (Numpad0, "Num 0"), (Numpad1, "Num 1"), (Numpad2, "Num 2"), (Numpad3, "Num 3"), (Numpad4, "Num 4"),
+        (Numpad5, "Num 5"), (Numpad6, "Num 6"), (Numpad7, "Num 7"), (Numpad8, "Num 8"), (Numpad9, "Num 9"),
+        (NumpadMultiply, "Num *"), (NumpadAdd, "Num +"), (NumpadSubtract, "Num -"), (NumpadDivide, "Num /"),
+        (NumpadDecimal, "Num ."), (NumpadEnter, "Num Enter"),
+    ]
+};
+
+/// The mouse buttons' names (the INI's 0, 1, 2, 3, 4; more as `Mouse 6`…).
+pub const MOUSE_NAMES: [(MouseButton, &str); 5] = [
+    (MouseButton::Left, "Left Mouse"),
+    (MouseButton::Right, "Right Mouse"),
+    (MouseButton::Middle, "Middle Mouse"),
+    (MouseButton::Back, "Mouse 4"),
+    (MouseButton::Forward, "Mouse 5"),
+];
+
+/// Keys no control may take: Esc (the pause menu) and the console's key.
+pub const RESERVED_KEYS: [KeyCode; 2] = [KeyCode::Escape, KeyCode::Backquote];
+
+pub fn key_name(k: KeyCode) -> Option<&'static str> {
+    KEY_NAMES.iter().find(|(c, _)| *c == k).map(|(_, n)| *n)
+}
+
+pub fn mouse_name(m: MouseButton) -> String {
+    match MOUSE_NAMES.iter().find(|(b, _)| *b == m) {
+        Some((_, n)) => n.to_string(),
+        None => match m {
+            MouseButton::Other(n) => format!("Mouse {}", n + 1),
+            _ => "Mouse ?".into(),
+        },
+    }
+}
+
+/// The input of a name (without case).
+pub fn parse_input(name: &str) -> Option<Input> {
+    let name = name.trim();
+    if let Some((k, _)) = KEY_NAMES.iter().find(|(_, n)| n.eq_ignore_ascii_case(name)) {
+        return Some(Input::Key(*k));
+    }
+    if let Some((m, _)) = MOUSE_NAMES.iter().find(|(_, n)| n.eq_ignore_ascii_case(name)) {
+        return Some(Input::Mouse(*m));
+    }
+    let n: u16 = name.get(..6).filter(|p| p.eq_ignore_ascii_case("mouse ")).and_then(|_| name[6..].trim().parse().ok())?;
+    (6..=16).contains(&n).then_some(Input::Mouse(MouseButton::Other(n - 1)))
+}
+
+impl Binding {
+    /// As the INI and the Controls page write it: `W`, `Left Alt, Right Mouse`, `None`.
+    pub fn text(&self) -> String {
+        let parts: Vec<String> = self.key.and_then(key_name).map(String::from).into_iter().chain(self.mouse.map(mouse_name)).collect();
+        if parts.is_empty() {
+            "None".into()
+        } else {
+            parts.join(", ")
+        }
+    }
+
+    /// From [`Binding::text`]: at most one key and one mouse button; `None` or nothing
+    /// for neither.
+    pub fn parse(text: &str) -> Result<Binding, String> {
+        let mut b = Binding::default();
+        for part in text.split(',').map(str::trim).filter(|p| !p.is_empty() && !p.eq_ignore_ascii_case("none")) {
+            match parse_input(part) {
+                Some(Input::Key(k)) if RESERVED_KEYS.contains(&k) => return Err(format!("{part:?} is kept for the menus")),
+                Some(Input::Key(_)) if b.key.is_some() => return Err(format!("{part:?}: one key only")),
+                Some(Input::Mouse(_)) if b.mouse.is_some() => return Err(format!("{part:?}: one mouse button only")),
+                Some(Input::Key(k)) => b.key = Some(k),
+                Some(Input::Mouse(m)) => b.mouse = Some(m),
+                None => return Err(format!("{part:?} is not a key or mouse button name")),
+            }
+        }
+        Ok(b)
+    }
+}
+
+/// The INI section the controls are kept in.
+pub const SECTION: &str = "Controls";
+const ALWAYS_RUN_KEY: &str = "Always Run By Default";
+const INVERT_Y_KEY: &str = "Invert Y";
+const SENSITIVITY_KEY: &str = "Mouse Sensitivity";
+
+fn bit(on: bool) -> &'static str {
+    if on {
+        "1"
+    } else {
+        "0"
+    }
+}
+
+/// `text` (an INI, or empty) with every control in `[Controls]`.
+pub fn with_controls(text: &str, b: &Bindings) -> String {
+    let mut t = b.all().fold(text.to_string(), |t, (c, x)| ini_set(&t, SECTION, Bindings::name(c), &x.text()));
+    t = ini_set(&t, SECTION, ALWAYS_RUN_KEY, bit(b.always_run_by_default));
+    t = ini_set(&t, SECTION, INVERT_Y_KEY, bit(b.invert_y));
+    ini_set(&t, SECTION, SENSITIVITY_KEY, &format!("{:.4}", b.mouse_sensitivity))
+}
+
+/// What `[Controls]` of `text` changes in `b`: the lines found, and what changed
+/// (`Jump Space -> J`); values that do not parse go to `bad`.
+pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (usize, Vec<String>) {
+    let (mut found, mut changed) = (0, Vec::new());
+    for (c, name, _) in GAME_CONTROLS {
+        let Some(v) = ini_get(text, SECTION, name) else { continue };
+        found += 1;
+        match Binding::parse(&v) {
+            Ok(x) if x != b.get(c) => {
+                changed.push(format!("{name} {} -> {}", b.get(c).text(), x.text()));
+                b.set(c, x);
+            }
+            Ok(_) => {}
+            Err(e) => bad.push(format!("{name}={v} ({e})")),
+        }
+    }
+    let switch = |key: &str, at: &mut bool, found: &mut usize, changed: &mut Vec<String>, bad: &mut Vec<String>| {
+        let Some(v) = ini_get(text, SECTION, key) else { return };
+        *found += 1;
+        match v.trim() {
+            "1" | "0" => {
+                let on = v.trim() == "1";
+                if on != *at {
+                    changed.push(format!("{key} {}", bit(on)));
+                    *at = on;
+                }
+            }
+            _ => bad.push(format!("{key}={v} (not 1 or 0)")),
+        }
+    };
+    switch(ALWAYS_RUN_KEY, &mut b.always_run_by_default, &mut found, &mut changed, bad);
+    switch(INVERT_Y_KEY, &mut b.invert_y, &mut found, &mut changed, bad);
+    if let Some(v) = ini_get(text, SECTION, SENSITIVITY_KEY) {
+        found += 1;
+        match v.trim().parse::<f32>() {
+            Ok(s) if s.is_finite() && s > 0.0 => {
+                if (s - b.mouse_sensitivity).abs() > 1e-7 {
+                    changed.push(format!("{SENSITIVITY_KEY} {s}"));
+                    b.mouse_sensitivity = s;
+                }
+            }
+            _ => bad.push(format!("{SENSITIVITY_KEY}={v} (not a number above 0)")),
+        }
+    }
+    (found, changed)
+}
+
+/// The number of `[Controls]` lines a full section has.
+const LINES: usize = GAME_CONTROLS.len() + 3;
+
+/// Read the player's keys from the INI (module notes) and fill in the lines it lacks.
+pub fn apply_stored(world: &mut World) {
+    let Some(path) = world.get_resource::<crate::settings::SettingsFile>().and_then(|f| f.0.clone()) else { return };
+    if !world.contains_resource::<Bindings>() {
+        return;
+    }
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            warn!("controls: {} not read: {e}", path.display());
+            return;
+        }
+    };
+    let mut bad = Vec::new();
+    let (found, changed) = read_controls(&text, &mut world.resource_mut::<Bindings>(), &mut bad);
+    let always_run = world.resource::<Bindings>().always_run_by_default;
+    if let Some(mut c) = world.get_resource_mut::<crate::control::PlayerControl>() {
+        c.always_run = always_run;
+    }
+    for b in &bad {
+        warn!("controls: [{SECTION}] {b} in {}; the default kept", path.display());
+    }
+    let what = if changed.is_empty() { String::new() } else { format!(": {}", changed.join(", ")) };
+    info!("controls: {found} of {LINES} line(s) read from {}, {} changed{what}", path.display(), changed.len());
+    if found < LINES {
+        store(world);
+        info!("controls: the {} missing line(s) written to [{SECTION}]", LINES - found);
+    }
+}
+
+/// Bind `input` to `c` (the Controls page), log it and keep it in the INI.
+pub fn rebind(world: &mut World, c: Control, input: Input) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    let before = b.get(c).text();
+    let swapped = b.rebind(c, input);
+    let after = b.get(c).text();
+    let gave: Vec<String> = swapped.iter().map(|&o| format!("{} now {}", Bindings::name(o), b.get(o).text())).collect();
+    let gave = if gave.is_empty() { String::new() } else { format!(" ({})", gave.join(", ")) };
+    info!("controls: {} bound to {after} (was {before}){gave}", Bindings::name(c));
+    store(world);
+}
+
+/// Take the key off `c` (the Controls page's Delete), keeping its mouse button.
+pub fn clear_key(world: &mut World, c: Control) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    let mut x = b.get(c);
+    x.key = None;
+    b.set(c, x);
+    info!("controls: {} key cleared, now {}", Bindings::name(c), x.text());
+    store(world);
+}
+
+/// Every control back to the game's default keys (the Controls page's Defaults); the
+/// mouse look settings are kept.
+pub fn reset(world: &mut World) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    let d = Bindings::game_defaults();
+    b.map = d.map;
+    info!("controls: every control back to the game's keys");
+    store(world);
+}
+
+/// Write `[Controls]` to the INI, keeping its other lines.
+fn store(world: &World) {
+    let Some(path) = world.get_resource::<crate::settings::SettingsFile>().and_then(|f| f.0.clone()) else { return };
+    let Some(b) = world.get_resource::<Bindings>() else { return };
+    if let Err(e) = write(&path, b) {
+        warn!("controls: not saved: {e}");
+    }
+}
+
+fn write(path: &Path, b: &Bindings) -> Result<(), String> {
+    guard_write(path, None).map_err(|e| e.to_string())?;
+    let old = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    std::fs::write(path, with_controls(&old, b)).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// The controls' state this frame. While the console's free camera flies
@@ -305,6 +656,85 @@ mod tests {
             let x = b.get(c);
             assert!(x.key.is_some() || x.mouse.is_some(), "{c:?}");
         }
+    }
+
+    #[test]
+    fn bindings_are_written_by_name_and_read_back() {
+        let b = Bindings::game_defaults();
+        assert_eq!(b.get(Control::Block).text(), "Left Alt, Right Mouse");
+        assert_eq!(b.get(Control::Use).text(), "Left Mouse");
+        assert_eq!(Binding::default().text(), "None");
+        for (c, x) in b.all() {
+            assert_eq!(Binding::parse(&x.text()), Ok(x), "{c:?}");
+        }
+        assert_eq!(Binding::parse(" left alt , RIGHT MOUSE "), Ok(b.get(Control::Block)));
+        assert_eq!(Binding::parse("Mouse 7"), Ok(Binding { key: None, mouse: Some(MouseButton::Other(6)) }));
+        assert_eq!(Binding::parse(""), Ok(Binding::default()));
+        assert!(Binding::parse("W, E").is_err());
+        assert!(Binding::parse("Banana").is_err());
+        assert!(Binding::parse("Escape").is_err());
+        assert_eq!(Bindings::by_name("crouch/sneak"), Some(Control::CrouchSneak));
+
+        let ini = "[Game]\nPath=F:\\FNV\n";
+        let text = with_controls(ini, &b);
+        assert!(text.starts_with("[Game]\nPath=F:\\FNV\n\n[Controls]\nForward=W\nBack=S\n"), "{text}");
+        assert!(text.contains("\nMouse Sensitivity=0.0020\n"));
+        let mut back = Bindings::game_defaults();
+        let (found, changed) = read_controls(&text, &mut back, &mut Vec::new());
+        assert_eq!((found, changed.len()), (LINES, 0));
+
+        let edited = ini_set(&ini_set(&text, SECTION, "Jump", "J"), SECTION, "Invert Y", "1");
+        let edited = ini_set(&edited, SECTION, "Vats", "Purple");
+        let mut bad = Vec::new();
+        let (_, changed) = read_controls(&edited, &mut back, &mut bad);
+        assert_eq!(changed, ["Jump Space -> J", "Invert Y 1"]);
+        assert_eq!(back.get(Control::Jump).key, Some(KeyCode::KeyJ));
+        assert!(back.invert_y);
+        assert_eq!(back.get(Control::Vats).key, Some(KeyCode::KeyV), "a bad line keeps the default");
+        assert_eq!(bad.len(), 1);
+    }
+
+    #[test]
+    fn a_rebind_swaps_with_the_control_that_had_the_input() {
+        let mut b = Bindings::game_defaults();
+        // Jump to W: Forward had W and gets Space.
+        assert_eq!(b.rebind(Control::Jump, Input::Key(KeyCode::KeyW)), [Control::Forward]);
+        assert_eq!(b.get(Control::Jump).key, Some(KeyCode::KeyW));
+        assert_eq!(b.get(Control::Forward).key, Some(KeyCode::Space));
+        // A free key takes nothing from anyone; the mouse button is kept.
+        assert!(b.rebind(Control::Block, Input::Key(KeyCode::KeyK)).is_empty());
+        assert_eq!(b.get(Control::Block), Binding { key: Some(KeyCode::KeyK), mouse: Some(MouseButton::Right) });
+        // Attack to the right button: Block had it and gets Attack's left button.
+        assert_eq!(b.rebind(Control::Use, Input::Mouse(MouseButton::Right)), [Control::Block]);
+        assert_eq!(b.get(Control::Block).mouse, Some(MouseButton::Left));
+        assert_eq!(b.get(Control::Use).mouse, Some(MouseButton::Right));
+    }
+
+    #[test]
+    fn the_ini_is_filled_in_and_a_rebind_is_kept() {
+        let dir = std::env::temp_dir().join(format!("nvf-controls-{}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "[Game]\nPath=F:\\FNV\n\n[Controls]\nJump=J\n").unwrap();
+        let start = || {
+            let mut app = App::new();
+            app.init_resource::<Bindings>();
+            app.insert_resource(crate::settings::SettingsFile(Some(path.clone())));
+            app.add_systems(PostStartup, apply_stored);
+            app.update();
+            app
+        };
+        let mut app = start();
+        assert_eq!(app.world().resource::<Bindings>().get(Control::Jump).key, Some(KeyCode::KeyJ));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("[Controls]\nJump=J\nForward=W\n") && text.contains("Path=F:\\FNV"), "{text}");
+        rebind(app.world_mut(), Control::Activate, Input::Key(KeyCode::KeyF));
+        let app = start();
+        let b = app.world().resource::<Bindings>();
+        assert_eq!(b.get(Control::Activate).key, Some(KeyCode::KeyF));
+        assert_eq!(b.get(Control::TogglePov).key, Some(KeyCode::KeyE), "the swap is kept too");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

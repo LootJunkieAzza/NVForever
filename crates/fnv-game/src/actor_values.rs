@@ -11,7 +11,8 @@
 //!   - creature: its Combat Skill for the five weapon skills [documented: GECK wiki
 //!     Stats Tab - Creatures], its Stealth Skill for Sneak [hypothesis], the formula for
 //!     the others [hypothesis];
-//!   - player: the formula, plus `fAVDTagSkillBonus` for a tagged skill;
+//!   - player: the formula, plus `fAVDTagSkillBonus` for a tagged skill and the points
+//!     spent on it in the level-up menu (`crate::levelup`);
 //!   - the formula: `fAVDSkill<Name>Base` + attribute × `fAVDSkillPrimaryBonusMult` +
 //!     ⌈Luck × `fAVDSkillLuckBonusMult`⌉ [documented: GECK wiki Derived Skill Settings].
 //! - **Derived statistics**: Health (`crate::combat`), Action Points, Carry Weight,
@@ -210,7 +211,8 @@ impl<'a> Game<'a> {
         let i = (skill - BARTER) as usize;
         if r == FormId::PLAYER_REF {
             let tag = if self.player.tag_skills.contains(&skill) { setting(self, "fAVDTagSkillBonus", 15.0) } else { 0.0 };
-            return self.derived_skill(r, skill) + tag;
+            let spent = self.player.skill_points.get(&skill).copied().unwrap_or(0.0);
+            return self.derived_skill(r, skill) + tag + spent;
         }
         let d = self.stats_def(r);
         if let Some(values) = d.and_then(|d| d.skills) {

@@ -73,6 +73,23 @@ fn accompany(id: u32, edid: &str, target: u32, distance: i32) -> Vec<u8> {
     record(b"PACK", id, &subs)
 }
 
+/// A Use Weapon package (type 16): stand near `stand`, shoot at the reference `target`
+/// two volleys of one shot, half a second apart, always hitting and doing no damage
+/// (PKW3 [documented: xEdit PACK PKW3]); the weapon is the object type "Weapons: None".
+fn shoot(id: u32, edid: &str, stand: u32, target: u32) -> Vec<u8> {
+    let pkw3 = [&0x0000_0101u32.to_le_bytes()[..], &[1, 0], &2u16.to_le_bytes(), &1u16.to_le_bytes(), &1u16.to_le_bytes(), &0.5f32.to_le_bytes(), &0.5f32.to_le_bytes(), &[0; 4]].concat();
+    let subs = [
+        sub(b"EDID", z(edid)),
+        sub(b"PKDT", [&0u32.to_le_bytes()[..], &[16, 0, 0, 0], &[0; 4]].concat()),
+        sub(b"PLDT", [0i32.to_le_bytes(), stand.to_le_bytes(), 0i32.to_le_bytes()].concat()),
+        sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()),
+        sub(b"PTDT", [2i32.to_le_bytes(), 23u32.to_le_bytes(), 0i32.to_le_bytes()].concat()),
+        sub(b"PKW3", pkw3),
+        sub(b"PTD2", [0i32.to_le_bytes(), target.to_le_bytes(), 0i32.to_le_bytes()].concat()),
+    ];
+    record(b"PACK", id, &subs)
+}
+
 fn npc(fid: u32, edid: &str, packages: &[u32]) -> Vec<u8> {
     let mut subs = vec![sub(b"EDID", z(edid))];
     subs.extend(packages.iter().map(|p| sub(b"PKID", p.to_le_bytes().to_vec())));
@@ -118,6 +135,7 @@ const P_SLEEP_C: u32 = 0x82E;
 const P_STEADY: u32 = 0x82F;
 const P_ACCOMPANY: u32 = 0x830;
 const P_WITH_PLAYER: u32 = 0x831;
+const P_SHOOT: u32 = 0x832;
 // Bases.
 const N_TRAVEL: u32 = 0x840;
 const N_IN: u32 = 0x841;
@@ -137,6 +155,7 @@ const N_STEADY: u32 = 0x84E;
 const N_DOG: u32 = 0x84F;
 const N_COMPANION: u32 = 0x850;
 const N_LONER: u32 = 0x851;
+const N_SHOOTER: u32 = 0x852;
 // Cells and references.
 const CELL_A: u32 = 0x860;
 const CELL_B: u32 = 0x861;
@@ -172,6 +191,7 @@ const R_STEADY: u32 = 0x888;
 const R_DOG: u32 = 0x889;
 const R_COMPANION: u32 = 0x89B;
 const R_LONER: u32 = 0x89C;
+const R_SHOOTER: u32 = 0x89D;
 const DOOR_A: u32 = 0x8D1;
 const DOOR_B: u32 = 0x8D2;
 
@@ -217,6 +237,7 @@ fn plugin_bytes() -> Vec<u8> {
         pack(P_STEADY, "TravelToBInCombat", flags::MUST_REACH_LOCATION | flags::CONTINUE_DURING_COMBAT, TRAVEL, (0, MARK_B, 0), None),
         accompany(P_ACCOMPANY, "AccompanyTheTraveller", R_TRAVEL, 128),
         accompany(P_WITH_PLAYER, "AccompanyThePlayer", 0x14, 256),
+        shoot(P_SHOOT, "ShootAtTheLoner", MARK_A, R_LONER),
     ]
     .concat();
     let npcs = [
@@ -240,6 +261,7 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_DOG, "Dog", &[P_ACCOMPANY]),
         npc(N_COMPANION, "Companion", &[P_WITH_PLAYER]),
         npc(N_LONER, "Loner", &[]),
+        npc(N_SHOOTER, "Shooter", &[P_SHOOT]),
     ]
     .concat();
     // Furniture: a chair (marker flags bit 30) and a bed (bit 31); an idle marker with
@@ -275,6 +297,7 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_DOG, "DogRef", N_DOG, [150.0, 50.0, 0.0], None),
         placed(b"ACHR", R_COMPANION, "CompanionRef", N_COMPANION, [250.0, 50.0, 0.0], None),
         placed(b"ACHR", R_LONER, "LonerRef", N_LONER, [350.0, 50.0, 0.0], None),
+        placed(b"ACHR", R_SHOOTER, "ShooterRef", N_SHOOTER, START, None),
     ]
     .concat();
     let b_refs = placed(b"REFR", MARK_B, "MarkB", STAT, [5250.0, 5250.0, 50.0], None);
@@ -1298,4 +1321,74 @@ fn an_actor_walking_into_the_loaded_area_is_moved_every_frame() {
     // Into the loaded area: the high process.
     assert!(s.ai.set_level(&s.game, actor, fnv_ai::ProcessLevel::High));
     assert_eq!((s.ai.level(actor), s.ai.process_counts()), (fnv_ai::ProcessLevel::High, (1, 0)));
+}
+
+/// A Use Weapon package (`fnv_game::use_weapon`): the actor walks to the package's
+/// location and turns to its target; there its shooting begins, and the package's goal
+/// is met only once its shots are spent.
+#[test]
+fn a_use_weapon_package_stands_at_its_place_and_meets_its_goal_when_its_shots_are_spent() {
+    use fnv_game::use_weapon::{After, Source};
+    let f = fixture();
+    assert!(f.data.issues.is_empty(), "{:?}", f.data.issues.to_json());
+    let mut s = sim(&f, &[R_SHOOTER]);
+    s.run(15.0);
+    let actor = FormId(R_SHOOTER);
+    let ev = s.events(R_SHOOTER);
+    assert!(matches!(ev[1], AiEvent::Trip { .. }), "{ev:?}");
+    assert!(matches!(ev[2], AiEvent::Arrived { .. }), "{ev:?}");
+    assert_eq!(s.ai.agents[&actor].activity, Activity::There);
+    assert!(dist(s.feet(R_SHOOTER), [350.0, 350.0, 0.0]) < 40.0);
+    let w = s.game.weapon_use(actor).expect("a weapon use").clone();
+    assert_eq!(w.source, Source::Package(FormId(P_SHOOT)));
+    assert_eq!((w.target, w.weapon, w.volleys, w.shots_per_volley, w.pause), (FormId(R_LONER), None, Some(2), [1, 1], Some([0.5, 0.5])));
+    assert!(w.always_hit && w.no_damage && !w.crouch_to_reload && !w.hold_fire_when_blocked);
+    assert!(w.in_place);
+    // Not met on arriving: the shots are still to come.
+    assert!(!s.game.extra[&actor].package_goal_met);
+    // It faces its target, the loner south of it.
+    let feet = s.feet(R_SHOOTER);
+    let want = fnv_nav::follow::heading_of([350.0 - feet[0], 50.0 - feet[1]]);
+    let have = s.ai.agents[&actor].walker.heading;
+    assert!((want - have).sin().abs() < 0.05 && (want - have).cos() > 0.0, "heading {have}, want {want}");
+    // Two volleys of a shot each; spent, the goal is met and the use stays, done.
+    let u = s.game.weapon_uses.get_mut(&actor).unwrap();
+    assert_eq!(u.shot(0.3), After::Pause(0.5));
+    assert_eq!(u.shot(0.3), After::Done);
+    s.game.end_weapon_use(actor);
+    assert!(s.game.extra[&actor].package_goal_met);
+    assert!(s.game.weapon_use(actor).is_some_and(|w| w.done));
+    assert!(s.game.active_weapon_use(actor).is_none());
+}
+
+/// The UseWeapon function (`fnv_game::use_weapon`): the actor walks to where it is to
+/// stand, and once the use is over goes back to its package.
+#[test]
+fn use_weapon_sends_the_actor_to_its_place_and_back_to_its_package_after() {
+    use fnv_script::vm::{ArgValue, Value};
+    let f = fixture();
+    let mut s = sim(&f, &[R_LONER]);
+    s.run(1.0);
+    let actor = FormId(R_LONER);
+    let opcode = s.game.data.table.by_name("UseWeapon").unwrap();
+    let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode, on: Some(actor), self_ref: Some(actor), action_ref: None, quest: None, inst: None, in_condition: false };
+    let r = |x: u32| ArgValue::Value(Value::Ref(x));
+    let n = |x: f64| ArgValue::Value(Value::Num(x));
+    s.game.call_function(&ctx, &[r(STAT), r(MARK_A), r(R_HERE), n(4.0), n(1.0), n(0.0), n(1.0)]);
+    let w = s.game.weapon_use(actor).expect("a weapon use").clone();
+    assert_eq!((w.stand, w.target, w.volleys, w.shots_per_volley), (Some(FormId(MARK_A)), FormId(R_HERE), Some(1), [4, 4]));
+    // The defaults of the arguments left out: crouch to reload and hold fire on unless
+    // given, no damage off [documented: GECK wiki UseWeapon].
+    assert!(w.crouch_to_reload && !w.hold_fire_when_blocked && w.always_hit && !w.no_damage && w.target_here.is_none());
+    s.run(10.0);
+    let ev = s.events(R_LONER);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::WeaponUse { target, length } if target.0 == R_HERE && *length > 250.0)), "{ev:?}");
+    assert!(dist(s.feet(R_LONER), [350.0, 350.0, 0.0]) < 40.0);
+    assert!(s.game.weapon_use(actor).unwrap().in_place);
+    // Over: it goes back to where it was placed (it has no package).
+    s.game.end_weapon_use(actor);
+    assert!(s.game.weapon_use(actor).is_none());
+    s.run(10.0);
+    let ev = s.events(R_LONER);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::WeaponUseOver)), "{ev:?}");
 }

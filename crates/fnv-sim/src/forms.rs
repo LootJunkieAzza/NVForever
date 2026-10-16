@@ -86,6 +86,11 @@ pub struct Item {
     /// (docs/spec-notes/actor-behaviour.md §2.1). Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub armor_class: ArmorClass,
+    /// ARMO DNAM "DR", damage resistance in percent (the record stores it × 100
+    /// [documented: xEdit wbDefinitionsFNV.pas, wbDiv(100)]). `None` for other items. Not
+    /// part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub armor_dr: Option<f32>,
     /// The record header's "Quest Item" flag, as `schemas/fnv` names it per record type
     /// (`header_flags`; bit 10 [documented: xEdit wbDefinitionsFNV.pas for WEAP, ARMO,
     /// ALCH, BOOK, KEYM, MISC, LIGH; GECK wiki IsQuestItem and GetFormFlag for AMMO and
@@ -405,6 +410,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         health: None,
                         non_playable: false,
                         armor_class: ArmorClass::Light,
+                        armor_dr: None,
                         quest_item: quest_flag(schema, r),
                         icon: None,
                         placed_count: None,
@@ -554,6 +560,10 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         kind,
         non_playable,
         armor_class,
+        armor_dr: match kind {
+            ItemKind::Armor => first(d, b"DNAM").and_then(|v| int(v, "dr")).map(|dr| dr as f32 / 100.0),
+            _ => None,
+        },
         quest_item: false, // from the record header, set by the caller
         value: value.map(|v| v as i32),
         weight: weight.map(|w| w as f32).filter(|w| w.is_finite()),

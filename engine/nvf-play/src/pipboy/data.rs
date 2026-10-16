@@ -265,6 +265,9 @@ pub struct DataState {
     drag_from: Option<Vec2>,
     /// The Local Map's outline of the place, as far as it is made.
     outline: Option<Outline>,
+    /// The landscape heights of the cells the outline read (by grid square; `None` for a
+    /// square without land), kept while one outline is made.
+    outline_land: HashMap<(i32, i32), Option<Vec<f32>>>,
     /// How many markers the world map showed when last logged.
     world_logged: Option<usize>,
 }
@@ -960,8 +963,9 @@ const OUTLINE_BUDGET: std::time::Duration = std::time::Duration::from_millis(6);
 const OUTLINE_BATCH: usize = 256;
 
 /// Make the Local Map's outline of the place (a grid of rays down through the physics
-/// world, [`outline`]) a few hundred rays a frame, and its picture when it is done; a new
-/// one when the map is panned off it or the player is elsewhere.
+/// world, [`outline`]; outdoors a ray landing nowhere takes the cell's landscape height)
+/// a few hundred rays a frame, and its picture when it is done; a new one when the map is
+/// panned off it or the player is elsewhere.
 fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Image>) {
     let (Some(loc), Some(player)) = (game.location.as_ref(), game.player.as_ref()) else { return };
     let (interior, world, feet) = (loc.interior, loc.world, player.feet);
@@ -970,8 +974,21 @@ fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Imag
     let key = Outline::key_for(interior, world, centre, feet[2], MAP.size(), scale);
     if st.outline.as_ref().is_none_or(|o| o.key != key) {
         st.outline = Some(Outline::new(interior, world, centre, feet[2], MAP.size(), scale));
+        st.outline_land.clear();
     }
     let Some(o) = st.outline.as_mut().filter(|o| !o.done()) else { return };
+    let lands = &mut st.outline_land;
+    let data = game.world.as_ref().filter(|_| interior.is_none()).map(|w| (w.lo, w.schema, w.index));
+    let grid = data.and_then(|(_, _, index)| index.worldspaces.get(&world)).map(|ws| &ws.grid);
+    let mut ground = |x: f32, y: f32| -> Option<f32> {
+        let ((lo, schema, index), grid) = (data?, grid?);
+        let g = ((x / model::CELL).floor() as i32, (y / model::CELL).floor() as i32);
+        let heights = lands.entry(g).or_insert_with(|| {
+            let land = index.cells.get(grid.get(&g)?)?.land?;
+            fnv_world::land::load_land(lo, schema, land, fnv_world::land::LandParts::HEIGHTS)?.heights
+        });
+        fnv_phys::terrain::height_at(heights.as_ref()?, x - g.0 as f32 * model::CELL, y - g.1 as f32 * model::CELL)
+    };
     let Some(phys) = game.phys.as_mut() else { return };
     let player_key = phys.player.as_ref().map(|c| c.key());
     phys.world.update_queries();
@@ -980,7 +997,7 @@ fn advance_outline(st: &mut DataState, game: &mut Game, images: &mut Assets<Imag
     filter.exclude.extend(player_key);
     let started = std::time::Instant::now();
     while !o.done() && started.elapsed() < OUTLINE_BUDGET {
-        o.advance(OUTLINE_BATCH, |p, reach| q.ray(p, [0.0, 0.0, -1.0], reach, &filter).map(|h| h.point[2]));
+        o.advance(OUTLINE_BATCH, |p, reach| q.ray(p, [0.0, 0.0, -1.0], reach, &filter).map(|h| h.point[2]).or_else(|| ground(p[0], p[1])));
     }
     if o.done() {
         o.image = Some(images.add(o.picture()));

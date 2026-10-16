@@ -13,6 +13,7 @@
 
 pub mod activate;
 pub mod aid;
+pub mod aim_zoom;
 pub mod ambient;
 pub mod audio_out;
 pub mod bindings;
@@ -38,6 +39,7 @@ pub mod furniture;
 pub mod hitvol;
 pub mod interface;
 pub mod intro;
+pub mod levelup;
 pub mod hud;
 pub mod hud_target;
 pub mod loading;
@@ -258,12 +260,14 @@ impl Plugin for PlayPlugin {
             .add_plugins((world_sounds::WorldSoundsPlugin, reticle::ReticlePlugin))
             .add_plugins(ui_sounds::UiSoundsPlugin)
             .add_plugins(chargen::ChargenPlugin)
+            .add_plugins(levelup::LevelUpPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin))
             .add_plugins(console::ConsolePlugin)
             .add_plugins(free_cam::FreeCamPlugin)
+            .add_plugins(aim_zoom::AimZoomPlugin)
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)
             .add_plugins(intro::IntroPlugin)
@@ -271,6 +275,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(crafting::CraftingPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin);
         test_aid::setup(app);
+        settings::setup(app);
     }
 }
 
