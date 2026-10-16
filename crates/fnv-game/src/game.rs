@@ -433,6 +433,9 @@ pub struct PlayerState {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub perks: BTreeMap<FormId, u8>,
+    /// Perks given to the player's teammates (AddPerk with forTeammates).
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub teammate_perks: BTreeSet<FormId>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub notes: BTreeSet<FormId>,
     /// Infamy (index 0) and fame (index 1) per reputation, as GetReputation's axis.

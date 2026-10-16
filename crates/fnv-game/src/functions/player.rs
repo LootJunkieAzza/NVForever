@@ -11,23 +11,40 @@ pub fn reward_xp(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 }
 
 /// Perks are kept for the player only; other actors have none [hypothesis: NPC perk
-/// lists are not read yet].
+/// lists are not read yet]. On the player, a non-zero forTeammates (the second
+/// parameter) asks about, gives or takes the perk of the player's teammates instead
+/// [documented: GECK wiki AddPerk and HasPerk]; teammates' perks are kept, their effects
+/// are not applied yet.
 pub fn has_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
-    yes(r == FormId::PLAYER_REF && g.player.perks.contains_key(&a.form(0)?))
+    let perk = a.form(0)?;
+    if a.num_or(1, 0.0) != 0.0 {
+        return yes(r == FormId::PLAYER_REF && g.player.teammate_perks.contains(&perk));
+    }
+    yes(r == FormId::PLAYER_REF && g.player.perks.contains_key(&perk))
 }
 
 pub fn add_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if ctx.subject_or_player() != FormId::PLAYER_REF {
         return Err("perks of actors other than the player are not modelled".into());
     }
-    crate::perks::gain_rank(g, a.form(0)?);
+    let perk = a.form(0)?;
+    if a.num_or(1, 0.0) != 0.0 {
+        g.player.teammate_perks.insert(perk);
+    } else {
+        crate::perks::gain_rank(g, perk);
+    }
     none()
 }
 
 pub fn remove_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if ctx.subject_or_player() == FormId::PLAYER_REF {
-        g.player.perks.remove(&a.form(0)?);
+        let perk = a.form(0)?;
+        if a.num_or(1, 0.0) != 0.0 {
+            g.player.teammate_perks.remove(&perk);
+        } else {
+            g.player.perks.remove(&perk);
+        }
     }
     none()
 }

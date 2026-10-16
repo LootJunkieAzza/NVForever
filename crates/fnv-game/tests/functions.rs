@@ -991,6 +991,12 @@ fn script_function_audit_fixes() {
     g.set_anim_action(adult, Some(0));
     assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), 0.0);
     g.set_anim_action(adult, None);
+    // Perks for the player's teammates are their own list.
+    call(&mut g, 0x1176, None, &[r(MISC), n(1.0)]);
+    assert_eq!(call(&mut g, 0x11C1, None, &[r(MISC), n(1.0)]), 1.0);
+    assert_eq!(call(&mut g, 0x11C1, None, &[r(MISC)]), 0.0);
+    call(&mut g, 0x11A8, None, &[r(MISC), n(1.0)]);
+    assert_eq!(call(&mut g, 0x11C1, None, &[r(MISC), n(1.0)]), 0.0);
     // A note added as an item: GetHasNote 1, GetItemCount 0; RemoveNote takes it.
     call(&mut g, 0x1002, Some(PLAYER), &[r(NOTE), n(1.0)]);
     assert_eq!(call(&mut g, 0x117E, None, &[r(NOTE)]), 1.0);
