@@ -318,7 +318,7 @@ fn view(g: &Game, sim: &SimState) -> Option<MenuView> {
     }
     let speaker = speaker_name(g, sim, c.actor);
     if c.line.is_some() || c.choices.is_empty() {
-        return Some(MenuView { speaker, line: response_text(g), choices: Vec::new() });
+        return Some(MenuView { speaker, line: response_text(g), choices: Vec::new(), goodbye: false });
     }
     let choices = c
         .choices
@@ -330,7 +330,8 @@ fn view(g: &Game, sim: &SimState) -> Option<MenuView> {
             ChoiceRow { label: row_label(g.choice_text(ch), &fallback, tag), darkened: ch.darkened, short }
         })
         .collect();
-    Some(MenuView { speaker, line: None, choices })
+    let goodbye = c.choices.iter().any(|ch| ch.goodbye);
+    Some(MenuView { speaker, line: None, choices, goodbye })
 }
 
 // ---- the log ----------------------------------------------------------------------------
