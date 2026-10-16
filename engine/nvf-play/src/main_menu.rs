@@ -37,7 +37,8 @@
 //! box round the chosen one; the pointer coming onto an entry and the keys moving the
 //! choice play `UIMenuFocus`, taking one `UIMenuOK` [observed: list_box_template.xml
 //! `mouseoversound`, `clicksound`]. While a page of the pause menu is up (Load Game,
-//! Settings) the pause menu draws the column itself, dimmed but for that page's entry.
+//! Settings) the pause menu draws the column itself, dimmed but for that page's entry; a
+//! click on that entry again closes the page [owner 2026-10-16].
 //!
 //! Keys: Up/Down (W/S) choose, Enter or Space take; the pointer chooses, a click takes.
 //! Test aid `NVF_PLAY_TEST_MAIN_MENU=<seconds>:<action>[,…]` (`up`, `down`, `pick`, or an

@@ -192,7 +192,7 @@ const PIPBOY_BLUR: f32 = 3.5;
 const PIPBOY_SHARP: f32 = 40.0;
 
 /// Copy the sky's grade, with the modifiers on the screen, onto every graded camera.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn update_grade(
     time: Res<Time>,
     sky: Res<SkyState>,
@@ -201,7 +201,7 @@ fn update_grade(
     new_game: Option<Res<nvf_play::script::NewGame>>,
     wait: Option<Res<nvf_play::wait::WaitMenu>>,
     sleep: Option<Res<nvf_play::wait::SleepFade>>,
-    (pip, projections): (Option<Res<nvf_play::pipboy::PipBoy>>, Query<&Projection, With<nvf_play::PlayerCamera>>),
+    (pip, projections, death): (Option<Res<nvf_play::pipboy::PipBoy>>, Query<&Projection, With<nvf_play::PlayerCamera>>, Option<Res<crate::death_cam::DeathCam>>),
     mut mods: ResMut<ScreenModifiers>,
     mut grades: Query<&mut ImageSpaceGrade>,
 ) {
@@ -253,7 +253,8 @@ fn update_grade(
         contrast_avg_lum: c.contrast_avg_lum,
         brightness: c.brightness,
         // The world behind the wait menu is blurred (docs/spec-notes/wait-menu.md §2).
-        blur: effect.blur_radius.max(if wait.is_some_and(|w| w.is_open()) { WAIT_MENU_BLUR } else { 0.0 }).max(pip_blur),
+        // The dying player's view blurs (`death_cam.rs`).
+        blur: effect.blur_radius.max(if wait.is_some_and(|w| w.is_open()) { WAIT_MENU_BLUR } else { 0.0 }).max(pip_blur).max(death.map_or(0.0, |d| d.blur())),
         time: now,
         sharp,
     };

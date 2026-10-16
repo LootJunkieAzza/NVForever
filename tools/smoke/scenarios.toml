@@ -540,6 +540,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-lines"
+source = "owner request 2026-10-16: Combat-tab lines (Hit, Attack, PowerAttack, Death …) and effort sounds, docs/spec-notes/combat-dialogue.md"
+note = "the two Goodsprings dogs attack the player (no god mode); the player draws a lead pipe, holds Use 1.5 s at the nearest dog from 6 s (a power attack), then swings once more; the dogs and Violetta kill the player at about 10 s (its Death line)"
+areas = ["combat", "dialogue"]
+paths = ["crates/fnv-game/src/combat_lines.rs", "crates/fnv-game/src/combat.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/combat.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'combat line: \S+ says PowerAttack line', label = "the player says a PowerAttack line" },
+  { re = 'combat line: \S+ says Hit line', label = "someone says a Hit line" },
+  { re = 'combat line: \S+ says Death line', label = "the player's Death line" },
+  { re = 'combat lines: (?P<n>\d+) said', range = [2, 10000], label = "at least two combat lines in the summary" },
+]
+
+[[scenario]]
 name = "combat-sights"
 source = "playtest list 2026-10-11 items 32-33 (docs/design/combat-ai.md §10.6): NPCs aim down the sights beyond 20 m (1,400 units) and walk while aiming, fire from the hip nearer"
 note = "Violet (0x000F570B, placed at -46910,64897) stops about 1,600 units from the player, beyond 20 m: down the sights; at 38 s the player is put about 1,000 units from her: from the hip"
@@ -783,7 +799,39 @@ expect = [
   { re = 'furniture:.*by clip SpecialIdle_DocSitLeftExit', label = "Doc Mitchell getting off his chair by clip SpecialIdle_DocSitLeftExit" },
   # playtest list 5 item 40: that clip's Bip01 starts 52 units beside the seat; it is played from the seat.
   { re = 'furniture: 00104C0F: SpecialIdle_DocSitLeftExit starts (?P<n>\d+) units from where the body sits: played from the seat', range = [40, 100], label = "Doc Mitchell's exit played from his seat" },
+  { text = "pointer: hidden (an idle drives the view)", label = "no mouse pointer while the wake-up drives the view (owner 2026-10-16)" },
 ]
+
+[[scenario]]
+name = "idles-opening-own-body"
+source = "owner report 2026-10-16: with the body in first person on, the wake-up showed the player's own body standing over the view (docs/design/player-body.md §1.5)"
+areas = ["idles", "player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--new-game", "--no-voice", "--first-person-body"]
+run_seconds = 90
+expect = [
+  "player view: driven by an idle's camera node; mouse look and movement ignored",
+  "player body: not drawn while the idle drives the view in first person",
+  "player body: drawn again in first person",
+]
+order = [["player body: not drawn while the idle drives the view in first person", "player body: drawn again in first person"]]
+
+[[scenario]]
+name = "rorschach-cards"
+source = "SwapTexture (playtest list 5 item 38; docs/design/script-stubs.md §4): Doc Mitchell's lines put the psych test's cards on TempRorschachTest01REF behind him; the line that enables the card shows card 1, an inkblot answer's line swaps in the inkblot"
+areas = ["scripts", "rendering"]
+paths = ["engine/nvforever/src/texture_swap.rs", "engine/nvf-play/src/script_draw.rs", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_SCRIPT = "3:info:0x00105599,6:info:0x00105575,9:info:0x0010559D" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 14
+order = [[
+  'reference 0x001084B0 drawn (enabled at run time): meshes\clutter\rorchachtest\pipboycard01.nif',
+  'SwapTexture: reference 001084B0 shape pipboycard01:0: textures\clutter\rorchachtest\pipboycard01.dds',
+  'SwapTexture: reference 001084B0 shape pipboycard01:0: textures\clutter\rorchachtest\inkblot01.dds',
+  'SwapTexture: reference 001084B0 shape pipboycard01:0: textures\clutter\rorchachtest\inkblot02.dds',
+]]
+expect = [{ re = 'SwapTexture: .* not found', count = 0, label = "no swapped texture missing" }]
 
 # ------------------------------------------------------------------ messages and menus
 
@@ -1455,7 +1503,7 @@ name = "script-stubs"
 kind = "tool"
 source = "docs/design/script-stubs.md §1-§2: the audit of the stubbed script functions over the ten masters"
 areas = ["scripts", "stubs"]
-paths = ["crates/fnv-game/src/functions/mod.rs", "crates/fnv-game/src/functions/stubs.rs", "crates/fnvtool/src/script_cmd.rs"]
+paths = ["crates/fnv-game/src/functions/mod.rs", "crates/fnv-game/src/functions/stubs.rs", "crates/fnv-game/src/functions/fighting.rs", "crates/fnvtool/src/script_cmd.rs"]
 commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"]]
 # The counts of script-stubs.md §1 (a function implemented later lowers them: update the
 # doc's tables and these together). Karma and crime (claude/karma-crime) implemented six
@@ -1467,17 +1515,22 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # GetXPForNextLevel (§3.2). Then four more (§3.3, §3.4): the followers' OpenTeammateContainer
 # (26 calls, the last stub assigned to H, so no "H followers" row is left), Autosave (74 calls),
 # the crafting ShowRecipeMenu (15 calls, PR #292) and claude/l5-render-fx's SwapTexture (383
-# calls): 81 → 77 stubs, 1,418 → 920 calls, condition uses unchanged.
+# calls): 81 → 77 stubs, 1,418 → 920 calls, condition uses unchanged. Effect shaders
+# (claude/effect-shaders, §3.6) implemented five more (PlayMagicShaderVisuals,
+# StopMagicShaderVisuals, SetActorAlpha, SetSecuritronExpression, Reset3DState: 460 calls,
+# no condition uses): 76 → 71 stubs, 917 → 457 calls.
+# The combat round (§3.7) implemented eleven of the fifteen stubs assigned to E2 combat AI
+# (144 calls, 132 condition uses) and moved the other four to "needs a system", so no
+# "E2 combat AI" row is left: 71 → 60 stubs, 457 → 313 calls, 614 → 482 condition uses.
 expect = [
-  { json = "summary.stubs", equals = 76 },
-  { json = "summary.by_status.assigned", equals = 16 },
+  { json = "summary.stubs", equals = 60 },
+  { json = "summary.by_status.assigned", equals = 1 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 59 },
+  { json = "summary.by_status.needs_system", equals = 58 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.by_workstream.E2 combat AI", equals = 15 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 917 },
-  { json = "summary.stub_condition_uses", equals = 614 },
+  { json = "summary.stub_calls", equals = 313 },
+  { json = "summary.stub_condition_uses", equals = 482 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
 
@@ -1525,6 +1578,41 @@ order = [[
   "time multiplier: 0.5 -> 1 (SetGlobalTimeMultiplier)",
   "script: test aid calls ShowAllMapMarkers",
   { re = 'pipboy data: world map shows (\d+) of \d+ markers', range = [100, 100000], label = "pipboy data: the world map shows the markers (100 or more)" },
+]]
+
+[[scenario]]
+name = "effect-shaders"
+source = "docs/spec-notes/effect-shaders.md: PlayMagicShaderVisuals draws NightkinCloakFXShader on Sunny until StopMagicShaderVisuals and effectAlienDisintegration for 2 s, which ends by itself; SetActorAlpha 0.5 and back to 1 (the test aid call:); frames at 9 s (shaders) and 14 s (alpha) in target/smoke"
+areas = ["scripts", "effect-shaders"]
+paths = [
+  "engine/nvforever/src/effect_shaders.rs", "crates/fnv-world/src/effect_shader.rs", "schemas/fnv/effects.json",
+  "engine/nvforever/src/texture_swap.rs", "engine/nvforever/src/object_anims.rs", "crates/fnv-game/src/functions/misc.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_PLAY_TEST_SCRIPT = "6:call:SunnyRef:PlayMagicShaderVisuals:0x0007EA60,7:call:SunnyRef:PlayMagicShaderVisuals:0x0005C6C0:2,12:call:SunnyRef:SetActorAlpha:0.5,16:call:SunnyRef:SetActorAlpha:1,18:call:SunnyRef:StopMagicShaderVisuals:0x0007EA60", NVF_PLAY_TEST_SHOTS = "9:effect_shaders.png,14:actor_alpha.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+order = [[
+  { re = 'effect shader: NightkinCloakFXShader on .* \(fill and edge, until stopped\)', label = "effect shader: the cloak on Sunny until stopped" },
+  { re = 'effect shader: NightkinCloakFXShader covers (\d+) meshes', range = [3, 100], label = "effect shader: the cloak covers Sunny's meshes" },
+  { re = 'effect shader: effectAlienDisintegration on .* \(fill and edge, for 2\.0 s\)', label = "effect shader: the alien disintegration glow for 2 s" },
+  { re = 'effect shader: effectAlienDisintegration on .* ends \(its time is up\)', label = "effect shader: the alien disintegration glow ends by itself" },
+  { re = 'actor alpha: .* 0\.50 \((\d+) meshes\)', range = [3, 100], label = "actor alpha: Sunny at 0.5" },
+  { re = 'actor alpha: .* 1\.00 \(\d+ meshes\)', label = "actor alpha: Sunny back to 1" },
+  { re = 'effect shader: NightkinCloakFXShader on .* ends \(stopped\)', label = "effect shader: the cloak stopped" },
+]]
+expect = ["effect shaders summary: 2 played, 2 ended"]
+
+[[scenario]]
+name = "securitron-expression"
+source = "docs/spec-notes/effect-shaders.md §5: SetSecuritronExpression puts victor_alert.dds on the screen (Screen01:0) of a street Securitron by the Strip's north gate (VStreetSecuritron 0x0013BB1F, the test aid call:); frames before (7 s) and after (11 s) in target/smoke"
+areas = ["scripts", "effect-shaders"]
+paths = ["engine/nvforever/src/texture_swap.rs", "engine/nvf-assets/src/actor.rs", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:0013BB1F", NVF_PLAY_TEST_SCRIPT = '8:call:-:SetSecuritronExpression:0x0013BB1F:"Victor":"Alert"', NVF_PLAY_TEST_SHOTS = "7:securitron_before.png,11:securitron_after.png" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=-112,3100,1030", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+order = [[
+  "script: test aid calls SetSecuritronExpression",
+  { re = 'SwapTexture: reference 0013BB1F shape screen01:0: textures.creatures.securitron.victor_alert\.dds', label = "SwapTexture: victor_alert.dds on the Securitron's screen" },
 ]]
 
 # ------------------------------------------------------------------ aid items (docs/spec-notes/aid-items.md)
@@ -1798,6 +1886,20 @@ expect = [
   { re = 'combat group: (FiendCookCookRef|LvlFiend).* alarms LvlFiend.* about ', label = "a Fiend alarms the camp" },
 ]
 forbid = [{ re = 'combat group: (LvlNCR|NCRTrooper)\S* 0x\S+ alarms (FiendCookCookRef|LvlFiend)', label = "an NCR trooper alarms a Fiend" }]
+
+[[scenario]]
+name = "cook-cook-flamer"
+source = "owner's playtest 2026-10-16: Cook-Cook's flamer jittered as if it had recoil (its looping attack clip started again at every shot) and his left hand missed the gun (the Weapon node back at its bind pose; animation.md §9.7, §9.8)"
+note = "the player is put 100 units in front of Cook-Cook (FiendCookCookRef 000F5704) at 5 s, god mode; he fires his flamer at the player"
+areas = ["combat", "animation"]
+paths = ["engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/weapons.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_FACE = "5:000F5704" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'attack anims: 000F5704 plays \S*2hhattackspin2?\.kf', label = "Cook-Cook fires with the 2hh spin clip" },
+  { re = 'attack anims summary: .* (?P<n>\d+) shots went on with a looping clip', range = [3, 1000000], label = "shots go on with the looping clip instead of starting it again" },
+]
 
 [[scenario]]
 name = "combat-flee"
@@ -2240,13 +2342,14 @@ expect = [
   "main menu: New Game",
   "main menu: closed, the intro film plays",
   { re = 'intro: playing .*FNVIntro\.bik \(1280x720, \d+ frames\)', label = "the intro film plays" },
+  { text = "pointer: hidden (the intro film)", label = "no mouse pointer over the intro film (owner 2026-10-16)" },
   "intro: screenshot intro.png",
   { re = 'intro: skipped at 8\.\d s', label = "skipped (test aid) after 8 s" },
   "intro: the opening begins",
   "new game: VCG00 started at stage 0",
   "main menu: theme faded out",
 ]
-order = [["main menu: Settings", "main menu: New Game", "intro: the opening begins", "new game: VCG00 started at stage 0"]]
+order = [["main menu: Settings", "main menu: New Game", "pointer: hidden (the intro film)", "intro: the opening begins", "new game: VCG00 started at stage 0"]]
 
 [[scenario]]
 name = "menus-look"
@@ -2516,3 +2619,86 @@ order = [[
   { re = 'creature stance: LvlFeralGhoul 000CE9E7 Unequipping' },
   { re = 'creature stance: LvlFeralGhoul 000CE9E7 Holstered' },
 ]]
+
+[[scenario]]
+name = "settings-write"
+source = "owner 2026-10-16: every settings switch is kept in NVForever.ini, so a start or a save's load does not reset it; the first half of the round trip (settings-read starts in the same home), run them together"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs", "crates/fnv-install/src/lib.rs"]
+env = { NVFOREVER_HOME = "settings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:page,13:hit-markers", NVF_PLAY_TEST_PAUSE_MENU = "12:defaults" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 18
+expect = [
+  { text = "pause menu: settings back to their defaults", label = "Defaults puts back the command line's switches (what an earlier run stored is undone)" },
+  { text = "settings: hit-markers on", label = "the switch is flipped" },
+]
+order = [["pause menu: settings back to their defaults", "settings: hit-markers on"]]
+
+[[scenario]]
+name = "settings-read"
+source = "owner 2026-10-16: the second half of the settings round trip: a new start in settings-write's home takes the switch it flipped from NVForever.ini"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/settings.rs", "crates/fnv-install/src/lib.rs"]
+env = { NVFOREVER_HOME = "settings-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 12
+expect = [
+  { re = 'settings: \d+ of \d+ switch\(es\) read from .*NVForever\.ini, \d+ changed: (.*, )?hit-markers on', label = "the stored switch is set at the start" },
+]
+
+[[scenario]]
+name = "death-cam-first"
+source = "owner 2026-10-16: when the player dies the body drops as a ragdoll with the first-person view fixed to its head, in slow motion and blurred (engine/nvforever/src/death_cam.rs)"
+areas = ["combat", "camera"]
+paths = ["engine/nvforever/src/death_cam.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/imagespace.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:player.killactor;11:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 22
+expect = [
+  "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
+  "player controls: all held, the player is dead",
+  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
+  "death camera: 1 death(s) shown, the player dead at exit",
+]
+
+[[scenario]]
+name = "death-cam-third"
+source = "owner 2026-10-16: in third person the camera stays on the player's body as it drops, in slow motion and blurred (engine/nvforever/src/death_cam.rs)"
+areas = ["combat", "camera"]
+paths = ["engine/nvforever/src/death_cam.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONTROL = "8:view", NVF_PLAY_TEST_CONSOLE = "10:player.killactor;11:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 22
+expect = [
+  "death camera: the player died in third person: the body drops as a ragdoll, the camera stays on it",
+  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
+]
+
+[[scenario]]
+name = "aim-zoom"
+source = "owner's request 2026-10-16: aiming down the sights zooms the view to the weapon's WEAP Sight FOV (engine/nvf-play/src/aim_zoom.rs; the Varmint Rifle zooms further than the Sturdy Caravan Shotgun)"
+note = "the weapon drawn at 9 s, Block held from 12 s to 15 s; the zoom takes 0.25 s each way"
+areas = ["combat", "camera"]
+paths = ["engine/nvf-play/src/aim_zoom.rs", "engine/nvf-play/src/free_cam.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "9:weapon,12:aim,15:aim" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12"]
+run_seconds = 20
+expect = [
+  { re = 'aim zoom: \S+ \(\S+\) sight FOV (?P<n>[\d.]+)°', range = [1, 74.9], label = "aiming zooms in to the weapon's sight FOV" },
+  { re = 'aim zoom: back to the unzoomed view', label = "letting go of Block zooms back out" },
+]
+
+[[scenario]]
+name = "weapon-mount-bones"
+kind = "tool"
+source = "owner's playtest 2026-10-16 (Fiends held the baseball bat the wrong way round): the drawn bone is the equip clip's, docs/spec-notes/animation.md §9.10"
+areas = ["actors", "weapons"]
+paths = ["crates/fnv-actor/src/weapon.rs", "crates/fnvtool/src/actor_weapons.rs"]
+commands = [["actor", "weapons", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm"]]
+expect = [
+  { json = "stances.?prefix=2hm.drawn_bone", equals = "Bip01 R Hand", label = "two-handed melee drawn in the right hand, not the aim clip's left hand" },
+  { json = "stances.?prefix=2hm.holster_bone", equals = "Bip01 Spine2" },
+  { json = "stances.?prefix=1hm.drawn_bone", equals = "Bip01 R Hand" },
+  { json = "stances.?prefix=2hr.drawn_bone", equals = "Bip01 R Hand" },
+]
+manual = "on a failure, explain the change against docs/spec-notes/animation.md §9.10"

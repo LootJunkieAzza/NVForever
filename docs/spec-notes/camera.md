@@ -67,3 +67,19 @@ example a fixed horizontal angle regardless of aspect) is not ruled out. Test: c
 one camera at 16:10 (e.g. 1280 × 800) or 4:3 (1024 × 768); the rule predicts 85.3° and
 75° horizontal. The first-person weapon's separate FOV (`SetCameraFOV`'s second argument)
 is not covered: the frames show no weapon.
+
+## 4. Aiming down the sights
+
+- While a gun is aimed down the sights the view zooms in to the weapon's Sight FOV
+  (WEAP DNAM `sight_fov`, combat-data.md §1.1), the field of view down the sights; 0
+  "essentially disables iron sights" [documented: GECK wiki Weapons]. The zoom is per
+  weapon: the Varmint Rifle zooms in further than the Sturdy Caravan Shotgun [observed:
+  the owner's playtest, 2026-10-16; reference shots private].
+- The Sight FOV is read in the units of the FOV setting (§3: the horizontal angle at 4:3,
+  the vertical angle kept) [hypothesis]. Test: a reference shot down a weapon's sights
+  at 16:9, matched as in §2, should peak at the horizontal angle §3 gives for its Sight
+  FOV.
+- The zoom takes 0.25 s each way, eased at both ends [design: not captured]; both points
+  of view zoom [hypothesis]. Scoped weapons (Has Scope) use the same angle for now; their
+  scope overlay is not built.
+- Built in `engine/nvf-play/src/aim_zoom.rs`; smoke scenario `aim-zoom`.
