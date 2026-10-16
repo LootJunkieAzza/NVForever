@@ -497,7 +497,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10E8, "GetCombatTarget", Impl(crate::awareness::get_combat_target)),
         (0x1203, "IsCombatTarget", Impl(fighting::is_combat_target)),
         (0x11E2, "FireWeapon", Impl(fighting::fire_weapon)),
-        (0x119C, "UseWeapon", Stub("AI (scripted weapon use: a spot to stand on, a shot count, hold fire, always hit and no-damage shots; the combat AI fights only the hostiles it chose)")),
+        (0x119C, "UseWeapon", Impl(crate::use_weapon::use_weapon)),
         (0x103F, "GetAttacked", Impl(crate::provocation::get_attacked)),
         (0x1120, "GetFriendHit", Impl(crate::provocation::get_friend_hit)),
         (0x106B, "GetKnockedState", Impl(fighting::get_knocked_state)),

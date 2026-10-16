@@ -22,6 +22,8 @@ mod cell_resets;
 mod alert;
 mod anim_sounds;
 mod crash;
+mod creature_pace;
+mod creature_stance;
 mod death_cam;
 mod deaths;
 mod detection;
@@ -47,6 +49,7 @@ mod locomotion;
 mod combat_tactics;
 mod console_toggles;
 mod npc_combat;
+mod use_weapon;
 mod provoked;
 mod weapons;
 mod lodgen;
@@ -1078,12 +1081,18 @@ fn main() -> AppExit {
             app.add_plugins(detection::DetectionPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
+            // Alerted creatures raise their claws and hands (creature_stance.rs).
+            app.add_plugins(creature_stance::CreatureStancePlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
+            // Creatures' own speeds and alert stance (creature_pace.rs).
+            app.add_plugins(creature_pace::CreaturePacePlugin);
             // Heads held by a script's Look (script_look.rs).
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
+            // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).
+            app.add_plugins(use_weapon::UseWeaponPlugin);
             app.add_plugins(combat_tactics::CombatTacticsPlugin);
             // Fights started by hits; the player's yield (provoked.rs).
             app.add_plugins(provoked::ProvokedPlugin);
