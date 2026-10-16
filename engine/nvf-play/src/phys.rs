@@ -1139,6 +1139,10 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
         "physics streaming: {} cells loaded in {:.0} ms ({}), {} on the main thread for the player; longest streaming frame while playing {:.1} ms on the main thread; frames while playing {} (longest {:.1} ms, {} over 33 ms)",
         s.cells_loaded, s.load_ms, s.times, s.loaded_inline, s.worst_frame_ms, f.frames, f.worst_ms, f.over_33
     );
+    if let Some(c) = phys.player.as_ref() {
+        // Ledges climbed by the controller's own step-up (`fnv_phys` `step_up_move`).
+        info!("physics: the player stepped up {} times, feet at ({:.0}, {:.0}, {:.0})", c.stepped, c.feet[0], c.feet[1], c.feet[2]);
+    }
 }
 
 /// Move the keyframed bodies of the loaded doors to their animation's pose

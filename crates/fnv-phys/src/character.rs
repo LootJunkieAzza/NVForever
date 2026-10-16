@@ -32,6 +32,9 @@ pub struct CharacterParams {
     pub bottom_flat: f32,
     /// Highest ledge climbed without jumping [hypothesis].
     pub step_height: f32,
+    /// How much of a step's top the character needs ahead of it to step up, game units
+    /// (rapier's autostep `min_width`).
+    pub step_width: f32,
     /// Steepest walkable slope, degrees from horizontal; steeper slopes are slid down
     /// [hypothesis].
     pub max_slope_deg: f32,
@@ -84,6 +87,7 @@ impl Default for CharacterParams {
             bottom_slope: 1.58,
             bottom_flat: 3.2,
             step_height: 24.0,
+            step_width: 22.0,
             max_slope_deg: 45.0,
             jump_height: 61.6,
             skin: 0.5,
@@ -198,6 +202,8 @@ pub struct Character {
     /// included, as with a moving platform [observed: an actor walking past the standing
     /// player took it along at its own speed from 3.5 units away, rapier 0.36.0].)
     pub passes_characters: bool,
+    /// Steps climbed by [`step_up_move`] (a count for reports).
+    pub stepped: u32,
 }
 
 impl Character {
@@ -222,7 +228,7 @@ impl Character {
             slide: true,
             autostep: (p.step_height > 0.0).then_some(CharacterAutostep {
                 max_height: CharacterLength::Absolute(p.step_height * k),
-                min_width: CharacterLength::Absolute(p.radius * k),
+                min_width: CharacterLength::Absolute(p.step_width * k),
                 include_dynamic_bodies: false,
             }),
             max_slope_climb_angle: p.max_slope_deg.to_radians(),
@@ -291,6 +297,7 @@ impl PhysWorld {
             air_top_z: None,
             ground_gap: None,
             passes_characters: false,
+            stepped: 0,
         };
         let body =
             self.insert_body(RigidBodyBuilder::kinematic_position_based().translation(c.center(self.k)).user_data(owner.encode()));
@@ -450,8 +457,8 @@ impl PhysWorld {
                 desired = Vector::new(t.x, t.y, t.z + desired.z);
             }
         }
-        let kcc = c.controller(k);
         let pos = Pose::from_translation(c.center(k));
+        let kcc = c.controller(k);
         let mut collisions: Vec<CharacterCollision> = Vec::new();
         // Off walkable ground the vertical motion does not slide: a falling player that
         // meets a branch or an edge stays where it touched, at any steepness [observed:
@@ -532,6 +539,38 @@ impl PhysWorld {
             moved.translation += more.translation;
             moved.grounded = more.grounded;
             moved.is_sliding_down_slope = more.is_sliding_down_slope;
+        }
+        // Up a step the controller's own autostep refused (`step_up_move`).
+        let blocked = {
+            let want = Vector::new(horizontal[0], horizontal[1], 0.0) * k;
+            let got = Vector::new(moved.translation.x, moved.translation.y, 0.0);
+            want.length() > 1e-6 && got.dot(want) < STEP_BLOCKED * want.length_squared()
+        };
+        let may_step = !c.swimming && !jumping && c.vertical_speed <= 0.0 && (c.grounded || on_walkable) && c.params.step_height > 0.0;
+        if may_step && blocked && collisions.iter().any(|h| h.hit.normal1.z < walkable && h.hit.normal1.z > -walkable) {
+            let q = self.w.query_pipeline_with_filter(filter);
+            // Lifted by the headroom above the head, at most `step_height`: a doorway's
+            // lintel or a roof's edge leaves less.
+            let offset = c.gap.min(WALL_GAP).max(c.params.skin);
+            let opts = ShapeCastOptions {
+                max_time_of_impact: (c.params.step_height + offset) * k,
+                target_distance: offset * k,
+                stop_at_penetration: false,
+                compute_impact_geometry_on_penetration: true,
+            };
+            let lift = q
+                .cast_shape(&pos, Vector::Z, c.shape.as_ref(), opts)
+                .map_or(c.params.step_height, |(_, hit)| (hit.time_of_impact / k - STEP_UP_MARGIN).clamp(0.0, c.params.step_height));
+            let want = Vector::new(desired.x, desired.y, 0.0) * k;
+            if let Some((t, hits)) = (lift >= MIN_STEP_UP).then(|| step_up_move(&q, &kcc, c, &pos, want, lift, walkable, k, dt)).flatten() {
+                if t.x * want.x + t.y * want.y > moved.translation.x * want.x + moved.translation.y * want.y + 1e-3 * k {
+                    collisions = hits;
+                    touched_handles.extend(collisions.iter().map(|h| h.handle));
+                    moved.translation = t;
+                    moved.grounded = true;
+                    c.stepped += 1;
+                }
+            }
         }
         // Settle on the support: the feet rest its contact shell above it (`rest_gap`,
         // physics.md §6.2) on walkable ground, lifted when closer (landing, or after walking
@@ -693,6 +732,88 @@ const FLOAT_TOLERANCE: f32 = 0.01;
 /// 21.2 (§6.4.1) and the fence's 0.7 shell; that each obstacle's own shell is kept is
 /// [hypothesis], as is the terrain's 3.5 against terrain walls].
 const WALL_GAP: f32 = 0.7;
+
+/// Headroom kept above the head when a step is climbed under something, and the lowest
+/// step worth trying, game units [engineering choice].
+const STEP_UP_MARGIN: f32 = 0.1;
+const MIN_STEP_UP: f32 = 1.0;
+
+/// A step's horizontal motion counts as blocked below this share of what was asked
+/// [engineering choice].
+const STEP_BLOCKED: f32 = 0.9;
+
+/// How far ahead of the axis a step's top must be walkable for [`step_up_move`] to climb
+/// onto it, game units: the cone bottom first rests on the edge with the axis this far
+/// short of it at most (3.2 + 24 / 1.58 for the highest step) [engineering choice].
+const STEP_PROBE: f32 = 19.0;
+
+/// A step up that rapier's autostep refuses: its last check casts the shape down onto the
+/// step and refuses a steep contact normal, and the character's cone bottom (radius 3.2,
+/// rising 1.58 per unit, physics.md §6.4.1) meets a step's edge with its own face, 57.7°
+/// from level, whenever the flat tip is not yet over the step: so every ledge with a
+/// shallow top (the camper's door steps at the Powder Ganger camp, playtest list 5 item
+/// 17) needed a jump.
+///
+/// Here: lift the shape by `lift` (the headroom, at most `step_height`), move it by the
+/// horizontal `want` (sliding along walls), and put it down again onto what is below. It
+/// climbs only onto a walkable top: straight down from the axis, or from `STEP_PROBE`
+/// ahead of it (the cone resting on the edge, the tip short of the top), a walkable
+/// surface within a few units of where the feet came down; a steep slope rising less than
+/// a step per frame is not climbed so [hypothesis: the original climbs such ledges
+/// without a jump, the owner's playtest; its step height is not measured].
+/// Returns the translation (rapier units) and the contacts.
+#[allow(clippy::too_many_arguments)]
+fn step_up_move(
+    q: &rapier3d::pipeline::QueryPipeline,
+    kcc: &KinematicCharacterController,
+    c: &Character,
+    pos: &Pose,
+    want: Vector,
+    lift: f32,
+    walkable: f32,
+    k: f32,
+    dt: f32,
+) -> Option<(Vector, Vec<CharacterCollision>)> {
+    let flat = KinematicCharacterController { autostep: None, snap_to_ground: None, ..*kcc };
+    let up = Vector::Z * lift * k;
+    let lifted = Pose::from_translation(pos.translation + up);
+    let mut hits = Vec::new();
+    let h = flat.move_shape(dt, q, c.shape.as_ref(), &lifted, want, |hit| hits.push(hit));
+    let across = Vector::new(h.translation.x, h.translation.y, 0.0);
+    if across.length() < 1e-3 * k {
+        return None;
+    }
+    let ahead = Pose::from_translation(lifted.translation + across);
+    let opts = ShapeCastOptions { max_time_of_impact: (lift + TERRAIN_SHELL) * k, target_distance: 0.0, stop_at_penetration: false, compute_impact_geometry_on_penetration: true };
+    let (_, down) = q.cast_shape(&ahead, -Vector::Z, c.shape.as_ref(), opts)?;
+    let drop = down.time_of_impact;
+    // Higher than before: a step, not flat ground or a descent.
+    let rise = lift * k - drop;
+    if rise < 0.5 * k {
+        return None;
+    }
+    let feet = ahead.translation - Vector::Z * (drop + c.params.height / 2.0 * k);
+    let dir = across / across.length();
+    let top = |from: Vector| {
+        let ray = rapier3d::geometry::Ray::new(from + Vector::Z * (c.params.step_height * k), -Vector::Z);
+        q.cast_ray_and_get_normal(&ray, (c.params.step_height + STEP_TOP_BELOW) * k, true).filter(|(_, r)| r.normal.z >= walkable).map(|(_, r)| (from.z + c.params.step_height * k - r.time_of_impact) / k)
+    };
+    let feet_z = feet.z / k;
+    let on_top = [feet, feet + dir * (STEP_PROBE * k)].into_iter().any(|p| top(p).is_some_and(|z| z > feet_z - STEP_TOP_BELOW && z < feet_z + STEP_TOP_ABOVE));
+    if !on_top {
+        return None;
+    }
+    let lowered = Vector::new(across.x, across.y, lift * k - drop);
+    // The step's contacts, for pushing and the touched list.
+    Some((lowered, hits))
+}
+
+/// How far a step's top may lie below and above the feet set down on it (the cone
+/// resting on the edge holds the feet up to `STEP_TOP_BELOW` under the top), game units
+/// [engineering choice: the cone at the probe's distance is 1.58 × (19 − 3.2) = 25 above
+/// its tip].
+const STEP_TOP_BELOW: f32 = 4.0;
+const STEP_TOP_ABOVE: f32 = 26.0;
 
 /// How much farther than its gap a walkable support may be and still count as standing
 /// on it, game units [engineering choice: covers one step's gravity, 0.19 units, and the

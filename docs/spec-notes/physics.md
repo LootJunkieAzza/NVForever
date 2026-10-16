@@ -672,7 +672,7 @@ means someone at the game.
 | body radius | 22 | **[observed, §6.4.1]** from `mv_diag_fence_edge`: drops rested on the fence edge 22.6 off it (radius + 0.7 shell ≥ 22.6) and fell at 25.7; the game stops 21.45 from the fence face (`move_fence_stop`, face measured to 0.05), which would give 20.75: about 1.2 apart, not explained; the candidate now stops 22.7 from the face (keeping a static shell's 0.7 from walls, no longer the terrain's 3.5) |
 | bottom shape | cone: flat tip of radius 3.2, then rising 1.58 per unit to the radius | **[observed, §6.4.1]** fitted to 26 fence-edge drops from 50 and 200 units (RMS 2.9); the depth depends on the speed of the fall, which the model does not have |
 | capsule height | 128.9, with a top mirroring the bottom cone | **[observed, capture `pc_head`, 2026-10-09]** see "Capsule height" below; crouched: not captured |
-| step height | 24 | [hypothesis]; `move_porch_steps` exercises steps of Doc Mitchell's porch; the limit needs ledges of graded heights (design open, §6.3) |
+| step height | 24 | [hypothesis]; `move_porch_steps` exercises steps of Doc Mitchell's porch; the limit needs ledges of graded heights (design open, §6.3); steps with shallow tops are climbed by the controller's own step-up (§6.9) |
 | max slope | 45° | [hypothesis]; an unattended run up steep LAND squares is possible (design open, §6.3) |
 | jump apex | 61.6 | **[observed]** apex 61.6 above the standing feet, §6.3 (`fJumpHeightMin` reads 64) |
 | air control | gain 0.30 per 1/60 s towards the keys' velocity (full when a key was held at take-off or pressed within 4 steps after it, else 14.7 units/s); release decays with the same gain | **[observed]** `mv_air`, `mv_air2` (§6.4.1); `fJumpMoveMult` reads 0.30 |
@@ -2022,6 +2022,36 @@ stopped by nobody and pushes nobody; two walkers do not push each other (each st
 the other and slides round it; head on, the actors rely on the stuck rule); actors that are not residents
 (`--no-npc-packages`, the test aids) are never pushed; size and weight play no part;
 and a wide, low creature (a radscorpion) is narrower than it looks.
+
+### 6.9 Steps with shallow tops (playtest list 5 item 17, 2026-10-16)
+
+The owner ran up the door steps of the camper at the Powder Ganger camp south of
+Goodsprings (`Camper01`, 0x0010771A) in the game; here they needed a jump. Measured with
+`fnvtool phys cell --ray` [observed]: from the ground (6150) a 10-unit step with a top 24
+deep, then a 20-unit step onto the camper's floor (6182-6190), headroom about 150 inside.
+
+- **Cause** [observed: a debug trace of `move_character`]: rapier's autostep ends with a
+  check that casts the shape down onto the step and refuses a contact normal steeper than
+  the slope limit. The character's cone bottom (§6.4.1) meets a step's edge with its own
+  face, 57.7° from level, until the flat tip (radius 3.2) is over the top: at the first
+  contact the axis stands 3.2 + rise / 1.58 short of the edge (16 for a 20-unit step), so
+  with any `min_width` short of that plus the tip the check failed, and a longer one ran
+  into the next riser. Raising `step_height` changed nothing.
+- **Fix** (`fnv_phys::character::step_up_move`) [engineering choice]: when a step's
+  horizontal motion on the ground is blocked by a wall-like contact to under 90 % of what
+  was asked, the controller lifts the shape by the headroom above it (at most
+  `step_height`), moves it horizontally (sliding along walls), and puts it down on what is
+  below; it keeps this if the feet came down higher and further along than without it and
+  a walkable top lies within 4 below to 26 above the feet straight under the axis or 19
+  units ahead of it (the cone resting on the edge). A slope steeper than the limit is not
+  climbed so (its surface is not walkable), nor a wall higher than `step_height`.
+  rapier's autostep still runs first and is unchanged. `step_height` stays 24
+  [hypothesis]; `step_width` (the autostep's `min_width`, 22) became a parameter for
+  `phys walk` scripts.
+- **Checked**: `phys walk` north from (−53760…−53710, −24200) at run speed ends inside
+  the camper on its floor (before: stuck at (−53707, −24101) on the ground); the test
+  `character_climbs_shallow_steps_without_jumping`; the lab's `L4.phys.walk.*` 9/10 as on
+  main (`portal_wall` 5/6, the accepted residual); smoke scenario `camper-steps`.
 
 ## 7. CLI contract
 
