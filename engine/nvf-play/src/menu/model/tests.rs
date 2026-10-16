@@ -210,6 +210,8 @@ fn take_all_and_encumbrance() {
     let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
     let a = m.apply(&mut w, Command::TakeAll);
     assert!(a.changed);
+    // Taking everything closes the menu (owner, list 5 item 60).
+    assert!(a.close);
     assert_eq!(m.status.as_deref(), Some("Took everything (204 items)"));
     assert!(m.list(Side::Container).rows.is_empty());
     assert_eq!(count(&mut w, 0x14, CAPS), 205);
@@ -217,7 +219,7 @@ fn take_all_and_encumbrance() {
     assert_eq!((e.weight, e.over), (264.0, true));
     // Empty column: commands on it do nothing harmful.
     let a = m.apply(&mut w, Command::TakeAll);
-    assert!(!a.changed);
+    assert!(!a.changed && !a.close);
     assert_eq!(m.status.as_deref(), Some("Nothing to take"));
     m.apply(&mut w, Command::Focus(Side::Container));
     m.apply(&mut w, Command::One);

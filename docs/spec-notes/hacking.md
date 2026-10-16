@@ -151,7 +151,7 @@ in the data looks like a word list.
   script) runs the block instead of opening; ShowHackingMiniGame; Lock / Unlock and
   GetLocked / GetLockLevel on terminals (they use the reference's lock data, which
   terminals do not have); the hacking XP (`iXPRewardHackComputer*` are in the plugins);
-  sounds; the typing-out of text; image notes; the Alternate Colors and Hide Welcome
+  the typing-out of text and its sounds; image notes; the Alternate Colors and Hide Welcome
   flags; saving which terminals were hacked.
 
 ## 7. Drawing and keys
@@ -190,3 +190,20 @@ DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"", its result 
 and "terminal summary: … 1 hacked …". The lockout: `29:open:000D74D5,30:wrong,30.5:exit,
 31.5:open:000D74D5,32:wrong,32.5:wrong,33:wrong,33.5:wrong,36:back,37:open:000D74D5` →
 a new game after leaving, "locked for good", and "locked out for good" on return.
+
+## Sounds (list 5 item 47)
+
+[observed: FalloutNV.esm SOUN, files in `Fallout - Sound.bsa` under
+`sound\fx\ui\hacking\`; hypothesis: which event each is for, by its name; code
+`nvf_play::ui_sounds::sound_for`, the `terminal` menu]
+
+| Event | SOUN |
+|---|---|
+| the cursor onto another character, or the menu's selection onto another row | `UIHackingCharScroll` (`…\char\ui_hacking_charscroll.wav`) |
+| a word, bracket pair or symbol entered; a menu row taken | `UIHackingCharEnter` (`…\char\enter\`, 3 takes) |
+| the password right | `UIHackingPassGood` |
+| a wrong word, the last one locking the terminal | `UIHackingPassBad` |
+
+Not played: `UIHackingCharSingle` / `…Multiple` (`…\char\single\`, `…\multiple\`,
+[hypothesis: the text typing out, which is not built]) and the fan hum loop
+`UIHackingFanHumLP`.

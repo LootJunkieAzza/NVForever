@@ -4,8 +4,9 @@
 //! nearest to the camera, as F9 picks it) runs a script through the same
 //! paths as the keys (`OpenContainer`, `OpenInventory`, [`MenuInput`]): after
 //! `NVF_PLAY_TEST_DELAY` seconds (default 6), one step per second, it opens the
-//! container and logs both columns, takes all, logs, stores one unit of the player's
-//! selected (first) row back, logs, closes, opens the inventory, equips (or unequips)
+//! container and logs both columns, takes all (which closes the menu, as in the game),
+//! logs, opens the container again, stores one unit of the player's selected (first) row
+//! back, logs, closes, opens the inventory, equips (or unequips)
 //! the first weapon or armour, logs, drops one unit of it, logs, and closes. With
 //! `NVF_PLAY_TEST_SHOT=<path.png>` it saves screenshots of the container menu (`<path>`)
 //! and of the inventory (`<path stem>-inventory.png`).
@@ -51,6 +52,8 @@ pub(super) struct Script {
     next_at: Option<f32>,
     /// Times the inventory was asked for again because it did not open.
     retries: u32,
+    /// The container the menu showed, to open again after Take All closed it.
+    opened: Option<FormId>,
 }
 
 /// The barter check (`NVF_PLAY_TEST_BARTER`).
@@ -186,7 +189,7 @@ pub(super) fn setup(app: &mut App) {
     };
     let delay = std::env::var("NVF_PLAY_TEST_DELAY").ok().and_then(|d| d.parse().ok()).unwrap_or(6.0);
     let shot = std::env::var_os("NVF_PLAY_TEST_SHOT").map(PathBuf::from);
-    app.insert_resource(Script { container, shot, delay, step: 0, next_at: None, retries: 0 });
+    app.insert_resource(Script { container, shot, delay, step: 0, next_at: None, retries: 0, opened: None });
 }
 
 /// One scheduled drop (`NVF_PLAY_TEST_DROP`).
@@ -405,12 +408,24 @@ pub(super) fn run(
         }
         1 => {
             log_menu("opened", m);
+            s.opened = m.and_then(|m| match m.mode {
+                Mode::Container(c) => Some(c),
+                _ => None,
+            });
             if let Some(p) = s.shot.clone() {
                 screenshot(&mut commands, p);
             }
         }
         2 => send(Command::TakeAll),
-        3 => log_menu("after take all", m),
+        3 => {
+            log_menu("after take all", m);
+            // Take All closes the menu (list 5 item 60): open the container again to
+            // store one back.
+            if let (None, Some(c)) = (m, s.opened) {
+                info!("test aid: Take All closed the menu; open container {c} again");
+                open_container.write(OpenContainer { container: c.0 });
+            }
+        }
         4 => {
             send(Command::Focus(Side::Player));
             send(Command::One);
