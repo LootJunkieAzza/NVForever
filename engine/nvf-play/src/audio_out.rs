@@ -127,7 +127,8 @@ impl Plugin for AudioOutPlugin {
         }
         app.insert_resource(AudioOut { mixer, watcher: tx, stats })
             .init_resource::<GlobalVolume>()
-            .add_systems(Update, (test_reopen, report))
+            .add_systems(Update, test_reopen)
+            .add_systems(Last, report)
             .add_audio_source::<AudioSource>()
             .init_asset_loader::<AudioLoader>();
     }
