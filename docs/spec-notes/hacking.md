@@ -159,10 +159,22 @@ in the data looks like a word list.
 - The original draws both screens into a texture shown on the monitor model
   `meshes\terminals\terminalinterface01.nif` [documented: the XML's
   `FORenderedTerminal` reference; Fallout_default.ini `[RenderedTerminal]`: FOV 0.15,
-  zoom 36, scanlines, VPos 0.38, a screen light]. NVForever draws the screen flat over the
-  darkened world, 960 × 720 interface units with its top 83 down [observed: the screen's
-  scale on the owner's screenshots is 0.99 of the interface's; design: the flat screen
-  until the model is drawn]. The colours are the measured ones of §2.
+  zoom 36, scanlines, VPos 0.38, a screen light]. So does NVForever (2026-10-16): the
+  canvas, 960 × 720 interface units, is drawn into a picture put on the model's glass
+  `screen:0`, whose texture coordinates run to 0.767 across and 0.755 down [observed];
+  the texture spans 1350 × 960 units of the canvas, the case hiding the glass's edge
+  [observed: fitted to the owner's screenshot]. The model is drawn over the world
+  darkened to 0.4 [design: the original blurs the room, not drawn], seen from the front
+  with a field of view of 0.15 radians [hypothesis: the INI's FOV, vertical], looking
+  0.38 below the model's origin [hypothesis: the INI's VPos in model units; observed: the
+  owner's screenshot puts the origin 0.37 above the middle] from 38.5 units away
+  [observed: fitted, the glass 0.735 of the view's height; the INI's zoom 36 is not that
+  distance]. The glare sheet `glare:0` stays over the glass; scanlines and the screen
+  light are not drawn. Without the model the picture is drawn flat over the darkened
+  world, its top 83 down [observed: the screen's scale on the owner's screenshots is 0.99
+  of the interface's]. The colours are the measured ones of §2.
+- The monitor's power button (`PowerButton:0`, lower right under the screen) leaves the
+  terminal when clicked [the owner, 2026-10-16].
 - Keys [hypothesis]: arrows or W A S D move the hacking cursor a character or a row (a
   word at once; from the end of a row of column 1 into column 2), Enter or E enters; Up /
   Down choose a menu item, Enter or E takes it; Tab or Backspace go back; Esc leaves. The
@@ -183,11 +195,12 @@ password.", and the prompt word "Access".
 ## 9. Checks
 
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
-`NVF_PLAY_TEST_TERMINAL=30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:back`:
+`NVF_PLAY_TEST_TERMINAL=30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:power`:
 `nvforever --data <Data> --cell BisonSteve01 --play --no-voice --run-seconds 48` → "hacking,
 Easy (Science 25): 20 words", the entries, "Exact match! access granted", "menu of
 DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"", its result script
-and "terminal summary: … 1 hacked …". The lockout: `29:open:000D74D5,30:wrong,30.5:exit,
+"terminal view: the monitor drawn", "terminal: the power button pressed" and "terminal
+summary: … 1 hacked …". The lockout: `29:open:000D74D5,30:wrong,30.5:exit,
 31.5:open:000D74D5,32:wrong,32.5:wrong,33:wrong,33.5:wrong,36:back,37:open:000D74D5` →
 a new game after leaving, "locked for good", and "locked out for good" on return.
 

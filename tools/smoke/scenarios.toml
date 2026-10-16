@@ -1372,8 +1372,8 @@ expect = [
 name = "hacking"
 source = "CLAUDE.md: after changes to terminals or the hacking game (docs/spec-notes/hacking.md §9): the Easy terminal"
 areas = ["hacking", "terminal"]
-paths = ["crates/fnv-game/src/hacking.rs", "crates/fnv-game/src/terminal.rs", "engine/nvf-play/src/terminal*"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:back" }
+paths = ["crates/fnv-game/src/hacking.rs", "crates/fnv-game/src/terminal.rs", "engine/nvf-play/src/terminal*", "engine/nvf-play/src/terminal/**", "engine/nvforever/src/terminal_view.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:power" }
 args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
 run_seconds = 48
 expect = [
@@ -1382,6 +1382,8 @@ expect = [
   'menu of DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"',
   "result script",
   "terminal summary: 1 opened (0 refused), 1 hacking games (1 hacked, 0 locked out)",
+  { text = "terminal view: the monitor drawn (", label = "the monitor model around the screen (owner 2026-10-16)" },
+  { text = "terminal: the power button pressed", label = "a click on the monitor's power button leaves" },
   { text = "ui sounds: terminal row or button picked: UIHackingCharEnter", label = "a word or row entered (list 5 item 47)" },
   { text = "ui sounds: terminal refused: UIHackingPassBad", label = "a wrong word" },
   { text = "ui sounds: terminal access granted: UIHackingPassGood", label = "the password" },
