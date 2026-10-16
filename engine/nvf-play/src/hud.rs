@@ -123,8 +123,12 @@ const METER_WIDTH: f32 = PIPS as f32 * TICK.x;
 /// corner mark on the left piece, the upright on the right): the first tick starts at
 /// the upright's inside edge, the last ends clear of the mark and of the upright
 /// [observed: 3 pixels at 1080 lines against the `Target healthbar` screenshot, owner's
-/// playtest 2026-10-16].
+/// playtest 2026-10-16]. The action points bar 1 less: its ticks stood 2 pixels left of
+/// the original's at 1080 lines, the last one clear of the upright where the original's
+/// meets it [observed: the same screenshot, tick edges 1520 … 1844 against 1518 … 1842,
+/// 2026-10-16].
 const METER_SHIFT: f32 = 3.0;
+const AP_METER_SHIFT: f32 = 2.0;
 /// "HP" and "AP" stand above their bars near the uprights: the line they stand on, where
 /// "HP" starts and where "AP" ends [observed: as above, "HP" 11 and "AP" 8 pixels left of
 /// the earlier 33 and 362].
@@ -270,13 +274,21 @@ pub fn tick_pixels(height: f32) -> (f32, f32) {
     (step, (TICK_BLOCK * s).round().clamp(1.0, step - 1.0))
 }
 
-/// A row's tick step: `step`, or less where `count` ticks `width` wide would not fit in
-/// `room` pixels.
-pub fn row_step(step: f32, width: f32, room: f32, count: usize) -> f32 {
+/// Where a row's `count` ticks start, in whole pixels from the row's start, and their
+/// width: the first tick at 0 and the last ending `length` pixels on, the ticks all
+/// `width` wide (less only where they would touch), the gaps between them differing by a
+/// pixel at most. A whole-pixel step of `round(8 x scale)` left the row up to a step and
+/// more short of its bracket wherever 8 x scale is not whole (owner's playtest
+/// 2026-10-16: "a gap at the end of each").
+pub fn tick_lefts(length: f32, width: f32, count: usize) -> (Vec<f32>, f32) {
     if count < 2 {
-        return step;
+        return (vec![0.0; count], width);
     }
-    step.min(((room - width) / (count - 1) as f32).floor()).max(width + 1.0)
+    let gaps = (count - 1) as f32;
+    // A gap of a pixel at least: (length - width) / gaps >= width + 1.
+    let width = width.min(((length - gaps) / count as f32).floor()).max(1.0);
+    let pitch = (length - width) / gaps;
+    ((0..count).map(|i| (i as f32 * pitch).round()).collect(), width)
 }
 
 /// Where the doubled compass strip starts in its window (0 or less), so that `heading`
@@ -320,7 +332,7 @@ impl Places {
         // [observed, §4] A full bar runs from the upright's inside edge to just short of
         // the bracket's corner mark; its label stands above it, near the upright.
         let hp_meter = LEFT_MARK - METER_WIDTH - METER_SHIFT;
-        let ap_meter = RIGHT_MARK - METER_SHIFT;
+        let ap_meter = RIGHT_MARK - AP_METER_SHIFT;
         let cnd_x = DIVIDER - CND_BEFORE_DIVIDER - CND_BAR.x;
         Places {
             hp_label: HP_LABEL_X,
@@ -693,25 +705,25 @@ fn pips(
             .get_or_insert_with(|| data.as_deref().and_then(|d| texture(&format!("{HUD_TEXTURES}hud_tick_mark.dds"), d, &mut images, bc_supported(formats.as_deref()))).map(|t| t.0))
             .clone();
         let (height, sf) = key;
-        let (step0, width) = tick_pixels(height);
+        let (step, width) = tick_pixels(height);
         let px = |v: f32| Val::Px(v / sf);
         for (e, row) in &rows {
             let room = row.width * height / 960.0;
-            // Where the step was rounded up the ticks would run past their room (into the
-            // corner mark or the upright): a pixel less then.
-            let step = row_step(step0, width, room, row.count);
-            // The ticks fill from the bar's outer end: from the left for health, from the
-            // right for action points; the enemy's stand in the middle of their room.
-            let span = row.count as f32 * step - (step - width);
+            // A full row runs the whole room but the clear strip after its last tick
+            // (§4: at 1080 lines the first tick at the upright, the last 2 pixels short of
+            // the mark); the ticks fill from the bar's outer end: from the left for
+            // health, from the right for action points; the enemy's stand in the middle.
+            let clear = (step - width).max(1.0);
+            let (lefts, width) = tick_lefts((room - clear).round(), width, row.count);
             let first = match row.bar {
                 Bar::Health => 0.0,
-                Bar::ActionPoints => room - span,
-                Bar::Enemy => (room - span) / 2.0,
+                Bar::ActionPoints => clear,
+                Bar::Enemy => clear / 2.0,
             }
             .round();
             commands.entity(e).despawn_related::<Children>().with_children(|r| {
-                for index in 0..row.count {
-                    let node = Node { position_type: PositionType::Absolute, left: px(first + index as f32 * step), top: Val::Px(0.0), width: px(width), height: Val::Percent(100.0), ..default() };
+                for (index, left) in lefts.iter().enumerate() {
+                    let node = Node { position_type: PositionType::Absolute, left: px(first + left), top: Val::Px(0.0), width: px(width), height: Val::Percent(100.0), ..default() };
                     let pip = Pip { bar: row.bar, index };
                     match &image {
                         // The picture's block: its top part, as high as a tick.
@@ -838,16 +850,22 @@ mod tests {
         // Never a tick without a gap, even tiny.
         let (step, width) = tick_pixels(100.0);
         assert!(width >= 1.0 && width < step);
-        // A full bar never runs past its room, wherever the step rounds up.
-        for lines in [600, 720, 768, 900, 1024, 1050, 1080, 1200, 1440, 1600, 2160] {
+        // A full bar spans its room at any size: equal ticks, gaps a pixel apart at most.
+        for lines in [600, 720, 768, 800, 900, 1009, 1024, 1050, 1080, 1200, 1440, 1600, 2160] {
             let h = lines as f32;
             let (step, width) = tick_pixels(h);
-            let room = METER_WIDTH * h / 960.0;
-            let step = row_step(step, width, room, PIPS);
-            assert!(PIPS as f32 * step - (step - width) <= room, "{lines} lines");
-            assert!(step > width, "{lines} lines");
+            let length = (METER_WIDTH * h / 960.0 - (step - width)).round();
+            let (lefts, w) = tick_lefts(length, width, PIPS);
+            assert_eq!(lefts[0], 0.0, "{lines} lines");
+            assert_eq!(lefts[PIPS - 1] + w, length, "{lines} lines");
+            let gaps: Vec<f32> = lefts.windows(2).map(|p| p[1] - p[0] - w).collect();
+            let (lo, hi) = gaps.iter().fold((f32::MAX, 0.0f32), |(a, b), &g| (a.min(g), b.max(g)));
+            assert!(lo >= 1.0 && hi - lo <= 1.0, "{lines} lines: gaps {lo}..{hi}");
+            assert_eq!(w, width, "{lines} lines: ticks kept their width");
         }
-        assert_eq!(row_step(9.0, 7.0, METER_WIDTH * 1080.0 / 960.0, PIPS), 9.0);
+        // At 1080 lines the step is the even 9 of the original's screenshot.
+        let (lefts, w) = tick_lefts(331.0, 7.0, PIPS);
+        assert!(w == 7.0 && lefts.windows(2).all(|p| p[1] - p[0] == 9.0));
     }
 
     #[test]
@@ -891,7 +909,7 @@ mod tests {
         // A full bar ends at the corner mark on the left and starts at it on the right,
         // and runs to just inside the upright.
         assert_eq!(p.hp_meter + METER_WIDTH, LEFT_MARK - METER_SHIFT);
-        assert_eq!(p.ap_meter, RIGHT_MARK - METER_SHIFT);
+        assert_eq!(p.ap_meter, RIGHT_MARK - AP_METER_SHIFT);
         assert!(p.hp_meter > LEFT_UPRIGHT && p.hp_meter - LEFT_UPRIGHT < 10.0);
         assert!(p.ap_meter + METER_WIDTH < RIGHT_UPRIGHT && RIGHT_UPRIGHT - (p.ap_meter + METER_WIDTH) < 10.0);
         // The bars stand on the long line, above it; the labels above the bars.
