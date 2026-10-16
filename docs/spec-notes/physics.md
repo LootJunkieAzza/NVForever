@@ -597,6 +597,28 @@ bodies by about 2 units), GSProspectorSaloonInterior 0; the trace's only motion 
 store is the office fan (an MSTT) nudged 2 units. Shot bottles still fall: the CLAUDE.md
 world-sounds test knocked Sunny's three bottles 117–128 units ("impacts by material: glass 3").
 
+### 4.3.2 Statics with Havok models never move (`engine/nvf-play`, playtest list 5 item 59)
+
+The three motorcycles outside the Goodsprings saloon could be pushed by the player; in the
+game they do not move, while tumbleweeds and Sarsaparilla crates do [observed: owner,
+playtest list 5 item 59].
+
+- They are STAT references (`Motorcycle01Static`, 0x00106341, 0x00106342, 0x0010750C)
+  [observed: `fnvtool world refs --world WastelandNV`]. Their model,
+  `vehicles\motorcycle01.nif`, has one dynamic body: layer 10 (Props), mass 600
+  [observed: `fnvtool collide objects --filter motorcycle01`]. The same model is used by the
+  moveable static (MSTT) `Motorcycle01`, placed elsewhere.
+- So the model's Havok data cannot be what keeps them still; the record type is. 1,131 STAT
+  and 19 SCOL references in FalloutNV.esm use a model with dynamic bodies, most of them the
+  `1stPerson…` weapon statics that share the weapons' models [observed: the same two
+  commands, every WastelandNV cell and every interior].
+- **What the engine does now** [hypothesis: the game simulates Havok bodies only for the
+  record types meant to move — MSTT, items, containers, activators — and a STAT or SCOL
+  is fixed]: a placed STAT or SCOL reference's dynamic bodies become fixed
+  (`fix_static_base` in `phys/prepare.rs`; tallied `static_base_fixed`), its keyframed
+  bodies are kept. `fnvtool phys cell` keeps the shared rule (the parity lab's L4 scenarios
+  are built on it), like `jointed_held` above.
+
 ## 5. Determinism and precision
 
 - The world advances only in fixed steps of `PhysParams::dt`; `Stepper` turns frame time

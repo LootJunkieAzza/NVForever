@@ -19,6 +19,7 @@ pub mod blocking;
 pub mod chargen;
 pub mod combat;
 pub mod console;
+pub mod container_anim;
 pub mod control;
 pub mod corner_messages;
 pub mod crafting;
@@ -262,7 +263,8 @@ impl Plugin for PlayPlugin {
             .add_plugins(main_menu::MainMenuPlugin)
             .add_plugins(intro::IntroPlugin)
             .add_plugins(cursor::CursorPlugin)
-            .add_plugins(crafting::CraftingPlugin);
+            .add_plugins(crafting::CraftingPlugin)
+            .add_plugins(container_anim::ContainerAnimPlugin);
         test_aid::setup(app);
     }
 }
