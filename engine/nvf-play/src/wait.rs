@@ -38,6 +38,8 @@
 //!
 //! Test aid `NVF_PLAY_TEST_WAIT=<seconds>:<what>[,…]`: at each time `open` presses the
 //! Wait control, `hours=<n>` sets the slider, `accept` and `cancel` press the buttons.
+//! An `open` due while the player is not in the world (a start-up message box is up)
+//! waits until they are, and the steps after it come as much later ([`run_aid`]).
 //! For the mouse: `point=<x>:<y>` puts the pointer there (parts of the window's width
 //! and height, 0 to 1), `press` and `release` are its left button; they go the way the
 //! real pointer does (Bevy's UI finds what is under it).
@@ -159,6 +161,18 @@ fn due_steps(aid: &mut WaitAid, now: f32, pointer: bool) -> Vec<AidStep> {
     due.sort_by(|a, b| a.0.total_cmp(&b.0));
     aid.0.retain(|e| !mine(e));
     due.into_iter().map(|(_, s)| s).collect()
+}
+
+/// An `open` of `aid` due at `now` while the player is not in the world is held: it and
+/// every step after it come later, so that they stay as far apart as asked. Returns the
+/// steps due before it (they go on) and how much later the rest come, if an `open` was
+/// due.
+fn hold_open(aid: &mut WaitAid, now: f32) -> Option<(Vec<AidStep>, f32)> {
+    let t = aid.0.iter().filter(|(t, s)| *s == AidStep::Open && *t <= now).map(|e| e.0).min_by(f32::total_cmp)?;
+    let before = due_steps(aid, t.next_down(), false);
+    let by = now - t;
+    aid.0.iter_mut().filter(|e| e.0 >= t).for_each(|e| e.0 += by);
+    Some((before, by))
 }
 
 fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
@@ -322,11 +336,53 @@ fn refusal(
     })
 }
 
-fn run_aid(time: AidTime, mut aid: ResMut<WaitAid>, mut open: MessageWriter<OpenWait>, mut input: MessageWriter<WaitInput>) {
+/// Whether the player is in the world, where a request opens the menu: no menu, no
+/// conversation, no loading screen and no script's menu or box is up.
+fn in_world(state: &PlayState, menu: &WaitMenu, active: &ActiveMenu, paused: &Paused, script: Option<&ScriptState>) -> bool {
+    let in_script_menu = script.is_some_and(|s| s.rt.as_ref().is_some_and(|rt| rt.game.in_menu()));
+    *state == PlayState::Playing && !menu.is_open() && active.0.is_none() && !paused.0 && !in_script_menu
+}
+
+/// The aid's steps that are due. An `open` waits until the player is in the world (the
+/// start-up message boxes come a few seconds after the scripts are ready, and that is
+/// later on a loaded machine), the steps after it held as long [decision]. With the menu
+/// itself open already (lying down on a bed opens it) an `open` is not held: it is a
+/// request the menu ignores, and the steps after it are for that menu.
+#[allow(clippy::too_many_arguments)]
+fn run_aid(
+    time: AidTime,
+    mut aid: ResMut<WaitAid>,
+    mut held_since: Local<Option<f32>>,
+    state: Res<State<PlayState>>,
+    menu: Res<WaitMenu>,
+    (active, paused, script): (Res<ActiveMenu>, Res<Paused>, Option<Res<ScriptState>>),
+    mut open: MessageWriter<OpenWait>,
+    mut input: MessageWriter<WaitInput>,
+) {
     if aid.0.is_empty() {
         return;
     }
-    for step in due_steps(&mut aid, time.elapsed_secs(), false) {
+    let now = time.elapsed_secs();
+    let held = match menu.is_open() || in_world(state.get(), &menu, &active, &paused, script.as_deref()) {
+        true => None,
+        false => hold_open(&mut aid, now),
+    };
+    let due = match held {
+        Some((before, by)) => {
+            if held_since.is_none() {
+                info!("test aid NVF_PLAY_TEST_WAIT: open held, the player is not in the world ({by:.2} s late)");
+                *held_since = Some(now - by);
+            }
+            before
+        }
+        None => {
+            if let Some(t) = held_since.take() {
+                info!("test aid NVF_PLAY_TEST_WAIT: open {:.2} s later than asked; the steps after it as much later", now - t);
+            }
+            due_steps(&mut aid, now, false)
+        }
+    };
+    for step in due {
         info!("test aid NVF_PLAY_TEST_WAIT: {step:?}");
         match step {
             AidStep::Open => {
@@ -399,8 +455,7 @@ fn open(
         }
         return;
     }
-    let in_script_menu = script.as_ref().is_some_and(|s| s.rt.as_ref().is_some_and(|rt| rt.game.in_menu()));
-    if *state.get() != PlayState::Playing || menu.is_open() || active.0.is_some() || paused.0 || in_script_menu {
+    if !in_world(state.get(), &menu, &active, &paused, script.as_deref()) {
         info!("wait menu: request ignored, the player is not in the world (a menu, a conversation or a loading screen is up)");
         return;
     }
@@ -968,6 +1023,19 @@ mod tests {
         assert!(parse_aid("16:sleep").is_err());
         assert!(parse_aid("16:hours=x").is_err());
         assert!(parse_aid("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_held_open_takes_the_later_steps_with_it() {
+        let mut aid = WaitAid(parse_aid("1:press,13:cancel,14:open,14:hours=5,16:accept").unwrap());
+        // Nothing to hold before the open is due.
+        assert_eq!(hold_open(&mut aid, 13.5), None);
+        // The steps due before the open go on; those at its time wait with it.
+        assert_eq!(hold_open(&mut aid, 14.5), Some((vec![AidStep::Input(Command::Cancel)], 0.5)));
+        assert_eq!(hold_open(&mut aid, 15.0), Some((vec![], 0.5)));
+        assert_eq!(aid.0, vec![(1.0, AidStep::Press), (15.0, AidStep::Open), (15.0, AidStep::Input(Command::Hours(5))), (17.0, AidStep::Input(Command::Accept))]);
+        // In the world again: the open and the step asked at its time are due.
+        assert_eq!(due_steps(&mut aid, 15.0, false), vec![AidStep::Open, AidStep::Input(Command::Hours(5))]);
     }
 
     #[test]

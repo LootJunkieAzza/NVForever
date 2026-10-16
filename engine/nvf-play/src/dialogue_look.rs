@@ -248,6 +248,7 @@ impl Plugin for DialogueLookPlugin {
                 note: "On: at the start of a conversation the actor turns to the player and the view turns to the actor. (--no-dialogue-look)",
                 get: |w| w.resource::<LookSettings>().enabled,
                 set: |w, on| w.resource_mut::<LookSettings>().enabled = on,
+                slider: None,
             },
         );
         add_setting(
@@ -259,6 +260,7 @@ impl Plugin for DialogueLookPlugin {
                 note: "On: each time the choices come up the view returns to the actor. Off: only the opening turn; the view is yours for the rest of the conversation. Needs the turn above. (--dialogue-recentre)",
                 get: |w| w.resource::<LookSettings>().recentre_on_choices,
                 set: |w, on| w.resource_mut::<LookSettings>().recentre_on_choices = on,
+                slider: None,
             },
         );
     }

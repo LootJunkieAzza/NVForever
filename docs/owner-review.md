@@ -5178,6 +5178,48 @@ hint, the text overlay, radio subtitles and the Fallout 3 music question.
   then aim, then attack, by track priority). *Not covered:* aim up and down, reloads,
   jams, equip and holster. *Check:* run it for each type and list the broken cases.
 
+## Fire and poison: hit effects and the burning look (2026-10-16, branch claude/fire-poison-effects)
+
+What a hit now applies besides its damage (docs/spec-notes/hit-effects.md): the flamer's
+and the Shishkebab's "Burning" (2 health a second for 5 s), the incinerator's and the
+incendiary grenade's (through their explosions: 4/s for 8 s, 6/s for 15 s), a cazador's
+poison (on the player 5/s for 30 s and −25 AP, the record's own condition; on NPCs 18/s
+for 8 s) and the radscorpions' (3/s for 5 s, 8/s for 10 s). Fire resistance and poison
+resistance cut them. A burning actor shows the game's `Flames01` shader: an orange glow on
+its outline and flame particles rising off its body (and `Smoke01` smoke from the
+flamer's script). Guesses to check:
+
+- **A second hit refreshes, it does not stack.** A flamer hit on someone already burning
+  starts the 5 s again; the burns do not add up. The same for poisons: a second cazador
+  sting restarts the 30 s rather than adding a second 5/s. *Check:* in the game, does a
+  cazador's second sting double the poison (two "Poison" entries), and does a burn last
+  5 s after the last flamer hit?
+- **Radscorpions poison with every blow.** Their record ties the poison to the
+  "AttackForwardPower" attack; NVForever's creatures do not play their forward power
+  attacks yet, so every blow poisons. *Check:* does a radscorpion poison only with its
+  lunging sting?
+- **Corpses burn on.** The burn's records say it is not dispelled by death (and the
+  flamer's script lights up a corpse), so a target killed by the flamer keeps burning for
+  the rest of its 5 s; a poison ends at death. *Check:* do killed actors burn on?
+- **How many flames.** The record's birth ratio (30, then 15) has no documented unit; it
+  is read as 6 particles a second per unit (90 a second while it burns). The flames start
+  at the body's bones, 10 units out. *Check:* screenshots `player_burning.png` and
+  `npc_burning.png` of the smoke runs `flamer-burns-player` / `flamer-burns-npc` against
+  a burning actor in the game: more or fewer flames, bigger or smaller?
+- **Fire resistance like poison resistance.** The GECK wiki says only that poison resist
+  is "the percentage of poison damage that is ignored"; fire resistance is read the same.
+- **God mode** (tgm, `NVF_PLAY_TEST_GOD`) keeps all hit effects off the player, not only
+  the damage.
+- **Resistances show in the numbers.** The player's Poison Resistance (20 % at
+  Endurance 5) makes a cazador sting 4 a second and a large radscorpion's 6.4.
+- **Creatures a script places now fight** (your report). PlaceAtMe of a creature or NPC
+  (or a leveled list of them) makes a real actor from the next frame: drawn with its
+  skeleton, walked by the AI, sensing and sensed, attacking enemies as placed actors do
+  (smoke `placeatme-fights`: a cazador placed at the player in Goodsprings attacks and
+  poisons). Before, it was drawn as a frozen model and nothing ever noticed it. *Check:*
+  scripted spawns in the game (ambushes) come at you.
+- Not built: the weapons' critical effects (the flamer's "Burning Explosion"), the
+  flames' add-on fire-ball models, the poison's screen effect.
 ## Creature speeds, cazador flight, turning (2026-10-16, branch `claude/cazador-movement`)
 
 Your report: cazadors move far too slowly and their movement stops and starts like
@@ -5308,6 +5350,26 @@ To check with a controller in the original, my guesses:
    the Pip-Boy)?
 
 
+## Draw-distance sliders (2026-10-16, branch claude/render-distance-sliders)
+
+Settings → Display has five sliders, drawn like the "How many?" meter (ticks, an arrow
+at each end, the value as a percentage): Object, Actor, Item, Shadow and Grass distance.
+Each is a part of a full distance, 10% to 100% in 5% steps; Left/Right, the arrows or a
+press/drag on the meter move it; it is kept in `NVForever.ini` [Settings] (`object-distance=0.50`).
+Choices I made, each easy to change:
+- **Full distance for objects, actors and items**: nothing culled them before but their
+  cells, so 100% is the farthest a loaded cell reaches, `(--radius + 1)` cells along both
+  axes (17,377 units with the default radius 2), and 100% draws exactly as before. 50%
+  draws what is within 8,689 units of the camera.
+- **Fade**: past its distance a mesh dithers out over a further 10% of it (the cell fades'
+  dither), then is culled, shadow included.
+- **What counts as what**: actors are NPCs and creatures with everything they wear and
+  hold; items are references whose base is an item you can take (WEAP, ARMO, AMMO, MISC,
+  ALCH, BOOK, NOTE, KEYM, IMOD, CHIP, CCRD, CMNY) and items dropped in the game; objects
+  are every other placed model in a loaded cell. Distant LOD, imposters, terrain, water and
+  trees are not touched.
+- **Shadows** are a part of `--shadow-distance` (8,000) and **grass** of `--grass-distance`
+  plus its fade range (7,000 + 1,000).
 ## NPCs crouch, block and close in by context (2026-10-16, branch claude/npc-crouch-block)
 
 Your request: NPCs crouch to fire at a distance or block with a melee weapon, by context,

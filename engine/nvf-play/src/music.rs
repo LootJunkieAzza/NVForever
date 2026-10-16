@@ -942,6 +942,7 @@ impl Plugin for MusicPlugin {
                 note: "On: the music of the place you are in plays. Off: it is silent and goes on unheard. (--no-music)",
                 get: |w| w.resource::<MusicSettings>().play,
                 set: |w, on| w.resource_mut::<MusicSettings>().play = on,
+                slider: None,
             },
         );
     }

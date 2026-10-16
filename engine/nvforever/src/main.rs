@@ -29,6 +29,7 @@ mod deaths;
 mod detection;
 mod dialogue_look;
 mod door_fade;
+mod draw_distance;
 mod doors;
 mod emittance;
 mod fade;
@@ -83,6 +84,7 @@ mod taa;
 mod speech_look;
 mod terrain;
 mod texture_swap;
+mod effect_particles;
 mod effect_shaders;
 mod tree;
 mod treelod;
@@ -966,6 +968,7 @@ fn main() -> AppExit {
         light: (grass_light[0].max(0.0), grass_light[1].max(0.0)),
         generate: fnv_world::grass::GrassSettings { min_size: args.grass_min_size, density_scale: args.grass_density.max(0.0), ..Default::default() },
     }))
+    .add_plugins(draw_distance::DrawDistancePlugin(draw_distance::DrawDistances::new(&args)))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)

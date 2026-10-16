@@ -130,6 +130,8 @@ use crate::player::{MoveIntent, Player, MAX_PITCH};
 use crate::sim::SimState;
 use crate::{space, PlaySet, PlayState, PlayWorld};
 
+mod hit_effects;
+
 /// The shooter's id for projectiles (the player has no hit volume).
 const PLAYER: ActorId = u64::MAX;
 
@@ -454,6 +456,8 @@ const MARKER_SECONDS: f32 = 0.18;
 /// Counts for the exit report.
 #[derive(Resource, Default, Debug, Clone)]
 pub struct CombatStats {
+    /// The magic items hits applied and which are still active (`hit_effects`).
+    pub hit_effects: hit_effects::HitEffects,
     pub shots: u32,
     pub projectiles: u32,
     pub actor_hits: u32,
@@ -745,7 +749,7 @@ impl Plugin for CombatPlugin {
                 Update,
                 (track_limbs, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
-            .add_systems(Update, (draw_marks, update_hit_hud).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -1461,6 +1465,17 @@ fn strike_weapon(
     }
 }
 
+/// The magic items a hit by `attacker` with `weapon` applies (`hit_effects`): the
+/// weapon's object effect; for a blow without a weapon or with the Fists, the attacker's
+/// unarmed attack effect.
+/// Read inside the simulation's world: an attacker a script created (PlaceAtMe) is only
+/// there.
+fn hit_items(c: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, stats: &mut CombatStats, attacker: FormId, weapon: Option<FormId>) -> Vec<FormId> {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return Vec::new() };
+    let unarmed = weapon.is_none() || weapon == c.fists;
+    with_world(rt, sim, |rt| hit_effects::hit_items(&c.forms, &rt.game, Some(attacker), weapon, unarmed, &mut stats.hit_effects))
+}
+
 /// Apply `dealt` health damage through the script runtime; report and remember it.
 #[allow(clippy::too_many_arguments)]
 fn apply_hit(
@@ -1473,12 +1488,15 @@ fn apply_hit(
     feedback: &mut HitFeedback,
     mut hud: Option<&mut HudMessage>,
     messages: &mut MessageWriter<ActorHit>,
+    effects: &[FormId],
 ) -> Option<HitResult> {
     let mine = info.attacker == Some(FormId::PLAYER_REF);
     let rt = script.and_then(|s| s.rt.as_mut())?;
     if target == FormId::PLAYER_REF {
-        return hit_player(rt, sim, dealt, info, stats, hud);
+        return hit_player(rt, sim, dealt, info, stats, hud, effects);
     }
+    // The hit's effects go on before its damage (`hit_effects`).
+    with_world(rt, sim, |rt| hit_effects::apply(&mut rt.game, &mut stats.hit_effects, target, effects, info.attacker));
     let r = with_world(rt, sim, |rt| rt.game.hit(target, dealt as f64, info));
     let name = sim.ref_name(Some(rt.game.data), target.0).map_or_else(|| target.to_string(), str::to_string);
     if mine {
@@ -1536,7 +1554,7 @@ pub fn set_god_mode(on: bool) {
 
 /// Another actor hits the player (module notes): the player's health takes the damage
 /// through `Game::hit`, and at 0 the player dies.
-fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, info: HitInfo, stats: &mut CombatStats, hud: Option<&mut HudMessage>) -> Option<HitResult> {
+fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, info: HitInfo, stats: &mut CombatStats, hud: Option<&mut HudMessage>, effects: &[FormId]) -> Option<HitResult> {
     let by = info.attacker.map_or("?".to_string(), |a| sim.ref_name(Some(rt.game.data), a.0).map_or_else(|| a.to_string(), str::to_string));
     stats.player_hits += 1;
     if god_mode() {
@@ -1544,6 +1562,7 @@ fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, i
         let health = with_world(rt, sim, |rt| fnv_game::functions::actor_value(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::HEALTH).unwrap_or(0.0));
         return Some(HitResult { health, immune: true, ..HitResult::default() });
     }
+    with_world(rt, sim, |rt| hit_effects::apply(&mut rt.game, &mut stats.hit_effects, FormId::PLAYER_REF, effects, info.attacker));
     let r = with_world(rt, sim, |rt| rt.game.hit(FormId::PLAYER_REF, dealt as f64, info));
     stats.player_damage += r.dealt as f32;
     info!("combat: {by} hits the player for {:.1}, health {:.0}/{:.0}", r.dealt, r.health, r.max_health);
@@ -1701,7 +1720,8 @@ fn melee(
             let limb = limb_hit(bp.as_ref(), d.dealt, &w);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
             pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power.is_some() { POWER_PUSH } else { 1.0 }) });
-            let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages);
+            let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id));
+            let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items);
             if r.as_ref().is_none_or(|r| !r.immune) {
                 wear_armor(c, &mut sim, &mut stats, target, Zone::of(bp.as_ref()), d.raw);
             }
@@ -1888,7 +1908,8 @@ fn actor_attacks(
                 show_impact(s, ImpactFx { impact, shooter: b.attacker, point: b.point, normal: vec::scale(b.dir, -1.0), dir: b.dir }, &mut sounds, &mut impacts);
             }
         }
-        let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages);
+        let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon);
+        let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items);
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, b.target, Zone::Body, d.raw);
         }
@@ -2102,7 +2123,9 @@ fn fly(
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
             let dealt = (b.damage - dt_v).max(b.damage * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: -1, critical: false, limb: None };
-            let r = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages);
+            // The blast's object effect on those it catches (hit-effects.md §1).
+            let items: Vec<FormId> = x.enchantment.into_iter().collect();
+            let r = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items);
             if r.as_ref().is_none_or(|r| !r.immune) {
                 wear_armor(c, &mut sim, &mut stats, target, Zone::All, b.damage);
             }
@@ -2145,7 +2168,7 @@ fn fly(
             at[0],
             at[1],
             at[2],
-            if x.radiation_level > 0.0 || x.enchantment.is_some() || x.placed_object.is_some() { " (radiation, effect and placed object not built yet)" } else { "" }
+            if x.radiation_level > 0.0 || x.placed_object.is_some() { " (radiation and placed object not built yet)" } else { "" }
         );
     }
     let now = c.time;
@@ -2228,7 +2251,8 @@ fn fly(
         if target != FormId::PLAYER_REF {
             pushes.write(ActorPush { form_id: target.0, point: p.point, dv: vec::scale(p.dir, SHOT_PUSH) });
         }
-        let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages);
+        let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id));
+        let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items);
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, target, Zone::of(bp.as_ref()), d.raw);
         }
@@ -2341,6 +2365,18 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
             "condition summary: the player's weapons lost {:.1} health, {} hits on held weapons, {} weapons broken, armour lost {:.1} health, {} pieces worn to nothing",
             s.weapon_wear, s.weapon_hits, s.weapons_broken, s.armor_wear, s.armor_broken
         );
+        info!("{}", hit_effects::summary(&s.hit_effects));
+    }
+}
+
+/// Hit effects that ended this frame are logged (`hit_effects`).
+fn watch_hit_effects(script: Option<Res<ScriptState>>, mut stats: ResMut<CombatStats>) {
+    let Some(rt) = script.as_deref().and_then(|s| s.rt.as_ref()) else { return };
+    hit_effects::watch(&rt.game, &mut stats.hit_effects);
+    // A death by an effect's drain (a burn, a poison) rather than by a hit.
+    if !stats.player_died && rt.game.is_dead(FormId::PLAYER_REF) {
+        stats.player_died = true;
+        info!("combat: the player died (no hit: an effect's drain)");
     }
 }
 
