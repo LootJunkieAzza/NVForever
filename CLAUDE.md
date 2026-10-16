@@ -4,7 +4,8 @@ NVForever is an open-source, clean-room reimplementation of the Fallout: New Veg
 (OpenMW-style). The owner wants sessions to work autonomously, including pushing.
 
 The owner's playtest lists (all merged) and what is left after them are in
-`docs/handoff/playtest-2026-10-12.md`; the state of every system is in `docs/status.md`.
+`docs/handoff/playtest-2026-10-12.md` (lists 1-3), `playtest-list-4.md` and `playtest-list-5.md`
+(each with an Outcome section); the state of every system is in `docs/status.md`.
 
 ## Charter (non-negotiable)
 

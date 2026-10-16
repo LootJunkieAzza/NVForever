@@ -170,5 +170,9 @@ back to L1 and to D4).
 Left partly done or unconfirmed, as the workstreams reported (details in each one's
 `docs/owner-review.md` section): item 1 dust storm and item 10 explosions partly (D5); item 22
 convict karma fixed in the survey but not checked in game (D4); item 71 the skeletons lie posed
-but their collision still stands upright (D6). Merges between two appends of
+but their collision still stands upright (D6). Also partly done, from the PRs' own notes
+(docs review 2026-10-16): item 72 crafting has no icon, effects line or making several at
+once (#292); item 13 reputation follows the rules but has no disguises or resets, and item 12
+has no "+10 XP" bar or Locations Discovered stat (#297); item 34 leaves some package flags
+unbuilt (#294); item 14 the ITEMS page has no DPS or Maintain/Mod hints (#288). Merges between two appends of
 `tools/smoke/scenarios.toml` dropped a closing `]` three times: check the file parses after a merge.

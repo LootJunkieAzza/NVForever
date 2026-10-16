@@ -180,7 +180,8 @@ camera sees is as it was.
   the left hand and the rifle's stock came out darker at every heading tried]. So the
   arms rig takes its sun shadows from a second light, `ArmsShade`: a child of the sun
   (same direction), with the sun's colour at 1/1024 of its strength
-  (`ARMS_SHADE_SHARE`), casting from layers 0 and 3 with one cascade, the sun's first.
+  (`ARMS_SHADE_SHARE`), casting from layers 0 and 3 with one cascade of its own, 256 units around the camera
+  (`ARMS_SHADE_REACH`, since #254; before, the sun's first cascade).
   Its shadow map therefore holds exactly what shaded the arms before this change: the
   world, the seen parts of the body, and the arms themselves. The arms rig's materials
   are copies with `NifSurface::shade_light` set; their fragment shader

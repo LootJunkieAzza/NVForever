@@ -18,7 +18,7 @@ look only.
 |---|---|---|
 | Main view | Not HDR: forward PBR with tonemapping (Tony McMapface) in the shaders into an 8-bit sRGB target; MSAA 4x (`--msaa`, the owner's game runs 8); depth prepass (water and the image-space blur read it) | `main.rs` `setup` |
 | Alpha-tested edges | Smoothed with MSAA (soft edges standing in for transparency multisampling) | `nvf_assets::nif_material`, grass, trees |
-| Sun | One directional light; shadows off by default since 2026-10-13 (owner decision, frame cost and flicker; `--sun-shadows` or the settings page): 4 shadow cascades out to `--shadow-distance` (16,000), first cascade a twelfth of it, maps 2048² (Bevy's default), Gaussian PCF (Bevy's default); a second "shade" light for the first-person arms copies its cascades | `sky.rs`, `player_body.rs` |
+| Sun | One directional light; shadows off by default since 2026-10-13 (owner decision, frame cost and flicker; `--sun-shadows` or the settings page): 3 shadow cascades out to `--shadow-distance` (8,000 since #254; §5.3), maps 2048² (Bevy's default), Gaussian PCF (Bevy's default); a second "shade" light for the first-person arms casts within 256 units of the camera (`ARMS_SHADE_REACH`) | `sky.rs`, `player_body.rs` |
 | Local lights | Point/spot lights from LIGH records, flashlight with shadows | `lights.rs`, `flashlight.rs` |
 | Sky | The game's sky meshes, colours mapped through the inverse of the tonemapper so the grade sees the weather's colours | `sky.rs`, `sky.wgsl` |
 | Fog | Bevy distance fog, linear, from the weather's near/far | `sky.rs` |
@@ -97,10 +97,11 @@ the water surface; the first-person arms take a little occlusion from their own 
 ### 3.2 Finer, longer sun shadows (`fine-shadows`)
 
 `DirectionalLightShadowMap` 4096² instead of 2048², and the last cascade at 1.5 ×
-`--shadow-distance` (24,000 units by default), the first cascade bound unchanged (a twelfth of
+`--shadow-distance` (12,000 units by default since #254), the first cascade bound unchanged (a twelfth of
 `--shadow-distance`): the nearest shadows get twice the texels per unit, the far cascades about
-1.3 times, and shadows reach half as far again. The arms' shade light copies the cascades, so it
-also gets 4096² maps: about 512 MB of shadow maps in all (vanilla: 128 MB).
+1.3 times, and shadows reach half as far again. Before #254 the arms' shade light copied the
+cascades, so it also got 4096² maps: about 512 MB of shadow maps in all (vanilla: 128 MB).
+Since #254 it has one cascade of its own (256 units); the total has not been measured again.
 
 ### 3.3 Bloom (`bloom`)
 
