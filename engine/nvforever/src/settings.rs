@@ -1,7 +1,8 @@
 //! The renderer's switches on the pause menu's settings page (`nvf_play::settings`, drawn
 //! by `nvf_play::pause`; `--play` only): the on/off choices of the command line that can
 //! change while the game runs. Each reads and writes the state its module uses, so a
-//! switch starts as the command line left it; nothing is saved.
+//! switch starts as the command line left it, then as `NVForever.ini` stored it (kept by
+//! `nvf_play::settings` like every switch of the page).
 //!
 //! Left on the command line: what is fixed when the game starts (`--no-npc-packages`,
 //! `--no-actors`, FaceGen, weapons, `--no-lodgen`), the numbers (distances, `--msaa`,

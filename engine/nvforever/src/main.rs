@@ -22,6 +22,9 @@ mod cell_resets;
 mod alert;
 mod anim_sounds;
 mod crash;
+mod creature_pace;
+mod creature_stance;
+mod death_cam;
 mod deaths;
 mod detection;
 mod dialogue_look;
@@ -46,6 +49,7 @@ mod locomotion;
 mod combat_tactics;
 mod console_toggles;
 mod npc_combat;
+mod use_weapon;
 mod provoked;
 mod weapons;
 mod lodgen;
@@ -76,6 +80,7 @@ mod taa;
 mod speech_look;
 mod terrain;
 mod texture_swap;
+mod effect_shaders;
 mod tree;
 mod treelod;
 mod underwater;
@@ -117,7 +122,8 @@ struct Args {
     /// it is always the Data folder.
     #[arg(long, env = "NVFOREVER_DATA")]
     data: Option<PathBuf>,
-    /// Plugins in load order (default: the base game and the DLC masters present).
+    /// Plugins in load order (default: those turned on in NVForever's own plugins.txt in
+    /// its home; with --data, the base game and the DLC masters present).
     #[arg(long, num_args = 1.., default_values_t = MASTERS.map(String::from))]
     plugins: Vec<String>,
     /// Record schema directory.
@@ -201,6 +207,10 @@ struct Args {
     /// (docs/spec-notes/image-modifiers.md §6). Repeatable.
     #[arg(long, value_name = "MODIFIER[@SECONDS]")]
     imod: Vec<String>,
+    /// Play this image space modifier (Editor ID or 0xFormID) when the player dies, on
+    /// top of the death camera's own blur (`death_cam.rs`).
+    #[arg(long, value_name = "MODIFIER")]
+    death_imod: Option<String>,
     /// The sun casts shadows. Off by default until their frame cost and flicker are fixed
     /// (owner decision 2026-10-13; on by default from 2026-10-09); the original game casts
     /// no sun shadows from the world (docs/spec-notes/world.md §6, "Sun path and shadows").
@@ -572,6 +582,7 @@ fn report_archives(data: Res<GameData>) {
 
 fn main() -> AppExit {
     let mut args = Args::parse();
+    let developer_data = args.data.is_some();
     // The game's folder: `--data`, NVForever.ini or asked for; its files checked (setup.rs).
     let install = match setup::game_install(args.data.as_deref()) {
         Ok(g) => g,
@@ -581,8 +592,19 @@ fn main() -> AppExit {
         }
     };
     args.data = Some(install.data.clone());
-    // Without --plugins: the DLC masters that are there (all of them are optional).
-    if args.plugins.iter().map(String::as_str).eq(MASTERS) {
+    let default_plugins = args.plugins.iter().map(String::as_str).eq(MASTERS);
+    // A player's start (no --data, no --plugins): the home's own plugins.txt (setup.rs).
+    // Developer and smoke runs keep the fixed masters below, whatever the list says.
+    if default_plugins && !developer_data {
+        match setup::plugin_list(&install) {
+            Ok(p) => args.plugins = p,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return AppExit::error();
+            }
+        }
+    } else if default_plugins {
+        // Without --plugins: the DLC masters that are there (all of them are optional).
         let addons = install.addon_masters();
         args.plugins.retain(|p| p == MASTERS[0] || addons.contains(&p.as_str()));
         if addons.len() < MASTERS.len() - 1 {
@@ -718,6 +740,11 @@ fn main() -> AppExit {
             Err(e) => return fail(e),
         }
     }
+    let death_imod = match args.death_imod.as_deref().map(|m| fnv_world::image_modifier::find_image_modifier(world.lo, world.schema, m).ok_or(m)) {
+        Some(Err(m)) => return fail(format!("--death-imod {m}: no image space modifier {m}")),
+        Some(Ok(f)) => Some(f),
+        None => None,
+    };
     sky_state.time_scale = args.time_scale.max(0.0);
     sky_state.days_passed = args.day.or_else(|| sky::find_global(&world, "GameDaysPassed")).unwrap_or(0.0).floor();
     if let Some(dir) = &args.timelapse {
@@ -1022,6 +1049,8 @@ fn main() -> AppExit {
         app.add_plugins(flashlight::FlashlightPlugin);
         // Textures scripts swap on references' shapes (texture_swap.rs).
         app.add_plugins(texture_swap::TextureSwapPlugin);
+        // Effect shaders and actor alpha scripts and magic effects ask for (effect_shaders.rs).
+        app.add_plugins(effect_shaders::EffectShadersPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
         app.add_plugins(lockpick_view::LockpickViewPlugin);
     }
@@ -1037,6 +1066,7 @@ fn main() -> AppExit {
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
+            app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
             app.add_plugins(cell_resets::CellResetsPlugin);
             // What drawn NPCs wear and hold follows their inventories (outfits.rs).
             app.add_plugins(outfits::OutfitsPlugin);
@@ -1054,12 +1084,18 @@ fn main() -> AppExit {
             app.add_plugins(detection::DetectionPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
+            // Alerted creatures raise their claws and hands (creature_stance.rs).
+            app.add_plugins(creature_stance::CreatureStancePlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
+            // Creatures' own speeds and alert stance (creature_pace.rs).
+            app.add_plugins(creature_pace::CreaturePacePlugin);
             // Heads held by a script's Look (script_look.rs).
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
+            // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).
+            app.add_plugins(use_weapon::UseWeaponPlugin);
             app.add_plugins(combat_tactics::CombatTacticsPlugin);
             // Fights started by hits; the player's yield (provoked.rs).
             app.add_plugins(provoked::ProvokedPlugin);

@@ -37,12 +37,17 @@
 //!   conversation with the player stays at full volume and unpanned. Lip sync follows
 //!   [`VoiceState::spoken`] from `nvforever`'s `lips.rs` (docs/spec-notes/lipsync.md).
 //!
+//! - **A response's own sound.** A response with a sound (TRDT; creatures' and robots'
+//!   combat lines, `fnv_game::combat_lines`) plays that SOUN where its speaker stands
+//!   instead of a voice file, through `crate::sfx` (`voice: … plays its sound <edid>`); the
+//!   line keeps its fitted length.
+//!
 //! Switches: [`VoiceSettings`] (`nvforever --no-voice`, `--voice-volume`);
 //! `NVF_PLAY_VOICE_LENGTHS=0` keeps the fitted line lengths (sounds still play).
 
 use crate::player::Player;
 use crate::script::ScriptState;
-use crate::sfx::{pan_gains, Pan, Panned};
+use crate::sfx::{pan_gains, Pan, Panned, PlaySound};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayWorld};
 use bevy::audio::Volume;
@@ -377,6 +382,7 @@ fn play(
     (sounds, mut panned, player): (Option<ResMut<Assets<AudioSource>>>, Option<ResMut<Assets<Panned<AudioSource>>>>, Option<Res<Player>>),
     paused: Res<crate::pause::Paused>,
     sinks: Query<&AudioSink, With<VoiceSound>>,
+    mut effects: MessageWriter<PlaySound>,
 ) {
     let player = player.as_deref();
     let st = &mut *state;
@@ -456,6 +462,26 @@ fn play(
             _ => None,
         };
         let pan = heard.map(|_| Pan::new(placed_gains(&sim, player, s.speaker)));
+        // A response with a sound of its own plays it instead of the voice (creatures'
+        // and robots' combat lines; docs/spec-notes/combat-dialogue.md §3).
+        let own_sound = g.data.infos.get(&s.info).and_then(|d| d.responses.get(k)).and_then(|r| r.sound);
+        if let Some(sound) = own_sound {
+            let at = match heard {
+                Some(Some((at, _))) => Some(at),
+                _ => None,
+            };
+            if settings.play && out_of_hearing.is_none() {
+                effects.write(PlaySound { sound, at });
+            }
+            st.started += 1;
+            st.unheard += u64::from(out_of_hearing.is_some());
+            info!("voice: {who} line {} response {number} plays its sound {}{}", g.data.name(s.info), g.data.name(sound), if out_of_hearing.is_some() { " [out of hearing]" } else { "" });
+            st.playing.insert(
+                s.speaker,
+                Playing { info: s.info, response: k, entity: None, ends_at: now + fitted, remaining: s.remaining, path: None, started_at: now, held_secs: 0.0, conversation: s.conversation, held: false, pan },
+            );
+            continue;
+        }
         let (entity, seconds) = match &file {
             Some(path) => {
                 let seconds = bank.seconds(path).unwrap_or(fitted);

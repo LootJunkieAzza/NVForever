@@ -499,6 +499,9 @@ pub struct MagicEffectDef {
     pub script: Option<FormId>,
     /// DATA "Actor Value" (`None` for the record's "None").
     pub actor_value: Option<u16>,
+    /// DATA "Effect Shader": the EFSH played on the target while the effect lasts
+    /// (docs/spec-notes/effect-shaders.md §3).
+    pub shader: Option<FormId>,
 }
 
 impl MagicEffectDef {
@@ -508,6 +511,9 @@ impl MagicEffectDef {
     pub const DETRIMENTAL: u32 = 4;
     pub const NO_DURATION: u32 = 1 << 7;
     pub const NO_MAGNITUDE: u32 = 1 << 8;
+    /// "FX Persist": the effect shader's persistent part shows while the effect lasts
+    /// [documented: xEdit MGEF flags; GECK wiki EffectShader].
+    pub const FX_PERSIST: u32 = 1 << 10;
 
     pub fn has(&self, flag: u32) -> bool {
         self.flags & flag != 0
@@ -2125,6 +2131,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     archetype,
                     script: item.filter(|_| archetype == ARCHETYPE_SCRIPT),
                     actor_value: actor_value.and_then(|c| u16::try_from(c).ok()),
+                    shader: v.get("effect_shader").and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId),
                 });
             }
         }

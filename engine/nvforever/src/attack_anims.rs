@@ -23,6 +23,14 @@
 //!   NiTextKeyExtraData; observed: 931 `hit` keys in the clips, animation.md §3.2]; the
 //!   key's time is told to `npc_combat` ([`AttackTimes`]), which delays the blow's damage
 //!   by it. Shots leave at the start of their clip [design].
+//! - **Automatic fire with a looping clip** (`2hhattackspin.kf` of the minigun, flamer and
+//!   gatling laser: `Fire` and `Loop` keys, animation.md §9.8): the first shot starts the
+//!   clip at its `Fire` key (NPCs do not spin up first [design]), the shots that follow
+//!   while it runs do not start it again, and it goes round from `Fire` to `Loop` while
+//!   they come no more than [`LOOP_HOLD`] apart, then plays out from where it is, as the
+//!   player's body does. Started again at every shot, it jerked the arms and shoulders
+//!   back to its start many times a second [observed in NVForever: owner's playtest
+//!   2026-10-16, Cook-Cook's flamer].
 //! - While an attack clip plays, the actor's body block keeps the place it had when the
 //!   attack began (`nvf_play::blocking::ActorBlocks::attacking`): a dog's lunge shoved
 //!   the player back 40 units each bite before [design; owner 2026-10-11].
@@ -37,7 +45,7 @@ use crate::locomotion::Dying;
 use crate::npc_combat::Fighters;
 use crate::weapons::WeaponHold;
 use bevy::prelude::*;
-use fnv_actor::player_clips::{aim_variant, aim_weights, attack_clips, attack_stem, Aim, Stance};
+use fnv_actor::player_clips::{aim_variant, aim_weights, attack_clips, attack_stem, Aim, ClipKeys, Stance};
 use fnv_actor::weapon::{AnimType, Stage};
 use fnv_sim::FormId;
 use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts, PreparedSkeleton};
@@ -58,6 +66,9 @@ const FADE_OUT: f32 = 0.15;
 const MAX_VARIANT: f32 = 0.95;
 /// A blow lands this long into its clip when the clip has no `Hit` key, seconds [design].
 pub const DEFAULT_HIT: f32 = 0.3;
+/// A looping attack clip goes round its repeated part while the shots come no further
+/// apart than this, seconds [engineering choice, as `player_body`'s].
+const LOOP_HOLD: f32 = 0.25;
 
 /// An actor starts an attack (from `npc_combat`): a shot or a blow, with the weapon it
 /// uses (`None`: fists, or a creature's own attack).
@@ -85,6 +96,25 @@ pub struct Attack {
     pub down: Option<Arc<BoundClip>>,
     pub t: f32,
     pub len: f32,
+    /// The repeated part, from the `Fire` key to the `Loop` key (seconds into the clip),
+    /// for a clip that has one.
+    pub repeat: Option<(f32, f32)>,
+    /// Seconds since the last shot or blow.
+    pub since: f32,
+}
+
+/// A clip's repeated part: from its `Fire` key to its `Loop` key, seconds into it.
+fn repeat_of(c: &BoundClip) -> Option<(f32, f32)> {
+    let k = ClipKeys::parse(&c.clip.text_keys);
+    k.hit.zip(k.loop_end).filter(|(from, to)| from < to).map(|(from, to)| (from - c.clip.start, to - c.clip.start))
+}
+
+/// `t` brought back into `from..to` once it passes `to`.
+fn loop_time(t: f32, from: f32, to: f32) -> f32 {
+    if t < to || from >= to {
+        return t;
+    }
+    from + (t - to).rem_euclid(to - from)
 }
 
 /// On a fighting actor's root: its aim's up and down forms, the pitch to its target and
@@ -141,11 +171,15 @@ impl CombatPose {
         }
         let Some(a) = self.attack.as_mut() else { return };
         a.t += dt;
+        a.since += dt;
+        if let Some((from, to)) = a.repeat.filter(|_| a.since <= LOOP_HOLD) {
+            a.t = loop_time(a.t, from, to);
+        }
         if a.t >= a.len {
             self.attack = None;
             return;
         }
-        let fade = (a.t / FADE_IN).min(1.0) * ((a.len - a.t) / FADE_OUT).min(1.0);
+        let fade = ((a.t - a.repeat.map_or(0.0, |r| r.0)).max(0.0) / FADE_IN).min(1.0) * ((a.len - a.t) / FADE_OUT).min(1.0);
         let phase = (a.t / a.len.max(1e-3)).min(0.999);
         player.layers[ATTACK_LAYER] = Some(Layer { clip: a.clip.clone(), phase, weight: fade });
         let form = if variant == Aim::Up { a.up.clone() } else { a.down.clone() };
@@ -176,6 +210,8 @@ struct Stats {
     started: usize,
     shots: usize,
     blows: usize,
+    /// Shots that went on with a looping clip already playing.
+    kept: usize,
     missing: BTreeMap<String, usize>,
     clips: BTreeMap<String, usize>,
 }
@@ -305,6 +341,12 @@ fn start(
                 *clips.stats.missing.entry(format!("{folder} {}", if creature { "creature attack".to_string() } else { weapon_prefix(a.weapon).to_string() })).or_default() += 1;
                 continue;
             };
+            // A looping clip still running goes on through this shot (module notes).
+            if let Some(cur) = new_pose.attack.as_mut().filter(|c| c.repeat.is_some() && Arc::ptr_eq(&c.clip, &clip) && c.t < c.len) {
+                cur.since = 0.0;
+                clips.stats.kept += 1;
+                continue;
+            }
             let up = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&path, Aim::Up));
             let down = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&path, Aim::Down));
             let len = clip.clip.length().max(0.05);
@@ -323,7 +365,9 @@ fn start(
                 info!("attack anims: {id:08X} plays {path} ({len:.2} s{})", hit_time(&clip).map_or(String::new(), |h| format!(", hit at {h:.2} s")));
             }
             *st.clips.entry(name).or_default() += 1;
-            new_pose.attack = Some(Attack { clip, up, down, t: 0.0, len });
+            let repeat = repeat_of(&clip).filter(|_| !a.melee);
+            let t = repeat.map_or(0.0, |(from, _)| from);
+            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0 });
         }
         match pose {
             Some(mut p) => *p = new_pose,
@@ -345,7 +389,15 @@ fn report(mut exit: MessageReader<AppExit>, clips: Res<AttackClips>) {
     }
     let s = &clips.stats;
     let list = |m: &BTreeMap<String, usize>| if m.is_empty() { "none".to_string() } else { m.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ") };
-    info!("attack anims summary: {} attack clips started ({} shots, {} blows): {}; without a clip: {}", s.started, s.shots, s.blows, list(&s.clips), list(&s.missing));
+    info!(
+        "attack anims summary: {} attack clips started ({} shots, {} blows), {} shots went on with a looping clip: {}; without a clip: {}",
+        s.started,
+        s.shots,
+        s.blows,
+        s.kept,
+        list(&s.clips),
+        list(&s.missing)
+    );
 }
 
 #[cfg(test)]
@@ -359,6 +411,14 @@ mod tests {
             assert!((w / (1.0 + w) - share).abs() < 1e-5, "{share}");
         }
         assert!(variant_weight(1.0).is_finite());
+    }
+
+    #[test]
+    fn a_looping_clip_goes_round_from_fire_to_loop() {
+        // The install's 2hhattackspin.kf: `Fire` at 0.2 s, `Loop` at 0.867 s.
+        assert_eq!(loop_time(0.5, 0.2, 0.867), 0.5);
+        assert!((loop_time(0.9, 0.2, 0.867) - 0.233).abs() < 1e-5);
+        assert_eq!(loop_time(0.9, 0.9, 0.2), 0.9);
     }
 
     #[test]
