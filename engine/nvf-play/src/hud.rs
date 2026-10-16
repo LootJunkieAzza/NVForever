@@ -66,6 +66,11 @@ const ARROWS_MIDDLE: f32 = 3.5 / 16.0;
 /// [owner's playtest list 5, item 73: "the 75% threshold on condition … when jamming
 /// occurs"; observed: the arrows at about three quarters on the owner's screenshot].
 pub const JAM_CONDITION: f32 = 0.75;
+/// The arrows' picture is drawn this much taller than the bar at the top and the bottom
+/// and cut to the bar: the arrows' bases are the picture's first and last rows
+/// [observed: the texture], and drawn exactly as high as the bar the filtered edge rows
+/// left a strip of the bar showing above and below them (owner's playtest 2026-10-16).
+const ARROWS_BLEED: f32 = 1.0;
 
 /// The enemy's health piece, `EnemyHealth`, and its bracket picture's place and size in
 /// it (`glow_enemy_health_seperator.dds`) [documented: hud_main_menu.xml,
@@ -126,8 +131,14 @@ const METER_SHIFT: f32 = 3.0;
 const UPPER_BASE: f32 = 33.0;
 const HP_LABEL_X: f32 = 23.0;
 const AP_LABEL_END: f32 = 355.0;
-/// The condition bar ends this far before the divider.
-const CND_BEFORE_DIVIDER: f32 = 15.0;
+/// The condition bar ends this far before the divider, and its bottom stands this far
+/// above the line "CND" stands on; "CND" ends this far before the bar [observed: on the
+/// `Target healthbar` screenshot the bar starts about 8 pixels after the "D" and is about
+/// as high as the letters; owner's playtest 2026-10-16, after 15 / 0 / 6 left 2 pixels
+/// between "D" and the bar and the bar lower than the letters].
+const CND_BEFORE_DIVIDER: f32 = 10.0;
+const CND_RAISE: f32 = 2.0;
+const CND_LABEL_GAP: f32 = 11.0;
 /// The enemy bar's pips: as many as fit between the bracket's corner marks.
 const ENEMY_PIPS: usize = 31;
 /// The enemy's name: the line it stands on in its piece, centred.
@@ -317,10 +328,10 @@ impl Places {
             ap_meter,
             ap_label: AP_LABEL_END - font.width(AP),
             meter_y: LINE_Y - METER_GAP - TICK.y,
-            cnd_label: cnd_x - LABEL_GAP - font.width(CND),
+            cnd_label: cnd_x - CND_LABEL_GAP - font.width(CND),
             cnd_x,
-            cnd_y: LOWER_BASE - CND_BAR.y,
-            arrows_x: cnd_x + JAM_CONDITION * CND_BAR.x - ARROWS_MIDDLE * CND_BAR.y,
+            cnd_y: LOWER_BASE - CND_RAISE - CND_BAR.y,
+            arrows_x: cnd_x + JAM_CONDITION * CND_BAR.x - ARROWS_MIDDLE * (CND_BAR.y + 2.0 * ARROWS_BLEED),
             ammo_right: RIGHT_UPRIGHT - 2.0 * LABEL_GAP,
         }
     }
@@ -553,7 +564,12 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
                 // The jamming threshold's two arrows, over the bar (§4).
                 match &art.arrows {
                     Some(image) => {
-                        row.spawn((at(places.arrows_x, places.cnd_y, CND_BAR.y, CND_BAR.y), ImageNode::new(image.clone())));
+                        let mut clip = at(places.cnd_x, places.cnd_y, CND_BAR.x, CND_BAR.y);
+                        clip.overflow = Overflow::clip();
+                        let side = CND_BAR.y + 2.0 * ARROWS_BLEED;
+                        row.spawn(clip).with_children(|c| {
+                            c.spawn((at(places.arrows_x - places.cnd_x, -ARROWS_BLEED, side, side), ImageNode::new(image.clone())));
+                        });
                     }
                     None => {
                         let x = places.cnd_x + JAM_CONDITION * CND_BAR.x - 2.0;
@@ -883,14 +899,14 @@ mod tests {
         assert!(UPPER_BASE < p.meter_y);
         assert!(p.hp_label > LEFT_UPRIGHT && p.ap_label + font().width(AP) < RIGHT_UPRIGHT);
         // Condition's label, then its bar next to the divider; the ammo right of it.
-        assert_eq!(p.cnd_label + font().width(CND) + LABEL_GAP, p.cnd_x);
+        assert_eq!(p.cnd_label + font().width(CND) + CND_LABEL_GAP, p.cnd_x);
         assert_eq!(p.cnd_x + CND_BAR.x + CND_BEFORE_DIVIDER, DIVIDER);
         assert!(p.ammo_right > DIVIDER && p.ammo_right < RIGHT_UPRIGHT);
         // The bar's bottom is on the label's line.
-        assert_eq!(p.cnd_y + CND_BAR.y, LOWER_BASE);
+        assert_eq!(p.cnd_y + CND_BAR.y + CND_RAISE, LOWER_BASE);
         assert!(p.cnd_y > LINE_Y);
         // The arrows' middle at three quarters of the bar.
-        assert!((p.arrows_x + ARROWS_MIDDLE * CND_BAR.y - (p.cnd_x + 0.75 * CND_BAR.x)).abs() < 1e-3);
+        assert!((p.arrows_x + ARROWS_MIDDLE * (CND_BAR.y + 2.0 * ARROWS_BLEED) - (p.cnd_x + 0.75 * CND_BAR.x)).abs() < 1e-3);
         // The enemy's ticks fit between its bracket's marks.
         assert!(ENEMY_PIPS as f32 * TICK.x - (TICK.x - TICK_BLOCK) <= ENEMY_MARKS.1 - ENEMY_MARKS.0);
     }

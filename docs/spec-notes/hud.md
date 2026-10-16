@@ -149,14 +149,20 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   The ends are cut off sharp.
 - Under the right bracket's long line: "CND", then the condition's bar over a ground 60
   long and 20 high [documented: the size] at a quarter of the bar's strength
-  [hypothesis: as `meter.xml`'s ground]. The bar ends 15 before the divider (x 132–192)
-  and its bottom is on the line "CND" stands on (y 106), its top level with the
-  letters' tops [observed]. Right of the divider the ammo, right-justified near the
+  [hypothesis: as `meter.xml`'s ground]. The bar ends 10 before the divider (x 137–197),
+  "CND" ending 11 before it, and its bottom stands 2 above the line "CND" stands on
+  (y 106), about as high as the letters [observed: on the `Target healthbar` screenshot
+  the bar starts about 8 pixels after the "D"; owner's playtest 2026-10-16, after x
+  132–192 with the bottom on the line left the bar 2 pixels from the "D" and low].
+  Right of the divider the ammo, right-justified near the
   upright, as "rounds in the weapon/rounds carried besides".
 - Over the condition bar, the jamming threshold: `CNDArrows`, the picture
   `interface\shared\arrow\repair_meter_pips.dds` [documented: hud_main_menu.xml, its
   place "set in code"], two black arrows at the picture's top and bottom edges pointing
-  at each other. The picture is drawn as high as the bar (20 × 20) with the arrows'
+  at each other. The arrows' bases are the picture's first and last rows [observed: the
+  texture]; drawn as high as the bar the filtered edge rows left a strip of the bar
+  above and below them (owner's playtest 2026-10-16), so the picture is drawn 1 taller
+  at the top and the bottom (22 × 22) and cut to the bar, the arrows'
   middle at three quarters of the bar [owner: "the 75% threshold on condition … when
   jamming occurs"; observed: at about 0.75–0.79 of the bar on the screenshot].
 - Everything is in the interface's amber at full brightness.
