@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn equip_then_aim_then_unequip_then_rest() {
-        let f = |duration: f32| ClipFacts { duration, blend_time: 0.2, prn: Vec::new() };
+        let f = |duration: f32| ClipFacts { duration, blend_time: 0.2, prn: Vec::new(), switch: None };
         let facts = StanceFacts::from([(EquipClip::Equip, f(1.0)), (EquipClip::Aim, f(2.0)), (EquipClip::Unequip, f(1.0))]);
         let clips = Arc::new(CreatureClips { clips: BTreeMap::new(), facts });
         let mut s = CreatureStance { clips, anim: WeaponAnim::new(false), drawn: true, logged: Stage::Holstered };

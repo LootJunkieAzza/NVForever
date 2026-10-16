@@ -661,6 +661,10 @@ pub struct Game<'a> {
     /// The idle animations actors were asked to play (`crate::idles::IdleRequest`), for
     /// the layer that animates actors to take.
     pub idle_requests: Vec<crate::idles::IdleRequest>,
+    /// Actors' weapon uses (`crate::use_weapon`: UseWeapon, Use Weapon packages), and
+    /// the last number given to one. Not part of the saved state.
+    pub weapon_uses: BTreeMap<FormId, crate::use_weapon::WeaponUse>,
+    pub weapon_use_seq: u64,
     /// The sounds scripts asked for (`crate::sound::SoundRequest`), for the engine to
     /// take. Not part of the saved state.
     pub sound_requests: Vec<crate::sound::SoundRequest>,
@@ -943,6 +947,8 @@ impl<'a> Game<'a> {
             toggles: Default::default(),
             combat_requests: Vec::new(),
             idle_requests: Vec::new(),
+            weapon_uses: BTreeMap::new(),
+            weapon_use_seq: 0,
             sound_requests: Vec::new(),
             music_requests: Vec::new(),
             texture_swaps: Default::default(),
