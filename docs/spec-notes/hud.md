@@ -121,11 +121,17 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
 - The two pieces stand in the bottom corners, 40 from the side and 30 from the bottom
   edge. Each bracket picture is drawn texel for unit at its piece's top left corner.
 - The bars stand on the long line, about 4 above it. A full bar is 37 ticks, 296 long
-  (the file's "total width" is 300), from just inside the upright to the bracket's
-  corner mark: x 24–320 on the left, 70–366 on the right [observed: the bar starts
-  about 3 units right of the upright's inner edge and its last tick ends at the mark].
-- "HP" and "AP" stand **above** their bars, near the uprights: "HP" starting at x 33,
-  "AP" ending at x 362, on the line y 33 (their capitals 23 high) [observed]. The words
+  (the file's "total width" is 300), from the upright's inner edge to just short of the
+  bracket's corner mark: x 21–317 on the left, 67–363 on the right [observed: on the
+  `Target healthbar` screenshot the first tick starts at the upright's inner edge and
+  the last ends about 2 pixels before the mark, and before the right upright; owner's
+  playtest 2026-10-16, after x 24–320 / 70–366 ran the last ticks into the mark and the
+  upright]. Where the tick step `round(8 × scale)` is rounded up so far that 37 ticks
+  would not fit in the bar's room, the step is a pixel less [design].
+- "HP" and "AP" stand **above** their bars, near the uprights: "HP" starting at x 23,
+  "AP" ending at x 355, on the line y 33 (their capitals 23 high) [observed: measured
+  again on the same screenshot 2026-10-16; 33 and 362 before stood 11 and 8 pixels
+  right of the original's]. The words
   are written as on the screenshots [hypothesis: the game takes them from its settings].
 - A tick is the picture `hud_tick_mark.dds`: a block 6 texels wide (2 clear after it),
   its opacity rising from about an eighth at the top to full at the bottom [observed:
@@ -143,14 +149,20 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
   The ends are cut off sharp.
 - Under the right bracket's long line: "CND", then the condition's bar over a ground 60
   long and 20 high [documented: the size] at a quarter of the bar's strength
-  [hypothesis: as `meter.xml`'s ground]. The bar ends 15 before the divider (x 132–192)
-  and its bottom is on the line "CND" stands on (y 106), its top level with the
-  letters' tops [observed]. Right of the divider the ammo, right-justified near the
+  [hypothesis: as `meter.xml`'s ground]. The bar ends 10 before the divider (x 137–197),
+  "CND" ending 11 before it, and its bottom stands 2 above the line "CND" stands on
+  (y 106), about as high as the letters [observed: on the `Target healthbar` screenshot
+  the bar starts about 8 pixels after the "D"; owner's playtest 2026-10-16, after x
+  132–192 with the bottom on the line left the bar 2 pixels from the "D" and low].
+  Right of the divider the ammo, right-justified near the
   upright, as "rounds in the weapon/rounds carried besides".
 - Over the condition bar, the jamming threshold: `CNDArrows`, the picture
   `interface\shared\arrow\repair_meter_pips.dds` [documented: hud_main_menu.xml, its
   place "set in code"], two black arrows at the picture's top and bottom edges pointing
-  at each other. The picture is drawn as high as the bar (20 × 20) with the arrows'
+  at each other. The arrows' bases are the picture's first and last rows [observed: the
+  texture]; drawn as high as the bar the filtered edge rows left a strip of the bar
+  above and below them (owner's playtest 2026-10-16), so the picture is drawn 1 taller
+  at the top and the bottom (22 × 22) and cut to the bar, the arrows'
   middle at three quarters of the bar [owner: "the 75% threshold on condition … when
   jamming occurs"; observed: at about 0.75–0.79 of the bar on the screenshot].
 - Everything is in the interface's amber at full brightness.

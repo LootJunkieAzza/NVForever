@@ -66,6 +66,11 @@ const ARROWS_MIDDLE: f32 = 3.5 / 16.0;
 /// [owner's playtest list 5, item 73: "the 75% threshold on condition … when jamming
 /// occurs"; observed: the arrows at about three quarters on the owner's screenshot].
 pub const JAM_CONDITION: f32 = 0.75;
+/// The arrows' picture is drawn this much taller than the bar at the top and the bottom
+/// and cut to the bar: the arrows' bases are the picture's first and last rows
+/// [observed: the texture], and drawn exactly as high as the bar the filtered edge rows
+/// left a strip of the bar showing above and below them (owner's playtest 2026-10-16).
+const ARROWS_BLEED: f32 = 1.0;
 
 /// The enemy's health piece, `EnemyHealth`, and its bracket picture's place and size in
 /// it (`glow_enemy_health_seperator.dds`) [documented: hud_main_menu.xml,
@@ -114,13 +119,26 @@ const GROUND: f32 = 0.25;
 /// the left; mirrored on the right).
 const PIPS: usize = 37;
 const METER_WIDTH: f32 = PIPS as f32 * TICK.x;
+/// The bars stand this far left of where they were set from the bracket alone (the
+/// corner mark on the left piece, the upright on the right): the first tick starts at
+/// the upright's inside edge, the last ends clear of the mark and of the upright
+/// [observed: 3 pixels at 1080 lines against the `Target healthbar` screenshot, owner's
+/// playtest 2026-10-16].
+const METER_SHIFT: f32 = 3.0;
 /// "HP" and "AP" stand above their bars near the uprights: the line they stand on, where
-/// "HP" starts and where "AP" ends.
+/// "HP" starts and where "AP" ends [observed: as above, "HP" 11 and "AP" 8 pixels left of
+/// the earlier 33 and 362].
 const UPPER_BASE: f32 = 33.0;
-const HP_LABEL_X: f32 = 33.0;
-const AP_LABEL_END: f32 = 362.0;
-/// The condition bar ends this far before the divider.
-const CND_BEFORE_DIVIDER: f32 = 15.0;
+const HP_LABEL_X: f32 = 23.0;
+const AP_LABEL_END: f32 = 355.0;
+/// The condition bar ends this far before the divider, and its bottom stands this far
+/// above the line "CND" stands on; "CND" ends this far before the bar [observed: on the
+/// `Target healthbar` screenshot the bar starts about 8 pixels after the "D" and is about
+/// as high as the letters; owner's playtest 2026-10-16, after 15 / 0 / 6 left 2 pixels
+/// between "D" and the bar and the bar lower than the letters].
+const CND_BEFORE_DIVIDER: f32 = 10.0;
+const CND_RAISE: f32 = 2.0;
+const CND_LABEL_GAP: f32 = 11.0;
 /// The enemy bar's pips: as many as fit between the bracket's corner marks.
 const ENEMY_PIPS: usize = 31;
 /// The enemy's name: the line it stands on in its piece, centred.
@@ -252,6 +270,15 @@ pub fn tick_pixels(height: f32) -> (f32, f32) {
     (step, (TICK_BLOCK * s).round().clamp(1.0, step - 1.0))
 }
 
+/// A row's tick step: `step`, or less where `count` ticks `width` wide would not fit in
+/// `room` pixels.
+pub fn row_step(step: f32, width: f32, room: f32, count: usize) -> f32 {
+    if count < 2 {
+        return step;
+    }
+    step.min(((room - width) / (count - 1) as f32).floor()).max(width + 1.0)
+}
+
 /// Where the doubled compass strip starts in its window (0 or less), so that `heading`
 /// (degrees) is in the window's middle (§4).
 pub fn strip_left(heading: f32) -> f32 {
@@ -290,10 +317,10 @@ pub struct Places {
 
 impl Places {
     pub fn new(font: &Font) -> Places {
-        // [observed, §4] A full bar runs from just inside the upright to the bracket's
-        // corner mark; its label stands above it, near the upright.
-        let hp_meter = LEFT_MARK - METER_WIDTH;
-        let ap_meter = RIGHT_MARK;
+        // [observed, §4] A full bar runs from the upright's inside edge to just short of
+        // the bracket's corner mark; its label stands above it, near the upright.
+        let hp_meter = LEFT_MARK - METER_WIDTH - METER_SHIFT;
+        let ap_meter = RIGHT_MARK - METER_SHIFT;
         let cnd_x = DIVIDER - CND_BEFORE_DIVIDER - CND_BAR.x;
         Places {
             hp_label: HP_LABEL_X,
@@ -301,10 +328,10 @@ impl Places {
             ap_meter,
             ap_label: AP_LABEL_END - font.width(AP),
             meter_y: LINE_Y - METER_GAP - TICK.y,
-            cnd_label: cnd_x - LABEL_GAP - font.width(CND),
+            cnd_label: cnd_x - CND_LABEL_GAP - font.width(CND),
             cnd_x,
-            cnd_y: LOWER_BASE - CND_BAR.y,
-            arrows_x: cnd_x + JAM_CONDITION * CND_BAR.x - ARROWS_MIDDLE * CND_BAR.y,
+            cnd_y: LOWER_BASE - CND_RAISE - CND_BAR.y,
+            arrows_x: cnd_x + JAM_CONDITION * CND_BAR.x - ARROWS_MIDDLE * (CND_BAR.y + 2.0 * ARROWS_BLEED),
             ammo_right: RIGHT_UPRIGHT - 2.0 * LABEL_GAP,
         }
     }
@@ -537,7 +564,12 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
                 // The jamming threshold's two arrows, over the bar (§4).
                 match &art.arrows {
                     Some(image) => {
-                        row.spawn((at(places.arrows_x, places.cnd_y, CND_BAR.y, CND_BAR.y), ImageNode::new(image.clone())));
+                        let mut clip = at(places.cnd_x, places.cnd_y, CND_BAR.x, CND_BAR.y);
+                        clip.overflow = Overflow::clip();
+                        let side = CND_BAR.y + 2.0 * ARROWS_BLEED;
+                        row.spawn(clip).with_children(|c| {
+                            c.spawn((at(places.arrows_x - places.cnd_x, -ARROWS_BLEED, side, side), ImageNode::new(image.clone())));
+                        });
                     }
                     None => {
                         let x = places.cnd_x + JAM_CONDITION * CND_BAR.x - 2.0;
@@ -661,13 +693,16 @@ fn pips(
             .get_or_insert_with(|| data.as_deref().and_then(|d| texture(&format!("{HUD_TEXTURES}hud_tick_mark.dds"), d, &mut images, bc_supported(formats.as_deref()))).map(|t| t.0))
             .clone();
         let (height, sf) = key;
-        let (step, width) = tick_pixels(height);
+        let (step0, width) = tick_pixels(height);
         let px = |v: f32| Val::Px(v / sf);
         for (e, row) in &rows {
+            let room = row.width * height / 960.0;
+            // Where the step was rounded up the ticks would run past their room (into the
+            // corner mark or the upright): a pixel less then.
+            let step = row_step(step0, width, room, row.count);
             // The ticks fill from the bar's outer end: from the left for health, from the
             // right for action points; the enemy's stand in the middle of their room.
             let span = row.count as f32 * step - (step - width);
-            let room = row.width * height / 960.0;
             let first = match row.bar {
                 Bar::Health => 0.0,
                 Bar::ActionPoints => room - span,
@@ -803,6 +838,16 @@ mod tests {
         // Never a tick without a gap, even tiny.
         let (step, width) = tick_pixels(100.0);
         assert!(width >= 1.0 && width < step);
+        // A full bar never runs past its room, wherever the step rounds up.
+        for lines in [600, 720, 768, 900, 1024, 1050, 1080, 1200, 1440, 1600, 2160] {
+            let h = lines as f32;
+            let (step, width) = tick_pixels(h);
+            let room = METER_WIDTH * h / 960.0;
+            let step = row_step(step, width, room, PIPS);
+            assert!(PIPS as f32 * step - (step - width) <= room, "{lines} lines");
+            assert!(step > width, "{lines} lines");
+        }
+        assert_eq!(row_step(9.0, 7.0, METER_WIDTH * 1080.0 / 960.0, PIPS), 9.0);
     }
 
     #[test]
@@ -845,8 +890,8 @@ mod tests {
         let p = Places::new(&font());
         // A full bar ends at the corner mark on the left and starts at it on the right,
         // and runs to just inside the upright.
-        assert_eq!(p.hp_meter + METER_WIDTH, LEFT_MARK);
-        assert_eq!(p.ap_meter, RIGHT_MARK);
+        assert_eq!(p.hp_meter + METER_WIDTH, LEFT_MARK - METER_SHIFT);
+        assert_eq!(p.ap_meter, RIGHT_MARK - METER_SHIFT);
         assert!(p.hp_meter > LEFT_UPRIGHT && p.hp_meter - LEFT_UPRIGHT < 10.0);
         assert!(p.ap_meter + METER_WIDTH < RIGHT_UPRIGHT && RIGHT_UPRIGHT - (p.ap_meter + METER_WIDTH) < 10.0);
         // The bars stand on the long line, above it; the labels above the bars.
@@ -854,14 +899,14 @@ mod tests {
         assert!(UPPER_BASE < p.meter_y);
         assert!(p.hp_label > LEFT_UPRIGHT && p.ap_label + font().width(AP) < RIGHT_UPRIGHT);
         // Condition's label, then its bar next to the divider; the ammo right of it.
-        assert_eq!(p.cnd_label + font().width(CND) + LABEL_GAP, p.cnd_x);
+        assert_eq!(p.cnd_label + font().width(CND) + CND_LABEL_GAP, p.cnd_x);
         assert_eq!(p.cnd_x + CND_BAR.x + CND_BEFORE_DIVIDER, DIVIDER);
         assert!(p.ammo_right > DIVIDER && p.ammo_right < RIGHT_UPRIGHT);
         // The bar's bottom is on the label's line.
-        assert_eq!(p.cnd_y + CND_BAR.y, LOWER_BASE);
+        assert_eq!(p.cnd_y + CND_BAR.y + CND_RAISE, LOWER_BASE);
         assert!(p.cnd_y > LINE_Y);
         // The arrows' middle at three quarters of the bar.
-        assert!((p.arrows_x + ARROWS_MIDDLE * CND_BAR.y - (p.cnd_x + 0.75 * CND_BAR.x)).abs() < 1e-3);
+        assert!((p.arrows_x + ARROWS_MIDDLE * (CND_BAR.y + 2.0 * ARROWS_BLEED) - (p.cnd_x + 0.75 * CND_BAR.x)).abs() < 1e-3);
         // The enemy's ticks fit between its bracket's marks.
         assert!(ENEMY_PIPS as f32 * TICK.x - (TICK.x - TICK_BLOCK) <= ENEMY_MARKS.1 - ENEMY_MARKS.0);
     }
