@@ -1,7 +1,7 @@
-//! Console-only commands (docs/design/console.md): the catalogue lists them without an
-//! opcode (they are never compiled into a script), so they are registered here by their
-//! catalogue name ([`registry`]), which a test checks against
-//! `schemas/script/functions.json` (`fnv_script::FunctionTable::console_command`).
+//! Console-only commands that print (docs/design/console.md): the catalogue lists them
+//! without an opcode, so the function table numbers them from
+//! `fnv_script::table::CONSOLE_OPCODE_BASE`; the console runs the ones registered here
+//! by catalogue name ([`registry`], checked by a test) with the line's words.
 //!
 //! A command takes the console line's words after its name and returns the lines to print.
 //! What only the engine can do (travel, quit, menus, saving) is asked through
@@ -466,20 +466,22 @@ pub fn set_statement(g: &mut Game, ctx: &ConsoleCtx, words: &[String]) -> Result
 mod tests {
     use super::*;
 
-    /// Every registered name is a console-only command of the catalogue (one without an
-    /// opcode), spelled as the catalogue spells it.
+    /// Every registered name is a console-only command of the catalogue (one numbered
+    /// from `CONSOLE_OPCODE_BASE`, without a catalogue opcode), spelled as the catalogue
+    /// spells it.
     #[test]
     fn registered_names_are_catalogue_console_commands() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/script/functions.json");
         let t = fnv_script::FunctionTable::load(std::path::Path::new(path)).expect("functions.json");
         for (name, _) in registry() {
-            let c = t.console_command(name).unwrap_or_else(|| panic!("{name} is not a console-only command of the catalogue"));
-            assert_eq!(&c.name, name);
-            assert!(t.by_name(name).is_none(), "{name} has an opcode: register it in functions::registry");
+            let op = t.by_name(name).unwrap_or_else(|| panic!("{name} is not in the catalogue"));
+            assert!(op >= fnv_script::table::CONSOLE_OPCODE_BASE, "{name} has a catalogue opcode: register it in functions::registry");
+            assert_eq!(&t.get(op).unwrap().name, name);
         }
         // Aliases find them too.
         for alias in ["sqt", "MoveToQT", "sqs", "sqv", "sv", "caqs", "inv", "getavinfo", "prid", "setgs", "qqq", "cam"] {
-            assert!(t.console_command(alias).is_some_and(|c| lookup(&c.name).is_some()), "{alias}");
+            let f = t.by_name(alias).and_then(|op| t.get(op)).unwrap_or_else(|| panic!("{alias}"));
+            assert!(lookup(&f.name).is_some(), "{alias}");
         }
     }
 }

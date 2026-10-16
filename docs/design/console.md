@@ -55,10 +55,11 @@ Console commands of its own:
 ## Console-only functions
 
 About a hundred functions of the catalogue are console-only and have no opcode (they are
-never compiled into a script), so they are not in the opcode-keyed function table.
-`fnv_script::FunctionTable::console_command` finds them by name or alias, and
-`crates/fnv-game/src/functions/console.rs` registers the built ones by catalogue name (a
-test checks each name against `schemas/script/functions.json`). A command takes the
+never compiled into a script); the function table numbers them from
+`fnv_script::table::CONSOLE_OPCODE_BASE` (0xF000) in name order. The ones below, which
+print, are registered by catalogue name in `crates/fnv-game/src/functions/console.rs` (a
+test checks each name against `schemas/script/functions.json`) and run with the line's
+words. A command takes the
 line's words and prints lines; what only the engine can do (travel, quit, menus, saving)
 it asks through `Game::console_requests`, which the console carries out. Wording is ours.
 

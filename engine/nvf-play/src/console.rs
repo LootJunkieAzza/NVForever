@@ -857,16 +857,15 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
         let lines = fnv_game::functions::console::set_statement(g, &console_ctx, args)?;
         return Ok(ConsoleReply { lines, ..Default::default() });
     }
-    // A console-only command: no opcode, registered by name.
-    if g.data.table.by_name(&func).is_none() {
-        if let Some(cmd) = g.data.table.console_command(&func) {
-            let name = cmd.name.clone();
-            let run = fnv_game::functions::console::lookup(&name).ok_or_else(|| format!("{name}: not built"))?;
-            let r = run(g, &console_ctx, args);
-            let requests = std::mem::take(&mut g.console_requests);
-            let lines = r.map_err(|e| format!("{name}: {e}"))?;
-            return Ok(ConsoleReply { lines, requests, ..Default::default() });
-        }
+    // A console-only command (numbered from `CONSOLE_OPCODE_BASE`) that prints lines,
+    // registered by name in `fnv_game::functions::console`; the others go through
+    // `Game::call_function` as every function does.
+    let console_fn = g.data.table.by_name(&func).filter(|&op| op >= fnv_script::table::CONSOLE_OPCODE_BASE).and_then(|op| g.data.table.get(op)).and_then(|f| Some((f.name.clone(), fnv_game::functions::console::lookup(&f.name)?)));
+    if let Some((name, run)) = console_fn {
+        let r = run(g, &console_ctx, args);
+        let requests = std::mem::take(&mut g.console_requests);
+        let lines = r.map_err(|e| format!("{name}: {e}"))?;
+        return Ok(ConsoleReply { lines, requests, ..Default::default() });
     }
     let opcode = g.data.table.by_name(&func).ok_or_else(|| format!("Script command \"{func}\" not found."))?;
     let def = g.data.table.get(opcode).cloned();
