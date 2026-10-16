@@ -16,7 +16,9 @@
 //! - **Console commands of its own**: `help [text]` (every record and function whose name
 //!   or Editor ID contains the text, not case sensitive; `"two words"` is one phrase), `prid <reference>` (select it), `coc <cell>` (travel to the cell's
 //!   COC spot, `crate::player::safe::cell_spot`), `tgm` (god mode, `crate::combat`),
-//!   `cls` / `clear` (empty the scrollback).
+//!   `cls` / `clear` (empty the scrollback), `advlevel` / `AdvancePCLevel` (the player's
+//!   level up by one and the level-up menu open, `crate::levelup`; the catalogue gives
+//!   it no console number).
 //! - **Console-only functions** (no opcode: `sq`, `sqt`, `movetoqt`, `sqs`, `sqv`, `sv`,
 //!   `caqs`, `inv`, `getavinfo`, `setgs`, `cam`, `qqq` …) run from
 //!   `fnv_game::functions::console`; what they ask of the engine (travel, quit, saving)
@@ -321,7 +323,7 @@ fn typing(
                     c.print("A line is a script function: [reference.]Function argument ...  e.g. player.additem 0000000F 100");
                     c.print("help <text>: records and functions whose name or Editor ID contains it (not case sensitive); \"two words\" for a phrase, several words must all match");
                     c.print("prid <ref>, coc <cell>, tgm, cls, save <name>, load [name], saves, set <var> to <value>. Click something to select it; calls without a reference run on it.");
-                    c.print("Quests and info: sq, sqt, movetoqt [n], sqs <quest>, sqv <quest>, sv, caqs, inv, getavinfo <av>, setgs <setting> <value>, cam, qqq");
+                    c.print("Quests and info: sq, sqt, movetoqt [n], sqs <quest>, sqv <quest>, sv, caqs, inv, getavinfo <av>, setgs <setting> <value>, cam, qqq, advlevel (level up)");
                     c.print("Toggles: tcl (collision), tai (actors' AI), tdetect, tgm, tscr (scripts), tg (grass), ts (sky), tws (water), tt (trees), ToggleLODLand, ToggleNavmesh");
                 } else {
                     let funcs = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| matching_functions(&rt.game.data.table, &terms)).unwrap_or_default();
@@ -908,6 +910,13 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
     };
     let g = &mut rt.game;
     let console_ctx = ConsoleCtx { on, active_quest: call.active_quest.map(FormId) };
+    // `AdvancePCLevel` (`AdvLevel`): the catalogue gives it neither an opcode nor the
+    // console category, so the console knows it by name; the console closes so the
+    // level-up menu it opens is on top [design].
+    if on_name.is_none() && (func.eq_ignore_ascii_case("AdvancePCLevel") || func.eq_ignore_ascii_case("AdvLevel")) {
+        let level = fnv_game::levelup::advance(g);
+        return Ok(ConsoleReply { lines: vec![format!("AdvancePCLevel >> level {level}")], requests: vec![ConsoleRequest::CloseMenus], ..Default::default() });
+    }
     // The `set <variable> to <value>` statement.
     if on_name.is_none() && func.eq_ignore_ascii_case("set") {
         let lines = fnv_game::functions::console::set_statement(g, &console_ctx, args)?;

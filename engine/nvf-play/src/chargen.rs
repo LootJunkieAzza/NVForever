@@ -14,12 +14,16 @@
 //!   Page Up/Down a page, Enter or Space tags or takes the chosen row, R resets, A is
 //!   Done [observed: the hints "Reset R)" and "Done A)"; hypothesis: the others]. The
 //!   pointer chooses the row it is on, a click tags or takes it; Reset, Done and the
-//!   scroll arrows are clickable. Name menu: typing adds to the name, Backspace rubs
+//!   scroll arrows are clickable. On the attributes page (AddSPECIALPoints, 1048) Right
+//!   / Left (held, they repeat [documented: the row's `repeathorizontal`]) and Enter
+//!   raise and lower the chosen attribute, a click on "+" or "−" raises or lowers its
+//!   row, a click on a row only chooses it [hypothesis]. Name menu: typing adds to the name, Backspace rubs
 //!   out, Enter or a click on Ok is Ok.
 //! - Unattended runs: `NVF_PLAY_TEST_SCRIPT_MENUS` still closes a menu left open, keeping
 //!   what the game holds (as before); `NVF_PLAY_TEST_CHARGEN=<seconds>:<op>[,...]` plays
 //!   the player: `type:<text>`, `clear` (rub the name out), `pick:<row name>` (choose a
-//!   row and tag or take it), `reset`, `done`.
+//!   row and tag or take it), `raise:<row name>` / `lower:<row name>` (the attributes
+//!   page), `reset`, `done`.
 //! - The race menu (1036) keeps the placeholder panel (`crate::script_hud`).
 
 pub mod draw;
@@ -27,6 +31,7 @@ pub mod lists;
 pub mod name;
 pub mod vigor;
 
+use crate::pause::AidTime;
 use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
@@ -54,13 +59,19 @@ pub fn open_code(script: &ScriptState) -> Option<u16> {
 
 /// Done in a character-creation menu: `apply` writes the sheet into the game (with the
 /// simulation's world in it), then the menu is answered with Done. Whether the menu was
-/// open to be answered.
+/// open to be answered. When what `apply` wrote opened another menu (a perk taken in the
+/// level-up menu whose stage calls AddSPECIALPoints), that menu took this one's place
+/// (`Game::open_menu`) and is left open: this one is done.
 pub fn finish(script: &mut ScriptState, sim: &mut SimState, code: u16, how: &str, apply: impl FnOnce(&mut Game)) -> bool {
     let Some(rt) = script.rt.as_mut() else { return false };
     if rt.game.menu != Some(code) {
         return false;
     }
     crate::script::with_world(rt, sim, |rt| apply(&mut rt.game));
+    if let Some(next) = rt.game.menu.filter(|&m| m != code) {
+        info!("script: menu {code} done; menu {next} opened in its place");
+        return true;
+    }
     script.answer(None, how)
 }
 
@@ -107,13 +118,18 @@ enum Op {
     Step(i32),
     Select(usize),
     Toggle,
+    /// A click on a row: tags or takes it; on the attributes page nothing more.
+    Click,
+    /// Raise or lower an attribute (the chosen one when `None`).
+    Adjust(Option<usize>, bool),
     Pick(String),
     Scroll(i32),
     Reset,
     Done,
 }
 
-/// `NVF_PLAY_TEST_CHARGEN`: the steps still to take, by seconds since the start.
+/// `NVF_PLAY_TEST_CHARGEN`: the steps still to take, by seconds on the aids' clock
+/// (`crate::pause::AidTime`, as the level-up menu's).
 #[derive(Resource, Default)]
 struct ChargenAid(Vec<(f32, Op)>);
 
@@ -126,6 +142,8 @@ fn parse_aid(s: &str) -> Result<Vec<(f32, Op)>, String> {
         let op = match rest.split_once(':') {
             Some(("type", text)) => Op::Type(text.to_string()),
             Some(("pick", row)) => Op::Pick(row.to_string()),
+            Some(("raise", row)) => Op::Pick(format!("+{row}")),
+            Some(("lower", row)) => Op::Pick(format!("-{row}")),
             None if rest == "clear" => Op::Clear,
             None if rest == "reset" => Op::Reset,
             None if rest == "done" => Op::Done,
@@ -176,8 +194,18 @@ fn sync(mut st: ResMut<ChargenMenus>, script: Option<ResMut<ScriptState>>, sim: 
             OpenMenu::Name(m)
         } else {
             let m = ListMenu::open(code, g);
-            let what = if code == menus::TAG_SKILLS { "tag-skill menu open, tagged" } else { "trait menu open, taken" };
-            info!("chargen: {what}: {} ({} rows)", list_or_none(&m.chosen_names(g)), m.rows());
+            let what = if m.attributes() {
+                "attributes menu open, points"
+            } else if code == menus::TAG_SKILLS {
+                "tag-skill menu open, tagged"
+            } else {
+                "trait menu open, taken"
+            };
+            let chosen = match &m.sheet {
+                lists::Sheet::Special { now, .. } => now.remaining().to_string(),
+                _ => list_or_none(&m.chosen_names(g)),
+            };
+            info!("chargen: {what}: {chosen} ({} rows)", m.rows());
             OpenMenu::List(m)
         }
     });
@@ -195,7 +223,7 @@ fn list_or_none(names: &[String]) -> String {
 fn input(
     mut st: ResMut<ChargenMenus>,
     mut aid: ResMut<ChargenAid>,
-    time: Res<Time>,
+    time: AidTime,
     keys: Res<ButtonInput<KeyCode>>,
     mut typed: MessageReader<KeyboardInput>,
     mut wheel: MessageReader<MouseWheel>,
@@ -243,7 +271,16 @@ fn input(
             }
         }
         Some(OpenMenu::List(m)) => {
-            let page = if m.code == menus::TAG_SKILLS { 14 } else { 13 };
+            let page = m.visible() as i32;
+            if m.attributes() {
+                for k in typed.iter().filter(|k| k.state.is_pressed()) {
+                    match k.logical_key {
+                        Key::ArrowRight => ops.push((Op::Adjust(None, true), "key")),
+                        Key::ArrowLeft => ops.push((Op::Adjust(None, false), "key")),
+                        _ => {}
+                    }
+                }
+            }
             for (k, op) in [
                 ([ArrowUp, KeyW], Op::Step(-1)),
                 ([ArrowDown, KeyS], Op::Step(1)),
@@ -266,7 +303,7 @@ fn input(
                     Interaction::Hovered => ops.push((Op::Select(r.0), "pointer")),
                     Interaction::Pressed => {
                         ops.push((Op::Select(r.0), "pointer"));
-                        ops.push((Op::Toggle, "click"));
+                        ops.push((Op::Click, "click"));
                     }
                     Interaction::None => {}
                 }
@@ -279,6 +316,8 @@ fn input(
                         ListButton::Done => Op::Done,
                         ListButton::ScrollUp => Op::Scroll(-1),
                         ListButton::ScrollDown => Op::Scroll(1),
+                        ListButton::Plus(r) => Op::Adjust(Some(*r), true),
+                        ListButton::Minus(r) => Op::Adjust(Some(*r), false),
                     };
                     ops.push((op, "click"));
                 }
@@ -371,8 +410,41 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
                     info!("chargen: reset");
                     event = Some(UiEvent::Reset);
                 }
-                Op::Toggle | Op::Pick(_) => {
+                Op::Click if m.attributes() => {}
+                Op::Adjust(row, up) => {
+                    let i = row.unwrap_or(m.selected);
+                    if row.is_some() {
+                        m.select(i);
+                    }
+                    let ok = m.adjust(i, up);
+                    event = Some(if ok { UiEvent::Value { up } } else { UiEvent::Refused });
+                    let name = with_game(script, sim, |g| m.row_name(g, i)).flatten().unwrap_or_default();
+                    let left = match &m.sheet {
+                        lists::Sheet::Special { now, .. } => now.remaining(),
+                        _ => 0,
+                    };
+                    let what = match (up, ok) {
+                        (true, true) => "raised",
+                        (false, true) => "lowered",
+                        (true, false) => "raise refused",
+                        (false, false) => "lower refused",
+                    };
+                    info!("chargen: {name} {what}; {left} points left");
+                }
+                Op::Toggle if m.attributes() => {
+                    return apply(st, script, sim, Op::Adjust(None, true), how);
+                }
+                Op::Toggle | Op::Click | Op::Pick(_) => {
                     if let Op::Pick(name) = &op {
+                        // `raise:` / `lower:` steps of the test aid: "+Row" / "-Row".
+                        if let Some((up, row)) = name.strip_prefix('+').map(|r| (true, r)).or_else(|| name.strip_prefix('-').map(|r| (false, r))) {
+                            let found = with_game(script, sim, |g| (0..m.rows()).find(|&i| m.row_name(g, i).is_some_and(|n| n.eq_ignore_ascii_case(row)))).flatten();
+                            let Some(i) = found else {
+                                warn!("test aid: chargen: no row {row:?}");
+                                return None;
+                            };
+                            return apply(st, script, sim, Op::Adjust(Some(i), up), how);
+                        }
                         let found = with_game(script, sim, |g| (0..m.rows()).find(|&i| m.row_name(g, i).is_some_and(|n| n.eq_ignore_ascii_case(name)))).flatten();
                         match found {
                             Some(i) => m.select(i),
@@ -404,17 +476,26 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
                     let done = finish(script, sim, code, how, |g| match &sheet {
                         lists::Sheet::Tags { now, .. } => now.apply(g),
                         lists::Sheet::Traits { now, .. } => now.apply(g),
+                        lists::Sheet::Special { now, .. } => now.apply(g),
                     });
                     if done {
-                        let what = if code == menus::TAG_SKILLS { "tag skills" } else { "traits" };
+                        let what = if m.attributes() {
+                            "attributes"
+                        } else if code == menus::TAG_SKILLS {
+                            "tag skills"
+                        } else {
+                            "traits"
+                        };
                         info!("chargen: done, {what}: {}", list_or_none(&names));
                         st.answered = true;
                         event = Some(UiEvent::Accepted);
                     }
                 }
                 Op::Done => {
-                    if let lists::Sheet::Tags { now, .. } = &m.sheet {
-                        info!("chargen: Done refused: {} of {} skills tagged", now.tagged.len(), now.count);
+                    match &m.sheet {
+                        lists::Sheet::Tags { now, .. } => info!("chargen: Done refused: {} of {} skills tagged", now.tagged.len(), now.count),
+                        lists::Sheet::Special { now, .. } => info!("chargen: Done refused: {} points left", now.remaining()),
+                        lists::Sheet::Traits { .. } => {}
                     }
                     event = Some(UiEvent::Refused);
                 }
@@ -486,7 +567,8 @@ mod tests {
 
     #[test]
     fn the_test_aid_reads() {
-        let steps = parse_aid("5:pick:Four Eyes, 3:type:Six,4:clear,9:done,6:reset").unwrap();
+        let steps = parse_aid("5:pick:Four Eyes, 3:type:Six,4:clear,9:done,6:reset,7:raise:Luck").unwrap();
+        assert!(steps.contains(&(7.0, Op::Pick("+Luck".into()))));
         assert_eq!(steps[0], (3.0, Op::Type("Six".into())));
         assert_eq!(steps[2], (5.0, Op::Pick("Four Eyes".into())));
         assert_eq!(steps.last().unwrap().1, Op::Done);

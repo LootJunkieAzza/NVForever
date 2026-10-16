@@ -56,6 +56,35 @@ pub fn apply_function(function: u8, number: f64, value: f64) -> Option<f64> {
     }
 }
 
+/// The player gains one rank of `perk` (AddPerk, the level-up menu's Done): the rank is
+/// counted, then each Quest + Stage effect of that rank sets its quest to its stage, which
+/// runs the stage's result script [hypothesis: when the rank is gained; observed: the
+/// stages' scripts say "triggered by Intense Training perk rank 1" for the effect of rank
+/// 0, docs/spec-notes/levelup.md §8]. The rank the player has now.
+pub fn gain_rank(g: &mut Game, perk: FormId) -> u8 {
+    let rank = {
+        let r = g.player.perks.entry(perk).or_default();
+        *r = r.saturating_add(1);
+        *r
+    };
+    let data = g.data;
+    let stages: Vec<(FormId, u8)> = data
+        .perks
+        .get(&perk)
+        .into_iter()
+        .flat_map(|p| &p.entries)
+        .filter(|e| u16::from(e.rank) + 1 == u16::from(rank))
+        .filter_map(|e| match e.effect {
+            PerkEffect::QuestStage { quest, stage } => Some((quest, stage)),
+            _ => None,
+        })
+        .collect();
+    for (quest, stage) in stages {
+        g.set_stage(quest, i32::from(stage));
+    }
+    rank
+}
+
 impl Game<'_> {
     /// The entries of `point` that apply to `actor` now, in the order they apply.
     fn entry_point_entries(&mut self, actor: FormId, point: u8) -> Vec<(FormId, PerkEntry)> {

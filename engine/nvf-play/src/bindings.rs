@@ -8,8 +8,8 @@
 //! Each value is four bytes `00 KK MM JJ` [observed: the layout fits every line]:
 //! a DirectInput keyboard scan code `KK` [documented: Microsoft DirectInput `DIK_*`
 //! keyboard constants], a mouse button `MM` (0 left, 1 right, 2 middle; `FF` none —
-//! `Use` = 0 attacks, `Block` = 1 aims, by their names) and a gamepad button `JJ`
-//! (not used). NVForever never reads the game's INIs at run time
+//! `Use` = 0 attacks, `Block` = 1 aims, by their names) and a controller button `JJ`
+//! (`crate::pad::game_pad`). NVForever never reads the game's INIs at run time
 //! (docs/design/install-layout.md); the values are built in.
 //!
 //! **The player's own keys** are kept in `[Controls]` of the home's `NVForever.ini`
@@ -25,9 +25,21 @@
 //! (a swap, so no control is left without its input by accident), and the section is
 //! written again. Esc and the console's key (`` ` ``) cannot be bound [design: they
 //! open the pause menu and the console].
+//!
+//! **The controller** (`crate::pad`, docs/design/controller.md): `Input Device` in
+//! `[Controls]` (`Keyboard and Mouse` or `Controller`, [`InputDevice`]) says which works
+//! the controls; the controller's buttons are kept in `[Controller]`, one line per
+//! control by the same names (`Activate=A`, `Forward=Left Stick Up`, `Hotkey5=None`),
+//! with `Look Speed Horizontal` and `Look Speed Vertical`. Their defaults are the game's
+//! (the `JJ` bytes and its `fXenonHorizLookSpeed`, `fXenonVertLookSpeed`); the D-pad,
+//! which the game's values leave free, takes Hotkeys 1 to 4 [design: the console
+//! version's quick keys are on the D-pad, documented in its published control lists].
+//! A control rebound on the Controls tab with Controller chosen takes a controller
+//! button, swapping as keys do; Start cannot be bound (the pause menu).
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use crate::pad::PadInput;
 use fnv_install::{guard_write, ini_get, ini_set};
 use std::path::Path;
 
@@ -111,6 +123,48 @@ pub const ALWAYS_RUN_BY_DEFAULT: bool = true;
 pub const INVERT_Y: bool = false;
 /// Radians of view turn per mouse count [hypothesis: the unit of `fMouseSensitivity`].
 pub const MOUSE_SENSITIVITY: f32 = 0.0020;
+/// The owner's `fXenonHorizLookSpeed=1500`, `fXenonVertLookSpeed=1200` [observed
+/// 2026-10-16, `[Controls]` of `FalloutPrefs.ini`]. Read as milliradians a second with
+/// the right stick pushed fully [hypothesis: the unit is not known; 1.5 rad/s turns
+/// about 86° a second].
+pub const LOOK_SPEED_HORIZONTAL: f32 = 1500.0;
+pub const LOOK_SPEED_VERTICAL: f32 = 1200.0;
+
+/// Which device works the controls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InputDevice {
+    #[default]
+    KeyboardMouse,
+    Controller,
+}
+
+impl InputDevice {
+    pub fn name(self) -> &'static str {
+        match self {
+            InputDevice::KeyboardMouse => "Keyboard and Mouse",
+            InputDevice::Controller => "Controller",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<InputDevice> {
+        [InputDevice::KeyboardMouse, InputDevice::Controller].into_iter().find(|d| d.name().eq_ignore_ascii_case(s.trim()))
+    }
+
+    pub fn other(self) -> InputDevice {
+        match self {
+            InputDevice::KeyboardMouse => InputDevice::Controller,
+            InputDevice::Controller => InputDevice::KeyboardMouse,
+        }
+    }
+}
+
+/// The D-pad's controls where the game's values give none (module notes) [design].
+pub const DPAD_HOTKEYS: [(Control, GamepadButton); 4] = [
+    (Control::Hotkey1, GamepadButton::DPadUp),
+    (Control::AmmoSwap, GamepadButton::DPadRight),
+    (Control::Hotkey3, GamepadButton::DPadDown),
+    (Control::Hotkey4, GamepadButton::DPadLeft),
+];
 
 /// The key of a DirectInput keyboard scan code [documented: Microsoft `DIK_*` values].
 pub fn dik_key(code: u8) -> Option<KeyCode> {
@@ -227,9 +281,13 @@ impl Binding {
 #[derive(Resource, Debug, Clone)]
 pub struct Bindings {
     map: Vec<(Control, Binding)>,
+    pad: Vec<(Control, Option<PadInput>)>,
     pub always_run_by_default: bool,
     pub invert_y: bool,
     pub mouse_sensitivity: f32,
+    pub device: InputDevice,
+    /// Right-stick look speeds (see [`LOOK_SPEED_HORIZONTAL`]).
+    pub look_speed: [f32; 2],
 }
 
 impl Default for Bindings {
@@ -242,9 +300,57 @@ impl Bindings {
     pub fn game_defaults() -> Bindings {
         Bindings {
             map: GAME_CONTROLS.iter().map(|&(c, _, v)| (c, Binding::from_ini(v))).collect(),
+            pad: game_pad_defaults(),
             always_run_by_default: ALWAYS_RUN_BY_DEFAULT,
             invert_y: INVERT_Y,
             mouse_sensitivity: MOUSE_SENSITIVITY,
+            device: InputDevice::KeyboardMouse,
+            look_speed: [LOOK_SPEED_HORIZONTAL, LOOK_SPEED_VERTICAL],
+        }
+    }
+
+    /// The control's controller input.
+    pub fn pad(&self, c: Control) -> Option<PadInput> {
+        self.pad.iter().find(|(k, _)| *k == c).and_then(|(_, p)| *p)
+    }
+
+    pub fn set_pad(&mut self, c: Control, p: Option<PadInput>) {
+        match self.pad.iter_mut().find(|(k, _)| *k == c) {
+            Some((_, x)) => *x = p,
+            None => self.pad.push((c, p)),
+        }
+    }
+
+    /// Bind controller input `p` to `c`; a control that had it gets `c`'s old one (a
+    /// swap). The controls that gave it up.
+    pub fn rebind_pad(&mut self, c: Control, p: PadInput) -> Vec<Control> {
+        let old = self.pad(c);
+        let mut swapped = Vec::new();
+        for (k, x) in self.pad.iter_mut().filter(|(k, x)| *k != c && *x == Some(p)) {
+            *x = old;
+            swapped.push(*k);
+        }
+        self.set_pad(c, Some(p));
+        swapped
+    }
+
+    /// What a prompt names for the control on the device in use: `E)`, `A)` [design: the
+    /// original writes the key and ")" [observed: "E)" under the crosshair]; with a
+    /// controller it shows the button's picture, NVForever its letter].
+    pub fn prompt(&self, c: Control) -> String {
+        let b = self.get(c);
+        let name = match self.device {
+            InputDevice::Controller => self.pad(c).map(|p| crate::pad::pad_name(p).to_string()),
+            InputDevice::KeyboardMouse => b.key.and_then(key_name).map(String::from).or_else(|| b.mouse.map(mouse_name)),
+        };
+        format!("{})", name.unwrap_or_else(|| "?".into()))
+    }
+
+    /// What the Controls tab shows for the control on the device in use.
+    pub fn text_on(&self, c: Control) -> String {
+        match self.device {
+            InputDevice::KeyboardMouse => self.get(c).text(),
+            InputDevice::Controller => pad_text(self.pad(c)),
         }
     }
 
@@ -295,6 +401,22 @@ impl Bindings {
     pub fn all(&self) -> impl Iterator<Item = (Control, Binding)> + '_ {
         GAME_CONTROLS.iter().map(|&(c, _, _)| (c, self.get(c)))
     }
+}
+
+/// The game's controller buttons (`JJ`), then the D-pad's hotkeys where it gave none.
+fn game_pad_defaults() -> Vec<(Control, Option<PadInput>)> {
+    let mut v: Vec<(Control, Option<PadInput>)> = GAME_CONTROLS.iter().map(|&(c, _, x)| (c, crate::pad::game_pad(x as u8))).collect();
+    for (c, b) in DPAD_HOTKEYS {
+        if let Some((_, x @ None)) = v.iter_mut().find(|(k, _)| *k == c) {
+            *x = Some(PadInput::Button(b));
+        }
+    }
+    v
+}
+
+/// A controller input as the INI writes it; `None` for none.
+pub fn pad_text(p: Option<PadInput>) -> String {
+    p.map_or_else(|| "None".into(), |p| crate::pad::pad_name(p).to_string())
 }
 
 /// The control's name on the Controls page [design: what it does in NVForever, not the
@@ -441,6 +563,10 @@ pub const SECTION: &str = "Controls";
 const ALWAYS_RUN_KEY: &str = "Always Run By Default";
 const INVERT_Y_KEY: &str = "Invert Y";
 const SENSITIVITY_KEY: &str = "Mouse Sensitivity";
+const DEVICE_KEY: &str = "Input Device";
+/// The INI section the controller's buttons are kept in.
+pub const PAD_SECTION: &str = "Controller";
+const LOOK_KEYS: [&str; 2] = ["Look Speed Horizontal", "Look Speed Vertical"];
 
 fn bit(on: bool) -> &'static str {
     if on {
@@ -455,7 +581,13 @@ pub fn with_controls(text: &str, b: &Bindings) -> String {
     let mut t = b.all().fold(text.to_string(), |t, (c, x)| ini_set(&t, SECTION, Bindings::name(c), &x.text()));
     t = ini_set(&t, SECTION, ALWAYS_RUN_KEY, bit(b.always_run_by_default));
     t = ini_set(&t, SECTION, INVERT_Y_KEY, bit(b.invert_y));
-    ini_set(&t, SECTION, SENSITIVITY_KEY, &format!("{:.4}", b.mouse_sensitivity))
+    t = ini_set(&t, SECTION, SENSITIVITY_KEY, &format!("{:.4}", b.mouse_sensitivity));
+    t = ini_set(&t, SECTION, DEVICE_KEY, b.device.name());
+    t = b.all().fold(t, |t, (c, _)| ini_set(&t, PAD_SECTION, Bindings::name(c), &pad_text(b.pad(c))));
+    for (k, v) in LOOK_KEYS.iter().zip(b.look_speed) {
+        t = ini_set(&t, PAD_SECTION, k, &format!("{v:.0}"));
+    }
+    t
 }
 
 /// What `[Controls]` of `text` changes in `b`: the lines found, and what changed
@@ -502,11 +634,55 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
             _ => bad.push(format!("{SENSITIVITY_KEY}={v} (not a number above 0)")),
         }
     }
+    if let Some(v) = ini_get(text, SECTION, DEVICE_KEY) {
+        found += 1;
+        match InputDevice::parse(&v) {
+            Some(d) if d != b.device => {
+                changed.push(format!("{DEVICE_KEY} {}", d.name()));
+                b.device = d;
+            }
+            Some(_) => {}
+            None => bad.push(format!("{DEVICE_KEY}={v} (not \"Keyboard and Mouse\" or \"Controller\")")),
+        }
+    }
+    for (c, name, _) in GAME_CONTROLS {
+        let Some(v) = ini_get(text, PAD_SECTION, name) else { continue };
+        found += 1;
+        let p = match v.trim() {
+            n if n.is_empty() || n.eq_ignore_ascii_case("none") => Ok(None),
+            n => match crate::pad::parse_pad(n) {
+                Some(p) if crate::pad::RESERVED_PAD.contains(&p) => Err(format!("{n:?} is kept for the pause menu")),
+                Some(p) => Ok(Some(p)),
+                None => Err(format!("{n:?} is not a controller button name")),
+            },
+        };
+        match p {
+            Ok(p) if p != b.pad(c) => {
+                changed.push(format!("[{PAD_SECTION}] {name} {} -> {}", pad_text(b.pad(c)), pad_text(p)));
+                b.set_pad(c, p);
+            }
+            Ok(_) => {}
+            Err(e) => bad.push(format!("[{PAD_SECTION}] {name}={v} ({e})")),
+        }
+    }
+    for (i, k) in LOOK_KEYS.iter().enumerate() {
+        let Some(v) = ini_get(text, PAD_SECTION, k) else { continue };
+        found += 1;
+        match v.trim().parse::<f32>() {
+            Ok(s) if s.is_finite() && s > 0.0 => {
+                if (s - b.look_speed[i]).abs() > 1e-3 {
+                    changed.push(format!("{k} {s}"));
+                    b.look_speed[i] = s;
+                }
+            }
+            _ => bad.push(format!("[{PAD_SECTION}] {k}={v} (not a number above 0)")),
+        }
+    }
     (found, changed)
 }
 
 /// The number of `[Controls]` lines a full section has.
-const LINES: usize = GAME_CONTROLS.len() + 3;
+const LINES: usize = 2 * GAME_CONTROLS.len() + 4 + LOOK_KEYS.len();
 
 /// Read the player's keys from the INI (module notes) and fill in the lines it lacks.
 pub fn apply_stored(world: &mut World) {
@@ -529,13 +705,13 @@ pub fn apply_stored(world: &mut World) {
         c.always_run = always_run;
     }
     for b in &bad {
-        warn!("controls: [{SECTION}] {b} in {}; the default kept", path.display());
+        warn!("controls: {b} in {}; the default kept", path.display());
     }
     let what = if changed.is_empty() { String::new() } else { format!(": {}", changed.join(", ")) };
-    info!("controls: {found} of {LINES} line(s) read from {}, {} changed{what}", path.display(), changed.len());
+    info!("controls: {found} of {LINES} line(s) read from {}, {} changed{what}; input device {}", path.display(), changed.len(), world.resource::<Bindings>().device.name());
     if found < LINES {
         store(world);
-        info!("controls: the {} missing line(s) written to [{SECTION}]", LINES - found);
+        info!("controls: the {} missing line(s) written to [{SECTION}] and [{PAD_SECTION}]", LINES - found);
     }
 }
 
@@ -551,9 +727,34 @@ pub fn rebind(world: &mut World, c: Control, input: Input) {
     store(world);
 }
 
+/// Bind controller input `p` to `c` (the Controls page with Controller chosen).
+pub fn rebind_pad(world: &mut World, c: Control, p: PadInput) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    let before = pad_text(b.pad(c));
+    let swapped = b.rebind_pad(c, p);
+    let gave: Vec<String> = swapped.iter().map(|&o| format!("{} now {}", Bindings::name(o), pad_text(b.pad(o)))).collect();
+    let gave = if gave.is_empty() { String::new() } else { format!(" ({})", gave.join(", ")) };
+    info!("controls: {} bound to controller {} (was {before}){gave}", Bindings::name(c), crate::pad::pad_name(p));
+    store(world);
+}
+
+/// Switch the device that works the controls (the Controls tab's first row).
+pub fn set_device(world: &mut World, d: InputDevice) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    b.device = d;
+    info!("controls: input device {}", d.name());
+    store(world);
+}
+
 /// Take the key off `c` (the Controls page's Delete), keeping its mouse button.
 pub fn clear_key(world: &mut World, c: Control) {
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    if b.device == InputDevice::Controller {
+        b.set_pad(c, None);
+        info!("controls: {} controller button cleared", Bindings::name(c));
+        store(world);
+        return;
+    }
     let mut x = b.get(c);
     x.key = None;
     b.set(c, x);
@@ -561,13 +762,18 @@ pub fn clear_key(world: &mut World, c: Control) {
     store(world);
 }
 
-/// Every control back to the game's default keys (the Controls page's Defaults); the
-/// mouse look settings are kept.
+/// Every control back to the game's default keys, or with Controller chosen its
+/// controller buttons (the Controls page's Defaults); the look settings are kept.
 pub fn reset(world: &mut World) {
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
     let d = Bindings::game_defaults();
-    b.map = d.map;
-    info!("controls: every control back to the game's keys");
+    if b.device == InputDevice::Controller {
+        b.pad = d.pad;
+        info!("controls: every control back to the game's controller buttons");
+    } else {
+        b.map = d.map;
+        info!("controls: every control back to the game's keys");
+    }
     store(world);
 }
 
@@ -593,25 +799,67 @@ fn write(path: &Path, b: &Bindings) -> Result<(), String> {
     std::fs::write(path, with_controls(&old, b)).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// The controls' state this frame. While the console's free camera flies
-/// (`crate::free_cam`) its keys are the camera's: no control reads as pressed.
+/// The controls' state this frame, from the keyboard and mouse or the controller as
+/// [`InputDevice`] says. While the console's free camera flies (`crate::free_cam`) its
+/// keys are the camera's: no control reads as pressed.
 #[derive(SystemParam)]
-pub struct ControlInput<'w> {
+pub struct ControlInput<'w, 's> {
     pub keys: Res<'w, ButtonInput<KeyCode>>,
     pub mouse: Res<'w, ButtonInput<MouseButton>>,
     pub bindings: Res<'w, Bindings>,
     pub free_cam: Option<Res<'w, crate::free_cam::FreeCam>>,
+    pub pads: Query<'w, 's, &'static Gamepad>,
+    pub sticks: Option<Res<'w, crate::pad::StickButtons>>,
 }
 
-impl ControlInput<'_> {
+/// How a controller input is asked about.
+#[derive(Clone, Copy)]
+enum Ask {
+    Pressed,
+    JustPressed,
+    JustReleased,
+}
+
+impl ControlInput<'_, '_> {
     /// The free camera has the keys.
     pub fn suppressed(&self) -> bool {
         self.free_cam.as_ref().is_some_and(|f| f.active)
     }
 
+    /// A controller works the controls.
+    pub fn controller(&self) -> bool {
+        self.bindings.device == InputDevice::Controller
+    }
+
+    fn pad_is(&self, c: Control, ask: Ask) -> bool {
+        match self.bindings.pad(c) {
+            Some(PadInput::Button(b)) => self.pads.iter().any(|g| match ask {
+                Ask::Pressed => g.pressed(b),
+                Ask::JustPressed => g.just_pressed(b),
+                Ask::JustReleased => g.just_released(b),
+            }),
+            Some(PadInput::Stick(d)) => self.sticks.as_ref().is_some_and(|s| match ask {
+                Ask::Pressed => s.pressed(d),
+                Ask::JustPressed => s.just_pressed(d),
+                Ask::JustReleased => s.just_released(d),
+            }),
+            None => false,
+        }
+    }
+
+    /// The left stick (x right, y forward) when the controller works the controls and
+    /// the movement controls are on the stick.
+    pub fn move_stick(&self) -> Option<Vec2> {
+        let on_stick = [Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight].iter().all(|&c| matches!(self.bindings.pad(c), Some(PadInput::Stick(_))));
+        (self.controller() && on_stick && !self.suppressed()).then(|| crate::pad::stick(&self.pads, true))
+    }
+
     pub fn pressed(&self, c: Control) -> bool {
         if self.suppressed() {
             return false;
+        }
+        if self.controller() {
+            return self.pad_is(c, Ask::Pressed);
         }
         let b = self.bindings.get(c);
         b.key.is_some_and(|k| self.keys.pressed(k)) || b.mouse.is_some_and(|m| self.mouse.pressed(m))
@@ -621,12 +869,18 @@ impl ControlInput<'_> {
         if self.suppressed() {
             return false;
         }
+        if self.controller() {
+            return self.pad_is(c, Ask::JustPressed);
+        }
         let b = self.bindings.get(c);
         b.key.is_some_and(|k| self.keys.just_pressed(k)) || b.mouse.is_some_and(|m| self.mouse.just_pressed(m))
     }
 
     /// Released this frame, and neither of its inputs is still down.
     pub fn just_released(&self, c: Control) -> bool {
+        if self.controller() {
+            return self.pad_is(c, Ask::JustReleased) && !self.pressed(c);
+        }
         let b = self.bindings.get(c);
         let released = b.key.is_some_and(|k| self.keys.just_released(k)) || b.mouse.is_some_and(|m| self.mouse.just_released(m));
         released && !self.pressed(c)

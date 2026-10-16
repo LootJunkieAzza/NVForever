@@ -88,6 +88,17 @@ pub fn register(app: &mut App) {
     add_setting(
         app,
         Setting {
+            key: "borderless",
+            group: GROUP_PICTURE,
+            label: "Borderless full screen",
+            note: "On: the game fills the monitor it is on, without a frame. Off: a window of --size. (--window borderless)",
+            get: |w| w.resource::<Args>().window == crate::window_mode::WindowChoice::Borderless,
+            set: crate::window_mode::set_borderless,
+        },
+    );
+    add_setting(
+        app,
+        Setting {
             key: "sun-shadows",
             group: GROUP_PICTURE,
             label: "Sun shadows",

@@ -27,6 +27,9 @@ pub fn reset_ai(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
         e.package_blocked.clear();
     }
     g.senses.looks.remove(&r);
+    // A weapon use (UseWeapon) stops too [design: the page's "current AI behaviour";
+    // the shipped scripts call ResetAI to end one, FalloutNV.esm SCPT 0x000E07CE].
+    g.drop_weapon_use(r);
     if g.runs_packages() {
         g.evaluate_package(r);
     } else if let Some(e) = g.extra.get_mut(&r) {

@@ -58,16 +58,18 @@ fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<
         if let Some(mut hold) = hold {
             let fighting = game.awareness.state(id).in_combat();
             let unequipped = !fighting && game.package_has(id, flags::WEAPONS_UNEQUIPPED);
-            let want = !unequipped && (drawn_by_default || game.is_alerted(id) || game.package_has(id, flags::WEAPON_DRAWN));
+            let want = !unequipped && (drawn_by_default || game.is_alerted(id) || game.package_has(id, flags::WEAPON_DRAWN) || game.active_weapon_use(id).is_some());
             if hold.test.is_none() && hold.drawn != want {
                 hold.drawn = want;
-                info!("alert: {} {id} {} its weapon{}", game.data.name(id), if want { "draws" } else { "holsters" }, if !fighting && want != game.is_alerted(id) { " (its package's flags)" } else { "" });
+                let why = if game.active_weapon_use(id).is_some() { " (a weapon use)" } else if !fighting && want != game.is_alerted(id) { " (its package's flags)" } else { "" };
+                info!("alert: {} {id} {} its weapon{why}", game.data.name(id), if want { "draws" } else { "holsters" });
             }
             // Hidden while holstered under Weapons Unequipped.
             let hide = unequipped && hold.anim.stage == fnv_actor::weapon::Stage::Holstered;
             if hide != hidden {
-                if let Some(&node) = rig.nodes.get(hold.stance.weapon_node) {
-                    commands.entity(node).insert(if hide { Visibility::Hidden } else { Visibility::Inherited });
+                // The parts on the back (the flamer's tank) go with it.
+                for &part in rig.nodes.get(hold.stance.weapon_node).into_iter().chain(&hold.back) {
+                    commands.entity(part).try_insert(if hide { Visibility::Hidden } else { Visibility::Inherited });
                 }
                 if hide {
                     commands.entity(e).insert(WeaponHidden);

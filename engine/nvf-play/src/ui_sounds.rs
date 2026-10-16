@@ -59,6 +59,8 @@ pub enum UiMenu {
     TagSkills,
     /// The trait menu (`crate::chargen`).
     Traits,
+    /// The level-up menu (`crate::levelup`).
+    LevelUp,
     /// A terminal: its hacking game and its menu (`crate::terminal`).
     Terminal,
     /// The main menu (`crate::main_menu`).
@@ -90,6 +92,7 @@ impl UiMenu {
             UiMenu::Vigor => "vigor tester",
             UiMenu::TagSkills => "tag skills",
             UiMenu::Traits => "traits",
+            UiMenu::LevelUp => "level up",
             UiMenu::Terminal => "terminal",
             UiMenu::MainMenu => "main menu",
             UiMenu::Recipe => "recipe",
@@ -291,8 +294,22 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         // the settings' back button [design].
         (TagSkills | Traits, Focus) => Named("UIMenuFocus"),
         (TagSkills | Traits, Picked) => Named("UIMenuPrevNext"),
+        // The attributes page's arrows [documented: char_gen_menu.xml
+        // CGM_Template_LeftArrow, RightArrow `UIMenuPrevNext`].
+        (TagSkills, Value { .. }) => Named("UIMenuPrevNext"),
         (TagSkills | Traits, Reset) => Named("UIMenuCancel"),
         (TagSkills | Traits, Accepted) => Named("UIMenuOK"),
+        // The level-up menu (docs/spec-notes/levelup.md §5): the arrows and the perk rows
+        // click `UIMenuPrevNext`, Continue, Back and Done `UIMenuOK` [documented:
+        // levelup_menu.xml LUM_Template_LeftArrow, RightArrow, LUM_Perk,
+        // LUM_ContinueButton, LUM_BackButton]; the pointer and Reset as the tag-skill
+        // menu's [design]. Opening plays the level's own record [observed: FalloutNV.esm
+        // SOUN `UILevelUp`; design: here, until the HUD's "level up" message exists].
+        (LevelUp, Opened) => Named("UILevelUp"),
+        (LevelUp, Focus) => Named("UIMenuFocus"),
+        (LevelUp, Value { .. } | Picked) => Named("UIMenuPrevNext"),
+        (LevelUp, Switch | Accepted) => Named("UIMenuOK"),
+        (LevelUp, Reset) => Named("UIMenuCancel"),
         // Terminals (item 47): the SOUN records named for hacking [observed:
         // FalloutNV.esm `UIHacking…`, their files in `Fallout - Sound.bsa`; hypothesis:
         // which event each is for, by its name]: the cursor moving over the characters or
@@ -638,6 +655,14 @@ mod tests {
             assert_eq!(sound_for(m, UiEvent::Accepted), Choice::Named("UIMenuOK"));
             assert_eq!(sound_for(m, UiEvent::Refused), Choice::Named("UIMenuCancel"));
         }
+        // The level-up menu.
+        assert_eq!(sound_for(UiMenu::LevelUp, UiEvent::Opened), Choice::Named("UILevelUp"));
+        assert_eq!(sound_for(UiMenu::LevelUp, UiEvent::Value { up: true }), Choice::Named("UIMenuPrevNext"));
+        assert_eq!(sound_for(UiMenu::LevelUp, UiEvent::Value { up: false }), Choice::Named("UIMenuPrevNext"));
+        assert_eq!(sound_for(UiMenu::LevelUp, UiEvent::Picked), Choice::Named("UIMenuPrevNext"));
+        assert_eq!(sound_for(UiMenu::LevelUp, UiEvent::Switch), Choice::Named("UIMenuOK"));
+        assert_eq!(sound_for(UiMenu::LevelUp, UiEvent::Accepted), Choice::Named("UIMenuOK"));
+        assert_eq!(sound_for(UiMenu::LevelUp, UiEvent::Refused), Choice::Named("UIMenuCancel"));
         // Terminals: the hacking records.
         assert_eq!(sound_for(UiMenu::Terminal, UiEvent::Focus), Choice::Named("UIHackingCharScroll"));
         assert_eq!(sound_for(UiMenu::Terminal, UiEvent::Picked), Choice::Named("UIHackingCharEnter"));

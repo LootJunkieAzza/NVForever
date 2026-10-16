@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7); 59 (1 assigned, 1 implementable, 57 need a system) after UseWeapon (§3.8) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7) |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6); 795 (313 calls, 482 condition uses) after the combat round (§3.7); 782 (300 calls, 482 condition uses) after UseWeapon (§3.8) |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -63,7 +63,7 @@ evidence tags are on each function (`functions/ai_state.rs`, `senses.rs`, `ui.rs
 | GetLineOfSight | 0x101B | 49 | 0 | the detection last measured for the pair (`Detection::seen`: line of sight within ±95°) | `detection.rs` (already) |
 | IsMoving | 0x1019 | 0 | 49 | `Senses::motion` (moving reads 1, forward) | `detection.rs` |
 | GetCurrentAIPackage | 0x106E | 16 | 15 | package type codes; 5 combat, 29 search, 6 conversation | none |
-| AddSPECIALPoints | 0x1219 | 21 | 0 | `SpecialSheet::for_menu`: more points, the old values the floor; opens 1074 | the Vigor Tester's menu opens with those rules |
+| AddSPECIALPoints | 0x1219 | 21 | 0 | `SpecialSheet::for_menu`: more points, the old values the floor; opens 1048 as its attributes page (levelup.md §8) | the attributes page opens with those rules (Intense Training) |
 | AlwaysShowActorSubtitles | 0x1277 | 16 | 0 | `Senses::always_subtitles` | `script_hud.rs` shows the subtitle out of hearing too |
 | SetWeather / ForceWeather | 0x1104 / 0x112D | 14 / 13 | 0 | `WeatherState::request` (a fade or at once, held or not) | `main.rs` `script_weather` → `SkyState::script_weather` |
 | IsPC1stPerson | 0x1188 | 2 | 9 | `Senses::first_person` | `control::tell_scripts` |
@@ -71,7 +71,7 @@ evidence tags are on each function (`functions/ai_state.rs`, `senses.rs`, `ui.rs
 | IsRaining | 0x103E | 6 | 3 | the sky's weather is Rainy (WTHR DATA) and fully faded in | `script_weather` tells the game |
 | IsRunning | 0x111F | 0 | 4 | `Senses::motion` | `detection.rs` |
 | AddTagSkills | 0x121B | 3 | 0 | `TagSheet::for_menu`: the count raised, the old tags locked; opens 1048 | the tag-skill menu ("SKILLS: n/4 Selected") |
-| SetSPECIALPoints | 0x1218 | 2 | 0 | `SpecialSheet::for_menu`: the total; opens 1074 | as AddSPECIALPoints |
+| SetSPECIALPoints | 0x1218 | 2 | 0 | `SpecialSheet::for_menu`: the total; opens 1074 | the Vigor Tester's menu opens with those rules |
 | GetIsCurrentWeather | 0x1095 | 2 | 0 | the weather shown, or one just asked for | `script_weather` |
 
 In all, 1,807 uses moved from stubs to implementations.
@@ -185,8 +185,8 @@ decompile` over the six masters [observed].
 | GetCauseofDeath | 0x118D | 1 | 1 | the killing hit's weapon animation type (`functions::cause_code`) [hypothesis: the type → code map]; −1 alive or dead without a hit | none |
 
 Left, with the reason (§4): UseWeapon (13 calls: the combat AI fights only the hostiles it
-chose; a scripted stand spot, shot count, always-hit and no-damage shots are not built),
-IsLimbGone (no dismemberment), GetForceHitReaction and GetPlantedExplosive (no hit
+chose; a scripted stand spot, shot count, always-hit and no-damage shots were not built;
+implemented since, §3.8), IsLimbGone (no dismemberment), GetForceHitReaction and GetPlantedExplosive (no hit
 reactions forced by power attacks, no live explosives planted on actors; no shipped
 calls).
 
@@ -206,6 +206,13 @@ calls).
 Tests: `crates/fnv-game/tests/combat_blocks.rs`. Smoke: `script-stubs` (the counts of §1).
 No in-game scenario: the blocks need a fight with a scripted actor, and the tests drive
 the same `Game` path the engine calls each frame.
+
+### 3.8 UseWeapon (claude/use-weapon, 2026-10-16)
+
+UseWeapon (0x119C, 13 calls) is implemented with the Use Weapon package
+(docs/design/use-weapon.md): the actor walks to where it is to stand, turns to its target
+and fires the number of shots, with the always-hit, no-damage, crouch-to-reload and
+hold-fire flags. 60 → 59 stubs, 313 → 300 calls.
 
 ## 4. Every remaining stub
 
@@ -242,7 +249,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetDisposition | 0x104C | 0 | 15 | needs a system not built yet | dialogue (disposition) |
 | ShowRepairMenu | 0x117A | 15 | 0 | needs a system not built yet | menus (repair) |
 | ShowRecipeMenu | 0x1250 | 15 | 0 | implemented 2026-10-16 (claude/l5-crafting) | menus (crafting) |
-| UseWeapon | 0x119C | 13 | 0 | needs a system not built yet | AI (scripted weapon use: stand spot, shot count, hold fire, always hit, no-damage shots) |
+| UseWeapon | 0x119C | 13 | 0 | implemented 2026-10-16 (claude/use-weapon) | combat AI: docs/design/use-weapon.md |
 | Reset3DState | 0x1146 | 12 | 0 | implemented 2026-10-16 (§3.6) | animation state |
 | GetShouldAttack | 0x1042 | 7 | 4 | implemented 2026-10-16 (§3.7) | `Game::would_attack` |
 | HasBeenEaten | 0x107F | 6 | 4 | needs a system not built yet | AI (Cannibal perk) |

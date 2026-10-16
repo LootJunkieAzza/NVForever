@@ -22,6 +22,8 @@ mod cell_resets;
 mod alert;
 mod anim_sounds;
 mod crash;
+mod creature_pace;
+mod creature_stance;
 mod death_cam;
 mod deaths;
 mod detection;
@@ -47,6 +49,7 @@ mod locomotion;
 mod combat_tactics;
 mod console_toggles;
 mod npc_combat;
+mod use_weapon;
 mod provoked;
 mod weapons;
 mod lodgen;
@@ -83,6 +86,7 @@ mod treelod;
 mod underwater;
 mod water;
 mod window_icon;
+mod window_mode;
 mod world;
 mod worldspace;
 
@@ -256,6 +260,10 @@ struct Args {
     /// Window size "WxH" (also the screenshot size).
     #[arg(long, default_value = "1280x800")]
     size: String,
+    /// The window: `windowed` (of --size) or `borderless` (borderless full screen on the
+    /// current monitor). With --play the settings page's Display group switches it too.
+    #[arg(long, value_enum, default_value_t = window_mode::WindowChoice::Windowed)]
+    window: window_mode::WindowChoice,
     /// The game's field-of-view setting in degrees (fDefaultFOV, default 75): the horizontal
     /// angle at 4:3; other aspects keep its vertical angle, so 16:9 is wider (75 → 91.3°
     /// horizontal) [hypothesis; docs/spec-notes/camera.md].
@@ -918,6 +926,7 @@ fn main() -> AppExit {
                 // Scale factor 1 so screenshots are exactly --size pixels on any display.
                 primary_window: Some(Window {
                     title: "NVForever".into(),
+                    mode: args.window.mode(),
                     resolution: bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0),
                     // Measuring frame times: not held to the display's refresh.
                     present_mode: if args.log_frame_times.is_some() { bevy::window::PresentMode::AutoNoVsync } else { default() },
@@ -926,7 +935,7 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_plugins(window_icon::WindowIconPlugin)
+    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin))
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
     .add_plugins(grass::GrassPlugin(grass::GrassConfig {
@@ -1078,12 +1087,18 @@ fn main() -> AppExit {
             app.add_plugins(detection::DetectionPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
+            // Alerted creatures raise their claws and hands (creature_stance.rs).
+            app.add_plugins(creature_stance::CreatureStancePlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
+            // Creatures' own speeds and alert stance (creature_pace.rs).
+            app.add_plugins(creature_pace::CreaturePacePlugin);
             // Heads held by a script's Look (script_look.rs).
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
             app.add_plugins(npc_combat::NpcCombatPlugin);
+            // Scripted weapon use: UseWeapon, Use Weapon packages (use_weapon.rs).
+            app.add_plugins(use_weapon::UseWeaponPlugin);
             app.add_plugins(combat_tactics::CombatTacticsPlugin);
             // Fights started by hits; the player's yield (provoked.rs).
             app.add_plugins(provoked::ProvokedPlugin);

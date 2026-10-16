@@ -1,0 +1,287 @@
+//! The controller (docs/design/controller.md): its buttons and stick directions, their
+//! names, the game's default controller buttons, and the menu keys a controller stands
+//! in for.
+//!
+//! **Which device works the controls** is the player's choice, `Input Device` in
+//! `[Controls]` of `NVForever.ini` and the first row of the settings page's Controls tab
+//! (`crate::bindings::InputDevice`) [design; owner 2026-10-16: keyboard and mouse, or a
+//! controller, "depending on a setting under controls"]. With Controller chosen the
+//! controls answer the controller only (`crate::bindings::ControlInput`), the left stick
+//! moves, the right stick looks; Esc and the console's key still work.
+//!
+//! **The game's controller buttons** are the fourth byte `JJ` of each `[Controls]` value
+//! of the owner's `FalloutPrefs.ini` (`crate::bindings::GAME_CONTROLS`) [observed
+//! 2026-10-09; the byte's meaning is hypothesis, [`game_pad`]].
+//!
+//! **Menus** read keys, so while a controller works the controls its buttons stand in
+//! for them ([`menu_keys`]): Start is Esc everywhere; in a menu (not playing) the D-pad
+//! is the arrow keys, A Enter, B Esc, LB and RB Page Up and Page Down [design: the
+//! original's menus name A, B, X, Y, LB, RB, LT, RT and the sticks for their buttons
+//! (`_xbox_button` of its menu files, e.g. `&xbuttona;` for the HUD's activate prompt)
+//! [observed: the interface XMLs]; which button does what in each menu is not followed
+//! yet].
+
+use bevy::prelude::*;
+
+/// A controller input a control can be bound to: a button, or the left stick pushed one
+/// way (the movement controls).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PadInput {
+    Button(GamepadButton),
+    Stick(StickDir),
+}
+
+/// A way the left stick is pushed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StickDir {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl StickDir {
+    pub const ALL: [StickDir; 4] = [StickDir::Up, StickDir::Down, StickDir::Left, StickDir::Right];
+
+    fn index(self) -> usize {
+        self as usize
+    }
+
+    /// How far a stick at `v` is pushed this way (0 to 1).
+    pub fn amount(self, v: Vec2) -> f32 {
+        match self {
+            StickDir::Up => v.y,
+            StickDir::Down => -v.y,
+            StickDir::Left => -v.x,
+            StickDir::Right => v.x,
+        }
+        .max(0.0)
+    }
+}
+
+/// A stick pushed this far one way counts as that way's button pressed [design].
+pub const STICK_PRESS: f32 = 0.5;
+/// Below this push of the left stick the player walks, beyond it runs (with Always Run
+/// on) [design].
+pub const STICK_WALK_BELOW: f32 = 0.6;
+/// A push of a stick under this counts as none [design; Bevy's own dead zone comes
+/// first].
+pub const STICK_DEAD: f32 = 0.12;
+
+/// The game's controller code `JJ` of a `[Controls]` value as a controller input
+/// [hypothesis]. The fit: the original's console layout puts Activate on A, the Pip-Boy
+/// on B, Ready/Reload on X, Jump on Y, Aim on LT, Attack on RT, V.A.T.S. on RB, Wait on
+/// Back and Sneak on a press of the left stick [documented: published Xbox 360 control
+/// lists for the game, e.g. magicgameworld.com "Fallout: New Vegas Controls"], and the
+/// owner's values give those controls `0A`, `0B`, `0C`, `0D`, `10`, `11`, `0E`, `07`,
+/// `08` [observed]. A to Y follow the order of XInput's button bits, as Back then the
+/// left then the right stick's press do [documented: Microsoft `XINPUT_GAMEPAD`
+/// `wButtons`], so `09` (Grab) is taken for the right stick's press and `0F` (Toggle POV)
+/// for the one shoulder left, LB. `13`, `14`, `16`, `17` (Forward, Back, Slide Right,
+/// Slide Left) are taken for the left stick's directions. `01` (Ammo Swap) is not
+/// placed; `FF` is none.
+pub fn game_pad(code: u8) -> Option<PadInput> {
+    use GamepadButton::*;
+    Some(match code {
+        0x07 => PadInput::Button(Select),
+        0x08 => PadInput::Button(LeftThumb),
+        0x09 => PadInput::Button(RightThumb),
+        0x0A => PadInput::Button(South),
+        0x0B => PadInput::Button(East),
+        0x0C => PadInput::Button(West),
+        0x0D => PadInput::Button(North),
+        0x0E => PadInput::Button(RightTrigger),
+        0x0F => PadInput::Button(LeftTrigger),
+        0x10 => PadInput::Button(LeftTrigger2),
+        0x11 => PadInput::Button(RightTrigger2),
+        0x13 => PadInput::Stick(StickDir::Up),
+        0x14 => PadInput::Stick(StickDir::Down),
+        0x16 => PadInput::Stick(StickDir::Right),
+        0x17 => PadInput::Stick(StickDir::Left),
+        _ => return None,
+    })
+}
+
+/// The inputs' names in the INI and on screen ("A)" under the crosshair) [design: an
+/// Xbox controller's, as the original's button pictures are (`general_button_a.dds` …
+/// `general_button_rs.dds`) [observed: `button_xbox_hint.xml`]].
+pub const PAD_NAMES: &[(PadInput, &str)] = {
+    use GamepadButton::*;
+    use PadInput::{Button as B, Stick as S};
+    &[
+        (B(South), "A"), (B(East), "B"), (B(West), "X"), (B(North), "Y"),
+        (B(LeftTrigger), "LB"), (B(RightTrigger), "RB"), (B(LeftTrigger2), "LT"), (B(RightTrigger2), "RT"),
+        (B(LeftThumb), "LS"), (B(RightThumb), "RS"), (B(Select), "Back"), (B(Start), "Start"),
+        (B(DPadUp), "D-Pad Up"), (B(DPadDown), "D-Pad Down"), (B(DPadLeft), "D-Pad Left"), (B(DPadRight), "D-Pad Right"),
+        (S(StickDir::Up), "Left Stick Up"), (S(StickDir::Down), "Left Stick Down"),
+        (S(StickDir::Left), "Left Stick Left"), (S(StickDir::Right), "Left Stick Right"),
+    ]
+};
+
+/// Start opens and closes the pause menu: no control may take it.
+pub const RESERVED_PAD: [PadInput; 1] = [PadInput::Button(GamepadButton::Start)];
+
+pub fn pad_name(p: PadInput) -> &'static str {
+    PAD_NAMES.iter().find(|(x, _)| *x == p).map_or("?", |(_, n)| n)
+}
+
+/// The input of a name (without case); `None` for none or an unknown name.
+pub fn parse_pad(name: &str) -> Option<PadInput> {
+    PAD_NAMES.iter().find(|(_, n)| n.eq_ignore_ascii_case(name.trim())).map(|(p, _)| *p)
+}
+
+/// The left stick's directions as buttons, this frame and the last (for a just-pressed),
+/// any controller's.
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct StickButtons {
+    pub now: [bool; 4],
+    pub before: [bool; 4],
+}
+
+impl StickButtons {
+    pub fn pressed(&self, d: StickDir) -> bool {
+        self.now[d.index()]
+    }
+
+    pub fn just_pressed(&self, d: StickDir) -> bool {
+        self.now[d.index()] && !self.before[d.index()]
+    }
+
+    pub fn just_released(&self, d: StickDir) -> bool {
+        !self.now[d.index()] && self.before[d.index()]
+    }
+}
+
+/// The furthest-pushed stick of the connected controllers (`left` or right), dead zone
+/// taken off.
+pub fn stick(pads: &Query<&Gamepad>, left: bool) -> Vec2 {
+    let v = pads.iter().map(|g| if left { g.left_stick() } else { g.right_stick() }).max_by(|a, b| a.length_squared().total_cmp(&b.length_squared())).unwrap_or(Vec2::ZERO);
+    if v.length() < STICK_DEAD {
+        Vec2::ZERO
+    } else {
+        v.clamp_length_max(1.0)
+    }
+}
+
+fn update_stick_buttons(pads: Query<&Gamepad>, mut s: ResMut<StickButtons>) {
+    let v = stick(&pads, true);
+    s.before = s.now;
+    for d in StickDir::ALL {
+        s.now[d.index()] = d.amount(v) >= STICK_PRESS;
+    }
+}
+
+/// The menu keys a controller's buttons hold down now (module notes).
+#[derive(Resource, Debug, Default)]
+pub struct MenuKeys {
+    held: Vec<KeyCode>,
+}
+
+/// Start: Esc, always.
+const ALWAYS: [(GamepadButton, KeyCode); 1] = [(GamepadButton::Start, KeyCode::Escape)];
+/// In a menu.
+const IN_MENUS: [(GamepadButton, KeyCode); 8] = [
+    (GamepadButton::DPadUp, KeyCode::ArrowUp),
+    (GamepadButton::DPadDown, KeyCode::ArrowDown),
+    (GamepadButton::DPadLeft, KeyCode::ArrowLeft),
+    (GamepadButton::DPadRight, KeyCode::ArrowRight),
+    (GamepadButton::South, KeyCode::Enter),
+    (GamepadButton::East, KeyCode::Escape),
+    (GamepadButton::LeftTrigger, KeyCode::PageUp),
+    (GamepadButton::RightTrigger, KeyCode::PageDown),
+];
+
+/// Press and release the keys the controller's buttons stand for, after the input
+/// systems have read the keyboard (so a menu sees a just-pressed key this frame). A key
+/// goes down only as its button does (a button still held from before, as after binding
+/// it on the Controls tab, presses nothing); none while the Controls tab waits for a new
+/// button, which takes the buttons themselves.
+#[allow(clippy::type_complexity)]
+fn menu_keys(
+    pads: Query<&Gamepad>,
+    bindings: Option<Res<crate::bindings::Bindings>>,
+    (state, paused, page): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::pause::Paused>>, Option<Res<crate::pause::Page>>),
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut mk: ResMut<MenuKeys>,
+) {
+    let waiting = page.is_some_and(|p| matches!(*p, crate::pause::Page::Controls { listening: true, .. }));
+    let on = bindings.is_some_and(|b| b.device == crate::bindings::InputDevice::Controller) && !waiting;
+    let in_menu = state.is_some_and(|s| *s.get() != crate::PlayState::Playing) || paused.is_some_and(|p| p.0);
+    let mut want: Vec<KeyCode> = Vec::new();
+    if on {
+        let table = ALWAYS.iter().chain(if in_menu { IN_MENUS.iter() } else { [].iter() });
+        for (b, k) in table {
+            let down = if mk.held.contains(k) { pads.iter().any(|g| g.pressed(*b)) } else { pads.iter().any(|g| g.just_pressed(*b)) };
+            if down && !want.contains(k) {
+                want.push(*k);
+            }
+        }
+    }
+    for k in mk.held.clone() {
+        if !want.contains(&k) {
+            keys.release(k);
+        }
+    }
+    for k in &want {
+        if !mk.held.contains(k) {
+            keys.press(*k);
+        }
+    }
+    mk.held = want;
+}
+
+/// A controller's arrival and departure, in the log.
+fn log_pads(added: Query<(Entity, Option<&Name>), Added<Gamepad>>, mut gone: RemovedComponents<Gamepad>) {
+    for (e, name) in &added {
+        info!("controller: {} connected ({e})", name.map_or("a controller", |n| n.as_str()));
+    }
+    for e in gone.read() {
+        info!("controller: {e} disconnected");
+    }
+}
+
+pub struct PadPlugin;
+
+impl Plugin for PadPlugin {
+    fn build(&self, app: &mut App) {
+        use bevy::input::InputSystems;
+        app.init_resource::<StickButtons>()
+            .init_resource::<MenuKeys>()
+            .add_systems(PreUpdate, (update_stick_buttons, menu_keys).after(InputSystems))
+            .add_systems(Update, log_pads);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_games_codes_give_the_console_layout() {
+        use GamepadButton::*;
+        assert_eq!(game_pad(0x0A), Some(PadInput::Button(South)));
+        assert_eq!(game_pad(0x11), Some(PadInput::Button(RightTrigger2)));
+        assert_eq!(game_pad(0x0E), Some(PadInput::Button(RightTrigger)));
+        assert_eq!(game_pad(0x13), Some(PadInput::Stick(StickDir::Up)));
+        assert_eq!(game_pad(0xFF), None);
+        assert_eq!(game_pad(0x01), None);
+    }
+
+    #[test]
+    fn names_read_back() {
+        for (p, n) in PAD_NAMES {
+            assert_eq!(parse_pad(n), Some(*p));
+            assert_eq!(pad_name(*p), *n);
+        }
+        assert_eq!(parse_pad(" left stick up "), Some(PadInput::Stick(StickDir::Up)));
+        assert_eq!(parse_pad("Z"), None);
+    }
+
+    #[test]
+    fn a_stick_pushed_one_way() {
+        let v = Vec2::new(0.3, -0.8);
+        assert_eq!(StickDir::Down.amount(v), 0.8);
+        assert_eq!(StickDir::Up.amount(v), 0.0);
+        assert!((StickDir::Right.amount(v) - 0.3).abs() < 1e-6);
+    }
+}

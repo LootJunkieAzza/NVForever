@@ -342,8 +342,11 @@ pub fn requirements_met(g: &mut Game, perk: FormId) -> bool {
 const AV_FUNCTIONS: [u16; 2] = [0x0E, 0x1EF];
 
 /// One requirement as the menu writes it: the actor value's short name, the comparison
-/// and the number, "PER < 10" [observed: Four Eyes' screenshot]. `None` for a condition
-/// the line leaves out: one on another function, and a S.P.E.C.I.A.L. "greater than 1"
+/// and the number, "PER < 10" [observed: Four Eyes' screenshot], with "at least" left
+/// unwritten, "INT 4" for Intelligence ≥ 4 [observed: the level-up menu's "Req: Level 2,
+/// INT 4" (Swift Learner), "LCK 6, Repair 45" (Junk Rounds), "Level 8, END 6, STR 6"
+/// (Stonewall), each a ≥ condition of the record]. `None` for a condition the line
+/// leaves out: one on another function, and a S.P.E.C.I.A.L. "greater than 1"
 /// [hypothesis: Four Eyes holds Perception > 1 and < 10 and the screenshot shows only
 /// "PER < 10"; why the first is left out is not known].
 fn requirement(g: &Game, c: &Condition) -> Option<String> {
@@ -360,26 +363,49 @@ fn requirement(g: &Game, c: &Condition) -> Option<String> {
     }
     let name = g.data.actor_value_info(code).map(|i| i.short_name.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| skill_name(g, code));
     let op = match c.cmp {
+        Cmp::Ge => return Some(format!("{name} {n}")),
         Cmp::Eq => "=",
         Cmp::Ne => "!=",
         Cmp::Gt => ">",
-        Cmp::Ge => ">=",
         Cmp::Lt => "<",
         Cmp::Le => "<=",
     };
     Some(format!("{name} {op} {n}"))
 }
 
-/// The "Req:" line of a perk: its requirements joined by commas, "--" for none
-/// [observed: Early Bird's "Req: --"; hypothesis: the joining].
+/// The "Req:" line of a perk or trait [observed: the trait and level-up menus' screenshots,
+/// docs/spec-notes/levelup.md §8]:
+/// - "Level n" when its least level is over 1 (Junk Rounds, level 1, shows none; the
+///   traits are level 1);
+/// - then each condition before its first effect, as [`requirement`] writes it, after a
+///   comma when anything came before it, even one the line leaves out ("Level 2," for
+///   Confirmed Bachelor, whose one condition is on the player's sex; "PER < 10" for Four
+///   Eyes, whose first condition is left out);
+/// - "--" right after the rest when it has no condition ("Level 2--", Intense Training;
+///   "--", Early Bird).
+///
+/// Conditions joined with OR are written with "or" between them [hypothesis: no
+/// screenshot shows one].
 pub fn requirement_line(g: &Game, perk: FormId) -> String {
-    let conds = g.data.perks.get(&perk).and_then(|p| p.conditions.as_ref());
-    let parts: Vec<String> = conds.into_iter().flatten().filter_map(|c| requirement(g, c)).collect();
-    if parts.is_empty() {
-        "--".into()
-    } else {
-        parts.join(", ")
+    let p = g.data.perks.get(&perk);
+    let mut line = match p {
+        Some(p) if p.min_level > 1 => format!("Level {}", p.min_level),
+        _ => String::new(),
+    };
+    let conds: &[Condition] = p.and_then(|p| p.conditions.as_deref()).unwrap_or_default();
+    if conds.is_empty() {
+        line.push_str("--");
+        return line;
     }
+    for (k, c) in conds.iter().enumerate() {
+        if !line.is_empty() {
+            line.push_str(if k > 0 && conds[k - 1].or { " or " } else { ", " });
+        }
+        if let Some(r) = requirement(g, c) {
+            line.push_str(&r);
+        }
+    }
+    line.trim_end().to_string()
 }
 
 #[cfg(test)]
