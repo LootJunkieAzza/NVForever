@@ -785,6 +785,21 @@ expect = [
   { re = 'furniture: 00104C0F: SpecialIdle_DocSitLeftExit starts (?P<n>\d+) units from where the body sits: played from the seat', range = [40, 100], label = "Doc Mitchell's exit played from his seat" },
 ]
 
+[[scenario]]
+name = "idles-opening-own-body"
+source = "owner report 2026-10-16: with the body in first person on, the wake-up showed the player's own body standing over the view (docs/design/player-body.md §1.5)"
+areas = ["idles", "player-body"]
+paths = ["engine/nvforever/src/player_body.rs", "engine/nvforever/src/idles.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--new-game", "--no-voice", "--first-person-body"]
+run_seconds = 90
+expect = [
+  "player view: driven by an idle's camera node; mouse look and movement ignored",
+  "player body: not drawn while the idle drives the view in first person",
+  "player body: drawn again in first person",
+]
+order = [["player body: not drawn while the idle drives the view in first person", "player body: drawn again in first person"]]
+
 # ------------------------------------------------------------------ messages and menus
 
 [[scenario]]
