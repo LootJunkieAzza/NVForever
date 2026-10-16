@@ -712,6 +712,10 @@ pub struct GameData {
     /// AVIF: the name, short name, description and icon of each actor value
     /// ([`GameData::actor_value_info`]).
     pub actor_value_infos: HashMap<FormId, ActorValueInfo>,
+    /// RCPE: the recipes (`crate::crafting`).
+    pub recipes: HashMap<FormId, crate::crafting::RecipeDef>,
+    /// RCCT: the recipe categories and subcategories.
+    pub recipe_categories: HashMap<FormId, crate::crafting::RecipeCategoryDef>,
     /// RADS, DEHY, HUNG, SLPD: the stages of rads and of Hardcore's needs by actor value
     /// code, lowest threshold first (`crate::needs`).
     pub need_stages: HashMap<u16, Vec<NeedStage>>,
@@ -957,6 +961,8 @@ struct Read {
     image_modifier: Option<ImageModifierDef>,
     perk: Option<PerkDef>,
     av_info: Option<ActorValueInfo>,
+    recipe: Option<crate::crafting::RecipeDef>,
+    recipe_category: Option<crate::crafting::RecipeCategoryDef>,
     need_stage: Option<(u16, u32, FormId)>,
     units: Vec<ScriptUnit>,
     issues: Issues,
@@ -1035,6 +1041,8 @@ impl GameData {
             station_flags: winners.iter().filter(|w| &w.2.header.sig == b"TACT").map(|w| (FormId(w.0), w.2.header.flags)).collect(),
             perks: HashMap::new(),
             actor_value_infos: HashMap::new(),
+            recipes: HashMap::new(),
+            recipe_categories: HashMap::new(),
             need_stages: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
@@ -1206,6 +1214,12 @@ impl GameData {
             }
             if let Some(v) = r.av_info {
                 d.actor_value_infos.insert(id, v);
+            }
+            if let Some(v) = r.recipe {
+                d.recipes.insert(id, v);
+            }
+            if let Some(v) = r.recipe_category {
+                d.recipe_categories.insert(id, v);
             }
             if let Some(v) = r.faction_flags {
                 d.faction_flags.insert(id, v);
@@ -1507,6 +1521,27 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         if let (Some(threshold), Some(spell)) = (word(0), word(4).and_then(map)) {
             out.need_stage = Some((code, threshold, FormId(spell)));
         }
+    }
+    // Recipes and their categories (`crate::crafting`): the raw layout; a recipe's
+    // conditions are the common CTDA, read as any record's.
+    if &sig == b"RCPE" {
+        let mut ctx = DecodeCtx { schema, on_formid: None };
+        let issues = &mut out.issues;
+        let mut cond = |s: &fnv_esm::Subrecord| {
+            let v = decode_sub(&sig, s, &mut ctx).value.or_else(|| decode_sub(b"PACK", s, &mut ctx).value)?;
+            match cond::parse(&v, types, &map) {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    issues.note("condition unreadable", || format!("0x{g:08X}: {e}"));
+                    None
+                }
+            }
+        };
+        let recipe = crate::crafting::RecipeDef::from_raw(FormId(g), &subs, &map, &mut cond);
+        out.recipe = Some(recipe);
+    }
+    if &sig == b"RCCT" {
+        out.recipe_category = Some(crate::crafting::RecipeCategoryDef::from_raw(&subs));
     }
     if &sig == b"IMAD" {
         let word = |o: usize| subs.iter().find(|s| &s.sig == b"DNAM").and_then(|s| <[u8; 4]>::try_from(s.data.get(o..o + 4)?).ok());

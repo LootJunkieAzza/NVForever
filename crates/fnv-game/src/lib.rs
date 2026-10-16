@@ -40,6 +40,7 @@ pub mod combat;
 pub mod combat_group;
 pub mod combat_style;
 pub mod cond;
+pub mod crafting;
 pub mod crime;
 pub mod data;
 pub mod detection;

@@ -567,7 +567,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1219, "AddSPECIALPoints", Impl(ui::add_special_points)),
         (0x1218, "SetSPECIALPoints", Impl(ui::set_special_points)),
         (0x117A, "ShowRepairMenu", Stub("menus (repair)")),
-        (0x1250, "ShowRecipeMenu", Stub("menus (crafting)")),
+        (0x1250, "ShowRecipeMenu", Impl(misc::show_recipe_menu)),
         (0x1254, "ShowBlackJackMenuParams", Stub("menus (casino)")),
         (0x1256, "ShowRouletteMenuParams", Stub("menus (casino)")),
         (0x1252, "ShowSlotMachineMenuParams", Stub("menus (casino)")),

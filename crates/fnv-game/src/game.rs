@@ -665,6 +665,10 @@ pub struct Game<'a> {
     /// is open for scripts ([`menus::BARTER`]) until the engine closes it. Not part of
     /// the saved state.
     pub barter_requests: Vec<BarterRequest>,
+    /// Recipe menus scripts opened (ShowRecipeMenu, `crate::crafting`), for the engine to
+    /// draw; the menu is open for scripts ([`crate::crafting::RECIPE_MENU`]) until the
+    /// engine closes it. Not part of the saved state.
+    pub recipe_requests: Vec<crate::crafting::RecipeRequest>,
     /// Teammates' inventories scripts opened (OpenTeammateContainer,
     /// `crate::followers`), for the engine to show as a container menu. Not part of the
     /// saved state.
@@ -911,6 +915,7 @@ impl<'a> Game<'a> {
             texture_swaps: Default::default(),
             anims: Default::default(),
             barter_requests: Vec::new(),
+            recipe_requests: Vec::new(),
             teammate_containers: Vec::new(),
             brought_along: BTreeSet::new(),
             rest: Default::default(),
