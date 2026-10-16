@@ -242,7 +242,7 @@ fn shoot(
                             spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &stance), 0.0, ws, &[])
                         };
                         fire.write(ActorFire { shooter: me, weapon: gun, origin, aim, cone, muzzle, harmless: w.no_damage });
-                        anims.write(PlayAttack { actor: id, weapon: Some(gun), melee: false, sights: false, kind: Default::default() });
+                        anims.write(PlayAttack { actor: id, weapon: Some(gun), melee: false, sights: false, kind: Default::default(), power: None, swing: None });
                         s.stats.shots += 1;
                         s.stats.sure += usize::from(w.always_hit);
                         s.stats.harmless += usize::from(w.no_damage);

@@ -5401,6 +5401,18 @@ below is my choice; tell me any you want changed.
   10–25 s pass.
 - Not built: the player recoiling when an NPC blocks; switching a guard to whoever
   rushes the gunman it guards (it fights its own combat target).
+## NPCs chain melee combos (2026-10-16, branch claude/npc-melee-combo)
+
+Your request: melee enemies chain attacks into combos with different clips. Rules:
+docs/design/combat-ai.md §15. My choices, tell me any you want changed:
+
+- An NPC decides again at the clip's `a:` key (the same key the player's combos use);
+  if it attacks then, the next swing is the group the key names (right, left, right…).
+  It goes on by its combat style's attack chance (55 % for the default style), so combos
+  are mostly two or three blows; a hold, block or recoil ends one.
+- The next clip cuts the last one at the `a:` key, as the player's does.
+- No NPC power attacks yet.
+
 ## NPCs' holstered flamer: tank on the back, no gun (2026-10-16)
 
 Your request: an unequipped flamer should show the flame tank on the back and no weapon,
@@ -5461,3 +5473,36 @@ worth a look in the original:
   still use only their own speaker idles.
 - **Replay delays** are read as seconds (as for the weapon fidgets).
 - Not done: the `.lip` files' head and look channels.
+## Script function audit (2026-10-16, branch claude/serene-chaplygin-ee2772)
+
+Every registered script function checked for "the engine knows it, the rules never hear it"
+and for constant answers (docs/design/script-function-audit.md: the table, the three
+captures, what is left). Fixed 35, matching 283, 25 gaps left, 18 open.
+
+*Decisions for you to check:*
+1. **NPCs dress the first time their cell loads**, by the engine's wearing rule (armour by
+   DT, then DR; a slot taken stays taken) and the highest-damage weapon it can draw. In the
+   original Sunny Smiles read GetEquipped 0 for her armour and rifle before her cell ever
+   loaded and 1 after (and kept it). The weapon rule is still the engine's guess.
+2. **GetDayOfWeek** now counts from Sunday 13 October 2281 on a 365-day calendar, as the
+   wait menu already did: the original read Friday (5) on 25 October 2281, and your
+   screenshot shows 19 October as a Saturday. Package schedules by weekday follow, so some
+   NPCs keep a different day than before. Leap days are not checked.
+3. **GetOpenState** reads 3 for every closed object (doors, containers, even activators) and
+   0 for actors, as nine objects and Ringo did in the original.
+4. **SetPos / SetAngle / MoveTo** now move what is drawn at once (actors teleport, objects
+   redraw, the player travels); before, the stored value was overwritten.
+5. **Unconscious actors no longer walk** (a guess); they still stand, as lying down is not
+   built.
+6. **IsWeaponOut** of an NPC the engine is not drawing follows the draw rule (alerted, Weapon
+   Drawn package, a weapon use), so it reads 1 at once where a drawn NPC reads 1 only once
+   the draw animation ends (the original: 0 three frames after SetAlert 1, 1 by 180 frames).
+
+*Open, for the next capture batch (§4 of the audit):* GetDisposition read 35 for Sunny and
+Trudy (our stub returns 0; 15 dialogue conditions test it); GetCurrentAIPackage read 34
+for Sunny while unloaded and 6 once loaded; GetCauseofDeath of a live unloaded coyote
+read 0 where the wiki lists −1 for none; NPC door use and OnActivate; far NPC fights.
+
+*Follow-up proposed:* make the engine dress and arm NPCs from the items the rules have
+equipped, so scripted EquipItem/UnequipItem show and the two leveled rolls agree.
+

@@ -30,10 +30,13 @@
 //! body jumped 75 units to the side before walking off (owner's playtest list 5 item 40)
 //! [hypothesis: the game plays every exit from where the body sits].
 //!
-//! Not done: work spots without getting-on clips (marker 22), fidgets and eating while
-//! seated (state 3 of the IDLE tree), checking the entry point against the navmesh, and
-//! sandboxing actors choosing furniture themselves (residents use the furniture their
-//! package names, a bed for Sleep and a seat for Eat packages: `residents.rs`).
+//! Fidgets while on furniture (state 3 of the IDLE tree) are `idles.rs`'s: they play over
+//! the loop and fade out when getting off starts (furniture.md §8).
+//!
+//! Not done: work spots without getting-on clips (marker 22), checking the entry point
+//! against the navmesh, and sandboxing actors choosing furniture themselves (residents
+//! use the furniture their package names, a bed for Sleep and a seat for Eat packages:
+//! `residents.rs`).
 
 use crate::actors::ActorWorld;
 use crate::limbs::ActorRig;
@@ -61,6 +64,9 @@ const APPROACH_SPEED: f32 = crate::nav::WALK_SPEED;
 /// The longest way an actor is moved to an entry point without a path, game units
 /// [design: an actor sent to furniture arrives next to it].
 const APPROACH_MAX: f32 = 400.0;
+/// Shorter last steps than this are a shuffle in place: the actor keeps its heading
+/// instead of turning to face the way and back [design].
+const STEP_MIN: f32 = 16.0;
 
 /// An actor is to use this furniture reference (put on the actor's root entity).
 #[derive(Component, Debug, Clone, Copy)]
@@ -159,15 +165,20 @@ fn hex(s: &str) -> Option<u32> {
 impl Furnishings {
     /// Read the furniture records and the furniture part of the IDLE tree, and turn the
     /// `--npc-sit ACTOR=FURNITURE[:SECONDS]` requests into trips for `NavState` (returned;
-    /// they follow the `first_trip` trips already asked for).
-    pub fn build(world: &WorldData, sit: &[String], first_trip: usize) -> Result<(Furnishings, Vec<String>), String> {
+    /// they follow the `first_trip` trips already asked for). Each trip ends at the entry
+    /// point nearest the actor's placed position, not at the furniture's origin: walked to
+    /// the origin, the actor stood in the chair and was then slid backwards out of it to
+    /// the entry point (owner 2026-10-16: Easy Pete "moonwalks" before sitting).
+    pub fn build(world: &WorldData, data: &GameData, sit: &[String], first_trip: usize) -> Result<(Furnishings, Vec<String>), String> {
         let t0 = std::time::Instant::now();
         let mut issues = fnv_sim::extract::Issues::default();
         let bases: HashMap<u32, Furniture> = furn::furniture(world.lo, world.schema, &mut issues).into_iter().map(|f| (f.id.0, f)).collect();
         let tree = UseIdles::build(&Idles::build(world.lo, world.schema), world.lo);
-        let mut startup =
+        let startup =
             vec![format!("furniture: {} bases, {} idles for using them, read in {:.2}s", bases.len(), tree.len(), t0.elapsed().as_secs_f64())];
-        let (mut orders, mut trips) = (Vec::new(), Vec::new());
+        let mut f = Furnishings { bases, tree, markers: HashMap::new(), orders: Vec::new(), users: HashMap::new(), stats: Stats::default(), startup };
+        let mut trips = Vec::new();
+        let refs = (!sit.is_empty()).then(|| fnv_sim::RefTable::from_index(world.lo, world.schema, world.index));
         for spec in sit {
             let bad = || format!("--npc-sit {spec}: expected ACTOR=FURNITURE[:SECONDS], the furniture as a reference FormID");
             let (who, rest) = spec.split_once('=').ok_or_else(bad)?;
@@ -177,12 +188,31 @@ impl Furnishings {
             };
             let furniture = hex(target).ok_or_else(bad)?;
             let placed = fnv_world::placed::placement(world.lo, world.schema, furniture).ok_or_else(|| format!("--npc-sit {spec}: no placed reference {furniture:08X}"))?;
-            let base = placed.base.filter(|b| bases.contains_key(b)).ok_or_else(|| format!("--npc-sit {spec}: {furniture:08X} is not furniture"))?;
-            startup.push(format!("furniture: {} is to use {furniture:08X} ({})", who.trim(), bases[&base].edid.as_deref().unwrap_or("?")));
-            orders.push(Order { traveller: first_trip + trips.len(), furniture, stay, asked: false });
-            trips.push(format!("{}={furniture:08X}", who.trim()));
+            let base = placed.base.filter(|b| f.bases.contains_key(b)).ok_or_else(|| format!("--npc-sit {spec}: {furniture:08X} is not furniture"))?;
+            let record = f.bases[&base].clone();
+            // Where the actor starts, to pick the entry point it will come up to.
+            let from = refs.as_ref().and_then(|refs| {
+                let who = who.trim();
+                let id = refs.by_edid(who).or_else(|| who.trim_start_matches("0x").parse::<FormId>().ok())?;
+                refs.get(id).map(|r| r.pos)
+            });
+            let markers = record.model.as_deref().map(|m| f.markers(data, m)).unwrap_or_default();
+            let points = furn::entry_points(&markers, placed.position, placed.rotation[2], placed.scale);
+            let entry = from.and_then(|from| furn::nearest_entry(&points, from, |p| record.marker_enabled(p.index)));
+            let to = match entry {
+                Some(e) => format!("{},{},{}@{furniture:08X}", e.pos[0], e.pos[1], e.pos[2]),
+                None => format!("{furniture:08X}"),
+            };
+            f.startup.push(format!(
+                "furniture: {} is to use {furniture:08X} ({}){}",
+                who.trim(),
+                record.edid.as_deref().unwrap_or("?"),
+                entry.map_or(String::new(), |e| format!(", walking to marker {} (ID {})", e.index, e.marker_id))
+            ));
+            f.orders.push(Order { traveller: first_trip + trips.len(), furniture, stay, asked: false });
+            trips.push(format!("{}={to}", who.trim()));
         }
-        Ok((Furnishings { bases, tree, markers: HashMap::new(), orders, users: HashMap::new(), stats: Stats::default(), startup }, trips))
+        Ok((f, trips))
     }
 
     fn markers(&mut self, data: &GameData, model: &str) -> Arc<Vec<Marker>> {
@@ -331,9 +361,74 @@ fn tell_scripts(script: &mut Option<ResMut<ScriptState>>, user: u32, using: Opti
 
 // ---- actors -----------------------------------------------------------------------
 
+/// The last steps from where an actor stopped to the entry point, as a person takes them:
+/// it turns to face the way on the spot, walks there forwards, and turns on the spot to
+/// the entry heading [design; the owner's playtest 2026-10-16: slid there in one
+/// straight move while turning, Easy Pete walked backwards out of his chair with the
+/// walk clip going forwards].
+struct Approach {
+    from: Frame,
+    to: Frame,
+    /// The heading it walks with.
+    way: f32,
+    /// Seconds turning to `way`, walking, turning to the entry heading.
+    turn_in: f32,
+    walk: f32,
+    turn_out: f32,
+    t: f32,
+}
+
+/// Where an approaching actor is, and its root's velocity (in its own space, X right,
+/// Y forward; game units per second) and turn rate (radians per second, positive left).
+struct Step {
+    at: Frame,
+    velocity: [f32; 2],
+    turn: f32,
+}
+
+impl Approach {
+    fn new(from: Frame, to: Frame) -> Approach {
+        let d = [to.pos[0] - from.pos[0], to.pos[1] - from.pos[1]];
+        let len = d[0].hypot(d[1]);
+        let way = if len >= STEP_MIN { d[0].atan2(d[1]).rem_euclid(std::f32::consts::TAU) } else { from.heading };
+        let turn = |a: f32, b: f32| fnv_nav::follow::heading_delta(a, b).abs() / fnv_nav::follow::SPOT_TURN_RATE;
+        Approach { from, to, way, turn_in: turn(from.heading, way), walk: len / APPROACH_SPEED, turn_out: turn(way, to.heading), t: 0.0 }
+    }
+
+    fn len(&self) -> f32 {
+        self.turn_in + self.walk + self.turn_out
+    }
+
+    /// The step `t` seconds in.
+    fn at(&self, t: f32) -> Step {
+        let turning = |a: f32, b: f32, k: f32| {
+            let turn = -fnv_nav::follow::heading_delta(a, b).signum() * fnv_nav::follow::SPOT_TURN_RATE;
+            (lerp_heading(a, b, k.clamp(0.0, 1.0)), if k < 1.0 { turn } else { 0.0 })
+        };
+        let pos = |k: f32| Vec3::from_array(self.from.pos).lerp(Vec3::from_array(self.to.pos), k.clamp(0.0, 1.0)).to_array();
+        if t < self.turn_in {
+            let (heading, turn) = turning(self.from.heading, self.way, t / self.turn_in);
+            return Step { at: Frame { pos: self.from.pos, heading }, velocity: [0.0; 2], turn };
+        }
+        let t = t - self.turn_in;
+        if t < self.walk {
+            // The way in its own space: forwards, or (a shuffle) whichever way it steps.
+            let d = Vec3::from_array(self.to.pos) - Vec3::from_array(self.from.pos);
+            let v = Vec2::new(d.x, d.y) / self.walk;
+            let (sn, cs) = self.way.sin_cos();
+            let velocity = [v.x * cs - v.y * sn, v.x * sn + v.y * cs];
+            return Step { at: Frame { pos: pos(t / self.walk), heading: self.way }, velocity, turn: 0.0 };
+        }
+        let k = if self.turn_out > 0.0 { (t - self.walk) / self.turn_out } else { 1.0 };
+        let (heading, turn) = turning(self.way, self.to.heading, k);
+        Step { at: Frame { pos: self.to.pos, heading }, velocity: [0.0; 2], turn }
+    }
+}
+
 enum Stage {
-    /// The last steps to the entry point.
-    Approach { from: Frame, t: f32, len: f32 },
+    /// The last steps to the entry point: turn to face the way, walk there, turn to the
+    /// entry heading (`Approach::at`).
+    Approach(Approach),
     Using(Use),
 }
 
@@ -448,10 +543,7 @@ pub fn drive_actors(
                     t.rotation = rotation(on.heading);
                     (Stage::Using(Use::begin(FormId(plan.furniture), FormId(plan.base), plan.entry, 0.0)), Some((get_on.clone(), 0.999)))
                 } else {
-                    // Long enough to walk there and to turn to the entry heading at the
-                    // standing turn rate (it does not whip round in a few frames).
-                    let turn = fnv_nav::follow::heading_delta(from.heading, plan.entry.heading).abs() / fnv_nav::follow::SPOT_TURN_RATE;
-                    (Stage::Approach { from, t: 0.0, len: (d / APPROACH_SPEED).max(turn).max(0.15) }, None)
+                    (Stage::Approach(Approach::new(from, Frame { pos: plan.entry.pos, heading: plan.entry.heading })), None)
                 };
                 // Its body is the furniture's now: a conversation turns only its head.
                 commands.entity(e).insert(crate::dialogue_look::BodyHeld).insert(OnFurniture {
@@ -496,19 +588,16 @@ pub fn drive_actors(
         };
         let clip_frame = on.plan.frames.clip;
         match &mut on.stage {
-            Stage::Approach { from, t: at, len } => {
-                *at += dt;
-                let k = (*at / *len).min(1.0);
-                let to = Frame { pos: on.plan.entry.pos, heading: on.plan.entry.heading };
-                let pos = Vec3::from_array(from.pos).lerp(Vec3::from_array(to.pos), k);
-                place(Frame { pos: pos.to_array(), heading: lerp_heading(from.heading, to.heading, k) });
+            Stage::Approach(a) => {
+                a.t += dt;
+                let step = a.at(a.t);
+                place(step.at);
                 if let Some(lo) = lo.as_deref_mut() {
-                    // Walking: the distance over the time, in the actor's own scale.
-                    let speed = Vec3::from_array(from.pos).distance(Vec3::from_array(to.pos)) / *len;
-                    lo.velocity = [0.0, if k < 1.0 { speed / scale } else { 0.0 }];
-                    lo.turn = 0.0;
+                    // Its own scale: the clips are chosen for the unscaled speed.
+                    lo.velocity = step.velocity.map(|v| v / scale);
+                    lo.turn = step.turn;
                 }
-                if k >= 1.0 {
+                if a.t >= a.len() {
                     let len = on.get_on.clip.length();
                     on.stage = Stage::Using(Use::begin(FormId(on.plan.furniture), FormId(on.plan.base), on.plan.entry, len));
                     on.pose = Some((on.get_on.clone(), 0.0));
@@ -830,6 +919,26 @@ mod tests {
         let f = exit_frame(clip, &on, &doc);
         let first = f.point([-52.2, 0.1, 0.0]);
         assert!((first[0] - seat[0]).abs() < 1e-3 && (first[1] - seat[1]).abs() < 1e-3, "{first:?} {seat:?}");
+    }
+
+    /// Easy Pete stopped in his chair, facing it (north), with the front entry point 54
+    /// units south of him facing north too: he turns round, walks south forwards, turns
+    /// round again; before, he slid south facing north with the walk clip going forwards.
+    #[test]
+    fn approach_walks_forwards_then_turns() {
+        let a = Approach::new(Frame { pos: [0.0, 0.0, 0.0], heading: 0.0 }, Frame { pos: [0.0, -54.0, 0.0], heading: 0.0 });
+        assert!((a.way - PI).abs() < 1e-3, "{}", a.way);
+        assert!((a.turn_in - PI / fnv_nav::follow::SPOT_TURN_RATE).abs() < 1e-3 && (a.turn_out - a.turn_in).abs() < 1e-3);
+        let walking = a.at(a.turn_in + a.walk / 2.0);
+        assert!(walking.velocity[1] > 0.0 && walking.velocity[0].abs() < 1e-3, "{:?}", walking.velocity);
+        assert!((walking.at.pos[1] + 27.0).abs() < 0.5 && walking.turn == 0.0);
+        let turning = a.at(a.turn_in / 2.0);
+        assert!(turning.at.pos == [0.0; 3] && turning.velocity == [0.0; 2] && turning.turn != 0.0);
+        let end = a.at(a.len());
+        assert!((end.at.pos[1] + 54.0).abs() < 1e-3 && fnv_nav::follow::heading_delta(end.at.heading, 0.0).abs() < 1e-3 && end.turn == 0.0);
+        // A few units: a shuffle, no turning round.
+        let short = Approach::new(Frame { pos: [0.0; 3], heading: 0.0 }, Frame { pos: [0.0, -5.0, 0.0], heading: 0.0 });
+        assert!(short.turn_in == 0.0 && short.turn_out == 0.0 && short.at(short.walk / 2.0).velocity[1] < 0.0);
     }
 
     #[test]

@@ -414,6 +414,10 @@ record order; `GetRandomPercent` in percent):
   (`GetCurrentAIProcedure` 4, she is to greet the player) and the walk enters
   `DialogueIdles` for her: no fidget [observed with `fnvtool actor fidgets`].
 
+- The same walk gives the fidgets on furniture (`FidgetKind::OnFurniture`): the
+  branch below a node requiring `GetSitting == 3` or `GetSleeping == 3`
+  (furniture.md §8).
+
 ### 11.3 Open
 
 - How often the original looks at its tree, and the unit of the replay delay.

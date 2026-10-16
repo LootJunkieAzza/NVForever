@@ -6,34 +6,58 @@ use fnv_script::vm::Value;
 use fnv_sim::FormId;
 
 pub fn reward_xp(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.xp += a.num(0)?.trunc();
+    let n = a.num(0)?.trunc();
+    crate::experience::award(g, crate::experience::Source::Script, n);
     none()
 }
 
 /// Perks are kept for the player only; other actors have none [hypothesis: NPC perk
-/// lists are not read yet].
+/// lists are not read yet]. On the player, a non-zero forTeammates (the second
+/// parameter) asks about, gives or takes the perk of the player's teammates instead
+/// [documented: GECK wiki AddPerk and HasPerk]; teammates' perks are kept, their effects
+/// are not applied yet.
 pub fn has_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
-    yes(r == FormId::PLAYER_REF && g.player.perks.contains_key(&a.form(0)?))
+    let perk = a.form(0)?;
+    if a.num_or(1, 0.0) != 0.0 {
+        return yes(r == FormId::PLAYER_REF && g.player.teammate_perks.contains(&perk));
+    }
+    yes(r == FormId::PLAYER_REF && g.player.perks.contains_key(&perk))
 }
 
 pub fn add_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if ctx.subject_or_player() != FormId::PLAYER_REF {
         return Err("perks of actors other than the player are not modelled".into());
     }
-    crate::perks::gain_rank(g, a.form(0)?);
+    let perk = a.form(0)?;
+    if a.num_or(1, 0.0) != 0.0 {
+        g.player.teammate_perks.insert(perk);
+    } else {
+        crate::perks::gain_rank(g, perk);
+    }
     none()
 }
 
 pub fn remove_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if ctx.subject_or_player() == FormId::PLAYER_REF {
-        g.player.perks.remove(&a.form(0)?);
+        let perk = a.form(0)?;
+        if a.num_or(1, 0.0) != 0.0 {
+            g.player.teammate_perks.remove(&perk);
+        } else {
+            g.player.perks.remove(&perk);
+        }
     }
     none()
 }
 
+/// `GetHasNote note`: the player has the note: added with AddNote, or carried as an
+/// item (AddItem, picked up) [observed: `player.AddItem` of a holotape made GetHasNote 1
+/// while GetItemCount of it read 0, capture `fa_batch3_actions`; the GECK wiki
+/// GetItemCount notes say it "does not work with Notes"].
 pub fn get_has_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    yes(g.player.notes.contains(&a.form(0)?))
+    let note = a.form(0)?;
+    let carried = g.world.item_count(FormId::PLAYER_REF, note).unwrap_or(0) > 0;
+    yes(carried || g.player.notes.contains(&note))
 }
 
 pub fn add_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -107,21 +131,26 @@ pub fn get_player_controls_disabled(g: &mut Game, _ctx: &Ctx, a: &Args) -> Resul
     yes(g.player.controls_disabled.iter().zip(which).any(|(d, w)| *d && w))
 }
 
-/// The player's level: SetLevel's, else the configuration's. Another actor's level is
-/// known only after SetLevel (NPC_ levels are not read yet).
+/// An actor's current level [documented: GECK wiki GetLevel]: the player's SetLevel,
+/// else the configuration's; another actor's SetLevel, else its record's level (fixed,
+/// or PC Level Mult with its bounds: `Game::actor_level`). [observed: Sunny Smiles read 2
+/// and Trudy 5 in the capture `fa_batch1_queries`.]
 pub fn get_level(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     if r != FormId::PLAYER_REF {
-        return match g.extra.get(&r).and_then(|e| e.level) {
-            Some(l) => Ok(Value::Num(l as f64)),
-            None => Err("levels of actors other than the player are not modelled".into()),
-        };
+        return Ok(Value::Num(g.actor_level(r).round()));
     }
     Ok(Value::Num(g.player.level.unwrap_or(g.world.config().player_level as i32) as f64))
 }
 
+/// `RemoveNote note`: the player no longer has it, carried or added.
 pub fn remove_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.notes.remove(&a.form(0)?);
+    let note = a.form(0)?;
+    g.player.notes.remove(&note);
+    let carried = g.world.item_count(FormId::PLAYER_REF, note).unwrap_or(0);
+    if carried > 0 {
+        let _ = g.world.remove_item(FormId::PLAYER_REF, note, carried);
+    }
     none()
 }
 
@@ -162,9 +191,14 @@ pub fn set_hardcore(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String>
     none()
 }
 
-/// Map markers made visible (fast travel is Layer 6).
+/// `ShowMap marker [canTravel]`: the marker goes on the world map, and with canTravel
+/// becomes a fast-travel target [documented: GECK wiki ShowMap].
 pub fn show_map(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.map_markers.insert(a.form(0)?);
+    let m = a.form(0)?;
+    g.player.map_markers.insert(m);
+    if a.num_or(1, 0.0) != 0.0 {
+        g.player.travel_markers.insert(m);
+    }
     none()
 }
 
@@ -175,13 +209,30 @@ impl Game<'_> {
     pub fn map_marker_shown(&self, marker: FormId, hidden: bool) -> bool {
         self.player.map_markers.contains(&marker) || self.player.all_markers.is_some_and(|a| a.shown && !(a.skip_hidden && hidden))
     }
+
+    /// The map markers the player has found (the engine's discovery, kept in its save
+    /// too): they are on the map and fast-travel targets.
+    pub fn set_found_markers(&mut self, found: impl IntoIterator<Item = FormId>) {
+        self.player.found_markers = found.into_iter().collect();
+    }
 }
 
-/// The marker's Hidden flag is not read here: a marker counts as not hidden
-/// [engineering choice: the game crate has no marker data; the Pip-Boy map reads it].
+/// `marker.GetMapMarkerVisible`: 0 not on the map, 1 on it without fast travel, 2 on it
+/// and a fast-travel target [documented: GECK wiki GetMapMarkerVisible, "Marker State"].
+/// A marker the player found reads 2 [observed: the Goodsprings marker in the save
+/// nvftest, capture `fa_batch1_queries`]; ShowMap's canTravel and ShowAllMapMarkers'
+/// travel flag give 2 to the others. The marker's Hidden flag is not read here: a marker
+/// counts as not hidden [engineering choice: the game crate has no marker data; the
+/// Pip-Boy map reads it]; markers authored Visible are not known here either (0 until
+/// found or shown).
 pub fn get_map_marker_visible(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(g.map_marker_shown(r, false))
+    let found = g.player.found_markers.contains(&r);
+    if !(found || g.map_marker_shown(r, false)) {
+        return Ok(Value::Num(0.0));
+    }
+    let travel = found || g.player.travel_markers.contains(&r) || g.player.all_markers.is_some_and(|a| a.shown && a.travel);
+    Ok(Value::Num(if travel { 2.0 } else { 1.0 }))
 }
 
 /// `ShowAllMapMarkers show [canTravel] [skipHidden]`: every map marker on the world map
@@ -209,10 +260,7 @@ pub fn show_all_map_markers(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value,
 /// Settings]. The settings default to 200 and 150 [documented: same page] when the load
 /// order lacks them.
 pub fn xp_for_level(g: &Game, level: i32) -> f64 {
-    let base = g.world.setting_f32("iXPBase").unwrap_or(200.0) as f64;
-    let bump = g.world.setting_f32("iXPBumpBase").unwrap_or(150.0) as f64;
-    let n = level as f64;
-    (n - 1.0) * ((n - 2.0) / 2.0 * bump + base)
+    crate::experience::xp_for_level(g, level)
 }
 
 /// `GetXPForNextLevel`: the experience the player still needs to reach the next level
@@ -220,8 +268,8 @@ pub fn xp_for_level(g: &Game, level: i32) -> f64 {
 /// level"]: the next level's total ([`xp_for_level`]) less the experience the player
 /// has, at least 0 [hypothesis: remaining rather than the total; the Here and Now perk's
 /// stage rewards exactly this amount, `QUST 0x000038B2` stage 10, which levels the
-/// player up at once only if it is what is left]. Levelling up is not built: the level
-/// is SetLevel's or the configuration's.
+/// player up at once only if it is what is left]. The level goes up when the player takes
+/// the level-up menu (`crate::experience`).
 pub fn get_xp_for_next_level(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let level = g.player.level.unwrap_or(g.world.config().player_level as i32);
     Ok(Value::Num((xp_for_level(g, level + 1) - g.player.xp).max(0.0).round()))

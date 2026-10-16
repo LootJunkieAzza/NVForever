@@ -750,6 +750,15 @@ impl<'a> Game<'a> {
         let actor = c.actor;
         let choice = c.choices.get(index).cloned().ok_or_else(|| format!("no choice {index} ({} offered)", c.choices.len()))?;
         self.emit(EventKind::ChoiceMade { actor, index, topic: choice.topic, info: choice.info });
+        // A Fallout 3 style speech challenge (the flag and a difficulty) gives its XP when
+        // its line is said. The roll is not modelled, so the line always passes
+        // [hypothesis, dialogue.md §3.3]. New Vegas's skill checks (KNAM without the
+        // flag) give none here: their pass lines' result scripts carry RewardXP (638 of
+        // the 1,499 in the masters [observed]), which would count twice.
+        if let Some(d) = self.data.infos.get(&choice.info).filter(|d| d.has(info_flag::SPEECH_CHALLENGE)).and_then(|d| d.challenge_difficulty) {
+            let x = crate::experience::speech_challenge_xp(self, d);
+            crate::experience::award(self, crate::experience::Source::SpeechChallenge, x);
+        }
         self.speak(actor, choice.topic, choice.info);
         Ok(choice.info)
     }

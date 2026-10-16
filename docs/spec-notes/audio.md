@@ -528,8 +528,7 @@ menu's settings) [observed 2026-10-11]: 24 played, 0 not found.
 
 Not built: the menus that do not exist yet (the Pip-Boy's pages, tabs, light, hum and
 radiation sounds; lockpicking, hacking, VATS, level up, perks, repair, surgery, the main
-menu, loading screens), the popups not drawn (`UIPopUpExperienceUp`, `UILevelUp`,
-`UIKarmaUp` / `…Down`, `UIRepGood` / `…Bad`, `UIPopUpMapMarkerAdded`), the numbered
+menu, loading screens), the popups not drawn (`UIKarmaUp` / `…Down`, `UIRepGood` / `…Bad`, `UIPopUpMapMarkerAdded`), the numbered
 sounds 1, 2, 3 and 9, the quantity menu.
 
 ## 13. Battle, dungeon, incidental and script music

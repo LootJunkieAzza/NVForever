@@ -157,7 +157,13 @@ Owner request 2026-10-11: "add attack animations so NPCs aim, fire and bite visi
   plays `2hrattack3.kf`), with its own up or down form at the aim's weight; fists are
   `h2h`.
 - **Creatures**: their own `h2hattack….kf` clips in the skeleton's folder, power and
-  forward attacks left out, taken in turn [design]. The dog has `h2hattackleft`,
+  forward attacks left out, taken in turn [design]. A blow is a power attack by the
+  combat style's Power Attack % Chance [documented: GECK wiki Combat Style], else 25 %
+  [design: owner 2026-10-16, random power attacks where the rule is not found]; normal
+  or forward by the style's shares (evenly where both are 0), among the power clips the
+  creature has (`h2hattackpower.kf`, `h2hattackforwardpower.kf`: the radscorpion's
+  sting). It lands at its own clip's `Hit` key with the creature's usual damage, and an
+  unarmed attack effect naming its group goes with it (hit-effects.md §1). The dog has `h2hattackleft`,
   `h2hattackleft_midbite`, `h2hattackright`, `h2hattackright__midbite`; the radscorpion
   `h2hattackleft_mid`, `_high`, `_low` … [observed: the base meshes archive].
 - **When a blow lands**: at its clip's `Hit` text key [documented: NiTextKeyExtraData]
@@ -1010,3 +1016,36 @@ charges … across open ground: no cover on the way`, `… guards … against �
   with `--actor-weapons none`: fists against fists, blocks and recoils), and
   `combat-bound` (melee fighters against gunmen at a distance: bounds or a charge, no
   block).
+
+## 15. Melee combos (owner request 2026-10-16)
+
+Owner: "melee combatant enemies need to be able to chain melee attacks for different
+animation combos". The player's swings already follow the attack clips' `a:` text keys
+(`fnv_combat::melee`, combat.md §5.4); NPC blows now do too.
+
+- **The keys** [documented: GECK wiki NiTextKeyExtraData, `a:R` plays AttackRight, `a:7`
+  Attack7, a blank one a random attack; observed: every melee and fist `AttackRight` clip
+  of both rigs carries `a:L`, every `AttackLeft` clip `a:R`; power clips none]. The key's
+  time is when the clip may be cut for the next swing.
+- **When an NPC goes on** [design]: a blow's clip with an `a:` key brings the fighter's
+  next melee decision (§10.4: block, attack by the style's attack chance, or hold) forward
+  to that key. Attacking between the key and the clip's end goes on the combo: the clip
+  of the group named (right → left → right…; fists alternate hands), cut in at once, as
+  the player's swing is. The combo ends on a hold, a block, a recoil (its blow was
+  blocked), or the target out of reach until the clip ends; the next blow starts again
+  from the weapon's own attack group. So the style's attack chance sets how long combos
+  run: at FalloutNV.esm's default 55 % about one blow in two goes on [hypothesis: the
+  original's rule for when an NPC chains is not documented].
+- **Variants**: each swing takes its `_a` or `_b` clip by a roll of its own (as the
+  player's, `fnv_combat::melee::swing_stem`), on a random sequence of its own so other
+  fights roll as before.
+- **The blow lands at its own clip's `Hit` key** (before, the previous clip's), once
+  `attack_anims` has started the clip (`AttackTimes::swings`, a frame later).
+- **Creatures** take, on a combo, the clip whose name is `h2h` + the group named
+  (`h2hattackleft.kf`, `h2hattackleft_mid.kf`) first where their clips carry an `a:` key;
+  otherwise they keep taking their clips in turn (§9). The Goodsprings dogs' clips chain
+  [observed in NVForever: smoke `combat-dogs` 2026-10-16, 6 of their blows went on combos].
+- Not built: NPC power attacks (the style's power attack chances).
+- Checks: unit tests in `npc_combat.rs` (the combo window) and `attack_anims.rs` (a
+  creature's chained clip first); smoke scenario `combat-melee-combo` (the `combat-block`
+  fist fight: blows go on combos, `attackleft` clips play).

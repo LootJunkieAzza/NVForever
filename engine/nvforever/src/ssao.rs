@@ -71,7 +71,7 @@ impl Plugin for SsaoPlugin {
         render_app
             .add_systems(RenderStartup, init_pipelines)
             .add_systems(Render, prepare.in_set(RenderSystems::PrepareResources))
-            .add_systems(Core3d, ao_pass.in_set(Core3dSystems::PostProcess).after(tonemapping).before(crate::imagespace::blur_pass));
+            .add_systems(Core3d, ao_pass.in_set(Core3dSystems::PostProcess).after(tonemapping).before(bevy::anti_alias::fxaa::fxaa).before(bevy::anti_alias::smaa::smaa).before(crate::imagespace::blur_pass));
     }
 }
 

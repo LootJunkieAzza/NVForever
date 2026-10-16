@@ -58,7 +58,7 @@ fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<
         if let Some(mut hold) = hold {
             let fighting = game.awareness.state(id).in_combat();
             let unequipped = !fighting && game.package_has(id, flags::WEAPONS_UNEQUIPPED);
-            let want = !unequipped && (drawn_by_default || game.is_alerted(id) || game.package_has(id, flags::WEAPON_DRAWN) || game.active_weapon_use(id).is_some());
+            let want = game.wants_weapon_out(id) || (drawn_by_default && !unequipped);
             if hold.test.is_none() && hold.drawn != want {
                 hold.drawn = want;
                 let why = if game.active_weapon_use(id).is_some() { " (a weapon use)" } else if !fighting && want != game.is_alerted(id) { " (its package's flags)" } else { "" };

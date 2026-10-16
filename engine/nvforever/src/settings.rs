@@ -5,12 +5,15 @@
 //! `nvf_play::settings` like every switch of the page).
 //!
 //! Left on the command line: what is fixed when the game starts (`--no-npc-packages`,
-//! `--no-actors`, FaceGen, weapons, `--no-lodgen`), most numbers (`--msaa`, `--fov`,
-//! volumes) and the test aids. The draw distances are sliders here, each a part of the
-//! command line's distance (`draw_distance.rs`).
+//! `--no-actors`, FaceGen, weapons, `--no-lodgen`), most numbers (volumes, `--radius`)
+//! and the test aids. The draw distances are sliders here, each a part of the
+//! command line's distance (`draw_distance.rs`); the field of view, the frame-rate cap and the
+//! anti-aliasing and shadow-filter choices are sliders whose steps are the choices.
 
 use crate::draw_distance::{self, DrawClass, DrawDistances};
-use crate::graphics::Graphics;
+use crate::fly::FlyCam;
+use crate::frame_pace::{self, FramePace};
+use crate::graphics::{self, Graphics};
 use crate::grass::GrassConfig;
 use crate::head_look::HeadLookSettings;
 use crate::lips::LipState;
@@ -22,7 +25,7 @@ use crate::world::Streamer;
 use crate::{Args, Overlay};
 use bevy::prelude::*;
 use nvf_play::pause::GROUP_MENUS;
-use nvf_play::settings::{add_setting, Setting, Slider};
+use nvf_play::settings::{add_setting, choice_index, choice_part, Setting, Slider};
 
 // The pause menu shows the groups as the original's settings categories (Gameplay,
 // Display, …), one short word each (nvf_play::pause).
@@ -151,6 +154,7 @@ pub fn register(app: &mut App) {
             slider: None,
         },
     );
+    register_display(app);
     register_distances(app);
     register_graphics(app);
     add_setting(
@@ -205,13 +209,92 @@ pub fn register(app: &mut App) {
     }
 }
 
+/// The field of view's least and greatest degrees on the settings page, in steps of 5.
+const FOV_MIN: f32 = 50.0;
+const FOV_MAX: f32 = 110.0;
+const FOV_CHOICES: usize = 13;
+
+/// The field of view (`--fov`) and how fast frames are shown (`frame_pace.rs`; not while
+/// `--log-frame-times` measures, which wants vsync off).
+fn register_display(app: &mut App) {
+    add_setting(
+        app,
+        Setting::slider(
+            "field-of-view",
+            GROUP_PICTURE,
+            "Field of view",
+            "The game's field of view in degrees across a 4:3 picture (75 as the original's default); wider screens see more at the sides. (--fov)",
+            Slider::choice(FOV_CHOICES, |w| fov_part(w.resource::<Args>().fov), set_fov, |v| format!("{:.0}", fov_degrees(v))),
+        ),
+    );
+    if app.world().resource::<Args>().log_frame_times.is_some() {
+        return;
+    }
+    add_setting(
+        app,
+        Setting {
+            key: "vsync",
+            group: GROUP_PICTURE,
+            label: "Vertical sync",
+            note: "On: each frame waits for the display's refresh (no tearing). Off: frames are shown as soon as they are drawn.",
+            get: |w| w.resource::<FramePace>().vsync,
+            set: |w, on| w.resource_mut::<FramePace>().vsync = on,
+            slider: None,
+        },
+    );
+    let caps = frame_pace::CAPS.len();
+    add_setting(
+        app,
+        Setting::slider(
+            "frame-cap",
+            GROUP_PICTURE,
+            "Frame rate limit",
+            "At most this many frames a second (Off: as many as the computer draws, or the display's refresh with vertical sync). A lower limit keeps the computer cooler and quieter.",
+            Slider::choice(
+                caps,
+                |w| {
+                    let cap = w.resource::<FramePace>().cap;
+                    choice_part(frame_pace::CAPS.iter().position(|&c| c == cap).unwrap_or(0), frame_pace::CAPS.len())
+                },
+                |w, v| w.resource_mut::<FramePace>().cap = frame_pace::CAPS[choice_index(v, frame_pace::CAPS.len())],
+                |v| match frame_pace::CAPS[choice_index(v, frame_pace::CAPS.len())] {
+                    0 => "Off".to_string(),
+                    c => c.to_string(),
+                },
+            ),
+        ),
+    );
+}
+
+/// The field of view's degrees for a slider part, whole.
+fn fov_degrees(v: f32) -> f32 {
+    (FOV_MIN + v.clamp(0.0, 1.0) * (FOV_MAX - FOV_MIN)).round()
+}
+
+/// The slider part for `deg` degrees, as `Slider::fit` keeps parts.
+fn fov_part(deg: f32) -> f32 {
+    ((deg - FOV_MIN) / (FOV_MAX - FOV_MIN) * 1000.0).round().clamp(0.0, 1000.0) / 1000.0
+}
+
+/// A new field of view: kept in `Args` and put on the camera.
+fn set_fov(world: &mut World, v: f32) {
+    let deg = fov_degrees(v);
+    world.resource_mut::<Args>().fov = deg;
+    let mut cams = world.query_filtered::<&mut Projection, With<FlyCam>>();
+    for mut p in cams.iter_mut(world) {
+        if let Projection::Perspective(p) = &mut *p {
+            p.fov = nvf_play::free_cam::vertical_fov(deg);
+        }
+    }
+}
+
 /// The draw-distance sliders (`draw_distance.rs`): each a part of its full distance, the
 /// full one drawing as without them.
 fn register_distances(app: &mut App) {
     if !app.world().contains_resource::<DrawDistances>() {
         return;
     }
-    let slider = |get: fn(&World) -> f32, set: fn(&mut World, f32)| Slider { get, set, min: draw_distance::MIN, step: draw_distance::STEP };
+    let slider = |get: fn(&World) -> f32, set: fn(&mut World, f32)| Slider { get, set, min: draw_distance::MIN, step: draw_distance::STEP, shown: None };
     let sliders = [
         Setting::slider(
             "object-distance",
@@ -258,7 +341,36 @@ fn register_distances(app: &mut App) {
 /// of them on, `vanilla` with none).
 fn register_graphics(app: &mut App) {
     type Switch = (&'static str, &'static str, &'static str, fn(&World) -> bool, fn(&mut World, bool));
-    let switches: [Switch; 8] = [
+    let choices = [
+        Setting::slider(
+            "anti-aliasing",
+            GROUP_GRAPHICS,
+            "Anti-aliasing",
+            "How edges are smoothed: multisampling Off, 2x, 4x or 8x (--msaa; the cut-out edges of plants too), or the picture smoothed afterwards: FXAA (cheapest, softest), SMAA (sharper, a little dearer) or TAA (over the frames; plants too, soft while moving).",
+            Slider::choice(graphics::AA_CHOICES.len(), |w| choice_part(graphics::aa_choice(w), graphics::AA_CHOICES.len()), |w, v| graphics::set_aa_choice(w, choice_index(v, graphics::AA_CHOICES.len())), |v| {
+                graphics::AA_CHOICES[choice_index(v, graphics::AA_CHOICES.len())].0.to_string()
+            }),
+        ),
+        Setting::slider(
+            "shadow-filter",
+            GROUP_GRAPHICS,
+            "Shadow filtering",
+            "How the edges of the sun's shadows are softened: Fast (hardware 2x2, harder edges, cheapest), Smooth (as vanilla) or Temporal (soft but grainy unless Anti-aliasing is TAA).",
+            Slider::choice(
+                graphics::SHADOW_FILTERS.len(),
+                |w| {
+                    let f = w.resource::<Graphics>().shadow_filter;
+                    choice_part(graphics::SHADOW_FILTERS.iter().position(|&(_, m)| m == f).unwrap_or(1), graphics::SHADOW_FILTERS.len())
+                },
+                |w, v| w.resource_mut::<Graphics>().shadow_filter = graphics::SHADOW_FILTERS[choice_index(v, graphics::SHADOW_FILTERS.len())].1,
+                |v| graphics::SHADOW_FILTERS[choice_index(v, graphics::SHADOW_FILTERS.len())].0.to_string(),
+            ),
+        ),
+    ];
+    for s in choices {
+        add_setting(app, s);
+    }
+    let switches: [Switch; 7] = [
         (
             "ambient-occlusion",
             "Ambient occlusion",
@@ -296,13 +408,6 @@ fn register_graphics(app: &mut App) {
                 w.resource_mut::<Graphics>().anisotropic = on;
                 nvf_assets::texture::set_anisotropy(if on { 16 } else { 8 });
             },
-        ),
-        (
-            "taa",
-            "Temporal anti-aliasing",
-            "On: edges are smoothed over the frames instead of by multisampling (which is switched off while this is on); plants' cut-out edges too. Off: --msaa again. (--graphics)",
-            |w| w.resource::<Graphics>().taa,
-            |w, on| w.resource_mut::<Graphics>().taa = on,
         ),
         (
             "light-shafts",

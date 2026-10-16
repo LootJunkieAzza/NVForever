@@ -224,7 +224,8 @@ the compass the eight directions' letters in Bevy's font.
   condition bar).
 - Compass markers: quest targets, places, the player's own marker, actors nearby.
 - The compass's faded ends.
-- The messages at the top left with their icons, subtitles, the XP bar, the radiation meter, the breath meter, the crippled-limb
+- The XP meter is built: experience.md (`xp_meter.rs`).
+- The messages at the top left with their icons, subtitles, the radiation meter, the breath meter, the crippled-limb
   picture, the armour-piercing icons, the ammo type's label, Hardcore mode's words.
   (The crosshair and the prompt under it are drawn as the original's: `reticle.md`.)
   The developer's stand-ins for some of these (`activate.rs`, `combat.rs`,
@@ -239,15 +240,16 @@ the compass the eight directions' letters in Bevy's font.
 
 [documented: hud_main_menu.xml, hudtemplates.xml] `EnemyHealth` is a piece 350 x 52;
 its bracket `glow_enemy_health_seperator.dds` (512 x 64) stands at (-7, 3) in it.
-[observed: the texture] A long line (upper edge at y 19, from x 36 to 327) with a corner
-mark rising at each end; their inner edges at x 56 and 307.
+[observed: the texture] A long line (solid in rows 21–23 under a glow, from x 36 to
+327) with a corner mark rising at each end; their inner edges at x 56 and 307.
 
 [observed: the `Target healthbar` screenshot] The piece is centred across the view; its
-long line is level with the corner pieces' long lines; the ticks (the same tick picture
-as the player's bars) stand on it between the corner marks, about 32 of them (31 here,
-as many as fit); the actor's name is centred under the line in font 7, standing on
-y 53 of the piece. All of it is in the HUD's alternative colour, red: about
-(248, 68, 45) on the screenshot, `iSystemColorHUDAlt*` 255, 67, 42 (`reticle.md`).
+long line is level with the upper of the corner pieces' two solid lines; the ticks (the
+same tick picture as the player's bars) stand right on it, with no gap (the player's
+bars stand 4 units over theirs), between the corner marks, about 32 of them (31 here, as
+many as fit); the actor's name is centred under the line in font 7, standing on y 53 of
+the piece. All of it is in the HUD's alternative colour, red: about (248, 68, 45) on the
+screenshot, `iSystemColorHUDAlt*` 255, 67, 42 (`reticle.md`).
 
 [owner, playtest list 5, item 32] The bar empties from both ends towards its middle:
 the lit ticks are the middle `ceil(value × 31)`, an odd one gone from the right first.

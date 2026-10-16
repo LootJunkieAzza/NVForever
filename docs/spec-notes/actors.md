@@ -1847,6 +1847,12 @@ turn is made against (§12.3): yaw to either side of straight ahead, pitch up an
 - **Frame**: the turn is measured against the bone above the chain (how that bone is
   turned away from its bind pose), not against the actor's root, so the limits are the
   neck's own whatever the spine does.
+  The pitch limits are the exception: they are kept from the level, widened by how far
+  that bone leans (its forward's elevation), so a seated actor hunched forward still
+  lifts its head to someone standing or lying before it, and one leaning back can look
+  down; never narrower than upright, never past 75° up or 60° down against the bone
+  (`fnv_actor::head_look::leaning_limits`) [design: owner report 2026-10-16, Doc
+  Mitchell in the opening looked at the floor while speaking to the player].
 - **On top of the animation**: each frame, after `locomotion::drive` has posed the
   skeleton and before transforms are propagated, the animated direction of the head is
   read, the wanted direction (the target's, limited) gives the turn wanted on top of it,
@@ -1935,7 +1941,10 @@ turn is made against (§12.3): yaw to either side of straight ahead, pitch up an
   `LookOverride(LookAt::Player)` would remove all three [open].
 - Sitting, sleeping and other furniture poses: nothing marks such actors yet;
   `NoHeadLook` is there for it. The frame of §12.3 keeps the limits sensible in such a
-  pose, but that is not checked.
+  pose, with the pitch limits widened by the lean [observed: smoke `head-look-seated`,
+  Doc Mitchell seated in the opening: on "Whoa, easy there" (`VCG01DocWhoaThere`) his
+  head stopped 31° below the player's eyes with the limits against the spine, 0° with
+  them from the level; not checked by eye].
 - Creatures: only the skeletons of §12.1 were seen; none was checked by eye. Without
   `--play` a creature with a `Bip01 Head` tracks even when its body part data has no
   head-tracking part (the data is not read then).

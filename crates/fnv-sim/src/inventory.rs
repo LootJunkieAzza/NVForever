@@ -9,6 +9,11 @@
 //!
 //! Removal order [hypothesis]: items without extra data first, then unequipped items
 //! with extra data in the order they arrived, equipped items last.
+//!
+//! The `_at` methods pick only the units at one condition (a fraction, units without one
+//! counting as whole): the menus list a stack as one row per condition, and moving or
+//! equipping a row takes its own units [owner, 2026-10-16: six Varmint Rifles, one at
+//! 95 %, show as a row of five and a row of one].
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -41,6 +46,17 @@ impl Extra {
     pub fn broken(&self) -> bool {
         self.condition.is_some_and(|c| c <= 0.0)
     }
+
+    /// The condition, 1 (whole) when the unit carries none.
+    pub fn condition_or_whole(&self) -> f32 {
+        self.condition.unwrap_or(1.0)
+    }
+
+    /// Whether this unit is one of those `at` picks: any unit (`None`), else the units at
+    /// that condition.
+    pub fn is_at(&self, at: Option<f32>) -> bool {
+        at.is_none_or(|c| self.condition_or_whole() == c)
+    }
 }
 
 /// One base item's groups, each (extra data, count > 0), in arrival order with the
@@ -63,9 +79,9 @@ impl Stack {
         }
     }
 
-    /// Take up to `n`, in removal order; returns what was taken.
-    fn take(&mut self, mut n: i32) -> Vec<(Extra, i32)> {
-        let mut order: Vec<usize> = (0..self.groups.len()).collect();
+    /// Take up to `n` of the units `at` picks, in removal order; returns what was taken.
+    fn take(&mut self, mut n: i32, at: Option<f32>) -> Vec<(Extra, i32)> {
+        let mut order: Vec<usize> = (0..self.groups.len()).filter(|&i| self.groups[i].0.is_at(at)).collect();
         order.sort_by_key(|&i| (self.groups[i].0.equipped, !self.groups[i].0.is_plain()));
         let mut out = Vec::new();
         for i in order {
@@ -169,8 +185,14 @@ impl Inventory {
 
     /// Remove up to `n` of `item`; returns the groups removed.
     pub fn take(&mut self, item: FormId, n: i32) -> Vec<(Extra, i32)> {
+        self.take_at(item, n, None)
+    }
+
+    /// Remove up to `n` of the units of `item` that `at` picks ([`Extra::is_at`]);
+    /// returns the groups removed.
+    pub fn take_at(&mut self, item: FormId, n: i32, at: Option<f32>) -> Vec<(Extra, i32)> {
         let Some(s) = self.items.get_mut(&item) else { return Vec::new() };
-        let out = s.take(n.max(0));
+        let out = s.take(n.max(0), at);
         if s.groups.is_empty() {
             self.items.remove(&item);
         }
@@ -212,15 +234,22 @@ impl Inventory {
         self.items.get(&item).is_some_and(|s| s.groups.iter().any(|g| g.0.equipped))
     }
 
-    /// The unequipped unit [`Inventory::set_equipped`] takes: plain units first, broken
-    /// ones last.
-    fn next_to_equip(s: &Stack) -> Option<usize> {
-        (0..s.groups.len()).filter(|&i| !s.groups[i].0.equipped).min_by_key(|&i| (s.groups[i].0.broken(), !s.groups[i].0.is_plain()))
+    /// The unequipped unit [`Inventory::set_equipped_at`] takes among those `at` picks:
+    /// plain units first, broken ones last.
+    fn next_to_equip(s: &Stack, at: Option<f32>) -> Option<usize> {
+        (0..s.groups.len())
+            .filter(|&i| !s.groups[i].0.equipped && s.groups[i].0.is_at(at))
+            .min_by_key(|&i| (s.groups[i].0.broken(), !s.groups[i].0.is_plain()))
     }
 
     /// Whether an unequipped unit of `item` that is not broken is carried.
     pub fn has_sound(&self, item: FormId) -> bool {
-        self.items.get(&item).is_some_and(|s| s.groups.iter().any(|g| !g.0.equipped && !g.0.broken()))
+        self.has_sound_at(item, None)
+    }
+
+    /// The same among the units `at` picks.
+    pub fn has_sound_at(&self, item: FormId, at: Option<f32>) -> bool {
+        self.items.get(&item).is_some_and(|s| s.groups.iter().any(|g| !g.0.equipped && !g.0.broken() && g.0.is_at(at)))
     }
 
     /// The condition (a fraction, 1 when undamaged) of the unit of `item` in use: the
@@ -228,15 +257,20 @@ impl Inventory {
     /// none is carried.
     pub fn condition_in_use(&self, item: FormId) -> Option<f32> {
         let s = self.items.get(&item)?;
-        let i = s.groups.iter().position(|g| g.0.equipped).or_else(|| Self::next_to_equip(s))?;
+        let i = s.groups.iter().position(|g| g.0.equipped).or_else(|| Self::next_to_equip(s, None))?;
         Some(s.groups[i].0.condition.unwrap_or(1.0))
     }
 
     /// Mark one unequipped unit of `item` as equipped (plain units first, broken ones
     /// last). Returns false when there is none.
     pub fn set_equipped(&mut self, item: FormId) -> bool {
+        self.set_equipped_at(item, None)
+    }
+
+    /// The same among the units `at` picks.
+    pub fn set_equipped_at(&mut self, item: FormId, at: Option<f32>) -> bool {
         let Some(s) = self.items.get_mut(&item) else { return false };
-        let Some(i) = Self::next_to_equip(s) else {
+        let Some(i) = Self::next_to_equip(s, at) else {
             return false;
         };
         let e = s.groups[i].0;
@@ -345,6 +379,25 @@ mod tests {
         assert_eq!(inv.condition_in_use(id), Some(0.4));
         assert!(!inv.has_sound(id));
         assert_eq!(inv.condition_in_use(FormId(0x11)), None);
+    }
+
+    #[test]
+    fn units_at_one_condition() {
+        let id = FormId(0x10);
+        let worn = Extra { condition: Some(0.95), ..Extra::default() };
+        let mut inv = Inventory::new();
+        inv.add(id, 5);
+        inv.add_extra(id, 1, worn);
+        inv.add_extra(id, 1, Extra { condition: Some(1.0), ..Extra::default() });
+        // Units without a condition count as whole.
+        assert_eq!(inv.take_at(id, 9, Some(1.0)).iter().map(|g| g.1).sum::<i32>(), 6);
+        inv.add(id, 2);
+        assert!(inv.set_equipped_at(id, Some(0.95)));
+        assert_eq!(inv.condition_in_use(id), Some(0.95));
+        assert!(!inv.has_sound_at(id, Some(0.95)));
+        assert_eq!(inv.take_at(id, 1, Some(0.5)), vec![]);
+        assert_eq!(inv.take_at(id, 3, Some(0.95)), vec![(Extra { equipped: true, ..worn }, 1)]);
+        assert_eq!(inv.count(id), 2);
     }
 
     #[test]

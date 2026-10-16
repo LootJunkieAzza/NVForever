@@ -877,11 +877,16 @@ impl Runtime {
                 }
                 let ctx = fnv_game::functions::Ctx { unit: "test aid".into(), opcode, on, self_ref: on, action_ref: None, quest: None, inst: None, in_condition: false };
                 let from = g.events.len();
-                g.call_function(&ctx, &values);
+                let value = g.call_function(&ctx, &values);
                 if let Some(EventKind::CallFailed { error, .. }) = g.events[from..].iter().map(|e| &e.kind).find(|k| matches!(k, EventKind::CallFailed { .. })) {
                     return Err(format!("{func}: {error}"));
                 }
-                info!("script: test aid calls {func}{}", on.map(|r| format!(" on {}", g.data.name(r))).unwrap_or_default());
+                // What it returned, for the smoke checks of what functions answer.
+                let value = match value {
+                    Value::Num(x) => format!("{x}"),
+                    Value::Ref(f) => format!("{f:08X}"),
+                };
+                info!("script: test aid calls {func}{} = {value}", on.map(|r| format!(" on {}", g.data.name(r))).unwrap_or_default());
             }
             ScriptAid::Damage(r, value, amount) => {
                 let r = resolve(g, r)?;

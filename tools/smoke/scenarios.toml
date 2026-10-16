@@ -200,14 +200,14 @@ expect = [
 
 [[scenario]]
 name = "graphics-enhanced"
-source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, its switches change while the game runs, and temporal anti-aliasing replaces the multisampling and back without a rendering error"
+source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, its switches change while the game runs, and temporal anti-aliasing (the Anti-aliasing choice) replaces the multisampling and back without a rendering error"
 areas = ["renderer", "graphics"]
 paths = [
   "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao*", "engine/nvforever/src/post*",
   "engine/nvforever/src/taa*", "engine/nvforever/src/shafts*",
   "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs",
 ]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16,19.5:20.5", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion,15:taa,15.5:light-shafts,20:taa", NVF_PLAY_TEST_LOOK = "17:90:0,17.5:120:0,18:150:0", NVF_PLAY_TEST_MOVE = "17:1:0,19:0:0" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16,19.5:20.5", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion,15:anti-aliasing=1,15.5:light-shafts,20:anti-aliasing=0.333", NVF_PLAY_TEST_LOOK = "17:90:0,17.5:120:0,18:150:0", NVF_PLAY_TEST_MOVE = "17:1:0,19:0:0" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--graphics", "enhanced"]
 run_seconds = 24
 order = [[
@@ -241,6 +241,40 @@ order = [[
   { re = 'draw distances: objects 100%, actors 30%, items 25%' },
 ]]
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the ranges change" }]
+
+[[scenario]]
+name = "graphics-settings"
+source = "docs/design/graphics-enhanced.md §3.6, §3.9, §3.10: the settings page's anti-aliasing choice (multisampling levels, FXAA, SMAA, TAA), shadow filtering, field of view, vertical sync and frame-rate limit change while the game runs, without a rendering error"
+areas = ["renderer", "graphics", "settings"]
+paths = [
+  "engine/nvforever/src/graphics.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/settings.rs",
+  "engine/nvforever/src/taa*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=0.667,12:anti-aliasing=0.833,13:anti-aliasing=1,14:anti-aliasing=0.5,15:shadow-filter=0,16:shadow-filter=1,17:shadow-filter=0.5,17.5:field-of-view=0.667,18:frame-cap=0.4,18.5:vsync,19:frame-cap=0,19.5:field-of-view=0.417" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 23
+order = [[
+  "settings: anti-aliasing FXAA",
+  { re = 'graphics: FXAA$' },
+  "settings: anti-aliasing SMAA",
+  { re = 'graphics: SMAA$' },
+  "settings: anti-aliasing TAA",
+  { re = 'graphics: temporal anti-aliasing$' },
+  "settings: anti-aliasing 8x",
+  "graphics: multisampling 8x",
+  "settings: shadow-filter Fast",
+  { re = 'graphics: hardware 2x2 shadow filtering$' },
+  "settings: shadow-filter Temporal",
+  { re = 'graphics: temporal shadow filtering$' },
+  "settings: shadow-filter Smooth",
+  "settings: field-of-view 90",
+  "settings: frame-cap 60",
+  "settings: vsync off",
+  "frame pace: vsync off",
+  "settings: frame-cap Off",
+  "settings: field-of-view 75",
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while anti-aliasing or the filters change" }]
 
 # ------------------------------------------------------------------ navmesh and AI
 
@@ -850,6 +884,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "head-look-seated"
+source = "owner report 2026-10-16: Doc Mitchell, seated in the opening, looked at the floor while saying \"Whoa, easy there\" to the player (docs/spec-notes/actors.md §12.3: the pitch limits are kept from the level, widened by the spine's lean)"
+note = "Doc sits hunched in his chair playing VCG01DocWhoaThere; speech_look forces his head onto the player's eyes for each line. The 'line over' line says how far the head ended from them: with the limits measured against the hunched spine it stayed well below"
+areas = ["head-look", "speech-look"]
+paths = ["crates/fnv-actor/src/head_look.rs", "engine/nvforever/src/head_look.rs", "engine/nvforever/src/speech_look.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'speech look: line 00104BEF over: DocMitchellREF has the player .*its head is [+-]?\d+° to the right of them and (?P<n>[+-]?\d+)° above', range = [-12, 12], label = "seated Doc Mitchell's head reaches the player's eyes up and down on \"Whoa, easy there\"" },
+  { re = 'speech look: line 00104BEF over: DocMitchellREF has the player .*its head is (?P<n>[+-]?\d+)° to the right of them', range = [-12, 12], label = "and to the side" },
+]
+
+[[scenario]]
 name = "weapon-fidgets"
 source = "docs/spec-notes/idles.md §11 (owner 2026-10-16): NPCs standing with a rifle out fidget from the IDLE tree (2hrLoiter, 2hrLoiterOnehanded, 2hrShiftWeight, 2haAlertScan), and so does the player standing still in third person"
 note = "every NPC's weapon is drawn unless its package hides it (--actor-weapons drawn); the Fiends' camp with the player about 4,000 units west of Violet (the Fiends with rifles out fidget until they spot the player; in combat the tree gives none; 2026-10-16: 16 NPC fidgets, 5 the player's); the player draws a varmint rifle (0007EA24) at 3 s and goes to third person at 4 s, then stands still"
@@ -928,6 +976,40 @@ expect = [
   { re = 'talk gesture: GSJoeCobbRef listens \(TrudyRef, line 0x00105218 .* by DialogueIdles > NPCtoNPC > NPCListening > ', label = "Joe Cobb listens to Trudy's answer" },
   { re = 'idle: TrudyRef plays LooseStandingArmsFolded .*\(Listener\)', label = "Trudy's line idles (LNAM, SNAM) play instead of gestures" },
   { re = 'talk gesture: TrudyRef ', count = 0, label = "no gesture for Trudy while her own line idles play" },
+name = "furniture-fidgets-tree"
+kind = "tool"
+source = "docs/spec-notes/furniture.md §8: the IDLE tree's fidgets on furniture, headless: a man on a chair relaxes (SitChairRelaxIdleA/B/C), a woman sits as women do (ChairFemaleSittingA), the player in third person has the player's relax idles and none in first person, a man in bed stirs (BedStirInSleepA/B/C), a bar stool gives none (the tree has only talk, food and gambling there)"
+areas = ["idles", "furniture"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/functions/furniture.rs", "crates/fnvtool/src/actor_fidgets.rs"]
+commands = [
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "EasyPeteRef", "--actor", "SunnyRef", "--actor", "player", "--furniture", "0010634A:14"],
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "EasyPeteRef", "--actor", "player", "--furniture", "00176ACE:1"],
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "EasyPeteRef", "--furniture", "00106194:15"],
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "player", "--furniture", "0010634A:14", "--first-person"],
+]
+expect = [
+  { json = "actors.?actor=EasyPeteRef.by_idle.SitChairRelaxIdleA", schema = "fnv.actor.fidgets/1", range = [300, 600], label = "a man on a chair: relaxing A (the first of three, 45%)" },
+  { json = "actors.?actor=EasyPeteRef.by_idle.SitChairRelaxIdleC", schema = "fnv.actor.fidgets/1", range = [100, 300], label = "a man on a chair: relaxing C (what A and B leave)" },
+  { json = "actors.?actor=SunnyRef.by_idle.ChairFemaleSittingA", schema = "fnv.actor.fidgets/1", equals = 1000, label = "a woman on a chair: the female sitting idle at every check" },
+  { json = "actors.*.by_idle.PlayerSitChairRelaxIdleB", schema = "fnv.actor.fidgets/1", range = [200, 500], count = 1, label = "the player on a chair in third person: the player's relax idles" },
+  { json = "actors.*.by_idle.BedStirInSleepB", schema = "fnv.actor.fidgets/1", range = [250, 550], count = 2, label = "a man and the player in bed: stirring" },
+  { json = "actors.*.fidgets", schema = "fnv.actor.fidgets/1", equals = 0, count = 2, label = "none on a bar stool, none for the player in first person" },
+]
+
+[[scenario]]
+name = "furniture-fidgets"
+source = "docs/spec-notes/furniture.md §8: an actor on furniture plays the IDLE tree's fidgets over the furniture's loop, and gets off as before; the player on furniture in third person too"
+note = "Easy Pete walks to his porch chair (0010634A) and stays 45 s; the player starts by the next chair (00106349), activates it at 3 s and goes to third person at 6 s (pressed together, the view change left nothing under the crosshair). 2026-10-16: Pete played SitChairRelaxIdle fidgets back to back on the chair"
+areas = ["idles", "furniture"]
+paths = ["crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/furniture.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NEAR = "00106349", NVF_PLAY_TEST_ACTIVATE = "3", NVF_PLAY_TEST_CONTROL = "6:view" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-sit", "EasyPeteRef=0010634A:45"]
+run_seconds = 90
+expect = [
+  "furniture summary: 1 of 1 actors sat down, 1 got up again",
+  { re = 'idle: .* plays SitChairRelaxIdle[ABC] .*\(FurnitureFidget\)', label = "Easy Pete fidgets on his chair" },
+  { re = 'furniture fidget summary: (?P<n>\d+) fidgets on furniture started on actors', range = [1, 100], label = "fidgets on furniture started on actors" },
+  { re = 'idle: the player plays PlayerSitChairRelaxIdle[ABC] .*FurnitureFidget', label = "the player on a chair in third person fidgets" },
 ]
 
 [[scenario]]
@@ -1073,7 +1155,7 @@ order = [[
   { re = 'levelup: done, level 3: skills Medicine \+\d+; perk none' },
 ]]
 expect = [
-  { text = "ui sounds: level up opened: UILevelUp", label = "the level's sound" },
+  { text = "ui sounds: level up opened: UILevelUpText", label = "the level-up screen's music" },
   { text = "ui sounds: level up value raised: UIMenuPrevNext", label = "a + clicked" },
   { text = "ui sounds: level up value lowered: UIMenuPrevNext", label = "a - clicked" },
   { text = "ui sounds: level up refused: UIMenuCancel", label = "Continue with points left" },
@@ -1086,6 +1168,43 @@ expect = [
   { text = "levelup: menu closed", label = "the level-up menu gives way to the attributes page" },
 ]
 manual = "the screenshots levelup_skills.png, levelup_perks.png, levelup_attributes.png, levelup_attributes_done.png and levelup_level3.png in the run's folder against the owner's (kept privately)"
+
+[[scenario]]
+name = "xp-meter"
+source = "the HUD's XP meter and levelling by experience (docs/spec-notes/experience.md §6): RewardXP at the console shows the meter, a second reward reaches level 2, LEVEL UP, then the level-up menu opens by itself"
+areas = ["levelup", "hud"]
+paths = ["engine/nvf-play/src/xp_meter.rs", "crates/fnv-game/src/experience.rs", "engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:rewardxp 54;14.3:close;22:rewardxp 150;22.3:close", NVF_PLAY_TEST_SHOTS = "15.5:xp_meter.png,23.4:xp_level_up.png,29:xp_levelup_menu.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 31
+order = [[
+  { re = 'xp: level cap \d+ \(\d story add-ons\)' },
+  "xp: +54 XP from a script",
+  "xp meter: +54 XP (54 in all): level 1, 27 % to 2",
+  "xp meter: +150 XP (204 in all): level 1, 100 % to 2, next level earned",
+  "xp meter: LEVEL UP (1 -> 2)",
+  { re = 'xp: level up taken: level 2 \(cap \d+\)' },
+  { re = 'levelup: menu open, level 2, \d+ skill points, perk due' },
+]]
+expect = [
+  { text = "xp meter: sound UIPopUpExperienceUp", label = "a sound for each gain", count = 2 },
+  { text = "xp meter: sound UILevelUp", label = "the level-up sting" },
+  { text = "ui sounds: level up opened: UILevelUpText", label = "the level-up screen's music" },
+]
+manual = "xp_meter.png against the owner's screenshot (2026-10-16): the bar at the middle right, 1 at its left, 2 at its right, the pointer about a quarter along, +54 XP under its right end; xp_level_up.png the pointer at the end and LEVEL UP; xp_levelup_menu.png the level-up menu"
+
+[[scenario]]
+name = "xp-perks"
+source = "experience from every source goes through one function and the perks' Adjust Experience Points entry point (docs/spec-notes/experience.md §2): Swift Learner rank 1 makes RewardXP 100 worth 110, and the meter shows 110"
+areas = ["levelup", "hud", "perks"]
+paths = ["crates/fnv-game/src/experience.rs", "crates/fnv-game/src/perks.rs", "crates/fnv-game/src/functions/player.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:addperk SwiftLearner;14.2:rewardxp 100;14.5:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+order = [[
+  "xp: +110 XP from a script (100 before SwiftLearner)",
+  "xp meter: +110 XP (110 in all): level 1, 55 % to 2",
+]]
 
 [[scenario]]
 name = "vigor-tester"
@@ -1427,6 +1546,7 @@ run_seconds = 48
 expect = [
   "hacking, Easy (Science 25): 20 words",
   "Exact match! access granted",
+  { text = "xp: +30 XP from a hacked terminal", label = "the Easy terminal's iXPRewardHackComputerEasy (experience.md §2)" },
   'menu of DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"',
   "result script",
   "terminal summary: 1 opened (0 refused), 1 hacking games (1 hacked, 0 locked out)",
@@ -1451,6 +1571,7 @@ order = [[
   "lockpick: help message closed",
   "lockpick: the bobby pin broke, 2 left",
   "lockpick: a new bobby pin is in",
+  "xp: +40 XP from a picked lock",
   "picked open (Average lock, 40 XP)",
   "lockpick: crime hook: 0x00105229",
   "lockpick: leaving (the game is over)",
@@ -1698,15 +1819,17 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # (144 calls, 132 condition uses) and moved the other four to "needs a system", so no
 # "E2 combat AI" row is left: 71 → 60 stubs, 457 → 313 calls, 614 → 482 condition uses.
 # claude/use-weapon implemented UseWeapon (13 calls, §3.8): 60 → 59 stubs, 313 → 300 calls.
+# The script function audit implemented GetAnimAction (44 calls, 1 condition use, §3.9):
+# 59 → 58 stubs, 300 → 256 calls, 482 → 481 condition uses.
 expect = [
-  { json = "summary.stubs", equals = 59 },
+  { json = "summary.stubs", equals = 58 },
   { json = "summary.by_status.assigned", equals = 1 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 57 },
+  { json = "summary.by_status.needs_system", equals = 56 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 300 },
-  { json = "summary.stub_condition_uses", equals = 482 },
+  { json = "summary.stub_calls", equals = 256 },
+  { json = "summary.stub_condition_uses", equals = 481 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
 
@@ -2096,6 +2219,22 @@ expect = [
   { re = 'npc stance summary: .*?(?P<n>\d+) blocks', range = [1, 100000], label = "blocks in the stance summary" },
 ]
 forbid = [{ re = 'npc combat: .* crouches ', label = "a fist fighter crouches" }]
+
+[[scenario]]
+name = "combat-melee-combo"
+source = "owner request 2026-10-16: melee enemies chain attacks into combos of different clips (docs/design/combat-ai.md §15)"
+note = "the combat-block fist fight (NCR troopers against the Fiends, --actor-weapons none): blows go on combos by the clips' a: keys, AttackLeft clips play after AttackRight ones"
+areas = ["combat", "combat-groups"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-combat/src/melee.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice", "--actor-weapons", "none"]
+run_seconds = 90
+expect = [
+  { re = 'npc combat: .* goes on its combo with Left \(blow 2\)', label = "a fighter goes on its combo from AttackRight to AttackLeft" },
+  { re = 'attack anims summary: .*? (?P<n>\d+) blows went on a combo', range = [3, 100000], label = "blows went on combos in the attack anims summary" },
+  { re = 'attack anims summary: .*h2hattackleft_[ab]\.kf', label = "an AttackLeft fist clip played" },
+  { re = 'npc combat summary: .*? went on a combo, the longest (?P<n>\d+)', range = [2, 100], label = "the longest combo in the npc combat summary" },
+]
 
 [[scenario]]
 name = "combat-bound"
@@ -2874,16 +3013,17 @@ expect = [
 
 [[scenario]]
 name = "radscorpion-poison"
-source = "owner's playtest 2026-10-16: radscorpion stings poison (the creature's unarmed attack effect, EITM RadScorpion1Poison / RadScorpion2Poison; health drained by the second; docs/spec-notes/hit-effects.md §1)"
+source = "owner's playtest 2026-10-16: radscorpion stings poison (the creature's unarmed attack effect, EITM RadScorpion1Poison / RadScorpion2Poison, EAMT AttackForwardPower: only its forward power attack, the sting, poisons; health drained by the second; docs/spec-notes/hit-effects.md §1)"
 note = "the player, health raised to 5000 by the console at 8 s (no god mode, so the poison lands), is put in front of the radscorpion VERGSRadscorpion5REF 00157B4D south of Goodsprings at 9 s, which is set on the player at 10 s"
 areas = ["combat", "effects"]
-paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/npc_combat.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 5000;8.5:close", NVF_PLAY_TEST_FACE = "9:00157B4D", NVF_PLAY_TEST_SCRIPT = "10:call:0x00157B4D:StartCombat:player" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 40
 expect = [
   { re = 'hit effect: RadScorpion\dPoison on the player by \S+: Poison -[\d.]+ Health/s for \d+ s', label = "a radscorpion's sting poisons the player" },
-  { re = 'hit effect: RadScorpion\dPoison names the attack AttackForwardPower', label = "its AttackForwardPower filter reported as not told apart" },
+  { re = 'npc combat: .* power attack AttackForwardPower at ', label = "the radscorpion stings (its forward power attack)" },
+  { re = 'attack anims: \S+ plays meshes\\creatures\\radscorpion\\h2hattackforwardpower\.kf', label = "the sting plays its own clip" },
 ]
 
 [[scenario]]
@@ -3079,6 +3219,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "settings-scroll"
+source = "owner 2026-10-16: the settings page's long categories scroll with the mouse wheel and show a scroll bar; the Controls tab's rows scrolled down three notches and back up one"
+areas = ["main-menu"]
+paths = ["engine/nvf-play/src/pause.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:controls", NVF_PLAY_TEST_PAUSE_MENU = "12:wheel-down,12.3:wheel-down,12.6:wheel-down,13.5:wheel-up,14:shot" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-68375,4800,8700"]
+run_seconds = 17
+order = [[
+  { re = 'pause menu: rows 2-10 of \d+ shown', label = "a notch of the wheel shows the next row" },
+  { re = 'pause menu: rows 3-11 of \d+ shown' },
+  { re = 'pause menu: rows 4-12 of \d+ shown' },
+  { re = 'pause menu: rows 3-11 of \d+ shown', label = "a notch up shows the row before again" },
+]]
+
+[[scenario]]
 name = "controller-write"
 source = "owner 2026-10-16: keyboard and mouse or a controller by a setting under Controls, the controller's defaults the game's (docs/design/controller.md); the first half of a round trip (controller-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
@@ -3206,3 +3361,27 @@ order = [[
   { re = 'alert: VSpawnTier\dCazador\S* \w+ Normal → (Alert|Combat)', label = "a cazador alerted" },
   { re = 'creature pace: VSpawnTier\dCazador\S* 0x\w+ takes its alert stance', label = "it takes its flying stance" },
 ]]
+
+[[scenario]]
+name = "function-audit"
+source = "docs/design/script-function-audit.md: script functions answered from what the engine tells the rules, against the original (captures fa_batch1_queries, fa_batch3_actions): Ringo's weapon type 4 once he is loaded (outfitted), his weapon out after SetAlert 1 and away after SetAlert 0, the player in run mode while standing, a closed safe 3 and an actor 0 for GetOpenState"
+areas = ["scripts"]
+paths = [
+  "crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/functions/refs.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-game/src/functions/misc.rs",
+  "crates/fnv-sim/src/world.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/alert.rs", "engine/nvforever/src/detection.rs", "engine/nvf-play/src/doors.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "6:call:RingoRef:GetWeaponAnimType,6.5:call:player:IsRunning,7:call:0x0010B2D4:GetOpenState,7.5:call:RingoRef:GetOpenState,8:call:RingoRef:IsWeaponOut,8.5:call:RingoRef:SetAlert:1,14:call:RingoRef:IsWeaponOut,14.5:call:RingoRef:GetAnimAction,15:call:RingoRef:SetAlert:0,21:call:RingoRef:IsWeaponOut" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10"]
+run_seconds = 24
+order = [[
+  "script: test aid calls GetWeaponAnimType on … = 4",
+  "script: test aid calls IsRunning on … = 1",
+  "script: test aid calls GetOpenState on … = 3",
+  "script: test aid calls GetOpenState on … = 0",
+  "script: test aid calls SetAlert on …",
+  "script: test aid calls IsWeaponOut on … = 1",
+  "script: test aid calls GetAnimAction on … = -1",
+  "script: test aid calls IsWeaponOut on … = 0",
+]]
+# Ringo starts this run with his weapon out (the alert state of a new game's start, not the
+# progressed save nvftest the original was read in), so his first IsWeaponOut is not checked.

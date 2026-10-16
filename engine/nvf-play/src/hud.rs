@@ -93,9 +93,18 @@ const DIVIDER: f32 = 207.0;
 /// starts on the right one.
 const LEFT_MARK: f32 = 320.0;
 const RIGHT_MARK: f32 = 70.0;
-/// The enemy bracket's long line's upper edge, and the inner edges of its two corner
-/// marks, between which its bar stands [observed: the texture].
-const ENEMY_LINE_Y: f32 = 19.0;
+/// The enemy bracket's long line, taken as `LINE_Y` is on the corner pieces (2 rows into
+/// the solid line, rows 21-23; `LINE_Y` is 2 into rows 64-66), and the inner edges of its
+/// two corner marks, between which its bar stands [observed: the texture]. At 19 (the glow
+/// above the line) the line stood 4 units under the corner pieces' and its ticks 7 pixels
+/// over it at 1080 lines, where the original's line is level with the corner pieces'
+/// upper solid line and its ticks stand on it [observed: `Target healthbar` screenshot;
+/// owner's playtest 2026-10-16].
+const ENEMY_LINE_Y: f32 = 23.0;
+/// The enemy bar's ticks stand right on its solid line (they end at row 21), not
+/// `METER_GAP` over it as the player's bars do [observed: `Target healthbar` screenshot;
+/// at `METER_GAP` a 3-pixel strip showed at 1080 lines, owner's playtest 2026-10-16].
+const ENEMY_METER_GAP: f32 = 2.0;
 const ENEMY_MARKS: (f32, f32) = (56.0, 307.0);
 
 // ---- set here; the files leave these to the game's code [hypothesis, §4] --------------
@@ -616,7 +625,7 @@ fn spawn_hud(commands: &mut Commands, art: &Art) {
                 }
             }
             let (from, to) = (bx + ENEMY_MARKS.0, bx + ENEMY_MARKS.1);
-            spawn_row(p, Bar::Enemy, from, by + ENEMY_LINE_Y - METER_GAP - TICK.y, to - from, ENEMY_PIPS, red);
+            spawn_row(p, Bar::Enemy, from, by + ENEMY_LINE_Y - ENEMY_METER_GAP - TICK.y, to - from, ENEMY_PIPS, red);
             p.spawn((EnemyName, at(0.0, 0.0, ENEMY.x, ENEMY.y)));
         });
         // The sneak word, top middle.

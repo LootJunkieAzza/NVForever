@@ -467,7 +467,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x122C, "ForceRadioStationUpdate", Impl(crate::radio::force_radio_station_update)),
         // Layer 6 systems added 2026-10-09 (function coverage round): recorded, no effect.
         (0x1128, "IsAnimPlaying", Impl(crate::anims::is_anim_playing)),
-        (0x10DB, "GetAnimAction", Stub("animation")),
+        (0x10DB, "GetAnimAction", Impl(misc::get_anim_action)),
         (0x1070, "IsIdlePlaying", Impl(crate::idles::is_idle_playing)),
         (0x1064, "PickIdle", Stub("animation")),
         (0x111D, "IsLeftUp", Stub("animation")),
