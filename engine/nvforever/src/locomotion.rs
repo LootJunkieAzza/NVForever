@@ -18,6 +18,10 @@ use std::sync::Arc;
 
 /// Stance prefix of the clips played (no weapon) [observed: actors.md §8.1].
 pub const STANCE: &str = "mt";
+/// … while sneaking: `sneakmtidle.kf`, `sneakmtforward.kf` … in the same folders
+/// [observed: the `_male\locomotion` file list; the player's sneak clips are named so too,
+/// `fnv_actor::player_clips`].
+pub const SNEAK_STANCE: &str = "sneakmt";
 
 /// One clip of a set: its tracks bound to the skeleton and what choosing needs to know
 /// about it.
@@ -92,10 +96,11 @@ impl ClipSet {
     /// The set for the skeleton at `skeleton` (archive path) and `body`: the moves found
     /// by `LocomotionSet::find` in the skeleton's folder, each loaded and bound to `skel`.
     /// Also returns a report line.
-    pub fn load(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body) -> (ClipSet, String) {
+    /// `stance` is the clips' prefix ([`STANCE`], [`SNEAK_STANCE`]).
+    pub fn load_stance(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, stance: &str) -> (ClipSet, String) {
         let s = fnv_vfs::normalize(skeleton);
         let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();
-        let found = LocomotionSet::find(&folder, body, STANCE, |p| ctx.models.data.vfs.exists(p));
+        let found = LocomotionSet::find(&folder, body, stance, |p| ctx.models.data.vfs.exists(p));
         let mut set = ClipSet::default();
         let mut report = Vec::new();
         for (m, path) in found.clips {
@@ -128,7 +133,7 @@ impl ClipSet {
             set.flinch[k] = ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)));
         }
         let missing: Vec<&str> = Move::ALL.iter().filter(|m| !set.clips.contains_key(m)).map(|m| m.group()).collect();
-        let line = format!("{folder} {body:?} {STANCE}: {} clips, missing {missing:?}: {}", set.clips.len(), report.join("; "));
+        let line = format!("{folder} {body:?} {stance}: {} clips, missing {missing:?}: {}", set.clips.len(), report.join("; "));
         (set, line)
     }
 }
@@ -144,11 +149,30 @@ pub struct Locomotion {
     pub turn: f32,
     /// Keep the pose (`--actor-pose-time`).
     pub hold: bool,
+    /// The standing set and the sneaking one (people whose folder has a sneaking idle);
+    /// `set` is one of them ([`Locomotion::set_sneaking`]).
+    pub stand: Arc<ClipSet>,
+    pub sneak: Option<Arc<ClipSet>>,
+    pub sneaking: bool,
 }
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { set, blend: Blend::new(Move::Idle, phase), velocity: [0.0; 2], turn: 0.0, hold: false }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, sneaking: false }
+    }
+
+    /// Crouch (`true`) or stand up: the set's clips change, and the move is chosen again
+    /// from the idle (a sneaking walk starts from the crouched idle) [design]. Without a
+    /// sneaking set the actor stays upright. Returns whether anything changed.
+    pub fn set_sneaking(&mut self, on: bool) -> bool {
+        if self.sneaking == on {
+            return false;
+        }
+        let Some(set) = (if on { self.sneak.clone() } else { Some(self.stand.clone()) }) else { return false };
+        self.sneaking = on;
+        self.set = set;
+        self.blend = Blend::new(Move::Idle, self.blend.cur.phase);
+        true
     }
 
     /// Choose the move for the current velocity and turn rate, and advance the blend.

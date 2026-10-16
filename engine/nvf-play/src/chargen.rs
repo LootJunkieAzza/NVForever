@@ -29,6 +29,7 @@ pub mod vigor;
 
 use crate::script::ScriptState;
 use crate::sim::SimState;
+use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::PlaySet;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::input::keyboard::{Key, KeyboardInput};
@@ -203,6 +204,7 @@ fn input(
     ok: Query<&Interaction, (Changed<Interaction>, With<OkButton>)>,
     script: Option<ResMut<ScriptState>>,
     sim: Option<ResMut<SimState>>,
+    mut sounds: MessageWriter<UiSound>,
 ) {
     use KeyCode::*;
     let typed: Vec<KeyboardInput> = typed.read().cloned().collect();
@@ -297,6 +299,10 @@ fn input(
             for (b, over) in hover_button {
                 let next = if over { Some(b) } else if m.hover == Some(b) { None } else { m.hover };
                 if next != m.hover {
+                    // The pointer coming onto Reset or Done (text_box.xml's sound).
+                    if next.is_some_and(|b| matches!(b, ListButton::Reset | ListButton::Done)) {
+                        sounds.write(UiSound { menu: list_menu(m.code), event: UiEvent::Focus });
+                    }
                     m.hover = next;
                     st.dirty = true;
                 }
@@ -305,16 +311,30 @@ fn input(
         None => {}
     }
     for (op, how) in ops {
-        apply(st, &mut script, &mut sim, op, how);
+        if let Some(event) = apply(st, &mut script, &mut sim, op, how) {
+            if let Some(OpenMenu::List(m)) = st.open.as_ref() {
+                sounds.write(UiSound { menu: list_menu(m.code), event });
+            }
+        }
         if st.answered {
             break;
         }
     }
 }
 
-/// Apply one change to the open menu.
-fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op: Op, how: &str) {
-    let Some(open) = st.open.as_mut() else { return };
+/// The tag-skill or the trait menu, for its sounds.
+fn list_menu(code: u16) -> UiMenu {
+    if code == menus::TAG_SKILLS {
+        UiMenu::TagSkills
+    } else {
+        UiMenu::Traits
+    }
+}
+
+/// Apply one change to the open menu; what a list menu's sound is for it (list 5 items
+/// 41, 42): the chosen row moved, a row taken or given back (or refused), Reset, Done.
+fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op: Op, how: &str) -> Option<UiEvent> {
+    let open = st.open.as_mut()?;
     let code = open.code();
     match open {
         OpenMenu::Name(m) => {
@@ -337,9 +357,11 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
                 _ => false,
             };
             st.dirty |= changed;
+            None
         }
         OpenMenu::List(m) => {
             let before = m.clone();
+            let mut event = None;
             match op {
                 Op::Step(by) => m.step(by),
                 Op::Select(i) => m.select(i),
@@ -347,6 +369,7 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
                 Op::Reset => {
                     m.reset();
                     info!("chargen: reset");
+                    event = Some(UiEvent::Reset);
                 }
                 Op::Toggle | Op::Pick(_) => {
                     if let Op::Pick(name) = &op {
@@ -355,12 +378,13 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
                             Some(i) => m.select(i),
                             None => {
                                 warn!("test aid: chargen: no row {name:?}");
-                                return;
+                                return None;
                             }
                         }
                     }
                     let i = m.selected;
                     let ok = m.toggle();
+                    event = Some(if ok { UiEvent::Picked } else { UiEvent::Refused });
                     with_game(script, sim, |g| {
                         let row = m.row_name(g, i).unwrap_or_default();
                         let chosen = m.chosen_names(g);
@@ -385,16 +409,23 @@ fn apply(st: &mut ChargenMenus, script: &mut ScriptState, sim: &mut SimState, op
                         let what = if code == menus::TAG_SKILLS { "tag skills" } else { "traits" };
                         info!("chargen: done, {what}: {}", list_or_none(&names));
                         st.answered = true;
+                        event = Some(UiEvent::Accepted);
                     }
                 }
                 Op::Done => {
                     if let lists::Sheet::Tags { now, .. } = &m.sheet {
                         info!("chargen: Done refused: {} of {} skills tagged", now.tagged.len(), now.count);
                     }
+                    event = Some(UiEvent::Refused);
                 }
                 _ => {}
             }
+            // The chosen row moved (keys, wheel, pointer).
+            if event.is_none() && m.selected != before.selected {
+                event = Some(UiEvent::Focus);
+            }
             st.dirty |= *m != before;
+            event
         }
     }
 }

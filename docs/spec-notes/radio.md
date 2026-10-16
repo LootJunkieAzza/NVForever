@@ -252,8 +252,8 @@ conditions are run on.
   as the sound effects are (`crate::sfx::Panned`, audio.md §14.5) [design].
 - Pause: the Esc menu and loading screens hold sounds and programmes, as for placed
   loops (audio.md §7).
-- Subtitles [design]: the talk line (no sound form) heard loudest at a quarter of full
-  level or more is subtitled, the station's name as the speaker (`subtitle:` lines).
+- No subtitles: a station's talk lines are heard and never subtitled (owner, list 5
+  item 27; until then the loudest talk line was subtitled [design]).
 - Log: `radio: <station> says <topic> <info>: <file> <seconds> s`, `radio: <receiver>
   tuned to <station> playing <file> [from <s> s]`, `radio: <receiver> (<station>)
   switched on|off`, `radio: <receiver> (<station>) is destroyed: silent`,
@@ -326,7 +326,7 @@ No texts are printed.
   at Goodsprings with Radio New Vegas and the NCR Emergency Radio enabled and its quest
   started, the Pip-Boy steps through Mojave Music Radio, a DLC station and back, then
   is tuned to the NCR Emergency Radio: its quest's StartRadioConversation every ten
-  seconds, a 12 s line (subtitled), one call not taken, static between conversations
+  seconds, a 12 s line (subtitled then; no longer, list 5 item 27), one call not taken, static between conversations
   [observed 2026-10-11]. With the ten masters loaded, the DLC stations their scripts
   enable are listed too. Near the edge of Black Mountain Radio's range
   (`--pos=-47300,5300,9000`) its song played at 0.51 of its level under static at 0.49

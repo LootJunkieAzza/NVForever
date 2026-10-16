@@ -5,9 +5,9 @@
 //!   ([`pick`]: the collision ray, else references' render bounds), then E activates it
 //!   through `fnv_sim::World::activate` and its outcome becomes messages
 //!   ([`outcome`]): `RefChanged`, `TravelRequest` (travel behind a loading screen,
-//!   `crate::loading`), `OpenContainer` or an on-screen line.
-//! - `PlaySet::Ui`: the message line (hidden in menus). The crosshair and the prompt
-//!   under it are drawn by `crate::reticle` from [`Target`].
+//!   `crate::loading`), `OpenContainer` or a placeholder line ([`HudMessage`]: logged,
+//!   not drawn). The crosshair and the prompt under it are drawn by `crate::reticle`
+//!   from [`Target`].
 //! - A locked door or container without its key goes to the lockpicking menu
 //!   (`crate::lockpick`), which opens or says why not.
 //! - While a script has the player's controls off (`control::ControlLocks`,
@@ -42,20 +42,15 @@ use outcome::{Action, Effect};
 use pick::{Pick, RayHit, Source, REACH};
 use std::collections::HashMap;
 
-/// Seconds a message stays fully visible, then seconds it takes to fade.
-const MESSAGE_HOLD: f32 = 2.0;
-const MESSAGE_FADE: f32 = 0.5;
-
 pub struct ActivatePlugin;
 
 impl Plugin for ActivatePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Target>()
             .init_resource::<HudMessage>()
+            .init_resource::<ActivateNext>()
             .insert_resource(AutoActivate::from_env())
-            .add_systems(Startup, spawn_hud)
             .add_systems(Update, (find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
-            .add_systems(Update, update_hud.in_set(PlaySet::Ui))
             .add_systems(Update, sync_visuals.in_set(PlaySet::Sync));
     }
 }
@@ -76,26 +71,33 @@ pub struct Targeted {
     pub crime: bool,
 }
 
-/// The last on-screen message and how long it has been shown.
+/// A reference to activate as the player would, as soon as play resumes, whatever is
+/// under the crosshair: a lock just picked or forced (`crate::lockpick`; playtest list 5
+/// item 64).
+#[derive(Resource, Default, Debug)]
+pub struct ActivateNext(pub Option<u32>);
+
+/// The last placeholder line: what the engine has no message of the game's for (an
+/// item picked up, a door opened, a kill, a key that does nothing yet). It is logged
+/// and kept here for the tests, never drawn: the owner wants no such white text on
+/// screen (list 5, items 43 and 50). A line the game itself shows goes to the corner
+/// messages (`crate::corner_messages::CornerMessages`).
 #[derive(Resource, Default)]
 pub struct HudMessage {
     text: String,
-    age: f32,
 }
 
 impl HudMessage {
-    /// Show a line on screen (replacing the last one).
+    /// Note a placeholder line (replacing the last one); it is logged, not drawn.
     pub fn show(&mut self, text: String) {
+        debug!("placeholder line, not drawn: {text}");
         self.text = text;
-        self.age = 0.0;
+    }
+
+    pub fn text(&self) -> &str {
+        &self.text
     }
 }
-
-#[derive(Component)]
-struct Hud;
-
-#[derive(Component)]
-struct MessageText;
 
 // ---- targeting -------------------------------------------------------------------
 
@@ -326,7 +328,7 @@ fn activate(
     time: Option<Res<Time>>,
     clock: Option<Res<crate::pause::PlayClock>>,
     auto: Option<ResMut<AutoActivate>>,
-    target: Res<Target>,
+    (target, next): (Res<Target>, Option<ResMut<ActivateNext>>),
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
     mut hud: ResMut<HudMessage>,
@@ -344,12 +346,18 @@ fn activate(
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
 ) {
+    // A reference queued by a lock just opened: activated as if E were pressed on it.
+    let queued = next.and_then(|mut n| n.0.take()).and_then(|id| {
+        let (name, action) = describe(&sim, play.index, id)?;
+        info!("activate 0x{id:08X} {name}: its lock was just opened");
+        Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false })
+    });
     let fired = match (auto, time) {
         // The aids' clock goes on while a menu holds the picture (`crate::pause`).
         (Some(mut a), Some(t)) => a.fire(t.elapsed_secs() + clock.map_or(0.0, |c| c.stopped_secs())),
         _ => false,
     };
-    if !input.just_pressed(crate::bindings::Control::Activate) && !fired {
+    if !input.just_pressed(crate::bindings::Control::Activate) && !fired && queued.is_none() {
         return;
     }
     // Scripts turned the player's movement off: world objects cannot be activated
@@ -361,7 +369,7 @@ fn activate(
         }
         return;
     }
-    let Some(t) = target.0.as_ref() else {
+    let Some(t) = queued.as_ref().or(target.0.as_ref()) else {
         // On furniture with nothing under the crosshair (lying on a bed, the bed is out
         // of view): Activate gets up [design].
         seat.leave |= seat.hold.is_some();
@@ -450,51 +458,6 @@ fn activate(
                 hud.show(m);
             }
         }
-    }
-}
-
-// ---- HUD -------------------------------------------------------------------------
-
-fn spawn_hud(mut commands: Commands) {
-    let line = |below: f32| Node {
-        position_type: PositionType::Absolute,
-        top: Val::Percent(50.0),
-        margin: UiRect::top(Val::Px(below)),
-        width: Val::Percent(100.0),
-        justify_content: JustifyContent::Center,
-        ..default()
-    };
-    let font = |size: f32| (TextFont { font_size: FontSize::Px(size), ..default() }, TextLayout::justify(Justify::Center));
-    commands
-        .spawn((
-            Hud,
-            Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
-            Visibility::Inherited,
-        ))
-        .with_children(|hud| {
-            // The crosshair and the prompt under it are `crate::reticle`'s.
-            hud.spawn(line(72.0)).with_child((Text::new(""), font(15.0), TextColor(Color::NONE), MessageText));
-        });
-}
-
-fn update_hud(
-    state: Res<State<PlayState>>,
-    time: Res<Time>,
-    mut msg: ResMut<HudMessage>,
-    mut hud: Query<&mut Visibility, With<Hud>>,
-    mut message: Query<(&mut Text, &mut TextColor), With<MessageText>>,
-) {
-    let playing = *state.get() == PlayState::Playing;
-    for mut v in &mut hud {
-        v.set_if_neq(if playing { Visibility::Inherited } else { Visibility::Hidden });
-    }
-    msg.age += time.delta_secs();
-    let alpha = if msg.text.is_empty() { 0.0 } else { (1.0 - (msg.age - MESSAGE_HOLD) / MESSAGE_FADE).clamp(0.0, 1.0) };
-    for (mut t, mut c) in &mut message {
-        if t.0 != msg.text {
-            t.0.clone_from(&msg.text);
-        }
-        c.set_if_neq(TextColor(Color::srgba(1.0, 1.0, 1.0, alpha)));
     }
 }
 

@@ -534,9 +534,9 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 30
 expect = [
-  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "machine-dependent (laptop, main baf3806 2026-10-16, 3 of 3 runs: 13-14 blows; desktop 3 of 3 passes, 16 at 54 frames/s): the dogs attack at the combat style's 55 % each time they may and hold otherwise (combat-ai.md §10.4), so the count follows how long they fight in game time, which a slower start-up and long frames (game time is capped at 0.25 s a frame) shorten [hypothesis: the laptop's frame rate was not measured]" },
   { re = 'attack anims summary.*h2hattack' },
-  { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines" },
+  { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines", known_failing = "machine-dependent (laptop, main baf3806 2026-10-16, 2 of 3 runs over 8; desktop 4 lines): the dogs close in again each time the player gets out of reach, which depends on the frame timing as the blow count above [hypothesis]" },
 ]
 
 [[scenario]]
@@ -733,7 +733,7 @@ expect = [
   { re = 'the Pip-Boy tuned to vCountryRadio playing sound\\songs\\radionv\\.*mp3' },
   "vNCREmergencyRadioTA starts a conversation (StartRadioConversation)",
   { re = 'the Pip-Boy tuned to vNCREmergencyRadioTA playing sound\\voice\\' },
-  "subtitle: NCR Emergency Radio: ",
+  { text = "subtitle: NCR Emergency Radio: ", count = 0, label = "no subtitle for the station's talk (owner, list 5 item 27; before: one was expected)" },
   "ends its conversation: silent",
   "ui_radio_static_lp.wav (loop",
   "pipboy radio summary: off at exit",
@@ -773,7 +773,7 @@ expect = [
 name = "idles-opening"
 source = "CLAUDE.md: after idle animation changes (docs/spec-notes/idles.md §7), the opening"
 areas = ["idles"]
-paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-actor/src/idle*.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/player_body.rs"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-actor/src/idle*.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/furniture.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
 args = ["--play", "--new-game", "--no-voice"]
 run_seconds = 90
@@ -781,6 +781,8 @@ expect = [
   "VCG01 stage 55 set",
   "idle summary: 10 idles asked for (1 by scripts, 4 by packages' begin, end and change, 1 from collections, 4 by dialogue lines); 5 started on actors, 5 on the player; 0 for actors not drawn, 0 without a usable clip",
   { re = 'furniture:.*by clip SpecialIdle_DocSitLeftExit', label = "Doc Mitchell getting off his chair by clip SpecialIdle_DocSitLeftExit" },
+  # playtest list 5 item 40: that clip's Bip01 starts 52 units beside the seat; it is played from the seat.
+  { re = 'furniture: 00104C0F: SpecialIdle_DocSitLeftExit starts (?P<n>\d+) units from where the body sits: played from the seat', range = [40, 100], label = "Doc Mitchell's exit played from his seat" },
 ]
 
 # ------------------------------------------------------------------ messages and menus
@@ -852,6 +854,14 @@ order = [[
   "Wild Wasteland refused",
   "done, traits: Early Bird, Four Eyes",
 ]]
+expect = [
+  { text = "ui sounds: tag skills row or button picked: UIMenuPrevNext", label = "a skill tagged or untagged (list 5 item 41)" },
+  { text = "ui sounds: tag skills refused: UIMenuCancel", label = "Done or a fourth tag refused" },
+  { text = "ui sounds: tag skills accepted: UIMenuOK", label = "Done" },
+  { text = "ui sounds: traits row or button picked: UIMenuPrevNext", label = "a trait taken (list 5 item 42)" },
+  { text = "ui sounds: traits refused: UIMenuCancel", label = "a third trait refused" },
+  { text = "ui sounds: traits accepted: UIMenuOK", label = "Done" },
+]
 manual = "with the owner's load order (Old World Blues in it) the trait menu has 16 rows"
 
 [[scenario]]
@@ -868,6 +878,25 @@ expect = [
   "Endurance 6, 0 points remaining",
   "done, S.P.E.C.I.A.L. 7 5 6 5 5 5 7 (click)",
   "vigor tester summary: opened 1 times, 5 changes, 8 page turns, 2 clicks on its buttons, done 1 times",
+]
+
+[[scenario]]
+name = "vigor-sounds"
+source = "playtest list 5 item 39 (2026-10-16): the Vigor Tester's sounds between pages and raising and lowering an attribute (docs/spec-notes/vigor-tester.md §6)"
+note = "vigor-tester's steps with Luck lowered once and raised once more, so that every sound is heard; not shared with it (a launch of its own, as vigor-tester)"
+areas = ["chargen", "vigor", "menus", "ui-sounds"]
+paths = ["engine/nvf-play/src/chargen/vigor*", "engine/nvf-play/src/ui_sounds.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1074", NVF_PLAY_TEST_VIGOR = "2:click:LookInside_Btn:0,4.5:raise,4.6:raise,4.7:done,5.5:page:review,8:select:luck,8.1:raise,8.15:lower,8.2:raise:L,8.3:raise:endurance,8.4:raise:L,8.5:click:P1_RT_Btn:0" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 20
+expect = [
+  "ui sounds: vigor tester category changed: OBJBookSpecialPageTurn",
+  "ui sounds: vigor tester value raised: OBJBookSpecialNumber",
+  "ui sounds: vigor tester value lowered: OBJBookSpecialNumberDown",
+  "ui sounds: vigor tester refused: UIMenuCancel",
+  "ui sounds: vigor tester accepted: OBJBookSpecialNumberFinished",
+  "done, S.P.E.C.I.A.L. 7 5 6 5 5 5 7 (click)",
+  { re = 'ui sounds summary:.*\b0 sounds not found' },
 ]
 
 [[scenario]]
@@ -998,8 +1027,9 @@ expect = [
   "001730E9 (0x00004323) picked up, sound ITMPistolUp",
   { text = "dropped, sound UIItemsClothingDown", known_failing = "main 2026-10-12, alone and shared: the inventory test aid drops the BB Gun picked up at 11 s (FF000000 (0x00004323) dropped, sound ITMPistolDown)" },
   { re = 'world sounds summary:.*2 pick-ups, 1 drops; 5 items taken from and 1 put in containers; containers opened 1 and closed 1 times', known_failing = "main 2026-10-15 (bisected: 39bd3a3 rolls 5, d6ea476 = #264 creature-data rolls 3): the refrigerator 0x00105658 is VLootFridgeClosed01Tier1Wasteland, five leveled-list entries that may each come up empty, rolled from the world's one seeded random stream when first read. Since #264 actors with an Inventory template roll their template's items (World::set_inventory_sources), so the draws before the fridge changed and it now holds 3 items (Absinthe, Mole Rat Meat, Pinyon Nuts; before: also Beer and Purified Water x2) and Take All takes 3. A different roll, not lost items; the counts that do not depend on the roll are checked on the next line" },
-  { re = 'world sounds summary:.*2 pick-ups, 1 drops; \d+ items taken from and 1 put in containers; containers opened 1 and closed 1 times', label = "the summary's pick-ups, drops, items put in and containers opened and closed (items taken depend on the fridge's roll)" },
+  { re = 'world sounds summary:.*2 pick-ups, 1 drops; \d+ items taken from and 1 put in containers; containers opened 2 and closed 2 times', label = "the summary's pick-ups, drops, items put in and containers opened and closed (items taken depend on the fridge's roll; opened and closed twice since Take All closes the menu, list 5 item 60: before, once)" },
   { re = 'Took everything \((?P<n>\d+) items\)', range = [1, 1e9], label = "Take All took one or more items from the fridge" },
+  "test aid: Take All closed the menu; open container 0x00105658 again",
 ]
 
 [[scenario]]
@@ -1015,6 +1045,7 @@ expect = [
   "barter opened: UIMenuMode",
   "container take all: UIItemTakeAll",
   "inventory item used: NPCHumanUsingStimpak",
+  { text = "dialogue menu: TAB) Goodbye shown at the left of the choices", label = "the Goodbye hint while Chet offers a Goodbye choice (list 5 item 62)" },
   { text = "wait slider moved: UIMenuPrevNext", known_failing = "main 2026-10-15 (since crime in play, #242, 2026-10-12): the menu aid's Take All from Chet's cash register at 44 s is a theft Chet sees, so he turns on the player and the wait menu at 61 s is refused (You cannot wait when enemies are nearby.), as it should be; the slider is never moved. The slider sound is checked in wait-residents instead" },
   "settings switch flipped: UIMenuPrevNext",
   { re = 'ui sounds summary:.*\b24 played', known_failing = "claude/smoke-regressions 2026-10-12: 23 played with every step done (the start-up boxes no longer swallow the menu aid's inventory pass); one UIPipBoyScroll short of the 24 of 2026-10-11: since the Pip-Boy ITEMS page (#213) the menu aid's inventory pass lists the Weapons tab, whose first row is the weapon it puts on and is already selected, so no selection move is heard (before: the Vault 13 jumpsuit, further down one list). Not a sound the engine loses. Main 2026-10-15: 20 played, the refused wait menu's three (UIMenuMode, UIMenuPrevNext, UIMenuOK, all heard in wait-residents) on top; see the wait slider line" },
@@ -1028,10 +1059,15 @@ source = "CLAUDE.md: after changes to creatures' sounds, jump and landing, wadin
 areas = ["creature-sounds", "audio"]
 paths = ["crates/fnv-actor/src/anim_sounds.rs", "engine/nvforever/src/anim_sounds.rs", "engine/nvforever/src/shot_fx.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/ambient.rs", "engine/nvf-play/src/world_sounds.rs"]
 env = { NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "11:jump,14:weapon,16:aimactor,16.2:fire,16.4:fire,17:aimactor,17.2:fire,17.4:fire,18:aimactor,18.2:fire,18.4:fire,19:aimactor,19.2:fire,19.4:fire,20:aimactor,20.2:fire,20.4:fire,21:aimactor,21.2:fire,21.4:fire" }
-args = ["--cell", "Goodsprings", "--play", "--no-voice", "--pos=-69850,5700,8650"]
+note = "--no-messages added 2026-10-16 (claude/l5-combat-fixback-2): the jump at 11 s fell while one of the add-on packs' start-up message boxes was open (16.32 to 16.60 s of wall time, the press at 16.49), so it was ignored and the player jumped 0 times; with it the boxes close on the frame they open, as in ui-sounds and house-items. Expectations unchanged"
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650"]
 run_seconds = 40
 expect = [
-  { re = 'anim sounds summary:.*creatures: \d+ sounds \(Left Back Foot \d+' },
+  # Left Back Foot anywhere in the creatures' list (fixed 2026-10-16, claude/l5-combat-fixback-2):
+  # the check wanted it first, but the list keeps no fixed order: when the young bighorner bites
+  # back once its attack clip's Auxiliary 2 key can sort first. A wrong check fixed, not
+  # loosened: the footstep sound is still required.
+  { re = 'anim sounds summary:.*creatures: \d+ sounds \([^)]*\bLeft Back Foot \d+', label = "creature footsteps (Left Back Foot) among the creatures' sounds" },
   # 3 or 4 since playtest list 5 item 16 (claude/l5-combat-fixback, 2026-10-16): the hits
   # land on the body part capsules, and a shot that meets the turning bighorner's head
   # does double damage, so it can die on the fourth hit (3 hit sounds and the death), as
@@ -1171,6 +1207,9 @@ expect = [
   'menu of DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"',
   "result script",
   "terminal summary: 1 opened (0 refused), 1 hacking games (1 hacked, 0 locked out)",
+  { text = "ui sounds: terminal row or button picked: UIHackingCharEnter", label = "a word or row entered (list 5 item 47)" },
+  { text = "ui sounds: terminal refused: UIHackingPassBad", label = "a wrong word" },
+  { text = "ui sounds: terminal access granted: UIHackingPassGood", label = "the password" },
 ]
 
 [[scenario]]
@@ -1197,6 +1236,7 @@ order = [[
 ]]
 expect = [
   "ui sounds: lockpick refused: DRSLocked",
+  { text = 'corner message: "You need a Lockpick skill of 50 to pick this lock."', label = "the refusal as a top-left corner message (list 5 item 45)" },
   "ui sounds: lockpick pin broke: UILockpickingPickBreak",
   "ui sounds: lockpick lock opened: UILockpickingUnlock",
   { re = 'lockpick view: the lock drawn .*the pin moved Vec3\(-?[0-9.]+, 0\.0, -?[0-9.]+\) onto its axis', label = "the pin's keyhole end on the cylinder's axis (item 63)" },
@@ -1229,6 +1269,48 @@ expect = [
   { text = "lockpick: help message 0x0000017C", count = 1 },
   "ui sounds: lockpick lock broken by forcing: UILockpickingForceFail",
   "lockpick summary: 3 asked, 2 opened (1 refused); 0 picked, 0 forced, 1 broken by forcing; 1 torque tries, 0 pins broken, 0 times out of pins; 1 left before the end",
+]
+
+[[scenario]]
+name = "lockpick-opens-container"
+source = "playtest list 5 items 64 and 65 (docs/spec-notes/lockpicking.md §4): Ringo's floor safe in GSGasStation picked open; when the menu closes the safe is activated as if E were pressed, its Open sequence plays and the container menu follows; no E pressed after the pick"
+areas = ["lockpick", "containers"]
+paths = ["engine/nvf-play/src/lockpick.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/container_anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0010B2D4", NVF_PLAY_TEST_GIVE = "0000000A:2", NVF_PLAY_TEST_ACTIVATE = "12", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:help,15:spot,15.5:torque:2" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  "lockpick: open 0x0010B2D4 Floor Safe: Easy lock (Lockpick 30, 2 bobby pins)",
+  "picked open (Easy lock",
+  "lockpick: closed (the game is over)",
+  "activate 0x0010B2D4 Floor Safe: its lock was just opened",
+  "door 0x0010B2D4 opening",
+  "container 0x0010B2D4 plays Open before its menu",
+  "menu: open Container(0x0010B2D4)",
+]]
+expect = [
+  { text = "activate 0x0010B2D4 Floor Safe: its lock was just opened", count = 1 },
+]
+
+[[scenario]]
+name = "animated-containers"
+source = "playtest list 5 item 65 (engine/nvf-play/src/container_anim.rs): a school locker (Locker01School, locker01.nif with Open/Close sequences and DRSLocker01Open/Close sound keys, no SNAM/QNAM) opened by the menu test aid: Open plays before the menu, Close when it closes, both sound keys heard"
+areas = ["containers", "menus"]
+paths = ["engine/nvf-play/src/container_anim.rs", "engine/nvf-play/src/doors.rs", "engine/nvforever/src/doors.rs", "engine/nvforever/src/world.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MENU = "0010AC56", NVF_PLAY_TEST_DELAY = "12" }
+args = ["--cell", "GSSchoolHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+order = [[
+  "door 0x0010AC56 opening",
+  "container 0x0010AC56 plays Open before its menu",
+  "menu: open Container(0x0010AC56)",
+  "menu: close",
+  "door 0x0010AC56 closing",
+  "container 0x0010AC56 closes (menu closed)",
+]]
+expect = [
+  { gap = ["container 0x0010AC56 plays Open before its menu", "menu: open Container(0x0010AC56)"], range = [0.2, 1.0], label = "the menu opens after the 0.3 s Open sequence" },
+  { re = 'anim sounds summary:.*\b(?P<n>\d+) door sounds', range = [2, 1e9], label = "the locker's open and close sound keys played" },
 ]
 
 # ------------------------------------------------------------------ converted 2026-10-12 (prose added on main by PR #226)
@@ -1381,19 +1463,20 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # GetAlarmed, GetMajorCrimeCount: 100 calls, 32 condition uses) and the unregistered GetIsAlignment.
 # claude/script-stubs-2 implemented seven (34 calls, 9 condition uses), moved PushActorAway and
 # SetForceSneak to "needs a system", and registered AddItemToLeveledList, IsDLCInstalled and
+# claude/l5-npc-ai implemented SetForceSneak (3 calls): 77 stubs and 920 calls before it.
 # GetXPForNextLevel (§3.2). Then four more (§3.3, §3.4): the followers' OpenTeammateContainer
 # (26 calls, the last stub assigned to H, so no "H followers" row is left), Autosave (74 calls),
 # the crafting ShowRecipeMenu (15 calls, PR #292) and claude/l5-render-fx's SwapTexture (383
 # calls): 81 → 77 stubs, 1,418 → 920 calls, condition uses unchanged.
 expect = [
-  { json = "summary.stubs", equals = 77 },
+  { json = "summary.stubs", equals = 76 },
   { json = "summary.by_status.assigned", equals = 16 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 60 },
+  { json = "summary.by_status.needs_system", equals = 59 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.E2 combat AI", equals = 15 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 920 },
+  { json = "summary.stub_calls", equals = 917 },
   { json = "summary.stub_condition_uses", equals = 614 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -1904,6 +1987,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "wait-enemies-near"
+source = "playtest list 5 item 44 (2026-10-16): the Wait menu refused with a hostile actor near shows its line as a top-left corner message (docs/spec-notes/corner-messages.md §5, wait-menu.md)"
+note = "the Very Aggressive geckos 0x00157B3D and 0x00157B3E at creature-names' spot; god mode so that they do not kill the player before the Wait key at 10 s; 30 s because the start-up tutorial corner message (\"To enter VATS, V.\", 15 s) is shown first and the refusal waits behind it"
+areas = ["wait", "corner-messages", "hud"]
+paths = ["engine/nvf-play/src/wait.rs", "engine/nvf-play/src/wait/**", "engine/nvf-play/src/corner_messages.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:00157B3D", NVF_PLAY_TEST_WAIT = "10:open" }
+args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 30
+order = [[
+  { re = 'wait menu: refused \(wait\): .* is hostile and within', label = "the wait refused: a hostile actor near" },
+  { text = 'corner message: "You cannot wait when enemies are nearby."', label = "the refusal as a top-left corner message (list 5 item 44)" },
+]]
+
+[[scenario]]
 name = "creature-names"
 source = "playtest list 4 items 19-20 (docs/spec-notes/factions.md §7, engine/nvf-play/src/activate.rs): an actor placed from a nameless template actor is named by the actor its template leads to; a hostile creature shows only its name, a dead one Search"
 note = "VERGSGecko2REF 0x00157B3D (base VSpawnTier2GeckoMed, no FULL; template list VEncTier2GeckoMed -> VCrTier2GeckoMed 'Gecko'), Very Aggressive (as its neighbour 0x00157B3E): name only while alive; both killed by the script aid at 16 s; the menu test aid opens the dead one's inventory at 24 s"
@@ -2213,4 +2310,45 @@ expect = [
   { re = 'clutter pose: 0x00153171 \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
   { re = 'clutter pose: 0x001531F5 \S*skeletonmale50scasual\.nif drawn in its stored pose' },
   { re = 'clutter pose: 0x0017B38F \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
+# ------------------------------------------------------------------ playtest list 5, NPC AI (claude/l5-npc-ai)
+
+[[scenario]]
+name = "npc-door-fade"
+source = "playtest list 5 item 3 (engine/nvforever/src/door_fade.rs, nvf-play world_sounds DoorPassed): an NPC going through a load door fades out at it and in at the other side, and the doors' open sounds play where the listener is"
+note = "the ringo-comes-out run: Ringo comes out of the gas station door into the drawn exterior where the player stands"
+areas = ["ai", "doors"]
+paths = ["engine/nvforever/src/door_fade.rs", "engine/nvforever/src/residents.rs", "engine/nvf-play/src/world_sounds.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "4:0010903F", NVF_PLAY_TEST_ACTIVATE = "5", NVF_PLAY_TEST_SCRIPT = "15:info:0x00105D09", NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10", "--npc-packages", "all,RingoRef"]
+run_seconds = 60
+expect = [
+  { re = 'world sounds: an actor passed load door \w+, sound ', label = "a load door's open sound for an NPC passing it" },
+  { re = 'door fade summary: \d+ actors faded out at a door, (?P<n>\d+) faded in', range = [1, 1000], label = "an NPC faded in at the other side of a door" },
+]
+
+[[scenario]]
+name = "npc-sneak-sunny"
+source = "playtest list 5 items 34-37 (engine/nvforever/src/sneaking.rs, alert.rs; fnv_game::Game::sneaks): Sunny's VCG02 packages: Weapon Drawn on the run to the wells, Always Sneak on the walk to the geckos"
+note = "the sunny-wells run (Sunny takes the player to the wells), then at 115 s VCG02's two geckos go for the player (StartCombat, as when the player opens fire), who stands by Sunny; she and Cheyenne join in as the geckos come up (the geckos, Very Aggressive, would attack them too)"
+areas = ["ai", "sneaking"]
+paths = ["engine/nvforever/src/sneaking.rs", "engine/nvforever/src/alert.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-game/src/provocation.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor,1@VCG02=10:stage:VCG02:25,3@VCG02=10:activate:0x0010618E,115:call:0x0010A1FE:StartCombat:player,115:call:0x0010A1FD:StartCombat:player", NVF_PLAY_TEST_TALK = "0:*=VFreeformGoodspringsGSSunnySmilesTopic019", NVF_PLAY_TEST_GOTO = "90:-67150:-9100:7650", NVF_PLAY_TEST_GOD = "1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "10"]
+run_seconds = 180
+expect = [
+  { re = 'alert: (SunnyRef|GSSunnySmiles) \S+ draws its weapon \(its package.s flags\)', label = "Sunny draws her weapon for VCG02SunnyTravelToWell1 (Weapon Drawn)" },
+  { re = 'sneaking: (SunnyRef|GSSunnySmiles) \S+ crouches and sneaks', label = "Sunny sneaks on VCG02SunnySneakCloserToWell (Always Sneak)" },
+  { re = 'npc combat: SunnyRef \S+ fights VCG02Gecko', label = "Sunny fights the geckos that went for the player" },
+]
+
+[[scenario]]
+name = "ranger-ghost-post"
+source = "playtest list 5 item 29: Ranger Ghost (vMORangerGhostREF, no packages) stays on her sandbagged post on top of the Mojave Outpost building, 300 units above the ground by the chain-link fence"
+areas = ["ai"]
+paths = ["crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1" }
+args = ["--play", "--pos=-82300,-101700,11100", "--heading", "180", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "all,vMORangerGhostREF"]
+run_seconds = 45
+expect = [
+  { re = 'ai summary at .*vMORangerGhostREF: no package, \S+ in \S+, walked (?P<n>\d+) units', range = [0, 50], label = "Ghost stays at her post (walked under 50 units)" },
 ]

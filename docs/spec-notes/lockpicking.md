@@ -194,8 +194,12 @@ stands where the screenshot has them.
   [hypothesis].
 - When the lock turns all the way (or is forced open) it is unlocked for good
   (`World::unlock`; as with a key, [hypothesis] for a picked lock) and the menu starts to
-  leave 1.5 s later [design]. The door or container is not opened: the player activates
-  it again [hypothesis].
+  leave 1.5 s later [design]. When the menu has closed, the door or container is
+  activated as if the player had pressed E on it (`nvf-play activate::ActivateNext`):
+  a door opens or leads through, a container's menu opens, after its Open sequence when
+  its model has one (`nvf-play container_anim`) [observed: owner, playtest list 5 item
+  64 — the game opens it]. A terminal already went on to its menu after the right
+  password (hacking.md).
 - A broken lock stays locked: only its key opens it [documented: the help message].
   Broken locks are kept in the game state (`fnv_game::lockpick::Locks`), which is part of
   the save-agnostic snapshot (`GameSnapshot.locks`, absent when empty); NVForever has no

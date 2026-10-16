@@ -4294,6 +4294,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "clap",
+ "fnv-actor",
  "fnv-nif",
  "fnv-vfs",
  "nvf-assets",

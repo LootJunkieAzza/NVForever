@@ -39,6 +39,7 @@ use self::model::{Action, AidOp, Outcome, Page, Vigor, STATS};
 use crate::pause::AidTime;
 use crate::script::ScriptState;
 use crate::sim::SimState;
+use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::{PlayerCamera, PlaySet};
 use bevy::camera::primitives::Aabb;
 use bevy::light::NotShadowCaster;
@@ -224,6 +225,7 @@ fn input(
     mut script: ResMut<ScriptState>,
     mut sim: ResMut<SimState>,
     mut stats: ResMut<VigorStats>,
+    mut sounds: MessageWriter<UiSound>,
 ) {
     use KeyCode::*;
     let clips = menu.clips.clone().unwrap_or_default();
@@ -308,13 +310,18 @@ fn input(
             }
         }
     }
+    let mut sound = |event| {
+        sounds.write(UiSound { menu: UiMenu::Vigor, event });
+    };
     for (a, how) in acts {
         match o.vigor.act(a) {
             Outcome::Changed { stat, value, remaining } => {
+                sound(UiEvent::Value { up: matches!(a, Action::Raise(_)) });
                 stats.changes += 1;
                 info!("vigor tester: {} {value}, {remaining} points remaining ({how})", STATS[stat]);
             }
             Outcome::Turned { from, to } => {
+                sound(UiEvent::Switch);
                 stats.turns += 1;
                 let seq = model::sequence(from, to).unwrap_or("?");
                 info!("vigor tester: page {} (sequence {seq}, {how})", to.name());
@@ -323,12 +330,19 @@ fn input(
                     None => warn!("vigor tester: no sequence {seq}: the boards turn at once"),
                 }
             }
-            Outcome::Selected(i) => info!("vigor tester: row {} chosen ({how})", STATS[i]),
-            Outcome::Refused(why) => info!("vigor tester: {a:?} refused: {why} ({how})"),
+            Outcome::Selected(i) => {
+                sound(UiEvent::Focus);
+                info!("vigor tester: row {} chosen ({how})", STATS[i]);
+            }
+            Outcome::Refused(why) => {
+                sound(UiEvent::Refused);
+                info!("vigor tester: {a:?} refused: {why} ({how})");
+            }
             Outcome::Done => {
                 let sheet = o.vigor.sheet;
                 let values = o.vigor.values();
                 if crate::chargen::finish(&mut script, &mut sim, menus::LOVE_TESTER, how, |g| sheet.apply(g)) {
+                    sound(UiEvent::Accepted);
                     stats.done += 1;
                     info!("vigor tester: done, S.P.E.C.I.A.L. {values} ({how})");
                 }

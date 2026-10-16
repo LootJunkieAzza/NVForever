@@ -197,8 +197,17 @@ with the owner's.
   or the chosen row?
 - Does the ◄ of a row at 1 disappear as the ► does at 10 and at 0 points left?
 - Is a row chosen with the keys shown, and how?
-- Not built: the menu's fade (0.25 s in its file), any sounds of the lever, the boards
-  and the bulbs, and the repeat of a held Left/Right (`repeathorizontal`); a turn asked
+- Sounds (list 5 item 39): the menu file names none and the two models carry no sound
+  key [observed]. NVForever plays Fallout 3's S.P.E.C.I.A.L. book sounds, which the
+  masters keep with two records added for New Vegas [observed: FalloutNV.esm SOUN,
+  files in `Fallout - Sound.bsa` under `sound\fx\obj\book\special\`; hypothesis:
+  that the Vigor Tester plays them, by their names]: a page turn `OBJBookSpecialPageTurn`
+  (two takes), an attribute raised `OBJBookSpecialNumber`, lowered
+  `OBJBookSpecialNumberDown`, a review row chosen `OBJBookSpecialFocus`, Done
+  `OBJBookSpecialNumberFinished`, a refusal `UIMenuCancel` (`nvf_play::ui_sounds`, menu
+  `vigor tester`).
+- Not built: the menu's fade (0.25 s in its file), any sounds of the lever and the bulbs
+  of their own, and the repeat of a held Left/Right (`repeathorizontal`); a turn asked
   during another does not wait for it.
 - The original lights the machine (shaded cabinet, golden unlit bulbs, a strong glow on
   lit ones) and blurs the room; NVForever's unlit approximation and dark sheet are
