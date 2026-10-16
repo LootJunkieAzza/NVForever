@@ -20,6 +20,7 @@ use crate::goal::{self, Goal, Route, Talk};
 use crate::sandbox::{Doing, Sandbox};
 use fnv_game::game::Game;
 use fnv_game::package::{flags, PackageType};
+use fnv_game::use_weapon::Source;
 use fnv_nav::follow::heading_of;
 use fnv_nav::{NavGraph, PathParams, Place, Space, WalkEvent, Walker};
 use fnv_sim::FormId;
@@ -171,6 +172,12 @@ pub enum AiEvent {
     /// An actor without a package, moved away by a search, a fight or a push, walks back
     /// to where it was placed ([`Ai::back_to_package`]).
     BackHome { away: f32, length: f32 },
+    /// A script gave it a weapon use (`fnv_game::use_weapon`, UseWeapon): it goes to
+    /// where it is to stand, a way of `length` units (0: it stands there), to shoot at
+    /// `target`.
+    WeaponUse { target: FormId, length: f32 },
+    /// The script's weapon use is over: it goes back to its package.
+    WeaponUseOver,
 }
 
 /// How far an actor is with its Dialogue package ([`goal::Talk`]).
@@ -291,6 +298,8 @@ pub struct Agent {
     /// A Follow or Accompany package: where the target was when the way to it was last
     /// planned, and from when (`Game::time`) it may be planned again.
     following: Option<(Place, f64)>,
+    /// The number of the script's weapon use it carries out ([`Ai::weapon_step`]).
+    weapon_order: Option<u64>,
 }
 
 #[derive(Default)]
@@ -330,7 +339,7 @@ impl Ai {
         let place = goal::place_of_ref(game, actor).ok_or_else(|| format!("{actor} is in no cell"))?;
         let heading = game.world.peek(actor).map(|s| s.rot[2]).or_else(|| game.world.placed.get(actor).map(|p| p.rot[2])).unwrap_or(0.0);
         let walker = Walker::new(place.space, place.pos, heading, self.cfg.walk_speed);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None });
         Ok(())
     }
 
@@ -595,19 +604,25 @@ impl Ai {
             a.following = None;
             self.set_using(game, actor, None);
             self.taken.retain(|_, user| *user != actor);
+            // The old package's weapon use ends with it.
+            if game.weapon_use(actor).is_some_and(|w| matches!(w.source, Source::Package(_))) {
+                game.drop_weapon_use(actor);
+            }
             if let Some(p) = current {
                 self.begin(game, nav, actor, p);
             }
         }
-        // A combat state comes before the package (`crate::alert`).
-        let alerted = !quiet && self.alert_step(game, nav, actor, dt);
+        // A script's weapon use comes before the fight and the package
+        // (`fnv_game::use_weapon`); a combat state before the package (`crate::alert`).
+        let ordered = !quiet && self.weapon_step(game, nav, actor, dt);
+        let alerted = !quiet && !ordered && self.alert_step(game, nav, actor, dt);
         let chatting = self.agents[&actor].chat.is_some();
         if !quiet && !chatting && !alerted && self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
             self.back_after_push(game, nav, actor);
         }
         match self.agents[&actor].activity {
             Activity::Travelling => self.walk(game, nav, actor, dt, open),
-            Activity::There if !quiet && !chatting && !alerted => {
+            Activity::There if !quiet && !chatting && !alerted && !ordered => {
                 if let Some(h) = self.agents[&actor].face_to {
                     self.face_heading(game, actor, h, dt);
                 }
@@ -620,10 +635,10 @@ impl Ai {
             }
             _ => {}
         }
-        if !quiet && !alerted && self.agents[&actor].talk.is_some() {
+        if !quiet && !alerted && !ordered && self.agents[&actor].talk.is_some() {
             self.talk_step(game, nav, actor, dt);
         }
-        if !alerted && !chatting && matches!(self.agents[&actor].goal, Some(Goal::Follow(_))) {
+        if !alerted && !chatting && !ordered && matches!(self.agents[&actor].goal, Some(Goal::Follow(_))) {
             self.follow_step(game, nav, actor);
         }
     }
@@ -1035,13 +1050,20 @@ impl Ai {
     fn begin(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId) {
         let Some(def) = game.data.package_defs.get(&package) else { return };
         let goal = goal::resolve(game, nav, actor, def);
+        // A Use Weapon package's weapon use, unless a script's comes first.
+        if def.ty == PackageType::UseWeapon && game.weapon_use(actor).is_none_or(|w| w.source != Source::Script) {
+            match game.package_weapon_use(actor, package) {
+                Some(w) => game.give_weapon_use(actor, w),
+                None => game.drop_weapon_use(actor),
+            }
+        }
         let feet = Place { space: self.agents[&actor].walker.space, pos: self.agents[&actor].walker.feet };
         // The goal is kept first: settling reads it (a sandbox's centre and radius).
         self.agents.get_mut(&actor).expect("listed").goal = Some(goal.clone());
         let there = |a: &mut Ai, game: &mut Game| {
             a.agents.get_mut(&actor).expect("listed").activity = Activity::There;
             a.log(game, actor, AiEvent::AlreadyThere { package });
-            game.package_goal_met(actor);
+            reached(game, actor);
             a.settle(game, actor);
         };
         match &goal {
@@ -1142,6 +1164,69 @@ impl Ai {
         }
     }
 
+    /// A script's weapon use (`fnv_game::use_weapon`): a new one sends the actor to
+    /// where it is to stand (it stays where it is when it is there already, is to stand
+    /// on its own reference, or has no way there); one that is over sends it back to its
+    /// package. In place, a weapon use (a script's, or its package's while it is not in
+    /// combat) turns it to its target at the standing turn rate. Returns whether a
+    /// script's use holds the actor (its package's own doings and its fight wait).
+    fn weapon_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) -> bool {
+        let script = game.weapon_use(actor).filter(|w| w.source == Source::Script).map(|w| (w.seq, w.stand, w.target));
+        let order = self.agents[&actor].weapon_order;
+        match (script, order) {
+            (None, None) => {}
+            (None, Some(_)) => {
+                let a = self.agents.get_mut(&actor).expect("listed");
+                a.weapon_order = None;
+                a.walker.follower = None;
+                (a.activity, a.goal) = (Activity::None, None);
+                self.log(game, actor, AiEvent::WeaponUseOver);
+                if let Some(p) = self.agents[&actor].package {
+                    self.begin(game, nav, actor, p);
+                }
+                return false;
+            }
+            (Some((seq, stand, target)), order) if order != Some(seq) => {
+                self.set_using(game, actor, None);
+                let params = self.path_params(game, actor);
+                let speed = self.pace(game, actor, false);
+                let arrive = self.cfg.arrive;
+                let a = self.agents.get_mut(&actor).expect("listed");
+                (a.weapon_order, a.search, a.sandbox, a.talk, a.face_to, a.following) = (Some(seq), None, None, None, None, None);
+                let feet = Place { space: a.walker.space, pos: a.walker.feet };
+                let to = stand.and_then(|s| goal::place_of_ref(game, s)).filter(|t| t.space != feet.space || hdist(t.pos, feet.pos) > arrive);
+                a.walker.speed = speed;
+                let way = to.map(|t| a.walker.go_to(nav, t, &params).map(|p| p.length));
+                let length = match way {
+                    Some(Ok(length)) => {
+                        a.activity = Activity::Travelling;
+                        a.trip_started = game.time;
+                        a.trip_from = a.walker.travelled;
+                        length
+                    }
+                    // There already, or no way there: it shoots from where it is [design].
+                    _ => {
+                        a.walker.follower = None;
+                        a.activity = Activity::There;
+                        game.weapon_use_in_place(actor);
+                        0.0
+                    }
+                };
+                self.log(game, actor, AiEvent::WeaponUse { target, length });
+            }
+            _ => {}
+        }
+        let a = &self.agents[&actor];
+        let space = a.walker.space;
+        let standing = a.activity != Activity::Travelling;
+        if let Some(t) = game.active_weapon_use(actor).filter(|w| w.in_place && standing).map(|w| w.target) {
+            if let Some(at) = goal::place_of_ref(game, t).filter(|p| p.space == space) {
+                self.face(game, actor, at, dt);
+            }
+        }
+        script.is_some()
+    }
+
     fn unreachable(&mut self, game: &mut Game, actor: FormId, package: FormId, why: String) {
         self.log(game, actor, AiEvent::Unreachable { package, why });
         let a = self.agents.get_mut(&actor).expect("listed");
@@ -1203,6 +1288,12 @@ impl Ai {
             a.activity = Activity::There;
             return;
         }
+        // At the place of a script's weapon use: it shoots from there (`weapon_step`).
+        if a.weapon_order.is_some() && game.weapon_use(actor).is_some_and(|w| w.source == Source::Script) {
+            a.activity = Activity::There;
+            game.weapon_use_in_place(actor);
+            return;
+        }
         // The end of the way to the one it follows: it stands until the target is away
         // again (`follow_step`).
         if matches!(a.goal, Some(Goal::Follow(_))) {
@@ -1253,7 +1344,7 @@ impl Ai {
             return;
         }
         self.agents.get_mut(&actor).expect("listed").activity = Activity::There;
-        game.package_goal_met(actor);
+        reached(game, actor);
         self.settle(game, actor);
     }
 
@@ -1281,6 +1372,17 @@ impl Ai {
                 game.package_goal_met(actor);
             }
         }
+    }
+}
+
+/// The actor is where its package wants it: the package's goal is met, or, for a Use
+/// Weapon package, its shooting begins (its goal is met when the shots are spent,
+/// `fnv_game::use_weapon`).
+fn reached(game: &mut Game, actor: FormId) {
+    if game.weapon_use(actor).is_some_and(|w| matches!(w.source, Source::Package(_))) {
+        game.weapon_use_in_place(actor);
+    } else {
+        game.package_goal_met(actor);
     }
 }
 

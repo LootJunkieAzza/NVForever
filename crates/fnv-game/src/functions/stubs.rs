@@ -40,7 +40,6 @@ pub const ASSIGNED: &[(u16, &str)] = &[
     (0x11A0, COMBAT), // GetGroupMemberCount
     (0x11A1, COMBAT), // GetGroupTargetCount
     (0x11E2, COMBAT), // FireWeapon
-    (0x119C, COMBAT), // UseWeapon
     (0x1042, COMBAT), // GetShouldAttack
     (0x1203, COMBAT), // IsCombatTarget
     (0x10F5, COMBAT), // ForceFlee

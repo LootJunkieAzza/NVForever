@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 75 (15 assigned) after UseWeapon (§3.6) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5) |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,518 (904 calls, 614 condition uses) after UseWeapon (§3.6) |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -146,6 +146,13 @@ actor in its `sneakmt…` locomotion clips, walks it at fMoveSneakMult and measu
 sneaking (nvforever `sneaking.rs`; owner's playtest list 5 items 36–37). GetForceSneak has
 no opcode in the catalogue and stays unregistered.
 
+### 3.6 UseWeapon (claude/use-weapon, 2026-10-16)
+
+UseWeapon (0x119C, 13 calls), assigned to E2 combat AI, is implemented with the Use Weapon
+package (docs/design/use-weapon.md): the actor walks to where it is to stand, turns to its
+target and fires the number of shots, with the always-hit, no-damage, crouch-to-reload
+and hold-fire flags. 76 → 75 stubs (15 assigned, 14 of them to E2), 917 → 904 calls.
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is
@@ -181,7 +188,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetDisposition | 0x104C | 0 | 15 | needs a system not built yet | dialogue (disposition) |
 | ShowRepairMenu | 0x117A | 15 | 0 | needs a system not built yet | menus (repair) |
 | ShowRecipeMenu | 0x1250 | 15 | 0 | implemented 2026-10-16 (claude/l5-crafting) | menus (crafting) |
-| UseWeapon | 0x119C | 13 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
+| UseWeapon | 0x119C | 13 | 0 | implemented 2026-10-16 (claude/use-weapon) | combat AI: docs/design/use-weapon.md |
 | Reset3DState | 0x1146 | 12 | 0 | needs a system not built yet | rendering |
 | GetShouldAttack | 0x1042 | 7 | 4 | assigned to workstream | assigned to workstream E2 combat AI |
 | HasBeenEaten | 0x107F | 6 | 4 | needs a system not built yet | AI (Cannibal perk) |

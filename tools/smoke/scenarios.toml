@@ -1467,16 +1467,17 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # GetXPForNextLevel (§3.2). Then four more (§3.3, §3.4): the followers' OpenTeammateContainer
 # (26 calls, the last stub assigned to H, so no "H followers" row is left), Autosave (74 calls),
 # the crafting ShowRecipeMenu (15 calls, PR #292) and claude/l5-render-fx's SwapTexture (383
-# calls): 81 → 77 stubs, 1,418 → 920 calls, condition uses unchanged.
+# calls): 81 → 77 stubs, 1,418 → 920 calls, condition uses unchanged. claude/use-weapon
+# implemented UseWeapon (13 calls, assigned to E2): 76 → 75 stubs, 917 → 904 calls (§3.6).
 expect = [
-  { json = "summary.stubs", equals = 76 },
-  { json = "summary.by_status.assigned", equals = 16 },
+  { json = "summary.stubs", equals = 75 },
+  { json = "summary.by_status.assigned", equals = 15 },
   { json = "summary.by_status.implementable", equals = 1 },
   { json = "summary.by_status.needs_system", equals = 59 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.by_workstream.E2 combat AI", equals = 15 },
+  { json = "summary.by_workstream.E2 combat AI", equals = 14 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 917 },
+  { json = "summary.stub_calls", equals = 904 },
   { json = "summary.stub_condition_uses", equals = 614 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -2473,3 +2474,22 @@ run_seconds = 45
 expect = [
   { re = 'ai summary at .*vMORangerGhostREF: no package, \S+ in \S+, walked (?P<n>\d+) units', range = [0, 50], label = "Ghost stays at her post (walked under 50 units)" },
 ]
+
+[[scenario]]
+name = "use-weapon"
+source = "UseWeapon (docs/design/use-weapon.md §5): a script has an actor fire a number of shots at a target from where it stands, always hitting and doing no damage"
+note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897, hunting rifle) is told at 5 s to fire 3 shots at the player, about 1,400 units east of her, from her own place; nobody perceives the player (NVF_PLAY_TEST_UNSEEN), so no fight starts"
+areas = ["combat", "use-weapon"]
+paths = ["crates/fnv-game/src/use_weapon.rs", "engine/nvforever/src/use_weapon.rs", "crates/fnv-ai/src/carry.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "5:call:FiendVioletRef:UseWeapon:WeapHuntingRifle:FiendVioletRef:player:3:1:0:1:1" }
+args = ["--cell", "Goodsprings", "--pos=-45500,64897,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  "script: test aid calls UseWeapon on FiendVioletRef",
+  "is to use its weapon on the player: from where it stands",
+  { re = 'use weapon: FiendVioletRef 0x000F570B uses WeapHuntingRifle on the player \(a script\): 3 shots; always hit, no damage, crouch to reload', label = "Violet uses her hunting rifle on the player: 3 shots, always hit, no damage" },
+  "use weapon: FiendVioletRef 0x000F570B has fired its 3 shots at the player",
+  "has used its weapon: back to its package",
+  { re = 'use weapon summary: 1 actors used a weapon .*?3 shots \(3 always hit, 3 harmless; (?P<n>\d+) harmless hits\)', range = [1, 3], label = "3 shots, always hit and harmless, at least one lands" },
+]
+forbid = [{ re = 'the player was hit [1-9]', label = "the player takes a hit" }]

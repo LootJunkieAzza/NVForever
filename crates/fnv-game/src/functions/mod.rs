@@ -495,7 +495,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10E8, "GetCombatTarget", Impl(crate::awareness::get_combat_target)),
         (0x1203, "IsCombatTarget", Stub("combat")),
         (0x11E2, "FireWeapon", Stub("combat")),
-        (0x119C, "UseWeapon", Stub("combat")),
+        (0x119C, "UseWeapon", Impl(crate::use_weapon::use_weapon)),
         (0x103F, "GetAttacked", Impl(crate::provocation::get_attacked)),
         (0x1120, "GetFriendHit", Impl(crate::provocation::get_friend_hit)),
         (0x106B, "GetKnockedState", Stub("combat (knockdown)")),

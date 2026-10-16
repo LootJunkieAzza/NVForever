@@ -136,9 +136,9 @@ pub const HIP_FIRE_WITHIN: f32 = 1400.0;
 /// nearer than [`HIP_FIRE_WITHIN`], so it does not switch at the edge [design].
 pub const SIGHTS_HYSTERESIS: f32 = 50.0;
 /// Without a muzzle node, shots leave this far in front of the eyes, game units [design].
-const MUZZLE_AHEAD: f32 = 24.0;
+pub(crate) const MUZZLE_AHEAD: f32 = 24.0;
 /// The chest as a fraction of the eye height (as `detection.rs` aims its sight).
-const CHEST: f32 = 0.75;
+pub(crate) const CHEST: f32 = 0.75;
 /// A gunman fires only while its target is within this angle of straight ahead,
 /// radians (30°) [design: owner's playtest list 5 item 33, "NPCs must face their target
 /// before shooting"].
@@ -146,7 +146,7 @@ pub const FIRE_FACING: f32 = 30.0 * std::f32::consts::PI / 180.0;
 
 /// How far (radians, 0 to π) the target at `to` lies off the heading of the actor whose
 /// root is at `global`, standing at `feet` (game space).
-fn facing_off(global: &GlobalTransform, feet: V3, to: V3) -> f32 {
+pub(crate) fn facing_off(global: &GlobalTransform, feet: V3, to: V3) -> f32 {
     let ahead = bevy_to_game(global.transform_point(Vec3::Y)) - bevy_to_game(global.translation());
     let want = Vec2::new(to[0] - feet[0], to[1] - feet[1]);
     let have = ahead.truncate();
@@ -260,7 +260,7 @@ struct Stats {
 }
 
 /// A number in [0, 1) from the module's own sequence `rng` [design].
-fn next_unit(rng: &mut u64) -> f32 {
+pub(crate) fn next_unit(rng: &mut u64) -> f32 {
     *rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
     (*rng >> 40) as f32 / (1u64 << 24) as f32
 }
@@ -329,7 +329,7 @@ fn reach_of(c: &Combat, arm: &Arm, scale: f32) -> f32 {
     }
 }
 
-fn is_gun(c: &Combat, w: &WeaponStats, id: FormId) -> bool {
+pub(crate) fn is_gun(c: &Combat, w: &WeaponStats, id: FormId) -> bool {
     AttackKind::of(w) == AttackKind::Gun && c.forms.chain(id, None).is_some_and(|ch| ch.projectile.is_some())
 }
 
@@ -413,6 +413,10 @@ fn fight(
             let Some(&(feet, eyes, scale)) = places.get(&id) else { continue };
             // ToggleActorsAI or SetActorsAI 0: it does not fight.
             if g.ai_off(me) {
+                continue;
+            }
+            // A script's weapon use comes first (`use_weapon`).
+            if g.weapon_use(me).is_some_and(|w| w.source == fnv_game::use_weapon::Source::Script) {
                 continue;
             }
             let Some(aw) = g.awareness.get(me).filter(|a| a.state == State::Combat) else { continue };
@@ -862,7 +866,7 @@ fn fight(
                                 }
                                 let stance = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: false, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled: false, right_arm_crippled: false };
                                 let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &stance), 0.0, ws, &[]) + settling(fighter.firing_for);
-                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle });
+                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights });
                                 f.stats.shots += 1;
                             }
