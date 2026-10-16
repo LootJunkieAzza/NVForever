@@ -3072,6 +3072,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "settings-scroll"
+source = "owner 2026-10-16: the settings page's long categories scroll with the mouse wheel and show a scroll bar; the Controls tab's rows scrolled down three notches and back up one"
+areas = ["main-menu"]
+paths = ["engine/nvf-play/src/pause.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:15", NVF_PLAY_TEST_SETTINGS = "11:controls", NVF_PLAY_TEST_PAUSE_MENU = "12:wheel-down,12.3:wheel-down,12.6:wheel-down,13.5:wheel-up,14:shot" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-68375,4800,8700"]
+run_seconds = 17
+order = [[
+  { re = 'pause menu: rows 2-10 of \d+ shown', label = "a notch of the wheel shows the next row" },
+  { re = 'pause menu: rows 3-11 of \d+ shown' },
+  { re = 'pause menu: rows 4-12 of \d+ shown' },
+  { re = 'pause menu: rows 3-11 of \d+ shown', label = "a notch up shows the row before again" },
+]]
+
+[[scenario]]
 name = "controller-write"
 source = "owner 2026-10-16: keyboard and mouse or a controller by a setting under Controls, the controller's defaults the game's (docs/design/controller.md); the first half of a round trip (controller-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
