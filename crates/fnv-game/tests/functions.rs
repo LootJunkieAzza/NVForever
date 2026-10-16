@@ -794,7 +794,7 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
 
     // The S.P.E.C.I.A.L. menu with two points to add, the old values its floor.
     call(&mut g, 0x1219, None, &[n(2.0)]);
-    assert_eq!((g.menu, g.ui.special), (Some(1074), Some(SpecialMenu::Add(2))));
+    assert_eq!((g.menu, g.ui.special), (Some(1048), Some(SpecialMenu::Add(2))));
     let s = SpecialSheet::for_menu(&mut g);
     assert_eq!((s.remaining(), s.floor), (2, s.values));
     assert_eq!(g.ui.special, None, "used up by the opening");

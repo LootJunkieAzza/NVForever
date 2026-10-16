@@ -294,6 +294,9 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         // the settings' back button [design].
         (TagSkills | Traits, Focus) => Named("UIMenuFocus"),
         (TagSkills | Traits, Picked) => Named("UIMenuPrevNext"),
+        // The attributes page's arrows [documented: char_gen_menu.xml
+        // CGM_Template_LeftArrow, RightArrow `UIMenuPrevNext`].
+        (TagSkills, Value { .. }) => Named("UIMenuPrevNext"),
         (TagSkills | Traits, Reset) => Named("UIMenuCancel"),
         (TagSkills | Traits, Accepted) => Named("UIMenuOK"),
         // The level-up menu (docs/spec-notes/levelup.md §5): the arrows and the perk rows
