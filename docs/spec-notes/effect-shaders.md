@@ -137,4 +137,6 @@ Read here as [hypothesis where marked]:
   (`BlackTron.dds` for the blank one) on the shape `Screen01:0`; the folder holds
   `_neutral` and `_alert` files for victor, mrhouse, marilyn, jane, infantry, police and
   yesman.] Implemented as a texture swap of `Screen01:0` on that reference
-  (`SwapTexture`'s machinery); not saved yet [design].
+  (`SwapTexture`'s machinery); not saved yet [design]. [observed 2026-10-16, smoke
+  `securitron-expression`: `VStreetSecuritron` 0x0013BB1F on the Strip shows its police face,
+  then Victor's alert face after the call.]

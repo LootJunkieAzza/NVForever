@@ -158,7 +158,9 @@ Five rendering stubs are implemented, none with condition uses (460 calls): 76 â
 | SetSecuritronExpression | 0x1248 | 37 | a texture swap of `Screen01:0` to `textures\creatures\securitron\<face>_<expression>.dds` | `texture_swap.rs`, which now also finds actors' part shapes by name (`nvf_assets::actor::ShapeName`) |
 | Reset3DState | 0x1146 | 12 | `ObjectAnims::reset`: the group no longer counts as playing, requests dropped | `object_anims.rs`: the object's group stops where it is |
 
-Smoke scenario `effect-shaders` (a script's shader on Sunny, a timed one, SetActorAlpha).
+Smoke scenarios `effect-shaders` (a script's shader on Sunny, a timed one, SetActorAlpha) and
+`securitron-expression` (a street Securitron by the Strip's north gate turns from its police face
+to Victor's alert one).
 Not saved: the shaders, alphas and expressions are lost on load [design, as SwapTexture].
 
 ## 4. Every remaining stub

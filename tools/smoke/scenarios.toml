@@ -1552,6 +1552,19 @@ order = [[
 ]]
 expect = ["effect shaders summary: 2 played, 2 ended"]
 
+[[scenario]]
+name = "securitron-expression"
+source = "docs/spec-notes/effect-shaders.md §5: SetSecuritronExpression puts victor_alert.dds on the screen (Screen01:0) of a street Securitron by the Strip's north gate (VStreetSecuritron 0x0013BB1F, the test aid call:); frames before (7 s) and after (11 s) in target/smoke"
+areas = ["scripts", "effect-shaders"]
+paths = ["engine/nvforever/src/texture_swap.rs", "engine/nvf-assets/src/actor.rs", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:0013BB1F", NVF_PLAY_TEST_SCRIPT = '8:call:-:SetSecuritronExpression:0x0013BB1F:"Victor":"Alert"', NVF_PLAY_TEST_SHOTS = "7:securitron_before.png,11:securitron_after.png" }
+args = ["--play", "--world", "TheStripWorldNew", "--pos=-112,3100,1030", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 14
+order = [[
+  "script: test aid calls SetSecuritronExpression",
+  { re = 'SwapTexture: reference 0013BB1F shape screen01:0: textures.creatures.securitron.victor_alert\.dds', label = "SwapTexture: victor_alert.dds on the Securitron's screen" },
+]]
+
 # ------------------------------------------------------------------ aid items (docs/spec-notes/aid-items.md)
 
 [[scenario]]
