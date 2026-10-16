@@ -30,7 +30,7 @@ pub mod senses;
 pub mod stubs;
 pub mod ui;
 
-pub use reputation::{store as reputation_store, tiers as reputation_tiers};
+pub use reputation::{crime_infamy, reputations_of, store as reputation_store, tiers as reputation_tiers};
 pub use actor::{actor_value, actor_value_capped, actor_value_parts, temporary as actor_value_temporary, add_damage as add_actor_value_damage, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
 pub use actor::{faction_rank, faction_relation, factions_of, factions_relation};
 pub use misc::clock_now;
