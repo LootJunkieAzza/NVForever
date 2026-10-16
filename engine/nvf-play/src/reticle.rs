@@ -194,6 +194,14 @@ pub fn crime_colour() -> Color {
 
 // ---- drawing ----------------------------------------------------------------------------
 
+/// The enemy health bar names the actor it shows (`crate::hud_target`): while it shows the
+/// actor under the crosshair, the prompt under the crosshair is not drawn, so the name is
+/// not written twice [owner's playtest, 2026-10-16: the bar's name and the prompt's both
+/// over a cazador in combat].
+pub fn under_bar(t: &Targeted, bar_form_id: u32) -> bool {
+    t.form_id == bar_form_id
+}
+
 pub struct ReticlePlugin;
 
 impl Plugin for ReticlePlugin {
@@ -310,7 +318,7 @@ fn draw(
     state: Res<State<PlayState>>,
     target: Res<Target>,
     sim: Res<SimState>,
-    (combat, hostile, camera, time): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>),
+    (combat, hostile, bar, camera, time): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>),
     mut spread: Local<f32>,
     mut logged: Local<(bool, i32)>,
     (locks, bindings): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>),
@@ -379,7 +387,8 @@ fn draw(
         }
     }
     let key = bindings.as_ref().map(|b| b.prompt(crate::bindings::Control::Activate)).unwrap_or_default();
-    let want = target.0.as_ref().filter(|_| !locks.rollover).map(|t| Prompt { key: key.clone(), ..Prompt::of(t, &sim) });
+    let barred = |t: &Targeted| bar.as_ref().and_then(|b| b.0.as_ref()).is_some_and(|b| under_bar(t, b.form_id));
+    let want = target.0.as_ref().filter(|t| !locks.rollover && !barred(t)).map(|t| Prompt { key: key.clone(), ..Prompt::of(t, &sim) });
     if *shown != want {
         let Ok(e) = texts.single() else { return };
         commands.entity(e).despawn_related::<Children>().with_children(|p| {
@@ -442,6 +451,13 @@ mod tests {
         assert_eq!(spread_units(45.0, fov), MAX_SPREAD);
         assert_eq!(half_rect(None, -1.0), Rect::new(0.0, 0.0, 32.0, 64.0));
         assert_eq!(half_rect(Some(Rect::new(10.0, 0.0, 30.0, 20.0)), 1.0), Rect::new(20.0, 0.0, 30.0, 20.0));
+    }
+
+    #[test]
+    fn the_prompt_steps_aside_for_the_bar_over_the_same_actor() {
+        let t = Targeted { form_id: 0x1234, name: "Cazador".into(), action: Action::Name, distance: 100.0, source: crate::activate::pick::Source::Bounds, crime: false };
+        assert!(under_bar(&t, 0x1234));
+        assert!(!under_bar(&t, 0x5678));
     }
 
     #[test]

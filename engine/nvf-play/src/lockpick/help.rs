@@ -65,17 +65,60 @@ const HINT_GAP: f32 = 16.0;
 /// The globals' background fill alpha [documented: menus\globals.xml].
 const FILL_ALPHA: f32 = 32.0 / 255.0;
 
-/// The label of a key as the help text shows it: a letter or digit as itself, else the
-/// key's name [observed: "WSAD", "F"; design: other keys].
+/// The label of a key as the help text shows it: a letter or digit as itself, the
+/// modifiers and arrows in words, else the key's name [observed: "WSAD", "F"; design:
+/// other keys, the words the Controls page's INI values use].
 pub fn key_label(k: KeyCode) -> String {
+    let words = match k {
+        KeyCode::ShiftLeft => "Left Shift",
+        KeyCode::ShiftRight => "Right Shift",
+        KeyCode::ControlLeft => "Left Ctrl",
+        KeyCode::ControlRight => "Right Ctrl",
+        KeyCode::AltLeft => "Left Alt",
+        KeyCode::AltRight => "Right Alt",
+        KeyCode::CapsLock => "Caps Lock",
+        KeyCode::ArrowUp => "Up",
+        KeyCode::ArrowDown => "Down",
+        KeyCode::ArrowLeft => "Left",
+        KeyCode::ArrowRight => "Right",
+        KeyCode::PageUp => "Page Up",
+        KeyCode::PageDown => "Page Down",
+        _ => "",
+    };
+    if !words.is_empty() {
+        return words.into();
+    }
     let name = format!("{k:?}");
     name.strip_prefix("Key").or_else(|| name.strip_prefix("Digit")).map_or(name.clone(), str::to_string)
 }
 
+/// The label of a mouse button [design: the words the Controls page's INI values use].
+fn mouse_label(m: MouseButton) -> String {
+    match m {
+        MouseButton::Left => "Left Mouse".into(),
+        MouseButton::Right => "Right Mouse".into(),
+        MouseButton::Middle => "Middle Mouse".into(),
+        MouseButton::Back => "Mouse 4".into(),
+        MouseButton::Forward => "Mouse 5".into(),
+        MouseButton::Other(n) => format!("Mouse {}", n + 1),
+    }
+}
+
 /// The help text with the executable's key strings replaced by the keys bound now:
-/// `&-sUActn<control>;` and `&sUActn<control>;` (Forward, Back, Sldleft, Sldright, and
-/// any control by its INI name, such as Vats) by the control's key and
-/// `&sKB<key>;` by the key's name. Anything else between `&` and `;` is kept as it is.
+/// `&-sUActn<control>;` and `&sUActn<control>;` by the control's key (its mouse button
+/// when it has no key), `&sKB<key>;` by the key's name and the mouse strings by the
+/// button's. Anything else between `&` and `;` is kept as it is.
+///
+/// The control strings the game's texts use [observed: every `&…;` in FalloutNV.esm,
+/// 2026-10-16]: Forward, Back, Sldleft, Sldright, Use, Activate, Block, Rdyitem, Crouch,
+/// Run, ToggleRun, Jump, Togglepov, Menumode, Vats, Grab. Those that are not the INI's
+/// names are mapped here: Sldleft, Sldright, Rdyitem, Crouch (the sneak tutorial: "To
+/// sneak or crouch, &sUActnCrouch;.") and ToggleRun [hypothesis: Always Run, the INI's
+/// run toggle; its tutorial reads "To toggle between run and walk, &sUActnToggleRun;."].
+/// The mouse strings are `&sMouseLeftButton;`, `&sMouseRightButton;` (the VATS help) and
+/// `&sDeviceMouse;` ("Look around"); their words in the executable are not known
+/// [hypothesis: "Left Mouse", "Right Mouse", "Mouse"]. The gamepad strings (`&sXB…;`)
+/// are in the gamepad copies of the messages, which are not shown.
 pub fn expand_keys(text: &str, bindings: &Bindings) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
@@ -93,18 +136,31 @@ pub fn expand_keys(text: &str, bindings: &Bindings) -> String {
             Some("back") => Some(Control::Back),
             Some("sldleft") => Some(Control::SlideLeft),
             Some("sldright") => Some(Control::SlideRight),
-            // Any other control by its INI name without spaces and slashes, as
-            // `&sUActnVats;` in the VATS hint [hypothesis: the strings follow the INI
-            // names; only Vats seen, owner's playtest list 4].
+            Some("rdyitem") => Some(Control::ReadyItem),
+            Some("crouch") => Some(Control::CrouchSneak),
+            Some("togglerun") => Some(Control::AlwaysRun),
+            // Any other control by its INI name without spaces and slashes (Vats,
+            // Menumode, Togglepov…).
             Some(other) => GAME_CONTROLS.iter().find(|(_, n, _)| n.replace([' ', '/'], "").eq_ignore_ascii_case(other)).map(|(c, _, _)| *c),
             None => None,
         };
-        match (control, name.strip_prefix("sKB")) {
-            (Some(c), _) => match bindings.get(c).key {
-                Some(k) => out.push_str(&key_label(k)),
-                None => out.push_str(Bindings::name(c)),
-            },
-            (None, Some(key)) if !key.is_empty() => out.push_str(key),
+        let mouse = match name {
+            "sMouseLeftButton" => Some("Left Mouse"),
+            "sMouseRightButton" => Some("Right Mouse"),
+            "sDeviceMouse" => Some("Mouse"),
+            _ => None,
+        };
+        match (control, name.strip_prefix("sKB"), mouse) {
+            (Some(c), _, _) => {
+                let b = bindings.get(c);
+                match (b.key, b.mouse) {
+                    (Some(k), _) => out.push_str(&key_label(k)),
+                    (None, Some(m)) => out.push_str(&mouse_label(m)),
+                    (None, None) => out.push_str(Bindings::name(c)),
+                }
+            }
+            (None, Some(key), _) if !key.is_empty() => out.push_str(key),
+            (None, _, Some(m)) => out.push_str(m),
             _ => out.push_str(&tail[..=end]),
         }
         rest = &tail[end + 1..];
@@ -178,6 +234,11 @@ mod tests {
         let text = "&-sUActnForward;&-sUActnBack;&-sUActnSldleft;&-sUActnSldright;: Apply torque\r\n&sKBF;: Force Lock &unknown; & so";
         assert_eq!(expand_keys(text, &b), "WSAD: Apply torque\r\nF: Force Lock &unknown; & so");
         assert_eq!(expand_keys("Center VATS &sUActnVats;", &b), "Center VATS V");
+        assert_eq!(expand_keys("To sneak or crouch, &sUActnCrouch;.", &b), "To sneak or crouch, Left Ctrl.");
+        assert_eq!(expand_keys("&-sUActnRdyitem;: Reload", &b), "R: Reload");
+        assert_eq!(expand_keys("&-sUActnMenumode;&-sUActnTogglepov;", &b), "TabF");
+        assert_eq!(expand_keys("&-sUActnUse;: Attack", &b), "Left Mouse: Attack");
+        assert_eq!(expand_keys("&sMouseLeftButton;, &sDeviceMouse;", &b), "Left Mouse, Mouse");
         assert_eq!(key_label(KeyCode::Digit4), "4");
         assert_eq!(key_label(KeyCode::Space), "Space");
     }

@@ -22,16 +22,21 @@ pub const STANCE: &str = "mt";
 /// [observed: the `_male\locomotion` file list; the player's sneak clips are named so too,
 /// `fnv_actor::player_clips`].
 pub const SNEAK_STANCE: &str = "sneakmt";
+/// … of a creature's alert stance: `h2hforward.kf`, `h2hfastforward.kf` (the cazador's
+/// flight; it scurries along the ground on its `mt…` clips while calm [observed: the
+/// owner's playtest 2026-10-16; the `creatures\nvcazadores\locomotion` file list]).
+pub const ALERT_STANCE: &str = "h2h";
 
 /// One clip of a set: its tracks bound to the skeleton and what choosing needs to know
 /// about it.
+#[derive(Clone)]
 pub struct SetClip {
     pub bound: Arc<BoundClip>,
     pub info: ClipInfo,
 }
 
 /// The locomotion clips of one skeleton and body, shared by the actors that use them.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ClipSet {
     pub clips: BTreeMap<Move, SetClip>,
     /// Combat (step C5): death poses held once played (`idleanims\deathpose1.kf`,
@@ -91,6 +96,19 @@ pub struct Flinch {
 impl ClipSet {
     pub fn info(&self, m: Move) -> Option<ClipInfo> {
         self.clips.get(&m).map(|c| c.info)
+    }
+
+    /// The alert stance's set: the `h2h` clips of `stance` (loaded as a set of their
+    /// own), the moves they lack taken from `calm` (the cazador has `h2hforward`,
+    /// `h2hfastforward` and `h2hidle`, the dog only the two movement clips [observed: the
+    /// base meshes archive, 2026-10-16]). `None` when the stance has no movement clip.
+    pub fn alert_from(stance: ClipSet, calm: &ClipSet) -> Option<ClipSet> {
+        if !stance.clips.contains_key(&Move::Forward) && !stance.clips.contains_key(&Move::FastForward) {
+            return None;
+        }
+        let mut set = calm.clone();
+        set.clips.extend(stance.clips);
+        Some(set)
     }
 
     /// The set for the skeleton at `skeleton` (archive path) and `body`: the moves found
@@ -154,11 +172,44 @@ pub struct Locomotion {
     pub stand: Arc<ClipSet>,
     pub sneak: Option<Arc<ClipSet>>,
     pub sneaking: bool,
+    /// The alert stance's set (creatures whose folder has `h2h` movement clips: the
+    /// cazador flies when alert, [`ClipSet::alert_from`]) and whether it plays
+    /// ([`Locomotion::set_alert`]).
+    pub alert: Option<Arc<ClipSet>>,
+    pub alerted: bool,
+    /// How much faster than its clips' root motion the actor moves, its clips playing
+    /// that much faster too: a creature's Speed Mult × `creature_pace::CREATURE_SPEED_FIT`
+    /// (`creature_pace.rs`), 1 for people. The move is chosen for the velocity divided by
+    /// it, so a fast creature's walk is still its walk clip.
+    pub pace: f32,
 }
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, sneaking: false }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, sneaking: false, alert: None, alerted: false, pace: 1.0 }
+    }
+
+    /// The upright set: the alert stance's while alerted, else the standing one.
+    fn upright(&self) -> Arc<ClipSet> {
+        match (&self.alert, self.alerted) {
+            (Some(a), true) => a.clone(),
+            _ => self.stand.clone(),
+        }
+    }
+
+    /// Take the alert stance (`true`) or the calm one: the set's clips change and the
+    /// move goes on at its phase in the other set's clip, with no cross-fade between the
+    /// two sets [design]. Without an alert set nothing changes. Returns whether anything
+    /// changed.
+    pub fn set_alert(&mut self, on: bool) -> bool {
+        if self.alerted == on || self.alert.is_none() {
+            return false;
+        }
+        self.alerted = on;
+        if !self.sneaking {
+            self.set = self.upright();
+        }
+        true
     }
 
     /// Crouch (`true`) or stand up: the set's clips change, and the move is chosen again
@@ -168,7 +219,7 @@ impl Locomotion {
         if self.sneaking == on {
             return false;
         }
-        let Some(set) = (if on { self.sneak.clone() } else { Some(self.stand.clone()) }) else { return false };
+        let Some(set) = (if on { self.sneak.clone() } else { Some(self.upright()) }) else { return false };
         self.sneaking = on;
         self.set = set;
         self.blend = Blend::new(Move::Idle, self.blend.cur.phase);
@@ -178,7 +229,11 @@ impl Locomotion {
     /// Choose the move for the current velocity and turn rate, and advance the blend.
     pub fn step(&mut self, dt: f32) {
         let set = &self.set;
-        let choice = choose(|m| set.info(m), self.velocity, self.turn);
+        let pace = if self.pace > 0.0 { self.pace } else { 1.0 };
+        let mut choice = choose(|m| set.info(m), [self.velocity[0] / pace, self.velocity[1] / pace], self.turn);
+        if choice.mv.is_moving() {
+            choice.rate *= pace;
+        }
         self.blend.step(choice, dt, |m| set.info(m));
     }
 
@@ -217,6 +272,7 @@ type ActorAnimParts = (
     Option<&'static crate::furniture::OnFurniture>,
     Option<&'static crate::idles::ActorIdle>,
     Option<&'static mut crate::attack_anims::CombatPose>,
+    Option<&'static mut crate::creature_stance::CreatureStance>,
 );
 
 /// Choose, blend and pose every actor with a [`Locomotion`], with its weapon clips
@@ -231,7 +287,7 @@ pub fn drive(
     let t0 = std::time::Instant::now();
     let (dt, now) = (time.delta_secs(), time.elapsed_secs());
     let mut n = 0;
-    for (mut lo, mut player, weapon, dying, flinch, seated, idle, pose) in &mut actors {
+    for (mut lo, mut player, weapon, dying, flinch, seated, idle, pose, creature) in &mut actors {
         if let Some(mut d) = dying {
             // Dead: the death pose to its end and held; without one the pose stays.
             let Some(clip) = d.clip.clone() else { continue };
@@ -277,6 +333,13 @@ pub fn drive(
                 w.step(dt);
             }
             w.layers(&mut player);
+        }
+        // A creature's unarmed stance (`creature_stance.rs`) on the same layers.
+        if let Some(mut c) = creature {
+            if !lo.hold {
+                c.step(dt);
+            }
+            c.layers(&mut player);
         }
         let idles = crate::idles::IDLE_LAYER;
         (player.layers[idles], player.layers[idles + 1]) = (None, None);

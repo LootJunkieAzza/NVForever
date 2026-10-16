@@ -5178,6 +5178,31 @@ hint, the text overlay, radio subtitles and the Fallout 3 music question.
   then aim, then attack, by track priority). *Not covered:* aim up and down, reloads,
   jams, equip and holster. *Check:* run it for each type and list the broken cases.
 
+## Scripted weapon use: UseWeapon and Use Weapon packages (2026-10-16, session "use-weapon")
+Built (docs/design/use-weapon.md): an actor told to use a weapon walks to where it is to
+stand, draws, turns to its target and fires its shots. My choices and guesses, to confirm:
+- **A script's use beats the fight.** The shipped scripts call StartCombat right next to
+  UseWeapon (e.g. a trigger that has an actor fire four shots at someone, then fight you),
+  so the use runs first and the combat AI takes over after the last shot. A *package's*
+  use waits while the actor is in combat, like other package doings.
+- **Shots.** The function's count is one volley at the weapon's own rate (semi-automatics
+  wait their record's semi-auto delay between shots). For packages: Number of Bursts =
+  that many volleys, each a random size between Shots Per Volley min and max; Volley Fire
+  waits a random pause between volleys, Auto Fire does not; Repeat Fire goes on until the
+  package changes.
+- **Always Hit** = no spread at all, straight at the chest (cover can still stop it).
+  **Do No Damage** = the shot flies, hits, shows its impact and makes its sound, but no
+  damage, no OnHit, no explosion.
+- **Hold Fire When Blocked** only looks at people in the line of fire, not walls.
+  **Target should be here**: the target must be within 256 units of that reference.
+- **Crouch To Reload** crouches the actor while its weapon reloads (ammo is unlimited, as
+  for the combat AI, so it only reloads when its magazine is empty).
+- **Not built:** melee weapon use (the use ends at once), swapping the model in the hand
+  when the use names another weapon (that weapon's shots come out of the gun drawn),
+  grabbing a weapon the actor does not carry, the 9 packages' location 2.
+- **Check:** `python tools/smoke run --only use-weapon` (Violet fires three harmless,
+  always-hit shots at you). In the game: Archimedes II's targeting sequence and the
+  Cachino/Big Sal killing in the Gomorrah quest use it.
 ## Combat lines and effort sounds (2026-10-16, session "combat dialogue", branch claude/combat-dialogue)
 
 The Combat tab's topics are now said in fights (docs/spec-notes/combat-dialogue.md). From the
@@ -5240,3 +5265,34 @@ To check with a controller in the original, my guesses:
 5. The prompt under the crosshair shows "A)" as text; the original shows the A button's
    picture. Menus' own buttons and hints ("E) Exit") do not follow the controller yet.
 
+## NPCs' holstered flamer: tank on the back, no gun (2026-10-16)
+
+Your request: an unequipped flamer should show the flame tank on the back and no weapon,
+as your minigun does. Branch `claude/npc-heavy-holster`. Facts: `docs/spec-notes/animation.md` §9.7.
+
+1. **Built:** NPCs now read the same two things from the game files as your character:
+   the flamer's tank (and the minigun's backpack) hangs from the upper back, and the gun
+   part is switched off while holstered and on half way through the draw, by the
+   animations' own show/hide tracks. Checked on Cook-Cook: holstered, the tank on his
+   back and empty hands; drawn, the flamer in both hands with the tank still on the back.
+2. **Also:** NPCs' miniguns and gatling lasers get the same. Under a package that keeps
+   weapons put away, the tank is hidden with the rest of the weapon; it is not counted as
+   part of the gun when hits on the weapon are worked out.
+3. **Your character's flamer** already worked this way (it uses the same rule as the
+   minigun); I did not take a new look at it.
+
+## Key names in tutorial messages (2026-10-16, session "key-tokens")
+
+Branch `claude/key-tokens`: the sneak tutorial read "To sneak or crouch, &sUActnCrouch;."
+(owner's screenshot).
+
+**Fix.** The game's texts use 16 control strings (every `&…;` in FalloutNV.esm); five are
+not the INI's names: Sldleft and Sldright (mapped before), and now Crouch (Crouch/Sneak),
+Rdyitem (Ready Item) and ToggleRun. A control bound only to a mouse button names the
+button ("Left Mouse: Attack"). The keys are read when the message appears, so a key
+rebound on the Controls page shows in the next message.
+*Guesses for you to check:*
+1. ToggleRun ("To toggle between run and walk, …") is the Always Run key (Caps Lock).
+2. The original's words for keys are not known: modifiers read "Left Ctrl", "Left Shift",
+   mouse buttons "Left Mouse", and `&sDeviceMouse;` ("… Look around") reads "Mouse".
+   A screenshot of the sneak tutorial or the controls help in the game would settle them.

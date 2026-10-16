@@ -86,8 +86,7 @@ use fnv_game::combat_group::{Post, PostKind, Strength};
 use fnv_nav::Space;
 use nvf_play::Location;
 use crate::limbs::ActorRig;
-use crate::locomotion::{Dying, Flinch, Locomotion};
-use fnv_actor::locomotion::Move;
+use crate::locomotion::{Dying, Flinch};
 use crate::ragdoll::Corpse;
 use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 use crate::world::bevy_to_game;
@@ -139,9 +138,9 @@ pub const HIP_FIRE_WITHIN: f32 = 1400.0;
 /// nearer than [`HIP_FIRE_WITHIN`], so it does not switch at the edge [design].
 pub const SIGHTS_HYSTERESIS: f32 = 50.0;
 /// Without a muzzle node, shots leave this far in front of the eyes, game units [design].
-const MUZZLE_AHEAD: f32 = 24.0;
+pub(crate) const MUZZLE_AHEAD: f32 = 24.0;
 /// The chest as a fraction of the eye height (as `detection.rs` aims its sight).
-const CHEST: f32 = 0.75;
+pub(crate) const CHEST: f32 = 0.75;
 /// A gunman fires only while its target is within this angle of straight ahead,
 /// radians (30°) [design: owner's playtest list 5 item 33, "NPCs must face their target
 /// before shooting"].
@@ -149,7 +148,7 @@ pub const FIRE_FACING: f32 = 30.0 * std::f32::consts::PI / 180.0;
 
 /// How far (radians, 0 to π) the target at `to` lies off the heading of the actor whose
 /// root is at `global`, standing at `feet` (game space).
-fn facing_off(global: &GlobalTransform, feet: V3, to: V3) -> f32 {
+pub(crate) fn facing_off(global: &GlobalTransform, feet: V3, to: V3) -> f32 {
     let ahead = bevy_to_game(global.transform_point(Vec3::Y)) - bevy_to_game(global.translation());
     let want = Vec2::new(to[0] - feet[0], to[1] - feet[1]);
     let have = ahead.truncate();
@@ -263,7 +262,7 @@ struct Stats {
 }
 
 /// A number in [0, 1) from the module's own sequence `rng` [design].
-fn next_unit(rng: &mut u64) -> f32 {
+pub(crate) fn next_unit(rng: &mut u64) -> f32 {
     *rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
     (*rng >> 40) as f32 / (1u64 << 24) as f32
 }
@@ -332,30 +331,27 @@ fn reach_of(c: &Combat, arm: &Arm, scale: f32) -> f32 {
     }
 }
 
-fn is_gun(c: &Combat, w: &WeaponStats, id: FormId) -> bool {
+pub(crate) fn is_gun(c: &Combat, w: &WeaponStats, id: FormId) -> bool {
     AttackKind::of(w) == AttackKind::Gun && c.forms.chain(id, None).is_some_and(|ch| ch.projectile.is_some())
 }
 
 /// The navmesh, the player's place, the battle's counts, and who the AI moves.
 type Where<'w> = (Option<Res<'w, NavState>>, Option<Res<'w, Location>>, ResMut<'w, Battle>, Option<Res<'w, crate::residents::Residents>>);
 
-type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>, Option<&'w Flinch>, Option<&'w Locomotion>);
+type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>, Option<&'w Flinch>);
 
-/// The share of the running speed a fighter keeps (`Awarenesses::pace`, read by the AI
-/// that moves it): a creature runs at its own run clip's pace (the root motion of its
-/// `fastforward` clip at its scale, times its Speed Mult) where that is slower than the running speed all
-/// actors are given [design: the owner's playtest list 5 item 25, radscorpions ran far
-/// too fast; the clip speed as the creature's speed is a hypothesis]; a two-handed weapon
-/// drawn costs `fMove2HBigPenalty` of it (item 61).
-fn pace(creature_run: Option<f32>, two_handed_drawn: bool, penalty: f32) -> f32 {
-    let own = creature_run.filter(|v| *v > 1.0).map_or(1.0, |v| (v / nvf_play::player::MoveSpeeds::OBSERVED.run).clamp(MIN_PACE, 1.0));
-    let weapon = if two_handed_drawn { (1.0 - penalty).clamp(0.1, 1.0) } else { 1.0 };
-    own * weapon
+/// The share of its running speed a fighter keeps (`Awarenesses::pace`, read by the AI
+/// that moves it): a two-handed weapon drawn costs `fMove2HBigPenalty` of it (item 61).
+/// A creature's own running speed (its run clip's pace) is the AI's
+/// (`fnv_ai::Ai::speeds`, set by `creature_pace.rs`); this was where creatures were held
+/// below the people's running speed (the owner's playtest list 5 item 25).
+fn pace(two_handed_drawn: bool, penalty: f32) -> f32 {
+    if two_handed_drawn {
+        (1.0 - penalty).clamp(0.1, 1.0)
+    } else {
+        1.0
+    }
 }
-
-/// The slowest pace [`pace`] gives a creature, so a clip with little root motion does
-/// not stop it [design].
-const MIN_PACE: f32 = 0.25;
 
 /// One frame of every fight (module notes).
 #[allow(clippy::too_many_arguments)]
@@ -384,7 +380,7 @@ fn fight(
     let muzzle_at: HashMap<u32, V3> = muzzles.iter().map(|(m, g)| (m.reference, bevy_to_game(g.translation()).to_array())).collect();
     // Where everyone is: feet and chest (game space), and size.
     let mut places: HashMap<u32, (V3, V3, f32)> = HashMap::new();
-    for (rig, g, vis, _, dying, corpse, _, _) in &actors {
+    for (rig, g, vis, _, dying, corpse, _) in &actors {
         if vis.get() && !dying && !corpse {
             let feet = bevy_to_game(g.translation()).to_array();
             let scale = g.affine().transform_vector3(Vec3::Z).length().max(0.1);
@@ -410,12 +406,16 @@ fn fight(
     let mut still: Vec<u32> = Vec::new();
     with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
-        for (rig, global, _, hold, _, _, flinch, loco) in &actors {
+        for (rig, global, _, hold, _, _, flinch) in &actors {
             let id = rig.reference;
             let me = FormId(id);
             let Some(&(feet, eyes, scale)) = places.get(&id) else { continue };
             // ToggleActorsAI or SetActorsAI 0: it does not fight.
             if g.ai_off(me) {
+                continue;
+            }
+            // A script's weapon use comes first (`use_weapon`).
+            if g.weapon_use(me).is_some_and(|w| w.source == fnv_game::use_weapon::Source::Script) {
                 continue;
             }
             let Some(aw) = g.awareness.get(me).filter(|a| a.state == State::Combat) else { continue };
@@ -429,24 +429,14 @@ fn fight(
             let Some(&(tfeet, teyes, _)) = places.get(&target.0) else { continue };
             still.push(id);
             // How fast it runs (`pace`).
-            // A creature's own run: its clip's root motion at its scale, times its Speed
-            // Mult (CREA ACBS; a small radscorpion: 315 units/s × 0.5 × 150 % = 236
-            // [observed: the clip and the record]).
-            let creature = g.data.actors.get(&FormId(rig.base)).filter(|d| &d.sig == b"CREA");
-            let speed_mult = creature.map_or(100.0, |d| if d.speed_mult > 0 { d.speed_mult as f32 } else { 100.0 });
-            let creature_run = loco.filter(|_| creature.is_some()).and_then(|l| l.set.info(Move::FastForward)).map(|i| i.speed * scale * speed_mult / 100.0);
             let two = crate::attack_anims::drawn(hold) && weapons.get(&id).and_then(|w| c.forms.weapons.get(w)).is_some_and(WeaponStats::two_handed);
-            let p = pace(creature_run, two, c.rules.move_2h_penalty);
+            let p = pace(two, c.rules.move_2h_penalty);
             if g.awareness.pace_of(me) != p {
                 info!(
                     "npc combat: {} {me} runs at {:.0}% of the running speed ({})",
                     g.data.name(me),
                     p * 100.0,
-                    match (creature_run, two) {
-                        (Some(v), _) if p < 1.0 && !two => format!("its run clip moves {v:.0} units/s"),
-                        (_, true) => "a two-handed weapon drawn".to_string(),
-                        _ => "its own pace".to_string(),
-                    }
+                    if two { "a two-handed weapon drawn" } else { "its own pace" }
                 );
             }
             if p < 1.0 {
@@ -865,7 +855,7 @@ fn fight(
                                 }
                                 let stance = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: false, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled: false, right_arm_crippled: false };
                                 let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &stance), 0.0, ws, &[]) + settling(fighter.firing_for);
-                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle });
+                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights });
                                 f.stats.shots += 1;
                                 // Its Attack line, on its own timer (fnv_game::combat_lines).
@@ -1003,18 +993,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn creatures_run_at_their_clip_pace_and_two_handed_weapons_slow() {
-        let run = nvf_play::player::MoveSpeeds::OBSERVED.run;
-        // People, and creatures whose clips run faster than the running speed: full pace.
-        assert_eq!(pace(None, false, 0.1), 1.0);
-        assert_eq!(pace(Some(run * 1.5), false, 0.1), 1.0);
-        // A creature whose run clip moves half as fast runs at half pace, never below
-        // the floor.
-        assert!((pace(Some(run / 2.0), false, 0.1) - 0.5).abs() < 1e-4);
-        assert_eq!(pace(Some(5.0), false, 0.1), MIN_PACE);
-        assert_eq!(pace(Some(0.0), false, 0.1), 1.0);
+    fn two_handed_weapons_slow() {
+        assert_eq!(pace(false, 0.1), 1.0);
         // A rifle drawn costs fMove2HBigPenalty.
-        assert!((pace(None, true, 0.1) - 0.9).abs() < 1e-6);
+        assert!((pace(true, 0.1) - 0.9).abs() < 1e-6);
     }
 
     #[test]

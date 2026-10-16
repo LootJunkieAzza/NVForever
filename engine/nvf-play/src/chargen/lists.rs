@@ -1,8 +1,9 @@
-//! The tag-skill menu (`menus\chargen\char_gen_menu.xml`, menu 1048) and the trait menu
-//! (`menus\trait_menu.xml`, 1084): a list at the left, the chosen row's picture and text
-//! at the right, a counter under them, Reset and Done at the top right
-//! (docs/spec-notes/chargen.md §3 and §4). Both are the same kind of menu with other
-//! numbers, so one model and one drawing serve both.
+//! The tag-skill menu (`menus\chargen\char_gen_menu.xml`, menu 1048), its attributes
+//! page (the same file's attribute rows, opened by AddSPECIALPoints: Intense Training)
+//! and the trait menu (`menus\trait_menu.xml`, 1084): a list at the left, the chosen
+//! row's picture and text at the right, a counter under them, Reset and Done at the top
+//! right (docs/spec-notes/chargen.md §3 and §4, levelup.md §8). They are the same kind of
+//! menu with other numbers, so one model and one drawing serve them.
 //!
 //! - [`ListMenu`] is the menu's state (the sheet, the start it resets to, the chosen
 //!   row, the scroll); [`ListMenu::view`] reads what to draw from it and the game.
@@ -12,7 +13,9 @@
 use super::draw::{Align, Ctx, Which, BODY_H, THICK};
 use crate::interface::{amber, at, u};
 use bevy::prelude::*;
-use fnv_game::chargen::{self, TagSheet, TraitSheet};
+use fnv_game::actor_values::SPECIALS;
+use fnv_game::chargen::{self, SpecialSheet, TagSheet, TraitSheet};
+use fnv_game::functions::ui::SpecialMenu;
 use fnv_game::game::menus;
 use fnv_game::Game;
 
@@ -65,7 +68,26 @@ const SHADE: f32 = crate::interface::MENU_BACKING;
 const MARKER_H: f32 = 105.0;
 const MARKER_GAP: f32 = 23.0;
 
-/// The numbers that differ between the two files.
+/// The attributes page's list top (the file's "set in code"): the highlight box 261.3
+/// below the rectangle's top on the fourth row [observed: pixels 768–881 on the owner's
+/// 3840 × 2160 screenshot, 2.25 to the unit, the rectangle's top at 180].
+const ATTR_LIST_Y: f32 = 105.0;
+/// The attributes page's seven rows, Strength to Luck.
+pub const SPECIAL_ROWS: usize = 7;
+/// An attribute row [documented: char_gen_menu.xml CGM_AttributeTemplate]: the name at
+/// 15, 20; the value centred at 325; the "−" at 230, −5 and the "+" at 355, −5, 64
+/// square.
+const ATTR_TEXT_X: f32 = 15.0;
+const ATTR_VALUE_X: f32 = 325.0;
+const ATTR_MINUS_X: f32 = 230.0;
+const ATTR_PLUS_X: f32 = 355.0;
+const ARROW_Y: f32 = -5.0;
+const ARROW: f32 = 64.0;
+/// The arrows' pictures, and lit under the pointer (`_Filename_1`, `_Filename_2`).
+const MINUS_PIC: [&str; 2] = ["interface\\shared\\arrow\\adjust_decrease.dds", "interface\\shared\\arrow\\adjust_decrease_over.dds"];
+const PLUS_PIC: [&str; 2] = ["interface\\shared\\arrow\\adjust_increase.dds", "interface\\shared\\arrow\\adjust_increase_over.dds"];
+
+/// The numbers that differ between the files.
 struct Shape {
     list: [f32; 3],
     visible: usize,
@@ -77,8 +99,12 @@ struct Shape {
     done_y: f32,
 }
 
-fn shape(code: u16) -> Shape {
-    if code == menus::TAG_SKILLS {
+fn shape(code: u16, attributes: bool) -> Shape {
+    if attributes {
+        // [documented: char_gen_menu.xml] as the tag-skill page, with the attribute
+        // template's text and value.
+        Shape { list: [-15.0, ATTR_LIST_Y, 450.0], visible: 14, text_x: ATTR_TEXT_X, wrap: 390.0, value_x: ATTR_VALUE_X, icon: [500.0, 20.0, 400.0], info: [445.0, 420.0, 580.0], done_y: 52.0 }
+    } else if code == menus::TAG_SKILLS {
         // [documented: char_gen_menu.xml] x -15, width 450, 14 rows; the template's text
         // at 40 wrapping at 390, its value centred at 360; the picture 400 square at 500,
         // 20; the info rectangle at 445, 420, 580 wide.
@@ -99,6 +125,8 @@ fn shape(code: u16) -> Shape {
 pub enum Sheet {
     Tags { now: TagSheet, start: TagSheet },
     Traits { now: TraitSheet, start: TraitSheet, allowed: Vec<bool> },
+    /// The attributes page: Strength to Luck, with the points AddSPECIALPoints gave.
+    Special { now: SpecialSheet, start: SpecialSheet },
 }
 
 /// A clickable part besides the rows.
@@ -108,6 +136,9 @@ pub enum ListButton {
     Done,
     ScrollUp,
     ScrollDown,
+    /// An attribute row's "+" and "−".
+    Plus(usize),
+    Minus(usize),
 }
 
 /// A clickable row (its index in the list).
@@ -134,12 +165,17 @@ pub struct RowView {
     /// [hypothesis: not seen on a screenshot; the template's `_TextAlpha` says rows can
     /// be drawn fainter].
     pub dim: bool,
+    /// An attribute row's "+" and "−" are shown.
+    pub plus: bool,
+    pub minus: bool,
 }
 
 /// What the menu shows, read from its state and the game.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListView {
     pub code: u16,
+    /// The attributes page of the tag-skill menu's file.
+    pub attributes: bool,
     pub title: String,
     pub rows: Vec<RowView>,
     pub selected: usize,
@@ -152,9 +188,13 @@ pub struct ListView {
 }
 
 impl ListMenu {
-    /// The menu for `code` (1048 or 1084), from the player as the game holds them.
+    /// The menu for `code` (1048 or 1084), from the player as the game holds them; 1048
+    /// is the attributes page when AddSPECIALPoints opened it.
     pub fn open(code: u16, g: &mut Game) -> ListMenu {
-        let sheet = if code == menus::TAG_SKILLS {
+        let sheet = if code == menus::TAG_SKILLS && matches!(g.ui.special, Some(SpecialMenu::Add(_))) {
+            let s = SpecialSheet::for_menu(g);
+            Sheet::Special { now: s, start: s }
+        } else if code == menus::TAG_SKILLS {
             let s = TagSheet::for_menu(g);
             Sheet::Tags { now: s.clone(), start: s }
         } else {
@@ -169,11 +209,16 @@ impl ListMenu {
         match &self.sheet {
             Sheet::Tags { now, .. } => now.skills.len(),
             Sheet::Traits { now, .. } => now.traits.len(),
+            Sheet::Special { .. } => SPECIAL_ROWS,
         }
     }
 
-    fn visible(&self) -> usize {
-        shape(self.code).visible
+    pub fn attributes(&self) -> bool {
+        matches!(self.sheet, Sheet::Special { .. })
+    }
+
+    pub fn visible(&self) -> usize {
+        shape(self.code, self.attributes()).visible
     }
 
     /// Choose row `i` (pointer or keys), scrolling it into the list.
@@ -204,10 +249,12 @@ impl ListMenu {
         self.scroll = (self.scroll as i32 + by).clamp(0, most) as usize;
     }
 
-    /// Tag or untag, take or give back the chosen row. Whether anything changed.
+    /// Tag or untag, take or give back the chosen row; on the attributes page raise it.
+    /// Whether anything changed.
     pub fn toggle(&mut self) -> bool {
         let i = self.selected;
         match &mut self.sheet {
+            Sheet::Special { now, .. } => i < SPECIAL_ROWS && now.raise(i),
             Sheet::Tags { now, .. } => match now.skills.get(i).copied() {
                 Some(s) => now.toggle(s),
                 None => false,
@@ -219,12 +266,28 @@ impl ListMenu {
         }
     }
 
+    /// Raise or lower attribute `i` (the attributes page; nothing elsewhere). Whether it
+    /// changed.
+    pub fn adjust(&mut self, i: usize, up: bool) -> bool {
+        match &mut self.sheet {
+            Sheet::Special { now, .. } if i < SPECIAL_ROWS => {
+                if up {
+                    now.raise(i)
+                } else {
+                    now.lower(i)
+                }
+            }
+            _ => false,
+        }
+    }
+
     /// Reset: the sheet as the menu opened with it [hypothesis: the original's Reset
     /// may clear every choice instead; not captured].
     pub fn reset(&mut self) {
         match &mut self.sheet {
             Sheet::Tags { now, start } => *now = start.clone(),
             Sheet::Traits { now, start, .. } => *now = start.clone(),
+            Sheet::Special { now, start } => *now = *start,
         }
     }
 
@@ -234,6 +297,8 @@ impl ListMenu {
         match &self.sheet {
             Sheet::Tags { now, .. } => now.complete(),
             Sheet::Traits { .. } => true,
+            // [observed: "Done A)" dim at "0/1 Points Assigned", bright at 1/1]
+            Sheet::Special { now, .. } => now.complete(),
         }
     }
 
@@ -242,6 +307,7 @@ impl ListMenu {
         match &self.sheet {
             Sheet::Tags { now, .. } => now.skills.get(i).map(|&s| chargen::skill_name(g, s)),
             Sheet::Traits { now, .. } => now.traits.get(i).and_then(|t| g.data.perks.get(t)).map(|p| p.name.clone()),
+            Sheet::Special { .. } => SPECIALS.clone().nth(i).map(|c| chargen::skill_name(g, c)),
         }
     }
 
@@ -250,6 +316,11 @@ impl ListMenu {
         match &self.sheet {
             Sheet::Tags { now, .. } => now.skills.iter().filter(|s| now.tagged.contains(s)).map(|&s| chargen::skill_name(g, s)).collect(),
             Sheet::Traits { now, .. } => now.traits.iter().filter(|t| now.chosen.contains(t)).filter_map(|t| g.data.perks.get(t)).map(|p| p.name.clone()).collect(),
+            Sheet::Special { now, start } => SPECIALS
+                .enumerate()
+                .filter(|&(i, _)| now.values[i] != start.values[i])
+                .map(|(i, c)| format!("{} {} -> {}", chargen::skill_name(g, c), start.values[i], now.values[i]))
+                .collect(),
         }
     }
 
@@ -260,7 +331,7 @@ impl ListMenu {
                     .skills
                     .clone()
                     .into_iter()
-                    .map(|s| RowView { text: chargen::skill_name(g, s), value: Some(now.value(g, s).to_string()), marked: now.tagged.contains(&s), dim: false })
+                    .map(|s| RowView { text: chargen::skill_name(g, s), value: Some(now.value(g, s).to_string()), marked: now.tagged.contains(&s), dim: false, plus: false, minus: false })
                     .collect();
                 let info = now.skills.get(self.selected).and_then(|&s| g.data.actor_value_info(s));
                 (
@@ -281,6 +352,8 @@ impl ListMenu {
                         value: None,
                         marked: now.chosen.contains(t),
                         dim: !allowed.get(i).copied().unwrap_or(true) && !now.chosen.contains(t),
+                        plus: false,
+                        minus: false,
                     })
                     .collect();
                 let t = now.traits.get(self.selected).copied();
@@ -291,8 +364,35 @@ impl ListMenu {
                 };
                 (trait_title(g, now.max), rows, p.and_then(|p| p.icon.clone()), info, trait_counter(now.left()))
             }
+            Sheet::Special { now, start } => {
+                // A "+" while points are left and the attribute is under 10, a "−" on an
+                // attribute raised in the menu [documented: the attribute template's
+                // arrows, `_OnlyAdd` set; observed: no "+" on Luck 10, none anywhere with
+                // the point given, the "−" on Charisma 6].
+                let rows = SPECIALS
+                    .clone()
+                    .enumerate()
+                    .map(|(i, c)| RowView {
+                        text: chargen::skill_name(g, c),
+                        value: Some(now.values[i].to_string()),
+                        marked: false,
+                        dim: false,
+                        plus: now.remaining() > 0 && now.values[i] < chargen::SPECIAL_MAX,
+                        minus: now.can_lower(i),
+                    })
+                    .collect();
+                let info = SPECIALS.clone().nth(self.selected).and_then(|c| g.data.actor_value_info(c));
+                let points = now.total - start.values.iter().sum::<i32>();
+                (
+                    special_title(points - now.remaining(), points),
+                    rows,
+                    info.and_then(|i| i.icon.clone()),
+                    info.map(|i| i.description.clone()).unwrap_or_default(),
+                    special_counter(now.remaining()),
+                )
+            }
         };
-        ListView { code: self.code, title, rows, selected: self.selected, scroll: self.scroll, icon, info, counter, done: self.can_finish(), hover: self.hover }
+        ListView { code: self.code, attributes: self.attributes(), title, rows, selected: self.selected, scroll: self.scroll, icon, info, counter, done: self.can_finish(), hover: self.hover }
     }
 }
 
@@ -309,6 +409,22 @@ pub fn tag_counter(remaining: usize) -> String {
         0 => String::new(),
         1 => "Tag 1 Skill".into(),
         n => format!("Tag {n} Skills"),
+    }
+}
+
+/// The attributes page's title [observed: "ATTRIBUTES: 0/1 Points Assigned", "ATTRIBUTES:
+/// 1/1 Points Assigned"].
+pub fn special_title(assigned: i32, points: i32) -> String {
+    format!("ATTRIBUTES: {assigned}/{points} Points Assigned")
+}
+
+/// The counter under the attributes page's text [observed: "Distribute 1 Point", nothing
+/// with the point given; hypothesis: "Distribute 2 Points"].
+pub fn special_counter(remaining: i32) -> String {
+    match remaining {
+        n if n <= 0 => String::new(),
+        1 => "Distribute 1 Point".into(),
+        n => format!("Distribute {n} Points"),
     }
 }
 
@@ -356,7 +472,7 @@ pub fn marker(rows: usize, visible: usize, first: usize, list_h: f32) -> Option<
 
 /// Spawn the menu under `root` (a full-screen node).
 pub fn spawn(root: &mut ChildSpawnerCommands, v: &ListView, c: &mut Ctx) {
-    let s = shape(v.code);
+    let s = shape(v.code, v.attributes);
     let bright = amber(255.0);
     let main = Node { width: u(MAIN.x), height: u(MAIN.y), ..default() };
     root.spawn(main).with_children(|p| {
@@ -414,9 +530,31 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &ListView, s: &Shape) {
                 if let Some(val) = &r.value {
                     c.text(row, Which::Body, val, s.value_x, TEXT_Y, Align::Centre, color);
                 }
+                // The chosen row's "+" lit, as the level-up menu's [observed there]; an
+                // arrow under the pointer too.
+                if r.minus {
+                    let lit = v.hover == Some(ListButton::Minus(i));
+                    arrow(row, c, MINUS_PIC[usize::from(lit)], ATTR_MINUS_X, "-", ListButton::Minus(i));
+                }
+                if r.plus {
+                    let lit = v.hover == Some(ListButton::Plus(i)) || (i == v.selected && v.hover != Some(ListButton::Minus(i)));
+                    arrow(row, c, PLUS_PIC[usize::from(lit)], ATTR_PLUS_X, "+", ListButton::Plus(i));
+                }
             });
         }
     });
+}
+
+/// An attribute row's "+" or "−": its picture (a sign in the body font without the
+/// game's pictures), above the rows around it so the parts that reach over them stay
+/// clickable.
+fn arrow(row: &mut ChildSpawnerCommands, c: &mut Ctx, picture: &str, x: f32, sign: &str, part: ListButton) {
+    let node = at(x, ARROW_Y, ARROW, ARROW);
+    if c.image(row, picture, node.clone(), amber(255.0), (Button, part, GlobalZIndex(31))).is_none() {
+        row.spawn((node, Button, part, GlobalZIndex(31))).with_children(|a| {
+            c.text(a, Which::Body, sign, ARROW / 2.0, ARROW / 2.0 - BODY_H / 2.0, Align::Centre, amber(255.0));
+        });
+    }
 }
 
 fn info(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &ListView, s: &Shape) {
@@ -511,6 +649,28 @@ mod tests {
         assert_eq!(m.scroll, 3);
         assert!(marker(16, 13, 0, 676.0).is_some());
         assert!(marker(13, 14, 0, 728.0).is_none());
+    }
+
+    #[test]
+    fn the_attributes_page() {
+        // Luck 10, the others 5, one point from Intense Training.
+        let mut start = SpecialSheet::new([5, 5, 5, 5, 5, 5, 10]);
+        start.total = 41;
+        start.floor = start.values;
+        let mut m = ListMenu { code: menus::TAG_SKILLS, sheet: Sheet::Special { now: start, start }, selected: 6, scroll: 0, hover: None };
+        assert!(m.attributes() && !m.can_finish());
+        assert!(!m.toggle(), "Luck is at 10");
+        assert!(!m.adjust(3, false), "nothing to take back");
+        assert!(m.adjust(3, true));
+        assert!(!m.adjust(0, true), "no point left");
+        assert!(m.can_finish());
+        assert!(m.adjust(3, false) && !m.can_finish());
+        m.select(3);
+        assert!(m.toggle());
+        m.reset();
+        assert!(!m.can_finish());
+        assert_eq!((special_title(0, 1), special_title(1, 1)), ("ATTRIBUTES: 0/1 Points Assigned".to_string(), "ATTRIBUTES: 1/1 Points Assigned".to_string()));
+        assert_eq!((special_counter(1), special_counter(0)), ("Distribute 1 Point".to_string(), String::new()));
     }
 
     #[test]

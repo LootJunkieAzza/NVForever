@@ -313,7 +313,7 @@ impl Ai {
     /// `starter` sets off to `partner`, who waits. False when there is no way there.
     fn chat_set_off(&mut self, game: &mut Game, nav: &NavGraph, starter: FormId, partner: FormId, to: Place, away: f32) -> bool {
         let params = self.path_params(game, starter);
-        let speed = self.cfg.walk_speed;
+        let speed = self.calm_speeds(starter).walk;
         let a = self.agents.get_mut(&starter).expect("listed");
         a.walker.speed = speed;
         let Ok(length) = a.walker.go_to(nav, to, &params).map(|p| p.length) else { return false };
