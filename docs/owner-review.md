@@ -4815,3 +4815,44 @@ what they could not settle is a guess:
   after the Pip-Boy is up, then every 4–10 s: the interval is my guess, say if it should
   be denser or a single one. Mode buttons/F1–F3 play `UIPipBoyMode`; the flashlight plays
   `UIPipBoyLightOn`/`Off`.
+
+## List 5 — claude/l5-world-objects (2026-10-16, laptop L3: items 59, 65, 64, 4)
+
+- **59 (motorcycles outside the saloon):** the three are STAT references
+  (`Motorcycle01Static`), but their model `vehicles\motorcycle01.nif` has one dynamic
+  Havok body (Props layer, 600 kg), the same model as the moveable static `Motorcycle01`.
+  So the NIF cannot be what keeps them still in the game; the record type is.
+  *Decision:* a placed STAT or SCOL never moves: its dynamic bodies are made fixed
+  (physics.md §4.3.2). This also fixes the 1,131 other STAT references with dynamic models
+  (mostly the `1stPerson…` weapon statics). MSTT, items, containers and activators move as
+  before. `fnvtool phys cell` (the parity lab's rule) is unchanged. *Check:* walk into the
+  saloon's motorcycles (they should not move), and push a tumbleweed and a Sarsaparilla
+  crate (they should still move).
+- **65 (animated containers):** containers whose model has Open and Close sequences
+  (school lockers, footlockers, safes, toolboxes, ammo boxes) are now drawn with their
+  moving parts and timed like doors that open in place. Opening one plays Open (0.13–0.5 s)
+  and the container menu opens when it ends; closing the menu plays Close. Their sounds are
+  the sequences' `Sound:` keys (`DRSLocker01Open`, `DRSSafeOpen`, …): these CONT records
+  have no open or close sound of their own. *Guess:* the menu waits for the whole Open
+  sequence (at most 2 s). A container with both its own SNAM/QNAM sound and sound keys
+  would play both; none of the ones checked has both. *Check:* the school house's lockers,
+  footlocker and toolbox and Ringo's floor safe: does the door or lid open before the menu
+  and close after, and are the sounds right?
+- **64 (open after lockpick or hack):** when a lock is picked or forced open, the lockpick
+  menu closes and the door or container is then activated as if you had pressed E on it
+  (a door opens or takes you through, a container's menu opens, after its Open
+  animation). Terminals already went on to their menu after the right password; that is
+  unchanged. *Check:* pick a locked door and a locked container.
+- **4 (weapon animations in the viewer):** `nvf-viewer --weapon-review 2hr` (or `1hp`,
+  `2ha`, `2hh`, `2hl`, `1hm`, `2hm`, `h2h`, `1gt`, …) shows a male NPC with a weapon of that
+  type drawn. A / Shift+A step through the cases: standing, walking and running in all four
+  directions, every attack of the type standing and while walking each way, each from the
+  hip and aimed down the sights where the type has sights clips. The screen and the log
+  name each case and every clip it plays (`weapon review: [n] … : 2hrleft.kf + 2hraimis.kf
+  + 2hrattackleftis.kf`), so broken ones can be listed by case number or clip name.
+  Options: `--weapon-mesh <path>` for another weapon model (default: Varmint Rifle, 10mm
+  Pistol, Assault Rifle, Minigun, Missile Launcher, Machete, Sledgehammer, Frag Grenade;
+  the fists have none), `--sneak` for the crouched forms, `--case N` to start at a case.
+  The clips are picked and blended the way the game's actors do it (idle or movement,
+  then aim, then attack, by track priority). *Not covered:* aim up and down, reloads,
+  jams, equip and holster. *Check:* run it for each type and list the broken cases.
