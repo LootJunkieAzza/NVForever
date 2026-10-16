@@ -599,13 +599,13 @@ fn barter_and_drops_ask_how_many_too() {
     m.apply(&mut w, Command::One);
     m.apply(&mut w, Command::Amount(4));
     m.apply(&mut w, Command::AmountOk);
-    assert_eq!(m.trade.as_ref().unwrap().offered[Side::Player as usize].get(&FormId(BULLETS)), Some(&4));
+    assert_eq!(m.trade.as_ref().unwrap().offered[Side::Player as usize].get(&(FormId(BULLETS), None)), Some(&4));
     assert_eq!(m.status.as_deref(), Some("Selling Ammo x4"));
     select(&mut m, Side::Container, "Ammo");
     assert!(m.selected_row(Side::Container).unwrap().bartered);
     m.apply(&mut w, Command::One);
     assert_eq!(m.quantity, None);
-    assert_eq!(m.trade.as_ref().unwrap().offered[Side::Player as usize].get(&FormId(BULLETS)), Some(&3));
+    assert_eq!(m.trade.as_ref().unwrap().offered[Side::Player as usize].get(&(FormId(BULLETS), None)), Some(&3));
     // Inventory: drop 7 of the 10 rounds as one reference holding 7.
     let mut m = MenuModel::open_inventory(&mut w).unwrap();
     select(&mut m, Side::Player, "Ammo");
@@ -624,4 +624,50 @@ fn the_meter_gives_a_part_of_the_stack() {
     assert_eq!(amount_at(0.0, 6), 1);
     assert_eq!(amount_at(1.4, 6), 6);
     assert_eq!(amount_at(0.66, 200), 132);
+}
+
+/// Six Varmint Rifles, one at 95 %: a row of five whole ones and below it a row of one,
+/// and each row moves, equips and sells only its own units (owner, 2026-10-16).
+#[test]
+fn worn_units_list_apart_from_whole_ones() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    w.add_item(PLAYER, FormId(RIFLE), 5).unwrap();
+    w.add_item_extra(PLAYER, FormId(RIFLE), 1, Extra { condition: Some(0.95), ..Extra::default() }).unwrap();
+    let rifles = |m: &MenuModel, side: Side| -> Vec<(i32, Option<f32>, bool)> {
+        m.list(side).rows.iter().filter(|r| r.item == FormId(RIFLE)).map(|r| (r.count, r.condition, r.bartered)).collect()
+    };
+    let worn = |m: &mut MenuModel, side: Side| {
+        let i = m.list(side).rows.iter().position(|r| r.item == FormId(RIFLE) && r.condition == Some(0.95)).expect("a worn row");
+        m.focus = side;
+        m.selected[side as usize] = i;
+    };
+    let mut inv = MenuModel::open_inventory(&mut w).unwrap();
+    assert_eq!(rifles(&inv, Side::Player), vec![(5, Some(1.0), false), (1, Some(0.95), false)]);
+    // Equipping the worn row equips the worn rifle; the rows stay apart.
+    worn(&mut inv, Side::Player);
+    inv.apply(&mut w, Command::One);
+    assert_eq!(inv.status.as_deref(), Some("Equipped Varmint Rifle"));
+    let player = w.get(PLAYER).unwrap().inventory.clone().unwrap();
+    assert_eq!(player.condition_in_use(FormId(RIFLE)), Some(0.95));
+    assert!(inv.list(Side::Player).rows.iter().any(|r| r.item == FormId(RIFLE) && r.equipped && r.count == 1));
+    // Storing it moves that one and no whole one; the box's own whole rifle stays apart.
+    let mut c = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    worn(&mut c, Side::Player);
+    c.apply(&mut w, Command::One);
+    assert_eq!(rifles(&c, Side::Player), vec![(5, Some(1.0), false)]);
+    assert_eq!(rifles(&c, Side::Container), vec![(1, Some(1.0), false), (1, Some(0.95), false)]);
+    // Buying the worn one back costs less than a whole one and brings that one.
+    let mut m = barter(&mut w);
+    worn(&mut m, Side::Container);
+    m.apply(&mut w, Command::One);
+    assert_eq!(rifles(&m, Side::Player)[0], (1, Some(0.95), true));
+    assert!(m.trade.as_ref().unwrap().balance > -330);
+    w.add_item(PLAYER, FormId(CAPS), 400).unwrap();
+    m.refresh(&mut w).unwrap();
+    m.apply(&mut w, Command::Accept);
+    assert!(m.status.as_deref().unwrap_or("").starts_with("Traded"), "{:?}", m.status);
+    assert_eq!(rifles(&m, Side::Player), vec![(5, Some(1.0), false), (1, Some(0.95), false)]);
+    assert_eq!(rifles(&m, Side::Container), vec![(1, Some(1.0), false)]);
 }

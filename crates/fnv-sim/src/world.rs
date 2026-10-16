@@ -474,11 +474,17 @@ impl<'a> World<'a> {
     /// items move like any other: the pages that forbid dropping and selling them say
     /// nothing about containers, so storing one is allowed [hypothesis; not captured].
     pub fn transfer(&mut self, from: FormId, to: FormId, item: FormId, count: i32) -> Result<i32, SimError> {
+        self.transfer_at(from, to, item, count, None)
+    }
+
+    /// As [`World::transfer`], moving only the units `at` picks (`Extra::is_at`: one
+    /// condition, or any): a menu row's units.
+    pub fn transfer_at(&mut self, from: FormId, to: FormId, item: FormId, count: i32, at: Option<f32>) -> Result<i32, SimError> {
         if count <= 0 {
             return Err(SimError::BadCount(count));
         }
         self.inventory(to)?;
-        let groups = unequipped(self.inventory(from)?.take(item, count));
+        let groups = unequipped(self.inventory(from)?.take_at(item, count, at));
         let dest = self.inventory(to)?;
         let mut n = 0;
         for (e, c) in groups {
@@ -574,10 +580,15 @@ impl<'a> World<'a> {
     /// with SetQuestObject both left the player's inventory]. The player's own drop is
     /// [`World::player_drop_item`].
     pub fn drop_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<Vec<FormId>, SimError> {
+        self.drop_item_at(from, item, count, None)
+    }
+
+    /// As [`World::drop_item`], dropping only the units `at` picks.
+    pub fn drop_item_at(&mut self, from: FormId, item: FormId, count: i32, at: Option<f32>) -> Result<Vec<FormId>, SimError> {
         if count <= 0 {
             return Err(SimError::BadCount(count));
         }
-        let groups = unequipped(self.inventory(from)?.take(item, count));
+        let groups = unequipped(self.inventory(from)?.take_at(item, count, at));
         self.drop_groups(from, item, groups)
     }
 
@@ -627,10 +638,15 @@ impl<'a> World<'a> {
     /// nothing moves [documented: GECK wiki Category:Items and SetQuestObject: the player
     /// cannot drop one]. The count is checked first.
     pub fn player_drop_item(&mut self, item: FormId, count: i32) -> Result<Vec<FormId>, SimError> {
+        self.player_drop_item_at(item, count, None)
+    }
+
+    /// As [`World::player_drop_item`], dropping only the units `at` picks.
+    pub fn player_drop_item_at(&mut self, item: FormId, count: i32, at: Option<f32>) -> Result<Vec<FormId>, SimError> {
         if count > 0 && self.is_quest_item(item) {
             return Err(SimError::QuestItem(item));
         }
-        self.drop_item(FormId::PLAYER_REF, item, count)
+        self.drop_item_at(FormId::PLAYER_REF, item, count, at)
     }
 
     /// Equip one carried `item` on `actor`. Weapons replace the equipped weapon; armour
@@ -640,11 +656,17 @@ impl<'a> World<'a> {
     /// broken and is refused with [`SimError::Broken`] until it is repaired [design: the
     /// owner's rule, 2026-10-11]; a unit that is not broken is taken before a broken one.
     pub fn equip(&mut self, actor: FormId, item: FormId) -> Result<Equip, SimError> {
+        self.equip_at(actor, item, None)
+    }
+
+    /// As [`World::equip`], equipping (or using) one of the units `at` picks: a menu
+    /// row's.
+    pub fn equip_at(&mut self, actor: FormId, item: FormId, at: Option<f32>) -> Result<Equip, SimError> {
         let it = self.forms.item(item).ok_or(SimError::NotAnItem(item))?.clone();
         let forms = self.forms;
         let inv = self.inventory(actor)?;
         if it.kind == ItemKind::Aid {
-            return match inv.remove(item, 1) {
+            return match inv.take_at(item, 1, at).iter().map(|g| g.1).sum::<i32>() {
                 1 => Ok(Equip { consumed: true, unequipped: Vec::new() }),
                 _ => Err(SimError::NotCarried { actor, item }),
             };
@@ -655,7 +677,7 @@ impl<'a> World<'a> {
         if inv.count(item) == 0 {
             return Err(SimError::NotCarried { actor, item });
         }
-        if it.kind == ItemKind::Weapon && !inv.has_sound(item) && !inv.is_equipped(item) {
+        if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) {
             return Err(SimError::Broken(item));
         }
         let clashes = |other: FormId| -> bool {
@@ -672,7 +694,7 @@ impl<'a> World<'a> {
                 unequipped.push(other);
             }
         }
-        if !inv.set_equipped(item) {
+        if !inv.set_equipped_at(item, at) {
             return Err(SimError::NotCarried { actor, item });
         }
         Ok(Equip { consumed: false, unequipped })
