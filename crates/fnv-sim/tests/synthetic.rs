@@ -171,6 +171,8 @@ const WORLD2_CELL: u32 = 0x412; // exterior cell at grid (2, 1)
 const GATE_OUT: u32 = 0x30E; // persistent door in WORLD_PERSISTENT -> GATE_IN, in WORLD2
 const GATE_IN: u32 = 0x30F; // persistent door in WORLD2_PERSISTENT -> GATE_OUT, in WORLD
 const ROUNDS_REF: u32 = 0x3F0; // BULLETS without XCNT: the AMMO's Clip Rounds (10)
+const GUARD: u32 = 0x181; // NPC_ carrying PISTOL, RIFLE, HELMET, HAT, SUIT, MINE
+const LONG_GUN: u32 = 0x182; // WEAP with a model and an animation type (drawable), damage 10
 
 fn plugin_bytes() -> Vec<u8> {
     let misc = cat(&[
@@ -232,7 +234,33 @@ fn plugin_bytes() -> Vec<u8> {
         m.extend(extra);
         m
     };
-    let weaps = cat(&[&weap(PISTOL, "TestPistol", 100, 3.0), &weap(RIFLE, "TestRifle", 300, 8.0), &mine]);
+    let long_gun = {
+        let mut m = weap(LONG_GUN, "TestLongGun", 300, 8.0);
+        let mut dnam = vec![0u8; 120];
+        dnam[0..4].copy_from_slice(&5u32.to_le_bytes()); // Rifle - Ballistic (2 Hand)
+        let extra = write_subrecords(&[sub(b"MODL", z("weapons/2handrifle/test.nif")), sub(b"DNAM", dnam)]);
+        let size = u32::from_le_bytes(m[4..8].try_into().unwrap()) + extra.len() as u32;
+        m[4..8].copy_from_slice(&size.to_le_bytes());
+        m.extend(extra);
+        m
+    };
+    let weaps = cat(&[&weap(PISTOL, "TestPistol", 100, 3.0), &weap(RIFLE, "TestRifle", 300, 8.0), &mine, &long_gun]);
+    let guard = record(
+        b"NPC_",
+        0,
+        GUARD,
+        &[
+            sub(b"EDID", z("TestGuard")),
+            cnto(PISTOL, 1),
+            cnto(RIFLE, 1),
+            cnto(HELMET, 1),
+            cnto(HAT, 1),
+            cnto(SUIT, 1),
+            cnto(MINE, 2),
+            cnto(LONG_GUN, 1),
+            sub(b"DATA", cat(&[&50i32.to_le_bytes(), &[5u8, 5, 5, 5, 5, 5, 5]])),
+        ],
+    );
     let proj = record(b"PROJ", 0, MINE_PROJ, &[sub(b"EDID", z("TestMineProjectile"))]);
     let armos = cat(&[&armo(HELMET, "TestHelmet", 0b11, 2.0), &armo(HAT, "TestHat", 0b10, 1.0), &armo(SUIT, "TestSuit", 0b100, 15.0), &armo_flags(GLOVE, "TestGlove", 0b1000, 0x40, 0.0)]);
     let enit = cat(&[&20i32.to_le_bytes(), &[0u8, 0, 0, 0], &0u32.to_le_bytes(), &0f32.to_le_bytes(), &0u32.to_le_bytes()]);
@@ -344,7 +372,7 @@ fn plugin_bytes() -> Vec<u8> {
         &top(b"AMMO", &ammo),
         &top(b"PROJ", &proj),
         &top(b"DOOR", &door),
-        &top(b"NPC_", &npc),
+        &top(b"NPC_", &cat(&[&npc, &guard])),
         &cells,
         &wrld,
     ])
@@ -1297,6 +1325,28 @@ fn the_player_starts_wearing_non_playable_armour_and_keeps_it() {
     assert_eq!(w.item_count(p, id(SUIT)).unwrap(), 0);
     assert_eq!(w.item_count(p, id(CAPS)).unwrap(), 0);
     assert!(w.inventory_mut(p).unwrap().is_equipped(id(GLOVE)));
+}
+
+#[test]
+fn an_npc_starts_with_its_outfit_and_weapon_equipped() {
+    // The engine's wearing and arming rules (World::equip_default): the helmet (first
+    // carried, no DT anywhere) takes Head|Hair, so the hat (Hair) stays in the pack; the
+    // suit has a slot of its own; of the weapons only the long gun can be drawn.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let g = w.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    let inv = w.inventory_mut(g).unwrap();
+    for (item, worn) in [(HELMET, true), (HAT, false), (SUIT, true), (LONG_GUN, true), (PISTOL, false), (RIFLE, false), (MINE, false)] {
+        assert_eq!(inv.is_equipped(id(item)), worn, "{item:#X}");
+    }
+    assert_eq!(inv.count(id(MINE)), 2);
+    // A container's items are never equipped.
+    let s = w.place(id(SAFE), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert!(w.inventory_mut(s).unwrap().equipped().is_empty());
+    // ResetInventory rolls again and equips again.
+    w.unequip(g, id(SUIT)).unwrap();
+    assert!(w.reset_inventory(g).unwrap());
+    assert!(w.inventory_mut(g).unwrap().is_equipped(id(SUIT)));
 }
 
 // ---- quest items ----------------------------------------------------------------

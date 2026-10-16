@@ -302,8 +302,11 @@ impl<'a> World<'a> {
             None if id == FormId::PLAYER_REF => (FormId::PLAYER_BASE, None),
             None => return Err(SimError::UnknownRef(id)),
         };
-        let mut inventory = self.roll_inventory(self.inventory_base(id, base))?;
-        if id == FormId::PLAYER_REF {
+        let source = self.inventory_base(id, base);
+        let mut inventory = self.roll_inventory(source)?;
+        if id != FormId::PLAYER_REF {
+            self.equip_default(source, &mut inventory);
+        } else {
             // The player wears the non-playable armour it carries: the Pip-Boy Glove and
             // the Pip-Boy 3000 that the base form NPC_ 0x7 lists. [observed in game,
             // docs/spec-notes/simulation.md §2: `GetEquipped` 1 for both in the saves
@@ -376,6 +379,56 @@ impl<'a> World<'a> {
             }
         }
         Ok(Some(inv))
+    }
+
+    /// An actor other than the player starts with the armour it wears and the weapon it
+    /// draws equipped, chosen from its carried items: armour by DT, then DR, then carried
+    /// order, each piece worn unless one already chosen shares a body slot (pieces with no
+    /// slot are not worn); the drawable weapon with the highest base damage, the first on
+    /// ties. These are the rules the engine dresses and arms NPCs by (`fnv_actor::resolve`,
+    /// docs/spec-notes/actors.md §2.3 and §9.3) [observed rule for armour: the owner's
+    /// statement of 2026-10-08; the weapon rule is the engine's choice standing in for the
+    /// original's]. `GetEquipped` takes any calling actor [documented: GECK wiki
+    /// GetEquipped, reference type Actor]; that the original reports an NPC's outfit and
+    /// weapon as equipped is checked in game (docs/design/script-function-audit.md §3).
+    /// `inventory_source`
+    /// is the form whose carried items were rolled; nothing happens for other bases.
+    fn equip_default(&self, inventory_source: FormId, inventory: &mut Option<Inventory>) {
+        let Some(inv) = inventory.as_mut() else { return };
+        if !matches!(self.forms.get(inventory_source).map(|b| &b.data), Some(BaseData::Actor(_))) {
+            return;
+        }
+        // Carried order is the inventory's order (FormID order here; the engine uses the
+        // record's entry order, so ties between equal pieces may fall the other way).
+        let carried: Vec<FormId> = inv.iter().filter(|&(_, n)| n > 0).map(|(i, _)| i).collect();
+        let mut armor: Vec<(usize, FormId, f32, f32, u32)> = carried
+            .iter()
+            .enumerate()
+            .filter_map(|(o, &i)| {
+                let it = self.forms.item(i)?;
+                (it.kind == ItemKind::Armor).then(|| (o, i, it.armor_dt.unwrap_or(0.0), it.armor_dr.unwrap_or(0.0), it.slots.unwrap_or(0)))
+            })
+            .collect();
+        armor.sort_by(|a, b| b.2.total_cmp(&a.2).then(b.3.total_cmp(&a.3)).then(a.0.cmp(&b.0)));
+        let mut used = 0u32;
+        let mut wear = Vec::new();
+        for (_, id, _, _, slots) in armor {
+            if slots != 0 && slots & used == 0 {
+                used |= slots;
+                wear.push(id);
+            }
+        }
+        let mut weapon: Option<(i32, FormId)> = None;
+        for &i in &carried {
+            let Some(it) = self.forms.item(i).filter(|it| it.kind == ItemKind::Weapon && it.drawable) else { continue };
+            let d = it.weapon_damage.unwrap_or(0);
+            if weapon.is_none_or(|(best, _)| d > best) {
+                weapon = Some((d, i));
+            }
+        }
+        for id in wear.into_iter().chain(weapon.map(|w| w.1)) {
+            inv.set_equipped(id);
+        }
     }
 
     /// Whether `id` is a merchant container that restocks: an actor names it in XMRC and
@@ -991,7 +1044,8 @@ impl<'a> World<'a> {
         if self.forms.sig(base).is_none() {
             return Err(SimError::UnknownForm(base));
         }
-        let inventory = self.roll_inventory(base)?;
+        let mut inventory = self.roll_inventory(base)?;
+        self.equip_default(base, &mut inventory);
         let id = FormId(self.next_dynamic);
         self.next_dynamic += 1;
         self.refs.insert(
@@ -1034,7 +1088,11 @@ impl<'a> World<'a> {
     /// (ResetInventory, Layer 5). `false` when the base carries no items.
     pub fn reset_inventory(&mut self, id: FormId) -> Result<bool, SimError> {
         let base = self.get(id)?.base;
-        let inv = self.roll_inventory(self.inventory_base(id, base))?;
+        let source = self.inventory_base(id, base);
+        let mut inv = self.roll_inventory(source)?;
+        if id != FormId::PLAYER_REF {
+            self.equip_default(source, &mut inv);
+        }
         let s = self.get(id)?;
         let had = inv.is_some();
         if had {
