@@ -398,11 +398,27 @@ impl Game<'_> {
         }
     }
 
-    /// Tell the scripts whether an actor has its weapon out (IsWeaponOut).
+    /// Tell the scripts whether an actor has its weapon out (IsWeaponOut). The animating
+    /// side tells it every frame for the actors it draws; for the others the rule decides
+    /// ([`Game::wants_weapon_out`]).
     pub fn set_weapon_out(&mut self, actor: FormId, out: bool) {
+        self.senses.weapon_told.insert(actor, self.time);
         if self.extra.get(&actor).is_some_and(|e| e.weapon_out) != out {
             self.extra.entry(actor).or_default().weapon_out = out;
         }
+    }
+
+    /// Whether an actor wants its weapon out: alerted (SetAlert, or fighting), its
+    /// package's Weapon Drawn flag, or a scripted weapon use (UseWeapon); never under its
+    /// package's Weapons Unequipped flag while it does not fight. The rule the engine
+    /// draws and holsters NPCs' weapons by (`nvforever` alert.rs), kept here so that
+    /// IsWeaponOut answers for actors the engine does not draw [engineering choice; the
+    /// flags' meanings: docs/spec-notes/packages.md].
+    pub fn wants_weapon_out(&self, actor: FormId) -> bool {
+        use crate::package::flags;
+        let fighting = self.awareness.state(actor).in_combat();
+        let unequipped = !fighting && self.package_has(actor, flags::WEAPONS_UNEQUIPPED);
+        !unequipped && (self.is_alerted(actor) || self.package_has(actor, flags::WEAPON_DRAWN) || self.active_weapon_use(actor).is_some())
     }
 
     /// Lower a limb's condition by a hit (see the module notes): its condition after, and

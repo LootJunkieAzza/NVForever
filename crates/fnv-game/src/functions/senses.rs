@@ -40,11 +40,14 @@ pub struct Senses {
     /// Look: the reference each actor's head is held on, until StopLook. Not part of the
     /// saved state yet.
     pub looks: BTreeMap<FormId, Look>,
+    /// When ([`Game::time`]) the animating side last told whether each actor has its
+    /// weapon out (`Game::set_weapon_out`): it tells every frame while it draws the actor.
+    pub weapon_told: BTreeMap<FormId, f64>,
 }
 
 impl Default for Senses {
     fn default() -> Senses {
-        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new() }
+        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new() }
     }
 }
 

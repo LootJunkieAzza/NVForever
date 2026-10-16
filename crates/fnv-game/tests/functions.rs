@@ -1022,3 +1022,22 @@ fn script_function_audit_fixes() {
     let far = g.world.place(FormId(NPC_ADULT), Some(FormId(EXT_CELL)), [0.0; 3], [0.0; 3], 1).unwrap();
     assert!(g.world.get(far).unwrap().outfitted, "a created actor is outfitted at once");
 }
+
+/// IsWeaponOut of an actor the engine does not draw follows the rule the engine draws by;
+/// one it draws reads what it told.
+#[test]
+fn is_weapon_out_answers_for_undrawn_actors() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(call(&mut g, 0x1065, Some(ADULT_REF), &[]), 0.0);
+    call(&mut g, 0x105A, Some(ADULT_REF), &[n(1.0)]);
+    assert_eq!(call(&mut g, 0x1065, Some(ADULT_REF), &[]), 1.0);
+    // Drawn: the engine's word (still holstering) wins while it keeps telling.
+    g.set_weapon_out(FormId(ADULT_REF), false);
+    assert_eq!(call(&mut g, 0x1065, Some(ADULT_REF), &[]), 0.0);
+    g.time += 2.0;
+    assert_eq!(call(&mut g, 0x1065, Some(ADULT_REF), &[]), 1.0);
+    // The dead hold nothing out.
+    call(&mut g, 0x108B, Some(ADULT_REF), &[]);
+    assert_eq!(call(&mut g, 0x1065, Some(ADULT_REF), &[]), 0.0);
+}

@@ -365,9 +365,21 @@ pub fn get_hit_location(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Str
 /// IsWeaponOut: the value changes when the weapon is attached to the weapon node]. The
 /// state is the animating side's ([`Game::set_weapon_out`]); an actor nobody reported
 /// has its weapon away.
+///
+/// An actor the engine has not told about in the last second (not drawn: unloaded, far,
+/// or just gone) reads the rule the engine draws by ([`Game::wants_weapon_out`]), as does
+/// a dead one: 0 [hypothesis: a corpse holds nothing out]. [observed: Sunny Smiles at
+/// rest read 0 drawn and undrawn, capture `fa_batch2_loaded_npcs`.]
 pub fn is_weapon_out(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(g.extra.get(&r).is_some_and(|e| e.weapon_out))
+    if g.is_dead(r) {
+        return yes(false);
+    }
+    let told = g.senses.weapon_told.get(&r).is_some_and(|&t| (g.time - t).abs() < 1.0);
+    if r == FormId::PLAYER_REF || told {
+        return yes(g.extra.get(&r).is_some_and(|e| e.weapon_out));
+    }
+    yes(g.wants_weapon_out(r))
 }
 
 /// GetWeaponAnimType's value for a WEAP DNAM animation type (the record's numbering).
