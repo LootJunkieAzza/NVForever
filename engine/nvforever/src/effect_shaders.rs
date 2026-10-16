@@ -8,7 +8,7 @@
 //!   gets up to two overlays drawn on the same surface (its mesh, and its skin when it
 //!   has one): the fill (texture × colour, panned by the texture speed) and the edge
 //!   (the edge colour, faded in towards the outline by the NIF material's view-angle
-//!   falloff). Both are unlit, cast no shadow and sit a decal's depth step in front of
+//!   falloff). The player's are the meshes of its third-person body. Both are unlit, cast no shadow and sit a decal's depth step in front of
 //!   the surface. Their alpha follows the record's cycle every frame; a mesh drawn later
 //!   (a cell loaded again, armour put on) gets its overlays then.
 //! - **Ending**: a script's play with a duration ends after max(duration, one cycle),
@@ -38,13 +38,13 @@ pub struct EffectShadersPlugin;
 
 impl Plugin for EffectShadersPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Shaders>().add_systems(Update, (play, actor_alpha)).add_systems(Last, report);
+        app.init_resource::<Shaders>().init_resource::<crate::effect_particles::EffectParticles>().add_systems(Update, (play, actor_alpha, crate::effect_particles::draw.after(play))).add_systems(Last, (report, crate::effect_particles::report));
     }
 }
 
 /// What a play comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Source {
+pub(crate) enum Source {
     /// A script's play (its serial).
     Script(u64),
     /// An active magic effect (its id).
@@ -52,19 +52,19 @@ enum Source {
 }
 
 /// A shader playing on a reference.
-struct Active {
-    on: u32,
-    shader: Box<EffectShader>,
+pub(crate) struct Active {
+    pub(crate) on: u32,
+    pub(crate) shader: Box<EffectShader>,
     /// `Time::elapsed_secs` when it started.
-    since: f32,
+    pub(crate) since: f32,
     /// Ends at this many seconds from `since`; `None`: until stopped.
     until: Option<f32>,
     /// The persistent part shows after the cycle.
-    persist: bool,
+    pub(crate) persist: bool,
     fill: Option<Handle<NifMaterial>>,
     edge: Option<Handle<NifMaterial>>,
     /// The meshes covered, and their overlays.
-    covered: HashMap<Entity, Vec<Entity>>,
+    pub(crate) covered: HashMap<Entity, Vec<Entity>>,
 }
 
 /// Put on an overlay mesh (not covered itself, not faded by actor alpha).
@@ -79,9 +79,9 @@ struct Faded {
 }
 
 #[derive(Resource, Default)]
-struct Shaders {
+pub(crate) struct Shaders {
     records: HashMap<u32, Option<Box<EffectShader>>>,
-    active: HashMap<Source, Active>,
+    pub(crate) active: HashMap<Source, Active>,
     /// Blended copies of materials for actor alpha: (original, alpha in 1/256) → copy.
     faded: HashMap<(AssetId<NifMaterial>, u16), Handle<NifMaterial>>,
     played: u32,
@@ -139,6 +139,11 @@ fn play(
     mut models: ModelCtx,
     mut st: ResMut<Shaders>,
     drawn: Query<(Entity, &RefVisual, &Mesh3d, Option<&SkinnedMesh>), (With<MeshMaterial3d<NifMaterial>>, Without<Overlay>)>,
+    (body, children, body_meshes): (
+        Option<Res<crate::player_body::PlayerBody>>,
+        Query<&Children>,
+        Query<(&Mesh3d, Option<&SkinnedMesh>), (With<MeshMaterial3d<NifMaterial>>, Without<Overlay>, Without<RefVisual>)>,
+    ),
 ) {
     let (Some(rt), Some(world)) = (script.as_deref_mut().and_then(|s| s.rt.as_mut()), world) else { return };
     let st = &mut *st;
@@ -230,6 +235,16 @@ fn play(
     let mut by_ref: HashMap<u32, Vec<(Entity, &Mesh3d, Option<&SkinnedMesh>)>> = HashMap::new();
     for (e, rv, mesh, skin) in &drawn {
         by_ref.entry(rv.0).or_default().push((e, mesh, skin));
+    }
+    // The player: the meshes of its third-person body (`player_body.rs`), which carry no
+    // RefVisual; hidden in first person, so are their overlays.
+    if let Some(root) = body.as_deref().and_then(|b| b.roots().first().copied()) {
+        let list = by_ref.entry(FormId::PLAYER_REF.0).or_default();
+        for e in children.iter_descendants(root) {
+            if let Ok((mesh, skin)) = body_meshes.get(e) {
+                list.push((e, mesh, skin));
+            }
+        }
     }
     for a in st.active.values_mut() {
         let meshes = by_ref.get(&a.on).map(Vec::as_slice).unwrap_or(&[]);

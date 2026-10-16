@@ -8,7 +8,7 @@
 //! (actors.md §8.9), which plays its turn clip; `--actor-turn-test` ([`TurnTest`]) tries it.
 
 use bevy::prelude::*;
-use fnv_actor::locomotion::{choose, Blend, Body, ClipInfo, LocomotionSet, Move};
+use fnv_actor::locomotion::{choose, direction, hurt_move, Blend, Body, Choice, ClipInfo, LocomotionSet, Move, HURT_FOLDER, RATE_MAX, RATE_MIN};
 use fnv_nav::follow::{heading_delta, SPOT_TURN_RATE, SPOT_TURN_START};
 use nvf_assets::actor::{bind_clip, clip_binding, ActorCtx, PreparedSkeleton};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
@@ -154,6 +154,34 @@ impl ClipSet {
         let line = format!("{folder} {body:?} {stance}: {} clips, missing {missing:?}: {}", set.clips.len(), report.join("; "));
         (set, line)
     }
+
+    /// The limping set of a skeleton (a leg crippled): `base` with each move that the
+    /// skeleton's `locomotion\hurt\` folder has a clip for replaced by that clip
+    /// (`fnv_actor::locomotion::hurt_move`), the others kept; `None` when the folder has
+    /// none. Also returns a report line.
+    pub fn load_hurt(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, base: &ClipSet) -> Option<(ClipSet, String)> {
+        let s = fnv_vfs::normalize(skeleton);
+        let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();
+        let dir = format!("{folder}\\{HURT_FOLDER}\\");
+        let files = ctx.models.data.vfs.paths(|p| p.strip_prefix(&dir).is_some_and(|f| f.ends_with(".kf") && !f.contains('\\')));
+        let mut set = base.clone();
+        let mut found = Vec::new();
+        for path in files {
+            let stem = path[dir.len()..path.len() - 3].to_string();
+            let Some(clip) = ctx.clip(&path) else { continue };
+            // The first file (in name order) of a move wins.
+            let Some(m) = hurt_move(&stem, Some(&clip.name)).filter(|m| !found.iter().any(|(f, _)| f == m)) else { continue };
+            let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
+            found.push((m, format!("{} {stem} {:.1}u/s", m.group(), info.speed)));
+            set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info });
+        }
+        if found.is_empty() {
+            return None;
+        }
+        let moves: Vec<String> = found.into_iter().map(|(_, l)| l).collect();
+        let line = format!("{folder} limping: {} of {} moves from hurt\\: {}", moves.len(), set.clips.len(), moves.join("; "));
+        Some((set, line))
+    }
 }
 
 /// An actor's locomotion state.
@@ -167,11 +195,14 @@ pub struct Locomotion {
     pub turn: f32,
     /// Keep the pose (`--actor-pose-time`).
     pub hold: bool,
-    /// The standing set and the sneaking one (people whose folder has a sneaking idle);
-    /// `set` is one of them ([`Locomotion::set_sneaking`]).
+    /// The standing set, the sneaking one (people whose folder has a sneaking idle) and
+    /// the limping one (a leg crippled; skeletons with a `locomotion\hurt\` folder);
+    /// `set` is one of them ([`Locomotion::set_sneaking`], [`Locomotion::set_limping`]).
     pub stand: Arc<ClipSet>,
     pub sneak: Option<Arc<ClipSet>>,
+    pub hurt: Option<Arc<ClipSet>>,
     pub sneaking: bool,
+    pub limping: bool,
     /// The alert stance's set (creatures whose folder has `h2h` movement clips: the
     /// cazador flies when alert, [`ClipSet::alert_from`]) and whether it plays
     /// ([`Locomotion::set_alert`]).
@@ -182,11 +213,14 @@ pub struct Locomotion {
     /// (`creature_pace.rs`), 1 for people. The move is chosen for the velocity divided by
     /// it, so a fast creature's walk is still its walk clip.
     pub pace: f32,
+    /// The speed (at the clips' pace) smoothed over [`GAIT_SMOOTHING`], which decides
+    /// between walking and running.
+    pub gait_speed: f32,
 }
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, sneaking: false, alert: None, alerted: false, pace: 1.0 }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, sneaking: false, limping: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0 }
     }
 
     /// The upright set: the alert stance's while alerted, else the standing one.
@@ -195,6 +229,30 @@ impl Locomotion {
             (Some(a), true) => a.clone(),
             _ => self.stand.clone(),
         }
+    }
+
+    /// The set for the actor's posture: sneaking wins over limping (there are no
+    /// crouched limping clips [observed]), limping over the alert stance [design], and
+    /// either falls back to the upright set.
+    fn posture_set(&self) -> Arc<ClipSet> {
+        let pick = if self.sneaking { self.sneak.as_ref() } else if self.limping { self.hurt.as_ref() } else { None };
+        pick.cloned().unwrap_or_else(|| self.upright())
+    }
+
+    /// Limp (`true`, a leg crippled) or walk normally again: the set's clips change and
+    /// the current move goes on in the new set at its phase, blending from the old pose
+    /// [design]. Without a limping set nothing changes. Returns whether anything changed.
+    pub fn set_limping(&mut self, on: bool) -> bool {
+        if self.limping == on || self.hurt.is_none() {
+            return false;
+        }
+        self.limping = on;
+        let set = self.posture_set();
+        if !Arc::ptr_eq(&set, &self.set) {
+            self.set = set;
+            self.blend = Blend::new(self.blend.cur.mv, self.blend.cur.phase);
+        }
+        true
     }
 
     /// Take the alert stance (`true`) or the calm one: the set's clips change and the
@@ -206,9 +264,7 @@ impl Locomotion {
             return false;
         }
         self.alerted = on;
-        if !self.sneaking {
-            self.set = self.upright();
-        }
+        self.set = self.posture_set();
         true
     }
 
@@ -219,9 +275,11 @@ impl Locomotion {
         if self.sneaking == on {
             return false;
         }
-        let Some(set) = (if on { self.sneak.clone() } else { Some(self.upright()) }) else { return false };
+        if on && self.sneak.is_none() {
+            return false;
+        }
         self.sneaking = on;
-        self.set = set;
+        self.set = self.posture_set();
         self.blend = Blend::new(Move::Idle, self.blend.cur.phase);
         true
     }
@@ -230,7 +288,14 @@ impl Locomotion {
     pub fn step(&mut self, dt: f32) {
         let set = &self.set;
         let pace = if self.pace > 0.0 { self.pace } else { 1.0 };
-        let mut choice = choose(|m| set.info(m), [self.velocity[0] / pace, self.velocity[1] / pace], self.turn);
+        let v = [self.velocity[0] / pace, self.velocity[1] / pace];
+        let speed = v[0].hypot(v[1]);
+        self.gait_speed += (speed - self.gait_speed) * (1.0 - (-dt.max(0.0) / GAIT_SMOOTHING).exp());
+        let mut choice = choose(|m| set.info(m), v, self.turn);
+        let cur = self.blend.cur.mv;
+        if let Some(kept) = held_gait(set, cur, choice.mv, v, self.gait_speed) {
+            choice = kept;
+        }
         if choice.mv.is_moving() {
             choice.rate *= pace;
         }
@@ -244,6 +309,40 @@ impl Locomotion {
         player.layers[0] = layer(self.blend.cur.mv, self.blend.cur.phase, w);
         player.layers[1] = self.blend.prev.and_then(|p| layer(p.mv, p.phase, 1.0 - w));
     }
+}
+
+/// How far past the walk/run switch point the speed must go before the gait changes,
+/// as a ratio [design: a speed hovering at the switch point, from uneven frame times or a
+/// slow-down at a corner, swapped the clips back and forth].
+const GAIT_HYSTERESIS: f32 = 1.15;
+
+/// Time constant of [`Locomotion::gait_speed`], seconds [design: a creature's drawn speed
+/// jumped to two or three times its walk for a frame (455 to 1,363 units/s and back, the
+/// Tribal Village cazadors), which started a cross-fade to the run clip and back: a
+/// hitch].
+const GAIT_SMOOTHING: f32 = 0.2;
+
+/// The walk or run clip `cur` kept instead of `chosen`, when the two are the same move at
+/// the other gait and the smoothed speed `gait` has not gone [`GAIT_HYSTERESIS`] past the
+/// switch point; its rate for the speed of `v`.
+fn held_gait(set: &ClipSet, cur: Move, chosen: Move, v: [f32; 2], gait: f32) -> Option<Choice> {
+    if !cur.is_moving() || !chosen.is_moving() || cur == chosen {
+        return None;
+    }
+    let dir = direction(v);
+    let (walk, run) = (Move::moving(dir, false), Move::moving(dir, true));
+    if !((cur == walk && chosen == run) || (cur == run && chosen == walk)) {
+        return None;
+    }
+    let (w, r) = (set.info(walk)?, set.info(run)?);
+    if w.speed <= 0.0 || r.speed <= 0.0 {
+        return None;
+    }
+    let switch = (w.speed * r.speed).sqrt();
+    let speed = v[0].hypot(v[1]);
+    let keep = if cur == walk { gait < switch * GAIT_HYSTERESIS } else { gait > switch / GAIT_HYSTERESIS };
+    let c = if cur == walk { w } else { r };
+    keep.then(|| Choice { mv: cur, rate: (speed / c.speed).clamp(RATE_MIN, RATE_MAX) })
 }
 
 /// Time spent posing actors, for the `--run-seconds` summary (actors.md §8.6).

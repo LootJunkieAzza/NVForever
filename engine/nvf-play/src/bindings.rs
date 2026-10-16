@@ -30,7 +30,9 @@
 //! `[Controls]` (`Keyboard and Mouse` or `Controller`, [`InputDevice`]) says which works
 //! the controls; the controller's buttons are kept in `[Controller]`, one line per
 //! control by the same names (`Activate=A`, `Forward=Left Stick Up`, `Hotkey5=None`),
-//! with `Look Speed Horizontal` and `Look Speed Vertical`. Their defaults are the game's
+//! with `Look Speed Horizontal`, `Look Speed Vertical` and `Rumble` (1/0, the pad
+//! shakes, `crate::rumble`; the game's `bGamePadRumble=1` [observed 2026-10-16, the
+//! owner's `FalloutPrefs.ini`]). Their defaults are the game's
 //! (the `JJ` bytes and its `fXenonHorizLookSpeed`, `fXenonVertLookSpeed`); the D-pad,
 //! which the game's values leave free, takes Hotkeys 1 to 4 [design: the console
 //! version's quick keys are on the D-pad, documented in its published control lists].
@@ -129,6 +131,9 @@ pub const MOUSE_SENSITIVITY: f32 = 0.0020;
 /// about 86° a second].
 pub const LOOK_SPEED_HORIZONTAL: f32 = 1500.0;
 pub const LOOK_SPEED_VERTICAL: f32 = 1200.0;
+/// The owner's `bGamePadRumble=1` [observed 2026-10-16, `[Controls]` of
+/// `FalloutPrefs.ini`].
+pub const RUMBLE: bool = true;
 
 /// Which device works the controls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -288,6 +293,8 @@ pub struct Bindings {
     pub device: InputDevice,
     /// Right-stick look speeds (see [`LOOK_SPEED_HORIZONTAL`]).
     pub look_speed: [f32; 2],
+    /// The controller rumbles (`crate::rumble`).
+    pub rumble: bool,
 }
 
 impl Default for Bindings {
@@ -306,6 +313,7 @@ impl Bindings {
             mouse_sensitivity: MOUSE_SENSITIVITY,
             device: InputDevice::KeyboardMouse,
             look_speed: [LOOK_SPEED_HORIZONTAL, LOOK_SPEED_VERTICAL],
+            rumble: RUMBLE,
         }
     }
 
@@ -567,6 +575,7 @@ const DEVICE_KEY: &str = "Input Device";
 /// The INI section the controller's buttons are kept in.
 pub const PAD_SECTION: &str = "Controller";
 const LOOK_KEYS: [&str; 2] = ["Look Speed Horizontal", "Look Speed Vertical"];
+pub const RUMBLE_KEY: &str = "Rumble";
 
 fn bit(on: bool) -> &'static str {
     if on {
@@ -587,7 +596,7 @@ pub fn with_controls(text: &str, b: &Bindings) -> String {
     for (k, v) in LOOK_KEYS.iter().zip(b.look_speed) {
         t = ini_set(&t, PAD_SECTION, k, &format!("{v:.0}"));
     }
-    t
+    ini_set(&t, PAD_SECTION, RUMBLE_KEY, bit(b.rumble))
 }
 
 /// What `[Controls]` of `text` changes in `b`: the lines found, and what changed
@@ -606,22 +615,23 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
             Err(e) => bad.push(format!("{name}={v} ({e})")),
         }
     }
-    let switch = |key: &str, at: &mut bool, found: &mut usize, changed: &mut Vec<String>, bad: &mut Vec<String>| {
-        let Some(v) = ini_get(text, SECTION, key) else { return };
+    let switch = |section: &str, key: &str, at: &mut bool, found: &mut usize, changed: &mut Vec<String>, bad: &mut Vec<String>| {
+        let Some(v) = ini_get(text, section, key) else { return };
         *found += 1;
+        let shown = if section == SECTION { key.to_string() } else { format!("[{section}] {key}") };
         match v.trim() {
             "1" | "0" => {
                 let on = v.trim() == "1";
                 if on != *at {
-                    changed.push(format!("{key} {}", bit(on)));
+                    changed.push(format!("{shown} {}", bit(on)));
                     *at = on;
                 }
             }
-            _ => bad.push(format!("{key}={v} (not 1 or 0)")),
+            _ => bad.push(format!("{shown}={v} (not 1 or 0)")),
         }
     };
-    switch(ALWAYS_RUN_KEY, &mut b.always_run_by_default, &mut found, &mut changed, bad);
-    switch(INVERT_Y_KEY, &mut b.invert_y, &mut found, &mut changed, bad);
+    switch(SECTION, ALWAYS_RUN_KEY, &mut b.always_run_by_default, &mut found, &mut changed, bad);
+    switch(SECTION, INVERT_Y_KEY, &mut b.invert_y, &mut found, &mut changed, bad);
     if let Some(v) = ini_get(text, SECTION, SENSITIVITY_KEY) {
         found += 1;
         match v.trim().parse::<f32>() {
@@ -678,11 +688,12 @@ pub fn read_controls(text: &str, b: &mut Bindings, bad: &mut Vec<String>) -> (us
             _ => bad.push(format!("[{PAD_SECTION}] {k}={v} (not a number above 0)")),
         }
     }
+    switch(PAD_SECTION, RUMBLE_KEY, &mut b.rumble, &mut found, &mut changed, bad);
     (found, changed)
 }
 
 /// The number of `[Controls]` lines a full section has.
-const LINES: usize = 2 * GAME_CONTROLS.len() + 4 + LOOK_KEYS.len();
+const LINES: usize = 2 * GAME_CONTROLS.len() + 4 + LOOK_KEYS.len() + 1;
 
 /// Read the player's keys from the INI (module notes) and fill in the lines it lacks.
 pub fn apply_stored(world: &mut World) {
@@ -743,6 +754,14 @@ pub fn set_device(world: &mut World, d: InputDevice) {
     let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
     b.device = d;
     info!("controls: input device {}", d.name());
+    store(world);
+}
+
+/// Turn the controller's rumble on or off (the Controls tab's Rumble row).
+pub fn set_rumble(world: &mut World, on: bool) {
+    let Some(mut b) = world.get_resource_mut::<Bindings>() else { return };
+    b.rumble = on;
+    info!("controls: controller rumble {}", if on { "on" } else { "off" });
     store(world);
 }
 
@@ -946,6 +965,13 @@ mod tests {
         assert!(back.invert_y);
         assert_eq!(back.get(Control::Vats).key, Some(KeyCode::KeyV), "a bad line keeps the default");
         assert_eq!(bad.len(), 1);
+
+        // The controller's rumble, on by default (the game's bGamePadRumble=1).
+        assert!(text.contains("
+Rumble=1"), "{text}");
+        let (_, changed) = read_controls(&ini_set(&edited, PAD_SECTION, RUMBLE_KEY, "0"), &mut back, &mut bad);
+        assert_eq!(changed, ["[Controller] Rumble 0"]);
+        assert!(!back.rumble);
     }
 
     #[test]

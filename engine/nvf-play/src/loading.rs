@@ -19,6 +19,11 @@
 //!   (`fnv_world::loadscreen`): one that belongs to the destination, or one for anywhere.
 //!   The layout is ours: the picture fills the window (cropped, not stretched), the text
 //!   in a band along the bottom. The original's roulette wheel and progress are not drawn.
+//! - A [`CoverRequest`] brings the same screen up with no trip: it holds the game as
+//!   above and stays until an [`Uncover`]. nvforever puts it up while loading a save or
+//!   going back to the main menu, which start the program again behind it
+//!   (nvforever `handoff.rs`); [`Loading::unseen`] is that new run's own start while its
+//!   window is still hidden, when streaming may take long frames as behind a screen.
 
 use crate::phys::PhysState;
 use crate::{Location, PlaySet, PlayState, PlayWorld, Travel};
@@ -48,6 +53,17 @@ pub const TIMEOUT_SECS: f64 = 120.0;
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub struct TravelRequest(pub Travel);
 
+/// Bring a loading screen up with no travel (module notes): its picture is one for `to`
+/// (or for anywhere without it); it stays until [`Uncover`].
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
+pub struct CoverRequest {
+    pub to: Option<Destination>,
+}
+
+/// Take down the screen a [`CoverRequest`] put up, and let the game go on.
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
+pub struct Uncover;
+
 /// The trip a loading screen is up for.
 #[derive(Debug, Clone, Copy)]
 struct Trip {
@@ -66,6 +82,11 @@ struct Trip {
 #[derive(Resource, Default)]
 pub struct Loading {
     trip: Option<Trip>,
+    /// A screen is up for a [`CoverRequest`].
+    cover: bool,
+    /// Nothing of the game is on screen yet (nvforever `handoff.rs`: a start whose window
+    /// is still hidden): loading may take long frames, as behind a screen.
+    pub unseen: bool,
     /// The renderer still has cells to draw around the camera. Set by the renderer every
     /// frame after its streaming (nvforever `loading_gate`); stays false without one.
     pub render_busy: bool,
@@ -79,7 +100,17 @@ pub struct Loading {
 impl Loading {
     /// Whether a loading screen is up.
     pub fn active(&self) -> bool {
+        self.trip.is_some() || self.cover
+    }
+
+    /// Whether a loading screen is up for travel (not for a [`CoverRequest`]).
+    pub fn travelling(&self) -> bool {
         self.trip.is_some()
+    }
+
+    /// Whether a long frame would not be seen: a screen is up, or nothing is shown yet.
+    pub fn unseen_frames(&self) -> bool {
+        self.active() || self.unseen
     }
 }
 
@@ -100,8 +131,10 @@ impl Plugin for LoadingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Loading>()
             .add_message::<TravelRequest>()
+            .add_message::<CoverRequest>()
+            .add_message::<Uncover>()
             .add_systems(Startup, read_screens)
-            .add_systems(Update, (send.in_set(PlaySet::Input), (begin, fit_picture).chain().in_set(PlaySet::Sync)))
+            .add_systems(Update, (send.in_set(PlaySet::Input), (begin, hold, fit_picture).chain().in_set(PlaySet::Sync)))
             .add_systems(Last, finish);
     }
 }
@@ -140,21 +173,27 @@ fn roll(n: u32) -> u64 {
     z ^ (z >> 31)
 }
 
+/// What drawing a screen needs.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Art<'w> {
+    screens: Option<Res<'w, Screens>>,
+    data: Option<Res<'w, GameData>>,
+    textures: Option<ResMut<'w, TextureCache>>,
+    images: Option<ResMut<'w, Assets<Image>>>,
+    formats: Option<Res<'w, CompressedImageFormatSupport>>,
+}
+
 /// A travel was asked for: bring the screen up and hold the game.
 #[allow(clippy::too_many_arguments)]
 fn begin(
     mut commands: Commands,
     mut requests: MessageReader<TravelRequest>,
     mut loading: ResMut<Loading>,
-    screens: Option<Res<Screens>>,
     location: Res<Location>,
     real: Res<Time<Real>>,
     mut clock: ResMut<Time<Virtual>>,
     mut next: ResMut<NextState<PlayState>>,
-    data: Option<Res<GameData>>,
-    textures: Option<ResMut<TextureCache>>,
-    mut images: Option<ResMut<Assets<Image>>>,
-    formats: Option<Res<CompressedImageFormatSupport>>,
+    mut art: Art,
 ) {
     let Some(TravelRequest(travel)) = requests.read().last().copied() else { return };
     if let Some(trip) = loading.trip.as_mut() {
@@ -163,11 +202,61 @@ fn begin(
         (trip.travel, trip.sent, trip.frames, trip.ready) = (travel, false, trip.frames.max(SHOW_FRAMES), None);
         return;
     }
+    if loading.cover {
+        info!("loading screen: travel ignored under a screen held for a restart");
+        return;
+    }
     let to = destination(&travel, *location);
+    spawn_screen(&mut commands, &mut loading, &mut art, Some(&to));
+    clock.pause();
+    next.set(PlayState::Loading);
+    loading.trip = Some(Trip { travel, sent: false, frames: 0, started: real.elapsed_secs_f64(), ready: None });
+}
+
+/// A [`CoverRequest`]: the screen with no trip; an [`Uncover`]: down again.
+#[allow(clippy::too_many_arguments)]
+fn hold(
+    mut commands: Commands,
+    mut up: MessageReader<CoverRequest>,
+    mut down: MessageReader<Uncover>,
+    mut loading: ResMut<Loading>,
+    mut clock: ResMut<Time<Virtual>>,
+    mut next: ResMut<NextState<PlayState>>,
+    mut art: Art,
+    roots: Query<Entity, With<LoadingRoot>>,
+) {
+    let asked = up.read().last().copied();
+    if down.read().last().is_some() && loading.cover {
+        info!("loading screen down (held for a restart)");
+        loading.cover = false;
+        for e in &roots {
+            commands.entity(e).despawn();
+        }
+        clock.unpause();
+        next.set(PlayState::Playing);
+        return;
+    }
+    let Some(CoverRequest { to }) = asked else { return };
+    if loading.active() {
+        // A travel's screen is up: it becomes this one, and stays.
+        loading.trip = None;
+        loading.cover = true;
+        return;
+    }
+    spawn_screen(&mut commands, &mut loading, &mut art, to.as_ref());
+    clock.pause();
+    next.set(PlayState::Loading);
+    loading.cover = true;
+}
+
+/// The screen's nodes: a picture for `to` (for anywhere without it) and its text.
+fn spawn_screen(commands: &mut Commands, loading: &mut Loading, art: &mut Art, to: Option<&Destination>) {
+    let anywhere = Destination { interior: None, exterior: None };
+    let to = to.unwrap_or(&anywhere);
     loading.shown += 1;
-    let screen = screens.as_deref().and_then(|s| choose(&s.0, &to, roll(loading.shown)));
-    let picture = match (screen.and_then(|s| s.texture.as_deref()), data, textures, images.as_mut()) {
-        (Some(path), Some(data), Some(mut textures), Some(images)) => textures.get(path, true, &data, images, formats.as_deref()).map(|h| {
+    let screen = art.screens.as_deref().and_then(|s| choose(&s.0, to, roll(loading.shown)));
+    let picture = match (screen.and_then(|s| s.texture.as_deref()), art.data.as_deref(), art.textures.as_mut(), art.images.as_mut()) {
+        (Some(path), Some(data), Some(textures), Some(images)) => textures.get(path, true, data, images, art.formats.as_deref()).map(|h| {
             let size = images.get(&h).map(|i| i.size().as_vec2());
             let size = *loading.sizes.entry(h.id()).or_insert(size.unwrap_or(Vec2::new(2.0, 1.0)));
             (h, size)
@@ -182,7 +271,11 @@ fn begin(
             (Some(p), false) => format!("{p}: not shown"),
             (None, _) => "no picture".to_string(),
         },
-        to.interior.map_or_else(|| format!("worldspace {:08X} {:?}", to.exterior.map_or(0, |e| e.0), to.exterior.map(|e| e.1)), |c| format!("interior {c:08X}")),
+        match (to.interior, to.exterior) {
+            (Some(c), _) => format!("interior {c:08X}"),
+            (None, Some((w, c))) => format!("worldspace {w:08X} {c:?}"),
+            (None, None) => "anywhere".to_string(),
+        },
     );
     let font = |size: f32| TextFont { font_size: FontSize::Px(size), ..default() };
     let root = commands
@@ -216,9 +309,6 @@ fn begin(
             (Text::new("Loading..."), font(14.0), TextColor(Color::srgb(0.85, 0.95, 0.80))),
         ],
     ));
-    clock.pause();
-    next.set(PlayState::Loading);
-    loading.trip = Some(Trip { travel, sent: false, frames: 0, started: real.elapsed_secs_f64(), ready: None });
 }
 
 /// Keep the picture covering the window.

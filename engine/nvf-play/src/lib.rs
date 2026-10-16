@@ -15,6 +15,7 @@ pub mod activate;
 pub mod aid;
 pub mod aim_zoom;
 pub mod ambient;
+pub mod audio_out;
 pub mod bindings;
 pub mod blocking;
 pub mod chargen;
@@ -57,6 +58,7 @@ pub mod quest_messages;
 pub mod radio;
 pub mod reputation;
 pub mod reticle;
+pub mod rumble;
 pub mod save;
 pub mod script;
 pub mod script_draw;
@@ -258,7 +260,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin, flashlight::FlashlightPlugin))
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
             .add_plugins((world_sounds::WorldSoundsPlugin, reticle::ReticlePlugin))
-            .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin))
+            .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin))
             .add_plugins(chargen::ChargenPlugin)
             .add_plugins(levelup::LevelUpPlugin)
             .add_plugins(pipboy::PipBoyPlugin)

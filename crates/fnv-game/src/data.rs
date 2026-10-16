@@ -451,6 +451,16 @@ pub struct ActorDef {
     /// not include the Quest Item, No Knockdowns, No VATS Melee, Is CharGen Face Preset,
     /// or Can Be All Races flags"].
     pub template_base: bool,
+    /// `EITM` "Unarmed Attack Effect" and `EAMT` "Unarmed Attack Animation": the magic
+    /// item (an ENCH or a Poison SPEL) the actor's own unarmed blows apply, and the
+    /// attack animation they must be ("Any", "AttackForwardPower", …) [documented: xEdit
+    /// field names, schema `gameplay.json`; GECK wiki GetActorUnarmedEffect].
+    pub unarmed_effect: Option<FormId>,
+    pub unarmed_anim: Option<String>,
+    /// ACBS template flag "Actor Effect List": the template supplies the actor effects,
+    /// read here as covering the unarmed attack effect too [hypothesis: EITM and EAMT
+    /// sit beside SPLO in the record].
+    pub template_spells: bool,
 }
 
 /// A leveled actor list (LVLN, LVLC) [documented: xEdit; schema `gameplay.json`]: the
@@ -502,6 +512,11 @@ pub struct MagicEffectDef {
     /// DATA "Effect Shader": the EFSH played on the target while the effect lasts
     /// (docs/spec-notes/effect-shaders.md §3).
     pub shader: Option<FormId>,
+    /// DATA "Resistance Type": the actor value that resists the effect, a percentage of
+    /// its magnitude ignored (`None` for "None") [documented: xEdit field; GECK wiki
+    /// Stats Tab - Creatures, "Poison Resist: the percentage of poison damage that is
+    /// ignored"; docs/spec-notes/hit-effects.md §3].
+    pub resistance: Option<u16>,
 }
 
 impl MagicEffectDef {
@@ -514,6 +529,10 @@ impl MagicEffectDef {
     /// "FX Persist": the effect shader's persistent part shows while the effect lasts
     /// [documented: xEdit MGEF flags; GECK wiki EffectShader].
     pub const FX_PERSIST: u32 = 1 << 10;
+    /// "No Death Dispel": the effect goes on after its target dies [documented: xEdit
+    /// MGEF flags; hypothesis: without it the effect ends at the death,
+    /// docs/spec-notes/hit-effects.md §4].
+    pub const NO_DEATH_DISPEL: u32 = 1 << 28;
 
     pub fn has(&self, flag: u32) -> bool {
         self.flags & flag != 0
@@ -919,6 +938,15 @@ pub struct CombatStyleDef {
     pub attack_skill_mod: (f32, f32),
     pub attack_under_attack_mult: f32,
     pub attack_not_under_attack_mult: f32,
+    /// Melee decision: the bonus to the attack chance while the opponent recoils or
+    /// staggers; Advanced: the block skill modifier (`base + mult × 50 / 100`), the block
+    /// chance's multipliers under attack and not, and the attack chance's multiplier while
+    /// the opponent blocks [documented: GECK wiki Combat Style].
+    pub recoil_stagger_bonus: f32,
+    pub block_skill_mod: (f32, f32),
+    pub block_under_attack_mult: f32,
+    pub block_not_under_attack_mult: f32,
+    pub attack_during_block_mult: f32,
     /// Simple: what the actor may fight with: 0 None, 1 Melee Only, 2 Ranged Only.
     pub weapon_restrictions: u32,
     /// Simple: multipliers of the weapon's min and max range in range calculations.
@@ -1972,6 +2000,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 attack_skill_mod: (n(adv, "attack_skill_modifier_base", 0.0), n(adv, "attack_skill_modifier_mult", 0.0)),
                 attack_under_attack_mult: n(adv, "attack_while_under_attack_mult", 1.0),
                 attack_not_under_attack_mult: n(adv, "attack_not_under_attack_mult", 1.0),
+                recoil_stagger_bonus: n(std, "recoil_stagger_bonus_to_attack", 0.0),
+                block_skill_mod: (n(adv, "block_skill_modifier_base", 0.0), n(adv, "block_skill_modifier_mult", 0.0)),
+                block_under_attack_mult: n(adv, "block_while_under_attack_mult", 1.0),
+                block_not_under_attack_mult: n(adv, "block_not_under_attack_mult", 1.0),
+                attack_during_block_mult: n(adv, "attack_during_block_mult", 1.0),
                 weapon_restrictions: match simple.and_then(|v| v.get("weapon_restrictions")) {
                     Some(Json::String(s)) => ["None", "Melee Only", "Ranged Only"].iter().position(|x| x == s).unwrap_or(0) as u32,
                     Some(v) => v.as_u64().unwrap_or(0) as u32,
@@ -2008,6 +2041,8 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"VTCK" => a.voice = fid(v),
                     b"PKID" => a.packages.extend(fid(v)),
                     b"TPLT" => a.template = fid(v),
+                    b"EITM" => a.unarmed_effect = fid(v).filter(|f| f.0 != 0),
+                    b"EAMT" => a.unarmed_anim = v.as_ref().and_then(Json::as_str).map(str::to_string),
                     b"ZNAM" => a.combat_style = fid(v).filter(|f| f.0 != 0),
                     b"RNAM" if &sig == b"NPC_" => a.race = fid(v),
                     b"RNAM" if &sig == b"CREA" => a.attack_reach = v.as_ref().and_then(Json::as_u64).map(|n| n.min(255) as u8),
@@ -2062,6 +2097,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.template_model = has_flag(tf, "Model/Animation");
                         a.template_inventory = has_flag(tf, "Inventory");
                         a.template_script = has_flag(tf, "Script");
+                        a.template_spells = has_flag(tf, "Actor Effect List");
                     }
                     _ => {}
                 }
@@ -2132,12 +2168,14 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 let archetype = v.get("archetype").and_then(|t| field_code(schema, &sig, b"DATA", Some("archetype"), t)).unwrap_or(-1);
                 let item = v.get("associated_item").and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId);
                 let actor_value = v.get("actor_value").and_then(|t| field_code(schema, &sig, b"DATA", Some("actor_value"), t));
+                let resistance = v.get("resistance_type").and_then(|t| field_code(schema, &sig, b"DATA", Some("resistance_type"), t));
                 out.magic_effect = Some(MagicEffectDef {
                     flags: flag_bits(v.get("flags")),
                     archetype,
                     script: item.filter(|_| archetype == ARCHETYPE_SCRIPT),
                     actor_value: actor_value.and_then(|c| u16::try_from(c).ok()),
                     shader: v.get("effect_shader").and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId),
+                    resistance: resistance.and_then(|c| u16::try_from(c).ok()),
                 });
             }
         }

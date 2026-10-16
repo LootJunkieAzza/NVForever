@@ -338,6 +338,7 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MoveIntent>()
+            .add_message::<crate::rumble::Landed>()
             .init_resource::<Controls>()
             .init_resource::<Status>()
             .init_resource::<Net>()
@@ -878,7 +879,7 @@ fn step(
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
     (limbs, pace): (Option<Res<crate::combat::PlayerLimbs>>, Option<Res<RunPace>>),
-    mut seat: ResMut<crate::furniture::PlayerSeat>,
+    (mut seat, mut landed): (ResMut<crate::furniture::PlayerSeat>, MessageWriter<crate::rumble::Landed>),
     (mut blocks, noclip): (Option<ResMut<crate::blocking::ActorBlocks>>, Res<NoClip>),
 ) {
     if *state.get() != PlayState::Playing {
@@ -1031,6 +1032,9 @@ fn step(
             b.list = all;
         }
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
+        if let Some(speed) = s.landed_speed {
+            landed.write(crate::rumble::Landed { speed });
+        }
         // Pushed and held by something: the actors walk round the player for a while.
         let want = pushed[0].hypot(pushed[1]);
         if want > 1e-4 {

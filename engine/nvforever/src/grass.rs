@@ -191,21 +191,26 @@ fn wind_magnitude(strength: f32) -> f32 {
     WIND_MAGNITUDE.0 + (WIND_MAGNITUDE.1 - WIND_MAGNITUDE.0) * strength.clamp(0.0, 1.0)
 }
 
-/// Give every grass material the weather's wind, as the trees get it (tree.rs `wind`):
-/// materials are only touched when the wind or the set of materials changes.
-fn wind(sky: Res<crate::sky::SkyState>, cache: Res<GrassCache>, mut materials: ResMut<Assets<GrassMaterial>>, mut last: Local<(Vec4, usize)>) {
+/// Give every grass material the weather's wind, as the trees get it (tree.rs `wind`),
+/// and the distances it goes at (the settings page's grass distance,
+/// `draw_distance.rs`): materials are only touched when these or the set of materials
+/// change.
+fn wind(sky: Res<crate::sky::SkyState>, config: Res<GrassConfig>, cache: Res<GrassCache>, mut materials: ResMut<Assets<GrassMaterial>>, mut last: Local<(Vec4, Vec2, usize)>) {
     let dir = crate::tree::wind_vector(&sky);
     let wind = dir.truncate().extend(wind_magnitude(dir.w));
+    let fade = Vec2::new(config.fade_start, config.fade_range.max(1.0));
     let built = cache.models.len();
-    if *last == (wind, built) {
+    if *last == (wind, fade, built) {
         return;
     }
-    *last = (wind, built);
+    *last = (wind, fade, built);
     for s in cache.models.values().flatten().flat_map(|m| &m.shapes) {
         // Read first: taking the asset mutably marks it changed.
-        if materials.get(&s.material).is_some_and(|m| m.extension.params.wind != wind) {
+        if materials.get(&s.material).is_some_and(|m| m.extension.params.wind != wind || m.extension.params.motion.yz() != fade) {
             if let Some(mut m) = materials.get_mut(&s.material) {
                 m.extension.params.wind = wind;
+                m.extension.params.motion.y = fade.x;
+                m.extension.params.motion.z = fade.y;
             }
         }
     }

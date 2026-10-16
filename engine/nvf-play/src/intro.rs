@@ -27,7 +27,8 @@ use crate::pause::Paused;
 use crate::{PlaySet, PlayState};
 #[cfg(feature = "intro-video")]
 use bevy::asset::RenderAssetUsages;
-use bevy::audio::{AddAudioSource, ChannelCount, Decodable, Sample, SampleRate, Source};
+use bevy::audio::{ChannelCount, Decodable, Sample, SampleRate, Source};
+use crate::audio_out::AddAudioSource;
 use bevy::prelude::*;
 #[cfg(feature = "intro-video")]
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};

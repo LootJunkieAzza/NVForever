@@ -57,7 +57,8 @@ use crate::script::{with_world, ScriptState};
 use crate::sfx::PlaySound;
 use crate::sim::SimState;
 use crate::{Location, PlayState, PlayWorld};
-use bevy::audio::{AddAudioSource, ChannelCount, Decodable, Sample, SampleRate, Source};
+use bevy::audio::{ChannelCount, Decodable, Sample, SampleRate, Source};
+use crate::audio_out::AddAudioSource;
 use bevy::prelude::*;
 use fnv_combat::rng::SplitMix;
 use fnv_sim::FormId;
@@ -941,6 +942,7 @@ impl Plugin for MusicPlugin {
                 note: "On: the music of the place you are in plays. Off: it is silent and goes on unheard. (--no-music)",
                 get: |w| w.resource::<MusicSettings>().play,
                 set: |w, on| w.resource_mut::<MusicSettings>().play = on,
+                slider: None,
             },
         );
     }
