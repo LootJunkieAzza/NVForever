@@ -46,6 +46,11 @@ pub trait CombatWorld {
     fn ray(&self, from: V3, to: V3, ignore: &[ActorId]) -> Option<WorldHit>;
     /// Actors whose centre lies within `radius` of `point`, with that centre.
     fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)>;
+    /// Points on an actor's body to aim a blow at, the likeliest first (the centres of
+    /// its body part capsules, widest first). None by default: the centre is aimed at.
+    fn aim_points(&self, _actor: ActorId) -> Vec<V3> {
+        Vec::new()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -346,13 +351,19 @@ pub fn swing_reaching(world: &dyn CombatWorld, t: &CombatTuning, eye: V3, feet_z
         if d > 1e-3 && vec::dot(vec::scale(across, 1.0 / d), flat).clamp(-1.0, 1.0).acos().to_degrees() > t.melee_arc_deg {
             continue;
         }
-        let to = vec::sub(c, eye);
-        let len = vec::len(to);
-        if len < 1e-3 {
-            continue;
-        }
-        let end = vec::add(eye, vec::scale(to, (len + SWING_BODY_MARGIN) / len));
-        if let Some(h) = world.ray(eye, end, &[attacker]).filter(|h| h.actor == Some(a)) {
+        // Its body, then its centre: the centre of a creature's bounds (a radscorpion's,
+        // its tail raised) can lie in the air over its body, where the ray meets nothing
+        // (the owner's playtest list 5 item 25) [design].
+        let hit = world.aim_points(a).into_iter().chain([c]).find_map(|p| {
+            let to = vec::sub(p, eye);
+            let len = vec::len(to);
+            if len < 1e-3 {
+                return None;
+            }
+            let end = vec::add(eye, vec::scale(to, (len + SWING_BODY_MARGIN) / len));
+            world.ray(eye, end, &[attacker]).filter(|h| h.actor == Some(a))
+        });
+        if let Some(h) = hit {
             out.push((a, h));
         }
     }

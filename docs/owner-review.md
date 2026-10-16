@@ -4674,6 +4674,107 @@ reaches them, so they are on a shelf inside the counter's collision); drop part 
 from the Pip-Boy (X on the 20 rounds); buy part of a stack from Chet; store part of the
 caps in a container.
 
+
+## Combat fixes of playtest list 5 (2026-10-16, session "l5-combat")
+Items 9, 16, 20–25, 49 and 61. My choices and guesses, to confirm:
+- **9 Jamming.** A shot from a weapon that uses ammo (not thrown) may jam it below 75 %
+  condition: the chance grows from 0 at 75 % to 4 % a shot at 0 % along a curve (power
+  1.5), so at 50 % it is under 1 % a shot (0.77 %). All four numbers are in one place,
+  `CombatTuning::jam_condition`, `jam_chance_max`, `jam_curve`, `jam_fallback`
+  (crates/fnv-combat/src/tuning.rs). The shot that jams still leaves; then the weapon's
+  jam clip plays (`1hpjama.kf` for reload animation `ReloadA`: the clips sit beside the
+  reload clips, `JamX`…`JamZ` too; the letter pairing is my guess from the names) and
+  nothing fires or reloads until the clip's length has passed (1.5 s if no clip is found).
+  NPCs do not jam yet. Check: a gun below 75 % (console or `condition=` test aid) jams now
+  and then, the clip looks right in first and third person.
+- **16 Hits on creatures.** Two causes. (1) Shots and swings were stopped by the capsule
+  that walks an NPC (its character controller), which is not its body: that was the
+  "dust and no damage, like a wall". They now pass it and meet the body part capsules.
+  (2) A part's chain covered only the bones leading to other parts: long side branches
+  (a bloatfly's legs, a radscorpion's head) had nothing. Each part now also covers up to 8
+  of its own side branches reaching 12 units or more (fingers and twist bones stay out).
+  Unit tests: a bloatfly-shaped skeleton (`limbs.rs`), side-branch capsules (`hitvol.rs`),
+  shots past an NPC's character (`combat.rs`). Check: shoot bloatflies and geckos.
+- **20 Enemy shot lines.** An enemy's beam or shot line followed the player's own muzzle
+  (the follow was meant for the player's shots only). Fixed.
+- **21 Encumbrance.** Over the limit the player walks (the game does, from our captures:
+  walking at 201 lb with 200 capacity). In god mode the limit is lifted (I believe tgm
+  does that in the original; say if not).
+- **22 Convict karma.** I could not find the convicts' records (NPC records are compressed
+  in the ESM), so two likely causes are fixed: an NPC made from a template read its own
+  karma (0, Neutral, so a kill counted as murder, −25) instead of its template's: Karma now
+  comes through the template when the NPC takes its Traits from it (which flag carries
+  Karma is not documented; with Stats only it stays the NPC's own, as before); and one fighting the player of its own accord (no
+  grudge) now counts as the aggressor, so killing it is never murder. Check: the convicts
+  outside the NHP station give "+" karma; tell me the karma line if not.
+- **23 Camera pan.** Letting go of F / mouse 3 after circling now goes straight back to
+  first person when you were in it (before it swung back round in third person for about
+  a second first). In third person it still swings back behind. Your sentence could also
+  mean "stay in third person"; say so if that was meant.
+- **24 Melee impacts.** Every blow that lands shows the impact the weapon's impact data set
+  names for the material, with its sounds, as shots do: blood on actors, dust/sparks on the
+  world for a swing that meets a wall or the ground within reach. NPC blows too.
+- **25 Radscorpions.** Melee: the swing aimed its ray at the centre of the creature's
+  bounds, which for a radscorpion with its tail up is in the air above its back; it now
+  aims at its body part capsules first (unit test with a radscorpion-like target). Speed:
+  every creature ran at the people's running speed (344 units/s). A creature in combat now
+  runs at its own pace: its run clip's speed × its scale × its Speed Mult (a small
+  radscorpion: 315 × 0.5 × 150 % = 236 units/s), never faster than before and not under
+  a quarter of it. Check: radscorpions and geckos chasing you.
+- **49 tgm.** In god mode the magazine stays full, nothing is taken from the inventory
+  (thrown weapons too) and Reload does nothing.
+- **61 Two-handed run.** Running with any two-handed weapon drawn (rifles, launchers,
+  heavy weapons, two-handed melee) is slower by `fMove2HBigPenalty` (0.1 in
+  FalloutNV.esm: 90 % of the speed), for the player and NPCs in combat. The setting's role
+  is my guess from its name; 10 % may feel too small: it is one number to change.
+## Render effects of playtest list 5 (2026-10-16, session "l5-render-fx", D5)
+
+Items 1, 48, 10, 6, 18, 70, 66–67, 26 and 38 (`docs/handoff/playtest-list-5.md` §4).
+Frames are kept privately; each was one run with test aids.
+
+- **1 Dust storm "tornado"**: the column by the saloon and on the street is the dust
+  vortex `effects\nv\sanddust\sanddust02.nif` (FXDust02, two placed in Goodsprings): two
+  curved sheets fading in and out for about 5 s of every 45 s. Their vertex alpha (0 at
+  the sheets' edges) was dropped because their shader sets flag bit 19 "Dynamic_Alpha",
+  not bit 3 "Vertex_Alpha"; we drew a dense grey sheet with hard vertical edges. Unlit
+  shapes with bit 19 now keep their vertex alpha. **Guess**: that rule; **check**: the
+  column is now soft-edged and thinner, still grey rather than the game's brown (the
+  texture is drawn as stored). The other "tornadoes" (`fxdustwhirlwind01.nif`,
+  FXDustWhirlWind01) are particle systems on a moving mesh emitter and are still not drawn
+  at all (particle systems of placed models are not built).
+- **48 Bullet smoke**: particle colours (impact dust, metal smoke) are now taken as
+  display values like unlit shapes' vertex colours, so the 0.27–0.43 greys are darker and
+  less of a pale cloud. **Check**: this applies to every particle system, blood too
+  (MPSBloodSplat): tell me if blood got too dark.
+- **10 Explosions**: an EXPL now shows its model (`effects\explosiongrenadefrag.nif`: a
+  flash, sparks, smoke and shrapnel burst from its sequence), its light (LIGH, fading
+  over 0.6 s: **guess**, the LIGH has no duration) and the impact of its data set on the
+  ground under it (`ImpactExplosionDirt.nif`: thrown debris). The grenade in flight
+  (`grenlaunchprojectile.nif`) is drawn. **Not done**: the dirt impact's rising dust
+  meshes (`FastMesh01–03`) are moved by transform controllers that our impact models do
+  not play, so the brown column of your second frame is missing; the smoke fades after
+  15 % of its life as its data says, which looks short; the debris flakes are large
+  (radius 5, read as half the square's side).
+- **6 Lantern light**: `LamplightWarm` stores a black colour; its warm colour is in its
+  model's `NiPointLight` (0.78, 0.58, 0.16). Lights with a black record colour now take
+  the model light's colour. **Not done**: the flicker (its colour controller).
+- **18 Weapon quality**: the first-person model is the same file (`1stPerson9mm` names
+  `9mm.nif`); the difference was the view: the game draws the arms and weapon through
+  `fDefault1stPersonFOV=55`, we drew them through the world's 75, so the gun was smaller
+  with coarser mips. Now magnified as through 55 (the Pip-Boy's 47 eases in as before).
+  **Check**: size and place of the held weapons; iron sights while aiming.
+- **70 White cave water**: the cave's pools are placeable water (PWAT `WaterBlood`, five
+  `waterp512x512.nif` squares) drawn as a plain model, untextured: white. PWAT shapes are
+  now drawn with their water type's material (WaterTypeBlood: dark).
+- **66–67 Flashlight**: the light now sits on the body, 14 units ahead of the eye and 6
+  below (**guess**), facing where the player looks, so it lights ahead of the body in
+  third person and its shadows fall behind what casts them. **Check** the ghost shadow.
+- **26 Beards**: beards (head parts with the hair shader) now take the hair colour like
+  the hair. **Check** Sgt Kilborn and Joe Cobb.
+- **38 SwapTexture**: implemented: `ref.SwapTexture "shape" "texture"` puts
+  `textures\<texture>.dds` on that shape of the reference's model (the Rorschach cards in
+  Doc Mitchell's test, the end slides, the Euclid's C-Finder screen); `##` before a
+  name is dropped (**guess**: meaning unknown). Not kept in saves. Not seen in a run.
 ## Pause, settings and main menus, pointer, wait menu (2026-10-16, session "l5-menus")
 List 5 items 8, 46, 19 and 51. Frames before and after: `C:\fnv-private\frames\l5-menus`.
 - **Pause menu (8)** now has the original's look, from `start_menu.xml` and your

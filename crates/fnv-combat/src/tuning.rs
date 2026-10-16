@@ -79,6 +79,12 @@ pub struct Rules {
     pub power_attack_forward: f32,
     pub power_attack_back: f32,
     pub power_attack_side: f32,
+    // Movement
+    /// The share of their speed an actor loses running with a two-handed weapon drawn
+    /// (`fMove2HBigPenalty`, 0.1 in FalloutNV.esm [observed]) [hypothesis: the setting's
+    /// role, from its name; design: applied to every two-handed weapon, the owner's
+    /// playtest list 5 item 61].
+    pub move_2h_penalty: f32,
     /// Settings not found in the load order (their defaults were used).
     pub defaulted: Vec<&'static str>,
 }
@@ -140,6 +146,7 @@ const SETTINGS: &[(&str, f32)] = &[
     ("fDamagePowerAttackForwardBonus", 2.0),
     ("fDamagePowerAttackBackBonus", 2.0),
     ("fDamagePowerAttackSideBonus", 2.0),
+    ("fMove2HBigPenalty", 0.1),
 ];
 
 impl Rules {
@@ -217,6 +224,7 @@ impl Rules {
             power_attack_forward: n(),
             power_attack_back: n(),
             power_attack_side: n(),
+            move_2h_penalty: n(),
             defaulted,
         }
     }
@@ -271,6 +279,18 @@ pub struct CombatTuning {
     /// starts another, so that fast hits cannot hold it in the reaction
     /// ([`crate::damage::staggers`]).
     pub stagger_cooldown: f32,
+    /// Weapon jamming (the owner's playtest list 5 item 9; [`crate::condition::jam_chance`]):
+    /// below this condition (a share of full) a shot may jam the weapon.
+    pub jam_condition: f32,
+    /// The chance a shot jams at zero condition; it grows from 0 at
+    /// [`Self::jam_condition`] to this, along [`Self::jam_curve`]. Kept low: the owner
+    /// tunes it after play sessions.
+    pub jam_chance_max: f32,
+    /// The power the shortfall below [`Self::jam_condition`] is raised to (1: linear;
+    /// above 1: rare until the weapon is well worn).
+    pub jam_curve: f32,
+    /// How long a jam keeps the weapon from firing when no jam clip is known, seconds.
+    pub jam_fallback: f32,
 }
 
 impl Default for CombatTuning {
@@ -298,6 +318,10 @@ impl Default for CombatTuning {
             power_time: 1.3,
             block: 0.6,
             stagger_cooldown: 3.0,
+            jam_condition: 0.75,
+            jam_chance_max: 0.04,
+            jam_curve: 1.5,
+            jam_fallback: 1.5,
         }
     }
 }

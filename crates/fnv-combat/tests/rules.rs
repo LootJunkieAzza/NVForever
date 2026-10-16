@@ -211,6 +211,51 @@ fn semi_automatic_cycle_and_reload() {
 }
 
 #[test]
+fn a_jam_holds_the_weapon_until_it_clears() {
+    let t = CombatTuning::default();
+    let w = gun(20);
+    let timing = Timing::of(&w, &ClipTiming::default(), &t);
+    let mut c = Cycle::new(&w, timing, false, 5);
+    assert_eq!(shots(&run(&mut c, &t, 10, 0.05, |_| true, 10)), 1);
+    // The shot jammed it for a second: pulls and reloads do nothing meanwhile.
+    c.jam(1.0);
+    assert!(c.jammed());
+    let ev = run(&mut c, &t, 18, 0.05, |k| k % 2 == 0, 10);
+    assert_eq!(shots(&ev), 0, "{ev:?}");
+    assert!(!ev.contains(&Event::ReloadStarted));
+    let ev = c.step(&t, Input { trigger: false, reload: true, dt: 0.0, carried: 10 });
+    assert!(ev.is_empty() && c.jammed());
+    // Cleared after the second; the next pull fires.
+    let ev = run(&mut c, &t, 4, 0.05, |_| false, 10);
+    assert_eq!(ev, vec![Event::Cleared]);
+    assert!(!c.jammed());
+    assert_eq!(shots(&run(&mut c, &t, 10, 0.05, |_| true, 10)), 1);
+    // A weapon without ammo (melee) never jams.
+    let mut m = Cycle::new(&w, timing, true, 0);
+    m.jam(1.0);
+    assert!(!m.jammed());
+}
+
+#[test]
+fn jam_chance_grows_below_three_quarters() {
+    let t = CombatTuning::default();
+    assert_eq!(fnv_combat::condition::jam_chance(&t, 1.0), 0.0);
+    assert_eq!(fnv_combat::condition::jam_chance(&t, 0.75), 0.0);
+    let (a, b, z) = (fnv_combat::condition::jam_chance(&t, 0.6), fnv_combat::condition::jam_chance(&t, 0.3), fnv_combat::condition::jam_chance(&t, 0.0));
+    assert!(0.0 < a && a < b && b < z, "{a} {b} {z}");
+    assert!(close(z, t.jam_chance_max));
+    // Kept low: a weapon at half condition jams fewer than one shot in a hundred.
+    assert!(fnv_combat::condition::jam_chance(&t, 0.5) < 0.01);
+}
+
+#[test]
+fn two_handed_weapons_by_animation_type() {
+    let w = |t: &str| WeaponStats { anim_type: Some(t.to_string()), ..WeaponStats::default() };
+    assert!(w("Rifle - Ballistic (2 Hand)").two_handed() && w("Melee (2 Hand)").two_handed() && w("Launcher (2 Hand)").two_handed());
+    assert!(!w("Pistol - Ballistic (1 Hand)").two_handed() && !w("Thrown (1 Hand)").two_handed() && !WeaponStats::default().two_handed());
+}
+
+#[test]
 fn automatic_fire_rate_and_regen() {
     let t = CombatTuning::default();
     let w = WeaponStats { automatic: true, fire_rate: 10.0, clip_size: 30, ..gun(10) };
@@ -388,6 +433,45 @@ impl CombatWorld for Toy {
     fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
         self.actors.iter().filter(|(_, c, r)| vec::len(vec::sub(*c, point)) <= radius + r).map(|&(id, c, _)| (id, c)).collect()
     }
+}
+
+/// A low creature (a radscorpion): its body a sphere near the floor, the centre of its
+/// bounds high above it (its tail raised), and, when `parts`, its body's centre as an aim
+/// point.
+struct Scorpion {
+    body: Toy,
+    centre: V3,
+    parts: bool,
+}
+
+impl CombatWorld for Scorpion {
+    fn ray(&self, from: V3, to: V3, ignore: &[ActorId]) -> Option<WorldHit> {
+        self.body.ray(from, to, ignore)
+    }
+
+    fn actors_near(&self, point: V3, radius: f32) -> Vec<(ActorId, V3)> {
+        self.body.actors_near(point, radius).into_iter().map(|(a, _)| (a, self.centre)).collect()
+    }
+
+    fn aim_points(&self, actor: ActorId) -> Vec<V3> {
+        if self.parts {
+            self.body.actors.iter().filter(|x| x.0 == actor).map(|x| x.1).collect()
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+#[test]
+fn a_swing_reaches_a_low_creature_whose_bounds_centre_is_in_the_air() {
+    let t = CombatTuning::default();
+    let eye = [0.0, 0.0, 120.0];
+    let world = |parts| Scorpion { body: Toy { actors: vec![(7, [60.0, 0.0, 12.0], 12.0)], fence: false, wall: None }, centre: [60.0, 0.0, 70.0], parts };
+    // The ray at the centre passes over its back: aimed at its body it strikes.
+    assert!(swing_reaching(&world(false), &t, eye, 0.0, [1.0, 0.0, 0.0], 75.0, 1).is_empty());
+    let hits = swing_reaching(&world(true), &t, eye, 0.0, [1.0, 0.0, 0.0], 75.0, 1);
+    assert_eq!(hits.iter().map(|h| h.0).collect::<Vec<_>>(), vec![7]);
+    assert!(hits[0].1.point[2] < 30.0);
 }
 
 fn proj(kind: &str, flags: &[&str], speed: f32, gravity: f32) -> ProjectileStats {

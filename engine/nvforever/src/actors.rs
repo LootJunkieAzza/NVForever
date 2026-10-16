@@ -293,12 +293,15 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         }
         // Hair colour: the texture times HCLR, doubled, in gamma space [hypothesis,
         // actors.md §3: the hair textures are close to grey; a plain multiply leaves
-        // Sunny Smiles' hair dark brown where the owner's screenshot shows auburn].
-        if p.role == "hair" {
+        // Sunny Smiles' hair dark brown where the owner's screenshot shows auburn]. The
+        // hair model's shapes, and the head parts' hair-shader shapes (beards), which
+        // were drawn untinted, near white (playtest list 5 item 26,
+        // actors.md §3).
+        if p.role == "hair" || p.role == "head_part" {
             if let Some([r, g, b]) = a.hair_color {
                 let tint = Color::srgb(2.0 * f32::from(r) / 255.0, 2.0 * f32::from(g) / 255.0, 2.0 * f32::from(b) / 255.0).to_linear();
                 for (i, s) in part.shapes.iter().enumerate() {
-                    if s.cap {
+                    if s.cap || (p.role == "head_part" && !s.is_hair()) {
                         continue;
                     }
                     if let Some(mut m) = ctx.models.materials.get(&materials[i]).cloned() {

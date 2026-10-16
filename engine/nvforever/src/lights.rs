@@ -73,13 +73,17 @@ pub fn lumens(brightness: f32, unit: f32) -> f32 {
 /// colour [documented: LIGH DATA], brightness fade × `scale`, and as range the base
 /// radius plus the reference's XRDS (world.md §8 "Placed light radius").
 /// Negative and off-by-default lights are not drawn. A reference with an emittance
-/// source (XEMI) has its colour scaled by it (emittance.rs).
+/// source (XEMI) has its colour scaled by it (emittance.rs). A black record colour takes
+/// the colour of the light inside the LIGH's model (`model`, as stored under `meshes\`)
+/// when it has one (world.md §8 "Black LIGH colours").
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_light(
     commands: &mut Commands,
     cell_e: Entity,
     world: &WorldData,
     ligh: u32,
+    model: Option<&str>,
+    models: &mut nvf_assets::model::ModelCtx,
     at: Vec3,
     scale: f32,
     placed: &Placement,
@@ -90,7 +94,13 @@ pub fn spawn_light(
     if l.flags & (light_flags::NEGATIVE | light_flags::OFF_BY_DEFAULT) != 0 || radius <= 0.0 {
         return false;
     }
-    let lin = l.color.map(fnv_world::sky::srgb_to_linear);
+    let from_model = (l.color == [0; 3]).then(|| model.and_then(|m| models.model_light_colour(&format!(r"meshes\{m}")))).flatten();
+    let lin = match from_model {
+        // The NIF holds the colour as stored (display values) [hypothesis, as LIGH DATA].
+        Some(c) => c.map(|v| fnv_world::sky::srgb_to_linear((v.clamp(0.0, 1.0) * 255.0).round() as u8)),
+        None if l.color == [0; 3] => return false,
+        None => l.color.map(fnv_world::sky::srgb_to_linear),
+    };
     let linear = LinearRgba::rgb(lin[0], lin[1], lin[2]);
     let color = Color::LinearRgba(linear);
     let driven = placed.emittance.and_then(|x| emittance.light(world, x, linear));
