@@ -211,8 +211,11 @@ struct Fighter {
     pulled: bool,
     /// Blows on their way: seconds until each lands, and the blow.
     blows: Vec<(f32, ActorStrike)>,
-    /// Aiming down its sights now.
+    /// Aiming down its sights now; how it last fired while ready (down the sights or
+    /// from the hip), for the log: it may lower its sights while not ready (going to
+    /// cover) and come back ready near enough to fire from the hip.
     sights: bool,
+    ready_sights: bool,
     /// Seconds before a semi-automatic gun may be fired again (its combat style's
     /// firing delay).
     pull_in: f32,
@@ -670,6 +673,7 @@ fn fight(
                         pulled: false,
                         blows: Vec::new(),
                         sights: false,
+                        ready_sights: false,
                         pull_in: 0.0,
                         confidence_mod: 0.0,
                         flee_check_in: 0.0,
@@ -1227,10 +1231,13 @@ fn fight(
                 _ => 0.0,
             };
             let sights = ready && aims_down_sights(fighter.sights, away, sight_fov);
-            if sights != fighter.sights && ready {
+            if sights && !fighter.sights {
+                f.stats.sights_raised += 1;
+            }
+            if sights != fighter.ready_sights && ready {
+                fighter.ready_sights = sights;
                 let name = g.data.name(me);
                 if sights {
-                    f.stats.sights_raised += 1;
                     info!("npc combat: {name} {me} aims down the sights, its target {away:.0} units away (beyond {HIP_FIRE_WITHIN:.0}): walks while aiming");
                 } else {
                     info!("npc combat: {name} {me} fires from the hip, its target {away:.0} units away (within {HIP_FIRE_WITHIN:.0})");
