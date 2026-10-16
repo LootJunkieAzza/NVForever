@@ -2106,6 +2106,8 @@ expect = [
   { re = 'combat blocks: \d+ blows blocked, (?P<n>\d+) blocks broken', range = [1, 100000], label = "broken blocks in the summary" },
 ]
 forbid = [{ re = "combat: \\S+ blocks the player's blow", label = "a power attack is blocked as an ordinary blow" }]
+
+[[scenario]]
 name = "combat-melee-combo"
 source = "owner request 2026-10-16: melee enemies chain attacks into combos of different clips (docs/design/combat-ai.md §15)"
 note = "the combat-block fist fight (NCR troopers against the Fiends, --actor-weapons none): blows go on combos by the clips' a: keys, AttackLeft clips play after AttackRight ones"
