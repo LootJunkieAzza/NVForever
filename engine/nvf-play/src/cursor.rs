@@ -1,6 +1,6 @@
 //! The mouse pointer: the game's own arrow, `textures\interface\icons\misc\cursor.dds` (a
-//! light arrow with a dark outline) read from the owner's archives at run time and
-//! coloured with the interface's amber, as the system's pointer of the window wherever it
+//! light arrow with a dark outline, drawn in green) read from the owner's archives at run
+//! time and recoloured to the interface's amber by its lightness, as the system's pointer of the window wherever it
 //! is shown (menus, the console, message boxes). It is the original's pointer [observed:
 //! the owner's screenshots of the original's pause and main menus show a filled amber
 //! arrow with a dark edge, as this texture coloured amber; the owner's pick of the
@@ -61,11 +61,19 @@ pub fn arrow(rgba: &[u8], w: usize, h: usize, tint: [f32; 3]) -> Option<Arrow> {
     }
     let tip = (y0..=y1).find_map(|y| (x0..=x1).find(|&x| a(x, y) >= TIP_ALPHA).map(|x| (x, y)))?;
     let (cw, ch) = (x1 - x0 + 1, y1 - y0 + 1);
+    // The texture is drawn green (a mint fill, a dark green edge) [observed: cursor.dds
+    // in Fallout - Textures2.bsa]; multiplying its channels by amber left it olive. Only
+    // its lightness is kept, scaled so the brightest texel is the tint itself.
+    let luma = |x: usize, y: usize| {
+        let p = &rgba[(y * w + x) * 4..][..3];
+        0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32
+    };
+    let peak = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter(|&(x, y)| a(x, y) > CUT_ALPHA).map(|(x, y)| luma(x, y)).fold(1.0f32, f32::max);
     let mut out = Vec::with_capacity(cw * ch * 4);
     for y in y0..=y1 {
         for x in x0..=x1 {
-            let p = &rgba[(y * w + x) * 4..][..4];
-            out.extend_from_slice(&[(p[0] as f32 * tint[0]) as u8, (p[1] as f32 * tint[1]) as u8, (p[2] as f32 * tint[2]) as u8, p[3]]);
+            let l = luma(x, y) / peak * 255.0;
+            out.extend_from_slice(&[(l * tint[0]).min(255.0) as u8, (l * tint[1]).min(255.0) as u8, (l * tint[2]).min(255.0) as u8, rgba[(y * w + x) * 4 + 3]]);
         }
     }
     Some(Arrow { pixels: out, width: cw, height: ch, tip: ((tip.0 - x0) as u16, (tip.1 - y0) as u16) })
@@ -111,5 +119,16 @@ mod tests {
         // Tinted: the white tip (row 1, column 1 of the cut) becomes the tint.
         assert_eq!(&out[(3 + 1) * 4..][..4], &[255, 127, 63, 255]);
         assert!(arrow(&[0u8; 16], 2, 2, [1.0; 3]).is_none());
+    }
+
+    #[test]
+    fn a_green_arrow_turns_the_tint_not_olive() {
+        // The game's colours: a mint fill and a dark green edge.
+        let px = [181, 247, 231, 255, 74, 134, 82, 255];
+        let out = arrow(&px, 2, 1, AMBER).unwrap().pixels;
+        let amber = AMBER.map(|c| (c * 255.0) as u8);
+        assert_eq!(&out[..3], &amber);
+        // The edge is a darker amber: the same hue, red still the strongest.
+        assert!(out[4] < out[0] && out[4] > out[5] && out[5] > out[6]);
     }
 }
