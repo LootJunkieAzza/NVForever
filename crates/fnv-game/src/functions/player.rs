@@ -21,7 +21,7 @@ pub fn add_perk(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if ctx.subject_or_player() != FormId::PLAYER_REF {
         return Err("perks of actors other than the player are not modelled".into());
     }
-    *g.player.perks.entry(a.form(0)?).or_default() += 1;
+    crate::perks::gain_rank(g, a.form(0)?);
     none()
 }
 

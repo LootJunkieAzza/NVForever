@@ -385,7 +385,7 @@ fn press_continue(st: &mut LevelUpMenu, script: &mut ScriptState, sim: &mut SimS
             rules::PerkSheet::of_player(g, level)
         });
         let Some(perks) = perks else { return UiEvent::Refused };
-        info!("levelup: skills {}; perks page: {} perks on offer", or_none(&gains), perks.perks.len());
+        info!("levelup: skills {}; perks page: {} perks listed, {} can be taken", or_none(&gains), perks.perks.len(), perks.available.iter().filter(|&&a| a).count());
         m.to_perks(perks);
         st.dirty = true;
         return UiEvent::Switch;

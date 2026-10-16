@@ -42,7 +42,8 @@
 
 use crate::player::Player;
 use crate::PlayWorld;
-use bevy::audio::{AddAudioSource, ChannelCount, Decodable, Sample, SampleRate, Source, Volume};
+use bevy::audio::{ChannelCount, Decodable, Sample, SampleRate, Source, Volume};
+use crate::audio_out::AddAudioSource;
 use bevy::prelude::*;
 use fnv_combat::fx::{FxForms, Sound};
 use fnv_combat::rng::SplitMix;

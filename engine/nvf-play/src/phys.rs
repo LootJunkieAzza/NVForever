@@ -1095,7 +1095,7 @@ fn stream(
     let feet = phys.player.as_ref().map_or(player.feet, |c| c.feet);
     let ctx = LoadCtx { d: &d, sim: &sim, data: data.as_deref() };
     // Behind a loading screen a long frame does not show: take more prepared cells.
-    let budget = if loading.is_some_and(|l| l.active()) { CELLS_BEHIND_LOADING_SCREEN } else { CELLS_PER_FRAME };
+    let budget = if loading.is_some_and(|l| l.unseen_frames()) { CELLS_BEHIND_LOADING_SCREEN } else { CELLS_PER_FRAME };
     phys.stream(&ctx, feet, budget);
     // The broad phase takes in what was inserted now rather than in the player's first
     // step, so that the frame's streaming cost is measured in one place.
