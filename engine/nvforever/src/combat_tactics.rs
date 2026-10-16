@@ -73,6 +73,17 @@ pub const FLANK_MIN_MOVE: f32 = 192.0;
 pub const LINE_OF_FIRE_WIDTH: f32 = 40.0;
 /// A step aside out of a friend's way, game units [design].
 pub const SIDESTEP: f32 = 128.0;
+/// A gunman whose target is nearer than this steps back from it, walking backwards while
+/// it fires, game units [design: owner 2026-10-16, "backtracking in order to go
+/// backwards"]. Not the weapon's Min Range, which "tells combat AI they don't need to be
+/// closer than this value" [documented: GECK wiki Weapons]: the service rifle's 768 had
+/// the NCR troopers backing away most of their fight.
+pub const BACK_OFF_WITHIN: f32 = 256.0;
+/// Once stepping back, it goes on until the target is this much farther than
+/// [`BACK_OFF_WITHIN`], so it does not stop and start at the edge [design].
+pub const BACK_OFF_SLACK: f32 = 64.0;
+/// One step back, game units [design].
+pub const BACK_OFF_STEP: f32 = 192.0;
 /// A fight is over when nobody has fought for this long, seconds [design].
 pub const RESOLVED_AFTER: f32 = 5.0;
 /// A kind of post the AI found no way to is not given again for this long, seconds
@@ -189,6 +200,15 @@ pub fn sidestep(from: [f32; 3], to: [f32; 3], other: [f32; 3], step: f32) -> [f3
     [from[0] + n[0] * step, from[1] + n[1] * step, from[2]]
 }
 
+/// A step `step` straight back from `target`, from `from` (on top of `target`: towards
+/// -y).
+pub fn back_off(from: [f32; 3], target: [f32; 3], step: f32) -> [f32; 3] {
+    let d = [from[0] - target[0], from[1] - target[1]];
+    let len = d[0].hypot(d[1]);
+    let u = if len < 1e-3 { [0.0, -1.0] } else { [d[0] / len, d[1] / len] };
+    [from[0] + u[0] * step, from[1] + u[1] * step, from[2]]
+}
+
 /// The two peek points of a cover edge: past each end of it, [`COVER_STANDOFF`] in from
 /// its line.
 pub fn peek_points(e: &CoverEdge) -> [[f32; 3]; 2] {
@@ -259,6 +279,7 @@ pub struct Battle {
     pub peeks: usize,
     pub flanks: usize,
     pub sidesteps: usize,
+    pub back_offs: usize,
     pub held_fire: usize,
     pub alarms: usize,
     pub no_alarms: usize,
@@ -393,7 +414,7 @@ fn report(mut exit: MessageReader<AppExit>, battle: Res<Battle>) {
         None => "still going at exit".to_string(),
     };
     info!(
-        "battle summary: {} sides, {actors} actors; {}; {} flights ({} by a door, {} to cover, {} away; {} cornered), {} confidence boosts, {} back to the fight; {} cover taken, {} peeks out of it; {} flank posts, {} steps aside, {} shots held for someone in the line of fire; {} alarms, {} not sent; {} complete searches; {} fights started by a hit between actors; first fighter at {first:.1} s, {resolved}",
+        "battle summary: {} sides, {actors} actors; {}; {} flights ({} by a door, {} to cover, {} away; {} cornered), {} confidence boosts, {} back to the fight; {} cover taken, {} peeks out of it; {} flank posts, {} steps aside, {} steps back, {} shots held for someone in the line of fire; {} alarms, {} not sent; {} complete searches; {} fights started by a hit between actors; first fighter at {first:.1} s, {resolved}",
         b.sides.len(),
         b.line(),
         b.flights.iter().sum::<usize>(),
@@ -407,6 +428,7 @@ fn report(mut exit: MessageReader<AppExit>, battle: Res<Battle>) {
         b.peeks,
         b.flanks,
         b.sidesteps,
+        b.back_offs,
         b.held_fire,
         b.alarms,
         b.no_alarms,

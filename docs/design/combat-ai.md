@@ -585,6 +585,29 @@ on again. This is in addition to §10.3 (an ally that sees a fight joins it). Lo
   brahmin stand among them: with them counted, the troopers held fire 126 times in one
   fight). Log:
   `holds fire: … stands in its line of fire to …`.
+- **A step back** [design: owner 2026-10-16, "backtracking in order to go backwards"]: a
+  gunman whose target is nearer than 256 units (`BACK_OFF_WITHIN`) steps 192 units
+  straight back from it, walking, and
+  takes another step each time it gets there until the target is 64 units beyond that
+  distance. It comes before cover and flanks (the target is on top of it). Log:
+  `steps back from … , … units away (within …)`; the summary counts `steps back`. The
+  weapon's Min Range is not used: it "tells combat AI they don't need to be closer than
+  this value" [documented: GECK wiki Weapons], and the service rifle's 768 had the
+  troopers backing away most of the fight (first run, 2026-10-16).
+- **Keeping a target** [design]: a fighter keeps the target it fights while it detects
+  it, unless another detected one is more than 50 above it in detection value
+  (`awareness::TARGET_KEEP_MARGIN`). Before, it took the highest value at each
+  measurement, and the troopers turned between Fiends 1,000 units apart every half
+  second (334 target changes among 11 fighters in a 52 s battle).
+- **Strafing** [design: owner 2026-10-16, troopers "look like they dont know if they want
+  to move or shoot"]: an NPC fighter in Combat is drawn facing its target the whole
+  fight, standing or on its way (closing in, a flank, a step aside, a step back); its
+  legs play the walk or run clip of the way it goes in its own axes (forward, left,
+  right, back: `Locomotion::velocity`, actors.md §8), so it fires on the move instead of
+  turning between its way and its target. Not while it flees or runs to cover: it faces
+  the way it runs. Creatures face the way they go. Summary at exit: `fight move summary:
+  drawn fighters facing their target moved … s forward, … s sideways (strafing), … s
+  back`.
 - Melee fighters and creatures close in as before (§5); they flee by the same rules.
 
 ### 12.7 Watching fights: the test aids and the summary

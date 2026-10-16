@@ -69,8 +69,11 @@
 //!   again: it fights again or flees on; after fCombatFleeWaitTime there it checks again
 //!   without a boost [hypothesis: what the wait time is for].
 //! - **Tactics** (`combat_tactics`): cover by the style's Take Cover Chance and timers,
-//!   flank places for a group's gunmen, and no shot while a friend stands in the line of
-//!   fire.
+//!   flank places for a group's gunmen, no shot while a friend stands in the line of
+//!   fire, and a step back from a target nearer than [`tactics::BACK_OFF_WITHIN`]
+//!   [design].
+//! - **Moving while it fights**: it stays facing its target and strafes or backs away
+//!   (nvforever `residents`, `Core::aims`), so it fires on the move.
 //!
 //! - **Attack lines**: each shot or blow it begins tries its Attack line, said at most
 //!   once per its attack timer (`fnv_game::combat_lines`, docs/spec-notes/combat-dialogue.md).
@@ -698,6 +701,26 @@ fn fight(
                     };
                     if !barred(t, kind) {
                         want_post = Some(Post { at, kind, run: true });
+                    }
+                }
+                // A step back from a target too near, before any cover or flank: it is on top of it.
+                {
+                    let within = tactics::BACK_OFF_WITHIN;
+                    let current = g.awareness.tactics.posts.get(&me).copied().filter(|p| p.kind == PostKind::BackOff);
+                    let near = away < if current.is_some() { within + tactics::BACK_OFF_SLACK } else { within };
+                    if near && !barred(t, PostKind::BackOff) {
+                        // On to the step it is taking; reached, another one.
+                        let at = match current.filter(|p| (p.at[0] - feet[0]).hypot(p.at[1] - feet[1]) >= tactics::AT_POST) {
+                            Some(p) => p.at,
+                            None => {
+                                if current.is_none() {
+                                    battle.back_offs += 1;
+                                    info!("npc combat: {name} steps back from {target_name}, {away:.0} units away (within {within:.0})");
+                                }
+                                tactics::back_off(feet, tfeet, tactics::BACK_OFF_STEP)
+                            }
+                        };
+                        want_post = Some(Post { at, kind: PostKind::BackOff, run: false });
                     }
                 }
                 // The line of fire: a comrade (or the player, when not its target) in the way.
