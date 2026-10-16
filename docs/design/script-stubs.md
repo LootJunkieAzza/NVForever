@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 78 (16 assigned, 1 implementable, 61 need a system) after NPC sneaking (§3.4; 79 before it) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,929 (1,315 calls, 614 condition uses) after NPC sneaking (§3.4) |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -112,8 +112,8 @@ each function; call sites are from `fnvtool script decompile` over the ten maste
 | GetXPForNextLevel | 0x1215 | 3 | 0 | the next level's total, (n − 1)((n − 2)/2 · iXPBumpBase + iXPBase) [documented: GECK wiki Experience Settings], less the player's XP [hypothesis: remaining, from the Here and Now perk's stage] | none (levelling up is not built) |
 
 Left, with the reason (§4): PushActorAway (ragdolls are for corpses only; a live
-knockdown and getting up is not built, with GetKnockedState), SetForceSneak (actors
-other than the player have no sneaking stance or animations), AutoDisplayObjectives
+knockdown and getting up is not built, with GetKnockedState), SetForceSneak (since built,
+§3.4), AutoDisplayObjectives
 (objectives already show as scripts set them; what the switch adds is not documented
 beyond the summary), GetIsObjectType (its condition parameter is a form type code, and
 the code table is not in the local GECK wiki export; one condition use).
@@ -128,6 +128,14 @@ container menu on the companion's inventory, once the conversation is over. No s
 assigned to H any more. Wait, StopWaiting and IsWaiting are not registered and used by no
 script of the masters [observed]; the companions wait by their `Waiting` variable and Guard
 packages.
+
+### 3.4 NPC sneaking (claude/l5-npc-ai, 2026-10-16)
+
+SetForceSneak (0x10D3, 3 calls) is implemented: `RefExtra::force_sneak`, read by
+`Game::sneaks` together with the current package's Always Sneak; the engine crouches the
+actor in its `sneakmt…` locomotion clips, walks it at fMoveSneakMult and measures it as
+sneaking (nvforever `sneaking.rs`; owner's playtest list 5 items 36–37). GetForceSneak has
+no opcode in the catalogue and stays unregistered.
 
 ## 4. Every remaining stub
 
@@ -191,7 +199,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | ResetPipboyManager | 0x1201 | 4 | 0 | needs a system not built yet | Pip-Boy |
 | AttachAshPile | 0x1211 | 4 | 0 | needs a system not built yet | rendering (death effects) |
 | AddCardToPlayer | 0x125B | 4 | 0 | needs a system not built yet | Caravan |
-| SetForceSneak | 0x10D3 | 3 | 0 | needs a system not built yet | movement: actors other than the player have no sneaking stance or animations |
 | GetUsedItemActivate | 0x1103 | 0 | 3 | needs a system not built yet | AI (used items) |
 | SetNoAvoidance | 0x115B | 3 | 0 | needs a system not built yet | AI |
 | GetGroupTargetCount | 0x11A1 | 0 | 3 | assigned to workstream | assigned to workstream E2 combat AI |

@@ -4674,3 +4674,62 @@ reaches them, so they are on a shelf inside the counter's collision); drop part 
 from the Pip-Boy (X on the 20 rounds); buy part of a stack from Chet; store part of the
 caps in a container.
 
+
+## List 5 — claude/l5-npc-ai
+NPC AI items of playtest list 5 (§4 numbers). Each: what changed, my decision or guess,
+what to check in game.
+- **3 Doors.** An NPC that goes through a load door fades out at it (its body walks on into
+  the door for 0.75 s while it dithers away) and fades in at the other side over the same
+  time; the door's open sound (DOOR SNAM, as for your own load doors) plays at the door it
+  went in by and at the one it came out of, wherever you are drawn. *Guess:* 0.75 s, and
+  the dither of the cell fades (meshes with other materials, if any, pop). *Check:* stand
+  outside the gas station when Ringo comes out (talk to him, leave); an NPC going into the
+  saloon.
+- **28 Random conversations** now start only with you within 300 units (the hello
+  distance) of one of the two; a due conversation waits for you instead of being skipped.
+  *Guess:* 300 for "right next to them". *Check:* Goodsprings NPCs chatting only when you
+  stand by them.
+- **29 Ranger Ghost** has no packages at all [observed: vMORangerGhost has no PKID and its
+  template does not give packages]. In a quiet 45 s run she stays on her sandbagged post
+  (11,320 up). What would have left her by the fence: an actor without packages that
+  searched, fought or was pushed stayed wherever that left it. Now it walks back to where
+  it was placed (from up to 4,096 units). *Guess:* that the game keeps such actors at their
+  editor location; that a search or a fight is what brought her down. *Check:* she is on
+  the roof by the chain-link gate idle after you arrive, and after a fight at the outpost.
+- **31 Friendly alert range:** an actor that starts fighting or notices a hostile alarms its
+  allies within 4,096 units (was 2,048). *Guess:* the number. *Check:* Goodsprings
+  settlers joining from across the town.
+- **33 Facing:** NPCs the AI moves attack only with the target within 30° of straight ahead
+  (they turn first); actors without `--npc-packages` fire as before. *Guess:* 30°.
+- **34 Package flags.** Done: Weapon Drawn (drawn during the package: Sunny runs to the
+  wells with her rifle out), Weapons Unequipped (holstered and hidden unless fighting),
+  HeadTracking Off (no head tracking unless a conversation or script look forces it),
+  Defensive Combat (no attacking NPCs or creatures on sight; being attacked or an ally's
+  call still counts), Always Sneak (36–37), the six door flags (lock/unlock all doors of
+  the actor's cell at start, at end, and kept while it runs; only doors that have a lock,
+  at their own level; the "at location" ones re-applied at each 10 s package choice).
+  Already honoured before: Must Complete, Must Reach Location, Continue If PC Near, Once
+  Per Day, Skip Fallout Behavior, Always Run, Continue During Combat, No Combat Alert, No
+  Idle Anims, Offers Services. Not built: Pretend In Combat, Allow Swimming, Allow Falls,
+  No Warn/Attack Behavior. *Guesses:* doors without a lock are left alone; an ended or
+  replaced package both count as "end".
+- **35 Sunny helps:** an actor that detects an attacker fighting someone, where the attacker
+  would attack it too, now joins against it at once (the VCG02 geckos are Very Aggressive,
+  so Sunny and Cheyenne join when they go for you). Not cowards, not Defensive Combat
+  packages. *Decision:* this applies to everyone (settlers join against geckos that attack
+  you nearby, too). *Check:* VCG02 at the wells.
+- **36–37 Sneaking:** an NPC sneaks while its package has Always Sneak or a script's
+  SetForceSneak holds (now implemented): it crouches with its skeleton's `sneakmt…`
+  locomotion clips, walks at fMoveSneakMult (0.57) of its pace, and detection and
+  IsSneaking count it as sneaking. Sunny crouches on VCG02SunnySneakCloserToWell and
+  stands up at "OK, you're on". Not built: sneaking with the Follow leader; the weapon's
+  sneak clips (with a weapon drawn the arms hold the standing aim over the crouched legs).
+  *Check:* how Sunny looks sneaking with her rifle out.
+- **40 Doc Mitchell's chair:** his exit clip (SpecialIdle_NVDocChairFrontExit, the one the
+  game's IDLE tree names for the front marker during VCG01 10–50) starts its Bip01 52 units
+  beside the seat, so he jumped about 75 units to the side before walking off. Exits now play
+  from where the body sits (no change for the plain exits, which start there anyway).
+  *Guess:* that the game aligns every exit so; what the clip's own travel then does (35
+  units sideways, 14 forward) is the clip's. *Check:* after "the stuff that mattered", which
+  side he steps off to; if still the wrong side, say so and I will mirror that clip's
+  sideways travel.
