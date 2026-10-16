@@ -1886,6 +1886,20 @@ expect = [
 forbid = [{ re = 'combat group: (LvlNCR|NCRTrooper)\S* 0x\S+ alarms (FiendCookCookRef|LvlFiend)', label = "an NCR trooper alarms a Fiend" }]
 
 [[scenario]]
+name = "cook-cook-flamer"
+source = "owner's playtest 2026-10-16: Cook-Cook's flamer jittered as if it had recoil (its looping attack clip started again at every shot) and his left hand missed the gun (the Weapon node back at its bind pose; animation.md §9.7, §9.8)"
+note = "the player is put 100 units in front of Cook-Cook (FiendCookCookRef 000F5704) at 5 s, god mode; he fires his flamer at the player"
+areas = ["combat", "animation"]
+paths = ["engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/weapons.rs", "engine/nvf-assets/src/anim_play.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_FACE = "5:000F5704" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'attack anims: 000F5704 plays \S*2hhattackspin2?\.kf', label = "Cook-Cook fires with the 2hh spin clip" },
+  { re = 'attack anims summary: .* (?P<n>\d+) shots went on with a looping clip', range = [3, 1000000], label = "shots go on with the looping clip instead of starting it again" },
+]
+
+[[scenario]]
 name = "combat-flee"
 source = "owner's list 2: NPCs flee (GECK wiki Confidence and Combat Flee; docs/design/combat-ai.md §12.2): a cowardly bighorner shot once in its pen"
 note = "GSBigHorner: Unaggressive, Confidence 0 (Cowardly, threshold 1000): hurt, it fails its first flee check; where it flees to depends on the pen's navmesh (to cover, 2026-10-12)"
