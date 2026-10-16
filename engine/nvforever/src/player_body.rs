@@ -41,7 +41,8 @@
 //! arms are up the body's own arms and hands are hidden, and its weapon while it is in
 //! the hand. On furniture the seated body is drawn without its head, the view turns no
 //! further from the way the body faces than a neck does ([`seated_heading`]) and the eyes
-//! go round the neck with it.
+//! go round the neck with it. While an idle drives the first-person view (the opening's
+//! wake-up) the body is not drawn: the arms rig plays the idle alone.
 //!
 //! **The shadow** [engineering choice; the original casts no sun shadows from the world]:
 //! the third-person body casts the player's shadow in every view, head, arms and weapon
@@ -1694,6 +1695,21 @@ fn drive_body(
     m.jams_seen = anim.jams;
     m.spin_ups_seen = anim.spin_ups;
 
+    // While an idle turns the first-person view, its rig keeps the heading the idle
+    // started at and the camera node alone places the view: mouse look and movement are
+    // ignored (`nvf_play::player::ViewDriven`) [design: the owner's wish, playtest of
+    // 2026-10-11; the opening's scripts leave looking on, so the original may let the
+    // view turn; hypothesis that the body does not swing round with the view].
+    if idles.first.is_empty() && idles.held.take().is_some() {
+        seat.hold = None;
+    }
+    if driven.0 != idles.held.is_some() {
+        driven.0 = idles.held.is_some();
+        info!("player view: {}", if driven.0 { "driven by an idle's camera node; mouse look and movement ignored" } else { "back to the player" });
+        if own_body {
+            info!("player body: {} in first person", if driven.0 { "not drawn while the idle drives the view" } else { "drawn again" });
+        }
+    }
     let frame = Frame {
         dt,
         stance,
@@ -1707,7 +1723,10 @@ fn drive_body(
         landing,
         turn_rate: m.turn_rate,
         pitch: player.pitch,
-        upright: own_body && !third_view && body.first.is_some(),
+        // Not while an idle drives the view (the opening's wake-up): the arms rig plays
+        // the idle and the body would stand where the view lies [design: owner report
+        // 2026-10-16, "the players own body standing over themselves"].
+        upright: own_body && !third_view && body.first.is_some() && idles.held.is_none(),
         aiming: control.aiming,
         speed: m.speed,
         attack: Some(attack),
@@ -1722,18 +1741,6 @@ fn drive_body(
     let root = Transform { translation: Vec3::from_array(feet), rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e);
-    // While an idle turns the first-person view, its rig keeps the heading the idle
-    // started at and the camera node alone places the view: mouse look and movement are
-    // ignored (`nvf_play::player::ViewDriven`) [design: the owner's wish, playtest of
-    // 2026-10-11; the opening's scripts leave looking on, so the original may let the
-    // view turn; hypothesis that the body does not swing round with the view].
-    if idles.first.is_empty() && idles.held.take().is_some() {
-        seat.hold = None;
-    }
-    if driven.0 != idles.held.is_some() {
-        driven.0 = idles.held.is_some();
-        info!("player view: {}", if driven.0 { "driven by an idle's camera node; mouse look and movement ignored" } else { "back to the player" });
-    }
     let (held, pitch, at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
     if let Some(h) = idles.held {
         // The character stays where the scene plays (and collides with nothing there).
