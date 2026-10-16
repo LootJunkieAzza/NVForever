@@ -459,6 +459,9 @@ pub struct BlendPlayer {
     /// Nodes posed in the previous call, and a per-node flag for this call's.
     posed: Vec<usize>,
     driven: Vec<bool>,
+    /// Nodes with a rest pose of their own in place of the bind transform
+    /// ([`Self::set_rest`]).
+    rest: Vec<(usize, Transform)>,
 }
 
 impl BlendPlayer {
@@ -472,7 +475,23 @@ impl BlendPlayer {
             touched: Vec::with_capacity(n),
             posed: Vec::with_capacity(n),
             driven: vec![false; n],
+            rest: Vec::new(),
         }
+    }
+
+    /// Give node `i` a rest pose in place of its bind transform (`None`: the bind
+    /// transform again): what it takes where no clip drives it, and what fills the weight
+    /// the clips that drive it leave.
+    pub fn set_rest(&mut self, i: usize, pose: Option<Transform>) {
+        self.rest.retain(|(n, _)| *n != i);
+        if let Some(p) = pose {
+            self.rest.push((i, p));
+        }
+    }
+
+    /// Node `i`'s rest pose: its own ([`Self::set_rest`]) or its bind transform.
+    fn rest_of(&self, i: usize) -> Transform {
+        self.rest.iter().find(|(n, _)| *n == i).map_or_else(|| self.bind.get(i).copied().unwrap_or_default(), |(_, p)| *p)
     }
 
     fn add(&mut self, i: usize, c: Contrib) {
@@ -498,7 +517,7 @@ impl BlendPlayer {
             let time = cycle_time(bc.time_at(layer.phase), bc.clip.start, bc.clip.stop, bc.clip.cycle_type);
             let phase = if bc.clip.stop > bc.clip.start { (time - bc.clip.start) / (bc.clip.stop - bc.clip.start) } else { 0.0 };
             for (j, (i, track, p)) in bc.tracks.iter().enumerate() {
-                let b = self.bind.get(*i).copied().unwrap_or_default();
+                let b = self.rest_of(*i);
                 let mut t = track.translation.sample(time).map_or(b.translation, Vec3::from_array);
                 if let Some((rj, per_cycle, start_z)) = bc.root_track {
                     if rj == j {
@@ -516,12 +535,22 @@ impl BlendPlayer {
             }
         }
         self.layers = layers;
-        for &i in &self.touched {
+        for k in 0..self.touched.len() {
+            let i = self.touched[k];
+            let rest = self.rest_of(i);
             let (slots, n) = &mut self.contribs[i];
-            let bind = self.bind.get(i).copied().unwrap_or_default();
-            out.push((i, blend_by_priority(&mut slots[..*n as usize], bind)));
+            out.push((i, blend_by_priority(&mut slots[..*n as usize], rest)));
             *n = 0;
             self.driven[i] = true;
+        }
+        // Nodes with a rest pose of their own that no clip drives take it.
+        for k in 0..self.rest.len() {
+            let (i, p) = self.rest[k];
+            if self.driven.get(i) == Some(&false) {
+                out.push((i, p));
+                self.driven[i] = true;
+                self.touched.push(i);
+            }
         }
         // Nodes posed last time that no clip drives now go back to their bind transform.
         for &i in &self.posed {
@@ -904,6 +933,27 @@ mod tests {
         p.layers = [layer(&walk, 1.0), None, None, None, None, None];
         p.sample(&mut out);
         assert_eq!(get(&out, 2), Vec3::ZERO);
+    }
+
+    #[test]
+    fn a_rest_pose_stands_in_for_the_bind_transform() {
+        let (mut p, ix) = player();
+        let other = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([1.0, 0.0, 0.0]), 30)]), &ix));
+        let mut out = Vec::new();
+        let get = |out: &Vec<(usize, Transform)>, i: usize| out.iter().find(|(j, _)| *j == i).map(|o| o.1.translation);
+        p.set_rest(3, Some(Transform::from_xyz(7.0, 0.0, 0.0)));
+        // No clip drives the node: it takes the rest pose.
+        p.sample(&mut out);
+        assert_eq!(get(&out, 3), Some(Vec3::new(7.0, 0.0, 0.0)));
+        // A clip on it at weight 0.5: the rest pose fills the other half.
+        p.layers = [Some(Layer { clip: other, phase: 0.0, weight: 0.5 }), None, None, None, None, None];
+        p.sample(&mut out);
+        assert!((get(&out, 3).unwrap().x - 4.0).abs() < 1e-5);
+        // Without it, the node goes back to its bind transform (5, 0, 0).
+        p.layers = Default::default();
+        p.set_rest(3, None);
+        p.sample(&mut out);
+        assert_eq!(get(&out, 3), Some(Vec3::new(5.0, 0.0, 0.0)));
     }
 
     #[test]

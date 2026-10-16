@@ -6,10 +6,13 @@
 //!
 //! The shape is found by its material: the drawn entities of a reference (`RefVisual`)
 //! carry the material of the model's shape they draw [design: no shape names are kept
-//! on drawn entities; a shape whose material was copied (animated, emittance) is not
-//! found].
+//! on drawn entities of placed objects; a shape whose material was copied (animated,
+//! emittance) is not found]. The shapes of actors' parts (a Securitron's screen,
+//! `SetSecuritronExpression`) carry their name (`nvf_assets::actor::ShapeName`) and are
+//! found by it.
 
 use bevy::prelude::*;
+use nvf_assets::actor::ShapeName;
 use nvf_assets::model::ModelCtx;
 use nvf_assets::NifMaterial;
 use nvf_play::script::ScriptState;
@@ -44,7 +47,7 @@ fn apply(
     world: Option<Res<WorldData>>,
     mut models: ModelCtx,
     mut swapped: ResMut<Swapped>,
-    drawn: Query<(Entity, &RefVisual, &MeshMaterial3d<NifMaterial>)>,
+    drawn: Query<(Entity, &RefVisual, &MeshMaterial3d<NifMaterial>, Option<&ShapeName>)>,
     added: Query<(), Added<RefVisual>>,
 ) {
     let (Some(script), Some(sim), Some(world)) = (script, sim, world) else { return };
@@ -55,27 +58,25 @@ fn apply(
     }
     swapped.generation = swaps.generation;
     for (&r, list) in &swaps.by_ref {
-        let Some(path) = sim
+        let model = sim
             .base_of(r.0)
             .and_then(|b| fnv_world::placed::base_object(world.lo, world.schema, b.0))
             .and_then(|b| b.model)
             .map(|m| fnv_actor::resolve::mesh_path(&m))
-        else {
-            continue;
-        };
-        let Some(model) = models.model(&path) else { continue };
+            .and_then(|path| models.model(&path));
         for (shape, texture) in list {
-            let targets: Vec<AssetId<NifMaterial>> =
-                model.shapes.iter().filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(shape))).map(|s| s.material.id()).collect();
-            if targets.is_empty() {
-                continue;
-            }
-            for (e, rv, mat) in &drawn {
+            let targets: Vec<AssetId<NifMaterial>> = model
+                .iter()
+                .flat_map(|m| m.shapes.iter())
+                .filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(shape)))
+                .map(|s| s.material.id())
+                .collect();
+            for (e, rv, mat, name) in &drawn {
                 if rv.0 != r.0 {
                     continue;
                 }
                 let original = swapped.original.get(&mat.id()).copied().unwrap_or(mat.id());
-                if !targets.contains(&original) {
+                if !targets.contains(&original) && name.is_none_or(|n| n.0 != *shape) {
                     continue;
                 }
                 let key = (original, texture.clone());

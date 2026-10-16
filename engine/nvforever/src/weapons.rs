@@ -42,6 +42,9 @@ pub struct Stance {
     /// Skeleton node indices of `Weapon` and of every bone the weapon can hang from.
     pub weapon_node: usize,
     pub bones: HashMap<String, usize>,
+    /// Where the equip clip leaves the `Weapon` node: its rest pose while in the hand
+    /// ([`WeaponHold::rest`]).
+    pub weapon_rest: Option<Transform>,
 }
 
 impl Stance {
@@ -78,13 +81,26 @@ impl Stance {
             bones.len()
         );
         let weapon_only = clips.iter().map(|(c, b)| (*c, Arc::new(weapon_track_only(b, weapon_node)))).collect();
-        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, bones }, line))
+        let weapon_rest = clips.get(&EquipClip::Equip).and_then(|c| track_end(c, weapon_node, skel.locals[weapon_node]));
+        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, bones, weapon_rest }, line))
     }
 }
 
 /// `clip` with only the track of the `Weapon` node (index `weapon_node`).
 pub fn weapon_track_only(clip: &BoundClip, weapon_node: usize) -> BoundClip {
     BoundClip { clip: clip.clip.clone(), tracks: clip.tracks.iter().filter(|(i, ..)| *i == weapon_node).cloned().collect(), root: None, root_track: None }
+}
+
+/// Where `clip` leaves node `node` at its end (`bind` fills what the track leaves out);
+/// `None` when the clip does not drive it.
+fn track_end(clip: &BoundClip, node: usize, bind: Transform) -> Option<Transform> {
+    let (_, t, _) = clip.tracks.iter().find(|(i, ..)| *i == node)?;
+    let time = clip.clip.stop;
+    Some(Transform {
+        translation: t.translation.sample(time).map_or(bind.translation, Vec3::from_array),
+        rotation: t.rotation_at(time).map_or(bind.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize()),
+        scale: Vec3::splat(t.scale.sample(time).map_or(bind.scale.x, |[s]| s)),
+    })
 }
 
 /// An armed actor's weapon state (on the actor's root, beside its `Locomotion`).
@@ -135,6 +151,20 @@ impl WeaponHold {
         let layer = |l: Option<(EquipClip, f32, f32)>| l.and_then(|(c, phase, weight)| Some(Layer { clip: st.clips.get(&c)?.clone(), phase, weight }));
         player.layers[2] = layer(a);
         player.layers[3] = layer(b);
+        self.rest(player);
+    }
+
+    /// In the hand, the `Weapon` node rests where the equip clip leaves it: the aim and
+    /// movement clips of some stances (`2hh`: the minigun, the flamer, the gatling laser;
+    /// `1hp`) do not drive it, and the equip, attack and reload clips that do agree on
+    /// the place [observed: animation.md §9.7; hypothesis: the game leaves the node where
+    /// the last clip put it]. Back at its bind transform the weapon turned in the hand
+    /// and the left hand missed it [observed in NVForever: owner's playtest 2026-10-16,
+    /// Cook-Cook's flamer]. Holstered, the node keeps its bind transform.
+    fn rest(&self, player: &mut BlendPlayer) {
+        let st = &self.stance;
+        let in_hand = self.anim.parent(&st.holster, &st.drawn, &st.facts) == st.drawn;
+        player.set_rest(st.weapon_node, st.weapon_rest.filter(|_| in_hand));
     }
 
     /// Only where the weapon hangs, as player layers 2 and 3: for an actor whose body plays
@@ -150,6 +180,7 @@ impl WeaponHold {
         let layer = |l: Option<(EquipClip, f32, f32)>| l.and_then(|(c, phase, weight)| Some(Layer { clip: st.weapon_only.get(&c)?.clone(), phase, weight }));
         player.layers[2] = layer(a);
         player.layers[3] = layer(b);
+        self.rest(player);
     }
 
     /// The node the weapon should hang from now, if the skeleton has that bone.
@@ -241,7 +272,7 @@ mod tests {
     use fnv_actor::weapon::{ClipFacts, Stage};
 
     fn stance() -> Arc<Stance> {
-        let f = |duration: f32, bone: &str| ClipFacts { duration, blend_time: 0.2, prn: vec![(0.5, bone.to_string())] };
+        let f = |duration: f32, bone: &str| ClipFacts { duration, blend_time: 0.2, prn: vec![(0.5, bone.to_string())], switch: None };
         let facts = StanceFacts::from([
             (EquipClip::Holster, f(0.1, "Bip01 Pelvis")),
             (EquipClip::Equip, f(0.4, "Bip01 R Hand")),
@@ -249,7 +280,7 @@ mod tests {
             (EquipClip::Unequip, f(0.5, "Bip01 Pelvis")),
         ]);
         let bones = HashMap::from([("Bip01 Pelvis".to_string(), 3), ("Bip01 R Hand".to_string(), 7)]);
-        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones })
+        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones, weapon_rest: None })
     }
 
     #[test]

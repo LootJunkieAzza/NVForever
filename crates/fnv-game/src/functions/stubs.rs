@@ -30,26 +30,11 @@ impl Status {
 }
 
 /// The workstreams of the owner's list 2 (docs/handoff/playtest-2026-10-12.md §3).
-pub const COMBAT: &str = "E2 combat AI";
 pub const CRIME: &str = "J karma and crime";
 pub const FOLLOWERS: &str = "H followers";
 
 /// Stubs whose system another workstream is building now or next.
 pub const ASSIGNED: &[(u16, &str)] = &[
-    (0x10B1, COMBAT), // SetCombatStyle
-    (0x11A0, COMBAT), // GetGroupMemberCount
-    (0x11A1, COMBAT), // GetGroupTargetCount
-    (0x11E2, COMBAT), // FireWeapon
-    (0x1042, COMBAT), // GetShouldAttack
-    (0x1203, COMBAT), // IsCombatTarget
-    (0x10F5, COMBAT), // ForceFlee
-    (0x106B, COMBAT), // GetKnockedState
-    (0x1259, COMBAT), // GetForceHitReaction
-    (0x118D, COMBAT), // GetCauseofDeath
-    (0x118E, COMBAT), // IsLimbGone
-    (0x1051, COMBAT), // GetArmorRating
-    (0x11AC, COMBAT), // GetPlantedExplosive
-    (0x119F, COMBAT), // Exists (combat dialogue)
     (0x124E, CRIME),  // GetOwnerLastTarget
 ];
 
