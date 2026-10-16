@@ -1178,7 +1178,7 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
 |---|---|---|---|---|
 | `h2h` | Hand to Hand | 0.40 / 0.37 | `Bip01 R ForeTwist` | `Bip01 R ForeTwist` |
 | `1hm` | Melee (1 Hand) | 0.90 / 1.10 | `Bip01 Pelvis` | `Bip01 R Hand` |
-| `2hm` | Melee (2 Hand) | 1.20 / 1.20 | `Bip01 Spine2` | `Bip01 L Hand` |
+| `2hm` | Melee (2 Hand) | 1.20 / 1.20 | `Bip01 Spine2` | `Bip01 R Hand` (its aim clip names `Bip01 L Hand`, animation.md §9.10) |
 | `1hp` | Pistol (Ballistic, Energy) | 0.37 / 0.47 | `Bip01 Pelvis` | `Bip01 R Hand` |
 | `2hr` | Rifle (Ballistic, Energy) | 0.67 / 0.83 | `Bip01 Spine2` | `Bip01 R Hand` |
 | `2ha` | Rifle - Automatic | 1.00 / 0.83 | `Bip01 Spine2` | `Bip01 R Hand` |
@@ -1207,12 +1207,18 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
   `prn: Bip01 R Hand` at 0.13 s), unequip clips on the holster bone (`1hpunequip`:
   `prn: Bip01 Pelvis` at 0.20 s), holster clips name the holster bone. `Attach`/`Detach`
   come close to the `prn:` keys but not always in the same order (`2haequip`: `Attach`
-  0.37 s, `prn: Bip01 R Hand` 0.93 s); they are not used.
+  0.37 s, `prn: Bip01 R Hand` 0.93 s). The clips' `Weapon` track jumps from the holster
+  pose to the hand pose at `Attach` and back at `Detach`, not at the `prn:` keys
+  [observed: animation.md §9.10].
 - Engine rule (`fnv_actor::weapon::mount_bones`, `WeaponAnim::parent`): holstered, the
   weapon hangs from the holster clip's last `prn:` bone (else the unequip clip's); drawn,
-  from the aim clip's (else the equip clip's, else `Weapon`'s skeleton parent); while
-  equipping or unequipping, from the last `prn:` bone the clip has passed, starting from
-  where it was.
+  from the equip clip's (else the aim clip's, else `Weapon`'s skeleton parent), as the
+  player body; while equipping or unequipping, it changes from one to the other at the
+  clip's `Attach` / `Detach` key (a clip without one: the last `prn:` bone it has
+  passed, starting from where it was). Until 2026-10-16 the drawn bone was the aim
+  clip's and the change came at the `prn:` keys: NPCs held the baseball bat end over
+  end (hung from the left hand, owner's playtest 2026-10-16), and every stance's weapon
+  sat in the wrong place between the `prn:` key and `Attach` / `Detach`.
 - That NPCs show holstered weapons at the pelvis or on the back is [hypothesis, from the
   holster clips]; an in-game screenshot of an NPC with a holstered pistol and one with a
   rifle would settle it.

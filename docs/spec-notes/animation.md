@@ -765,6 +765,43 @@ Measured with `crates/fnv-nif/examples/muzzle_node_survey.rs` (every `.nif` unde
 - Not built: NPCs' shots. The muzzle flash and the projectiles' models are in
   docs/spec-notes/combat-rules.md §15, shell casings in §16.
 
+### 9.10 Which bone, and when: `prn:` against `Attach` / `Detach` [observed unless tagged]
+
+Measured with `kf_pose_compare` (`KF_TRACK=Weapon` prints the `Weapon` track every
+1/30 s) on `Fallout - Meshes.bsa` and `Update.bsa`, and with `fnvtool actor weapons`.
+
+- `2hmaim.kf` is the only aim clip whose `prn:` names another bone than its equip clip:
+  `prn: Bip01 L Hand` at 0.13 s, where `2hmequip.kf` says `prn: Bip01 R Hand` (0.03 s).
+  Every other stance's aim clip names the equip clip's bone or has no `prn:` (the eleven
+  stances of `characters\_male\`; `_female\` has no stance clips of its own).
+- Its `Weapon` track is not a pose under the left hand: `2hmaim.kf` holds (3.78, 2.68,
+  −13.11), 125.0° from the holster pose, which is where `2hmequip.kf` puts the node from
+  `Attach` (0.30 s) to its end, and where `2hmunequip.kf`, `2hmattackright_a.kf` and
+  `2hmattackpower.kf` start — clips that name no left hand.
+- Rendered in NVForever [observed, screenshots kept privately, Fiend 0x000F9CE8 north of
+  Goodsprings]: hung from `Bip01 L Hand` the bat lay across the body with the knob up
+  and the hands in its middle (the owner's report, playtest 2026-10-16: "held the wrong
+  way round"); hung from `Bip01 R Hand` with the same track, both hands are on the handle
+  with the knob below the left hand, at the ready, walking and through `2hmattackright_a`.
+  Reading [hypothesis]: the aim clip's `prn:` key does not move the weapon (what it is
+  for is not known); the weapon stays on the bone the equip clip named.
+- The `Weapon` track of the equip and unequip clips changes between the holster pose and
+  the hand pose in one step, exactly at `Attach` / `Detach`, and is constant on either
+  side: `2hmequip.kf` (16.98, −12.08, 4.45) until 0.267 s, the hand pose from 0.300 s
+  (`Attach` 0.30); `2hmunequip.kf` the hand pose until 0.833 s, the holster pose from
+  0.867 s (`Detach` 0.87); `1hmequip.kf` from (10.11, 7.04, 12.96) to (6.96, 2.26, 1.43)
+  at 0.30 s (`Attach` 0.30); `1hmunequip.kf` back at 0.70 s (`Detach` 0.70). The holster
+  pose is the holster clip's (`2hmholster.kf`: (16.98, −12.08, 4.45)).
+- The `prn:` keys of those clips sit elsewhere, before or after `Attach` / `Detach`
+  (seconds): `1hm` equip 0.03 / `Attach` 0.30, unequip `Detach` 0.70 / 1.07; `1hp` 0.13 /
+  0.17, 0.20 / 0.23; `2hm` 0.03 / 0.30, 0.03 / 0.87; `2hr` `Attach` 0.30 / 0.63, `Detach`
+  0.47 / 0.80; `2hl` 0.47 / 0.67, 0.67 / 1.97; `2hh` 0.50 / 0.97 both; `h2h` 0.03 / 0.13,
+  0.03 / 0.17. Reading [hypothesis]: the `prn:` key names the bone and `Attach` /
+  `Detach` is the moment; the track is authored against the bone it changes to there.
+- Engine (`fnv_actor::weapon`): the drawn bone is the equip clip's `prn:` (else the aim
+  clip's), and the weapon changes bones at `Attach` / `Detach` (`ClipFacts::switch`),
+  for NPCs as for the player body (`player_clips::HandEvent`).
+
 ### 9.5 The first-person rig [observed unless tagged]
 
 - `meshes\characters\_1stperson\skeleton.nif` is the only non-`.kf` file of its folder

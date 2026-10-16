@@ -2473,3 +2473,18 @@ run_seconds = 45
 expect = [
   { re = 'ai summary at .*vMORangerGhostREF: no package, \S+ in \S+, walked (?P<n>\d+) units', range = [0, 50], label = "Ghost stays at her post (walked under 50 units)" },
 ]
+
+[[scenario]]
+name = "weapon-mount-bones"
+kind = "tool"
+source = "owner's playtest 2026-10-16 (Fiends held the baseball bat the wrong way round): the drawn bone is the equip clip's, docs/spec-notes/animation.md §9.10"
+areas = ["actors", "weapons"]
+paths = ["crates/fnv-actor/src/weapon.rs", "crates/fnvtool/src/actor_weapons.rs"]
+commands = [["actor", "weapons", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm"]]
+expect = [
+  { json = "stances.?prefix=2hm.drawn_bone", equals = "Bip01 R Hand", label = "two-handed melee drawn in the right hand, not the aim clip's left hand" },
+  { json = "stances.?prefix=2hm.holster_bone", equals = "Bip01 Spine2" },
+  { json = "stances.?prefix=1hm.drawn_bone", equals = "Bip01 R Hand" },
+  { json = "stances.?prefix=2hr.drawn_bone", equals = "Bip01 R Hand" },
+]
+manual = "on a failure, explain the change against docs/spec-notes/animation.md §9.10"

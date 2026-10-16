@@ -241,7 +241,7 @@ mod tests {
     use fnv_actor::weapon::{ClipFacts, Stage};
 
     fn stance() -> Arc<Stance> {
-        let f = |duration: f32, bone: &str| ClipFacts { duration, blend_time: 0.2, prn: vec![(0.5, bone.to_string())] };
+        let f = |duration: f32, bone: &str| ClipFacts { duration, blend_time: 0.2, prn: vec![(0.5, bone.to_string())], switch: None };
         let facts = StanceFacts::from([
             (EquipClip::Holster, f(0.1, "Bip01 Pelvis")),
             (EquipClip::Equip, f(0.4, "Bip01 R Hand")),
