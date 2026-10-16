@@ -373,6 +373,33 @@ builds them for every active camera, with no way to leave one out), doubling the
 while water is in view; casters are not thinned by size with distance (no per-cascade filter in
 Bevy).
 
+### 5.4 Anti-aliasing and shadow-filter choices (2026-10-16, this machine)
+
+GeForce RTX 4070 (not the owner's GTX 1050), 1280 × 720, free camera standing still at
+Goodsprings 14:00 (`--pos=-69000,3500,8900 --heading 30 --pitch=-8 --sun-shadows`),
+`--log-frame-times 4|5 --graphics-cycle` over vanilla (MSAA 4x), fxaa, smaa, taa and the two
+shadow filters, five runs. Other sessions shared the machine; the frame time (11.8-12.5 ms in the
+quiet runs) was the CPU's and did not tell the choices apart, so the GPU passes are the measure:
+
+| Pass | GPU ms |
+|---|---|
+| Main opaque pass, MSAA 4x / without multisampling (FXAA, SMAA, TAA) | 0.72-0.78 / 0.56-0.58 |
+| Depth prepass, MSAA 4x / without | 0.30-0.31 / 0.24 |
+| FXAA pass | 0.04 |
+| SMAA (its three passes) | 0.08-0.11 |
+| Main opaque pass with the shadow filter Fast / Smooth / Temporal | 0.69-0.77 / 0.73-0.78 / 0.73-0.76 (within the noise) |
+
+So FXAA and SMAA, like TAA, cost less than MSAA 4x in all (the main pass and the prepass save more
+than their own pass), FXAA the least; the shadow filters' difference does not show at this
+scale. On the GTX 1050 every figure would be several times larger [hypothesis, not measured
+there], with the same order: MSAA 8x dearest, then 4x, then SMAA, TAA, FXAA.
+
+One run stopped on a validation error ("A query of type PipelineStatistics was not ended") at
+a switch into vanilla after the cycle had gone through SMAA and the shadow filters; four more
+runs making the same switches (about 45 in all) did not repeat it. PipelineStatistics queries
+come only from the measuring aid's `RenderDiagnosticsPlugin`; the smoke scenario
+`graphics-settings`, which makes every switch without it, saw no error.
+
 ## 6. Test aids for measuring
 
 `--log-frame-times <seconds>` logs the mean and slowest frame time and the GPU time of the
