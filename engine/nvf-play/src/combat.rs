@@ -423,9 +423,9 @@ pub struct HitFeedback {
 /// Height above a destructible's position its stage explosions go off [design].
 const DESTRUCTION_BLAST_HEIGHT: f32 = 40.0;
 
-/// Seconds the hit marker and the target's health stay up [design].
+/// Seconds the hit marker stays up [design]. (The target's health is the HUD's
+/// enemy health bar, `crate::hud`.)
 const MARKER_SECONDS: f32 = 0.18;
-const TARGET_SECONDS: f32 = 4.0;
 
 /// Counts for the exit report.
 #[derive(Resource, Default, Debug, Clone)]
@@ -2165,9 +2165,6 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
 #[derive(Component)]
 struct HitMarker;
 
-#[derive(Component)]
-struct TargetText;
-
 /// The player's crippled limbs, in words (the original's picture of them is not built).
 #[derive(Component)]
 struct CrippledText;
@@ -2189,11 +2186,6 @@ fn spawn_hit_hud(mut commands: Commands) {
         HitMarker,
     ));
     commands.spawn((
-        Node { position_type: PositionType::Absolute, top: Val::Percent(50.0), margin: UiRect::top(Val::Px(-48.0)), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() },
-        Visibility::Inherited,
-    ))
-    .with_child((Text::new(""), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::srgb(1.0, 0.85, 0.4)), TargetText));
-    commands.spawn((
         Node { position_type: PositionType::Absolute, left: Val::Vh(4.0), bottom: Val::Vh(17.0), ..default() },
         Text::new(""),
         TextFont { font_size: FontSize::Px(16.0), ..default() },
@@ -2202,7 +2194,7 @@ fn spawn_hit_hud(mut commands: Commands) {
     ));
 }
 
-/// The hit marker, the last target's health and the player's crippled limbs [design].
+/// The hit marker and the player's crippled limbs [design].
 /// The player's health is `crate::hud`'s; the limbs go with it while a script has the
 /// player's movement off (docs/spec-notes/hud.md §5).
 #[allow(clippy::too_many_arguments)]
@@ -2211,8 +2203,7 @@ fn update_hit_hud(
     state: Res<State<PlayState>>,
     mut fb: ResMut<HitFeedback>,
     mut marker: Query<&mut BorderColor, With<HitMarker>>,
-    mut target: Query<&mut Text, (With<TargetText>, Without<CrippledText>)>,
-    mut health: Query<&mut Text, (With<CrippledText>, Without<TargetText>)>,
+    mut health: Query<&mut Text, With<CrippledText>>,
     limbs: Res<PlayerLimbs>,
     locks: Option<Res<crate::control::ControlLocks>>,
 ) {
@@ -2228,23 +2219,6 @@ fn update_hit_hud(
     }
     if let Ok(mut b) = marker.single_mut() {
         *b = BorderColor::all(col);
-    }
-    let line = match fb.target.as_mut() {
-        Some((name, hp, max, age)) if playing => {
-            *age += dt;
-            if *age < TARGET_SECONDS {
-                let filled = if *max > 0.0 { ((*hp / *max).clamp(0.0, 1.0) * 20.0).round() as usize } else { 0 };
-                format!("{name}  [{}{}]  {:.0}/{:.0}", "|".repeat(filled), ".".repeat(20 - filled), hp.max(0.0), max)
-            } else {
-                String::new()
-            }
-        }
-        _ => String::new(),
-    };
-    if let Ok(mut t) = target.single_mut() {
-        if t.0 != line {
-            t.0 = line;
-        }
     }
     let hp = match limbs.crippled_names() {
         names if health_shown && !names.is_empty() => format!("crippled: {}", names.join(", ")),

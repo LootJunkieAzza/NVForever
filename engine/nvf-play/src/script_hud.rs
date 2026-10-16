@@ -32,6 +32,9 @@
 //!   (`crate::radio::RadioSubtitle`). Every text is shown without its acting notes in
 //!   braces (`crate::dialogue::shown_text`). A line said where the player does not hear
 //!   it (another cell, or beyond `crate::voice::DIALOG_MAX_DISTANCE`) has no subtitle.
+//!   While the player is in a conversation no other line is drawn: the actors' lines to
+//!   each other and the radio's stay in the log only [owner's playtest list 5, item 74:
+//!   Joe Cobb's line to Trudy over the player's conversation with her].
 
 use crate::interface::{amber, bc_supported, face, plain_font, set_line, u, Face};
 use crate::message_menu::{MessagePanel, PanelView};
@@ -198,6 +201,8 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&cr
     };
     let mut subs = Vec::new();
     let mut on_screen = Vec::new();
+    // In a conversation with the player only the dialogue menu's own line is on screen.
+    let talking = g.dialogue.is_some();
     for s in &g.speech {
         // A line the player does not hear has no subtitle (`crate::voice::audible`),
         // unless a script asked for the speaker's subtitles always
@@ -214,16 +219,20 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, radio: Option<&cr
         if text.is_empty() {
             continue;
         }
-        subs.push(format!("{who}: {text}"));
-        on_screen.push(text);
+        subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
+        if !talking {
+            on_screen.push(text);
+        }
     }
     // A radio's talk line (`crate::radio::RadioSubtitle`), the station's name as the speaker.
     if let Some((station, info, response)) = radio.and_then(|r| r.0) {
         if let Some(text) = hud.lines.get(&info.0).and_then(|t| t.get(response)).map(|t| crate::dialogue::shown_text(t)).filter(|t| !t.is_empty()) {
             let base = sim.base_of(station.0).unwrap_or(station);
             let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(station));
-            subs.push(format!("{who}: {text}"));
-            on_screen.push(text);
+            subs.push(format!("{who}: {text}{}", if talking { " (not drawn: in dialogue)" } else { "" }));
+            if !talking {
+                on_screen.push(text);
+            }
         }
     }
     // The response being said in the conversation with the player: drawn by the dialogue

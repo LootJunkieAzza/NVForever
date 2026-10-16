@@ -56,6 +56,8 @@ sep = ","
 sep = ","
 [timed.NVF_PLAY_TEST_PIPBOY]
 sep = ","
+[timed.NVF_PLAY_TEST_PIPBOY_STATS]
+sep = ","
 [timed.NVF_PLAY_TEST_SETTINGS]
 sep = ","
 [timed.NVF_PLAY_TEST_SHOTS]
@@ -133,7 +135,7 @@ paths = [
   "crates/fnv-world/src/lighting.rs", "crates/fnv-sim/src/clock.rs",
 ]
 args = ["--cell", "Goodsprings", "--play", "--hour", "17", "--time-scale", "1.2"]
-run_seconds = 26
+run_seconds = 28
 expect = [
   # one "time-lapse" log line per game hour, 24 or more
   { re = '^.*time-lapse \S.*\(\d+ hours passed\)', min = 24 },
@@ -890,7 +892,7 @@ areas = ["flashlight"]
 paths = ["engine/nvf-play/src/flashlight.rs", "engine/nvforever/src/flashlight.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "2:flashlight,12:view,20:flashlight" }
 args = ["--cell", "GSHouseInterior03", "--play", "--hour", "23", "--no-voice"]
-run_seconds = 26
+run_seconds = 28
 order = [["flashlight: on", "flashlight: off"]]
 
 # ------------------------------------------------------------------ sounds
@@ -1119,6 +1121,25 @@ order = [[
 ]]
 
 [[scenario]]
+name = "pipboy-list5"
+source = "playtest list 5 items 2, 11, 14, 30, 52, 54-56 (docs/spec-notes/pipboy.md §5, §6.1): item figures, karma title, local map outline and drag, the Pip-Boy's sounds"
+areas = ["pipboy", "audio"]
+paths = ["engine/nvf-play/src/pipboy*", "engine/nvf-play/src/flashlight.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONTROL = "8:flashlight", NVF_PLAY_TEST_PIPBOY = "12:open,14:tab=2,16:page=stats,17:tab=4,20:page=data,20.5:tab=0,23.5:drag=-100:0,25:close", NVF_PLAY_TEST_PIPBOY_STATS = "18:mode", NVF_PLAY_TEST_SHOTS = "15,19.5,23,24.5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--size", "1280x720"]
+run_seconds = 27
+expect = [
+  "pipboy sound: UIPipBoyLightOn",
+  { re = 'pipboy items: .* selected: Info', label = "pipboy items: the selected item's figures" },
+  "pipboy sound: UIPipBoyTab",
+  "pipboy sound: UIPipBoyMode",
+  "pipboy sound: UIPipBoyStatic",
+  { re = 'pipboy stats: .*karma title Drifter', label = "pipboy stats: the karma title of level 1, neutral (Drifter, sKarmicTitleNeutral1)" },
+  { re = 'pipboy data: local map outline \d+x\d+ samples 96 apart, [1-9]\d* landed \(exterior\)', label = "pipboy data: the local map's outline made outdoors" },
+  "pipboy data: map dragged by (-100, 0)",
+]
+
+[[scenario]]
 name = "pipboy-pointer"
 source = "CLAUDE.md: after changes to the Pip-Boy's pointer (pipboy_arm.rs follow_pointer, pipboy::drive_pointer), click on the model's screen"
 areas = ["pipboy"]
@@ -1184,7 +1205,7 @@ areas = ["lockpick"]
 paths = ["crates/fnv-game/src/lockpick.rs", "engine/nvf-play/src/lockpick*", "engine/nvf-play/src/lockpick/**", "engine/nvforever/src/lockpick_view.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/**", "engine/nvf-play/src/player/safe.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0010B2D4", NVF_PLAY_TEST_GIVE = "0000000A:2", NVF_PLAY_TEST_ACTIVATE = "12,18.5,23", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:help,15:pin:60,15.5:torque:0.6,17:exit,19:force:99" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice"]
-run_seconds = 26
+run_seconds = 28
 order = [[
   "target 0x0010B2D4 Floor Safe (Locked (Easy)) by Collision",
   "lockpick: open 0x0010B2D4 Floor Safe: Easy lock (Lockpick 30, 2 bobby pins)",
@@ -1406,7 +1427,7 @@ areas = ["scripts", "stubs", "pipboy"]
 paths = ["crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/functions/misc.rs", "engine/nvf-play/src/pipboy/data.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:SetGlobalTimeMultiplier:0.5,8:call:-:SetGlobalTimeMultiplier:1,10:call:-:ShowAllMapMarkers:1:0:0", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=data,16:tab=1,19:close" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
-run_seconds = 26
+run_seconds = 28
 # Before the call only the few markers flagged Visible are on the map; after it, every one that
 # is enabled (a disabled marker stays off, so "all" is not asserted exactly).
 order = [[
@@ -1498,7 +1519,7 @@ areas = ["aid", "wait", "perks"]
 paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/perks.rs", "crates/fnv-game/src/needs.rs", "crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/aid.rs", "engine/nvf-play/src/wait.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00015163:1", NVF_PLAY_TEST_SCRIPT = "3:perk:Chemist,3.5:perk:ChemResistant", NVF_PLAY_TEST_DROP = "6:00015163:use", NVF_PLAY_TEST_WAIT = "14:open,15:hours=5,16:accept" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
-run_seconds = 26
+run_seconds = 28
 expect = [
   "test aid: the player has the perk Chemist",
   "aid: the player used Buffout (potency 1.00): Strength +2.0 while it lasts (480 s), Endurance +3.0 while it lasts (480 s), Health +60.0 while it lasts (480 s); usage 30; addiction chance 0.00; perks: Chemist (entry point 25); carry capacity 200 → 220",
@@ -2013,14 +2034,17 @@ expect = [
 name = "main-menu"
 source = "owner 2026-10-15: the main menu (engine/nvf-play/src/main_menu.rs): loading screens behind it, its theme, Continue and Load greyed without saves, Settings, New Game starts the opening"
 areas = ["main-menu", "save"]
-paths = ["engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/pause.rs"]
-env = { NVFOREVER_HOME = "menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "5:shot,6:continue,6.5:load,7:settings,11:new", NVF_PLAY_TEST_PAUSE_MENU = "9:back", NVF_PLAY_TEST_INTRO_SHOT = "6", NVF_PLAY_TEST_INTRO_SKIP = "8" }
+paths = ["engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/start_menu.rs", "engine/nvf-play/src/cursor.rs"]
+env = { NVFOREVER_HOME = "menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "4.5:down,5:shot,6:continue,6.5:load,7:settings,11:new", NVF_PLAY_TEST_PAUSE_MENU = "8.5:shot,9:back", NVF_PLAY_TEST_INTRO_SHOT = "6", NVF_PLAY_TEST_INTRO_SKIP = "8" }
 args = ["--play", "--menu"]
 run_seconds = 34
 expect = [
   { re = 'main menu: open \(\d+ loading screens, 0 saves\)', label = "the menu opens with no saves" },
-  { re = 'pointer: the game.s arrow .*glow_cursor\.dds \(\d+x\d+, tip at', label = "the game's arrow is the mouse pointer" },
+  { re = 'pointer: the game.s arrow \S*[\\]cursor\.dds \(\d+x\d+, tip at', label = "the game's arrow (cursor.dds) is the mouse pointer" },
   'main menu: theme music\special\maintitle.mp3',
+  { text = "ui sounds: main menu selection moved: UIMenuFocus", label = "moving the choice plays the focus sound" },
+  { text = "ui sounds: main menu row or button picked: UIMenuOK", label = "taking an entry plays the OK sound" },
+  "pause menu: screenshot main_menu_pause_settings.png",
   { re = 'main menu: slide interface.loading.', label = "a loading screen behind it" },
   "main menu: Continue is greyed out",
   "main menu: Load Game is greyed out",
@@ -2036,6 +2060,53 @@ expect = [
   "main menu: theme faded out",
 ]
 order = [["main menu: Settings", "main menu: New Game", "intro: the opening begins", "new game: VCG00 started at stage 0"]]
+
+[[scenario]]
+name = "menus-look"
+source = "owner todo 5 items 8, 19, 51: the pause menu in the original's look (column, highlight box, settings categories, quit question, load page), the game's pointer, the wait menu in the HUD's colour and fonts; frames pause_main/quit/settings/load.png and wait_menu.png in the working folder"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/start_menu.rs", "engine/nvf-play/src/cursor.rs", "engine/nvf-play/src/wait.rs", "engine/nvforever/src/settings.rs"]
+env = { NVFOREVER_HOME = "menus-look-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_PAUSE_MENU = "10.5:shot,11:down,12:quit,12.5:shot,13:back,14.5:shot,16.5:back,17:load,17.5:shot,18:back", NVF_PLAY_TEST_SETTINGS = "14:page,15:god-mode,16:god-mode", NVF_PLAY_TEST_WAIT = "23:open,24:hours=5", NVF_PLAY_TEST_SHOTS = "25:wait_menu.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 28
+expect = [
+  { re = 'pointer: the game.s arrow \S*[\\]cursor\.dds \(\d+x\d+, tip at', label = "the game's arrow (cursor.dds) is the mouse pointer" },
+  "pause menu: open",
+  { text = "pause menu: the original's look (band true, pause screen true)", label = "the pause screen's and the band's textures are read" },
+  "pause menu: screenshot pause_main.png",
+  { text = "ui sounds: pause selection moved: UIMenuFocus", label = "moving the choice plays the focus sound" },
+  "pause menu: quit?",
+  "pause menu: screenshot pause_quit.png",
+  "pause menu: quit cancelled",
+  "pause menu: screenshot pause_settings.png",
+  "settings: god-mode on",
+  "settings: god-mode off",
+  "pause menu: load page",
+  "pause menu: screenshot pause_load.png",
+  "pause menu: resume",
+  "wait menu: open",
+]
+order = [["pause menu: open", "pause menu: quit?", "pause menu: quit cancelled", "settings: god-mode on", "pause menu: load page", "pause menu: resume", "wait menu: open"]]
+
+[[scenario]]
+name = "crafting"
+source = "owner todo 5 item 72: the recipe menu (engine/nvf-play/src/crafting.rs, crates/fnv-game/src/crafting.rs) opened by ShowRecipeMenu, the campfire's recipes from the records, Antivenom refused without its ingredients then made with them; frame recipe_menu.png in the working folder"
+areas = ["crafting", "menus"]
+paths = ["engine/nvf-play/src/crafting.rs", "crates/fnv-game/src/crafting.rs"]
+env = { NVFOREVER_HOME = "crafting-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:player.setav survival 60;12.5:player.ShowRecipeMenu CampfireRecipes;13:close;20:player.additem 0002210F 2;20.5:player.additem 0013B2B8 1;21:player.ShowRecipeMenu CampfireRecipes;21.5:close;25:player.getitemcount 0002210F", NVF_PLAY_TEST_RECIPE = "15:shot,16:accept,17:filter,17.5:down,18:exit,23:accept,24:exit" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 27
+expect = [
+  { re = 'recipe menu: open Campfire \(\d+ recipes listed of \d+ known, 0 ready; station 0x00000014\): Antivenom \(2\), Atomic Cocktail \(4\), Battle Brew, Bighorner Steak, Black Blood Sausage, Black Coffee', label = "the campfire lists its recipes by name, as the original (owner's screenshot)" },
+  "recipe menu: screenshot recipe_menu.png",
+  { re = 'recipe menu: cannot make "Antivenom": \[Ingredient', label = "without its ingredients Antivenom is refused" },
+  { text = "ui sounds: recipe category changed: UIMenuPrevNext", label = "the arrows switch the subcategory" },
+  { re = 'recipe menu: open Campfire \(\d+ recipes listed of \d+ known, 1 ready', label = "with the ingredients one recipe is ready" },
+  { re = 'recipe menu: made "Antivenom" \(2 x Antivenom\)', label = "Antivenom is made" },
+  { re = 'console: GetItemCount on player >> 0\.00', label = "its ingredients are used up" },
+  "recipe menu: closed",
+]
+order = [["recipe menu: cannot make", "recipe menu: made"]]
 
 [[scenario]]
 name = "item-stacks"
@@ -2059,4 +2130,37 @@ expect = [
   { text = "console: count 20 (as placed)", count = 2 },
   { text = "menu: dropped reference", count = 1 },
   { re = 'after test drop\]   Player: .*9mm Round x13' },
+]
+
+# ------------------------------------------------------------------ playtest list 5: HUD (workstream D1)
+
+[[scenario]]
+name = "hud-sneak-target"
+source = "owner's playtest list 5, items 7 and 32 (docs/spec-notes/hud.md §8, §9): sneaking in the bighorner pen shows the sneak word; shooting a bighorner shows its health at the bottom middle"
+areas = ["hud", "detection"]
+paths = ["engine/nvf-play/src/hud.rs", "engine/nvf-play/src/hud_target.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "10:sneak,20:weapon,22:aimactor,22.2:fire,22.4:fire,23:aimactor" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12"]
+run_seconds = 28
+expect = [
+  { re = 'hud: sneak \[(HIDDEN|DETECTED|CAUTION|DANGER)\]', label = "a sneak word once the player sneaks" },
+  { re = 'hud: enemy health \S.* 0x[0-9A-F]{8} \d+ %', label = "the bighorner's health on the enemy bar" },
+]
+order = [[
+  { re = 'hud: sneak \[' },
+  { re = 'hud: enemy health \S' },
+]]
+
+[[scenario]]
+name = "hud-dialogue"
+source = "owner's playtest list 5, item 74 (docs/spec-notes/hud.md §10): Sunny greets the player in the saloon; Trudy's lines to Cheyenne while the conversation runs are logged, not drawn as subtitles"
+note = "the conversation is the force-greet scenario's; Trudy's say_to lines come every 4 s so one falls inside it"
+areas = ["hud", "dialogue"]
+paths = ["engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor,22:say_to:TrudyRef:0x0010588E:GREETING,26:say_to:TrudyRef:0x0010588E:GREETING,30:say_to:TrudyRef:0x0010588E:GREETING,34:say_to:TrudyRef:0x0010588E:GREETING" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "SunnyRef", "--no-voice"]
+run_seconds = 40
+expect = [
+  "dialogue: conversation with SunnyRef started (topic GREETING)",
+  { re = 'subtitle: .*\(not drawn: in dialogue\)', label = "another actor's line logged, not drawn" },
 ]

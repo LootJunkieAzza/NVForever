@@ -63,7 +63,7 @@ Constraints that decide what fits:
 ## 3. What was built
 
 `--graphics vanilla|enhanced` picks the look; each improvement is also a switch on the pause
-menu's settings page (group "Enhanced graphics") and can be compared alone with
+menu's settings page (category "Graphics") and can be compared alone with
 `--graphics-only <keys>`. The log says what is on: `graphics: ambient occlusion, finer, longer
 shadows, bloom, sharpening, 16x anisotropic filtering, sun shafts, screen-space water
 reflections` (or `graphics: vanilla (no engine-level improvements)`), again whenever a switch
@@ -272,7 +272,7 @@ allow a figure per feature. On this GPU the vanilla picture is already below 20 
 second, so:
 
 - **Normal play defaults to `vanilla`** (`graphics::PLAY_DEFAULT`); `--graphics enhanced` or
-  the settings page's "Enhanced graphics" switches turn the improvements on. On a faster GPU
+  the settings page's "Graphics" switches turn the improvements on. On a faster GPU
   changing `PLAY_DEFAULT` to `Enhanced` is the one-line switch.
 - `vanilla` is also the look of every test run: `--screenshot`, `--timelapse`, `--frame-json` and
   `--run-seconds` default to it whatever `PLAY_DEFAULT` says, so the parity lab, the picture

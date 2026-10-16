@@ -1,25 +1,40 @@
 //! The pause menu: Esc in the world opens it instead of quitting (the original opens its
-//! pause menu there [observed by the coordinator playing the original, 2026-10-09]; its
-//! layout and entries are not copied: NVForever offers Resume, Save, Load, Settings and
-//! Quit). It is a `PlayState::Menu` like the container and inventory menus, so the world,
-//! the game clock and mouse look stop and the cursor is released (`crate::menu`). Esc,
-//! Enter or Space resume, N saves, L opens the load page, S the settings, Q quits; the
-//! buttons are clickable.
+//! pause menu there [observed by the coordinator playing the original, 2026-10-09]). It is
+//! a `PlayState::Menu` like the container and inventory menus, so the world, the game
+//! clock and mouse look stop and the cursor is released (`crate::menu`).
+//!
+//! **The look is the original's** (`crate::start_menu`, the main menu shares it) [owner,
+//! todo 5 item 8; observed: the owner's screenshots of the original's pause menu, its
+//! settings pages and its quit question, C:\fnv-private\Pause Menu; start_menu.xml]: the
+//! pause screen over the held world, the column of entries at the right (Continue, Save,
+//! Load, Settings, Quit; the original's Help is left out), the highlight box round the
+//! chosen one. A page opened from the column dims the column but for its own entry.
+//! Up/Down choose, Enter or Space take, a click takes, the pointer chooses the entry it
+//! moves onto; Esc resumes; N saves, L opens the load page, S the settings, Q the quit
+//! question.
 //!
 //! **Save** (N) saves to a new slot named `Save <n>` (one more than the highest such name
-//! in the saves folder) through `crate::save::SaveRequest`; the line under the buttons
-//! says when it is written. **The load page** (L) lists the saves newest first
-//! (`fnv_save::list`): name, kind and game date in the rows, and for the chosen one its
-//! thumbnail, player and level, place, game date, play time and when it was saved.
-//! Up/Down (W/S) or the mouse wheel choose, the pointer chooses the row it moves onto,
-//! Enter, Space or a click load it through `crate::save::LoadRequest` (nvforever starts
-//! again with `--load`); Esc or Backspace go back. Only the chosen save's thumbnail is
-//! read and decoded.
+//! in the saves folder) through `crate::save::SaveRequest`; the line under the column
+//! says when it is written. **The load page** (L) shows the chosen save's thumbnail and
+//! details (player and level, place and game date, play time, when it was saved) over the
+//! saves' rows, newest first (`fnv_save::list`), left of the column. Up/Down (W/S) or the
+//! mouse wheel choose, the pointer chooses the row it moves onto, Enter, Space or a click
+//! load it through `crate::save::LoadRequest` (nvforever starts again with `--load`); Esc,
+//! Backspace or Back go back. Only the chosen save's thumbnail is read and decoded.
 //!
-//! **The settings page** lists the on/off switches of [`crate::settings`], each showing
-//! the state the game is using now. Up/Down (or W/S) choose a row, Enter, Space, Left or
-//! Right flip it, as does a click on it; a flip acts at once. Esc or Backspace go back
-//! to the first page.
+//! **The settings page** lists the on/off switches of [`crate::settings`] the original's
+//! way: their groups as categories left of the column (Gameplay, World, Display,
+//! Graphics, Debug: NVForever's switches, not the original's), the chosen category's
+//! switches in the middle over the darkened band, each with ON or OFF as the game is
+//! using it now, the chosen switch's note under them, Defaults and Back at the bottom
+//! right, the version at the bottom left. Up/Down (or W/S) choose a row within the
+//! category, Tab or Page Down the next category (Page Up the one before), a click on a
+//! category shows it; Enter, Space, Left or Right flip the row, as does a click on it; a
+//! flip acts at once. Defaults puts back every switch as it was when the page was first
+//! shown in this run (as the command line left it). Esc or Backspace go back.
+//!
+//! **Quit** asks first [observed: the original's question and its choices]: Main Menu
+//! (nvforever starts again with `--menu`, [`MainMenuRequest`]), Exit Game, Cancel.
 //!
 //! **What a menu holds** (docs/design/dialogue.md §8, Pausing). Every menu holds game
 //! logic by its own means (`PlayState`, the runtime's menu mode). Whether the picture
@@ -43,15 +58,20 @@
 //! pause menu open, shows the settings page and flips the switch of that key (as a
 //! click on its row); the key `page` only shows the page.
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
-//! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page),
-//! `back` (from the load or the settings page).
+//! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page or
+//! the quit question), `back` (from the load or the settings page, or the question),
+//! `quit` (the question), `shot` (a screenshot `pause_<page>.png` in the working folder).
 
+use crate::interface::{bc_supported, u, Face};
 use crate::settings::{add_setting, Setting, Settings};
+use crate::start_menu::{color, highlight_colors, text as sm_text, wrapped, Faces, Shade, BASE, COLUMN, ITEM, LINE, RIGHT, SUB_RIGHT, SUB_WIDTH};
 use crate::{PlaySet, PlayState};
 use bevy::ecs::system::SystemParam;
+use bevy::image::CompressedImageFormatSupport;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use fnv_save::{SaveHeader, SaveKind};
+use nvf_assets::GameData;
 use std::path::{Path, PathBuf};
 
 /// What an open menu holds besides game logic (`nvforever --menu-pause`; the old name
@@ -305,48 +325,188 @@ struct PauseRoot;
 
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 enum PauseButton {
-    Resume,
-    Settings,
-    Quit,
-    Save,
-    Load,
-    /// From the settings or load page back to the first page.
-    Back,
+    /// An entry of the column at the right (its index).
+    Column(usize),
+    /// A category of the settings page (the index of its first switch).
+    Category(usize),
     /// The row of a switch (its index in [`Settings`]).
     Switch(usize),
     /// A save's row on the load page (its index in [`LoadList`]).
     LoadRow(usize),
+    /// The settings page's Defaults.
+    Defaults,
+    /// From the settings or load page back to the first page.
+    Back,
+    /// A choice of the quit question (its index in [`CONFIRM`]).
+    Confirm(usize),
 }
 
-/// The text of a row that says whether its switch is on.
+/// A switch's state, kept as text too (tests read it).
 #[derive(Component)]
-struct SwitchState(usize);
+struct SwitchState(#[allow(dead_code)] usize);
 
-/// The line under the rows that explains the chosen switch.
+/// The chosen switch's note, kept as text too (tests read it).
 #[derive(Component)]
 struct SwitchNote;
 
-const TITLE: Color = Color::srgb(1.0, 0.75, 0.30);
-const TEXT: Color = Color::srgb(0.85, 0.95, 0.80);
-const DIM: Color = Color::srgb(0.55, 0.62, 0.52);
-const BUTTON: Color = Color::srgba(0.20, 0.28, 0.20, 0.9);
-const ROW: Color = Color::srgba(0.10, 0.14, 0.10, 0.9);
-const ROW_CHOSEN: Color = Color::srgba(0.26, 0.36, 0.24, 0.95);
-const ON: Color = Color::srgb(0.55, 1.0, 0.45);
-/// Width of the settings page's rows.
-const SETTINGS_WIDTH: f32 = 540.0;
-/// Up to this many switches the settings page has one column, beyond it two of this width.
-const ONE_COLUMN_ROWS: usize = 14;
-const COLUMN_WIDTH: f32 = 470.0;
-/// The load page: rows shown at once, the list's width, the thumbnail as drawn.
-const LOAD_ROWS: usize = 10;
-const LOAD_LIST_WIDTH: f32 = 420.0;
-const THUMB_DRAWN: Vec2 = Vec2::new(448.0, 252.0);
-/// The load page's rows and details: room for LOAD_ROWS rows and the two "more" lines.
-const LOAD_HEIGHT: f32 = 400.0;
+/// The column's entries in the world [observed: the owner's screenshots of the original's
+/// pause menu: Continue, Save, Load, Settings, Help, Quit; Help is left out, NVForever has
+/// no help pages].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Entry {
+    Continue,
+    Save,
+    Load,
+    Settings,
+    Quit,
+}
 
-/// The settings page's group of switches about conversations and menus.
-pub const GROUP_MENUS: &str = "Dialogue and menus";
+const ENTRIES: [Entry; 5] = [Entry::Continue, Entry::Save, Entry::Load, Entry::Settings, Entry::Quit];
+
+impl Entry {
+    fn label(self) -> &'static str {
+        match self {
+            Entry::Continue => "Continue",
+            Entry::Save => "Save",
+            Entry::Load => "Load",
+            Entry::Settings => "Settings",
+            Entry::Quit => "Quit",
+        }
+    }
+}
+
+/// The quit question and its choices [observed: the owner's screenshot of the original's
+/// quit question].
+const WARNING: &str = "WARNING:  Any unsaved progress will be lost.";
+const QUESTION: &str = "Are you sure you want to quit?";
+const CONFIRM: [&str; 3] = ["Main Menu", "Exit Game", "Cancel"];
+
+/// The settings page's rows: this many shown at once [documented: `options_container`
+/// `_number_of_visible_items` 9], each this high [observed: 39 of 720 pixels], the list
+/// this wide and its left edge this far left of the view's middle, the switch's state
+/// centred this far into a row [design: the original's list is 520 wide and centred, its
+/// values at 360; NVForever's labels are longer].
+const OPTION_ROWS: usize = 9;
+const OPTION_ROW: f32 = 52.0;
+const OPTIONS_WIDTH: f32 = 820.0;
+const OPTIONS_LEFT: f32 = -470.0;
+const VALUE_AT: f32 = 700.0;
+/// The darkened band behind a page's list [documented: `container_background`
+/// `fuzzy.dds` at alpha 160 the height of the screen, a little wider than the list].
+const BAND: &str = "textures\\interface\\shared\\background\\fuzzy.dds";
+const BAND_ALPHA: f32 = 160.0 / 255.0;
+const BAND_MARGIN: f32 = 30.0;
+/// The black under the band [design: the band alone left the main menu's logo and
+/// pictures showing through, observed 2026-10-16].
+const BAND_SHEET: f32 = 0.55;
+/// The load page: rows shown at once, the panel's width, its rows' top, the thumbnail and
+/// the details' lines [documented: `saveload_container` width 650, y 521; the player's
+/// name, level and play time at y 347, 388, 429; the thumbnail above the name; design:
+/// eight rows].
+const LOAD_ROWS: usize = 8;
+const LOAD_WIDTH: f32 = 650.0;
+const LOAD_TOP: f32 = 521.0;
+const THUMB_DRAWN: Vec2 = Vec2::new(448.0, 252.0);
+const DETAILS_TOP: f32 = 347.0;
+const DETAILS_STEP: f32 = 41.0;
+/// The page's Defaults and Back at the bottom right [observed: the owner's screenshots].
+const BACK_TOP: f32 = 960.0 - 30.0 - ITEM;
+/// The pause screen behind the menu in the world: the original shows a model,
+/// `meshes\interface\pausescreen\pausescreen01.nif`, whose textures are these [observed:
+/// the file's texture names]; drawn here flat over the held picture, the half picture
+/// at the left and mirrored at the right [hypothesis: the model's two slides], the world
+/// behind darkened [design]. The model's glare (`loading_glare.dds`) is left out: drawn
+/// over the picture, not added to it, it came out a dark slab [observed 2026-10-16].
+const SCREEN: &str = "textures\\interface\\pause\\pausescreen01.dds";
+const SCREEN_ALPHA: f32 = 0.82;
+const WORLD_SHADE: f32 = 0.35;
+
+/// The settings page's group of switches about conversations, sound and menus.
+pub const GROUP_MENUS: &str = "Gameplay";
+
+/// The fonts and pictures of the pause menu, read once.
+#[derive(Resource)]
+struct PauseLook {
+    faces: Faces,
+    band: Option<Handle<Image>>,
+    screen: Option<Handle<Image>>,
+}
+
+impl PauseLook {
+    fn load(world: &mut World) -> PauseLook {
+        let bc = bc_supported(world.get_resource::<CompressedImageFormatSupport>());
+        world.resource_scope(|world, mut images: Mut<Assets<Image>>| {
+            let data = world.get_resource::<GameData>();
+            let pic = |path: &str, images: &mut Assets<Image>| data.and_then(|d| crate::interface::texture(path, d, images, bc)).map(|(h, _)| h);
+            let look = PauseLook { faces: Faces::load(data, &mut images, bc), band: pic(BAND, &mut images), screen: pic(SCREEN, &mut images) };
+            info!("pause menu: the original's look (band {}, pause screen {})", look.band.is_some(), look.screen.is_some());
+            look
+        })
+    }
+
+    #[cfg(test)]
+    fn plain() -> PauseLook {
+        PauseLook { faces: Faces::plain(), band: None, screen: None }
+    }
+}
+
+/// What the keys have on the first page and in the quit question, and the switches' states
+/// when the settings page was first shown (what Defaults goes back to).
+#[derive(Resource, Default)]
+struct PauseView {
+    main_selected: usize,
+    confirm: Option<usize>,
+    defaults: Option<Vec<bool>>,
+    drawn: Option<Drawn>,
+}
+
+/// Everything the page drawn shows: drawn again when it changes.
+#[derive(Clone, PartialEq, Debug)]
+struct Drawn {
+    page: Page,
+    main_selected: usize,
+    confirm: Option<usize>,
+    states: Vec<bool>,
+    status: String,
+    /// The column's labels and whether each can be taken.
+    column: Vec<(&'static str, bool)>,
+    /// Under the main menu (its entries make the column; no pause screen).
+    under_main: bool,
+    /// The load page's thumbnail: the row it is of and whether there is one.
+    thumb: Option<(usize, bool)>,
+}
+
+impl Drawn {
+    /// The column's entry that stands for the page.
+    fn page_entry(&self) -> usize {
+        let find = |label: &str| self.column.iter().position(|(l, _)| l.starts_with(label)).unwrap_or(0);
+        match self.page {
+            Page::Main if self.confirm.is_some() => find("Quit"),
+            Page::Main => self.main_selected,
+            Page::Settings { .. } => find("Settings"),
+            Page::Load { .. } => find("Load"),
+        }
+    }
+}
+
+/// The settings page's categories: each group's name and its first switch.
+fn categories(list: &[Setting]) -> Vec<(&'static str, usize)> {
+    let mut out: Vec<(&'static str, usize)> = Vec::new();
+    for (i, s) in list.iter().enumerate() {
+        if out.last().is_none_or(|(g, _)| *g != s.group) {
+            out.push((s.group, i));
+        }
+    }
+    out
+}
+
+/// The rows of `selected`'s group: its first and one past its last.
+fn group_rows(list: &[Setting], selected: usize) -> std::ops::Range<usize> {
+    let Some(g) = list.get(selected).map(|s| s.group) else { return 0..0 };
+    let first = list.iter().position(|s| s.group == g).unwrap_or(0);
+    let end = list.iter().rposition(|s| s.group == g).map_or(first, |i| i + 1);
+    first..end
+}
 
 pub struct PausePlugin;
 
@@ -376,6 +536,8 @@ impl Plugin for PausePlugin {
             .init_resource::<Page>()
             .init_resource::<LoadList>()
             .init_resource::<PauseStatus>()
+            .init_resource::<PauseView>()
+            .add_message::<MainMenuRequest>()
             .init_resource::<MenuPause>()
             .init_resource::<PlayClock>()
             .insert_resource(aid)
@@ -387,7 +549,7 @@ impl Plugin for PausePlugin {
                 // Over a conversation, a barter menu takes Esc for itself (`crate::menu`).
                 (
                     open.run_if(in_state(PlayState::Playing).or_else(in_state(PlayState::Dialogue)).and_then(crate::menu::no_menu)),
-                    (choose, show_switches, show_status).chain().run_if(in_state(PlayState::Menu)),
+                    (choose, show_status, draw).chain().run_if(in_state(PlayState::Menu)),
                 )
                     .in_set(PlaySet::Ui),
             )
@@ -406,151 +568,206 @@ impl Plugin for PausePlugin {
     }
 }
 
-fn font(size: f32) -> TextFont {
-    TextFont { font_size: FontSize::Px(size), ..default() }
+
+fn full() -> Node {
+    Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }
 }
 
-fn button(label: &str, b: PauseButton) -> impl Bundle {
-    (
-        Button,
-        b,
-        Node { padding: UiRect::axes(Val::Px(18.0), Val::Px(6.0)), ..default() },
-        BackgroundColor(BUTTON),
-        children![(Text::new(label), font(18.0), TextColor(TEXT))],
-    )
+/// A node `width` wide whose right edge is `right` from the view's.
+fn from_right(right: f32, top: f32, width: f32, height: f32) -> Node {
+    Node { position_type: PositionType::Absolute, right: u(right), top: u(top), width: u(width), height: u(height), ..default() }
 }
 
-/// Draw a page of the pause menu (the one before it is gone already).
-fn spawn_page(commands: &mut Commands, page: Page, settings: &Settings, list: &LoadList, status: &str) {
-    let backdrop = Node {
-        position_type: PositionType::Absolute,
-        width: Val::Percent(100.0),
-        height: Val::Percent(100.0),
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::Center,
-        ..default()
-    };
-    let panel = Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(12.0), padding: UiRect::all(Val::Px(20.0)), align_items: AlignItems::Center, ..default() };
-    commands.spawn((PauseRoot, backdrop, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)), GlobalZIndex(110))).with_children(|root| {
-        root.spawn((panel, BackgroundColor(Color::srgba(0.05, 0.08, 0.06, 0.94)))).with_children(|p| match page {
+/// A node whose left edge is `left` from the view's middle.
+fn from_middle(left: f32, top: f32, width: f32, height: f32) -> Node {
+    Node { position_type: PositionType::Absolute, left: Val::Percent(50.0), margin: UiRect::left(u(left)), top: u(top), width: u(width), height: u(height), ..default() }
+}
+
+/// A right-aligned list entry: the whole row takes the pointer, the box round it when
+/// `boxed`.
+#[allow(clippy::too_many_arguments)]
+fn right_entry(p: &mut ChildSpawnerCommands, face: &Face, label: &str, node: Node, width: f32, shade: Shade, boxed_on: bool, b: PauseButton) {
+    let w = face.font.width(label);
+    p.spawn((Button, b, boxed(node, boxed_on))).with_children(|t| sm_text(t, face, label, width - w - 10.0, BASE, color(shade)));
+}
+
+/// A node with the highlight box round it when `on`.
+fn boxed(node: Node, on: bool) -> (Node, BorderColor, BackgroundColor) {
+    let (line, fill) = highlight_colors();
+    if on {
+        (Node { border: UiRect::all(u(LINE)), ..node }, BorderColor::all(line), BackgroundColor(fill))
+    } else {
+        (node, BorderColor::all(Color::NONE), BackgroundColor(Color::NONE))
+    }
+}
+
+/// The darkened band behind a page's list.
+fn band(root: &mut ChildSpawnerCommands, look: &PauseLook, node: Node) {
+    // Under it a sheet of black, so the list reads over a bright main menu screen too.
+    root.spawn((node.clone(), BackgroundColor(Color::BLACK.with_alpha(BAND_SHEET))));
+    match &look.band {
+        Some(b) => {
+            root.spawn((node, ImageNode { color: Color::WHITE.with_alpha(BAND_ALPHA), image_mode: NodeImageMode::Stretch, ..ImageNode::new(b.clone()) }));
+        }
+        None => {
+            root.spawn((node, BackgroundColor(Color::BLACK.with_alpha(BAND_ALPHA * 0.6))));
+        }
+    }
+}
+
+/// Draw the page `d` (the one before it is gone already).
+fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[Setting], list: &LoadList) {
+    if d.under_main && d.page == Page::Main {
+        return;
+    }
+    let f = &look.faces;
+    commands.spawn((PauseRoot, full(), GlobalZIndex(110))).with_children(|root| {
+        // The pause screen over the held world.
+        if !d.under_main {
+            root.spawn((full(), BackgroundColor(Color::BLACK.with_alpha(WORLD_SHADE))));
+            if let Some(s) = &look.screen {
+                let half = |left: bool| Node { position_type: PositionType::Absolute, left: Val::Percent(if left { 0.0 } else { 50.0 }), width: Val::Percent(50.0), height: Val::Percent(100.0), ..default() };
+                let img = |flip: bool| ImageNode { color: Color::WHITE.with_alpha(SCREEN_ALPHA), flip_x: flip, image_mode: NodeImageMode::Stretch, ..ImageNode::new(s.clone()) };
+                root.spawn((half(true), img(false)));
+                root.spawn((half(false), img(true)));
+            } else {
+                root.spawn((full(), BackgroundColor(Color::srgba(0.30, 0.24, 0.14, SCREEN_ALPHA))));
+            }
+        }
+        // The band behind a page's list.
+        match d.page {
+            Page::Settings { .. } => band(root, look, Node { top: u(0.0), height: Val::Percent(100.0), ..from_middle(OPTIONS_LEFT - BAND_MARGIN, 0.0, OPTIONS_WIDTH + 2.0 * BAND_MARGIN, 0.0) }),
+            Page::Load { .. } => band(root, look, Node { height: Val::Percent(100.0), ..from_right(RIGHT + COLUMN, 0.0, LOAD_WIDTH + BAND_MARGIN, 0.0) }),
+            Page::Main => {}
+        }
+        // The column: the keys' list on the first page, else half bright but for the page's entry.
+        let top = (960.0 - d.column.len() as f32 * ITEM) / 2.0;
+        let on_column = d.page == Page::Main && d.confirm.is_none();
+        let lit = d.page_entry();
+        for (i, (label, ok)) in d.column.iter().enumerate() {
+            let shade = if (on_column && *ok) || (!on_column && i == lit) { Shade::Bright } else { Shade::Dim };
+            right_entry(root, &f.entry, label, from_right(RIGHT, top + i as f32 * ITEM, COLUMN - 5.0, ITEM), COLUMN - 5.0, shade, on_column && i == d.main_selected, PauseButton::Column(i));
+        }
+        match d.page {
             Page::Main => {
-                p.spawn((Text::new("Paused"), font(26.0), TextColor(TITLE)));
-                p.spawn(button("Resume (Esc)", PauseButton::Resume));
-                p.spawn(button("Save game (N)", PauseButton::Save));
-                p.spawn(button("Load game (L)", PauseButton::Load));
-                p.spawn(button("Settings (S)", PauseButton::Settings));
-                p.spawn(button("Quit NVForever (Q)", PauseButton::Quit));
-                p.spawn((PauseStatusText, Text::new(status), font(14.0), TextColor(DIM)));
+                if let Some(sel) = d.confirm {
+                    // The question: its lines end left of the choices [observed: the owner's screenshot].
+                    let qw = f.entry.font.width(QUESTION);
+                    let at = 280.0;
+                    root.spawn(from_middle(at - 20.0 - qw, 480.0 - ITEM, 900.0, ITEM)).with_children(|t| sm_text(t, &f.entry, WARNING, 0.0, BASE, color(Shade::Bright)));
+                    root.spawn(from_middle(at - 20.0 - qw, 480.0, qw, ITEM)).with_children(|t| sm_text(t, &f.entry, QUESTION, 0.0, BASE, color(Shade::Bright)));
+                    let width = CONFIRM.iter().map(|c| f.entry.font.width(c)).fold(0.0, f32::max) + 30.0;
+                    for (i, c) in CONFIRM.iter().enumerate() {
+                        root.spawn((Button, PauseButton::Confirm(i), boxed(from_middle(at, 480.0 + i as f32 * ITEM, width, ITEM), i == sel)))
+                        .with_children(|t| sm_text(t, &f.entry, c, 10.0, BASE, color(Shade::Bright)));
+                    }
+                } else if !d.status.is_empty() {
+                    root.spawn((PauseStatusText, from_right(RIGHT, top + d.column.len() as f32 * ITEM + 10.0, 700.0, ITEM))).with_children(|t| {
+                        let w = f.small.font.width(&d.status);
+                        sm_text(t, &f.small, &d.status, 700.0 - w - 10.0, 30.0, color(Shade::Bright));
+                    });
+                }
             }
-            Page::Settings { selected } => settings_page(p, settings, selected),
-            Page::Load { selected } => load_page(p, list, selected),
-        });
+            Page::Settings { selected } => settings_page(root, d, f, settings, selected, top),
+            Page::Load { selected } => load_page(root, d, f, list, selected),
+        }
+        // Back (and Defaults) at the bottom right.
+        if d.page != Page::Main {
+            right_entry(root, &f.entry, "Back", from_right(RIGHT, BACK_TOP, 200.0, ITEM), 200.0, Shade::Bright, false, PauseButton::Back);
+            if matches!(d.page, Page::Settings { .. }) {
+                right_entry(root, &f.entry, "Defaults", from_right(RIGHT, BACK_TOP - ITEM, 200.0, ITEM), 200.0, Shade::Bright, false, PauseButton::Defaults);
+            }
+        }
     });
 }
 
-/// The settings page: a row per switch under its group's heading, the chosen switch's
-/// note, the keys. [`show_switches`] fills in what changes: each switch's state, the
-/// chosen row, the note.
-fn settings_page(p: &mut ChildSpawnerCommands, settings: &Settings, selected: usize) {
-    p.spawn((Text::new("Settings"), font(26.0), TextColor(TITLE)));
-    let list = settings.list();
-    // A long list goes into two columns, split between groups near its middle.
-    let split = if list.len() > ONE_COLUMN_ROWS {
-        (1..list.len()).filter(|&i| list[i].group != list[i - 1].group).min_by_key(|&i| i.abs_diff(list.len() / 2)).unwrap_or(list.len())
-    } else {
-        list.len()
-    };
-    let width = if split < list.len() { COLUMN_WIDTH } else { SETTINGS_WIDTH };
-    p.spawn(Node { column_gap: Val::Px(20.0), align_items: AlignItems::FlexStart, ..default() }).with_children(|columns| {
-        for range in [0..split, split..list.len()] {
-            if range.is_empty() {
-                continue;
-            }
-            let column = Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), width: Val::Px(width), ..default() };
-            columns.spawn(column).with_children(|rows| {
-                let mut group = "";
-                for (i, s) in list.iter().enumerate().skip(range.start).take(range.len()) {
-                    if s.group != group {
-                        group = s.group;
-                        rows.spawn((Node { margin: UiRect::top(Val::Px(6.0)), ..default() }, children![(Text::new(group), font(14.0), TextColor(TITLE))]));
-                    }
-                    let row = Node { justify_content: JustifyContent::SpaceBetween, column_gap: Val::Px(16.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() };
-                    rows.spawn((Button, PauseButton::Switch(i), row, BackgroundColor(if i == selected { ROW_CHOSEN } else { ROW }))).with_children(|r| {
-                        r.spawn((Text::new(s.label), font(16.0), TextColor(TEXT)));
-                        r.spawn((SwitchState(i), Text::new(""), font(16.0), TextColor(DIM)));
-                    });
-                }
-            });
-        }
-        if list.is_empty() {
-            columns.spawn((Node { width: Val::Px(SETTINGS_WIDTH), ..default() }, children![(Text::new("Nothing to switch."), font(16.0), TextColor(DIM))]));
-        }
-    });
-    // Four lines high whatever the note, so the panel keeps its size from row to row.
-    let note = settings.list().get(selected).map_or("", |s| s.note);
-    p.spawn((Node { width: Val::Px(SETTINGS_WIDTH), min_height: Val::Px(68.0), ..default() }, children![(SwitchNote, Text::new(note), font(13.0), TextColor(DIM))]));
-    p.spawn((Text::new("Up/Down choose   Enter or Space switch   Esc back"), font(13.0), TextColor(DIM)));
-    p.spawn(button("Back (Esc)", PauseButton::Back));
-}
-
-/// The load page: the saves' rows (a window of [`LOAD_ROWS`] around the chosen one) and
-/// the chosen save's thumbnail and details.
-fn load_page(p: &mut ChildSpawnerCommands, list: &LoadList, selected: usize) {
-    p.spawn((Text::new("Load"), font(26.0), TextColor(TITLE)));
-    if list.saves.is_empty() {
-        p.spawn((Text::new("No saves yet."), font(16.0), TextColor(DIM)));
-    } else {
-        let n = list.saves.len();
-        let first = selected.saturating_sub(LOAD_ROWS / 2).min(n.saturating_sub(LOAD_ROWS));
-        // A set height: left to its content, the row came out far taller than the rows and
-        // the details in it [observed 2026-10-15].
-        p.spawn(Node { column_gap: Val::Px(20.0), align_items: AlignItems::FlexStart, height: Val::Px(LOAD_HEIGHT), ..default() }).with_children(|cols| {
-            cols.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(3.0), width: Val::Px(LOAD_LIST_WIDTH), ..default() }).with_children(|rows| {
-                if first > 0 {
-                    rows.spawn((Text::new(format!("{first} newer above")), font(13.0), TextColor(DIM)));
-                }
-                for (i, (path, h)) in list.saves.iter().enumerate().skip(first).take(LOAD_ROWS) {
-                    let row = Node { justify_content: JustifyContent::SpaceBetween, column_gap: Val::Px(12.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() };
-                    rows.spawn((Button, PauseButton::LoadRow(i), row, BackgroundColor(if i == selected { ROW_CHOSEN } else { ROW }))).with_children(|r| {
-                        r.spawn((Text::new(stem(path)), font(16.0), TextColor(TEXT)));
-                        r.spawn((Text::new(format!("{}  {}", kind_name(h.kind), crate::save::game_date(h))), font(14.0), TextColor(DIM)));
-                    });
-                }
-                let below = n - (first + LOAD_ROWS).min(n);
-                if below > 0 {
-                    rows.spawn((Text::new(format!("{below} older below")), font(13.0), TextColor(DIM)));
-                }
-            });
-            cols.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), width: Val::Px(THUMB_DRAWN.x), ..default() }).with_children(|d| {
-                let frame = Node { width: Val::Px(THUMB_DRAWN.x), height: Val::Px(THUMB_DRAWN.y), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
-                match list.thumb.as_ref().filter(|(t, _)| *t == selected).and_then(|(_, h)| h.clone()) {
-                    Some(img) => {
-                        // Stretched to the frame: no measure of its own, so the node keeps the frame's size.
-                        d.spawn((frame, ImageNode::new(img).with_mode(bevy::ui::widget::NodeImageMode::Stretch)));
-                    }
-                    None => {
-                        d.spawn((frame, BackgroundColor(ROW), children![(Text::new("No picture"), font(14.0), TextColor(DIM))]));
-                    }
-                }
-                if let Some((path, h)) = list.saves.get(selected) {
-                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-                    d.spawn((Text::new(stem(path)), font(18.0), TextColor(TITLE)));
-                    for line in [
-                        format!("{}, level {}", h.player_name, h.level),
-                        if h.location.is_empty() { "Unknown place".to_string() } else { h.location.clone() },
-                        format!("Game date {}", crate::save::game_date(h)),
-                        format!("Played {}", play_time(h.play_seconds)),
-                        format!("Saved {} ({})", saved_ago(h.saved_unix, now), kind_name(h.kind)),
-                    ] {
-                        d.spawn((Text::new(line), font(14.0), TextColor(TEXT)));
-                    }
-                }
-            });
+/// The settings page: the categories left of the column, the chosen category's switches
+/// in the middle with the chosen one's note under them, the version at the bottom left.
+fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &[Setting], selected: usize, top: f32) {
+    let group = list.get(selected).map(|s| s.group);
+    for (i, (name, first)) in categories(list).into_iter().enumerate() {
+        let w = SUB_WIDTH.max(f.entry.font.width(name) + 20.0);
+        let shade = if Some(name) == group { Shade::Bright } else { Shade::Dim };
+        right_entry(root, &f.entry, name, from_right(SUB_RIGHT, top + i as f32 * ITEM, w, ITEM), w, shade, false, PauseButton::Category(first));
+    }
+    if list.is_empty() {
+        root.spawn(from_middle(OPTIONS_LEFT, top, OPTIONS_WIDTH, OPTION_ROW)).with_children(|t| sm_text(t, &f.entry, "Nothing to switch.", 10.0, BASE, color(Shade::Dim)));
+    }
+    let rows = group_rows(list, selected);
+    // A window of the group's rows round the chosen one.
+    let first = rows.start.max((selected + 1).saturating_sub(OPTION_ROWS)).min(rows.end.saturating_sub(OPTION_ROWS).max(rows.start));
+    for (n, i) in (first..rows.end).take(OPTION_ROWS).enumerate() {
+        let s = &list[i];
+        let on = d.states.get(i).copied().unwrap_or(false);
+        root.spawn((Button, PauseButton::Switch(i), boxed(from_middle(OPTIONS_LEFT, top + n as f32 * OPTION_ROW, OPTIONS_WIDTH, OPTION_ROW), i == selected)))
+        .with_children(|r| {
+            sm_text(r, &f.entry, s.label, 10.0, BASE + 2.0, color(Shade::Bright));
+            let value = if on { "ON" } else { "OFF" };
+            let vw = f.entry.font.width(value);
+            r.spawn((SwitchState(i), Text::new(value), Node { display: Display::None, ..default() }));
+            sm_text(r, &f.entry, value, VALUE_AT - vw / 2.0, BASE + 2.0, color(Shade::Bright));
         });
     }
-    p.spawn((Text::new("Up/Down choose   Enter load   Esc back"), font(13.0), TextColor(DIM)));
-    p.spawn(button("Back (Esc)", PauseButton::Back));
+    // The chosen switch's note under the rows.
+    let note = list.get(selected).map_or("", |s| s.note);
+    root.spawn((SwitchNote, Text::new(note), Node { display: Display::None, ..default() }));
+    let shown = (rows.end - first).min(OPTION_ROWS) as f32;
+    root.spawn(from_middle(OPTIONS_LEFT + 10.0, top + shown * OPTION_ROW + 20.0, OPTIONS_WIDTH - 20.0, 160.0)).with_children(|t| wrapped(t, &f.small, note, OPTIONS_WIDTH - 20.0, 26.0, color(Shade::Bright)));
+    // The version at the bottom left [observed: the original shows its own there].
+    root.spawn(Node { position_type: PositionType::Absolute, left: u(30.0), top: u(960.0 - 60.0), width: u(400.0), height: u(40.0), ..default() }).with_children(|t| {
+        sm_text(t, &f.small, concat!("NVForever ", env!("CARGO_PKG_VERSION")), 0.0, 26.0, color(Shade::Bright));
+    });
 }
+
+/// The load page: the chosen save's thumbnail and details over the saves' rows (a window
+/// of [`LOAD_ROWS`] round the chosen one), left of the column.
+fn load_page(root: &mut ChildSpawnerCommands, d: &Drawn, f: &Faces, list: &LoadList, selected: usize) {
+    let panel = |top: f32, height: f32| from_right(RIGHT + COLUMN, top, LOAD_WIDTH, height);
+    if list.saves.is_empty() {
+        root.spawn(panel(LOAD_TOP, ITEM)).with_children(|t| sm_text(t, &f.entry, "No saves yet.", 10.0, BASE, color(Shade::Dim)));
+        return;
+    }
+    let n = list.saves.len();
+    let first = selected.saturating_sub(LOAD_ROWS / 2).min(n.saturating_sub(LOAD_ROWS));
+    // The thumbnail, stretched to its frame.
+    let frame = Node { position_type: PositionType::Absolute, right: u(RIGHT + COLUMN + LOAD_WIDTH - THUMB_DRAWN.x - 10.0), top: u(DETAILS_TOP - THUMB_DRAWN.y - 10.0), width: u(THUMB_DRAWN.x), height: u(THUMB_DRAWN.y), ..default() };
+    match list.thumb.as_ref().filter(|(t, _)| *t == selected && d.thumb.is_some_and(|t| t.1)).and_then(|(_, h)| h.clone()) {
+        Some(img) => {
+            root.spawn((frame, ImageNode::new(img).with_mode(NodeImageMode::Stretch)));
+        }
+        None => {
+            root.spawn((frame, BackgroundColor(Color::BLACK.with_alpha(0.5)))).with_children(|t| sm_text(t, &f.small, "No picture", 20.0, 40.0, color(Shade::Dim)));
+        }
+    }
+    if let Some((path, h)) = list.saves.get(selected) {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let place = if h.location.is_empty() { "Unknown place".to_string() } else { h.location.clone() };
+        let lines = [
+            format!("{}, level {}", h.player_name, h.level),
+            format!("{place}, {}", crate::save::game_date(h)),
+            format!("Played {}", play_time(h.play_seconds)),
+            format!("{}: saved {} ({})", stem(path), saved_ago(h.saved_unix, now), kind_name(h.kind)),
+        ];
+        for (i, line) in lines.iter().enumerate() {
+            let face = if i == 0 { &f.entry } else { &f.small };
+            root.spawn((DetailLine, Text::new(line.clone()), Node { display: Display::None, ..default() }));
+            root.spawn(panel(DETAILS_TOP + i as f32 * DETAILS_STEP, DETAILS_STEP)).with_children(|t| sm_text(t, face, line, 10.0, 30.0, color(Shade::Bright)));
+        }
+    }
+    for (row, (i, (path, h))) in list.saves.iter().enumerate().skip(first).take(LOAD_ROWS).enumerate() {
+        root.spawn((Button, PauseButton::LoadRow(i), boxed(panel(LOAD_TOP + row as f32 * ITEM, ITEM), i == selected))).with_children(|r| {
+            sm_text(r, &f.entry, &stem(path), 10.0, BASE, color(Shade::Bright));
+            let date = format!("{}  {}", kind_name(h.kind), crate::save::game_date(h));
+            let w = f.small.font.width(&date);
+            sm_text(r, &f.small, &date, LOAD_WIDTH - w - 14.0, BASE, color(Shade::Dim));
+        });
+    }
+}
+
+/// A line of the details, kept as text too (tests read it).
+#[derive(Component)]
+struct DetailLine;
+
 
 #[allow(clippy::too_many_arguments)]
 fn open(
@@ -559,11 +776,9 @@ fn open(
     mut aid: ResMut<PauseAid>,
     mut paused: ResMut<Paused>,
     mut page: ResMut<Page>,
-    settings: Res<Settings>,
-    list: Res<LoadList>,
+    mut view: ResMut<PauseView>,
     mut status: ResMut<PauseStatus>,
     mut next: ResMut<NextState<PlayState>>,
-    mut commands: Commands,
 ) {
     let by_aid = fire(&mut aid.open, time.elapsed_secs());
     if !keys.just_pressed(KeyCode::Escape) && !by_aid {
@@ -575,15 +790,21 @@ fn open(
     info!("pause menu: open");
     paused.0 = true;
     *page = Page::Main;
+    view.main_selected = 0;
+    view.confirm = None;
     *status = PauseStatus::default();
     next.set(PlayState::Menu);
-    spawn_page(&mut commands, *page, &settings, &list, "");
 }
 
 /// A page another menu asks the pause menu to show (the main menu's Load Game and
 /// Settings, `crate::main_menu`); taken on the next frame.
 #[derive(Resource, Default)]
 pub struct PageRequest(pub Option<Page>);
+
+/// Asked from the quit question: back to the main menu (nvforever starts again with
+/// `--menu`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct MainMenuRequest;
 
 /// The row after `selected` (`step` 1) or before it (-1) of `rows`, round the ends.
 fn step_row(selected: usize, step: i32, rows: usize) -> usize {
@@ -593,45 +814,56 @@ fn step_row(selected: usize, step: i32, rows: usize) -> usize {
     (selected.min(rows - 1) as i32 + step).rem_euclid(rows as i32) as usize
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The switch `step` rows from `selected` within its group, round its ends.
+fn step_in_group(list: &[Setting], selected: usize, step: i32) -> usize {
+    let rows = group_rows(list, selected);
+    if rows.is_empty() {
+        return 0;
+    }
+    rows.start + step_row(selected - rows.start, step, rows.len())
+}
+
+/// The first switch of the category after (`step` 1) or before (-1) `selected`'s.
+fn step_category(list: &[Setting], selected: usize, step: i32) -> usize {
+    let cats = categories(list);
+    let Some(g) = list.get(selected).map(|s| s.group) else { return 0 };
+    let at = cats.iter().position(|(n, _)| *n == g).unwrap_or(0);
+    cats.get(step_row(at, step, cats.len())).map_or(0, |c| c.1)
+}
+
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn choose(
     keys: Res<ButtonInput<KeyCode>>,
     time: AidTime,
     mut aid: ResMut<PauseAid>,
     paused: Res<Paused>,
     mut page: ResMut<Page>,
+    mut view: ResMut<PauseView>,
     settings: Res<Settings>,
     buttons: Query<(&Interaction, &PauseButton), Changed<Interaction>>,
-    roots: Query<Entity, With<PauseRoot>>,
     mut next: ResMut<NextState<PlayState>>,
     mut exit: MessageWriter<AppExit>,
     mut commands: Commands,
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut menu: SaveMenu,
-    (mut request, main_menu, intro): (ResMut<PageRequest>, Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>),
+    (mut request, main_menu, intro, mut to_main): (ResMut<PageRequest>, Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>, MessageWriter<MainMenuRequest>),
 ) {
+    use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
     // Held for the intro film, which takes the keys (`crate::intro`).
     if !paused.0 || intro.is_some_and(|i| i.is_playing()) {
         return;
     }
     // Under the main menu the first page is the main menu's own (`crate::main_menu`): its
     // pages come from here, and going back shows it again.
-    let under_main = main_menu.is_some_and(|m| m.open);
-    let mut redraw = false;
+    let under_main = main_menu.as_ref().is_some_and(|m| m.open);
     if let Some(p) = request.0.take() {
         if matches!(p, Page::Load { .. }) {
             menu.list.open(menu.cfg.dir.as_deref());
         }
         info!("pause menu: {p:?} page for another menu");
         *page = p;
-        redraw = true;
     }
     if under_main && *page == Page::Main {
-        if redraw {
-            for e in &roots {
-                commands.entity(e).despawn();
-            }
-        }
         return;
     }
     let now = time.elapsed_secs();
@@ -641,7 +873,7 @@ fn choose(
         next.set(PlayState::Playing);
         return;
     }
-    let before = *page;
+    let list = settings.list();
     let mut flips = Vec::new();
     // The settings aid: show the page and flip the switch, as a click on its row.
     let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut aid.switches).into_iter().partition(|(t, _)| *t <= now);
@@ -654,7 +886,7 @@ fn choose(
                 flips.push(i);
             }
             (None, "page") => *page = Page::Settings { selected: 0 },
-            (None, _) => warn!("NVF_PLAY_TEST_SETTINGS: no switch {key:?}; there are {:?}", settings.list().iter().map(|s| s.key).collect::<Vec<_>>()),
+            (None, _) => warn!("NVF_PLAY_TEST_SETTINGS: no switch {key:?}; there are {:?}", list.iter().map(|s| s.key).collect::<Vec<_>>()),
         }
     }
     // The menu aid's actions due now, as the keys they stand for.
@@ -663,63 +895,191 @@ fn choose(
     let mut acts: Vec<String> = Vec::new();
     for (_, a) in due {
         info!("test aid NVF_PLAY_TEST_PAUSE_MENU: {a}");
+        if a == "shot" {
+            let name = format!("{}pause_{}.png", if under_main { "main_menu_" } else { "" }, match *page {
+                Page::Main if view.confirm.is_some() => "quit",
+                Page::Main => "main",
+                Page::Settings { .. } => "settings",
+                Page::Load { .. } => "load",
+            });
+            info!("pause menu: screenshot {name}");
+            commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(name));
+        }
         acts.push(a);
     }
     let act = |name: &str| acts.iter().any(|a| a == name);
     let mut clicked = None;
-    // The load page takes the row the pointer moves onto (not one it rests on while the
-    // keys move the choice, nor the one a redrawn page puts under it).
+    // A list takes the row the pointer moves onto (not one it rests on while the keys
+    // move the choice, nor the one a redrawn page puts under it).
     let moved = menu.motion.as_ref().is_some_and(|m| m.delta != Vec2::ZERO);
+    let (main_before, confirm_before) = (view.main_selected, view.confirm);
     for (interaction, b) in &buttons {
         match (interaction, b, &mut *page) {
             (Interaction::Pressed, ..) => clicked = Some(*b),
-            // The row under the pointer is the chosen one.
-            (Interaction::Hovered, PauseButton::Switch(i), Page::Settings { selected }) => *selected = *i,
+            (Interaction::Hovered, PauseButton::Switch(i), Page::Settings { selected }) if moved => *selected = *i,
             (Interaction::Hovered, PauseButton::LoadRow(i), Page::Load { selected }) if moved => *selected = *i,
+            (Interaction::Hovered, PauseButton::Column(i), Page::Main) if moved && view.confirm.is_none() && !under_main => view.main_selected = *i,
+            (Interaction::Hovered, PauseButton::Confirm(i), Page::Main) if moved && view.confirm.is_some() => view.confirm = Some(*i),
             _ => {}
         }
     }
-    match &mut *page {
-        Page::Main => {
-            if keys.just_pressed(KeyCode::KeyQ) || clicked == Some(PauseButton::Quit) {
-                info!("pause menu: quit");
-                exit.write(AppExit::Success);
-            } else if keys.just_pressed(KeyCode::KeyN) || clicked == Some(PauseButton::Save) || act("save") {
-                let stems: Vec<String> = menu.cfg.dir.as_deref().and_then(|d| std::fs::read_dir(d).ok()).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == fnv_save::EXTENSION)).map(|p| stem(&p)).collect();
-                let name = next_save_name(stems.iter().map(String::as_str));
-                info!("pause menu: saving as {name:?}");
-                match menu.cfg.path_of(&name) {
-                    Ok(path) => {
-                        menu.status.waiting_for = Some(path);
-                        menu.status.line = format!("Saving \"{name}\"...");
-                        menu.saves.write(crate::save::SaveRequest { name, kind: SaveKind::Manual });
-                    }
-                    Err(e) => menu.status.line = format!("Cannot save: {e}"),
-                }
-            } else if keys.just_pressed(KeyCode::KeyL) || clicked == Some(PauseButton::Load) || act("load") {
-                info!("pause menu: load page");
+    // A click on the column's entry of another page, or on a category.
+    match clicked {
+        Some(PauseButton::Column(i)) if !under_main && *page != Page::Main => {
+            *page = Page::Main;
+            view.main_selected = i;
+            if ENTRIES.get(i).is_some_and(|e| matches!(e, Entry::Load | Entry::Settings)) {
+                clicked = Some(PauseButton::Column(i));
+            } else {
+                clicked = None;
+            }
+        }
+        Some(PauseButton::Column(i)) if under_main => {
+            let label = main_menu.as_ref().and_then(|m| m.column().get(i).map(|c| c.0));
+            match label {
+                Some(l) if l.starts_with("Load") => *page = Page::Load { selected: 0 },
+                Some(l) if l.starts_with("Settings") => *page = Page::Settings { selected: 0 },
+                _ => {}
+            }
+            if matches!(*page, Page::Load { .. }) {
                 menu.list.open(menu.cfg.dir.as_deref());
-                *page = Page::Load { selected: 0 };
-            } else if keys.just_pressed(KeyCode::KeyS) || clicked == Some(PauseButton::Settings) {
-                info!("pause menu: settings");
-                *page = Page::Settings { selected: 0 };
-            } else if keys.any_just_pressed([KeyCode::Escape, KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) || clicked == Some(PauseButton::Resume) {
-                info!("pause menu: resume");
-                next.set(PlayState::Playing);
+            }
+            clicked = None;
+        }
+        Some(PauseButton::Category(first)) => {
+            *page = Page::Settings { selected: first };
+            sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Picked });
+        }
+        Some(PauseButton::Defaults) => {
+            if let Some(d) = view.defaults.clone() {
+                info!("pause menu: settings back to their defaults");
+                commands.queue(move |world: &mut World| {
+                    let list = world.resource::<Settings>().list().to_vec();
+                    for (i, s) in list.iter().enumerate() {
+                        if d.get(i).is_some_and(|&on| on != (s.get)(world)) {
+                            crate::settings::flip(world, i);
+                        }
+                    }
+                });
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+            }
+        }
+        _ => {}
+    }
+    match &mut *page {
+        Page::Main if view.confirm.is_some() => {
+            let sel = view.confirm.unwrap_or(2);
+            let mut take = None;
+            if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || act("back") {
+                take = Some(2);
+            } else if let Some(PauseButton::Confirm(i)) = clicked {
+                take = Some(i);
+            } else if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) || act("up") {
+                view.confirm = Some(step_row(sel, -1, CONFIRM.len()));
+            } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) || act("down") {
+                view.confirm = Some(step_row(sel, 1, CONFIRM.len()));
+            } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) || act("pick") {
+                take = Some(sel);
+            }
+            match take {
+                Some(0) => {
+                    info!("pause menu: quit to the main menu");
+                    to_main.write(MainMenuRequest);
+                }
+                Some(1) => {
+                    info!("pause menu: quit");
+                    exit.write(AppExit::Success);
+                }
+                Some(_) => {
+                    info!("pause menu: quit cancelled");
+                    view.confirm = None;
+                    sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Back });
+                }
+                None => {}
+            }
+            if take.is_some_and(|t| t < 2) {
+                sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Picked });
+            }
+        }
+        Page::Main => {
+            let n = ENTRIES.len();
+            let mut take = match clicked {
+                Some(PauseButton::Column(i)) => ENTRIES.get(i).copied(),
+                _ => None,
+            };
+            if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) {
+                view.main_selected = step_row(view.main_selected, -1, n);
+            } else if keys.any_just_pressed([KeyCode::ArrowDown]) {
+                view.main_selected = step_row(view.main_selected, 1, n);
+            } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) {
+                take = ENTRIES.get(view.main_selected).copied();
+            }
+            if keys.just_pressed(KeyCode::KeyQ) || act("quit") {
+                take = Some(Entry::Quit);
+            } else if keys.just_pressed(KeyCode::KeyN) || act("save") {
+                take = Some(Entry::Save);
+            } else if keys.just_pressed(KeyCode::KeyL) || act("load") {
+                take = Some(Entry::Load);
+            } else if keys.just_pressed(KeyCode::KeyS) {
+                take = Some(Entry::Settings);
+            } else if keys.just_pressed(KeyCode::Escape) {
+                take = Some(Entry::Continue);
+            }
+            if let Some(e) = take {
+                view.main_selected = ENTRIES.iter().position(|x| *x == e).unwrap_or(0);
+                if e != Entry::Continue {
+                    sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Picked });
+                }
+            }
+            match take {
+                Some(Entry::Quit) => {
+                    info!("pause menu: quit?");
+                    view.confirm = Some(2);
+                }
+                Some(Entry::Save) => {
+                    let stems: Vec<String> = menu.cfg.dir.as_deref().and_then(|d| std::fs::read_dir(d).ok()).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == fnv_save::EXTENSION)).map(|p| stem(&p)).collect();
+                    let name = next_save_name(stems.iter().map(String::as_str));
+                    info!("pause menu: saving as {name:?}");
+                    match menu.cfg.path_of(&name) {
+                        Ok(path) => {
+                            menu.status.waiting_for = Some(path);
+                            menu.status.line = format!("Saving \"{name}\"...");
+                            menu.saves.write(crate::save::SaveRequest { name, kind: SaveKind::Manual });
+                        }
+                        Err(e) => menu.status.line = format!("Cannot save: {e}"),
+                    }
+                }
+                Some(Entry::Load) => {
+                    info!("pause menu: load page");
+                    menu.list.open(menu.cfg.dir.as_deref());
+                    *page = Page::Load { selected: 0 };
+                }
+                Some(Entry::Settings) => {
+                    info!("pause menu: settings");
+                    *page = Page::Settings { selected: 0 };
+                }
+                Some(Entry::Continue) => {
+                    info!("pause menu: resume");
+                    next.set(PlayState::Playing);
+                }
+                None => {}
             }
         }
         Page::Settings { selected } => {
-            let rows = settings.list().len();
             if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || clicked == Some(PauseButton::Back) || act("back") {
                 *page = Page::Main;
             } else if let Some(PauseButton::Switch(i)) = clicked {
                 *selected = i;
                 flips.push(i);
             } else if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) {
-                *selected = step_row(*selected, -1, rows);
+                *selected = step_in_group(list, *selected, -1);
             } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) {
-                *selected = step_row(*selected, 1, rows);
-            } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space, KeyCode::ArrowLeft, KeyCode::ArrowRight]) && *selected < rows {
+                *selected = step_in_group(list, *selected, 1);
+            } else if keys.any_just_pressed([KeyCode::Tab, KeyCode::PageDown]) {
+                *selected = step_category(list, *selected, 1);
+            } else if keys.just_pressed(KeyCode::PageUp) {
+                *selected = step_category(list, *selected, -1);
+            } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space, KeyCode::ArrowLeft, KeyCode::ArrowRight]) && *selected < list.len() {
                 flips.push(*selected);
             }
         }
@@ -749,26 +1109,20 @@ fn choose(
         let SaveMenu { list, images, .. } = &mut menu;
         list.ensure_thumb(selected, images);
     }
+    // The pointer or the keys moved the first page's choice or the question's: its sound.
+    if view.main_selected != main_before && *page == Page::Main || (view.confirm.is_some() && confirm_before.is_some() && view.confirm != confirm_before) {
+        sounds.write(UiSound { menu: UiMenu::Pause, event: UiEvent::Focus });
+    }
     for i in flips {
-        sounds.write(crate::ui_sounds::UiSound { menu: crate::ui_sounds::UiMenu::Settings, event: crate::ui_sounds::UiEvent::Flipped });
+        sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
         commands.queue(move |world: &mut World| {
             crate::settings::flip(world, i);
         });
     }
-    // Another page, or another save chosen on the load page: draw it. On the settings page
-    // a change of row or of a switch only repaints (`show_switches`).
-    if redraw || std::mem::discriminant(&before) != std::mem::discriminant(&*page) || (matches!(*page, Page::Load { .. }) && before != *page) {
-        for e in &roots {
-            commands.entity(e).despawn();
-        }
-        if !(under_main && *page == Page::Main) {
-            spawn_page(&mut commands, *page, &settings, &menu.list, &menu.status.line);
-        }
-    }
 }
 
 /// The main page's status line: the save asked from this menu, once written.
-fn show_status(mut done: MessageReader<crate::save::SaveDone>, mut status: ResMut<PauseStatus>, mut texts: Query<&mut Text, With<PauseStatusText>>) {
+fn show_status(mut done: MessageReader<crate::save::SaveDone>, mut status: ResMut<PauseStatus>) {
     for d in done.read() {
         if status.waiting_for.as_ref() != Some(&d.path) {
             continue;
@@ -779,51 +1133,65 @@ fn show_status(mut done: MessageReader<crate::save::SaveDone>, mut status: ResMu
             Err(e) => format!("Save failed: {e}"),
         };
     }
-    for mut t in &mut texts {
-        if t.0 != status.line {
-            t.0 = status.line.clone();
-        }
-    }
 }
 
-/// On the settings page: show each switch as the game has it now, mark the chosen row
-/// and explain its switch.
-fn show_switches(
-    world: &mut World,
-    states: &mut QueryState<(&SwitchState, &mut Text, &mut TextColor), Without<SwitchNote>>,
-    rows: &mut QueryState<(&PauseButton, &mut BackgroundColor)>,
-    notes: &mut QueryState<&mut Text, With<SwitchNote>>,
-) {
-    let Page::Settings { selected } = *world.resource::<Page>() else { return };
+/// What the page shows now.
+fn drawn_now(world: &mut World) -> Drawn {
+    let page = *world.resource::<Page>();
     let list = world.resource::<Settings>().list().to_vec();
-    let on: Vec<bool> = list.iter().map(|s| (s.get)(world)).collect();
-    for (s, mut text, mut color) in states.iter_mut(world) {
-        let Some(&on) = on.get(s.0) else { continue };
-        let (label, shade) = if on { ("On", ON) } else { ("Off", DIM) };
-        if text.0 != label {
-            text.0 = label.into();
-            color.0 = shade;
-        }
+    let states: Vec<bool> = list.iter().map(|s| (s.get)(world)).collect();
+    if matches!(page, Page::Settings { .. }) && world.resource::<PauseView>().defaults.is_none() {
+        world.resource_mut::<PauseView>().defaults = Some(states.clone());
     }
-    for (b, mut bg) in rows.iter_mut(world) {
-        let PauseButton::Switch(i) = b else { continue };
-        let shade = if *i == selected { ROW_CHOSEN } else { ROW };
-        if bg.0 != shade {
-            bg.0 = shade;
-        }
-    }
-    let note = list.get(selected).map_or("", |s| s.note);
-    for mut text in notes.iter_mut(world) {
-        if text.0 != note {
-            text.0 = note.into();
-        }
+    let main = world.get_resource::<crate::main_menu::MainMenu>().filter(|m| m.open).map(|m| m.column());
+    let view = world.resource::<PauseView>();
+    let thumb = world.resource::<LoadList>().thumb.as_ref().map(|(i, h)| (*i, h.is_some()));
+    Drawn {
+        page,
+        main_selected: view.main_selected,
+        confirm: view.confirm,
+        states,
+        status: world.resource::<PauseStatus>().line.clone(),
+        under_main: main.is_some(),
+        column: main.unwrap_or_else(|| ENTRIES.iter().map(|e| (e.label(), true)).collect()),
+        thumb,
     }
 }
 
-fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Page>, mut list: ResMut<LoadList>, roots: Query<Entity, With<PauseRoot>>) {
+/// Draw the page again when what it shows changed.
+fn draw(world: &mut World) {
+    if !world.resource::<Paused>().0 {
+        return;
+    }
+    let now = drawn_now(world);
+    if world.resource::<PauseView>().drawn.as_ref() == Some(&now) {
+        return;
+    }
+    if !world.contains_resource::<PauseLook>() {
+        let look = PauseLook::load(world);
+        world.insert_resource(look);
+    }
+    let roots: Vec<Entity> = world.query_filtered::<Entity, With<PauseRoot>>().iter(world).collect();
+    for e in roots {
+        world.despawn(e);
+    }
+    let settings = world.resource::<Settings>().list().to_vec();
+    world.resource_scope(|world, look: Mut<PauseLook>| {
+        world.resource_scope(|world, list: Mut<LoadList>| {
+            let mut commands = world.commands();
+            spawn_page(&mut commands, &now, &look, &settings, &list);
+        });
+    });
+    world.flush();
+    world.resource_mut::<PauseView>().drawn = Some(now);
+}
+
+fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Page>, mut list: ResMut<LoadList>, mut view: ResMut<PauseView>, roots: Query<Entity, With<PauseRoot>>) {
     paused.0 = false;
     *page = Page::Main;
     *list = LoadList::default();
+    view.drawn = None;
+    view.confirm = None;
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -872,6 +1240,20 @@ mod tests {
     }
 
     #[test]
+    fn the_keys_stay_in_a_category_and_tab_goes_to_the_next() {
+        let s = |key: &'static str, group: &'static str| Setting { key, group, label: key, note: "", get: |_| false, set: |_, _| {} };
+        let list = [s("a", "Gameplay"), s("b", "Gameplay"), s("c", "Display"), s("d", "Display"), s("e", "Display"), s("f", "Debug")];
+        assert_eq!(categories(&list), vec![("Gameplay", 0), ("Display", 2), ("Debug", 5)]);
+        assert_eq!(group_rows(&list, 3), 2..5);
+        assert_eq!(step_in_group(&list, 4, 1), 2);
+        assert_eq!(step_in_group(&list, 2, -1), 4);
+        assert_eq!(step_in_group(&list, 5, 1), 5);
+        assert_eq!(step_category(&list, 1, 1), 2);
+        assert_eq!(step_category(&list, 5, 1), 0);
+        assert_eq!(step_category(&list, 0, -1), 5);
+    }
+
+    #[test]
     fn the_keys_go_round_the_rows() {
         assert_eq!(step_row(0, 1, 3), 1);
         assert_eq!(step_row(2, 1, 3), 0);
@@ -909,17 +1291,23 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        app.init_resource::<Settings>();
-        app.world_mut().run_system_cached(|mut commands: Commands, settings: Res<Settings>, list: Res<LoadList>| spawn_page(&mut commands, Page::Load { selected: 1 }, &settings, &list, "")).unwrap();
+        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None };
+        app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list), drawn).unwrap();
         let world = app.world_mut();
-        let mut rows = world.query::<(&PauseButton, &BackgroundColor)>();
-        let rows: Vec<(PauseButton, Color)> = rows.iter(world).filter(|(b, _)| matches!(b, PauseButton::LoadRow(_))).map(|(b, c)| (*b, c.0)).collect();
+        let mut rows = world.query::<(&PauseButton, &BorderColor)>();
+        let rows: Vec<(PauseButton, bool)> = rows.iter(world).filter(|(b, _)| matches!(b, PauseButton::LoadRow(_))).map(|(b, c)| (*b, c.top != Color::NONE)).collect();
         assert_eq!(rows.len(), 2);
-        assert!(rows.contains(&(PauseButton::LoadRow(1), ROW_CHOSEN)));
-        let mut texts = world.query::<&Text>();
-        let all: Vec<String> = texts.iter(world).map(|t| t.0.clone()).collect();
-        assert!(all.iter().any(|t| t == "Courier, level 1"), "{all:?}");
-        assert!(all.iter().any(|t| t == "No picture"), "{all:?}");
+        // The chosen row has the box round it, and only it.
+        assert!(rows.contains(&(PauseButton::LoadRow(1), true)) && rows.contains(&(PauseButton::LoadRow(0), false)));
+        // Load is lit in the column, the others dimmed.
+        let mut texts = world.query::<(&Text, &TextColor)>();
+        let all: Vec<(String, Color)> = texts.iter(world).map(|(t, c)| (t.0.clone(), c.0)).collect();
+        assert!(all.contains(&("Load".to_string(), color(Shade::Bright))) && all.contains(&("Save".to_string(), color(Shade::Dim))), "{all:?}");
+        let mut details = world.query_filtered::<&Text, With<DetailLine>>();
+        let details: Vec<String> = details.iter(world).map(|t| t.0.clone()).collect();
+        assert!(details.iter().any(|t| t == "Courier, level 1"), "{details:?}");
+        // The stand-in font sets no spaces.
+        assert!(all.iter().any(|t| t.0 == "Nopicture"), "{all:?}");
     }
 
     #[derive(Resource, Default)]
@@ -930,17 +1318,20 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<Lamp>().init_resource::<Paused>().insert_resource(Page::Settings { selected: 0 });
         add_setting(&mut app, Setting { key: "lamp", group: "Test", label: "Lamp", note: "A lamp.", get: |w| w.resource::<Lamp>().0, set: |w, on| w.resource_mut::<Lamp>().0 = on });
-        app.add_systems(Update, show_switches);
-        app.world_mut().run_system_cached(|mut commands: Commands, settings: Res<Settings>| spawn_page(&mut commands, Page::Settings { selected: 0 }, &settings, &LoadList::default(), "")).unwrap();
+        app.init_resource::<PauseView>().init_resource::<LoadList>().init_resource::<PauseStatus>().insert_resource(PauseLook::plain());
+        app.world_mut().resource_mut::<Paused>().0 = true;
+        app.add_systems(Update, draw);
         let state = |app: &mut App| {
             app.update();
             let world = app.world_mut();
             let mut q = world.query::<(&SwitchState, &Text)>();
             q.single(world).unwrap().1 .0.clone()
         };
-        assert_eq!(state(&mut app), "Off");
+        assert_eq!(state(&mut app), "OFF");
         crate::settings::flip(app.world_mut(), 0);
-        assert_eq!(state(&mut app), "On");
+        assert_eq!(state(&mut app), "ON");
+        // Defaults go back to the state the page was first shown with.
+        assert_eq!(app.world().resource::<PauseView>().defaults, Some(vec![false]));
         let world = app.world_mut();
         let mut note = world.query_filtered::<&Text, With<SwitchNote>>();
         assert_eq!(note.single(world).unwrap().0, "A lamp.");
