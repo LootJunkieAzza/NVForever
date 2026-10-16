@@ -1902,6 +1902,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "npc-flamer-holstered"
+source = "owner 2026-10-16: an NPC's holstered flamer should show its tank on the back and no gun in the hand, as the player's minigun does (animation.md §9.7)"
+note = "free camera behind Cook-Cook (000F5704), weapons holstered; screenshots of this view showed the tank on his back and empty hands, and with --actor-weapons drawn the flamer in both hands with the tank still on the back"
+areas = ["animation"]
+paths = ["engine/nvforever/src/weapons.rs", "engine/nvforever/src/actors.rs"]
+args = ["--cell", "Goodsprings", "--pos=-43165,74560,4390", "--heading", "0", "--hour", "12"]
+run_seconds = 15
+expect = [
+  { re = 'actor weapons: 000F5704 \S*flamer\.nif: 1 shape\(s\) on the back, 1 gun shape\(s\) the clips show and hide', label = "Cook-Cook's flamer: the tank on the back, the gun apart" },
+]
+
+[[scenario]]
 name = "combat-flee"
 source = "owner's list 2: NPCs flee (GECK wiki Confidence and Combat Flee; docs/design/combat-ai.md §12.2): a cowardly bighorner shot once in its pen"
 note = "GSBigHorner: Unaggressive, Confidence 0 (Cowardly, threshold 1000): hurt, it fails its first flee check; where it flees to depends on the pen's navmesh (to cover, 2026-10-12)"

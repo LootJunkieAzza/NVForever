@@ -66,8 +66,9 @@ fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<
             // Hidden while holstered under Weapons Unequipped.
             let hide = unequipped && hold.anim.stage == fnv_actor::weapon::Stage::Holstered;
             if hide != hidden {
-                if let Some(&node) = rig.nodes.get(hold.stance.weapon_node) {
-                    commands.entity(node).insert(if hide { Visibility::Hidden } else { Visibility::Inherited });
+                // The parts on the back (the flamer's tank) go with it.
+                for &part in rig.nodes.get(hold.stance.weapon_node).into_iter().chain(&hold.back) {
+                    commands.entity(part).try_insert(if hide { Visibility::Hidden } else { Visibility::Inherited });
                 }
                 if hide {
                     commands.entity(e).insert(WeaponHidden);

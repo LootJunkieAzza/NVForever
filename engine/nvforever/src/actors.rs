@@ -540,18 +540,26 @@ fn arm(
         stats.weapon_missing += 1;
         return None;
     };
-    for e in crate::weapons::spawn_model(commands, spawned, stance.weapon_node, &part) {
+    let path = fnv_actor::resolve::mesh_path(model);
+    let bones = ctx.models.node_strings(&path, "UPB");
+    let shapes = crate::weapons::spawn_model(commands, spawned, skel, stance.weapon_node, &part, &bones, &stance.holstered_off);
+    for &e in &shapes.all {
         commands.entity(e).insert(RefVisual(reference));
         if let Some(weapon) = a.weapon {
             commands.entity(e).insert(crate::weapons::HeldWeapon { reference, weapon });
         }
     }
     // Where its shots leave (`npc_combat`): the model's `ProjectileNode`.
-    if let Some(pm) = ctx.models.model(&fnv_actor::resolve::mesh_path(model)) {
+    if let Some(pm) = ctx.models.model(&path) {
         crate::weapons::spawn_muzzle(commands, spawned, stance.weapon_node, &pm, reference);
     }
     let skel_parent = skel.parents[stance.weapon_node].unwrap_or(0);
     let mut hold = WeaponHold::new(stance, world.weapon_mode == WeaponMode::Drawn, skel_parent);
+    if !shapes.back.is_empty() || !shapes.gun.is_empty() {
+        info!("actor weapons: {reference:08X} {path}: {} shape(s) on the back, {} gun shape(s) the clips show and hide", shapes.back.len(), shapes.gun.len());
+    }
+    hold.gun = shapes.gun.into_iter().map(|(e, n)| (e, n, None)).collect();
+    hold.back = shapes.back;
     if let Some(period) = world.weapon_test {
         hold.test = Some((period, clip_phase(reference) * 2.0 * period));
     }

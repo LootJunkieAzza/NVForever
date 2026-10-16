@@ -5220,3 +5220,18 @@ a lot), and his hands did not line up on the flamer, as with the minigun before.
    (no spin-up), since their shots leave at once. A game look at Cook-Cook firing,
    from the side, would confirm the arms.
 
+## NPCs' holstered flamer: tank on the back, no gun (2026-10-16)
+
+Your request: an unequipped flamer should show the flame tank on the back and no weapon,
+as your minigun does. Branch `claude/npc-heavy-holster`. Facts: `docs/spec-notes/animation.md` §9.7.
+
+1. **Built:** NPCs now read the same two things from the game files as your character:
+   the flamer's tank (and the minigun's backpack) hangs from the upper back, and the gun
+   part is switched off while holstered and on half way through the draw, by the
+   animations' own show/hide tracks. Checked on Cook-Cook: holstered, the tank on his
+   back and empty hands; drawn, the flamer in both hands with the tank still on the back.
+2. **Also:** NPCs' miniguns and gatling lasers get the same. Under a package that keeps
+   weapons put away, the tank is hidden with the rest of the weapon; it is not counted as
+   part of the gun when hits on the weapon are worked out.
+3. **Your character's flamer** already worked this way (it uses the same rule as the
+   minigun); I did not take a new look at it.

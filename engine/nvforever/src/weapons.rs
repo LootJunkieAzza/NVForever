@@ -45,6 +45,9 @@ pub struct Stance {
     /// Where the equip clip leaves the `Weapon` node: its rest pose while in the hand
     /// ([`WeaponHold::rest`]).
     pub weapon_rest: Option<Transform>,
+    /// The weapon-model nodes the holster clip switches off (`##FlamerGun`,
+    /// `##MinigunGun`): the clips show and hide them ([`gun_shown`]).
+    pub holstered_off: Vec<String>,
 }
 
 impl Stance {
@@ -82,8 +85,15 @@ impl Stance {
         );
         let weapon_only = clips.iter().map(|(c, b)| (*c, Arc::new(weapon_track_only(b, weapon_node)))).collect();
         let weapon_rest = clips.get(&EquipClip::Equip).and_then(|c| track_end(c, weapon_node, skel.locals[weapon_node]));
-        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, bones, weapon_rest }, line))
+        let holstered_off = clips.get(&EquipClip::Holster).map_or_else(Vec::new, |c| holstered_off(&c.clip));
+        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, bones, weapon_rest, holstered_off }, line))
     }
+}
+
+/// The nodes a holster clip's visibility tracks switch off at some time (the `2hh` gun
+/// parts, animation.md §9.7).
+fn holstered_off(clip: &nvf_assets::anim_play::Clip) -> Vec<String> {
+    clip.visibility.iter().filter(|(_, _, b)| b.keys.iter().any(|(_, v)| !v) || b.value == Some(false)).map(|(n, ..)| n.clone()).collect()
 }
 
 /// `clip` with only the track of the `Weapon` node (index `weapon_node`).
@@ -116,11 +126,17 @@ pub struct WeaponHold {
     pub parent: usize,
     /// Test aid: draw and holster every `period` seconds; the time into the cycle.
     pub test: Option<(f32, f32)>,
+    /// The model's shapes under a node the holster clip switches off (the flamer's and
+    /// minigun's gun): the shape, that node's name and whether it was last shown.
+    pub gun: Vec<(Entity, String, Option<bool>)>,
+    /// The model's shapes on a bone of their own (the flamer's tank and the minigun's
+    /// backpack on `Bip01 Spine2`): on the body whether the weapon is drawn or not.
+    pub back: Vec<Entity>,
 }
 
 impl WeaponHold {
     pub fn new(stance: Arc<Stance>, drawn: bool, skel_parent: usize) -> WeaponHold {
-        WeaponHold { stance, anim: WeaponAnim::new(drawn), drawn, hold: false, parent: skel_parent, test: None }
+        WeaponHold { stance, anim: WeaponAnim::new(drawn), drawn, hold: false, parent: skel_parent, test: None, gun: Vec::new(), back: Vec::new() }
     }
 
     /// Advance the test aid and the draw cycle by `dt`.
@@ -241,23 +257,83 @@ pub fn drop_broken(
     }
 }
 
+/// The shapes of a weapon model as spawned on an actor ([`spawn_model`]).
+#[derive(Default)]
+pub struct SpawnedWeapon {
+    /// Every shape.
+    pub all: Vec<Entity>,
+    /// Those under a node of `gun_nodes`, with its name ([`WeaponHold::gun`]).
+    pub gun: Vec<(Entity, String)>,
+    /// Those on a bone of their own ([`WeaponHold::back`]).
+    pub back: Vec<Entity>,
+}
+
+/// On a weapon shape that hangs from a bone of its own (the flamer's tank): not part of
+/// the weapon in the hand (its hit volume, `limbs.rs`).
+#[derive(Component)]
+pub struct OnBack;
+
 /// Spawn the weapon model's shapes under the actor's `Weapon` node (rigid, in the node's
-/// own frame [hypothesis, actors.md §9.2]); returns the entities.
-pub fn spawn_model(commands: &mut Commands, actor: &SpawnedActor, weapon_node: usize, part: &PreparedPart) -> Vec<Entity> {
-    let mut out = Vec::new();
+/// own frame [hypothesis, actors.md §9.2]). A shape under a node whose `UPB` string
+/// (`bones`, by node name) names a bone of the skeleton hangs from that bone instead,
+/// with its place in the whole model (the flamer's tank and the minigun's backpack say
+/// `Bip01 Spine2`), as the player body does [hypothesis: that is the string's meaning;
+/// animation.md §9.7]. Shapes under a node named in `gun_nodes` are listed apart.
+pub fn spawn_model(
+    commands: &mut Commands,
+    actor: &SpawnedActor,
+    skel: &PreparedSkeleton,
+    weapon_node: usize,
+    part: &PreparedPart,
+    bones: &HashMap<String, String>,
+    gun_nodes: &[String],
+) -> SpawnedWeapon {
+    let mut out = SpawnedWeapon::default();
     for s in part.shapes.iter().filter(|s| !s.cap) {
+        let names = || s.ancestors.iter().filter_map(|(n, _)| n.as_deref()).chain(s.name.as_deref());
+        let bone = names().find_map(|n| skel.by_name.get(bones.get(n)?.trim()).copied());
         let tr = Transform::from_matrix(Mat4::from(part.root * s.transform));
         let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), tr)).id();
-        commands.entity(actor.nodes[weapon_node]).add_child(e);
-        out.push(e);
+        commands.entity(actor.nodes[bone.unwrap_or(weapon_node)]).add_child(e);
+        if bone.is_some() {
+            commands.entity(e).insert(OnBack);
+            out.back.push(e);
+        } else if let Some(g) = names().find_map(|n| gun_nodes.iter().find(|g| g.eq_ignore_ascii_case(n))) {
+            out.gun.push((e, g.clone()));
+        }
+        out.all.push(e);
     }
     out
 }
 
+/// Whether the gun shapes under node `name` ([`WeaponHold::gun`]) show now: as the
+/// current stage's clip's visibility track for that node says at the clip's time (off
+/// in `2hhholster.kf`, on from 0.500 s of `2hhequip.kf`, off from 0.500 s of
+/// `2hhunequip.kf`; observed, animation.md §9.7); a clip with no track for it (the aim
+/// clip) leaves it as it was (`last`), shown at first, as the player body does
+/// [hypothesis: animation.md §9.7].
+pub fn gun_shown(hold: &WeaponHold, name: &str, last: Option<bool>) -> bool {
+    let c = hold.anim.stage.clip();
+    let track = hold.stance.clips.get(&c).and_then(|b| {
+        let (_, _, t) = b.clip.visibility.iter().find(|(n, ..)| n.eq_ignore_ascii_case(name))?;
+        let len = hold.stance.facts.get(&c).map_or(0.0, |f| f.duration);
+        t.at(b.clip.start + WeaponAnim::phase(c, hold.anim.time, &hold.stance.facts) * len)
+    });
+    track.or(last).unwrap_or(true)
+}
+
 /// Hang the `Weapon` node of every armed actor from the bone its draw cycle names (the
-/// draw cycle itself advances in `locomotion::drive`).
+/// draw cycle itself advances in `locomotion::drive`), and show or hide its gun shapes
+/// ([`gun_shown`]).
 pub fn reparent(mut commands: Commands, mut q: Query<(&mut WeaponHold, &BlendPlayer)>) {
     for (mut w, player) in &mut q {
+        let shown: Vec<bool> = w.gun.iter().map(|(_, name, last)| gun_shown(&w, name, *last)).collect();
+        for ((e, _, last), shown) in w.gun.iter_mut().zip(shown) {
+            if *last != Some(shown) {
+                commands.entity(*e).try_insert(if shown { Visibility::Inherited } else { Visibility::Hidden });
+                *last = Some(shown);
+            }
+        }
         let Some(p) = w.parent_node() else { continue };
         if p != w.parent {
             commands.entity(player.nodes[p]).add_child(player.nodes[w.stance.weapon_node]);
@@ -280,7 +356,7 @@ mod tests {
             (EquipClip::Unequip, f(0.5, "Bip01 Pelvis")),
         ]);
         let bones = HashMap::from([("Bip01 Pelvis".to_string(), 3), ("Bip01 R Hand".to_string(), 7)]);
-        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones, weapon_rest: None })
+        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones, weapon_rest: None, holstered_off: Vec::new() })
     }
 
     #[test]
@@ -312,5 +388,43 @@ mod tests {
         a.simulate(0.2);
         assert_eq!(a.anim.stage, Stage::Equipping);
         assert_eq!(a.parent_node(), Some(7));
+    }
+
+    #[test]
+    fn gun_shows_as_the_clips_say() {
+        use fnv_nif::anim::BoolTrack;
+        // As `2hhholster.kf` / `2hhequip.kf` / `2hhunequip.kf` (animation.md §9.7): off,
+        // on from half way through the draw, off from half way through putting it away.
+        let clip = |stop: f32, keys: Vec<(f32, bool)>| {
+            let mut c = nvf_assets::anim_play::Clip::from_controllers(Vec::new());
+            c.stop = stop;
+            if !keys.is_empty() {
+                c.visibility.push(("##FlamerGun".into(), 0, BoolTrack { value: None, keys }));
+            }
+            Arc::new(BoundClip { clip: Arc::new(c), tracks: Vec::new(), root: None, root_track: None })
+        };
+        let mut st = Arc::try_unwrap(stance()).ok().expect("one owner");
+        st.clips.insert(EquipClip::Holster, clip(0.1, vec![(0.0, false)]));
+        st.clips.insert(EquipClip::Equip, clip(0.4, vec![(0.0, false), (0.2, true)]));
+        st.clips.insert(EquipClip::Aim, clip(2.0, Vec::new()));
+        st.clips.insert(EquipClip::Unequip, clip(0.5, vec![(0.0, true), (0.25, false)]));
+        st.holstered_off = holstered_off(&st.clips[&EquipClip::Holster].clip);
+        assert_eq!(st.holstered_off, ["##FlamerGun"]);
+        let mut w = WeaponHold::new(Arc::new(st), false, 7);
+        let mut last = None;
+        let mut seen = Vec::new();
+        for i in 0..200 {
+            w.drawn = (40..120).contains(&i);
+            w.step(1.0 / 60.0);
+            let shown = gun_shown(&w, "##FlamerGun", last);
+            if last != Some(shown) {
+                seen.push((w.anim.stage, shown));
+            }
+            last = Some(shown);
+        }
+        // Hidden holstered and early in the draw; shown from half way through it and on
+        // through the aim clip, which has no track; hidden again half way through putting
+        // it away.
+        assert_eq!(seen, [(Stage::Holstered, false), (Stage::Equipping, true), (Stage::Unequipping, false)]);
     }
 }
