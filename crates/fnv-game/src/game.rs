@@ -174,6 +174,10 @@ pub struct RefExtra {
     /// savebaked].
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub alerted: bool,
+    /// SetForceSneak's forced sneaking [documented: GECK wiki SetForceSneak, "Turns force
+    /// sneak on or off"].
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub force_sneak: bool,
     /// Faction rank changes: a rank, or −1 for "removed".
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub factions: BTreeMap<FormId, i8>,
@@ -669,6 +673,9 @@ pub struct Game<'a> {
     /// (`crate::followers`), for the engine's log; they are in [`Game::teleported`] too.
     /// Not part of the saved state.
     pub brought_along: BTreeSet<FormId>,
+    /// Doors locked or unlocked by packages' door flags (`crate::ai`), for the engine's
+    /// log: actor, package, locked (else unlocked), how many. Not part of the saved state.
+    pub package_door_notes: Vec<(FormId, FormId, bool, usize)>,
     /// Sleeping and waiting as scripts see and ask for them (`crate::rest`); the menu is
     /// the engine's. Not part of the saved state.
     pub rest: crate::rest::Rest,
@@ -908,6 +915,7 @@ impl<'a> Game<'a> {
             barter_requests: Vec::new(),
             teammate_containers: Vec::new(),
             brought_along: BTreeSet::new(),
+            package_door_notes: Vec::new(),
             rest: Default::default(),
             detection: Default::default(),
             awareness: Default::default(),

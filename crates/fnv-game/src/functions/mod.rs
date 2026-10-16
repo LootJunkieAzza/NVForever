@@ -533,7 +533,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x101A, "IsTurning", Impl(senses::is_turning)),
         (0x111F, "IsRunning", Impl(senses::is_running)),
         (0x10B9, "IsSwimming", Stub("movement (swimming)")),
-        (0x10D3, "SetForceSneak", Stub("movement (NPC sneaking: no stance or animations for actors other than the player)")),
+        (0x10D3, "SetForceSneak", Impl(senses::set_force_sneak)),
         (0x1166, "IsPlayerMovingIntoNewSpace", Impl(senses::is_player_moving_into_new_space)),
         (0x1170, "IsPlayerActionActive", Stub("player input")),
         (0x1188, "IsPC1stPerson", Impl(senses::is_pc_1st_person)),

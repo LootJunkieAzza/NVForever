@@ -136,6 +136,7 @@ const N_SLEEP_C: u32 = 0x84D;
 const N_STEADY: u32 = 0x84E;
 const N_DOG: u32 = 0x84F;
 const N_COMPANION: u32 = 0x850;
+const N_LONER: u32 = 0x851;
 // Cells and references.
 const CELL_A: u32 = 0x860;
 const CELL_B: u32 = 0x861;
@@ -170,6 +171,7 @@ const R_RUN: u32 = 0x887;
 const R_STEADY: u32 = 0x888;
 const R_DOG: u32 = 0x889;
 const R_COMPANION: u32 = 0x89B;
+const R_LONER: u32 = 0x89C;
 const DOOR_A: u32 = 0x8D1;
 const DOOR_B: u32 = 0x8D2;
 
@@ -237,6 +239,7 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"NPC_", N_STEADY, &[sub(b"EDID", z("Courier")), sub(b"ACBS", [0x200u32.to_le_bytes().to_vec(), vec![0; 20]].concat()), sub(b"PKID", P_STEADY.to_le_bytes().to_vec())]),
         npc(N_DOG, "Dog", &[P_ACCOMPANY]),
         npc(N_COMPANION, "Companion", &[P_WITH_PLAYER]),
+        npc(N_LONER, "Loner", &[]),
     ]
     .concat();
     // Furniture: a chair (marker flags bit 30) and a bed (bit 31); an idle marker with
@@ -271,6 +274,7 @@ fn plugin_bytes() -> Vec<u8> {
         placed(b"ACHR", R_STEADY, "CourierRef", N_STEADY, START, None),
         placed(b"ACHR", R_DOG, "DogRef", N_DOG, [150.0, 50.0, 0.0], None),
         placed(b"ACHR", R_COMPANION, "CompanionRef", N_COMPANION, [250.0, 50.0, 0.0], None),
+        placed(b"ACHR", R_LONER, "LonerRef", N_LONER, [350.0, 50.0, 0.0], None),
     ]
     .concat();
     let b_refs = placed(b"REFR", MARK_B, "MarkB", STAT, [5250.0, 5250.0, 50.0], None);
@@ -927,6 +931,25 @@ fn an_alerted_actor_searches_where_the_alarm_is_and_goes_back_after() {
     assert!(matches!(ev[over + 1], AiEvent::SearchBack { .. }), "{ev:?}");
     assert!(dist(s.feet(R_RADIUS), [350.0, 350.0, 0.0]) <= 150.0);
     assert!(s.ai.agents[&FormId(R_RADIUS)].search.is_none());
+}
+
+/// An actor without packages (Ranger Ghost, playtest list 5 item 29) walks back to where
+/// it was placed after a search.
+#[test]
+fn an_actor_without_packages_goes_back_to_where_it_was_placed() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_LONER]);
+    s.run(5.0);
+    assert_eq!(s.feet(R_LONER), [350.0, 50.0, 0.0]);
+    alert(&mut s, R_LONER, [350.0, 400.0, 0.0]);
+    s.run(9.0);
+    assert!(dist(s.feet(R_LONER), [350.0, 50.0, 0.0]) > 60.0, "{:?}", s.feet(R_LONER));
+    s.game.awareness.actors.remove(&FormId(R_LONER));
+    s.run(30.0);
+    let ev = s.events(R_LONER);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::BackHome { .. })), "{ev:?}");
+    assert!(dist(s.feet(R_LONER), [350.0, 50.0, 0.0]) <= 40.0, "{:?}", s.feet(R_LONER));
+    assert_eq!(s.ai.agents[&FormId(R_LONER)].activity, Activity::There);
 }
 
 #[test]

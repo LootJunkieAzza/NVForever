@@ -197,9 +197,10 @@ impl GroupSettings {
 }
 
 /// Allies within this distance of an actor that starts fighting or notices a hostile hear
-/// its alarm, game units [design: the wiki gives none; half an exterior cell, about a
-/// camp's spread].
-pub const ALARM_RADIUS: f32 = 2048.0;
+/// its alarm, game units [design: the wiki gives none; a whole exterior cell. Half a cell
+/// (2,048) until the owner's playtest list 5 item 31: friendly actors joined a fight only
+/// from too near].
+pub const ALARM_RADIUS: f32 = 4096.0;
 
 /// The groups' state: strengths, posts, flights, boosts, searches done. Not saved
 /// (fights are not saved).
