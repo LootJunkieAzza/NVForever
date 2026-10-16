@@ -160,6 +160,11 @@ impl Ai {
             let Some((target, at)) = aw.combat_target().or(latest.map(|(id, t)| (*id, t))).map(|(id, t)| (id, t.at)) else { return true };
             let sees = aw.combat_target().is_some();
             let away = goal::dist(a.walker.feet, at);
+            // A fighter on its way stands up: it never crouch-walks across a fight
+            // (docs/design/combat-ai.md §14.2).
+            if a.activity == Activity::Travelling {
+                game.awareness.crouching.remove(&actor);
+            }
             // A post the combat AI chose (cover, a flank …) comes before closing in.
             if let Some(post) = game.awareness.tactics.posts.get(&actor).copied() {
                 if self.post_step(game, nav, actor, target, at, post, dt) {

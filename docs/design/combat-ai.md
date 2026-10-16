@@ -753,3 +753,237 @@ Each ACBS template flag now decides where its group is read (factions.md §7):
 | Script | the script a reference runs (`Game::ref_script`) | the placed base's |
 
 Karma (ACBS) is still the placed base's: which flag carries it is not known.
+
+## 14. Crouching, blocking and closing in (owner request 2026-10-16)
+
+The owner's request: NPCs crouch in combat or block with a melee weapon, by context.
+
+- **Crouching**: "if an npc is firing at a distance at an enemy they can see they can
+  crouch to better increase their accuracy and make themselves a smaller target, they
+  dont want to be crouching when targets are too close … as they want to be able to
+  move/avoid close combat focused enemies and creatures. this doesnt mean an npc should
+  immediately crouch and fire … they might want to find something that can be used as
+  cover first or just to get out of the open space … if can make it not predicable it
+  wants to feel random and authentic".
+- **Blocking**: "an npc shouldn't be blocking if their target is ranged they want to get in
+  close and get hits in … they cant block a bullet. however if their opponent is also
+  melee/close combat oriented then they will attempt to block swings".
+- **Closing in**: "melee focused actor npcs should try and close ground quickly but also
+  avoid running out in the open for miles unless they have no choice they could also be
+  used to cover their ranged friendlies keeping close in order to engage attackers".
+- And, sent mid-task: "all the above only affect human enemies not creatures".
+
+Combat is not a parity target (owner 2026-10-09), so everything here is **[design]**
+unless tagged otherwise. The cover system it needs already exists (§12.6, §12.8). It is
+extended below with low cover and with cover used on the way in.
+
+### 14.1 Who
+
+Only **people**: placed NPCs (`ACHR`), never creatures (`ACRE`), whatever they hold (a
+Mr. Gutsy fires a gun, but it does not crouch, block or bound). A person without a
+crouched clip set (`locomotion::Locomotion::sneak`, `sneaking.rs`) still counts as
+crouching for its aim and its spread, but it is drawn standing.
+
+Every fighter draws three **temperaments** when it starts a fight, uniform in [0, 1).
+These and every other roll of this section come from a random sequence of their own
+(`Fighters::stance_rng`), so fights where nobody crouches, blocks or bounds (creatures,
+gunmen at close range) roll exactly as before. They make two fighters of the same style act
+differently, and the same fighter differently from one fight to the next:
+
+| Temperament | Used for |
+|---|---|
+| `crouch` | how readily a gunman crouches (§14.2) |
+| `cover` | how much it seeks cover beyond its style's Take Cover Chance (§14.2) |
+| `guard` | whether a melee fighter stays by its gunmen or goes ahead (§14.4) |
+
+### 14.2 Crouching to fire
+
+A person fighting with a gun **crouches** (`Awarenesses::crouching`, read by
+`Game::sneaks`: the locomotion takes its `sneakmt…` set, `sneaking.rs`) when all of
+these hold:
+
+- it sees its target, and it is not fleeing or staggering;
+- it has stood still for a moment: at least `CROUCH_SETTLE` (0.5 s) without moving more
+  than 16 units. The AI that moves actors stands every crouched fighter up when it sets
+  off for a post or closes in (`fnv_ai::alert`), so it never crouch-walks across a
+  fight;
+- its target is farther than `CROUCH_NEVER_WITHIN` (600 units, about 8.5 m);
+- its target is not close-combat oriented (fighting with a melee weapon, fists or a
+  creature's own attack; the player counts by the weapon in use) within
+  `CLOSE_THREAT_WITHIN` (1,500 units, about 21 m). Such an enemy coming in stands it up
+  at once, so it can move.
+
+It does not crouch the moment it may. It **decides** every random 1.5–4 s
+(`STANCE_DECIDE`), with a chance of
+
+`P = (0.25 + 0.65 × crouch) × f(d)`, where `f` rises linearly from 0.4 at 600 units to 1
+at 1,400 units (20 m) and beyond.
+
+When it has just settled somewhere (a post reached, a stop), its next decision comes
+within 0.8 s (`SETTLED_DECIDE`), so arriving at a firing place is when it most often
+gets down. Crouched, it keeps the place it has: its group's flank places (§12.6) are not
+looked at again until it stands. In the first battle run (2026-10-16), deciding only on
+the timer, the troopers crouched once in 120 s: flank re-planning every 2 s kept them
+moving.
+
+Crouched, each decision may instead **shift**: stand up and move 128–320 units sideways
+across the line to its target, to one side or the other at random (`PostKind::Shift`,
+run). The chance is `0.08 + 0.04 × s`, capped at 0.4, where `s` is the seconds crouched
+divided by 4. A fighter that stays put too long gets shot. After a shift it decides
+again as before.
+
+When a rule above stops holding (target too near, a close-combat enemy coming in, sight
+lost for 2 s, it has to move), it **stands up** at once.
+
+**Cover first.** A person whose style's Take Cover Chance roll fails (§12.6, every 10 s)
+gets a second chance of `40 × cover` %. The original's styles leave the chance at 0 for
+some fighters (CSRaider), and even they now sometimes look for cover before settling in
+the open. The first roll comes when the fight starts (§12.6), so a fighter
+that decides on cover goes there before it ever crouches in the open.
+
+**Low cover** extends §12.6's search. Behind a cover edge, if the ray from its standing
+eyes to the target is clear but the ray from its crouched eyes is blocked, the cover is
+**low**. It takes such cover with its peek point where it stands. It hides crouched for
+the Wait Timer, then stands to look for and fire at its target (Wait To Fire, Fire
+Timer), then crouches again. Full cover is preferred, as before: an edge is checked for
+full cover first.
+
+**What crouching does** (§14.5 lists the code):
+
+- Spread: the spread formula's standing term is dropped while crouched
+  (`fnv_combat::spread::Stance::sneaking`, as for the player) [documented: GECK wiki Gun
+  Spread Formula (New Vegas)].
+- A smaller target: hit capsules follow the skeleton's bones (`limbs.rs`), so the
+  crouched pose is lower and narrower [observed: the code].
+- Its shots leave from crouched eyes, at `CROUCH_EYE` (0.65) of its eye height
+  [hypothesis: the crouched idle's head height was not measured].
+- Harder to see: detection measures it as sneaking (`detection.rs`).
+- How it looks: the crouched aim clips (`sneak2hraim.kf`, `sneak2hraimup/down.kf`,
+  `sneak2hraimis.kf` …) in place of the standing ones, and the crouched attack clips
+  (`sneak2hrattack3.kf` …) first [observed: the base meshes archive lists `sneak…aim…`
+  clips for every stance and `sneak…attack…` clips; `fnv_actor::player_clips` chooses
+  them for the player already].
+
+### 14.3 Blocking
+
+A person fighting with a melee weapon or its fists blocks (a stance whose prefix
+blocks, `fnv_actor::player_clips::blocks`: `h2h`, `1hm`, `2hm`). It never blocks while
+its target is a gunman ("they cant block a bullet"). Against a close-combat opponent
+(melee weapon, fists, a creature's attack, the player with one of those) it makes the
+documented **melee decision** in its order: block, then attack, else hold [documented:
+GECK wiki Combat Style, Melee Decision and Advanced]:
+
+- block chance = (Block % + Block Skill Modifier Base + Mult × 50 / 100) × (Block While
+  Under Attack Mult when its opponent is in a blow, else Block Not Under Attack Mult),
+  against a roll of 1–100 [documented: the formula, "Modifier = Base + Mult × (50 /
+  100)"]. FalloutNV.esm's DefaultCombatstyle, CSNCRTrooper, CSLegionary and
+  CSRaiderMelee give (30 + 20 × 0.5) × 2 = 80 % under attack and 40 % otherwise;
+  CSSupermutantMelee's Block % is 0 [observed: `fnvtool esm decode`];
+- attack chance as §10.4, plus the Recoil/Stagger Bonus to Attack while the opponent
+  recoils or staggers, times Attack During Block Mult while the opponent blocks
+  [documented];
+- a block is held for the style's Hold Timer, at least 0.6 s [design].
+
+When it may decide is the context:
+
+- each time its blow cycle comes round (`strike_in`), as before;
+- and when its opponent **starts a blow** (an NPC's blow queued, or the player's swing
+  count going up, `CombatStats::swings`), after a reaction time drawn from 0.12–0.35 s
+  [design], provided it is not in its own blow and faces the attacker within 75°. It is
+  "under attack" for that decision. A block chosen this way lasts until the blow has
+  landed or missed, plus a random 0.3–0.6 s.
+
+The roll and the reaction time make it neither certain nor predictable: a blow may
+still get through, and a reaction slower than the blow comes too late.
+
+**What a block does**:
+
+- A melee or unarmed blow on a blocking person (from the player or an NPC), coming from
+  within 90° of where it faces, deals what is left after `CombatTuning::block` (60 %)
+  of it is stopped (`fnv_combat::damage::blocked`; combat.md §5.4: "Block reduces
+  incoming melee damage and staggers an attacker who hits it") [design: the share]. Shots
+  and explosions are never blocked.
+- The NPC whose blow was blocked **recoils**: it plays its stance's recoil clip
+  (`1hmrecoil.kf`, `2hmrecoil.kf`, `h2hrecoil.kf` [observed: the archive]) and cannot
+  strike for 1.0 s [design]. While it recoils its opponent gets the Recoil/Stagger
+  Bonus [documented: "An actor is recoiling when their strike is blocked"]. The player
+  does not recoil yet (player body: not built).
+- The blocker plays its stance's block-hit clip (`1hmblockhit.kf`, `mtblockhit.kf` …)
+  and, while blocking, holds `{prefix}blockidle.kf` (`mtblockidle.kf` for fists) in
+  place of the level aim [observed: the clips exist for `mt`, `1hm`, `2hm` and their
+  `sneak` forms].
+- The player blocking (Block held with fists or a melee weapon drawn, combat.md §5.4)
+  now gets the same reduction against NPC blows from the front. The rule was written
+  (`damage::blocked`) but never called.
+
+### 14.4 Closing in, cover to cover, and guarding gunmen
+
+A person fighting in close combat (melee weapon or fists) closes in as §5 says, with
+two additions:
+
+**Bounding** (owner: "close ground quickly but also avoid running out in the open for
+miles unless they have no choice"). When its target fights with a gun, has a clear line
+from its eyes to the fighter's chest, and is farther than `CHARGE_WITHIN` (1,000
+units), the fighter looks for a **bound**:
+
+- a navmesh cover edge (§12.8) within `BOUND_RADIUS` (900) of it;
+- its back point (§12.6) at least `BOUND_MIN_GAIN` (250) nearer the target than the
+  fighter is, and within 50° of the straight line to it;
+- hidden from the target's eyes (the ray to the point's chest height is blocked);
+- not taken by another fighter.
+
+Of those it takes one of the two that gain the most, at random. It runs there
+(`PostKind::Advance`), waits 0.4–1.6 s, and looks again. With no bound to be found it
+**charges** straight in ("no choice"), and looks again after 1.5 s in case cover
+appears. Within 1,000 units, or once the target is not a gunman or cannot see it, it
+charges.
+
+**Guarding** (owner: "they could also be used to cover their ranged friendlies keeping
+close in order to engage attackers"). A melee person may stay by a comrade gunman of
+its group (one in a fight, within 1,500 units of it) instead of setting off. This needs
+its `guard` temperament at 0.5 or above (about half of them), and its target to be a
+gunman more than 1,800 units from it and from that comrade. It stands 160 units from
+the comrade on the comrade's side towards the target, turned up to 40° to a random side
+(`PostKind::Guard`, run), facing the target. It goes for the target (bounding or
+charging, as above) as soon as one of these holds:
+
+- the target comes within `GUARD_ENGAGE` (900 units) of the comrade or of it;
+- the target is close-combat oriented, so it meets the attacker before it reaches its
+  gunmen;
+- the comrade dies, flees or stops fighting;
+- its patience runs out, a random 10–25 s from when it began guarding.
+
+Taking on someone other than its own combat target (say, the enemy rushing its comrade)
+is not built: whom it fights is still the detection states' (§3).
+
+### 14.5 Where it lives
+
+| Part | Where |
+|---|---|
+| Temperaments, crouch decisions, shifts, the melee decision with blocks, bounds, guards | nvforever `npc_combat.rs`, with the rules as plain functions in `combat_stance.rs` (unit-tested) |
+| Low cover, bounds in the navmesh | nvforever `combat_tactics.rs` (`find_cover`, `find_bound`) |
+| `Awarenesses::crouching`; the new post kinds Shift, Advance, Guard | `fnv_game::awareness`, `fnv_game::combat_group` |
+| Standing up to move | `fnv_ai::alert` |
+| `Game::sneaks` reads `crouching` in Combat | `fnv_game::functions::senses` |
+| Block fields of the style (CSAD, CSTD) | `fnv_game::data::CombatStyleDef` |
+| Blocked blows (NPC and player), the player's block | `nvf_play::combat` (`Combat::guarding`, `Combat::blocked_blows`) |
+| Crouched aim and attack clips, block idle, block hit, recoil | nvforever `attack_anims.rs` |
+
+Logs: `npc combat: … crouches to fire at … (… units away)`, `… stands up (…)`, `…
+shifts …`, `… blocks …'s blow (reacting|decided)`, `combat: … blocks …'s blow: … of …
+stopped`, `npc combat: … recoils: its blow was blocked`, `… bounds to cover …`, `…
+charges … across open ground: no cover on the way`, `… guards … against …`, `… leaves
+… to go for …`; the summary line `npc stance summary: …` at exit.
+
+### 14.6 Checks
+
+- Unit tests (`combat_stance.rs`): the crouch chance by distance and temperament, the
+  stand-up rules (near, a close-combat enemy, no sight), the shift chance, the block
+  chance from FalloutNV.esm's default style (80 % and 40 %), no block against a gunman,
+  the attack chance's recoil and during-block terms, a block from the front only, the
+  guard post and its release, a bound's rules (gain, lane).
+- Smoke scenarios (`tools/smoke/scenarios.toml`): `combat-crouch` (the NCR troopers and
+  the Fiends of §12.9 crouch to fire, and stand up), `combat-block` (the same two groups
+  with `--actor-weapons none`: fists against fists, blocks and recoils), and
+  `combat-bound` (melee fighters against gunmen at a distance: bounds or a charge, no
+  block).
