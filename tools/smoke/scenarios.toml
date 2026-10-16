@@ -2127,6 +2127,9 @@ expect = [
   "console: Distant land on",
   "console: God mode off",
   "console: close",
+]
+
+[[scenario]]
 name = "console-quest-info"
 source = "console info and quest-debug commands (docs/design/console.md): console-only functions registered by catalogue name (crates/fnv-game/src/functions/console.rs)"
 areas = ["console", "scripts", "quests"]
