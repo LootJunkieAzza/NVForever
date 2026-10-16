@@ -839,8 +839,8 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
         root.spawn((Button, PauseButton::Switch(i), boxed(from_middle(OPTIONS_LEFT, top + n as f32 * OPTION_ROW, OPTIONS_WIDTH, OPTION_ROW), i == selected)))
         .with_children(|r| {
             sm_text(r, &f.entry, s.label, 10.0, BASE + 2.0, color(Shade::Bright));
-            if s.slider.is_some() {
-                slider_row(r, look, i, v);
+            if let Some(slider) = &s.slider {
+                slider_row(r, look, i, v, &slider.text(v));
                 return;
             }
             let value = if v > 0.5 { "ON" } else { "OFF" };
@@ -938,8 +938,9 @@ fn meter_ticks(v: f32) -> usize {
     (METER_WIDTH * v.clamp(0.0, 1.0) / METER_TICK).ceil() as usize
 }
 
-/// A slider's meter, arrows and percentage in its row `i` (value `v`).
-fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: usize, v: f32) {
+/// A slider's meter, arrows and value (`value`: `v` as shown, e.g. a percentage) in its
+/// row `i`.
+fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: usize, v: f32, value: &str) {
     let bright = color(Shade::Bright);
     let my = (OPTION_ROW - METER_HEIGHT) / 2.0;
     // The ground, then the ticks as far as the value.
@@ -961,10 +962,9 @@ fn slider_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: usize, v: f32) 
             None => r.spawn((Button, PauseButton::SliderStep(i, step), node, BackgroundColor(bright.with_alpha(0.5)))),
         };
     }
-    let value = format!("{:.0}%", v * 100.0);
-    let vw = look.faces.entry.font.width(&value);
-    r.spawn((SwitchState(i), Text::new(value.clone()), Node { display: Display::None, ..default() }));
-    sm_text(r, &look.faces.entry, &value, PERCENT_AT - vw / 2.0, BASE + 2.0, bright);
+    let vw = look.faces.entry.font.width(value);
+    r.spawn((SwitchState(i), Text::new(value), Node { display: Display::None, ..default() }));
+    sm_text(r, &look.faces.entry, value, PERCENT_AT - vw / 2.0, BASE + 2.0, bright);
 }
 
 /// The load page: the chosen save's thumbnail and details over the saves' rows (a window
@@ -1853,7 +1853,7 @@ mod tests {
     fn a_slider_row_shows_its_value_as_a_meter_and_a_percentage() {
         let mut app = App::new();
         app.insert_resource(Reach(0.5)).init_resource::<Paused>().insert_resource(Page::Settings { selected: 0 });
-        let slider = crate::settings::Slider { get: |w| w.resource::<Reach>().0, set: |w, v| w.resource_mut::<Reach>().0 = v, min: 0.1, step: 0.05 };
+        let slider = crate::settings::Slider { get: |w| w.resource::<Reach>().0, set: |w, v| w.resource_mut::<Reach>().0 = v, min: 0.1, step: 0.05, shown: None };
         add_setting(&mut app, Setting::slider("reach", "Test", "Reach", "How far.", slider));
         app.init_resource::<PauseView>().init_resource::<LoadList>().init_resource::<PauseStatus>().insert_resource(PauseLook::plain());
         app.world_mut().resource_mut::<Paused>().0 = true;
