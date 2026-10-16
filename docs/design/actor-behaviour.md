@@ -131,7 +131,8 @@ periodic choice.
 | Patrol with another location | go to that location [hypothesis] |
 | Dialogue | wait at location 1, go up to the target, talk (§5.6); a conversation between two actors is not carried out |
 | Follow, Accompany | keep within the target's count / distance of the target (256 when 0), wherever it goes, through doors too; stand while it stands (since 2026-10-11, below) [documented: "Follow/Escort/Accompany: Idles play while not moving but waiting for target to move"; hypothesis: the distance] |
-| Escort, Use Weapon, Find, Use Item At, Ambush, Flee Not Combat | not carried out yet: the actor stays where it is |
+| Use Weapon | its location 1: go there, turn to target 2 and fire the PKW3 pattern (docs/design/use-weapon.md); the goal is met when the shots are spent |
+| Escort, Find, Use Item At, Ambush, Flee Not Combat | not carried out yet: the actor stays where it is |
 
 | Location | Meaning |
 |---|---|

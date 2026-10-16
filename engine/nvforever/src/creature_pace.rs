@@ -1,0 +1,231 @@
+//! How fast creatures move, and the stance they move in (docs/spec-notes/actors.md §8.10;
+//! the owner's playtest 2026-10-16: cazadors moved far too slowly and their walk stopped
+//! and started).
+//!
+//! - **Speed**: a creature walks at the root motion of its `Forward` clip and runs at
+//!   that of its `FastForward` clip, times its scale, its Speed Mult (CREA ACBS) and
+//!   [`CREATURE_SPEED_FIT`]. The AI moves it at those speeds (`fnv_ai::Ai::speeds`);
+//!   people keep the configured walking and running speeds. Before this every actor
+//!   walked at 86.8 and ran at 344 units/s: a cazador's walk clip (217 units/s) played
+//!   at its slowest rate (0.4), and 344 is the point between its walk and run clips
+//!   (the geometric mean of 217 and 546), so a small slow-down swapped the two clips back
+//!   and forth: the stop-and-start.
+//! - **Clip rate**: the clips play `Speed Mult × CREATURE_SPEED_FIT` faster
+//!   (`Locomotion::pace`), as the movement comes from them, and the move is chosen for the
+//!   velocity divided by that: a medium cazador walking at 379 units/s plays its walk clip
+//!   at 1.75, not its run clip at 0.7.
+//! - **Stance**: a creature whose folder has `h2h` movement clips (the cazador, the dog,
+//!   the mirelurk king) moves on them while it is not in the Normal detection state
+//!   (Alert, Combat, Lost: `locomotion::Locomotion::set_alert`), on its `mt` clips
+//!   otherwise; the cazador scurries along the ground while calm and flies when alert
+//!   [observed: the owner, 2026-10-16]. Its speeds follow the stance's clips.
+//!
+//! Speeds are given once the creature is drawn (its clips are then loaded), so one walking
+//! off-screen before that moves at the people's speeds.
+
+use crate::limbs::ActorRig;
+use crate::locomotion::{ClipSet, Locomotion};
+use crate::residents::Residents;
+use bevy::prelude::*;
+use fnv_actor::locomotion::Move;
+use fnv_ai::{ActorSpeeds, Speeds};
+use fnv_game::awareness::State;
+use fnv_sim::FormId;
+use nvf_play::script::ScriptState;
+
+/// The share of the clip pace (root motion × scale × Speed Mult) a creature keeps
+/// [observed: the AI observer in the original game, 2026-10-16: non-hostile cazadors at
+/// the Tribal Village walked at 228 units/s (young: scale 0.5, Speed Mult 300; clip
+/// pace 325) and 380 (scale 1, Speed Mult 250; clip pace 542), 0.70 of the clip pace
+/// both; charging, they reached 576 and 974 (run clip pace 818 and 1364, again 0.70);
+/// hypothesis: the same share for every creature; why 0.70 is open, actors.md §8.10].
+pub const CREATURE_SPEED_FIT: f32 = 0.70;
+
+pub struct CreaturePacePlugin;
+
+impl Plugin for CreaturePacePlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<PaceStats>()
+            .add_systems(Update, (give_speeds.before(crate::residents::drive), stance.after(nvf_play::PlaySet::Scripts).before(crate::locomotion::walk_test)))
+            .add_systems(Last, report);
+    }
+}
+
+/// Marks an actor [`give_speeds`] has seen, and a creature among them.
+#[derive(Component)]
+struct Paced;
+#[derive(Component)]
+struct PacedCreature;
+
+#[derive(Resource, Default)]
+struct PaceStats {
+    paced: usize,
+    alerted: usize,
+    calmed: usize,
+    /// Frames of paced creatures playing a movement clip, and changes between a walk
+    /// and a run clip among them (the stop-and-start of a speed on the switch point).
+    moving_frames: usize,
+    swaps: usize,
+    last: std::collections::HashMap<u32, bool>,
+}
+
+/// A clip set's walk and run speeds for a creature: its clips' root motion × `scale` ×
+/// `speed_mult` (percent) × [`CREATURE_SPEED_FIT`]; a move without a clip keeps
+/// `default`'s speed.
+pub fn clip_speeds(set: &ClipSet, scale: f32, speed_mult: f32, default: Speeds) -> Speeds {
+    let of = |m: Move, d: f32| set.info(m).map(|i| i.speed).filter(|v| *v > 1.0).map_or(d, |v| v * scale * speed_mult / 100.0 * CREATURE_SPEED_FIT);
+    Speeds { walk: of(Move::Forward, default.walk), run: of(Move::FastForward, default.run) }
+}
+
+fn give_speeds(
+    mut commands: Commands,
+    mut script: Option<ResMut<ScriptState>>,
+    mut res: Option<ResMut<Residents>>,
+    mut actors: Query<(Entity, &ActorRig, &mut Locomotion, &GlobalTransform), Without<Paced>>,
+    mut stats: ResMut<PaceStats>,
+) {
+    let Some(res) = res.as_deref_mut() else { return };
+    if actors.is_empty() {
+        return;
+    }
+    let default = res.default_speeds();
+    let mut given = Vec::new();
+    {
+        let game = match script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+            Some(rt) => &mut rt.game,
+            None => match res.own_game() {
+                Some(g) => g,
+                None => return,
+            },
+        };
+        for (e, rig, mut lo, global) in &mut actors {
+            commands.entity(e).insert(Paced);
+            if game.data.actors.get(&FormId(rig.base)).is_none_or(|d| &d.sig != b"CREA") {
+                continue;
+            }
+            commands.entity(e).insert(PacedCreature);
+            let id = FormId(rig.reference);
+            // Speed Mult as GetBaseAV gives it: through the template chain (Stats), as the
+            // leveled cazadors at the Tribal Village take theirs.
+            let mult = game.base_actor_value(id, fnv_game::actor_values::SPEED_MULTIPLIER).ok().filter(|v| *v > 0.0).map_or(100.0, |v| v as f32);
+            let scale = global.affine().transform_vector3(Vec3::Z).length().max(0.01);
+            lo.pace = mult / 100.0 * CREATURE_SPEED_FIT;
+            let calm = clip_speeds(&lo.stand, scale, mult, default);
+            let alert = lo.alert.as_deref().map_or(calm, |a| clip_speeds(a, scale, mult, default));
+            info!(
+                "creature pace: {} {id} walks {:.0} and runs {:.0} units/s{} (scale {scale:.2}, Speed Mult {mult:.0})",
+                game.data.name(FormId(rig.base)),
+                calm.walk,
+                calm.run,
+                if lo.alert.is_some() { format!(", alert {:.0} and {:.0}", alert.walk, alert.run) } else { String::new() }
+            );
+            given.push((id, ActorSpeeds { calm, alert }));
+        }
+    }
+    for (id, s) in given {
+        res.set_speeds(id, s);
+        stats.paced += 1;
+    }
+}
+
+/// Creatures with an alert stance take it outside the Normal detection state.
+fn stance(script: Option<Res<ScriptState>>, mut actors: Query<(&ActorRig, &mut Locomotion), With<PacedCreature>>, mut stats: ResMut<PaceStats>) {
+    let Some(game) = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game) else { return };
+    for (rig, mut lo) in &mut actors {
+        let mv = lo.blend.cur.mv;
+        if mv.is_moving() {
+            stats.moving_frames += 1;
+            let fast = matches!(mv, Move::FastForward | Move::FastBackward | Move::FastLeft | Move::FastRight);
+            if stats.last.insert(rig.reference, fast).is_some_and(|was| was != fast) {
+                stats.swaps += 1;
+            }
+        }
+        if lo.alert.is_none() {
+            continue;
+        }
+        let id = FormId(rig.reference);
+        let want = game.awareness.state(id) != State::Normal;
+        if lo.set_alert(want) {
+            if want {
+                stats.alerted += 1;
+            } else {
+                stats.calmed += 1;
+            }
+            info!("creature pace: {} {id} {}", game.data.name(id), if want { "takes its alert stance" } else { "is calm again" });
+        }
+    }
+}
+
+fn report(mut exit: MessageReader<AppExit>, stats: Res<PaceStats>) {
+    if exit.read().next().is_some() {
+        info!(
+            "creature pace summary: {} creatures given their own speeds; alert stance taken {} times and left {} times; {} frames of their moves, {} changes between walk and run clips",
+            stats.paced, stats.alerted, stats.calmed, stats.moving_frames, stats.swaps
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnv_actor::locomotion::ClipInfo;
+    use nvf_assets::anim_play::{BoundClip, Clip};
+    use std::sync::Arc;
+
+    fn set(walk: f32, run: Option<f32>) -> ClipSet {
+        let bound = Arc::new(BoundClip {
+            clip: Arc::new(Clip {
+                name: String::new(),
+                start: 0.0,
+                stop: 1.0,
+                frequency: 1.0,
+                cycle_type: 0,
+                tracks: Vec::new(),
+                priorities: Vec::new(),
+                skipped: 0,
+                accum_root: None,
+                text_keys: Vec::new(),
+                visibility: Vec::new(),
+                materials: Vec::new(),
+            }),
+            tracks: Vec::new(),
+            root: None,
+            root_track: None,
+        });
+        let clip = |speed: f32| crate::locomotion::SetClip { bound: bound.clone(), info: ClipInfo { duration: 1.0, speed, blend_time: 0.1, foot_phase: 0.0 } };
+        let mut s = ClipSet::default();
+        s.clips.insert(Move::Forward, clip(walk));
+        if let Some(r) = run {
+            s.clips.insert(Move::FastForward, clip(r));
+        }
+        s
+    }
+
+    #[test]
+    fn cazadors_move_at_the_observed_speeds() {
+        let d = Speeds { walk: 86.8, run: 344.0 };
+        // The cazador's mtforward.kf and mtfastforward.kf (216.73 and 545.54 units/s).
+        let caz = set(216.73, Some(545.54));
+        let young = clip_speeds(&caz, 0.5, 300.0, d);
+        let medium = clip_speeds(&caz, 1.0, 250.0, d);
+        // Observed: walks 228 and 380, charges up to 576 and 974.
+        assert!((young.walk - 228.0).abs() < 5.0, "{young:?}");
+        assert!((medium.walk - 380.0).abs() < 5.0, "{medium:?}");
+        assert!((young.run - 576.0).abs() < 10.0, "{young:?}");
+        assert!((medium.run - 974.0).abs() < 30.0, "{medium:?}");
+        // The medium cazador's walk plays its walk clip, at 1.75 its rate; without the
+        // pace it would count as running.
+        let mut lo = Locomotion::new(Arc::new(caz.clone()), 0.0);
+        lo.velocity = [0.0, medium.walk];
+        lo.step(0.016);
+        assert_eq!(lo.blend.cur.mv, Move::FastForward);
+        let mut lo = Locomotion::new(Arc::new(caz.clone()), 0.0);
+        lo.pace = 2.5 * CREATURE_SPEED_FIT;
+        lo.velocity = [0.0, medium.walk];
+        lo.step(0.016);
+        assert_eq!(lo.blend.cur.mv, Move::Forward);
+        assert!((lo.blend.cur.rate - 1.75).abs() < 0.01, "{}", lo.blend.cur.rate);
+        // No run clip: the default run.
+        assert_eq!(clip_speeds(&set(100.0, None), 1.0, 100.0, d).run, 344.0);
+    }
+}

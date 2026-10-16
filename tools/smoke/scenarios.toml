@@ -50,6 +50,8 @@ sep = ","
 sep = ","
 [timed.NVF_PLAY_TEST_VIGOR]
 sep = ","
+[timed.NVF_PLAY_TEST_LEVELUP]
+sep = ","
 [timed.NVF_PLAY_TEST_TERMINAL]
 sep = ","
 [timed.NVF_PLAY_TEST_LOCKPICK]
@@ -913,6 +915,41 @@ expect = [
 manual = "with the owner's load order (Old World Blues in it) the trait menu has 16 rows"
 
 [[scenario]]
+name = "levelup-menu"
+source = "the level-up menu (docs/spec-notes/levelup.md §7): both pages by the test aid, then advlevel at the console"
+areas = ["levelup", "menus"]
+paths = ["engine/nvf-play/src/levelup.rs", "engine/nvf-play/src/levelup/**", "crates/fnv-game/src/levelup.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_LEVELUP = "16:advance,17:continue,17.5:raise:Science:5,18:lower:Science,18.5:lower:Barter,19:raise:Guns:30,20.5:continue,21:pick:Intense Training,21.2:pick:Intense Training,21.4:pick:Intense Training,22.5:back,23:continue,23.5:pick:Intense Training,24:done,28:raise:Medicine:30,29:done", NVF_PLAY_TEST_CONSOLE = "26:advlevel", NVF_PLAY_TEST_SHOTS = "18.2:levelup_skills.png,22:levelup_perks.png,28.5:levelup_level3.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 32
+order = [[
+  { re = 'levelup: menu open, level 2, \d+ skill points, perk due' },
+  { re = 'levelup: Continue refused: \d+ points left' },
+  { re = 'levelup: Science \d+ -> \d+' },
+  "levelup: Barter lower refused",
+  "levelup: Guns raise refused",
+  { re = 'levelup: skills .*Science \+4.*; perks page: \d+ perks on offer' },
+  "levelup: Intense Training chosen",
+  "levelup: Intense Training given back",
+  "levelup: back to the skills",
+  { re = 'levelup: done, level 2: skills .*Science \+4.*; perk Intense Training' },
+  "levelup: menu closed",
+  { re = 'levelup: menu open, level 3, \d+ skill points, perk not due' },
+  { re = 'levelup: done, level 3: skills Medicine \+\d+; perk none' },
+]]
+expect = [
+  { text = "ui sounds: level up opened: UILevelUp", label = "the level's sound" },
+  { text = "ui sounds: level up value raised: UIMenuPrevNext", label = "a + clicked" },
+  { text = "ui sounds: level up value lowered: UIMenuPrevNext", label = "a - clicked" },
+  { text = "ui sounds: level up refused: UIMenuCancel", label = "Continue with points left" },
+  { text = "ui sounds: level up category changed: UIMenuOK", label = "Continue to the perks, Back" },
+  { text = "ui sounds: level up row or button picked: UIMenuPrevNext", label = "a perk taken" },
+  { text = "ui sounds: level up accepted: UIMenuOK", label = "Done", count = 2 },
+  { text = "console: AdvancePCLevel >> level 3", label = "advlevel at the console" },
+]
+manual = "the screenshots levelup_skills.png, levelup_perks.png and levelup_level3.png in the run's folder against the owner's (kept privately)"
+
+[[scenario]]
 name = "vigor-tester"
 note = "not shared with chargen-menus: moved 18 s later in one launch the Vigor Tester took none of its steps (run 2026-10-12); alone it passes"
 source = "CLAUDE.md: after changes to the Vigor Tester's S.P.E.C.I.A.L. menu (docs/spec-notes/vigor-tester.md §7)"
@@ -1522,14 +1559,15 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # The combat round (§3.7) implemented eleven of the fifteen stubs assigned to E2 combat AI
 # (144 calls, 132 condition uses) and moved the other four to "needs a system", so no
 # "E2 combat AI" row is left: 71 → 60 stubs, 457 → 313 calls, 614 → 482 condition uses.
+# claude/use-weapon implemented UseWeapon (13 calls, §3.8): 60 → 59 stubs, 313 → 300 calls.
 expect = [
-  { json = "summary.stubs", equals = 60 },
+  { json = "summary.stubs", equals = 59 },
   { json = "summary.by_status.assigned", equals = 1 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 58 },
+  { json = "summary.by_status.needs_system", equals = 57 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 313 },
+  { json = "summary.stub_calls", equals = 300 },
   { json = "summary.stub_condition_uses", equals = 482 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -2578,6 +2616,68 @@ expect = [
 ]
 
 [[scenario]]
+name = "creature-alert-stance"
+source = "claude/creature-alert-stance (docs/spec-notes/actors.md §8.10): an alerted creature raises its claws as people draw a weapon (h2hequip once, h2haim held, h2hunequip when calm), and its attacks still play"
+note = "the deathclaw QJDeathclawWanderer01 0x000E62E5 about 1,100 units north of the player at Quarry Junction; the feral ghoul 0x000CE9E7 is put 500 units north of the player at 2 s and the deathclaws fight it (first draw, attacks); nobody perceives the player (UNSEEN); SetAlert 1 at 6 s and 0 at 16 s (second draw)"
+areas = ["alert", "creatures"]
+paths = ["engine/nvforever/src/creature_stance.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-actor/src/weapon.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT = "2:moveto:0x000CE9E7:player:0:500:0,6:call:0x000E62E5:SetAlert:1,16:call:0x000E62E5:SetAlert:0" }
+args = ["--pos=-14138,25200,4700", "--heading", "0", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'creature stance: meshes.creatures.deathclaw: clips \[Equip, Aim, Unequip\]', label = "the deathclaw's stance clips" },
+  { re = 'attack anims: 000E62E5 plays meshes.creatures.deathclaw.h2hattack', label = "the alerted deathclaw's attacks still play" },
+]
+order = [[
+  { re = 'creature stance: QJDeathclawWanderer01 000E62E5 draws \(alerted\)' },
+  { re = 'creature stance: QJDeathclawWanderer01 000E62E5 Equipping' },
+  { re = 'creature stance: QJDeathclawWanderer01 000E62E5 Drawn' },
+  { re = 'creature stance: QJDeathclawWanderer01 000E62E5 puts away \(calm\)' },
+  { re = 'creature stance: QJDeathclawWanderer01 000E62E5 Unequipping' },
+  { re = 'creature stance: QJDeathclawWanderer01 000E62E5 Holstered' },
+]]
+
+[[scenario]]
+name = "creature-alert-stance-ghoul"
+source = "claude/creature-alert-stance (docs/spec-notes/actors.md §8.10): a feral ghoul raises its hands when alerted and lowers them when calm"
+note = "the feral ghoul 0x000CE9E7 at its corpse idle marker about 1,000 units north of the player; nobody perceives the player (UNSEEN); SetAlert 1 at 6 s and 0 at 16 s"
+areas = ["alert", "creatures"]
+paths = ["engine/nvforever/src/creature_stance.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT = "6:call:0x000CE9E7:SetAlert:1,16:call:0x000CE9E7:SetAlert:0" }
+args = ["--pos=9244,-33900,7500", "--heading", "0", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'creature stance: meshes.creatures.ghoul: clips \[Equip, Aim, Unequip\]', label = "the ghoul's stance clips" },
+]
+order = [[
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 draws \(alerted\)' },
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 Equipping' },
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 Drawn' },
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 puts away \(calm\)' },
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 Unequipping' },
+  { re = 'creature stance: LvlFeralGhoul 000CE9E7 Holstered' },
+]]
+
+[[scenario]]
+name = "use-weapon"
+source = "UseWeapon (docs/design/use-weapon.md §5): a script has an actor fire a number of shots at a target from where it stands, always hitting and doing no damage"
+note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897, hunting rifle) is told at 5 s to fire 3 shots at the player, about 1,400 units east of her, from her own place; nobody perceives the player (NVF_PLAY_TEST_UNSEEN), so no fight starts"
+areas = ["combat", "use-weapon"]
+paths = ["crates/fnv-game/src/use_weapon.rs", "engine/nvforever/src/use_weapon.rs", "crates/fnv-ai/src/carry.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "5:call:FiendVioletRef:UseWeapon:WeapHuntingRifle:FiendVioletRef:player:3:1:0:1:1" }
+args = ["--cell", "Goodsprings", "--pos=-45500,64897,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  "script: test aid calls UseWeapon on FiendVioletRef",
+  "is to use its weapon on the player: from where it stands",
+  { re = 'use weapon: FiendVioletRef 0x000F570B uses WeapHuntingRifle on the player \(a script\): 3 shots; always hit, no damage, crouch to reload', label = "Violet uses her hunting rifle on the player: 3 shots, always hit, no damage" },
+  "use weapon: FiendVioletRef 0x000F570B has fired its 3 shots at the player",
+  "has used its weapon: back to its package",
+  { re = 'use weapon summary: 1 actors used a weapon .*?3 shots \(3 always hit, 3 harmless; (?P<n>\d+) harmless hits\)', range = [1, 3], label = "3 shots, always hit and harmless, at least one lands" },
+]
+forbid = [{ re = 'the player was hit [1-9]', label = "the player takes a hit" }]
+
+[[scenario]]
 name = "settings-write"
 source = "owner 2026-10-16: every settings switch is kept in NVForever.ini, so a start or a save's load does not reset it; the first half of the round trip (settings-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
@@ -2617,6 +2717,31 @@ expect = [
   { text = 'window: windowed, 1280x800', label = "the live window turns into a window of --size again" },
 ]
 order = [["window: borderless full screen on the current monitor", "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
+name = "controls-write"
+source = "owner 2026-10-16: keys are mapped in the INI's [Controls] and rebound on the settings page's Controls tab; the first half of the round trip (controls-read starts in the same home), run them together"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:controls,12:bind:Jump=J,13:bind:Activate=F", NVF_PLAY_TEST_PAUSE_MENU = "11.5:defaults" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 18
+expect = [
+  { text = "controls: every control back to the game's keys", label = "Defaults on the Controls tab puts back the game's keys (what an earlier run stored is undone)" },
+  { text = "controls: Jump bound to J (was Space)", label = "a free key is bound" },
+  { text = "controls: Activate bound to F (was E) (Toggle POV now E, Middle Mouse)", label = "a key another control had is swapped" },
+]
+order = [["controls: every control back to the game's keys", "controls: Jump bound to J", "controls: Activate bound to F"]]
+
+[[scenario]]
+name = "controls-read"
+source = "owner 2026-10-16: the second half of the controls round trip: a new start in controls-write's home takes the keys it bound from [Controls] of NVForever.ini"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/bindings.rs", "engine/nvf-play/src/settings.rs"]
+env = { NVFOREVER_HOME = "controls-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 12
+expect = [
+  { re = 'controls: 31 of 31 line\(s\) read from .*NVForever\.ini, 3 changed: Activate E -> F, Jump Space -> J, Toggle POV F, Middle Mouse -> E, Middle Mouse', label = "the stored keys are bound at the start" },
+]
 
 [[scenario]]
 name = "death-cam-first"
