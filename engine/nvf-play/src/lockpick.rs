@@ -8,8 +8,9 @@
 //! spot it turns all the way and opens. Torque against a lock that has stopped wears the
 //! pin; a worn-out pin breaks and is taken from the inventory, and the next one goes in.
 //! Force Lock opens the lock at once or breaks it for good. When the lock opens it is
-//! unlocked and the menu closes; the player activates the door or container again to use
-//! it [hypothesis, §4].
+//! unlocked and the menu closes; then the door or container is activated as if the player
+//! had pressed E on it (`crate::activate::ActivateNext`): a door opens or leads through, a
+//! container's menu opens [observed: owner, playtest list 5 item 64].
 //!
 //! The first time the menu opens the help message `HelpLockpicking` comes up over it, as
 //! the original's tutorial box (`help`); E closes it [observed: the owner's screenshot,
@@ -703,8 +704,20 @@ fn step(
     }
 }
 
-fn close(mut screen: ResMut<LockpickScreen>, script: Option<ResMut<ScriptState>>, mut sounds: MessageWriter<UiSound>) {
+fn close(
+    mut screen: ResMut<LockpickScreen>,
+    script: Option<ResMut<ScriptState>>,
+    mut sounds: MessageWriter<UiSound>,
+    next: Option<ResMut<crate::activate::ActivateNext>>,
+) {
     let Some(s) = screen.0.take() else { return };
+    // Picked or forced open: the door or container is used as if the player activated
+    // it (playtest list 5 item 64; `crate::activate::ActivateNext`).
+    if s.game.phase == Phase::Open {
+        if let Some(mut n) = next {
+            n.0 = Some(s.reference.0);
+        }
+    }
     if s.game.stopped {
         sounds.write(UiSound { menu: UiMenu::Lockpick, event: UiEvent::Strain { on: false } });
     }

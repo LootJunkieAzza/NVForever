@@ -52,6 +52,7 @@ impl Plugin for ActivatePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Target>()
             .init_resource::<HudMessage>()
+            .init_resource::<ActivateNext>()
             .insert_resource(AutoActivate::from_env())
             .add_systems(Startup, spawn_hud)
             .add_systems(Update, (find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
@@ -75,6 +76,12 @@ pub struct Targeted {
     /// (`crate::crime`); the prompt is drawn in the crime colour.
     pub crime: bool,
 }
+
+/// A reference to activate as the player would, as soon as play resumes, whatever is
+/// under the crosshair: a lock just picked or forced (`crate::lockpick`; playtest list 5
+/// item 64).
+#[derive(Resource, Default, Debug)]
+pub struct ActivateNext(pub Option<u32>);
 
 /// The last on-screen message and how long it has been shown.
 #[derive(Resource, Default)]
@@ -326,7 +333,7 @@ fn activate(
     time: Option<Res<Time>>,
     clock: Option<Res<crate::pause::PlayClock>>,
     auto: Option<ResMut<AutoActivate>>,
-    target: Res<Target>,
+    (target, next): (Res<Target>, Option<ResMut<ActivateNext>>),
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
     mut hud: ResMut<HudMessage>,
@@ -344,12 +351,18 @@ fn activate(
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
 ) {
+    // A reference queued by a lock just opened: activated as if E were pressed on it.
+    let queued = next.and_then(|mut n| n.0.take()).and_then(|id| {
+        let (name, action) = describe(&sim, play.index, id)?;
+        info!("activate 0x{id:08X} {name}: its lock was just opened");
+        Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false })
+    });
     let fired = match (auto, time) {
         // The aids' clock goes on while a menu holds the picture (`crate::pause`).
         (Some(mut a), Some(t)) => a.fire(t.elapsed_secs() + clock.map_or(0.0, |c| c.stopped_secs())),
         _ => false,
     };
-    if !input.just_pressed(crate::bindings::Control::Activate) && !fired {
+    if !input.just_pressed(crate::bindings::Control::Activate) && !fired && queued.is_none() {
         return;
     }
     // Scripts turned the player's movement off: world objects cannot be activated
@@ -361,7 +374,7 @@ fn activate(
         }
         return;
     }
-    let Some(t) = target.0.as_ref() else {
+    let Some(t) = queued.as_ref().or(target.0.as_ref()) else {
         // On furniture with nothing under the crosshair (lying on a bed, the bed is out
         // of view): Activate gets up [design].
         seat.leave |= seat.hold.is_some();
