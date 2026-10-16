@@ -5178,6 +5178,37 @@ hint, the text overlay, radio subtitles and the Fallout 3 music question.
   then aim, then attack, by track priority). *Not covered:* aim up and down, reloads,
   jams, equip and holster. *Check:* run it for each type and list the broken cases.
 
+## Creature speeds, cazador flight, turning (2026-10-16, branch `claude/cazador-movement`)
+
+Your report: cazadors move far too slowly and their movement stops and starts like
+Victor's used to. Details and numbers: docs/spec-notes/actors.md §8.10.
+
+- **Speed, measured in the original game.** Every creature walked at the people's 87 and
+  ran at 344 units/s. I watched cazadors in the original with the AI observer (your tip:
+  the calm ones at the Tribal Village with `tdetect`, and spawned ones charging in god
+  mode). They move at their clip's own speed × size × Speed Mult × 0.70: young cazadors
+  walk 228 and charge at up to 576 units/s, the full-size ones 380 and up to 974. Every
+  creature now moves by that rule, so small ones (your half-size radscorpion) are slower
+  than the big ones of their kind. *Guess:* the 0.70 holds for all creatures; I only
+  measured cazadors.
+- **Flying when alert.** As you said: cazadors move on their ground clips while calm and
+  on their flying clips (`h2hforward`, `h2hfastforward`) when Alert, in Combat or
+  searching. Dogs and the mirelurk king have such clips too and switch the same way.
+  *Guess:* the switch is immediate (no blend between the two sets).
+- **Stop-and-start.** Three causes, all fixed: (1) a cazador's run speed of 344 sat right
+  on the point between its walk and run clips, so small slow-downs swapped them; (2) a
+  one-frame jump in a creature's drawn speed started a fade to the run clip and back (the
+  hitch); the walk/run choice now follows a speed smoothed over 0.2 s with a margin;
+  (3) creatures stopped to turn on the spot at the people's 120°/s before every short
+  walk. In the original cazadors turn at about 300°/s (full size) and 137°/s (young),
+  mostly while moving; creatures now turn at 300°/s × their size, and stop to turn only
+  when they face more than 60° away. *Guesses:* the size rule and the 60°.
+- **Deathclaws had no walk:** their walk clip is spelt `mtfoward.kf` in the game data; it
+  is found now.
+- **Deathclaws' and ghouls' alert look** (claws and hands raised) came in with #326
+  (`creature_stance.rs`, actors.md §9).
+- *Check:* the cazadors at the Tribal Village (calm, then shoot one); a deathclaw walking;
+  a small radscorpion.
 ## Scripted weapon use: UseWeapon and Use Weapon packages (2026-10-16, session "use-weapon")
 Built (docs/design/use-weapon.md): an actor told to use a weapon walks to where it is to
 stand, draws, turns to its target and fires its shots. My choices and guesses, to confirm:
@@ -5276,6 +5307,38 @@ To check with a controller in the original, my guesses:
    Does the original rumble on other things (being hit by melee only, low health, V.A.T.S.,
    the Pip-Boy)?
 
+
+## NPCs crouch, block and close in by context (2026-10-16, branch claude/npc-crouch-block)
+
+Your request: NPCs crouch to fire at a distance or block with a melee weapon, by context,
+not predictably, people only. Spec and rules: docs/design/combat-ai.md §14. Every number
+below is my choice; tell me any you want changed.
+
+- **Crouching**: a gunman that sees its target, has stood still 0.5 s, with the target
+  beyond 600 units and no close-combat enemy within 1,500, rolls every 1.5–4 s to crouch.
+  The chance is 25–90 % by a per-fight temperament, lower nearer than 1,400 units.
+  Crouched, it now and then stands and shifts 128–320 units sideways. A crouched NPC
+  drops the spread's standing term, as the player does, and is drawn with the game's
+  `sneak…aim` and `sneak…attack` clips. Its eyes for shooting are at 0.65 of the standing
+  height (not measured).
+- **Cover first**: a person whose style's take-cover roll fails gets a second chance of
+  up to 40 % by temperament, so even styles with 0 (CSRaider) sometimes look for cover. Behind **low
+  cover** (hides the crouched eyes only) it hides crouched and stands to fire.
+- **Blocking**: only people with fists or a melee weapon, only against a close-combat
+  opponent, never against a gunman. The chance is the wiki's documented melee decision
+  (block first); FalloutNV.esm's default styles give 80 % while the opponent swings and
+  40 % otherwise. It also reacts to a swing after 0.12–0.35 s, facing the attacker. A
+  blocked blow loses 60 % (the existing `CombatTuning::block`) and the NPC attacker
+  recoils for 1 s. **Your own block (Block held with a melee weapon) now reduces NPC
+  blows too**: the rule existed but was never applied.
+- **Closing in**: a melee person against a gunman that can see it and is more than 1,000
+  units off bounds from cover to cover (back of a navmesh cover edge, 250+ units nearer,
+  within 50° of the line, hidden from the gunman), pausing 0.4–1.6 s at each. With no
+  such cover it charges. About half (by temperament) stay by a gunman of their group
+  until the target is within 900 units of either, the target fights in close combat, or
+  10–25 s pass.
+- Not built: the player recoiling when an NPC blocks; switching a guard to whoever
+  rushes the gunman it guards (it fights its own combat target).
 ## NPCs' holstered flamer: tank on the back, no gun (2026-10-16)
 
 Your request: an unequipped flamer should show the flame tank on the back and no weapon,

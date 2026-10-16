@@ -34,8 +34,9 @@ rand_core = "0.9"
 rand_chacha = "0.9"
 # Music (MP3) and ambient loops (Ogg Vorbis, WAV) decoded as they play (music.rs,
 # ambient.rs), Ogg sound effects decoded whole (sfx.rs). The version Bevy's audio is built
-# on: no second copy (docs/design/dependencies.md).
-rodio = { version = "0.22", default-features = false, features = ["mp3", "vorbis", "wav"] }
+# on: no second copy (docs/design/dependencies.md). `playback` (cpal): the sound output
+# that follows the device (audio_out.rs).
+rodio = { version = "0.22", default-features = false, features = ["mp3", "vorbis", "wav", "playback"] }
 # Save thumbnails (save.rs): PNG encoded and decoded directly, the version Bevy's images
 # already build (no second copy).
 png = "0.18"

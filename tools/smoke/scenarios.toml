@@ -73,6 +73,8 @@ sep = ","
 [timed.NVF_PLAY_TEST_PAUSE]
 sep = ","
 shift = "all"
+[timed.NVF_PLAY_TEST_AUDIO_REOPEN]
+sep = ","
 
 
 # ------------------------------------------------------------------ checks before every push
@@ -672,6 +674,27 @@ expect = [
   "music summary: 1 started, 0 changes of layers, 0 files not played",
   "ambient summary: 2 placed loops started, … 1 background loops started",
 ]
+
+[[scenario]]
+name = "audio-reopen"
+source = "after changes to the sound output (engine/nvf-play/src/audio_out.rs): the device dropped and opened again twice under the Goodsprings music; the music plays on (not started again) and sound is mixed after the last reopen"
+areas = ["audio", "music"]
+paths = ["engine/nvf-play/src/audio_out.rs"]
+env = { NVF_PLAY_TEST_AUDIO_REOPEN = "15,25" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-69000,3500,8900", "--hour", "12"]
+run_seconds = 40
+expect = [
+  "audio output: reopening (test aid)",
+  "music summary: 1 started, 0 changes of layers, 0 files not played",
+  { re = 'audio output summary: opened 3 times, 2 reopens, [0-9.]+ s mixed, [1-9][0-9]*\.[0-9] s since the last open', label = "audio output summary: opened 3 times, 2 reopens, … s mixed, ≥1 s since the last open" },
+]
+order = [[
+  "audio output: opened",
+  "audio output: reopening (test aid)",
+  "audio output: opened",
+  "audio output: reopening (test aid)",
+  "audio output: opened",
+]]
 
 [[scenario]]
 name = "music-script-trigger"
@@ -1938,6 +1961,54 @@ expect = [
 forbid = [{ re = 'combat group: (LvlNCR|NCRTrooper)\S* 0x\S+ alarms (FiendCookCookRef|LvlFiend)', label = "an NCR trooper alarms a Fiend" }]
 
 [[scenario]]
+name = "combat-crouch"
+launch = "ncr-fiends"
+source = "owner request 2026-10-16: NPCs crouch to fire at a distance and stand for close-combat enemies, not predictably (docs/design/combat-ai.md §14.2)"
+note = "the crouch decision is a roll every 1.5-4 s by temperament and distance, so who crouches and how often varies"
+areas = ["combat", "combat-groups"]
+paths = ["engine/nvforever/src/combat_stance.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 120
+expect = [
+  { re = 'npc combat: .* crouches (to fire at|behind low cover from) .*\((?P<n>\d+) units away\)', range = [600, 100000], label = "a gunman crouches, never within 600 units" },
+  { re = 'sneaking: .* crouches and sneaks', label = "the crouch reaches the locomotion" },
+  { re = 'npc stance summary: crouched (?P<n>\d+) times', range = [1, 100000], label = "crouches in the stance summary" },
+]
+
+[[scenario]]
+name = "combat-block"
+source = "owner request 2026-10-16: melee NPCs block close-combat opponents' swings (docs/design/combat-ai.md §14.3)"
+note = "the NCR troopers and the Fiends of battle-ncr-fiends with no weapons drawn (--actor-weapons none): fists against fists"
+areas = ["combat", "combat-groups"]
+paths = ["engine/nvforever/src/combat_stance.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-game/src/combat_style.rs", "crates/fnv-combat/src/damage.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice", "--actor-weapons", "none"]
+run_seconds = 90
+expect = [
+  { re = "npc combat: .* blocks .*'s blow \\((reacting|decided)", label = "a fighter blocks a blow" },
+  { re = "combat: \\S+ blocks \\S+'s blow: [\\d.]+ of [\\d.]+ stopped", label = "a blocked blow loses part of its damage" },
+  { re = 'npc combat: .* recoils: its blow was blocked by ', label = "the attacker of a blocked blow recoils" },
+  { re = 'npc stance summary: .*?(?P<n>\d+) blocks', range = [1, 100000], label = "blocks in the stance summary" },
+]
+forbid = [{ re = 'npc combat: .* crouches ', label = "a fist fighter crouches" }]
+
+[[scenario]]
+name = "combat-bound"
+source = "owner request 2026-10-16: melee NPCs close on a gunman from cover to cover, or charge when there is none (docs/design/combat-ai.md §14.4)"
+note = "six NCR troopers with no weapons drawn put about 2,500 units south of the player, who draws a gun at 3 s; StartCombat sets them on the player at 5 s"
+areas = ["combat"]
+paths = ["engine/nvforever/src/combat_stance.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "3:weapon", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:-2500:0,3:moveto:0x000F36F6:player:-200:-2550:0,3:moveto:0x0015CE0A:player:0:-2500:0,3:moveto:0x0015CE08:player:200:-2550:0,3:moveto:0x000FCEB1:player:400:-2500:0,3:moveto:0x000FD572:player:600:-2450:0,5:combat:0x000F36F5:player,5:combat:0x000F36F6:player,5:combat:0x0015CE0A:player,5:combat:0x0015CE08:player,5:combat:0x000FCEB1:player,5:combat:0x000FD572:player" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice", "--actor-weapons", "none"]
+run_seconds = 60
+expect = [
+  { re = 'npc combat: .* (bounds to cover .* nearer the player|charges the player across open ground)', label = "a trooper bounds to cover or charges the player" },
+  { re = 'npc stance summary: .*?(?P<b>\d+) bounds to cover, (?P<c>\d+) charges', label = "bounds and charges in the stance summary" },
+]
+forbid = [{ re = "npc combat: .* blocks the player's blow", label = "a fighter blocks against a gunman" }]
+
+[[scenario]]
 name = "cook-cook-flamer"
 source = "owner's playtest 2026-10-16: Cook-Cook's flamer jittered as if it had recoil (its looping attack clip started again at every shot) and his left hand missed the gun (the Weapon node back at its bind pose; animation.md §9.7, §9.8)"
 note = "the player is put 100 units in front of Cook-Cook (FiendCookCookRef 000F5704) at 5 s, god mode; he fires his flamer at the player"
@@ -2382,6 +2453,28 @@ expect = [
 ]
 
 [[scenario]]
+name = "load-handoff"
+source = "owner 2026-10-16: loading a save while playing keeps the window: the old run's loading screen stays up while a new run loads behind it with its window hidden, then the new window takes over (engine/nvforever/src/handoff.rs)"
+areas = ["save"]
+paths = ["engine/nvforever/src/handoff.rs", "engine/nvf-play/src/loading.rs", "engine/nvf-play/src/save.rs"]
+env = { NVFOREVER_HOME = "handoff-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "12:save handoff-test;14:load handoff-test", NVF_PLAY_TEST_HANDOFF_EXIT = "1" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 90
+# The old run ends by handing over, not at run_seconds; the new one by its test aid.
+ends = "test aid NVF_PLAY_TEST_HANDOFF_EXIT: the new run took over"
+expect = [
+  { re = 'save: wrote .*handoff-test\.nvfsave', label = "the save is written" },
+  { re = 'loading screen up: .* for worldspace 000DA726 ', label = "a loading screen for the save's place comes up" },
+  { re = 'load: handing over to a new run with --load .*handoff-test\.nvfsave', count = 1, label = "a new run starts behind it" },
+  { re = 'load: .*handoff-test\.nvfsave .*starting at', label = "the new run starts at the saved place" },
+  { re = 'load: restored .*handoff-test\.nvfsave: \d+ changed references', label = "the new run restores the save" },
+  { re = 'handoff: window shown after [\d.]+ s$', label = "the new window is shown once the world is in" },
+  { re = 'load: the new run is up after [\d.]+ s; ending this one', label = "the old run ends when the new one is up" },
+  { re = 'the previous run did not end normally', count = 0, label = "the new run does not take the old one for a crash" },
+  { re = 'before the world was in|before it was ready', count = 0, label = "no time limit or failure" },
+]
+
+[[scenario]]
 name = "main-menu"
 source = "owner 2026-10-15: the main menu (engine/nvf-play/src/main_menu.rs): loading screens behind it, its theme, Continue and Load greyed without saves, Settings, New Game starts the opening"
 areas = ["main-menu", "save"]
@@ -2640,6 +2733,41 @@ expect = [
 ]
 
 [[scenario]]
+name = "crippled-limp"
+source = "owner 2026-10-16: a crippled leg plays the limping walk and run (locomotion/hurt/) for NPCs and the player (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11)"
+note = "the console cripples Chet's left leg (GSChetRef) and the player's, then walks the player; Chet's is restored at 20 s"
+areas = ["actors", "combat"]
+paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/player_body.rs", "crates/fnv-actor/src/locomotion.rs", "crates/fnv-actor/src/player_clips.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:GSChetRef.DamageAV LeftMobilityCondition 1000;11:player.DamageAV LeftMobilityCondition 1000;11.5:close;20:GSChetRef.RestoreAV LeftMobilityCondition 1000;20.5:close", NVF_PLAY_TEST_MOVE = "13:1:0:walk,15:1:0,17:0:0" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'actor locomotion: meshes.characters._male limping: 11 of 11 moves from hurt', label = "people's limping set loads" },
+  { re = 'limping: GSChetRef 0x00104C79 limps on a crippled leg', label = "Chet limps" },
+  { re = 'limping: GSChetRef 0x00104C79 walks normally again', label = "Chet walks normally once healed" },
+  "combat: player's left leg crippled",
+  { re = 'player Third rig: limping Idle\(Stand, true\) plays meshes.characters._male.locomotion.hurt.mtidle\.kf', label = "the player's body stands on the limping idle" },
+  { re = 'player Third rig: limping Move\(Stand, \w+, false, Forward, None, true\) plays meshes.characters._male.locomotion.hurt.mtforward_hurt\.kf', label = "the player's body limps walking" },
+  { re = 'player Third rig: limping Move\(Stand, \w+, true, Forward, None, true\) plays meshes.characters._male.locomotion.hurt.mtfastforward_hurt\.kf', label = "... and running" },
+  { re = 'player First rig: limping Move\(Stand, \w+, \w+, Forward, None, true\) plays meshes.characters._1stperson.locomotion.hurt.mt\w*forward_hurt\.kf', label = "the arms rig limps" },
+  { re = 'limping summary: actors started limping (?P<n>\d+) times and walked normally again (?P<m>\d+) times', range = [1, 1000], label = "limping summary" },
+]
+
+[[scenario]]
+name = "crippled-limp-creature"
+source = "owner 2026-10-16: a creature with a crippled leg limps where its skeleton has limping clips (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11)"
+note = "VERGSCoyote6REF 0x00157B38 (dog skeleton: locomotion/hurt/ has the walk and run forward) at the coyote-warning spot; god mode as the coyote is Aggressive"
+areas = ["actors", "combat"]
+paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/actors.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:VERGSCoyote6REF.DamageAV RightMobilityCondition 1000;8.5:close" }
+args = ["--play", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'actor locomotion: meshes.creatures.dog limping: 2 of \d+ moves from hurt', label = "the dog skeleton's limping set loads" },
+  { re = 'limping: VERGSCoyote6REF 0x00157B38 limps on a crippled leg', label = "the coyote limps" },
+]
+
+[[scenario]]
 name = "creature-alert-stance"
 source = "claude/creature-alert-stance (docs/spec-notes/actors.md §8.10): an alerted creature raises its claws as people draw a weapon (h2hequip once, h2haim held, h2hunequip when calm), and its attacks still play"
 note = "the deathclaw QJDeathclawWanderer01 0x000E62E5 about 1,100 units north of the player at Quarry Junction; the feral ghoul 0x000CE9E7 is put 500 units north of the player at 2 s and the deathclaws fight it (first draw, attacks); nobody perceives the player (UNSEEN); SetAlert 1 at 6 s and 0 at 16 s (second draw)"
@@ -2868,3 +2996,32 @@ expect = [
   { json = "stances.?prefix=2hr.drawn_bone", equals = "Bip01 R Hand" },
 ]
 manual = "on a failure, explain the change against docs/spec-notes/animation.md §9.10"
+
+[[scenario]]
+name = "creature-pace"
+source = "owner's playtest 2026-10-16 (engine/nvforever/src/creature_pace.rs, docs/spec-notes/actors.md §8.10): creatures move at their clips' pace × scale × Speed Mult × 0.70, measured on cazadors in the original game; a steady walk keeps its walk clip"
+note = "the Tribal Village's leveled cazadors (young: scale 0.5, Speed Mult 300; medium: scale 1, Speed Mult 250); the player arrives at 9 s after tdetect at 8 s, so they stay calm (sandbox)"
+areas = ["actors", "ai"]
+paths = ["engine/nvforever/src/creature_pace.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-actor/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:tdetect;8.5:close", NVF_PLAY_TEST_GOTO = "9:-74027:30369:8200" }
+args = ["--play", "--pos=-80027,30369,8500", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 70
+expect = [
+  { re = 'creature pace: VSpawnTier3Cazador\S* 0x\w+ walks 228 and runs 573 units/s, turns 150 degrees/s, alert 313 and 573', label = "a young cazador's speeds (observed 228 and up to 576)" },
+  { re = 'creature pace: VSpawnTier4Cazador\S* 0x\w+ walks 379 and runs 955 units/s, turns 300 degrees/s, alert 522 and 955', label = "a medium cazador's speeds (observed 380 and up to 974)" },
+  { re = 'creature pace summary: .*alert stance taken 0 times.* [1-9]\d+ frames of their moves, [0-3] changes between walk and run clips', label = "calm cazadors walking with at most 3 walk/run changes" },
+]
+
+[[scenario]]
+name = "creature-flying-stance"
+source = "owner's playtest 2026-10-16 (engine/nvforever/src/creature_pace.rs): cazadors scurry on the ground while calm and fly (their h2h clips) when alert or in combat"
+note = "the player placed among the Tribal Village's cazadors (god mode): they detect and attack"
+areas = ["actors", "combat"]
+paths = ["engine/nvforever/src/creature_pace.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--pos=-74027,30369,8200", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 30
+order = [[
+  { re = 'alert: VSpawnTier\dCazador\S* \w+ Normal → (Alert|Combat)', label = "a cazador alerted" },
+  { re = 'creature pace: VSpawnTier\dCazador\S* 0x\w+ takes its alert stance', label = "it takes its flying stance" },
+]]

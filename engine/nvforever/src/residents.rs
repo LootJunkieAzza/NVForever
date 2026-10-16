@@ -459,7 +459,7 @@ impl Residents {
 
     /// Give `actor` speeds of its own (`creature_pace.rs`).
     pub fn set_speeds(&mut self, actor: FormId, speeds: fnv_ai::ActorSpeeds) {
-        self.core.ai.speeds.insert(actor, speeds);
+        self.core.ai.set_speeds(actor, speeds);
     }
 
     /// Whether actors standing or walking inside each other are moved apart

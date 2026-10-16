@@ -919,6 +919,15 @@ pub struct CombatStyleDef {
     pub attack_skill_mod: (f32, f32),
     pub attack_under_attack_mult: f32,
     pub attack_not_under_attack_mult: f32,
+    /// Melee decision: the bonus to the attack chance while the opponent recoils or
+    /// staggers; Advanced: the block skill modifier (`base + mult × 50 / 100`), the block
+    /// chance's multipliers under attack and not, and the attack chance's multiplier while
+    /// the opponent blocks [documented: GECK wiki Combat Style].
+    pub recoil_stagger_bonus: f32,
+    pub block_skill_mod: (f32, f32),
+    pub block_under_attack_mult: f32,
+    pub block_not_under_attack_mult: f32,
+    pub attack_during_block_mult: f32,
     /// Simple: what the actor may fight with: 0 None, 1 Melee Only, 2 Ranged Only.
     pub weapon_restrictions: u32,
     /// Simple: multipliers of the weapon's min and max range in range calculations.
@@ -1972,6 +1981,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 attack_skill_mod: (n(adv, "attack_skill_modifier_base", 0.0), n(adv, "attack_skill_modifier_mult", 0.0)),
                 attack_under_attack_mult: n(adv, "attack_while_under_attack_mult", 1.0),
                 attack_not_under_attack_mult: n(adv, "attack_not_under_attack_mult", 1.0),
+                recoil_stagger_bonus: n(std, "recoil_stagger_bonus_to_attack", 0.0),
+                block_skill_mod: (n(adv, "block_skill_modifier_base", 0.0), n(adv, "block_skill_modifier_mult", 0.0)),
+                block_under_attack_mult: n(adv, "block_while_under_attack_mult", 1.0),
+                block_not_under_attack_mult: n(adv, "block_not_under_attack_mult", 1.0),
+                attack_during_block_mult: n(adv, "attack_during_block_mult", 1.0),
                 weapon_restrictions: match simple.and_then(|v| v.get("weapon_restrictions")) {
                     Some(Json::String(s)) => ["None", "Melee Only", "Ranged Only"].iter().position(|x| x == s).unwrap_or(0) as u32,
                     Some(v) => v.as_u64().unwrap_or(0) as u32,
