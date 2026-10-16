@@ -783,6 +783,7 @@ expect = [
   { re = 'furniture:.*by clip SpecialIdle_DocSitLeftExit', label = "Doc Mitchell getting off his chair by clip SpecialIdle_DocSitLeftExit" },
   # playtest list 5 item 40: that clip's Bip01 starts 52 units beside the seat; it is played from the seat.
   { re = 'furniture: 00104C0F: SpecialIdle_DocSitLeftExit starts (?P<n>\d+) units from where the body sits: played from the seat', range = [40, 100], label = "Doc Mitchell's exit played from his seat" },
+  { text = "pointer: hidden (an idle drives the view)", label = "no mouse pointer while the wake-up drives the view (owner 2026-10-16)" },
 ]
 
 # ------------------------------------------------------------------ messages and menus
@@ -2157,13 +2158,14 @@ expect = [
   "main menu: New Game",
   "main menu: closed, the intro film plays",
   { re = 'intro: playing .*FNVIntro\.bik \(1280x720, \d+ frames\)', label = "the intro film plays" },
+  { text = "pointer: hidden (the intro film)", label = "no mouse pointer over the intro film (owner 2026-10-16)" },
   "intro: screenshot intro.png",
   { re = 'intro: skipped at 8\.\d s', label = "skipped (test aid) after 8 s" },
   "intro: the opening begins",
   "new game: VCG00 started at stage 0",
   "main menu: theme faded out",
 ]
-order = [["main menu: Settings", "main menu: New Game", "intro: the opening begins", "new game: VCG00 started at stage 0"]]
+order = [["main menu: Settings", "main menu: New Game", "pointer: hidden (the intro film)", "intro: the opening begins", "new game: VCG00 started at stage 0"]]
 
 [[scenario]]
 name = "menus-look"

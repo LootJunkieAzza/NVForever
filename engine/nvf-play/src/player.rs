@@ -399,6 +399,12 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
 /// The cursor is grabbed and hidden while playing in a focused window, released in menus
 /// and while a script's message box is on screen (its buttons are clickable). Not with
 /// `--auto-walk` (a test aid: the window must not hold the desktop's mouse).
+///
+/// The pointer shows only where it is used: menus (the console, the Pip-Boy, the
+/// inventory), message boxes and a conversation's choices. Not while the intro film plays
+/// (`crate::intro`) nor while an idle drives the view (the opening's wake-up,
+/// [`ViewDriven`]) unless a menu or box is up [design: the owner's playtest of 2026-10-16].
+#[allow(clippy::too_many_arguments)]
 fn grab_cursor(
     state: Res<State<PlayState>>,
     d: Res<PlayWorld>,
@@ -406,7 +412,9 @@ fn grab_cursor(
     hud: Option<Res<crate::script_hud::ScriptHud>>,
     look: Option<Res<crate::dialogue::FreeLook>>,
     over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
+    (intro, view): (Option<Res<crate::intro::Intro>>, Option<Res<ViewDriven>>),
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+    mut wanted_before: Local<Option<bool>>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
     let driven = d.auto_walk > 0.0 || unattended.is_some_and(|u| u.0);
@@ -414,6 +422,14 @@ fn grab_cursor(
     // Also while an actor speaks in a conversation (free look, `crate::dialogue`), and
     // kept through a loading screen: the player is back in the world after it.
     let playing = matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0);
+    let film = intro.is_some_and(|i| i.is_playing());
+    let scene = view.is_some_and(|v| v.0) && *state.get() != PlayState::Menu && !boxed;
+    let wanted = (!playing || boxed) && !film && !scene;
+    if *wanted_before != Some(wanted) {
+        let why = if film { " (the intro film)" } else if scene { " (an idle drives the view)" } else { "" };
+        info!("pointer: {}{why}", if wanted { "shown" } else { "hidden" });
+        *wanted_before = Some(wanted);
+    }
     let grab = playing && !driven && !boxed && window.focused;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
     let mode = match (grab, cfg!(target_os = "windows")) {
@@ -421,8 +437,9 @@ fn grab_cursor(
         (true, true) => CursorGrabMode::Confined,
         (true, false) => CursorGrabMode::Locked,
     };
-    // The lockpicking menu hides the pointer over the lock (`crate::lockpick`).
-    let visible = !grab && !over_lock.is_some_and(|o| o.0);
+    // Out of focus or under a test aid the mouse is the desktop's: its pointer stays. The
+    // lockpicking menu hides the pointer over the lock (`crate::lockpick`).
+    let visible = !grab && (wanted || driven || !window.focused) && !over_lock.is_some_and(|o| o.0);
     if cursor.grab_mode != mode || cursor.visible != visible {
         cursor.grab_mode = mode;
         cursor.visible = visible;
