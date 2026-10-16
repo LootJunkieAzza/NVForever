@@ -13,6 +13,7 @@
 
 pub mod activate;
 pub mod aid;
+pub mod aim_zoom;
 pub mod ambient;
 pub mod bindings;
 pub mod blocking;
@@ -263,6 +264,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin))
             .add_plugins(console::ConsolePlugin)
             .add_plugins(free_cam::FreeCamPlugin)
+            .add_plugins(aim_zoom::AimZoomPlugin)
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)
             .add_plugins(intro::IntroPlugin)

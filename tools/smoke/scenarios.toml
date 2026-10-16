@@ -2473,3 +2473,17 @@ run_seconds = 45
 expect = [
   { re = 'ai summary at .*vMORangerGhostREF: no package, \S+ in \S+, walked (?P<n>\d+) units', range = [0, 50], label = "Ghost stays at her post (walked under 50 units)" },
 ]
+
+[[scenario]]
+name = "aim-zoom"
+source = "owner's request 2026-10-16: aiming down the sights zooms the view to the weapon's WEAP Sight FOV (engine/nvf-play/src/aim_zoom.rs; the Varmint Rifle zooms further than the Sturdy Caravan Shotgun)"
+note = "the weapon drawn at 9 s, Block held from 12 s to 15 s; the zoom takes 0.25 s each way"
+areas = ["combat", "camera"]
+paths = ["engine/nvf-play/src/aim_zoom.rs", "engine/nvf-play/src/free_cam.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "9:weapon,12:aim,15:aim" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12"]
+run_seconds = 20
+expect = [
+  { re = 'aim zoom: \S+ \(\S+\) sight FOV (?P<n>[\d.]+)°', range = [1, 74.9], label = "aiming zooms in to the weapon's sight FOV" },
+  { re = 'aim zoom: back to the unzoomed view', label = "letting go of Block zooms back out" },
+]
