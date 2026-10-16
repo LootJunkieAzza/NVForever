@@ -2310,6 +2310,8 @@ expect = [
   { re = 'clutter pose: 0x00153171 \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
   { re = 'clutter pose: 0x001531F5 \S*skeletonmale50scasual\.nif drawn in its stored pose' },
   { re = 'clutter pose: 0x0017B38F \S*skeletonfemale50scasual\.nif drawn in its stored pose \(17 bodies\)' },
+]
+
 [[scenario]]
 name = "compass-reticle"
 source = "owner's playtest list 5, items 15, 57 and 58 (docs/spec-notes/hud.md §11, reticle.md §6): at the bighorner pen with the varmint rifle drawn the crosshair's arrows open with the spread; the bighorners are ticks on the compass, red once shot; the crosshair is red over one that turned on the player"
