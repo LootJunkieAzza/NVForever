@@ -2224,6 +2224,23 @@ expect = [
 forbid = [{ re = 'npc combat: .* crouches ', label = "a fist fighter crouches" }]
 
 [[scenario]]
+name = "combat-block-break"
+source = "owner request 2026-10-16: power attacks break through a blocking enemy's block and stagger it (docs/spec-notes/combat-rules.md §12)"
+note = "an NCR trooper with no weapon drawn (--actor-weapons none) set on the player at 4 s in quiet Goodsprings and put 90 units north of it every 3 s from 6 s; 0.8 s later the player, fists drawn, turns to it and holds Use 1.5 s (a power attack); it blocks most of them (80 % under attack)"
+areas = ["combat"]
+paths = ["engine/nvforever/src/deaths.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/damage.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0,15:moveto:0x000F36F5:player:0:90:0,18:moveto:0x000F36F5:player:0:90:0,21:moveto:0x000F36F5:player:0:90:0,24:moveto:0x000F36F5:player:0:90:0,27:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.8:aimnpc,6.9:fire,8.4:fire,9.8:aimnpc,9.9:fire,11.4:fire,12.8:aimnpc,12.9:fire,14.4:fire,15.8:aimnpc,15.9:fire,17.4:fire,18.8:aimnpc,18.9:fire,20.4:fire,21.8:aimnpc,21.9:fire,23.4:fire,24.8:aimnpc,24.9:fire,26.4:fire,27.8:aimnpc,27.9:fire,29.4:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 34
+expect = [
+  { re = "combat: the player's power attack breaks \\S+'s block", label = "a power attack breaks the trooper's block" },
+  { re = 'hit reaction: \S+ staggers for [\d.]+ s \(its block broken by a power attack\)', label = "the blocker staggers" },
+  { re = 'npc combat: .* holds its attacks while it staggers', label = "the stagger holds its attacks" },
+  { re = 'combat blocks: \d+ blows blocked, (?P<n>\d+) blocks broken', range = [1, 100000], label = "broken blocks in the summary" },
+]
+forbid = [{ re = "combat: \\S+ blocks the player's blow", label = "a power attack is blocked as an ordinary blow" }]
+
+[[scenario]]
 name = "combat-melee-combo"
 source = "owner request 2026-10-16: melee enemies chain attacks into combos of different clips (docs/design/combat-ai.md §15)"
 note = "the combat-block fist fight (NCR troopers against the Fiends, --actor-weapons none): blows go on combos by the clips' a: keys, AttackLeft clips play after AttackRight ones"
