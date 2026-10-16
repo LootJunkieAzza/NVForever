@@ -86,6 +86,7 @@ mod treelod;
 mod underwater;
 mod water;
 mod window_icon;
+mod window_mode;
 mod world;
 mod worldspace;
 
@@ -259,6 +260,10 @@ struct Args {
     /// Window size "WxH" (also the screenshot size).
     #[arg(long, default_value = "1280x800")]
     size: String,
+    /// The window: `windowed` (of --size) or `borderless` (borderless full screen on the
+    /// current monitor). With --play the settings page's Display group switches it too.
+    #[arg(long, value_enum, default_value_t = window_mode::WindowChoice::Windowed)]
+    window: window_mode::WindowChoice,
     /// The game's field-of-view setting in degrees (fDefaultFOV, default 75): the horizontal
     /// angle at 4:3; other aspects keep its vertical angle, so 16:9 is wider (75 → 91.3°
     /// horizontal) [hypothesis; docs/spec-notes/camera.md].
@@ -921,6 +926,7 @@ fn main() -> AppExit {
                 // Scale factor 1 so screenshots are exactly --size pixels on any display.
                 primary_window: Some(Window {
                     title: "NVForever".into(),
+                    mode: args.window.mode(),
                     resolution: bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0),
                     // Measuring frame times: not held to the display's refresh.
                     present_mode: if args.log_frame_times.is_some() { bevy::window::PresentMode::AutoNoVsync } else { default() },
@@ -929,7 +935,7 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_plugins(window_icon::WindowIconPlugin)
+    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin))
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
     .add_plugins(grass::GrassPlugin(grass::GrassConfig {

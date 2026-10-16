@@ -2704,6 +2704,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "window-borderless"
+source = "coordinator 2026-10-16: the game can run borderless full screen (--window borderless), and the settings page's Display group switches the live window back and forth (engine/nvforever/src/window_mode.rs); no home, so the player's INI is neither read nor written"
+areas = ["main-menu"]
+paths = ["engine/nvforever/src/window_mode.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:page,13:borderless" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--window", "borderless"]
+run_seconds = 18
+expect = [
+  { text = "window: borderless full screen on the current monitor", label = "--window borderless starts borderless full screen" },
+  { text = "settings: borderless off", label = "the Display switch is flipped" },
+  { text = 'window: windowed, 1280x800', label = "the live window turns into a window of --size again" },
+]
+order = [["window: borderless full screen on the current monitor", "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
+
+[[scenario]]
 name = "controls-write"
 source = "owner 2026-10-16: keys are mapped in the INI's [Controls] and rebound on the settings page's Controls tab; the first half of the round trip (controls-read starts in the same home), run them together"
 areas = ["main-menu", "save"]
