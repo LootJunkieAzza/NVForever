@@ -4674,3 +4674,43 @@ reaches them, so they are on a shelf inside the counter's collision); drop part 
 from the Pip-Boy (X on the 20 rounds); buy part of a stack from Chet; store part of the
 caps in a container.
 
+## Pause, settings and main menus, pointer, wait menu (2026-10-16, session "l5-menus")
+List 5 items 8, 46, 19 and 51. Frames before and after: `C:\fnv-private\frames\l5-menus`.
+- **Pause menu (8)** now has the original's look, from `start_menu.xml` and your
+  screenshots: the column at the right (Continue, Save, Load, Settings, Quit), the
+  highlight box round the chosen entry, the other pages dimming the column but for their
+  own entry, Back (and Defaults) at the bottom right. My choices:
+  - **Help is left out** (NVForever has no help pages). Say if you want it, e.g. listing the keys.
+  - **The pause screen**: the original shows a model (`pausescreen01.nif`) we do not draw;
+    I lay its texture over the held world, the left half and its mirror at the right, at
+    0.82 strength over the world darkened by 0.35. Its glare texture came out as a dark slab
+    drawn over the picture, so it is left out. Compare `after_pause_main.png` with yours.
+  - **Settings**: our switch groups are the categories, renamed short like the original's:
+    Gameplay (was "Dialogue and menus"), World, Display (was "Picture"), Graphics (was
+    "Enhanced graphics"), Debug (was "Developer"), plus Saving. The switch list is wider
+    than the original's (820 instead of 520, the value column at 700) because our labels are
+    longer, and starts left of the middle so it clears the categories; each switch's note
+    is under the list in font 3. Up/Down move within a category, Tab/Page Down go to the
+    next category (Page Up back), a click on a category shows it. **Defaults** puts every
+    switch back as it was when the page was first shown in this run (the command line's
+    state), since nothing is saved between runs.
+  - **Quit** asks first, with the original's words: Main Menu (NVForever starts again with
+    `--menu`), Exit Game, Cancel. Q opens the question.
+  - The **load page** is restyled the same way (thumbnail and details over the rows, left
+    of the column, eight rows).
+- **Main menu (46)**: the same look: every entry that can be taken at full amber, the
+  greyed ones at half, the highlight box round the chosen one; moving the choice plays
+  UIMenuFocus, taking one UIMenuOK (the original's list sounds). Its labels stay "New
+  Game" and "Load Game" (the original says "New" and "Load"); say if you want them short.
+  While Settings or Load Game is up the logo is hidden and the column is drawn dimmed but
+  for that entry, as in the pause menu.
+- **Pointer (19)**: the pointer is now `cursor.dds` (the light arrow with the dark edge),
+  coloured amber, the pointer your screenshots show; before it was `glow_cursor.dds`. It
+  replaces the system pointer everywhere the pointer is shown.
+- **Wait/sleep menu (51)**: the HUD's amber (255, 182, 66) instead of the dimmer colour
+  measured off the screenshot, and the game's fonts the menu file names (font 1 for the
+  question, 6 for the hours, 2 for the time; the buttons in font 2 is my guess). The
+  buttons stay half bright until the pointer is on them, as the menu file says.
+Check in game: Esc in the world (the pause screen's strength, the box), Settings
+(categories, the wide list, Defaults), Quit (Main Menu restarts to the main menu), the main
+menu's box and hover sound, the pointer in any menu, T for the wait menu next to the HP bar.

@@ -398,8 +398,11 @@ is), the cells' own flag.
 - Being woken (by an attack, by a script other than through `WakeUpPC`).
 - `GetPCSleepHours` as a script function (no opcode known, §5).
 - The perk's 10% more experience (§8).
-- The interface's own font, textures and sounds: the menu is drawn with NVForever's
-  font and plain shapes after the screenshot's measures.
+- The interface's own textures (`wait_meter.dds`, `wait_pointer.dds`, the brackets):
+  the menu is drawn with plain shapes after the screenshot's measures. Its colour is the
+  HUD's and its texts are in the game's fonts [documented: `menus\sleep_wait_menu.xml`:
+  system colour `&hudmain;`, the question in font 1, the hours in font 6, the time in
+  font 2; the buttons taken as font 2, hypothesis] since 2026-10-16 (playtest list 5 item 51).
 
 ## 11. Checks
 
