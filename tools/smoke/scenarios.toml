@@ -218,6 +218,26 @@ order = [[
 ]]
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the multisampling changes" }]
 
+[[scenario]]
+name = "draw-distance-sliders"
+source = "engine/nvforever/src/draw_distance.rs (owner request 2026-10-16): the settings page's Display sliders set how far objects, actors and items are drawn and how far shadows and grass reach, while the game runs, without a rendering error"
+areas = ["renderer", "settings"]
+paths = ["engine/nvforever/src/draw_distance.rs", "engine/nvforever/src/fade.rs", "engine/nvforever/src/settings.rs", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:17", NVF_PLAY_TEST_SETTINGS = "11:object-distance=0.5,12:actor-distance=0.3,13:item-distance=0.25,14:shadow-distance=0.5,15:grass-distance=0.5,16:object-distance=1" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 22
+order = [[
+  "settings: object-distance 50%",
+  { re = 'draw distances: objects 50%, actors 100%, items 100% of \d+ units \((?P<n>\d+) meshes\)', range = [500, 1e9], label = "the objects' slider reaches the loaded cells' meshes" },
+  "settings: actor-distance 30%",
+  "settings: item-distance 25%",
+  "settings: shadow-distance 50%",
+  "settings: grass-distance 50%",
+  "settings: object-distance 100%",
+  { re = 'draw distances: objects 100%, actors 30%, items 25%' },
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the ranges change" }]
+
 # ------------------------------------------------------------------ navmesh and AI
 
 [[scenario]]

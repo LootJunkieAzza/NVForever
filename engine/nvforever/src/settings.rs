@@ -5,9 +5,11 @@
 //! `nvf_play::settings` like every switch of the page).
 //!
 //! Left on the command line: what is fixed when the game starts (`--no-npc-packages`,
-//! `--no-actors`, FaceGen, weapons, `--no-lodgen`), the numbers (distances, `--msaa`,
-//! `--fov`, volumes) and the test aids.
+//! `--no-actors`, FaceGen, weapons, `--no-lodgen`), most numbers (`--msaa`, `--fov`,
+//! volumes) and the test aids. The draw distances are sliders here, each a part of the
+//! command line's distance (`draw_distance.rs`).
 
+use crate::draw_distance::{self, DrawClass, DrawDistances};
 use crate::graphics::Graphics;
 use crate::grass::GrassConfig;
 use crate::head_look::HeadLookSettings;
@@ -20,7 +22,7 @@ use crate::world::Streamer;
 use crate::{Args, Overlay};
 use bevy::prelude::*;
 use nvf_play::pause::GROUP_MENUS;
-use nvf_play::settings::{add_setting, Setting};
+use nvf_play::settings::{add_setting, Setting, Slider};
 
 // The pause menu shows the groups as the original's settings categories (Gameplay,
 // Display, …), one short word each (nvf_play::pause).
@@ -45,6 +47,7 @@ pub fn register(app: &mut App) {
                 note: "On: a speaker's face moves with the line. Off: a face that is moving eases back to rest. (--no-lip)",
                 get: |w| w.resource::<LipState>().enabled,
                 set: |w, on| w.resource_mut::<LipState>().enabled = on,
+                slider: None,
             },
         );
     }
@@ -58,6 +61,7 @@ pub fn register(app: &mut App) {
                 note: "On: actors turn their heads to the player and to others near them. Off: heads ease back to their animation. (--no-head-tracking)",
                 get: |w| w.resource::<HeadLookSettings>().enabled,
                 set: |w, on| w.resource_mut::<HeadLookSettings>().enabled = on,
+                slider: None,
             },
         );
     }
@@ -70,6 +74,7 @@ pub fn register(app: &mut App) {
             note: "On: the sky shows the game's time of day as it passes. Off: the sky keeps its hour while the game's clock runs on ([ and ] still set it). (--still-sky)",
             get: |w| !w.resource::<Args>().still_sky,
             set: |w, on| w.resource_mut::<Args>().still_sky = !on,
+            slider: None,
         },
     );
     if has_body {
@@ -82,6 +87,7 @@ pub fn register(app: &mut App) {
                 note: "On: in first person you see your own body and legs when you look down. Off: only the arms and the weapon are drawn, as in the original. (--first-person-body)",
                 get: |w| w.resource::<PlayerBody>().first_person_body,
                 set: |w, on| w.resource_mut::<PlayerBody>().first_person_body = on,
+                slider: None,
             },
         );
     }
@@ -94,6 +100,7 @@ pub fn register(app: &mut App) {
             note: "On: the sun casts shadows out to --shadow-distance. The original casts none from the world. (--sun-shadows)",
             get: |w| w.resource::<SkyState>().shadows,
             set: crate::sky::set_shadows,
+            slider: None,
         },
     );
     add_setting(
@@ -105,6 +112,7 @@ pub fn register(app: &mut App) {
             note: "On: grass grows on the landscape; the cells around you get theirs over the next frames. Off: it is hidden and none grows on new cells. (--no-grass)",
             get: |w| w.resource::<GrassConfig>().enabled,
             set: |w, on| w.resource_mut::<GrassConfig>().enabled = on,
+            slider: None,
         },
     );
     add_setting(
@@ -116,6 +124,7 @@ pub fn register(app: &mut App) {
             note: "On: distant land, buildings and trees are drawn beyond the loaded cells (outdoors). Off: the world ends at the loaded cells. (--no-lod)",
             get: |w| !w.resource::<Args>().no_lod,
             set: set_lod,
+            slider: None,
         },
     );
     add_setting(
@@ -127,8 +136,10 @@ pub fn register(app: &mut App) {
             note: "On: the picture is graded by the worldspace's, the weather's and the cell's image space. Off: the picture as lit, for comparisons. (--no-grade)",
             get: |w| w.resource::<SkyState>().grade,
             set: |w, on| w.resource_mut::<SkyState>().grade = on,
+            slider: None,
         },
     );
+    register_distances(app);
     register_graphics(app);
     add_setting(
         app,
@@ -139,6 +150,7 @@ pub fn register(app: &mut App) {
             note: "On: the position, loading counts and key help are written over the picture. Off by default in the game. (--overlay, --no-overlay)",
             get: |w| !w.resource::<Args>().no_overlay,
             set: set_overlay,
+            slider: None,
         },
     );
     add_setting(
@@ -150,6 +162,7 @@ pub fn register(app: &mut App) {
             note: "On: a cross is drawn at each impact and a line from the muzzle along each hitscan shot. (--hit-markers)",
             get: |w| w.resource::<nvf_play::combat::HitMarks>().show,
             set: |w, on| w.resource_mut::<nvf_play::combat::HitMarks>().show = on,
+            slider: None,
         },
     );
     add_setting(
@@ -161,6 +174,7 @@ pub fn register(app: &mut App) {
             note: "On: the player takes no damage from hits and cannot be killed by them. (--god)",
             get: |_| nvf_play::combat::god_mode(),
             set: |_, on| nvf_play::combat::set_god_mode(on),
+            slider: None,
         },
     );
     if has_nav {
@@ -173,8 +187,58 @@ pub fn register(app: &mut App) {
                 note: "On: the navmesh near the camera and the walking NPCs' paths are drawn. (--show-navmesh)",
                 get: |w| w.resource::<NavState>().show,
                 set: |w, on| w.resource_mut::<NavState>().show = on,
+                slider: None,
             },
         );
+    }
+}
+
+/// The draw-distance sliders (`draw_distance.rs`): each a part of its full distance, the
+/// full one drawing as without them.
+fn register_distances(app: &mut App) {
+    if !app.world().contains_resource::<DrawDistances>() {
+        return;
+    }
+    let slider = |get: fn(&World) -> f32, set: fn(&mut World, f32)| Slider { get, set, min: draw_distance::MIN, step: draw_distance::STEP };
+    let sliders = [
+        Setting::slider(
+            "object-distance",
+            GROUP_PICTURE,
+            "Object distance",
+            "How far from you objects (buildings, rocks, furniture, clutter) of the loaded cells are drawn, as a part of the farthest those cells reach. Lower draws fewer and runs faster.",
+            slider(|w| w.resource::<DrawDistances>().objects, |w, v| draw_distance::set_part(w, DrawClass::Object, v)),
+        ),
+        Setting::slider(
+            "actor-distance",
+            GROUP_PICTURE,
+            "Actor distance",
+            "How far from you people and creatures are drawn, as a part of the farthest the loaded cells reach.",
+            slider(|w| w.resource::<DrawDistances>().actors, |w, v| draw_distance::set_part(w, DrawClass::Actor, v)),
+        ),
+        Setting::slider(
+            "item-distance",
+            GROUP_PICTURE,
+            "Item distance",
+            "How far from you items lying in the world (weapons, ammo, aid, notes, caps, clutter you can take) are drawn, as a part of the farthest the loaded cells reach.",
+            slider(|w| w.resource::<DrawDistances>().items, |w, v| draw_distance::set_part(w, DrawClass::Item, v)),
+        ),
+        Setting::slider(
+            "shadow-distance",
+            GROUP_PICTURE,
+            "Shadow distance",
+            "How far from you the sun casts shadows (with Sun shadows on), as a part of --shadow-distance.",
+            slider(|w| w.resource::<DrawDistances>().shadows, draw_distance::set_shadows),
+        ),
+        Setting::slider(
+            "grass-distance",
+            GROUP_PICTURE,
+            "Grass distance",
+            "How far from you grass is drawn, as a part of --grass-distance and its fade range.",
+            slider(|w| w.resource::<DrawDistances>().grass, draw_distance::set_grass),
+        ),
+    ];
+    for s in sliders {
+        add_setting(app, s);
     }
 }
 
@@ -244,7 +308,7 @@ fn register_graphics(app: &mut App) {
         ),
     ];
     for (key, label, note, get, set) in switches {
-        add_setting(app, Setting { key, group: GROUP_GRAPHICS, label, note, get, set });
+        add_setting(app, Setting { key, group: GROUP_GRAPHICS, label, note, get, set, slider: None });
     }
 }
 
