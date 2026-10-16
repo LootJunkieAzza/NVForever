@@ -242,8 +242,10 @@ exists; the note says what is missing); **deliberately no-op**.
 
 Notes on the most used:
 
-- **SwapTexture** (383 calls) [observed: decoded scripts]: `ref.SwapTexture "##<node>:<n>"
-  "<texture>"`, mostly the end slides (`interface\endgame\endscrn_*` on `##gs01`), the
+- **SwapTexture** (383 calls) [observed: decoded scripts]: `SwapTexture <ref> "##<node>:<n>"
+  "<texture>"`, the reference a parameter and no calling reference (all 242 calls in
+  FalloutNV.esm; first implemented as `ref.SwapTexture "shape" "texture"`, so every call
+  failed on its first parameter until 2026-10-16, claude/rorschach-cards), mostly the end slides (`interface\endgame\endscrn_*` on `##gs01`), the
   Rorschach cards of Doc Mitchell's test (`pipboycard01:0`) and the Euclid's C-Finder's
   screen. No GECK wiki page. Implemented 2026-10-16: the game keeps the last texture per
   shape of each reference (`fnv_game::functions::misc::swap_texture`), the engine puts
