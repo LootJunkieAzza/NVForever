@@ -974,6 +974,9 @@ pub struct CombatStyleDef {
     pub attack_chance: f32,
     pub hand_to_hand_bonus: f32,
     pub power_attack_chance: f32,
+    /// Power Attacks: the shares (0–100) of the normal, forward, back, left and right
+    /// power attacks [documented: GECK wiki Combat Style; layout xEdit CSTD].
+    pub power_attack_dirs: [f32; 5],
     /// Melee decision: how long an actor that neither attacks nor blocks holds, seconds.
     pub hold_timer: (f32, f32),
     /// Advanced: the attack skill modifier (`base + mult × skill / 100`) and the attack
@@ -2041,6 +2044,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 attack_chance: n(std, "attack_chance", 100.0),
                 hand_to_hand_bonus: n(std, "hand_to_hand_bonus_to_attack", 0.0),
                 power_attack_chance: n(std, "power_attack_chance", 0.0),
+                power_attack_dirs: ["normal", "forward", "back", "left", "right"].map(|d| n(std, &format!("power_attack_{d}"), 0.0)),
                 hold_timer: (n(std, "hold_timer_min", 0.0), n(std, "hold_timer_max", 0.0)),
                 attack_skill_mod: (n(adv, "attack_skill_modifier_base", 0.0), n(adv, "attack_skill_modifier_mult", 0.0)),
                 attack_under_attack_mult: n(adv, "attack_while_under_attack_mult", 1.0),

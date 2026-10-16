@@ -2883,16 +2883,17 @@ expect = [
 
 [[scenario]]
 name = "radscorpion-poison"
-source = "owner's playtest 2026-10-16: radscorpion stings poison (the creature's unarmed attack effect, EITM RadScorpion1Poison / RadScorpion2Poison; health drained by the second; docs/spec-notes/hit-effects.md §1)"
+source = "owner's playtest 2026-10-16: radscorpion stings poison (the creature's unarmed attack effect, EITM RadScorpion1Poison / RadScorpion2Poison, EAMT AttackForwardPower: only its forward power attack, the sting, poisons; health drained by the second; docs/spec-notes/hit-effects.md §1)"
 note = "the player, health raised to 5000 by the console at 8 s (no god mode, so the poison lands), is put in front of the radscorpion VERGSRadscorpion5REF 00157B4D south of Goodsprings at 9 s, which is set on the player at 10 s"
 areas = ["combat", "effects"]
-paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/npc_combat.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 5000;8.5:close", NVF_PLAY_TEST_FACE = "9:00157B4D", NVF_PLAY_TEST_SCRIPT = "10:call:0x00157B4D:StartCombat:player" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 40
 expect = [
   { re = 'hit effect: RadScorpion\dPoison on the player by \S+: Poison -[\d.]+ Health/s for \d+ s', label = "a radscorpion's sting poisons the player" },
-  { re = 'hit effect: RadScorpion\dPoison names the attack AttackForwardPower', label = "its AttackForwardPower filter reported as not told apart" },
+  { re = 'npc combat: .* power attack AttackForwardPower at ', label = "the radscorpion stings (its forward power attack)" },
+  { re = 'attack anims: \S+ plays meshes\\creatures\\radscorpion\\h2hattackforwardpower\.kf', label = "the sting plays its own clip" },
 ]
 
 [[scenario]]

@@ -157,7 +157,13 @@ Owner request 2026-10-11: "add attack animations so NPCs aim, fire and bite visi
   plays `2hrattack3.kf`), with its own up or down form at the aim's weight; fists are
   `h2h`.
 - **Creatures**: their own `h2hattack….kf` clips in the skeleton's folder, power and
-  forward attacks left out, taken in turn [design]. The dog has `h2hattackleft`,
+  forward attacks left out, taken in turn [design]. A blow is a power attack by the
+  combat style's Power Attack % Chance [documented: GECK wiki Combat Style], else 25 %
+  [design: owner 2026-10-16, random power attacks where the rule is not found]; normal
+  or forward by the style's shares (evenly where both are 0), among the power clips the
+  creature has (`h2hattackpower.kf`, `h2hattackforwardpower.kf`: the radscorpion's
+  sting). It lands at its own clip's `Hit` key with the creature's usual damage, and an
+  unarmed attack effect naming its group goes with it (hit-effects.md §1). The dog has `h2hattackleft`,
   `h2hattackleft_midbite`, `h2hattackright`, `h2hattackright__midbite`; the radscorpion
   `h2hattackleft_mid`, `_high`, `_low` … [observed: the base meshes archive].
 - **When a blow lands**: at its clip's `Hit` text key [documented: NiTextKeyExtraData]
