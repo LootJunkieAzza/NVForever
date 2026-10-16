@@ -92,7 +92,7 @@ pub fn change(g: &mut Game, r: FormId, axis: usize, delta: f64) {
 /// [observed: sizes 0, 6 and −2, §9.3 a].
 fn bump(g: &Game, size: i32) -> Option<f64> {
     let (name, default) = *BUMPS.get(usize::try_from(size.checked_sub(1)?).ok()?)?;
-    Some(g.world.forms.setting_f32(name).map(|v| v as f64).unwrap_or(default))
+    Some(g.world.setting_f32(name).map(|v| v as f64).unwrap_or(default))
 }
 
 /// `AddReputation rep axis size`: fame or infamy grows by the deed size's points, up to

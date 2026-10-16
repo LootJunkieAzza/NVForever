@@ -120,7 +120,7 @@ pub fn limb_condition(name: &str) -> Option<u16> {
 
 /// Settings with their documented defaults (GECK wiki Experience Settings).
 pub(crate) fn setting(g: &Game, name: &str, default: f64) -> f64 {
-    g.world.forms.setting_f32(name).map_or(default, |v| v as f64)
+    g.world.setting_f32(name).map_or(default, |v| v as f64)
 }
 
 impl Game<'_> {

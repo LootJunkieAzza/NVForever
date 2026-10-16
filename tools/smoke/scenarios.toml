@@ -2094,6 +2094,31 @@ expect = [
 ]
 
 [[scenario]]
+name = "console-quest-info"
+source = "console info and quest-debug commands (docs/design/console.md): console-only functions registered by catalogue name (crates/fnv-game/src/functions/console.rs)"
+areas = ["console", "scripts", "quests"]
+paths = ["crates/fnv-game/src/functions/console.rs", "crates/fnv-script/src/table.rs", "engine/nvf-play/src/console.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:startquest VCG02;10.5:setobjectivedisplayed VCG02 3 1;11:sq;11.5:sqt;12:sqs VCG02;12.5:sqv VCG02;13:prid SunnyRef;13.5:sv;14:inv;14.5:getavinfo health;15:player.inv;15.5:setgs fAVDCarryWeightsBase 200;16:set TimeScale to 30;16.5:GetINISetting fDefaultFOV:Display;17:caqs;18:movetoqt" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
+run_seconds = 30
+expect = [
+  { re = 'console: 0x[0-9A-F]{8} VCG02 "Back in the Saddle": stage \d+', label = "sq lists the running quest" },
+  { re = 'console: VCG02 objective 3: target 0x[0-9A-F]{8} \S+ in 0x[0-9A-F]{8} ', label = "sqt names the objective's target and its cell" },
+  { re = 'console: VCG02: running, stage \d+', label = "sqs heads the quest's stages" },
+  { re = 'console:   stage \d+: (done|-)', label = "sqs lists stages" },
+  { re = 'console: VCG02 \(script \S+\):', label = "sqv names the quest script" },
+  { re = 'console: 0x[0-9A-F]{8} SunnyRef \(script \S+\):', label = "sv shows the selected reference's script" },
+  { re = 'console: 0x[0-9A-F]{8} SunnyRef: \d+ stack\(s\)', label = "inv lists the selected reference's items" },
+  { re = 'console: Health \(\d+\) on 0x[0-9A-F]{8} SunnyRef: now [1-9]', label = "getavinfo breaks down Sunny's health" },
+  { re = 'console: 0x00000014 player: \d+ stack\(s\)', label = "player.inv lists the player's items" },
+  { re = 'console: fAVDCarryWeightsBase: \S+ -> 200', label = "setgs changes a game setting" },
+  { re = 'console: TimeScale = 30', label = "set ... to sets a global" },
+  { re = 'console: GetINISetting: INI settings are not built', label = "GetINISetting says it is not built" },
+  { re = 'console: \d+ stage\(s\) of \d+ quests marked done', label = "caqs marks the stages" },
+  { re = 'console: travelling to VCG02 objective 3', label = "movetoqt travels to the target" },
+]
+
+[[scenario]]
 name = "save-write"
 source = "owner 2026-10-15: save and load (docs/design/save-load.md): the first half of the round trip; save-load reads what this run saves, so run them together"
 areas = ["save"]

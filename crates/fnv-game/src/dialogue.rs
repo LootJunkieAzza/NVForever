@@ -173,7 +173,7 @@ impl<'a> Game<'a> {
     }
 
     fn say_once_a_day_hours(&self) -> f64 {
-        self.world.forms.setting_f32(SAY_ONCE_A_DAY_SETTING).map(|h| h as f64).unwrap_or(SAY_ONCE_A_DAY_HOURS)
+        self.world.setting_f32(SAY_ONCE_A_DAY_SETTING).map(|h| h as f64).unwrap_or(SAY_ONCE_A_DAY_HOURS)
     }
 
     /// Whether `speaker` can say the line `info` to `listener` now:

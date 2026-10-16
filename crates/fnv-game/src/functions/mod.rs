@@ -17,6 +17,7 @@
 
 pub(crate) mod actor;
 mod ai_state;
+pub mod console;
 pub(crate) mod furniture;
 mod items;
 mod magic;

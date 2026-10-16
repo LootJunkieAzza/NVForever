@@ -209,8 +209,8 @@ pub fn show_all_map_markers(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value,
 /// Settings]. The settings default to 200 and 150 [documented: same page] when the load
 /// order lacks them.
 pub fn xp_for_level(g: &Game, level: i32) -> f64 {
-    let base = g.world.forms.setting_f32("iXPBase").unwrap_or(200.0) as f64;
-    let bump = g.world.forms.setting_f32("iXPBumpBase").unwrap_or(150.0) as f64;
+    let base = g.world.setting_f32("iXPBase").unwrap_or(200.0) as f64;
+    let bump = g.world.setting_f32("iXPBumpBase").unwrap_or(150.0) as f64;
     let n = level as f64;
     (n - 1.0) * ((n - 2.0) / 2.0 * bump + base)
 }
