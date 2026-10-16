@@ -1239,8 +1239,8 @@ order = [[
   "picked open (Easy lock",
   "lockpick: closed (the game is over)",
   "activate 0x0010B2D4 Floor Safe: its lock was just opened",
-  "container 0x0010B2D4 plays Open before its menu",
   "door 0x0010B2D4 opening",
+  "container 0x0010B2D4 plays Open before its menu",
   "menu: open Container(0x0010B2D4)",
 ]]
 expect = [
@@ -1256,12 +1256,12 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MENU = "0010AC56", NVF
 args = ["--cell", "GSSchoolHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 24
 order = [[
-  "container 0x0010AC56 plays Open before its menu",
   "door 0x0010AC56 opening",
+  "container 0x0010AC56 plays Open before its menu",
   "menu: open Container(0x0010AC56)",
   "menu: close",
-  "container 0x0010AC56 closes (menu closed)",
   "door 0x0010AC56 closing",
+  "container 0x0010AC56 closes (menu closed)",
 ]]
 expect = [
   { gap = ["container 0x0010AC56 plays Open before its menu", "menu: open Container(0x0010AC56)"], range = [0.2, 1.0], label = "the menu opens after the 0.3 s Open sequence" },
