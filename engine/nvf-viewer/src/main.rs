@@ -10,8 +10,13 @@
 //! Keys: N / P next / previous mesh (PageDown / PageUp: ±10), A / Shift+A next / previous
 //! animation, Space pause, H show hidden objects, F frame, F12 screenshot, Esc quit.
 //! Mouse: left drag orbit, right drag pan, wheel zoom.
+//!
+//! `--weapon-review <prefix>` shows an NPC with a weapon of that animation type drawn
+//! instead, stepping through its moves and attacks from the hip and aimed
+//! (`weapon_review.rs`).
 
 mod camera;
+mod weapon_review;
 
 use nvf_assets::anim_play::{self, AnimState};
 use bevy::image::{ImageAddressMode, ImageSamplerDescriptor};
@@ -53,6 +58,20 @@ struct Args {
     /// Seconds to wait (and play animation) before a --screenshot is taken (at least 3).
     #[arg(long, default_value_t = 3.0)]
     screenshot_at: f32,
+    /// Instead of browsing meshes: an NPC with a weapon of this animation type drawn
+    /// (`2hr`, `1hp`, `2ha`, `2hh`, `2hl`, `1hm`, `2hm`, `h2h`, `1gt`, …), stepping
+    /// through its moves and attacks from the hip and aimed (A / Shift+A).
+    #[arg(long)]
+    weapon_review: Option<String>,
+    /// The weapon model for --weapon-review (default: a common weapon of the type).
+    #[arg(long)]
+    weapon_mesh: Option<String>,
+    /// --weapon-review crouched (the sneak forms of the clips).
+    #[arg(long)]
+    sneak: bool,
+    /// --weapon-review: the case to start at (from 1).
+    #[arg(long, default_value_t = 1)]
+    case: usize,
 }
 
 #[derive(Resource)]
@@ -119,9 +138,11 @@ fn main() -> AppExit {
         }
     };
     let filter = args.filter.as_deref().map(fnv_vfs::normalize);
-    let meshes = game.vfs.paths(|p| {
-        p.starts_with("meshes\\") && p.ends_with(".nif") && filter.as_ref().is_none_or(|f| p.contains(f.as_str()))
-    });
+    let review = args.weapon_review.as_deref().map(|p| weapon_review::Review::new(p, args.sneak, args.weapon_mesh.as_deref().map(fnv_vfs::normalize), args.case));
+    let meshes = match &review {
+        Some(r) => vec![format!("weapon review {}", r.prefix)],
+        None => game.vfs.paths(|p| p.starts_with("meshes\\") && p.ends_with(".nif") && filter.as_ref().is_none_or(|f| p.contains(f.as_str()))),
+    };
     if meshes.is_empty() {
         eprintln!("error: no meshes match");
         return AppExit::error();
@@ -157,15 +178,37 @@ fn main() -> AppExit {
     .insert_resource(args)
     .insert_resource(ClearColor(Color::srgb(0.18, 0.19, 0.21)))
     .insert_resource(GlobalAmbientLight { brightness: 400.0, ..default() })
-    .insert_resource(Browser { meshes, index, load_requested: true, report: None, error: None, show_hidden: false })
+    .insert_resource(Browser { meshes, index, load_requested: review.is_none(), report: None, error: None, show_hidden: false })
     .init_resource::<AnimState>()
     .init_resource::<KfFiles>()
-    .add_systems(Startup, setup)
-    .add_systems(Update, (keys, load_mesh, anim_play::advance, camera::orbit_input, overlay).chain());
+    .add_systems(Startup, setup);
+    match review {
+        Some(r) => {
+            app.insert_resource(r).init_resource::<nvf_assets::actor::ActorParts>().add_systems(
+                Update,
+                (weapon_review::build, weapon_review::keys, quit_keys, weapon_review::play, camera::orbit_input, weapon_review::overlay).chain(),
+            );
+        }
+        None => {
+            app.add_systems(Update, (keys, load_mesh, anim_play::advance, camera::orbit_input, overlay).chain());
+        }
+    }
     if headless_shot {
         app.add_systems(Update, screenshot_and_exit);
     }
     app.run()
+}
+
+/// F12 and Esc in --weapon-review (the browser's `keys` has its own).
+fn quit_keys(input: Res<ButtonInput<KeyCode>>, mut commands: Commands, mut counter: Local<u32>) {
+    if input.just_pressed(KeyCode::F12) {
+        let path = format!("nvf-screenshot-{}.png", *counter);
+        *counter += 1;
+        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+    }
+    if input.just_pressed(KeyCode::Escape) {
+        commands.write_message(AppExit::Success);
+    }
 }
 
 fn setup(mut commands: Commands) {

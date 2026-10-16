@@ -1265,6 +1265,48 @@ expect = [
   "lockpick summary: 3 asked, 2 opened (1 refused); 0 picked, 0 forced, 1 broken by forcing; 1 torque tries, 0 pins broken, 0 times out of pins; 1 left before the end",
 ]
 
+[[scenario]]
+name = "lockpick-opens-container"
+source = "playtest list 5 items 64 and 65 (docs/spec-notes/lockpicking.md §4): Ringo's floor safe in GSGasStation picked open; when the menu closes the safe is activated as if E were pressed, its Open sequence plays and the container menu follows; no E pressed after the pick"
+areas = ["lockpick", "containers"]
+paths = ["engine/nvf-play/src/lockpick.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/container_anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0010B2D4", NVF_PLAY_TEST_GIVE = "0000000A:2", NVF_PLAY_TEST_ACTIVATE = "12", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:help,15:spot,15.5:torque:2" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  "lockpick: open 0x0010B2D4 Floor Safe: Easy lock (Lockpick 30, 2 bobby pins)",
+  "picked open (Easy lock",
+  "lockpick: closed (the game is over)",
+  "activate 0x0010B2D4 Floor Safe: its lock was just opened",
+  "door 0x0010B2D4 opening",
+  "container 0x0010B2D4 plays Open before its menu",
+  "menu: open Container(0x0010B2D4)",
+]]
+expect = [
+  { text = "activate 0x0010B2D4 Floor Safe: its lock was just opened", count = 1 },
+]
+
+[[scenario]]
+name = "animated-containers"
+source = "playtest list 5 item 65 (engine/nvf-play/src/container_anim.rs): a school locker (Locker01School, locker01.nif with Open/Close sequences and DRSLocker01Open/Close sound keys, no SNAM/QNAM) opened by the menu test aid: Open plays before the menu, Close when it closes, both sound keys heard"
+areas = ["containers", "menus"]
+paths = ["engine/nvf-play/src/container_anim.rs", "engine/nvf-play/src/doors.rs", "engine/nvforever/src/doors.rs", "engine/nvforever/src/world.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MENU = "0010AC56", NVF_PLAY_TEST_DELAY = "12" }
+args = ["--cell", "GSSchoolHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+order = [[
+  "door 0x0010AC56 opening",
+  "container 0x0010AC56 plays Open before its menu",
+  "menu: open Container(0x0010AC56)",
+  "menu: close",
+  "door 0x0010AC56 closing",
+  "container 0x0010AC56 closes (menu closed)",
+]]
+expect = [
+  { gap = ["container 0x0010AC56 plays Open before its menu", "menu: open Container(0x0010AC56)"], range = [0.2, 1.0], label = "the menu opens after the 0.3 s Open sequence" },
+  { re = 'anim sounds summary:.*\b(?P<n>\d+) door sounds', range = [2, 1e9], label = "the locker's open and close sound keys played" },
+]
+
 # ------------------------------------------------------------------ converted 2026-10-12 (prose added on main by PR #226)
 
 [[scenario]]
