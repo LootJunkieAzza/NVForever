@@ -457,7 +457,7 @@ fn an_actor_that_sees_a_danger_to_itself_fight_joins_against_it() {
     g.detection.pairs.insert((loafer, wolf), (Detection { value: 5.0, band: Band::Detected, ..Default::default() }, g.time));
     assert_eq!(g.call_allies(), 1);
     assert!(g.would_attack(loafer, wolf));
-    assert!(g.awareness.get(loafer).is_some_and(|a| a.alarms.iter().any(|x| x.owner == wolf && x.cause == Cause::Ally)));
+    assert!(g.awareness.get(loafer).is_some_and(|a| a.alarms.iter().any(|x| x.owner == wolf && x.cause == Cause::Noticed)));
     assert_eq!(g.call_allies(), 0, "once");
 }
 

@@ -460,8 +460,10 @@ impl Game<'_> {
                 let why = if victim == helper { Why::Assault } else { Why::Assist { victim } };
                 self.provocations.grudges.insert((helper, attacker), Grudge { why, since: now });
                 self.provocations.notes.push(Note::Assists { helper, victim, attacker });
+                // It noticed the danger itself, so it alarms its own allies in turn
+                // (`crate::combat_group`, which passes on no alarm from an ally).
                 let t = self.awareness.timers.unwrap_or_default();
-                self.awareness.actors.entry(helper).or_default().alarm(attacker, at, 0.0, Cause::Ally, now, &t);
+                self.awareness.actors.entry(helper).or_default().alarm(attacker, at, 0.0, Cause::Noticed, now, &t);
                 joined += 1;
             }
         }

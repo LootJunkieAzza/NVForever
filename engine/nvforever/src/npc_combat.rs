@@ -12,7 +12,7 @@
 //!   weapon's or creature's reach [design].
 //! - **When it fires**: only while it detects and sees its target (the latest
 //!   detection of the pair: above 0, in sight), after a reaction time from the moment it
-//!   first saw it in this fight, with its weapon drawn, facing it (within
+//!   first saw it in this fight, with its weapon drawn, and a gun only facing it (within
 //!   [`FIRE_FACING`] of straight ahead; owner's playtest list 5 item 33). A gun keeps its own cycle
 //!   (`fnv_combat::attack::Cycle`: fire rate, magazine, reload) as the player's does;
 //!   the trigger is held for automatic weapons and pulled once a shot for the others
@@ -138,7 +138,7 @@ pub const SIGHTS_HYSTERESIS: f32 = 50.0;
 const MUZZLE_AHEAD: f32 = 24.0;
 /// The chest as a fraction of the eye height (as `detection.rs` aims its sight).
 const CHEST: f32 = 0.75;
-/// An actor attacks only while its target is within this angle of straight ahead,
+/// A gunman fires only while its target is within this angle of straight ahead,
 /// radians (30°) [design: owner's playtest list 5 item 33, "NPCs must face their target
 /// before shooting"].
 pub const FIRE_FACING: f32 = 30.0 * std::f32::consts::PI / 180.0;
@@ -736,8 +736,9 @@ fn fight(
             // It attacks only facing its target (owner's playtest list 5 item 33: NPCs fired
             // while looking 90° away); the AI turns it (`fnv_ai::alert`).
             let off = facing_off(global, feet, tfeet);
-            // Who the AI does not turn (no `--npc-packages`) fires as it stands.
-            let facing = off <= FIRE_FACING || residents.as_deref().is_none_or(|r| !r.runs(id));
+            // Who the AI does not turn (no `--npc-packages`) fires as it stands; blows and
+            // bites at close quarters are not held back (the item is about shooting).
+            let facing = off <= FIRE_FACING || !matches!(arm, Arm::Gun(_)) || residents.as_deref().is_none_or(|r| !r.runs(id));
             if !facing && sees && fighter.seen_for >= REACTION_SECONDS {
                 f.stats.unfaced += 1;
             }
