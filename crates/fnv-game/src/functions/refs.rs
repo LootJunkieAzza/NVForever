@@ -65,6 +65,10 @@ pub fn move_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     }
     if r != FormId::PLAYER_REF {
         g.teleported.insert(r);
+        // A drawn object (not an actor) is drawn at its new place, as after SetPos.
+        if !crate::ai::is_actor_base(g.world.forms, base_of(g, r).unwrap_or(FormId(0))) {
+            g.turned.insert(r);
+        }
     }
     g.emit(EventKind::Moved { reference: r, cell, pos });
     if r == FormId::PLAYER_REF {

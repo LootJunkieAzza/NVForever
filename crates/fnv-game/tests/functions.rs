@@ -1043,6 +1043,9 @@ fn script_function_audit_fixes() {
     assert!(g.teleported.contains(&adult));
     call(&mut g, 0x1009, Some(ACTI_REF), &[ax('Z'), n(90.0)]);
     assert!(g.turned.contains(&FormId(ACTI_REF)));
+    g.turned.clear();
+    call(&mut g, 0x109E, Some(ACTI_REF), &[r(CONT_REF)]);
+    assert!(g.turned.contains(&FormId(ACTI_REF)), "MoveTo redraws an object too");
     // GetOpenState: any object reads 3 closed, an actor 0; what the engine animates, its
     // state.
     assert_eq!(call(&mut g, 0x109D, Some(CONT_REF), &[]), 3.0);
