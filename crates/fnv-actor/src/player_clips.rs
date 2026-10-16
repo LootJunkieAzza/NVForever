@@ -121,6 +121,43 @@ pub fn move_clips(stance: Stance, female: bool, fast: bool, dir: Dir, drawn: Opt
     out
 }
 
+/// Standing with a crippled leg: the limping clips of `locomotion\hurt\` first
+/// (`mtforward_hurt.kf`; the weapon's own, `1hpforward_hurt.kf`, before them), then
+/// [`move_clips`] [observed: both human folders have the four directions walking and
+/// running for `mt`, `1hm` and `1hp`, `_male` also `h2hforward_hurt.kf`; design: a
+/// weapon without limping clips limps with the unarmed legs and holds the weapon by its
+/// aim clip, as it does where it has no movement clips; docs/spec-notes/actors.md §8.10].
+pub fn limping_move_clips(female: bool, fast: bool, dir: Dir, drawn: Option<&str>) -> Vec<String> {
+    let f = if fast { "fast" } else { "" };
+    let d = dir.name();
+    let mut out = Vec::new();
+    if let Some(p) = drawn {
+        out.push(format!(r"locomotion\hurt\{p}{f}{d}_hurt.kf"));
+    }
+    out.push(format!(r"locomotion\hurt\mt{f}{d}_hurt.kf"));
+    out.extend(move_clips(Stance::Stand, female, fast, dir, drawn));
+    out
+}
+
+/// The standing idle with a crippled leg: `locomotion\hurt\mtidle.kf` (`_male` only; it
+/// is not the same file as `locomotion\mtidle.kf` [observed]), then [`idle_clips`].
+pub fn limping_idle_clips() -> Vec<String> {
+    let mut out = vec![r"locomotion\hurt\mtidle.kf".to_string()];
+    out.extend(idle_clips(Stance::Stand));
+    out
+}
+
+/// Turning on the spot with a crippled leg: the weapon's own turn still first (it moves
+/// the upper body), then `locomotion\hurt\mtturnleft.kf`, then the unarmed turns of
+/// [`turn_clips`].
+pub fn limping_turn_clips(drawn: Option<&str>, left: bool) -> Vec<String> {
+    let t = if left { "turnleft" } else { "turnright" };
+    let mut out = turn_clips(Stance::Stand, drawn, left);
+    let at = out.iter().position(|c| c.ends_with(&format!("mt{t}.kf"))).unwrap_or(out.len());
+    out.insert(at, format!(r"locomotion\hurt\mt{t}.kf"));
+    out
+}
+
 /// How the weapon is pointed: level, or towards the aim-up or aim-down extreme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Aim {
@@ -563,6 +600,26 @@ mod tests {
         );
         assert!(blocks("1hm") && !blocks("2hr"));
         assert_eq!(block_clips(Stance::Stand, "h2h"), ["h2hblockidle.kf", "mtblockidle.kf"]);
+    }
+
+    #[test]
+    fn a_crippled_leg_limps_first() {
+        assert_eq!(
+            limping_move_clips(false, true, Dir::Forward, Some("1hp")),
+            [
+                r"locomotion\hurt\1hpfastforward_hurt.kf",
+                r"locomotion\hurt\mtfastforward_hurt.kf",
+                r"locomotion\1hpfastforward.kf",
+                r"locomotion\male\mtfastforward.kf",
+                r"locomotion\mtfastforward.kf"
+            ]
+        );
+        assert_eq!(limping_idle_clips(), [r"locomotion\hurt\mtidle.kf", r"locomotion\mtidle.kf", "mtidle.kf"]);
+        assert_eq!(
+            limping_turn_clips(Some("2hh"), true),
+            ["2hhturnleft.kf", r"locomotion\2hhturnleft.kf", r"locomotion\hurt\mtturnleft.kf", r"locomotion\mtturnleft.kf", "mtturnleft.kf"]
+        );
+        assert_eq!(limping_turn_clips(None, false), [r"locomotion\hurt\mtturnright.kf", r"locomotion\mtturnright.kf", "mtturnright.kf"]);
     }
 
     #[test]

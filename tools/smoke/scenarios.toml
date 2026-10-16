@@ -2473,3 +2473,38 @@ run_seconds = 45
 expect = [
   { re = 'ai summary at .*vMORangerGhostREF: no package, \S+ in \S+, walked (?P<n>\d+) units', range = [0, 50], label = "Ghost stays at her post (walked under 50 units)" },
 ]
+
+[[scenario]]
+name = "crippled-limp"
+source = "owner 2026-10-16: a crippled leg plays the limping walk and run (locomotion/hurt/) for NPCs and the player (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.10)"
+note = "the console cripples Chet's left leg (GSChetRef) and the player's, then walks the player; Chet's is restored at 20 s"
+areas = ["actors", "combat"]
+paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/player_body.rs", "crates/fnv-actor/src/locomotion.rs", "crates/fnv-actor/src/player_clips.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:GSChetRef.DamageAV LeftMobilityCondition 1000;11:player.DamageAV LeftMobilityCondition 1000;11.5:close;20:GSChetRef.RestoreAV LeftMobilityCondition 1000;20.5:close", NVF_PLAY_TEST_MOVE = "13:1:0:walk,15:1:0,17:0:0" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 26
+expect = [
+  { re = 'actor locomotion: meshes.characters._male limping: 11 of 11 moves from hurt', label = "people's limping set loads" },
+  { re = 'limping: GSChetRef 0x00104C79 limps on a crippled leg', label = "Chet limps" },
+  { re = 'limping: GSChetRef 0x00104C79 walks normally again', label = "Chet walks normally once healed" },
+  "combat: player's left leg crippled",
+  { re = 'player Third rig: limping Idle\(Stand, true\) plays meshes.characters._male.locomotion.hurt.mtidle\.kf', label = "the player's body stands on the limping idle" },
+  { re = 'player Third rig: limping Move\(Stand, \w+, false, Forward, None, true\) plays meshes.characters._male.locomotion.hurt.mtforward_hurt\.kf', label = "the player's body limps walking" },
+  { re = 'player Third rig: limping Move\(Stand, \w+, true, Forward, None, true\) plays meshes.characters._male.locomotion.hurt.mtfastforward_hurt\.kf', label = "... and running" },
+  { re = 'player First rig: limping Move\(Stand, \w+, \w+, Forward, None, true\) plays meshes.characters._1stperson.locomotion.hurt.mt\w*forward_hurt\.kf', label = "the arms rig limps" },
+  { re = 'limping summary: actors started limping (?P<n>\d+) times and walked normally again (?P<m>\d+) times', range = [1, 1000], label = "limping summary" },
+]
+
+[[scenario]]
+name = "crippled-limp-creature"
+source = "owner 2026-10-16: a creature with a crippled leg limps where its skeleton has limping clips (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.10)"
+note = "VERGSCoyote6REF 0x00157B38 (dog skeleton: locomotion/hurt/ has the walk and run forward) at the coyote-warning spot; god mode as the coyote is Aggressive"
+areas = ["actors", "combat"]
+paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/actors.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:VERGSCoyote6REF.DamageAV RightMobilityCondition 1000;8.5:close" }
+args = ["--play", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 16
+expect = [
+  { re = 'actor locomotion: meshes.creatures.dog limping: 2 of \d+ moves from hurt', label = "the dog skeleton's limping set loads" },
+  { re = 'limping: VERGSCoyote6REF 0x00157B38 limps on a crippled leg', label = "the coyote limps" },
+]

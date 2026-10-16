@@ -893,9 +893,9 @@ sequences): 70 directly in it, 9 in `male\`, 9 in `female\`, 8 in `child\` and 2
 - Eight `*fastbackward.kf` files (`1gt`, `1hm`, `1hp`, `2ha`, `2hh`, `2hl`, `2hr`,
   `h2h`) hold a second sequence `FastRight` (0.733 s) after `FastBackward`; the engine
   takes the first sequence of a file.
-- `hurt\` holds `mt`, `1hm`, `1hp` and `h2h` walk and run variants with a trailing `_`
-  (e.g. `mtforward_.kf`), plus `mtidle`, `pamtidle` and the `mt` turns [hypothesis:
-  crippled-leg locomotion; not used].
+- `hurt\` holds `mt`, `1hm`, `1hp` and `h2h` walk and run variants ending `_hurt`
+  (e.g. `mtforward_hurt.kf`), plus `mtidle`, `pamtidle` and the `mt` turns: the
+  crippled-leg locomotion (§8.10).
 
 ### 8.2 Root motion
 
@@ -1151,6 +1151,58 @@ only in the walk test and on the player's body. All rules here are engine choice
   (§10.3: their turn clips sit in the skeleton's folder and are found by
   `clip_candidates`, not checked on screen); scaling the clip's rate with the turn
   speed; an actor facing its target on arrival (left to AI packages).
+
+### 8.10 Limping on a crippled leg
+
+Owner's request (2026-10-16): with a leg crippled, people, creatures and the player walk
+and run with the limping clips. `engine/nvforever/src/limping.rs` (NPCs, creatures),
+`player_body.rs` (the player), `fnv_actor::locomotion::hurt_move`,
+`fnv_actor::player_clips::limping_*`; smoke `crippled-limp`, `crippled-limp-creature`.
+
+- **The clips** [observed: `fnvtool bsa list` of the base and add-on `Main` archives and
+  `fnvtool actor anims`, 2026-10-16]: 180 files in `locomotion\hurt\` folders.
+  - `characters\_male` (29): `mt`, `1hm`, `1hp` walk and run in all four directions
+    (`mtforward_hurt.kf`, sequence `Forward_Hurt`), `h2hforward_hurt.kf`, and
+    `mtidle.kf`, `pamtidle.kf`, `mtturnleft.kf`, `mtturnright.kf` (sequences `Idle`,
+    `TurnLeft`, …). The hurt idle and turns are not the files of `locomotion\` (other
+    bytes and lengths). No `female\` or `child\` copies, no sneaking ones. Root speeds
+    (unarmed): Forward 60.8, Backward 76.3, Left 102.0, Right 101.6, FastForward 232.9,
+    FastBackward 186.3, FastLeft 153.5, FastRight 148.4 units/s (§8.1 has the normal
+    ones: 85.3 and 353.9 forward).
+  - `characters\_1stperson` (24): the same `mt`, `1hm`, `1hp` moves, no idle or turns.
+  - Creatures (30 folders; 9 more files in the add-on archives): mostly Forward,
+    FastForward and Backward, some with Left, Right and turns (deathclaw, ghoul,
+    mirelurk, sentrybot, behemoth, spinebreaker 7–10 files); dog, gecko, mantis,
+    yao guai, cazador 2–4. Folders without one: nightstalker, bighorner, the Dead Money
+    ghosts and hologram, the Old World Blues brainbot and hologram.
+  - Names are irregular: most stems end in `_hurt` (`mtforward_hurt.kf`), some do not
+    (`molerat\…\hurt\mtforward.kf`), some put `_` or `_hurt` after the stance
+    (`radscorpion\…\mt_forward_hurt.kf`, `mirelurkking\…\mt_hurtforward_hurt.kf`),
+    two repeat the move (`brahmin\…\mt forwardforward_hurt.kf`,
+    `radscorpion\…\mt_fastforward_hurtfastforward_hurt.kf`). Sequence names are
+    `Forward_Hurt` (any case), `FastForward_Hurt_H2H` (dog), or the plain move; the
+    yao guai's `mtforward_hurt.kf` is named `FastForward`.
+- **How a file is matched to a move** [design]: the stem, in lower case without spaces,
+  `_` and `hurt`, starting with `mt` or with no stance (a digit or `h2h` start is a
+  weapon stance), names the move; when it does not, the sequence name cleaned the same
+  way (a trailing `h2h` dropped) does. The first file in name order wins a move. Moves
+  without a limping clip keep the standing one.
+- **When** [design; hypothesis for the original]: while either Left or Right Mobility
+  Condition (actor values 29, 30) is 0 or below. The leg parts of the body part data
+  name those two for people and creatures alike [observed: `NVGecko` BPTD, hind legs
+  `Right Mobility Condition` / `Left Mobility Condition`; forelegs the attack
+  conditions]. Read every 0.25 s; healing switches back.
+- **Blending**: changing set keeps the current move and its phase and blends from the
+  old pose (`Locomotion::set_limping`). Sneaking wins over limping (no crouched limping
+  clips). Playback follows the ground speed as for every clip (§8.3); NPC movement
+  speed is not changed by a crippled leg (the player's is, `PlayerLimbs::speed_mult`).
+- **The player**: standing, the third-person body plays `locomotion\hurt\<weapon><move>
+  _hurt.kf`, else `…\hurt\mt<move>_hurt.kf`, else the usual clip; the hurt idle; the
+  weapon's own turn, else the hurt turn. The arms rig the same from `_1stperson`. A
+  weapon without limping clips limps on the unarmed legs and is held by its aim clip
+  [design].
+- **Not checked** on screen: how the limping clips look in place, foot sliding at the
+  speeds AI walks a crippled NPC, creature limps other than the coyote's (dog skeleton).
 
 ## 9. Weapons: holstering and drawing (part H)
 

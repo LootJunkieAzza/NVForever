@@ -8,7 +8,7 @@
 //! (actors.md §8.9), which plays its turn clip; `--actor-turn-test` ([`TurnTest`]) tries it.
 
 use bevy::prelude::*;
-use fnv_actor::locomotion::{choose, Blend, Body, ClipInfo, LocomotionSet, Move};
+use fnv_actor::locomotion::{choose, hurt_move, Blend, Body, ClipInfo, LocomotionSet, Move, HURT_FOLDER};
 use fnv_nav::follow::{heading_delta, SPOT_TURN_RATE, SPOT_TURN_START};
 use nvf_assets::actor::{bind_clip, clip_binding, ActorCtx, PreparedSkeleton};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
@@ -25,13 +25,14 @@ pub const SNEAK_STANCE: &str = "sneakmt";
 
 /// One clip of a set: its tracks bound to the skeleton and what choosing needs to know
 /// about it.
+#[derive(Clone)]
 pub struct SetClip {
     pub bound: Arc<BoundClip>,
     pub info: ClipInfo,
 }
 
 /// The locomotion clips of one skeleton and body, shared by the actors that use them.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ClipSet {
     pub clips: BTreeMap<Move, SetClip>,
     /// Combat (step C5): death poses held once played (`idleanims\deathpose1.kf`,
@@ -136,6 +137,34 @@ impl ClipSet {
         let line = format!("{folder} {body:?} {stance}: {} clips, missing {missing:?}: {}", set.clips.len(), report.join("; "));
         (set, line)
     }
+
+    /// The limping set of a skeleton (a leg crippled): `base` with each move that the
+    /// skeleton's `locomotion\hurt\` folder has a clip for replaced by that clip
+    /// (`fnv_actor::locomotion::hurt_move`), the others kept; `None` when the folder has
+    /// none. Also returns a report line.
+    pub fn load_hurt(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, base: &ClipSet) -> Option<(ClipSet, String)> {
+        let s = fnv_vfs::normalize(skeleton);
+        let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();
+        let dir = format!("{folder}\\{HURT_FOLDER}\\");
+        let files = ctx.models.data.vfs.paths(|p| p.strip_prefix(&dir).is_some_and(|f| f.ends_with(".kf") && !f.contains('\\')));
+        let mut set = base.clone();
+        let mut found = Vec::new();
+        for path in files {
+            let stem = path[dir.len()..path.len() - 3].to_string();
+            let Some(clip) = ctx.clip(&path) else { continue };
+            // The first file (in name order) of a move wins.
+            let Some(m) = hurt_move(&stem, Some(&clip.name)).filter(|m| !found.iter().any(|(f, _)| f == m)) else { continue };
+            let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
+            found.push((m, format!("{} {stem} {:.1}u/s", m.group(), info.speed)));
+            set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info });
+        }
+        if found.is_empty() {
+            return None;
+        }
+        let moves: Vec<String> = found.into_iter().map(|(_, l)| l).collect();
+        let line = format!("{folder} limping: {} of {} moves from hurt\\: {}", moves.len(), set.clips.len(), moves.join("; "));
+        Some((set, line))
+    }
 }
 
 /// An actor's locomotion state.
@@ -149,16 +178,42 @@ pub struct Locomotion {
     pub turn: f32,
     /// Keep the pose (`--actor-pose-time`).
     pub hold: bool,
-    /// The standing set and the sneaking one (people whose folder has a sneaking idle);
-    /// `set` is one of them ([`Locomotion::set_sneaking`]).
+    /// The standing set, the sneaking one (people whose folder has a sneaking idle) and
+    /// the limping one (a leg crippled; skeletons with a `locomotion\hurt\` folder);
+    /// `set` is one of them ([`Locomotion::set_sneaking`], [`Locomotion::set_limping`]).
     pub stand: Arc<ClipSet>,
     pub sneak: Option<Arc<ClipSet>>,
+    pub hurt: Option<Arc<ClipSet>>,
     pub sneaking: bool,
+    pub limping: bool,
 }
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, sneaking: false }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, sneaking: false, limping: false }
+    }
+
+    /// The set for the actor's posture: sneaking wins over limping (there are no
+    /// crouched limping clips [observed]), and either falls back to standing.
+    fn posture_set(&self) -> Arc<ClipSet> {
+        let pick = if self.sneaking { self.sneak.as_ref() } else if self.limping { self.hurt.as_ref() } else { None };
+        pick.unwrap_or(&self.stand).clone()
+    }
+
+    /// Limp (`true`, a leg crippled) or walk normally again: the set's clips change and
+    /// the current move goes on in the new set at its phase, blending from the old pose
+    /// [design]. Without a limping set nothing changes. Returns whether anything changed.
+    pub fn set_limping(&mut self, on: bool) -> bool {
+        if self.limping == on || self.hurt.is_none() {
+            return false;
+        }
+        self.limping = on;
+        let set = self.posture_set();
+        if !Arc::ptr_eq(&set, &self.set) {
+            self.set = set;
+            self.blend = Blend::new(self.blend.cur.mv, self.blend.cur.phase);
+        }
+        true
     }
 
     /// Crouch (`true`) or stand up: the set's clips change, and the move is chosen again
@@ -168,9 +223,11 @@ impl Locomotion {
         if self.sneaking == on {
             return false;
         }
-        let Some(set) = (if on { self.sneak.clone() } else { Some(self.stand.clone()) }) else { return false };
+        if on && self.sneak.is_none() {
+            return false;
+        }
         self.sneaking = on;
-        self.set = set;
+        self.set = self.posture_set();
         self.blend = Blend::new(Move::Idle, self.blend.cur.phase);
         true
     }

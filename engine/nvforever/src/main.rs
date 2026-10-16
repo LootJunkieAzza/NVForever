@@ -70,6 +70,7 @@ mod shafts;
 mod imagespace;
 mod imposters;
 mod sky;
+mod limping;
 mod sneaking;
 mod ssao;
 mod taa;
@@ -1053,6 +1054,8 @@ fn main() -> AppExit {
             app.add_plugins(alert::AlertPlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
+            // Actors limping on a crippled leg (limping.rs).
+            app.add_plugins(limping::LimpingPlugin);
             // Heads held by a script's Look (script_look.rs).
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
