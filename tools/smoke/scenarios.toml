@@ -1926,6 +1926,54 @@ expect = [
 forbid = [{ re = 'combat group: (LvlNCR|NCRTrooper)\S* 0x\S+ alarms (FiendCookCookRef|LvlFiend)', label = "an NCR trooper alarms a Fiend" }]
 
 [[scenario]]
+name = "combat-crouch"
+launch = "ncr-fiends"
+source = "owner request 2026-10-16: NPCs crouch to fire at a distance and stand for close-combat enemies, not predictably (docs/design/combat-ai.md §14.2)"
+note = "the crouch decision is a roll every 1.5-4 s by temperament and distance, so who crouches and how often varies"
+areas = ["combat", "combat-groups"]
+paths = ["engine/nvforever/src/combat_stance.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 120
+expect = [
+  { re = 'npc combat: .* crouches (to fire at|behind low cover from) .*\((?P<n>\d+) units away\)', range = [600, 100000], label = "a gunman crouches, never within 600 units" },
+  { re = 'sneaking: .* crouches and sneaks', label = "the crouch reaches the locomotion" },
+  { re = 'npc stance summary: crouched (?P<n>\d+) times', range = [1, 100000], label = "crouches in the stance summary" },
+]
+
+[[scenario]]
+name = "combat-block"
+source = "owner request 2026-10-16: melee NPCs block close-combat opponents' swings (docs/design/combat-ai.md §14.3)"
+note = "the NCR troopers and the Fiends of battle-ncr-fiends with no weapons drawn (--actor-weapons none): fists against fists"
+areas = ["combat", "combat-groups"]
+paths = ["engine/nvforever/src/combat_stance.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-game/src/combat_style.rs", "crates/fnv-combat/src/damage.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice", "--actor-weapons", "none"]
+run_seconds = 90
+expect = [
+  { re = "npc combat: .* blocks .*'s blow \\((reacting|decided)", label = "a fighter blocks a blow" },
+  { re = "combat: \\S+ blocks \\S+'s blow: [\\d.]+ of [\\d.]+ stopped", label = "a blocked blow loses part of its damage" },
+  { re = 'npc combat: .* recoils: its blow was blocked by ', label = "the attacker of a blocked blow recoils" },
+  { re = 'npc stance summary: .*?(?P<n>\d+) blocks', range = [1, 100000], label = "blocks in the stance summary" },
+]
+forbid = [{ re = 'npc combat: .* crouches ', label = "a fist fighter crouches" }]
+
+[[scenario]]
+name = "combat-bound"
+source = "owner request 2026-10-16: melee NPCs close on a gunman from cover to cover, or charge when there is none (docs/design/combat-ai.md §14.4)"
+note = "six NCR troopers with no weapons drawn put about 2,500 units south of the player, who draws a gun at 3 s; StartCombat sets them on the player at 5 s"
+areas = ["combat"]
+paths = ["engine/nvforever/src/combat_stance.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "3:weapon", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:-2500:0,3:moveto:0x000F36F6:player:-200:-2550:0,3:moveto:0x0015CE0A:player:0:-2500:0,3:moveto:0x0015CE08:player:200:-2550:0,3:moveto:0x000FCEB1:player:400:-2500:0,3:moveto:0x000FD572:player:600:-2450:0,5:combat:0x000F36F5:player,5:combat:0x000F36F6:player,5:combat:0x0015CE0A:player,5:combat:0x0015CE08:player,5:combat:0x000FCEB1:player,5:combat:0x000FD572:player" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice", "--actor-weapons", "none"]
+run_seconds = 60
+expect = [
+  { re = 'npc combat: .* (bounds to cover .* nearer the player|charges the player across open ground)', label = "a trooper bounds to cover or charges the player" },
+  { re = 'npc stance summary: .*?(?P<b>\d+) bounds to cover, (?P<c>\d+) charges', label = "bounds and charges in the stance summary" },
+]
+forbid = [{ re = "npc combat: .* blocks the player's blow", label = "a fighter blocks against a gunman" }]
+
+[[scenario]]
 name = "cook-cook-flamer"
 source = "owner's playtest 2026-10-16: Cook-Cook's flamer jittered as if it had recoil (its looping attack clip started again at every shot) and his left hand missed the gun (the Weapon node back at its bind pose; animation.md §9.7, §9.8)"
 note = "the player is put 100 units in front of Cook-Cook (FiendCookCookRef 000F5704) at 5 s, god mode; he fires his flamer at the player"

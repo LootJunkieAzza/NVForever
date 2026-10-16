@@ -46,6 +46,7 @@ mod lips;
 mod lockpick_view;
 mod lod;
 mod locomotion;
+mod combat_stance;
 mod combat_tactics;
 mod console_toggles;
 mod npc_combat;

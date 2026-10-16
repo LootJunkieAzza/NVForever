@@ -281,6 +281,21 @@ pub fn blocked(t: &CombatTuning, dealt: f32) -> f32 {
     dealt * (1.0 - t.block.clamp(0.0, 1.0))
 }
 
+/// A blow is blocked only coming from within this of where the blocker faces, radians
+/// [design: docs/design/combat-ai.md §14.3].
+pub const BLOCK_FRONT: f32 = std::f32::consts::FRAC_PI_2;
+
+/// Whether a blow going along `dir` (attacker to blocker) meets a blocker facing
+/// `facing` (horizontal) from its front: within [`BLOCK_FRONT`] of straight ahead.
+pub fn from_front(facing: [f32; 2], dir: [f32; 3]) -> bool {
+    let came = [-dir[0], -dir[1]];
+    let (a, b) = (facing[0].hypot(facing[1]), came[0].hypot(came[1]));
+    if a < 1e-6 || b < 1e-6 {
+        return true;
+    }
+    (facing[0] * came[0] + facing[1] * came[1]) / (a * b) >= BLOCK_FRONT.cos() - 1e-6
+}
+
 /// Whether a hit makes a living actor play its hit reaction [design: the owner's rule,
 /// 2026-10-11]. The hit that cripples a body part always does. A later hit on a part
 /// that is already crippled does when the actor's last reaction ended at least

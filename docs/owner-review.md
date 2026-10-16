@@ -5245,3 +5245,35 @@ a lot), and his hands did not line up on the flamer, as with the minigun before.
    (no spin-up), since their shots leave at once. A game look at Cook-Cook firing,
    from the side, would confirm the arms.
 
+
+## NPCs crouch, block and close in by context (2026-10-16, branch claude/npc-crouch-block)
+
+Your request: NPCs crouch to fire at a distance or block with a melee weapon, by context,
+not predictably, people only. Spec and rules: docs/design/combat-ai.md §14. Every number
+below is my choice; tell me any you want changed.
+
+- **Crouching**: a gunman that sees its target, has stood still 0.5 s, with the target
+  beyond 600 units and no close-combat enemy within 1,500, rolls every 1.5–4 s to crouch.
+  The chance is 25–90 % by a per-fight temperament, lower nearer than 1,400 units.
+  Crouched, it now and then stands and shifts 128–320 units sideways. A crouched NPC
+  drops the spread's standing term, as the player does, and is drawn with the game's
+  `sneak…aim` and `sneak…attack` clips. Its eyes for shooting are at 0.65 of the standing
+  height (not measured).
+- **Cover first**: a person whose style's take-cover roll fails gets a second chance of
+  up to 40 % by temperament, so even styles with 0 (CSRaider) sometimes look for cover. Behind **low
+  cover** (hides the crouched eyes only) it hides crouched and stands to fire.
+- **Blocking**: only people with fists or a melee weapon, only against a close-combat
+  opponent, never against a gunman. The chance is the wiki's documented melee decision
+  (block first); FalloutNV.esm's default styles give 80 % while the opponent swings and
+  40 % otherwise. It also reacts to a swing after 0.12–0.35 s, facing the attacker. A
+  blocked blow loses 60 % (the existing `CombatTuning::block`) and the NPC attacker
+  recoils for 1 s. **Your own block (Block held with a melee weapon) now reduces NPC
+  blows too**: the rule existed but was never applied.
+- **Closing in**: a melee person against a gunman that can see it and is more than 1,000
+  units off bounds from cover to cover (back of a navmesh cover edge, 250+ units nearer,
+  within 50° of the line, hidden from the gunman), pausing 0.4–1.6 s at each. With no
+  such cover it charges. About half (by temperament) stay by a gunman of their group
+  until the target is within 900 units of either, the target fights in close combat, or
+  10–25 s pass.
+- Not built: the player recoiling when an NPC blocks; switching a guard to whoever
+  rushes the gunman it guards (it fights its own combat target).
