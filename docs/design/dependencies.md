@@ -13,7 +13,7 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 
 | Was | Now | Notes |
 |---|---|---|
-| `fnv-json` | `serde` + `serde_json` (`preserve_order`) | documents built with `json!`; `nvforever.json` is a derived struct; schema files keep duplicate-key rejection via a strict deserializer. Floats >= 1e16 are now written as floats (fnv-json printed them as integer tokens). |
+| `fnv-json` | `serde` + `serde_json` (`preserve_order`) | documents built with `json!`; `nvforever.json` was a derived struct (now `NVForever.ini`, hand-written, the old JSON still read); schema files keep duplicate-key rejection via a strict deserializer. Floats >= 1e16 are now written as floats (fnv-json printed them as integer tokens). |
 | `fnv-inflate` decoder | `flate2`, **zlib-rs** backend | our zlib header + Adler-32 trailer diagnostics kept (`adler2`). miniz_oxide was rejected: in streaming mode it accepts back-references before the output start. |
 | `fnv-util::sha256` | `sha2` (+ `hex`) | |
 | `fnv-util::cp1252` | `encoding_rs` (WINDOWS_1252) | |
@@ -32,6 +32,7 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 |---|---|---|
 | 2 | NIF parsing | **done**: own schema-as-data interpreter (`schemas/nif`, re-expressed from nif.xml as documentation); `quick-xml` codegen rejected to keep the licence open |
 | 2 | DDS / BCn textures | **done**: own header/layout parser (`fnv-dds`); GPU upload as BCn directly; CPU BCn decoders deferred (ADR-0001) |
+| — | first-start dialogs (game folder) | **chosen**: `rfd` 0.15 (MIT), engine workspace, Windows only, no default features: the system's message boxes and folder picker before the game window opens (install-layout.md, "First start") |
 | 3 | CPU BCn encode/decode (generated LOD) | **chosen**: `texpresso` 2.0 (pure Rust, MIT), engine workspace only: decodes terrain textures and encodes the generated LOD's BC1 textures (docs/design/generated-lod.md) |
 | 2 | math, viewer | **done**: Bevy 0.19.1 (its `glam`), viewer in its own workspace (ADR-0001) |
 | 3 | rendering | `wgpu` (Vulkan/Metal/DX12), `winit` for windows/input |

@@ -4,17 +4,55 @@
 //! - The original game install is **read-only input**. NVForever never writes into it,
 //!   never runs from inside it, and never touches the original game's per-user folder
 //!   (`Documents\My Games\FalloutNV`: its INIs, saves and plugin list).
-//! - Everything NVForever writes (config, saves, logs, caches, its own mods) lives under
-//!   its own **home** directory, chosen by `NVFOREVER_HOME` or a platform default.
+//! - Everything NVForever writes (settings, saves, logs, its own mods) lives under its own
+//!   **home** directory, chosen by `NVFOREVER_HOME` or a platform default (Windows:
+//!   `Documents\My Games\NVForever`); caches go to the local data folder.
+//! - The game's location is kept in the home's `NVForever.ini`; before a run,
+//!   [`GameInstall::missing_files`] names any base game file NVForever needs that is absent.
 //!
 //! Path containment is checked on canonicalized paths, case-insensitively on Windows.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
-pub const CONFIG_FILE: &str = "nvforever.json";
+/// The settings file in the home: the game's location (owner request 2026-10-16: an INI in
+/// `My Games\NVForever`).
+pub const CONFIG_FILE: &str = "NVForever.ini";
+/// The settings file of earlier builds (home `%LOCALAPPDATA%\NVForever`), read when there
+/// is no INI yet.
+pub const LEGACY_CONFIG_FILE: &str = "nvforever.json";
 pub const HOME_ENV: &str = "NVFOREVER_HOME";
+
+/// Files in the game's `Data` folder NVForever cannot run without: the base master, the
+/// archives of the game's `SArchiveList` (`fnv_vfs::DEFAULT_ARCHIVE_LIST`, [observed]
+/// identical in `Fallout_default.ini` and the owner's `Fallout.ini`) and `Update.bsa`
+/// [observed in the owner's patched install, 1.4.0.525; it overrides the base archives'
+/// meshes and textures]. The add-on masters are optional ([`ADDON_MASTERS`]).
+pub const REQUIRED_DATA_FILES: [&str; 8] = [
+    "FalloutNV.esm",
+    "Fallout - Textures.bsa",
+    "Fallout - Textures2.bsa",
+    "Fallout - Meshes.bsa",
+    "Fallout - Voices1.bsa",
+    "Fallout - Sound.bsa",
+    "Fallout - Misc.bsa",
+    "Update.bsa",
+];
+
+/// The add-on masters NVForever loads when they are present (`fnv_vfs::DEFAULT_PLUGINS`
+/// after `FalloutNV.esm`).
+pub const ADDON_MASTERS: [&str; 9] = [
+    "DeadMoney.esm",
+    "HonestHearts.esm",
+    "OldWorldBlues.esm",
+    "LonesomeRoad.esm",
+    "GunRunnersArsenal.esm",
+    "ClassicPack.esm",
+    "MercenaryPack.esm",
+    "TribalPack.esm",
+    "CaravanPack.esm",
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum InstallError {
@@ -29,6 +67,8 @@ pub enum InstallError {
     WriteDenied { path: PathBuf, reason: String },
     #[error("config error: {0}")]
     Config(String),
+    #[error("{} is missing game files NVForever needs:{}", .0.display(), .1.iter().map(|x| format!("\n  - Data\\{x}")).collect::<String>())]
+    MissingFiles(PathBuf, Vec<String>),
 }
 
 /// The user's original game install. Opened read-only; NVForever never writes here.
@@ -55,29 +95,110 @@ impl GameInstall {
     pub fn contains(&self, path: &Path) -> bool {
         is_within(path, &self.root)
     }
+
+    /// The file in `Data` whose name matches `name` regardless of case (the game's own
+    /// names are mixed case; a copy on a case-sensitive file system may differ).
+    pub fn data_file(&self, name: &str) -> Option<PathBuf> {
+        let exact = self.data.join(name);
+        if exact.is_file() {
+            return Some(exact);
+        }
+        std::fs::read_dir(&self.data)
+            .ok()?
+            .flatten()
+            .find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name))
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+    }
+
+    /// The [`REQUIRED_DATA_FILES`] that are absent or empty, in that list's order.
+    pub fn missing_files(&self) -> Vec<String> {
+        REQUIRED_DATA_FILES
+            .iter()
+            .filter(|n| self.data_file(n).and_then(|p| p.metadata().ok()).is_none_or(|m| m.len() == 0))
+            .map(|n| n.to_string())
+            .collect()
+    }
+
+    /// `Ok` when every required file is there, else [`InstallError::MissingFiles`].
+    pub fn check_files(&self) -> Result<(), InstallError> {
+        let missing = self.missing_files();
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(InstallError::MissingFiles(self.root.clone(), missing))
+        }
+    }
+
+    /// The [`ADDON_MASTERS`] present in `Data`.
+    pub fn addon_masters(&self) -> Vec<&'static str> {
+        ADDON_MASTERS.into_iter().filter(|n| self.data_file(n).is_some()).collect()
+    }
 }
 
 /// NVForever's own writable directory tree.
 #[derive(Debug, Clone)]
 pub struct EngineHome {
     pub root: PathBuf,
+    /// Generated data that can be made again (generated LOD): `<root>\cache`, except for
+    /// the per-user default on Windows, where it stays in the local data folder so that
+    /// gigabytes of cache never land in (possibly synced) Documents.
+    pub cache_root: PathBuf,
+}
+
+/// The per-user local data directory (`directories` crate): Windows
+/// `%LOCALAPPDATA%\NVForever` (the Local AppData known folder), macOS
+/// `~/Library/Application Support/NVForever`, other Unix `$XDG_DATA_HOME/nvforever` or
+/// `~/.local/share/nvforever`. The home of earlier builds on Windows.
+fn local_data_dir() -> Option<PathBuf> {
+    let name = if cfg!(any(windows, target_os = "macos")) { "NVForever" } else { "nvforever" };
+    directories::BaseDirs::new().map(|d| d.data_local_dir().join(name))
+}
+
+fn home_env_set() -> bool {
+    std::env::var_os(HOME_ENV).is_some_and(|s| !s.is_empty())
 }
 
 impl EngineHome {
-    /// `NVFOREVER_HOME` if set, else the platform's per-user local data directory
-    /// (from the `directories` crate): Windows `%LOCALAPPDATA%\NVForever` (the Local
-    /// AppData known folder), macOS `~/Library/Application Support/NVForever`, other
-    /// Unix `$XDG_DATA_HOME/nvforever` or `~/.local/share/nvforever`.
+    /// `NVFOREVER_HOME` if set; else on Windows `Documents\My Games\NVForever` (the
+    /// Documents known folder, so a redirected Documents is followed; beside the original
+    /// game's `My Games\FalloutNV`, never inside it), elsewhere the local data directory.
     pub fn default_root() -> Option<PathBuf> {
         if let Some(h) = std::env::var_os(HOME_ENV).filter(|s| !s.is_empty()) {
             return Some(PathBuf::from(h));
         }
-        let name = if cfg!(any(windows, target_os = "macos")) { "NVForever" } else { "nvforever" };
-        directories::BaseDirs::new().map(|d| d.data_local_dir().join(name))
+        if cfg!(windows) {
+            directories::UserDirs::new().and_then(|u| u.document_dir().map(|d| d.join("My Games").join("NVForever")))
+        } else {
+            local_data_dir()
+        }
     }
 
+    /// The home this user runs with: [`EngineHome::default_root`], with the cache in the
+    /// local data folder on Windows unless `NVFOREVER_HOME` chose the home.
+    pub fn user() -> Option<EngineHome> {
+        let root = EngineHome::default_root()?;
+        let cache_root = match local_data_dir() {
+            Some(l) if cfg!(windows) && !home_env_set() => l.join("cache"),
+            _ => root.join("cache"),
+        };
+        Some(EngineHome { root, cache_root })
+    }
+
+    /// The home of earlier builds (`%LOCALAPPDATA%\NVForever`) on Windows when
+    /// `NVFOREVER_HOME` is not set: its settings and saves are brought over once
+    /// ([`EngineHome::adopt_legacy`]).
+    pub fn legacy() -> Option<EngineHome> {
+        if home_env_set() || !cfg!(windows) {
+            return None;
+        }
+        local_data_dir().map(EngineHome::new)
+    }
+
+    /// A home with everything under `root` (tests, `--home`, `NVFOREVER_HOME`).
     pub fn new(root: impl Into<PathBuf>) -> EngineHome {
-        EngineHome { root: root.into() }
+        let root = root.into();
+        EngineHome { cache_root: root.join("cache"), root }
     }
 
     pub fn config_file(&self) -> PathBuf {
@@ -90,7 +211,7 @@ impl EngineHome {
         self.root.join("logs")
     }
     pub fn cache(&self) -> PathBuf {
-        self.root.join("cache")
+        self.cache_root.clone()
     }
     /// NVForever's own mod folder (plugins/archives/loose files layered over the
     /// read-only game Data). Mods are never installed into the game's Data folder.
@@ -104,9 +225,38 @@ impl EngineHome {
 
     pub fn create(&self) -> Result<(), InstallError> {
         for d in std::iter::once(self.root.clone()).chain(self.subdirs()) {
+            guard_write(&d, None)?;
             std::fs::create_dir_all(&d).map_err(|e| InstallError::Io(d.clone(), e))?;
         }
         Ok(())
+    }
+
+    /// First run of a new home: when it has no settings file yet, take the game's
+    /// location from `old`'s settings and copy `old`'s saves that are not here already
+    /// (copies; the old folder is left as it was). Returns the names of the saves copied.
+    pub fn adopt_legacy(&self, old: &EngineHome) -> Result<Vec<String>, InstallError> {
+        if is_within(&self.root, &old.root) || is_within(&old.root, &self.root) || self.config_file().exists() {
+            return Ok(Vec::new());
+        }
+        // Written even without a game folder (`Path=` empty, asked for at the start): the
+        // INI marks the home as set up, so saves are copied once and a save deleted here
+        // later does not come back.
+        Config::load(old)?.save(self, None)?;
+        let mut copied = Vec::new();
+        let Ok(entries) = std::fs::read_dir(old.saves()) else { return Ok(copied) };
+        for e in entries.flatten() {
+            let from = e.path();
+            let to = self.saves().join(e.file_name());
+            if !from.is_file() || to.exists() {
+                continue;
+            }
+            guard_write(&to, None)?;
+            std::fs::create_dir_all(self.saves()).map_err(|err| InstallError::Io(self.saves(), err))?;
+            std::fs::copy(&from, &to).map_err(|err| InstallError::Io(to.clone(), err))?;
+            copied.push(e.file_name().to_string_lossy().into_owned());
+        }
+        copied.sort();
+        Ok(copied)
     }
 }
 
@@ -190,44 +340,158 @@ pub fn guard_write(path: &Path, game: Option<&GameInstall>) -> Result<(), Instal
     Ok(())
 }
 
-/// `nvforever.json` in the engine home. Unknown keys are ignored so older builds can
-/// read newer files.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+/// The home's settings, `NVForever.ini`:
+///
+/// ```ini
+/// [Game]
+/// Path=F:\SteamLibrary\steamapps\common\Fallout New Vegas
+/// ```
+///
+/// `Path` is the original game's install folder (the one holding `Data`), read-only input.
+/// Saving changes only the keys it owns and keeps every other line, so the file can carry
+/// comments and settings of later builds.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Config {
     /// The original game's install folder (read-only input).
     pub game_dir: Option<PathBuf>,
 }
 
-#[derive(Serialize)]
-struct ConfigFile<'a> {
-    format: &'static str,
-    #[serde(flatten)]
-    config: &'a Config,
+/// `nvforever.json` of earlier builds; unknown keys are ignored.
+#[derive(Deserialize)]
+struct LegacyConfig {
+    #[serde(default)]
+    game_dir: Option<PathBuf>,
 }
 
+const INI_HEADER: &str = "; NVForever settings. Path is your Fallout: New Vegas folder (the one holding Data);\n; change it here, or delete this file to be asked again at the next start.\n";
+
 impl Config {
+    /// The INI, else the `nvforever.json` of an earlier build in the same folder, else
+    /// nothing set.
     pub fn load(home: &EngineHome) -> Result<Config, InstallError> {
         let p = home.config_file();
-        let text = match std::fs::read_to_string(&p) {
+        match std::fs::read_to_string(&p) {
+            Ok(t) => return Ok(Config::from_ini(&t)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(InstallError::Io(p, e)),
+        }
+        let legacy = home.root.join(LEGACY_CONFIG_FILE);
+        let text = match std::fs::read_to_string(&legacy) {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Config::default()),
-            Err(e) => return Err(InstallError::Io(p, e)),
+            Err(e) => return Err(InstallError::Io(legacy, e)),
         };
-        serde_json::from_str(&text).map_err(|e| InstallError::Config(format!("{}: {e}", p.display())))
+        let c: LegacyConfig =
+            serde_json::from_str(&text).map_err(|e| InstallError::Config(format!("{}: {e}", legacy.display())))?;
+        Ok(Config { game_dir: c.game_dir })
+    }
+
+    pub fn from_ini(text: &str) -> Config {
+        Config { game_dir: ini_get(text, "Game", "Path").filter(|s| !s.is_empty()).map(PathBuf::from) }
+    }
+
+    /// `text` (an existing INI, or empty) with this config's keys set.
+    pub fn to_ini(&self, text: &str) -> String {
+        let base = if text.trim().is_empty() { INI_HEADER.to_string() } else { text.to_string() };
+        let path = self.game_dir.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+        ini_set(&base, "Game", "Path", &path)
     }
 
     pub fn save(&self, home: &EngineHome, game: Option<&GameInstall>) -> Result<(), InstallError> {
         let p = home.config_file();
         guard_write(&p, game)?;
-        let file = ConfigFile { format: "nvforever.config/1", config: self };
-        let text = serde_json::to_string_pretty(&file).map_err(|e| InstallError::Config(e.to_string()))?;
-        std::fs::write(&p, text + "\n").map_err(|e| InstallError::Io(p, e))
+        let old = match std::fs::read_to_string(&p) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(InstallError::Io(p, e)),
+        };
+        std::fs::create_dir_all(&home.root).map_err(|e| InstallError::Io(home.root.clone(), e))?;
+        std::fs::write(&p, self.to_ini(&old)).map_err(|e| InstallError::Io(p, e))
     }
 }
 
+/// The name of an INI line's `[section]`, if it is one.
+fn ini_section(line: &str) -> Option<&str> {
+    let t = line.trim();
+    t.strip_prefix('[').and_then(|r| r.strip_suffix(']')).map(str::trim)
+}
+
+/// `key=value` of an INI line that is not a comment, both trimmed.
+fn ini_pair(line: &str) -> Option<(&str, &str)> {
+    let t = line.trim();
+    if t.starts_with(';') || t.starts_with('#') {
+        return None;
+    }
+    t.split_once('=').map(|(k, v)| (k.trim(), v.trim()))
+}
+
+/// The value of `key` in `[section]` (names compared without case); the first one wins.
+pub fn ini_get(text: &str, section: &str, key: &str) -> Option<String> {
+    let mut in_section = false;
+    for line in text.lines() {
+        if let Some(s) = ini_section(line) {
+            in_section = s.eq_ignore_ascii_case(section);
+        } else if in_section {
+            if let Some((_, v)) = ini_pair(line).filter(|(k, _)| k.eq_ignore_ascii_case(key)) {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// `text` with `key=value` in `[section]`: the first such line replaced, else the key added
+/// after the section's last line, else the section added at the end. Other lines are kept.
+pub fn ini_set(text: &str, section: &str, key: &str, value: &str) -> String {
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    let entry = format!("{key}={value}");
+    let mut in_section = false;
+    let mut last_in_section: Option<usize> = None;
+    for (i, line) in lines.iter().enumerate() {
+        if let Some(s) = ini_section(line) {
+            in_section = s.eq_ignore_ascii_case(section);
+            if in_section {
+                last_in_section = Some(i);
+            }
+        } else if in_section {
+            if ini_pair(line).is_some_and(|(k, _)| k.eq_ignore_ascii_case(key)) {
+                lines[i] = entry;
+                return lines.join("\n") + "\n";
+            }
+            if !line.trim().is_empty() {
+                last_in_section = Some(i);
+            }
+        }
+    }
+    match last_in_section {
+        Some(i) => lines.insert(i + 1, entry),
+        None => {
+            if lines.last().is_some_and(|l| !l.trim().is_empty()) {
+                lines.push(String::new());
+            }
+            lines.push(format!("[{section}]"));
+            lines.push(entry);
+        }
+    }
+    lines.join("\n") + "\n"
+}
+
+/// The canonical path, without Windows' verbatim prefix where the plain form means the
+/// same (`\\?\C:\x` → `C:\x`, `\\?\UNC\srv\x` → `\\srv\x`): it is shown to the player and
+/// stored in the INI.
 fn canonical(p: &Path) -> Result<PathBuf, InstallError> {
-    std::fs::canonicalize(p).map_err(|e| InstallError::Io(p.to_path_buf(), e))
+    std::fs::canonicalize(p).map(|c| plain(&c)).map_err(|e| InstallError::Io(p.to_path_buf(), e))
+}
+
+fn plain(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    match s.strip_prefix(r"\\?\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') && rest.len() < 260 => PathBuf::from(rest),
+        _ => p.to_path_buf(),
+    }
 }
 
 /// Best-effort absolute, normalized form even for paths that do not exist yet:
@@ -382,6 +646,80 @@ mod tests {
         let c = Config { game_dir: Some(t.join("FNV")) };
         c.save(&home, None).unwrap();
         assert_eq!(Config::load(&home).unwrap(), c);
+        let text = std::fs::read_to_string(home.config_file()).unwrap();
+        assert!(text.starts_with("; NVForever settings") && text.contains("\n[Game]\nPath="), "{text}");
+        std::fs::remove_dir_all(&t).ok();
+    }
+
+    #[test]
+    fn verbatim_prefix_dropped() {
+        assert_eq!(plain(Path::new(r"\\?\F:\Steam\FNV")), PathBuf::from(r"F:\Steam\FNV"));
+        assert_eq!(plain(Path::new(r"\\?\UNC\srv\share\FNV")), PathBuf::from(r"\\srv\share\FNV"));
+        assert_eq!(plain(Path::new(r"\\?\Volume{x}\FNV")), PathBuf::from(r"\\?\Volume{x}\FNV"));
+        assert_eq!(plain(Path::new("/home/x")), PathBuf::from("/home/x"));
+    }
+
+    #[test]
+    fn ini_keeps_other_lines() {
+        let text = "; mine\n[Display]\nW=1\n\n[game]\n; the folder\npath = C:\\Old\nOther=2\n";
+        assert_eq!(ini_get(text, "Game", "Path").as_deref(), Some("C:\\Old"));
+        assert_eq!(
+            ini_set(text, "Game", "Path", "F:\\FNV"),
+            "; mine\n[Display]\nW=1\n\n[game]\n; the folder\nPath=F:\\FNV\nOther=2\n"
+        );
+        assert_eq!(ini_set("[Display]\nW=1\n", "Game", "Path", "X"), "[Display]\nW=1\n\n[Game]\nPath=X\n");
+        assert_eq!(ini_set("[Game]\nOther=2\n\n[Display]\n", "Game", "Path", "X"), "[Game]\nOther=2\nPath=X\n\n[Display]\n");
+        assert_eq!(ini_get("[Game]\n;Path=no\n", "Game", "Path"), None);
+        assert_eq!(ini_get("Path=top\n[Other]\nPath=no\n", "Game", "Path"), None);
+    }
+
+    #[test]
+    fn legacy_json_is_read_and_adopted() {
+        let t = tmp("legacy");
+        let old = EngineHome::new(t.join("old"));
+        old.create().unwrap();
+        std::fs::write(old.root.join(LEGACY_CONFIG_FILE), r#"{"format":"nvforever.config/1","game_dir":"F:\\FNV"}"#).unwrap();
+        std::fs::write(old.saves().join("a.nvfsave"), b"1").unwrap();
+        let new = EngineHome::new(t.join("new"));
+        new.create().unwrap();
+        std::fs::write(new.saves().join("b.nvfsave"), b"2").unwrap();
+        std::fs::write(old.saves().join("b.nvfsave"), b"old").unwrap();
+        assert_eq!(new.adopt_legacy(&old).unwrap(), ["a.nvfsave"]);
+        assert_eq!(Config::load(&new).unwrap().game_dir, Some(PathBuf::from("F:\\FNV")));
+        assert!(new.config_file().is_file());
+        assert_eq!(std::fs::read(new.saves().join("b.nvfsave")).unwrap(), b"2");
+        assert!(old.saves().join("a.nvfsave").is_file());
+        // Once the INI is there, nothing is taken again.
+        std::fs::write(old.saves().join("c.nvfsave"), b"3").unwrap();
+        assert!(new.adopt_legacy(&old).unwrap().is_empty());
+        // Without an old game folder the INI is still written, with the path empty.
+        let bare = EngineHome::new(t.join("bare"));
+        std::fs::remove_file(old.root.join(LEGACY_CONFIG_FILE)).unwrap();
+        assert_eq!(bare.adopt_legacy(&old).unwrap().len(), 3);
+        assert_eq!(Config::load(&bare).unwrap(), Config::default());
+        assert!(bare.adopt_legacy(&old).unwrap().is_empty());
+        std::fs::remove_dir_all(&t).ok();
+    }
+
+    #[test]
+    fn required_files() {
+        let t = tmp("required");
+        let g = fake_game(&t.join("FNV"));
+        assert_eq!(g.missing_files(), REQUIRED_DATA_FILES[1..].to_vec());
+        assert!(matches!(g.check_files(), Err(InstallError::MissingFiles(_, ref m)) if m.len() == 7));
+        for n in &REQUIRED_DATA_FILES[1..7] {
+            // Any case of the name will do.
+            std::fs::write(g.data.join(n.to_uppercase()), b"BSA").unwrap();
+        }
+        // An empty file counts as missing.
+        std::fs::write(g.data.join("Update.bsa"), b"").unwrap();
+        assert_eq!(g.missing_files(), ["Update.bsa"]);
+        std::fs::write(g.data.join("Update.bsa"), b"BSA").unwrap();
+        assert!(g.missing_files().is_empty());
+        assert!(g.check_files().is_ok());
+        assert!(g.addon_masters().is_empty());
+        std::fs::write(g.data.join("honesthearts.esm"), b"TES4").unwrap();
+        assert_eq!(g.addon_masters(), ["HonestHearts.esm"]);
         std::fs::remove_dir_all(&t).ok();
     }
 }

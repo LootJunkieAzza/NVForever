@@ -48,7 +48,7 @@ touches `Documents\My Games\FalloutNV`. The game's `Data` folder is read-only in
 |---|---|
 | Original game (read-only) | e.g. `F:\SteamLibrary\steamapps\common\Fallout New Vegas` |
 | NVForever programs | any folder outside the game, e.g. `C:\Games\NVForever` |
-| NVForever home (config, saves, logs, cache, mods) | `%LOCALAPPDATA%\NVForever` or `NVFOREVER_HOME` |
+| NVForever home (NVForever.ini, saves, logs, mods) | `Documents\My Games\NVForever` or `NVFOREVER_HOME` (caches: `%LOCALAPPDATA%\NVForever\cache`) |
 
 ```
 fnvtool setup --game "F:\SteamLibrary\steamapps\common\Fallout New Vegas"
@@ -63,9 +63,10 @@ Pre-release builds for Windows and Linux are on the
 [releases page](https://github.com/LootJunkieAzza/NVForever/releases) (v0.1.0, 2026-10-13,
 built before saved games, crafting and the main menu). Unpack outside the game folder and
 start through the launchers beside the programs, which point them at the shipped schemas:
-`nvforever.cmd --play --menu` (Windows) or `./nvforever.sh --play --menu` (Linux), with
-`NVFOREVER_DATA` set to your game's `Data` folder; `README-release.md` in the archive
-explains the rest. v0.1.0 has no `--menu` yet: start it with `--play` or `--play --new-game`.
+`nvforever.cmd` (Windows) or `./nvforever.sh` (Linux); `README-release.md` in the archive
+explains the rest. v0.1.0 needs `NVFOREVER_DATA` set to your game's `Data` folder and has
+no `--menu`: start it with `--play` or `--play --new-game`. From the next release on, the
+first start asks for the game folder and remembers it, and `--play --menu` opens the main menu.
 
 ## Build and test
 
@@ -110,7 +111,9 @@ cargo run --release --bin nvforever -- --data $D --cell Goodsprings --play     #
 cargo run --release --bin nvforever -- --data $D --cell GSDocMitchellHouse --play --no-messages --graphics enhanced
 ```
 
-`$env:NVFOREVER_DATA` can stand in for `--data`. For playtests, `tools/play/Play.ps1` starts
+`--data` (or `$env:NVFOREVER_DATA`) is for development runs; without it the game folder
+comes from `NVForever.ini`, and the first start asks for it in a folder dialog
+([docs/design/install-layout.md](docs/design/install-layout.md)). For playtests, `tools/play/Play.ps1` starts
 the game at named places ([tools/play/README.md](tools/play/README.md)).
 
 - `--play --menu`: the main menu over the plugins' loading screens, with the original's
@@ -122,7 +125,7 @@ the game at named places ([tools/play/README.md](tools/play/README.md)).
 - `--cell <EditorID or x,y>`: where to start (an interior's Editor ID such as
   `GSDocMitchellHouse` opens that interior); `--pos x,y,z`, `--heading` and `--hour`
   refine it. `--new-game` (with `--play`) starts the opening instead, `--load <save>` a
-  saved game (saves live in `%LOCALAPPDATA%\NVForever\saves`).
+  saved game (saves live in `Documents\My Games\NVForever\saves`).
 - `--no-messages` (with `--play`): message boxes with only an OK button (such as the
   add-on packs' start-up boxes) close at once; their text is still logged.
 - `--graphics enhanced`: the optional modern look (ambient occlusion, finer shadows,
@@ -142,7 +145,7 @@ another place shows one of the game's loading screens while the destination load
 ([docs/design/loading-screen.md](docs/design/loading-screen.md)). The bindings:
 [docs/spec-notes/controls.md](docs/spec-notes/controls.md).
 
-A crash leaves a report with a backtrace in `%LOCALAPPDATA%\NVForever\logs`. Report bugs,
+A crash leaves a report with a backtrace in `Documents\My Games\NVForever\logs`. Report bugs,
 crashes and differences from the original with the
 [issue forms](https://github.com/LootJunkieAzza/NVForever/issues/new/choose); never
 attach game files.

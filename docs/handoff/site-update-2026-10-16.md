@@ -15,7 +15,7 @@ facts from them, not from this summary, if the two ever differ.
   opening at Doc Mitchell's. (`--play --new-game` still goes straight to the opening,
   `--play --load "<save>"` to a saved game, `--cell X --play` to a place.)
 - **Saved games exist** (first version): F5 quicksave, F9 quickload, Save/Load on the pause
-  menu with thumbnails, autosaves after travel. Saves live in `%LOCALAPPDATA%\NVForever\saves`.
+  menu with thumbnails, autosaves after travel. Saves live in `Documents\My Games\NVForever\saves`.
 - **Pause menu** in the original's look: Continue, Save, Load, Settings, Quit (Quit asks
   Main Menu / Exit Game / Cancel).
 - **Crafting** (first version): workbench, campfire and reloading bench recipe menus.
@@ -26,6 +26,13 @@ facts from them, not from this summary, if the two ever differ.
   imply sun shadows are on.
 - Mods: `--plugins <files…>` loads a load order with mods; their archives follow.
 - Program icon on the exe and window; the game's own mouse pointer.
+- **First start (#303)**: NVForever's home (`NVForever.ini`, saves, logs, mods) is now
+  `Documents\My Games\NVForever` (not `%LOCALAPPDATA%\NVForever`; caches stay there). With
+  no `--data` and no stored folder, the first start shows a welcome box and a folder picker
+  (Windows) for the game's **root** folder, checks the required game files and stores it in
+  `NVForever.ini`. `--data` only overrides it for one run. On Linux: `--data`, or `Path=`
+  under `[Game]` in the INI. `fnvtool setup` writes the INI too. Still never touches
+  `My Games\FalloutNV`.
 - Still **not started**: VATS, levelling up and perks, repair, the Caravan and casino games,
   the companion wheel, credits.
 
@@ -50,9 +57,13 @@ not tell people the download opens on a main menu. Two honest options:
 - **Install → Launch**: it runs `nvforever --data ... --play` directly. A release build must
   be started through the launchers beside the programs (`nvforever.cmd` on Windows,
   `./nvforever.sh` on Linux): the built-in schema paths point at the build machine
-  (`tools/release/README-release.md`). `--data` is required, or `NVFOREVER_DATA` set to the
-  game's `Data` folder; `fnvtool setup` does not supply it. For the next release the launch
-  line becomes `nvforever.cmd --play --menu`.
+  (`tools/release/README-release.md`). For v0.1.0, `--data` or `NVFOREVER_DATA` (the
+  game's `Data` folder) is required. From the next release the steps shrink to: unpack,
+  run `nvforever.cmd --play --menu`, pick the game folder once; drop the `fnvtool setup`
+  step or mark it optional.
+- **FAQ / uninstall / crash answers**: NVForever's files move from `%LOCALAPPDATA%\NVForever`
+  to `Documents\My Games\NVForever` (caches stay in `%LOCALAPPDATA%\NVForever\cache`) in
+  the next release; v0.1.0 still uses `%LOCALAPPDATA%`. Linux paths: see install-layout.md.
 - **Controls**: add F5 quicksave, F9 quickload, `` ` `` developer console; Esc is the pause
   menu (Continue, Save, Load, Settings, Quit).
 - **Bug reports**: GitHub now has issue forms (bug, crash, differs from the original,

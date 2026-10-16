@@ -77,7 +77,7 @@ pub struct LoadRequest {
 /// Where saves go and the autosave switches.
 #[derive(Resource, Debug, Clone)]
 pub struct SaveConfig {
-    /// `fnv_install::EngineHome::saves` (`%LOCALAPPDATA%\NVForever\saves`).
+    /// `fnv_install::EngineHome::saves` (`Documents\My Games\NVForever\saves`).
     pub dir: Option<PathBuf>,
     pub autosave_travel: bool,
     pub autosave_scripts: bool,
