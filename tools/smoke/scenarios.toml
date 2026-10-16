@@ -1650,15 +1650,17 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # (144 calls, 132 condition uses) and moved the other four to "needs a system", so no
 # "E2 combat AI" row is left: 71 → 60 stubs, 457 → 313 calls, 614 → 482 condition uses.
 # claude/use-weapon implemented UseWeapon (13 calls, §3.8): 60 → 59 stubs, 313 → 300 calls.
+# The script function audit implemented GetAnimAction (44 calls, 1 condition use, §3.9):
+# 59 → 58 stubs, 300 → 256 calls, 482 → 481 condition uses.
 expect = [
-  { json = "summary.stubs", equals = 59 },
+  { json = "summary.stubs", equals = 58 },
   { json = "summary.by_status.assigned", equals = 1 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 57 },
+  { json = "summary.by_status.needs_system", equals = 56 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 300 },
-  { json = "summary.stub_condition_uses", equals = 482 },
+  { json = "summary.stub_calls", equals = 256 },
+  { json = "summary.stub_condition_uses", equals = 481 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
 
