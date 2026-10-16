@@ -72,19 +72,29 @@
 //!   flank places for a group's gunmen, and no shot while a friend stands in the line of
 //!   fire.
 //!
+//! - **Attack lines**: each shot or blow it begins tries its Attack line, said at most
+//!   once per its attack timer (`fnv_game::combat_lines`, docs/spec-notes/combat-dialogue.md).
+//! - **Crouching, blocking, closing in** (people only; docs/design/combat-ai.md §14, the
+//!   rules in `combat_stance`): a gunman that sees a far target now and then crouches to
+//!   fire (`Awarenesses::crouching`), hides crouched behind low cover, shifts sideways
+//!   after a while and stands up for a close-combat enemy coming in or to move; a melee
+//!   fighter against a close-combat opponent makes the melee decision block first, also
+//!   in reaction to the opponent's blow, and the attacker of a blocked blow recoils;
+//!   against a gunman that sees it from afar it bounds from cover to cover, or charges
+//!   when there is none, or stays by a gunman of its group until the target comes near.
+//!
 //! Whom it fights is the detection states' (its combat target). Not built: grenades,
-//! ammunition use, weapon choice among several, blocking, dodging and power attacks of
-//! NPCs.
+//! ammunition use, weapon choice among several, dodging and power attacks of NPCs.
 
-use crate::attack_anims::{AttackTimes, PlayAttack, DEFAULT_HIT};
+use crate::attack_anims::{AttackTimes, Move, PlayAttack, DEFAULT_HIT};
+use crate::combat_stance::{self as stance, Temperament};
 use crate::combat_tactics::{self as tactics, Battle, Phase, Tactic};
 use crate::nav::NavState;
 use fnv_game::combat_group::{Post, PostKind, Strength};
 use fnv_nav::Space;
 use nvf_play::Location;
 use crate::limbs::ActorRig;
-use crate::locomotion::{Dying, Flinch, Locomotion};
-use fnv_actor::locomotion::Move;
+use crate::locomotion::{Dying, Flinch};
 use crate::ragdoll::Corpse;
 use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 use crate::world::bevy_to_game;
@@ -96,11 +106,12 @@ use fnv_combat::data::WeaponStats;
 use fnv_combat::spread::{self, Stance};
 use fnv_combat::vec::{self, V3};
 use fnv_game::awareness::State;
-use fnv_game::combat_style::melee_attack_chance;
+use fnv_game::combat_style::{melee_attack_chance, melee_block_chance, Opponent};
 use fnv_game::detection::Band;
 use fnv_sim::FormId;
 use nvf_play::blocking::ActorBlocks;
-use nvf_play::combat::{ActorFire, ActorStrike, Combat, CombatStats};
+use nvf_play::combat::{ActorFire, ActorStrike, BlockedBlow, Combat, CombatStats};
+use nvf_play::control::PlayerControl;
 use nvf_play::phys::PhysState;
 use nvf_play::player::{Player, EYE_HEIGHT};
 use nvf_play::script::{with_world, ScriptState};
@@ -136,9 +147,9 @@ pub const HIP_FIRE_WITHIN: f32 = 1400.0;
 /// nearer than [`HIP_FIRE_WITHIN`], so it does not switch at the edge [design].
 pub const SIGHTS_HYSTERESIS: f32 = 50.0;
 /// Without a muzzle node, shots leave this far in front of the eyes, game units [design].
-const MUZZLE_AHEAD: f32 = 24.0;
+pub(crate) const MUZZLE_AHEAD: f32 = 24.0;
 /// The chest as a fraction of the eye height (as `detection.rs` aims its sight).
-const CHEST: f32 = 0.75;
+pub(crate) const CHEST: f32 = 0.75;
 /// A gunman fires only while its target is within this angle of straight ahead,
 /// radians (30°) [design: owner's playtest list 5 item 33, "NPCs must face their target
 /// before shooting"].
@@ -146,7 +157,7 @@ pub const FIRE_FACING: f32 = 30.0 * std::f32::consts::PI / 180.0;
 
 /// How far (radians, 0 to π) the target at `to` lies off the heading of the actor whose
 /// root is at `global`, standing at `feet` (game space).
-fn facing_off(global: &GlobalTransform, feet: V3, to: V3) -> f32 {
+pub(crate) fn facing_off(global: &GlobalTransform, feet: V3, to: V3) -> f32 {
     let ahead = bevy_to_game(global.transform_point(Vec3::Y)) - bevy_to_game(global.translation());
     let want = Vec2::new(to[0] - feet[0], to[1] - feet[1]);
     let have = ahead.truncate();
@@ -154,6 +165,16 @@ fn facing_off(global: &GlobalTransform, feet: V3, to: V3) -> f32 {
         return 0.0;
     }
     have.angle_to(want).abs()
+}
+
+/// The way an actor whose root is `global` faces, horizontal, game space.
+fn heading(global: &GlobalTransform) -> [f32; 2] {
+    let ahead = bevy_to_game(global.transform_point(Vec3::Y)) - bevy_to_game(global.translation());
+    [ahead.x, ahead.y]
+}
+
+fn flat(a: V3, b: V3) -> f32 {
+    (a[0] - b[0]).hypot(a[1] - b[1])
 }
 
 pub struct NpcCombatPlugin;
@@ -203,32 +224,109 @@ struct Fighter {
     /// The start (`Flinch::at`, as bits) of the last hit reaction counted as holding it
     /// back.
     stagger_seen: Option<u32>,
+    /// Its temperaments (docs/design/combat-ai.md §14.1), kept across targets.
+    temper: Temperament,
+    /// Crouched to fire since (clock); seconds stood still; its feet last frame; seconds
+    /// to its next stance decision; seconds since it last saw its target (§14.2).
+    crouched_since: Option<f32>,
+    still_for: f32,
+    last_feet: Option<V3>,
+    stance_in: f32,
+    unseen_for: f32,
+    /// Blocking until (clock), raised against a blow (§14.3).
+    block: Option<(f32, bool)>,
+    /// A reaction to its opponent's blow: due at (clock), and when the blow lands.
+    react: Option<(f32, f32)>,
+    /// Its opponent's blows seen begun; its own blows begun.
+    seen_opp_blows: u32,
+    blows_begun: u32,
+    /// It cannot strike until then (clock): its blow was blocked.
+    recoil_until: f32,
+    /// Closing in on a gunman (§14.4).
+    approach: Approach,
+}
+
+/// A melee fighter closing in (docs/design/combat-ai.md §14.4).
+#[derive(Debug, Clone, Default)]
+struct Approach {
+    guard: Option<Guarding>,
+    /// A guard ended in this fight (it does not guard again).
+    guarded: bool,
+    bound: Option<Bound>,
+    /// Seconds to its next look for a bound.
+    bound_in: f32,
+    /// Charging in the open (logged once per run).
+    charging: bool,
+    /// The post it was given last frame.
+    posted: Option<PostKind>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Guarding {
+    friend: u32,
+    since: f32,
+    patience: f32,
+    turn: f32,
+    at: V3,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Bound {
+    at: V3,
+    arrived: Option<f32>,
+    pause: f32,
+}
+
+/// A fighter's pose this frame, for `attack_anims`.
+#[derive(Debug, Clone, Copy, Default)]
+struct Pose {
+    /// Its pitch to its target (radians, negative looks down).
+    pitch: f32,
+    weapon: Option<FormId>,
+    sights: bool,
+    crouched: bool,
+    blocking: bool,
 }
 
 #[derive(Resource, Default)]
 pub struct Fighters {
     fighters: HashMap<u32, Fighter>,
-    /// Each fighter's pitch to its target (radians, negative looks down), the weapon
-    /// drawn on it and whether it aims down the sights, this frame.
-    poses: HashMap<u32, (f32, Option<FormId>, bool)>,
+    /// Each fighter's pose this frame.
+    poses: HashMap<u32, Pose>,
     stats: Stats,
     rng: u64,
+    /// The crouch, block and approach rolls' own sequence (§14), so fights without them
+    /// roll as before.
+    stance_rng: u64,
+    /// The player's swings seen so far (`CombatStats::swings`), and when the last began.
+    player_swings: u32,
+    player_swing_at: f32,
 }
 
 impl Fighters {
     /// The pitch from a fighting actor's eyes to its target's chest, while it fights.
     pub fn pitch(&self, actor: u32) -> Option<f32> {
-        self.poses.get(&actor).map(|p| p.0)
+        self.poses.get(&actor).map(|p| p.pitch)
     }
 
     /// The weapon drawn on a fighting actor.
     pub fn weapon(&self, actor: u32) -> Option<FormId> {
-        self.poses.get(&actor).and_then(|p| p.1)
+        self.poses.get(&actor).and_then(|p| p.weapon)
     }
 
     /// Whether a fighting actor aims down its weapon's sights.
     pub fn sights(&self, actor: u32) -> bool {
-        self.poses.get(&actor).is_some_and(|p| p.2)
+        self.poses.get(&actor).is_some_and(|p| p.sights)
+    }
+
+    /// Whether a fighting actor is crouched to fire (docs/design/combat-ai.md §14.2).
+    pub fn crouched(&self, actor: u32) -> bool {
+        self.poses.get(&actor).is_some_and(|p| p.crouched)
+    }
+
+    /// Whether a fighting actor blocks (§14.3).
+    pub fn blocking(&self, actor: u32) -> bool {
+        self.poses.get(&actor).is_some_and(|p| p.blocking)
     }
 }
 
@@ -257,10 +355,27 @@ struct Stats {
     blows_cut: usize,
     /// Frames in which a fighter that could have attacked waited to face its target.
     unfaced: usize,
+    /// Crouching (§14.2): times crouched to fire, behind low cover; stood up, for a
+    /// close-combat enemy; shifts.
+    crouches: usize,
+    low_crouches: usize,
+    stands: usize,
+    stands_close: usize,
+    shifts: usize,
+    /// Blocking (§14.3): blocks raised by decision and in reaction; blows blocked by
+    /// people; recoils.
+    blocks: usize,
+    reactive_blocks: usize,
+    blocked: usize,
+    recoils: usize,
+    /// Closing in (§14.4): bounds, charges in the open, guards begun.
+    bounds: usize,
+    charges: usize,
+    guards: usize,
 }
 
 /// A number in [0, 1) from the module's own sequence `rng` [design].
-fn next_unit(rng: &mut u64) -> f32 {
+pub(crate) fn next_unit(rng: &mut u64) -> f32 {
     *rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
     (*rng >> 40) as f32 / (1u64 << 24) as f32
 }
@@ -329,37 +444,34 @@ fn reach_of(c: &Combat, arm: &Arm, scale: f32) -> f32 {
     }
 }
 
-fn is_gun(c: &Combat, w: &WeaponStats, id: FormId) -> bool {
+pub(crate) fn is_gun(c: &Combat, w: &WeaponStats, id: FormId) -> bool {
     AttackKind::of(w) == AttackKind::Gun && c.forms.chain(id, None).is_some_and(|ch| ch.projectile.is_some())
 }
 
 /// The navmesh, the player's place, the battle's counts, and who the AI moves.
 type Where<'w> = (Option<Res<'w, NavState>>, Option<Res<'w, Location>>, ResMut<'w, Battle>, Option<Res<'w, crate::residents::Residents>>);
 
-type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>, Option<&'w Flinch>, Option<&'w Locomotion>);
+type Fought<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>, Option<&'w Flinch>);
 
-/// The share of the running speed a fighter keeps (`Awarenesses::pace`, read by the AI
-/// that moves it): a creature runs at its own run clip's pace (the root motion of its
-/// `fastforward` clip at its scale, times its Speed Mult) where that is slower than the running speed all
-/// actors are given [design: the owner's playtest list 5 item 25, radscorpions ran far
-/// too fast; the clip speed as the creature's speed is a hypothesis]; a two-handed weapon
-/// drawn costs `fMove2HBigPenalty` of it (item 61).
-fn pace(creature_run: Option<f32>, two_handed_drawn: bool, penalty: f32) -> f32 {
-    let own = creature_run.filter(|v| *v > 1.0).map_or(1.0, |v| (v / nvf_play::player::MoveSpeeds::OBSERVED.run).clamp(MIN_PACE, 1.0));
-    let weapon = if two_handed_drawn { (1.0 - penalty).clamp(0.1, 1.0) } else { 1.0 };
-    own * weapon
+/// The share of its running speed a fighter keeps (`Awarenesses::pace`, read by the AI
+/// that moves it): a two-handed weapon drawn costs `fMove2HBigPenalty` of it (item 61).
+/// A creature's own running speed (its run clip's pace) is the AI's
+/// (`fnv_ai::Ai::speeds`, set by `creature_pace.rs`); this was where creatures were held
+/// below the people's running speed (the owner's playtest list 5 item 25).
+fn pace(two_handed_drawn: bool, penalty: f32) -> f32 {
+    if two_handed_drawn {
+        (1.0 - penalty).clamp(0.1, 1.0)
+    } else {
+        1.0
+    }
 }
-
-/// The slowest pace [`pace`] gives a creature, so a clip with little root motion does
-/// not stop it [design].
-const MIN_PACE: f32 = 0.25;
 
 /// One frame of every fight (module notes).
 #[allow(clippy::too_many_arguments)]
 fn fight(
     time: Res<Time>,
     mut fighters: ResMut<Fighters>,
-    combat: Res<Combat>,
+    mut combat: ResMut<Combat>,
     mut script: Option<ResMut<ScriptState>>,
     mut sim: ResMut<SimState>,
     player: Option<Res<Player>>,
@@ -370,22 +482,29 @@ fn fight(
     muzzles: Query<(&Muzzle, &GlobalTransform)>,
     (mut fire, mut strike, mut anims): (MessageWriter<ActorFire>, MessageWriter<ActorStrike>, MessageWriter<PlayAttack>),
     times: Res<AttackTimes>,
+    (cstats, control): (Option<Res<CombatStats>>, Option<Res<PlayerControl>>),
 ) {
     let dt = time.delta_secs();
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     if rt.game.menu.is_some() || rt.game.dialogue.is_some() {
         return;
     }
+    // Blows blocked since last frame (docs/design/combat-ai.md §14.3).
+    let blocked_blows: Vec<BlockedBlow> = std::mem::take(&mut combat.blocked_blows);
+    // Who is crouched to fire: their eyes are lower (§14.2).
+    let crouched_now: std::collections::HashSet<u32> = rt.game.awareness.crouching.iter().map(|a| a.0).collect();
+    let mut guarding: HashMap<FormId, [f32; 2]> = HashMap::new();
     let c = &*combat;
     let weapons: HashMap<u32, FormId> = held.iter().map(|h| (h.reference, h.weapon)).collect();
     let muzzle_at: HashMap<u32, V3> = muzzles.iter().map(|(m, g)| (m.reference, bevy_to_game(g.translation()).to_array())).collect();
     // Where everyone is: feet and chest (game space), and size.
     let mut places: HashMap<u32, (V3, V3, f32)> = HashMap::new();
-    for (rig, g, vis, _, dying, corpse, _, _) in &actors {
+    for (rig, g, vis, _, dying, corpse, _) in &actors {
         if vis.get() && !dying && !corpse {
             let feet = bevy_to_game(g.translation()).to_array();
             let scale = g.affine().transform_vector3(Vec3::Z).length().max(0.1);
-            places.insert(rig.reference, (feet, [feet[0], feet[1], feet[2] + EYE_HEIGHT * scale], scale));
+            let eye = EYE_HEIGHT * scale * if crouched_now.contains(&rig.reference) { stance::CROUCH_EYE } else { 1.0 };
+            places.insert(rig.reference, (feet, [feet[0], feet[1], feet[2] + eye], scale));
         }
     }
     if let Some(p) = player.as_deref() {
@@ -401,18 +520,47 @@ fn fight(
     };
     let f = &mut *fighters;
     f.poses.clear();
+    if f.stance_rng == 0 {
+        f.stance_rng = 0x2545_F491_4F6C_DD1D;
+    }
     let clock = time.elapsed_secs();
     let space = location.as_deref().map(|l| l.interior.map_or(Space::World(l.world), Space::Interior));
     let nav = nav.as_deref().map(|n| &n.graph);
     let mut still: Vec<u32> = Vec::new();
+    // The player's swings (its blows, for those fighting it in close combat).
+    let swings = cstats.as_deref().map_or(0, |s| s.swings);
+    if swings > f.player_swings {
+        f.player_swing_at = clock;
+    }
+    f.player_swings = swings;
+    let player_close = matches!(player_arm(c), Arm::Melee(_));
+    let player_blocking = player_close && control.as_deref().is_some_and(|k| k.aiming);
     with_world(rt, &mut sim, |rt| {
         let g = &mut rt.game;
-        for (rig, global, _, hold, _, _, flinch, loco) in &actors {
+        // Blocked blows: the attacker recoils, the blocker plays its block hit (§14.3).
+        for b in &blocked_blows {
+            if let Some(x) = f.fighters.get_mut(&b.attacker.0) {
+                x.recoil_until = clock + stance::RECOIL_SECONDS;
+                x.blows.clear();
+                f.stats.recoils += 1;
+                info!("npc combat: {} recoils: its blow was blocked by {}", tactics::who(g, b.attacker), tactics::who(g, b.blocker));
+                anims.write(PlayAttack { actor: b.attacker.0, weapon: weapons.get(&b.attacker.0).copied(), melee: true, sights: false, kind: Move::Recoil });
+            }
+            if f.fighters.contains_key(&b.blocker.0) {
+                f.stats.blocked += 1;
+                anims.write(PlayAttack { actor: b.blocker.0, weapon: weapons.get(&b.blocker.0).copied(), melee: true, sights: false, kind: Move::BlockHit });
+            }
+        }
+        for (rig, global, _, hold, _, _, flinch) in &actors {
             let id = rig.reference;
             let me = FormId(id);
             let Some(&(feet, eyes, scale)) = places.get(&id) else { continue };
             // ToggleActorsAI or SetActorsAI 0: it does not fight.
             if g.ai_off(me) {
+                continue;
+            }
+            // A script's weapon use comes first (`use_weapon`).
+            if g.weapon_use(me).is_some_and(|w| w.source == fnv_game::use_weapon::Source::Script) {
                 continue;
             }
             let Some(aw) = g.awareness.get(me).filter(|a| a.state == State::Combat) else { continue };
@@ -426,24 +574,14 @@ fn fight(
             let Some(&(tfeet, teyes, _)) = places.get(&target.0) else { continue };
             still.push(id);
             // How fast it runs (`pace`).
-            // A creature's own run: its clip's root motion at its scale, times its Speed
-            // Mult (CREA ACBS; a small radscorpion: 315 units/s × 0.5 × 150 % = 236
-            // [observed: the clip and the record]).
-            let creature = g.data.actors.get(&FormId(rig.base)).filter(|d| &d.sig == b"CREA");
-            let speed_mult = creature.map_or(100.0, |d| if d.speed_mult > 0 { d.speed_mult as f32 } else { 100.0 });
-            let creature_run = loco.filter(|_| creature.is_some()).and_then(|l| l.set.info(Move::FastForward)).map(|i| i.speed * scale * speed_mult / 100.0);
             let two = crate::attack_anims::drawn(hold) && weapons.get(&id).and_then(|w| c.forms.weapons.get(w)).is_some_and(WeaponStats::two_handed);
-            let p = pace(creature_run, two, c.rules.move_2h_penalty);
+            let p = pace(two, c.rules.move_2h_penalty);
             if g.awareness.pace_of(me) != p {
                 info!(
                     "npc combat: {} {me} runs at {:.0}% of the running speed ({})",
                     g.data.name(me),
                     p * 100.0,
-                    match (creature_run, two) {
-                        (Some(v), _) if p < 1.0 && !two => format!("its run clip moves {v:.0} units/s"),
-                        (_, true) => "a two-handed weapon drawn".to_string(),
-                        _ => "its own pace".to_string(),
-                    }
+                    if two { "a two-handed weapon drawn" } else { "its own pace" }
                 );
             }
             if p < 1.0 {
@@ -458,8 +596,13 @@ fn fight(
             // Its strength, and its target's, for the threat ratios.
             let (health, full) = g.health_now_and_full(me);
             g.awareness.tactics.strengths.insert(me, Strength { health, dps: dps(c, &arm) as f64 });
+            // What its target fights with: close combat or a gun (§14).
+            let tarm = if target == FormId::PLAYER_REF { player_arm(c) } else { f.fighters.get(&target.0).map(|x| x.arm.clone()).unwrap_or_else(|| arm_of(c, g, weapons.get(&target.0).copied(), target, 1.0, false)) };
+            let target_close = !matches!(tarm, Arm::Gun(_));
+            // People only crouch, block and bound (owner 2026-10-16: "only affect human
+            // enemies not creatures").
+            let person = g.world.placed.get(me).is_some_and(|p| &p.sig == b"ACHR");
             if !f.fighters.contains_key(&target.0) || target == FormId::PLAYER_REF {
-                let tarm = if target == FormId::PLAYER_REF { player_arm(c) } else { arm_of(c, g, weapons.get(&target.0).copied(), target, 1.0, false) };
                 let (th, _) = g.health_now_and_full(target);
                 g.awareness.tactics.strengths.insert(target, Strength { health: th, dps: dps(c, &tarm) as f64 });
             }
@@ -478,6 +621,26 @@ fn fight(
                 v.sort();
                 v
             };
+            // Its opponent: blows begun, in a blow, blocking, recoiling, and when its blow on
+            // the way lands (seconds).
+            let (opp_blows, opp_attacking, opp_blocking, opp_recoiling, opp_hit_in) = if target == FormId::PLAYER_REF {
+                (swings, clock - f.player_swing_at < stance::PLAYER_SWING_SECONDS, player_blocking, false, stance::PLAYER_SWING_HIT)
+            } else {
+                f.fighters.get(&target.0).map_or((0, false, false, false, DEFAULT_HIT), |t| {
+                    (t.blows_begun, !t.blows.is_empty(), t.block.is_some(), t.recoil_until > clock, t.blows.iter().map(|b| b.0).fold(f32::MAX, f32::min).min(1.0))
+                })
+            };
+            // Gunmen of its group with it in a fight, where they are (a melee person may
+            // guard one, §14.4).
+            let gun_friends: Vec<(u32, V3)> = if person && matches!(arm, Arm::Melee(_)) {
+                f.fighters
+                    .iter()
+                    .filter(|(k, x)| **k != id && matches!(x.arm, Arm::Gun(_)) && g.comrades(me, FormId(**k)) && !g.awareness.tactics.flights.contains_key(&FormId(**k)))
+                    .filter_map(|(k, _)| places.get(k).map(|p| (*k, p.0)))
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let fresh = f.fighters.get(&id).is_none_or(|x| x.target != target || x.arm != arm);
             if fresh {
                 let cycle = match &arm {
@@ -490,9 +653,42 @@ fn fight(
                 let name = g.data.name(me);
                 f.stats.fighters.insert(id, name.clone());
                 info!("npc combat: {name} {me} fights {} with {}", if target == FormId::PLAYER_REF { "the player".to_string() } else { g.data.name(target) }, describe(c, &arm));
-                // A new target keeps the fighter's tactics (its cover roll, its flight).
-                let tactic = f.fighters.remove(&id).map(|x| x.tactic).unwrap_or_default();
-                f.fighters.insert(id, Fighter { target, arm: arm.clone(), seen_for: 0.0, firing_for: 0.0, cycle, strike_in: 0.0, pulled: false, blows: Vec::new(), sights: false, pull_in: 0.0, confidence_mod: 0.0, flee_check_in: 0.0, tactic, stagger_seen: None });
+                // A new target keeps the fighter's tactics (its cover roll, its flight) and
+                // its temperaments; a new fight draws them (§14.1).
+                let (tactic, temper, approach) = f.fighters.remove(&id).map(|x| (x.tactic, Some(x.temper), Approach { charging: x.approach.charging, guarded: x.approach.guarded, ..Default::default() })).unwrap_or_default();
+                let temper = temper.unwrap_or_else(|| Temperament { crouch: next_unit(&mut f.stance_rng), cover: next_unit(&mut f.stance_rng), guard: next_unit(&mut f.stance_rng) });
+                let stance_in = stance::between(stance::STANCE_DECIDE, next_unit(&mut f.stance_rng));
+                f.fighters.insert(
+                    id,
+                    Fighter {
+                        target,
+                        arm: arm.clone(),
+                        seen_for: 0.0,
+                        firing_for: 0.0,
+                        cycle,
+                        strike_in: 0.0,
+                        pulled: false,
+                        blows: Vec::new(),
+                        sights: false,
+                        pull_in: 0.0,
+                        confidence_mod: 0.0,
+                        flee_check_in: 0.0,
+                        tactic,
+                        stagger_seen: None,
+                        temper,
+                        crouched_since: None,
+                        still_for: 0.0,
+                        last_feet: None,
+                        stance_in,
+                        unseen_for: 0.0,
+                        block: None,
+                        react: None,
+                        seen_opp_blows: opp_blows,
+                        blows_begun: 0,
+                        recoil_until: 0.0,
+                        approach,
+                    },
+                );
                 // This fight's confidence modifier, not for the foolhardy; the first
                 // flee check within the update time [documented: GECK wiki Confidence].
                 let threshold = g.confidence_threshold(me);
@@ -504,8 +700,9 @@ fn fight(
                 x.flee_check_in = update * u2;
             }
             // Its opponent is in the middle of a blow (the melee decision).
-            let under_attack = f.fighters.get(&target.0).is_some_and(|t| !t.blows.is_empty());
+            let under_attack = opp_attacking;
             let fighter = f.fighters.get_mut(&id).expect("inserted");
+            let temper = fighter.temper;
             // Confidence: once hurt, now and then, would it rather flee? At its flee spot,
             // attacked or cornered, does it stand and fight? (module notes)
             let away = (feet[0] - tfeet[0]).hypot(feet[1] - tfeet[1]);
@@ -638,6 +835,11 @@ fn fight(
                     t.cover_roll_in = tactics::COVER_EVERY;
                     let chance = style.map_or(0.0, |s| s.take_cover_chance);
                     t.use_cover = chance > 0.0 && next_unit(&mut f.rng) * 100.0 < chance;
+                    // Failing that, a person's cover temperament gives it a second chance
+                    // (§14.2), from the stance rolls' own sequence.
+                    if !t.use_cover && person {
+                        t.use_cover = next_unit(&mut f.stance_rng) * 100.0 < stance::COVER_BIAS * temper.cover;
+                    }
                     if !t.use_cover && t.cover.take().is_some() {
                         info!("npc combat: {name} leaves its cover (no cover for the next {:.0} s)", tactics::COVER_EVERY);
                     }
@@ -656,10 +858,13 @@ fn fight(
                         if let (Some(nav), Some(space)) = (nav, space) {
                             let radius = style.map_or(0.0, |s| s.cover_search_radius);
                             let radius = if radius > 0.0 { radius } else { tactics::COVER_SEARCH_DEFAULT }.min(tactics::COVER_MAX_RUN);
-                            if let Some(cv) = tactics::find_cover(nav, phys.as_deref_mut(), space, feet, tchest, eyes[2] - feet[2], radius, want.1, &taken) {
+                            // Standing eyes: a crouched fighter looks from where it would stand.
+                            let eye = (eyes[2] - feet[2]) / if crouched_now.contains(&id) { stance::CROUCH_EYE } else { 1.0 };
+                            if let Some(cv) = tactics::find_cover(nav, phys.as_deref_mut(), space, feet, tchest, eye, radius, want.1, &taken, person) {
                                 battle.cover_taken += 1;
                                 info!(
-                                    "npc combat: {name} takes cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it)",
+                                    "npc combat: {name} takes {}cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it)",
+                                    if cv.low { "low " } else { "" },
                                     (cv.behind[0] - feet[0]).hypot(cv.behind[1] - feet[1]),
                                     (cv.behind[0] - tfeet[0]).hypot(cv.behind[1] - tfeet[1]),
                                     (cv.peek[0] - cv.behind[0]).hypot(cv.peek[1] - cv.behind[1])
@@ -731,11 +936,22 @@ fn fight(
                     }
                     None => t.blocked_by = None,
                 }
+                // A shift sideways it decided on (§14.2), until it is there.
+                if let Some(at) = t.shift {
+                    if flat(at, feet) < tactics::AT_POST || barred(t, PostKind::Shift) || t.cover.is_some() {
+                        t.shift = None;
+                    } else if want_post.is_none() {
+                        want_post = Some(Post { at, kind: PostKind::Shift, run: true });
+                    }
+                }
                 // Flank places for a group's gunmen not in cover.
                 if want_post.is_none() && mates.len() >= 2 && !barred(t, PostKind::Flank) {
                     t.flank_in -= dt;
                     let current = g.awareness.tactics.posts.get(&me).copied().filter(|p| p.kind == PostKind::Flank);
-                    if t.flank_in <= 0.0 {
+                    // Crouched to fire, it keeps the place it has (§14.2).
+                    if crouched_now.contains(&id) {
+                        want_post = current;
+                    } else if t.flank_in <= 0.0 {
                         t.flank_in = tactics::FLANK_EVERY;
                         let index = mates.iter().position(|m| *m == id).unwrap_or(0);
                         let n = mates.iter().filter_map(|m| places.get(m)).count().max(1) as f32;
@@ -756,6 +972,109 @@ fn fight(
                     }
                 }
                 t.last_post = want_post.map(|p| p.kind);
+                match want_post {
+                    Some(p) => {
+                        g.awareness.tactics.posts.insert(me, p);
+                    }
+                    None => {
+                        g.awareness.tactics.posts.remove(&me);
+                    }
+                }
+            } else if !fleeing && person && matches!(arm, Arm::Melee(_)) {
+                // Closing in on a gunman: guard, bound or charge (§14.4).
+                let ap = &mut fighter.approach;
+                // A post the AI found no way to ends what it was for.
+                if ap.posted.is_some() && !g.awareness.tactics.posts.contains_key(&me) {
+                    match ap.posted {
+                        Some(PostKind::Guard) => {
+                            ap.guard = None;
+                            ap.guarded = true;
+                        }
+                        _ => {
+                            ap.bound = None;
+                            ap.bound_in = stance::BOUND_RETRY;
+                        }
+                    }
+                }
+                let mut want_post: Option<Post> = None;
+                if let Some(gd) = ap.guard.as_mut() {
+                    let friend = gun_friends.iter().find(|(k, _)| *k == gd.friend).map(|x| x.1);
+                    let check = stance::GuardCheck { me: feet, friend, target: tfeet, close_threat: target_close, guarded_for: clock - gd.since, patience: gd.patience };
+                    match (stance::guard_release(&check), friend) {
+                        (None, Some(fp)) => {
+                            let at = stance::guard_point(fp, tfeet, gd.turn);
+                            if flat(at, gd.at) > stance::GUARD_MOVE {
+                                gd.at = at;
+                            }
+                            want_post = Some(Post { at: gd.at, kind: PostKind::Guard, run: true });
+                        }
+                        (why, _) => {
+                            info!("npc combat: {me_name} leaves {} to go for {target_name}: {}", tactics::who(g, FormId(gd.friend)), why.unwrap_or("the gunman it guards is no longer fighting"));
+                            ap.guard = None;
+                            ap.guarded = true;
+                        }
+                    }
+                } else if !ap.guarded && !target_close {
+                    let pick = gun_friends.iter().filter(|(_, fp)| stance::may_guard(&temper, feet, *fp, tfeet)).min_by(|a, b| flat(a.1, feet).total_cmp(&flat(b.1, feet))).copied();
+                    if let Some((friend, fp)) = pick {
+                        let turn = (next_unit(&mut f.stance_rng) * 2.0 - 1.0) * stance::GUARD_TURN;
+                        let patience = stance::between(stance::GUARD_PATIENCE, next_unit(&mut f.stance_rng));
+                        let at = stance::guard_point(fp, tfeet, turn);
+                        ap.guard = Some(Guarding { friend, since: clock, patience, turn, at });
+                        f.stats.guards += 1;
+                        info!("npc combat: {me_name} guards {} against {target_name} ({away:.0} units away; for up to {patience:.0} s)", tactics::who(g, FormId(friend)));
+                        want_post = Some(Post { at, kind: PostKind::Guard, run: true });
+                    }
+                }
+                if want_post.is_none() {
+                    if target_close || away <= stance::CHARGE_WITHIN {
+                        ap.bound = None;
+                        ap.charging = false;
+                    } else if let Some(b) = ap.bound.as_mut() {
+                        if b.arrived.is_none() && flat(b.at, feet) < tactics::AT_POST {
+                            b.arrived = Some(clock);
+                        }
+                        match b.arrived {
+                            Some(t0) if clock >= t0 + b.pause => {
+                                ap.bound = None;
+                                ap.bound_in = 0.0;
+                            }
+                            _ => want_post = Some(Post { at: b.at, kind: PostKind::Advance, run: true }),
+                        }
+                    } else {
+                        ap.bound_in -= dt;
+                        if ap.bound_in <= 0.0 {
+                            ap.bound_in = stance::BOUND_RETRY;
+                            let chest = (eyes[2] - feet[2]) * CHEST;
+                            let exposed = crate::detection::clear_sight(phys.as_deref_mut(), teyes, [feet[0], feet[1], feet[2] + chest]);
+                            if exposed {
+                                let taken: Vec<V3> = g.awareness.tactics.posts.iter().filter(|(k, _)| **k != me).map(|(_, p)| p.at).collect();
+                                let pick = usize::from(next_unit(&mut f.stance_rng) < 0.5);
+                                let found = match (nav, space) {
+                                    (Some(nav), Some(space)) => tactics::find_bound(nav, phys.as_deref_mut(), space, feet, tfeet, teyes, chest, &taken, pick),
+                                    _ => None,
+                                };
+                                match found {
+                                    Some((at, gain)) => {
+                                        let pause = stance::between(stance::BOUND_PAUSE, next_unit(&mut f.stance_rng));
+                                        ap.bound = Some(Bound { at, arrived: None, pause });
+                                        ap.charging = false;
+                                        f.stats.bounds += 1;
+                                        info!("npc combat: {me_name} bounds to cover {:.0} units away, {gain:.0} units nearer {target_name} ({away:.0} units away)", flat(at, feet));
+                                        want_post = Some(Post { at, kind: PostKind::Advance, run: true });
+                                    }
+                                    None if !ap.charging => {
+                                        ap.charging = true;
+                                        f.stats.charges += 1;
+                                        info!("npc combat: {me_name} charges {target_name} across open ground: no cover on the way ({away:.0} units away)");
+                                    }
+                                    None => {}
+                                }
+                            }
+                        }
+                    }
+                }
+                ap.posted = want_post.map(|p| p.kind);
                 match want_post {
                     Some(p) => {
                         g.awareness.tactics.posts.insert(me, p);
@@ -789,7 +1108,118 @@ fn fight(
             if !facing && sees && fighter.seen_for >= REACTION_SECONDS {
                 f.stats.unfaced += 1;
             }
-            let ready = sees && facing && !hold_fire && staggering.is_none() && fighter.seen_for >= REACTION_SECONDS && hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
+            // Crouching to fire (§14.2): a person with a gun, by the rules of
+            // `combat_stance`, deciding now and then.
+            let mut crouched = g.awareness.crouching.contains(&me);
+            let was = crouched;
+            let mut stand_why: Option<&str> = None;
+            if person && matches!(arm, Arm::Gun(_)) {
+                let moved = fighter.last_feet.map_or(0.0, |l| flat(l, feet));
+                fighter.last_feet = Some(feet);
+                let settling = fighter.still_for < stance::CROUCH_SETTLE;
+                fighter.still_for = if dt > 0.0 && moved / dt > stance::STILL_SPEED { 0.0 } else { fighter.still_for + dt };
+                // Just settled somewhere (a post reached, a stop): it decides soon.
+                if settling && fighter.still_for >= stance::CROUCH_SETTLE {
+                    fighter.stance_in = fighter.stance_in.min(stance::between(stance::SETTLED_DECIDE, next_unit(&mut f.stance_rng)));
+                }
+                fighter.unseen_for = if sees { 0.0 } else { fighter.unseen_for + dt };
+                let cover = fighter.tactic.cover;
+                let post_pending = g.awareness.tactics.posts.get(&me).is_some_and(|p| flat(p.at, feet) > tactics::AT_POST);
+                let low_hide = cover.is_some_and(|cv| cv.low && matches!(cv.phase, Phase::Hiding { .. }));
+                let low_up = cover.is_some_and(|cv| cv.low && !matches!(cv.phase, Phase::Hiding { .. }));
+                let s = stance::Situation { distance: away, unseen_for: fighter.unseen_for, close_threat: target_close, still_for: fighter.still_for, busy: fleeing || staggering.is_some() || post_pending };
+                if low_hide && !post_pending && !fleeing {
+                    if !crouched {
+                        crouched = true;
+                        f.stats.low_crouches += 1;
+                    }
+                } else if let Some(why) = stance::stand_reason(&s).or(low_up.then_some("to fire over its cover")) {
+                    crouched = false;
+                    stand_why = Some(why);
+                } else {
+                    fighter.stance_in -= dt;
+                    if fighter.stance_in <= 0.0 {
+                        fighter.stance_in = stance::between(stance::STANCE_DECIDE, next_unit(&mut f.stance_rng));
+                        let u = next_unit(&mut f.stance_rng);
+                        match fighter.crouched_since {
+                            Some(since) if crouched => {
+                                if u < stance::shift_chance(clock - since) {
+                                    let step = stance::between(stance::SHIFT, next_unit(&mut f.stance_rng));
+                                    let left = next_unit(&mut f.stance_rng) < 0.5;
+                                    fighter.tactic.shift = Some(stance::shift_point(feet, tfeet, step, left));
+                                    f.stats.shifts += 1;
+                                    crouched = false;
+                                    stand_why = Some("to shift");
+                                    info!("npc combat: {me_name} shifts {step:.0} units to its {} after {:.1} s crouched", if left { "left" } else { "right" }, clock - since);
+                                }
+                            }
+                            _ => {
+                                if stance::may_crouch(&s) && u < stance::crouch_chance(&temper, away) {
+                                    crouched = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                crouched = false;
+            }
+            if crouched != was {
+                if crouched {
+                    fighter.crouched_since = Some(clock);
+                    f.stats.crouches += 1;
+                    g.awareness.crouching.insert(me);
+                    let low = fighter.tactic.cover.is_some_and(|cv| cv.low);
+                    info!("npc combat: {me_name} crouches {} {target_name} ({away:.0} units away)", if low { "behind low cover from" } else { "to fire at" });
+                } else {
+                    fighter.crouched_since = None;
+                    f.stats.stands += 1;
+                    let why = stand_why.unwrap_or("it no longer fires");
+                    if why == "a close-combat enemy is coming in" {
+                        f.stats.stands_close += 1;
+                    }
+                    g.awareness.crouching.remove(&me);
+                    info!("npc combat: {me_name} stands up ({why}; {target_name} {away:.0} units away)");
+                }
+            }
+            // Blocking (§14.3): a melee person against a close-combat opponent; its
+            // block ends; its opponent's blow begun may raise one after a reaction time.
+            let can_block = person && target_close && !fleeing && staggering.is_none() && matches!(arm, Arm::Melee(_)) && fnv_actor::player_clips::blocks(melee_prefix(c, &arm));
+            if !can_block {
+                fighter.block = None;
+                fighter.react = None;
+            }
+            if fighter.block.is_some_and(|(until, _)| clock >= until) {
+                fighter.block = None;
+            }
+            if opp_blows > fighter.seen_opp_blows {
+                fighter.seen_opp_blows = opp_blows;
+                if can_block && fighter.blows.is_empty() && fighter.block.is_none() && fighter.react.is_none() && sees && off <= stance::BLOCK_REACT_FACING {
+                    fighter.react = Some((clock + stance::between(stance::BLOCK_REACT, next_unit(&mut f.stance_rng)), clock + opp_hit_in));
+                }
+            }
+            if let Some((due, lands)) = fighter.react.filter(|(due, _)| clock >= *due) {
+                fighter.react = None;
+                let chance = style.map_or(0.0, |s| melee_block_chance(s, true));
+                if fighter.block.is_none() && next_unit(&mut f.stance_rng) * 100.0 < chance {
+                    let until = (lands.max(clock) + stance::between(stance::BLOCK_AFTER, next_unit(&mut f.stance_rng))).max(clock + stance::BLOCK_MIN);
+                    fighter.block = Some((until, true));
+                    f.stats.blocks += 1;
+                    f.stats.reactive_blocks += 1;
+                    info!("npc combat: {me_name} blocks {target_name}'s blow (reacting, {:.2} s after it began; {chance:.0} %)", due - (lands - opp_hit_in));
+                }
+            }
+            if fighter.block.is_some() {
+                guarding.insert(me, heading(global));
+            }
+            let ready = sees
+                && facing
+                && !hold_fire
+                && staggering.is_none()
+                && fighter.block.is_none()
+                && clock >= fighter.recoil_until
+                && fighter.seen_for >= REACTION_SECONDS
+                && hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
             let pitch = (tchest[2] - eyes[2]).atan2((tchest[0] - eyes[0]).hypot(tchest[1] - eyes[1]));
             // Down the sights while it fires at a far target, from the hip near.
             let sight_fov = match &arm {
@@ -812,7 +1242,7 @@ fn fight(
             } else {
                 g.awareness.aiming.remove(&me);
             }
-            f.poses.insert(id, (pitch, weapons.get(&id).copied(), sights));
+            f.poses.insert(id, Pose { pitch, weapon: weapons.get(&id).copied(), sights, crouched, blocking: fighter.block.is_some() });
             match &arm {
                 Arm::Gun(w) => {
                     let Some(ws) = c.forms.weapons.get(w) else { continue };
@@ -860,11 +1290,14 @@ fn fight(
                                 } else {
                                     f.stats.hip_shots += 1;
                                 }
-                                let stance = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: false, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled: false, right_arm_crippled: false };
-                                let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &stance), 0.0, ws, &[]) + settling(fighter.firing_for);
-                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle });
-                                anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights });
+                                // Crouched: no standing term in the spread (§14.2).
+                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled: false, right_arm_crippled: false };
+                                let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &st), 0.0, ws, &[]) + settling(fighter.firing_for);
+                                fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
+                                anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack });
                                 f.stats.shots += 1;
+                                // Its Attack line, on its own timer (fnv_game::combat_lines).
+                                g.attack_line(me, Some(target), false, false);
                             }
                             Event::ReloadStarted => f.stats.reloads += 1,
                             _ => {}
@@ -888,9 +1321,25 @@ fn fight(
                             f.stats.missed += 1;
                         }
                     }
-                    // The melee decision: attack, or hold for the style's hold timer.
+                    // The melee decision: block (against close combat, §14.3), attack, or
+                    // hold for the style's hold timer [documented: the order].
                     let decide = ready && near && (feet[2] - tfeet[2]).abs() < 128.0 && fighter.strike_in <= 0.0;
+                    let mut blocks = false;
+                    if decide && can_block {
+                        let chance = style.map_or(0.0, |s| melee_block_chance(s, under_attack));
+                        if next_unit(&mut f.stance_rng) * 100.0 < chance {
+                            let held = stance::between(style.map_or((0.5, 1.5), |s| s.hold_timer), next_unit(&mut f.stance_rng)).max(stance::BLOCK_MIN);
+                            fighter.block = Some((clock + held, false));
+                            fighter.strike_in = held;
+                            blocks = true;
+                            f.stats.blocks += 1;
+                            info!("npc combat: {me_name} blocks {target_name}'s blow (decided, {held:.1} s; {chance:.0} %)");
+                            guarding.insert(me, heading(global));
+                        }
+                    }
+                    let opponent = Opponent { attacking: under_attack, recoiling: opp_recoiling, blocking: opp_blocking };
                     let attack = decide
+                        && !blocks
                         && style.is_none_or(|s| {
                             let (skill_name, h2h) = match &arm {
                                 Arm::Melee(Some(w)) => (c.forms.weapons.get(w).and_then(|ws| ws.skill.clone()).unwrap_or_else(|| "Melee Weapons".into()), false),
@@ -898,9 +1347,9 @@ fn fight(
                                 _ => ("Melee Weapons".to_string(), true),
                             };
                             let skill = fnv_game::functions::av_by_name(&skill_name).map_or(50.0, |code| fnv_game::functions::actor_value_capped(g, me, code)) as f32;
-                            next_unit(&mut f.rng) * 100.0 < melee_attack_chance(s, skill, h2h, under_attack)
+                            next_unit(&mut f.rng) * 100.0 < melee_attack_chance(s, skill, h2h, opponent)
                         });
-                    if decide && !attack {
+                    if decide && !blocks && !attack {
                         let (lo, hi) = style.map_or((0.5, 1.5), |s| s.hold_timer);
                         fighter.strike_in = (lo + (hi - lo).max(0.0) * next_unit(&mut f.rng)).max(0.1);
                         f.stats.holds += 1;
@@ -921,8 +1370,10 @@ fn fight(
                         // next is chosen after this) [design].
                         let delay = times.hit.get(&id).copied().unwrap_or(DEFAULT_HIT);
                         fighter.blows.push((delay, ActorStrike { attacker: me, target, weapon, creature_damage, point: tchest, dir }));
-                        anims.write(PlayAttack { actor: id, weapon, melee: true, sights: false });
+                        anims.write(PlayAttack { actor: id, weapon, melee: true, sights: false, kind: Move::Attack });
                         f.stats.strikes += 1;
+                        fighter.blows_begun += 1;
+                        g.attack_line(me, Some(target), false, false);
                     }
                 }
             }
@@ -935,8 +1386,20 @@ fn fight(
             g.awareness.aiming.remove(&FormId(id));
             g.awareness.pace.remove(&FormId(id));
             g.awareness.tactics.posts.remove(&FormId(id));
+            g.awareness.crouching.remove(&FormId(id));
         }
     });
+    // Who blocks now, for the blows dealt this frame (`nvf_play::combat`).
+    combat.guarding = guarding;
+}
+
+/// The stance prefix of a melee arm (`1hm`, `2hm`; fists `h2h`), for whether it blocks.
+fn melee_prefix(c: &Combat, arm: &Arm) -> &'static str {
+    match arm {
+        Arm::Melee(Some(w)) => c.forms.weapons.get(w).and_then(|ws| ws.anim_type.as_deref()).and_then(fnv_actor::weapon::AnimType::from_name).map_or("h2h", fnv_actor::weapon::AnimType::prefix),
+        Arm::Melee(None) => "h2h",
+        _ => "",
+    }
 }
 
 /// What an actor fights with: the weapon drawn on it (a gun, unless its style keeps it to
@@ -990,6 +1453,21 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.blows_cut,
         s.unfaced,
     );
+    info!(
+        "npc stance summary: crouched {} times ({} behind low cover), stood up {} times ({} for a close-combat enemy), {} shifts; {} blocks ({} in reaction), {} blows blocked by fighters, {} recoils; {} bounds to cover, {} charges in the open, {} guards",
+        s.crouches,
+        s.low_crouches,
+        s.stands,
+        s.stands_close,
+        s.shifts,
+        s.blocks,
+        s.reactive_blocks,
+        s.blocked,
+        s.recoils,
+        s.bounds,
+        s.charges,
+        s.guards,
+    );
 }
 
 #[cfg(test)]
@@ -997,18 +1475,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn creatures_run_at_their_clip_pace_and_two_handed_weapons_slow() {
-        let run = nvf_play::player::MoveSpeeds::OBSERVED.run;
-        // People, and creatures whose clips run faster than the running speed: full pace.
-        assert_eq!(pace(None, false, 0.1), 1.0);
-        assert_eq!(pace(Some(run * 1.5), false, 0.1), 1.0);
-        // A creature whose run clip moves half as fast runs at half pace, never below
-        // the floor.
-        assert!((pace(Some(run / 2.0), false, 0.1) - 0.5).abs() < 1e-4);
-        assert_eq!(pace(Some(5.0), false, 0.1), MIN_PACE);
-        assert_eq!(pace(Some(0.0), false, 0.1), 1.0);
+    fn two_handed_weapons_slow() {
+        assert_eq!(pace(false, 0.1), 1.0);
         // A rifle drawn costs fMove2HBigPenalty.
-        assert!((pace(None, true, 0.1) - 0.9).abs() < 1e-6);
+        assert!((pace(true, 0.1) - 0.9).abs() < 1e-6);
     }
 
     #[test]

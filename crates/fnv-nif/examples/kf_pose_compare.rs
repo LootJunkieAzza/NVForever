@@ -62,6 +62,20 @@ fn main() {
             if std::env::var_os("KF_OTHER").is_some() {
                 println!("  {n}: priority {}, translation {:?}, scale {:?}", t.priority.unwrap_or(-1), tt.translation.sample(s.start_time), tt.scale.sample(s.start_time));
             }
+            // `KF_TRACK=<node>`: that track over the clip, every 1/30 s: translation and
+            // the turn from its pose at the clip's start (degrees), to see where it jumps.
+            if std::env::var("KF_TRACK").is_ok_and(|w| w.eq_ignore_ascii_case(&n)) {
+                let mut time = s.start_time;
+                while time <= s.stop_time + 1e-4 {
+                    let turn = match (tt.rotation_at(s.start_time), tt.rotation_at(time)) {
+                        (Some(x), Some(y)) => format!("{:6.1}°", angle(x, y)),
+                        _ => "     -".to_string(),
+                    };
+                    let tr = tt.translation.sample(time).map_or("-".to_string(), |v| format!("({:7.2}, {:7.2}, {:7.2})", v[0], v[1], v[2]));
+                    println!("    {n} {time:5.3}: {tr} {turn}");
+                    time += 1.0 / 30.0;
+                }
+            }
             // Whether the pose moves over the clip: compare the start with the middle.
             let mid = 0.5 * (s.start_time + s.stop_time);
             let animated = match (tt.rotation_at(s.start_time), tt.rotation_at(mid)) {

@@ -794,7 +794,7 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
 
     // The S.P.E.C.I.A.L. menu with two points to add, the old values its floor.
     call(&mut g, 0x1219, None, &[n(2.0)]);
-    assert_eq!((g.menu, g.ui.special), (Some(1074), Some(SpecialMenu::Add(2))));
+    assert_eq!((g.menu, g.ui.special), (Some(1048), Some(SpecialMenu::Add(2))));
     let s = SpecialSheet::for_menu(&mut g);
     assert_eq!((s.remaining(), s.floor), (2, s.values));
     assert_eq!(g.ui.special, None, "used up by the opening");
@@ -884,14 +884,16 @@ fn second_round_stubs() {
 }
 
 /// SwapTexture (playtest list 5 item 38): the shape's name and the texture's path kept
-/// per reference for the engine, the last call per shape winning.
+/// per reference for the engine, the last call per shape winning. The reference is the
+/// first parameter, the calls having no calling reference (Doc Mitchell's lines:
+/// `SwapTexture TempRorschachTest01REF "PipBoyCard01:0" "…"`).
 #[test]
 fn swap_texture_keeps_the_last_texture_per_shape() {
     let f = fixture();
     let mut g = game(&f);
     let card = FormId(ADULT_REF);
-    call(&mut g, 0x1269, Some(ADULT_REF), &[s("pipboycard01:0"), s(r"clutter\rorchachtest\inkblot03")]);
-    call(&mut g, 0x1269, Some(ADULT_REF), &[s("##PipBoyCard01:0"), s(r"clutter\rorchachtest\inkblot01")]);
+    call(&mut g, 0x1269, None, &[r(ADULT_REF), s("pipboycard01:0"), s(r"clutter\rorchachtest\inkblot03")]);
+    call(&mut g, 0x1269, None, &[r(ADULT_REF), s("##PipBoyCard01:0"), s(r"clutter\rorchachtest\inkblot01")]);
     assert_eq!(g.texture_swaps.generation, 2);
     assert_eq!(g.texture_swaps.by_ref[&card], vec![("pipboycard01:0".to_string(), r"textures\clutter\rorchachtest\inkblot01.dds".to_string())]);
 }

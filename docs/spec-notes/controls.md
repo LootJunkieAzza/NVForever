@@ -62,6 +62,7 @@ The second hotkey's line is named `Ammo Swap`.
 - Block: guns aim down the sights; fists and melee weapons block. While Block is held
   with a weapon out the player moves at walking speed and the body walks
   (`player::aiming_walks`) [design: the owner's wish, 2026-10-11; not captured].
+  Aiming a gun zooms the view to its Sight FOV (camera.md §4).
 - Toggle POV: a tap switches first and third person; held while the mouse moves, the
   camera circles the player without turning them, and swings back when let go. The
   mouse wheel zooms the third-person camera.

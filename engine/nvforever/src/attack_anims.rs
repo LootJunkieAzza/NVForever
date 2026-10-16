@@ -23,6 +23,14 @@
 //!   NiTextKeyExtraData; observed: 931 `hit` keys in the clips, animation.md §3.2]; the
 //!   key's time is told to `npc_combat` ([`AttackTimes`]), which delays the blow's damage
 //!   by it. Shots leave at the start of their clip [design].
+//! - **Automatic fire with a looping clip** (`2hhattackspin.kf` of the minigun, flamer and
+//!   gatling laser: `Fire` and `Loop` keys, animation.md §9.8): the first shot starts the
+//!   clip at its `Fire` key (NPCs do not spin up first [design]), the shots that follow
+//!   while it runs do not start it again, and it goes round from `Fire` to `Loop` while
+//!   they come no more than [`LOOP_HOLD`] apart, then plays out from where it is, as the
+//!   player's body does. Started again at every shot, it jerked the arms and shoulders
+//!   back to its start many times a second [observed in NVForever: owner's playtest
+//!   2026-10-16, Cook-Cook's flamer].
 //! - While an attack clip plays, the actor's body block keeps the place it had when the
 //!   attack began (`nvf_play::blocking::ActorBlocks::attacking`): a dog's lunge shoved
 //!   the player back 40 units each bite before [design; owner 2026-10-11].
@@ -30,6 +38,14 @@
 //!   the attack) over the aim, by track priority (attack clips 55, aim 50,
 //!   animation.md §9.6); the aim's up or down form takes layer 3 when the weapon's draw
 //!   cycle is not fading there [design].
+//! - **Crouched, blocking** (docs/design/combat-ai.md §14): a crouched NPC's aim, its up
+//!   and down forms, its sights and its attack clips are the crouched ones
+//!   (`sneak2hraim.kf`, `sneak2hraimis.kf`, `sneak2hrattack3.kf` …), the standing ones
+//!   where a stance has none; a blocking NPC holds `{prefix}blockidle.kf` (fists:
+//!   `mtblockidle.kf`) in place of the level aim, without its up or down form; a blow it
+//!   blocks plays `{prefix}blockhit.kf`, and the attacker whose blow was blocked plays
+//!   `{prefix}recoil.kf` [observed: the base meshes archive has them for `1hm`, `2hm`
+//!   and the unarmed `mt`/`h2h`].
 
 use crate::actors::ActorWorld;
 use crate::limbs::ActorRig;
@@ -37,7 +53,7 @@ use crate::locomotion::Dying;
 use crate::npc_combat::Fighters;
 use crate::weapons::WeaponHold;
 use bevy::prelude::*;
-use fnv_actor::player_clips::{aim_variant, aim_weights, attack_clips, attack_stem, Aim, Stance};
+use fnv_actor::player_clips::{aim_variant, aim_weights, attack_clips, attack_stem, block_clips, Aim, ClipKeys, Stance};
 use fnv_actor::weapon::{AnimType, Stage};
 use fnv_sim::FormId;
 use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts, PreparedSkeleton};
@@ -58,6 +74,9 @@ const FADE_OUT: f32 = 0.15;
 const MAX_VARIANT: f32 = 0.95;
 /// A blow lands this long into its clip when the clip has no `Hit` key, seconds [design].
 pub const DEFAULT_HIT: f32 = 0.3;
+/// A looping attack clip goes round its repeated part while the shots come no further
+/// apart than this, seconds [engineering choice, as `player_body`'s].
+const LOOP_HOLD: f32 = 0.25;
 
 /// An actor starts an attack (from `npc_combat`): a shot or a blow, with the weapon it
 /// uses (`None`: fists, or a creature's own attack).
@@ -68,6 +87,19 @@ pub struct PlayAttack {
     pub melee: bool,
     /// A shot aimed down the sights: the iron-sights attack clip (`2hrattack3is.kf`).
     pub sights: bool,
+    /// An attack, or a block's reactions (docs/design/combat-ai.md §14.3).
+    pub kind: Move,
+}
+
+/// What [`PlayAttack`] plays.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Move {
+    #[default]
+    Attack,
+    /// A blow met its block (`1hmblockhit.kf`).
+    BlockHit,
+    /// Its blow was blocked (`1hmrecoil.kf`).
+    Recoil,
 }
 
 /// When each actor's next blow lands into its attack clip (its `Hit` key), seconds:
@@ -85,6 +117,25 @@ pub struct Attack {
     pub down: Option<Arc<BoundClip>>,
     pub t: f32,
     pub len: f32,
+    /// The repeated part, from the `Fire` key to the `Loop` key (seconds into the clip),
+    /// for a clip that has one.
+    pub repeat: Option<(f32, f32)>,
+    /// Seconds since the last shot or blow.
+    pub since: f32,
+}
+
+/// A clip's repeated part: from its `Fire` key to its `Loop` key, seconds into it.
+fn repeat_of(c: &BoundClip) -> Option<(f32, f32)> {
+    let k = ClipKeys::parse(&c.clip.text_keys);
+    k.hit.zip(k.loop_end).filter(|(from, to)| from < to).map(|(from, to)| (from - c.clip.start, to - c.clip.start))
+}
+
+/// `t` brought back into `from..to` once it passes `to`.
+fn loop_time(t: f32, from: f32, to: f32) -> f32 {
+    if t < to || from >= to {
+        return t;
+    }
+    from + (t - to).rem_euclid(to - from)
 }
 
 /// On a fighting actor's root: its aim's up and down forms, the pitch to its target and
@@ -100,6 +151,18 @@ pub struct CombatPose {
     pub aim_is_down: Option<Arc<BoundClip>>,
     /// Aiming down the sights now (`npc_combat`).
     pub sights: bool,
+    /// The crouched aim and its forms, the crouched sights and theirs, and the block
+    /// idle (docs/design/combat-ai.md §14), loaded with the aim's forms.
+    pub sneak_aim: Option<Arc<BoundClip>>,
+    pub sneak_aim_up: Option<Arc<BoundClip>>,
+    pub sneak_aim_down: Option<Arc<BoundClip>>,
+    pub sneak_aim_is: Option<Arc<BoundClip>>,
+    pub sneak_aim_is_up: Option<Arc<BoundClip>>,
+    pub sneak_aim_is_down: Option<Arc<BoundClip>>,
+    pub block_idle: Option<Arc<BoundClip>>,
+    /// Crouched to fire, blocking, now (`npc_combat`).
+    pub crouched: bool,
+    pub blocking: bool,
     /// Radians, negative looks down.
     pub pitch: f32,
     /// In a fight now (the aim follows the pitch); an attack still playing keeps the
@@ -123,29 +186,47 @@ impl CombatPose {
         let (variant, share) = if up > 0.0 { (Aim::Up, up) } else { (Aim::Down, down) };
         let w = variant_weight(share);
         // Down the sights: the iron-sights aim in place of the level aim clip (layer 2,
-        // `weapons.rs`) while the draw cycle is not fading there.
-        let sights = self.fighting && drawn && self.sights && self.aim_is.is_some() && player.layers[AIM_VARIANT_LAYER].is_none();
-        if sights {
-            if let (Some(level), Some(is)) = (player.layers[2].as_mut(), self.aim_is.clone()) {
-                level.clip = is;
+        // `weapons.rs`) while the draw cycle is not fading there; crouched, the crouched
+        // forms; blocking, the block idle without up or down forms.
+        let can = self.fighting && drawn && player.layers[AIM_VARIANT_LAYER].is_none();
+        let crouched = self.crouched && !self.blocking;
+        let sights = can && self.sights && !self.blocking && (self.aim_is.is_some() || (crouched && self.sneak_aim_is.is_some()));
+        let level = if !can {
+            None
+        } else if self.blocking {
+            self.block_idle.clone()
+        } else {
+            match (crouched, sights) {
+                (true, true) => self.sneak_aim_is.clone().or(self.aim_is.clone()),
+                (true, false) => self.sneak_aim.clone(),
+                (false, true) => self.aim_is.clone(),
+                (false, false) => None,
             }
+        };
+        if let (Some(l), Some(clip)) = (player.layers[2].as_mut(), level) {
+            l.clip = clip;
         }
-        if self.fighting && drawn && player.layers[AIM_VARIANT_LAYER].is_none() && w > 1e-3 {
+        if can && !self.blocking && w > 1e-3 {
+            let pick = |sneak: &Option<Arc<BoundClip>>, stand: &Option<Arc<BoundClip>>| if crouched { sneak.clone().or(stand.clone()) } else { stand.clone() };
             let clip = match (variant, sights) {
-                (Aim::Up, true) => self.aim_is_up.clone().or(self.aim_up.clone()),
-                (Aim::Up, false) => self.aim_up.clone(),
-                (_, true) => self.aim_is_down.clone().or(self.aim_down.clone()),
-                (_, false) => self.aim_down.clone(),
+                (Aim::Up, true) => pick(&self.sneak_aim_is_up, &self.aim_is_up).or(pick(&self.sneak_aim_up, &self.aim_up)),
+                (Aim::Up, false) => pick(&self.sneak_aim_up, &self.aim_up),
+                (_, true) => pick(&self.sneak_aim_is_down, &self.aim_is_down).or(pick(&self.sneak_aim_down, &self.aim_down)),
+                (_, false) => pick(&self.sneak_aim_down, &self.aim_down),
             };
             player.layers[AIM_VARIANT_LAYER] = clip.map(|clip| Layer { clip, phase: 0.0, weight: w });
         }
         let Some(a) = self.attack.as_mut() else { return };
         a.t += dt;
+        a.since += dt;
+        if let Some((from, to)) = a.repeat.filter(|_| a.since <= LOOP_HOLD) {
+            a.t = loop_time(a.t, from, to);
+        }
         if a.t >= a.len {
             self.attack = None;
             return;
         }
-        let fade = (a.t / FADE_IN).min(1.0) * ((a.len - a.t) / FADE_OUT).min(1.0);
+        let fade = ((a.t - a.repeat.map_or(0.0, |r| r.0)).max(0.0) / FADE_IN).min(1.0) * ((a.len - a.t) / FADE_OUT).min(1.0);
         let phase = (a.t / a.len.max(1e-3)).min(0.999);
         player.layers[ATTACK_LAYER] = Some(Layer { clip: a.clip.clone(), phase, weight: fade });
         let form = if variant == Aim::Up { a.up.clone() } else { a.down.clone() };
@@ -176,6 +257,8 @@ struct Stats {
     started: usize,
     shots: usize,
     blows: usize,
+    /// Shots that went on with a looping clip already playing.
+    kept: usize,
     missing: BTreeMap<String, usize>,
     clips: BTreeMap<String, usize>,
 }
@@ -258,6 +341,8 @@ fn start(
         new_pose.pitch = pitch;
         new_pose.fighting = fighters.pitch(id).is_some();
         new_pose.sights = fighters.sights(id);
+        new_pose.crouched = fighters.crouched(id);
+        new_pose.blocking = fighters.blocking(id);
         // The aim's up and down forms, once, for an actor with a weapon drawn on it.
         if hold.is_some() && new_pose.aim_up.is_none() && new_pose.aim_down.is_none() {
             let w = fighters.weapon(id);
@@ -270,6 +355,21 @@ fn start(
             if new_pose.aim_is.is_some() {
                 new_pose.aim_is_up = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&is, Aim::Up));
                 new_pose.aim_is_down = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&is, Aim::Down));
+            }
+            // Crouched (`sneak2hraim.kf` …) and the block idle (docs/design/combat-ai.md §14).
+            let prefix = weapon_prefix(w);
+            let sneak = format!("{folder}\\sneak{prefix}aim.kf");
+            new_pose.sneak_aim = clips.bind(&mut ctx, &rig.skeleton, &skel, &sneak);
+            new_pose.sneak_aim_up = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&sneak, Aim::Up));
+            new_pose.sneak_aim_down = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&sneak, Aim::Down));
+            let sneak_is = format!("{folder}\\sneak{prefix}aimis.kf");
+            new_pose.sneak_aim_is = clips.bind(&mut ctx, &rig.skeleton, &skel, &sneak_is);
+            if new_pose.sneak_aim_is.is_some() {
+                new_pose.sneak_aim_is_up = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&sneak_is, Aim::Up));
+                new_pose.sneak_aim_is_down = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&sneak_is, Aim::Down));
+            }
+            if fnv_actor::player_clips::blocks(prefix) {
+                new_pose.block_idle = clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &block_clips(Stance::Stand, prefix)).map(|(_, c)| c);
             }
         }
         for a in mine {
@@ -297,14 +397,27 @@ fn start(
                 clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &names)
             } else {
                 let prefix = weapon_prefix(a.weapon);
-                let attack = a.weapon.and_then(|w| combat.as_deref().and_then(|c| c.forms.weapons.get(&w))).and_then(|w| w.attack_anim.clone());
-                let names = attack_clips(Stance::Stand, prefix, &attack_stem(attack.as_deref()), a.sights);
+                let stance = if new_pose.crouched { Stance::Sneak } else { Stance::Stand };
+                let names = match a.kind {
+                    Move::Attack => {
+                        let attack = a.weapon.and_then(|w| combat.as_deref().and_then(|c| c.forms.weapons.get(&w))).and_then(|w| w.attack_anim.clone());
+                        attack_clips(stance, prefix, &attack_stem(attack.as_deref()), a.sights)
+                    }
+                    Move::BlockHit => reaction_clips(stance, prefix, "blockhit"),
+                    Move::Recoil => reaction_clips(stance, prefix, "recoil"),
+                };
                 clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &names)
             };
             let Some((path, clip)) = found else {
                 *clips.stats.missing.entry(format!("{folder} {}", if creature { "creature attack".to_string() } else { weapon_prefix(a.weapon).to_string() })).or_default() += 1;
                 continue;
             };
+            // A looping clip still running goes on through this shot (module notes).
+            if let Some(cur) = new_pose.attack.as_mut().filter(|c| c.repeat.is_some() && Arc::ptr_eq(&c.clip, &clip) && c.t < c.len) {
+                cur.since = 0.0;
+                clips.stats.kept += 1;
+                continue;
+            }
             let up = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&path, Aim::Up));
             let down = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&path, Aim::Down));
             let len = clip.clip.length().max(0.05);
@@ -323,7 +436,9 @@ fn start(
                 info!("attack anims: {id:08X} plays {path} ({len:.2} s{})", hit_time(&clip).map_or(String::new(), |h| format!(", hit at {h:.2} s")));
             }
             *st.clips.entry(name).or_default() += 1;
-            new_pose.attack = Some(Attack { clip, up, down, t: 0.0, len });
+            let repeat = repeat_of(&clip).filter(|_| !a.melee);
+            let t = repeat.map_or(0.0, |(from, _)| from);
+            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0 });
         }
         match pose {
             Some(mut p) => *p = new_pose,
@@ -332,6 +447,27 @@ fn start(
             }
         }
     }
+}
+
+/// A block's reaction clips (`kind` `blockhit` or `recoil`) for weapon `prefix`: crouched
+/// first when crouched, then the stance's, then the unarmed ones (`mtblockhit.kf`,
+/// `h2hrecoil.kf`) [observed: the base meshes archive lists `1hmblockhit`, `2hmblockhit`,
+/// `mtblockhit`, `sneak1hmblockhit`, `sneak2hmblockhit`, `1hmrecoil`, `2hmrecoil`,
+/// `h2hrecoil`].
+pub fn reaction_clips(stance: Stance, prefix: &str, kind: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let own = if prefix == "h2h" && kind == "blockhit" { "mt" } else { prefix };
+    if stance == Stance::Sneak {
+        out.push(format!("sneak{own}{kind}.kf"));
+    }
+    out.push(format!("{own}{kind}.kf"));
+    for other in ["mt", "h2h"] {
+        let name = format!("{other}{kind}.kf");
+        if !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    out
 }
 
 /// Whether a weapon hold has its weapon drawn (the aim clip playing).
@@ -345,7 +481,15 @@ fn report(mut exit: MessageReader<AppExit>, clips: Res<AttackClips>) {
     }
     let s = &clips.stats;
     let list = |m: &BTreeMap<String, usize>| if m.is_empty() { "none".to_string() } else { m.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ") };
-    info!("attack anims summary: {} attack clips started ({} shots, {} blows): {}; without a clip: {}", s.started, s.shots, s.blows, list(&s.clips), list(&s.missing));
+    info!(
+        "attack anims summary: {} attack clips started ({} shots, {} blows), {} shots went on with a looping clip: {}; without a clip: {}",
+        s.started,
+        s.shots,
+        s.blows,
+        s.kept,
+        list(&s.clips),
+        list(&s.missing)
+    );
 }
 
 #[cfg(test)]
@@ -359,6 +503,22 @@ mod tests {
             assert!((w / (1.0 + w) - share).abs() < 1e-5, "{share}");
         }
         assert!(variant_weight(1.0).is_finite());
+    }
+
+    #[test]
+    fn a_looping_clip_goes_round_from_fire_to_loop() {
+        // The install's 2hhattackspin.kf: `Fire` at 0.2 s, `Loop` at 0.867 s.
+        assert_eq!(loop_time(0.5, 0.2, 0.867), 0.5);
+        assert!((loop_time(0.9, 0.2, 0.867) - 0.233).abs() < 1e-5);
+        assert_eq!(loop_time(0.9, 0.9, 0.2), 0.9);
+    }
+
+    #[test]
+    fn block_reactions_fall_back_to_the_unarmed_clips() {
+        assert_eq!(reaction_clips(Stance::Stand, "1hm", "blockhit"), ["1hmblockhit.kf", "mtblockhit.kf", "h2hblockhit.kf"]);
+        assert_eq!(reaction_clips(Stance::Stand, "h2h", "blockhit")[0], "mtblockhit.kf");
+        assert_eq!(reaction_clips(Stance::Sneak, "2hm", "recoil")[..2], ["sneak2hmrecoil.kf", "2hmrecoil.kf"]);
+        assert_eq!(reaction_clips(Stance::Stand, "h2h", "recoil")[0], "h2hrecoil.kf");
     }
 
     #[test]

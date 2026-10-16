@@ -373,13 +373,16 @@ pub fn texture_swap_names(shape: &str, texture: &str) -> (String, String) {
     (shape, t)
 }
 
-/// `ref.SwapTexture "shape" "texture"`: draw `texture` on the named shape of the calling
-/// reference's model (the end slides, the Rorschach cards of Doc Mitchell's test, the
-/// Euclid's C-Finder's screen) [observed: the decoded calls, docs/design/script-stubs.md
-/// §4; no GECK wiki page]. Kept per reference for the engine (`TextureSwaps`).
-pub fn swap_texture(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let on = ctx.subject()?;
-    let (shape, texture) = texture_swap_names(a.str(0)?, a.str(1)?);
+/// `SwapTexture <ref> "shape" "texture"`: draw `texture` on the named shape of the model
+/// of the reference given as the first parameter (the end slides, the Rorschach cards of
+/// Doc Mitchell's test, the Euclid's C-Finder's screen on the player) [observed: the
+/// decoded calls have no calling reference and a reference as the first parameter, all
+/// 242 in FalloutNV.esm, e.g. `INFO 0x00105599`'s on `TempRorschachTest01REF`;
+/// docs/design/script-stubs.md §4; no GECK wiki page]. Kept per reference for the engine
+/// (`TextureSwaps`).
+pub fn swap_texture(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let on = a.form(0)?;
+    let (shape, texture) = texture_swap_names(a.str(1)?, a.str(2)?);
     let swaps = g.texture_swaps.by_ref.entry(on).or_default();
     swaps.retain(|(s, _)| *s != shape);
     swaps.push((shape, texture));

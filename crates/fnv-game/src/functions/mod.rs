@@ -19,6 +19,7 @@ pub(crate) mod actor;
 mod ai_state;
 pub mod camera;
 pub mod console;
+mod fighting;
 pub mod toggles;
 pub(crate) mod furniture;
 mod items;
@@ -37,6 +38,7 @@ pub use reputation::{crime_infamy, reputations_of, store as reputation_store, ti
 pub use actor::{actor_value, actor_value_capped, actor_value_parts, temporary as actor_value_temporary, add_damage as add_actor_value_damage, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
 pub use actor::{faction_rank, faction_relation, factions_of, factions_relation};
 pub use misc::clock_now;
+pub use fighting::cause_code;
 /// The level (0–3) of fame or infamy against a reputation's scale (the Pip-Boy's STATS page).
 pub use reputation::level as reputation_level;
 
@@ -459,7 +461,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10B2, "PlaySound3D", Impl(crate::sound::play_sound_3d)),
         (0x1198, "GetVATSValue", Stub("combat (VATS)")),
         (0x105A, "SetAlert", Impl(crate::awareness::set_alert)),
-        (0x1042, "GetShouldAttack", Stub("combat")),
+        (0x1042, "GetShouldAttack", Impl(fighting::get_should_attack)),
         (0x1275, "IncrementScriptedChallenge", Impl(ui::increment_scripted_challenge)),
         (0x1201, "ResetPipboyManager", Stub("Pip-Boy")),
         (0x122C, "ForceRadioStationUpdate", Impl(crate::radio::force_radio_station_update)),
@@ -475,7 +477,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10A3, "IsCurrentFurnitureObj", Impl(furniture::is_current_furniture_obj)),
         (0x1031, "GetSleeping", Impl(furniture::get_sleeping)),
         (0x105B, "GetIsAlerted", Impl(crate::awareness::get_is_alerted)),
-        (0x10F5, "ForceFlee", Stub("AI")),
+        (0x10F5, "ForceFlee", Impl(fighting::force_flee)),
         (0x115B, "SetNoAvoidance", Stub("AI")),
         (0x118B, "SetActorsAI", Impl(ai_state::set_actors_ai)),
         (0x1122, "SetPackDuration", Impl(ai_state::set_pack_duration)),
@@ -489,21 +491,21 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x107C, "StartMisterSandman", Stub("AI (Mister Sandman perk)")),
         (0x10E2, "GetSandman", Stub("AI (Mister Sandman perk)")),
         (0x1101, "StopCombatAlarmOnActor", Impl(crate::awareness::stop_combat_alarm_on_actor)),
-        (0x10B1, "SetCombatStyle", Stub("combat")),
-        (0x11A0, "GetGroupMemberCount", Stub("combat (groups)")),
-        (0x11A1, "GetGroupTargetCount", Stub("combat (groups)")),
+        (0x10B1, "SetCombatStyle", Impl(fighting::set_combat_style)),
+        (0x11A0, "GetGroupMemberCount", Impl(fighting::get_group_member_count)),
+        (0x11A1, "GetGroupTargetCount", Impl(fighting::get_group_target_count)),
         (0x10E8, "GetCombatTarget", Impl(crate::awareness::get_combat_target)),
-        (0x1203, "IsCombatTarget", Stub("combat")),
-        (0x11E2, "FireWeapon", Stub("combat")),
-        (0x119C, "UseWeapon", Stub("combat")),
+        (0x1203, "IsCombatTarget", Impl(fighting::is_combat_target)),
+        (0x11E2, "FireWeapon", Impl(fighting::fire_weapon)),
+        (0x119C, "UseWeapon", Impl(crate::use_weapon::use_weapon)),
         (0x103F, "GetAttacked", Impl(crate::provocation::get_attacked)),
         (0x1120, "GetFriendHit", Impl(crate::provocation::get_friend_hit)),
-        (0x106B, "GetKnockedState", Stub("combat (knockdown)")),
-        (0x118E, "IsLimbGone", Stub("combat (dismemberment)")),
-        (0x118D, "GetCauseofDeath", Stub("combat")),
-        (0x1259, "GetForceHitReaction", Stub("combat")),
-        (0x1051, "GetArmorRating", Stub("combat (armor rating)")),
-        (0x11AC, "GetPlantedExplosive", Stub("combat (explosives)")),
+        (0x106B, "GetKnockedState", Impl(fighting::get_knocked_state)),
+        (0x118E, "IsLimbGone", Stub("combat (dismemberment: no limb is ever severed)")),
+        (0x118D, "GetCauseofDeath", Impl(fighting::get_cause_of_death)),
+        (0x1259, "GetForceHitReaction", Stub("combat (hit reactions forced by power attacks: the uppercut and two custom power attacks; no shipped use)")),
+        (0x1051, "GetArmorRating", Impl(fighting::get_armor_rating)),
+        (0x11AC, "GetPlantedExplosive", Stub("combat (live explosives planted on an actor by reverse pickpocketing; no shipped use)")),
         (0x124D, "DetonatePlacedExplosives", Impl(actor::detonate_placed_explosives)),
         (0x11EB, "SetVatsTarget", Stub("combat (VATS)")),
         (0x10EB, "GetVATSTargetHeight", Stub("combat (VATS)")),
@@ -594,7 +596,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1217, "ForceSave", Stub("saving")),
         (0x11B5, "ExitGame", Stub("menus (credits, main menu)")),
         (0x121B, "AddTagSkills", Impl(ui::add_tag_skills)),
-        (0x119F, "Exists", Stub("dialogue (combat dialogue)")),
+        (0x119F, "Exists", Impl(fighting::exists)),
         (0x1130, "IsWaterObject", Stub("AI (drinking)")),
         // Used by the shipped scripts but unregistered before 2026-10-12 (script-stubs.md §6).
         (0x1236, "AddItemToLeveledList", Impl(items::add_item_to_leveled_list)),

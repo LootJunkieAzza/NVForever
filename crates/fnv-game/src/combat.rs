@@ -55,6 +55,8 @@ pub enum CombatRequest {
     /// Set off the placed explosives of this actor that detonate
     /// (`DetonatePlacedExplosives`).
     Detonate(FormId),
+    /// `from` fires one shot of `weapon` from its centre, straight ahead (`FireWeapon`).
+    Fire { from: FormId, weapon: FormId },
 }
 
 /// What damage did to a destructible reference (step C7).
@@ -250,6 +252,7 @@ impl Game<'_> {
         // burning) and abilities (docs/spec-notes/hit-effects.md §4).
         let data = self.data;
         self.dispel(r, None, |e| !e.permanent && !data.magic_effects.get(&e.effect).is_some_and(|m| m.has(MagicEffectDef::NO_DEATH_DISPEL)));
+        self.death_line(r, killer);
         true
     }
 
@@ -356,6 +359,12 @@ impl Game<'_> {
                     self.player.xp += out.xp;
                 }
             }
+        }
+        // What the target says (`crate::combat_lines`): Death was said by `kill`.
+        if out.knocked_out {
+            self.combat_line(target, info.attacker, "KOed");
+        } else if !out.died {
+            self.hit_lines(target, info.attacker, before, health, max_health, out.crippled);
         }
         out
     }

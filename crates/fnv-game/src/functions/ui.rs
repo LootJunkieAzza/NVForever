@@ -96,11 +96,15 @@ pub fn force_terminal_back(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value,
 
 /// `AddSPECIALPoints n`: opens the S.P.E.C.I.A.L. menu with n more points to give out;
 /// the attributes cannot go below what they were [documented: GECK wiki
-/// AddSPECIALPoints, used by the Intense Training perk]. The menu is the Vigor Tester's
-/// (1074) [hypothesis: New Vegas has no other S.P.E.C.I.A.L. page].
+/// AddSPECIALPoints, used by the Intense Training perk]. The menu is the character
+/// menu's attributes page, "ATTRIBUTES: 0/1 Points Assigned" [observed: the owner's
+/// screenshots after Intense Training, docs/spec-notes/levelup.md §8; documented:
+/// char_gen_menu.xml's attribute template and `_OnlyAdd`; the catalogue, "Opens the
+/// character-generation Attributes page"], the menu the tag-skill page is (1048)
+/// [hypothesis: its MenuMode code is not captured].
 pub fn add_special_points(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.ui.special = Some(SpecialMenu::Add(a.int(0)?));
-    g.open_menu(menus::LOVE_TESTER);
+    g.open_menu(menus::TAG_SKILLS);
     none()
 }
 

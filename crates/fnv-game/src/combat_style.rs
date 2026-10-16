@@ -2,7 +2,7 @@
 //! (docs/design/combat-ai.md §10.4–§10.5).
 //!
 //! - **Combat style** [documented: GECK wiki Combat Style; layout xEdit CSTY]: an actor's
-//!   CSTY is its record's ZNAM, from the template that supplies its AI data
+//!   CSTY is the one SetCombatStyle gave the reference, else its record's ZNAM, from the template that supplies its AI data
 //!   [hypothesis: the style is set beside the AI data], else `DefaultCombatstyle`
 //!   [hypothesis: the masters' style of that name, FormID 0x3D, is the default].
 //! - **Melee decision** [documented: Combat Style, Advanced]: the chance to attack is the
@@ -32,7 +32,9 @@ impl<'a> Game<'a> {
     /// The combat style `actor` fights with (module notes).
     pub fn combat_style(&self, actor: FormId) -> Option<&'a CombatStyleDef> {
         let data = self.data;
-        let own = self.def_following(actor, |d| d.template_ai).and_then(|d| d.combat_style);
+        // SetCombatStyle's, else the record's (module notes).
+        let set = self.extra.get(&actor).and_then(|e| e.combat_style);
+        let own = set.or_else(|| self.def_following(actor, |d| d.template_ai).and_then(|d| d.combat_style));
         let id = own.filter(|id| data.combat_styles.contains_key(id)).or_else(|| data.by_edid("DefaultCombatstyle"))?;
         data.combat_styles.get(&id)
     }
@@ -98,12 +100,37 @@ pub fn flees(ratio: f64, threshold: f64, modifier: f64) -> bool {
     threshold > 0.0 && ratio < threshold * (1.0 - modifier).max(0.0)
 }
 
+/// What the melee decision knows of the opponent (docs/design/combat-ai.md §10.4, §14.3).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Opponent {
+    /// In a blow now ("under attack").
+    pub attacking: bool,
+    /// Recoiling (its blow was blocked) or staggering.
+    pub recoiling: bool,
+    /// Blocking now.
+    pub blocking: bool,
+}
+
 /// The melee decision's chance to attack, 0–100 (module notes): `skill` the actor's
-/// attack skill, `hand_to_hand` whether it fights without a weapon, `under_attack`
-/// whether its opponent is attacking now.
-pub fn melee_attack_chance(cs: &CombatStyleDef, skill: f32, hand_to_hand: bool, under_attack: bool) -> f32 {
-    let base = cs.attack_chance + if hand_to_hand { cs.hand_to_hand_bonus } else { 0.0 } + cs.attack_skill_mod.0 + cs.attack_skill_mod.1 * skill.clamp(0.0, 100.0) / 100.0;
-    base * if under_attack { cs.attack_under_attack_mult } else { cs.attack_not_under_attack_mult }
+/// attack skill, `hand_to_hand` whether it fights without a weapon, `opp` what its
+/// opponent is doing: the Recoil/Stagger bonus while it recoils, the under-attack
+/// multipliers, Attack During Block Mult while it blocks [documented: GECK wiki Combat
+/// Style].
+pub fn melee_attack_chance(cs: &CombatStyleDef, skill: f32, hand_to_hand: bool, opp: Opponent) -> f32 {
+    let base = cs.attack_chance
+        + if hand_to_hand { cs.hand_to_hand_bonus } else { 0.0 }
+        + if opp.recoiling { cs.recoil_stagger_bonus } else { 0.0 }
+        + cs.attack_skill_mod.0
+        + cs.attack_skill_mod.1 * skill.clamp(0.0, 100.0) / 100.0;
+    base * if opp.attacking { cs.attack_under_attack_mult } else { cs.attack_not_under_attack_mult } * if opp.blocking { cs.attack_during_block_mult } else { 1.0 }
+}
+
+/// The melee decision's chance to block, 0–100: (Block % + the block skill modifier,
+/// `base + mult × 50 / 100`) times the under-attack or not multiplier [documented: GECK
+/// wiki Combat Style, "Modifier = Base + Mult * ( 50 / 100 )"].
+pub fn melee_block_chance(cs: &CombatStyleDef, under_attack: bool) -> f32 {
+    let base = cs.block_chance + cs.block_skill_mod.0 + cs.block_skill_mod.1 * 0.5;
+    (base * if under_attack { cs.block_under_attack_mult } else { cs.block_not_under_attack_mult }).max(0.0)
 }
 
 #[cfg(test)]
@@ -140,7 +167,33 @@ mod tests {
         // FalloutNV.esm's DefaultCombatstyle: 40 %, +5 hand to hand, skill × 20 / 100,
         // × 0.75 under attack (observed 2026-10-12).
         let cs = CombatStyleDef { attack_chance: 40.0, hand_to_hand_bonus: 5.0, attack_skill_mod: (0.0, 20.0), attack_under_attack_mult: 0.75, attack_not_under_attack_mult: 1.0, ..Default::default() };
-        assert!((melee_attack_chance(&cs, 50.0, true, false) - 55.0).abs() < 1e-4);
-        assert!((melee_attack_chance(&cs, 50.0, false, true) - 37.5).abs() < 1e-4);
+        let calm = Opponent::default();
+        let swinging = Opponent { attacking: true, ..calm };
+        assert!((melee_attack_chance(&cs, 50.0, true, calm) - 55.0).abs() < 1e-4);
+        assert!((melee_attack_chance(&cs, 50.0, false, swinging) - 37.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_melee_block_chance_and_its_terms() {
+        // FalloutNV.esm's DefaultCombatstyle [observed: fnvtool esm decode].
+        let cs = CombatStyleDef {
+            block_chance: 30.0,
+            attack_chance: 40.0,
+            recoil_stagger_bonus: 5.0,
+            attack_skill_mod: (0.0, 20.0),
+            attack_under_attack_mult: 0.75,
+            attack_not_under_attack_mult: 1.0,
+            block_skill_mod: (0.0, 20.0),
+            block_under_attack_mult: 2.0,
+            block_not_under_attack_mult: 1.0,
+            attack_during_block_mult: 0.5,
+            ..Default::default()
+        };
+        assert!((melee_block_chance(&cs, true) - 80.0).abs() < 1e-4);
+        assert!((melee_block_chance(&cs, false) - 40.0).abs() < 1e-4);
+        let calm = Opponent::default();
+        // Recoiling: + the bonus; blocking: × Attack During Block Mult.
+        assert!((melee_attack_chance(&cs, 50.0, false, Opponent { recoiling: true, ..calm }) - 55.0).abs() < 1e-4);
+        assert!((melee_attack_chance(&cs, 50.0, false, Opponent { blocking: true, ..calm }) - 25.0).abs() < 1e-4);
     }
 }
