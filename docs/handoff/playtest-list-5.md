@@ -144,3 +144,31 @@ split between the two coordinator machines below. Lists 1–4 are merged
 73. HUD: HP/AP labels over the bars, even pips filling both bars, condition bar by the separator
     and level with "CND", the two black 75 % jamming arrows; like the game (`HPAPMisaligned`).
 74. In dialogue all HUD elements go; other actors' subtitles (Joe Cobb talking to Trudy) hidden (`DialogueUI`).
+
+## 5. Outcome (2026-10-16)
+
+Every item of the list is merged on main. The laptop also took L3 `claude/l5-world-objects`
+(items 59, 65, 64, 4, the D6 items without pictures); D6 kept 17, 71 and 63.
+
+| Queue | PR(s) | Integration fix-backs |
+|---|---|---|
+| D1 HUD | #289 | — |
+| D2 Pip-Boy | #288 | — |
+| D3 menus, crafting | #290, #292 | — |
+| D4 combat | #286 | #296 (aim point took a leg capsule: bighorner not hit), #298 (bighorner check order-independent; combat-dogs known_failing again: blow count follows frame rate, laptop) |
+| D5 render/FX | #291 | script-stubs counts updated for SwapTexture, ShowRecipeMenu, Autosave, OpenTeammateContainer |
+| D6 steps, skeletons, pin | #299 | — |
+| D7 compass, crosshair, reputation | #297 | #300 (falling-loading runs with `--no-dialogue-look`: a late Ringo greeting left the view off the door) |
+| L1 NPC AI | #294 | ncr-fiends cover/alarm (laptop) |
+| L2 white text, sounds | #293 | — |
+| L3 world objects | #295 | — |
+
+Desktop integration runs: D1–D5 together (62 pass, 2 fail → fixed by their workstreams), then
+D6 + D7 on main (32 pass, 1 fail → #300). Laptop: L1–L3 together (63 pass; its failures went
+back to L1 and to D4).
+
+Left partly done or unconfirmed, as the workstreams reported (details in each one's
+`docs/owner-review.md` section): item 1 dust storm and item 10 explosions partly (D5); item 22
+convict karma fixed in the survey but not checked in game (D4); item 71 the skeletons lie posed
+but their collision still stands upright (D6). Merges between two appends of
+`tools/smoke/scenarios.toml` dropped a closing `]` three times: check the file parses after a merge.
