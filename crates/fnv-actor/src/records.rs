@@ -51,6 +51,9 @@ pub struct Npc {
     pub edid: Option<String>,
     pub name: Option<String>,
     pub female: bool,
+    /// ACBS flag "Is CharGen Face Preset" [documented: xEdit ACBS flags]: the race menu's
+    /// starting faces.
+    pub chargen_preset: bool,
     pub template: Option<FormId>,
     pub template_flags: u16,
     /// MODL: the skeleton, relative to `meshes\` [observed: `Characters\_Male\Skeleton.NIF`].
@@ -87,6 +90,40 @@ pub struct Race {
     pub body: [Vec<RacePart>; 2],
     pub default_hair: [Option<FormId>; 2],
     pub facegen: [Option<FaceGen>; 2],
+    /// FULL.
+    pub name: Option<String>,
+    /// DATA flags Playable and Child [documented: xEdit RACE DATA].
+    pub playable: bool,
+    pub child: bool,
+    /// The hairs (HNAM) and eyes (ENAM) the race allows, in record order.
+    pub hairs: Vec<FormId>,
+    pub eyes: Vec<FormId>,
+    /// ONAM "Older" and YNAM "Younger" races.
+    pub older: Option<FormId>,
+    pub younger: Option<FormId>,
+    /// VTCK voice types, male and female.
+    pub voices: [Option<FormId>; 2],
+}
+
+/// Which sexes a HAIR or EYES record is for and whether the player may choose it (DATA
+/// flags Playable, Not Male, Not Female [documented: xEdit HAIR, EYES]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct Choosable {
+    pub playable: bool,
+    pub not_male: bool,
+    pub not_female: bool,
+}
+
+impl Choosable {
+    fn from_flags(v: Option<&Value>) -> Choosable {
+        let has = |n: &str| v.is_some_and(|f| has_flag(f, n));
+        Choosable { playable: has("Playable"), not_male: has("Not Male"), not_female: has("Not Female") }
+    }
+
+    /// Playable and allowed for that sex.
+    pub fn for_sex(&self, female: bool) -> bool {
+        self.playable && !(if female { self.not_female } else { self.not_male })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -94,17 +131,27 @@ pub struct Hair {
     pub model: Option<String>,
     /// ICON, named "Texture" by xEdit.
     pub texture: Option<String>,
+    pub edid: Option<String>,
+    pub name: Option<String>,
+    pub choosable: Choosable,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Eyes {
     pub texture: Option<String>,
+    pub edid: Option<String>,
+    pub name: Option<String>,
+    pub choosable: Choosable,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HeadPart {
     pub model: Option<String>,
     pub extra: Vec<FormId>,
+    pub edid: Option<String>,
+    pub name: Option<String>,
+    /// DATA "Playable" [documented: xEdit HDPT, a bool enum].
+    pub playable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -319,11 +366,25 @@ fn load_one(lo: &LoadOrder, pi: usize, id: FormId, sig: &[u8; 4], d: &[Decoded],
     match sig {
         b"NPC_" => Loaded::Npc(Box::new(npc(lo, pi, id, d, issues))),
         b"RACE" => Loaded::Race(Box::new(race(lo, pi, id, d, issues))),
-        b"HAIR" => Loaded::Hair(Hair { model: path(first(d, b"MODL")), texture: path(first(d, b"ICON")) }),
-        b"EYES" => Loaded::Eyes(Eyes { texture: path(first(d, b"ICON")) }),
+        b"HAIR" => Loaded::Hair(Hair {
+            model: path(first(d, b"MODL")),
+            texture: path(first(d, b"ICON")),
+            edid: first(d, b"EDID").and_then(text),
+            name: first(d, b"FULL").and_then(text),
+            choosable: Choosable::from_flags(first(d, b"DATA")),
+        }),
+        b"EYES" => Loaded::Eyes(Eyes {
+            texture: path(first(d, b"ICON")),
+            edid: first(d, b"EDID").and_then(text),
+            name: first(d, b"FULL").and_then(text),
+            choosable: Choosable::from_flags(first(d, b"DATA")),
+        }),
         b"HDPT" => Loaded::HeadPart(HeadPart {
             model: path(first(d, b"MODL")),
             extra: all(d, b"HNAM").filter_map(|v| fid(lo, pi, id, "HNAM", Some(v), issues)).collect(),
+            edid: first(d, b"EDID").and_then(text),
+            name: first(d, b"FULL").and_then(text),
+            playable: first(d, b"DATA").and_then(Value::as_str) == Some("True"),
         }),
         b"ARMO" => Loaded::Armor(armor(d)),
         b"WEAP" => Loaded::Weapon(weapon(lo, pi, id, d, issues)),
@@ -337,6 +398,7 @@ fn load_one(lo: &LoadOrder, pi: usize, id: FormId, sig: &[u8; 4], d: &[Decoded],
 fn npc(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Issues) -> Npc {
     let acbs = first(d, b"ACBS");
     let female = acbs.and_then(|a| a.get("flags")).is_some_and(|f| has_flag(f, "Female"));
+    let chargen_preset = acbs.and_then(|a| a.get("flags")).is_some_and(|f| has_flag(f, "Is CharGen Face Preset"));
     let template_flags = acbs.and_then(|a| a.get("template_flags")).and_then(|f| num(f, "value")).unwrap_or(0.0) as u16;
     let hair_color = first(d, b"HCLR").and_then(|c| Some([int(c, "red")? as u8, int(c, "green")? as u8, int(c, "blue")? as u8]));
     Npc {
@@ -344,6 +406,7 @@ fn npc(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Issues
         edid: first(d, b"EDID").and_then(text),
         name: first(d, b"FULL").and_then(text),
         female,
+        chargen_preset,
         template: fid(lo, pi, id, "TPLT", first(d, b"TPLT"), issues),
         template_flags,
         skeleton: path(first(d, b"MODL")),
@@ -399,13 +462,33 @@ fn race(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Issue
         body: Default::default(),
         default_hair: [None, None],
         facegen: [None, None],
+        name: first(d, b"FULL").and_then(text),
+        playable: false,
+        child: false,
+        hairs: Vec::new(),
+        eyes: Vec::new(),
+        older: fid(lo, pi, id, "ONAM", first(d, b"ONAM"), issues),
+        younger: fid(lo, pi, id, "YNAM", first(d, b"YNAM"), issues),
+        voices: [None, None],
     };
     if let Some(data) = first(d, b"DATA") {
         out.height = [
             num(data, "male_height").unwrap_or(1.0),
             num(data, "female_height").unwrap_or(1.0),
         ];
+        let flags = data.get("flags");
+        out.playable = flags.is_some_and(|f| has_flag(f, "Playable"));
+        out.child = flags.is_some_and(|f| has_flag(f, "Child"));
     }
+    if let Some(v) = first(d, b"VTCK") {
+        out.voices = [fid(lo, pi, id, "VTCK", v.get("male"), issues), fid(lo, pi, id, "VTCK", v.get("female"), issues)];
+    }
+    let list = |sig: &[u8; 4], issues: &mut Issues| -> Vec<FormId> {
+        let name = String::from_utf8_lossy(sig).into_owned();
+        first(d, sig).and_then(Value::as_array).map(|a| a.iter().filter_map(|v| fid(lo, pi, id, &name, Some(v), issues)).collect()).unwrap_or_default()
+    };
+    out.hairs = list(b"HNAM", issues);
+    out.eyes = list(b"ENAM", issues);
     if let Some(h) = first(d, b"DNAM") {
         out.default_hair = [
             fid(lo, pi, id, "DNAM", h.get("male"), issues),

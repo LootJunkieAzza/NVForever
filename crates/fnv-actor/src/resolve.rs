@@ -291,6 +291,20 @@ struct Choices {
     random: bool,
 }
 
+/// A chosen look: what the character creator sets in place of the actor record's fields
+/// (docs/spec-notes/character-creator.md). `hair` `None` is no hair (bald), not the race's
+/// default; `hair_color` `None` keeps the record's.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Look {
+    pub race: FormId,
+    pub female: bool,
+    pub hair: Option<FormId>,
+    pub hair_color: Option<[u8; 3]>,
+    pub eyes: Option<FormId>,
+    pub head_parts: Vec<FormId>,
+    pub facegen: FaceGen,
+}
+
 pub struct Resolver<'a> {
     pub actors: &'a ActorForms,
     pub forms: &'a FormStore,
@@ -306,11 +320,34 @@ impl<'a> Resolver<'a> {
     /// has equipped on the player) instead of chosen from the carried items; entries that
     /// are not ARMO records are ignored.
     pub fn resolve_wearing(&self, base: FormId, reference: FormId, wearing: Option<&[FormId]>) -> Result<Appearance, ResolveError> {
+        self.resolve_as(base, reference, wearing, None)
+    }
+
+    /// [`Self::resolve_wearing`], with the race, sex, hair, eyes, head parts, hair colour
+    /// and FaceGen values of `look` in place of the record's (the player's choices in the
+    /// character creator, docs/spec-notes/character-creator.md).
+    pub fn resolve_as(&self, base: FormId, reference: FormId, wearing: Option<&[FormId]>, look: Option<&Look>) -> Result<Appearance, ResolveError> {
         let mut ch = Choices { rng: rng_for(reference), picks: HashMap::new(), random: false };
         let npc = self.actor_base(base, &mut ch, 0)?;
         let traits = self.template_source(npc, template::TRAITS, &mut ch)?;
         let model = self.template_source(npc, template::MODEL_ANIMATION, &mut ch)?;
         let inventory = self.template_source(npc, template::INVENTORY, &mut ch)?;
+        let (traits_own, model_own);
+        let (traits, model) = match look {
+            Some(l) => {
+                traits_own = Npc { race: Some(l.race), female: l.female, ..traits.clone() };
+                model_own = Npc {
+                    hair: l.hair,
+                    hair_color: l.hair_color.or(model.hair_color),
+                    eyes: l.eyes,
+                    head_parts: l.head_parts.clone(),
+                    facegen: Some(l.facegen.clone()),
+                    ..model.clone()
+                };
+                (&traits_own, &model_own)
+            }
+            None => (traits, model),
+        };
 
         let race_id = traits.race.ok_or(ResolveError::NoRace(traits.id))?;
         let race = self.actors.races.get(&race_id).ok_or(ResolveError::UnknownRace(race_id))?;
@@ -371,7 +408,8 @@ impl<'a> Resolver<'a> {
         }
         // Hair (§2.4): gone with the head; under headgear covering Hat, the hair model's
         // `Hat` shape; replaced (e.g. a wig) when Hair is covered without Hat.
-        let hair = model.hair.or(race.default_hair[sex]);
+        // A chosen look without hair is bald, not the race's default.
+        let hair = if look.is_some() { model.hair } else { model.hair.or(race.default_hair[sex]) };
         let hat = covered & slot::HAT != 0;
         if !head_covered && (hat || covered & slot::HAIR == 0) {
             if let Some((id, h)) = hair.and_then(|id| Some((id, self.actors.hairs.get(&id)?))) {

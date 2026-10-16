@@ -43,6 +43,14 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
             let o = crate::actor_detect::Options { detector, target, interior, light, dark };
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_detect::run(lo, schema, data, refs, &o))
         }
+        ActorCmd::Creator { lo, schema } => {
+            let schema = Schema::load_dir(&schema).with_context(|| schema.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let order = LoadOrder::new(&plugins)?;
+            let actors = ActorForms::build(&order, &schema);
+            let vfs = fnv_vfs::Vfs::open_for_plugins(&lo.data_dir, &lo.plugins).with_context(|| lo.data_dir.display().to_string())?;
+            Ok(crate::actor_creator::report(&actors, |p| vfs.read(p).and_then(Result::ok)))
+        }
         ActorCmd::Appearance { lo, schema, reference, cell, all, deterministic } => {
             let schema = Schema::load_dir(&schema).with_context(|| schema.display().to_string())?;
             let plugins = open_load_order(&lo)?;
