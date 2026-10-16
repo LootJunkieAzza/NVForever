@@ -850,6 +850,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "head-look-seated"
+source = "owner report 2026-10-16: Doc Mitchell, seated in the opening, looked at the floor while saying \"Whoa, easy there\" to the player (docs/spec-notes/actors.md §12.3: the pitch limits are kept from the level, widened by the spine's lean)"
+note = "Doc sits hunched in his chair playing VCG01DocWhoaThere; speech_look forces his head onto the player's eyes for each line. The 'line over' line says how far the head ended from them: with the limits measured against the hunched spine it stayed well below"
+areas = ["head-look", "speech-look"]
+paths = ["crates/fnv-actor/src/head_look.rs", "engine/nvforever/src/head_look.rs", "engine/nvforever/src/speech_look.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'speech look: line 00104BEF over: DocMitchellREF has the player .*its head is [+-]?\d+° to the right of them and (?P<n>[+-]?\d+)° above', range = [-12, 12], label = "seated Doc Mitchell's head reaches the player's eyes up and down on \"Whoa, easy there\"" },
+  { re = 'speech look: line 00104BEF over: DocMitchellREF has the player .*its head is (?P<n>[+-]?\d+)° to the right of them', range = [-12, 12], label = "and to the side" },
+]
+
+[[scenario]]
 name = "weapon-fidgets"
 source = "docs/spec-notes/idles.md §11 (owner 2026-10-16): NPCs standing with a rifle out fidget from the IDLE tree (2hrLoiter, 2hrLoiterOnehanded, 2hrShiftWeight, 2haAlertScan), and so does the player standing still in third person"
 note = "every NPC's weapon is drawn unless its package hides it (--actor-weapons drawn); the Fiends' camp with the player about 4,000 units west of Violet (the Fiends with rifles out fidget until they spot the player; in combat the tree gives none; 2026-10-16: 16 NPC fidgets, 5 the player's); the player draws a varmint rifle (0007EA24) at 3 s and goes to third person at 4 s, then stands still"
