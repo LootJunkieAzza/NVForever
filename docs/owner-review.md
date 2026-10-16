@@ -5401,6 +5401,18 @@ below is my choice; tell me any you want changed.
   10–25 s pass.
 - Not built: the player recoiling when an NPC blocks; switching a guard to whoever
   rushes the gunman it guards (it fights its own combat target).
+## NPCs chain melee combos (2026-10-16, branch claude/npc-melee-combo)
+
+Your request: melee enemies chain attacks into combos with different clips. Rules:
+docs/design/combat-ai.md §15. My choices, tell me any you want changed:
+
+- An NPC decides again at the clip's `a:` key (the same key the player's combos use);
+  if it attacks then, the next swing is the group the key names (right, left, right…).
+  It goes on by its combat style's attack chance (55 % for the default style), so combos
+  are mostly two or three blows; a hold, block or recoil ends one.
+- The next clip cuts the last one at the `a:` key, as the player's does.
+- No NPC power attacks yet.
+
 ## NPCs' holstered flamer: tank on the back, no gun (2026-10-16)
 
 Your request: an unequipped flamer should show the flame tank on the back and no weapon,

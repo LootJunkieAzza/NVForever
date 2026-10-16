@@ -48,6 +48,14 @@
 //!   target, a blow every [`STRIKE_SECONDS`] (divided by the weapon's attack speed)
 //!   [design; owner 2026-10-11: a dog gets into range and bites, it does not push the
 //!   player around]. Without bodies to measure, its reach from its feet counts.
+//! - **Melee combos** (docs/design/combat-ai.md §15): a blow's clip with an `a:` text
+//!   key (`a:L` on the `AttackRight` clips, `a:R` on the `AttackLeft` ones; `fnv_combat::
+//!   melee`) brings the next melee decision forward to that key; a blow decided between
+//!   the key and the clip's end goes on the combo with the group the key names (right,
+//!   left, right…, fists alternating hands), as the player's swings do, cutting the clip
+//!   short. A blow decided later, after a hold, a block or a recoil starts again from the
+//!   weapon's own attack group. A clip without an `a:` key keeps the [`STRIKE_SECONDS`]
+//!   pace [design; owner request 2026-10-16].
 //!
 //! - **Its combat style** (CSTY, `fnv_game::combat_style`; docs/design/combat-ai.md
 //!   §10.4) [documented: GECK wiki Combat Style]: Weapon Restrictions "Melee Only" has
@@ -89,7 +97,7 @@
 //! Whom it fights is the detection states' (its combat target). Not built: grenades,
 //! ammunition use, weapon choice among several, dodging and power attacks of NPCs.
 
-use crate::attack_anims::{AttackTimes, Move, PlayAttack, DEFAULT_HIT};
+use crate::attack_anims::{AttackTimes, Move, PlayAttack, SwingPick, DEFAULT_HIT};
 use crate::combat_stance::{self as stance, Temperament};
 use crate::combat_tactics::{self as tactics, Battle, Phase, Tactic};
 use crate::nav::NavState;
@@ -250,6 +258,28 @@ struct Fighter {
     recoil_until: f32,
     /// Closing in on a gunman (§14.4).
     approach: Approach,
+    /// Its last melee blow's swing, for a combo (module notes).
+    swing: Option<NpcSwing>,
+}
+
+/// A fighter's last melee blow (module notes).
+#[derive(Debug, Clone, Copy, Default)]
+struct NpcSwing {
+    /// Seconds since it began.
+    t: f32,
+    /// Its clip's timing, once `attack_anims` started it.
+    clip: Option<crate::attack_anims::SwingClip>,
+    /// Blows in this combo so far, this one included.
+    run: u32,
+}
+
+impl NpcSwing {
+    /// What a blow begun now goes on with: the group its `a:` key named, between that key
+    /// and the clip's end.
+    fn next(&self) -> Option<fnv_combat::melee::NextAttack> {
+        let c = self.clip?;
+        c.chain.filter(|(at, _)| self.t >= *at && self.t <= c.len).map(|(_, n)| n)
+    }
 }
 
 /// A melee fighter closing in (docs/design/combat-ai.md §14.4).
@@ -304,6 +334,8 @@ pub struct Fighters {
     /// The crouch, block and approach rolls' own sequence (§14), so fights without them
     /// roll as before.
     stance_rng: u64,
+    /// The combo swings' variant rolls' own sequence, as `stance_rng`.
+    swing_rng: u64,
     /// The player's swings seen so far (`CombatStats::swings`), and when the last began.
     player_swings: u32,
     player_swing_at: f32,
@@ -353,6 +385,9 @@ struct Stats {
     sights_raised: usize,
     /// Melee decisions to hold instead of attacking; flee checks made and flights begun.
     holds: usize,
+    /// Blows that went on a combo, and the longest combo.
+    chained: usize,
+    longest_combo: u32,
     flee_checks: usize,
     flees: usize,
     /// Hit reactions (crippled staggers) that held a fighter back, and blows being
@@ -487,7 +522,7 @@ fn fight(
     held: Query<&HeldWeapon>,
     muzzles: Query<(&Muzzle, &GlobalTransform)>,
     (mut fire, mut strike, mut anims): (MessageWriter<ActorFire>, MessageWriter<ActorStrike>, MessageWriter<PlayAttack>),
-    times: Res<AttackTimes>,
+    mut times: ResMut<AttackTimes>,
     (cstats, control): (Option<Res<CombatStats>>, Option<Res<PlayerControl>>),
 ) {
     let dt = time.delta_secs();
@@ -529,6 +564,9 @@ fn fight(
     if f.stance_rng == 0 {
         f.stance_rng = 0x2545_F491_4F6C_DD1D;
     }
+    if f.swing_rng == 0 {
+        f.swing_rng = 0x9E37_79B9_7F4A_7C15;
+    }
     let clock = time.elapsed_secs();
     let space = location.as_deref().map(|l| l.interior.map_or(Space::World(l.world), Space::Interior));
     let nav = nav.as_deref().map(|n| &n.graph);
@@ -548,13 +586,14 @@ fn fight(
             if let Some(x) = f.fighters.get_mut(&b.attacker.0) {
                 x.recoil_until = clock + stance::RECOIL_SECONDS;
                 x.blows.clear();
+                x.swing = None;
                 f.stats.recoils += 1;
                 info!("npc combat: {} recoils: its blow was blocked by {}", tactics::who(g, b.attacker), tactics::who(g, b.blocker));
-                anims.write(PlayAttack { actor: b.attacker.0, weapon: weapons.get(&b.attacker.0).copied(), melee: true, sights: false, kind: Move::Recoil });
+                anims.write(PlayAttack { actor: b.attacker.0, weapon: weapons.get(&b.attacker.0).copied(), melee: true, sights: false, kind: Move::Recoil, swing: None });
             }
             if f.fighters.contains_key(&b.blocker.0) {
                 f.stats.blocked += 1;
-                anims.write(PlayAttack { actor: b.blocker.0, weapon: weapons.get(&b.blocker.0).copied(), melee: true, sights: false, kind: Move::BlockHit });
+                anims.write(PlayAttack { actor: b.blocker.0, weapon: weapons.get(&b.blocker.0).copied(), melee: true, sights: false, kind: Move::BlockHit, swing: None });
             }
         }
         for (rig, global, _, hold, _, _, flinch) in &actors {
@@ -694,6 +733,7 @@ fn fight(
                         blows_begun: 0,
                         recoil_until: 0.0,
                         approach,
+                        swing: None,
                     },
                 );
                 // This fight's confidence modifier, not for the foolhardy; the first
@@ -1324,7 +1364,7 @@ fn fight(
                                 let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled: false, right_arm_crippled: false };
                                 let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &st), 0.0, ws, &[]) + settling(fighter.firing_for);
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
-                                anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack });
+                                anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, swing: None });
                                 f.stats.shots += 1;
                                 // Its Attack line, on its own timer (fnv_game::combat_lines).
                                 g.attack_line(me, Some(target), false, false);
@@ -1337,6 +1377,24 @@ fn fight(
                 Arm::Melee(_) | Arm::Creature(..) => {
                     fighter.strike_in = (fighter.strike_in - dt).max(0.0);
                     let near = gap.map_or(away <= reach, |gap| gap <= MELEE_HIT_GAP);
+                    // The last blow's clip, once started: its blow lands at its own `Hit`
+                    // key, and the next decision comes at its `a:` key (module notes).
+                    if let Some(sw) = fighter.swing.as_mut() {
+                        sw.t += dt;
+                        if let Some(clip) = times.swings.remove(&id).filter(|_| sw.clip.is_none()) {
+                            sw.clip = Some(clip);
+                            // (Before this frame's countdown below.)
+                            if let Some(b) = fighter.blows.last_mut() {
+                                b.0 = (clip.hit - sw.t + dt).max(0.0);
+                            }
+                            if let Some((at, _)) = clip.chain {
+                                fighter.strike_in = fighter.strike_in.min((at - sw.t).max(0.0));
+                            }
+                        }
+                        if sw.t > sw.clip.map_or(STRIKE_SECONDS * 2.0, |c| c.len) {
+                            fighter.swing = None;
+                        }
+                    }
                     // Blows whose clip has reached its `Hit` key land, if the target is
                     // still within reach.
                     for b in &mut fighter.blows {
@@ -1361,6 +1419,7 @@ fn fight(
                             let held = stance::between(style.map_or((0.5, 1.5), |s| s.hold_timer), next_unit(&mut f.stance_rng)).max(stance::BLOCK_MIN);
                             fighter.block = Some((clock + held, false));
                             fighter.strike_in = held;
+                            fighter.swing = None;
                             blocks = true;
                             f.stats.blocks += 1;
                             info!("npc combat: {me_name} blocks {target_name}'s blow (decided, {held:.1} s; {chance:.0} %)");
@@ -1383,6 +1442,7 @@ fn fight(
                         let (lo, hi) = style.map_or((0.5, 1.5), |s| s.hold_timer);
                         fighter.strike_in = (lo + (hi - lo).max(0.0) * next_unit(&mut f.rng)).max(0.1);
                         f.stats.holds += 1;
+                        fighter.swing = None;
                     }
                     if attack {
                         let speed = match &arm {
@@ -1398,9 +1458,21 @@ fn fight(
                         };
                         // The blow lands at its clip's `Hit` key (the last clip's, as the
                         // next is chosen after this) [design].
+                        // Until its clip's own `Hit` key is known (above).
                         let delay = times.hit.get(&id).copied().unwrap_or(DEFAULT_HIT);
                         fighter.blows.push((delay, ActorStrike { attacker: me, target, weapon, creature_damage, point: tchest, dir }));
-                        anims.write(PlayAttack { actor: id, weapon, melee: true, sights: false, kind: Move::Attack });
+                        // Going on a combo, or the first swing of one (module notes).
+                        let next = fighter.swing.and_then(|s| s.next());
+                        let run = next.map_or(1, |_| fighter.swing.map_or(0, |s| s.run) + 1);
+                        if let Some(n) = next {
+                            f.stats.chained += 1;
+                            info!("npc combat: {me_name} goes on its combo with {n:?} (blow {run})");
+                        }
+                        f.stats.longest_combo = f.stats.longest_combo.max(run);
+                        times.swings.remove(&id);
+                        fighter.swing = Some(NpcSwing { t: 0.0, clip: None, run });
+                        let swing = SwingPick { next, rolls: [next_unit(&mut f.swing_rng), next_unit(&mut f.swing_rng)] };
+                        anims.write(PlayAttack { actor: id, weapon, melee: true, sights: false, kind: Move::Attack, swing: Some(swing) });
                         f.stats.strikes += 1;
                         fighter.blows_begun += 1;
                         g.attack_line(me, Some(target), false, false);
@@ -1463,7 +1535,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
     let s = &fighters.stats;
     let (hits, damage, died) = stats.map_or((0, 0.0, false), |c| (c.player_hits, c.player_damage, c.player_died));
     info!(
-        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} missed: out of reach when they landed; {} melee decisions to hold), {} reloads; {} flee checks, {} fled; the player was hit {hits} times for {damage:.1}{}; {} staggers held a fighter's attacks ({} blows cut short); {} frames a fighter waited to face its target",
+        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} went on a combo, the longest {}; {} missed: out of reach when they landed; {} melee decisions to hold), {} reloads; {} flee checks, {} fled; the player was hit {hits} times for {damage:.1}{}; {} staggers held a fighter's attacks ({} blows cut short); {} frames a fighter waited to face its target",
         s.fighters.len(),
         s.fighters.values().cloned().collect::<Vec<_>>().join(", "),
         s.shots,
@@ -1473,6 +1545,8 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.hip_shots,
         s.sights_raised,
         s.strikes,
+        s.chained,
+        s.longest_combo,
         s.missed,
         s.holds,
         s.reloads,
@@ -1503,6 +1577,21 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_combo_goes_on_between_the_a_key_and_the_clips_end() {
+        use fnv_combat::melee::NextAttack;
+        // `h2hattackright_a.kf`: Hit 0.30, a:L 0.63, end 1.43 [observed, fnv_combat::melee].
+        let clip = crate::attack_anims::SwingClip { hit: 0.30, chain: Some((0.63, NextAttack::Left)), len: 1.43 };
+        let at = |t| NpcSwing { t, clip: Some(clip), run: 1 }.next();
+        assert_eq!(at(0.5), None);
+        assert_eq!(at(0.63), Some(NextAttack::Left));
+        assert_eq!(at(1.4), Some(NextAttack::Left));
+        assert_eq!(at(1.5), None);
+        // Before its clip started, or a clip without an `a:` key: a new run.
+        assert_eq!(NpcSwing { t: 0.7, clip: None, run: 1 }.next(), None);
+        assert_eq!(NpcSwing { t: 0.7, clip: Some(crate::attack_anims::SwingClip { chain: None, ..clip }), run: 1 }.next(), None);
+    }
 
     #[test]
     fn two_handed_weapons_slow() {
