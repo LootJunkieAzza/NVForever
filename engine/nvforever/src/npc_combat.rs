@@ -605,7 +605,7 @@ fn fight(
         f.stance_rng = 0x2545_F491_4F6C_DD1D;
     }
     if f.power_rng == 0 {
-        f.power_rng = 0x9E37_79B9_7F4A_7C15;
+        f.power_rng = 0xD1B5_4A32_D192_ED03;
     }
     if f.swing_rng == 0 {
         f.swing_rng = 0x9E37_79B9_7F4A_7C15;
