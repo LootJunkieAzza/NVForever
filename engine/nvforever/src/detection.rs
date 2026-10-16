@@ -444,7 +444,7 @@ fn measure(
         }
         for (i, d) in people.iter().enumerate() {
             let Some(forward) = d.forward else { continue };
-            if g.extra.get(&FormId(d.id)).is_some_and(|e| e.ai_off) {
+            if g.ai_off(FormId(d.id)) {
                 continue;
             }
             let asleep = g.asleep(FormId(d.id));
@@ -452,7 +452,7 @@ fn measure(
             let alert = aware.is_some_and(|a| a.state.in_combat());
             let fighting = aware.filter(|a| a.state == State::Combat).and_then(|a| a.combat_target()).map(|(t, _)| t);
             for (j, t) in people.iter().enumerate() {
-                if i == j || (j == 0 && unseen()) {
+                if i == j || (j == 0 && (unseen() || g.toggles.detection_off)) {
                     continue;
                 }
                 let dist = distance(d.feet, t.feet);
@@ -498,7 +498,7 @@ fn measure(
             g.queue_detection_event(DetectionEvent { owner: FormId(by), at, level, kind: EventType::Bullet });
         }
         for ev in g.take_detection_events() {
-            if unseen() && ev.owner == FormId::PLAYER_REF {
+            if (unseen() || g.toggles.detection_off) && ev.owner == FormId::PLAYER_REF {
                 continue;
             }
             events += 1;

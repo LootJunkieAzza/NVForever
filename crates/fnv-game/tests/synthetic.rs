@@ -564,6 +564,20 @@ fn registered_functions_match_the_catalogue() {
 }
 
 #[test]
+fn console_functions_are_opcodeless_console_functions_of_the_catalogue() {
+    let (table, _) = catalogue();
+    for (name, _) in fnv_game::functions::console_registry() {
+        let op = table.by_name(name).unwrap_or_else(|| panic!("{name} is not in functions.json"));
+        let f = table.get(op).unwrap();
+        assert!(op >= fnv_script::table::CONSOLE_OPCODE_BASE, "{name}: has the game's opcode 0x{op:04X}; register it in registry()");
+        assert_eq!(&f.name, name, "{name}: the catalogue spells it {}", f.name);
+    }
+    // The console's words reach them by alias.
+    assert_eq!(table.by_name("tcl"), table.by_name("ToggleCollision"));
+    assert!(fnv_game::functions::lookup_console("togglegrass").is_some());
+}
+
+#[test]
 fn menus_and_loading_screens_stop_game_time_for_scripts() {
     // The quest timer of the_quest_timer_runs_at_the_quest_delay_and_sets_the_complete_stage,
     // with a long menu and a loading screen in the middle: neither counts.

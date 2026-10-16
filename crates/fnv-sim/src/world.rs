@@ -134,6 +134,8 @@ pub enum SimError {
     NoActorValues(FormId),
     #[error("the game setting {0} is not defined by any plugin")]
     MissingSetting(String),
+    #[error("the game setting {0} holds another kind of value")]
+    SettingKind(String),
     #[error("the global {0} is not defined by any plugin")]
     MissingGlobal(String),
     /// The player tried to drop a quest item from the inventory menu
@@ -243,6 +245,9 @@ pub struct World<'a> {
     /// Placed actors whose carried items are another base's than their own (an actor
     /// template's, [`World::set_inventory_sources`]).
     inventory_sources: BTreeMap<FormId, FormId>,
+    /// Game settings changed at run time (the console's `SetGameSetting`), by lower-case
+    /// Editor ID; they replace the record's value for [`World::setting_value`] readers.
+    setting_changes: BTreeMap<String, crate::settings::Setting>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -260,6 +265,7 @@ impl<'a> World<'a> {
             leveled_added: BTreeMap::new(),
             carry_bonus: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
+            setting_changes: BTreeMap::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -701,7 +707,36 @@ impl<'a> World<'a> {
     }
 
     fn setting(&self, edid: &str) -> Result<f32, SimError> {
-        self.forms.setting_f32(edid).ok_or_else(|| SimError::MissingSetting(edid.into()))
+        self.setting_f32(edid).ok_or_else(|| SimError::MissingSetting(edid.into()))
+    }
+
+    /// A game setting's number: a run-time change ([`World::change_setting`]), else the
+    /// record's.
+    pub fn setting_f32(&self, edid: &str) -> Option<f32> {
+        match self.setting_changes.get(&edid.to_ascii_lowercase()) {
+            Some(v) => v.as_f32(),
+            None => self.forms.setting_f32(edid),
+        }
+    }
+
+    /// A game setting as it is now: a run-time change, else the record's.
+    pub fn setting_value(&self, edid: &str) -> Option<&crate::settings::Setting> {
+        let k = edid.to_ascii_lowercase();
+        self.setting_changes.get(&k).or_else(|| self.forms.settings.get(&k))
+    }
+
+    /// Change a game setting for this run. It must exist, and the value must be of its
+    /// kind (its Editor ID's first letter: `f`, `i`, `s`).
+    pub fn change_setting(&mut self, edid: &str, value: crate::settings::Setting) -> Result<(), SimError> {
+        use crate::settings::Setting;
+        let k = edid.to_ascii_lowercase();
+        let old = self.forms.settings.get(&k).ok_or_else(|| SimError::MissingSetting(edid.into()))?;
+        let fits = matches!((old, &value), (Setting::Float(_), Setting::Float(_)) | (Setting::Int(_), Setting::Int(_)) | (Setting::Str(_), Setting::Str(_)));
+        if !fits {
+            return Err(SimError::SettingKind(edid.into()));
+        }
+        self.setting_changes.insert(k, value);
+        Ok(())
     }
 
     /// Carried weight against capacity. Capacity = fAVDCarryWeightsBase +
@@ -861,7 +896,7 @@ impl<'a> World<'a> {
     pub fn respawn_hours(&self) -> f32 {
         self.cfg
             .respawn_hours
-            .or_else(|| self.forms.setting_f32(RESPAWN_SETTING))
+            .or_else(|| self.setting_f32(RESPAWN_SETTING))
             .unwrap_or(DEFAULT_RESPAWN_HOURS)
     }
 

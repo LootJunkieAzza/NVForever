@@ -411,6 +411,10 @@ fn fight(
             let id = rig.reference;
             let me = FormId(id);
             let Some(&(feet, eyes, scale)) = places.get(&id) else { continue };
+            // ToggleActorsAI or SetActorsAI 0: it does not fight.
+            if g.ai_off(me) {
+                continue;
+            }
             let Some(aw) = g.awareness.get(me).filter(|a| a.state == State::Combat) else { continue };
             // The target it detects; just after losing sight of it (still in Combat, not
             // yet Lost), the one detected last, so it keeps its distance to close in

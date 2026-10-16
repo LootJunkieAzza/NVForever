@@ -328,7 +328,7 @@ impl Game<'_> {
             .collect();
         self.extra.values_mut().filter(|e| e.package_ends.is_some_and(|(p, _)| e.current_package != Some(p))).for_each(|e| e.package_ends = None);
         for a in due {
-            if self.extra.get(&a).is_some_and(|e| e.dead || e.ai_off) {
+            if self.extra.get(&a).is_some_and(|e| e.dead) || self.ai_off(a) {
                 self.extra.entry(a).or_default().package_ends = None;
                 continue;
             }
@@ -426,7 +426,7 @@ impl Game<'_> {
         }
         self.end_timed_packages();
         for a in self.package_actors() {
-            if self.present(a) && !self.extra.get(&a).is_some_and(|e| e.dead || e.ai_off) {
+            if self.present(a) && !self.extra.get(&a).is_some_and(|e| e.dead) && !self.ai_off(a) {
                 self.update_package(a);
             }
         }
@@ -445,7 +445,7 @@ impl Game<'_> {
         let now = self.time;
         let mut next = now + interval;
         for a in self.package_actors() {
-            if !self.present(a) || self.extra.get(&a).is_some_and(|e| e.dead || e.ai_off) {
+            if !self.present(a) || self.extra.get(&a).is_some_and(|e| e.dead) || self.ai_off(a) {
                 continue;
             }
             let due = match self.extra.get(&a).and_then(|e| e.package_due) {

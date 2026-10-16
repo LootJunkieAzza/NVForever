@@ -18,6 +18,8 @@
 pub(crate) mod actor;
 mod ai_state;
 pub mod camera;
+pub mod console;
+pub mod toggles;
 pub(crate) mod furniture;
 mod items;
 mod magic;
@@ -599,6 +601,35 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x126F, "IsDLCInstalled", Impl(misc::is_dlc_installed)),
         (0x1215, "GetXPForNextLevel", Impl(player::get_xp_for_next_level)),
     ]
+}
+
+/// Console functions the catalogue lists without an opcode, by catalogue name: the
+/// function table gives them numbers of ours (`fnv_script::table::CONSOLE_OPCODE_BASE`),
+/// which [`crate::game::Game::call_function`] dispatches here by name. A test checks
+/// each name against the catalogue.
+pub fn console_registry() -> &'static [(&'static str, Kind)] {
+    use Kind::*;
+    &[
+        // World and render toggles (console.rs; the engine switches its own).
+        ("ToggleCollision", Impl(toggles::toggle_collision)),
+        ("ToggleActorsAI", Impl(toggles::toggle_actors_ai)),
+        ("IsActorsAIOff", Impl(toggles::is_actors_ai_off)),
+        ("ToggleDetection", Impl(toggles::toggle_detection)),
+        ("ToggleGodMode", Impl(toggles::toggle_god_mode)),
+        ("ToggleScripts", Impl(toggles::toggle_scripts)),
+        ("ToggleGrass", Impl(toggles::toggle_grass)),
+        ("ToggleSky", Impl(toggles::toggle_sky)),
+        ("ToggleWaterSystem", Impl(toggles::toggle_water_system)),
+        ("ToggleTrees", Impl(toggles::toggle_trees)),
+        ("ToggleLODLand", Impl(toggles::toggle_lod_land)),
+        ("ToggleNavmesh", Impl(toggles::toggle_navmesh)),
+        ("ToggleWireframe", Stub("rendering (wireframe: the renderer does not ask the GPU for its line mode)")),
+    ]
+}
+
+/// The implementation registered for a console function by catalogue name (any case).
+pub fn lookup_console(name: &str) -> Option<&'static Kind> {
+    console_registry().iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, k)| k)
 }
 
 fn index() -> &'static HashMap<u16, usize> {
