@@ -222,6 +222,9 @@ pub struct ActorStrike {
     /// Where the blow lands and which way it goes (game space).
     pub point: V3,
     pub dir: V3,
+    /// A power attack's attack group ("AttackForwardPower"), for an unarmed attack effect
+    /// that names it; `None`: an ordinary blow.
+    pub anim: Option<&'static str>,
 }
 
 /// A melee or unarmed blow a blocker stopped part of (docs/design/combat-ai.md §14.3).
@@ -1469,11 +1472,12 @@ fn strike_weapon(
 /// weapon's object effect; for a blow without a weapon or with the Fists, the attacker's
 /// unarmed attack effect.
 /// Read inside the simulation's world: an attacker a script created (PlaceAtMe) is only
-/// there.
-fn hit_items(c: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, stats: &mut CombatStats, attacker: FormId, weapon: Option<FormId>) -> Vec<FormId> {
+/// there. `anim`: a power attack's attack group ([`ActorStrike::anim`]).
+#[allow(clippy::too_many_arguments)]
+fn hit_items(c: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, stats: &mut CombatStats, attacker: FormId, weapon: Option<FormId>, anim: Option<&str>) -> Vec<FormId> {
     let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return Vec::new() };
     let unarmed = weapon.is_none() || weapon == c.fists;
-    with_world(rt, sim, |rt| hit_effects::hit_items(&c.forms, &rt.game, Some(attacker), weapon, unarmed, &mut stats.hit_effects))
+    with_world(rt, sim, |rt| hit_effects::hit_items(&c.forms, &rt.game, Some(attacker), weapon, unarmed, anim, &mut stats.hit_effects))
 }
 
 /// Apply `dealt` health damage through the script runtime; report and remember it.
@@ -1720,7 +1724,7 @@ fn melee(
             let limb = limb_hit(bp.as_ref(), d.dealt, &w);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
             pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power.is_some() { POWER_PUSH } else { 1.0 }) });
-            let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id));
+            let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
             let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items);
             if r.as_ref().is_none_or(|r| !r.immune) {
                 wear_armor(c, &mut sim, &mut stats, target, Zone::of(bp.as_ref()), d.raw);
@@ -1908,7 +1912,7 @@ fn actor_attacks(
                 show_impact(s, ImpactFx { impact, shooter: b.attacker, point: b.point, normal: vec::scale(b.dir, -1.0), dir: b.dir }, &mut sounds, &mut impacts);
             }
         }
-        let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon);
+        let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon, b.anim);
         let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items);
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, b.target, Zone::Body, d.raw);
@@ -2251,7 +2255,7 @@ fn fly(
         if target != FormId::PLAYER_REF {
             pushes.write(ActorPush { form_id: target.0, point: p.point, dv: vec::scale(p.dir, SHOT_PUSH) });
         }
-        let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id));
+        let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id), None);
         let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items);
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, target, Zone::of(bp.as_ref()), d.raw);
