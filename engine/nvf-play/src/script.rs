@@ -1069,6 +1069,7 @@ impl Plugin for ScriptPlugin {
         let unattended = crate::test_aid::Unattended::from_env().0;
         let no_messages = app.world().contains_resource::<NoMessages>();
         app.insert_resource(ScriptState::new(d, refs, new_game, unattended, no_messages))
+            .init_resource::<ClockScale>()
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
             .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, run_scripts, sync_locks, walk_player, hold_player, time_multiplier).chain().in_set(PlaySet::Scripts))
             .add_systems(Last, (crate::aid::report, write_final));
@@ -1088,13 +1089,29 @@ fn take_pending_game(world: &mut bevy::prelude::World) {
 /// time, the game clock) slows down or speeds up together [documented: GECK wiki
 /// SetGlobalTimeMultiplier, "0.5 is slow mo"]. Sounds keep their speed and pitch
 /// [engineering choice: the shipped slow motion asks for that, QUST 0x00102037 stage 27].
-/// Pausing (loading screens, menus) is the clock's own state and is not touched.
-fn time_multiplier(script: Res<ScriptState>, mut clock: ResMut<Time<Virtual>>) {
+/// Pausing (loading screens, menus) is the clock's own state and is not touched. The
+/// engine's own slow motion ([`ClockScale`]) multiplies it.
+fn time_multiplier(script: Res<ScriptState>, scale: Option<Res<ClockScale>>, mut clock: ResMut<Time<Virtual>>, mut told: Local<Option<f32>>) {
     let Some(rt) = script.rt.as_ref() else { return };
-    let want = rt.game.ui.time_multiplier.unwrap_or(1.0) as f32;
+    let asked = rt.game.ui.time_multiplier.unwrap_or(1.0) as f32;
+    let before = told.replace(asked).unwrap_or(1.0);
+    if before != asked {
+        info!("time multiplier: {before} -> {asked} (SetGlobalTimeMultiplier)");
+    }
+    let want = asked * scale.map_or(1.0, |s| s.0.max(0.0));
     if (clock.relative_speed() - want).abs() > 1e-6 {
-        info!("time multiplier: {} -> {want} (SetGlobalTimeMultiplier)", clock.relative_speed());
         clock.set_relative_speed(want);
+    }
+}
+
+/// The engine's own slow motion on top of SetGlobalTimeMultiplier (1 for none): the
+/// death camera slows the game while the player dies (`nvforever` `death_cam.rs`).
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct ClockScale(pub f32);
+
+impl Default for ClockScale {
+    fn default() -> Self {
+        ClockScale(1.0)
     }
 }
 
