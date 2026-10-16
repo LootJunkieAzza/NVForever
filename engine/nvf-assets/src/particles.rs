@@ -145,6 +145,39 @@ impl ParticleSystemDef {
         self.active.iter().rev().find(|(time, _)| *time <= t + 1e-4).or(self.active.first()).is_none_or(|(_, on)| *on)
     }
 
+    /// How many of the seconds from `from` to `to` after the emitter appeared it is on:
+    /// births are the rate times this, so an emitter on for a moment (an explosion's
+    /// burst: 400,000 a second for 0.00001 s) gives its few particles whatever the frame
+    /// length.
+    pub fn on_time(&self, from: f32, to: f32) -> f32 {
+        if self.active.is_empty() {
+            return (to - from).max(0.0);
+        }
+        let state = |t: f32| self.active.iter().rev().find(|(k, _)| *k <= t).or(self.active.first()).is_none_or(|(_, on)| *on);
+        // The span split at the keys (and, looping, at the period's ends).
+        let looping = self.loops && self.period > 0.0;
+        let mut on = 0.0;
+        let mut t = from;
+        let mut steps = 0;
+        while t < to && steps < 4096 {
+            steps += 1;
+            let (base, local) = if looping { let n = (t / self.period).floor(); (n * self.period, t - n * self.period) } else { (0.0, t) };
+            let mut next = self.active.iter().map(|(k, _)| *k).filter(|k| *k > local).fold(f32::INFINITY, f32::min);
+            if looping {
+                next = next.min(self.period);
+            }
+            let end = (base + next).min(to);
+            if state(local) {
+                on += end - t;
+            }
+            if end <= t {
+                break;
+            }
+            t = end;
+        }
+        on
+    }
+
     /// A particle's size as a share of its radius, `age` seconds into a life of `life`
     /// [hypothesis: from the base scale to 1 over the grow time, and back to the base
     /// scale over the fade time before it dies].
@@ -166,6 +199,54 @@ pub struct PreparedParticles {
     pub systems: Vec<ParticleSystemDef>,
     /// Block types met among modifiers and controllers that are not read.
     pub unread: Vec<String>,
+}
+
+/// An emitter's birth rate and on/off keys as a sequence of the file drives them.
+struct SequenceEmitter {
+    rate: f32,
+    active: Vec<(f32, bool)>,
+    period: f32,
+    loops: bool,
+}
+
+/// The `NiPSysEmitterCtlr` tracks of the first sequence that drives the particle system
+/// named `system`: interpolator ID `BirthRate` (a float interpolator's value) and
+/// `EmitterActive` (bool keys) [observed: the controlled blocks of
+/// `explosiongrenadefrag.nif`'s `SpecialIdle_AreaEffect`, whose emitter controllers
+/// carry blend interpolators]; the sequence's stop time is the period, and it repeats
+/// when its cycle type is 0 [documented: nif.xml NiControllerSequence, CycleType].
+fn sequence_emitter(file: &NifFile, dec: &Decoded, system: &str) -> Option<SequenceEmitter> {
+    let text = |s: &Struct, k: &str| s.text(k).map(str::to_string);
+    for (i, b) in file.blocks.iter().enumerate() {
+        if b.type_name != "NiControllerSequence" {
+            continue;
+        }
+        let Ok(seq) = &dec.blocks[i] else { continue };
+        let mut found = SequenceEmitter { rate: -1.0, active: Vec::new(), period: seq.float("stop_time").unwrap_or(0.0) - seq.float("start_time").unwrap_or(0.0), loops: seq.int("cycle_type").unwrap_or(0) == 0 };
+        for cb in seq.list("controlled_blocks").unwrap_or_default() {
+            let fnv_nif::value::Value::Struct(cb) = cb else { continue };
+            if text(cb, "node_name").as_deref() != Some(system) || text(cb, "controller_type").as_deref() != Some("NiPSysEmitterCtlr") {
+                continue;
+            }
+            let interp = cb.block_ref("interpolator").unwrap_or(-1);
+            match text(cb, "interpolator_id").as_deref() {
+                Some("BirthRate") => {
+                    let v = dec.get(interp).and_then(|s| s.float("value")).unwrap_or(0.0);
+                    if v.is_finite() && v > -1e30 {
+                        found.rate = v.max(0.0);
+                    }
+                }
+                Some("EmitterActive") => {
+                    found.active = fnv_nif::anim::bool_track(dec, interp).map(|t| t.keys).unwrap_or_default();
+                }
+                _ => {}
+            }
+        }
+        if found.rate >= 0.0 {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn affine(t: &NifTransform) -> Affine3A {
@@ -392,6 +473,20 @@ impl ModelCtx<'_> {
                     break;
                 }
             }
+            // An emitter controller of a model's own sequence leaves its rate and on/off
+            // keys to the sequence (its interpolators are blend interpolators).
+            if def.rate <= 0.0 || def.active.is_empty() {
+                if let Some(se) = sequence_emitter(&file, &dec, &def.name) {
+                    if def.rate <= 0.0 {
+                        def.rate = se.rate;
+                    }
+                    if def.active.is_empty() {
+                        def.active = se.active;
+                    }
+                    def.period = se.period;
+                    def.loops = se.loops;
+                }
+            }
             if has_emitter && def.max > 0 {
                 out.systems.push(def);
             }
@@ -453,6 +548,21 @@ mod tests {
         assert_eq!(d.scale(1.0, 2.0), 1.0);
         assert!((d.scale(1.875, 2.0) - 0.6).abs() < 1e-6);
         assert!((d.scale(2.0, 2.0) - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_burst_gives_its_particles_whatever_the_frame() {
+        // On for 0.00001 s at the start, once (an explosion's burst).
+        let burst = ParticleSystemDef { active: vec![(0.0, true), (1e-5, false), (5.0, false)], period: 5.0, loops: false, ..def() };
+        assert!((burst.on_time(0.0, 0.016) - 1e-5).abs() < 1e-9);
+        assert!((burst.on_time(0.0, 0.1) - 1e-5).abs() < 1e-9);
+        assert_eq!(burst.on_time(0.016, 0.032), 0.0);
+        // The looping keys of `def`: on, off at 0.5 of a period of 1.
+        let d = def();
+        assert!((d.on_time(0.25, 1.25) - 0.5).abs() < 1e-5);
+        assert!((d.on_time(0.0, 2.0) - 1.0).abs() < 1e-5);
+        let always = ParticleSystemDef { active: Vec::new(), ..def() };
+        assert!((always.on_time(3.0, 3.5) - 0.5).abs() < 1e-6);
     }
 
     #[test]

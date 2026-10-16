@@ -93,6 +93,13 @@ impl PartShape {
     pub fn is_skin(&self) -> bool {
         self.props.skin
     }
+
+    /// The shape uses the hair shader: BSShaderFlags bit 18 "Hair" [documented: nif.xml]
+    /// (the hair models, and beards among the head parts: `beardmustachecurly.nif`
+    /// [observed, docs/spec-notes/actors.md §3]).
+    pub fn is_hair(&self) -> bool {
+        self.props.hair
+    }
 }
 
 /// Per shape, given as (cap, skin), whether a texture given for the whole part (a race

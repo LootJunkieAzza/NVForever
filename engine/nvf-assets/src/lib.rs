@@ -8,6 +8,7 @@ pub mod anim_play;
 pub mod data;
 pub mod material_anim;
 pub mod model;
+pub mod model_light;
 pub mod particles;
 pub mod nif_material;
 pub mod nif_spawn;

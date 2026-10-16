@@ -354,6 +354,8 @@ pub struct ModelCache {
     map: HashMap<String, Option<Arc<PreparedModel>>>,
     /// The particle systems of files by archive path (`particles.rs`).
     pub(crate) particles: HashMap<String, Option<Arc<crate::particles::PreparedParticles>>>,
+    /// The colour of the light inside files by archive path (`model_light.rs`).
+    pub(crate) light_colours: HashMap<String, Option<[f32; 3]>>,
     /// Tree billboards keyed by TREE FormID; `None` remembers a failure.
     billboards: HashMap<u32, Option<MeshAndMaterial>>,
     pub failures: Vec<String>,

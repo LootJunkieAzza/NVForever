@@ -1633,6 +1633,10 @@ fn melee(
 
 /// Explosions set off per frame at most (chains of destructibles) [design].
 const MAX_EXPLOSIONS_PER_FRAME: u32 = 64;
+/// How far above and below an explosion the ground is looked for to show the impact of
+/// its data set there, game units [design].
+const EXPLOSION_GROUND_UP: f32 = 32.0;
+const EXPLOSION_GROUND_REACH: f32 = 160.0;
 
 /// Where a reference stands (its simulation state, else its placement).
 fn ref_pos(sim: &SimState, r: FormId) -> Option<V3> {
@@ -1935,6 +1939,20 @@ fn fly(
         if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
             for sound in e.sound_1.into_iter().chain(e.sound_2) {
                 effects.0.write(PlaySound { sound, at: Some(at) });
+            }
+            // The impact of the EXPL's data set for the ground under it, when the ground
+            // is near: the dirt it throws up (`ImpactExplosionDirt.nif`) [hypothesis:
+            // that the game shows the EXPL's IPDS on what lies under the blast, as a
+            // shot's on what it hits; the reach is a design choice].
+            let ground = phys.ground_below(at, EXPLOSION_GROUND_UP, EXPLOSION_GROUND_REACH);
+            let impact = e.impact_dataset.zip(ground.as_ref()).and_then(|(set, g)| sfx.as_deref()?.forms.impact_id(set, fnv_combat::fx::impact_material(g.material)));
+            if let (Some(impact), Some(g)) = (impact, ground) {
+                effects.1.write(ImpactFx { impact, shooter: FormId::PLAYER_REF, point: g.point, normal: g.normal, dir: [0.0, 0.0, -1.0] });
+                if let Some(i) = sfx.as_deref().and_then(|s| s.forms.impacts.get(&impact)) {
+                    for sound in i.sound_1.into_iter().chain(i.sound_2) {
+                        effects.0.write(PlaySound { sound, at: Some(g.point) });
+                    }
+                }
             }
         }
         let hits = {

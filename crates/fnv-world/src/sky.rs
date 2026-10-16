@@ -422,6 +422,18 @@ pub fn water(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Water> {
     Some(w)
 }
 
+/// The water type (WATR) of a placeable water (PWAT): its `DNAM` "Water" [documented:
+/// xEdit PWAT; observed: `WaterBlood` (the Goodsprings cave's pools) names
+/// `WaterTypeBlood`].
+pub fn placeable_water_type(lo: &LoadOrder, schema: &Schema, pwat: u32) -> Option<u32> {
+    let (pi, r) = winner(lo, pwat)?;
+    let f = Fields::new(r, pi, schema).ok()?;
+    if &f.sig != b"PWAT" {
+        return None;
+    }
+    global(lo, pi, formid_of(f.get(b"DNAM")?.get("water")?)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
