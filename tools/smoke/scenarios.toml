@@ -2003,14 +2003,17 @@ expect = [
 name = "main-menu"
 source = "owner 2026-10-15: the main menu (engine/nvf-play/src/main_menu.rs): loading screens behind it, its theme, Continue and Load greyed without saves, Settings, New Game starts the opening"
 areas = ["main-menu", "save"]
-paths = ["engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/pause.rs"]
-env = { NVFOREVER_HOME = "menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "5:shot,6:continue,6.5:load,7:settings,11:new", NVF_PLAY_TEST_PAUSE_MENU = "9:back", NVF_PLAY_TEST_INTRO_SHOT = "6", NVF_PLAY_TEST_INTRO_SKIP = "8" }
+paths = ["engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/start_menu.rs", "engine/nvf-play/src/cursor.rs"]
+env = { NVFOREVER_HOME = "menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "4.5:down,5:shot,6:continue,6.5:load,7:settings,11:new", NVF_PLAY_TEST_PAUSE_MENU = "8.5:shot,9:back", NVF_PLAY_TEST_INTRO_SHOT = "6", NVF_PLAY_TEST_INTRO_SKIP = "8" }
 args = ["--play", "--menu"]
 run_seconds = 34
 expect = [
   { re = 'main menu: open \(\d+ loading screens, 0 saves\)', label = "the menu opens with no saves" },
-  { re = 'pointer: the game.s arrow .*glow_cursor\.dds \(\d+x\d+, tip at', label = "the game's arrow is the mouse pointer" },
+  { re = 'pointer: the game.s arrow \S*[\\]cursor\.dds \(\d+x\d+, tip at', label = "the game's arrow (cursor.dds) is the mouse pointer" },
   'main menu: theme music\special\maintitle.mp3',
+  { text = "ui sounds: main menu selection moved: UIMenuFocus", label = "moving the choice plays the focus sound" },
+  { text = "ui sounds: main menu row or button picked: UIMenuOK", label = "taking an entry plays the OK sound" },
+  "pause menu: screenshot main_menu_pause_settings.png",
   { re = 'main menu: slide interface.loading.', label = "a loading screen behind it" },
   "main menu: Continue is greyed out",
   "main menu: Load Game is greyed out",
@@ -2026,6 +2029,33 @@ expect = [
   "main menu: theme faded out",
 ]
 order = [["main menu: Settings", "main menu: New Game", "intro: the opening begins", "new game: VCG00 started at stage 0"]]
+
+[[scenario]]
+name = "menus-look"
+source = "owner todo 5 items 8, 19, 51: the pause menu in the original's look (column, highlight box, settings categories, quit question, load page), the game's pointer, the wait menu in the HUD's colour and fonts; frames pause_main/quit/settings/load.png and wait_menu.png in the working folder"
+areas = ["main-menu", "save"]
+paths = ["engine/nvf-play/src/pause.rs", "engine/nvf-play/src/start_menu.rs", "engine/nvf-play/src/cursor.rs", "engine/nvf-play/src/wait.rs", "engine/nvforever/src/settings.rs"]
+env = { NVFOREVER_HOME = "menus-look-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_PAUSE_MENU = "10.5:shot,11:down,12:quit,12.5:shot,13:back,14.5:shot,16.5:back,17:load,17.5:shot,18:back", NVF_PLAY_TEST_SETTINGS = "14:page,15:god-mode,16:god-mode", NVF_PLAY_TEST_WAIT = "23:open,24:hours=5", NVF_PLAY_TEST_SHOTS = "25:wait_menu.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 28
+expect = [
+  { re = 'pointer: the game.s arrow \S*[\\]cursor\.dds \(\d+x\d+, tip at', label = "the game's arrow (cursor.dds) is the mouse pointer" },
+  "pause menu: open",
+  { text = "pause menu: the original's look (band true, pause screen true)", label = "the pause screen's and the band's textures are read" },
+  "pause menu: screenshot pause_main.png",
+  { text = "ui sounds: pause selection moved: UIMenuFocus", label = "moving the choice plays the focus sound" },
+  "pause menu: quit?",
+  "pause menu: screenshot pause_quit.png",
+  "pause menu: quit cancelled",
+  "pause menu: screenshot pause_settings.png",
+  "settings: god-mode on",
+  "settings: god-mode off",
+  "pause menu: load page",
+  "pause menu: screenshot pause_load.png",
+  "pause menu: resume",
+  "wait menu: open",
+]
+order = [["pause menu: open", "pause menu: quit?", "pause menu: quit cancelled", "settings: god-mode on", "pause menu: load page", "pause menu: resume", "wait menu: open"]]
 
 [[scenario]]
 name = "item-stacks"

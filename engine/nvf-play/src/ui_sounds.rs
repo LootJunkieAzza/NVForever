@@ -53,6 +53,8 @@ pub enum UiMenu {
     Settings,
     /// The lockpicking menu (`crate::lockpick`).
     Lockpick,
+    /// The main menu (`crate::main_menu`).
+    MainMenu,
 }
 
 impl UiMenu {
@@ -75,6 +77,7 @@ impl UiMenu {
             UiMenu::Pause => "pause",
             UiMenu::Settings => "settings",
             UiMenu::Lockpick => "lockpick",
+            UiMenu::MainMenu => "main menu",
         }
     }
 }
@@ -252,7 +255,10 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         (Wait | Sleep, Accepted) => Named("UIMenuOK"),
         (Wait | Sleep, Finished) => Silent("the hours have passed"),
         // The pause menu's rows [observed: start_menu.xml, list_box_template.xml].
-        (Settings, Opened | Picked) => Named("UIMenuOK"),
+        (Settings | Pause | MainMenu, Opened | Picked) => Named("UIMenuOK"),
+        // The pause and main menus' entries are list rows too [observed: start_menu.xml
+        // `main_container` includes list_box.xml; list_box_template.xml `mouseoversound`].
+        (Pause | MainMenu, Focus) => Named("UIMenuFocus"),
         // The settings' toggles [observed: start_menu.xml lb_toggle_left, _value, _right].
         (Settings, Flipped) => Named("UIMenuPrevNext"),
         _ => Silent("no sound for this"),
@@ -487,7 +493,8 @@ fn play(
         };
         let name = sound.map(|s| sfx.forms.sounds.get(&s).and_then(|x| x.edid.clone()).unwrap_or_else(|| s.to_string()));
         let line = format!("ui sounds: {} {}: {}", menu.name(), event.name(), name.as_deref().unwrap_or("none found"));
-        if event == UiEvent::Focus {
+        // The lists' moves are many; the main and pause menus' few (their smoke checks read them).
+        if event == UiEvent::Focus && !matches!(menu, UiMenu::MainMenu | UiMenu::Pause) {
             debug!("{line}");
         } else {
             info!("{line}");

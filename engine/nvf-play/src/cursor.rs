@@ -1,11 +1,12 @@
-//! The mouse pointer: the game's own arrow, `textures\interface\icons\misc\glow_cursor.dds`
-//! (a white arrow with a soft glow, 32×64, DXT5) read from the owner's archives at run time
-//! and coloured with the interface's amber, as the system's pointer of the window wherever
-//! it is shown (menus, the console, message boxes) [hypothesis: this is the original's
-//! pointer: the interface files draw their pointer-like marks white and colour them with
-//! the system colour, and the map menu uses this texture for its cursor (map_menu.xml);
-//! the owner asked for the in-game pointer, 2026-10-15]. Without the game's files the
-//! system's own pointer stays.
+//! The mouse pointer: the game's own arrow, `textures\interface\icons\misc\cursor.dds` (a
+//! light arrow with a dark outline) read from the owner's archives at run time and
+//! coloured with the interface's amber, as the system's pointer of the window wherever it
+//! is shown (menus, the console, message boxes). It is the original's pointer [observed:
+//! the owner's screenshots of the original's pause and main menus show a filled amber
+//! arrow with a dark edge, as this texture coloured amber; the owner's pick of the
+//! interface's pointer textures, C:\fnv-private\mainmenu\cursor, todo 5 item 19]. The
+//! first pointer, `glow_cursor.dds` (a soft glow, the map menu's cursor), was not it.
+//! Without the game's files the system's own pointer stays.
 //!
 //! The arrow is cut to the part of the picture that shows (alpha above
 //! [`CUT_ALPHA`]); its tip, the first solid texel from the top, is the point that clicks.
@@ -17,7 +18,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::{CursorIcon, CustomCursor, CustomCursorImage, PrimaryWindow};
 use nvf_assets::GameData;
 
-const POINTER: &str = "textures\\interface\\icons\\misc\\glow_cursor.dds";
+const POINTER: &str = "textures\\interface\\icons\\misc\\cursor.dds";
 /// Texels fainter than this are cut away round the arrow.
 const CUT_ALPHA: u8 = 8;
 /// The tip is the first texel at least this solid.
