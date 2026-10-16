@@ -114,11 +114,18 @@ const GROUND: f32 = 0.25;
 /// the left; mirrored on the right).
 const PIPS: usize = 37;
 const METER_WIDTH: f32 = PIPS as f32 * TICK.x;
+/// The bars stand this far left of where they were set from the bracket alone (the
+/// corner mark on the left piece, the upright on the right): the first tick starts at
+/// the upright's inside edge, the last ends clear of the mark and of the upright
+/// [observed: 3 pixels at 1080 lines against the `Target healthbar` screenshot, owner's
+/// playtest 2026-10-16].
+const METER_SHIFT: f32 = 3.0;
 /// "HP" and "AP" stand above their bars near the uprights: the line they stand on, where
-/// "HP" starts and where "AP" ends.
+/// "HP" starts and where "AP" ends [observed: as above, "HP" 11 and "AP" 8 pixels left of
+/// the earlier 33 and 362].
 const UPPER_BASE: f32 = 33.0;
-const HP_LABEL_X: f32 = 33.0;
-const AP_LABEL_END: f32 = 362.0;
+const HP_LABEL_X: f32 = 23.0;
+const AP_LABEL_END: f32 = 355.0;
 /// The condition bar ends this far before the divider.
 const CND_BEFORE_DIVIDER: f32 = 15.0;
 /// The enemy bar's pips: as many as fit between the bracket's corner marks.
@@ -252,6 +259,15 @@ pub fn tick_pixels(height: f32) -> (f32, f32) {
     (step, (TICK_BLOCK * s).round().clamp(1.0, step - 1.0))
 }
 
+/// A row's tick step: `step`, or less where `count` ticks `width` wide would not fit in
+/// `room` pixels.
+pub fn row_step(step: f32, width: f32, room: f32, count: usize) -> f32 {
+    if count < 2 {
+        return step;
+    }
+    step.min(((room - width) / (count - 1) as f32).floor()).max(width + 1.0)
+}
+
 /// Where the doubled compass strip starts in its window (0 or less), so that `heading`
 /// (degrees) is in the window's middle (§4).
 pub fn strip_left(heading: f32) -> f32 {
@@ -290,10 +306,10 @@ pub struct Places {
 
 impl Places {
     pub fn new(font: &Font) -> Places {
-        // [observed, §4] A full bar runs from just inside the upright to the bracket's
-        // corner mark; its label stands above it, near the upright.
-        let hp_meter = LEFT_MARK - METER_WIDTH;
-        let ap_meter = RIGHT_MARK;
+        // [observed, §4] A full bar runs from the upright's inside edge to just short of
+        // the bracket's corner mark; its label stands above it, near the upright.
+        let hp_meter = LEFT_MARK - METER_WIDTH - METER_SHIFT;
+        let ap_meter = RIGHT_MARK - METER_SHIFT;
         let cnd_x = DIVIDER - CND_BEFORE_DIVIDER - CND_BAR.x;
         Places {
             hp_label: HP_LABEL_X,
@@ -661,13 +677,16 @@ fn pips(
             .get_or_insert_with(|| data.as_deref().and_then(|d| texture(&format!("{HUD_TEXTURES}hud_tick_mark.dds"), d, &mut images, bc_supported(formats.as_deref()))).map(|t| t.0))
             .clone();
         let (height, sf) = key;
-        let (step, width) = tick_pixels(height);
+        let (step0, width) = tick_pixels(height);
         let px = |v: f32| Val::Px(v / sf);
         for (e, row) in &rows {
+            let room = row.width * height / 960.0;
+            // Where the step was rounded up the ticks would run past their room (into the
+            // corner mark or the upright): a pixel less then.
+            let step = row_step(step0, width, room, row.count);
             // The ticks fill from the bar's outer end: from the left for health, from the
             // right for action points; the enemy's stand in the middle of their room.
             let span = row.count as f32 * step - (step - width);
-            let room = row.width * height / 960.0;
             let first = match row.bar {
                 Bar::Health => 0.0,
                 Bar::ActionPoints => room - span,
@@ -803,6 +822,16 @@ mod tests {
         // Never a tick without a gap, even tiny.
         let (step, width) = tick_pixels(100.0);
         assert!(width >= 1.0 && width < step);
+        // A full bar never runs past its room, wherever the step rounds up.
+        for lines in [600, 720, 768, 900, 1024, 1050, 1080, 1200, 1440, 1600, 2160] {
+            let h = lines as f32;
+            let (step, width) = tick_pixels(h);
+            let room = METER_WIDTH * h / 960.0;
+            let step = row_step(step, width, room, PIPS);
+            assert!(PIPS as f32 * step - (step - width) <= room, "{lines} lines");
+            assert!(step > width, "{lines} lines");
+        }
+        assert_eq!(row_step(9.0, 7.0, METER_WIDTH * 1080.0 / 960.0, PIPS), 9.0);
     }
 
     #[test]
@@ -845,8 +874,8 @@ mod tests {
         let p = Places::new(&font());
         // A full bar ends at the corner mark on the left and starts at it on the right,
         // and runs to just inside the upright.
-        assert_eq!(p.hp_meter + METER_WIDTH, LEFT_MARK);
-        assert_eq!(p.ap_meter, RIGHT_MARK);
+        assert_eq!(p.hp_meter + METER_WIDTH, LEFT_MARK - METER_SHIFT);
+        assert_eq!(p.ap_meter, RIGHT_MARK - METER_SHIFT);
         assert!(p.hp_meter > LEFT_UPRIGHT && p.hp_meter - LEFT_UPRIGHT < 10.0);
         assert!(p.ap_meter + METER_WIDTH < RIGHT_UPRIGHT && RIGHT_UPRIGHT - (p.ap_meter + METER_WIDTH) < 10.0);
         // The bars stand on the long line, above it; the labels above the bars.

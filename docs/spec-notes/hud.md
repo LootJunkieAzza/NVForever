@@ -121,11 +121,17 @@ original at 1920 x 1080 (`Target healthbar`, 1.125 pixels to the unit) `[observe
 - The two pieces stand in the bottom corners, 40 from the side and 30 from the bottom
   edge. Each bracket picture is drawn texel for unit at its piece's top left corner.
 - The bars stand on the long line, about 4 above it. A full bar is 37 ticks, 296 long
-  (the file's "total width" is 300), from just inside the upright to the bracket's
-  corner mark: x 24–320 on the left, 70–366 on the right [observed: the bar starts
-  about 3 units right of the upright's inner edge and its last tick ends at the mark].
-- "HP" and "AP" stand **above** their bars, near the uprights: "HP" starting at x 33,
-  "AP" ending at x 362, on the line y 33 (their capitals 23 high) [observed]. The words
+  (the file's "total width" is 300), from the upright's inner edge to just short of the
+  bracket's corner mark: x 21–317 on the left, 67–363 on the right [observed: on the
+  `Target healthbar` screenshot the first tick starts at the upright's inner edge and
+  the last ends about 2 pixels before the mark, and before the right upright; owner's
+  playtest 2026-10-16, after x 24–320 / 70–366 ran the last ticks into the mark and the
+  upright]. Where the tick step `round(8 × scale)` is rounded up so far that 37 ticks
+  would not fit in the bar's room, the step is a pixel less [design].
+- "HP" and "AP" stand **above** their bars, near the uprights: "HP" starting at x 23,
+  "AP" ending at x 355, on the line y 33 (their capitals 23 high) [observed: measured
+  again on the same screenshot 2026-10-16; 33 and 362 before stood 11 and 8 pixels
+  right of the original's]. The words
   are written as on the screenshots [hypothesis: the game takes them from its settings].
 - A tick is the picture `hud_tick_mark.dds`: a block 6 texels wide (2 clear after it),
   its opacity rising from about an eighth at the top to full at the bottom [observed:
