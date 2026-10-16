@@ -238,9 +238,10 @@ pub enum ActorCmd {
         #[arg(long)]
         survey: bool,
     },
-    /// Drawn-weapon fidgets (docs/spec-notes/idles.md §11): each actor's weapon put out
-    /// in a game where nothing has happened, the IDLE tree asked `--checks` times, the
-    /// picks counted per idle (fnv.actor.fidgets/1).
+    /// Fidgets from the IDLE tree: drawn-weapon ones (docs/spec-notes/idles.md §11),
+    /// each actor's weapon put out in a game where nothing has happened, or with
+    /// `--furniture` the ones on furniture (furniture.md §8); the tree asked `--checks`
+    /// times, the picks counted per idle (fnv.actor.fidgets/1).
     Fidgets {
         #[command(flatten)]
         w: WorldArgs,
@@ -257,6 +258,14 @@ pub enum ActorCmd {
         /// How many times the tree is asked for each actor.
         #[arg(long, default_value_t = 1000)]
         checks: u32,
+        /// Put every actor on this furniture instead, as `REF:MARKER_ID` (a placed
+        /// furniture reference by Editor ID or FormID, and the ID of the model marker it
+        /// sat down by): the fidgets on furniture are asked for, not the drawn-weapon ones.
+        #[arg(long)]
+        furniture: Option<String>,
+        /// The player's view is first person (`IsPC1stPerson`).
+        #[arg(long)]
+        first_person: bool,
     },
     /// Detection numbers (docs/design/detection.md §4): what one actor's records put
     /// into the detection formula against a target, and the value and band (hidden,

@@ -108,7 +108,8 @@ actor-behaviour.md §1 (packages that send actors to furniture), ai-observer.md 
   GetAttacked, GetRandomPercent, and (for what to do while seated) GetCurrentAIProcedure,
   IsTalking, GetIsUsedItem, GetIsUsedItemType, GetEquipped, MenuMode, GetStage and others
   [observed]. The picker knows the first eleven and treats an IDLE with any other
-  function as not chosen [design], which leaves out only the value-3 extras.
+  function as not chosen [design], which leaves out only the value-3 extras; those are
+  chosen by the game's rules instead (§8).
 - IDs 10 and 22 have no enter, loop or exit clip in the tree [observed]: work spots play
   their special idles while standing.
 
@@ -286,9 +287,8 @@ Code: `engine/nvforever/src/furniture.rs` (actors and the player), `nvf_play::fu
   answer for the user. State 1 is never reported (§5 item 4).
 - **Clips change without a cross-fade**: the clips of one use play in different frames
   (§4), so blending two of them would swing the body [design].
-- **Not done**: work spots (marker 22: no getting-on clip), fidgets, eating and talking
-  idles while seated (value 3 of §3), the fast exits (nothing sets alerted or attacked),
-  children, checking the entry point against the navmesh, a bed's owner for lying
+- **Not done**: work spots (marker 22: no getting-on clip), the fast exits (nothing
+  sets alerted or attacked), children, checking the entry point against the navmesh, a bed's owner for lying
   down (only sleeping in it is refused, wait-menu.md §9) or a sleeper already on
   it (the bed is then "in use"), and actors choosing furniture by themselves (AI
   packages).
@@ -313,3 +313,100 @@ game]:
   when turned there, the body's own shoulder and arm at the limit towards the feet, and
   never the inside of the body or the mattress. Before the view was adapted the picture
   lying down was the mattress or the inside of the body, in both modes.
+
+## 8. Fidgets on furniture (value 3 of §3)
+
+The owner asked (2026-10-16), after the drawn-weapon fidgets (idles.md §11), whether
+actors on furniture fidget too. The tree has these under `GetSitting == 3` and
+`GetSleeping == 3`; they are now played.
+
+### 8.1 What the data holds [observed: `fnvtool actor anims`, FalloutNV.esm]
+
+`FurnitureIdles` is the fifth of the people's roots in chain order, after
+`KnockedDownIdles`, `HitReactionIdles` (wants `GetSitting == 0` and `GetSleeping == 0`),
+`GreetIdles` and `MenuModeIdles`, and before `DialogueIdles`, `EatIdles` and
+`GeneralIdles`: a walk from the roots reaches it first for an actor on furniture.
+Below it, the nodes for being on the furniture (siblings of the getting-on, loop and
+getting-off nodes of §3), in chain order; `GetRandomPercent` in percent, loops as
+minimum–maximum, replay delays 0 unless given:
+
+| Furniture (node) | Gate | What follows |
+|---|---|---|
+| crucifix (`NVCrucifixIdles`, one base) | each leaf `GetSitting == 3` | `NVCrucifixScream` (≤ 1), `NVCrucifixGiveUp` (≤ 3), `NVCrucifixIdleFidget` (≤ 5); dialogue idles under procedure 4 |
+| chairs, IDs 11–14 (`SittingChairIdles`) | `GetSitting == 3`, `GetIsUsedItemType 0x15 != 1` | the player (`PlayerSittingChairIdles`: `IsPC1stPerson != 1`, `GetIsID` player): a woman `ChairSkirtSitA` / `ChairFemaleSittingA` (Loop Forever), a man at a table chair `SitChairLeanBackA` (3–8), else `PlayerSitChairRelaxIdleA` (< 45), `B` (< 65), `C`. NPCs (`GetSitting != 4`, not the player): eating under procedure 10, dialogue under procedure 4, a terminal chair, then `SitChairRelax` (not a child, not procedure 10, not in a menu): a woman `ChairFemaleSkirtSittingA` / `ChairFemaleSittingA` (5–10, no random test), a table chair `SitChairLeanBackA` (10), else `SitChairRelaxIdleA` (< 45), `B` (< 65), `C` |
+| slot-machine stools (two bases) | `GetSitting == 3` | dialogue, `NVSittingStoolNoLeanthinnker` (≤ 5), slot machine (≤ 4, ≤ 5) |
+| stools, ID 15 (`SittingIdlesStool`) | `GetSitting == 3` | dialogue (procedure 4), a blackjack stool (≤ 5), eating and drinking (procedure 10); **nothing else**: a stool has no idle fidget |
+| dance marker (`NVDance`, one base) | each leaf `GetSitting == 3` | five men's and six women's dance fidgets, each < 2 (< 4 one) |
+| floor, ID 17 (`FloorSitIdles`) | `GetSitting == 3` | eating and drinking only (procedure 10); dialogue (procedure 4) has no gate |
+| wall lean, ID 19 (`WallLeanIdles`) | `GetSitting == 3`, random < 30, package type != 6 | `WallLeanSmoking` (weapon away, a faction, < 50, replay delay 80), `WallLeanLegDownA` (< 50), `WallLeanLegUpA` (< 80); dialogue idles under procedure 4 with the gate |
+| beds, IDs 1–2 (`BedSpecialIdles`) | `GetSleeping == 3`, a man, not a child | `NVBedSleepOnBack` (one bed base, < 45), `BedStirInSleepA` (< 30, 3–5), `B` (< 60, 3–5), `C` (3–6); women only on one bed base (`NVBedSleepOnBackSexy`) |
+| floor beds, IDs 3–4 (`FloorBedSpecialIdles`) | `GetSleeping == 3`, random < 20 | `FloorBedStirInSleepA` (< 50), `B` (men), replay delay 30, 4–6 loops |
+| work spots, ID 22 (`NonSitFurniture`) | none | barkeeping, consoles, workbenches, stoves… by `IsCurrentFurnitureObj`: work spots are not usable here (§3), so these are not reached |
+
+- The sleeping branch has no player nodes: the player in bed gets the men's stirring
+  [observed: the tree; whether the original plays it is moot, its player does not lie
+  down, §5 item 10].
+- Clips checked: `SitChairRelaxA` (16.1 s), `ChairFemaleSittingA` and
+  `BedStirInSleepA` (13.4 s) have 58 tracks, all bound to the people's skeleton, and
+  no track for `Bip01` (the loops have 59) [observed: `fnvtool actor anims`]: laid over
+  the loop they move the limbs, not the body's place.
+
+### 8.2 Rules as built (`Game::fidget` with `FidgetKind::OnFurniture`)
+
+- **The walk** is the drawn-weapon fidgets' (idles.md §11.2): roots of the actor's
+  folder in chain order, the first passing node gone into, the first passing leaf with
+  a file the pick, a node whose children all fail left for its next sibling
+  [hypothesis]. The pick is kept only when a node on its way, the leaf included,
+  requires `GetSitting == 3` or `GetSleeping == 3` (not joined by OR) [design: the
+  rest of the tree is not built]. Dialogue and eating leaves under such a node are
+  kept: the conditions choose them (a seated speaker under procedure 4, an eater under
+  procedure 10) [hypothesis: they are the tree's state-3 idles like the others].
+- **The player** walks the same way from the roots (the tree has the player's own
+  chair nodes), only in third person [design: the tree's chair nodes want it, and on
+  a bed a stir in first person would roll the lying view, §7].
+- **Conditions the rules cannot answer** [observed: the function catalogue]:
+  `IsLastIdlePlayed` (index 451, 86 uses on IDLEs) has no opcode in the script
+  catalogue (animation.md §1 item 6) and answers 0, so `== 1` fails: the food-talk
+  nodes (`ChairFoodTalk`, `StoolFoodTalk`) are never entered and `WallLeanLegUpTalkA`
+  and `…ListenA` never chosen, the plain talk and listen idles are. `GetIsUsedItem`,
+  `GetIsUsedItemType`, `GetUsedItemActivate` and `GetSandman` are stubs answering 0:
+  eating takes the generic leaf (`SitChairEatB`, `SitStoolEatGeneric`), `!= 1` tests
+  pass, the terminal-activation and Sandman nodes are never entered.
+  `GetFurnitureMarkerID`, `IsCurrentFurnitureObj` and `GetSitting` / `GetSleeping` are
+  answered from the actor's use (§7).
+- Checked headless (`fnvtool actor fidgets --furniture REF:MARKER_ID`, 1,000 checks, a
+  game where nothing has happened) [observed]: Easy Pete on his chair (0010634A, ID 14)
+  `SitChairRelaxIdleA` 432, `B` 390, `C` 178 (every check gives one); Sunny Smiles there
+  `ChairFemaleSittingA` 1,000; the player there the `PlayerSitChairRelaxIdle` three
+  (464, 360, 176), in first person none; Easy Pete and the player on Pete's bed
+  (00176ACE, ID 1) `BedStirInSleepA` / `B` / `C` about 30/40/30%, Sunny none; Easy Pete
+  on a saloon stool (00106194, ID 15) none. Smoke test `furniture-fidgets-tree`.
+
+### 8.3 In the engine (`engine/nvforever/src/idles.rs`)
+
+- An NPC on furniture in state 3, not in an idle collection and not playing another
+  idle, is checked every 2 s, as a standing one with its weapon out (idles.md §11.2);
+  the player on furniture in third person too. The pick is asked as
+  `IdleSource::FurnitureFidget`. With the chair's unconditional last leaf a seated man
+  fidgets back to back [hypothesis: the original's seated actors keep moving; how often
+  it looks at its tree is not known].
+- The fidget plays over the furniture's loop on the idle layers (an NPC:
+  `locomotion::drive`; the player: `player_body::pose_furniture`, which now lays the
+  third-person idles over the furniture clip). Getting on and off is untouched: a
+  fidget is only asked in state 3, and when the actor starts getting off it fades out
+  over the start of the getting-off clip, which starts where the body sits (§4)
+  [design].
+- Only in the game being played (`--play`): the furniture's state is told to the
+  script runtime's game (`nvf_play::furniture::set_use`), not to the residents' own.
+- Log: `idle: … plays SitChairRelaxIdleA (… ) (FurnitureFidget)`, and at exit
+  `furniture fidget summary: N fidgets on furniture started on actors, M on the
+  player`. Smoke test `furniture-fidgets`.
+
+### 8.4 Open
+
+- Whether the original walks the tree for seated actors continuously (here: every 2 s
+  when nothing else plays), and whether a fidget plays out before getting off (here:
+  it fades out at once).
+- `IsLastIdlePlayed`: an opcode for index 451 in the catalogue would let the
+  food-talk and leg-up wall-lean idles follow the idle played before.
+- Work spots (ID 22) need a way onto them before their idles can play.

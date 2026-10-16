@@ -30,10 +30,13 @@
 //! body jumped 75 units to the side before walking off (owner's playtest list 5 item 40)
 //! [hypothesis: the game plays every exit from where the body sits].
 //!
-//! Not done: work spots without getting-on clips (marker 22), fidgets and eating while
-//! seated (state 3 of the IDLE tree), checking the entry point against the navmesh, and
-//! sandboxing actors choosing furniture themselves (residents use the furniture their
-//! package names, a bed for Sleep and a seat for Eat packages: `residents.rs`).
+//! Fidgets while on furniture (state 3 of the IDLE tree) are `idles.rs`'s: they play over
+//! the loop and fade out when getting off starts (furniture.md §8).
+//!
+//! Not done: work spots without getting-on clips (marker 22), checking the entry point
+//! against the navmesh, and sandboxing actors choosing furniture themselves (residents
+//! use the furniture their package names, a bed for Sleep and a seat for Eat packages:
+//! `residents.rs`).
 
 use crate::actors::ActorWorld;
 use crate::limbs::ActorRig;

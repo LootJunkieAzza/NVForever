@@ -31,12 +31,18 @@
 //!   (a rifle loitering, lifting it one-handed to rest the arm, shifting its weight; an
 //!   automatic rifle scanning), and the player standing still in third person with a
 //!   weapon out and not aiming or firing, is checked every [`FIDGET_CHECK_SECONDS`]
-//!   for a fidget from the IDLE tree (`Game::weapon_fidget`); the tree's own random
+//!   for a fidget from the IDLE tree (`Game::fidget`); the tree's own random
 //!   percentages decide whether one plays. A fidget ends when its actor moves, puts the
 //!   weapon away, or (the player) aims, fires, reloads or goes to first person.
+//! - **Fidgets on furniture** (furniture.md §8). An actor on a chair, a bench, a bed or
+//!   other furniture (`GetSitting` or `GetSleeping` 3: not getting on or off) is
+//!   checked the same way for a fidget from the tree's furniture branch (a seated man
+//!   relaxing, a sleeper stirring, a dancer, a wall leaner); so is the player on
+//!   furniture in third person. It plays over the furniture's loop and ends (fades
+//!   out) when its actor starts getting off.
 //!
 //! Not done: the rest of the idle manager (idles chosen from the IDLE tree by their
-//! conditions: `PickIdle`, other fidgets, talking gestures), the sounds and other text keys of idle clips,
+//! conditions: `PickIdle`, other fidgets, talking gestures standing), the sounds and other text keys of idle clips,
 //! and package idles of actors that are not residents. The props idles hold (ANIO) are
 //! drawn by `anim_objects.rs`.
 
@@ -49,7 +55,7 @@ use fnv_actor::idle::meshes_path;
 use fnv_actor::idle_play::{IdleKeys, IdlePlay};
 use fnv_actor::weapon::Stage;
 use fnv_game::game::Game;
-use fnv_game::idles::{IdlePicker, IdleRequest, IdleSource, Loops};
+use fnv_game::idles::{FidgetKind, IdlePicker, IdleRequest, IdleSource, Loops};
 use fnv_game::package::flags;
 use fnv_sim::FormId;
 use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts};
@@ -265,6 +271,9 @@ pub struct Stats {
     /// Drawn-weapon fidgets started on actors and on the player.
     pub actor_fidgets: u32,
     pub player_fidgets: u32,
+    /// Fidgets on furniture started on actors and on the player.
+    pub actor_furniture_fidgets: u32,
+    pub player_furniture_fidgets: u32,
 }
 
 /// A small deterministic generator (SplitMix64) for loop counts and random picks: the
@@ -407,6 +416,12 @@ pub fn drive(
         if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Fidget && (moving || !weapon_out(game, v.0))) {
             c.play.stop();
         }
+        // A fidget on furniture ends when its actor starts getting off: it fades out over
+        // the start of the getting-off clip, which starts where the body sits
+        // (furniture.md §4) [design].
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && !on_furniture(game, v.0)) {
+            c.play.stop();
+        }
         busy.insert(v.0, idle.0.playing().is_some());
     }
     // The player stands still with a weapon ready in third person: may fidget [design,
@@ -422,6 +437,12 @@ pub fn drive(
         && weapon_out(game, player_ref)
         && package_of(game, player_ref).is_none();
     if let Some(c) = pi.third.cur.as_mut().filter(|c| c.source == IdleSource::Fidget && !player_still) {
+        c.play.stop();
+    }
+    // On furniture in third person: may fidget there (the tree's player nodes want the
+    // third person, and a fidget in first person would sway the view) [design].
+    let player_seated = on_furniture(game, player_ref) && control.as_deref().is_some_and(|c| c.third_person_view()) && package_of(game, player_ref).is_none();
+    if let Some(c) = pi.third.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && !player_seated) {
         c.play.stop();
     }
     busy.insert(player_ref, pi.first.playing().is_some() || pi.third.playing().is_some());
@@ -476,19 +497,28 @@ pub fn drive(
         game.ask_idle(FormId(actor), idle, source);
     }
 
-    // Drawn-weapon fidgets: NPCs standing still with a weapon out, and the player.
+    // Fidgets: NPCs on furniture, or standing still with a weapon out; the player too.
     st.clock += dt;
-    let mut still: Vec<(u32, String)> = actors
+    let mut still: Vec<(u32, String, FidgetKind)> = actors
         .iter()
-        .filter(|(_, v, _, _, lo, _)| lo.is_some_and(|l| l.velocity == [0.0; 2]) && !live.contains(&v.0) && weapon_out(game, v.0) && !game.is_dead(FormId(v.0)))
-        .filter_map(|(_, v, rig, _, _, _)| Some((v.0, skeleton_folder(&rig.skeleton)?)))
+        .filter(|(_, v, ..)| !live.contains(&v.0) && !game.is_dead(FormId(v.0)))
+        .filter_map(|(_, v, rig, _, lo, _)| {
+            let kind = if game.furniture_use(FormId(v.0)).is_some() {
+                on_furniture(game, v.0).then_some(FidgetKind::OnFurniture)?
+            } else {
+                (lo.is_some_and(|l| l.velocity == [0.0; 2]) && weapon_out(game, v.0)).then_some(FidgetKind::WeaponOut)?
+            };
+            Some((v.0, skeleton_folder(&rig.skeleton)?, kind))
+        })
         .collect();
-    if player_still {
-        still.push((player_ref, PEOPLE_FOLDER.to_string()));
+    if player_seated {
+        still.push((player_ref, PEOPLE_FOLDER.to_string(), FidgetKind::OnFurniture));
+    } else if player_still {
+        still.push((player_ref, PEOPLE_FOLDER.to_string(), FidgetKind::WeaponOut));
     }
-    let mut fidgets: Vec<(u32, FormId)> = Vec::new();
-    st.fidget_check.retain(|a, _| still.iter().any(|(s, _)| s == a));
-    for (actor, folder) in still {
+    let mut fidgets: Vec<(u32, FormId, FidgetKind)> = Vec::new();
+    st.fidget_check.retain(|a, _| still.iter().any(|(s, ..)| s == a));
+    for (actor, folder, kind) in still {
         let check = st.fidget_check.entry(actor).or_insert(FIDGET_CHECK_SECONDS);
         *check -= dt;
         if *check > 0.0 || busy.get(&actor).copied().unwrap_or(false) {
@@ -503,14 +533,14 @@ pub fn drive(
             delay > 0.0 && last.get(&(actor, idle.0)).is_some_and(|t| clock - t < delay)
         };
         let mut pick = None;
-        with_world(game, &mut |game| pick = game.weapon_fidget(FormId(actor), &folder, &held_back));
+        with_world(game, &mut |game| pick = game.fidget(FormId(actor), &folder, kind, &held_back));
         if let Some(idle) = pick {
-            fidgets.push((actor, idle));
+            fidgets.push((actor, idle, kind));
         }
     }
-    for (actor, idle) in fidgets {
+    for (actor, idle, kind) in fidgets {
         st.fidget_last.insert((actor, idle.0), st.clock);
-        game.ask_idle(FormId(actor), idle, IdleSource::Fidget);
+        game.ask_idle(FormId(actor), idle, kind.source());
     }
 
     // Start what was asked for.
@@ -519,7 +549,7 @@ pub fn drive(
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
         for IdleRequest { actor, idle, source } in requests {
-            if source != IdleSource::Fidget {
+            if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget) {
                 st.stats.asked += 1;
             }
             match source {
@@ -527,7 +557,7 @@ pub fn drive(
                 IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
                 IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
                 IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
-                IdleSource::Fidget => {}
+                IdleSource::Fidget | IdleSource::FurnitureFidget => {}
             }
             let name = game.data.name(actor);
             let failed = |st: &mut Idles, why: &str| {
@@ -558,10 +588,10 @@ pub fn drive(
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
                 if first { &mut pi.first } else { &mut pi.third }.start(idle.0, source, owner, clip, play);
-                if source == IdleSource::Fidget {
-                    st.stats.player_fidgets += 1;
-                } else {
-                    st.stats.player_started += 1;
+                match source {
+                    IdleSource::Fidget => st.stats.player_fidgets += 1,
+                    IdleSource::FurnitureFidget => st.stats.player_furniture_fidgets += 1,
+                    _ => st.stats.player_started += 1,
                 }
                 let facing = player.as_deref().map_or(String::new(), |p| {
                     // A first-person idle plays where the player is held.
@@ -587,10 +617,10 @@ pub fn drive(
                     commands.entity(e).insert(s);
                 }
             }
-            if source == IdleSource::Fidget {
-                st.stats.actor_fidgets += 1;
-            } else {
-                st.stats.started += 1;
+            match source {
+                IdleSource::Fidget => st.stats.actor_fidgets += 1,
+                IdleSource::FurnitureFidget => st.stats.actor_furniture_fidgets += 1,
+                _ => st.stats.started += 1,
             }
             match source {
                 IdleSource::PackageIdles | IdleSource::MarkerIdles => debug!("idle: {name} plays {what} ({source:?})"),
@@ -633,6 +663,12 @@ pub fn drive(
     st.told = now;
 }
 
+/// Whether `actor` is on furniture, neither getting on nor off (`GetSitting` or
+/// `GetSleeping` 3).
+fn on_furniture(game: &Game, actor: u32) -> bool {
+    game.furniture_use(FormId(actor)).is_some_and(|u| u.state == 3)
+}
+
 /// Whether the rules hold `actor`'s weapon out (`IsWeaponOut`).
 fn weapon_out(game: &Game, actor: u32) -> bool {
     game.extra.get(&FormId(actor)).is_some_and(|e| e.weapon_out)
@@ -657,6 +693,7 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
         s.asked, s.script, s.package, s.collection, s.dialogue, s.started, s.player_started, s.not_drawn, s.no_clip
     );
     info!("fidget summary: {} drawn-weapon fidgets started on actors, {} on the player", s.actor_fidgets, s.player_fidgets);
+    info!("furniture fidget summary: {} fidgets on furniture started on actors, {} on the player", s.actor_furniture_fidgets, s.player_furniture_fidgets);
 }
 
 #[cfg(test)]

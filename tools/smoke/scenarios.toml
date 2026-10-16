@@ -883,6 +883,43 @@ expect = [
 ]
 
 [[scenario]]
+name = "furniture-fidgets-tree"
+kind = "tool"
+source = "docs/spec-notes/furniture.md §8: the IDLE tree's fidgets on furniture, headless: a man on a chair relaxes (SitChairRelaxIdleA/B/C), a woman sits as women do (ChairFemaleSittingA), the player in third person has the player's relax idles and none in first person, a man in bed stirs (BedStirInSleepA/B/C), a bar stool gives none (the tree has only talk, food and gambling there)"
+areas = ["idles", "furniture"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/functions/furniture.rs", "crates/fnvtool/src/actor_fidgets.rs"]
+commands = [
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "EasyPeteRef", "--actor", "SunnyRef", "--actor", "player", "--furniture", "0010634A:14"],
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "EasyPeteRef", "--actor", "player", "--furniture", "00176ACE:1"],
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "EasyPeteRef", "--furniture", "00106194:15"],
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "player", "--furniture", "0010634A:14", "--first-person"],
+]
+expect = [
+  { json = "actors.?actor=EasyPeteRef.by_idle.SitChairRelaxIdleA", schema = "fnv.actor.fidgets/1", range = [300, 600], label = "a man on a chair: relaxing A (the first of three, 45%)" },
+  { json = "actors.?actor=EasyPeteRef.by_idle.SitChairRelaxIdleC", schema = "fnv.actor.fidgets/1", range = [100, 300], label = "a man on a chair: relaxing C (what A and B leave)" },
+  { json = "actors.?actor=SunnyRef.by_idle.ChairFemaleSittingA", schema = "fnv.actor.fidgets/1", equals = 1000, label = "a woman on a chair: the female sitting idle at every check" },
+  { json = "actors.*.by_idle.PlayerSitChairRelaxIdleB", schema = "fnv.actor.fidgets/1", range = [200, 500], count = 1, label = "the player on a chair in third person: the player's relax idles" },
+  { json = "actors.*.by_idle.BedStirInSleepB", schema = "fnv.actor.fidgets/1", range = [250, 550], count = 2, label = "a man and the player in bed: stirring" },
+  { json = "actors.*.fidgets", schema = "fnv.actor.fidgets/1", equals = 0, count = 2, label = "none on a bar stool, none for the player in first person" },
+]
+
+[[scenario]]
+name = "furniture-fidgets"
+source = "docs/spec-notes/furniture.md §8: an actor on furniture plays the IDLE tree's fidgets over the furniture's loop, and gets off as before; the player on furniture in third person too"
+note = "Easy Pete walks to his porch chair (0010634A) and stays 45 s; the player starts by the next chair (00106349), activates it at 3 s and goes to third person at 6 s (pressed together, the view change left nothing under the crosshair). 2026-10-16: Pete played SitChairRelaxIdle fidgets back to back on the chair"
+areas = ["idles", "furniture"]
+paths = ["crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/furniture.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NEAR = "00106349", NVF_PLAY_TEST_ACTIVATE = "3", NVF_PLAY_TEST_CONTROL = "6:view" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-sit", "EasyPeteRef=0010634A:45"]
+run_seconds = 90
+expect = [
+  "furniture summary: 1 of 1 actors sat down, 1 got up again",
+  { re = 'idle: .* plays SitChairRelaxIdle[ABC] .*\(FurnitureFidget\)', label = "Easy Pete fidgets on his chair" },
+  { re = 'furniture fidget summary: (?P<n>\d+) fidgets on furniture started on actors', range = [1, 100], label = "fidgets on furniture started on actors" },
+  { re = 'idle: the player plays PlayerSitChairRelaxIdle[ABC] .*FurnitureFidget', label = "the player on a chair in third person fidgets" },
+]
+
+[[scenario]]
 name = "idles-opening-own-body"
 source = "owner report 2026-10-16: with the body in first person on, the wake-up showed the player's own body standing over the view (docs/design/player-body.md §1.5)"
 areas = ["idles", "player-body"]
