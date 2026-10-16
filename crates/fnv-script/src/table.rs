@@ -99,18 +99,6 @@ pub struct FunctionTable {
     /// Enumeration → code → spelling used in shipped source.
     pub enums: BTreeMap<String, BTreeMap<u16, String>>,
     by_name: HashMap<String, u16>,
-    /// Console-only commands the catalogue lists without an opcode (they are never
-    /// compiled into a script): lower-case name or alias → command.
-    console: HashMap<String, ConsoleCommand>,
-}
-
-/// A console-only command of the catalogue: no opcode, so it lives outside
-/// [`FunctionTable::functions`].
-#[derive(Debug, Clone)]
-pub struct ConsoleCommand {
-    pub name: String,
-    pub aliases: Vec<String>,
-    pub params: Vec<Param>,
 }
 
 fn parse_hex16(s: &str) -> Option<u16> {
@@ -197,6 +185,9 @@ impl FunctionTable {
         }
         for func in f.get("functions").and_then(Value::as_array).into_iter().flatten() {
             let ops: Vec<u16> = strings(func.get("opcodes")).iter().filter_map(|s| parse_hex16(s)).collect();
+            if ops.is_empty() {
+                continue;
+            }
             let name = func.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
             let params: Vec<Param> = func
                 .get("params")
@@ -210,17 +201,6 @@ impl FunctionTable {
                     optional: p.get("optional").and_then(Value::as_bool).unwrap_or(false),
                 })
                 .collect();
-            if ops.is_empty() {
-                let console = func.get("console_only").and_then(Value::as_bool).unwrap_or(false)
-                    || strings(func.get("categories")).iter().any(|c| c == "Console Functions");
-                if console && !name.is_empty() {
-                    let cmd = ConsoleCommand { name: name.clone(), aliases: strings(func.get("aliases")), params };
-                    for s in std::iter::once(&cmd.name).chain(&cmd.aliases) {
-                        t.console.entry(s.to_ascii_lowercase()).or_insert_with(|| cmd.clone());
-                    }
-                }
-                continue;
-            }
             let xedit_types = strings(func.get("xedit_param_types"));
             let n = |k: &str| func.get(k).and_then(Value::as_u64).unwrap_or(0);
             for &op in &ops {
@@ -273,11 +253,6 @@ impl FunctionTable {
     /// Opcode of a function by name, alias or observed spelling (case-insensitive).
     pub fn by_name(&self, name: &str) -> Option<u16> {
         self.by_name.get(&name.to_ascii_lowercase()).copied()
-    }
-
-    /// A console-only command (no opcode) by name or alias, case-insensitive.
-    pub fn console_command(&self, name: &str) -> Option<&ConsoleCommand> {
-        self.console.get(&name.to_ascii_lowercase())
     }
 
     /// Encoding of parameter `position` (0-based) of `opcode`; unknown opcodes and

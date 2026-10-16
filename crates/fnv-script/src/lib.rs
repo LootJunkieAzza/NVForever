@@ -24,5 +24,5 @@ pub mod vm;
 
 pub use decode::{decode, Decoded, Issue, Report};
 pub use ir::{Arg, Arm, Block, Call, Expr, Marker, Op, Program, RefIndex, Stmt, Token, VarLetter, VarRef, VarSlot};
-pub use table::{ConsoleCommand, FunctionTable, ParamEnc};
+pub use table::{FunctionTable, ParamEnc};
 pub use unit::{ScriptKind, ScriptUnit, UnitOwner, VarDecl, VarType};
