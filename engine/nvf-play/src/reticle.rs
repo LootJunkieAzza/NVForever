@@ -26,6 +26,7 @@ use crate::activate::outcome::{self, Action};
 use crate::activate::{Target, Targeted};
 use crate::control::ControlLocks;
 use crate::interface::{amber, at, bc_supported, face, plain_font, set_text, Face, Picture, Pictures, Set};
+use crate::pad::XButton;
 use crate::sim::SimState;
 use crate::{PlaySet, PlayState};
 use bevy::image::CompressedImageFormatSupport;
@@ -101,6 +102,9 @@ pub struct Prompt {
     pub crime: bool,
     /// The Activate control's key or button and ")"; empty: [`KEY`].
     pub key: String,
+    /// With a controller: the Activate button's picture is drawn in place of the key
+    /// (set only when the picture was read).
+    pub button: Option<XButton>,
 }
 
 impl Prompt {
@@ -119,7 +123,7 @@ impl Prompt {
             BaseData::Item(i) => Some([weight_text(i.weight), value_text(i.value)]),
             _ => None,
         });
-        Prompt { action, name, figures, crime: t.crime, key: String::new() }
+        Prompt { action, name, figures, crime: t.crime, key: String::new(), button: None }
     }
 }
 
@@ -144,12 +148,19 @@ pub fn value_text(v: Option<i32>) -> String {
     }
 }
 
-/// The texts set out from the view's middle, and the divider picture's top left corner.
+/// The texts set out from the view's middle, the divider picture's top left corner and
+/// the controller button picture's.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layout {
     pub texts: Vec<Set>,
     pub divider: Option<Vec2>,
+    pub button: Option<Vec2>,
 }
+
+/// The button picture's middle stands this far above the action's line [hypothesis: the
+/// HUD's prompt centres the picture on its text box (`text_box.xml` `xbox_button` `y`),
+/// about the middle of the font's capitals].
+const BUTTON_MID_ABOVE_BASE: f32 = 12.0;
 
 pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let line = |s: &str| font.lines(s, None).into_iter().next().unwrap_or_default();
@@ -161,14 +172,21 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
     let name_base = ACTION_BASE + LINE_PITCH;
     // No action (an actor shown by name only, `Action::Name`): the name alone, on its
     // own line [hypothesis: the line stays where it is with an action].
+    // With a controller the button's picture stands where the key ends, its middle on
+    // the action's line [hypothesis: `text_box.xml` puts the picture left of the text box
+    // (`_button_placement` left), 10 into it].
+    let mut button = None;
     let mut texts = if p.action.is_empty() {
         vec![set(name.clone(), NAME_X - name.width / 2.0, name_base)]
     } else {
-        vec![
-            set(key.clone(), action_x - KEY_GAP - key.width, ACTION_BASE),
-            set(action, action_x, ACTION_BASE),
-            set(name.clone(), NAME_X - name.width / 2.0, name_base),
-        ]
+        let mut v = Vec::new();
+        match p.button {
+            Some(_) => button = Some(Vec2::new(action_x - KEY_GAP - crate::pad::HUD_PICTURE, ACTION_BASE - BUTTON_MID_ABOVE_BASE - crate::pad::HUD_PICTURE / 2.0)),
+            None => v.push(set(key.clone(), action_x - KEY_GAP - key.width, ACTION_BASE)),
+        }
+        v.push(set(action, action_x, ACTION_BASE));
+        v.push(set(name.clone(), NAME_X - name.width / 2.0, name_base));
+        v
     };
     let divider = p.figures.as_ref().map(|[weight, value]| {
         let top = name_base + DIVIDER_BELOW;
@@ -180,7 +198,7 @@ pub fn layout(p: &Prompt, font: &Font) -> Layout {
         texts.push(set(value.clone(), STEM_X + VALUE_END - value.width, base));
         Vec2::new(STEM_X - STEM_IN_PICTURE, top)
     });
-    Layout { texts, divider }
+    Layout { texts, divider, button }
 }
 
 /// The crime colour: the prompt over something another owns, and the crosshair with it
@@ -216,6 +234,8 @@ struct Kit {
     plain: Option<Picture>,
     filled: Option<Picture>,
     divider: Option<Picture>,
+    /// The HUD's controller button pictures (`glow_general_button_*`), by [`XButton::ALL`].
+    buttons: Vec<Option<Picture>>,
 }
 
 impl Kit {
@@ -223,7 +243,13 @@ impl Kit {
         let mut pictures = Pictures::load(data);
         let mut picture = |path: &str| pictures.picture(path, data, images, bc);
         let (plain, filled, divider) = (picture(PLAIN), picture(FILLED), picture(DIVIDER));
-        Kit { face: face(FONT, plain_font(36.0, 17.0), data, images, bc), plain, filled, divider }
+        let buttons: Vec<Option<Picture>> = XButton::ALL.iter().map(|b| picture(&b.picture(true))).collect();
+        info!("reticle: {} of {} controller button pictures read", buttons.iter().flatten().count(), buttons.len());
+        Kit { face: face(FONT, plain_font(36.0, 17.0), data, images, bc), plain, filled, divider, buttons }
+    }
+
+    fn button(&self, b: XButton) -> Option<Picture> {
+        XButton::ALL.iter().position(|x| *x == b).and_then(|i| self.buttons[i].clone())
     }
 }
 
@@ -307,6 +333,10 @@ fn spawn_texts(p: &mut ChildSpawnerCommands, kit: &Kit, prompt: &Prompt) {
     if let (Some(corner), Some(picture)) = (l.divider, kit.divider.clone()) {
         p.spawn((at(corner.x, corner.y, DIVIDER_SIZE.x, DIVIDER_SIZE.y), picture_node(picture, color)));
     }
+    if let (Some(corner), Some(picture)) = (l.button, prompt.button.and_then(|b| kit.button(b))) {
+        let size = crate::pad::HUD_PICTURE;
+        p.spawn((at(corner.x, corner.y, size, size), picture_node(picture, color)));
+    }
     for set in &l.texts {
         set_text(p, &kit.face, set, Vec2::ZERO, color, ());
     }
@@ -387,8 +417,15 @@ fn draw(
         }
     }
     let key = bindings.as_ref().map(|b| b.prompt(crate::bindings::Control::Activate)).unwrap_or_default();
+    // With a controller, the Activate button's picture when it has one (else its letters).
+    let button = bindings
+        .as_ref()
+        .filter(|b| b.device == crate::bindings::InputDevice::Controller)
+        .and_then(|b| b.pad(crate::bindings::Control::Activate))
+        .and_then(XButton::of)
+        .filter(|b| kit.button(*b).is_some());
     let barred = |t: &Targeted| bar.as_ref().and_then(|b| b.0.as_ref()).is_some_and(|b| under_bar(t, b.form_id));
-    let want = target.0.as_ref().filter(|t| !locks.rollover && !barred(t)).map(|t| Prompt { key: key.clone(), ..Prompt::of(t, &sim) });
+    let want = target.0.as_ref().filter(|t| !locks.rollover && !barred(t)).map(|t| Prompt { key: key.clone(), button, ..Prompt::of(t, &sim) });
     if *shown != want {
         let Ok(e) = texts.single() else { return };
         commands.entity(e).despawn_related::<Children>().with_children(|p| {
@@ -410,7 +447,7 @@ mod tests {
     }
 
     fn prompt(action: &str, name: &str, figures: Option<[&str; 2]>) -> Prompt {
-        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new() }
+        Prompt { action: action.into(), name: name.into(), figures: figures.map(|f| f.map(String::from)), crime: false, key: String::new(), button: None }
     }
 
     #[test]
@@ -424,6 +461,19 @@ mod tests {
         assert_eq!((name.x + name.line.width / 2.0, name.base), (NAME_X, ACTION_BASE + LINE_PITCH));
         let wider = layout(&prompt("Open", "A Much Longer Name", None), &font());
         assert_eq!(wider.texts[0], l.texts[0]);
+        assert_eq!(l.button, None);
+    }
+
+    #[test]
+    fn a_controllers_button_picture_stands_where_the_key_would_end() {
+        let keyed = layout(&prompt("Open", "Gun Case", None), &font());
+        let l = layout(&Prompt { button: Some(XButton::A), ..prompt("Open", "Gun Case", None) }, &font());
+        let [action, _name] = &l.texts[..] else { panic!("{:?}", l.texts) };
+        let corner = l.button.expect("the picture");
+        let key = &keyed.texts[0];
+        assert_eq!(corner.x + crate::pad::HUD_PICTURE, key.x + key.line.width);
+        assert_eq!(corner.x + crate::pad::HUD_PICTURE, action.x - KEY_GAP);
+        assert_eq!(corner.y + crate::pad::HUD_PICTURE / 2.0, ACTION_BASE - BUTTON_MID_ABOVE_BASE);
     }
 
     #[test]

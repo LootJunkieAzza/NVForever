@@ -116,8 +116,9 @@ impl Model {
             hours: words.hours_line(hours, minute_of_day(now)),
             date: words.date_line(now),
             marker: hours,
-            accept: format!("{} E)", if self.sleep { &words.sleep } else { &words.wait }),
-            cancel: format!("{} X)", words.cancel),
+            // With a controller: A and B [design: the wait menu's file was not read].
+            accept: format!("{} {}", if self.sleep { &words.sleep } else { &words.wait }, crate::pad::hint_text("E)", Some(crate::pad::XButton::A))),
+            cancel: format!("{} {}", words.cancel, crate::pad::hint_text("X)", Some(crate::pad::XButton::B))),
             can_accept: self.passing.is_none(),
         }
     }

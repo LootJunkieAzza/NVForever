@@ -40,6 +40,7 @@
 //!   <Class>`; none when others did more than `100 − iXPDeathRewardHealthThreshold` % of
 //!   the damage.
 
+use crate::data::MagicEffectDef;
 use crate::functions::{actor, base_of};
 use crate::game::{event, Game};
 use fnv_script::vm::Value;
@@ -247,8 +248,73 @@ impl Game<'_> {
         if let Some(e) = self.extra.get_mut(&r) {
             e.teammate = false;
         }
+        // Its effects end, but those whose base effect has "No Death Dispel" (a flamer's
+        // burning) and abilities (docs/spec-notes/hit-effects.md §4).
+        let data = self.data;
+        self.dispel(r, None, |e| !e.permanent && !data.magic_effects.get(&e.effect).is_some_and(|m| m.has(MagicEffectDef::NO_DEATH_DISPEL)));
         self.death_line(r, killer);
         true
+    }
+
+    /// The share (0–1) of a harmful effect's magnitude the target resists: its value of
+    /// the base effect's resistance, as a percentage [documented: GECK wiki Stats Tab -
+    /// Creatures, Poison Resist; hypothesis: the same for every resistance, Fire
+    /// Resistance among them] (docs/spec-notes/hit-effects.md §3).
+    pub fn resisted(&mut self, target: FormId, m: Option<&MagicEffectDef>) -> f64 {
+        let Some(m) = m.filter(|m| m.has(MagicEffectDef::HOSTILE) || m.has(MagicEffectDef::DETRIMENTAL)) else { return 0.0 };
+        let Some(code) = m.resistance else { return 0.0 };
+        (actor::actor_value(self, target, code).unwrap_or(0.0) / 100.0).clamp(0.0, 1.0)
+    }
+
+    /// The magic item a hit applies with its effects: a weapon's object effect, a
+    /// blast's, an actor's unarmed attack effect (docs/spec-notes/hit-effects.md §1). A
+    /// dead or unharmable target takes none. The target's resistances cut the harmful
+    /// magnitudes, a fully resisted effect does not start, and a hit with the same item
+    /// while its effect lasts starts that effect's time again (§2, §3).
+    pub fn apply_hit_effect(&mut self, target: FormId, item: FormId, caster: Option<FormId>) -> Vec<crate::aid::Applied> {
+        if self.is_dead(target) || self.is_immune(target) {
+            return Vec::new();
+        }
+        let mods = crate::aid::Mods { hit: true, ..crate::aid::Mods::default() };
+        self.apply_magic_item_with(target, item, caster, false, &mods)
+    }
+
+    /// An actor's unarmed attack effect and the attack animation it needs (`EITM`,
+    /// `EAMT`), from the actor base that supplies its actor effects (template flag "Actor
+    /// Effect List") [hypothesis: the group, data.rs `template_spells`].
+    pub fn unarmed_effect(&self, r: FormId) -> Option<(FormId, Option<&str>)> {
+        let base = base_of(self, r)?;
+        let (_, d) = self.data.template_source(base, r, |d| d.template_spells)?;
+        Some((d.unarmed_effect?, d.unarmed_anim.as_deref()))
+    }
+
+    /// Health damage an effect does (a burn, a poison): as a hit's, kept at 1 for an
+    /// essential actor (who falls unconscious) and killing the others at 0, the effect's
+    /// caster the killer (docs/spec-notes/hit-effects.md §4).
+    pub(crate) fn effect_health_damage(&mut self, target: FormId, amount: f64, caster: Option<FormId>) {
+        if self.is_dead(target) || self.is_immune(target) {
+            return;
+        }
+        let before = actor::actor_value(self, target, HEALTH).unwrap_or(0.0);
+        let essential = self.is_essential(target);
+        let floor = if essential { 1.0 } else { 0.0 };
+        let dealt = amount.max(0.0).min((before - floor).max(0.0));
+        actor::add_damage(self, target, HEALTH, dealt);
+        {
+            let e = self.extra.entry(target).or_default();
+            if caster == Some(FormId::PLAYER_REF) {
+                e.player_damage += dealt;
+            }
+            e.total_damage += dealt;
+        }
+        if before - dealt <= floor {
+            if essential {
+                self.extra.entry(target).or_default().unconscious = true;
+            } else if self.kill(target, caster) && caster == Some(FormId::PLAYER_REF) {
+                let xp = self.kill_xp(target);
+                self.player.xp += xp;
+            }
+        }
     }
 
     /// Apply `damage` health damage to `target` (see the module notes).

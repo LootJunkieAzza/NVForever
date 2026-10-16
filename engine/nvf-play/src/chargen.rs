@@ -106,6 +106,12 @@ pub struct ChargenMenus {
     kit: Option<draw::Kit>,
 }
 
+impl ChargenMenus {
+    pub fn is_open(&self) -> bool {
+        self.open.is_some()
+    }
+}
+
 #[derive(Component)]
 struct ChargenRoot;
 

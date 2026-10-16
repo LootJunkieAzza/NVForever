@@ -66,6 +66,12 @@ pub struct LevelUpMenu {
     kit: Option<chargen::draw::Kit>,
 }
 
+impl LevelUpMenu {
+    pub fn is_open(&self) -> bool {
+        self.open.is_some()
+    }
+}
+
 #[derive(Component)]
 struct LevelUpRoot;
 

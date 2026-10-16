@@ -187,6 +187,15 @@ impl<'a> Ctx<'a> {
         self.kit.face(font).font.size
     }
 
+    /// A button's hint at `x` (left aligned, its top at `top`): its key, or with a
+    /// controller its button's picture, its middle at `mid`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn hint(&mut self, p: &mut ChildSpawnerCommands, font: usize, hint: crate::pad::Hint, x: f32, top: f32, mid: f32, color: Color) {
+        if !crate::pad::spawn_button(p, hint, |path| self.picture(path), x, mid, color) {
+            self.text(p, font, &hint.text(), x, top, Align::Left, color);
+        }
+    }
+
     /// Draw one line of `s` whose top is at `top`; returns its width.
     #[allow(clippy::too_many_arguments)]
     pub fn text(&mut self, p: &mut ChildSpawnerCommands, font: usize, s: &str, x: f32, top: f32, align: Align, color: Color) -> f32 {

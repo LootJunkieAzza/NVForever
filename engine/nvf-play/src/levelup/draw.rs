@@ -7,6 +7,7 @@ use super::model::{Page, Part, Row, View, PERK_ROWS, SKILL_ROWS};
 use crate::chargen::draw::{Align, Ctx, Which, BODY_H, THICK};
 use crate::chargen::lists::{marker, MAIN, ROW_H};
 use crate::interface::{amber, at};
+use crate::pad::XButton;
 use bevy::prelude::*;
 
 /// The dark picture behind: 1144 × 1070, 50 left of and 125 above the rectangle.
@@ -182,9 +183,12 @@ fn buttons(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &View) {
     let bh = BODY_H + 2.0 * BUTTON_PAD;
     // [observed: "Reset R)", "Done A)"; hypothesis: "Continue A)", "Back E)", the words
     // the menu file names (sContinue, sBack, sPCMenuHintE) not being in the masters]
-    let mut list = vec![(Part::Reset, "Reset", "R)", true), (Part::Continue, v.next, "A)", v.next_on)];
+    // With a controller: Reset Y, Continue X [documented: trait_menu.xml LUM_ResetButton
+    // `&xbuttony;`, LUM_ContinueButton `&xbuttonx;`], Back B [design]
+    // (`crate::pad::own_keys`).
+    let mut list = vec![(Part::Reset, "Reset", ("R)", XButton::Y), true), (Part::Continue, v.next, ("A)", XButton::X), v.next_on)];
     if v.back {
-        list.push((Part::Back, "Back", "E)", true));
+        list.push((Part::Back, "Back", ("E)", XButton::B), true));
     }
     for (k, (part, label, hint, on)) in list.into_iter().enumerate() {
         let color = amber(255.0).with_alpha(if on { 1.0 } else { DIM });
@@ -194,7 +198,7 @@ fn buttons(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &View) {
             c.outline(p, BUTTONS.x - bw, y, bw, bh, amber(200.0));
         }
         c.text(p, Which::Body, label, BUTTONS.x - BUTTON_PAD, y + BUTTON_PAD, Align::Right, color);
-        c.text(p, Which::Body, hint, BUTTONS.x, y + BUTTON_PAD, Align::Left, color);
+        c.hint(p, Which::Body, crate::pad::hint(hint.0, Some(hint.1)), BUTTONS.x, y + BUTTON_PAD, y + bh / 2.0, color);
         p.spawn((Button, part, at(BUTTONS.x - bw, y, bw + 40.0, bh)));
     }
 }

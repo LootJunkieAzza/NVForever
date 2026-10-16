@@ -50,7 +50,8 @@ use crate::script::ScriptState;
 use crate::sfx::{pan_gains, Pan, Panned, PlaySound};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayWorld};
-use bevy::audio::{AddAudioSource, Volume};
+use bevy::audio::Volume;
+use crate::audio_out::AddAudioSource;
 use bevy::prelude::*;
 use fnv_game::game::Speech;
 use fnv_game::Game;
@@ -550,6 +551,7 @@ impl Plugin for VoicePlugin {
                 note: "On: lines are spoken. Off: they are silent from the next line on, and still last as long as their sound. (--no-voice)",
                 get: |w| w.resource::<VoiceSettings>().play,
                 set: |w, on| w.resource_mut::<VoiceSettings>().play = on,
+                slider: None,
             },
         );
     }

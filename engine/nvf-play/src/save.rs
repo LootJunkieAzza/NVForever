@@ -164,7 +164,21 @@ pub struct PendingLoad {
 
 /// The engine part waiting for the runtime to be restored.
 #[derive(Resource)]
-pub(crate) struct PendingEngine(pub EngineSnapshot, pub PathBuf);
+pub struct PendingEngine(pub EngineSnapshot, pub PathBuf);
+
+/// Whether the save given at the start (`--load`) is still being put back (scripts that
+/// cannot run never put it back: not waited for then).
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct Restoring<'w> {
+    engine: Option<Res<'w, PendingEngine>>,
+    script: Option<Res<'w, ScriptState>>,
+}
+
+impl Restoring<'_> {
+    pub fn busy(&self) -> bool {
+        self.engine.is_some() && self.script.as_ref().is_none_or(|s| s.off.is_none())
+    }
+}
 
 /// Saves asked for and not yet written (one waits while saving is not allowed).
 #[derive(Resource, Default)]
@@ -260,7 +274,7 @@ impl Plugin for SavePlugin {
             app.insert_resource(PendingEngine(body.engine, path.clone()));
             app.insert_resource(crate::script::PendingGame(Box::new(body.game), path));
         }
-        let setting = |key, label, note, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: GROUP, label, note, get, set };
+        let setting = |key, label, note, get: fn(&World) -> bool, set: fn(&mut World, bool)| crate::settings::Setting { key, group: GROUP, label, note, get, set, slider: None };
         crate::settings::add_setting(
             app,
             setting("autosave-travel", "Autosave after travel", "On: the game saves to the autosave slot after each loading screen (doors, coc, a script moving the player).", |w| w.resource::<SaveConfig>().autosave_travel, |w, on| w.resource_mut::<SaveConfig>().autosave_travel = on),
@@ -299,7 +313,7 @@ fn requests(input: crate::bindings::ControlInput, state: Res<State<PlayState>>, 
 /// Autosaves: after a loading screen comes down, and on a script's `Autosave`.
 fn autosaves(loading: Res<crate::loading::Loading>, mut was: Local<bool>, script: Option<ResMut<ScriptState>>, cfg: Res<SaveConfig>, mut queue: ResMut<SaveQueue>, pending: Option<Res<PendingEngine>>) {
     let auto = || SaveRequest { name: fnv_save::AUTO_NAME.into(), kind: SaveKind::Auto };
-    let active = loading.active();
+    let active = loading.travelling();
     // A loading screen comes up only for travel (the start has none); not while a save
     // is still being put back.
     if *was && !active && cfg.autosave_travel && pending.is_none() {

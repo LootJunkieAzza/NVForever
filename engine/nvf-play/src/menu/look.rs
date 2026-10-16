@@ -13,6 +13,7 @@ use super::barter::{self, Flow};
 use super::model::{Category, Command, MenuModel, Mode, Quantity, Row, Side};
 use super::{AmountMeter, CmdButton, RowButton};
 use crate::interface::{amber, at, face, plain_font, set_line, texture, Face, Picture, Pictures};
+use crate::pad::{hint, Hint, XButton};
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
 use bevy::prelude::*;
 use fnv_font::{Font, Line};
@@ -267,6 +268,14 @@ impl Ctx<'_> {
         self.image(p, name, at(x, y, THICK, CORNER), color);
     }
 
+    /// A button's hint at `x`: its key, or with a controller its button's picture (in the
+    /// middle of the button `h` high at `y`).
+    fn hint(&mut self, p: &mut ChildSpawnerCommands, hint: Hint, x: f32, y: f32, h: f32, color: Color) {
+        if !crate::pad::spawn_button(p, hint, |path| self.picture(path), x, y + h / 2.0, color) {
+            self.text(p, false, &hint.text(), x, y + BUTTON_PAD, Align::Left, color);
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn text(&mut self, p: &mut ChildSpawnerCommands, title: bool, s: &str, x: f32, top: f32, align: Align, color: Color) -> f32 {
         let face = if title { &self.kit.title } else { &self.kit.body };
@@ -431,16 +440,18 @@ fn caps_flow(p: &mut ChildSpawnerCommands, c: &mut Ctx, flow: Flow, caps: u64) {
 }
 
 fn buttons(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel) {
-    let list: Vec<(&str, &str, Command, bool)> = match (m.mode, &m.trade) {
-        (Mode::Barter(_), Some(t)) => vec![("Accept", "A)", Command::Accept, !t.is_empty()), ("Exit", "X)", Command::Close, true)],
-        _ => vec![("Take All", "R)", Command::TakeAll, !m.list(Side::Container).rows.is_empty()), ("Exit", "E)", Command::Close, true)],
+    // With a controller the buttons the menu files name: barter Accept X, Exit B; container
+    // Take All X, Exit B (`crate::pad::own_keys`).
+    let list: Vec<(&str, Hint, Command, bool)> = match (m.mode, &m.trade) {
+        (Mode::Barter(_), Some(t)) => vec![("Accept", hint("A)", Some(XButton::X)), Command::Accept, !t.is_empty()), ("Exit", hint("X)", Some(XButton::B)), Command::Close, true)],
+        _ => vec![("Take All", hint("R)", Some(XButton::X)), Command::TakeAll, !m.list(Side::Container).rows.is_empty()), ("Exit", hint("E)", Some(XButton::B)), Command::Close, true)],
     };
     let h = 31.0 + BUTTON_PAD;
     for (i, (label, hint, cmd, on)) in list.into_iter().enumerate() {
         let color = amber(255.0).with_alpha(if on { 1.0 } else { DIM });
         let y = BUTTONS_Y + i as f32 * h;
         let w = c.text(p, false, label, BUTTONS_RIGHT, y + BUTTON_PAD, Align::Right, color);
-        c.text(p, false, hint, BUTTONS_RIGHT + HINT_GAP, y + BUTTON_PAD, Align::Left, color);
+        c.hint(p, hint, BUTTONS_RIGHT + HINT_GAP, y, h, color);
         p.spawn((Button, CmdButton(cmd), at(BUTTONS_RIGHT - w - 10.0, y, w + 20.0 + HINT_GAP + 30.0, h)));
     }
 }
@@ -566,9 +577,11 @@ pub fn spawn_quantity(root: &mut ChildSpawnerCommands, q: &Quantity, kit: &mut K
             }
             c.text(p, true, &q.amount.to_string(), Q_CENTRE, Q_AMOUNT_Y, Align::Centre, bright);
             let h = 31.0 + BUTTON_PAD;
-            for ((label, hint, cmd), y) in [("Ok", "A)", Command::AmountOk), ("Cancel", "E)", Command::AmountCancel)].into_iter().zip(Q_BUTTONS_Y) {
+            // [documented: quantity_menu.xml QM_OKButton `&xbuttona;`, QM_CancelButton `&xbuttonb;`].
+            let list = [("Ok", hint("A)", Some(XButton::A)), Command::AmountOk), ("Cancel", hint("E)", Some(XButton::B)), Command::AmountCancel)];
+            for ((label, hint, cmd), y) in list.into_iter().zip(Q_BUTTONS_Y) {
                 let w = c.text(p, false, label, Q_BUTTONS_RIGHT, y + BUTTON_PAD, Align::Right, bright);
-                c.text(p, false, hint, Q_BUTTONS_RIGHT + HINT_GAP, y + BUTTON_PAD, Align::Left, bright);
+                c.hint(p, hint, Q_BUTTONS_RIGHT + HINT_GAP, y, h, bright);
                 p.spawn((Button, CmdButton(cmd), at(Q_BUTTONS_RIGHT - w - 10.0, y, w + 20.0 + HINT_GAP + 30.0, h)));
             }
         });

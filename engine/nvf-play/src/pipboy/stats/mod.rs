@@ -66,6 +66,10 @@ const BOX_TEXT_DROP: f32 = 3.0;
 /// The keys the hints name [observed: "S)", "E)", "A)", "X)" on the owner's
 /// screenshots; documented: `_PCButton_S` and the others name these buttons].
 const HINT_KEYS: [&str; 4] = ["S)", "E)", "A)", "X)"];
+/// Their controller buttons [documented: stats_menu.xml stats_stimpak_button and
+/// stats_radaway_button `&xbuttona;`, stats_radx_button `&xbuttonx;`; the doctor's bag's
+/// is set in code, X here as Rad-X's beside it [hypothesis]] (`crate::pad::own_keys`).
+const HINT_BUTTONS: [crate::pad::XButton; 4] = [crate::pad::XButton::A, crate::pad::XButton::X, crate::pad::XButton::A, crate::pad::XButton::X];
 
 /// The Vault Boy (`stats_player_*`): the head 40 down, centred, at zoom 145, and each
 /// piece's place and size before the zoom; the pictures fill the top left of their files
@@ -593,7 +597,7 @@ fn status(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Snap
         }
         let ty = box_text_top(c, top, size.y);
         c.text(p, 2, text, right - HINT_HORBUF / 2.0, ty, Align::Right, colour);
-        c.text(p, 2, HINT_KEYS[i], right + HINT_KEY_GAP, ty, Align::Left, colour);
+        c.hint(p, 2, crate::pad::hint(HINT_KEYS[i], Some(HINT_BUTTONS[i])), right + HINT_KEY_GAP, ty, top + size.y / 2.0, colour);
         spots.push((r, Spot::Hint(i)));
     }
     match v.status {
@@ -890,7 +894,8 @@ fn general(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &mut StatsView, s: &Sna
     }
     let ty = box_text_top(c, top, size.y);
     c.text(p, 2, name, right - HINT_HORBUF / 2.0, ty, Align::Right, bright());
-    c.text(p, 2, "R)", right + HINT_KEY_GAP, ty, Align::Left, bright());
+    // [documented: stats_menu.xml stats_genrep_button `&xbuttonx;`].
+    c.hint(p, 2, crate::pad::hint("R)", Some(crate::pad::XButton::X)), right + HINT_KEY_GAP, ty, top + size.y / 2.0, bright());
     spots.push((sr, Spot::Switch));
     if rows.is_empty() && v.reputation {
         // [hypothesis: the words.]

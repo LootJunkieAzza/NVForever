@@ -83,6 +83,40 @@ e.g. `&xbuttona;` on the HUD's activate prompt, `hud_main_menu.xml`], and
 key text [observed: the prefab's `_xbox` switch]. `FalloutPrefs.ini` also holds
 `bDisable360Controller=0` (another section) [observed].
 
+The pictures [observed 2026-10-16]: there are no files `Interface\Shared\Button\*.dds`
+in the base archives; the names are pieces of the interface atlas,
+`textures\interface\interfaceshared.tai` and `interfaceshared0.dds` in
+`Fallout - Textures2.bsa`, each 0.0615 of the atlas across and down. The atlas also has
+`general_button_back.dds`, `_l`, `_r` and a `glow_` copy of each, plus
+`glow_general_button_start.dds`. `prefabs/text_box.xml` names `general_button_a` …
+`_rs`, `_back`, `_l`, `_r` as its `_filename_1` … `_13` and the `glow_` ones as `_14` …
+`_26`, taking the glow set when the box's `_glow` is true [documented: the file]; the
+HUD's activate prompt is such a box with `_glow` true, `_xbox_button` `&xbuttona;`, the
+picture 75 by 75 left of the text (`_button_placement` left) [documented:
+`hud_main_menu.xml`, `text_box.xml`]. The menus' hint prefab draws its picture 22 by 30
+[documented: `button_xbox_hint.xml` `button_icon`].
+
+The buttons each menu file names [observed: the `<xbutton…>` elements, which click a
+button, and the `_xbox_button` traits, which draw its picture]:
+
+| Menu file | Buttons |
+|---|---|
+| `barter_menu.xml` | X Accept, B Exit |
+| `container_menu.xml` | X Take All (`CM_TakeAllButton`), B Exit |
+| `quantity_menu.xml` | A OK, B Cancel |
+| `main/inventory_menu.xml` | A Equip, X Drop, Y Repair, RB Hotkey, LB Mod, B Cancel |
+| `lockpick/lockpick_menu.xml` | X Force Lock, B Exit (Y, LT, RT, LB, RB: debug buttons) |
+| `tutorial_menu.xml` (the help box) | B Close (`_PCButtonText` E), LT/RT pages, LB/RB scroll |
+| `main/stats_menu.xml` | A Stimpak, A RadAway, X Rad-X, X General/Reputation; one set in code |
+| `main/map_menu.xml` | A (its title set by the tab), X Place Marker / Show Location / Show All Notes / Show Active Notes / Next Challenge, Y Challenges (`_PCButton_R`) |
+| `chargen/char_gen_menu.xml` | Y Reset, X Done |
+| `trait_menu.xml` (level-up) | Y Reset, X Continue |
+| `chargen/specialbookmenu.xml`, `love_tester_menu.xml` | RT next page, LT previous, X exit, A, LS |
+| `options/start_menu.xml` | X, Y, B (several pages) |
+
+No dialogue, wait, recipe or Pip-Boy tab-line file in the menus read names buttons for
+those; what NVForever gives them is [design] (docs/design/controller.md §3).
+
 ## 3. Behaviour [hypothesis unless tagged]
 
 - Running is the default while Always Run is on; Run held walks (and runs when Always Run

@@ -80,6 +80,15 @@ impl Ctx<'_> {
         self.kit.pictures.picture(path, self.data, self.images, self.bc)
     }
 
+    /// A button's hint at `x` (left aligned, its top at `top`): its key, or with a
+    /// controller its button's picture, its middle at `mid`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn hint(&mut self, p: &mut ChildSpawnerCommands, which: Which, hint: crate::pad::Hint, x: f32, top: f32, mid: f32, color: Color) {
+        if !crate::pad::spawn_button(p, hint, |path| self.picture(path), x, mid, color) {
+            self.text(p, which, &hint.text(), x, top, Align::Left, color);
+        }
+    }
+
     /// A picture tinted `color`, stretched over `node`, with `extra` components.
     pub fn image(&mut self, p: &mut ChildSpawnerCommands, path: &str, node: Node, color: Color, extra: impl Bundle) -> Option<Entity> {
         let (image, rect) = self.picture(path)?;

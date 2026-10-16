@@ -5178,6 +5178,79 @@ hint, the text overlay, radio subtitles and the Fallout 3 music question.
   then aim, then attack, by track priority). *Not covered:* aim up and down, reloads,
   jams, equip and holster. *Check:* run it for each type and list the broken cases.
 
+## Fire and poison: hit effects and the burning look (2026-10-16, branch claude/fire-poison-effects)
+
+What a hit now applies besides its damage (docs/spec-notes/hit-effects.md): the flamer's
+and the Shishkebab's "Burning" (2 health a second for 5 s), the incinerator's and the
+incendiary grenade's (through their explosions: 4/s for 8 s, 6/s for 15 s), a cazador's
+poison (on the player 5/s for 30 s and −25 AP, the record's own condition; on NPCs 18/s
+for 8 s) and the radscorpions' (3/s for 5 s, 8/s for 10 s). Fire resistance and poison
+resistance cut them. A burning actor shows the game's `Flames01` shader: an orange glow on
+its outline and flame particles rising off its body (and `Smoke01` smoke from the
+flamer's script). Guesses to check:
+
+- **A second hit refreshes, it does not stack.** A flamer hit on someone already burning
+  starts the 5 s again; the burns do not add up. The same for poisons: a second cazador
+  sting restarts the 30 s rather than adding a second 5/s. *Check:* in the game, does a
+  cazador's second sting double the poison (two "Poison" entries), and does a burn last
+  5 s after the last flamer hit?
+- **Radscorpions poison with every blow.** Their record ties the poison to the
+  "AttackForwardPower" attack; NVForever's creatures do not play their forward power
+  attacks yet, so every blow poisons. *Check:* does a radscorpion poison only with its
+  lunging sting?
+- **Corpses burn on.** The burn's records say it is not dispelled by death (and the
+  flamer's script lights up a corpse), so a target killed by the flamer keeps burning for
+  the rest of its 5 s; a poison ends at death. *Check:* do killed actors burn on?
+- **How many flames.** The record's birth ratio (30, then 15) has no documented unit; it
+  is read as 6 particles a second per unit (90 a second while it burns). The flames start
+  at the body's bones, 10 units out. *Check:* screenshots `player_burning.png` and
+  `npc_burning.png` of the smoke runs `flamer-burns-player` / `flamer-burns-npc` against
+  a burning actor in the game: more or fewer flames, bigger or smaller?
+- **Fire resistance like poison resistance.** The GECK wiki says only that poison resist
+  is "the percentage of poison damage that is ignored"; fire resistance is read the same.
+- **God mode** (tgm, `NVF_PLAY_TEST_GOD`) keeps all hit effects off the player, not only
+  the damage.
+- **Resistances show in the numbers.** The player's Poison Resistance (20 % at
+  Endurance 5) makes a cazador sting 4 a second and a large radscorpion's 6.4.
+- **Creatures a script places now fight** (your report). PlaceAtMe of a creature or NPC
+  (or a leveled list of them) makes a real actor from the next frame: drawn with its
+  skeleton, walked by the AI, sensing and sensed, attacking enemies as placed actors do
+  (smoke `placeatme-fights`: a cazador placed at the player in Goodsprings attacks and
+  poisons). Before, it was drawn as a frozen model and nothing ever noticed it. *Check:*
+  scripted spawns in the game (ambushes) come at you.
+- Not built: the weapons' critical effects (the flamer's "Burning Explosion"), the
+  flames' add-on fire-ball models, the poison's screen effect.
+## Creature speeds, cazador flight, turning (2026-10-16, branch `claude/cazador-movement`)
+
+Your report: cazadors move far too slowly and their movement stops and starts like
+Victor's used to. Details and numbers: docs/spec-notes/actors.md §8.10.
+
+- **Speed, measured in the original game.** Every creature walked at the people's 87 and
+  ran at 344 units/s. I watched cazadors in the original with the AI observer (your tip:
+  the calm ones at the Tribal Village with `tdetect`, and spawned ones charging in god
+  mode). They move at their clip's own speed × size × Speed Mult × 0.70: young cazadors
+  walk 228 and charge at up to 576 units/s, the full-size ones 380 and up to 974. Every
+  creature now moves by that rule, so small ones (your half-size radscorpion) are slower
+  than the big ones of their kind. *Guess:* the 0.70 holds for all creatures; I only
+  measured cazadors.
+- **Flying when alert.** As you said: cazadors move on their ground clips while calm and
+  on their flying clips (`h2hforward`, `h2hfastforward`) when Alert, in Combat or
+  searching. Dogs and the mirelurk king have such clips too and switch the same way.
+  *Guess:* the switch is immediate (no blend between the two sets).
+- **Stop-and-start.** Three causes, all fixed: (1) a cazador's run speed of 344 sat right
+  on the point between its walk and run clips, so small slow-downs swapped them; (2) a
+  one-frame jump in a creature's drawn speed started a fade to the run clip and back (the
+  hitch); the walk/run choice now follows a speed smoothed over 0.2 s with a margin;
+  (3) creatures stopped to turn on the spot at the people's 120°/s before every short
+  walk. In the original cazadors turn at about 300°/s (full size) and 137°/s (young),
+  mostly while moving; creatures now turn at 300°/s × their size, and stop to turn only
+  when they face more than 60° away. *Guesses:* the size rule and the 60°.
+- **Deathclaws had no walk:** their walk clip is spelt `mtfoward.kf` in the game data; it
+  is found now.
+- **Deathclaws' and ghouls' alert look** (claws and hands raised) came in with #326
+  (`creature_stance.rs`, actors.md §9).
+- *Check:* the cazadors at the Tribal Village (calm, then shoot one); a deathclaw walking;
+  a small radscorpion.
 ## Scripted weapon use: UseWeapon and Use Weapon packages (2026-10-16, session "use-weapon")
 Built (docs/design/use-weapon.md): an actor told to use a weapon walks to where it is to
 stand, draws, turns to its target and fires its shots. My choices and guesses, to confirm:
@@ -5262,9 +5335,100 @@ To check with a controller in the original, my guesses:
 3. The left stick walks under 0.6 of a full push (Always Run on), runs beyond.
 4. With Controller chosen the keyboard and mouse no longer work the controls (Esc and
    the console still do). Should both work at once instead?
+5. ~~The prompt under the crosshair shows "A)" as text~~: now the A button's picture
+   (branch claude/controller-menus, below).
+
+### Menus and prompts with a controller (2026-10-16, branch claude/controller-menus)
+
+With Controller chosen, the hint pictures are the game's own (`general_button_*`, the
+HUD's `glow_` ones under the crosshair) and each menu takes the buttons its menu file
+names: barter X accept / B exit, container X take all / B exit, "How many?" A / B,
+inventory A equip / X drop / B close, lockpick X force / B exit, its help box B,
+Pip-Boy DATA X (place marker, show location, the notes filter) / Y challenges, STATS
+A stimpak and RadAway, X Rad-X and General/Reputation, character menus Y reset / X done,
+level-up Y reset / X continue. My guesses, to check against the original on a controller:
+
+6. The Pip-Boy's pages on LT / RT (no menu file names them; LB / RB are the inventory's
+   Mod and Hotkey there, not built, so they still page lists up and down).
+7. In a conversation B says goodbye (as Tab); Start is the pause menu.
+8. Lockpicking: the right stick turns the pin (as the mouse), the left stick holds the
+   tension (it is the movement controls, as the help message says for the keys).
+9. The Pip-Boy maps: the left stick moves the map, the right stick up and down zooms;
+   the original moves a cursor over the map instead.
+10. Doctor's Bag on X on the STATS page (its button is set in code, not in the file);
+    the level-up menu's Back on B; the wait menu, recipe menu and the Goodbye hint show
+    A / B as letters, no picture (their files were not read; text inside a line).
+11. Where the picture stands: under the crosshair its right edge where "E)" ended, its
+    middle 12 above the action's line; in menus 22 by 30 where the key text started.
+    Screenshots of the original with a controller would settle the places.
+12. Hints already on screen change when the menu draws again, not at the moment the
+    setting is flipped.
 5. The prompt under the crosshair shows "A)" as text; the original shows the A button's
    picture. Menus' own buttons and hints ("E) Exit") do not follow the controller yet.
+6. **Rumble** (branch claude/controller-rumble; docs/design/controller.md §4): `Rumble=1`
+   in `[Controller]`, a Rumble row at the end of the Controls tab with Controller chosen.
+   All my guesses, to feel with a pad against the original:
+   - firing: by weapon weight, a 2 lb pistol a short buzz (weak 0.38, 0.08 s), 20 lb and
+     up the most (strong 0.7, weak 0.7, 0.2 s); melee swings do not rumble;
+   - taking damage: strong 0.35 to 1 by the share of health lost (a quarter or more the
+     most), 0.15 to 0.45 s;
+   - a hard landing from 600 units/s (a drop of about 260 units), the most at 1200;
+   - explosions: full within the blast radius, none 1400 units beyond it, up to 0.6 s.
+   Does the original rumble on other things (being hit by melee only, low health, V.A.T.S.,
+   the Pip-Boy)?
 
+
+## Draw-distance sliders (2026-10-16, branch claude/render-distance-sliders)
+
+Settings → Display has five sliders, drawn like the "How many?" meter (ticks, an arrow
+at each end, the value as a percentage): Object, Actor, Item, Shadow and Grass distance.
+Each is a part of a full distance, 10% to 100% in 5% steps; Left/Right, the arrows or a
+press/drag on the meter move it; it is kept in `NVForever.ini` [Settings] (`object-distance=0.50`).
+Choices I made, each easy to change:
+- **Full distance for objects, actors and items**: nothing culled them before but their
+  cells, so 100% is the farthest a loaded cell reaches, `(--radius + 1)` cells along both
+  axes (17,377 units with the default radius 2), and 100% draws exactly as before. 50%
+  draws what is within 8,689 units of the camera.
+- **Fade**: past its distance a mesh dithers out over a further 10% of it (the cell fades'
+  dither), then is culled, shadow included.
+- **What counts as what**: actors are NPCs and creatures with everything they wear and
+  hold; items are references whose base is an item you can take (WEAP, ARMO, AMMO, MISC,
+  ALCH, BOOK, NOTE, KEYM, IMOD, CHIP, CCRD, CMNY) and items dropped in the game; objects
+  are every other placed model in a loaded cell. Distant LOD, imposters, terrain, water and
+  trees are not touched.
+- **Shadows** are a part of `--shadow-distance` (8,000) and **grass** of `--grass-distance`
+  plus its fade range (7,000 + 1,000).
+## NPCs crouch, block and close in by context (2026-10-16, branch claude/npc-crouch-block)
+
+Your request: NPCs crouch to fire at a distance or block with a melee weapon, by context,
+not predictably, people only. Spec and rules: docs/design/combat-ai.md §14. Every number
+below is my choice; tell me any you want changed.
+
+- **Crouching**: a gunman that sees its target, has stood still 0.5 s, with the target
+  beyond 600 units and no close-combat enemy within 1,500, rolls every 1.5–4 s to crouch.
+  The chance is 25–90 % by a per-fight temperament, lower nearer than 1,400 units.
+  Crouched, it now and then stands and shifts 128–320 units sideways. A crouched NPC
+  drops the spread's standing term, as the player does, and is drawn with the game's
+  `sneak…aim` and `sneak…attack` clips. Its eyes for shooting are at 0.65 of the standing
+  height (not measured).
+- **Cover first**: a person whose style's take-cover roll fails gets a second chance of
+  up to 40 % by temperament, so even styles with 0 (CSRaider) sometimes look for cover. Behind **low
+  cover** (hides the crouched eyes only) it hides crouched and stands to fire.
+- **Blocking**: only people with fists or a melee weapon, only against a close-combat
+  opponent, never against a gunman. The chance is the wiki's documented melee decision
+  (block first); FalloutNV.esm's default styles give 80 % while the opponent swings and
+  40 % otherwise. It also reacts to a swing after 0.12–0.35 s, facing the attacker. A
+  blocked blow loses 60 % (the existing `CombatTuning::block`) and the NPC attacker
+  recoils for 1 s. **Your own block (Block held with a melee weapon) now reduces NPC
+  blows too**: the rule existed but was never applied.
+- **Closing in**: a melee person against a gunman that can see it and is more than 1,000
+  units off bounds from cover to cover (back of a navmesh cover edge, 250+ units nearer,
+  within 50° of the line, hidden from the gunman), pausing 0.4–1.6 s at each. With no
+  such cover it charges. About half (by temperament) stay by a gunman of their group
+  until the target is within 900 units of either, the target fights in close combat, or
+  10–25 s pass.
+- Not built: the player recoiling when an NPC blocks; switching a guard to whoever
+  rushes the gunman it guards (it fights its own combat target).
 ## NPCs' holstered flamer: tank on the back, no gun (2026-10-16)
 
 Your request: an unequipped flamer should show the flame tank on the back and no weapon,

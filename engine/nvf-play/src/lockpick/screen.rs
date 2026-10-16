@@ -21,6 +21,7 @@
 
 use super::{LockView, LockpickDebug, LockpickInput, LockpickScreen, Session};
 use crate::interface::{amber, at, face, plain_font, set_line, u, Face, Pictures};
+use crate::pad::{hint, XButton};
 use crate::pause::AidTime;
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
@@ -243,6 +244,19 @@ impl Ctx<'_> {
         self.face(kind).0.font.size
     }
 
+    pub fn picture(&mut self, path: &str) -> Option<crate::interface::Picture> {
+        self.kit.pictures.picture(path, self.data, self.images, self.bc)
+    }
+
+    /// A button's hint at `x`, its top at `top` in a row `h` high: its key, or with a
+    /// controller its button's picture.
+    #[allow(clippy::too_many_arguments)]
+    pub fn hint(&mut self, p: &mut ChildSpawnerCommands, kind: FontKind, hint: crate::pad::Hint, x: f32, top: f32, mid: f32, color: Color) {
+        if !crate::pad::spawn_button(p, hint, |path| self.picture(path), x, mid, color) {
+            self.text_in(p, kind, &hint.text(), x, top, false, color);
+        }
+    }
+
     /// Text in font 7 with its top at `top`; `right`: `x` is its right end. Its width.
     fn text(&mut self, p: &mut ChildSpawnerCommands, s: &str, x: f32, top: f32, right: bool, color: Color) -> f32 {
         self.text_in(p, FontKind::Menu, s, x, top, right, color)
@@ -313,14 +327,15 @@ fn spawn(commands: &mut Commands, c: &mut Ctx, s: &Session, view: Option<&LockVi
             // documented: tutorial_menu.xml `no_click_past`).
             let usable = s.help.is_none() && s.leaving.is_none();
             let force_on = s.game.phase == Phase::Picking && s.ended.is_none();
-            let buttons = [(s.force_label(), "F)", LockpickInput::Force(None), force_on), ("Exit".to_string(), "E)", LockpickInput::Exit, true)];
+            // With a controller: Force X, Exit B [documented: lockpick_menu.xml].
+            let buttons = [(s.force_label(), hint("F)", Some(XButton::X)), LockpickInput::Force(None), force_on), ("Exit".to_string(), hint("E)", Some(XButton::B)), LockpickInput::Exit, true)];
             let first = Node { position_type: PositionType::Absolute, right: u(BUTTONS_RIGHT), bottom: u(INFO_IN + INFO.y - BUTTONS_DOWN - 2.0 * BUTTON_H), width: u(0.0), height: u(2.0 * BUTTON_H), ..default() };
             m.spawn(first).with_children(|b| {
                 for (i, (label, hint, cmd, on)) in buttons.into_iter().enumerate() {
                     let color = amber(if on { 255.0 } else { DIM });
                     let y = i as f32 * BUTTON_H;
                     let w = c.text(b, &label, 0.0, y + 9.0, true, color);
-                    c.text(b, hint, HINT_GAP, y + 9.0, false, color);
+                    c.hint(b, FontKind::Menu, hint, HINT_GAP, y + 9.0, y + BUTTON_H / 2.0, color);
                     if on && usable {
                         b.spawn((Button, LockButton(cmd), at(-w - 10.0, y, w + 20.0 + HINT_GAP + 30.0, BUTTON_H)));
                     }

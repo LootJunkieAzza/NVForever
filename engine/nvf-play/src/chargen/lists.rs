@@ -12,6 +12,7 @@
 
 use super::draw::{Align, Ctx, Which, BODY_H, THICK};
 use crate::interface::{amber, at, u};
+use crate::pad::XButton;
 use bevy::prelude::*;
 use fnv_game::actor_values::SPECIALS;
 use fnv_game::chargen::{self, SpecialSheet, TagSheet, TraitSheet};
@@ -595,7 +596,9 @@ fn info(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &ListView, s: &Shape) {
 }
 
 fn buttons(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &ListView, s: &Shape) {
-    let list = [(ListButton::Reset, "Reset", "R)", 0.0, true), (ListButton::Done, "Done", "A)", s.done_y, v.done)];
+    // With a controller: Reset Y, Done X [documented: char_gen_menu.xml CGM_ResetButton
+    // `&xbuttony;`, Done `&xbuttonx;`] (`crate::pad::own_keys`).
+    let list = [(ListButton::Reset, "Reset", ("R)", XButton::Y), 0.0, true), (ListButton::Done, "Done", ("A)", XButton::X), s.done_y, v.done)];
     for (b, label, hint, dy, on) in list {
         let color = amber(255.0).with_alpha(if on { 1.0 } else { DIM });
         let y = BUTTONS.y + dy;
@@ -606,7 +609,7 @@ fn buttons(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &ListView, s: &Shape) {
             c.outline(p, BUTTONS.x - bw, y, bw, bh, amber(200.0));
         }
         c.text(p, Which::Body, label, BUTTONS.x - BUTTON_PAD, y + BUTTON_PAD, Align::Right, color);
-        c.text(p, Which::Body, hint, BUTTONS.x + HINT_X, y + BUTTON_PAD, Align::Left, color);
+        c.hint(p, Which::Body, crate::pad::hint(hint.0, Some(hint.1)), BUTTONS.x + HINT_X, y + BUTTON_PAD, y + bh / 2.0, color);
         p.spawn((Button, b, at(BUTTONS.x - bw, y, bw + 40.0, bh)));
     }
 }

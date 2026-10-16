@@ -98,8 +98,11 @@ pub const TAG_GAP: &str = "  ";
 
 // ---- NVForever's own [design, owner list 5 item 62] -------------------------------------
 
-/// The hint shown while a Goodbye choice is offered.
-pub const GOODBYE_HINT: &str = "TAB) Goodbye";
+/// The hint shown while a Goodbye choice is offered: Tab, or B with a controller
+/// (`crate::pad::own_keys`).
+pub fn goodbye_hint() -> String {
+    format!("{} Goodbye", crate::pad::hint_text("TAB)", Some(crate::pad::XButton::B)))
+}
 /// The hint's right end stands this far left of the band; its own dark box reaches this
 /// far round the text.
 const HINT_GAP: f32 = 20.0;
@@ -300,7 +303,7 @@ pub fn layout(view: &MenuView, first: usize, selected: usize, width: f32, body: 
     out.list = Some(ListPlace { area: [list_x, top, LIST_WIDTH, height], top_line, bottom_line, bracket_x: list_x + BRACKET_IN, bracket_width: LIST_WIDTH, choices, scroll });
     out.first = first;
     if view.goodbye {
-        let line = body.lines(GOODBYE_HINT, None).remove(0);
+        let line = body.lines(&goodbye_hint(), None).remove(0);
         // Left of the band where the screen has room, else at the safe zone's edge.
         let x = (band_x - HINT_GAP - line.width).max(crop_x(width) + HINT_PAD);
         let top = bottom_line - LINE / 2.0;
@@ -491,7 +494,7 @@ fn draw(
         if let Some((view, first, _)) = &key {
             let l = layout(view, *first, selected, width, &kit.body.font, &kit.name.font);
             if l.hint.is_some() && shown.as_ref().is_none_or(|s| !s.0.goodbye) {
-                info!("dialogue menu: {GOODBYE_HINT} shown at the left of the choices");
+                info!("dialogue menu: {} shown at the left of the choices", goodbye_hint());
             }
             spawn_menu(&mut commands, view, &l, kit, selected);
         }
