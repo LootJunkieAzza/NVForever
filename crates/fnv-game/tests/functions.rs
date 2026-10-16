@@ -1016,6 +1016,14 @@ fn script_function_audit_fixes() {
     assert_eq!(call(&mut g, 0x11EC, Some(ACTI_REF), &[]), 2.0);
     g.set_found_markers([FormId(CONT_REF)]);
     assert_eq!(call(&mut g, 0x11EC, Some(CONT_REF), &[]), 2.0);
+    // SetPos and SetAngle reach what moves things: an actor starts again from its new
+    // place, an object is drawn there.
+    let ax = |c: char| ArgValue::Axis(c);
+    call(&mut g, 0x1007, Some(ADULT_REF), &[ax('X'), n(120.0)]);
+    assert_eq!(g.world.get(adult).unwrap().pos[0], 120.0);
+    assert!(g.teleported.contains(&adult));
+    call(&mut g, 0x1009, Some(ACTI_REF), &[ax('Z'), n(90.0)]);
+    assert!(g.turned.contains(&FormId(ACTI_REF)));
     // The actors of the loaded cell were outfitted when it loaded (the game starts in
     // it); a far one was not.
     assert!(g.world.get(FormId(CHILD_REF)).unwrap().outfitted);

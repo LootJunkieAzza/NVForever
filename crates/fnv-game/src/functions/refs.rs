@@ -143,12 +143,43 @@ pub fn get_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     Ok(Value::Num(place(g, r)?.1[i] as f64))
 }
 
+/// `SetPos axis value`: the reference moves along one axis [documented: GECK wiki SetPos].
+/// What moves it on screen hears of it as of a MoveTo or a Rotate ([`placed_by_script`]).
 pub fn set_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let i = a.axis(0)?;
     let v = a.num(1)? as f32;
-    g.world.get(r).map_err(|e| e.to_string())?.pos[i] = v;
+    let s = g.world.get(r).map_err(|e| e.to_string())?;
+    s.pos[i] = v;
+    let (cell, pos) = (s.cell, s.pos);
+    let cell = cell.map(|c| g.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
+    g.world.get(r).map_err(|e| e.to_string())?.cell = cell;
+    placed_by_script(g, r, true);
     none()
+}
+
+/// A script put `r` somewhere new (SetPos, SetAngle): an actor other than the player
+/// starts again from there, as after MoveTo (`Game::teleported`); another object is
+/// drawn at its new place, as after Rotate (`Game::turned`); the player travels there
+/// when its position changed (the `Moved` event the engine turns into a teleport).
+/// [hypothesis: the original applies SetPos and SetAngle at once, as their pages
+/// describe no delay; the earlier code changed only the stored values, which the AI
+/// and the engine overwrote, docs/design/script-function-audit.md.]
+fn placed_by_script(g: &mut Game, r: FormId, moved: bool) {
+    if g.ref_script(r).is_some() {
+        g.moved.insert(r);
+    }
+    if r == FormId::PLAYER_REF {
+        if moved {
+            if let Ok((cell, pos, _)) = place(g, r) {
+                g.emit(EventKind::Moved { reference: r, cell, pos });
+            }
+        }
+    } else if crate::ai::is_actor_base(g.world.forms, base_of(g, r).unwrap_or(FormId(0))) {
+        g.teleported.insert(r);
+    } else {
+        g.turned.insert(r);
+    }
 }
 
 /// Angles in degrees in scripts, radians in the world state [documented: catalogue,
@@ -164,6 +195,7 @@ pub fn set_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let i = a.axis(0)?;
     let v = a.num(1)?.to_radians() as f32;
     g.world.get(r).map_err(|e| e.to_string())?.rot[i] = v;
+    placed_by_script(g, r, false);
     none()
 }
 
