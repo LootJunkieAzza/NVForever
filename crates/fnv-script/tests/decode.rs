@@ -393,3 +393,14 @@ fn ir_serialises() {
     let back: Program = serde_json::from_value(v).unwrap();
     assert_eq!(back, d.program);
 }
+
+#[test]
+fn console_functions_without_an_opcode_get_one_of_ours() {
+    let t = table();
+    let tfc = t.by_name("tfc").expect("ToggleFlyCam is in the table");
+    assert!(tfc >= fnv_script::table::CONSOLE_OPCODE_BASE);
+    assert_eq!(t.get(tfc).unwrap().name, "ToggleFlyCam");
+    assert_eq!(t.by_name("SetCameraFOV"), t.by_name("fov"));
+    // Functions with a catalogue opcode keep it.
+    assert_eq!(t.by_name("Disable"), Some(DISABLE));
+}
