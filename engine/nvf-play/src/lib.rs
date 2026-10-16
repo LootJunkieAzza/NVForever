@@ -15,6 +15,7 @@ pub mod activate;
 pub mod aid;
 pub mod aim_zoom;
 pub mod ambient;
+pub mod audio_out;
 pub mod bindings;
 pub mod blocking;
 pub mod chargen;
@@ -38,6 +39,7 @@ pub mod furniture;
 pub mod hitvol;
 pub mod interface;
 pub mod intro;
+pub mod levelup;
 pub mod hud;
 pub mod hud_target;
 pub mod loading;
@@ -258,6 +260,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((world_sounds::WorldSoundsPlugin, reticle::ReticlePlugin))
             .add_plugins(ui_sounds::UiSoundsPlugin)
             .add_plugins(chargen::ChargenPlugin)
+            .add_plugins(levelup::LevelUpPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(lockpick::LockpickPlugin)

@@ -140,6 +140,41 @@ impl ActorWorld {
             })
             .clone()
     }
+
+    /// The limping set (`locomotion::ClipSet::load_hurt`) built on `base`, the standing
+    /// set of the skeleton and body (loaded once).
+    fn clip_set_hurt(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, base: &ClipSet) -> Option<Arc<ClipSet>> {
+        let key = (fnv_vfs::normalize(skeleton), body, "hurt");
+        self.sets
+            .lock()
+            .expect("clip sets")
+            .entry(key)
+            .or_insert_with(|| {
+                let (set, line) = ClipSet::load_hurt(ctx, skeleton, skel, base)?;
+                info!("actor locomotion: {line}");
+                Some(Arc::new(set))
+            })
+            .clone()
+    }
+
+    /// A creature's alert-stance set (`ClipSet::alert_from`: its `h2h` movement clips over
+    /// `calm`), loaded once per skeleton.
+    fn alert_set(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, calm: &ClipSet) -> Option<Arc<ClipSet>> {
+        let key = (fnv_vfs::normalize(skeleton), Body::Male, crate::locomotion::ALERT_STANCE);
+        self.sets
+            .lock()
+            .expect("clip sets")
+            .entry(key)
+            .or_insert_with(|| {
+                let (stance, line) = ClipSet::load_stance(ctx, skeleton, skel, Body::Male, crate::locomotion::ALERT_STANCE);
+                let set = ClipSet::alert_from(stance, calm);
+                if set.is_some() {
+                    info!("actor locomotion (alert stance): {line}");
+                }
+                set.map(Arc::new)
+            })
+            .clone()
+    }
 }
 
 /// Marks the root of an actor, or the light source of a light, spawned hidden because its
@@ -385,6 +420,8 @@ pub fn spawn(
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
                 // People crouch to sneak (`sneaking.rs`).
                 lo.sneak = world.clip_set_stance(ctx, &a.skeleton, &skel, body, crate::locomotion::SNEAK_STANCE);
+                // A crippled leg limps (`limping.rs`).
+                lo.hurt = world.clip_set_hurt(ctx, &a.skeleton, &skel, body, &set);
                 let walk = world.walk_test.filter(|w| w.radius <= 0.0 || at.distance(w.center) <= w.radius);
                 let mut player = blend_player(&spawned, &skel);
                 if let Some(w) = walk {
@@ -480,6 +517,9 @@ pub fn spawn_creature(
         match world.clip_set(ctx, &c.skeleton, &skel, Body::Male) {
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
+                lo.hurt = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set);
+                // Some creatures move otherwise when alert (`creature_pace.rs`).
+                lo.alert = world.alert_set(ctx, &c.skeleton, &skel, &set);
                 if let Some(t) = world.pose_time {
                     let len = set.info(Move::Idle).map_or(1.0, |c| c.duration).max(f32::EPSILON);
                     lo.blend = Blend::new(Move::Idle, t / len);
@@ -540,18 +580,26 @@ fn arm(
         stats.weapon_missing += 1;
         return None;
     };
-    for e in crate::weapons::spawn_model(commands, spawned, stance.weapon_node, &part) {
+    let path = fnv_actor::resolve::mesh_path(model);
+    let bones = ctx.models.node_strings(&path, "UPB");
+    let shapes = crate::weapons::spawn_model(commands, spawned, skel, stance.weapon_node, &part, &bones, &stance.holstered_off);
+    for &e in &shapes.all {
         commands.entity(e).insert(RefVisual(reference));
         if let Some(weapon) = a.weapon {
             commands.entity(e).insert(crate::weapons::HeldWeapon { reference, weapon });
         }
     }
     // Where its shots leave (`npc_combat`): the model's `ProjectileNode`.
-    if let Some(pm) = ctx.models.model(&fnv_actor::resolve::mesh_path(model)) {
+    if let Some(pm) = ctx.models.model(&path) {
         crate::weapons::spawn_muzzle(commands, spawned, stance.weapon_node, &pm, reference);
     }
     let skel_parent = skel.parents[stance.weapon_node].unwrap_or(0);
     let mut hold = WeaponHold::new(stance, world.weapon_mode == WeaponMode::Drawn, skel_parent);
+    if !shapes.back.is_empty() || !shapes.gun.is_empty() {
+        info!("actor weapons: {reference:08X} {path}: {} shape(s) on the back, {} gun shape(s) the clips show and hide", shapes.back.len(), shapes.gun.len());
+    }
+    hold.gun = shapes.gun.into_iter().map(|(e, n)| (e, n, None)).collect();
+    hold.back = shapes.back;
     if let Some(period) = world.weapon_test {
         hold.test = Some((period, clip_phase(reference) * 2.0 * period));
     }

@@ -22,6 +22,8 @@ mod cell_resets;
 mod alert;
 mod anim_sounds;
 mod crash;
+mod creature_pace;
+mod creature_stance;
 mod death_cam;
 mod deaths;
 mod detection;
@@ -34,6 +36,7 @@ mod fade;
 mod facegen;
 mod flashlight;
 mod fly;
+mod handoff;
 mod furniture;
 mod graphics;
 mod grass;
@@ -45,6 +48,7 @@ mod lips;
 mod lockpick_view;
 mod lod;
 mod locomotion;
+mod combat_stance;
 mod combat_tactics;
 mod console_toggles;
 mod npc_combat;
@@ -73,6 +77,7 @@ mod shafts;
 mod imagespace;
 mod imposters;
 mod sky;
+mod limping;
 mod sneaking;
 mod ssao;
 mod taa;
@@ -85,6 +90,7 @@ mod treelod;
 mod underwater;
 mod water;
 mod window_icon;
+mod window_mode;
 mod world;
 mod worldspace;
 
@@ -258,6 +264,10 @@ struct Args {
     /// Window size "WxH" (also the screenshot size).
     #[arg(long, default_value = "1280x800")]
     size: String,
+    /// The window: `windowed` (of --size) or `borderless` (borderless full screen on the
+    /// current monitor). With --play the settings page's Display group switches it too.
+    #[arg(long, value_enum, default_value_t = window_mode::WindowChoice::Windowed)]
+    window: window_mode::WindowChoice,
     /// The game's field-of-view setting in degrees (fDefaultFOV, default 75): the horizontal
     /// angle at 4:3; other aspects keep its vertical angle, so 16:9 is wider (75 → 91.3°
     /// horizontal) [hypothesis; docs/spec-notes/camera.md].
@@ -451,6 +461,18 @@ struct Args {
     /// game, held until New Game.
     #[arg(long, requires = "play", conflicts_with_all = ["new_game", "load"])]
     menu: bool,
+    /// Open the window with its outer top-left corner here on the desktop, "X,Y" in
+    /// pixels (a new run taking over a load keeps the old window's place, handoff.rs).
+    #[arg(long, value_parser = |s: &str| handoff::parse_at(s).ok_or("expected X,Y"))]
+    window_at: Option<IVec2>,
+    /// Maximise the window once it is shown.
+    #[arg(long)]
+    window_maximized: bool,
+    /// With --play: a run taking over from one that loads a save or goes back to the main
+    /// menu (handoff.rs): the window stays hidden until the world is in, then this file is
+    /// written for the old run to end.
+    #[arg(long, requires = "play", hide = true)]
+    handoff: Option<PathBuf>,
     /// With --play: close message boxes that ask nothing (an OK button only, such as the
     /// add-on packs' start-up boxes) as soon as a script shows them; boxes with a choice
     /// stay open. For testing; the box's text is still logged.
@@ -611,7 +633,7 @@ fn main() -> AppExit {
         }
     }
     // The run log and crash reports in NVForever's home (crash.rs).
-    crash::install(args.data());
+    crash::install(args.data(), args.handoff.is_some());
     let fail = |e: String| {
         eprintln!("error: {e}");
         crash::early_exit(&e);
@@ -914,13 +936,19 @@ fn main() -> AppExit {
                     ..ImageSamplerDescriptor::linear()
                 },
             })
+            // Sound goes through nvf_play::audio_out, which follows the output device.
+            .disable::<bevy::audio::AudioPlugin>()
             // The console's lines go to the run log too (crash.rs).
             .set(bevy::log::LogPlugin { custom_layer: crash::file_layer, ..default() })
             .set(WindowPlugin {
                 // Scale factor 1 so screenshots are exactly --size pixels on any display.
                 primary_window: Some(Window {
                     title: "NVForever".into(),
+                    mode: args.window.mode(),
                     resolution: bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0),
+                    position: args.window_at.map_or(WindowPosition::Automatic, WindowPosition::At),
+                    // Taking over a load: shown once the world is in (handoff.rs).
+                    visible: args.handoff.is_none(),
                     // Measuring frame times: not held to the display's refresh.
                     present_mode: if args.log_frame_times.is_some() { bevy::window::PresentMode::AutoNoVsync } else { default() },
                     ..default()
@@ -928,7 +956,8 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_plugins(window_icon::WindowIconPlugin)
+    .add_plugins((window_icon::WindowIconPlugin, window_mode::WindowModePlugin))
+    .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
     .add_plugins(grass::GrassPlugin(grass::GrassConfig {
@@ -1081,8 +1110,14 @@ fn main() -> AppExit {
             app.add_plugins(detection::DetectionPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
+            // Alerted creatures raise their claws and hands (creature_stance.rs).
+            app.add_plugins(creature_stance::CreatureStancePlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
+            // Actors limping on a crippled leg (limping.rs).
+            app.add_plugins(limping::LimpingPlugin);
+            // Creatures' own speeds and alert stance (creature_pace.rs).
+            app.add_plugins(creature_pace::CreaturePacePlugin);
             // Heads held by a script's Look (script_look.rs).
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).
@@ -1210,77 +1245,33 @@ fn main() -> AppExit {
     if play.is_some() {
         settings::register(&mut app);
         console_toggles::register(&mut app);
-        app.add_systems(Update, load_by_restart);
+        app.init_resource::<handoff::Handoff>().add_systems(Update, (handoff::leave, handoff::reveal.after(world::loading_gate)));
+        if let Some(file) = args.handoff.clone() {
+            app.insert_resource(handoff::Hidden::new(file, args.window_maximized));
+        }
         nvf_play::save::add_save_hook(&mut app, sky::SAVE_HOOK);
+    }
+    if args.window_maximized && args.handoff.is_none() {
+        app.add_systems(Startup, |mut w: Query<&mut Window, With<bevy::window::PrimaryWindow>>| {
+            if let Ok(mut w) = w.single_mut() {
+                w.set_maximized(true);
+            }
+        });
     }
     app.run()
 }
 
-/// Loading while playing (nvf_play::save::LoadRequest): NVForever starts again with the
-/// same arguments and `--load`, so the save lands in a world built fresh from the
-/// plugins, then this run ends. The arguments the save decides are left out. A save not
-/// yet on disk (its thumbnail, its writer thread) is waited for.
-/// The pause menu's quit question asks for the main menu the same way, with `--menu`
-/// (`None` below).
-fn load_by_restart(
-    mut asked: MessageReader<nvf_play::save::LoadRequest>,
-    mut to_menu: MessageReader<nvf_play::pause::MainMenuRequest>,
-    writes: Res<nvf_play::save::SaveWrites>,
-    mut waiting: Local<Option<Option<nvf_play::save::LoadRequest>>>,
-    mut exit: MessageWriter<AppExit>,
-) {
-    if let Some(r) = asked.read().last().cloned() {
-        *waiting = Some(Some(r));
-    }
-    if to_menu.read().last().is_some() {
-        *waiting = Some(None);
-    }
-    if writes.busy() {
-        return;
-    }
-    let Some(r) = waiting.take() else { return };
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut keep = restart_args(&args);
-    let Some(r) = r else {
-        keep.push("--menu".into());
-        let Ok(exe) = std::env::current_exe() else { return };
-        info!("load: starting again with --menu");
-        match std::process::Command::new(&exe).args(&keep).spawn() {
-            Ok(_) => {
-                exit.write(AppExit::Success);
-            }
-            Err(e) => warn!("load: could not start {}: {e}", exe.display()),
-        }
-        return;
-    };
-    keep.push("--load".into());
-    keep.push(r.path.display().to_string());
-    let exe = match std::env::current_exe() {
-        Ok(e) => e,
-        Err(e) => {
-            warn!("load: cannot find this program to start it again: {e}");
-            return;
-        }
-    };
-    info!("load: starting again with --load {}", r.path.display());
-    match std::process::Command::new(&exe).args(&keep).spawn() {
-        Ok(_) => {
-            exit.write(AppExit::Success);
-        }
-        Err(e) => warn!("load: could not start {}: {e}", exe.display()),
-    }
-}
-
-/// The arguments of this run without those a save decides (with their values, in both
-/// the `--flag value` and `--flag=value` forms).
+/// The arguments of this run without those a save or the window decide (with their
+/// values, in both the `--flag value` and `--flag=value` forms), for the run that takes
+/// over a load (handoff.rs).
 fn restart_args(args: &[String]) -> Vec<String> {
-    const VALUED: [&str; 9] = ["--load", "--cell", "--pos", "--heading", "--pitch", "--hour", "--weather", "--world", "--eye-height"];
+    const VALUED: [&str; 12] = ["--load", "--cell", "--pos", "--heading", "--pitch", "--hour", "--weather", "--world", "--eye-height", "--size", "--window-at", "--handoff"];
     let mut out = Vec::new();
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
         let name = a.split('=').next().unwrap_or(a);
-        if a == "--new-game" || a == "--menu" {
+        if a == "--new-game" || a == "--menu" || a == "--window-maximized" {
             i += 1;
             continue;
         }
@@ -1614,7 +1605,7 @@ mod tests {
 
     #[test]
     fn a_restart_for_a_load_drops_what_the_save_decides() {
-        let a: Vec<String> = ["--data", "D", "--cell", "Goodsprings", "--play", "--menu", "--pos=-1,2,3", "--new-game", "--hour", "9", "--no-music", "--load", "old"].map(String::from).to_vec();
+        let a: Vec<String> = ["--data", "D", "--cell", "Goodsprings", "--play", "--menu", "--pos=-1,2,3", "--new-game", "--hour", "9", "--no-music", "--load", "old", "--size", "1600x900", "--window-at=-8,0", "--window-maximized", "--handoff", "f"].map(String::from).to_vec();
         assert_eq!(restart_args(&a), ["--data", "D", "--play", "--no-music"]);
     }
 

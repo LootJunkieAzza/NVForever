@@ -822,7 +822,13 @@ pub enum PerkEffect {
     Ability(FormId),
     /// Type 2.
     EntryPoint(EntryPointDef),
-    /// Type 0 (quest and stage), or a DATA that could not be read.
+    /// Type 0: the quest is set to the stage when the rank is gained (`crate::perks::
+    /// gain_rank`) [documented: xEdit wbDefinitionsFNV.pas PERK effect type "Quest +
+    /// Stage"; observed: DATA is the quest's FormID then the stage in one byte, three
+    /// bytes after it unused, Intense Training's `b2380000 65 cdcdcd` for Generic stage
+    /// 101, whose result script reads "triggered by Intense Training perk rank 1"].
+    QuestStage { quest: FormId, stage: u8 },
+    /// A DATA that could not be read.
     #[default]
     Other,
 }
@@ -913,6 +919,15 @@ pub struct CombatStyleDef {
     pub attack_skill_mod: (f32, f32),
     pub attack_under_attack_mult: f32,
     pub attack_not_under_attack_mult: f32,
+    /// Melee decision: the bonus to the attack chance while the opponent recoils or
+    /// staggers; Advanced: the block skill modifier (`base + mult × 50 / 100`), the block
+    /// chance's multipliers under attack and not, and the attack chance's multiplier while
+    /// the opponent blocks [documented: GECK wiki Combat Style].
+    pub recoil_stagger_bonus: f32,
+    pub block_skill_mod: (f32, f32),
+    pub block_under_attack_mult: f32,
+    pub block_not_under_attack_mult: f32,
+    pub attack_during_block_mult: f32,
     /// Simple: what the actor may fight with: 0 None, 1 Melee Only, 2 Ranged Only.
     pub weapon_restrictions: u32,
     /// Simple: multipliers of the weapon's min and max range in range calculations.
@@ -1966,6 +1981,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 attack_skill_mod: (n(adv, "attack_skill_modifier_base", 0.0), n(adv, "attack_skill_modifier_mult", 0.0)),
                 attack_under_attack_mult: n(adv, "attack_while_under_attack_mult", 1.0),
                 attack_not_under_attack_mult: n(adv, "attack_not_under_attack_mult", 1.0),
+                recoil_stagger_bonus: n(std, "recoil_stagger_bonus_to_attack", 0.0),
+                block_skill_mod: (n(adv, "block_skill_modifier_base", 0.0), n(adv, "block_skill_modifier_mult", 0.0)),
+                block_under_attack_mult: n(adv, "block_while_under_attack_mult", 1.0),
+                block_not_under_attack_mult: n(adv, "block_not_under_attack_mult", 1.0),
+                attack_during_block_mult: n(adv, "attack_during_block_mult", 1.0),
                 weapon_restrictions: match simple.and_then(|v| v.get("weapon_restrictions")) {
                     Some(Json::String(s)) => ["None", "Melee Only", "Ranged Only"].iter().position(|x| x == s).unwrap_or(0) as u32,
                     Some(v) => v.as_u64().unwrap_or(0) as u32,
@@ -2223,6 +2243,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"PRKE" => {
                         let b = |k: usize| s.data.get(k).copied().unwrap_or(0);
                         let effect = match b(0) {
+                            0 => PerkEffect::QuestStage { quest: FormId(0), stage: 0 },
                             1 => PerkEffect::Ability(FormId(0)),
                             2 => PerkEffect::EntryPoint(EntryPointDef { conditions: Some(Vec::new()), ..Default::default() }),
                             _ => PerkEffect::Other,
@@ -2238,6 +2259,13 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                                 Some(g) => PerkEffect::Ability(FormId(g)),
                                 None => PerkEffect::Other,
                             },
+                            PerkEffect::QuestStage { .. } if s.data.len() >= 5 => {
+                                let id = u32::from_le_bytes([s.data[0], s.data[1], s.data[2], s.data[3]]);
+                                match map(id) {
+                                    Some(q) => PerkEffect::QuestStage { quest: FormId(q), stage: s.data[4] },
+                                    None => PerkEffect::Other,
+                                }
+                            }
                             PerkEffect::EntryPoint(ep) if s.data.len() >= 2 => {
                                 PerkEffect::EntryPoint(EntryPointDef { point: s.data[0], function: s.data[1], ..ep.clone() })
                             }

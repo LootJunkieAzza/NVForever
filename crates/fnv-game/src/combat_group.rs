@@ -71,6 +71,13 @@ pub enum PostKind {
     Sidestep,
     /// Back from a target nearer than its weapon's minimum range.
     BackOff,
+    /// A move sideways across the line to its target after crouching in one place a
+    /// while (docs/design/combat-ai.md §14.2).
+    Shift,
+    /// A melee fighter's bound to cover nearer its target (§14.4).
+    Advance,
+    /// A melee fighter staying by a gunman of its group (§14.4).
+    Guard,
 }
 
 impl PostKind {
@@ -81,6 +88,9 @@ impl PostKind {
             PostKind::Flank => "a flank",
             PostKind::Sidestep => "a step aside",
             PostKind::BackOff => "a step back",
+            PostKind::Shift => "a shift sideways",
+            PostKind::Advance => "a bound to cover",
+            PostKind::Guard => "a guard place",
         }
     }
 }

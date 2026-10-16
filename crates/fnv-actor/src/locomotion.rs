@@ -122,6 +122,11 @@ pub fn clip_candidates(folder: &str, body: Body, prefix: &str, m: Move) -> Vec<S
         v.push(format!("{folder}\\locomotion\\male\\{stem}"));
     }
     v.push(format!("{folder}\\{stem}"));
+    // The deathclaw's walk is `locomotion\mtfoward.kf`, its sequence named Forward
+    // [observed: the base meshes archive, 2026-10-16]: looked for last.
+    if m == Move::Forward {
+        v.push(format!("{folder}\\locomotion\\{prefix}foward.kf"));
+    }
     v
 }
 
@@ -143,6 +148,31 @@ impl LocomotionSet {
         }
         LocomotionSet { clips }
     }
+}
+
+/// The folder of the limping clips below a skeleton's folder: `<folder>\locomotion\hurt`
+/// [observed: `characters\_male`, `_1stperson` and 30 creature folders have one;
+/// docs/spec-notes/actors.md §8.11].
+pub const HURT_FOLDER: &str = "locomotion\\hurt";
+
+/// The move a clip of the `hurt` folder plays for the `mt` (unarmed) stance, from its
+/// file stem and, when the stem names no move, its sequence name [design, from the names
+/// observed in actors.md §8.11]: lower case, without spaces, `_` and `hurt`; the stem
+/// starts with `mt` or with no stance at all (a weapon stance, `1hp…`, `h2h…`, is not
+/// the unarmed one), and a sequence name may end in its stance (`FastForward_Hurt_H2H`).
+pub fn hurt_move(stem: &str, sequence: Option<&str>) -> Option<Move> {
+    let clean = |s: &str| s.to_ascii_lowercase().replace([' ', '_'], "").replace("hurt", "");
+    let by_name = |s: &str| Move::ALL.into_iter().find(|m| m.group().eq_ignore_ascii_case(s));
+    let stem = clean(stem);
+    let rest = match stem.strip_prefix("mt") {
+        Some(rest) => rest,
+        None if stem.starts_with(|c: char| c.is_ascii_digit()) || stem.starts_with("h2h") => return None,
+        None => &stem,
+    };
+    by_name(rest).or_else(|| {
+        let seq = clean(sequence?);
+        by_name(seq.strip_suffix("h2h").unwrap_or(&seq))
+    })
 }
 
 /// How a clip moves its accumulation root over one cycle.
@@ -459,6 +489,30 @@ mod tests {
     use fnv_nif::anim::{Channel, Key, KeyKind, Keys, Track};
     use std::f32::consts::{FRAC_PI_2, PI};
 
+    #[test]
+    fn hurt_clips_by_stem_then_sequence() {
+        // Stems as they are in the hurt folders (actors.md §8.11).
+        assert_eq!(hurt_move("mtforward_hurt", Some("Forward_Hurt")), Some(Move::Forward));
+        assert_eq!(hurt_move("mtfastleft_hurt", Some("FastLeft_Hurt")), Some(Move::FastLeft));
+        assert_eq!(hurt_move("mtidle", Some("Idle")), Some(Move::Idle));
+        assert_eq!(hurt_move("mtturnright", Some("TurnRight")), Some(Move::TurnRight));
+        assert_eq!(hurt_move("mtfastforward", Some("FastForward")), Some(Move::FastForward));
+        assert_eq!(hurt_move("mt_hurtforward_hurt", Some("Forward_Hurt")), Some(Move::Forward));
+        assert_eq!(hurt_move("mt_left_hurt", Some("Left_Hurt")), Some(Move::Left));
+        assert_eq!(hurt_move("idle_hurt", Some("Idle")), Some(Move::Idle));
+        // The stem names the walk although the sequence says run (`yaoguai`): the stem wins.
+        assert_eq!(hurt_move("mtforward_hurt", Some("FastForward")), Some(Move::Forward));
+        // Stems that repeat the move: the sequence name.
+        assert_eq!(hurt_move("mt forwardforward_hurt", Some("Forward_Hurt")), Some(Move::Forward));
+        assert_eq!(hurt_move("mt_fastforward_hurtfastforward_hurt", Some("FastForward_hurt")), Some(Move::FastForward));
+        assert_eq!(hurt_move("mtfastforward_hurt", Some("FastForward_Hurt_H2H")), Some(Move::FastForward));
+        // Weapon stances are not the unarmed set.
+        assert_eq!(hurt_move("1hpforward_hurt", Some("Forward_Hurt")), None);
+        assert_eq!(hurt_move("h2hforward_hurt", Some("Forward_Hurt")), None);
+        assert_eq!(hurt_move("2hmfastforward", Some("FastForward_Hurt")), None);
+        assert_eq!(hurt_move("mtsomething", Some("Something")), None);
+    }
+
     fn keys<const N: usize>(pts: &[(f32, [f32; N])]) -> Keys<N> {
         Keys { kind: KeyKind::Linear, keys: pts.iter().map(|&(time, value)| Key { time, value, forward: [0.0; N], backward: [0.0; N], tbc: [0.0; 3] }).collect() }
     }
@@ -507,6 +561,17 @@ mod tests {
             Move::FastLeft | Move::FastRight => c(0.8, 353.75, 0.42, 0.3),
             Move::TurnLeft | Move::TurnRight => c(1.0, 0.0, 0.5, 0.1),
         }
+    }
+
+    #[test]
+    fn the_deathclaws_misspelt_walk_is_found() {
+        let folder = "meshes\\creatures\\deathclaw";
+        let set = LocomotionSet::find(folder, Body::Male, "mt", |p| p == "meshes\\creatures\\deathclaw\\locomotion\\mtfoward.kf");
+        assert_eq!(set.clips.get(&Move::Forward).map(String::as_str), Some("meshes\\creatures\\deathclaw\\locomotion\\mtfoward.kf"));
+        // The right spelling comes first.
+        let c = clip_candidates(folder, Body::Male, "mt", Move::Forward);
+        assert_eq!(c[1], "meshes\\creatures\\deathclaw\\locomotion\\mtforward.kf");
+        assert!(clip_candidates(folder, Body::Male, "mt", Move::FastForward).iter().all(|p| !p.contains("foward")));
     }
 
     #[test]

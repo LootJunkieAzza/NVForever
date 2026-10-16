@@ -206,7 +206,7 @@ pub fn restore(world: &mut World, i: usize, v: f32) {
 pub(crate) fn setup(app: &mut App) {
     app.init_resource::<Settings>();
     app.insert_resource(SettingsFile::for_run(crate::test_aid::Unattended::from_env().0));
-    app.add_systems(PostStartup, apply_stored);
+    app.add_systems(PostStartup, (apply_stored, crate::bindings::apply_stored));
 }
 
 /// `1`/`0` (also true/false, on/off, yes/no, any case).

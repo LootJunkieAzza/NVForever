@@ -168,6 +168,11 @@ class ScenarioFileTests(unittest.TestCase):
         s = load_text(game("a")).scenarios[0]
         self.assertEqual(s.expect[0].label, "run finished")
 
+    def test_game_scenario_can_end_another_way(self):
+        s = load_text(game("a", extra='ends = "the new run is up"\n')).scenarios[0]
+        self.assertEqual(s.expect[0].label, "the new run is up")
+        self.assertFalse(any(e.label == "run finished" for e in s.expect))
+
     def test_errors(self):
         with self.assertRaises(ScenarioError):
             load_text(game("a", run=0))

@@ -48,6 +48,13 @@ all of them; each start, including the restart that loads a save, sets the liste
 switches to their stored values, so the INI wins over the command line. Unattended runs
 (test aids) neither read nor write the INI of the player's own home.
 
+The player's keys are kept there too, under `[Controls]` (`nvf_play::bindings`): one line
+per control by the game's control name, the key and mouse button by name
+(`Forward=W`, `Block=Left Alt, Right Mouse`, `Auto Move=None`), plus `Always Run By
+Default`, `Invert Y` and `Mouse Sensitivity`. Each start reads them and writes any line
+an existing INI lacks, so the file lists every control to edit by hand; the settings
+page's Controls tab rebinds a control and writes the section again.
+
 **Before every start** the folder must pass (`fnv_install::GameInstall`):
 
 - `Data\FalloutNV.esm` exists (the folder is a game install at all);

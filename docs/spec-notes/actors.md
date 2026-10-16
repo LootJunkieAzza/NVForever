@@ -893,9 +893,9 @@ sequences): 70 directly in it, 9 in `male\`, 9 in `female\`, 8 in `child\` and 2
 - Eight `*fastbackward.kf` files (`1gt`, `1hm`, `1hp`, `2ha`, `2hh`, `2hl`, `2hr`,
   `h2h`) hold a second sequence `FastRight` (0.733 s) after `FastBackward`; the engine
   takes the first sequence of a file.
-- `hurt\` holds `mt`, `1hm`, `1hp` and `h2h` walk and run variants with a trailing `_`
-  (e.g. `mtforward_.kf`), plus `mtidle`, `pamtidle` and the `mt` turns [hypothesis:
-  crippled-leg locomotion; not used].
+- `hurt\` holds `mt`, `1hm`, `1hp` and `h2h` walk and run variants ending `_hurt`
+  (e.g. `mtforward_hurt.kf`), plus `mtidle`, `pamtidle` and the `mt` turns: the
+  crippled-leg locomotion (§8.11).
 
 ### 8.2 Root motion
 
@@ -1151,6 +1151,152 @@ only in the walk test and on the player's body. All rules here are engine choice
   (§10.3: their turn clips sit in the skeleton's folder and are found by
   `clip_candidates`, not checked on screen); scaling the clip's rate with the turn
   speed; an actor facing its target on arrival (left to AI packages).
+
+### 8.10 Creature speeds and the alert stance
+
+Added 2026-10-16 (owner's playtest: cazadors moved far too slowly and their movement
+stopped and started, as Victor's walk had before #258). Code:
+`engine/nvforever/src/creature_pace.rs`, `fnv_ai::Ai::speeds`.
+
+- **Cause in NVForever** [observed in the code]: every actor walked at 86.8 and ran at
+  344 units/s (`fnv_ai::AiConfig`, the player's speeds); in combat a creature could only
+  be slowed below 344 (`npc_combat::pace`, list 5 item 25). The cazador's `mtforward.kf`
+  moves 216.73 units/s and `mtfastforward.kf` 545.54 [observed: `fnvtool actor
+  locomotion --folder meshes\creatures\nvcazadores`], so its walk played at the slowest
+  clip rate (0.4) and 344 sat on the walk/run switch (the geometric mean of the two
+  clips' speeds, 343.9, §8.3): any slow-down swapped the clips back and forth.
+- **Measured in the original game** [observed: AI observer (ai-observer.md), save
+  `nvftest`, 2026-10-16; outputs in `C:\fnv-private\capture\out\obs_cazador_*`, not
+  committed]. Positions every 5 game loops (about 0.16 s), horizontal speed between
+  samples.
+  - Calm: non-hostile cazadors at the Tribal Village (cell -19, 7; `tgm`, `tdetect`; the
+    owner's tip), sandbox package, not running, 1,665 samples over a game hour: young
+    cazadors (VCrTier3CazadorSmall: base scale 0.5, Speed Mult 300) held 224–233
+    units/s (median and 90th percentile), the medium ones (scale 1.0, Speed Mult 250)
+    373–386.
+  - Charging: NVCrCazador and VCrTier3CazadorSmall spawned in Goodsprings by
+    `PlaceAtMe`, god mode, in Combat and running (IsRunning, IsMoving forward): the
+    medium ones up to 920–974 units/s, the young up to 576. With combat AI off (`tcai`)
+    they hovered at 75–120.
+- **Rule** [observed fit; hypothesis for other creatures]: a creature moves at its clip's
+  root-motion speed × its scale × Speed Mult / 100 × 0.70 (`CREATURE_SPEED_FIT`): the
+  walk 216.73 × 0.5 × 3.0 × 0.70 = 228 and 216.73 × 1 × 2.5 × 0.70 = 379; the run
+  545.54 × 0.5 × 3.0 × 0.70 = 573 and 545.54 × 2.5 × 0.70 = 955, all within the
+  measurements. The share is the same for both kinds (0.701 and 0.701 when walking), so it
+  is proportional to Speed Mult, not an offset. No game setting gives 0.70
+  (`fMoveBaseSpeed` 77, `fMoveRunMult` 4, `fMoveSneakMult` 0.57 are the only movement
+  ones [observed: `fnvtool esm inventory`]); people at Speed Mult 100 walk at their clip's
+  speed (§8.3, physics.md §6.3), so why creatures keep 0.70 is open. Other creatures
+  are not measured.
+- **Alert stance** [observed: the owner, 2026-10-16: "the cazadors scurry along the
+  ground when not alert and fly when they are alert/in combat"]: the cazador's folder
+  has `h2hforward.kf` (298.15 units/s), `h2hfastforward.kf` (545.54) and `h2hidle.kf`
+  beside its `mt` clips; the dog has `h2hforward` and `h2hfastforward`, the mirelurk king
+  `h2hforward`, no other creature folder of the base archives has `h2h` movement clips
+  [observed: the meshes and Update archive listings]. Rule [design on the owner's
+  observation]: outside the Normal detection state (Alert, Combat, Lost) such a creature
+  moves on its `h2h` clips (missing moves taken from the `mt` set) at their speeds by the
+  rule above; the change of set is not cross-faded.
+- **Deathclaw's walk**: its walk clip is `locomotion\mtfoward.kf` (sequence Forward, 120
+  units/s) [observed]; `clip_candidates` looks for that spelling last, so deathclaws now
+  have a walk.
+- **Alert look** (`engine/nvforever/src/creature_stance.rs`) [design on the owner's
+  description, 2026-10-16: "it's like they are drawing a weapon, i.e. the hands"]: a
+  creature that is alerted (Alert, Combat, Lost, or SetAlert; as people draw their
+  weapons, alert.md §5) plays its `h2hequip.kf` once, then holds `h2haim.kf` over its
+  locomotion by track priority; calm again, `h2hunequip.kf` (else `h2hholster.kf`) once,
+  then its locomotion alone. The draw cycle is the weapons' (`WeaponAnim`, §9.4) on blend
+  layers 2 and 3; a creature needs no `Weapon` node and gets no `WeaponHold`, so its
+  attacks are found as before (`attack_anims.rs`) and play over the aim (layers 4 and 5).
+  At rest none of its stance plays: the creatures' holster clips are whole-body poses.
+  Creatures with an `h2h` movement set (cazador, dog, mirelurk king, above) are left
+  out: that set is their alert look [design]. With the stance a dog that stopped at the
+  player (body gap 5–17 units, measured from the posed torso, `npc_combat`) was 27–42
+  away moments later, past the 24-unit hit gap, and ran in again: 7 blows instead of 15
+  in smoke `combat-dogs` [observed in NVForever, 2026-10-16; hypothesis: the dog's aim
+  pose holds its torso further back than its idle].
+  - Which creatures [observed: `Fallout - Meshes.bsa` listing]: the 25 creature folders
+    with `h2haim.kf` at their root, all with `h2hequip.kf` and `h2hunequip.kf` except
+    `nvsporeplant` (aim only): brahmin, centaur, deathclaw, dog, ghoul, giantant,
+    mirelurk, mirelurkking, molerat, nightstalker, nvbighorner, nvcazadores, nvgecko,
+    nvgiantrat, nvmantis, nvsecuritron, nvsporecarrier, nvsporeplant, protectron,
+    queenant, radroach, radscorpion, smbehemoth, smspinebreaker, yaoguai.
+  - Priorities [observed: `kf_layer_survey`]: the aim clips sit under the walk and run
+    clips (priority 30 on every bone): deathclaw aim legs and tail 20, spine and upper
+    arms 30, forearms and hands 35 (its `mtidle.kf` is 20 throughout); ghoul legs 25,
+    spine and upper arms 30, hands 35 (idle 20); dog 25, cazador 21, mirelurk king 20.
+    So a moving creature keeps its legs (and shares its spine and upper arms with the
+    aim at equal priority, §9.4 blending) and raises its forearms and hands; a standing
+    one takes the aim's pose (the deathclaw's legs half its idle's, both at 20).
+    Equip and unequip: deathclaw legs 25, upper body 55; ghoul equip (3.0 s) 55 on
+    every bone, legs included, so a ghoul that runs at once slides with still legs for
+    the equip's length; cazador equip 33
+    throughout [observed; whether the original holds a creature still meanwhile is
+    open].
+  - Seen in NVForever [observed: smoke `creature-alert-stance` and
+    `creature-alert-stance-ghoul`, screenshots not committed, 2026-10-16]: calm, the
+    deathclaw's arms hang and the ghoul stands upright; alerted, the deathclaw raises
+    its claws over its shoulders and the ghoul hunches with its hands raised; both go
+    back after the unequip clip. Deathclaws fighting a feral ghoul play their attacks
+    with the stance drawn.
+- **Not done**: the aim's up and down forms for creatures that have them (ghoul,
+  protectron, smbehemoth, smspinebreaker: `h2haimup.kf`, `h2haimdown.kf`; people's are
+  in `attack_anims.rs`); the creature alert look is not compared with the original game
+  (when the equip plays, whether a creature stops for it); speeds of a creature not yet
+  drawn (it moves at the people's speeds until its clips load); creature turn speed
+  (CREA `TNAM`, §8.9).
+
+### 8.11 Limping on a crippled leg
+
+Owner's request (2026-10-16): with a leg crippled, people, creatures and the player walk
+and run with the limping clips. `engine/nvforever/src/limping.rs` (NPCs, creatures),
+`player_body.rs` (the player), `fnv_actor::locomotion::hurt_move`,
+`fnv_actor::player_clips::limping_*`; smoke `crippled-limp`, `crippled-limp-creature`.
+
+- **The clips** [observed: `fnvtool bsa list` of the base and add-on `Main` archives and
+  `fnvtool actor anims`, 2026-10-16]: 180 files in `locomotion\hurt\` folders.
+  - `characters\_male` (29): `mt`, `1hm`, `1hp` walk and run in all four directions
+    (`mtforward_hurt.kf`, sequence `Forward_Hurt`), `h2hforward_hurt.kf`, and
+    `mtidle.kf`, `pamtidle.kf`, `mtturnleft.kf`, `mtturnright.kf` (sequences `Idle`,
+    `TurnLeft`, …). The hurt idle and turns are not the files of `locomotion\` (other
+    bytes and lengths). No `female\` or `child\` copies, no sneaking ones. Root speeds
+    (unarmed): Forward 60.8, Backward 76.3, Left 102.0, Right 101.6, FastForward 232.9,
+    FastBackward 186.3, FastLeft 153.5, FastRight 148.4 units/s (§8.1 has the normal
+    ones: 85.3 and 353.9 forward).
+  - `characters\_1stperson` (24): the same `mt`, `1hm`, `1hp` moves, no idle or turns.
+  - Creatures (30 folders; 9 more files in the add-on archives): mostly Forward,
+    FastForward and Backward, some with Left, Right and turns (deathclaw, ghoul,
+    mirelurk, sentrybot, behemoth, spinebreaker 7–10 files); dog, gecko, mantis,
+    yao guai, cazador 2–4. Folders without one: nightstalker, bighorner, the Dead Money
+    ghosts and hologram, the Old World Blues brainbot and hologram.
+  - Names are irregular: most stems end in `_hurt` (`mtforward_hurt.kf`), some do not
+    (`molerat\…\hurt\mtforward.kf`), some put `_` or `_hurt` after the stance
+    (`radscorpion\…\mt_forward_hurt.kf`, `mirelurkking\…\mt_hurtforward_hurt.kf`),
+    two repeat the move (`brahmin\…\mt forwardforward_hurt.kf`,
+    `radscorpion\…\mt_fastforward_hurtfastforward_hurt.kf`). Sequence names are
+    `Forward_Hurt` (any case), `FastForward_Hurt_H2H` (dog), or the plain move; the
+    yao guai's `mtforward_hurt.kf` is named `FastForward`.
+- **How a file is matched to a move** [design]: the stem, in lower case without spaces,
+  `_` and `hurt`, starting with `mt` or with no stance (a digit or `h2h` start is a
+  weapon stance), names the move; when it does not, the sequence name cleaned the same
+  way (a trailing `h2h` dropped) does. The first file in name order wins a move. Moves
+  without a limping clip keep the standing one.
+- **When** [design; hypothesis for the original]: while either Left or Right Mobility
+  Condition (actor values 29, 30) is 0 or below. The leg parts of the body part data
+  name those two for people and creatures alike [observed: `NVGecko` BPTD, hind legs
+  `Right Mobility Condition` / `Left Mobility Condition`; forelegs the attack
+  conditions]. Read every 0.25 s; healing switches back.
+- **Blending**: changing set keeps the current move and its phase and blends from the
+  old pose (`Locomotion::set_limping`). Sneaking wins over limping (no crouched limping
+  clips). Playback follows the ground speed as for every clip (§8.3); NPC movement
+  speed is not changed by a crippled leg (the player's is, `PlayerLimbs::speed_mult`).
+- **The player**: standing, the third-person body plays `locomotion\hurt\<weapon><move>
+  _hurt.kf`, else `…\hurt\mt<move>_hurt.kf`, else the usual clip; the hurt idle; the
+  weapon's own turn, else the hurt turn. The arms rig the same from `_1stperson`. A
+  weapon without limping clips limps on the unarmed legs and is held by its aim clip
+  [design].
+- **Not checked** on screen: how the limping clips look in place, foot sliding at the
+  speeds AI walks a crippled NPC, creature limps other than the coyote's (dog skeleton).
 
 ## 9. Weapons: holstering and drawing (part H)
 
