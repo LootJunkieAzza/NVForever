@@ -188,6 +188,16 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
     s.hints = Hints { texts };
     let xp_base = sim.forms.setting_f32("iXPBase").unwrap_or(200.0) as f64;
     let xp_bump = sim.forms.setting_f32("iXPBumpBase").unwrap_or(150.0) as f64;
+    // The karma titles the plugins hold (`model::karma_title`).
+    let karma_titles: std::collections::HashMap<String, String> = sim
+        .forms
+        .settings
+        .iter()
+        .filter_map(|(k, v)| match v {
+            fnv_sim::settings::Setting::Str(t) if k.starts_with("skarmictitle") => Some((k.clone(), t.clone())),
+            _ => None,
+        })
+        .collect();
     let karma_limits = ["KarmaVeryEvil", "KarmaEvil", "KarmaGood", "KarmaVeryGood"].map(|g| sim.forms.global_by_edid(g).map(|v| v.1 as f64));
     // The lists' words do not need the game.
     s.special = SPECIALS.map(|c| av_row(forms, c)).collect();
@@ -260,6 +270,7 @@ pub fn snapshot(forms: &mut Forms, sim: &mut SimState, script: Option<&mut Scrip
         if let (Some((karma, _)), [Some(ve), Some(e), Some(go), Some(vg)]) = (value(g, av::KARMA), karma_limits) {
             let (word, picture) = model::karma_alignment(karma, ve, e, go, vg);
             s.karma = Some((karma, word, picture));
+            s.karma_title = Some(model::karma_title(level as i64, word, |n| karma_titles.get(&n.to_ascii_lowercase()).cloned()));
         }
         // Aid items taking effect now (ALCH sources of active effects), after the worn
         // apparel [hypothesis: the order].
@@ -317,6 +328,11 @@ fn av_row(forms: &mut Forms, code: u16) -> Row {
 }
 
 impl Forms {
+    /// An actor value's short name (AVIF ANAM), else its name.
+    pub fn short_name(&mut self, code: u16) -> String {
+        short(self, code)
+    }
+
     /// The actor value of effect `index` of a magic item (its `index`th EFIT).
     fn ench_code(&mut self, item: u32, index: usize) -> Option<u16> {
         let (_, f) = fields(self.lo, self.schema, item)?;
