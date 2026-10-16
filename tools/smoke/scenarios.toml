@@ -135,7 +135,7 @@ paths = [
   "crates/fnv-world/src/lighting.rs", "crates/fnv-sim/src/clock.rs",
 ]
 args = ["--cell", "Goodsprings", "--play", "--hour", "17", "--time-scale", "1.2"]
-run_seconds = 26
+run_seconds = 28
 expect = [
   # one "time-lapse" log line per game hour, 24 or more
   { re = '^.*time-lapse \S.*\(\d+ hours passed\)', min = 24 },
@@ -892,7 +892,7 @@ areas = ["flashlight"]
 paths = ["engine/nvf-play/src/flashlight.rs", "engine/nvforever/src/flashlight.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "2:flashlight,12:view,20:flashlight" }
 args = ["--cell", "GSHouseInterior03", "--play", "--hour", "23", "--no-voice"]
-run_seconds = 26
+run_seconds = 28
 order = [["flashlight: on", "flashlight: off"]]
 
 # ------------------------------------------------------------------ sounds
@@ -1177,7 +1177,7 @@ areas = ["lockpick"]
 paths = ["crates/fnv-game/src/lockpick.rs", "engine/nvf-play/src/lockpick*", "engine/nvf-play/src/lockpick/**", "engine/nvforever/src/lockpick_view.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/activate/**", "engine/nvf-play/src/player/safe.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0010B2D4", NVF_PLAY_TEST_GIVE = "0000000A:2", NVF_PLAY_TEST_ACTIVATE = "12,18.5,23", NVF_PLAY_TEST_LOCKPICK = "1:skill:30,14:help,15:pin:60,15.5:torque:0.6,17:exit,19:force:99" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice"]
-run_seconds = 26
+run_seconds = 28
 order = [[
   "target 0x0010B2D4 Floor Safe (Locked (Easy)) by Collision",
   "lockpick: open 0x0010B2D4 Floor Safe: Easy lock (Lockpick 30, 2 bobby pins)",
@@ -1399,7 +1399,7 @@ areas = ["scripts", "stubs", "pipboy"]
 paths = ["crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/functions/misc.rs", "engine/nvf-play/src/pipboy/data.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "4:call:-:SetGlobalTimeMultiplier:0.5,8:call:-:SetGlobalTimeMultiplier:1,10:call:-:ShowAllMapMarkers:1:0:0", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=data,16:tab=1,19:close" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
-run_seconds = 26
+run_seconds = 28
 # Before the call only the few markers flagged Visible are on the map; after it, every one that
 # is enabled (a disabled marker stays off, so "all" is not asserted exactly).
 order = [[
@@ -1491,7 +1491,7 @@ areas = ["aid", "wait", "perks"]
 paths = ["crates/fnv-game/src/aid.rs", "crates/fnv-game/src/perks.rs", "crates/fnv-game/src/needs.rs", "crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/aid.rs", "engine/nvf-play/src/wait.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "00015163:1", NVF_PLAY_TEST_SCRIPT = "3:perk:Chemist,3.5:perk:ChemResistant", NVF_PLAY_TEST_DROP = "6:00015163:use", NVF_PLAY_TEST_WAIT = "14:open,15:hours=5,16:accept" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
-run_seconds = 26
+run_seconds = 28
 expect = [
   "test aid: the player has the perk Chemist",
   "aid: the player used Buffout (potency 1.00): Strength +2.0 while it lasts (480 s), Endurance +3.0 while it lasts (480 s), Health +60.0 while it lasts (480 s); usage 30; addiction chance 0.00; perks: Chemist (entry point 25); carry capacity 200 → 220",
@@ -2049,4 +2049,37 @@ expect = [
   { text = "console: count 20 (as placed)", count = 2 },
   { text = "menu: dropped reference", count = 1 },
   { re = 'after test drop\]   Player: .*9mm Round x13' },
+]
+
+# ------------------------------------------------------------------ playtest list 5: HUD (workstream D1)
+
+[[scenario]]
+name = "hud-sneak-target"
+source = "owner's playtest list 5, items 7 and 32 (docs/spec-notes/hud.md §8, §9): sneaking in the bighorner pen shows the sneak word; shooting a bighorner shows its health at the bottom middle"
+areas = ["hud", "detection"]
+paths = ["engine/nvf-play/src/hud.rs", "engine/nvf-play/src/hud_target.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "10:sneak,20:weapon,22:aimactor,22.2:fire,22.4:fire,23:aimactor" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--pos=-69850,5700,8650", "--hour", "12"]
+run_seconds = 28
+expect = [
+  { re = 'hud: sneak \[(HIDDEN|DETECTED|CAUTION|DANGER)\]', label = "a sneak word once the player sneaks" },
+  { re = 'hud: enemy health \S.* 0x[0-9A-F]{8} \d+ %', label = "the bighorner's health on the enemy bar" },
+]
+order = [[
+  { re = 'hud: sneak \[' },
+  { re = 'hud: enemy health \S' },
+]]
+
+[[scenario]]
+name = "hud-dialogue"
+source = "owner's playtest list 5, item 74 (docs/spec-notes/hud.md §10): Sunny greets the player in the saloon; Trudy's lines to Cheyenne while the conversation runs are logged, not drawn as subtitles"
+note = "the conversation is the force-greet scenario's; Trudy's say_to lines come every 4 s so one falls inside it"
+areas = ["hud", "dialogue"]
+paths = ["engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/corner_messages.rs", "engine/nvf-play/src/quest_messages.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:activate:ProspectorSaloonDoor,22:say_to:TrudyRef:0x0010588E:GREETING,26:say_to:TrudyRef:0x0010588E:GREETING,30:say_to:TrudyRef:0x0010588E:GREETING,34:say_to:TrudyRef:0x0010588E:GREETING" }
+args = ["--cell", "Goodsprings", "--play", "--npc-packages", "SunnyRef", "--no-voice"]
+run_seconds = 40
+expect = [
+  "dialogue: conversation with SunnyRef started (topic GREETING)",
+  { re = 'subtitle: .*\(not drawn: in dialogue\)', label = "another actor's line logged, not drawn" },
 ]
