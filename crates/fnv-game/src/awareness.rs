@@ -270,7 +270,15 @@ pub struct Awareness {
     pub targets: BTreeMap<FormId, Target>,
     /// When the next AlertIdle or LostIdle is due.
     pub next_idle_bark: Option<f64>,
+    /// The target it fought at the last settling ([`Awareness::combat_target`] keeps it).
+    pub fighting: Option<FormId>,
 }
+
+/// A fighter keeps its target while it detects it, unless another detected one is more
+/// than this above it in detection value [design: owner 2026-10-16, NCR troopers
+/// fighting Fiends turned between targets, the highest of values that change at every
+/// measurement, every half second].
+pub const TARGET_KEEP_MARGIN: f64 = 50.0;
 
 /// A change of state, for the engine's log and the tools.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -340,9 +348,12 @@ impl Awareness {
         self.alarms.retain(|a| a.owner != who);
     }
 
-    /// The target detected now with the highest value: who it fights.
+    /// Who it fights: the target detected now with the highest value, or the one it
+    /// fought last while that is still detected and within [`TARGET_KEEP_MARGIN`] of it.
     pub fn combat_target(&self) -> Option<(FormId, &Target)> {
-        self.targets.iter().filter(|(_, t)| t.band == Band::Detected).max_by(|a, b| a.1.value.total_cmp(&b.1.value)).map(|(id, t)| (*id, t))
+        let best = self.targets.iter().filter(|(_, t)| t.band == Band::Detected).max_by(|a, b| a.1.value.total_cmp(&b.1.value)).map(|(id, t)| (*id, t))?;
+        let kept = self.fighting.and_then(|f| self.targets.get(&f).map(|t| (f, t))).filter(|(_, t)| t.band == Band::Detected && t.value + TARGET_KEEP_MARGIN >= best.1.value);
+        Some(kept.unwrap_or(best))
     }
 
     /// The alarm a searching actor goes to: the latest raised or refreshed.
@@ -357,6 +368,7 @@ impl Awareness {
         self.alarms.retain(|a| a.expires > now);
         self.targets.retain(|_, x| !x.hidden_since.is_some_and(|h| now - h >= t.forget_target));
         let detected = self.combat_target().map(|(id, x)| (id, x.value, x.at));
+        self.fighting = detected.map(|d| d.0);
         let latest = self.search_alarm().copied();
         let from = self.state;
         let (to, about, cause, at, value) = match (from, detected, latest) {
@@ -1001,6 +1013,25 @@ mod tests {
         a.observe(FOE, &det(-30.0), [0.0; 3], 0.0, &t);
         assert_eq!(step(&mut a, 0.0), None);
         assert_eq!(a.state, State::Normal);
+    }
+
+    #[test]
+    fn a_fighter_keeps_its_target_within_the_margin() {
+        let mut a = Awareness::default();
+        let t = |value: f64| Target { band: Band::Detected, value, at: [0.0; 3], detected: Some(0.0), hidden_since: None };
+        a.targets.insert(FormId(1), t(60.0));
+        a.targets.insert(FormId(2), t(40.0));
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FormId(1)));
+        a.fighting = Some(FormId(1));
+        // The other's value goes above, within the margin: it keeps its target.
+        a.targets.insert(FormId(2), t(100.0));
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FormId(1)));
+        // Beyond the margin, or its target no longer detected: it turns to the other.
+        a.targets.insert(FormId(2), t(60.0 + TARGET_KEEP_MARGIN + 1.0));
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FormId(2)));
+        a.targets.insert(FormId(2), t(70.0));
+        a.targets.insert(FormId(1), Target { band: Band::Noticed, ..t(60.0) });
+        assert_eq!(a.combat_target().map(|x| x.0), Some(FormId(2)));
     }
 
     #[test]

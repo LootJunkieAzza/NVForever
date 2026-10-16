@@ -63,6 +63,7 @@ use nvf_assets::actor::ActorParts;
 use nvf_assets::model::ModelCtx;
 use nvf_play::RefVisual;
 use std::collections::{HashMap, HashSet};
+use std::f32::consts::FRAC_PI_4;
 
 /// Where the function catalogue is when `NVF_PLAY_SCRIPT_FUNCTIONS` is not set (as
 /// `nvf_play::script`).
@@ -315,8 +316,8 @@ struct Resident {
     /// The space its walker was in at the last frame (the space of a door it has just
     /// gone through).
     last_space: Option<Space>,
-    /// The heading it is drawn with while it fights on the move, facing its target
-    /// (`Core::aims`), until it is back on the walker's.
+    /// The heading it is drawn with while it fights, facing its target (`Core::aims`),
+    /// until it is back on the walker's.
     aim_heading: Option<f32>,
 }
 
@@ -404,6 +405,9 @@ struct Core {
     /// and the frames in which one turned faster than [`SNAP_TURN`].
     fastest_turn: (f32, String),
     snaps: usize,
+    /// Seconds drawn fighters facing their target (`aims`) moved forward, sideways and
+    /// back (within 45° of their heading, within 135°, beyond).
+    fight_moves: [f32; 3],
     /// Frames of drawn residents on their way: all, those in which their character had
     /// not moved since the last frame (no physics step: drawn standing before the
     /// in-between drawing), and those drawn standing.
@@ -419,9 +423,10 @@ struct Core {
     staggering: HashSet<u32>,
     /// Load doors used since the last frame: actor, door, the door it leads to.
     door_uses: Vec<(FormId, u32, u32)>,
-    /// People in Combat on their way somewhere (closing in, to cover, a flank): where
-    /// their target is. They are drawn facing it and step sideways or back as they go,
-    /// so they can fire on the move (owner's playtest list 5 item 33) [design].
+    /// People in Combat (standing, closing in, going to a flank or a step back; not
+    /// fleeing nor running to cover): where their target is. They are drawn facing it
+    /// and step sideways or back as they go, so they can fire on the move (owner's
+    /// playtest list 5 item 33; owner 2026-10-16, strafing and backing away) [design].
     aims: HashMap<FormId, [f32; 3]>,
 }
 
@@ -502,6 +507,7 @@ impl Residents {
             waited: [0; 2],
             fastest_turn: (0.0, String::new()),
             snaps: 0,
+            fight_moves: [0.0; 3],
             walk_frames: [0; 3],
             standing_by: [0; 5],
             held_now: false,
@@ -898,10 +904,18 @@ impl Core {
             info!("ai [{}] {}: {} {n} doors of its cell ({})", self.clock_text, game.data.name(actor), if locked { "locks" } else { "unlocks" }, game.data.name(package));
         }
         self.tell(game, world);
-        // Fighters on the move face their target.
+        // Fighters face their target, on the move as well as standing: they strafe and
+        // back away instead of turning to where they go (owner 2026-10-16: NCR troopers
+        // fighting Fiends turned between their way and their target, as if they could
+        // not decide whether to move or shoot) [design]. Not while fleeing (it runs
+        // away) or running to cover (it runs there, out of the fight for a while).
         self.aims.clear();
         for r in self.list.iter().filter(|r| !r.creature) {
-            let Some(a) = self.ai.agents.get(&r.actor).filter(|a| a.activity == Activity::Travelling) else { continue };
+            let Some(a) = self.ai.agents.get(&r.actor) else { continue };
+            let tactics = &game.awareness.tactics;
+            if tactics.flights.contains_key(&r.actor) || tactics.posts.get(&r.actor).is_some_and(|p| p.kind == fnv_game::combat_group::PostKind::Cover) {
+                continue;
+            }
             let Some((target, _)) = game.awareness.get(r.actor).filter(|x| x.state == fnv_game::awareness::State::Combat).and_then(|x| x.combat_target()) else { continue };
             if let Some(p) = fnv_ai::goal::place_of_ref(game, target).filter(|p| p.space == a.walker.space) {
                 self.aims.insert(r.actor, p.pos);
@@ -1396,7 +1410,8 @@ pub fn drive(
         // steps run at a fixed rate, and frames that held none showed the actor standing
         // (no movement this frame, so the idle clip), which made walks stop and start.
         let feet = phys.as_deref().and_then(|p| p.npc_drawn_feet(r.actor.0)).unwrap_or(w.feet);
-        let moving = agent.activity == Activity::Travelling && (feet[0] - r.drawn_feet[0]).hypot(feet[1] - r.drawn_feet[1]) > 1e-4;
+        let step = [feet[0] - r.drawn_feet[0], feet[1] - r.drawn_feet[1]];
+        let moving = agent.activity == Activity::Travelling && step[0].hypot(step[1]) > 1e-4;
         if visible && r.spawned && !on && !core.held_now && agent.activity == Activity::Travelling {
             let unmoved = (w.feet[0] - r.last_feet[0]).hypot(w.feet[1] - r.last_feet[1]) <= 1e-4;
             core.walk_frames[0] += 1;
@@ -1435,12 +1450,16 @@ pub fn drive(
             (None, true) => Some((w.heading, w.feet)),
             (_, false) => None,
         };
-        // A fighter on the move is drawn turning to face its target; afterwards it turns
-        // back to its walker's heading, at the walking turn rate either way.
+        // A fighter is drawn turning to face its target (its legs walk the way it goes
+        // in its own axes: strafing, backing away); afterwards it turns back to its
+        // walker's heading, at twice the walking turn rate.
         let heading = match (core.aims.get(&r.actor), r.aim_heading) {
             (Some(t), from) => {
                 let want = heading_of([t[0] - feet[0], t[1] - feet[1]]);
-                let h = turn_towards(from.unwrap_or(w.heading), want, fnv_nav::follow::WALK_TURN_RATE * 2.0 * dt);
+                // Standing, at the rate the AI turns a fighter (`fnv_ai::alert`), so one
+                // that never moves is drawn as its walker turns.
+                let rate = if agent.activity == Activity::Travelling { fnv_nav::follow::WALK_TURN_RATE * 2.0 } else { fnv_nav::follow::SPOT_TURN_RATE * fnv_ai::alert::COMBAT_TURN };
+                let h = turn_towards(from.unwrap_or(w.heading), want, rate * dt);
                 r.aim_heading = Some(h);
                 h
             }
@@ -1455,6 +1474,12 @@ pub fn drive(
             }
         };
         let strafe = r.aim_heading.is_some();
+        // How a fighter facing its target moves (the fight summary): forward, sideways or
+        // back, by the angle between its step and its heading.
+        if strafe && moving && visible && core.aims.contains_key(&r.actor) {
+            let off = heading_delta(heading, heading_of(step)).abs();
+            core.fight_moves[usize::from(off > FRAC_PI_4) + usize::from(off > 3.0 * FRAC_PI_4)] += dt;
+        }
         let stage = (&mut r.spawned, &mut r.root);
         if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe }, stage, (feet, heading), moving, dt) {
             if r.named {
@@ -1505,6 +1530,10 @@ pub fn report(
         if core.fastest_turn.1.is_empty() { String::new() } else { format!(" ({})", core.fastest_turn.1) },
         core.snaps,
         SNAP_TURN.to_degrees()
+    );
+    info!(
+        "fight move summary: drawn fighters facing their target moved {:.1} s forward, {:.1} s sideways (strafing), {:.1} s back",
+        core.fight_moves[0], core.fight_moves[1], core.fight_moves[2]
     );
     info!(
         "walk summary: {} frames of drawn residents on their way (the game not held); their character had not moved in {} of them (no physics step that frame), drawn standing in {} ({:.1}%: {} with a physics character, {} turning on the spot, {} other walkers); {} stops of 1-3 frames, {} longer",
