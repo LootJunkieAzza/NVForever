@@ -91,6 +91,20 @@ pub struct Item {
     /// part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub armor_dr: Option<f32>,
+    /// ARMO DNAM "DT", damage threshold [documented: xEdit wbDefinitionsFNV.pas]. `None`
+    /// for other items. The wearing rule ranks armour by it (`World::equip_default`). Not
+    /// part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub armor_dt: Option<f32>,
+    /// WEAP DATA "Base Damage" [documented: xEdit]. `None` for other items. Not part of
+    /// `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub weapon_damage: Option<i32>,
+    /// A weapon an actor can draw: it has a model (MODL), is not part of a creature's body
+    /// (DNAM flag "Embedded Weapon") and names an animation type [the engine's rule,
+    /// `fnv_actor::weapon::drawable`]. Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub drawable: bool,
     /// The record header's "Quest Item" flag, as `schemas/fnv` names it per record type
     /// (`header_flags`; bit 10 [documented: xEdit wbDefinitionsFNV.pas for WEAP, ARMO,
     /// ALCH, BOOK, KEYM, MISC, LIGH; GECK wiki IsQuestItem and GetFormFlag for AMMO and
@@ -411,6 +425,9 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                         non_playable: false,
                         armor_class: ArmorClass::Light,
                         armor_dr: None,
+                        armor_dt: None,
+                        weapon_damage: None,
+                        drawable: false,
                         quest_item: quest_flag(schema, r),
                         icon: None,
                         placed_count: None,
@@ -563,6 +580,20 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         armor_dr: match kind {
             ItemKind::Armor => first(d, b"DNAM").and_then(|v| int(v, "dr")).map(|dr| dr as f32 / 100.0),
             _ => None,
+        },
+        armor_dt: match kind {
+            ItemKind::Armor => Some(first(d, b"DNAM").and_then(|v| num(v, "dt")).unwrap_or(0.0) as f32),
+            _ => None,
+        },
+        weapon_damage: match kind {
+            ItemKind::Weapon => Some(data.and_then(|v| int(v, "base_damage")).unwrap_or(0) as i32),
+            _ => None,
+        },
+        drawable: kind == ItemKind::Weapon && {
+            let dnam = first(d, b"DNAM");
+            first(d, b"MODL").and_then(text).is_some_and(|m| !m.trim().is_empty())
+                && !dnam.and_then(|v| v.get("flags1")).is_some_and(|f| has_flag(f, "Embedded Weapon"))
+                && dnam.and_then(|v| v.get("animation_type")).and_then(text).is_some()
         },
         quest_item: false, // from the record header, set by the caller
         value: value.map(|v| v as i32),

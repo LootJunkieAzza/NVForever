@@ -65,6 +65,10 @@ pub fn move_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     }
     if r != FormId::PLAYER_REF {
         g.teleported.insert(r);
+        // A drawn object (not an actor) is drawn at its new place, as after SetPos.
+        if !crate::ai::is_actor_base(g.world.forms, base_of(g, r).unwrap_or(FormId(0))) {
+            g.turned.insert(r);
+        }
     }
     g.emit(EventKind::Moved { reference: r, cell, pos });
     if r == FormId::PLAYER_REF {
@@ -143,12 +147,43 @@ pub fn get_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     Ok(Value::Num(place(g, r)?.1[i] as f64))
 }
 
+/// `SetPos axis value`: the reference moves along one axis [documented: GECK wiki SetPos].
+/// What moves it on screen hears of it as of a MoveTo or a Rotate ([`placed_by_script`]).
 pub fn set_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let i = a.axis(0)?;
     let v = a.num(1)? as f32;
-    g.world.get(r).map_err(|e| e.to_string())?.pos[i] = v;
+    let s = g.world.get(r).map_err(|e| e.to_string())?;
+    s.pos[i] = v;
+    let (cell, pos) = (s.cell, s.pos);
+    let cell = cell.map(|c| g.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
+    g.world.get(r).map_err(|e| e.to_string())?.cell = cell;
+    placed_by_script(g, r, true);
     none()
+}
+
+/// A script put `r` somewhere new (SetPos, SetAngle): an actor other than the player
+/// starts again from there, as after MoveTo (`Game::teleported`); another object is
+/// drawn at its new place, as after Rotate (`Game::turned`); the player travels there
+/// when its position changed (the `Moved` event the engine turns into a teleport).
+/// [hypothesis: the original applies SetPos and SetAngle at once, as their pages
+/// describe no delay; the earlier code changed only the stored values, which the AI
+/// and the engine overwrote, docs/design/script-function-audit.md.]
+fn placed_by_script(g: &mut Game, r: FormId, moved: bool) {
+    if g.ref_script(r).is_some() {
+        g.moved.insert(r);
+    }
+    if r == FormId::PLAYER_REF {
+        if moved {
+            if let Ok((cell, pos, _)) = place(g, r) {
+                g.emit(EventKind::Moved { reference: r, cell, pos });
+            }
+        }
+    } else if crate::ai::is_actor_base(g.world.forms, base_of(g, r).unwrap_or(FormId(0))) {
+        g.teleported.insert(r);
+    } else {
+        g.turned.insert(r);
+    }
 }
 
 /// Angles in degrees in scripts, radians in the world state [documented: catalogue,
@@ -164,6 +199,7 @@ pub fn set_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let i = a.axis(0)?;
     let v = a.num(1)?.to_radians() as f32;
     g.world.get(r).map_err(|e| e.to_string())?.rot[i] = v;
+    placed_by_script(g, r, false);
     none()
 }
 
@@ -295,19 +331,22 @@ pub fn set_open_state(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String
     none()
 }
 
-/// 1 open, 3 closed for a door at rest, 0 for other objects [documented: GECK wiki
-/// GetOpenState codes; hypothesis: no opening/closing animation states without Layer 6].
+/// 0 none, 1 open, 2 opening, 3 closed, 4 closing [documented: GECK wiki GetOpenState
+/// notes]. An object the engine animates open and closed reads the state it told
+/// (`Senses::open_states`); any other object 1 or 3 by its open flag, and an actor 0
+/// [observed: a load door, a cash register, crates, a duffle bag, sacks, a metal box, a
+/// safe and a dialogue trigger activator in the Goodsprings gas station all read 3, and
+/// Ringo 0, captures `fa_batch1_queries` and `fa_batch3_actions`].
 pub fn get_open_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    let door = base_of(g, r).and_then(|b| g.data.sig(b)).as_ref() == Some(b"DOOR");
+    if let Some(&code) = g.senses.open_states.get(&r) {
+        return Ok(Value::Num(code as f64));
+    }
+    if r == FormId::PLAYER_REF || crate::ai::is_actor_base(g.world.forms, base_of(g, r).unwrap_or(FormId(0))) {
+        return Ok(Value::Num(0.0));
+    }
     let open = g.world.get(r).map_err(|e| e.to_string())?.open;
-    Ok(Value::Num(if !door {
-        0.0
-    } else if open {
-        1.0
-    } else {
-        3.0
-    }))
+    Ok(Value::Num(if open { 1.0 } else { 3.0 }))
 }
 
 /// A trigger-enter event on the calling trigger, by the given reference [documented:

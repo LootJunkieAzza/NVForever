@@ -108,6 +108,10 @@ pub struct RefState {
     /// not restocked since the simulation started).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_restock: Option<f32>,
+    /// An actor other than the player has put on its outfit and taken up its weapon
+    /// ([`World::outfit`]): done the first time its cell is loaded.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub outfitted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -339,6 +343,7 @@ impl<'a> World<'a> {
             },
             actor_values: BTreeMap::new(),
             last_restock: None,
+            outfitted: false,
         })
     }
 
@@ -376,6 +381,76 @@ impl<'a> World<'a> {
             }
         }
         Ok(Some(inv))
+    }
+
+    /// An actor other than the player starts with the armour it wears and the weapon it
+    /// draws equipped, chosen from its carried items: armour by DT, then DR, then carried
+    /// order, each piece worn unless one already chosen shares a body slot (pieces with no
+    /// slot are not worn); the drawable weapon with the highest base damage, the first on
+    /// ties. These are the rules the engine dresses and arms NPCs by (`fnv_actor::resolve`,
+    /// docs/spec-notes/actors.md §2.3 and §9.3) [observed rule for armour: the owner's
+    /// statement of 2026-10-08; the weapon rule is the engine's choice standing in for the
+    /// original's]. `inventory_source` is the form whose carried items were rolled;
+    /// nothing happens for other bases (returns false).
+    fn equip_default(&self, inventory_source: FormId, inventory: &mut Option<Inventory>) -> bool {
+        let Some(inv) = inventory.as_mut() else { return false };
+        if !matches!(self.forms.get(inventory_source).map(|b| &b.data), Some(BaseData::Actor(_))) {
+            return false;
+        }
+        // Carried order is the inventory's order (FormID order here; the engine uses the
+        // record's entry order, so ties between equal pieces may fall the other way).
+        let carried: Vec<FormId> = inv.iter().filter(|&(_, n)| n > 0).map(|(i, _)| i).collect();
+        let mut armor: Vec<(usize, FormId, f32, f32, u32)> = carried
+            .iter()
+            .enumerate()
+            .filter_map(|(o, &i)| {
+                let it = self.forms.item(i)?;
+                (it.kind == ItemKind::Armor).then(|| (o, i, it.armor_dt.unwrap_or(0.0), it.armor_dr.unwrap_or(0.0), it.slots.unwrap_or(0)))
+            })
+            .collect();
+        armor.sort_by(|a, b| b.2.total_cmp(&a.2).then(b.3.total_cmp(&a.3)).then(a.0.cmp(&b.0)));
+        let mut used = 0u32;
+        let mut wear = Vec::new();
+        for (_, id, _, _, slots) in armor {
+            if slots != 0 && slots & used == 0 {
+                used |= slots;
+                wear.push(id);
+            }
+        }
+        let mut weapon: Option<(i32, FormId)> = None;
+        for &i in &carried {
+            let Some(it) = self.forms.item(i).filter(|it| it.kind == ItemKind::Weapon && it.drawable) else { continue };
+            let d = it.weapon_damage.unwrap_or(0);
+            if weapon.is_none_or(|(best, _)| d > best) {
+                weapon = Some((d, i));
+            }
+        }
+        for id in wear.into_iter().chain(weapon.map(|w| w.1)) {
+            inv.set_equipped(id);
+        }
+        true
+    }
+
+    /// The first time an actor other than the player is loaded, it puts on its outfit
+    /// and takes up its weapon ([`World::equip_default`]); later calls do nothing.
+    /// Returns whether it was outfitted now. [observed in game (capture
+    /// `fa_batch2_loaded_npcs`, 2026-10-16, docs/design/script-function-audit.md §3):
+    /// Sunny Smiles read `GetEquipped` 0 for her leather armour and varmint rifle while
+    /// her cell had never been loaded (`GetItemCount` 1 each), 1 for both once the player
+    /// stood next to her, and still 1 after the player left her cell.] Called by the
+    /// rules when a cell loads (`fnv_game::Game::set_loaded`).
+    pub fn outfit(&mut self, id: FormId) -> Result<bool, SimError> {
+        if id == FormId::PLAYER_REF || self.get(id)?.outfitted {
+            return Ok(false);
+        }
+        let base = self.get(id)?.base;
+        let source = self.inventory_base(id, base);
+        let mut inv = self.get(id)?.inventory.take();
+        let done = self.equip_default(source, &mut inv);
+        let s = self.get(id)?;
+        s.inventory = inv;
+        s.outfitted = done;
+        Ok(done)
     }
 
     /// Whether `id` is a merchant container that restocks: an actor names it in XMRC and
@@ -615,6 +690,7 @@ impl<'a> World<'a> {
                     extra,
                     actor_values: BTreeMap::new(),
                     last_restock: None,
+                    outfitted: false,
                 },
             );
             out.push(id);
@@ -991,7 +1067,9 @@ impl<'a> World<'a> {
         if self.forms.sig(base).is_none() {
             return Err(SimError::UnknownForm(base));
         }
-        let inventory = self.roll_inventory(base)?;
+        let mut inventory = self.roll_inventory(base)?;
+        // A created actor appears where the player is: it is outfitted at once.
+        let outfitted = self.equip_default(base, &mut inventory);
         let id = FormId(self.next_dynamic);
         self.next_dynamic += 1;
         self.refs.insert(
@@ -1010,6 +1088,7 @@ impl<'a> World<'a> {
                 extra: Extra::default(),
                 actor_values: BTreeMap::new(),
                 last_restock: None,
+                outfitted,
             },
         );
         Ok(id)
@@ -1034,7 +1113,11 @@ impl<'a> World<'a> {
     /// (ResetInventory, Layer 5). `false` when the base carries no items.
     pub fn reset_inventory(&mut self, id: FormId) -> Result<bool, SimError> {
         let base = self.get(id)?.base;
-        let inv = self.roll_inventory(self.inventory_base(id, base))?;
+        let source = self.inventory_base(id, base);
+        let mut inv = self.roll_inventory(source)?;
+        if self.get(id)?.outfitted {
+            self.equip_default(source, &mut inv);
+        }
         let s = self.get(id)?;
         let had = inv.is_some();
         if had {

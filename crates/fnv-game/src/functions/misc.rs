@@ -100,29 +100,65 @@ pub fn get_current_time(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, St
     Ok(Value::Num(g.world.global(id).map_err(|e| e.to_string())? as f64))
 }
 
+/// `GetGameSetting name`: the setting's value in the load order, else the game's own
+/// default for the few settings the masters do not define that the shipped scripts read
+/// ([`EXE_SETTINGS`]).
 pub fn get_game_setting(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let name = a.str(0)?;
-    let v = g.world.setting_f32(name).ok_or_else(|| format!("game setting {name:?} is not defined"))?;
+    let v = g.world.setting_f32(name).or_else(|| EXE_SETTINGS.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|&(_, v)| v));
+    let v = v.ok_or_else(|| format!("game setting {name:?} is not defined"))?;
     Ok(Value::Num(v as f64))
+}
+
+/// Game settings the shipped scripts read that no master defines (the game keeps their
+/// defaults itself), with the values the original returned [observed: `GetGameSetting`
+/// in the capture `fa_batch1_queries`, 2026-10-16; the 27 trap-plate scripts read the
+/// five `iLockLevelMax…` settings, docs/design/script-function-audit.md].
+pub const EXE_SETTINGS: [(&str, f32); 5] = [
+    ("iLockLevelMaxVeryEasy", 0.0),
+    ("iLockLevelMaxEasy", 25.0),
+    ("iLockLevelMaxAverage", 50.0),
+    ("iLockLevelMaxHard", 75.0),
+    ("iLockLevelMaxVeryHard", 100.0),
+];
+
+/// `actor.GetAnimAction`: the special animation action the actor is doing, −1 for none
+/// [documented: GECK wiki GetAnimAction, its table of codes; observed: −1 for the player
+/// and Sunny Smiles at rest (capture `fa_batch1_queries`), 0 for Ringo drawing his weapon
+/// 3 frames after SetAlert 1 and −1 once it was out (`fa_batch3_actions`)]. The engine
+/// tells the drawing and holstering of the NPCs it draws (`Senses::anim_actions`, while
+/// it keeps telling their weapon state); attacks, reloads and the player's actions are
+/// not told yet (docs/design/script-function-audit.md: gap left), so they read −1.
+pub fn get_anim_action(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let told = g.senses.weapon_told.get(&r).is_some_and(|&t| (g.time - t).abs() < 1.0);
+    let action = g.senses.anim_actions.get(&r).copied().filter(|_| told).unwrap_or(-1);
+    Ok(Value::Num(action as f64))
 }
 
 pub fn abs(_g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     Ok(Value::Num(a.num(0)?.abs()))
 }
 
-/// The day of the week, 0 Sunday … 6 Saturday [documented: GECK wiki GetDayOfWeek],
-/// as the Gregorian weekday of the GameYear / GameMonth (from 0) / GameDay globals
-/// [hypothesis: the game counts weekdays on that calendar].
+/// The day of the week, 0 Sunday … 6 Saturday [documented: GECK wiki GetDayOfWeek], of
+/// the GameYear / GameMonth (from 0) / GameDay globals: [`weekday`].
 pub fn get_day_of_week(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let c = g.world.calendar().map_err(|e| e.to_string())?;
     Ok(Value::Num(weekday(c.year as i64, c.month as i64 + 1, c.day as i64) as f64))
 }
 
-/// Sunday = 0 (Sakamoto's method).
+/// The weekday of a game date (month from 1), 0 Sunday: the days since 13 October 2281,
+/// the date GameDaysPassed counts from [documented: GECK wiki GetGameDaysPassed], on the
+/// game's calendar of 365 days every year (docs/spec-notes/simulation.md §5b), that day
+/// being a Sunday [observed: GetDayOfWeek read 5 on 25 October 2281 (capture
+/// `fa_batch1_queries`, 2026-10-16), and the owner's screenshot of the wait menu shows
+/// 19 October 2281 as a Saturday; the Gregorian calendar gives Tuesday and Wednesday].
+/// The engine's wait menu counts the same way (`nvf-play` `wait::model::weekday`).
+/// Whether a 29 February ever comes is not checked (2284 is the first candidate).
 pub fn weekday(year: i64, month: i64, day: i64) -> i64 {
-    const T: [i64; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
-    let y = if month < 3 { year - 1 } else { year };
-    (y + y.div_euclid(4) - y.div_euclid(100) + y.div_euclid(400) + T[((month - 1).clamp(0, 11)) as usize] + day).rem_euclid(7)
+    const BEFORE: [i64; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    let day_number = |year: i64, month: i64, day: i64| year * 365 + BEFORE[(month - 1).clamp(0, 11) as usize] + day - 1;
+    (day_number(year, month, day) - day_number(2281, 10, 13)).rem_euclid(7)
 }
 
 pub fn sqrt(_g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {

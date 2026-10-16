@@ -408,7 +408,7 @@ impl Game<'_> {
     /// and those that already run a package [hypothesis: the game goes on choosing for
     /// actors it has started; observed: actors in unloaded interiors changed package at
     /// their schedule, together, ai-observer.md §7].
-    fn package_actors(&self) -> BTreeSet<FormId> {
+    pub(crate) fn package_actors(&self) -> BTreeSet<FormId> {
         let placed = self.world.placed;
         let is_actor = |r: &FormId| placed.get(*r).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
         let mut out: BTreeSet<FormId> = BTreeSet::new();
@@ -458,6 +458,9 @@ impl Game<'_> {
             if !self.present(a) || self.extra.get(&a).is_some_and(|e| e.dead) || self.ai_off(a) {
                 continue;
             }
+            // An actor walking into a loaded cell for the first time dresses as one loaded
+            // there (`Game::outfit_loaded_actors`).
+            let _ = self.world.outfit(a);
             let due = match self.extra.get(&a).and_then(|e| e.package_due) {
                 Some(d) => d,
                 None => {

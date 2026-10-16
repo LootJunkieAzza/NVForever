@@ -1650,15 +1650,17 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # (144 calls, 132 condition uses) and moved the other four to "needs a system", so no
 # "E2 combat AI" row is left: 71 → 60 stubs, 457 → 313 calls, 614 → 482 condition uses.
 # claude/use-weapon implemented UseWeapon (13 calls, §3.8): 60 → 59 stubs, 313 → 300 calls.
+# The script function audit implemented GetAnimAction (44 calls, 1 condition use, §3.9):
+# 59 → 58 stubs, 300 → 256 calls, 482 → 481 condition uses.
 expect = [
-  { json = "summary.stubs", equals = 59 },
+  { json = "summary.stubs", equals = 58 },
   { json = "summary.by_status.assigned", equals = 1 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 57 },
+  { json = "summary.by_status.needs_system", equals = 56 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 300 },
-  { json = "summary.stub_condition_uses", equals = 482 },
+  { json = "summary.stub_calls", equals = 256 },
+  { json = "summary.stub_condition_uses", equals = 481 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
 
@@ -3158,3 +3160,27 @@ order = [[
   { re = 'alert: VSpawnTier\dCazador\S* \w+ Normal → (Alert|Combat)', label = "a cazador alerted" },
   { re = 'creature pace: VSpawnTier\dCazador\S* 0x\w+ takes its alert stance', label = "it takes its flying stance" },
 ]]
+
+[[scenario]]
+name = "function-audit"
+source = "docs/design/script-function-audit.md: script functions answered from what the engine tells the rules, against the original (captures fa_batch1_queries, fa_batch3_actions): Ringo's weapon type 4 once he is loaded (outfitted), his weapon out after SetAlert 1 and away after SetAlert 0, the player in run mode while standing, a closed safe 3 and an actor 0 for GetOpenState"
+areas = ["scripts"]
+paths = [
+  "crates/fnv-game/src/functions/actor.rs", "crates/fnv-game/src/functions/refs.rs", "crates/fnv-game/src/functions/senses.rs", "crates/fnv-game/src/functions/misc.rs",
+  "crates/fnv-sim/src/world.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/alert.rs", "engine/nvforever/src/detection.rs", "engine/nvf-play/src/doors.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "6:call:RingoRef:GetWeaponAnimType,6.5:call:player:IsRunning,7:call:0x0010B2D4:GetOpenState,7.5:call:RingoRef:GetOpenState,8:call:RingoRef:IsWeaponOut,8.5:call:RingoRef:SetAlert:1,14:call:RingoRef:IsWeaponOut,14.5:call:RingoRef:GetAnimAction,15:call:RingoRef:SetAlert:0,21:call:RingoRef:IsWeaponOut" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10"]
+run_seconds = 24
+order = [[
+  "script: test aid calls GetWeaponAnimType on … = 4",
+  "script: test aid calls IsRunning on … = 1",
+  "script: test aid calls GetOpenState on … = 3",
+  "script: test aid calls GetOpenState on … = 0",
+  "script: test aid calls SetAlert on …",
+  "script: test aid calls IsWeaponOut on … = 1",
+  "script: test aid calls GetAnimAction on … = -1",
+  "script: test aid calls IsWeaponOut on … = 0",
+]]
+# Ringo starts this run with his weapon out (the alert state of a new game's start, not the
+# progressed save nvftest the original was read in), so his first IsWeaponOut is not checked.

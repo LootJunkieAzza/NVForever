@@ -363,6 +363,7 @@ fn measure(
         code
     };
     let mut people = Vec::new();
+    let player_run_mode = !intent.as_deref().is_some_and(|i| i.walk);
     let pspeed = motion(FormId::PLAYER_REF.0, player.feet, &mut state.last);
     let pmoving = pspeed > MOVING_SPEED;
     people.push(Person {
@@ -440,7 +441,9 @@ fn measure(
         // IsSneaking): the people measured now; the others are forgotten.
         g.senses.motion.retain(|k, _| people.iter().any(|p| p.id == k.0));
         for p in &people {
-            g.set_motion(FormId(p.id), Motion { moving: p.moving, running: p.running, sneaking: p.sneaking, turning: p.turning });
+            // The player's speed mode is the Walk toggle, moving or not (IsRunning).
+            let run_mode = if p.id == FormId::PLAYER_REF.0 { player_run_mode } else { p.running };
+            g.set_motion(FormId(p.id), Motion { moving: p.moving, running: p.running, sneaking: p.sneaking, turning: p.turning, run_mode });
         }
         for (i, d) in people.iter().enumerate() {
             let Some(forward) = d.forward else { continue };
