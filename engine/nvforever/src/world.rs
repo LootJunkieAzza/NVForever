@@ -177,6 +177,8 @@ pub struct StreamStats {
     pub refs_doors: usize,
     /// Drawn references whose model has named sequences scripts can play (object_anims.rs).
     pub refs_group_rigs: usize,
+    /// References drawn in the pose their `XRGD` stores (clutter skeletons, clutter_pose.rs).
+    pub refs_posed: usize,
     /// Imposters met in loaded cells, left to `crate::imposters`.
     pub refs_imposters: usize,
     pub water_planes: usize,
@@ -614,8 +616,26 @@ pub fn spawn_model(
         stats.refs_animated += 1;
         return;
     }
+    // A jointed object left posed by its designer (`XRGD`, clutter_pose.rs).
+    let posed = (crate::clutter_pose::posable(&base.sig) && model.nodes.len() > 1)
+        .then(|| crate::clutter_pose::stored(world.lo, r))
+        .flatten()
+        .and_then(|bones| {
+            let bodies = crate::clutter_pose::body_nodes(&models.data, &path)?;
+            let posed = crate::clutter_pose::pose(&model.nodes, &bodies, &bones);
+            match posed {
+                Some(_) => info!("clutter pose: 0x{r:08X} {path} drawn in its stored pose ({} bodies)", bodies.len()),
+                None => debug!("clutter pose: 0x{r:08X} {path}: {} entries do not fit {} bodies", bones.len(), bodies.len()),
+            }
+            posed
+        });
+    stats.refs_posed += usize::from(posed.is_some());
     for s in &model.shapes {
-        let m = Mat4::from(rt * s.transform);
+        let shape = match (&posed, s.node) {
+            (Some(p), Some(n)) => p[n] * s.own,
+            _ => s.transform,
+        };
+        let m = Mat4::from(rt * shape);
         // External emittance: the reference's XEMI source drives the colour.
         let material = p
             .emittance

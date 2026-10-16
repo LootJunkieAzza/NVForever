@@ -153,3 +153,32 @@ resting pose it feeds. Surveyed with a private script over FalloutNV.esm (not co
 - Not checked against the original: whether its bodies show exactly this pose (no capture
   taken). Creature corpses follow the same rule, checked only by the entry count against
   their skeleton's bodies; `REFR` ragdolls (clutter skeletons) are not posed.
+
+### 5.1 Clutter skeletons (`REFR` with `XRGD`) [2026-10-16, playtest list 5 item 71]
+
+Code: `engine/nvforever/src/clutter_pose.rs`. The Goodsprings cave's three clutter
+skeletons (`SLGoodspringsCaveINT`: 0x00153170, 0x00153171 `Skeleton50sCasualFemale`,
+0x001531F5 `Skeleton50sCasualMale`, MSTT) stood upright with the arms out, where the
+owner's screenshot of the original shows one lying on the floor.
+
+- Their models (`meshes\clutter\skeleton\skeletonfemale50scasual.nif`,
+  `skeletonmale50scasual.nif`) are not skinned: 17 body-part nodes, each with a
+  collision object and its shapes, in five unjoined groups (a left arm, the pelvis with
+  the right leg, the left leg, a loose skull, the torso with the head, right arm and a
+  skirt piece), 12 constraints within the groups [observed: `fnvtool nif decode`].
+- Their `XRGD` has 17 entries, entry k for the k-th collision object in block order
+  [observed: positions under a body node repeat the file's local translations: forearm
+  under upper arm 23.81 in both, head under torso 45.09 against 45.10, right upper arm
+  under torso (40.72, −11.59, −2.33) against (40.76, −11.68, −2.21)].
+- Each entry is the body node's transform under its parent node, a node under the file's
+  root taken under the reference [hypothesis: so read, the bodies of the three lie within
+  15 to 35 units of height, scattered as a fallen skeleton's, the first at the reference's
+  position; read under the first body instead, the thighs came 30 units below the arm].
+  The same rule as the corpses' (§5): there the first body's parent is a node under the
+  root, here the root itself.
+- **In NVForever** [design]: an MSTT, STAT or MISC reference whose model's collision
+  objects match its `XRGD` one for one is drawn with those nodes so posed (nodes without
+  a body keep their place under their parent). Only the drawing: the collision stays in
+  the file's pose, held where placed (`nvf_play::phys::prepare::hold_jointed`), so shots
+  and pushes meet the standing skeleton [not done].
+

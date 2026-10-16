@@ -46,7 +46,7 @@ pub fn parse(data: &[u8]) -> Vec<Bone> {
 }
 
 /// A reference-style rotation as a matrix (`v' = M v`).
-fn rotation(angles: [f32; 3]) -> Mat3 {
+pub fn rotation(angles: [f32; 3]) -> Mat3 {
     Mat3::from_cols_array(&fnv_world::transform::ref_rotation(angles)).transpose()
 }
 
