@@ -662,6 +662,9 @@ pub struct Game<'a> {
     /// `crate::functions::misc::swap_texture`), for the engine to draw. Not part of the
     /// saved state.
     pub texture_swaps: crate::functions::misc::TextureSwaps,
+    /// Effect shaders and actor alpha scripts asked for (`crate::functions::misc::ScriptLooks`),
+    /// for the engine to draw. Not part of the saved state.
+    pub script_looks: crate::functions::misc::ScriptLooks,
     /// Animation groups scripts asked objects to play, and what the engine reports they
     /// play (`crate::anims`). Not part of the saved state.
     pub anims: crate::anims::ObjectAnims,
@@ -920,6 +923,7 @@ impl<'a> Game<'a> {
             sound_requests: Vec::new(),
             music_requests: Vec::new(),
             texture_swaps: Default::default(),
+            script_looks: Default::default(),
             anims: Default::default(),
             barter_requests: Vec::new(),
             recipe_requests: Vec::new(),

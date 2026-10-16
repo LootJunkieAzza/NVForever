@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5) |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6) |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -146,6 +146,21 @@ actor in its `sneakmt…` locomotion clips, walks it at fMoveSneakMult and measu
 sneaking (nvforever `sneaking.rs`; owner's playtest list 5 items 36–37). GetForceSneak has
 no opcode in the catalogue and stays unregistered.
 
+### 3.6 Effect shaders (claude/effect-shaders, 2026-10-16)
+
+Five rendering stubs are implemented, none with condition uses (460 calls): 76 → 71 stubs,
+917 → 457 calls. Facts and evidence: docs/spec-notes/effect-shaders.md.
+
+| Function | Opcode | Calls | Over | Engine hook |
+|---|---|---|---|---|
+| PlayMagicShaderVisuals / StopMagicShaderVisuals | 0x1123 / 0x1125 | 205 / 79 | `Game::script_looks` (`functions::misc::ScriptLooks`): one play per reference and shader, with its duration | nvforever `effect_shaders.rs`: the EFSH membrane (fill and edge) as overlays on every mesh of the reference, timed by the record's cycle; also the shaders of active magic effects (MGEF "effect shader"). Particles, holes and add-on models not drawn |
+| SetActorAlpha | 0x1129 | 127 | `ScriptLooks::alpha` | `effect_shaders.rs`: blended copies of the actor's materials |
+| SetSecuritronExpression | 0x1248 | 37 | a texture swap of `Screen01:0` to `textures\creatures\securitron\<face>_<expression>.dds` | `texture_swap.rs`, which now also finds actors' part shapes by name (`nvf_assets::actor::ShapeName`) |
+| Reset3DState | 0x1146 | 12 | `ObjectAnims::reset`: the group no longer counts as playing, requests dropped | `object_anims.rs`: the object's group stops where it is |
+
+Smoke scenario `effect-shaders` (a script's shader on Sunny, a timed one, SetActorAlpha).
+Not saved: the shaders, alphas and expressions are lost on load [design, as SwapTexture].
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is
@@ -158,18 +173,18 @@ exists; the note says what is missing); **deliberately no-op**.
 |---|---|---|---|---|---|
 | SwapTexture | 0x1269 | 383 | 0 | implemented 2026-10-16 (claude/l5-render-fx) | rendering |
 | GetVATSValue | 0x1198 | 0 | 250 | needs a system not built yet | combat (VATS) |
-| PlayMagicShaderVisuals | 0x1123 | 205 | 0 | needs a system not built yet | rendering (effect shaders) |
-| SetActorAlpha | 0x1129 | 127 | 0 | needs a system not built yet | rendering |
+| PlayMagicShaderVisuals | 0x1123 | 205 | 0 | implemented 2026-10-16 (claude/effect-shaders, §3.6) | rendering (effect shaders) |
+| SetActorAlpha | 0x1129 | 127 | 0 | implemented 2026-10-16 (§3.6) | rendering |
 | SetCombatStyle | 0x10B1 | 92 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
 | IsActorTalkingThroughActivator | 0x11AE | 0 | 92 | needs a system not built yet | dialogue (talking activators) |
-| StopMagicShaderVisuals | 0x1125 | 79 | 0 | needs a system not built yet | rendering (effect shaders) |
+| StopMagicShaderVisuals | 0x1125 | 79 | 0 | implemented 2026-10-16 (§3.6) | rendering (effect shaders) |
 | Autosave | 0x115E | 74 | 0 | implemented 2026-10-15 | saving: asks the engine for an autosave (`nvf_play::save`) |
 | GetGroupMemberCount | 0x11A0 | 0 | 66 | assigned to workstream | assigned to workstream E2 combat AI |
 | IsLimbGone | 0x118E | 51 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
 | GetAnimAction | 0x10DB | 44 | 1 | needs a system not built yet | animation |
 | IsFacingUp | 0x106A | 0 | 41 | needs a system not built yet | animation (ragdoll) |
 | GetKnockedState | 0x106B | 5 | 35 | assigned to workstream | assigned to workstream E2 combat AI |
-| SetSecuritronExpression | 0x1248 | 37 | 0 | needs a system not built yet | rendering |
+| SetSecuritronExpression | 0x1248 | 37 | 0 | implemented 2026-10-16 (§3.6) | rendering (a texture swap) |
 | PushActorAway | 0x118A | 35 | 0 | needs a system not built yet | physics: ragdolls are for corpses only; a live actor knocked down and getting up is not built |
 | PurgeCellBuffers | 0x1189 | 32 | 0 | deliberately no-op | memory: the original's cell buffers; cells here load and unload by distance |
 | ShowCaravanMenu | 0x125A | 29 | 0 | needs a system not built yet | menus (Caravan) |
@@ -182,7 +197,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | ShowRepairMenu | 0x117A | 15 | 0 | needs a system not built yet | menus (repair) |
 | ShowRecipeMenu | 0x1250 | 15 | 0 | implemented 2026-10-16 (claude/l5-crafting) | menus (crafting) |
 | UseWeapon | 0x119C | 13 | 0 | assigned to workstream | assigned to workstream E2 combat AI |
-| Reset3DState | 0x1146 | 12 | 0 | needs a system not built yet | rendering |
+| Reset3DState | 0x1146 | 12 | 0 | implemented 2026-10-16 (§3.6) | animation state |
 | GetShouldAttack | 0x1042 | 7 | 4 | assigned to workstream | assigned to workstream E2 combat AI |
 | HasBeenEaten | 0x107F | 6 | 4 | needs a system not built yet | AI (Cannibal perk) |
 | SetVatsTarget | 0x11EB | 10 | 0 | needs a system not built yet | combat (VATS) |
@@ -251,10 +266,8 @@ Notes on the most used:
   `##` is dropped [hypothesis]. Not part of saves.
 - **GetVATSValue** (250 conditions): VATS is not built; outside VATS 0 is what the
   conditions read anyway [hypothesis].
-- **PlayMagicShaderVisuals / StopMagicShaderVisuals** (284 calls): effect shaders (EFSH)
-  are not drawn yet. A rendering system, not the aid workstream's actor effects.
-- **SetActorAlpha** (127): see-through actors (Dead Money's holograms) need a per-actor
-  blended material; not built.
+- **PlayMagicShaderVisuals / StopMagicShaderVisuals** (284 calls) and **SetActorAlpha**
+  (127): implemented 2026-10-16, §3.6.
 - **IsActorTalkingThroughActivator** (92 conditions): conversations through talking
   activators (intercoms, radios) are not built; with none, 0 is the right answer.
 - **SystemSave / ForceSave** (7): saves exist now (docs/design/save-load.md) and Autosave

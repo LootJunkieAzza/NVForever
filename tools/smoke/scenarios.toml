@@ -1467,16 +1467,19 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # GetXPForNextLevel (§3.2). Then four more (§3.3, §3.4): the followers' OpenTeammateContainer
 # (26 calls, the last stub assigned to H, so no "H followers" row is left), Autosave (74 calls),
 # the crafting ShowRecipeMenu (15 calls, PR #292) and claude/l5-render-fx's SwapTexture (383
-# calls): 81 → 77 stubs, 1,418 → 920 calls, condition uses unchanged.
+# calls): 81 → 77 stubs, 1,418 → 920 calls, condition uses unchanged. Effect shaders
+# (claude/effect-shaders, §3.6) implemented five more (PlayMagicShaderVisuals,
+# StopMagicShaderVisuals, SetActorAlpha, SetSecuritronExpression, Reset3DState: 460 calls,
+# no condition uses): 76 → 71 stubs, 917 → 457 calls.
 expect = [
-  { json = "summary.stubs", equals = 76 },
+  { json = "summary.stubs", equals = 71 },
   { json = "summary.by_status.assigned", equals = 16 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 59 },
+  { json = "summary.by_status.needs_system", equals = 54 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.E2 combat AI", equals = 15 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 917 },
+  { json = "summary.stub_calls", equals = 457 },
   { json = "summary.stub_condition_uses", equals = 614 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -1526,6 +1529,28 @@ order = [[
   "script: test aid calls ShowAllMapMarkers",
   { re = 'pipboy data: world map shows (\d+) of \d+ markers', range = [100, 100000], label = "pipboy data: the world map shows the markers (100 or more)" },
 ]]
+
+[[scenario]]
+name = "effect-shaders"
+source = "docs/spec-notes/effect-shaders.md: PlayMagicShaderVisuals draws NightkinCloakFXShader on Sunny until StopMagicShaderVisuals and effectAlienDisintegration for 2 s, which ends by itself; SetActorAlpha 0.5 and back to 1 (the test aid call:); frames at 9 s (shaders) and 14 s (alpha) in target/smoke"
+areas = ["scripts", "effect-shaders"]
+paths = [
+  "engine/nvforever/src/effect_shaders.rs", "crates/fnv-world/src/effect_shader.rs", "schemas/fnv/effects.json",
+  "engine/nvforever/src/texture_swap.rs", "engine/nvforever/src/object_anims.rs", "crates/fnv-game/src/functions/misc.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_PLAY_TEST_SCRIPT = "6:call:SunnyRef:PlayMagicShaderVisuals:0x0007EA60,7:call:SunnyRef:PlayMagicShaderVisuals:0x0005C6C0:2,12:call:SunnyRef:SetActorAlpha:0.5,16:call:SunnyRef:SetActorAlpha:1,18:call:SunnyRef:StopMagicShaderVisuals:0x0007EA60", NVF_PLAY_TEST_SHOTS = "9:effect_shaders.png,14:actor_alpha.png" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 24
+order = [[
+  { re = 'effect shader: NightkinCloakFXShader on .* \(fill and edge, until stopped\)', label = "effect shader: the cloak on Sunny until stopped" },
+  { re = 'effect shader: NightkinCloakFXShader covers (\d+) meshes', range = [3, 100], label = "effect shader: the cloak covers Sunny's meshes" },
+  { re = 'effect shader: effectAlienDisintegration on .* \(fill and edge, for 2\.0 s\)', label = "effect shader: the alien disintegration glow for 2 s" },
+  { re = 'effect shader: effectAlienDisintegration on .* ends \(its time is up\)', label = "effect shader: the alien disintegration glow ends by itself" },
+  { re = 'actor alpha: .* 0\.50 \((\d+) meshes\)', range = [3, 100], label = "actor alpha: Sunny at 0.5" },
+  { re = 'actor alpha: .* 1\.00 \(\d+ meshes\)', label = "actor alpha: Sunny back to 1" },
+  { re = 'effect shader: NightkinCloakFXShader on .* ends \(stopped\)', label = "effect shader: the cloak stopped" },
+]]
+expect = ["effect shaders summary: 2 played, 2 ended"]
 
 # ------------------------------------------------------------------ aid items (docs/spec-notes/aid-items.md)
 

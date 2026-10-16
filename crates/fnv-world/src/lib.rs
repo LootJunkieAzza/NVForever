@@ -18,6 +18,7 @@
 //! Format facts and confidence tags: `docs/spec-notes/world.md`.
 
 pub mod audio;
+pub mod effect_shader;
 pub mod fields;
 pub mod grass;
 pub mod image_modifier;
