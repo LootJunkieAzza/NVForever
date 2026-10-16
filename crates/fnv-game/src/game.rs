@@ -646,8 +646,8 @@ pub enum LineKind {
 
 pub struct Game<'a> {
     pub data: &'a GameData,
-    /// The console's world toggles (`functions::console`).
-    pub toggles: crate::functions::console::Toggles,
+    /// The console's world toggles (`functions::toggles`).
+    pub toggles: crate::functions::toggles::Toggles,
     /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
     /// the engine to take.
     pub combat_requests: Vec<crate::combat::CombatRequest>,
@@ -1349,7 +1349,7 @@ impl<'a> Game<'a> {
         let ev = if in_menu { event::MENU_MODE } else { event::GAME_MODE };
         let subject = self.open_menu_code().map(|m| Value::Num(m as f64));
         let data = self.data;
-        // ToggleScripts: no per-frame block runs (`functions::console`).
+        // ToggleScripts: no per-frame block runs (`functions::toggles`).
         let scripts = !self.toggles.scripts_off;
         let due: Vec<(FormId, FormId)> = self
             .quests
@@ -2294,8 +2294,8 @@ impl<'a> Game<'a> {
     pub fn call_function(&mut self, ctx: &Ctx, args: &[ArgValue]) -> Value {
         let data = self.data;
         let name = || data.table.get(ctx.opcode).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{:04X}", ctx.opcode));
-        // A console number (no opcode of the game's) by the function's catalogue name.
-        let console = || (ctx.opcode >= fnv_script::table::CONSOLE_NUMBERS).then(|| data.table.get(ctx.opcode)).flatten().and_then(|f| functions::lookup_console(&f.name));
+        // A console function (a number of ours, no opcode of the game's) by the function's catalogue name.
+        let console = || (ctx.opcode >= fnv_script::table::CONSOLE_OPCODE_BASE).then(|| data.table.get(ctx.opcode)).flatten().and_then(|f| functions::lookup_console(&f.name));
         match functions::lookup(ctx.opcode).or_else(console) {
             Some(Kind::Impl(f)) => match f(self, ctx, &Args(args)) {
                 Ok(v) => v,

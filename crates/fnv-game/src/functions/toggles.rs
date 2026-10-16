@@ -1,6 +1,6 @@
 //! Console functions the catalogue lists without an opcode (docs/design/console.md):
-//! the console types them by name, and the function table gives each a console number
-//! (`fnv_script::table::CONSOLE_NUMBERS`), never in compiled scripts. They are registered
+//! the console types them by name, and the function table gives each a number of ours
+//! (`fnv_script::table::CONSOLE_OPCODE_BASE`), never in compiled scripts. They are registered
 //! here by catalogue name ([`super::console_registry`]).
 //!
 //! The world and render toggles: the game's own (actors' AI, detection of the player,

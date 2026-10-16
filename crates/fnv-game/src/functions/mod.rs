@@ -17,7 +17,7 @@
 
 pub(crate) mod actor;
 mod ai_state;
-pub mod console;
+pub mod toggles;
 pub(crate) mod furniture;
 mod items;
 mod magic;
@@ -597,25 +597,25 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
 }
 
 /// Console functions the catalogue lists without an opcode, by catalogue name: the
-/// function table gives them console numbers (`fnv_script::table::CONSOLE_NUMBERS`),
+/// function table gives them numbers of ours (`fnv_script::table::CONSOLE_OPCODE_BASE`),
 /// which [`crate::game::Game::call_function`] dispatches here by name. A test checks
 /// each name against the catalogue.
 pub fn console_registry() -> &'static [(&'static str, Kind)] {
     use Kind::*;
     &[
         // World and render toggles (console.rs; the engine switches its own).
-        ("ToggleCollision", Impl(console::toggle_collision)),
-        ("ToggleActorsAI", Impl(console::toggle_actors_ai)),
-        ("IsActorsAIOff", Impl(console::is_actors_ai_off)),
-        ("ToggleDetection", Impl(console::toggle_detection)),
-        ("ToggleGodMode", Impl(console::toggle_god_mode)),
-        ("ToggleScripts", Impl(console::toggle_scripts)),
-        ("ToggleGrass", Impl(console::toggle_grass)),
-        ("ToggleSky", Impl(console::toggle_sky)),
-        ("ToggleWaterSystem", Impl(console::toggle_water_system)),
-        ("ToggleTrees", Impl(console::toggle_trees)),
-        ("ToggleLODLand", Impl(console::toggle_lod_land)),
-        ("ToggleNavmesh", Impl(console::toggle_navmesh)),
+        ("ToggleCollision", Impl(toggles::toggle_collision)),
+        ("ToggleActorsAI", Impl(toggles::toggle_actors_ai)),
+        ("IsActorsAIOff", Impl(toggles::is_actors_ai_off)),
+        ("ToggleDetection", Impl(toggles::toggle_detection)),
+        ("ToggleGodMode", Impl(toggles::toggle_god_mode)),
+        ("ToggleScripts", Impl(toggles::toggle_scripts)),
+        ("ToggleGrass", Impl(toggles::toggle_grass)),
+        ("ToggleSky", Impl(toggles::toggle_sky)),
+        ("ToggleWaterSystem", Impl(toggles::toggle_water_system)),
+        ("ToggleTrees", Impl(toggles::toggle_trees)),
+        ("ToggleLODLand", Impl(toggles::toggle_lod_land)),
+        ("ToggleNavmesh", Impl(toggles::toggle_navmesh)),
         ("ToggleWireframe", Stub("rendering (wireframe: the renderer does not ask the GPU for its line mode)")),
     ]
 }

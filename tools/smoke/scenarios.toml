@@ -2094,6 +2094,42 @@ expect = [
 ]
 
 [[scenario]]
+name = "console-toggles"
+source = "console world and render toggles (docs/design/console.md): each switches and prints its state, and switches back"
+areas = ["console", "scripts"]
+paths = ["engine/nvf-play/src/console.rs", "engine/nvforever/src/console_toggles.rs", "crates/fnv-game/src/functions/toggles.rs", "crates/fnv-script/src/table.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:tcl;10.5:tai;11:SunnyRef.IsActorsAIOff;11.5:tdetect;12:tscr;12.5:tg;13:ts;13.5:tws;14:tt;14.5:ToggleLODLand;15:ToggleNavmesh;15.5:twf;16:tgm;17:tcl;17.5:tai;18:SunnyRef.IsActorsAIOff;18.5:tdetect;19:tscr;19.5:tg;20:ts;20.5:tws;21:tt;21.5:ToggleLODLand;22:tgm;23:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 26
+expect = [
+  "console: Collision off",
+  "console: Actors' AI off",
+  { re = 'console: IsActorsAIOff on SunnyRef >> 1\.00', label = "IsActorsAIOff reads tai" },
+  "console: Detection of the player off",
+  "console: Scripts off",
+  "console: Grass off",
+  "console: Sky off",
+  "console: Water off",
+  "console: Trees off",
+  "console: Distant land off",
+  { re = 'console: (Navmesh drawing on|No navmesh is loaded in this run)', label = "ToggleNavmesh answers" },
+  { re = 'console: ToggleWireframe: not built', label = "twf says it is not built" },
+  "console: God mode on",
+  "console: Collision on",
+  "console: Actors' AI on",
+  { re = 'console: IsActorsAIOff on SunnyRef >> 0\.00', label = "tai again turns the AI back on" },
+  "console: Detection of the player on",
+  "console: Scripts on",
+  "console: Grass on",
+  "console: Sky on",
+  "console: Water on",
+  "console: Trees on",
+  "console: Distant land on",
+  "console: God mode off",
+  "console: close",
+]
+
+[[scenario]]
 name = "save-write"
 source = "owner 2026-10-15: save and load (docs/design/save-load.md): the first half of the round trip; save-load reads what this run saves, so run them together"
 areas = ["save"]

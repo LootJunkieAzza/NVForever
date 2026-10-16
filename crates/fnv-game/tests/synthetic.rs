@@ -569,7 +569,7 @@ fn console_functions_are_opcodeless_console_functions_of_the_catalogue() {
     for (name, _) in fnv_game::functions::console_registry() {
         let op = table.by_name(name).unwrap_or_else(|| panic!("{name} is not in functions.json"));
         let f = table.get(op).unwrap();
-        assert!(f.console_number && op >= fnv_script::table::CONSOLE_NUMBERS, "{name}: has the game's opcode 0x{op:04X}; register it in registry()");
+        assert!(op >= fnv_script::table::CONSOLE_OPCODE_BASE, "{name}: has the game's opcode 0x{op:04X}; register it in registry()");
         assert_eq!(&f.name, name, "{name}: the catalogue spells it {}", f.name);
     }
     // The console's words reach them by alias.
