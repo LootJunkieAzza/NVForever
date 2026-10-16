@@ -565,6 +565,17 @@ menu (`MenuMode 1009 == 1`). Below it, in order (conditions abridged):
   player, the tree asked many times while it talks and while it listens; `--line` sets
   the mood from a line); smoke tests `talk-gestures-menu`, `talk-gestures-npcs` and
   `talk-gestures-tree` (tools/smoke/scenarios.toml).
+- Seen in NVForever, 2026-10-16 [observed in ours, from the logs]: Chet (GSChetRef) in
+  the dialogue screen got a talk clip at each of his greeting's three responses and
+  another when one ended mid-response (`TalkToPlayerLHCasualG090`,
+  `DialogNoBodyShiftTalkSubtle` twice, then `DialogArmsCrossedTalkA` by `ArmsCrossed`),
+  then `DialogArmsCrossedListenA` while the player chose (by `ArmsCrossedLoop`, the pose
+  kept), and an arms-crossed talk loop for his goodbye. Joe Cobb's angry line to Trudy
+  gave `ttnpcANGRHandsFreeTalkB` (`NPCtoNPC` > `NPCTalking` > `AngerTalk`) and Trudy's
+  answer had him listen (`NTRLHandsDownListenB`); Trudy herself played her lines' own
+  idles (`LooseStandingArmsFolded` as listener, `LoosettnpcANGRHandsFreeTalkA` as
+  speaker) and no gesture. Joe Cobb's first gesture came 7 s into his line, after the
+  AI had turned him to Trudy. Not looked at in a picture.
 
 ### 12.3 Open
 
