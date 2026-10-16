@@ -4947,8 +4947,9 @@ what to check in game.
   locomotion clips for those directions, so they can fire as they go. *Guesses:* 30°;
   the turn to the target at twice the walking turn rate. *Check:* NCR troopers against
   Cook-Cook's Fiends: nobody firing while looking away, and how the sideways steps look.
-  Note: in two runs of `combat-cover` after the facing rule no fighter took cover (the
-  cover roll is by chance; before the strafing the troopers lost the fight quickly).
+  (Before the strafing the facing rule kept troopers on their way to posts from firing:
+  they lost the Cook-Cook fight within 42 s and took no cover; with it the combat smoke
+  scenarios pass again.)
 - **34 Package flags.** Done: Weapon Drawn (drawn during the package: Sunny runs to the
   wells with her rifle out), Weapons Unequipped (holstered and hidden unless fighting),
   HeadTracking Off (no head tracking unless a conversation or script look forces it),
