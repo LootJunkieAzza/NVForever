@@ -61,6 +61,11 @@ const BUTTON_PAD: f32 = 10.0;
 /// `_line_alpha`).
 const DIM: f32 = 127.0 / 255.0;
 
+/// A perk that cannot be taken now: its name at about half brightness [observed: 119
+/// against 206 at the letters' brightest on the owner's 3840 × 2160 screenshots, over a
+/// background near 30].
+const DIM_ROW: f32 = 128.0;
+
 /// The arrows' pictures, and lit under the pointer [documented: LUM_Template_LeftArrow
 /// and RightArrow, `_Filename_1` and `_Filename_2` by `mouseover`].
 const MINUS_PIC: [&str; 2] = ["interface\\shared\\arrow\\adjust_decrease.dds", "interface\\shared\\arrow\\adjust_decrease_over.dds"];
@@ -133,10 +138,11 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, v: &View) {
                         }
                     }
                     Page::Perks => {
+                        let color = if r.dim { amber(DIM_ROW) } else { bright };
                         if r.marked {
-                            c.image(row, "square_filled.dds", at(MARK.x, MARK.y, MARK_SIZE, MARK_SIZE), bright, ());
+                            c.image(row, "square_filled.dds", at(MARK.x, MARK.y, MARK_SIZE, MARK_SIZE), color, ());
                         }
-                        c.wrapped(row, &r.text, PERK_TEXT_X, TEXT_Y, PERK_WRAP, bright);
+                        c.wrapped(row, &r.text, PERK_TEXT_X, TEXT_Y, PERK_WRAP, color);
                     }
                 }
             });

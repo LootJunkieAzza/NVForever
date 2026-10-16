@@ -939,24 +939,33 @@ manual = "with the owner's load order (Old World Blues in it) the trait menu has
 
 [[scenario]]
 name = "levelup-menu"
-source = "the level-up menu (docs/spec-notes/levelup.md §7): both pages by the test aid, then advlevel at the console"
+source = "the level-up menu (docs/spec-notes/levelup.md §7): both pages by the test aid, Intense Training's attributes page, then advlevel at the console"
 areas = ["levelup", "menus"]
-paths = ["engine/nvf-play/src/levelup.rs", "engine/nvf-play/src/levelup/**", "crates/fnv-game/src/levelup.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_LEVELUP = "16:advance,17:continue,17.5:raise:Science:5,18:lower:Science,18.5:lower:Barter,19:raise:Guns:30,20.5:continue,21:pick:Intense Training,21.2:pick:Intense Training,21.4:pick:Intense Training,22.5:back,23:continue,23.5:pick:Intense Training,24:done,28:raise:Medicine:30,29:done", NVF_PLAY_TEST_CONSOLE = "26:advlevel", NVF_PLAY_TEST_SHOTS = "18.2:levelup_skills.png,22:levelup_perks.png,28.5:levelup_level3.png" }
+paths = ["engine/nvf-play/src/levelup.rs", "engine/nvf-play/src/levelup/**", "crates/fnv-game/src/levelup.rs", "crates/fnv-game/src/perks.rs", "engine/nvf-play/src/chargen/lists.rs", "crates/fnv-game/src/functions/ui.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_LEVELUP = "16:advance,17:continue,17.5:raise:Science:5,18:lower:Science,18.5:lower:Barter,19:raise:Guns:30,20.5:continue,21:pick:Intense Training,21.2:pick:Intense Training,21.4:pick:Intense Training,22.5:back,23:continue,23.5:pick:Junk Rounds,23.7:pick:Intense Training,24:done,31:raise:Medicine:30,32:done", NVF_PLAY_TEST_CHARGEN = "25.5:done,26:raise:Charisma,26.3:raise:Luck,26.6:lower:Charisma,26.9:raise:Charisma,28:done", NVF_PLAY_TEST_CONSOLE = "29:advlevel", NVF_PLAY_TEST_SHOTS = "18.2:levelup_skills.png,22:levelup_perks.png,25.2:levelup_attributes.png,27.5:levelup_attributes_done.png,31.5:levelup_level3.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
-run_seconds = 32
+run_seconds = 35
 order = [[
   { re = 'levelup: menu open, level 2, \d+ skill points, perk due' },
   { re = 'levelup: Continue refused: \d+ points left' },
   { re = 'levelup: Science \d+ -> \d+' },
   "levelup: Barter lower refused",
   "levelup: Guns raise refused",
-  { re = 'levelup: skills .*Science \+4.*; perks page: \d+ perks on offer' },
+  { re = 'levelup: skills .*Science \+4.*; perks page: \d+ perks listed, \d+ can be taken' },
   "levelup: Intense Training chosen",
   "levelup: Intense Training given back",
   "levelup: back to the skills",
+  "levelup: Junk Rounds refused",
+  "script: menu 1027 done; menu 1048 opened in its place",
   { re = 'levelup: done, level 2: skills .*Science \+4.*; perk Intense Training' },
-  "levelup: menu closed",
+  "script: Generic stage 101 set",
+  "chargen: attributes menu open, points: 1 (7 rows)",
+  "chargen: Done refused: 1 points left",
+  "chargen: Charisma raised; 0 points left",
+  "chargen: Luck raise refused; 0 points left",
+  "chargen: Charisma lowered; 1 points left",
+  "chargen: Charisma raised; 0 points left",
+  { re = 'chargen: done, attributes: Charisma \d+ -> \d+' },
   { re = 'levelup: menu open, level 3, \d+ skill points, perk not due' },
   { re = 'levelup: done, level 3: skills Medicine \+\d+; perk none' },
 ]]
@@ -968,9 +977,12 @@ expect = [
   { text = "ui sounds: level up category changed: UIMenuOK", label = "Continue to the perks, Back" },
   { text = "ui sounds: level up row or button picked: UIMenuPrevNext", label = "a perk taken" },
   { text = "ui sounds: level up accepted: UIMenuOK", label = "Done", count = 2 },
+  { text = "ui sounds: tag skills value raised: UIMenuPrevNext", label = "an attribute's + clicked" },
+  { text = "ui sounds: tag skills accepted: UIMenuOK", label = "the attributes page's Done" },
   { text = "console: AdvancePCLevel >> level 3", label = "advlevel at the console" },
+  { text = "levelup: menu closed", label = "the level-up menu gives way to the attributes page" },
 ]
-manual = "the screenshots levelup_skills.png, levelup_perks.png and levelup_level3.png in the run's folder against the owner's (kept privately)"
+manual = "the screenshots levelup_skills.png, levelup_perks.png, levelup_attributes.png, levelup_attributes_done.png and levelup_level3.png in the run's folder against the owner's (kept privately)"
 
 [[scenario]]
 name = "vigor-tester"
@@ -1963,6 +1975,18 @@ expect = [
 ]
 
 [[scenario]]
+name = "npc-flamer-holstered"
+source = "owner 2026-10-16: an NPC's holstered flamer should show its tank on the back and no gun in the hand, as the player's minigun does (animation.md §9.7)"
+note = "free camera behind Cook-Cook (000F5704), weapons holstered; screenshots of this view showed the tank on his back and empty hands, and with --actor-weapons drawn the flamer in both hands with the tank still on the back"
+areas = ["animation"]
+paths = ["engine/nvforever/src/weapons.rs", "engine/nvforever/src/actors.rs"]
+args = ["--cell", "Goodsprings", "--pos=-43165,74560,4390", "--heading", "0", "--hour", "12"]
+run_seconds = 15
+expect = [
+  { re = 'actor weapons: 000F5704 \S*flamer\.nif: 1 shape\(s\) on the back, 1 gun shape\(s\) the clips show and hide', label = "Cook-Cook's flamer: the tank on the back, the gun apart" },
+]
+
+[[scenario]]
 name = "combat-flee"
 source = "owner's list 2: NPCs flee (GECK wiki Confidence and Combat Flee; docs/design/combat-ai.md §12.2): a cowardly bighorner shot once in its pen"
 note = "GSBigHorner: Unaggressive, Confidence 0 (Cowardly, threshold 1000): hurt, it fails its first flee check; where it flees to depends on the pen's navmesh (to cover, 2026-10-12)"
@@ -2725,6 +2749,21 @@ run_seconds = 12
 expect = [
   { re = 'settings: \d+ of \d+ switch\(es\) read from .*NVForever\.ini, \d+ changed: (.*, )?hit-markers on', label = "the stored switch is set at the start" },
 ]
+
+[[scenario]]
+name = "window-borderless"
+source = "coordinator 2026-10-16: the game can run borderless full screen (--window borderless), and the settings page's Display group switches the live window back and forth (engine/nvforever/src/window_mode.rs); no home, so the player's INI is neither read nor written"
+areas = ["main-menu"]
+paths = ["engine/nvforever/src/window_mode.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16", NVF_PLAY_TEST_SETTINGS = "11:page,13:borderless" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--window", "borderless"]
+run_seconds = 18
+expect = [
+  { text = "window: borderless full screen on the current monitor", label = "--window borderless starts borderless full screen" },
+  { text = "settings: borderless off", label = "the Display switch is flipped" },
+  { text = 'window: windowed, 1280x800', label = "the live window turns into a window of --size again" },
+]
+order = [["window: borderless full screen on the current monitor", "settings: borderless off", { text = 'window: windowed, 1280x800' }]]
 
 [[scenario]]
 name = "controls-write"

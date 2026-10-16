@@ -563,9 +563,22 @@ tracks that are not transforms) on `Fallout - Meshes.bsa` and `Update.bsa`.
     game screenshot; 0.3 s into the draw still no gun, 0.8 s in the gun is in the
     hands; drawn, gun and ammunition box in the hands and the backpack on the back;
     0.3 s into putting it away the gun still shows, 0.8 s in it is gone.
-  - Not built: the `NiMaterialColorController` tracks on `##GatlingLaserGun:0`, and
-    all of this for placed NPCs' weapons (`nvforever::weapons`). The transform tracks
-    on `##` nodes are §9.8.
+  - Not built: the `NiMaterialColorController` tracks on `##GatlingLaserGun:0`. The
+    transform tracks on `##` nodes are §9.8.
+- `weaponshandhandlelamer.nif` [observed: fnvtool nif decode] is laid out as the
+  minigun: the gun under `##FlamerGun`, the tank under a node `Backpack` whose `UPB`
+  string is `Bip01 Spine2`, and one untagged shape `Flamer:0` under the root.
+- NPCs (`nvforever::weapons`, since 2026-10-16): the same two rules. A shape under a
+  node whose `UPB` string names a skeleton bone hangs from that bone (not part of the
+  weapon's hit volume, and hidden with the weapon under Weapons Unequipped). The nodes
+  the stance's holster clip switches off are shown as the current stage's clip's
+  visibility track says at its time; a clip without a track for the node (the aim clip)
+  leaves it as it was, shown at first [hypothesis, as for the player]. Rendered
+  [observed: screenshots of Cook-Cook, kept privately]: holstered, the tank on his back
+  and empty hands; with `--actor-weapons drawn`, the flamer in both hands and the tank
+  still on the back. Before, the holstered flamer hung whole, tank included, from the
+  hand bone (the `2hh` holster bone is `Bip01 R Hand`) [observed in NVForever: owner,
+  2026-10-16].
 
 ### 9.8 The moving parts of a weapon [observed unless tagged]
 
