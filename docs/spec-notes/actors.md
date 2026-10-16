@@ -1152,6 +1152,60 @@ only in the walk test and on the player's body. All rules here are engine choice
   `clip_candidates`, not checked on screen); scaling the clip's rate with the turn
   speed; an actor facing its target on arrival (left to AI packages).
 
+### 8.10 Creature speeds and the alert stance
+
+Added 2026-10-16 (owner's playtest: cazadors moved far too slowly and their movement
+stopped and started, as Victor's walk had before #258). Code:
+`engine/nvforever/src/creature_pace.rs`, `fnv_ai::Ai::speeds`.
+
+- **Cause in NVForever** [observed in the code]: every actor walked at 86.8 and ran at
+  344 units/s (`fnv_ai::AiConfig`, the player's speeds); in combat a creature could only
+  be slowed below 344 (`npc_combat::pace`, list 5 item 25). The cazador's `mtforward.kf`
+  moves 216.73 units/s and `mtfastforward.kf` 545.54 [observed: `fnvtool actor
+  locomotion --folder meshes\creatures\nvcazadores`], so its walk played at the slowest
+  clip rate (0.4) and 344 sat on the walk/run switch (the geometric mean of the two
+  clips' speeds, 343.9, §8.3): any slow-down swapped the clips back and forth.
+- **Measured in the original game** [observed: AI observer (ai-observer.md), save
+  `nvftest`, 2026-10-16; outputs in `C:\fnv-private\capture\out\obs_cazador_*`, not
+  committed]. Positions every 5 game loops (about 0.16 s), horizontal speed between
+  samples.
+  - Calm: non-hostile cazadors at the Tribal Village (cell -19, 7; `tgm`, `tdetect`; the
+    owner's tip), sandbox package, not running, 1,665 samples over a game hour: young
+    cazadors (VCrTier3CazadorSmall: base scale 0.5, Speed Mult 300) held 224–233
+    units/s (median and 90th percentile), the medium ones (scale 1.0, Speed Mult 250)
+    373–386.
+  - Charging: NVCrCazador and VCrTier3CazadorSmall spawned in Goodsprings by
+    `PlaceAtMe`, god mode, in Combat and running (IsRunning, IsMoving forward): the
+    medium ones up to 920–974 units/s, the young up to 576. With combat AI off (`tcai`)
+    they hovered at 75–120.
+- **Rule** [observed fit; hypothesis for other creatures]: a creature moves at its clip's
+  root-motion speed × its scale × Speed Mult / 100 × 0.70 (`CREATURE_SPEED_FIT`): the
+  walk 216.73 × 0.5 × 3.0 × 0.70 = 228 and 216.73 × 1 × 2.5 × 0.70 = 379; the run
+  545.54 × 0.5 × 3.0 × 0.70 = 573 and 545.54 × 2.5 × 0.70 = 955, all within the
+  measurements. The share is the same for both kinds (0.701 and 0.701 when walking), so it
+  is proportional to Speed Mult, not an offset. No game setting gives 0.70
+  (`fMoveBaseSpeed` 77, `fMoveRunMult` 4, `fMoveSneakMult` 0.57 are the only movement
+  ones [observed: `fnvtool esm inventory`]); people at Speed Mult 100 walk at their clip's
+  speed (§8.3, physics.md §6.3), so why creatures keep 0.70 is open. Other creatures
+  are not measured.
+- **Alert stance** [observed: the owner, 2026-10-16: "the cazadors scurry along the
+  ground when not alert and fly when they are alert/in combat"]: the cazador's folder
+  has `h2hforward.kf` (298.15 units/s), `h2hfastforward.kf` (545.54) and `h2hidle.kf`
+  beside its `mt` clips; the dog has `h2hforward` and `h2hfastforward`, the mirelurk king
+  `h2hforward`, no other creature folder of the base archives has `h2h` movement clips
+  [observed: the meshes and Update archive listings]. Rule [design on the owner's
+  observation]: outside the Normal detection state (Alert, Combat, Lost) such a creature
+  moves on its `h2h` clips (missing moves taken from the `mt` set) at their speeds by the
+  rule above; the change of set is not cross-faded.
+- **Deathclaw's walk**: its walk clip is `locomotion\mtfoward.kf` (sequence Forward, 120
+  units/s) [observed]; `clip_candidates` looks for that spelling last, so deathclaws now
+  have a walk.
+- **Not done**: the alert look of creatures without `h2h` movement clips (deathclaws,
+  ghouls: by the owner, "like they are drawing a weapon, i.e. the hands", their
+  `h2hequip.kf` and `h2haim.kf` over the legs); speeds of a creature not yet drawn (it
+  moves at the people's speeds until its clips load); creature turn speed (CREA `TNAM`,
+  §8.9).
+
 ## 9. Weapons: holstering and drawing (part H)
 
 An NPC that carries a weapon shows it holstered and can draw and holster it with the

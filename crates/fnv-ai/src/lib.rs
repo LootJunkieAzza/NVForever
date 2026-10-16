@@ -20,7 +20,7 @@ pub mod process;
 pub mod sandbox;
 pub mod social;
 
-pub use carry::{Activity, Agent, Ai, AiConfig, AiEvent, Logged, Mover, Talking};
+pub use carry::{Activity, ActorSpeeds, Agent, Ai, AiConfig, AiEvent, Logged, Mover, Speeds, Talking};
 pub use goal::{Follow, Goal, Route, Talk, Trigger};
 pub use process::{ProcessLevel, ProcessStats, FAR_PROCESS_SECONDS, LOW_PROCESS_SECONDS};
 pub use sandbox::{Allowed, Doing, Sandbox};

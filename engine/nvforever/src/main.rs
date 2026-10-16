@@ -22,6 +22,7 @@ mod cell_resets;
 mod alert;
 mod anim_sounds;
 mod crash;
+mod creature_pace;
 mod deaths;
 mod detection;
 mod dialogue_look;
@@ -1053,6 +1054,8 @@ fn main() -> AppExit {
             app.add_plugins(alert::AlertPlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
+            // Creatures' own speeds and alert stance (creature_pace.rs).
+            app.add_plugins(creature_pace::CreaturePacePlugin);
             // Heads held by a script's Look (script_look.rs).
             app.add_plugins(script_look::ScriptLookPlugin);
             // Actors in Combat attack their target (npc_combat.rs).

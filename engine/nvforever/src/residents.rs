@@ -452,6 +452,16 @@ fn is_actor(refs: &RefTable, id: FormId) -> bool {
 }
 
 impl Residents {
+    /// The walking and running speeds of actors without their own.
+    pub fn default_speeds(&self) -> fnv_ai::Speeds {
+        fnv_ai::Speeds { walk: self.core.ai.cfg.walk_speed, run: self.core.ai.cfg.run_speed }
+    }
+
+    /// Give `actor` speeds of its own (`creature_pace.rs`).
+    pub fn set_speeds(&mut self, actor: FormId, speeds: fnv_ai::ActorSpeeds) {
+        self.core.ai.speeds.insert(actor, speeds);
+    }
+
     /// Whether actors standing or walking inside each other are moved apart
     /// (`fnv_ai::apart`; `--actors-pass-through` switches it off).
     pub fn set_keep_apart(&mut self, on: bool) {
