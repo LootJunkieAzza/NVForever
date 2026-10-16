@@ -242,21 +242,34 @@ impl Bindings {
     }
 }
 
-/// The controls' state this frame.
+/// The controls' state this frame. While the console's free camera flies
+/// (`crate::free_cam`) its keys are the camera's: no control reads as pressed.
 #[derive(SystemParam)]
 pub struct ControlInput<'w> {
     pub keys: Res<'w, ButtonInput<KeyCode>>,
     pub mouse: Res<'w, ButtonInput<MouseButton>>,
     pub bindings: Res<'w, Bindings>,
+    pub free_cam: Option<Res<'w, crate::free_cam::FreeCam>>,
 }
 
 impl ControlInput<'_> {
+    /// The free camera has the keys.
+    pub fn suppressed(&self) -> bool {
+        self.free_cam.as_ref().is_some_and(|f| f.active)
+    }
+
     pub fn pressed(&self, c: Control) -> bool {
+        if self.suppressed() {
+            return false;
+        }
         let b = self.bindings.get(c);
         b.key.is_some_and(|k| self.keys.pressed(k)) || b.mouse.is_some_and(|m| self.mouse.pressed(m))
     }
 
     pub fn just_pressed(&self, c: Control) -> bool {
+        if self.suppressed() {
+            return false;
+        }
         let b = self.bindings.get(c);
         b.key.is_some_and(|k| self.keys.just_pressed(k)) || b.mouse.is_some_and(|m| self.mouse.just_pressed(m))
     }

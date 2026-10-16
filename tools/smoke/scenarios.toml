@@ -2094,6 +2094,28 @@ expect = [
 ]
 
 [[scenario]]
+name = "console-camera"
+source = "coordinator 2026-10-16: the console's camera commands tfc, sucsm, fov and tm work in --play (docs/design/console.md, Camera commands)"
+areas = ["console"]
+paths = ["engine/nvf-play/src/free_cam.rs", "crates/fnv-game/src/functions/camera.rs", "crates/fnv-script/src/table.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_FLY = "400", NVF_PLAY_TEST_CONSOLE = "10:tfc;10.5:close;14:click 0.5 0.5;14.5:sucsm 3;15:fov 100 70;15.5:tm;16:tm;16.5:fov;17:tfc;17.5:close;19:tfc 1;19.5:close;22:tfc;22.5:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 25
+expect = [
+  { re = 'free camera: on \(mode 0, the world goes on\)', label = "tfc frees the camera" },
+  { re = 'console: the ray from the free camera at ', label = "a click picks along the free camera's ray" },
+  { re = 'camera: field of view 100° \(vertical [\d.]+°\), first person 70°', label = "fov sets both fields of view" },
+  "ToggleMenus: the HUD is hidden",
+  "ToggleMenus: the HUD is shown",
+  { re = 'camera: field of view the default \(vertical [\d.]+°\), first person the default', label = "fov alone puts the defaults back" },
+  { re = 'free camera: off, \d{3,} units from where it left the player \(the player moved \d{1,2}\)', label = "the camera flew away while the player stayed, and came back" },
+  { re = 'free camera: on \(mode 1, the world stands still\)', label = "tfc 1 holds the world" },
+  { re = 'menu pause: the picture stands still \(the free camera\)', label = "tfc 1 holds the picture" },
+  "menu pause: the picture runs again",
+  { re = 'console: open', min = 4, label = "the console opens again while the world is held" },
+]
+
+[[scenario]]
 name = "console-toggles"
 source = "console world and render toggles (docs/design/console.md): each switches and prints its state, and switches back"
 areas = ["console", "scripts"]

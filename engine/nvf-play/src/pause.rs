@@ -132,12 +132,20 @@ fn tick_play_clock(virt: Res<Time<Virtual>>, real: Res<Time<Real>>, mut clock: R
     clock.stopped += clock.frame.unwrap_or(0.0);
 }
 
-/// Pause the virtual clock while the picture is held ([`picture_held`]) and let it run
+/// Pause the virtual clock while the picture is held ([`picture_held`]), or while the
+/// console's free camera holds the world (`crate::free_cam`, mode 1), and let it run
 /// again after. Nothing else pauses it.
-fn freeze_picture(mode: Res<MenuPause>, paused: Res<Paused>, state: Res<State<PlayState>>, mut clock: ResMut<Time<Virtual>>) {
-    let stop = picture_held(*mode, paused.0, *state.get());
+fn freeze_picture(mode: Res<MenuPause>, paused: Res<Paused>, state: Res<State<PlayState>>, free_cam: Option<Res<crate::free_cam::FreeCam>>, mut clock: ResMut<Time<Virtual>>) {
+    let held_by_cam = free_cam.is_some_and(|f| f.holds_world());
+    let stop = picture_held(*mode, paused.0, *state.get()) || held_by_cam;
     if clock.is_paused() != stop {
-        let why = if paused.0 { "the pause menu" } else { "--menu-pause original" };
+        let why = if paused.0 {
+            "the pause menu"
+        } else if held_by_cam {
+            "the free camera"
+        } else {
+            "--menu-pause original"
+        };
         if stop {
             info!("menu pause: the picture stands still ({why})");
             clock.pause();

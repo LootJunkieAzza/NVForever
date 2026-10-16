@@ -216,7 +216,7 @@ impl Kit {
 }
 
 #[derive(Component)]
-struct Root;
+pub(crate) struct Root;
 
 /// One of the two crosshairs: the filled one is shown while something can be used. The
 /// plain one is drawn in two halves (`side` −1 left, 1 right) that the spread moves apart.

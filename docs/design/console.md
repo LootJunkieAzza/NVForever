@@ -117,6 +117,48 @@ Sky, water and trees have no switch of their own: while one is off, its meshes a
 hidden each frame after the systems that show and hide them, and get back the visibility
 those systems gave them when it is on again.
 
+## Camera commands
+
+Script functions of the catalogue's "Console Functions", run like any other line
+(`fnv_game::functions::camera`, the engine side in `engine/nvf-play/src/free_cam.rs`).
+The catalogue gives them no opcode; the function table numbers every opcode-less console
+function from `0xF000` in name order (`fnv_script::table::CONSOLE_OPCODE_BASE`)
+[decision]. Smoke test: `console-camera`.
+
+| Command | What it does |
+|---|---|
+| `tfc [mode]` (ToggleFlyCam) | the camera leaves the player and flies; `tfc` again puts it back on the player, in the view the player had |
+| `sucsm <mult>` (SetUFOCamSpeedMult) | the free camera's speed multiplier (1 until set; below 0 is 0) |
+| `fov [world] [first person]` (SetCameraFOV) | the world's and the first-person field of view in degrees; omitted or 0 is the default (the `--fov` the game started with, 75 unless given; first person 55, `fDefault1stPersonFOV`); capped at 160, a negative value is the reciprocal of its size [documented: the catalogue's notes] |
+| `tm` (ToggleMenus) | hide or show the HUD (with the compass), the crosshair and the corner and quest messages; the console and the menus stay [decision] |
+
+The free camera flies while the console is closed and no other menu is open, with the
+viewer's keys (`nvforever` `fly.rs`): W/A/S/D, Q down, E up, Shift five times faster, the
+wheel changes the speed (800 units/s to start); the mouse looks round without a button.
+The player stays where it is: its controls read as released and mouse look leaves its
+view alone. It is shown from outside (third person) while the camera is away
+[hypothesis: the original shows its third-person model; not checked]. A click with the
+console open picks along the free camera's ray (the console's click casts from the
+camera, wherever it is).
+
+The modes [the catalogue names three without saying more; our choice]:
+
+- none or 0: the world goes on (actors, scripts, the game clock).
+- 1: the world stands still as under a menu (`PlayState::Menu`: no game logic, no game
+  clock), and so does the picture (the virtual clock, as under the pause menu)
+  [hypothesis: the catalogue's "freezes the game fully"; whether animations hold in the
+  original is not checked]. The console opens over it as in the world, and Esc does not
+  open the pause menu until `tfc` again.
+- 2 (the last frame shown until exit) and 3 (the view's pose kept for occlusion) are not
+  built: they fly as 0.
+
+Test aid `NVF_PLAY_TEST_FLY=<units per second>`: the free camera flies forward, level,
+at that speed while it flies. Log lines: `free camera: on (mode …)`, `free camera: off,
+<n> units from where it left the player (the player moved <m>)`, `camera: field of view
+…`, `ToggleMenus: the HUD is hidden|shown`.
+
+Not built: `Show1stPerson` (`s1st`).
+
 ## Searching records: `help`
 
 `help <text>` searches every record of the load order, not case sensitive:

@@ -161,7 +161,7 @@ impl Plugin for CornerMessagesPlugin {
 }
 
 #[derive(Component)]
-struct AreaRoot;
+pub(crate) struct AreaRoot;
 
 /// A picture or text that carries the interface's colour, to come and go with the
 /// message, and how strongly it is drawn when the message is fully there.

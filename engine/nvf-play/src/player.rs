@@ -407,6 +407,7 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
 /// The cursor is grabbed and hidden while playing in a focused window, released in menus
 /// and while a script's message box is on screen (its buttons are clickable). Not with
 /// `--auto-walk` (a test aid: the window must not hold the desktop's mouse).
+#[allow(clippy::too_many_arguments)]
 fn grab_cursor(
     state: Res<State<PlayState>>,
     d: Res<PlayWorld>,
@@ -414,6 +415,7 @@ fn grab_cursor(
     hud: Option<Res<crate::script_hud::ScriptHud>>,
     look: Option<Res<crate::dialogue::FreeLook>>,
     over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
+    free_cam: Option<Res<crate::free_cam::FreeCam>>,
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
@@ -421,7 +423,8 @@ fn grab_cursor(
     let boxed = hud.is_some_and(|h| h.front().is_some());
     // Also while an actor speaks in a conversation (free look, `crate::dialogue`), and
     // kept through a loading screen: the player is back in the world after it.
-    let playing = matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0);
+    // And while the console's free camera flies, also when it holds the world.
+    let playing = matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active);
     let grab = playing && !driven && !boxed && window.focused;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
     let mode = match (grab, cfg!(target_os = "windows")) {
@@ -550,8 +553,10 @@ fn mouse_look(
     mut player: ResMut<Player>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
     driven: Option<Res<ViewDriven>>,
+    free_cam: Option<Res<crate::free_cam::FreeCam>>,
 ) {
-    if driven.is_some_and(|d| d.0) {
+    // The console's free camera takes the mouse (`crate::free_cam`).
+    if driven.is_some_and(|d| d.0) || free_cam.is_some_and(|f| f.on) {
         return;
     }
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);

@@ -1511,12 +1511,13 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
         Res<nvf_play::pipboy::PipBoy>,
         Query<&Projection, With<nvf_play::PlayerCamera>>,
+        Option<Res<nvf_play::free_cam::FirstPersonFov>>,
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
@@ -1750,12 +1751,14 @@ fn drive_body(
             Projection::Perspective(p) => Some(p.fov),
             _ => None,
         });
+        // The console's `fov` can ask for another first-person field of view.
+        let first_fov = first_fov.and_then(|f| f.0).unwrap_or(FIRST_PERSON_FOV);
         let k = match (pip.shown(), vfov) {
             (true, Some(v)) => {
-                let normal = arms_magnification(v, FIRST_PERSON_FOV);
+                let normal = arms_magnification(v, first_fov);
                 normal + (arms_magnification(v, PIPBOY_FOV) - normal) * pipboy_ease(pip.clip_time)
             }
-            (false, Some(v)) => arms_magnification(v, FIRST_PERSON_FOV),
+            (false, Some(v)) => arms_magnification(v, first_fov),
             _ => 1.0,
         };
         let forward = Vec3::from_array(nvf_play::space::look_dir(player.heading, player.pitch));
