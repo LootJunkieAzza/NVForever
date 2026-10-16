@@ -526,6 +526,14 @@ tracks that are not transforms) on `Fallout - Meshes.bsa` and `Update.bsa`.
   screenshots, kept privately]: the minigun idle, level and 50° up and down, has the
   left hand on the top handle as while firing, with no jump when firing stops; the 9mm
   pistol is held as before.
+- NPCs (`nvforever::weapons`, since 2026-10-16): the same rest pose, the end of the
+  stance's equip clip's `Weapon` track, while the weapon hangs from the drawn bone
+  (`BlendPlayer::set_rest`); holstered, the bind transform. Before, an NPC's flamer was
+  turned in the hand and the left hand missed it [observed in NVForever: owner's
+  playtest 2026-10-16, Cook-Cook]. Rendered [observed: screenshots of Cook-Cook with
+  `--actor-weapons drawn`, kept privately]: the flamer is held forward, the right hand
+  on the rear grip and the left on the top handle; before the change it hung turned
+  down at his side.
 - The `2hh` holster, draw and put-away clips also carry visibility tracks
   (`NiVisController` with `NiBoolInterpolator`) on parts of the weapon model named
   `##MinigunGun`, `##FlamerGun`, `##GatlingLaserGun` and `##RIL`: off in
@@ -676,6 +684,15 @@ track) on `Fallout - Meshes.bsa` and `Update.bsa`.
   weapons, which are still drawn as one rigid model (`nvforever::weapons`; NPCs play no
   attack or reload clips yet). The spinning melee weapons (`1hm` and `2hm`
   `attackspin`) keep combat's swing timing: no spin-up for them.
+- NPCs (`nvforever::attack_anims`, since 2026-10-16): a shot from a weapon whose attack
+  clip has a `Fire` and a `Loop` key starts the clip at `Fire` (NPCs do not spin up
+  [design]); the shots that follow while it plays do not start it again, and it goes
+  round from `Fire` to `Loop` while they come no more than 0.25 s apart, then plays out.
+  Cook-Cook's flamer plays `2hhattackspin2.kf` (1.33 s on the owner's install).
+  Started again at each shot, the clip pulled the arms and shoulders back to its start
+  many times a second, which looked like recoil [observed in NVForever: owner's playtest
+  2026-10-16]. Run (smoke `cook-cook-flamer`): 4 clip starts and 10 shots carried on
+  by a running clip in 40 s.
 - Open: whether the game holds a part where the last clip left it when no clip drives
   it (as §9.7 reads the `Weapon` node) rather than at its place in the model: the
   10mm's parts have no track in `1hpaim.kf`, so the two readings differ wherever a clip

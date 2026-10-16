@@ -5170,3 +5170,21 @@ hint, the text overlay, radio subtitles and the Fallout 3 music question.
   The clips are picked and blended the way the game's actors do it (idle or movement,
   then aim, then attack, by track priority). *Not covered:* aim up and down, reloads,
   jams, equip and holster. *Check:* run it for each type and list the broken cases.
+
+## Cook-Cook's flamer: steady fire and hands on the gun (2026-10-16)
+
+Your report: firing, Cook-Cook jittered as if the flamer had recoil (his shoulders moved
+a lot), and his hands did not line up on the flamer, as with the minigun before. Branch
+`claude/npc-heavy-weapon-pose`. Facts: `docs/spec-notes/animation.md` §9.7 and §9.8.
+
+1. **Jitter:** every flame shot started the firing animation again from its start, many
+   times a second. Now the animation keeps running through the burst, going round its
+   steady middle part, as yours does with the minigun, and plays out when he stops.
+2. **Hands:** the minigun fix (the gun stays where the draw animation put it) was only
+   on your character. NPCs have it now too: the flamer is held forward, right hand on
+   the rear grip, left hand on the top handle. It also applies to NPCs' miniguns, gatling
+   lasers and pistols.
+3. **My guess, for you to check:** NPCs start the firing animation at its steady part
+   (no spin-up), since their shots leave at once. A game look at Cook-Cook firing,
+   from the side, would confirm the arms.
+
