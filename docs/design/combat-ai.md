@@ -32,7 +32,12 @@ shots are aimed from the eyes and drawn from the weapon's muzzle (§9).
   and other rays (blasts, picks) pass it as before.
 - Damage goes through `Game::hit` on the player's Health; armour the player wears counts.
 - At 0 health the player dies: every control is held (`ScriptState::locks`), the screen
-  says "You are dead." [design: the original's death camera and reload are not built].
+  says "You are dead." The death camera (`engine/nvforever/src/death_cam.rs`, owner
+  request 2026-10-16) [design, every constant]: the body drops as a ragdoll; in first
+  person the view stays fixed to its head, in third person the camera stays on the body
+  and turns to it; the game slows to a quarter speed for about 4 s and the picture blurs
+  (`--death-imod` also plays an image space modifier). Reloading the last save is not
+  built.
   Those fighting the player see their target dead and go back to Normal (alert.md §3).
 - Test aid `NVF_PLAY_TEST_GOD=1`: the player takes no damage (the hits are still logged),
   so long unattended runs are not ended by a fight.
@@ -133,7 +138,8 @@ StartCombat is called 938 times in the masters' scripts: quest fights now start 
   dodging and power attacks of NPCs, grenades and explosives, combat barks (§12.10).
 - StartCombat's group case; OnStartCombat / OnCombatEnd blocks; crimes
   (SendAssaultAlarm).
-- The original's death camera and reloading the last save.
+- Reloading the last save after the death; whether the original's death camera plays
+  an image space modifier, and which.
 - Weapon choice among several; ammunition use.
 
 ## 9. How fighters look (step CA2)

@@ -1219,11 +1219,51 @@ stopped and started, as Victor's walk had before #258). Code:
 - **Deathclaw's walk**: its walk clip is `locomotion\mtfoward.kf` (sequence Forward, 120
   units/s) [observed]; `clip_candidates` looks for that spelling last, so deathclaws now
   have a walk.
-- **Not done**: the alert look of creatures without `h2h` movement clips (deathclaws,
-  ghouls: by the owner, "like they are drawing a weapon, i.e. the hands", their
-  `h2hequip.kf` and `h2haim.kf` over the legs); speeds of a creature not yet drawn (it
-  moves at the people's speeds until its clips load); creature turn speed (CREA `TNAM`,
-  §8.9).
+- **Alert look** (`engine/nvforever/src/creature_stance.rs`) [design on the owner's
+  description, 2026-10-16: "it's like they are drawing a weapon, i.e. the hands"]: a
+  creature that is alerted (Alert, Combat, Lost, or SetAlert; as people draw their
+  weapons, alert.md §5) plays its `h2hequip.kf` once, then holds `h2haim.kf` over its
+  locomotion by track priority; calm again, `h2hunequip.kf` (else `h2hholster.kf`) once,
+  then its locomotion alone. The draw cycle is the weapons' (`WeaponAnim`, §9.4) on blend
+  layers 2 and 3; a creature needs no `Weapon` node and gets no `WeaponHold`, so its
+  attacks are found as before (`attack_anims.rs`) and play over the aim (layers 4 and 5).
+  At rest none of its stance plays: the creatures' holster clips are whole-body poses.
+  Creatures with an `h2h` movement set (cazador, dog, mirelurk king, above) are left
+  out: that set is their alert look [design]. With the stance a dog that stopped at the
+  player (body gap 5–17 units, measured from the posed torso, `npc_combat`) was 27–42
+  away moments later, past the 24-unit hit gap, and ran in again: 7 blows instead of 15
+  in smoke `combat-dogs` [observed in NVForever, 2026-10-16; hypothesis: the dog's aim
+  pose holds its torso further back than its idle].
+  - Which creatures [observed: `Fallout - Meshes.bsa` listing]: the 25 creature folders
+    with `h2haim.kf` at their root, all with `h2hequip.kf` and `h2hunequip.kf` except
+    `nvsporeplant` (aim only): brahmin, centaur, deathclaw, dog, ghoul, giantant,
+    mirelurk, mirelurkking, molerat, nightstalker, nvbighorner, nvcazadores, nvgecko,
+    nvgiantrat, nvmantis, nvsecuritron, nvsporecarrier, nvsporeplant, protectron,
+    queenant, radroach, radscorpion, smbehemoth, smspinebreaker, yaoguai.
+  - Priorities [observed: `kf_layer_survey`]: the aim clips sit under the walk and run
+    clips (priority 30 on every bone): deathclaw aim legs and tail 20, spine and upper
+    arms 30, forearms and hands 35 (its `mtidle.kf` is 20 throughout); ghoul legs 25,
+    spine and upper arms 30, hands 35 (idle 20); dog 25, cazador 21, mirelurk king 20.
+    So a moving creature keeps its legs (and shares its spine and upper arms with the
+    aim at equal priority, §9.4 blending) and raises its forearms and hands; a standing
+    one takes the aim's pose (the deathclaw's legs half its idle's, both at 20).
+    Equip and unequip: deathclaw legs 25, upper body 55; ghoul equip (3.0 s) 55 on
+    every bone, legs included, so a ghoul that runs at once slides with still legs for
+    the equip's length; cazador equip 33
+    throughout [observed; whether the original holds a creature still meanwhile is
+    open].
+  - Seen in NVForever [observed: smoke `creature-alert-stance` and
+    `creature-alert-stance-ghoul`, screenshots not committed, 2026-10-16]: calm, the
+    deathclaw's arms hang and the ghoul stands upright; alerted, the deathclaw raises
+    its claws over its shoulders and the ghoul hunches with its hands raised; both go
+    back after the unequip clip. Deathclaws fighting a feral ghoul play their attacks
+    with the stance drawn.
+- **Not done**: the aim's up and down forms for creatures that have them (ghoul,
+  protectron, smbehemoth, smspinebreaker: `h2haimup.kf`, `h2haimdown.kf`; people's are
+  in `attack_anims.rs`); the creature alert look is not compared with the original game
+  (when the equip plays, whether a creature stops for it); speeds of a creature not yet
+  drawn (it moves at the people's speeds until its clips load); creature turn speed
+  (CREA `TNAM`, §8.9).
 
 ## 9. Weapons: holstering and drawing (part H)
 
@@ -1251,7 +1291,7 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
 |---|---|---|---|---|
 | `h2h` | Hand to Hand | 0.40 / 0.37 | `Bip01 R ForeTwist` | `Bip01 R ForeTwist` |
 | `1hm` | Melee (1 Hand) | 0.90 / 1.10 | `Bip01 Pelvis` | `Bip01 R Hand` |
-| `2hm` | Melee (2 Hand) | 1.20 / 1.20 | `Bip01 Spine2` | `Bip01 L Hand` |
+| `2hm` | Melee (2 Hand) | 1.20 / 1.20 | `Bip01 Spine2` | `Bip01 R Hand` (its aim clip names `Bip01 L Hand`, animation.md §9.10) |
 | `1hp` | Pistol (Ballistic, Energy) | 0.37 / 0.47 | `Bip01 Pelvis` | `Bip01 R Hand` |
 | `2hr` | Rifle (Ballistic, Energy) | 0.67 / 0.83 | `Bip01 Spine2` | `Bip01 R Hand` |
 | `2ha` | Rifle - Automatic | 1.00 / 0.83 | `Bip01 Spine2` | `Bip01 R Hand` |
@@ -1280,12 +1320,18 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
   `prn: Bip01 R Hand` at 0.13 s), unequip clips on the holster bone (`1hpunequip`:
   `prn: Bip01 Pelvis` at 0.20 s), holster clips name the holster bone. `Attach`/`Detach`
   come close to the `prn:` keys but not always in the same order (`2haequip`: `Attach`
-  0.37 s, `prn: Bip01 R Hand` 0.93 s); they are not used.
+  0.37 s, `prn: Bip01 R Hand` 0.93 s). The clips' `Weapon` track jumps from the holster
+  pose to the hand pose at `Attach` and back at `Detach`, not at the `prn:` keys
+  [observed: animation.md §9.10].
 - Engine rule (`fnv_actor::weapon::mount_bones`, `WeaponAnim::parent`): holstered, the
   weapon hangs from the holster clip's last `prn:` bone (else the unequip clip's); drawn,
-  from the aim clip's (else the equip clip's, else `Weapon`'s skeleton parent); while
-  equipping or unequipping, from the last `prn:` bone the clip has passed, starting from
-  where it was.
+  from the equip clip's (else the aim clip's, else `Weapon`'s skeleton parent), as the
+  player body; while equipping or unequipping, it changes from one to the other at the
+  clip's `Attach` / `Detach` key (a clip without one: the last `prn:` bone it has
+  passed, starting from where it was). Until 2026-10-16 the drawn bone was the aim
+  clip's and the change came at the `prn:` keys: NPCs held the baseball bat end over
+  end (hung from the left hand, owner's playtest 2026-10-16), and every stance's weapon
+  sat in the wrong place between the `prn:` key and `Attach` / `Detach`.
 - That NPCs show holstered weapons at the pelvis or on the back is [hypothesis, from the
   holster clips]; an in-game screenshot of an NPC with a holstered pistol and one with a
   rifle would settle it.

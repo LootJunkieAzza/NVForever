@@ -194,6 +194,10 @@ impl Game<'_> {
         if self.extra.get(&actor).is_some_and(|e| e.force_sneak) {
             return true;
         }
+        // Crouched to reload in a weapon use (`crate::use_weapon`).
+        if self.weapon_uses.get(&actor).is_some_and(|w| w.crouched) {
+            return true;
+        }
         use crate::package::flags;
         let fighting = self.awareness.state(actor) == crate::awareness::State::Combat;
         self.package_has(actor, flags::ALWAYS_SNEAK) && (!fighting || self.package_has(actor, flags::CONTINUE_DURING_COMBAT))

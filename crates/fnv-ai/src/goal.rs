@@ -275,11 +275,11 @@ fn route_from(game: &Game, start: FormId, repeatable: bool) -> Option<Route> {
 pub fn resolve(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
     let refs = game.world.placed;
     match def.ty {
-        PackageType::Travel | PackageType::Sandbox | PackageType::Sleep | PackageType::Eat | PackageType::Guard | PackageType::Wander | PackageType::Patrol => {}
+        // A Use Weapon package stands at its location to shoot (`fnv_game::use_weapon`).
+        PackageType::Travel | PackageType::Sandbox | PackageType::Sleep | PackageType::Eat | PackageType::Guard | PackageType::Wander | PackageType::Patrol | PackageType::UseWeapon => {}
         PackageType::Follow | PackageType::Accompany => return follow(game, actor, def),
         PackageType::Escort => return Goal::NotCarriedOut("a package that leads its target"),
         PackageType::Dialogue => return talk(game, nav, actor, def),
-        PackageType::UseWeapon => return Goal::NotCarriedOut("a use-weapon package"),
         PackageType::Find | PackageType::UseItemAt => return Goal::NotCarriedOut("a package that searches for or uses an object"),
         PackageType::Ambush | PackageType::FleeNotCombat => return Goal::NotCarriedOut("an ambush or flee package"),
         PackageType::Other(_) => return Goal::NotCarriedOut("an unknown package type"),
