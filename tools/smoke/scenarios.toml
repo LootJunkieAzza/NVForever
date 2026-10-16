@@ -975,7 +975,7 @@ expect = [
   { re = 'talk gesture: GSJoeCobbRef talks \(TrudyRef, line 0x00105219 .* by DialogueIdles > NPCtoNPC > NPCTalking > AngerTalk > ', label = "Joe Cobb's angry line: an anger talk clip of the NPC-to-NPC branch" },
   { re = 'talk gesture: GSJoeCobbRef listens \(TrudyRef, line 0x00105218 .* by DialogueIdles > NPCtoNPC > NPCListening > ', label = "Joe Cobb listens to Trudy's answer" },
   { re = 'idle: TrudyRef plays LooseStandingArmsFolded .*\(Listener\)', label = "Trudy's line idles (LNAM, SNAM) play instead of gestures" },
-  { re = 'talk gesture: TrudyRef ', count = 0, label = "no gesture for Trudy while her own line idles play" },
+  { re = 'talk gesture: TrudyRef (talks|listens) ', count = 0, label = "no gesture for Trudy while her own line idles play" },
 ]
 
 [[scenario]]

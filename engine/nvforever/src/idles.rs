@@ -619,9 +619,14 @@ pub fn drive(
         // frame: it comes first. A gesture goes on until the part changes.
         let other = playing.is_some_and(|p| p.source != IdleSource::Gesture) || asked_now.contains(&actor);
         let gesture_on = playing.is_some_and(|p| p.source == IdleSource::Gesture);
-        // Walking, or turning on the spot to face the other (the turn clips step the feet).
-        let busy_body = lo.is_some_and(|l| l.velocity != [0.0; 2] || l.turn != 0.0);
+        // Walking, or turning on the spot to face the other fast enough for the turn
+        // clips (they step the feet; the walker's heading noise is far below it).
+        let busy_body = lo.is_some_and(|l| l.velocity != [0.0; 2] || l.turn.abs() > fnv_actor::locomotion::TURN_RATE);
         if other || busy_body || (gesture_on && !changed) || (g.retry > 0.0 && !changed) {
+            if changed && (other || busy_body) {
+                let why = if other { "another idle plays" } else if lo.is_some_and(|l| l.velocity != [0.0; 2]) { "it walks" } else { "it turns on the spot" };
+                info!("talk gesture: {} waits: {why}", game.data.name(part.actor));
+            }
             continue;
         }
         let (clock, last, data) = (st.clock, &st.fidget_last, game.data);

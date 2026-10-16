@@ -550,8 +550,10 @@ menu (`MenuMode 1009 == 1`). Below it, in order (conditions abridged):
   (INFO `SNAM`, `LNAM`), or any other idle asked for (a script's `PlayIdle`), replaces
   the gesture as idles replace each other (cross-faded), and no gesture is picked while
   it plays; when it ends the next gesture is picked. The gestures wait while the actor
-  walks or turns on the spot to face the other (the turn clips step the feet), and end
-  when it walks or the conversation ends.
+  walks or turns on the spot to face the other faster than 15°/s, the rate at which
+  the locomotion plays its turn clips (they step the feet), and end when it walks or
+  the conversation ends. (The AI's walker reports a turn rate from frame to frame;
+  a test against exactly 0 kept Chet waiting a whole conversation.)
 - **Furniture** [from the data]: a seated actor goes into `FurnitureIdles` first, so it
   gets the chair's talk and listen clips, laid over its sitting clip as the speaker
   idles already are (§7). An actor whose furniture branch gives a leaf outside the
@@ -562,7 +564,9 @@ menu (`MenuMode 1009 == 1`). Below it, in order (conditions abridged):
   goes on underneath the turn toward the player.
 - Log: one line per gesture picked, `talk gesture: <actor> talks|listens (<the other>,
   line <INFO> response <n>): <idle> by <root> > … > <idle>`; the idle itself is logged at
-  debug level (`idle: … plays …`). At exit: `talk gesture summary: N gestures picked
+  debug level (`idle: … plays …`). When a new part starts and the gesture must wait:
+  `talk gesture: <actor> waits: another idle plays | it walks | it turns on the spot`.
+  At exit: `talk gesture summary: N gestures picked
   while talking, M while listening; K walks of the tree gave none`. Gestures are not
   counted in the `idle summary` line.
 - Checks: `fnvtool actor gestures` (headless: the actor put in a conversation with the
