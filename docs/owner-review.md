@@ -4940,8 +4940,15 @@ what to check in game.
 - **31 Friendly alert range:** an actor that starts fighting or notices a hostile alarms its
   allies within 4,096 units (was 2,048). *Guess:* the number. *Check:* Goodsprings
   settlers joining from across the town.
-- **33 Facing:** NPCs the AI moves attack only with the target within 30° of straight ahead
-  (they turn first); actors without `--npc-packages` fire as before. *Guess:* 30°.
+- **33 Facing:** gunmen the AI moves fire only with the target within 30° of straight ahead
+  (they turn first); blows and bites are not held back, and actors without
+  `--npc-packages` fire as before. People in Combat on the move (closing in, to cover, to
+  a flank) are now drawn facing their target and step sideways or backwards with the
+  locomotion clips for those directions, so they can fire as they go. *Guesses:* 30°;
+  the turn to the target at twice the walking turn rate. *Check:* NCR troopers against
+  Cook-Cook's Fiends: nobody firing while looking away, and how the sideways steps look.
+  Note: in two runs of `combat-cover` after the facing rule no fighter took cover (the
+  cover roll is by chance; before the strafing the troopers lost the fight quickly).
 - **34 Package flags.** Done: Weapon Drawn (drawn during the package: Sunny runs to the
   wells with her rifle out), Weapons Unequipped (holstered and hidden unless fighting),
   HeadTracking Off (no head tracking unless a conversation or script look forces it),

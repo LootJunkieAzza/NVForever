@@ -315,6 +315,9 @@ struct Resident {
     /// The space its walker was in at the last frame (the space of a door it has just
     /// gone through).
     last_space: Option<Space>,
+    /// The heading it is drawn with while it fights on the move, facing its target
+    /// (`Core::aims`), until it is back on the walker's.
+    aim_heading: Option<f32>,
 }
 
 /// ACBS flag bit 5, "Flies" [documented: xEdit wbDefinitionsFNV.pas CREA ACBS, schema
@@ -416,6 +419,10 @@ struct Core {
     staggering: HashSet<u32>,
     /// Load doors used since the last frame: actor, door, the door it leads to.
     door_uses: Vec<(FormId, u32, u32)>,
+    /// People in Combat on their way somewhere (closing in, to cover, a flank): where
+    /// their target is. They are drawn facing it and step sideways or back as they go,
+    /// so they can fire on the move (owner's playtest list 5 item 33) [design].
+    aims: HashMap<FormId, [f32; 3]>,
 }
 
 #[derive(Resource)]
@@ -490,6 +497,7 @@ impl Residents {
             held_now: false,
             staggering: HashSet::new(),
             door_uses: Vec::new(),
+            aims: HashMap::new(),
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -607,6 +615,7 @@ impl Core {
             perched: false,
             moved: false,
             last_space: None,
+            aim_heading: None,
         });
     }
 
@@ -856,6 +865,15 @@ impl Core {
             info!("ai [{}] {}: {} {n} doors of its cell ({})", self.clock_text, game.data.name(actor), if locked { "locks" } else { "unlocks" }, game.data.name(package));
         }
         self.tell(game, world);
+        // Fighters on the move face their target.
+        self.aims.clear();
+        for r in self.list.iter().filter(|r| !r.creature) {
+            let Some(a) = self.ai.agents.get(&r.actor).filter(|a| a.activity == Activity::Travelling) else { continue };
+            let Some((target, _)) = game.awareness.get(r.actor).filter(|x| x.state == fnv_game::awareness::State::Combat).and_then(|x| x.combat_target()) else { continue };
+            if let Some(p) = fnv_ai::goal::place_of_ref(game, target).filter(|p| p.space == a.walker.space) {
+                self.aims.insert(r.actor, p.pos);
+            }
+        }
         self.no_room.retain(|_, until| now < *until);
         self.note(game, blocks, &held, now);
     }
@@ -1370,8 +1388,28 @@ pub fn drive(
             (None, true) => Some((w.heading, w.feet)),
             (_, false) => None,
         };
+        // A fighter on the move is drawn turning to face its target; afterwards it turns
+        // back to its walker's heading, at the walking turn rate either way.
+        let heading = match (core.aims.get(&r.actor), r.aim_heading) {
+            (Some(t), from) => {
+                let want = heading_of([t[0] - feet[0], t[1] - feet[1]]);
+                let h = turn_towards(from.unwrap_or(w.heading), want, fnv_nav::follow::WALK_TURN_RATE * 2.0 * dt);
+                r.aim_heading = Some(h);
+                h
+            }
+            (None, Some(from)) if heading_delta(from, w.heading).abs() > 0.05 && !on => {
+                let h = turn_towards(from, w.heading, fnv_nav::follow::WALK_TURN_RATE * 2.0 * dt);
+                r.aim_heading = Some(h);
+                h
+            }
+            _ => {
+                r.aim_heading = None;
+                w.heading
+            }
+        };
+        let strafe = r.aim_heading.is_some();
         let stage = (&mut r.spawned, &mut r.root);
-        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale }, stage, (feet, w.heading), moving, dt) {
+        if let Err(e) = nav::show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, nav::Who { reference: r.actor.0, base: r.base, creature: r.creature, scale: r.scale, strafe }, stage, (feet, heading), moving, dt) {
             if r.named {
                 warn!("ai: {} could not be drawn ({e})", r.label);
             }
