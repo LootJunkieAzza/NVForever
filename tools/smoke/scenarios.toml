@@ -845,6 +845,8 @@ expect = [
   # playtest list 5 item 40: that clip's Bip01 starts 52 units beside the seat; it is played from the seat.
   { re = 'furniture: 00104C0F: SpecialIdle_DocSitLeftExit starts (?P<n>\d+) units from where the body sits: played from the seat', range = [40, 100], label = "Doc Mitchell's exit played from his seat" },
   { text = "pointer: hidden (an idle drives the view)", label = "no mouse pointer while the wake-up drives the view (owner 2026-10-16)" },
+  # owner 2026-10-16: let go at the start marker after the stand-up, the character rose onto the bed frame (z 7381); the floor is at 7361.
+  { re = 'player view: a second after the idle the character stands at \(-?\d+, -?\d+, (?P<n>-?\d+)\)', range = [7355, 7366], label = "on the floor beside the bed after the stand-up, not on the bed frame" },
 ]
 
 [[scenario]]
