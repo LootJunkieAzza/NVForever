@@ -310,7 +310,7 @@ pub fn spawn(root: &mut ChildSpawnerCommands, m: &MenuModel, note: Option<&str>,
         match (m.mode, &m.trade) {
             (Mode::Barter(_), Some(t)) => {
                 if let Some(flow) = barter::flow(t.balance) {
-                    caps_flow(p, &mut c, flow, t.balance.unsigned_abs());
+                    caps_flow(p, &mut c, flow, t.balance.unsigned_abs(), t.affordable());
                 }
             }
             (Mode::Container(_), _) if m.selected_row(m.focus).is_some() => {
@@ -419,8 +419,10 @@ fn list(p: &mut ChildSpawnerCommands, c: &mut Ctx, m: &MenuModel, side: Side, x0
     });
 }
 
-fn caps_flow(p: &mut ChildSpawnerCommands, c: &mut Ctx, flow: Flow, caps: u64) {
-    let bright = amber(255.0);
+/// The arrow and the caps figure between the lists, dimmed when the side that pays has
+/// too few caps [design: the owner's request; Accept is refused then].
+fn caps_flow(p: &mut ChildSpawnerCommands, c: &mut Ctx, flow: Flow, caps: u64, affordable: bool) {
+    let bright = amber(255.0).with_alpha(if affordable { 1.0 } else { DIM });
     let sell = flow == Flow::Sell;
     let rect_x = FLOW_X + if sell { 20.0 } else { 0.0 };
     let name = if sell { "barter_arrow_sell.dds" } else { "barter_arrow_buy.dds" };
