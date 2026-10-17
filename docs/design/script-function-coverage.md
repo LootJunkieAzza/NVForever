@@ -181,9 +181,10 @@ The ranked table is in §6. Read with it:
    measures the player's own detection (§3.2) and fights between NPCs far away. Most uses
    are near the player, so this is a correctness gap more than a blocker; the player as a
    detector is the cheaper half (the engine's detection pass, with the player as detector).
-2. **NPC equipment drawn from the rules** (EquipItem, UnequipItem; 82 quests, the intro
-   chain among them): scripts dress and arm NPCs (Doc Mitchell, companions) and the engine
-   ignores it. Needs the engine to draw what the rules have equipped (audit §5).
+2. ~~**NPC equipment drawn from the rules**~~ (EquipItem, UnequipItem; 82 quests, the intro
+   chain among them): built 2026-10-17 (PR #374): the engine draws what the rules have
+   equipped and redraws on EquipItem/UnequipItem (audit §5). The tables below are from
+   before it until they are generated again.
 3. **Actor abilities and worn enchantments as effects** (IsSpellTarget, HasMagicEffect,
    RemoveSpell; 80 quests, VMQ03 and Ring-a-Ding-Ding among them).
 4. **Corpses stood up again** (ResurrectActor; 76 quests, Yes Man's resurrections and
@@ -225,7 +226,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | # | System | Kind | Quests | Calls / cond. in them | All calls / cond. | Functions | Main quest | Companions |
 |---|---|---|---|---|---|---|---|---|
 | 1 | detection beyond the player's reach; the player as a detector | wrong | 153 | 568 / 132 | 430 / 241 | GetDetected, GetLineOfSight, IsInCombat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle), VMQ02 (Render Unto Caesar), VMQ05 (For the Republic, Part 2), VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management) and 1 more | VCassCompanion (Heartache by the Number), VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue) and 8 more |
-| 2 | NPC equipment drawn from the rules | wrong | 82 | 275 / 0 | 250 / 0 | EquipItem, UnequipItem | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle), VMQ03bTimer (VMQ03b Timer) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog), VDialogueVeronica (Veronica Dialogue) and 2 more |
+| 2 | ~~NPC equipment drawn from the rules~~ (built, PR #374) | fixed | 82 | 275 / 0 | 250 / 0 | EquipItem, UnequipItem | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle), VMQ03bTimer (VMQ03b Timer) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog), VDialogueVeronica (Veronica Dialogue) and 2 more |
 | 3 | actor abilities and worn enchantments as effects | wrong | 80 | 326 / 35 | 220 / 42 | HasMagicEffect, IsSpellTarget, RemoveSpell | VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQTops (Ring-a-Ding-Ding!) and 1 more | VDialogueCass, VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest), vDialogueLily (Lily's Dialogue) |
 | 4 | corpses stood up again | wrong | 76 | 603 / 0 | 515 / 0 | ResurrectActor | VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management), VMQYesManSupport (Scripting for Yes Man positioning and resurrections) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog) and 6 more |
 | 5 | knockdowns and knock-outs | no-system | 64 | 196 / 10 | 282 / 134 | GetKnockedState, GetUnconscious, PushActorAway, SetUnconscious | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ01 (They Went That-a-Way) | - |
@@ -324,7 +325,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | EnableNavMesh | 0x11C0 | 5 / 0 | no-system | navmesh switches | - | Stub. |
 | EnablePlayerControls | 0x1060 | 177 / 0 | match | - | - |  |
 | EnterTrigger | 0x11BA | 160 / 0 | match | - | - |  |
-| EquipItem | 0x10EE | 199 / 0 | wrong | NPC equipment drawn from the rules | - | The rules' flags change; the engine dresses NPCs by its own roll and does not redraw (audit §5). |
+| EquipItem | 0x10EE | 199 / 0 | match | - | - | The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]. |
 | EvaluatePackage | 0x105E | 2285 / 0 | match | - | - |  |
 | Exists | 0x119F | 0 / 21 | match | - | - |  |
 | ExitGame | 0x11B5 | 1 / 0 | wrong | quitting from scripts | - | Stub, 1 call; the console's qqq exists. |
@@ -671,7 +672,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SystemSave | 0x127B | 5 / 0 | wrong | saves from scripts | - | Stub; saves and Autosave exist. |
 | trapUpdate | 0x110C | 1 / 0 | no-system | trap updates | - | Stub; the catalogue says nothing. |
 | TriggerScreenSplatter | 0x1240 | 8 / 0 | no-system | screen blood splatter | - | Stub. |
-| UnequipItem | 0x10EF | 51 / 0 | wrong | NPC equipment drawn from the rules | - | As EquipItem. |
+| UnequipItem | 0x10EF | 51 / 0 | match | - | - | As EquipItem. |
 | Unlock | 0x1073 | 450 / 0 | match | - | - | On a terminal: it opens at its menu [documented: GECK wiki Unlock]; GetLocked 0, GetLockLevel -1 [observed: probes]. |
 | UnlockChallenge | 0x125E | 44 / 0 | match | - | - |  |
 | UseWeapon | 0x119C | 13 / 0 | match | - | - |  |
