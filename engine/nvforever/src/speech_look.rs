@@ -30,7 +30,7 @@
 //! why not the body); at exit a summary line.
 
 use crate::dialogue_look::{heading_deg, yaw_pitch, BodyHeld, BodyTurn, Looks};
-use crate::head_look::{HeadLookSettings, LookAt, LookOverride};
+use crate::head_look::{HeadLook, HeadLookSettings, LookAt, LookOverride};
 use crate::limbs::ActorRig;
 use crate::locomotion::{Dying, Locomotion, WalkTest};
 use crate::nav::NavState;
@@ -125,6 +125,7 @@ pub(crate) fn face(
     talk: Option<Res<Looks>>,
     mut looks: ResMut<SpeechLooks>,
     actors: Query<Actor>,
+    heads: Query<&HeadLook>,
     mut locos: Query<&mut Locomotion>,
     globals: Query<&GlobalTransform>,
     mut transforms: Query<&mut Transform>,
@@ -195,8 +196,13 @@ pub(crate) fn face(
     for ((who, to, info), entity) in ended {
         looks.begun.remove(&(who, to, info));
         // For the log: how far it ended up from facing the other.
+        // And where its head was turned: how far from the other's eyes (a head at its
+        // limit falls short).
+        let head = heads.get(entity).ok().and_then(HeadLook::off_target).map_or_else(String::new, |(y, p)| {
+            format!("; its head is {:+.0}° to the right of them and {:+.0}° above", y.to_degrees(), p.to_degrees())
+        });
         if let Some(off) = off_now(entity, FormId(to)) {
-            info!("speech look: line {info:08X} over: {} has {} {:+.0}° off its front", name(FormId(who)), name(FormId(to)), off.to_degrees());
+            info!("speech look: line {info:08X} over: {} has {} {:+.0}° off its front{head}", name(FormId(who)), name(FormId(to)), off.to_degrees());
         }
     }
     for f in &facings {

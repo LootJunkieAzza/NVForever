@@ -1347,16 +1347,27 @@ fn place_lens(rig: &Rig, eye: Vec3, forward: Vec3, k: f32, transforms: &mut Quer
 /// Pose the third-person rig with a furniture clip alone and place it at `root`
 /// (`crate::furniture`); returns the eye. The clips of one use play in different frames,
 /// so a new clip replaces the last at once instead of fading in.
-fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, dt: f32, root: Transform, transforms: &mut Query<&mut Transform>) -> Option<Vec3> {
+fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, special: &IdleSlot<Arc<Clip>>, dt: f32, root: Transform, transforms: &mut Query<&mut Transform>) -> Option<Vec3> {
     let a = &mut rig.animator;
     let mode = if o.looped { Mode::Loop } else { Mode::Once };
     if rig.furniture != Some(o.serial) {
-        a.layers.clear();
+        a.layers.retain(|l| l.tag >= TAG_SPECIAL);
         a.restart(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
         rig.furniture = Some(o.serial);
     }
     a.begin();
     a.want(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+    // Over it the idle the body plays there (a fidget on furniture, `idles.rs`), as
+    // `pose_rig` lays them.
+    for (p, w) in special.shown() {
+        let newest = special.cur.as_ref().is_some_and(|c| c.serial == p.serial);
+        let i = a.want(&p.clip, TAG_SPECIAL + p.serial % 1000, if newest { 1.0 } else { w }, Mode::Once, p.play.keys.blend_in);
+        let l = &mut a.layers[i];
+        (l.rate, l.time) = (0.0, p.play.time());
+        if !newest {
+            l.weight = w;
+        }
+    }
     a.end();
     a.advance(dt, 1.0);
     a.pose();
@@ -1629,7 +1640,7 @@ fn drive_body(
         // unless the body is wanted in first person: then all but its head is, and the
         // view turns only as far as a neck does, so it never looks into the body.
         let root = Transform { translation: Vec3::from_array(o.pos), rotation: Quat::from_rotation_z(-o.heading), scale: Vec3::splat(body.scale) };
-        let mut eye = pose_furniture(&mut body.third, o, dt, root, &mut transforms);
+        let mut eye = pose_furniture(&mut body.third, o, &idles.third, dt, root, &mut transforms);
         let pelvis = body.third.animator.skel.by_name.get("Bip01 Pelvis").copied();
         // A body on a bed: the frame it lies in is its pelvis's.
         let lying = o.lying.then(|| pelvis.map_or(root.rotation, |b| bone_turn(&body.third, b, o.heading)));
@@ -1815,9 +1826,12 @@ fn drive_body(
         reload_round_now,
         spin_now,
     };
-    let root = Transform { translation: Vec3::from_array(feet), rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
+    // The body stands on the ground under the feet, the rest gap below them
+    // (`nvf_play::phys::drawn_sink`); its eye counts from the feet as before.
+    let sink = Vec3::Z * phys.player.as_ref().map_or(0.0, nvf_play::phys::drawn_sink);
+    let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None };
-    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e);
+    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);
     let (held, pitch, at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
     if let Some(h) = idles.held {
         // The character stays where the scene plays (and collides with nothing there).
@@ -1871,7 +1885,7 @@ fn drive_body(
         if let (false, Some(h)) = (m.hands.in_hand, body.third.head) {
             let head = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation) * body.third.animator.model_space(h);
             let right = Vec3::new(player.heading.cos(), -player.heading.sin(), 0.0);
-            let neck = Vec3::from(head.translation);
+            let neck = Vec3::from(head.translation) + sink;
             e = neck + Quat::from_axis_angle(right, NECK_PITCH * player.pitch) * (e - neck);
         }
         Some(e)

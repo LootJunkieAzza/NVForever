@@ -34,6 +34,7 @@ pub fn probe(
     cams: Query<&GlobalTransform, With<Camera3d>>,
     roots: Query<(&Name, &GlobalTransform, &InheritedVisibility, &ActorRig)>,
     nodes: Query<&GlobalTransform>,
+    bodies: Query<(&Name, &GlobalTransform), Without<ActorRig>>,
     world: Option<Res<WorldData>>,
 ) {
     if p.done || time.elapsed_secs() < p.at {
@@ -57,6 +58,7 @@ pub fn probe(
             .reduce(f32::min);
         let ground = world.as_deref().and_then(|w| land_height(w, root.x, root.y));
         let fmt = |v: Option<f32>| v.map_or("-".to_string(), |v| format!("{v:.0}"));
+        let fmt1 = |v: Option<f32>| v.map_or("-".to_string(), |v| format!("{v:.1}"));
         info!(
             "actor feet: {} at ({:.0}, {:.0}, {:.0}): lowest foot bone z {}, drawn landscape z {}, root {} above it",
             name.as_str().trim_start_matches("Actor "),
@@ -65,10 +67,19 @@ pub fn probe(
             root.z,
             fmt(foot),
             fmt(ground),
-            fmt(ground.map(|g| root.z - g)),
+            fmt1(ground.map(|g| root.z - g)),
         );
         n += 1;
         lifted += usize::from(foot.is_some_and(|f| f - root.z > LIFTED));
+    }
+    // The player's own body (third-person rig), where it is drawn over the landscape.
+    for (name, gt) in &bodies {
+        if name.as_str() == "Player body (Third person)" {
+            let root = bevy_to_game(gt.translation());
+            let ground = world.as_deref().and_then(|w| land_height(w, root.x, root.y));
+            let above = ground.map_or("-".to_string(), |g| format!("{:.1}", root.z - g));
+            info!("actor feet: player body at ({:.0}, {:.0}, {:.1}): drawn landscape z {}, root {above} above it", root.x, root.y, root.z, ground.map_or("-".to_string(), |g| format!("{g:.1}")));
+        }
     }
     info!("actor feet: {n} actors within {:.0} units of the camera, {lifted} with a foot bone over {LIFTED} units above the root", p.range);
 }

@@ -96,6 +96,15 @@ fn show_hits_and_deaths(
             // Of this frame's hits (a shotgun's pellets), the crippling one comes first.
             let mine = || fresh.iter().rev().filter(|h| h.form_id == r.0);
             let since = flinch.map(|f| now - f.at - f.clip.clip.length());
+            // A power attack that broke its block staggers it whatever was hit, with the
+            // torso's reaction (combat-rules.md §12) [design].
+            if mine().any(|h| h.guard_broken) {
+                if let Some(c) = lo.set.flinch_for(0) {
+                    info!("hit reaction: {:08X} staggers for {:.1} s (its block broken by a power attack)", r.0, c.clip.length());
+                    commands.entity(e).insert(Flinch { clip: c, at: now });
+                }
+                continue;
+            }
             let Some(h) = mine().find(|h| h.crippled).or_else(|| mine().find(|h| h.part_crippled)) else { continue };
             if !fnv_combat::damage::staggers(&tuning, h.crippled, h.part_crippled, since) {
                 continue;

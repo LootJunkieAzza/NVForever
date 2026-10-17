@@ -32,6 +32,10 @@ pub const YAW_LIMIT_MAX: f32 = 80.0 * PI / 180.0;
 /// The largest tilt of the head up and down [design].
 pub const PITCH_UP_LIMIT: f32 = 30.0 * PI / 180.0;
 pub const PITCH_DOWN_LIMIT: f32 = 25.0 * PI / 180.0;
+/// How far the neck bends at most against the bone above it, up and down: the pitch
+/// limits widen by the spine's lean up to these ([`leaning_limits`]) [design].
+pub const NECK_UP_MAX: f32 = 75.0 * PI / 180.0;
+pub const NECK_DOWN_MAX: f32 = 60.0 * PI / 180.0;
 /// A target further round than this (nearly straight behind) keeps the side the head
 /// was turned to, so the head does not flip from one shoulder to the other [design].
 pub const BEHIND: f32 = 150.0 * PI / 180.0;
@@ -128,6 +132,25 @@ pub fn sided(yaw: f32, before: Option<f32>) -> f32 {
 pub fn limited(want: (f32, f32), yaw_limit: f32) -> (f32, f32) {
     let y = yaw_limit.abs();
     (want.0.clamp(-y, y), want.1.clamp(-PITCH_DOWN_LIMIT, PITCH_UP_LIMIT))
+}
+
+/// The pitch limits, down and up (both positive), against a bone above the neck that
+/// leans `lean` radians (its forward's elevation: negative leaning forward, as a seated
+/// actor hunches): [`PITCH_DOWN_LIMIT`] and [`PITCH_UP_LIMIT`] stay measured from the
+/// level, so a forward lean lets the head lift further against the spine and a lean back
+/// lets it drop further, each never past what a neck bends ([`NECK_UP_MAX`],
+/// [`NECK_DOWN_MAX`]) and never narrower than upright [design: owner report 2026-10-16,
+/// Doc Mitchell seated in the opening looked at the floor while talking to the player].
+pub fn leaning_limits(lean: f32) -> (f32, f32) {
+    let lean = if lean.is_finite() { lean } else { 0.0 };
+    ((PITCH_DOWN_LIMIT + lean).clamp(PITCH_DOWN_LIMIT, NECK_DOWN_MAX), (PITCH_UP_LIMIT - lean).clamp(PITCH_UP_LIMIT, NECK_UP_MAX))
+}
+
+/// [`limited`] for a bone above the neck that leans `lean` radians ([`leaning_limits`]).
+pub fn limited_leaning(want: (f32, f32), yaw_limit: f32, lean: f32) -> (f32, f32) {
+    let y = yaw_limit.abs();
+    let (down, up) = leaning_limits(lean);
+    (want.0.clamp(-y, y), want.1.clamp(-down, up))
 }
 
 /// The yaw limit for an actor whose data asks for `asked` degrees (the body part data's
@@ -299,6 +322,26 @@ mod tests {
         assert!(close(yaw_limit(Some(60.0)), d(60.0)) && close(yaw_limit(Some(35.0)), d(35.0)));
         assert!(close(yaw_limit(None), YAW_LIMIT) && close(yaw_limit(Some(0.0)), YAW_LIMIT) && close(yaw_limit(Some(f32::NAN)), YAW_LIMIT));
         assert!(close(yaw_limit(Some(180.0)), YAW_LIMIT_MAX));
+    }
+
+    #[test]
+    fn a_leaning_spine_widens_the_pitch_limits_up_to_the_neck() {
+        let d = f32::to_radians;
+        // Upright: the plain limits.
+        assert_eq!(leaning_limits(0.0), (PITCH_DOWN_LIMIT, PITCH_UP_LIMIT));
+        assert_eq!(limited_leaning((d(20.0), d(80.0)), YAW_LIMIT, 0.0), limited((d(20.0), d(80.0)), YAW_LIMIT));
+        // Hunched 35° forward (seated): the head lifts 30° above the level, 65° against
+        // the spine; looking down is no narrower than upright.
+        let (down, up) = leaning_limits(d(-35.0));
+        assert!(close(up, d(65.0)) && close(down, PITCH_DOWN_LIMIT));
+        assert!(close(limited_leaning((0.0, d(55.0)), YAW_LIMIT, d(-35.0)).1, d(55.0)));
+        // Bent double: no further than the neck goes.
+        assert!(close(leaning_limits(d(-80.0)).1, NECK_UP_MAX));
+        // Leaning back: the head drops further, up to the neck.
+        let (down, up) = leaning_limits(d(20.0));
+        assert!(close(down, d(45.0)) && close(up, PITCH_UP_LIMIT));
+        assert!(close(leaning_limits(d(60.0)).0, NECK_DOWN_MAX));
+        assert_eq!(leaning_limits(f32::NAN), (PITCH_DOWN_LIMIT, PITCH_UP_LIMIT));
     }
 
     #[test]
