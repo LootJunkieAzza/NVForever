@@ -136,7 +136,7 @@ lifted, which is what the original's numbers compare with.
 | Novac diner, next to the player | — | 0 in 3 game h (22 tries, 5 won, no partner line) | 1 in 3 game h (7 tries, 2 won) |
 | Who | Westside: the four citizens 0x001381A7, 0x001381A8, 0x001393C2, 0x001393C6 | the same four and 0x0015D441 with 0x0015D443 | the same; Novac: AdaStrausREF with two settlers |
 | Starter's distance when it starts walking up | median 624 (164–937) | 150–907 | 149–533 |
-| Distance when the talk starts | median 120 (82–624) | 150 after a walk, but 7 of 10 started where the starter stood (218–907): the walk ended at once (follow-up 9) | 150, one at 533 |
+| Distance when the talk starts | median 120 (82–624) | 150 after a walk, but 7 of 10 started where the starter stood (218–907): the walk ended at once (follow-up 9) | 150, one at 533; with follow-up 9 fixed 148–149 after a walk (2 of 2) |
 | Length | median 2.0 game minutes (0.8–5), 1 line each | until a Goodbye or no more links | the same |
 | Hours of day | 10:00–13:00 (the runs' hours) | 10:00–13:00 | 10:00–13:00 |
 
@@ -257,11 +257,24 @@ unchanged (6 in the battle).
    `combat-lines` (the dogs' first bites now land before the player's power attack, which
    falls inside the player's own Hit line; move the aid's timings) and `combat-cover`
    (no cover in 2 of 3 runs, 2 covers in the third).
-9. **A walk up to a partner that ends at once** (§5): in Westside 7 of our 10 old-rule
-   conversations started where the starter stood, 218–907 units from its partner (the
-   original's median is 120, but one of its five started at 624). `Ai::chats_on` takes a
-   walker that is no longer Travelling as "as near as the navmesh lets it get"; find what
-   stops the walk in the first frame (these citizens sandbox; furniture?).
+9. **A walk up to a partner that ends at once** (§5; fixed, branch
+   `claude/chat-walk-up`): in Westside 7 of our 10 old-rule conversations started where
+   the starter stood, 218–907 units from its partner (the original's median is 120, but
+   one of its five started at 624). **Cause** [observed: unit test
+   `a_sandboxer_walking_up_to_a_conversation_partner_walks_the_whole_way` fails without
+   the fix]: the walk's "reached" test (`Ai::walk`) still looked at the starter's package
+   goal, which the walk to the partner does not replace. These citizens sandbox, and a
+   sandbox's goal is its area (`Goal::Near`, the package's radius): a starter already
+   inside it "arrived" in the walk's first frame, and `Ai::chats_on` took the walker that
+   was no longer Travelling as "as near as the navmesh lets it get". **Fix**: a walk to a
+   partner ends only at its path's end (as a sandbox's own walks and searches do), and a
+   way that ends still farther than `TALK_DISTANCE` (150) gives the conversation up
+   instead of talking across the distance [hypothesis: the original's 624 shows it can
+   talk from farther; ours keeps to 150 until that is understood]. Westside at 10:00 with
+   conversations allowed anywhere (test aid `NVF_PLAY_TEST_CHATS_ANYWHERE=1`), 5 min
+   [observed 2026-10-17]: 2 conversations, both after a walk, 535 to 149 units in 4.5 s
+   and 283 to 148, none given up. Smoke scenario `conversation-walk-up` checks that every
+   conversation starts within 150 units.
 
 Gomorrah stopped early and the Strip run from `nvfstrip` was dropped when the owner needed
 the game for other sessions (2026-10-17).
