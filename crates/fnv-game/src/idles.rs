@@ -43,6 +43,9 @@ pub enum IdleSource {
     /// A talking or listening gesture picked from the idle tree
     /// ([`Game::talk_gesture`]).
     Gesture,
+    /// A fleeing actor standing still cowers: an idle at the root of the tree that
+    /// wants the flee procedure ([`Game::flee_idle`]).
+    Cower,
 }
 
 /// Which fidgets of the idle tree are played: the branch below a node whose conditions
@@ -282,6 +285,36 @@ impl<'a> Game<'a> {
         starts.into_iter().find_map(|s| self.idle_allowed(actor, s).then(|| self.first_leaf(actor, s, kind, true, held_back)).flatten().map(|(leaf, _)| leaf))
     }
 
+    /// The idle a fleeing `actor` plays from the idle tree now, or `None` (idles.md §13).
+    /// The tree's own roots that are idles (a file, no children) and whose conditions
+    /// name the flee procedure (`GetCurrentAIProcedure == 16`, alone or among ORs) are
+    /// tried in chain order, and the first whose conditions the actor meets is the pick
+    /// [observed: FalloutNV.esm has two such roots, `NVKimbalCower` (no file) and
+    /// `CowerIdles` 0x0006CB4A, `3rdP_Cowering.kf`, which wants IsMoving 0, the
+    /// procedure 16 FLEE or 34 FLEE_NON_COMBAT and IsSwimming 0; hypothesis: the
+    /// original's idle manager plays such a root by its conditions, as the roots of
+    /// the fidget branches]. `folder` and `held_back` as for [`Game::fidget`].
+    pub fn flee_idle(&mut self, actor: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<FormId> {
+        let data = self.data;
+        let folder = folder.to_ascii_lowercase();
+        let roots: Vec<FormId> = data
+            .idle_children
+            .get(&None)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|r| !data.idle_children.contains_key(&Some(*r)))
+            .filter(|r| {
+                data.idles.get(r).is_some_and(|d| {
+                    d.has_file()
+                        && d.model.as_deref().is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder))
+                        && names(d.conditions.as_deref().unwrap_or_default(), GET_CURRENT_AI_PROCEDURE, FLEE_PROCEDURE)
+                })
+            })
+            .collect();
+        roots.into_iter().find(|r| !held_back(*r) && self.idle_allowed(actor, *r))
+    }
+
     /// The first leaf below `node` whose way down passes, and whether a node on that
     /// way (or `gated`, said of those above) gates `kind`.
     fn first_leaf(&mut self, actor: FormId, node: FormId, kind: FidgetKind, gated: bool, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, bool)> {
@@ -482,10 +515,17 @@ fn requires(conds: &[Condition], opcode: u16, value: f64) -> bool {
     })
 }
 
+/// Whether conditions ask for `opcode == value`, alone or as one of several joined by OR.
+fn names(conds: &[Condition], opcode: u16, value: f64) -> bool {
+    conds.iter().any(|c| c.opcode() == opcode && c.cmp == crate::cond::Cmp::Eq && c.rhs == crate::cond::Operand::Value(value))
+}
+
 /// Opcodes of `IsWeaponOut`, `GetSitting` and `GetSleeping` (`functions::mod`).
 const IS_WEAPON_OUT: u16 = 0x1065;
 const GET_SITTING: u16 = 0x109F;
 const GET_SLEEPING: u16 = 0x1031;
+/// The procedure of a fleeing actor, 16 FLEE (`functions::ai_state`).
+const FLEE_PROCEDURE: f64 = 16.0;
 
 /// `actor.PlayIdle name`: the actor plays the idle whose Editor ID is `name`, whatever
 /// its conditions say [documented: catalogue notes on PickIdle, "the forced-idle

@@ -227,6 +227,10 @@ impl Game<'_> {
         if fighting && self.awareness.crouching.contains(&actor) {
             return true;
         }
+        // A person hiding at its flee spot, in any combat state (§12.2.1).
+        if self.at_flee_spot(actor) && self.world.placed.get(actor).is_some_and(|p| &p.sig == b"ACHR") {
+            return true;
+        }
         self.package_has(actor, flags::ALWAYS_SNEAK) && (!fighting || self.package_has(actor, flags::CONTINUE_DURING_COMBAT))
     }
 }

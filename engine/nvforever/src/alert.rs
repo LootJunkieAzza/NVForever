@@ -11,6 +11,8 @@
 //!   he has one equipped") holsters it and hides it, unless the actor is in a combat
 //!   state [hypothesis: a fight comes first] (owner's playtest list 5 item 34: Sunny ran
 //!   to the geckos without her weapon drawn; VCG02SunnyTravelToWell1 has Weapon Drawn).
+//!   An actor fleeing a fight holsters it until it fights again [owner 2026-10-17;
+//!   docs/design/combat-ai.md §12.2.1].
 //! - **Head**: an Alert or Lost actor looks at where its latest alarm is (what it
 //!   noticed, heard or last saw), at chest height; one in Combat looks at its target.
 //!   The look is a [`LookOverride`] this module puts on and takes off again, never over
@@ -58,10 +60,11 @@ fn show(mut commands: Commands, script: Option<Res<ScriptState>>, world: Option<
         if let Some(mut hold) = hold {
             let fighting = game.awareness.state(id).in_combat();
             let unequipped = !fighting && game.package_has(id, flags::WEAPONS_UNEQUIPPED);
-            let want = game.wants_weapon_out(id) || (drawn_by_default && !unequipped);
+            let fleeing = fighting && game.awareness.tactics.flights.contains_key(&id);
+            let want = game.wants_weapon_out(id) || (drawn_by_default && !unequipped && !fleeing);
             if hold.test.is_none() && hold.drawn != want {
                 hold.drawn = want;
-                let why = if game.active_weapon_use(id).is_some() { " (a weapon use)" } else if !fighting && want != game.is_alerted(id) { " (its package's flags)" } else { "" };
+                let why = if fleeing { " (it flees)" } else if game.active_weapon_use(id).is_some() { " (a weapon use)" } else if !fighting && want != game.is_alerted(id) { " (its package's flags)" } else { "" };
                 info!("alert: {} {id} {} its weapon{why}", game.data.name(id), if want { "draws" } else { "holsters" });
             }
             // Hidden while holstered under Weapons Unequipped.

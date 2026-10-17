@@ -423,7 +423,9 @@ impl Game<'_> {
 
     /// Whether an actor wants its weapon out: alerted (SetAlert, or fighting), its
     /// package's Weapon Drawn flag, or a scripted weapon use (UseWeapon); never under its
-    /// package's Weapons Unequipped flag while it does not fight. The rule the engine
+    /// package's Weapons Unequipped flag while it does not fight, nor while it flees a
+    /// fight [owner 2026-10-17: "they holster their weapon"; docs/design/combat-ai.md
+    /// §12.2.1]. The rule the engine
     /// draws and holsters NPCs' weapons by (`nvforever` alert.rs), kept here so that
     /// IsWeaponOut answers for actors the engine does not draw [engineering choice; the
     /// flags' meanings: docs/spec-notes/packages.md].
@@ -431,10 +433,11 @@ impl Game<'_> {
         use crate::package::flags;
         let fighting = self.awareness.state(actor).in_combat();
         let unequipped = !fighting && self.package_has(actor, flags::WEAPONS_UNEQUIPPED);
+        let fleeing = fighting && self.awareness.tactics.flights.contains_key(&actor);
         // Pretend In Combat: "the actor to enter combat when the package is begun" [documented:
         // Combat Package Flags]: its weapon is out as in a fight [our choice].
         let drawn = self.package_has(actor, flags::WEAPON_DRAWN) || self.package_has(actor, flags::PRETEND_IN_COMBAT);
-        !unequipped && (self.is_alerted(actor) || drawn || self.active_weapon_use(actor).is_some())
+        !unequipped && !fleeing && (self.is_alerted(actor) || drawn || self.active_weapon_use(actor).is_some())
     }
 
     /// Lower a limb's condition by a hit (see the module notes): its condition after, and

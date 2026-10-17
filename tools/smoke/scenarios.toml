@@ -354,6 +354,8 @@ expect = [
   { json = "verdicts.not carried out yet: an ambush or flee package", schema = "fnv.ai.reach/1", count = 0, label = "Ambush and Flee Not Combat carried out" },
   { json = "verdicts.not carried out yet: a package that searches for or uses an object", schema = "fnv.ai.reach/1", count = 0, label = "Find and Use Item At carried out" },
   { json = "verdicts.not carried out yet: a package that leads its target", schema = "fnv.ai.reach/1", count = 0, label = "Escort carried out" },
+  { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 10258, label = "reachable as on main 2026-10-11: 10,258", known_failing = "main b762654e 2026-10-17: a fnvtool built from origin/main gives 10,403 reachable and 1,691 staying (the Oct 16 build gave 10,258 / 1,602); the change came with a main merge after 2026-10-16, not looked at (claude/flee-hide does not change the counts)" },
+  { json = "verdicts.stays where it is", schema = "fnv.ai.reach/1", equals = 1602, label = "staying as on main 2026-10-11: 1,602", known_failing = "main b762654e 2026-10-17: a fnvtool built from origin/main gives 10,403 reachable and 1,691 staying (the Oct 16 build gave 10,258 / 1,602); the change came with a main merge after 2026-10-16, not looked at (claude/flee-hide does not change the counts)" },
   { json = "verdicts.never chosen: needs a linked reference the actor lacks", schema = "fnv.ai.reach/1", equals = 3185, label = "never chosen as on main 2026-10-11: 3,185" },
   { json = "verdicts.nowhere to go: the location is the player, who is nowhere yet", schema = "fnv.ai.reach/1", equals = 182, label = "at the player as on main 2026-10-11: 182" },
 ]
@@ -622,7 +624,7 @@ run_seconds = 30
 expect = [
   { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "machine-dependent (laptop, main baf3806 2026-10-16, 3 of 3 runs: 13-14 blows; desktop 3 of 3 passes, 16 at 54 frames/s): the dogs attack at the combat style's 55 % each time they may and hold otherwise (combat-ai.md §10.4), so the count follows how long they fight in game time, which a slower start-up and long frames (game time is capped at 0.25 s a frame) shorten [hypothesis: the laptop's frame rate was not measured]" },
   { re = 'attack anims summary.*h2hattack' },
-  { re = 'npc melee spacing: \d+ blows began at .*\(median (?P<n>\d+), feet to feet\)', range = [55, 200], label = "the dogs bite from their reach, not from inside the player (the original's dogs began a median 133 units away; npc-behaviour-compare.md §3)" },
+  { re = 'npc melee spacing: \d+ blows began at .*\(median (?P<n>\d+), feet to feet\)', range = [100, 170], label = "the dogs bite from their reach and body, (RNAM 48 + 59) x 1.2 = 128 at most, not from inside the player (the original's dogs began a median 133 units away; ours 121 on 2026-10-17; npc-behaviour-compare.md §3)" },
   { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines", known_failing = "machine-dependent (laptop, main baf3806 2026-10-16, 2 of 3 runs over 8; desktop 4 lines): the dogs close in again each time the player gets out of reach, which depends on the frame timing as the blow count above [hypothesis]" },
 ]
 
@@ -2294,9 +2296,9 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIP
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
 expect = [
-  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
-  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
-  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
+  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); claude/creature-melee-spacing the same, cover in 1 of 3 runs (937 units away); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
+  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); claude/creature-melee-spacing the same, cover in 1 of 3 runs (937 units away); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
+  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); claude/creature-melee-spacing the same, cover in 1 of 3 runs (937 units away); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
 ]
 
 [[scenario]]
@@ -2450,6 +2452,23 @@ expect = [
   { re = 'ai \[.*: flees from the player (to cover|away|through door)|is cornered by the player', label = "it runs to a flee spot (or is cornered)" },
   { re = 'reached its flee spot from the player|is cornered by the player', label = "it reaches its flee spot" },
   { re = 'battle summary: .*?(?P<n>\d+) flights \(', range = [1, 10], label = "flights in the battle summary" },
+]
+
+[[scenario]]
+name = "combat-flee-hide"
+source = "owner 2026-10-17: fleeing NPCs run off and hide crouched when they stop, out of their enemy's way, with the original's cowering (docs/design/combat-ai.md §12.2.1, docs/spec-notes/idles.md §13)"
+note = "Violet (FiendVioletRef) fights the player from 3 s and is made to flee by ForceFlee at 8 s (god mode, the player does not shoot); at her flee spot she crouches and plays the IDLE tree's CowerIdles (3rdP_Cowering.kf)"
+areas = ["combat", "combat-groups", "animation"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:FiendVioletRef:player,8:call:FiendVioletRef:ForceFlee" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  { re = 'ai \[.*Violet\S*: flees from the player (to cover|away|through door)', label = "Violet runs from the player to a flee spot" },
+  { re = 'Violet\S*: reached its flee spot from the player .*: hides there, crouched', label = "she reaches her flee spot and hides crouched there" },
+  { re = 'alert: \S*Violet\S* \S+ holsters its weapon \(it flees\)', label = "she holsters her rifle to flee" },
+  { re = 'idle: \S*Violet\S* plays CowerIdles .*\(Cower\)', label = "she plays the original's cower idle" },
+  { re = 'cower summary: (?P<n>\d+) cower idles', range = [1, 1000], label = "cower idles in the summary" },
 ]
 
 [[scenario]]
@@ -3313,10 +3332,10 @@ expect = [
 [[scenario]]
 name = "crippled-limp-creature"
 source = "owner 2026-10-16: a creature with a crippled leg limps where its skeleton has limping clips (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11)"
-note = "VERGSCoyote6REF 0x00157B38 (dog skeleton: locomotion/hurt/ has the walk and run forward) at the coyote-warning spot; god mode as the coyote is Aggressive; it attacks after its two warnings (about 13 s in), alerted, so the run goes on to 24 s to see it run on its limping clips"
+note = "VERGSCoyote6REF 0x00157B38 (dog skeleton: locomotion/hurt/ has the walk and run forward) at the coyote-warning spot; god mode as the coyote is Aggressive; left alone it attacks only after its two warnings, about 13 s in, too late to be seen moving, so a test aid starts its fight with the player at 9 s (alerted, it runs at them on its limping clips)"
 areas = ["actors", "combat"]
 paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-actor/src/locomotion.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:VERGSCoyote6REF.DamageAV RightMobilityCondition 1000;8.5:close" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:VERGSCoyote6REF.DamageAV RightMobilityCondition 1000;8.5:close", NVF_PLAY_TEST_SCRIPT = "9:combat:0x00157B38:player" }
 args = ["--play", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 24
 expect = [

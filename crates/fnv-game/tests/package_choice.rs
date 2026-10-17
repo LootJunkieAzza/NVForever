@@ -476,6 +476,15 @@ fn reset_ai_drops_the_script_package_and_the_codes_follow_the_package() {
     assert_eq!(call(&mut g, procedure, &[]), 21.0);
     g.set_furniture_use(a, on(20, 3));
     assert_eq!(call(&mut g, procedure, &[]), 48.0);
+    // In combat 13; fleeing from it 16 FLEE, the package still 5 COMBAT
+    // (docs/spec-notes/idles.md §13); fighting again 13.
+    g.set_furniture_use(a, None);
+    g.start_combat(a, FormId::PLAYER_REF);
+    assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (5.0, 13.0));
+    g.start_flight(a, FormId::PLAYER_REF, [0.0; 3]);
+    assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (5.0, 16.0));
+    g.end_flight(a);
+    assert_eq!(call(&mut g, procedure, &[]), 13.0);
 }
 
 /// SetPackDuration ends the current package that many game minutes after the call (it

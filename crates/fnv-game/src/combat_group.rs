@@ -394,6 +394,12 @@ impl Game<'_> {
         *b
     }
 
+    /// Whether `actor`, in a combat state, flees and has reached its flee spot (or is
+    /// cornered): there a person hides crouched (docs/design/combat-ai.md §12.2.1).
+    pub fn at_flee_spot(&self, actor: FormId) -> bool {
+        self.awareness.state(actor).in_combat() && self.awareness.tactics.flights.get(&actor).is_some_and(|f| f.arrived.is_some())
+    }
+
     /// `actor` stops fleeing and fights again.
     pub fn end_flight(&mut self, actor: FormId) {
         self.awareness.tactics.flights.remove(&actor);
