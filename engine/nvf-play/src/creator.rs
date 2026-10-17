@@ -16,14 +16,21 @@
 //! - **Keys** [design]: Q / E, Tab, Page Up / Down: tabs; Up / Down (W / S): rows, then
 //!   the buttons; Left / Right (A / D): change the row, Shift for small steps; Space
 //!   randomise, Z undo, R reset; Enter presses the chosen button, or goes to Done.
-//!   **Pointer**: click a tab, a row, its arrows, a swatch, a button; drag along a
-//!   slider; the wheel over the panel steps the rows, elsewhere zooms; right-drag turns
-//!   the camera about the player. **Controller** (D-pad, A, LB / RB as the menu keys of
-//!   `crate::pad`): X randomise, Y undo, Back reset; the right stick turns, the triggers
-//!   zoom.
+//!   **Pointer** (shown while the creator is open, whatever state the game is in):
+//!   click a tab, a row, its arrows, a swatch, a button; drag along a slider; the wheel
+//!   over the panel steps the rows. Over the picture [owner 2026-10-17: "a way to drag
+//!   and pan our view not just zoom in and out"]: left-drag turns the camera about the
+//!   player and tilts it, right- or middle-drag (or Shift + left-drag) pans, the wheel
+//!   zooms (the point looked at follows the zoom from the body to the face,
+//!   [`model::aim_drop`]); C or Home puts the tab's framing back. **Controller** (D-pad,
+//!   A, LB / RB as the menu keys of `crate::pad`): X randomise, Y undo, Back reset; the
+//!   right stick turns and tilts, the left stick pans, the triggers zoom, the right
+//!   stick's click puts the framing back.
 //! - **Test aid** `NVF_PLAY_TEST_CREATOR=<seconds>:<op>[,...]`: `tab:<name>`,
 //!   `next:<row label>` / `prev:<row label>` (change a row once), `set:<row label>:<0–1>`
-//!   (a slider's place in its range), `random`, `undo`, `reset`, `done`.
+//!   (a slider's place in its range), `random`, `undo`, `reset`, `done`; the camera:
+//!   `orbit:<degrees right>:<degrees up>`, `pan:<units right>:<units up>`,
+//!   `zoom:<factor>` (below 1 nearer), `view` (the tab's framing again).
 //!
 //! Log lines start `creator:`: opening (the look and how many sliders), each change, Done
 //! with the look.
@@ -96,6 +103,9 @@ pub struct CreatorMenu {
     hits: Vec<Hit>,
     /// The slider row being dragged.
     drag: Option<usize>,
+    /// The camera being dragged, and with which button.
+    camera_drag: Option<CameraDrag>,
+    camera_button: Option<MouseButton>,
     kit: Option<view::Kit>,
     /// The look last written into the game.
     written: Option<fnv_actor::Look>,
@@ -109,6 +119,18 @@ impl CreatorMenu {
 
 #[derive(Component)]
 struct CreatorRoot;
+
+/// What a drag on the picture does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CameraDrag {
+    Orbit,
+    Pan,
+}
+
+/// The camera's distance now (for how far a pixel of panning goes).
+fn control_distance(m: &mut Model) -> f32 {
+    m.camera().distance
+}
 
 /// A change asked for.
 #[derive(Debug, Clone, PartialEq)]
@@ -128,6 +150,12 @@ enum Op {
     /// Test aid: change a row by label.
     Named(String, i32),
     SetNamed(String, f64),
+    /// The camera: turn and tilt (radians), pan (game units right and up), zoom (factor),
+    /// back to the tab's framing.
+    Orbit(f32, f32),
+    Pan(f32, f32),
+    Zoom(f32),
+    ViewReset,
 }
 
 #[derive(Resource, Default)]
@@ -146,6 +174,17 @@ fn parse_aid(s: &str) -> Result<Vec<(f32, Op)>, String> {
                 let (row, f) = rest.rsplit_once(':').ok_or_else(|| format!("{item:?}: expected set:<row>:<0-1>"))?;
                 Op::SetNamed(row.to_string(), f.parse().map_err(|_| format!("{item:?}: bad fraction"))?)
             }
+            Some(("orbit", rest)) | Some(("pan", rest)) => {
+                let (a, b) = rest.split_once(':').ok_or_else(|| format!("{item:?}: expected two numbers"))?;
+                let (a, b): (f32, f32) = (a.parse().map_err(|_| format!("{item:?}: bad number"))?, b.parse().map_err(|_| format!("{item:?}: bad number"))?);
+                if rest_is(item, "orbit") {
+                    Op::Orbit(a.to_radians(), b.to_radians())
+                } else {
+                    Op::Pan(a, b)
+                }
+            }
+            Some(("zoom", f)) => Op::Zoom(f.parse().map_err(|_| format!("{item:?}: bad factor"))?),
+            None if rest == "view" => Op::ViewReset,
             None if rest == "random" => Op::Act(Action::Randomise),
             None if rest == "undo" => Op::Act(Action::Undo),
             None if rest == "reset" => Op::Act(Action::Reset),
@@ -156,6 +195,11 @@ fn parse_aid(s: &str) -> Result<Vec<(f32, Op)>, String> {
     }
     out.sort_by(|a, b| a.0.total_cmp(&b.0));
     Ok(out)
+}
+
+/// Whether a test aid item's step is `name` (`<seconds>:<name>:...`).
+fn rest_is(item: &str, name: &str) -> bool {
+    item.split(':').nth(1).is_some_and(|n| n.trim() == name)
 }
 
 pub struct CreatorPlugin;
@@ -236,6 +280,7 @@ fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Opt
         warn!("creator: {p}; no sliders");
     }
     info!("creator: open on {} ({} sliders, {} races, {} beards, {} starting faces)", m.caption(), m.sliders().len(), data.0.catalogue.races.len(), data.0.catalogue.facial_hair.len(), data.0.catalogue.presets(m.look.race, m.look.female).len());
+    let mut m = m;
     control.portrait = Some(m.camera());
     st.written = Some(m.look.clone());
     st.model = Some(m);
@@ -291,6 +336,7 @@ fn input(
         ([KeyZ, KeyZ], Op::Act(Action::Undo)),
         ([KeyR, KeyR], Op::Act(Action::Reset)),
         ([Enter, NumpadEnter], Op::Enter),
+        ([KeyC, Home], Op::ViewReset),
     ] {
         if keys.any_just_pressed(k) {
             ops.push((op, "key"));
@@ -319,18 +365,55 @@ fn input(
                 ops.push((op, "controller"));
             }
         }
-        let right = g.right_stick();
-        if right.x.abs() > 0.2 {
-            m.turn = (m.turn - right.x * 2.0 * real.delta_secs()).clamp(-3.0, 3.0);
+        if g.just_pressed(GamepadButton::RightThumb) {
+            ops.push((Op::ViewReset, "controller"));
+        }
+        let dt = real.delta_secs();
+        // The sticks [design: a full push turns 2 rad a second, tilts 1, pans 60 units].
+        let dead = |v: Vec2| if v.length() > 0.2 { v } else { Vec2::ZERO };
+        let right = dead(g.right_stick());
+        if right != Vec2::ZERO {
+            m.view.orbit(-right.x * 2.0 * dt, right.y * dt);
+        }
+        let left = dead(g.left_stick());
+        if left != Vec2::ZERO {
+            m.view.pan_by(-left.x * 60.0 * dt, -left.y * 60.0 * dt);
         }
         let zoom = g.get(GamepadButton::RightTrigger2).unwrap_or(0.0) - g.get(GamepadButton::LeftTrigger2).unwrap_or(0.0);
         if zoom.abs() > 0.1 {
-            m.zoom = (m.zoom * (1.0 - zoom * real.delta_secs())).clamp(0.6, 3.0);
+            m.view.zoom_by(1.0 - zoom * dt);
         }
     }
     // The pointer.
     if let Some(p) = windows.single().ok().and_then(pointer) {
         let under = view::hit_at(&st_ref.hits, p);
+        // A drag that starts on the picture moves the camera until the button is let go.
+        let window_h = windows.single().map_or(800.0, |w| w.height().max(1.0));
+        for b in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
+            if mouse.just_pressed(b) && under.is_none() {
+                st_ref.camera_drag = Some(if b == MouseButton::Left && !shift { CameraDrag::Orbit } else { CameraDrag::Pan });
+                st_ref.camera_button = Some(b);
+            }
+        }
+        if let (Some(kind), Some(b)) = (st_ref.camera_drag, st_ref.camera_button) {
+            if !mouse.pressed(b) {
+                st_ref.camera_drag = None;
+                st_ref.camera_button = None;
+            } else if motion.delta != Vec2::ZERO {
+                let d = motion.delta;
+                match kind {
+                    // Across the whole picture's height: about half a turn [design].
+                    CameraDrag::Orbit => m.view.orbit(-d.x / window_h * 3.0, d.y / window_h * 1.5),
+                    // The picture follows the pointer: a pixel is as many game units
+                    // as the camera's distance over the picture's height [design: about
+                    // the field of view's spread at the point looked at].
+                    CameraDrag::Pan => {
+                        let k = control_distance(m) / window_h;
+                        m.view.pan_by(d.x * k, -d.y * k);
+                    }
+                }
+            }
+        }
         if mouse.just_pressed(MouseButton::Left) {
             match under {
                 Some(HitWhat::Tab(i)) => ops.push((Op::Tab(TABS[i]), "click")),
@@ -355,14 +438,12 @@ fn input(
                 st_ref.drag = None;
             }
         }
-        if mouse.pressed(MouseButton::Right) && motion.delta.x != 0.0 {
-            m.turn = (m.turn - motion.delta.x * 0.008).clamp(-3.0, 3.0);
-        }
         if wheel.abs() >= 1.0 {
             if under.is_some() {
                 ops.push((Op::StepRow(-wheel.round() as i32), "wheel"));
             } else {
-                m.zoom = (m.zoom * (1.0 - 0.1 * wheel)).clamp(0.6, 3.0);
+                // A notch: a tenth nearer or further.
+                m.view.zoom_by(0.9f32.powf(wheel));
             }
         }
     }
@@ -383,6 +464,25 @@ fn apply(st: &mut CreatorMenu, script: &mut Option<ResMut<ScriptState>>, sim: &m
     let before = (m.tab, m.row(), m.on_actions, m.look.clone());
     let mut event = None;
     match op {
+        Op::Orbit(..) | Op::Pan(..) | Op::Zoom(_) | Op::ViewReset => {
+            match op {
+                Op::Orbit(x, y) => m.view.orbit(x, y),
+                Op::Pan(x, y) => m.view.pan_by(x, y),
+                Op::Zoom(f) => m.view.zoom_by(f),
+                _ => m.view = model::View { turn: 0.0, ..model::View::default() },
+            }
+            let c = m.camera();
+            info!(
+                "creator: camera ({how}): turned {:.0}°, tilted {:.0}°, {:.0} units away, looking {:.0} under the eye, panned ({:.0}, {:.0})",
+                c.yaw.to_degrees(),
+                c.pitch.to_degrees(),
+                c.distance,
+                c.drop,
+                m.view.pan[0],
+                m.view.pan[1]
+            );
+            return None;
+        }
         Op::Tab(t) => {
             if m.set_tab(t) {
                 event = Some(UiEvent::Switch);
@@ -556,15 +656,18 @@ fn write_look(mut st: ResMut<CreatorMenu>, mut script: Option<ResMut<ScriptState
     st.written = Some(look);
 }
 
-/// Ease the camera onto the tab's framing [design: a fifth of a second].
-fn camera(st: Res<CreatorMenu>, real: Res<Time<Real>>, mut control: ResMut<crate::control::PlayerControl>) {
-    let Some(m) = st.model.as_ref() else { return };
+/// Ease the camera onto the framing [design: a tenth of a second, so a drag follows the
+/// pointer closely and a tab's new framing still glides].
+fn camera(mut st: ResMut<CreatorMenu>, real: Res<Time<Real>>, mut control: ResMut<crate::control::PlayerControl>) {
+    let Some(m) = st.model.as_mut() else { return };
     let want = m.camera();
-    let k = 1.0 - (-real.delta_secs() / 0.2).exp();
+    let k = 1.0 - (-real.delta_secs() / 0.1).exp();
     let now = control.portrait.unwrap_or(want);
     let mix = |a: f32, b: f32| a + (b - a) * k;
+    // The turn goes the short way round.
+    let dyaw = (want.yaw - now.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
     control.portrait = Some(crate::control::Portrait {
-        yaw: mix(now.yaw, want.yaw),
+        yaw: now.yaw + dyaw * k,
         distance: mix(now.distance, want.distance),
         drop: mix(now.drop, want.drop),
         pitch: mix(now.pitch, want.pitch),
@@ -615,6 +718,10 @@ mod tests {
         assert_eq!(steps[2], (3.0, Op::SetNamed("Nose - short / long".into(), 0.8)));
         assert_eq!(steps[4].1, Op::Act(Action::Done));
         assert!(parse_aid("1:fly").is_err() && parse_aid("1:tab:nowhere").is_err());
+        let cam = parse_aid("1:orbit:90:-10,2:pan:5:-2,3:zoom:0.5,4:view").unwrap();
+        assert_eq!(cam[0].1, Op::Orbit(90f32.to_radians(), (-10f32).to_radians()));
+        assert_eq!(cam[1].1, Op::Pan(5.0, -2.0));
+        assert_eq!((cam[2].1.clone(), cam[3].1.clone()), (Op::Zoom(0.5), Op::ViewReset));
     }
 
     #[test]
@@ -636,5 +743,11 @@ mod tests {
     #[test]
     fn only_the_race_menu_with_data() {
         assert!(draws(menus::RACE, true) && !draws(menus::RACE, false) && !draws(menus::NAME, true));
+        // The menus scripts open stay script menus, so Done and the scripts can close
+        // them: no engine menu may take one of their codes (the roulette table once had
+        // the race menu's 1036).
+        for m in [menus::MESSAGE, menus::RACE, menus::NAME, menus::TAG_SKILLS, menus::LOVE_TESTER, menus::TRAITS] {
+            assert!(crate::script::is_script_menu(m), "{m}");
+        }
     }
 }

@@ -186,9 +186,9 @@ The ranked table is in §6. Read with it:
    reads 1 at 6,682 units; with the player indoors the pair outdoors did not fight,
    as ours: only the loaded area detects]. Left: wall cases of the player's sight
    (capture request detection-2).
-2. **NPC equipment drawn from the rules** (EquipItem, UnequipItem; 82 quests, the intro
-   chain among them): scripts dress and arm NPCs (Doc Mitchell, companions) and the engine
-   ignores it. Needs the engine to draw what the rules have equipped (audit §5).
+2. ~~**NPC equipment drawn from the rules**~~ (EquipItem, UnequipItem; 82 quests, the intro
+   chain among them): built 2026-10-17 (PR #374): the engine draws what the rules have
+   equipped and redraws on EquipItem/UnequipItem (audit §5).
 3. **Actor abilities and worn enchantments as effects** (IsSpellTarget, HasMagicEffect,
    RemoveSpell; 80 quests, VMQ03 and Ring-a-Ding-Ding among them).
 4. **Corpses stood up again** (ResurrectActor; 76 quests, Yes Man's resurrections and
@@ -217,8 +217,8 @@ with no Locked flag and is open in the original; worth a GetLocked probe on it).
 
 | Status | Functions | Calls | Condition uses |
 |---|---|---|---|
-| matches the original | 320 | 62644 | 79565 |
-| wrong or stub, system exists | 31 | 1380 | 195 |
+| matches the original | 322 | 62894 | 79565 |
+| wrong or stub, system exists | 29 | 1130 | 195 |
 | no system yet | 43 | 500 | 530 |
 | open (capture needed) | 6 | 1648 | 43 |
 | all used | 400 | 66172 | 80333 |
@@ -229,50 +229,49 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 
 | # | System | Kind | Quests | Calls / cond. in them | All calls / cond. | Functions | Main quest | Companions |
 |---|---|---|---|---|---|---|---|---|
-| 1 | NPC equipment drawn from the rules | wrong | 82 | 275 / 0 | 250 / 0 | EquipItem, UnequipItem | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle), VMQ03bTimer (VMQ03b Timer) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog), VDialogueVeronica (Veronica Dialogue) and 2 more |
-| 2 | actor abilities and worn enchantments as effects | wrong | 80 | 326 / 35 | 220 / 42 | HasMagicEffect, IsSpellTarget, RemoveSpell | VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQTops (Ring-a-Ding-Ding!) and 1 more | VDialogueCass, VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest), vDialogueLily (Lily's Dialogue) |
-| 3 | corpses stood up again | wrong | 76 | 603 / 0 | 515 / 0 | ResurrectActor | VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management), VMQYesManSupport (Scripting for Yes Man positioning and resurrections) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog) and 6 more |
-| 4 | knockdowns and knock-outs | no-system | 64 | 196 / 10 | 282 / 134 | GetKnockedState, GetUnconscious, PushActorAway, SetUnconscious | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ01 (They Went That-a-Way) | - |
-| 5 | fast travel | no-system | 60 | 140 / 0 | 83 / 0 | EnableFastTravel | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ04 (Bright and Shiny), VMQ05 (For the Republic, Part 2) and 4 more | - |
-| 6 | saves from scripts | wrong | 29 | 32 / 0 | 7 / 0 | ForceSave, SystemSave | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQ04 (Bright and Shiny) and 8 more | - |
-| 7 | Look turning the body | wrong | 26 | 110 / 0 | 159 / 0 | Look | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ03a (You'll Know It When It Happens) | VDialogueVeronica (Veronica Dialogue), VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest) |
-| 8 | animation state told to the rules | wrong | 22 | 46 / 0 | 121 / 51 | IsAnimPlaying, IsIdlePlaying, IsMoving, IsPlayerActionActive | VMQ03a (You'll Know It When It Happens), VMQ03b (Arizona Killer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQYesMan03 (Wild Card: Finishing Touches) | - |
-| 9 | repair menu | no-system | 10 | 13 / 0 | 15 / 0 | ShowRepairMenu | - | VDialogueRaul (Raul's Dialog) |
-| 10 | barber, plastic surgeon and tutorial menus | no-system | 9 | 16 / 0 | 8 / 0 | ShowBarberMenu, ShowPlasticSurgeonMenu, ShowTutorialMenu | - | - |
-| 11 | Pip-Boy reset | wrong | 8 | 8 / 0 | 4 / 0 | ResetPipboyManager | VCG01 (Ain't That a Kick in the Head) | - |
-| 12 | talking activators | no-system | 6 | 0 / 91 | 0 / 92 | IsActorTalkingThroughActivator | - | - |
-| 13 | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | wrong | 6 | 12 / 0 | 13 / 11 | MenuMode | VCG04 (Player Character Revision) | - |
-| 14 | Caravan card game | no-system | 5 | 29 / 0 | 33 / 0 | AddCardToPlayer, ShowCaravanMenu | - | - |
-| 15 | race and sex change on NPCs | no-system | 5 | 16 / 0 | 14 / 0 | AgeRace, SexChange | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head) | - |
-| 16 | crosshair placement | wrong | 5 | 10 / 0 | 3 / 0 | PlaceAtReticle | - | VDialogueVeronica (Veronica Dialogue), VMS49 (I Could Make You Care) |
-| 17 | NPC inventory re-rolled on SetLevel | wrong | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
-| 18 | Cannibal and Mister Sandman | no-system | 3 | 8 / 0 | 11 / 7 | GetCannibal, GetSandman, HasBeenEaten, StartCannibal, StartMisterSandman | - | - |
-| 19 | VATS | no-system | 3 | 6 / 0 | 12 / 259 | GetVATSMode, GetVATSTargetHeight, GetVATSValue, SetVatsTarget | - | - |
-| 20 | player statistics counters | wrong | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
-| 21 | drawn scale (SetScale) | wrong | 3 | 4 / 0 | 9 / 0 | SetScale | VCG00 (Welcome To Fabulous New Vegas) | - |
-| 22 | dismemberment and critical deaths | no-system | 2 | 4 / 0 | 23 / 0 | AttachAshPile, IsLimbGone, SetCriticalStage | - | - |
-| 23 | Bink videos | wrong | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
-| 24 | cell image spaces | wrong | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
-| 25 | screen blood splatter | no-system | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
-| 26 | AI package codes | wrong | 1 | 5 / 0 | 16 / 64 | GetCurrentAIProcedure | - | - |
-| 27 | objective display switch | wrong | 1 | 2 / 0 | 2 / 0 | AutoDisplayObjectives | VCG01 (Ain't That a Kick in the Head) | - |
-| 28 | navmesh switches | no-system | 1 | 1 / 0 | 9 / 0 | DisableNavmesh, EnableNavMesh, setAllReachable | - | - |
-| 29 | combat targets told to weapon scripts | wrong | 1 | 1 / 0 | 5 / 0 | GetOwnerLastTarget | - | - |
-| 30 | power armour training | wrong | 1 | 1 / 0 | 2 / 0 | SetPCCanUsePowerArmor | - | - |
-| 31 | quitting from scripts | wrong | 1 | 1 / 0 | 1 / 0 | ExitGame | - | - |
-| 32 | used-item AI | no-system | 0 | 0 / 0 | 0 / 26 | GetIsUsedItem, GetIsUsedItemEquipType, GetIsUsedItemType, GetUsedItemActivate | - | - |
-| 33 | challenge counters | wrong | 0 | 0 / 0 | 23 / 0 | GetChallengeCompleted | - | - |
-| 34 | dialogue: current response | wrong | 0 | 0 / 0 | 0 / 20 | GetDialogueEmotion | - | - |
-| 35 | environment radiation | no-system | 0 | 0 / 0 | 0 / 7 | GetRadiationLevel | - | - |
-| 36 | swimming told to the rules | wrong | 0 | 0 / 0 | 0 / 7 | IsSwimming | - | - |
-| 37 | casino slot machines | no-system | 0 | 0 / 0 | 5 / 0 | ShowSlotMachineMenuParams | - | - |
-| 38 | grabbing objects | no-system | 0 | 0 / 0 | 3 / 1 | IsPlayerGrabbedRef | - | - |
-| 39 | IDLE-tree idles picked by scripts | wrong | 0 | 0 / 0 | 2 / 0 | PickIdle | - | - |
-| 40 | forced hit reactions | no-system | 0 | 0 / 0 | 0 / 2 | GetForceHitReaction | - | - |
-| 41 | loading screen control | no-system | 0 | 0 / 0 | 2 / 0 | EnableLoadingMenu | - | - |
-| 42 | drinking from water | no-system | 0 | 0 / 0 | 0 / 1 | IsWaterObject | - | - |
-| 43 | planted explosives (reverse pickpocket) | no-system | 0 | 0 / 0 | 0 / 1 | GetPlantedExplosive | - | - |
-| 44 | trap updates | no-system | 0 | 0 / 0 | 1 / 0 | trapUpdate | - | - |
+| 1 | actor abilities and worn enchantments as effects | wrong | 80 | 326 / 35 | 220 / 42 | HasMagicEffect, IsSpellTarget, RemoveSpell | VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQTops (Ring-a-Ding-Ding!) and 1 more | VDialogueCass, VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest), vDialogueLily (Lily's Dialogue) |
+| 2 | corpses stood up again | wrong | 76 | 603 / 0 | 515 / 0 | ResurrectActor | VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management), VMQYesManSupport (Scripting for Yes Man positioning and resurrections) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog) and 6 more |
+| 3 | knockdowns and knock-outs | no-system | 64 | 196 / 10 | 282 / 134 | GetKnockedState, GetUnconscious, PushActorAway, SetUnconscious | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ01 (They Went That-a-Way) | - |
+| 4 | fast travel | no-system | 60 | 140 / 0 | 83 / 0 | EnableFastTravel | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ04 (Bright and Shiny), VMQ05 (For the Republic, Part 2) and 4 more | - |
+| 5 | saves from scripts | wrong | 29 | 32 / 0 | 7 / 0 | ForceSave, SystemSave | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQ04 (Bright and Shiny) and 8 more | - |
+| 6 | Look turning the body | wrong | 26 | 110 / 0 | 159 / 0 | Look | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ03a (You'll Know It When It Happens) | VDialogueVeronica (Veronica Dialogue), VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest) |
+| 7 | animation state told to the rules | wrong | 22 | 46 / 0 | 121 / 51 | IsAnimPlaying, IsIdlePlaying, IsMoving, IsPlayerActionActive | VMQ03a (You'll Know It When It Happens), VMQ03b (Arizona Killer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQYesMan03 (Wild Card: Finishing Touches) | - |
+| 8 | repair menu | no-system | 10 | 13 / 0 | 15 / 0 | ShowRepairMenu | - | VDialogueRaul (Raul's Dialog) |
+| 9 | barber, plastic surgeon and tutorial menus | no-system | 9 | 16 / 0 | 8 / 0 | ShowBarberMenu, ShowPlasticSurgeonMenu, ShowTutorialMenu | - | - |
+| 10 | Pip-Boy reset | wrong | 8 | 8 / 0 | 4 / 0 | ResetPipboyManager | VCG01 (Ain't That a Kick in the Head) | - |
+| 11 | talking activators | no-system | 6 | 0 / 91 | 0 / 92 | IsActorTalkingThroughActivator | - | - |
+| 12 | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | wrong | 6 | 12 / 0 | 13 / 11 | MenuMode | VCG04 (Player Character Revision) | - |
+| 13 | Caravan card game | no-system | 5 | 29 / 0 | 33 / 0 | AddCardToPlayer, ShowCaravanMenu | - | - |
+| 14 | race and sex change on NPCs | no-system | 5 | 16 / 0 | 14 / 0 | AgeRace, SexChange | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head) | - |
+| 15 | crosshair placement | wrong | 5 | 10 / 0 | 3 / 0 | PlaceAtReticle | - | VDialogueVeronica (Veronica Dialogue), VMS49 (I Could Make You Care) |
+| 16 | NPC inventory re-rolled on SetLevel | wrong | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
+| 17 | Cannibal and Mister Sandman | no-system | 3 | 8 / 0 | 11 / 7 | GetCannibal, GetSandman, HasBeenEaten, StartCannibal, StartMisterSandman | - | - |
+| 18 | VATS | no-system | 3 | 6 / 0 | 12 / 259 | GetVATSMode, GetVATSTargetHeight, GetVATSValue, SetVatsTarget | - | - |
+| 19 | player statistics counters | wrong | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
+| 20 | drawn scale (SetScale) | wrong | 3 | 4 / 0 | 9 / 0 | SetScale | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 21 | dismemberment and critical deaths | no-system | 2 | 4 / 0 | 23 / 0 | AttachAshPile, IsLimbGone, SetCriticalStage | - | - |
+| 22 | Bink videos | wrong | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 23 | cell image spaces | wrong | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
+| 24 | screen blood splatter | no-system | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 25 | AI package codes | wrong | 1 | 5 / 0 | 16 / 64 | GetCurrentAIProcedure | - | - |
+| 26 | objective display switch | wrong | 1 | 2 / 0 | 2 / 0 | AutoDisplayObjectives | VCG01 (Ain't That a Kick in the Head) | - |
+| 27 | navmesh switches | no-system | 1 | 1 / 0 | 9 / 0 | DisableNavmesh, EnableNavMesh, setAllReachable | - | - |
+| 28 | combat targets told to weapon scripts | wrong | 1 | 1 / 0 | 5 / 0 | GetOwnerLastTarget | - | - |
+| 29 | power armour training | wrong | 1 | 1 / 0 | 2 / 0 | SetPCCanUsePowerArmor | - | - |
+| 30 | quitting from scripts | wrong | 1 | 1 / 0 | 1 / 0 | ExitGame | - | - |
+| 31 | used-item AI | no-system | 0 | 0 / 0 | 0 / 26 | GetIsUsedItem, GetIsUsedItemEquipType, GetIsUsedItemType, GetUsedItemActivate | - | - |
+| 32 | challenge counters | wrong | 0 | 0 / 0 | 23 / 0 | GetChallengeCompleted | - | - |
+| 33 | dialogue: current response | wrong | 0 | 0 / 0 | 0 / 20 | GetDialogueEmotion | - | - |
+| 34 | environment radiation | no-system | 0 | 0 / 0 | 0 / 7 | GetRadiationLevel | - | - |
+| 35 | swimming told to the rules | wrong | 0 | 0 / 0 | 0 / 7 | IsSwimming | - | - |
+| 36 | casino slot machines | no-system | 0 | 0 / 0 | 5 / 0 | ShowSlotMachineMenuParams | - | - |
+| 37 | grabbing objects | no-system | 0 | 0 / 0 | 3 / 1 | IsPlayerGrabbedRef | - | - |
+| 38 | IDLE-tree idles picked by scripts | wrong | 0 | 0 / 0 | 2 / 0 | PickIdle | - | - |
+| 39 | forced hit reactions | no-system | 0 | 0 / 0 | 0 / 2 | GetForceHitReaction | - | - |
+| 40 | loading screen control | no-system | 0 | 0 / 0 | 2 / 0 | EnableLoadingMenu | - | - |
+| 41 | drinking from water | no-system | 0 | 0 / 0 | 0 / 1 | IsWaterObject | - | - |
+| 42 | planted explosives (reverse pickpocket) | no-system | 0 | 0 / 0 | 0 / 1 | GetPlantedExplosive | - | - |
+| 43 | trap updates | no-system | 0 | 0 / 0 | 1 / 0 | trapUpdate | - | - |
 
 ### Every function
 
@@ -328,7 +327,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | EnableNavMesh | 0x11C0 | 5 / 0 | no-system | navmesh switches | - | Stub. |
 | EnablePlayerControls | 0x1060 | 177 / 0 | match | - | - |  |
 | EnterTrigger | 0x11BA | 160 / 0 | match | - | - |  |
-| EquipItem | 0x10EE | 199 / 0 | wrong | NPC equipment drawn from the rules | - | The rules' flags change; the engine dresses NPCs by its own roll and does not redraw (audit §5). |
+| EquipItem | 0x10EE | 199 / 0 | match | - | - | The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]. |
 | EvaluatePackage | 0x105E | 2285 / 0 | match | - | - |  |
 | Exists | 0x119F | 0 / 21 | match | - | - |  |
 | ExitGame | 0x11B5 | 1 / 0 | wrong | quitting from scripts | - | Stub, 1 call; the console's qqq exists. |
@@ -675,7 +674,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SystemSave | 0x127B | 5 / 0 | wrong | saves from scripts | - | Stub; saves and Autosave exist. |
 | trapUpdate | 0x110C | 1 / 0 | no-system | trap updates | - | Stub; the catalogue says nothing. |
 | TriggerScreenSplatter | 0x1240 | 8 / 0 | no-system | screen blood splatter | - | Stub. |
-| UnequipItem | 0x10EF | 51 / 0 | wrong | NPC equipment drawn from the rules | - | As EquipItem. |
+| UnequipItem | 0x10EF | 51 / 0 | match | - | - | As EquipItem. |
 | Unlock | 0x1073 | 450 / 0 | match | - | - | On a terminal: it opens at its menu [documented: GECK wiki Unlock]; GetLocked 0, GetLockLevel -1 [observed: probes]. |
 | UnlockChallenge | 0x125E | 44 / 0 | match | - | - |  |
 | UseWeapon | 0x119C | 13 / 0 | match | - | - |  |

@@ -107,8 +107,10 @@ const LINE_PITCH: f32 = 35.0;
 const HINT_GAP: f32 = 16.0;
 /// How dark the original's picture behind the menu makes the world: about a third at its edge on
 /// the barter screenshot (the world behind is also blurred there; not built).
-/// Ours is darker, the owner's wish ([`crate::interface::MENU_BACKING`]).
-const SHADE: f32 = crate::interface::MENU_BACKING;
+/// Ours is as dark as a message box's, 0.93 black [design: the owner's wish after the
+/// playtest of 2026-10-17, the other menus' 0.75 (`crate::interface::MENU_BACKING`) still
+/// let the world show through too much].
+const SHADE: f32 = 0.93;
 
 const BODY_FONT: &str = "textures\\fonts\\monofonto_large.fnt";
 const TITLE_FONT: &str = "textures\\fonts\\glow_monofonto_vl_dialogs.fnt";

@@ -321,7 +321,7 @@ fn draw(
     (combat, hostile, bar, camera, time): (Option<Res<crate::combat::Combat>>, Option<Res<crate::hud_target::AimHostile>>, Option<Res<crate::hud_target::HudTarget>>, Query<&Projection, With<crate::PlayerCamera>>, Res<Time>),
     mut spread: Local<f32>,
     mut logged: Local<(bool, i32)>,
-    (locks, bindings): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>),
+    (locks, bindings, creator): (Option<Res<ControlLocks>>, Option<Res<crate::bindings::Bindings>>, Option<Res<crate::creator::CreatorMenu>>),
     data: Option<Res<GameData>>,
     mut images: ResMut<Assets<Image>>,
     formats: Option<Res<CompressedImageFormatSupport>>,
@@ -331,7 +331,9 @@ fn draw(
     mut crosses: Query<(&Cross, &mut Visibility, &mut Node, Option<&mut ImageNode>), Without<Root>>,
     texts: Query<Entity, With<Texts>>,
 ) {
-    let playing = *state.get() == PlayState::Playing;
+    // Not over the character creator, whatever state the opening leaves the game in
+    // [owner 2026-10-17: "E) Talk" stayed under it].
+    let playing = *state.get() == PlayState::Playing && !creator.is_some_and(|c| c.is_open());
     let Some(kit) = kit.as_ref() else {
         if playing {
             let loaded = Kit::load(data.as_deref(), &mut images, bc_supported(formats.as_deref()));

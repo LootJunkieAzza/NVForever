@@ -144,13 +144,11 @@ note = "As GetCasinoWinningsLevel."
 # ---------------------------------------------------------------- wrong or stub, the system exists
 
 [function.EquipItem]
-status = "wrong"
-system = "NPC equipment drawn from the rules"
-note = "The rules' flags change; the engine dresses NPCs by its own roll and does not redraw (audit §5)."
+status = "match"
+note = "The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]."
 
 [function.UnequipItem]
-status = "wrong"
-system = "NPC equipment drawn from the rules"
+status = "match"
 note = "As EquipItem."
 
 [function.GetChallengeCompleted]
