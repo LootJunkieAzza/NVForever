@@ -3584,3 +3584,20 @@ expect = [
   { text = "creator view: lights off", label = "removed when it closes" },
 ]
 manual = "opening_creator_*.png: one or more shows the creator open in Doc Mitchell's house: the player lit, Doc not in front of them, no E) Talk prompt, no subtitle over the panel"
+
+[[scenario]]
+name = "foot-ik-goodsprings"
+source = "owner request 2026-10-17 (screenshots of the original on the slopes around Goodsprings): on a slope the lower foot lowers the body and the higher knee bends, each foot lying on the slope (docs/spec-notes/actors.md §13)"
+note = "the player is put on a 20° hillside east of Goodsprings (land heights: -62336,4352) at 24 s and seen in third person from 26 s; the summary at exit says how many actors stood on uneven ground and how far the body dropped and the feet rose (both within the limits of §13.2)"
+areas = ["actors", "animation", "player-body"]
+paths = ["engine/nvforever/src/foot_ik.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "24:-62336:4352:8700", NVF_PLAY_TEST_CONTROL = "26:view", NVF_PLAY_TEST_SHOTS = "31:foot-ik.png" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 34
+expect = [
+  "foot ik: on (--no-foot-ik)",
+  'foot ik: meshes\characters\_male\skeleton.nif: lowers Bip01 NonAccum and bends both legs',
+  { text = "foot ik: … actors stood on uneven ground (the player)", label = "the player's feet placed on the hillside" },
+  { re = 'foot ik: .*largest body drop (?P<n>[\d.]+) units', range = [0.5, 28.0], label = "the body lowered, within the limit" },
+  { re = 'foot ik: .*foot raise (?P<n>[\d.]+) units', range = [0.5, 40.0], label = "a foot raised, within the limit" },
+]
