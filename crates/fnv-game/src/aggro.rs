@@ -9,7 +9,8 @@
 //!   is one of the package's Fallout behaviour flags [documented: GECK wiki
 //!   Category:Packages], read as `fnv_ai::social::allows` reads them (a package without
 //!   "Skip Fallout Behavior" allows them all); an actor with no package allows it
-//!   [hypothesis].
+//!   [hypothesis]; a package with "No Warn/Attack Behavior" does not [hypothesis: the
+//!   flag's name].
 //! - **The warning** [documented: GECK wiki Combat Tab, GuardTrespass "Said when issuing a
 //!   warning, either from a Guard package, Aggro Radius behavior, or when the player is
 //!   trespassing"; GetTrespassWarningLevel counts the warnings "an actor on a Guard
@@ -52,6 +53,9 @@ impl Game<'_> {
     fn package_allows_aggro(&mut self, actor: FormId) -> bool {
         let data = self.data;
         match self.current_package(actor).and_then(|p| data.package_defs.get(&p)) {
+            // "No Warn/Attack Behavior" turns the warnings and the attack off [hypothesis:
+            // the flag's name, xEdit; no page describes it].
+            Some(d) if d.has(flags::NO_WARN_ATTACK_BEHAVIOR) => false,
             Some(d) => !d.has(flags::SKIP_FALLOUT_BEHAVIOR) || d.fallout_flags & fallout::AGGRO_RADIUS != 0,
             None => true,
         }

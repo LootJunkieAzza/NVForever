@@ -3,7 +3,10 @@
 //! kind means: docs/spec-notes/packages.md §3 [documented: GECK wiki, Category:Packages
 //! "Standard Location" and the page of each type]; what is not carried out yet:
 //! docs/design/actor-behaviour.md §5. A Dialogue package has no place to stay at but
-//! someone to talk to ([`Talk`], docs/design/actor-behaviour.md §5.6).
+//! someone to talk to ([`Talk`], docs/design/actor-behaviour.md §5.6). Escort, Find, Use
+//! Item At, Ambush and Flee Not Combat packages have goals of their own ([`Escort`],
+//! [`Find`], [`UseAt`], [`Ambush`], [`Flee`]; packages.md §3.1), carried out in
+//! `crate::errand`.
 
 use fnv_game::game::Game;
 use fnv_game::package::{furniture, Location, LocationKind, PackageDef, PackageType, TargetKind};
@@ -28,6 +31,16 @@ pub enum Goal {
     Talk(Talk),
     /// Keep near someone, wherever it goes: a Follow or Accompany package.
     Follow(Follow),
+    /// Lead someone to a place: an Escort package.
+    Escort(Escort),
+    /// Look for objects in an area and take, use or go up to them: a Find package.
+    Find(Find),
+    /// Go to an object and use it: a Use Item At package.
+    UseAt(UseAt),
+    /// Wait at a place for an enemy to come into another, then fight: an Ambush package.
+    Ambush(Ambush),
+    /// Get away from a threat, without fighting: a Flee Not Combat package.
+    Flee(Flee),
     /// The package type or the location kind is not carried out yet: the actor stays
     /// where it is.
     NotCarriedOut(&'static str),
@@ -86,6 +99,130 @@ pub struct Follow {
 
 /// How near a follower keeps to a target whose package gives no distance [our choice].
 pub const STANDARD_FOLLOW_DISTANCE: f32 = 256.0;
+
+/// What an Escort package has its actor do: go to `to` (the package's location) with
+/// `target` (the package's target) and stop to wait whenever the target is more than
+/// `distance` away (PKE2) [documented: Category:Packages, "escort leads it to a
+/// destination", "Follow/Escort/Accompany: Idles play while not moving but waiting for
+/// target to move"; hypothesis: that PKE2 is the distance at which it stops to wait;
+/// packages.md §3.1].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Escort {
+    pub target: FormId,
+    /// [`Goal::Near`] or [`Goal::Inside`].
+    pub to: Box<Goal>,
+    /// Game units; [`STANDARD_ESCORT_DISTANCE`] when the record gives none.
+    pub distance: f32,
+}
+
+/// The escort distance of a package without one [our choice: the most common PKE2 of
+/// the masters, 7 of the 13 Escort packages].
+pub const STANDARD_ESCORT_DISTANCE: f32 = 200.0;
+
+/// What a Find or Use Item At package looks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wanted {
+    /// One placed reference.
+    Reference(FormId),
+    /// References of this base form, or of the bases in this form list, or actors of
+    /// this faction or drawn from this leveled list.
+    Base(FormId),
+    /// References of an object type (PTDT object type code, `object_type_name`).
+    Type(u32),
+    /// Nothing: object type "None" [observed: 3 of the masters' Find packages], or no
+    /// target at all.
+    Nothing,
+}
+
+/// An area searched for objects: within `radius` of `centre` (the whole cell when the
+/// location is "in cell": radius infinite); `centre` `None`: around where the actor is
+/// when it searches.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Area {
+    pub centre: Option<Place>,
+    pub radius: f32,
+}
+
+/// A search area of radius 0 is this wide [our choice: 16 of the masters' Find and Use
+/// Item At packages have radius 0 and name an object to find around the location].
+pub const STANDARD_SEARCH_RADIUS: f32 = 512.0;
+
+/// What a Find package has its actor do [documented: Category:Packages, "Standard
+/// Search Data" (search location, Allow Buying / Killing / Stealing), Must Complete "the
+/// target must be found with a find", "Find: Idles play when 'activating' the target of
+/// the find"; Combat Package Flags, "travel behavior on the way to the object"]: go to the
+/// search location, then to each object it looks for in the area, nearest first, and
+/// take it (an item), harvest it (flora), use it (furniture), or go up to it; `count`
+/// of them (the target's count) [hypothesis for what is done with each kind;
+/// packages.md §3.1].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Find {
+    /// The search location as a place to go first ([`Goal::Here`] without one).
+    pub search: Box<Goal>,
+    pub area: Area,
+    pub wanted: Wanted,
+    /// How many to find (at least 1).
+    pub count: u32,
+    /// For a specific reference: how near it to go (the target's distance; 0: up to it).
+    pub distance: f32,
+    /// Allow Killing: actors carrying what it looks for (and actors it looks for) are
+    /// attacked; Allow Stealing: items owned by others are taken too. Allow Buying is
+    /// not carried out (no trading between actors).
+    pub kill: bool,
+    pub steal: bool,
+}
+
+/// What a Use Item At package has its actor do [documented: Category:Packages "Use
+/// Item: Idles play at idle location"; Combat Package Flags, "travel behavior on the way
+/// to the fire location"]: go to the object the package names (or the nearest of its
+/// kind in the area) and use it: sit on furniture, stand at a marker facing its way, or
+/// use an item it carries [hypothesis for the kinds; packages.md §3.1].
+#[derive(Debug, Clone, PartialEq)]
+pub struct UseAt {
+    pub at: Box<Goal>,
+    pub area: Area,
+    pub wanted: Wanted,
+    /// "Sit Down": only furniture to sit on is chosen [hypothesis].
+    pub sit_down: bool,
+}
+
+/// What an Ambush package has its actor do [documented: Category:Packages, "wait at a
+/// location until enemies enter another"; Combat Package Flags, "travel behavior on
+/// the way to the ambush location"; observed: GoodspringsSettler04Ref under
+/// GSSettlerAmbushPackage went to its location (procedure TRAVEL) and waited there
+/// (procedure WAIT_AMBUSH), not sneaking although the package says Hide While
+/// Ambushing, packages.md §4]: go to `wait`, wait there, and fight the first enemy in
+/// `trigger`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ambush {
+    pub wait: Box<Goal>,
+    pub trigger: Trigger,
+    /// The package's target: only it is ambushed (a reference), or only members of a
+    /// faction or kind (a base form); [`Wanted::Nothing`]: any actor that the ambusher
+    /// would fight.
+    pub target: Wanted,
+    /// Hide While Ambushing: only reported (it does not make the actor sneak [observed]).
+    pub hide: bool,
+}
+
+/// What a Flee Not Combat package has its actor do [documented: Category:Packages,
+/// "flee to or from somewhere", "Flee: Idles play when at flee destination"; IsFleeing,
+/// "running a Flee-type AI package"]: run from its threat (the package's target, else an
+/// actor, when it is an enemy) to the package's location, or, without one, until it is
+/// `distance` from the threat; it does not fight [hypothesis for the threat and the
+/// distance; packages.md §3.1].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Flee {
+    pub from: Option<FormId>,
+    /// Game units; [`STANDARD_FLEE_DISTANCE`] when the target names none.
+    pub distance: f32,
+    pub to: Option<Box<Goal>>,
+}
+
+/// How far a fleeing actor without a destination gets from its threat when the package
+/// names no distance [our choice: fCombatFleeNormalDistance's default, 2048, Combat
+/// Flee].
+pub const STANDARD_FLEE_DISTANCE: f32 = 2048.0;
 
 /// The activate distance of a Dialogue package that gives none [documented: GECK wiki,
 /// Dialogue Package: "The standard distance is 150, as defined in the
@@ -278,10 +415,12 @@ pub fn resolve(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> 
         // A Use Weapon package stands at its location to shoot (`fnv_game::use_weapon`).
         PackageType::Travel | PackageType::Sandbox | PackageType::Sleep | PackageType::Eat | PackageType::Guard | PackageType::Wander | PackageType::Patrol | PackageType::UseWeapon => {}
         PackageType::Follow | PackageType::Accompany => return follow(game, actor, def),
-        PackageType::Escort => return Goal::NotCarriedOut("a package that leads its target"),
+        PackageType::Escort => return escort(game, nav, actor, def),
         PackageType::Dialogue => return talk(game, nav, actor, def),
-        PackageType::Find | PackageType::UseItemAt => return Goal::NotCarriedOut("a package that searches for or uses an object"),
-        PackageType::Ambush | PackageType::FleeNotCombat => return Goal::NotCarriedOut("an ambush or flee package"),
+        PackageType::Find => return find(game, nav, actor, def),
+        PackageType::UseItemAt => return use_at(game, nav, actor, def),
+        PackageType::Ambush => return ambush(game, nav, actor, def),
+        PackageType::FleeNotCombat => return flee(game, nav, actor, def),
         PackageType::Other(_) => return Goal::NotCarriedOut("an unknown package type"),
     }
     let Some(loc) = def.location else { return Goal::Here };
@@ -378,20 +517,7 @@ fn talk(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
         Some(g @ (Goal::Near { .. } | Goal::Inside { .. })) => g,
         _ => Goal::Here,
     };
-    let trigger = match def.location2 {
-        None => Trigger::None,
-        Some(l) => {
-            let radius = l.radius.max(0) as f32;
-            match l.kind {
-                LocationKind::NearReference(Some(reference)) => Trigger::NearReference { reference, radius },
-                LocationKind::NearEditor => editor_place(refs, actor).map_or(Trigger::Never, |place| Trigger::Near { place, radius }),
-                LocationKind::NearLinked => linked.map_or(Trigger::Never, |reference| Trigger::NearReference { reference, radius }),
-                LocationKind::NearCurrent => Trigger::NearActor { radius },
-                LocationKind::InCell(Some(c)) => Trigger::InCell(c),
-                _ => Trigger::Never,
-            }
-        }
-    };
+    let trigger = def.location2.map_or(Trigger::None, |l| trigger_of(game, actor, &l));
     let distance = def.target.map_or(0, |t| t.count_distance);
     Goal::Talk(Talk {
         target,
@@ -403,6 +529,144 @@ fn talk(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
         say_to: data.say_to,
         no_headtracking: data.no_headtracking,
     })
+}
+
+/// A location 2 as a trigger location (Dialogue and Ambush packages).
+fn trigger_of(game: &Game, actor: FormId, l: &Location) -> Trigger {
+    let refs = game.world.placed;
+    let linked = refs.get(actor).and_then(|r| r.linked);
+    let radius = l.radius.max(0) as f32;
+    match l.kind {
+        LocationKind::NearReference(Some(reference)) => Trigger::NearReference { reference, radius },
+        LocationKind::NearEditor => editor_place(refs, actor).map_or(Trigger::Never, |place| Trigger::Near { place, radius }),
+        LocationKind::NearLinked => linked.map_or(Trigger::Never, |reference| Trigger::NearReference { reference, radius }),
+        LocationKind::NearCurrent => Trigger::NearActor { radius },
+        LocationKind::InCell(Some(c)) => Trigger::InCell(c),
+        _ => Trigger::Never,
+    }
+}
+
+/// A package's target as one reference: a specific reference, or the actor's linked
+/// reference. `Err`: the goal to give the package instead (`why_none` when it has
+/// neither).
+fn target_ref(game: &Game, actor: FormId, def: &PackageDef, why_none: &'static str) -> Result<FormId, Goal> {
+    match def.target.map(|t| t.kind) {
+        Some(TargetKind::Reference(Some(r))) => Ok(r),
+        Some(TargetKind::LinkedReference) => game.world.placed.get(actor).and_then(|r| r.linked).ok_or(Goal::Missing("the actor has no linked reference")),
+        Some(TargetKind::Reference(None)) => Err(Goal::Missing("the package's target is not in the load order")),
+        _ => Err(Goal::NotCarriedOut(why_none)),
+    }
+}
+
+/// What a package's target asks for ([`Wanted`]).
+fn wanted(game: &Game, actor: FormId, def: &PackageDef) -> Result<Wanted, Goal> {
+    Ok(match def.target.map(|t| t.kind) {
+        None | Some(TargetKind::Other(_)) | Some(TargetKind::ObjectType(0)) => Wanted::Nothing,
+        Some(TargetKind::ObjectType(c)) => Wanted::Type(c),
+        Some(TargetKind::ObjectId(Some(b))) => Wanted::Base(b),
+        Some(TargetKind::ObjectId(None)) => return Err(Goal::Missing("the package's target is not in the load order")),
+        Some(_) => Wanted::Reference(target_ref(game, actor, def, "")?),
+    })
+}
+
+/// A location as a place to go first and the area around it: `Err` when the location
+/// names something that is not in the world.
+fn place_and_area(game: &Game, nav: &NavGraph, actor: FormId, loc: Option<&Location>) -> Result<(Goal, Area), Goal> {
+    let radius = loc.map_or(0.0, |l| l.radius.max(0) as f32);
+    let radius = if radius > 0.0 { radius } else { STANDARD_SEARCH_RADIUS };
+    let Some(loc) = loc else { return Ok((Goal::Here, Area { centre: None, radius })) };
+    Ok(match stay_at(game, nav, actor, loc) {
+        g @ Goal::Near { place, .. } => (g, Area { centre: Some(place), radius }),
+        g @ Goal::Inside { at, .. } => (g, Area { centre: Some(at), radius: f32::INFINITY }),
+        g @ Goal::Missing(_) => return Err(g),
+        // Near the current location, or a location given by an object: around the actor.
+        _ => (Goal::Here, Area { centre: None, radius }),
+    })
+}
+
+/// The goal of an Escort package ([`Escort`]): its target is the one it leads, its
+/// location where to.
+fn escort(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
+    let target = match target_ref(game, actor, def, "an escort package without someone to lead") {
+        Ok(t) if t == actor => return Goal::Missing("the actor would escort itself"),
+        Ok(t) => t,
+        Err(g) => return g,
+    };
+    // Without a destination it stays with its target where it is [our choice].
+    let to = match def.location.map(|l| stay_at(game, nav, actor, &l)) {
+        Some(g @ Goal::Missing(_)) => return g,
+        Some(g @ (Goal::Near { .. } | Goal::Inside { .. })) => g,
+        _ => Goal::Here,
+    };
+    let distance = def.escort_distance.filter(|d| *d > 0).map_or(STANDARD_ESCORT_DISTANCE, |d| d as f32);
+    Goal::Escort(Escort { target, to: Box::new(to), distance })
+}
+
+/// The goal of a Find package ([`Find`]).
+fn find(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
+    let (search, area) = match place_and_area(game, nav, actor, def.location.as_ref()) {
+        Ok(x) => x,
+        Err(g) => return g,
+    };
+    let wanted = match wanted(game, actor, def) {
+        Ok(Wanted::Reference(r)) if r == actor => return Goal::Missing("the actor would find itself"),
+        Ok(w) => w,
+        Err(g) => return g,
+    };
+    let n = def.target.map_or(0, |t| t.count_distance.max(0));
+    let (count, distance) = match wanted {
+        Wanted::Reference(_) => (1, n as f32),
+        _ => (n.max(1) as u32, 0.0),
+    };
+    use fnv_game::package::type_flags as t;
+    Goal::Find(Find { search: Box::new(search), area, wanted, count, distance, kill: def.search_flag(t::ALLOW_KILLING), steal: def.search_flag(t::ALLOW_STEALING) })
+}
+
+/// The goal of a Use Item At package ([`UseAt`]).
+fn use_at(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
+    let (at, area) = match place_and_area(game, nav, actor, def.location.as_ref()) {
+        Ok(x) => x,
+        Err(g) => return g,
+    };
+    match wanted(game, actor, def) {
+        Ok(wanted) => Goal::UseAt(UseAt { at: Box::new(at), area, wanted, sit_down: def.sit_down() }),
+        Err(g) => g,
+    }
+}
+
+/// The trigger location of an Ambush package without a location 2 [our choice; every
+/// Ambush package of the masters has one, packages.md §2].
+const STANDARD_AMBUSH_TRIGGER: f32 = 1024.0;
+
+/// The goal of an Ambush package ([`Ambush`]): location 1 is where it waits, location
+/// 2 where enemies set it off.
+fn ambush(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
+    let wait = match def.location.map(|l| stay_at(game, nav, actor, &l)) {
+        Some(g @ Goal::Missing(_)) => return g,
+        Some(g @ (Goal::Near { .. } | Goal::Inside { .. })) => g,
+        _ => Goal::Here,
+    };
+    let trigger = def.location2.map_or(Trigger::NearActor { radius: STANDARD_AMBUSH_TRIGGER }, |l| trigger_of(game, actor, &l));
+    match wanted(game, actor, def) {
+        Ok(target) => Goal::Ambush(Ambush { wait: Box::new(wait), trigger, target, hide: def.hide_while_ambushing() }),
+        Err(g) => g,
+    }
+}
+
+/// The goal of a Flee Not Combat package ([`Flee`]).
+fn flee(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> Goal {
+    let from = match target_ref(game, actor, def, "") {
+        Ok(t) if t != actor => Some(t),
+        Err(g @ Goal::Missing(_)) => return g,
+        _ => None,
+    };
+    let to = match def.location.map(|l| stay_at(game, nav, actor, &l)) {
+        Some(g @ Goal::Missing(_)) => return g,
+        Some(g @ (Goal::Near { .. } | Goal::Inside { .. })) => Some(Box::new(g)),
+        _ => None,
+    };
+    let n = def.target.map_or(0, |t| t.count_distance);
+    Goal::Flee(Flee { from, distance: if n > 0 { n as f32 } else { STANDARD_FLEE_DISTANCE }, to })
 }
 
 /// The furniture a package gives an actor that has arrived at `at`, if any:

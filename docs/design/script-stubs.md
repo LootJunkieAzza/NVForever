@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7); 59 (1 assigned, 1 implementable, 57 need a system) after UseWeapon (§3.8); 58 (1 assigned, 1 implementable, 56 need a system) after the function audit (§3.9); 52 (1 assigned, 1 implementable, 50 need a system) after roulette and the function probes (§3.11) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7); 59 (1 assigned, 1 implementable, 57 need a system) after UseWeapon (§3.8); 58 (1 assigned, 1 implementable, 56 need a system) after the function audit (§3.9); 52 (1 assigned, 1 implementable, 50 need a system) after roulette and the function probes (§3.11); 48 (1 assigned, 1 implementable, 46 need a system) after the used items (§3.12) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6); 795 (313 calls, 482 condition uses) after the combat round (§3.7); 782 (300 calls, 482 condition uses) after UseWeapon (§3.8); 737 (256 calls, 481 condition uses) after the function audit (§3.9); 645 (242 calls, 403 condition uses) after roulette and the function probes (§3.11) |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6); 795 (313 calls, 482 condition uses) after the combat round (§3.7); 782 (300 calls, 482 condition uses) after UseWeapon (§3.8); 737 (256 calls, 481 condition uses) after the function audit (§3.9); 645 (242 calls, 403 condition uses) after roulette and the function probes (§3.11); 619 (242 calls, 377 condition uses) after the used items (§3.12) |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -238,6 +238,14 @@ the record's Disposition Base plus `fDispTargetCharMult` × (the target's Charis
 SetDisposition's value instead; IsFacingUp (0x106A, 41) and IsLeftUp (0x111D, 22): 1 on a
 standing actor [observed]. 57 → 52 stubs, 250 → 242 calls, 481 → 403 condition uses.
 
+### 3.12 Used items (claude/package-errands, 2026-10-17)
+
+With Find and Use Item At packages carried out (docs/spec-notes/packages.md §3.1), the four
+"AI (used items)" functions are implemented: GetIsUsedItem (0x10F6, 16 condition uses),
+GetIsUsedItemType (0x10F7, 6), GetIsUsedItemEquipType (0x11E0, 1) and GetUsedItemActivate
+(0x1103, 3). What an actor uses is the furniture it is on, else what its Find or Use Item
+At package last had it take or use [hypothesis]. 52 → 48 stubs, 403 → 377 condition uses.
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is
@@ -269,7 +277,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | IsLeftUp | 0x111D | 0 | 22 | implemented 2026-10-17 (§3.11) | as IsFacingUp |
 | Exists | 0x119F | 0 | 21 | implemented 2026-10-16 (§3.7) | the condition's target; in combat, another group member |
 | SetRumble | 0x11FB | 17 | 0 | deliberately no-op | controller rumble: no controller rumble on the PC version |
-| GetIsUsedItem | 0x10F6 | 0 | 16 | needs a system not built yet | AI (used items) |
 | GetDisposition | 0x104C | 0 | 15 | implemented 2026-10-17 (§3.11) | Disposition Base and the target's Charisma [observed] |
 | ShowRepairMenu | 0x117A | 15 | 0 | needs a system not built yet | menus (repair) |
 | ShowRecipeMenu | 0x1250 | 15 | 0 | implemented 2026-10-16 (claude/l5-crafting) | menus (crafting) |
@@ -284,7 +291,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetVATSTargetHeight | 0x10EB | 0 | 7 | needs a system not built yet | combat (VATS) |
 | GetRadiationLevel | 0x11F7 | 0 | 7 | needs a system not built yet | radiation (environment) |
 | IsCombatTarget | 0x1203 | 6 | 1 | implemented 2026-10-16 (§3.7) | the target list in a combat state |
-| GetIsUsedItemType | 0x10F7 | 0 | 6 | needs a system not built yet | AI (used items) |
 | ShowBlackJackMenuParams | 0x1254 | 6 | 0 | implemented 2026-10-17 (claude/blackjack) | menus (casino) |
 | ShowRouletteMenuParams | 0x1256 | 6 | 0 | implemented 2026-10-17 (claude/roulette, §3.11) | menus (casino) |
 | SetAllVisible | 0x115A | 5 | 0 | needs a system not built yet | detection |
@@ -300,7 +306,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | ResetPipboyManager | 0x1201 | 4 | 0 | needs a system not built yet | Pip-Boy |
 | AttachAshPile | 0x1211 | 4 | 0 | needs a system not built yet | rendering (death effects) |
 | AddCardToPlayer | 0x125B | 4 | 0 | needs a system not built yet | Caravan |
-| GetUsedItemActivate | 0x1103 | 0 | 3 | needs a system not built yet | AI (used items) |
 | SetNoAvoidance | 0x115B | 3 | 0 | needs a system not built yet | AI |
 | GetGroupTargetCount | 0x11A1 | 0 | 3 | implemented 2026-10-16 (§3.7) | the group's foes |
 | PlaceAtReticle | 0x1263 | 3 | 0 | needs a system not built yet | HUD (reticle) |
@@ -329,7 +334,6 @@ exists; the note says what is missing); **deliberately no-op**.
 | PreloadMagicEffect | 0x1163 | 1 | 0 | deliberately no-op | loading: effect particles load when drawn |
 | GetPlantedExplosive | 0x11AC | 0 | 1 | needs a system not built yet | combat (live explosives planted by reverse pickpocketing) |
 | ExitGame | 0x11B5 | 1 | 0 | needs a system not built yet | menus (credits, main menu) |
-| GetIsUsedItemEquipType | 0x11E0 | 0 | 1 | needs a system not built yet | AI (used items) |
 | ClearScreenSplatter | 0x1241 | 1 | 0 | needs a system not built yet | image space |
 
 Notes on the most used:

@@ -13,8 +13,8 @@ package choice, actors going where their package sends them over the navmesh (he
 and in `nvforever` (`--npc-packages`, §5.4) for named actors or every actor of the loaded
 cells, on the game's own state in `--play`, moved by the character controller near the
 player. Dialogue packages aimed at the player (the force greet) are carried out since
-2026-10-10 (§5.6). **Next**: the package types and behaviours not carried out yet, and
-the notes in §7. The six package types not yet seen running in a capture (Find, Follow, Escort,
+2026-10-10 (§5.6); every package type is carried out since 2026-10-17 (§5.10). **Next**:
+the behaviours not carried out yet, and the notes in §7. The six package types not yet seen running in a capture (Find, Follow, Escort,
 Wander, Use Item At, Use Weapon) are set aside until the owner captures them.
 
 ## 1. The plan
@@ -88,8 +88,8 @@ their window, as before; script packages are left alone [our choice]. The game d
 built for this [observed]: the Goodsprings geckos' list is VCrGeckoFindFood (Once Per Day,
 2 h), VCrGeckoPatrolRunningLinkedRef (3 h), VCrGeckoFindFood02 (2 h),
 VCrGeckoPatrolRunning02LinkedRef (3 h), then a sandbox with no duration. A Find package
-that finds its target is not ended early: Find is not carried out yet (§5.1), and no
-source read says what "found" ends.
+that finds its target is not ended early: its goal is met (§5.10), and no source read
+says what "found" ends.
 
 **When** (only with `package_interval` set): every actor in the loaded cells, and every
 actor that already runs a package, chooses when first seen and then every interval
@@ -132,7 +132,7 @@ periodic choice.
 | Dialogue | wait at location 1, go up to the target, talk (§5.6); a conversation between two actors is not carried out |
 | Follow, Accompany | keep within the target's count / distance of the target (256 when 0), wherever it goes, through doors too; stand while it stands (since 2026-10-11, below) [documented: "Follow/Escort/Accompany: Idles play while not moving but waiting for target to move"; hypothesis: the distance] |
 | Use Weapon | its location 1: go there, turn to target 2 and fire the PKW3 pattern (docs/design/use-weapon.md); the goal is met when the shots are spent |
-| Escort, Find, Use Item At, Ambush, Flee Not Combat | not carried out yet: the actor stays where it is |
+| Escort, Find, Use Item At, Ambush, Flee Not Combat | since 2026-10-17 (§5.10, `fnv_ai::errand`): lead the target to location 1, waiting within PKE2; look for the target's objects around location 1 and take, use or go up to them; go to an object and use it; wait at location 1 until an enemy is in location 2, then fight; run from a threat, to location 1 or away |
 
 | Location | Meaning |
 |---|---|
@@ -657,6 +657,37 @@ in `crates/fnv-ai/tests/carry.rs` ("process levels") and `cell_buffer.rs`.
 
 Not done: actors of cells never loaded are not handed to the AI at all, as before.
 
+### 5.10 Escort, Find, Use Item At, Ambush, Flee Not Combat (2026-10-17)
+
+The last five package types (190 of the masters' 4,885 packages: Find 88, Ambush 44, Use
+Item At 30, Flee Not Combat 15, Escort 13). The rules, what the documentation says and
+what is a hypothesis: docs/spec-notes/packages.md §3.1; the original's actors under them,
+watched with the AI observer: §4 there (`tools/capture/observe/package_kinds.campaign.json`,
+which gives Goodsprings residents the packages with AddScriptPackage). Code:
+`fnv_ai::goal` (`Escort`, `Find`, `UseAt`, `Ambush`, `Flee`, `Wanted`, `Area`) and
+`fnv_ai::errand` (`Errand`, the progress kept on the agent), on `crate::carry`'s walks;
+`RefExtra::used_item` and `ambush_hidden` in `fnv-game`. Events (`AiEvent`):
+`escort_waits`, `escort_on`, `find_goes`, `found` (with `act`: takes, loots, harvests,
+uses, attacks, reaches), `nothing_found`, `uses_at`, `uses_item`, `ambush_waits`,
+`ambush_sprung`, `flee_runs`, `flee_safe`; the engine logs them as `ai [h] <actor>:
+escorts …: waits …`, `found …: takes (…)`, `uses … (…)`, `lies in wait, hidden (…)`,
+`springs its ambush on …`, `flees from …: runs …`, `is safe … (…)`. Tests:
+`crates/fnv-ai/tests/errands.rs`; smoke scenarios `package-escort`, `package-find`,
+`package-use-item-at`, `package-ambush`, `package-flee`.
+
+`fnvtool ai reach` over the ten masters [observed 2026-10-17]: the 362 actor/package
+pairs that were "not carried out yet" (Escort 4, Find 243, Use Item At 20, Ambush 80, Flee
+Not Combat 15) are now reachable 217 (Escort 4, Find 111, Use Item At 20, Ambush 80, Flee
+2), "stays where it is" 144 (Finds searching where the actor stands, 131; Flees with no
+destination, 13) and "no navmesh near the start" 1; every other verdict is unchanged
+(reachable 10,403 → 10,620, staying 1,691 → 1,835).
+
+With them came: GetIsUsedItem, GetIsUsedItemType, GetIsUsedItemEquipType and
+GetUsedItemActivate (what an actor uses: its furniture, or what its package had it take
+or use); Pretend In Combat (running, weapon out), Allow Swimming (water avoided without
+it), Allow Falls (ledge links allowed with it) and No Warn/Attack Behavior (no
+aggro-radius warnings); packages.md §3.1.
+
 ## 6. Decisions for the owner
 
 1. **Keep-current when nothing is valid** (rule 3) rather than "no package": taken from
@@ -736,16 +767,14 @@ Rules that are our choice or a hypothesis (also §6):
     rule.
 
 Not done yet:
-17. Package types not carried out: Follow, Accompany and Escort (297 actor/package
-    pairs), Find and Use Item At (263), Use Weapon (244), Ambush and Flee Not Combat
-    (94), Dialogue packages between two actors (3; the others are carried out, §5.6);
-    and the run-time type codes of the six types not seen running.
+17. Package types not carried out: none since 2026-10-17 (§5.10), apart from Dialogue
+    packages between two actors (3; the others are carried out, §5.6); the run-time
+    type codes of the types not seen running are still open.
 18. In the engine the residents' physics is a first version: the player's capsule
     with a steeper slope limit, no actor-to-actor avoidance, the walker for the last 64
     units and whenever physics gets stuck (§5.4).
-19. Package flags not acted on: the door flags (lock or unlock the cell's doors),
-    Always Sneak, Allow Swimming, Allow Falls, Weapon Drawn, the Fallout behaviour
-    switches; begin / end / change topics (package idles and begin / end / change idles
+19. Package flags not acted on: Pretend In Combat's cover moves (it runs with its weapon
+    out, §5.10); Find's Allow Buying; begin / end / change topics (package idles and begin / end / change idles
     are played, docs/spec-notes/idles.md).
 20. The game's own run-time packages (combat, dialogue, getting up from furniture;
     forms 0xFF…) have no counterpart.

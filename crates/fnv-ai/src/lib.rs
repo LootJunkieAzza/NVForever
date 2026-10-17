@@ -6,6 +6,7 @@
 //! - [`alert`]: actors in a combat state search, or stand facing their target
 //! - [`goal`]: where a package sends its actor
 //! - [`carry`]: the actors the AI moves: reachability, the walk, arrival
+//! - [`errand`]: Escort, Find, Use Item At, Ambush and Flee Not Combat packages
 //! - [`process`]: process levels: full updates in the loaded area, a cheap one now and
 //!   then outside it
 //! - [`sandbox`]: what a sandboxing actor does in its area
@@ -15,13 +16,14 @@
 pub mod alert;
 pub mod apart;
 pub mod carry;
+pub mod errand;
 pub mod goal;
 pub mod process;
 pub mod sandbox;
 pub mod social;
 
 pub use carry::{Activity, ActorSpeeds, Agent, Ai, AiConfig, AiEvent, Logged, Mover, Speeds, Talking};
-pub use goal::{Follow, Goal, Route, Talk, Trigger};
+pub use goal::{Ambush, Escort, Find, Flee, Follow, Goal, Route, Talk, Trigger, UseAt, Wanted};
 pub use process::{ProcessLevel, ProcessStats, FAR_PROCESS_SECONDS, LOW_PROCESS_SECONDS};
 pub use sandbox::{Allowed, Doing, Sandbox};
 pub use social::Chat;

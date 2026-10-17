@@ -46,8 +46,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 
 - **Gameplay**: VATS (not started); people's power attacks (creatures' are built); melee
   weapon use through UseWeapon; the companion wheel, aggressive/passive companions and
-  companions sneaking with the player; perks that change skill points; used items
-  (GetIsUsedItem*); slot machines; crafting's icon, effects line and making several at
+  companions sneaking with the player; perks that change skill points; slot machines; crafting's icon, effects line and making several at
   once; reputation disguises and resets.
 - **Animation**: actors' jumps, NPCs' sneaking weapon clips, PickIdle; armour ragdoll
   templates.
@@ -61,8 +60,9 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 - **Audio and video**: reverb, spatial sinks; PlayBink (the end videos).
 - **Saves**: deleting saves from the menu, loading into another load order, AI progress.
 - **Console**: several statements on a line.
-- **World**: skeleton collision still upright (playtest list 5 item 71); some AI package
-  flags (Pretend In Combat, Allow Swimming, Allow Falls, No Warn/Attack; list 5 item 34).
+- **World**: skeleton collision still upright (playtest list 5 item 71).
+- **AI packages**: Find's Allow Buying, an escort joining its charge's fights (the other
+  package types and flags are carried out since #400).
 
 ## 3. Decisions and checks waiting for the owner
 
