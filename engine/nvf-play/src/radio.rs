@@ -87,7 +87,7 @@ use crate::sim::SimState;
 use crate::voice::VoiceState;
 use crate::{Location, PlayState, PlayWorld};
 use bevy::audio::{AudioSinkPlayback, ChannelCount, Decodable, Sample, SampleRate, Source};
-use crate::audio_out::AddAudioSource;
+use crate::audio_out::{AddAudioSource, SoundCategory};
 use bevy::prelude::*;
 use fnv_combat::fx::Sound;
 use fnv_sim::FormId;
@@ -956,9 +956,9 @@ fn play(
             Some(at) => {
                 let at = SoundAt::new(at, Some(&player));
                 let handle = panned.add(Panned { inner: sound, pan: at.pan.clone() });
-                commands.spawn((AudioPlayer::<Panned<RadioSound>>(handle), PlaybackSettings::DESPAWN, at, RadioEntity)).id()
+                commands.spawn((AudioPlayer::<Panned<RadioSound>>(handle), PlaybackSettings::DESPAWN, at, RadioEntity, SoundCategory::Radio)).id()
             }
-            None => commands.spawn((AudioPlayer::<RadioSound>(assets.add(sound)), PlaybackSettings::DESPAWN, RadioEntity)).id(),
+            None => commands.spawn((AudioPlayer::<RadioSound>(assets.add(sound)), PlaybackSettings::DESPAWN, RadioEntity, SoundCategory::Radio)).id(),
         };
         let who = match w.key {
             PIPBOY => "the Pip-Boy".to_string(),
