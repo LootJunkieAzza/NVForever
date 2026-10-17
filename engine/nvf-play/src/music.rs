@@ -64,7 +64,7 @@ use crate::sfx::PlaySound;
 use crate::sim::SimState;
 use crate::{Location, PlayState, PlayWorld};
 use bevy::audio::{ChannelCount, Decodable, Sample, SampleRate, Source};
-use crate::audio_out::AddAudioSource;
+use crate::audio_out::{AddAudioSource, SoundCategory};
 use bevy::prelude::*;
 use fnv_combat::rng::SplitMix;
 use fnv_sim::FormId;
@@ -633,7 +633,7 @@ impl Music {
         }
         let entity = format.map(|(channels, rate)| {
             let music = assets.add(LayeredMusic { stems, levels: levels.clone(), channels, rate, looping: w.looping });
-            commands.spawn((AudioPlayer::<LayeredMusic>(music), PlaybackSettings::DESPAWN, MusicSound)).id()
+            commands.spawn((AudioPlayer::<LayeredMusic>(music), PlaybackSettings::DESPAWN, MusicSound, SoundCategory::Music)).id()
         });
         self.started += 1;
         let layers: Vec<&str> = (0..3).filter(|&k| w.on[k] && w.files[k].is_some()).map(|k| w.layers[k]).collect();

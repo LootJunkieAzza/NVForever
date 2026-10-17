@@ -44,7 +44,8 @@
 //!   Each fighter's pitch to its target ([`Fighters::pitch`]) bends its aim.
 //! - **Melee**: it closes in until its body is [`MELEE_STOP_GAP`] from its target's
 //!   (the bodies as `nvf_play::blocking` has them: a long creature reaches out in front
-//!   of its feet), and strikes while the gap is within [`MELEE_HIT_GAP`] and it sees the
+//!   of its feet) and its reach keeps it off ([`melee_spacing`]), and strikes while the
+//!   gap is within [`MELEE_HIT_GAP`] or the target within its reach and it sees the
 //!   target, a blow every [`STRIKE_SECONDS`] (divided by the weapon's attack speed)
 //!   [design; owner 2026-10-11: a dog gets into range and bites, it does not push the
 //!   player around]. Without bodies to measure, its reach from its feet counts.
@@ -157,6 +158,16 @@ pub const MELEE_ENGAGE_SHARE: f32 = 0.8;
 /// blows land and beyond which it closes in again, game units [design].
 pub const MELEE_STOP_GAP: f32 = 6.0;
 pub const MELEE_HIT_GAP: f32 = 24.0;
+/// Melee with bodies to measure: an attacker also keeps its weapon's reach between its
+/// centre and the target's body: it stops closing at this share of its reach plus half
+/// the two bodies' radii, and its blows begin and land within its reach plus half the
+/// radii (centre to centre), never nearer than the gaps above. In the original a
+/// trooper with a knife or a machete (Reach 0.5: 75 units) began its swings a median 96
+/// and 95 units from its target, the closest during a swing a median 92 and 91
+/// [observed 2026-10-17, AI observer campaign melee_spacing; the rule is fitted to that,
+/// docs/spec-notes/npc-behaviour-compare.md §3]; ours, by the gaps alone, began them a
+/// median 14 to 36 units away and came to 0 (inside the target).
+pub const MELEE_SPACING_SHARE: f32 = 0.9;
 /// A creature without a reach of its own reaches this far, game units [design].
 pub const CREATURE_REACH: f32 = 96.0;
 /// Within this distance of its target an actor fires from the hip, beyond it down its
@@ -399,6 +410,11 @@ struct Stats {
     /// Blows that went on a combo, and the longest combo.
     chained: usize,
     longest_combo: u32,
+    /// Feet-to-feet distances (2D, centre to centre) to the target when each melee blow
+    /// began, and the closest a melee fighter came to its target: to compare with the AI
+    /// observer's melee spacing in the original (docs/spec-notes/npc-behaviour-compare.md).
+    swing_distances: Vec<f32>,
+    melee_closest: Option<f32>,
     flee_checks: usize,
     flees: usize,
     /// Hit reactions (crippled staggers) that held a fighter back, and blows being
@@ -491,6 +507,13 @@ fn player_arm(c: &Combat) -> Arm {
 /// how far its target may be before it closes in again (module notes): a gun stops at
 /// [`GUN_RANGE_SHARE`] of its range and goes again beyond its range; melee stops at
 /// [`MELEE_ENGAGE_SHARE`] of its reach and goes again beyond its reach [design].
+/// A melee attacker's (stop, strike) distances, centre to centre, from the two bodies'
+/// radii summed (`bodies`) and its reach ([`MELEE_SPACING_SHARE`]).
+pub fn melee_spacing(bodies: f32, reach: f32) -> (f32, f32) {
+    let half = bodies * 0.5;
+    ((bodies + MELEE_STOP_GAP).max(reach * MELEE_SPACING_SHARE + half), (bodies + MELEE_HIT_GAP).max(reach + half))
+}
+
 pub fn engage(arm_reach: Option<f32>, gun_max_range: Option<f32>) -> (f32, f32) {
     match (gun_max_range, arm_reach) {
         (Some(r), _) if r > 0.0 => {
@@ -890,10 +913,7 @@ fn fight(
             let want = match (&arm, gap) {
                 // Melee with bodies to measure: from where its feet are, as far as the
                 // bodies' gap allows.
-                (Arm::Melee(_) | Arm::Creature(..), Some(gap)) => {
-                    let bodies = away - gap;
-                    (bodies + MELEE_STOP_GAP, bodies + MELEE_HIT_GAP)
-                }
+                (Arm::Melee(_) | Arm::Creature(..), Some(gap)) => melee_spacing(away - gap, reach),
                 _ => engage((!matches!(arm, Arm::Gun(_))).then_some(reach), gun),
             };
             g.awareness.engage.insert(me, want);
@@ -1418,8 +1438,9 @@ fn fight(
                     }
                 }
                 Arm::Melee(_) | Arm::Creature(..) => {
+                    f.stats.melee_closest = Some(f.stats.melee_closest.map_or(away, |c| c.min(away)));
                     fighter.strike_in = (fighter.strike_in - dt).max(0.0);
-                    let near = gap.map_or(away <= reach, |gap| gap <= MELEE_HIT_GAP);
+                    let near = gap.map_or(away <= reach, |gap| away <= melee_spacing(away - gap, reach).1);
                     // The last blow's clip, once started: its blow lands at its own `Hit`
                     // key, and the next decision comes at its `a:` key (module notes).
                     if let Some(sw) = fighter.swing.as_mut() {
@@ -1533,6 +1554,9 @@ fn fight(
                         let swing = SwingPick { next, rolls: [next_unit(&mut f.swing_rng), next_unit(&mut f.swing_rng)] };
                         anims.write(PlayAttack { actor: id, weapon, melee: true, sights: false, kind: Move::Attack, power: power.map(|p| p.0), swing: power.is_none().then_some(swing) });
                         f.stats.strikes += 1;
+                        f.stats.swing_distances.push(away);
+                        info!("npc combat: {me_name} swings at {target_name} from {away:.0} units (feet to feet, {})",
+                              gap.map_or_else(|| format!("reach {reach:.0}"), |x| format!("bodies' gap {x:.0}")));
                         fighter.blows_begun += 1;
                         g.attack_line(me, Some(target), false, false);
                     }
@@ -1616,6 +1640,18 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.blows_cut,
         s.unfaced,
     );
+    let mut d = s.swing_distances.clone();
+    d.sort_by(f32::total_cmp);
+    if !d.is_empty() {
+        info!(
+            "npc melee spacing: {} blows began at {:.0} to {:.0} units from the target (median {:.0}, feet to feet); the closest a melee fighter came: {:.0}",
+            d.len(),
+            d[0],
+            d[d.len() - 1],
+            d[d.len() / 2],
+            s.melee_closest.unwrap_or(0.0),
+        );
+    }
     info!(
         "npc stance summary: crouched {} times ({} behind low cover), stood up {} times ({} for a close-combat enemy), {} shifts; {} blocks ({} in reaction), {} blows blocked by fighters, {} recoils; {} bounds to cover, {} charges in the open, {} guards",
         s.crouches,
@@ -1639,6 +1675,16 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn melee_keeps_its_reach_from_the_target() {
+        // Two people (radii 22 + 22) with a knife (Reach 0.5 of fCombatDistance 150): the
+        // original began its swings a median 96 units away (melee_spacing campaign).
+        let (stop, strike) = melee_spacing(44.0, 75.0);
+        assert!((stop - 89.5).abs() < 0.01 && (strike - 97.0).abs() < 0.01, "{stop} {strike}");
+        // A short reach still keeps the bodies' gaps.
+        assert_eq!(melee_spacing(44.0, 10.0), (44.0 + MELEE_STOP_GAP, 44.0 + MELEE_HIT_GAP));
+    }
 
     #[test]
     fn a_creatures_power_attack() {
