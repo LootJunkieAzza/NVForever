@@ -829,6 +829,25 @@ fn a_sandbox_with_everything_off_stands_still() {
 }
 
 #[test]
+fn a_sandboxer_walking_up_to_a_conversation_partner_walks_the_whole_way() {
+    // Until 2026-10-17 the walk ended in its first frame: the starter stood inside its
+    // sandbox's radius, which counted as arriving, and it talked from where it stood.
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_NOTHING, R_SB_WANDER]);
+    s.run(5.0);
+    let (a, to) = (FormId(R_SB_NOTHING), [10750.0, 10450.0, 0.0]);
+    let agent = s.ai.agents.get_mut(&a).unwrap();
+    agent.walker.go_to(&s.nav, fnv_nav::path::Place { space: C, pos: to }, &fnv_nav::path::PathParams::default()).unwrap();
+    agent.activity = Activity::Travelling;
+    agent.chat = Some(fnv_ai::Chat::Going { partner: FormId(R_SB_WANDER), since: 0.0 });
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&a].activity, Activity::Travelling, "the walk goes on inside the sandbox's radius");
+    s.run(6.0);
+    assert_eq!(s.ai.agents[&a].activity, Activity::There);
+    assert!(dist(s.feet(R_SB_NOTHING), to) < 20.0, "{:?}", s.feet(R_SB_NOTHING));
+}
+
+#[test]
 fn a_sandboxer_sleeps_at_night_and_eats_at_mealtimes() {
     let f = fixture();
     let mut s = sim(&f, &[R_SB_ALL]);

@@ -62,6 +62,16 @@ fists (the default draws it holstered).
 - **Guns** keep their own `fnv_combat::attack::Cycle`, as the player's: the weapon's fire
   rate, magazine and reload. The trigger is held for automatic weapons and pulled again
   for each shot of the others.
+- **Reloads** (owner 2026-10-17: NPCs never reloaded in test runs): an empty magazine is
+  reloaded at once, fired at or not, with the weapon's reload clips (the player's:
+  `1hpreloada.kf`; round by round the opening clip `1hpreloadxstart.kf`, then
+  `1hpreloadx.kf` from its start for each round, closing past its `Hit` key) for as
+  long as they run in the actor's rig (2 s, the tuning's fallback, until they are
+  known). It pulls no trigger while it reloads, so a .357 revolver or a lever-action
+  loads every round. The same gun keeps its magazine on a new target. The rounds come
+  from nowhere: NPCs use no ammunition from their inventory (owner 2026-10-17). Not
+  built: reloading a part-empty magazine in cover or out of sight, the weapon model's
+  own reload animation on NPCs (the revolver's cylinder). Smoke `combat-npc-reload`.
 - **Aim**: from its eyes at the target's chest, inside a cone of the documented actor
   spread for its weapon skill (standing, not aiming down the sights), plus 4° that
   settles away over 3 s of firing at the same target (the first shots of a burst miss
@@ -189,7 +199,7 @@ Owner request 2026-10-11: "add attack animations so NPCs aim, fire and bite visi
   the dog crouch and rear up at the player's upper body. Violet's: `2hrattack3.kf
   (1.33 s)` per shot, `shots are drawn from its weapon's muzzle`, `9 shots (9 from a
   muzzle, 0 from the eyes)`, 8 hits.
-- Not done: reload clips for NPCs, recoil of the `##` weapon parts on the muzzle node,
+- Not done: recoil of the `##` weapon parts on the muzzle node,
   turning a standing NPC that is not run on its packages to face its target, aiming
   while moving (the movement clips drive the spine above the aim, animation.md §9.6).
 
@@ -450,7 +460,7 @@ the gaps above suggest:
 8. **Pursuit limits**: Combat Radius, Max Targeting FOV, Follow and Guard radii in
    combat, Pretend In Combat.
 9. Weapon choice among several (Weapon Restrictions "Ranged Only"), ammunition use,
-   reload clips for NPCs, the fCombatYieldRetryTime as the player's timer if the owner
+   the fCombatYieldRetryTime as the player's timer if the owner
    prefers the wiki's reading (§10.2).
 
 ## 12. Fleeing, cover, groups and searching (list 2, "E2", 2026-10-12)

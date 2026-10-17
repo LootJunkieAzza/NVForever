@@ -116,6 +116,15 @@ class Map(unittest.TestCase):
         self.assertGreaterEqual(conv["lines"], 3)
         self.assertEqual(m["graph"]["edge_counts"]["talks_to"], 2)
 
+    def test_dialogue_package_on_a_marker_is_no_conversation(self):
+        # A dialogue package or dialogue target naming a stool or a marker (not a sampled
+        # actor) is no conversation (the original's Novac and Gomorrah records).
+        dlg, talk = 34, om.PROC["DIALOGUE"]
+        samples = [(10 + k / 60, [full("00001001", 0, 0, dlg, talk, "0000B0B0", talking=1, dtgt="0000B0B1"),
+                                  full("00001002", 500, 0)], (0, 0, 0)) for k in range(4)]
+        m = om.build([("a.jsonl", output("town", "full", samples))])
+        self.assertEqual(m["conversations"]["count"], 0)
+
     def test_combat_lines_gaps_and_triggers(self):
         # One fighter in combat speaks twice: after a hit, then 10 real s later.
         samples = []

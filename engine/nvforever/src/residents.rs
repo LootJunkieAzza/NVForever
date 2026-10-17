@@ -485,7 +485,8 @@ impl Residents {
         let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(world.lo, world.schema, world.index)));
         let mut all = false;
         let mut core = Core {
-            ai: Ai::new(AiConfig { walk_speed, ..AiConfig::default() }),
+            // Test aid: conversations between NPCs anywhere in the loaded area.
+            ai: Ai::new(AiConfig { walk_speed, chats_anywhere: std::env::var("NVF_PLAY_TEST_CHATS_ANYWHERE").is_ok_and(|v| v == "1"), ..AiConfig::default() }),
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
@@ -1626,9 +1627,10 @@ pub fn report(
         core.waited[1],
         each.join("; ")
     );
+    let st = core.ai.social_stats();
     info!(
-        "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up)",
-        core.social[0], core.social[1], core.social[2], core.social[3]
+        "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up); {} tries next to the player, {} chances won; {:.0} actor-seconds next to the player",
+        core.social[0], core.social[1], core.social[2], core.social[3], st.tries, st.chances_won, st.near_player_seconds
     );
     let p = &core.ai.process_stats;
     let (high, low) = core.ai.process_counts();
