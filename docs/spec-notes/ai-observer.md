@@ -482,3 +482,31 @@ stands for the time to the next one, at most 5 game minutes.
   `fnvtool ai show --package ...`) the record's type, runtime type code, schedule and
   location kind, whether the observed type code matches, and the share of time used
   outside the record's schedule window.
+
+## 11. Campaigns of 2026-10-17 [observed 2026-10-17, plugin version 7]
+
+Campaigns `melee_spacing`, `npc_battles`, `goodsprings_fight_fast`, `conversations` and
+`casinos` (only its first session, Gomorrah, cut short at the owner's request); the
+measures and the comparison with our engine are in npc-behaviour-compare.md. What the runs
+taught about running them:
+
+- **Job order**: the plugin runs pending jobs in file-name order, so `creature_cazador`
+  ran before `dogs`, whose `tgm` never came first; the player died, the save reloaded and
+  the job started over and over. Job names now carry the session's place (§5).
+- **God mode, not health**: with the player's Health raised to 100,000 instead of `tgm`,
+  every attacker kept 280–500 units off and never swung.
+- **`tdetect` turns detection off for everyone**: with it, no actor entered combat in three
+  battles. To keep the player out of NPC fights: god mode, `SetForceSneak 1`, Sneak 100 and
+  a Stealth Boy's spell (`CastImmediateOnSelf StealthBoyInvisibilitySpell`) (owner's
+  suggestion); Fiends still targeted the player now and then.
+- **PlaceAtMe's result cannot be kept**: `let rS := player.PlaceAtMe …` and `set rS to …`
+  did not compile in the runtime compiler; spawned actors are found by a scan of
+  references created at run time instead (§5 `place`).
+- **Off the navmesh**: after `cow` the player stood where walking attackers stopped 190–280
+  units short; sessions now move the player onto an actor's spot first.
+- **Disabled crowds**: arriving by `coc` from the early-game save left the Strip's
+  trigger-enabled NPCs disabled (the owner saw them missing); the scan skips disabled
+  actors. Campaign `strip` starts from the owner's save `nvfstrip` instead (not run).
+- **Stopping a run without freeing the game too early**: when a campaign is cut short,
+  remove its pending jobs, stop the supervisor (it would restart the game for the rest),
+  and keep the locks until the game has quit.

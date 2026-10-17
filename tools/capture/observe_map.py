@@ -692,7 +692,7 @@ def package_report(packages, nm, records):
             code = rec.get("runtime_type_code")
             seen = {k for k in p["type_codes"]}
             entry["type_matches_record"] = None if code is None else seen <= {code}
-            sch = rec.get("schedule") or {}
+            sch = rec.get("schedule") if isinstance(rec.get("schedule"), dict) else {}
             if isinstance(sch.get("hour"), int) and sch["hour"] >= 0 and sch.get("duration_hours"):
                 start, length = sch["hour"], sch["duration_hours"]
                 inside = lambda h: (h - start) % 24 < length  # noqa: E731
