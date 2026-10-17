@@ -639,13 +639,26 @@ The creatures' combat idles (mole rat, giant rat, mantis, gecko) want procedure 
 
 - `GetCurrentAIProcedure` reads 16 for an actor in a combat state with a flight
   (`combat_group::Flight`), and `GetCurrentAIPackage` reads 5 COMBAT (ai_state.rs).
-- A drawn NPC that flees, has reached its flee spot (or is cornered) and stands still
-  is checked every 0.5 s. On the way it is not: in the first smoke run a frame of
-  standing still on the run passed IsMoving 0 [design]. The tree's roots
+- A drawn NPC that flees and stands still (as when its flight begins, or at its flee
+  spot) is checked every 0.5 s. The tree's roots
   that are idles with a file of its folder and whose conditions name procedure 16 are
   tried in chain order with their own conditions, and the first that passes plays
-  (`IdleSource::Cower`). In FalloutNV.esm that is `CowerIdles`. When its loops end it
-  is picked again. It ends, fading out, when the actor moves or stops fleeing.
+  (`IdleSource::Cower`). In FalloutNV.esm that is `CowerIdles`. It is not stopped
+  when the actor runs, only when it no longer flees (fading out). After its loops it
+  is picked again the next time the actor stands still.
+- **Cowering while running, crouching when stopped** [owner 2026-10-17: "they'll cower
+  whilst running but they only crouch when stopped"; "they holster their weapon"]. The
+  priorities of the clips give this without a run clip of its own [observed: `fnvtool
+  nif decode`]. `3rdp_cowering.kf` has priority 23 on `Bip01`, the pelvis and legs, 30
+  on `Bip01 Spine` and 33 on the spine above, neck, head and arms.
+  `locomotion\male\mtfastforward.kf` (the unarmed run) has 30 on every bone, so the run's
+  legs win and the cower's arms and head win: it runs with its hands over its head.
+  `sneakmtidle.kf` has 20 on every bone, so stopped and crouched (§12.2.1 of
+  combat-ai.md) the whole cower shows. A drawn rifle's run (`2hrfastforward.kf`) has 36
+  on the upper body and would cover the cower: the weapon is holstered while the actor
+  flees (`Game::wants_weapon_out`). How the original keeps the idle on the run is a
+  hypothesis: it starts by its conditions when the flight begins (the actor still
+  stands) and loops 2 to 12 times of 12 s, and movement does not end an idle.
 - Hit reactions are not read from the tree (the staggers of `locomotion.rs` and
   `npc_combat` follow their own rules), so the `3rdPCrouchedHit` branch is not played
   while cowering.
@@ -654,7 +667,7 @@ The creatures' combat idles (mole rat, giant rat, mantis, gecko) want procedure 
 
 ### 13.3 Open
 
-- Whether the original holsters a fleeing actor's weapon, and whether it cowers at
-  every stop or only at its flee spot. A capture of `GetCurrentAIProcedure`,
-  `IsMoving`, `IsSneaking` and `IsWeaponOut` on a fleeing NPC would settle both
+- Whether the original ends the cower before its loops run out, and whether it starts
+  it again on the run. A capture of `GetCurrentAIProcedure`, `IsMoving`, `IsSneaking`,
+  `IsIdlePlaying` and `IsWeaponOut` on a fleeing NPC would settle it
   (`tools/capture/observe.py`); none was taken.

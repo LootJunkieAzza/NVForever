@@ -2457,6 +2457,7 @@ run_seconds = 40
 expect = [
   { re = 'ai \[.*Violet\S*: flees from the player (to cover|away|through door)', label = "Violet runs from the player to a flee spot" },
   { re = 'Violet\S*: reached its flee spot from the player .*: hides there, crouched', label = "she reaches her flee spot and hides crouched there" },
+  { re = 'alert: \S*Violet\S* \S+ holsters its weapon \(it flees\)', label = "she holsters her rifle to flee" },
   { re = 'idle: \S*Violet\S* plays CowerIdles .*\(Cower\)', label = "she plays the original's cower idle" },
   { re = 'cower summary: (?P<n>\d+) cower idles', range = [1, 1000], label = "cower idles in the summary" },
 ]

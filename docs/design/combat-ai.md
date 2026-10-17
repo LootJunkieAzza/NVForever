@@ -531,8 +531,12 @@ kind for 3 s (`NO_POST_SECONDS`); cover it could not reach is not chosen again [
 The owner: fleeing NPCs should run with the original's flee animations and "run and
 hide, crouching down when they stop, to hide from their enemies".
 
-- **The run**: the game data has no flee run set and no idle for a moving fleeing actor
-  (docs/spec-notes/idles.md §13.1) [observed]. A fleeing actor runs with its ordinary run.
+- **The run**: the game data has no flee run set (docs/spec-notes/idles.md §13.1)
+  [observed]. A fleeing actor **holsters its weapon** [owner 2026-10-17] and runs with
+  the unarmed run, with the cower idle's arms and head laid over it (its hands over its
+  head) [owner 2026-10-17: "they'll cower whilst running but they only crouch when
+  stopped"; the clips' priorities make it so, idles.md §13.2]. It draws again when it
+  fights again.
 - **Where it runs**: the wiki's order (above) already prefers a door, then cover the
   attacker is beyond (a navmesh cover edge), and only then open ground.
 - **At its flee spot, or cornered, a person hides crouched** [design: owner
@@ -542,8 +546,9 @@ hide, crouching down when they stop, to hide from their enemies".
   and is a smaller target, whatever it holds. Over that set it plays the original's
   cower idle: the IDLE tree's `CowerIdles` (`3rdP_Cowering.kf`) wants a fleeing actor
   standing still [observed: FalloutNV.esm, idles.md §13.1], and `GetCurrentAIProcedure`
-  reads 16 FLEE while it flees [hypothesis, idles.md §13.1]. It cowers only at its
-  spot, not at a moment's stop on the way [design]. Creatures do not crouch;
+  reads 16 FLEE while it flees [hypothesis, idles.md §13.1]. The idle starts when a
+  fleeing actor stands still (its flight's first moment, its flee spot) and goes on
+  while it runs. Creatures do not crouch;
   their cower is whatever the tree gives their folder (nothing in FalloutNV.esm).
 - **Seen there** (in Combat, where `npc_combat` runs it): if it sees its enemy
   (detected and in sight) for `HIDE_SEEN_SECONDS`
@@ -558,7 +563,7 @@ hide, crouching down when they stop, to hide from their enemies".
   crouched from … at its flee spot (… units away, in / out of its sight)` and `flees on
   from … (seen where it hides …)`, `idle: … plays CowerIdles … (Cower)`. The counts are
   in the npc combat summary (`… hid at their flee spot, … ran on when seen there`, in
-  Combat only) and in `cower summary`.
+  Combat only) and in `cower summary`; `alert: … holsters its weapon (it flees)`.
 
 ### 12.3 Alarms to allies [documented: Confidence, Alarms; design on top]
 

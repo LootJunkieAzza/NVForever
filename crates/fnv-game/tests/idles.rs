@@ -303,7 +303,9 @@ fn a_fleeing_actor_standing_still_gets_the_cower_idle() {
     assert_eq!(g.flee_idle(actor, folder, &|_| false), None, "not fleeing");
     g.start_combat(actor, FormId::PLAYER_REF);
     assert_eq!(g.flee_idle(actor, folder, &|_| false), None, "fighting, not fleeing");
+    assert!(g.wants_weapon_out(actor), "fighting: the weapon is out");
     g.start_flight(actor, FormId::PLAYER_REF, [0.0; 3]);
+    assert!(!g.wants_weapon_out(actor), "fleeing: the weapon is holstered");
     assert_eq!(g.flee_idle(actor, folder, &|_| false), Some(FormId(IDLE_COWER)));
     assert_eq!(g.flee_idle(actor, folder, &|i| i == FormId(IDLE_COWER)), None, "held back");
     assert_eq!(g.flee_idle(actor, "creatures\\dog", &|_| false), None, "another folder");
@@ -314,4 +316,5 @@ fn a_fleeing_actor_standing_still_gets_the_cower_idle() {
     assert!(g.at_flee_spot(actor) && g.sneaks(actor));
     g.end_flight(actor);
     assert_eq!(g.flee_idle(actor, folder, &|_| false), None, "fighting again");
+    assert!(g.wants_weapon_out(actor), "fighting again: drawn again");
 }

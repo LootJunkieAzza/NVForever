@@ -50,18 +50,19 @@
 //!   for comes first: no gesture is picked while one plays. A gesture ends when the
 //!   conversation does, or when the actor walks.
 //!
-//! - **Cowering** (idles.md §13). An NPC fleeing from a fight that has reached its flee
-//!   spot (or is cornered: `Game::at_flee_spot`) and stands still is checked every
-//!   [`COWER_CHECK_SECONDS`] for the idle the tree
-//!   plays while fleeing (`Game::flee_idle`: `CowerIdles`, `3rdP_Cowering.kf`, by its
-//!   own conditions IsMoving 0 and GetCurrentAIProcedure 16), which comes before its
-//!   fidgets. It plays over the crouched set the combat AI gives a person hiding at its
-//!   flee spot (`npc_combat`), and fades in and out over it. It ends when its actor
-//!   moves, flees on or no longer flees; after its loops it is picked again. On the way
-//!   it does not cower: a frame of standing still on the run (a corner, a new way
-//!   planned) passed the idle's IsMoving 0 in the first smoke run, 2026-10-17 [design]. Flee Not Combat
-//!   packages (procedure 34) are not carried out (`fnv_ai::goal`), so only combat
-//!   flights cower.
+//! - **Cowering** (idles.md §13). An NPC fleeing from a fight that stands still (as
+//!   when its flight begins, or at its flee spot) is checked every
+//!   [`COWER_CHECK_SECONDS`] for the idle the tree plays while fleeing
+//!   (`Game::flee_idle`: `CowerIdles`, `3rdP_Cowering.kf`, by its own conditions
+//!   IsMoving 0 and GetCurrentAIProcedure 16), before its fidgets. Started, it is not
+//!   stopped when its actor runs: its arms and head (priority 33) are laid over the
+//!   unarmed run (30), whose legs win over its own (23), so it runs with its hands over
+//!   its head; standing, over the crouched set (20) the rules give a person at its flee
+//!   spot, the whole cower shows [observed: the clips' priorities; owner 2026-10-17,
+//!   "they'll cower whilst running but they only crouch when stopped"]. It ends when its
+//!   actor no longer flees; after its loops (2 to 12 of 12 s) it is picked again when
+//!   the actor next stands still. Flee Not Combat packages (procedure 34) are not
+//!   carried out (`fnv_ai::goal`), so only combat flights cower.
 //!
 //! Not done: the rest of the idle manager (idles chosen from the IDLE tree by their
 //! conditions: `PickIdle`, other fidgets), the sounds and other text keys of idle clips,
@@ -490,9 +491,9 @@ pub fn drive(
         if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && !on_furniture(game, v.0)) {
             c.play.stop();
         }
-        // A cower ends when its actor moves, flees on or no longer flees [design: the
-        // idle's own conditions want IsMoving 0 and the flee procedure].
-        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Cower && (moving || !game.at_flee_spot(FormId(v.0)))) {
+        // A cower goes on while its actor runs and ends when it no longer flees
+        // (idles.md §13.2).
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Cower && !fleeing(game, v.0)) {
             c.play.stop();
         }
         // A gesture ends when its actor walks or is no longer in a conversation [design].
@@ -578,7 +579,7 @@ pub fn drive(
     // Cowering: fleeing NPCs standing still (idles.md §13); before their fidgets.
     let cowering: Vec<(u32, String)> = actors
         .iter()
-        .filter(|(_, v, ..)| !live.contains(&v.0) && game.at_flee_spot(FormId(v.0)) && !game.is_dead(FormId(v.0)) && game.furniture_use(FormId(v.0)).is_none())
+        .filter(|(_, v, ..)| !live.contains(&v.0) && fleeing(game, v.0) && !game.is_dead(FormId(v.0)) && game.furniture_use(FormId(v.0)).is_none())
         .filter(|(_, _, _, _, lo, _)| lo.is_some_and(|l| l.velocity == [0.0; 2]))
         .filter_map(|(_, v, rig, ..)| Some((v.0, skeleton_folder(&rig.skeleton)?)))
         .collect();
@@ -845,6 +846,12 @@ pub fn drive(
         game.set_idle_playing(FormId(*actor), None);
     }
     st.told = now;
+}
+
+/// Whether `actor` flees from a fight (`GetCurrentAIProcedure` 16).
+fn fleeing(game: &Game, actor: u32) -> bool {
+    let a = FormId(actor);
+    game.awareness.state(a).in_combat() && game.awareness.tactics.flights.contains_key(&a)
 }
 
 /// Whether `actor` is on furniture, neither getting on nor off (`GetSitting` or
