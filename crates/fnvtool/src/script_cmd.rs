@@ -51,6 +51,14 @@ pub enum ScriptCmd {
         #[command(flatten)]
         a: ScriptArgs,
     },
+    /// Per quest, the functions its scripts call and its conditions test, by the intro
+    /// chain's rule (the quest's scripts, stages, objectives and dialogue lines and one
+    /// level of what they name; fnv_game::intro::quest_scope), for the playthrough
+    /// blockers of docs/design/script-function-coverage.md (fnv.script.uses/1).
+    Uses {
+        #[command(flatten)]
+        a: ScriptArgs,
+    },
     /// Run scripts headless from the new-game state through a fnv.script.actions/1 file
     /// and print the trace (fnv.script.trace/1; docs/spec-notes/layer5-captures.md §4,
     /// scripts.md §8).
@@ -127,6 +135,10 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             with_load_order(&a, |l, lo, schema| Ok(coverage(l, lo, schema, &fjson)))
         }
         ScriptCmd::Stubs { a } => with_load_order(&a, |l, _, _| Ok(stubs(l))),
+        ScriptCmd::Uses { a } => {
+            let fjson = functions_json(&a)?;
+            with_load_order(&a, |l, lo, schema| Ok(uses(l, lo, schema, &fjson)))
+        }
         ScriptCmd::Run { a, actions, no_voice_lengths } => run_actions(&a, &actions, !no_voice_lengths),
     }
 }
@@ -608,6 +620,40 @@ fn coverage(l: &Loaded, lo: &LoadOrder<'_>, schema: &Schema, fjson: &Value) -> V
         "opcodes": rows.into_iter().map(|r| r.1).collect::<Vec<_>>(),
         "intro_opcodes": irows.into_iter().map(|r| r.1).collect::<Vec<_>>(),
     })
+}
+
+/// `script uses`: every quest with the calls of its units and its condition uses, per
+/// function name (fnv.script.uses/1).
+fn uses(l: &Loaded, lo: &LoadOrder<'_>, schema: &Schema, fjson: &Value) -> Value {
+    let refs = fnv_sim::RefTable::build(lo, schema);
+    let data = fnv_game::GameData::build(lo, schema, l.table.clone(), fjson, &refs);
+    let name = |op: u16| l.table.get(op).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{op:04X}"));
+    let quests: Vec<Value> = data
+        .quests
+        .values()
+        .map(|q| {
+            let scope = fnv_game::intro::quest_scope(&data, &refs, vec![q.form]);
+            let mut calls: BTreeMap<u16, u64> = BTreeMap::new();
+            for &u in &scope.units {
+                fnv_game::intro::calls(&data.unit(u).program, &mut calls);
+            }
+            let mut conds: BTreeMap<u16, u64> = BTreeMap::new();
+            for c in &scope.conditions {
+                *conds.entry(c.opcode()).or_default() += 1;
+            }
+            json!({
+                "form": format!("0x{:08X}", q.form.0),
+                "edid": q.edid,
+                "name": q.name,
+                "start_enabled": q.start_enabled(),
+                "units": scope.units.len(),
+                "conditions": scope.conditions.len(),
+                "calls": calls.iter().map(|(op, n)| (name(*op), json!(n))).collect::<serde_json::Map<_, _>>(),
+                "condition_uses": conds.iter().map(|(op, n)| (name(*op), json!(n))).collect::<serde_json::Map<_, _>>(),
+            })
+        })
+        .collect();
+    json!({"format": "fnv.script.uses/1", "load_order": l.load_order, "quests": quests})
 }
 
 /// `script stubs`: the audit of docs/design/script-stubs.md. Calls are counted in the
