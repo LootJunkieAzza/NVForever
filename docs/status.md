@@ -4,7 +4,7 @@ What is built, what is partly built and what is not started, per system. Built f
 design and spec notes, [owner-review.md](owner-review.md), the script stubs audit
 ([design/script-stubs.md](design/script-stubs.md)), the script function coverage table
 ([design/script-function-coverage.md](design/script-function-coverage.md)) and the merged PR
-titles (#1–#397); it
+titles (#1–#398); it
 states the project's own state, not facts about the original game (those are tagged in the
 linked notes). Update the row when a PR changes a system's state. What is left to do, ranked for a full
 playthrough, is gathered in [outstanding.md](outstanding.md).
