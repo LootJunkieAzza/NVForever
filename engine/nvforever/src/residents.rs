@@ -485,7 +485,8 @@ impl Residents {
         let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(world.lo, world.schema, world.index)));
         let mut all = false;
         let mut core = Core {
-            ai: Ai::new(AiConfig { walk_speed, ..AiConfig::default() }),
+            // Test aid: conversations between NPCs anywhere in the loaded area.
+            ai: Ai::new(AiConfig { walk_speed, chats_anywhere: std::env::var("NVF_PLAY_TEST_CHATS_ANYWHERE").is_ok_and(|v| v == "1"), ..AiConfig::default() }),
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),

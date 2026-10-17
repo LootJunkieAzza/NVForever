@@ -42,8 +42,9 @@
 //!   far away: the player must stand next to them"; the distance is a stand-in].
 //!
 //! **The walk** ([`Chat`]): the starter goes up to the partner, who waits where it stands
-//! and turns to it, and they talk once the starter is within [`TALK_DISTANCE`] (or as
-//! near as the navmesh lets it get) [documented: Sandbox Package, "Conversation -- no
+//! and turns to it, and they talk once the starter is within [`TALK_DISTANCE`]; a way
+//! that ends farther off (the navmesh goes no nearer) gives the conversation up [hypothesis:
+//! the original's start at a median of 120 units, npc-behaviour-compare.md §8] [documented: Sandbox Package, "Conversation -- no
 //! duration, the behavior is done when the conversation is finished"; StartConversation:
 //! "the calling actor will seek out the target actor"; the distance: the standard
 //! Activate Distance of a Dialogue package, iActivatePickLength 150 (Dialogue Package);
@@ -200,6 +201,7 @@ impl Ai {
             free.push(Free { actor, at: Place { space: a.walker.space, pos: a.walker.feet }, def, seated: a.using.is_some() });
         }
         let player = goal::place_of_ref(game, FormId::PLAYER_REF);
+        let anywhere = self.cfg.chats_anywhere;
         let near_player = |at: &Place| player.is_some_and(|p| p.space == at.space && dist(p.pos, at.pos) <= CHAT_NEAR_PLAYER);
         let near = self.agents.iter().filter(|(id, a)| self.is_high(**id) && here(game, **id) && near_player(&Place { space: a.walker.space, pos: a.walker.feet })).count();
         self.social.stats.near_player_seconds += near as f64 * f64::from(dt);
@@ -244,7 +246,7 @@ impl Ai {
             let radius = if indoors { interior } else { setting(game, "fAISocialRadiusToTriggerConversation", interior) };
             let mut near: Vec<(f32, &Free)> = free
                 .iter()
-                .filter(|o| o.actor != f.actor && o.at.space == f.at.space && chats(o.def) && (near_player(&f.at) || near_player(&o.at)))
+                .filter(|o| o.actor != f.actor && o.at.space == f.at.space && chats(o.def) && (anywhere || near_player(&f.at) || near_player(&o.at)))
                 .map(|o| (dist(o.at.pos, f.at.pos), o))
                 .filter(|(d, _)| *d <= radius)
                 .collect();
@@ -316,12 +318,16 @@ impl Ai {
                     let a = &self.agents[&actor];
                     let at = goal::place_of_ref(game, partner);
                     let away = at.filter(|p| p.space == a.walker.space).map_or(f32::INFINITY, |p| dist(p.pos, a.walker.feet));
-                    // Near enough, or as near as the navmesh lets it get.
+                    // Near enough; or the way is at its end (the navmesh lets it get no
+                    // nearer, or it was stopped) still out of reach: it gives up rather
+                    // than talk across the distance.
                     if away <= TALK_DISTANCE || a.activity != Activity::Travelling {
                         let a = self.agents.get_mut(&actor).expect("listed");
                         a.walker.follower = None;
                         a.activity = Activity::There;
-                        if !self.chat_start(game, actor, partner, away) {
+                        if away > TALK_DISTANCE {
+                            self.chat_give_up(game, nav, actor, partner, "the way ends out of reach");
+                        } else if !self.chat_start(game, actor, partner, away) {
                             self.chat_give_up(game, nav, actor, partner, "it has no line for the partner");
                         }
                     }

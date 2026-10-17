@@ -42,6 +42,10 @@ pub struct AiConfig {
     /// Actors standing or walking inside each other are moved apart ([`Ai::keep_apart`],
     /// `crate::apart`) [design].
     pub keep_apart: bool,
+    /// Test aid: random conversations start anywhere in the loaded area, not only next to
+    /// the player (`crate::social`; the engine's `NVF_PLAY_TEST_CHATS_ANYWHERE`). Off in
+    /// play.
+    pub chats_anywhere: bool,
 }
 
 /// An actor without a package walks back to where it was placed from at most this far,
@@ -53,7 +57,7 @@ const SNEAK_MULT: f32 = 0.57;
 
 impl Default for AiConfig {
     fn default() -> Self {
-        AiConfig { walk_speed: 86.8, run_speed: 344.0, arrive: 32.0, retry_hours: 1.0, params: PathParams::default(), keep_apart: true }
+        AiConfig { walk_speed: 86.8, run_speed: 344.0, arrive: 32.0, retry_hours: 1.0, params: PathParams::default(), keep_apart: true, chats_anywhere: false }
     }
 }
 
@@ -1323,9 +1327,11 @@ impl Ai {
         let reached = match (&a.goal, ev) {
             (_, WalkEvent::Arrived) => true,
             (_, WalkEvent::Idle) => a.walker.follower.is_none(),
-            // A sandbox's own walks and searches end where they lead, not at the
-            // package's place.
-            _ if own_walk || a.search.is_some() => false,
+            // A sandbox's own walks, searches and walks up to a conversation partner end
+            // where they lead, not at the package's place (a starter inside its sandbox's
+            // radius had "arrived" in the walk's first frame and talked from where it
+            // stood, docs/spec-notes/npc-behaviour-compare.md §8).
+            _ if own_walk || a.search.is_some() || a.chat.is_some() => false,
             (Some(Goal::Near { place, radius }), _) => *radius > self.cfg.arrive && self.within(feet, *place, *radius),
             (Some(Goal::Inside { space, .. }), _) => feet.space == *space,
             _ => false,
