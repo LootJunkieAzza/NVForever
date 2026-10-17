@@ -46,6 +46,7 @@ pub mod loading;
 pub mod main_menu;
 pub mod lockpick;
 pub mod roulette;
+pub mod blackjack;
 pub mod menu;
 pub mod message_menu;
 pub mod moved;
@@ -269,6 +270,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(lockpick::LockpickPlugin)
             .add_plugins(roulette::RoulettePlugin)
+            .add_plugins(blackjack::BlackjackPlugin)
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin))
             .add_plugins(console::ConsolePlugin)
             .add_plugins(free_cam::FreeCamPlugin)

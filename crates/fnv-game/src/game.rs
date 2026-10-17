@@ -507,6 +507,9 @@ pub struct PlayerState {
     /// The roulette help message has been shown (it comes the first time only).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub roulette_help_shown: bool,
+    /// The blackjack help message has been shown (it comes the first time only).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub blackjack_help_shown: bool,
     /// SetPCCanUsePowerArmor.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub power_armor: bool,
@@ -729,6 +732,9 @@ pub struct Game<'a> {
     /// Roulette menus asked for by ShowRouletteMenuParams (`crate::roulette`); the engine
     /// opens them.
     pub roulette_requests: Vec<crate::roulette::RouletteRequest>,
+    /// Blackjack menus asked for by ShowBlackJackMenuParams (`crate::blackjack`); the
+    /// engine opens them.
+    pub blackjack_requests: Vec<crate::blackjack::BlackjackRequest>,
     /// Teammates' inventories scripts opened (OpenTeammateContainer,
     /// `crate::followers`), for the engine to show as a container menu. Not part of the
     /// saved state.
@@ -1000,6 +1006,7 @@ impl<'a> Game<'a> {
             barter_requests: Vec::new(),
             recipe_requests: Vec::new(),
             roulette_requests: Vec::new(),
+            blackjack_requests: Vec::new(),
             teammate_containers: Vec::new(),
             brought_along: BTreeSet::new(),
             package_door_notes: Vec::new(),

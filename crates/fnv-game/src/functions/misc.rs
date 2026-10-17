@@ -321,6 +321,23 @@ pub fn show_recipe_menu(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
     open(g, crate::crafting::RECIPE_MENU)
 }
 
+/// `ShowBlackJackMenuParams casino [minBet] [maxBet] [maxWinnings]`: the blackjack menu
+/// at a casino's table (`Game::blackjack_requests`; the engine checks the chips and the
+/// ban and opens it) [documented: GECK wiki ShowBlackJackMenuParams; docs/spec-notes/
+/// blackjack.md §1]. Left out, the bets run from 1 to 200 (every table's script passes
+/// those [observed]); a max winnings of 0 is the casino's own [hypothesis].
+pub fn show_blackjack_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let casino = a.form(0)?;
+    if !g.data.casinos.contains_key(&casino) {
+        return Err(format!("{casino} is not a casino"));
+    }
+    let min_bet = a.num_or(1, 1.0).max(1.0) as u32;
+    let max_bet = (a.num_or(2, 200.0).max(0.0) as u32).max(min_bet);
+    let max_winnings = a.num_or(3, 0.0).max(0.0) as u32;
+    g.blackjack_requests.push(crate::blackjack::BlackjackRequest { casino, min_bet, max_bet, max_winnings });
+    none()
+}
+
 /// `ShowRouletteMenuParams casino [minBet] [maxBet] [maxWinnings]`: the roulette menu at
 /// a casino's table (`Game::roulette_requests`; the engine checks the chips and the ban and
 /// opens it) [documented: GECK wiki ShowRouletteMenuParams; docs/spec-notes/roulette.md

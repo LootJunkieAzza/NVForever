@@ -36,6 +36,7 @@ pub mod aid;
 pub mod ai;
 pub mod anims;
 pub mod awareness;
+pub mod blackjack;
 pub mod casino;
 pub mod chargen;
 pub mod combat;

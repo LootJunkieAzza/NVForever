@@ -192,7 +192,7 @@ what writes it now).
 | GetBaseActorValue | 0x1115 | 6/16 | base | rules | matches |  |
 | GetBroadcastState | 0x11D4 | 6/- | `x.broadcast` else TACT flag | SetBroadcastState | matches | Flag bit [hypothesis]. |
 | GetButtonPressed | 0x101F | 211/0 | `message_box.pressed` | engine: script.rs:530 answer() | matches |  |
-| GetCasinoWinningsLevel | 0x125C | 24/0 | `casino_levels` | never written (runner only) | open | casino games are stubs; 0 consistent until they exist. Open: does cashing chips at a cage count (CSNO max_winnings)? capture needed |
+| GetCasinoWinningsLevel | 0x125C | 24/0 | `casino_levels` | written by blackjack rounds: a quarter of the casino's max winnings per level, 4 at the max (blackjack.md §4; the quarters a hypothesis) | open | roulette and slots still stubs. Open: does cashing chips at a cage count (CSNO max_winnings)? capture needed |
 | GetCasinoWinningStage | 0x1262 | 0/25 | same | same | open | as above |
 | GetCauseofDeath | 0x118D | 1/1 | `extra.last_hit.weapon` | KillActor's cause, else the last hit | fixed here | KillActor's cause now counts. Open: a live unloaded coyote read 0, not −1 (`fa_batch3_actions`), §4. |
 | GetChallengeCompleted | 0x1266 | 23/0 | `challenges[c].completed` | rules: IncrementScriptedChallenge, runner | gap left | decomp asks e.g. NVChallengeShootemUp/Fistful (CHAL type "Kill from a Form List" [observed: esm decode]); nothing counts kills into challenges → always 0 |
@@ -479,7 +479,8 @@ what writes it now).
 | ShowAllMapMarkers | 0x11F8 | 2/0 | writes `all_markers` | Pip-Boy map reads | matches |  |
 | ShowBarberMenu / ShowPlasticSurgeonMenu / ShowTutorialMenu | 0x11F1 / 0x11F2 / 0x11E3 | 4/2/2 | stub | — | stub |  |
 | ShowBarterMenu | 0x1173 | 168/0 | opens 1053 + request | engine menu.rs | matches |  |
-| ShowBlackJack / Roulette / SlotMachine MenuParams | 0x1254 / 0x1256 / 0x1252 | 6/6/5 | stub | — | stub |  |
+| ShowBlackJackMenuParams | 0x1254 | 6 | `blackjack_requests` → nvf-play `blackjack` | the casino, bets and max winnings of the call; refused without chips or when banned | implemented 2026-10-17 | docs/spec-notes/blackjack.md |
+| ShowRoulette / SlotMachine MenuParams | 0x1256 / 0x1252 | 6/5 | stub | — | stub |  |
 | ShowCaravanMenu / AddCardToPlayer | 0x125A / 0x125B | 29/0, 4/0 | stub | — | stub |  |
 | ShowLoveTesterMenuParams | 0x1245 | 1/0 | opens 1074 | engine | matches |  |
 | ShowMap | 0x1055 | 244/0 | writes `map_markers` | rules | fixed here | canTravel was ignored; now kept (GetMapMarkerVisible 2) [documented]. |

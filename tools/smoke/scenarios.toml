@@ -56,6 +56,8 @@ sep = ","
 sep = ","
 [timed.NVF_PLAY_TEST_LOCKPICK]
 sep = ","
+[timed.NVF_PLAY_TEST_BLACKJACK]
+sep = ","
 [timed.NVF_PLAY_TEST_PIPBOY]
 sep = ","
 [timed.NVF_PLAY_TEST_PIPBOY_STATS]
@@ -1826,14 +1828,16 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/use-weapon implemented UseWeapon (13 calls, §3.8): 60 → 59 stubs, 313 → 300 calls.
 # The script function audit implemented GetAnimAction (44 calls, 1 condition use, §3.9):
 # 59 → 58 stubs, 300 → 256 calls, 482 → 481 condition uses.
+# claude/blackjack implemented ShowBlackJackMenuParams (6 calls, §3.10): 58 → 57 stubs,
+# 256 → 250 calls.
 expect = [
-  { json = "summary.stubs", equals = 58 },
+  { json = "summary.stubs", equals = 57 },
   { json = "summary.by_status.assigned", equals = 1 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 56 },
+  { json = "summary.by_status.needs_system", equals = 55 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 256 },
+  { json = "summary.stub_calls", equals = 250 },
   { json = "summary.stub_condition_uses", equals = 481 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -3442,4 +3446,30 @@ order = [[
 expect = [
   { re = 'roulette view: .* 159 bet points', label = "every bet point of the points model read" },
   "roulette summary: 1 asked, 1 opened (0 refused); 2 bets placed, 0 refused; 1 spins, 865 chips won, 0 lost; 0 bans",
+]
+
+[[scenario]]
+name = "blackjack"
+source = "docs/spec-notes/blackjack.md: ShowBlackJackMenuParams GomorrahCasinoData 1 200 0 (as the tables' script) refused without chips; with 500 the Gomorrah table opens with its help; a stacked natural pays 3 to 2, a split pair loses both hands to the dealer's 21, then rounds play by themselves and the player leaves"
+areas = ["blackjack", "menus"]
+paths = ["crates/fnv-game/src/blackjack.rs", "engine/nvf-play/src/blackjack.rs", "engine/nvf-play/src/blackjack/**", "engine/nvforever/src/blackjack_view.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "13:ShowBlackJackMenuParams GomorrahCasinoData 1 200 0;13.2:close;16:ShowBlackJackMenuParams GomorrahCasinoData 1 200 0;16.2:close", NVF_PLAY_TEST_BLACKJACK = "1:seed:7,12:chips:140521:0,15:chips:140521:500,15.5:stack:Ah-9c-Kd-7s-8h-10c-8d-6s-3c-10d-9h-5c,19:help,20:bet:25,21:deal,25:deal,29:split,32:hit,34:stay,36:stay,40:auto,52:exit", NVF_PLAY_TEST_SHOTS = "18:blackjack_help.png,24:blackjack_natural.png,38.5:blackjack_split.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice"]
+run_seconds = 60
+order = [[
+  "blackjack: Gommorah refused (NoChips, 0 chips)",
+  "blackjack: open at Gommorah (0x00140521): bets 1 to 200, 3 decks shuffled at 20%, blackjack pays 1.5, dealer hits soft 17; 500",
+  'blackjack: help message 0x00172094 "Blackjack" shown (first use)',
+  "blackjack view: the table built for Gommorah",
+  "blackjack: help message closed",
+  "blackjack: round 1: bet 25 of 500 chips",
+  "blackjack: round 1 over: blackjack (dealer 16); paid 62, net 37",
+  "blackjack: split",
+  "blackjack: round 2 over: lose, lose (dealer 21); paid 0, net -50",
+  "blackjack: leaving (the player left",
+  "blackjack: closed (the player left",
+]]
+expect = [
+  { re = 'blackjack: round [3-9] over:', label = "rounds played by themselves" },
+  { re = 'blackjack summary: 2 asked, 1 opened \(1 refused\); [3-9][0-9]* rounds', label = "the summary" },
 ]

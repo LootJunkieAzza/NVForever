@@ -222,6 +222,12 @@ draws takes out its weapon and 1 while it puts it away [observed in the original
 `fa_batch1_queries` and `fa_batch3_actions`]; attacks, reloads and the player's actions are
 not told yet. 59 → 58 stubs, 300 → 256 calls, 482 → 481 condition uses.
 
+### 3.10 Blackjack (2026-10-17)
+
+ShowBlackJackMenuParams (0x1254, 6 calls) opens the blackjack menu at a casino's table
+(docs/spec-notes/blackjack.md); the casino games' winnings now set GetCasinoWinningsLevel's
+levels. 58 → 57 stubs, 256 → 250 calls.
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is
@@ -269,7 +275,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetRadiationLevel | 0x11F7 | 0 | 7 | needs a system not built yet | radiation (environment) |
 | IsCombatTarget | 0x1203 | 6 | 1 | implemented 2026-10-16 (§3.7) | the target list in a combat state |
 | GetIsUsedItemType | 0x10F7 | 0 | 6 | needs a system not built yet | AI (used items) |
-| ShowBlackJackMenuParams | 0x1254 | 6 | 0 | needs a system not built yet | menus (casino) |
+| ShowBlackJackMenuParams | 0x1254 | 6 | 0 | implemented 2026-10-17 (claude/blackjack) | menus (casino) |
 | ShowRouletteMenuParams | 0x1256 | 6 | 0 | needs a system not built yet | menus (casino) |
 | SetAllVisible | 0x115A | 5 | 0 | needs a system not built yet | detection |
 | EnableNavMesh | 0x11C0 | 5 | 0 | needs a system not built yet | navigation |
