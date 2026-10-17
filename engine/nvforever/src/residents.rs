@@ -582,6 +582,19 @@ impl Residents {
     pub fn references(&self) -> impl Iterator<Item = u32> + '_ {
         self.core.list.iter().map(|r| r.actor.0)
     }
+
+    /// Draw `actor` anew (a resurrected corpse, `resurrect.rs`): its body is taken away and
+    /// [`drive`] spawns a fresh one where its walker stands. Whether it is a resident.
+    pub fn redraw(&mut self, commands: &mut Commands, actor: u32) -> bool {
+        let Some(r) = self.core.list.iter_mut().find(|r| r.actor.0 == actor) else { return false };
+        if let Some(e) = r.root.take() {
+            commands.entity(e).despawn();
+        }
+        r.spawned = false;
+        r.last_drawn = None;
+        r.seat = Seat::None;
+        true
+    }
 }
 
 impl Core {

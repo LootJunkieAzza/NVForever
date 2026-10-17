@@ -83,6 +83,9 @@ pub struct ActorWorld {
     sets: Mutex<ClipSets>,
     /// Weapon stances by (skeleton, prefix); `None` when they could not be loaded.
     stances: Mutex<Stances>,
+    /// How many times ResurrectActor rolled a reference's random choices again
+    /// (`fnv_game::resurrect`, told by `resurrect.rs`): the seed of its leveled picks.
+    pub rolls: Mutex<HashMap<u32, u32>>,
 }
 
 type ClipSets = HashMap<(String, Body, &'static str), Option<Arc<ClipSet>>>;
@@ -104,7 +107,15 @@ impl ActorWorld {
             weapon_test: None,
             sets: Mutex::new(HashMap::new()),
             stances: Mutex::new(HashMap::new()),
+            rolls: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The reference whose FormID seeds the leveled picks of `reference`: itself until a
+    /// resurrection rolled them again (`fnv_sim::leveled::roll_seed`).
+    fn seed(&self, reference: u32) -> FormId {
+        let rolls = self.rolls.lock().map_or(0, |r| r.get(&reference).copied().unwrap_or(0));
+        fnv_sim::leveled::roll_seed(FormId(reference), rolls)
     }
 
     pub fn resolve(&self, base: u32, reference: u32) -> Result<Appearance, String> {
@@ -114,17 +125,17 @@ impl ActorWorld {
     /// [`Self::resolve`] wearing the given armour instead of the chosen one
     /// (`Resolver::resolve_wearing`; the player's body).
     pub fn resolve_wearing(&self, base: u32, reference: u32, wearing: Option<&[FormId]>) -> Result<Appearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_wearing(FormId(base), FormId(reference), wearing).map_err(|e| e.to_string())
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_wearing(FormId(base), self.seed(reference), wearing).map_err(|e| e.to_string())
     }
 
     /// [`Self::resolve_wearing`] with a chosen look (the player's, from the character
     /// creator) in place of the record's.
     pub fn resolve_as(&self, base: u32, reference: u32, wearing: Option<&[FormId]>, look: Option<&fnv_actor::Look>) -> Result<Appearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_as(FormId(base), FormId(reference), wearing, look).map_err(|e| e.to_string())
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_as(FormId(base), self.seed(reference), wearing, look).map_err(|e| e.to_string())
     }
 
     pub fn resolve_creature(&self, base: u32, reference: u32) -> Result<CreatureAppearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_creature(FormId(base), FormId(reference)).map_err(|e| e.to_string())
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_creature(FormId(base), self.seed(reference)).map_err(|e| e.to_string())
     }
 
     /// The locomotion clip set of a skeleton and body (loaded once), if it has an idle.
