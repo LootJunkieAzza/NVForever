@@ -1345,10 +1345,17 @@ fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimS
 }
 
 /// The armour `target` wears, each piece with its condition: what the player has
-/// equipped; of another actor, its carried ARMO by the wearing rule.
+/// equipped; of another actor, what the rules dress it in (`World::equipment`: its
+/// equipped items once outfitted, as the engine draws it), else its carried ARMO by the
+/// wearing rule.
 fn worn_armor(forms: &CombatForms, sim: &mut SimState, target: FormId) -> Vec<(FormId, f32)> {
+    let dressed = if target == FormId::PLAYER_REF { None } else { sim.world.equipment(target) };
     let Ok(inv) = sim.world.inventory_mut(target) else { return Vec::new() };
-    let items: Vec<FormId> = if target == FormId::PLAYER_REF { inv.equipped() } else { inv.iter().filter(|(_, n)| *n > 0).map(|(id, _)| id).collect() };
+    let items: Vec<FormId> = match dressed {
+        Some(d) => d,
+        None if target == FormId::PLAYER_REF => inv.equipped(),
+        None => inv.iter().filter(|(_, n)| *n > 0).map(|(id, _)| id).collect(),
+    };
     forms.worn_armor(items).into_iter().map(|id| (id, inv.condition_in_use(id).unwrap_or(1.0))).collect()
 }
 

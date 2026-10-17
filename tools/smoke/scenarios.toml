@@ -2467,15 +2467,35 @@ expect = [
 [[scenario]]
 name = "corpse-undressed"
 source = "playtest list 4 item 15 (engine/nvforever/src/outfits.rs): taking a corpse's armour and weapon takes them off its drawn body and puts the body under them on"
-note = "a dead Fiend of the tribal village (0x001578F7, TCFiend01DEAD, a random leveled outfit: the simulation's roll stands for the drawn one); the menu test aid opens it at 16 s (after the add-ons' start-up message boxes) and takes all a second later"
+note = "a dead Fiend of the tribal village (0x001578F7, TCFiend01DEAD, a random leveled outfit: drawn as the simulation's roll equips it); the menu test aid opens it at 16 s (after the add-ons' start-up message boxes) and takes all a second later"
 areas = ["actors", "menus", "deaths"]
 paths = ["engine/nvforever/src/outfits.rs", "engine/nvforever/src/actors.rs", "engine/nvf-assets/src/actor.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_FACE = "5:001578F7", NVF_PLAY_TEST_MENU = "001578F7", NVF_PLAY_TEST_DELAY = "16" }
 args = ["--play", "--pos=-73500,29700,8000", "--heading", "300", "--hour", "12", "--no-voice"]
 run_seconds = 30
 expect = [
-  { re = 'outfit: actor 001578F7: .* left its inventory: taken off the body; [1-9]\d* part\(s\) put on', label = "the corpse's armour comes off and its body goes on" },
+  { re = 'outfit: actor 001578F7: armour 0x[0-9A-F]{8}.* taken off, nothing put on; [1-9]\d* part\(s\) put on', label = "the corpse's armour comes off and its body goes on" },
   { re = 'outfit summary: (?P<n>\d+) armour pieces', range = [1, 100], label = "outfit summary: armour taken off" },
+]
+
+[[scenario]]
+name = "npc-equip-drawn"
+source = "docs/design/script-function-audit.md §5 (engine/nvforever/src/outfits.rs, fnv_sim::World::equipment): an NPC is drawn wearing and holding what the rules have equipped; a script's EquipItem and UnequipItem change what is drawn"
+note = "Sunny Smiles (SunnyRef 0x00104E85, leather armour 00020423, varmint rifle 0007EA24) in the saloon, packages off: at 8 s she is given Trudy's outfit (000EF1CB) and at 9 s EquipItem puts it on (the leather armour shares its slot and comes off); UnequipItem takes her rifle off at 12 s and EquipItem puts it back at 14 s; screenshots at 7, 11, 13 and 16 s"
+areas = ["actors", "scripting"]
+paths = ["engine/nvforever/src/outfits.rs", "engine/nvforever/src/actors.rs", "crates/fnv-sim/src/world.rs", "crates/fnv-actor/src/resolve.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_PLAY_TEST_SCRIPT = "3:moveto:player:SunnyRef:0:-160:0,8:call:SunnyRef:AddItem:0x000EF1CB:1,9:call:SunnyRef:EquipItem:0x000EF1CB,12:call:SunnyRef:UnequipItem:0x0007EA24,14:call:SunnyRef:EquipItem:0x0007EA24", NVF_PLAY_TEST_SHOTS = "7,11,13,16" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+order = [[
+  "outfit: actor 00104E85: armour 0x00020423 taken off, 0x000EF1CB put on",
+  "outfit: actor 00104E85: weapon 0x0007EA24 no longer held",
+  "outfit: actor 00104E85: weapon 0x0007EA24 now held",
+]]
+expect = [
+  { re = 'outfit: actor 00104E85: armour 0x00020423 taken off, 0x000EF1CB put on; [1-9]\d* part\(s\) put on', label = "EquipItem dresses Sunny in Trudy's outfit and takes her leather armour off" },
+  { re = 'outfit summary: \d+ armour pieces taken off and \d+ put on, (?P<n>\d+) weapons taken off', range = [1, 100], label = "outfit summary: UnequipItem took the rifle off" },
+  { re = 'outfit summary: .* weapons taken off and (?P<n>\d+) put on', range = [1, 100], label = "outfit summary: EquipItem put the rifle back" },
 ]
 
 [[scenario]]

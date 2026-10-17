@@ -99,11 +99,11 @@ plugin cannot script (combat, walking an NPC through a door) are attended.
 (Round 2 closed the terminal locks and RewardXP's levelling; the full status of every used
 function, with the system each gap needs, is now docs/design/script-function-coverage.md.)
 
-- **EquipItem / UnequipItem on NPCs are not drawn** (199 / 51 calls): the engine dresses
-  and arms NPCs from its own roll of their inventory (`fnv_actor::resolve`, outfits.rs) and
-  only follows items leaving the inventory. Making it draw what the rules have equipped
-  also removes the mismatch between the two leveled rolls; it changes how NPCs look, so it
-  is its own piece of work with screenshots (follow-up).
+- ~~EquipItem / UnequipItem on NPCs are not drawn~~ (199 / 51 calls): fixed 2026-10-17.
+  The engine now dresses and arms NPCs by what the rules have equipped
+  (`fnv_sim::World::equipment`, engine/nvforever/src/outfits.rs) and redraws when that
+  changes; combat's worn armour reads the same; smoke `npc-equip-drawn` [design]. NPCs
+  whose cell the rules have not loaded keep the engine's own roll until they are.
 - **ResurrectActor and SetUnconscious in the engine**: a corpse is not stood up again, an
   unconscious actor does not lie down (ragdolls are for corpses only).
 - **GetKnockedState / GetUnconscious**: an essential knocked out by damage sets the same
@@ -178,7 +178,7 @@ what writes it now).
 | EnableNavMesh / DisableNavmesh / setAllReachable | 0x11C0 / 0x11BF / 0x1159 | 5/0, 2/0, 0/0 | stub | — | stub |  |
 | EnablePlayerControls | 0x1060 | 177/0 | writes | same | matches | short-list rule [hypothesis] |
 | EnterTrigger | 0x11BA | 160/- | ref event | rules | matches |  |
-| EquipItem | 0x10EE | 199/- | `w.equip` | rules / engine never reads NPC `equipped` | gap left | The rules' equipped flags change (and NPCs now start equipped), but the engine dresses and arms NPCs by its own choice and does not redraw on EquipItem/UnequipItem (§5). |
+| EquipItem | 0x10EE | 199/- | `w.equip` | rules; the engine draws NPCs' equipped items (outfits.rs) | fixed 2026-10-17 | The rules' equipped flags change (NPCs start equipped), and the engine redresses and rearms the NPC from them (§5; smoke `npc-equip-drawn`). |
 | EvaluatePackage | 0x105E | 2285/ | package choice | rules | matches | (package layer, not audited deeply) |
 | Exists | 0x119F | /21 | combat_group / condition_target | rules | matches | "near" not measured (hypothesis). |
 | ExitGame | 0x11B5 | 1/0 | stub | — | stub |  |
@@ -527,7 +527,7 @@ what writes it now).
 | ToggleWireframe (console) | — | — | stub | — | stub | console only |
 | trapUpdate | 0x110C | 0/0 | stub | — | stub |  |
 | TriggerScreenSplatter / SetScreenSplatterFade / ClearScreenSplatter | 0x1240 / 0x1243 / 0x1241 | 0-1/0 | stub | — | stub |  |
-| UnequipItem | 0x10EF | 51/- | `w.unequip` | as EquipItem | gap left | The rules' equipped flags change (and NPCs now start equipped), but the engine dresses and arms NPCs by its own choice and does not redraw on EquipItem/UnequipItem (§5). |
+| UnequipItem | 0x10EF | 51/- | `w.unequip` | as EquipItem | fixed 2026-10-17 | As EquipItem: the item comes off the drawn NPC (§5). |
 | Unlock | 0x1073 | 450/- | `w.lock` | rules | fixed round 2 (2026-10-17) | On a terminal: it opens at its menu [documented: wiki Unlock; observed: GetLocked 0, GetLockLevel -1]. |
 | UnlockChallenge | 0x125E | 44/0 | writes | — | matches |  |
 | UseWeapon | 0x119C | 13/ | `weapon_uses`, `world.equip` | engine use_weapon.rs | matches | The only place an NPC weapon gets the equipped flag. |
