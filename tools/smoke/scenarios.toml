@@ -539,7 +539,7 @@ name = "detection-game"
 note = "--no-messages added 2026-10-12 (fixes workstream): on a loaded machine the add-on packs' twelve start-up message boxes came up while the test aids ran (a menu request ignored, the game clock held for about 10 s while the aids' clock ran on); with it they close on the frame they open. Expectations unchanged"
 source = "CLAUDE.md: after detection changes, the in-game check of docs/design/detection.md §5"
 areas = ["detection"]
-paths = ["crates/fnv-game/src/detection.rs", "engine/nvforever/src/detection.rs"]
+paths = ["crates/fnv-game/src/detection.rs", "crates/fnv-game/src/sight.rs", "engine/nvforever/src/detection.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "10:sneak,14:weapon,17:reload,22:fire,22.2:fire" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 40
@@ -547,7 +547,10 @@ order = [[
   { re = 'detection: GSSettlerAM 00104F0A → the player: hidden → noticed .*sneaking' },
   { re = 'detection: GSSettlerAM 00104F0A → the player: \w+ → detected' },
 ]]
-expect = ["detection summary"]
+expect = [
+  "detection summary",
+  { re = '(?P<n>\d+) actors detected by the player', range = [1, 1000], label = "the player detects actors from the camera (player.GetDetected, added 2026-10-17)" },
+]
 
 [[scenario]]
 name = "alert-fiend"
@@ -2139,6 +2142,28 @@ expect = [
   { re = 'crime: karma \+100 for killing .*\(Evil\), now 100', label = "karma +100 for killing Violet" },
   { re = 'crime summary: .* 0 murders', label = "no murder" },
 ]
+
+# ---- Detection out of the player's reach (docs/design/detection.md §7) ------------------
+# The NCR troopers of "ncr-fiends" are put 600 units north of the player, then at 4 s the
+# player goes about 5,700 units south of them (out of the outdoor reach of 5,000; the
+# Fiend camp about 8,000 away, still in the loaded 5 × 5 cells). Before 2026-10-17 only
+# actors within reach of the player measured each other, and this fight never started.
+
+[[scenario]]
+name = "detection-far-fight"
+source = "script-function coverage §5 item 1 (PR #370): fights between NPCs out of the player's reach start (IsInCombat), docs/design/detection.md §7"
+areas = ["detection", "combat"]
+paths = ["engine/nvforever/src/detection.rs", "crates/fnv-game/src/sight.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0", NVF_PLAY_TEST_GOTO = "4:-43200:66300:9000" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 100
+expect = [
+  { re = "detection summary, out of the player's reach: (?P<n>\\d+) pairs", range = [1, 10000000], label = "pairs out of the player's reach are measured" },
+  { re = "detection summary, out of the player's reach: \\d+ pairs, (?P<n>\\d+) measured detected", range = [1, 10000000], label = "and some detected" },
+  { re = 'npc combat: 0x000(F36F|FCEB|FD57|15CE)\S* 0x\S+ fights (FiendCookCookRef|0x000F9CE)', label = "the NCR troopers fight the Fiends, far from the player" },
+  { re = 'npc combat: (FiendCookCookRef|0x000F9CE\S*) 0x\S+ fights 0x000(F36F|FCEB|FD57|15CE)', label = "the Fiends fight the NCR troopers" },
+]
+forbid = [{ re = 'the player died', label = "the player dies" }]
 
 # ---- Combat AI list 2 (docs/design/combat-ai.md §12) ------------------------------------
 # Six NCR troopers from near Camp McCarran are put (moveto) 600 units north of the player,
