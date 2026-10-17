@@ -235,6 +235,10 @@ pub fn get_destroyed(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String
 
 pub fn lock(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    if is_terminal(g, r) {
+        crate::terminal::lock(g, r, a.num_or(0, 0.0) as i32);
+        return none();
+    }
     let level = a.num(0).ok().map(|l| l.clamp(0.0, 255.0) as u8);
     g.world.lock(r, level).map_err(|e| e.to_string())?;
     none()
@@ -242,14 +246,34 @@ pub fn lock(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 pub fn unlock(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    if is_terminal(g, r) {
+        crate::terminal::unlock(g, r);
+        return none();
+    }
     g.world.unlock(r).map_err(|e| e.to_string())?;
     none()
 }
 
+/// A reference whose base is a terminal (TERM): its lock is the terminal's own
+/// (`crate::terminal::{lock, unlock, locked, lock_level}`), not the world's lock data.
+pub fn is_terminal(g: &Game, r: FormId) -> bool {
+    super::base_of(g, r).is_some_and(|b| g.data.terminals.contains_key(&b))
+}
+
+/// Whether the reference's cell is one of the rules' loaded cells.
+pub fn in_loaded_cell(g: &Game, r: FormId) -> bool {
+    g.cell_of(r).is_some_and(|c| g.loaded_cells.contains(&c))
+}
+
 /// 0 not locked, 1 locked; 2 for a lock broken by forcing it [documented: GECK wiki
-/// GetLocked, "locked out"; docs/spec-notes/lockpicking.md §5].
+/// GetLocked, "locked out"; docs/spec-notes/lockpicking.md §5]. A terminal answers by
+/// `crate::terminal::locked` while its cell is loaded, else 0 [observed, function probes
+/// `fp1_queries` / `fp3_terminal` 2026-10-17].
 pub fn get_locked(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    if is_terminal(g, r) {
+        return Ok(Value::Num(if in_loaded_cell(g, r) { crate::terminal::locked(g, r) as f64 } else { 0.0 }));
+    }
     let status = g.world.lock_status(r).map_err(|e| e.to_string())?;
     Ok(Value::Num(if status == 1 && g.locks.broken.contains(&r) { 2.0 } else { status as f64 }))
 }

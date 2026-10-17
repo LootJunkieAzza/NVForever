@@ -462,9 +462,153 @@ pub fn set_statement(g: &mut Game, ctx: &ConsoleCtx, words: &[String]) -> Result
     Ok(vec![format!("{}.{var} = {}", label(g, owner), shown(g.var(key, index), g))])
 }
 
+/// What [`call_words`] gives back.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Called {
+    pub opcode: u16,
+    /// The catalogue's spelling of the function.
+    pub name: String,
+    pub value: Value,
+    /// The function is a stub (a system not built): why. Its value is then 0.
+    pub stub: Option<&'static str>,
+}
+
+/// A FormID as the console prints it: eight hex digits, or hex after `0x`.
+pub fn hex_form_id(s: &str) -> Option<FormId> {
+    let h = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+    (!h.is_empty() && h.len() <= 8 && h.chars().all(|c| c.is_ascii_hexdigit())).then(|| u32::from_str_radix(h, 16).ok().map(FormId)).flatten()
+}
+
+/// An enumeration code by name or number (`actor_value` by the game's own names too).
+pub fn enum_code(g: &Game, e: &str, a: &str) -> Result<u16, String> {
+    if let Ok(n) = a.parse::<u16>() {
+        return Ok(n);
+    }
+    if e == "actor_value" {
+        return crate::functions::av_code(g, a);
+    }
+    let squash = |s: &str| s.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase();
+    let want = squash(a);
+    g.data.table.enums.get(e).and_then(|m| m.iter().find(|(_, n)| squash(n) == want).map(|(&c, _)| c)).ok_or_else(|| format!("no {e} named {a:?}"))
+}
+
+/// Call a script function by name (a catalogue name or alias) on `on` with console words
+/// as its arguments, as the console runs a line: each word is read by the parameter's
+/// encoding (an enumeration name or code, an axis letter, a string), else as a FormID
+/// (eight hex digits), a number where the parameter is numeric, or a form by name
+/// (`player`, an Editor ID, a FormID). `unit` names the caller in the trace.
+///
+/// Errors: an unknown function, a word that is no form or number, and the call's own
+/// failure (`CallFailed`). Console-only commands that print are not run here
+/// ([`lookup`]). Used by the engine's console and by the headless runner's `call`
+/// action (docs/design/script-function-coverage.md, the probes).
+pub fn call_words(g: &mut Game, on: Option<FormId>, func: &str, args: &[String], unit: &str) -> Result<Called, String> {
+    use fnv_script::vm::ArgValue;
+    use fnv_script::ParamEnc;
+    let opcode = g.data.table.by_name(func).ok_or_else(|| format!("Script command \"{func}\" not found."))?;
+    let def = g.data.table.get(opcode).cloned();
+    let fname = def.as_ref().map_or(func.to_string(), |d| d.name.clone());
+    let mut values = Vec::new();
+    for (i, a) in args.iter().enumerate() {
+        let kind = def.as_ref().and_then(|d| d.params.get(i)).map(|p| p.kind.to_ascii_lowercase()).unwrap_or_default();
+        let v = match g.data.table.param_enc(opcode, i) {
+            ParamEnc::Enum(e) => ArgValue::Enum(enum_code(g, &e, a.trim_matches('"'))?),
+            ParamEnc::Axis => ArgValue::Axis(a.chars().next().unwrap_or('Z').to_ascii_uppercase()),
+            ParamEnc::String => ArgValue::Str(a.trim_matches('"').to_string()),
+            ParamEnc::Value => {
+                let numeric = matches!(kind.as_str(), "int" | "integer" | "float" | "number" | "short" | "long");
+                // Eight hex digits are a FormID as the console prints them (`00015169`), never
+                // a number, whatever the parameter.
+                let full_id = a.len() == 8 && a.chars().all(|c| c.is_ascii_hexdigit());
+                if a.starts_with('"') {
+                    ArgValue::Str(a.trim_matches('"').to_string())
+                } else if let (true, Some(f)) = (full_id, hex_form_id(a)) {
+                    ArgValue::Value(Value::Ref(f.0))
+                } else if let (true, Ok(n)) = (numeric || kind.is_empty(), a.parse::<f64>()) {
+                    ArgValue::Value(Value::Num(n))
+                } else {
+                    match crate::runner::resolve(g, a).ok().or_else(|| hex_form_id(a)) {
+                        Some(f) => ArgValue::Value(Value::Ref(f.0)),
+                        None => match a.parse::<f64>() {
+                            Ok(n) => ArgValue::Value(Value::Num(n)),
+                            Err(_) => return Err(format!("{fname}: no form or number {a:?}")),
+                        },
+                    }
+                }
+            }
+        };
+        values.push(v);
+    }
+    let ctx = crate::functions::Ctx { unit: unit.into(), opcode, on, self_ref: on, action_ref: None, quest: None, inst: None, in_condition: false };
+    let from = g.events.len();
+    let value = g.call_function(&ctx, &values);
+    if let Some(crate::trace::EventKind::CallFailed { error, .. }) =
+        g.events[from..].iter().map(|e| &e.kind).find(|k| matches!(k, crate::trace::EventKind::CallFailed { .. }))
+    {
+        return Err(format!("{fname}: {error}"));
+    }
+    let stub = match crate::functions::lookup(opcode).or_else(|| crate::functions::lookup_console(&fname)) {
+        Some(crate::functions::Kind::Stub(why)) => Some(*why),
+        _ => None,
+    };
+    Ok(Called { opcode, name: fname, value, stub })
+}
+
+/// Split a console line into words; `"…"` keeps spaces (and its quotes), commas separate
+/// as spaces do.
+pub fn words(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quoted = false;
+    for ch in line.chars() {
+        match ch {
+            '"' => {
+                if quoted {
+                    out.push(format!("\"{cur}\""));
+                    cur.clear();
+                }
+                quoted = !quoted;
+            }
+            c if quoted => cur.push(c),
+            c if c.is_whitespace() || c == ',' => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            c => cur.push(c),
+        }
+    }
+    if !cur.is_empty() {
+        out.push(if quoted { format!("\"{cur}\"") } else { cur });
+    }
+    out
+}
+
+/// `reference.Function arg …` (or `Function arg …`): the reference word, the function
+/// word and the argument words. None for an empty line.
+pub fn split_call(line: &str) -> Option<(Option<String>, String, Vec<String>)> {
+    let w = words(line);
+    let first = w.first()?;
+    let (on, func) = match first.rsplit_once('.') {
+        Some((r, f)) if !r.is_empty() && !f.is_empty() => (Some(r.to_string()), f.to_string()),
+        _ => (None, first.clone()),
+    };
+    Some((on, func, w[1..].to_vec()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn calls_split_into_reference_function_and_words() {
+        assert_eq!(split_call("0x0010A1C5.GetDisposition player"), Some((Some("0x0010A1C5".into()), "GetDisposition".into(), vec!["player".into()])));
+        assert_eq!(split_call("GetPCMiscStat \"Locations Discovered\""), Some((None, "GetPCMiscStat".into(), vec!["\"Locations Discovered\"".into()])));
+        assert_eq!(split_call("  "), None);
+        assert_eq!(hex_form_id("0x00104C0C"), Some(FormId(0x0010_4C0C)));
+        assert_eq!(hex_form_id("0000000F"), Some(FormId(0xF)));
+        assert_eq!(hex_form_id("player"), None);
+    }
 
     /// Every registered name is a console-only command of the catalogue (one numbered
     /// from `CONSOLE_OPCODE_BASE`, without a catalogue opcode), spelled as the catalogue

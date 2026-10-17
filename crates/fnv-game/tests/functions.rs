@@ -101,7 +101,8 @@ fn plugin_bytes() -> Vec<u8> {
     let snam = |f: u32| sub(b"SNAM", [f.to_le_bytes().to_vec(), vec![0; 4]].concat());
     let npcs = [
         npc(0x7, "Player", vec![]),
-        npc(NPC_CHILD, "ChildNpc", vec![sub(b"RNAM", RACE_CHILD.to_le_bytes().to_vec()), snam(F1)]),
+        // DATA: base health 50, S.P.E.C.I.A.L. 5 5 5 4 5 5 5 (Charisma 4).
+        npc(NPC_CHILD, "ChildNpc", vec![sub(b"RNAM", RACE_CHILD.to_le_bytes().to_vec()), snam(F1), sub(b"DATA", [50i32.to_le_bytes().to_vec(), vec![5, 5, 5, 4, 5, 5, 5]].concat())]),
         npc(NPC_ADULT, "AdultNpc", vec![snam(F2)]),
     ]
     .concat();
@@ -1077,4 +1078,54 @@ fn is_weapon_out_answers_for_undrawn_actors() {
     // The dead hold nothing out.
     call(&mut g, 0x108B, Some(ADULT_REF), &[]);
     assert_eq!(call(&mut g, 0x1065, Some(ADULT_REF), &[]), 0.0);
+}
+
+/// The second audit round (docs/design/script-function-coverage.md §4): what the function
+/// probes of 2026-10-17 observed in the original game.
+#[test]
+fn function_probe_round_two_fixes() {
+    let mut f = fixture();
+    // The adult's record: Disposition Base 35 (as every Goodsprings resident); the
+    // activator stands in for a terminal of difficulty Easy (code 1).
+    f.data.actors.get_mut(&FormId(NPC_ADULT)).unwrap().disposition_base = 35;
+    f.data.terminals.insert(FormId(ACTI), fnv_game::data::TerminalDef { difficulty: 1, ..Default::default() });
+    let mut g = game(&f);
+    let av = |c: u16| ArgValue::Enum(c);
+    let cha = fnv_game::actor_values::CHARISMA;
+    // GetDisposition (towards the child): base + 10 x (target's Charisma - 5), within 0..100; SetDisposition wins.
+    assert_eq!(call(&mut g, 0x104C, Some(ADULT_REF), &[r(CHILD_REF)]), 25.0);
+    call(&mut g, 0x100F, Some(CHILD_REF), &[av(cha), n(5.0)]);
+    assert_eq!(call(&mut g, 0x104C, Some(ADULT_REF), &[r(CHILD_REF)]), 35.0);
+    call(&mut g, 0x100F, Some(CHILD_REF), &[av(cha), n(10.0)]);
+    assert_eq!(call(&mut g, 0x104C, Some(ADULT_REF), &[r(CHILD_REF)]), 85.0);
+    call(&mut g, 0x100F, Some(CHILD_REF), &[av(cha), n(1.0)]);
+    assert_eq!(call(&mut g, 0x104C, Some(ADULT_REF), &[r(CHILD_REF)]), 0.0);
+    call(&mut g, 0x1184, Some(ADULT_REF), &[r(CHILD_REF), n(20.0)]);
+    assert_eq!(call(&mut g, 0x104C, Some(ADULT_REF), &[r(CHILD_REF)]), 20.0);
+    // A terminal: nothing while its cell is not loaded; its difficulty once it is; Lock
+    // 50 gives 2 and 5, Unlock 0 and -1, and the terminal then opens at its menu.
+    let (get_locked, get_level) = (0x1005, 0x1041);
+    g.set_loaded(Default::default());
+    assert_eq!((call(&mut g, get_locked, Some(ACTI_REF), &[]), call(&mut g, get_level, Some(ACTI_REF), &[])), (0.0, 0.0));
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    assert_eq!((call(&mut g, get_locked, Some(ACTI_REF), &[]), call(&mut g, get_level, Some(ACTI_REF), &[])), (1.0, 1.0));
+    call(&mut g, 0x1072, Some(ACTI_REF), &[n(50.0)]);
+    assert_eq!((call(&mut g, get_locked, Some(ACTI_REF), &[]), call(&mut g, get_level, Some(ACTI_REF), &[])), (2.0, 5.0));
+    call(&mut g, 0x1073, Some(ACTI_REF), &[]);
+    assert_eq!((call(&mut g, get_locked, Some(ACTI_REF), &[]), call(&mut g, get_level, Some(ACTI_REF), &[])), (0.0, -1.0));
+    assert_eq!(fnv_game::terminal::opening(&mut g, FormId(ACTI_REF), FormId(ACTI), 0.0), Some(fnv_game::terminal::Opening::Menu));
+    // The terminal's own lock, not the world's: a container keeps its lock data.
+    assert!(g.world.get(FormId(ACTI_REF)).unwrap().lock.is_none());
+    // IsFacingUp / IsLeftUp read 1 on a standing actor.
+    assert_eq!(call(&mut g, 0x106A, Some(ADULT_REF), &[]), 1.0);
+    assert_eq!(call(&mut g, 0x111D, Some(CREA_REF), &[]), 1.0);
+    // GetDayOfWeek follows GameDaysPassed, not the calendar globals: day 5 is a Friday
+    // whatever the date says; day 13 a Saturday.
+    g.world.set_global(FormId(G_YEAR), 2284.0).unwrap();
+    assert_eq!(call(&mut g, 0x10AA, None, &[]), 5.0);
+    g.world.set_global(FormId(0x805), 13.4).unwrap();
+    assert_eq!(call(&mut g, 0x10AA, None, &[]), 6.0);
+    // GetPCMiscStat "Locations Discovered" (code 1) counts the markers found.
+    g.set_found_markers([FormId(ACTI_REF), FormId(CONT_REF)]);
+    assert_eq!(call(&mut g, 0x1138, None, &[ArgValue::Enum(1)]), 2.0);
 }

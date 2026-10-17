@@ -25,10 +25,20 @@ pub enum Access {
     LockedOut,
 }
 
+/// A terminal a script locked or unlocked (Lock, Unlock).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ScriptLock {
+    pub locked: bool,
+    /// The lock level GetLockLevel reads: what Lock set (0 to 5), -1 after Unlock.
+    pub level: i32,
+}
+
 /// Every terminal reference's [`Access`].
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Terminals {
     pub access: BTreeMap<FormId, Access>,
+    /// Lock and Unlock on terminals ([`lock`], [`unlock`]).
+    pub script_locks: BTreeMap<FormId, ScriptLock>,
     /// ForceTerminalBack was called by the result script running now
     /// ([`choose`] hands it on as [`Chosen::back`]).
     pub back: bool,
@@ -61,7 +71,14 @@ pub fn has_password(g: &mut Game, t: &TerminalDef) -> bool {
 /// of Science skill `sci` ([`science`]).
 pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Option<Opening> {
     let t = g.data.terminals.get(&base)?;
-    let unlocked = t.has(terminal_flag::UNLOCKED);
+    let script = g.terminals.script_locks.get(&reference).copied();
+    // Unlock gives access "regardless of lock level or previously being locked out"
+    // [documented: GECK wiki Unlock]; Lock overrides the Unlocked flag and an earlier
+    // Unlock [documented: GECK wiki Lock].
+    if script.is_some_and(|l| !l.locked) {
+        return Some(Opening::Menu);
+    }
+    let unlocked = script.is_none() && t.has(terminal_flag::UNLOCKED);
     // [hypothesis, hacking.md §6] The password note opens a terminal without hacking,
     // even one locked out (GECK wiki Lock: the note keeps access); it is checked first.
     if unlocked || g.terminals.access.get(&reference) == Some(&Access::Hacked) || has_password(g, t) {
@@ -72,12 +89,63 @@ pub fn opening(g: &mut Game, reference: FormId, base: FormId, sci: f32) -> Optio
     }
     // The Leveled flag is not applied: how the level would change with the player's
     // level is not documented [hacking.md §6].
-    let difficulty = Difficulty::from_code(t.difficulty);
+    let code = match script {
+        Some(l) if l.level >= 0 => l.level.min(5) as u8,
+        _ => t.difficulty,
+    };
+    let difficulty = Difficulty::from_code(code);
     let s = Settings::default();
     Some(match hacking::may_hack(sci, difficulty, &s) {
         Err(r) => Opening::Refused(r),
         Ok(()) => Opening::Hack { difficulty, words: hacking::word_count(sci, difficulty, &s) },
     })
+}
+
+/// `Lock level` on a terminal: locked, at `level` (above 5: 5, Requires Key); level 0
+/// keeps the level it had [documented: GECK wiki Lock, "Lock 0 ... will lock it but NOT
+/// change the lock level"; observed, function probes `fp3_terminal` 2026-10-17: `Lock 50`
+/// on an Easy terminal gave GetLocked 2 and GetLockLevel 5]. A terminal hacked before
+/// keeps its access, one locked out stays so [documented: GECK wiki Lock]: [`opening`]
+/// checks those before the level.
+pub fn lock(g: &mut Game, reference: FormId, level: i32) {
+    let had = lock_level(g, reference);
+    let level = if level > 0 { level.min(5) } else { had.max(0) };
+    g.terminals.script_locks.insert(reference, ScriptLock { locked: true, level });
+}
+
+/// `Unlock` on a terminal: it opens at its menu from now on [documented: GECK wiki
+/// Unlock], GetLocked 0 and GetLockLevel -1 [observed: `fp3_terminal`].
+pub fn unlock(g: &mut Game, reference: FormId) {
+    g.terminals.script_locks.insert(reference, ScriptLock { locked: false, level: -1 });
+}
+
+/// GetLocked of a terminal reference in a loaded cell: 0 for an Unlocked terminal (no lock
+/// data) or one a script unlocked, 2 for one a script locked or the player locked out,
+/// else 1, also once hacked [documented: GECK wiki GetLocked, "Does not change state when
+/// hacked"; observed, `fp3_terminal`: an Easy terminal read 1, 2 after Lock 50, 0 after
+/// Unlock]. The caller answers 0 for a terminal whose cell is not loaded [observed: the
+/// same terminal read 0 from another cell].
+pub fn locked(g: &Game, reference: FormId) -> u8 {
+    match g.terminals.script_locks.get(&reference) {
+        Some(l) => 2 * l.locked as u8,
+        None if g.terminals.access.get(&reference) == Some(&Access::LockedOut) => 2,
+        None => {
+            let base = crate::functions::base_of(g, reference);
+            let unlocked = base.and_then(|b| g.data.terminals.get(&b)).is_none_or(|t| t.has(terminal_flag::UNLOCKED));
+            (!unlocked) as u8
+        }
+    }
+}
+
+/// GetLockLevel of a terminal reference in a loaded cell: its Base Hacking Difficulty
+/// (0 Very Easy ... 4 Very Hard, 5 Requires Key), or what Lock / Unlock left [observed,
+/// `fp3_terminal`: 1 for an Easy terminal, 5 after `Lock 50`, -1 after Unlock; documented:
+/// GECK wiki GetLockLevel's 0 to 5]. The Leveled flag is not applied (hacking.md §6).
+pub fn lock_level(g: &Game, reference: FormId) -> i32 {
+    match g.terminals.script_locks.get(&reference) {
+        Some(l) => l.level,
+        None => crate::functions::base_of(g, reference).and_then(|b| g.data.terminals.get(&b)).map_or(0, |t| t.difficulty as i32),
+    }
 }
 
 /// The hacking game ended; a hacked terminal gives the player its XP ([`xp`]). The

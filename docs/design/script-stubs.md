@@ -22,9 +22,9 @@ what is missing), else **needs a system** not built yet (the `Stub` text names i
 
 | | before | after |
 |---|---|---|
-| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7); 59 (1 assigned, 1 implementable, 57 need a system) after UseWeapon (§3.8); 58 (1 assigned, 1 implementable, 56 need a system) after the function audit (§3.9) |
+| `Kind::Stub` | 123 | 94 (23 assigned, 10 implementable, 61 need a system); 88 (17 assigned) after karma and crime (§3.1); 81 (17 assigned, 1 implementable, 63 need a system) after the second round (§3.2); 80 (16 assigned) after the followers (§3.3); 77 (16 assigned, 1 implementable, 60 need a system) after Autosave, ShowRecipeMenu and SwapTexture (§3.4); 76 (16 assigned, 1 implementable, 59 need a system) after NPC sneaking (§3.5); 71 (16 assigned, 1 implementable, 54 need a system) after effect shaders (§3.6); 60 (1 assigned, 1 implementable, 58 need a system) after the combat round (§3.7); 59 (1 assigned, 1 implementable, 57 need a system) after UseWeapon (§3.8); 58 (1 assigned, 1 implementable, 56 need a system) after the function audit (§3.9); 52 (1 assigned, 1 implementable, 50 need a system) after roulette and the function probes (§3.11) |
 | deliberate no-ops | 4 (`misc::zero` / `one`: IsXBox, IsPS3, IsWin32, IsGoreDisabled) | those 4 + 4 `Kind::NoOp` |
-| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6); 795 (313 calls, 482 condition uses) after the combat round (§3.7); 782 (300 calls, 482 condition uses) after UseWeapon (§3.8); 737 (256 calls, 481 condition uses) after the function audit (§3.9) |
+| uses in the shipped scripts that reach a stub | 4,185 (calls + condition uses) | 2,207 (1,552 calls, 655 condition uses); 2,075 (1,452 calls, 623 condition uses) after karma and crime; 2,032 (1,418 calls, 614 condition uses) after the second round; 2,006 (1,392 calls, 614 condition uses) after the followers; 1,534 (920 calls, 614 condition uses) after §3.4; 1,531 (917 calls, 614 condition uses) after NPC sneaking (§3.5); 1,071 (457 calls, 614 condition uses) after effect shaders (§3.6); 795 (313 calls, 482 condition uses) after the combat round (§3.7); 782 (300 calls, 482 condition uses) after UseWeapon (§3.8); 737 (256 calls, 481 condition uses) after the function audit (§3.9); 645 (242 calls, 403 condition uses) after roulette and the function probes (§3.11) |
 
 22 stubs were implemented here (§3); 4 became `NoOp` (§5); 3 more were implemented by the
 combat workstream while this audit ran (StopCombatAlarmOnActor, GetAttacked, GetFriendHit,
@@ -228,6 +228,16 @@ ShowBlackJackMenuParams (0x1254, 6 calls) opens the blackjack menu at a casino's
 (docs/spec-notes/blackjack.md); the casino games' winnings now set GetCasinoWinningsLevel's
 levels. 58 → 57 stubs, 256 → 250 calls.
 
+### 3.11 Roulette and the function probes (2026-10-17)
+
+ShowRouletteMenuParams (0x1256, 6 calls) opens the roulette table (claude/roulette); the
+smoke expectations had not followed it. The function probes (tools/capture/function_probe.py,
+docs/design/script-function-coverage.md) implemented four more from what the original game
+answered: GetDisposition (0x104C, 15 condition uses) and SetDisposition (0x1184, 2 calls):
+the record's Disposition Base plus `fDispTargetCharMult` × (the target's Charisma − 5),
+SetDisposition's value instead; IsFacingUp (0x106A, 41) and IsLeftUp (0x111D, 22): 1 on a
+standing actor [observed]. 57 → 52 stubs, 250 → 242 calls, 481 → 403 condition uses.
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is
@@ -249,18 +259,18 @@ exists; the note says what is missing); **deliberately no-op**.
 | GetGroupMemberCount | 0x11A0 | 0 | 66 | implemented 2026-10-16 (§3.7) | `Game::combat_group` |
 | IsLimbGone | 0x118E | 51 | 0 | needs a system not built yet | combat (dismemberment: no limb is ever severed) |
 | GetAnimAction | 0x10DB | 44 | 1 | implemented 2026-10-16 (§3.9) | drawing and holstering from the engine; attacks and reloads not told |
-| IsFacingUp | 0x106A | 0 | 41 | needs a system not built yet | animation (ragdoll) |
+| IsFacingUp | 0x106A | 0 | 41 | implemented 2026-10-17 (§3.11) | 1 on a standing actor [observed]; knockdowns not built |
 | GetKnockedState | 0x106B | 5 | 35 | implemented 2026-10-16 (§3.7) | 1 unconscious, else 0 (no fatigue or live knockdown) |
 | SetSecuritronExpression | 0x1248 | 37 | 0 | implemented 2026-10-16 (§3.6) | rendering (a texture swap) |
 | PushActorAway | 0x118A | 35 | 0 | needs a system not built yet | physics: ragdolls are for corpses only; a live actor knocked down and getting up is not built |
 | PurgeCellBuffers | 0x1189 | 32 | 0 | deliberately no-op | memory: the original's cell buffers; cells here load and unload by distance |
 | ShowCaravanMenu | 0x125A | 29 | 0 | needs a system not built yet | menus (Caravan) |
 | FireWeapon | 0x11E2 | 24 | 0 | implemented 2026-10-16 (§3.7) | `CombatRequest::Fire`: the engine fires it as an actor's shot |
-| IsLeftUp | 0x111D | 0 | 22 | needs a system not built yet | animation |
+| IsLeftUp | 0x111D | 0 | 22 | implemented 2026-10-17 (§3.11) | as IsFacingUp |
 | Exists | 0x119F | 0 | 21 | implemented 2026-10-16 (§3.7) | the condition's target; in combat, another group member |
 | SetRumble | 0x11FB | 17 | 0 | deliberately no-op | controller rumble: no controller rumble on the PC version |
 | GetIsUsedItem | 0x10F6 | 0 | 16 | needs a system not built yet | AI (used items) |
-| GetDisposition | 0x104C | 0 | 15 | needs a system not built yet | dialogue (disposition) |
+| GetDisposition | 0x104C | 0 | 15 | implemented 2026-10-17 (§3.11) | Disposition Base and the target's Charisma [observed] |
 | ShowRepairMenu | 0x117A | 15 | 0 | needs a system not built yet | menus (repair) |
 | ShowRecipeMenu | 0x1250 | 15 | 0 | implemented 2026-10-16 (claude/l5-crafting) | menus (crafting) |
 | UseWeapon | 0x119C | 13 | 0 | implemented 2026-10-16 (claude/use-weapon) | combat AI: docs/design/use-weapon.md |
@@ -276,7 +286,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | IsCombatTarget | 0x1203 | 6 | 1 | implemented 2026-10-16 (§3.7) | the target list in a combat state |
 | GetIsUsedItemType | 0x10F7 | 0 | 6 | needs a system not built yet | AI (used items) |
 | ShowBlackJackMenuParams | 0x1254 | 6 | 0 | implemented 2026-10-17 (claude/blackjack) | menus (casino) |
-| ShowRouletteMenuParams | 0x1256 | 6 | 0 | needs a system not built yet | menus (casino) |
+| ShowRouletteMenuParams | 0x1256 | 6 | 0 | implemented 2026-10-17 (claude/roulette, §3.11) | menus (casino) |
 | SetAllVisible | 0x115A | 5 | 0 | needs a system not built yet | detection |
 | EnableNavMesh | 0x11C0 | 5 | 0 | needs a system not built yet | navigation |
 | GetOwnerLastTarget | 0x124E | 5 | 0 | assigned to workstream | assigned to workstream J karma and crime |
@@ -300,7 +310,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | setAllReachable | 0x1159 | 2 | 0 | needs a system not built yet | navigation |
 | SetSceneIsComplex | 0x115D | 2 | 0 | deliberately no-op | performance switch of the original's AI |
 | IsPlayerActionActive | 0x1170 | 2 | 0 | needs a system not built yet | player input |
-| SetDisposition | 0x1184 | 2 | 0 | needs a system not built yet | dialogue (disposition) |
+| SetDisposition | 0x1184 | 2 | 0 | implemented 2026-10-17 (§3.11) | GetDisposition reads its value [observed] |
 | GetCauseofDeath | 0x118D | 1 | 1 | implemented 2026-10-16 (§3.7) | the killing hit's weapon type |
 | SetCellImageSpace | 0x1196 | 2 | 0 | needs a system not built yet | image space |
 | DisableNavmesh | 0x11BF | 2 | 0 | needs a system not built yet | navigation |
