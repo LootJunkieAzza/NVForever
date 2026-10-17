@@ -134,6 +134,38 @@ impl Follower {
         self.next = self.next.max(s.point + 1);
     }
 
+    /// Move on along the path `ahead` horizontal units from `feet` (via the corner being
+    /// walked to, then the next ones), as far as the leg's next door stop or its end at
+    /// most, and return that point (on the path, so on the navmesh; its height is the
+    /// path's between two corners). Corners passed on the way count as reached. `None`
+    /// while held at a door stop, or with no leg left. For a stuck actor, the failsafe
+    /// that puts it past what blocks it ([`Advice::Skip`]).
+    pub fn skip_ahead(&mut self, feet: [f32; 3], ahead: f32) -> Option<[f32; 3]> {
+        if self.holding {
+            return None;
+        }
+        let leg = self.path.legs.get(self.leg)?;
+        let pts = &leg.points;
+        let last = pts.len().checked_sub(1)?;
+        let limit = leg.door_stops.get(self.stop).map_or(last, |s| s.point.min(last));
+        let mut from = feet;
+        let mut left = ahead;
+        for (i, &q) in pts.iter().enumerate().take(limit + 1).skip(self.next) {
+            let seg = hdist(from, q);
+            if left < seg {
+                let t = left / seg;
+                self.next = i;
+                return Some([from[0] + (q[0] - from[0]) * t, from[1] + (q[1] - from[1]) * t, from[2] + (q[2] - from[2]) * t]);
+            }
+            left -= seg;
+            from = q;
+        }
+        // At the door stop or the leg's end: steering from there holds, uses the door or
+        // arrives.
+        self.next = self.next.max(limit);
+        Some(pts[limit])
+    }
+
     /// The path's destination.
     pub fn destination(&self) -> Option<Place> {
         let l = self.path.legs.last()?;
@@ -148,6 +180,10 @@ pub enum Advice {
     Head([f32; 2]),
     /// Detours did not help: plan the path again from here.
     Replan,
+    /// Detours did not help: move the actor on along its path, past what blocks it
+    /// ([`Follower::skip_ahead`]; given instead of [`Advice::Replan`] by an [`Unstuck`]
+    /// with `skip` set).
+    Skip,
     /// Replanning did not help either.
     GiveUp,
 }
@@ -156,12 +192,15 @@ pub enum Advice {
 /// (low rocks the navmesh covers but the character controller cannot climb, clutter,
 /// other actors). When the actor has got less than a fifth of its speed closer to the end
 /// of its path (the path's remaining length) over the last second, it detours: turned 70° one way for 0.6 s, then the other way, then 110° each
-/// way; if still stuck, the path is planned again; after `max_replans`, it gives up.
-/// An engine choice (docs/design/navmesh.md §4), not the original game's behaviour.
+/// way; if still stuck, the path is planned again (or, with `skip`, the actor is moved on
+/// along it: the failsafe the owner asked for on 2026-10-17); after `max_replans`, it
+/// gives up. An engine choice (docs/design/navmesh.md §4), not the original game's behaviour.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Unstuck {
     pub speed: f32,
     pub max_replans: usize,
+    /// Advise [`Advice::Skip`] where it would advise [`Advice::Replan`].
+    pub skip: bool,
     /// The path's remaining length over the last second, one sample per update with its
     /// time step.
     #[serde(skip)]
@@ -173,7 +212,15 @@ pub struct Unstuck {
     /// The remaining length where the actor got stuck: detours count as having helped
     /// only once the actor is half a second's walk closer than this.
     stuck_at: Option<f32>,
+    /// [`Unstuck::advise_moved`]: where the feet were and which way the actor was
+    /// heading at the last update, and the progress so far, negated (counting down from
+    /// 0, as a remaining length would).
+    #[serde(skip)]
+    last: Option<([f32; 2], [f32; 2])>,
+    #[serde(skip)]
+    moved_left: f32,
     pub detours: usize,
+    /// Replans (or skips) advised.
     pub replans: usize,
 }
 
@@ -188,7 +235,7 @@ fn rotate(d: [f32; 2], a: f32) -> [f32; 2] {
 
 impl Unstuck {
     pub fn new(speed: f32) -> Unstuck {
-        Unstuck { speed, max_replans: 5, history: Default::default(), detour: None, tried: 0, stuck_at: None, detours: 0, replans: 0 }
+        Unstuck { speed, max_replans: 5, skip: false, history: Default::default(), detour: None, tried: 0, stuck_at: None, last: None, moved_left: 0.0, detours: 0, replans: 0 }
     }
 
     /// Forget the progress history (after a door, a teleport or a new path).
@@ -196,6 +243,21 @@ impl Unstuck {
         self.history.clear();
         self.detour = None;
         self.stuck_at = None;
+        self.last = None;
+    }
+
+    /// As [`Unstuck::advise`], with progress measured by how far the feet moved along the
+    /// way the actor was to go (`want` of the last update), not by the path's remaining
+    /// length: for paths planned again and again after a moving target (Follow packages,
+    /// owner's playtest 2026-10-17: a pack brahmin running after its merchant kept a
+    /// path of about the same length, counted as stuck all the way and detoured into a
+    /// fence). Sliding along an obstacle, across the way, is still no progress.
+    pub fn advise_moved(&mut self, feet: [f32; 3], want: [f32; 2], dt: f32) -> Advice {
+        if let Some((at, way)) = self.last {
+            self.moved_left -= (feet[0] - at[0]) * way[0] + (feet[1] - at[1]) * way[1];
+        }
+        self.last = Some(([feet[0], feet[1]], want));
+        self.advise(self.moved_left, want, dt)
     }
 
     /// Record the path's remaining length after a step of `dt` seconds and say which way
@@ -246,7 +308,11 @@ impl Unstuck {
             return Advice::GiveUp;
         }
         self.replans += 1;
-        Advice::Replan
+        if self.skip {
+            Advice::Skip
+        } else {
+            Advice::Replan
+        }
     }
 }
 
@@ -576,6 +642,68 @@ mod tests {
         assert!(turns[0][1] > 0.9 && turns[1][1] < -0.9, "left first, then right: {turns:?}");
         assert_eq!(advice, vec![Advice::Replan, Advice::GiveUp]);
         assert_eq!((u.detours, u.replans), (8, 1));
+    }
+
+    #[test]
+    fn unstuck_with_skip_advises_skip_instead_of_replan() {
+        let mut u = Unstuck::new(100.0);
+        u.skip = true;
+        let mut advice = Vec::new();
+        for _ in 0..200 {
+            match u.advise(800.0, [1.0, 0.0], 0.1) {
+                Advice::Head(_) => {}
+                a => {
+                    advice.push(a);
+                    break;
+                }
+            }
+        }
+        assert_eq!(advice, vec![Advice::Skip]);
+        assert_eq!((u.detours, u.replans), (4, 1));
+    }
+
+    #[test]
+    fn unstuck_by_motion_is_not_fooled_by_a_receding_target() {
+        let mut u = Unstuck::new(100.0);
+        // Walking after a target that keeps 500 ahead: moving at full speed is progress.
+        for i in 0..100 {
+            assert_eq!(u.advise_moved([i as f32 * 10.0, 0.0, 0.0], [1.0, 0.0], 0.1), Advice::Head([1.0, 0.0]));
+        }
+        // Sliding across the way (along a fence) is not.
+        let mut detoured = false;
+        for i in 0..30 {
+            if u.advise_moved([1000.0, i as f32 * 10.0, 0.0], [1.0, 0.0], 0.1) != Advice::Head([1.0, 0.0]) {
+                detoured = true;
+            }
+        }
+        assert!(detoured);
+        assert!(u.detours >= 1);
+    }
+
+    #[test]
+    fn skip_ahead_moves_on_along_the_path() {
+        let mut f = Follower::new(path(vec![[0.0, 0.0, 0.0], [100.0, 0.0, 10.0], [100.0, 300.0, 40.0]]));
+        // Stuck 60 units along the first stretch: 160 on is 40 units past the corner,
+        // which counts as reached; the height is the path's.
+        let to = f.skip_ahead([60.0, 0.0, 6.0], 160.0).unwrap();
+        assert!((to[0] - 100.0).abs() < 1e-3 && (to[1] - 120.0).abs() < 1e-3 && (to[2] - 22.0).abs() < 1e-3, "{to:?}");
+        assert_eq!(f.next, 2);
+        // Near the end: no further than the end, which then counts as arrived at.
+        let to = f.skip_ahead([100.0, 250.0, 35.0], 160.0).unwrap();
+        assert_eq!(to, [100.0, 300.0, 40.0]);
+        assert_eq!(f.steer(to), Steer::Arrived);
+    }
+
+    #[test]
+    fn skip_ahead_stops_at_a_door_stop() {
+        let mut p = path(vec![[0.0, 0.0, 0.0], [50.0, 0.0, 0.0], [400.0, 0.0, 0.0]]);
+        p.legs[0].door_stops = vec![crate::path::DoorStop { door: 7, point: 1 }];
+        let mut f = Follower::new(p);
+        let to = f.skip_ahead([10.0, 0.0, 0.0], 160.0).unwrap();
+        assert_eq!(to, [50.0, 0.0, 0.0]);
+        assert!(matches!(f.steer(to), Steer::OpenDoor { door: 7, .. }));
+        // Held at the stop: no skipping through the door.
+        assert_eq!(f.skip_ahead(to, 160.0), None);
     }
 
     #[test]

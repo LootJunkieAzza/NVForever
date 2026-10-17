@@ -513,6 +513,31 @@ fn an_actor_starting_at_the_door_backs_off_to_open_it() {
 }
 
 #[test]
+fn a_path_planned_again_within_the_approach_to_an_open_door_goes_straight_on() {
+    let g = corridor_with_door(None);
+    // 76 units before the door, past the stop at 374 (a follower whose path is planned
+    // again on its way through).
+    let from = Place { space: W, pos: [420.0, 50.0, 0.0] };
+    let to = Place { space: W, pos: [950.0, 50.0, 0.0] };
+    // Closed (or not known to be open): back to the stop, clear of the leaf.
+    let p = g.find_path(from, to, &PathParams::default()).unwrap();
+    let leg = &p.legs[0];
+    assert!((leg.points[leg.door_stops[0].point][0] - 374.0).abs() <= 2.5);
+    // Open: the stop is where it is, and on through the opening.
+    let p = g.find_path(from, to, &PathParams { open_doors: vec![0xD00], ..PathParams::default() }).unwrap();
+    let leg = &p.legs[0];
+    assert_eq!(leg.door_stops[0].point, 0);
+    assert!(leg.points.iter().all(|q| q[0] >= 420.0 - 0.5), "{:?}", leg.points);
+    let mut f = crate::Follower::new(p);
+    assert!(matches!(f.steer(from.pos), crate::Steer::OpenDoor { door: 0xD00, .. }));
+    f.door_opened();
+    match f.steer(from.pos) {
+        crate::Steer::Walk { target, .. } => assert_eq!(target, [552.0, 50.0, 0.0]),
+        s => panic!("{s:?}"),
+    }
+}
+
+#[test]
 fn a_diagonal_approach_is_squared_up_to_the_middle_of_the_door() {
     // A room 500 x 400 south of a wall at y = 400 with a doorway 100 wide in it
     // (x 200..300), a room north of it; the door (100 wide, hinged at an end) closes

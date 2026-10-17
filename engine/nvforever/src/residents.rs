@@ -79,6 +79,17 @@ const SPAWNS_PER_FRAME: usize = 3;
 /// keeps to the navmesh surface for this long, seconds [our choice].
 const PHYSICS_RETRY: f32 = 8.0;
 
+/// A stuck actor is moved on this far along its path (game units) [our choice: more than
+/// a brahmin's length, the longest of the common actors].
+const SKIP_AHEAD: f32 = 160.0;
+
+/// The stuck rule for actors moved by physics: detours, then moved on along the path.
+fn unstuck(speed: f32) -> Unstuck {
+    let mut u = Unstuck::new(speed);
+    u.skip = true;
+    u
+}
+
 /// The walker takes the last stretch of a walk, game units [our choice].
 const LAST_STRETCH: f32 = 64.0;
 
@@ -115,8 +126,9 @@ struct PhysMover<'a> {
     /// Actors left to the walker until this time (elapsed seconds).
     skip_until: &'a mut HashMap<u32, f32>,
     now: f32,
-    /// Actors moved by physics in this update; times physics gave up.
-    stats: &'a mut [usize; 2],
+    /// Actors moved by physics in this update; times physics gave up; stuck actors moved
+    /// on along their paths.
+    stats: &'a mut [usize; 3],
     /// Actors on furniture, or getting off it: they do not walk yet.
     held: &'a HashSet<u32>,
 }
@@ -155,7 +167,7 @@ impl Mover for PhysMover<'_> {
             if !phys.add_npc(id, walker.feet) {
                 return None;
             }
-            self.unstuck.insert(id, Unstuck::new(walker.speed));
+            self.unstuck.insert(id, unstuck(walker.speed));
         }
         let feet = phys.npcs[&id].ch.feet;
         let mut f = walker.follower.take()?;
@@ -217,7 +229,7 @@ impl Mover for PhysMover<'_> {
                 walker.turning = !walker.face(heading_of(dir), dt);
                 (WalkEvent::Turned, [0.0, 0.0])
             }
-            Steer::Walk { dir, remaining, .. } => match self.unstuck.entry(id).or_insert_with(|| Unstuck::new(walker.speed)).advise(remaining, dir, dt) {
+            Steer::Walk { dir, remaining, .. } => match self.unstuck.entry(id).or_insert_with(|| unstuck(walker.speed)).advise_moved(feet, dir, dt) {
                 Advice::Head(h) => {
                     // The heading turns at the walking rate and the actor walks along it
                     // (an arc round a corner), slowing while it is off the way to go
@@ -226,6 +238,24 @@ impl Mover for PhysMover<'_> {
                     let (along, slow) = arc_step(walker.heading, h);
                     let speed = walker.speed.min(remaining / dt.max(1e-3)) * slow;
                     (WalkEvent::Moved, [along[0] * speed, along[1] * speed])
+                }
+                // Stuck where detours did not help: moved on along the path, past what
+                // blocks it, to be put down there by physics again.
+                Advice::Skip if let Some(to) = f.skip_ahead(feet, SKIP_AHEAD) => {
+                    info!(
+                        "actor {id:08X} stuck at ({:.0}, {:.0}, {:.0}): moved on along its path to ({:.0}, {:.0}, {:.0})",
+                        feet[0], feet[1], feet[2], to[0], to[1], to[2]
+                    );
+                    self.stats[2] += 1;
+                    let dir = [to[0] - feet[0], to[1] - feet[1]];
+                    if dir != [0.0, 0.0] {
+                        walker.heading = heading_of(dir);
+                    }
+                    walker.travelled += dir[0].hypot(dir[1]);
+                    walker.feet = to;
+                    walker.turning = false;
+                    give_up(phys, walker, f);
+                    return Some(WalkEvent::Moved);
                 }
                 // Stuck: the navmesh surface from here, for a while.
                 _ => {
@@ -378,8 +408,8 @@ struct Core {
     unstuck: HashMap<u32, Unstuck>,
     skip_until: HashMap<u32, f32>,
     /// Updates in which an actor was moved by physics; times physics gave up; the most
-    /// actors moved by physics in one frame.
-    physics: [usize; 3],
+    /// actors moved by physics in one frame; stuck actors moved on along their paths.
+    physics: [usize; 4],
     /// Times an actor was told to sit, and to get up.
     seats: [usize; 2],
     /// Sandbox behaviours begun, by kind (standing, wandering, sitting, idle marker,
@@ -496,7 +526,7 @@ impl Residents {
             counts: [0; 4],
             unstuck: HashMap::new(),
             skip_until: HashMap::new(),
-            physics: [0; 3],
+            physics: [0; 4],
             seats: [0; 2],
             sandbox: [0; 6],
             talks: 0,
@@ -889,12 +919,13 @@ impl Core {
                 if p.no_room > 0 { format!("; no room in {} updates", p.no_room) } else { String::new() }
             );
         }
-        let mut moved = [0usize; 2];
+        let mut moved = [0usize; 3];
         let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, now, stats: &mut moved, held: &held };
         self.ai.update_moved(game, &nav.graph, dt, &mut mover);
         self.physics[0] += moved[0];
         self.physics[1] += moved[1];
         self.physics[2] = self.physics[2].max(moved[0]);
+        self.physics[3] += moved[2];
         // Nobody stands inside anybody else (fnv_ai::apart): those the character
         // controller walks, and those on furniture, are kept clear of but not moved.
         let mut fixed = held.clone();
@@ -1601,7 +1632,7 @@ pub fn report(
         core.standing_by[4]
     );
     info!(
-        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; sandbox: {} wanders, {} seats, {} idle markers, {} sleeps, {} meals, {} times nothing to do; {} talks started by dialogue packages; physics moved actors in {} updates (at most {} at once), gave up {} times; standing actors pushed aside {} times ({:.0} units in all, {} times no room); {} hours passed in the wait menu ({} walks in them); {}",
+        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; sandbox: {} wanders, {} seats, {} idle markers, {} sleeps, {} meals, {} times nothing to do; {} talks started by dialogue packages; physics moved actors in {} updates (at most {} at once), gave up {} times, moved {} stuck actors on; standing actors pushed aside {} times ({:.0} units in all, {} times no room); {} hours passed in the wait menu ({} walks in them); {}",
         core.clock_text,
         core.list.len(),
         core.counts[3],
@@ -1625,6 +1656,7 @@ pub fn report(
         core.physics[0],
         core.physics[2],
         core.physics[1],
+        core.physics[3],
         core.pushes[0],
         core.pushed_units,
         core.pushes[1],

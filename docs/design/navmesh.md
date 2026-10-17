@@ -85,6 +85,18 @@ triangles, its door stops and the door that ends it.
   less than a fifth of the speed over a second, detour 70° left, then right, then 110°
   each way (0.6 s each); detours count as having helped only after half a second's walk
   of real progress past where the actor got stuck; then replan; give up after 5 replans.
+  The game's residents measure progress by how far the feet moved along the way to go
+  (`Unstuck::advise_moved`), not by the path's remaining length, which stays the same
+  for a path planned again and again after a moving target (Follow packages replan every
+  half second; owner's playtest 2026-10-17: a Novac pack brahmin following its merchant
+  counted as stuck all the way and detoured into the motel gate's fence).
+  They skip instead of replanning
+  (`Unstuck::skip`; owner request 2026-10-17: an NPC stuck navigating is put on the next
+  part of the navmesh it was heading for): `Follower::skip_ahead` moves the actor 160
+  units on along its path (past corners, never past a door stop it has not opened or the
+  end of its leg; the point is on the path, so on the navmesh), and physics puts it down
+  there again; the log says "actor … stuck at …: moved on along its path to …" and the
+  residents' summary counts "moved N stuck actors on".
 - `Walker` moves an actor along the path on the navmesh surface (height from the
   triangle under it), turning at up to 180°/s (`WALK_TURN_RATE`; 720°/s before
   2026-10-11) and slowing while its heading is off the way (`turn_slowdown`; actors.md
