@@ -381,6 +381,9 @@ fonts) and the owner's five DATA screenshots (§1), compared at 1280 × 720 with
     follows the pointer over the map and takes a marker's place and name within 40
     [hypothesis: the screenshots show it away from the middle, once round a door with
     the door's place name]; at first it is at the window's middle.
+  - A click on a marker (the button pressed and let go without the pointer moving
+    more than 6 units [design]) asks whether to travel there: fast travel,
+    `fast-travel.md`.
 - **Local Map**: the same window, markers, arrow, quest markers (kept inside the window
   [documented]) and highlight box, on an empty map at 28 game units to a unit [observed:
   fitted, the gas station's door and the saloon's door 168 px apart on the screenshot; the
