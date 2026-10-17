@@ -1178,11 +1178,16 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             to[2],
             if away.is_finite() { format!("{away:.0} units") } else { "in another cell".to_string() }
         ),
-        AiEvent::FleeArrived { from, seconds, off } => format!(
-            "reached its flee spot from {} after {seconds:.1}s ({off:.0} units off): stays there",
-            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }
+        AiEvent::FleeArrived { from, seconds, off, hides } => format!(
+            "reached its flee spot from {} after {seconds:.1}s ({off:.0} units off): {}",
+            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) },
+            if *hides { "hides there, crouched" } else { "stays there" }
         ),
-        AiEvent::Cornered { from } => format!("is cornered by {}: nowhere to flee, stands", if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }),
+        AiEvent::Cornered { from, hides } => format!(
+            "is cornered by {}: nowhere to flee, {}",
+            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) },
+            if *hides { "hides where it is, crouched" } else { "stands" }
+        ),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
         AiEvent::BackHome { away, length } => format!(

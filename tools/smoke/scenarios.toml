@@ -2348,6 +2348,22 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-flee-hide"
+source = "owner 2026-10-17: fleeing NPCs run off and hide crouched when they stop, out of their enemy's way, with the original's cowering (docs/design/combat-ai.md §12.2.1, docs/spec-notes/idles.md §13)"
+note = "Violet (FiendVioletRef) fights the player from 3 s and is made to flee by ForceFlee at 8 s (god mode, the player does not shoot); at her flee spot she crouches and plays the IDLE tree's CowerIdles (3rdP_Cowering.kf)"
+areas = ["combat", "combat-groups", "animation"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:FiendVioletRef:player,8:call:FiendVioletRef:ForceFlee" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  { re = 'ai \[.*Violet\S*: flees from the player (to cover|away|through door)', label = "Violet runs from the player to a flee spot" },
+  { re = 'Violet\S*: reached its flee spot from the player .*: hides there, crouched', label = "she reaches her flee spot and hides crouched there" },
+  { re = 'idle: \S*Violet\S* plays CowerIdles .*\(Cower\)', label = "she plays the original's cower idle" },
+  { re = 'cower summary: (?P<n>\d+) cower idles', range = [1, 1000], label = "cower idles in the summary" },
+]
+
+[[scenario]]
 name = "group-search"
 source = "owner's list 2: a group searching spreads out, allies alerted when one senses the player (GECK wiki Combat Search; docs/design/combat-ai.md §12.3, §12.5)"
 note = "the player sneaks 3,700 units south of Cook-Cook's camp and fires once at 20 s; Cook-Cook notices the player and alarms the camp, which searches as one party, each its own sector (observed 2026-10-12: four 'has searched its share' lines)"
