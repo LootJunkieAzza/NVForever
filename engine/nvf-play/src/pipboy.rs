@@ -42,6 +42,7 @@
 pub mod data;
 pub mod frame;
 pub mod items;
+pub mod repair;
 pub mod sounds;
 pub mod stats;
 mod test_aid;
@@ -282,6 +283,8 @@ impl Plugin for PipBoyPlugin {
         app.init_resource::<PipBoy>()
             .init_resource::<PipBoyAid>()
             .init_resource::<frame::Kit>()
+            .init_resource::<repair::PipRepair>()
+            .add_message::<repair::RepairInput>()
             .add_message::<PipBoyInput>()
             .add_message::<sounds::TabHovered>()
             .add_message::<data::travel::FastTravelAsk>()
@@ -293,6 +296,7 @@ impl Plugin for PipBoyPlugin {
                 (
                     follow_menu.after(crate::menu::MenuSystems),
                     (keys, apply_input).chain().run_if(pipboy_open),
+                    repair::keys,
                     items::keys,
                     advance,
                     camera_on,
@@ -376,6 +380,7 @@ fn keys(
     keys: Res<ButtonInput<KeyCode>>,
     prompt: Res<crate::menu::PromptKeys>,
     active: Res<crate::menu::ActiveMenu>,
+    repair: Res<repair::PipRepair>,
     mut out: MessageWriter<PipBoyInput>,
     mut menu: MessageWriter<crate::menu::MenuInput>,
 ) {
@@ -384,7 +389,8 @@ fn keys(
     if prompt.held(&active) {
         return;
     }
-    if keys.any_just_pressed([Tab, Escape]) {
+    // Esc goes back from the repair list (`repair`), Tab still puts the Pip-Boy away.
+    if keys.just_pressed(Tab) || (keys.just_pressed(Escape) && !repair.is_open()) {
         menu.write(crate::menu::MenuInput(crate::menu::model::Command::Close));
         return;
     }

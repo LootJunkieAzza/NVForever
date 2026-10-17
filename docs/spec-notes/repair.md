@@ -5,10 +5,11 @@ looked at, `[hypothesis]` is a reading that nothing has confirmed yet. `[design]
 what is NVForever's own, `[owner]` a rule the owner set.
 
 Two ways to repair a weapon or a piece of armour: a vendor does it for caps (the repair
-services menu, §2–§4), or the player takes parts from a like item in the Pip-Boy (§5,
-not built yet). Code: `crates/fnv-game/src/repair.rs` (the rules, `ShowRepairMenu`),
-`engine/nvf-play/src/repair.rs` (the menu), `crates/fnv-sim/src/inventory.rs`
-(`Inventory::set_condition_one`).
+services menu, §2–§4), or the player takes parts from a like item in the Pip-Boy (§5).
+Code: `crates/fnv-game/src/repair.rs` (the rules, `ShowRepairMenu`),
+`engine/nvf-play/src/repair.rs` (the vendor's menu), `engine/nvf-play/src/pipboy/repair.rs`
+(the Pip-Boy's), `crates/fnv-game/src/data.rs` (`GameData::repair_lists`),
+`crates/fnv-sim/src/inventory.rs` (`Inventory::set_condition_one`).
 
 ## 1. Sources
 
@@ -133,7 +134,7 @@ screen's height):
   and down or the wheel move the choice [documented: the file's `_PCButton_A`,
   `_PCButton_E`; design: Enter, the others].
 
-## 5. Repair from the inventory (not built yet)
+## 5. Repair from the inventory
 
 - The in-game help: "In your Pip-Boy, the Repair menu shows any equipment you currently
   have that can be used to repair the selected piece of equipment. Highlight the piece of
@@ -157,3 +158,57 @@ screen's height):
   "At 75% Condition or higher, a weapon does maximum damage and only needs to be
   maintained", "Apparel above 50% CND provides maximum protection and only needs to be
   maintained"].
+
+**What the file says** [documented: repair_menu.xml], in the Pip-Boy's menu rectangle
+(855 x 650 at (50, 50) of the 1024 x 768 screen, as the inventory's):
+
+- The headline: the inventory's title (`sInventoryItems`, font 4) between lines, and at
+  the right a card 220 wide with `sRepairSkill` and the player's skill.
+- The list 15 left and 75 down, 430 x 468; a row 32 in and 393 wide, its name in font 2
+  at 40, 20 down, wrapped at 270, a condition bar 60 x 16 at 320 (back at alpha 64), the
+  equipped square 25 at (15, 17.5). The rows are silent (`&nosound;` for the pointer and
+  the click). Each row carries "the min skill needed to repair with this item; set in
+  code" (`user1`): what it holds is not known, and no minimum is applied [hypothesis].
+  Brackets border "the selected repair item".
+- The item's picture 400 square at (450, 20).
+- The figures from (415, 400), 427 x 180: the condition (`sInventoryCondition`, a meter
+  60 x 16 15 from the card's right end) and the figure as cards half as wide; the arrow
+  `repair_arrow_down.dds` 80 square in the middle (5 above the centre); the gains in font
+  4 at a quarter and three quarters, 30 under the arrow's top; the cards after the repair
+  at the bottom. A text "choose item" (font 2, centred, set in code) may stand there.
+- Repair (Xbox only) and Cancel (`sCancel`, PC key E) right-aligned at 855, 75 down.
+- The inventory menu's Repair button (`IM_RepairButton`, `sInventoryRepair`, PC key R)
+  at (855, 45), right-aligned, at alpha 128 unless it can be used; the Mod button (X)
+  after it.
+
+**What the screenshots add** [observed, C:nv-privateepairmenuPlayer, Repair 17]:
+
+- "Maintain R)" on the NCR Face Wrap Armor at about 55 %, "Repair R)" on the NCR Mantle
+  Armor at about 35 % and on a Service Rifle at about 40 %; weapons also show "Mod X)".
+  After the Mantle Armor was used up, the Face Wrap's "Maintain R)" is dim.
+- The list's first row is the item being repaired, boxed; under it the parts (another
+  NCR armour of the same repair list, the other Service Rifle). On the item itself only
+  its CND and DT show; on a part, the figures before and after: "+9 %" and "+0" (DT 10)
+  for the armour, "+10 %" and "+1" (DAM 8 → 9) for the rifle.
+- After the repair the ITEMS list comes back, the part gone (weight 217 → 191).
+
+**What NVForever does**:
+
+- R on the ITEMS page opens the list for the selected weapon or armour; nothing happens
+  without a part, or at full condition [owner: "an item at 100% condition can't be
+  repaired or merged, so it doesn't appear in the list"]. The parts: the player's units
+  of the same item or of one on its repair list (`REPL`, run-time additions to the list
+  included), below full condition [owner's rule] and not equipped [design]; another unit
+  of the item's own group counts. Each group of units is a row, by name.
+- Up/Down (W/S) choose, Enter or Space uses the chosen part, E or Esc cancels, Tab puts
+  the Pip-Boy away [documented: `_PCButton_E`; design: the rest]. Rows are not clicked
+  [design: not built].
+- Using a part: one unit of it leaves the inventory, the item's condition becomes
+  `merged_condition` (above) at the player's Repair skill when the list opened, and the
+  ITEMS list comes back; `UIRepairWeapon` plays [hypothesis, as the vendor's].
+- The hint: "Maintain R)" from 75 % (weapons) or 50 % (apparel), "Repair R)" below;
+  dim when R would do nothing. The Mod hint is not drawn (weapon mods are not built).
+- The figures are our damage and DT at the condition (combat-rules.md §17), as the
+  vendor's menu.
+- Scripts do not see MenuMode 1035 (`fnv_game::repair::REPAIR_MENU`) while the list is
+  open [not built].

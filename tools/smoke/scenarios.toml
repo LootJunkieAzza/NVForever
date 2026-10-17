@@ -3062,6 +3062,22 @@ expect = [
 order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu: done", "repair menu: closed"]]
 
 [[scenario]]
+name = "pipboy-repair"
+source = "todo 6 item 5: repair from the Pip-Boy (engine/nvf-play/src/pipboy/repair.rs, crates/fnv-game/src/repair.rs, docs/spec-notes/repair.md §5): two worn 10mm Pistols, the ITEMS page's Repair R) hint, R lists the other pistol as the part, using it scraps it and raises the first by the GECK wiki's repair formula at the player's Repair skill; frame pipboy_repair.png in the working folder"
+areas = ["repair", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/items.rs", "crates/fnv-game/src/repair.rs"]
+env = { NVFOREVER_HOME = "pipboy-repair-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:WeapNV10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:WeapNV10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:repair=down,18:repair=use,20:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hint.png,17:pipboy_repair.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 23
+expect = [
+  { re = 'pipboy items: 10mm Pistol Repair R\)(?! \(dim)', label = "the worn pistol shows Repair R), bright (another pistol can repair it)" },
+  { re = 'pipboy repair: open 10mm Pistol at [34]0% \(Repair \d+\): 10mm Pistol [34]0%', label = "R lists the other pistol as the part" },
+  { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', label = "using it repairs the pistol" },
+  { text = "ui sounds: repair services row or button picked: UIRepairWeapon", label = "a repair plays UIRepairWeapon" },
+]
+order = [["pipboy repair: open", "pipboy repair: 10mm Pistol"]]
+
+[[scenario]]
 name = "item-stacks"
 source = "owner 2026-10-15: the two 9mm stacks on the Goodsprings gas station counter hold 20 rounds each (AMMO Clip Rounds, GECK wiki Ammo; fnv-sim Item::placed_count); a stack of more than 5 asks \"How many?\" (menu::model::Quantity) and a dropped stack is one reference holding the count"
 areas = ["menu", "items"]

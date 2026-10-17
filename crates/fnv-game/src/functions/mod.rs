@@ -38,7 +38,7 @@ pub use reputation::{crime_infamy, reputations_of, store as reputation_store, ti
 pub use actor::{actor_value, actor_value_capped, actor_value_parts, temporary as actor_value_temporary, add_damage as add_actor_value_damage, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
 pub use actor::{faction_rank, faction_relation, factions_of, factions_relation};
 pub use misc::clock_now;
-pub use refs::list_members;
+pub use refs::{list_members, repair_list};
 pub use fighting::cause_code;
 /// The level (0–3) of fame or infamy against a reputation's scale (the Pip-Boy's STATS page).
 pub use reputation::level as reputation_level;
