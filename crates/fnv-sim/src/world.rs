@@ -355,6 +355,15 @@ impl<'a> World<'a> {
         self.inventory_sources = sources;
     }
 
+    /// The base whose carried items `id` starts with, in place of its own base's (`None`:
+    /// its own base's), after its leveled choices were rolled again.
+    pub fn set_inventory_source(&mut self, id: FormId, source: Option<FormId>) {
+        match source {
+            Some(s) => self.inventory_sources.insert(id, s),
+            None => self.inventory_sources.remove(&id),
+        };
+    }
+
     /// The base whose carried items `id` (placed with `base`) starts with.
     fn inventory_base(&self, id: FormId, base: FormId) -> FormId {
         self.inventory_sources.get(&id).copied().unwrap_or(base)

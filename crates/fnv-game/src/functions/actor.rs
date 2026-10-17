@@ -431,18 +431,13 @@ impl Game<'_> {
 }
 
 /// `actor.ResurrectActor [anim]`: the actor comes back "from the dead or unconscious
-/// state" [documented: GECK wiki ResurrectActor] at full health, its killer and cause of
-/// death forgotten [hypothesis: a resurrected actor reads as never killed; the wiki
-/// shows it standing and acting again]. Limb damage stays [hypothesis: the wiki notes
-/// that body data is not updated with anim 1].
-pub fn resurrect_actor(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+/// state" [documented: GECK wiki ResurrectActor], generated again from its record
+/// (`crate::resurrect`, docs/spec-notes/resurrect.md). `anim` 1 has it stand up, 0 (or
+/// none) just standing [documented: the wiki's parameter notes].
+pub fn resurrect_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    set_damage(g, r, crate::combat::HEALTH, 0.0);
-    let e = g.extra.entry(r).or_default();
-    e.dead = false;
-    e.unconscious = false;
-    e.killer = None;
-    e.death_cause = None;
+    let animate = a.int(0).is_ok_and(|v| v != 0);
+    g.resurrect(r, animate);
     none()
 }
 

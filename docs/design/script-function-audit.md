@@ -104,8 +104,9 @@ function, with the system each gap needs, is now docs/design/script-function-cov
   only follows items leaving the inventory. Making it draw what the rules have equipped
   also removes the mismatch between the two leveled rolls; it changes how NPCs look, so it
   is its own piece of work with screenshots (follow-up).
-- **ResurrectActor and SetUnconscious in the engine**: a corpse is not stood up again, an
-  unconscious actor does not lie down (ragdolls are for corpses only).
+- **SetUnconscious in the engine**: an unconscious actor does not lie down (ragdolls are
+  for corpses only). (ResurrectActor's corpse is stood up again since
+  docs/spec-notes/resurrect.md.)
 - **GetKnockedState / GetUnconscious**: an essential knocked out by damage sets the same
   flag as SetUnconscious, never cleared; explosion knockdowns are rolled in the engine and
   not told.
@@ -417,7 +418,7 @@ what writes it now).
 | ResetQuest | 0x11DB | 6/- | replaces QuestState | rules | matches | Running kept [hypothesis]. |
 | ResetXP | 0x126D | 2/0 | writes | — | matches |  |
 | RestoreActorValue | 0x1182 | 284/ | `av_damage` | rules | matches |  |
-| ResurrectActor | 0x108C | 515/46 | sets `extra.dead=false` | rules | fixed here | Only cleared `dead`. Now also heals Health, clears unconscious, killer and cause [documented: "from the dead or unconscious state"; hypothesis for the rest]. The engine does not stand a corpse up again (gap left, §5). |
+| ResurrectActor | 0x108C | 515/46 | sets `extra.dead=false` | rules | fixed here | Only cleared `dead`. Now also heals Health, clears unconscious, killer and cause [documented: "from the dead or unconscious state"; hypothesis for the rest]. The engine stands the corpse up again since docs/spec-notes/resurrect.md (a dead actor generated again from its record). |
 | RewardKarma | 0x1204 | 163/ | `change_karma` | rules | matches | Clamp iKarmaMin/Max and corner note present. clamped iKarmaMin/Max |
 | RewardXP | 0x1177 | 1303/0 | writes `player.xp` | rules: combat.rs, lockpick.rs; engine: compass.rs:131 | matches | Levelling by experience is built now (experience.rs; status.md); the gap is closed. |
 | Rotate | 0x1004 | 4/- | `g.rotations` -> `w.rot`, `turned` | rules / moved.rs:62, script_draw.rs:131 | matches |  |

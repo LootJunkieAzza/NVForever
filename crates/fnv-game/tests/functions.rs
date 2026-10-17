@@ -366,6 +366,44 @@ fn reputation_limits_levels_and_ignored_sizes() {
 
 /// Damage and restore [documented: catalogue; observed: layer5-captures.md §9.3 b].
 #[test]
+fn resurrect_generates_a_dead_actor_again_where_it_lies() {
+    let f = fixture();
+    let mut g = game(&f);
+    let adult = FormId(ADULT_REF);
+    let av = |c: u16| ArgValue::Enum(c);
+    // Alive, given three items and hurt: ResurrectActor only heals it.
+    call(&mut g, 0x1002, Some(ADULT_REF), &[r(MISC), n(3.0)]);
+    call(&mut g, 0x1181, Some(ADULT_REF), &[av(16), n(5.0)]);
+    call(&mut g, 0x108C, Some(ADULT_REF), &[]);
+    assert_eq!(call(&mut g, 0x102F, Some(ADULT_REF), &[r(MISC)]), 3.0);
+    assert!(g.extra[&adult].av_damage.is_empty());
+    assert_eq!(g.rolls(adult), 0);
+    let first = g.take_resurrections();
+    assert_eq!((first.len(), first[0].regenerated, first[0].animate), (1, false, false));
+    // Killed, moved by a script, then raised with the animate flag: its carried items are
+    // rolled again from its record (it carries nothing), it stands where it was put.
+    call(&mut g, 0x108B, Some(ADULT_REF), &[r(PLAYER)]);
+    let put = [150.0, -20.0, 8.0];
+    g.world.get(adult).unwrap().pos = put;
+    call(&mut g, 0x108C, Some(ADULT_REF), &[n(1.0)]);
+    assert_eq!(call(&mut g, 0x102E, Some(ADULT_REF), &[]), 0.0);
+    assert_eq!(call(&mut g, 0x102F, Some(ADULT_REF), &[r(MISC)]), 0.0);
+    assert_eq!(g.world.peek(adult).unwrap().pos, put);
+    assert_eq!(g.rolls(adult), 1);
+    assert_eq!(g.take_resurrections(), vec![fnv_game::resurrect::Resurrection { actor: adult, animate: true, regenerated: true, rolls: 1 }]);
+    assert!(g.take_resurrections().is_empty());
+}
+
+#[test]
+fn roll_seeds_keep_the_first_pick_and_differ_after() {
+    use fnv_sim::leveled::roll_seed;
+    let r = FormId(ADULT_REF);
+    assert_eq!(roll_seed(r, 0), r);
+    let seeds: std::collections::BTreeSet<FormId> = (0..64).map(|n| roll_seed(r, n)).collect();
+    assert_eq!(seeds.len(), 64);
+}
+
+#[test]
 fn restore_heals_damage_only() {
     let f = fixture();
     let mut g = game(&f);

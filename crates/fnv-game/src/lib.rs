@@ -65,6 +65,7 @@ pub mod provocation;
 pub mod quest;
 pub mod radio;
 pub mod respawn;
+pub mod resurrect;
 pub mod rest;
 pub mod roulette;
 pub mod sound;

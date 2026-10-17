@@ -72,6 +72,7 @@ mod shot_fx;
 mod ragdoll;
 mod reflection;
 mod residents;
+mod resurrect;
 mod script_look;
 mod ripples;
 mod settings;
@@ -1116,7 +1117,7 @@ fn main() -> AppExit {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
             app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
-            app.add_plugins(cell_resets::CellResetsPlugin);
+            app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin));
             // What drawn NPCs wear and hold follows their inventories (outfits.rs).
             app.add_plugins(outfits::OutfitsPlugin);
             if shadow_probe::enabled() {

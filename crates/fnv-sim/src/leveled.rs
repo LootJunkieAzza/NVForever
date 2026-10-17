@@ -157,3 +157,18 @@ fn resolve_at(
     }
     Ok(())
 }
+
+/// The reference whose FormID seeds the leveled actor choices of `reference` after its
+/// record's random choices were rolled again `rolls` times (ResurrectActor,
+/// `fnv_game::resurrect`): `reference` itself at 0, so an actor never resurrected keeps
+/// its picks; another number for each roll. The seeds of `fnv_actor::resolve` (how the
+/// actor is drawn) and `fnv_game::templates` (its carried items) go through it, so both
+/// name the same entry. [design: the game's own roll depends on the player's level and
+/// the encounter zone and is not reproduced, docs/spec-notes/actors.md §2.1]
+pub fn roll_seed(reference: FormId, rolls: u32) -> FormId {
+    if rolls == 0 {
+        return reference;
+    }
+    // An odd multiplier: every roll number gives a different, non-zero mask.
+    FormId(reference.0 ^ rolls.wrapping_mul(0x9E37_79B9).rotate_left(16))
+}
