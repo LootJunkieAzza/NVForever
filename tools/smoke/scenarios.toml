@@ -3637,6 +3637,8 @@ expect = [
   { re = 'resurrect: 0x00104C7D drawn standing again [\d.]+ s after, package \S', label = "drawn standing, running a package" },
 ]
 order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'resurrect: 0x00104C7D \(GSRingo\) alive again' }, { re = 'resurrect: 0x00104C7D drawn standing again' }]]
+
+[[scenario]]
 name = "abilities-worn"
 source = "docs/spec-notes/aid-items.md §13 (capture abilities-1): authored abilities are on loaded actors only, so Victor outside reads 0 for his template's SecuritronDT from the gas station; the gambler hat's enchantment (Perception +1) is on the player while worn and gone once unequipped"
 areas = ["scripts", "items"]
