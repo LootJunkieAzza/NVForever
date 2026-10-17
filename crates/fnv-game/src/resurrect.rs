@@ -11,27 +11,35 @@
 //!   resurrected actor"]: a dead actor's random choices are rolled again
 //!   ([`RefExtra::rolls`](crate::game::RefExtra::rolls), the seed
 //!   `fnv_sim::leveled::roll_seed`): the entry a leveled actor list stands for (which can
-//!   be a man or a woman), the template its carried items come from, and the carried
-//!   items themselves with their leveled lists (`fnv_sim::World::reset_inventory`), worn
-//!   and drawn again. So what was looted from the corpse, or given to it, is not what it
-//!   carries alive: it carries a fresh roll. What scripts gave it otherwise stays
-//!   (factions, packages, actor values set, essential, AI off, dispositions) [hypothesis:
-//!   the quests that resurrect companions and Yes Man rely on it].
-//! - **Where**: where its reference is, which is where it died or where a script moved
-//!   the corpse to [observed: the shipped scripts move the corpse first, e.g. Yes Man's
-//!   `MoveTo` to a marker and `ResurrectActor` after it, VMQYesManSupport, and the robot
-//!   squads' `bot01.MoveTo` then `bot01.ResurrectActor` a frame later, decompiled
-//!   2026-10-17]. It stands there in its default standing pose [observed: owner,
-//!   2026-10-17: "they respawn in their default standing position"]; the get-up clip of
-//!   the animate flag is not played [design: the owner, 2026-10-17, "we shouldnt need a
-//!   getup animation for resurrect"].
+//!   be a man or a woman), and, when its carried items come through such a pick, the
+//!   template they come from and the items themselves (`fnv_sim::World::reset_inventory`).
+//!   An actor with its own item list keeps what it carries, looted or given [observed:
+//!   capture rs1, 2026-10-17: Ringo given three Stimpaks, two taken from his corpse, one
+//!   left after ResurrectActor 0]. What scripts gave it otherwise stays (factions,
+//!   packages, actor values set, essential, AI off, dispositions) [hypothesis: the quests
+//!   that resurrect companions and Yes Man rely on it].
+//! - **Where**: where its body lies [observed: rs1: Ringo's reference followed his
+//!   ragdoll from (685, -5602) to (730, -5609) and he stood up there, at once and still
+//!   after 180 frames], which is where it died or where a script moved the corpse
+//!   [observed: the shipped scripts move the corpse first, e.g. Yes Man's `MoveTo` to a
+//!   marker and `ResurrectActor` after it, VMQYesManSupport, and the robot squads'
+//!   `bot01.MoveTo` then `bot01.ResurrectActor` a frame later, decompiled 2026-10-17].
+//!   The engine tells where the body came to rest ([`Game::stand_where_the_body_lies`]).
+//!   It stands there in its default standing pose [observed: owner, 2026-10-17: "they
+//!   respawn in their default standing position"; rs1: standing in the first frame after
+//!   ResurrectActor 0, GetKnockedState 0 throughout].
 //! - **The animate flag** (0 just standing, 1 standing up [documented: GECK wiki
-//!   ResurrectActor]) is kept with the resurrection for the engine; both stand at once.
+//!   ResurrectActor]) is kept with the resurrection for the engine; both stand at once
+//!   [design: the owner, 2026-10-17, "we shouldnt need a getup animation for
+//!   resurrect"]. (With 1 the original showed a torn body in the air for a second or two,
+//!   GetKnockedState 0, then the actor walking on [observed: rs1 screenshots]; not
+//!   copied.)
 //! - **A living actor** (scripts call it from OnHit when Health is below 0, decompiled)
 //!   is only healed: nothing is rolled again [hypothesis: generating a living actor again
 //!   would strip a companion of its gear].
-//! - **Not loaded**: the rules are the same; the engine draws it alive when its cell is
-//!   (it is no corpse any more), with its new roll.
+//! - **Not loaded**: the rules are the same; it stays where it was and is drawn alive
+//!   when its cell is [observed: rs1: Chet killed and raised in the unloaded general
+//!   store, GetDead 0, position unchanged, standing when the player arrived].
 //! - It leaves combat (`Game::stop_combat`) [hypothesis: a new actor starts calm].
 
 use crate::functions::base_of;
@@ -80,18 +88,32 @@ impl Game<'_> {
         self.resurrections.push(Resurrection { actor: r, animate, regenerated, rolls });
     }
 
-    /// Roll the carried items of `r` again from the template its new seed leads to.
+    /// Roll the carried items of `r` again when they come through a leveled pick (its
+    /// base or a template in its Inventory chain is a leveled actor list); an actor with
+    /// its own item list keeps what it carries (module notes).
     fn roll_again(&mut self, r: FormId, rolls: u32) {
-        if let Some(base) = base_of(self, r) {
-            let source = self.data.template_source(base, roll_seed(r, rolls), |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != base);
-            self.world.set_inventory_source(r, source);
+        let Some(base) = base_of(self, r) else { return };
+        if self.data.template_sources_any_pick(base, |d| d.template_inventory).len() < 2 {
+            return;
         }
-        // A base with no carried items: it carries nothing (what the corpse was given goes).
+        let source = self.data.template_source(base, roll_seed(r, rolls), |d| d.template_inventory).map(|(s, _)| s).filter(|&s| s != base);
+        self.world.set_inventory_source(r, source);
+        // A source with no carried items: it carries nothing.
         if !self.world.reset_inventory(r).unwrap_or(true) {
             if let Ok(s) = self.world.get(r) {
                 s.inventory = None;
             }
         }
+    }
+
+    /// The engine found the body of resurrected `r` lying at `pos` (game units): the
+    /// reference is put there and the actor stands up from there (module notes), its
+    /// walker started again (`Game::teleported`).
+    pub fn stand_where_the_body_lies(&mut self, r: FormId, pos: [f32; 3]) {
+        if let Ok(s) = self.world.get(r) {
+            s.pos = pos;
+        }
+        self.teleported.insert(r);
     }
 
     /// How many times ResurrectActor rolled the actor's random choices again.

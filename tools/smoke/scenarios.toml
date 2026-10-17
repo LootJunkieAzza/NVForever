@@ -3526,18 +3526,18 @@ expect = [
 
 [[scenario]]
 name = "resurrect-actor"
-source = "docs/design/script-function-coverage.md section 5 item 4, docs/spec-notes/resurrect.md: Ringo in the gas station is given three Stimpaks, killed (his ragdoll drops), then raised with ResurrectActor 0; his corpse goes, a fresh body stands where he lies and his packages take him up; his carried items are rolled again from his record (the owner, 2026-10-17)"
+source = "docs/design/script-function-coverage.md section 5 item 4, docs/spec-notes/resurrect.md: Ringo in the gas station is given three Stimpaks, killed (his ragdoll drops), one taken from his corpse, then raised with ResurrectActor 0; his corpse goes, a fresh body stands where his body lay and his packages take him up; he keeps what is left of his items (capture rs1, 2026-10-17)"
 areas = ["combat", "ragdoll", "scripting"]
 paths = ["engine/nvforever/src/resurrect.rs", "crates/fnv-game/src/resurrect.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "8:00104C7D.removeallitems;8.3:00104C7D.additem 00015169 3;8.6:00104C7D.getitemcount 00015169;9:00104C7D.killactor;15:00104C7D.getdead;15.3:00104C7D.resurrectactor 0;15.6:00104C7D.getdead;16:00104C7D.getitemcount 00015169;16.5:close" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "10:00104C7D.removeallitems;10.3:00104C7D.additem 00015169 3;10.6:00104C7D.getitemcount 00015169;11:00104C7D.killactor;16.7:00104C7D.getdead;17:00104C7D.removeitem 00015169 1;17.3:00104C7D.resurrectactor 0;17.6:00104C7D.getdead;18:00104C7D.getitemcount 00015169;18.5:close" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages"]
-run_seconds = 24
+run_seconds = 26
 expect = [
   { re = 'console: GetItemCount on .*>> 3\.00', label = "Ringo carries the three Stimpaks given" },
   { re = 'console: GetDead on .*>> 1\.00', label = "Ringo is dead" },
-  { re = 'resurrect: 0x00104C7D \(Ringo\) alive again \(animate 0\): its (ragdoll|death pose) taken away', label = "his corpse is taken away" },
+  { re = 'resurrect: 0x00104C7D \(GSRingo\) alive again \(animate 0\): its (ragdoll|death pose) taken away', label = "his corpse is taken away" },
   { re = 'console: GetDead on .*>> 0\.00', label = "Ringo is alive" },
-  { re = 'console: GetItemCount on .*>> (?!3\.00)\d', label = "the given Stimpaks are gone: his items rolled again" },
+  { re = 'console: GetItemCount on .*>> 2\.00', label = "one Stimpak taken from the corpse, two still carried alive (capture rs1)" },
   { re = 'resurrect: 0x00104C7D drawn standing again [\d.]+ s after, package \S', label = "drawn standing, running a package" },
 ]
-order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'resurrect: 0x00104C7D \(Ringo\) alive again' }, { re = 'resurrect: 0x00104C7D drawn standing again' }]]
+order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'resurrect: 0x00104C7D \(GSRingo\) alive again' }, { re = 'resurrect: 0x00104C7D drawn standing again' }]]

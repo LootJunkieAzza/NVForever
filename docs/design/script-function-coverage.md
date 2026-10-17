@@ -189,9 +189,9 @@ The ranked table is in §6. Read with it:
 4. **Corpses stood up again** (ResurrectActor; 76 quests, Yes Man's resurrections and
    every companion): built on branch claude/resurrect-actor-652a0f
    (docs/spec-notes/resurrect.md): the corpse goes, a fresh body stands where the
-   reference is and its packages take it up; a dead actor's leveled template and carried
-   items are rolled again (the owner, 2026-10-17). The rs1 capture checks place,
-   inventory and both animate values in the original.
+   body lay and its packages take it up; what is left in its inventory stays (capture
+   rs1); a leveled actor's pick (and items that come through it) are rolled again (the
+   owner, 2026-10-17).
 5. **Knockdowns and knock-outs** (64 quests, the intro chain): an essential knocked out
    never gets up in the rules; no actor lies down.
 6. **Fast travel** (60 quests, the whole VMQ line): EnableFastTravel is kept, fast travel
@@ -231,7 +231,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 1 | detection beyond the player's reach; the player as a detector | wrong | 153 | 568 / 132 | 430 / 241 | GetDetected, GetLineOfSight, IsInCombat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle), VMQ02 (Render Unto Caesar), VMQ05 (For the Republic, Part 2), VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management) and 1 more | VCassCompanion (Heartache by the Number), VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue) and 8 more |
 | 2 | NPC equipment drawn from the rules | wrong | 82 | 275 / 0 | 250 / 0 | EquipItem, UnequipItem | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle), VMQ03bTimer (VMQ03b Timer) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog), VDialogueVeronica (Veronica Dialogue) and 2 more |
 | 3 | actor abilities and worn enchantments as effects | wrong | 80 | 326 / 35 | 220 / 42 | HasMagicEffect, IsSpellTarget, RemoveSpell | VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQTops (Ring-a-Ding-Ding!) and 1 more | VDialogueCass, VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest), vDialogueLily (Lily's Dialogue) |
-| 4 | corpses stood up again | built, awaiting capture | 76 | 603 / 0 | 515 / 0 | ResurrectActor | VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management), VMQYesManSupport (Scripting for Yes Man positioning and resurrections) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog) and 6 more |
+| 4 | corpses stood up again | built | 76 | 603 / 0 | 515 / 0 | ResurrectActor | VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management), VMQYesManSupport (Scripting for Yes Man positioning and resurrections) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog) and 6 more |
 | 5 | knockdowns and knock-outs | no-system | 64 | 196 / 10 | 282 / 134 | GetKnockedState, GetUnconscious, PushActorAway, SetUnconscious | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ01 (They Went That-a-Way) | - |
 | 6 | fast travel | no-system | 60 | 140 / 0 | 83 / 0 | EnableFastTravel | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ04 (Bright and Shiny), VMQ05 (For the Republic, Part 2) and 4 more | - |
 | 7 | saves from scripts | wrong | 29 | 32 / 0 | 7 / 0 | ForceSave, SystemSave | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQ04 (Bright and Shiny) and 8 more | - |
@@ -571,7 +571,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ResetQuest | 0x11DB | 6 / 0 | match | - | - |  |
 | ResetXP | 0x126D | 2 / 0 | match | - | - |  |
 | RestoreActorValue | 0x1182 | 284 / 0 | match | - | - |  |
-| ResurrectActor | 0x108C | 515 / 0 | built | corpses stood up again | - | Rules state right (dead, cause, health) [observed: probes]. A dead actor is generated again: all damage gone, leveled template and carried items rolled again [observed: owner 2026-10-17], combat ended; it stands where its reference is (scripts MoveTo the corpse first, decompiled) with no get-up clip (owner); the engine takes the ragdoll away and draws it anew (`resurrect.rs`, smoke `resurrect-actor`). A living actor is only healed [hypothesis]. Place and items await the rs1 capture (docs/spec-notes/resurrect.md). |
+| ResurrectActor | 0x108C | 515 / 0 | built | corpses stood up again | - | Rules state right (dead, cause, health) [observed: probes]. A dead actor stands up at once where its body lay, keeps the items left on its corpse, GetKnockedState 0, combat ended [observed: capture rs1]; a leveled actor's pick and the items that come through it are rolled again [observed: owner 2026-10-17]; no get-up clip for either flag (owner). The engine takes the ragdoll away and draws it anew (`resurrect.rs`, smoke `resurrect-actor`). A living actor is only healed [hypothesis] (docs/spec-notes/resurrect.md). |
 | RewardKarma | 0x1204 | 163 / 0 | match | - | - |  |
 | RewardXP | 0x1177 | 1303 / 0 | match | - | - | Levelling by experience exists now (experience.rs, levelup.rs); the audit's gap is closed. |
 | Rotate | 0x1004 | 4 / 0 | match | - | - |  |
