@@ -1068,6 +1068,10 @@ fn step(
     }
     let alpha = (p.stepper.accumulated / dt).clamp(0.0, 1.0);
     player.feet = lerp3(p.prev_feet, c.feet, alpha);
+    if n > 0 {
+        // Where the bodies are drawn after the steps (the drawn ground under each).
+        p.update_drawn_sinks();
+    }
 }
 
 /// Feet, cell and heading last written to the simulation.

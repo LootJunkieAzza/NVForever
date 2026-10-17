@@ -9,6 +9,7 @@
 //! made when the cell is inserted.
 
 use super::cells::PhysCell;
+use super::drawn::DrawnFloors;
 use super::LoadTimes;
 use crate::PlayData;
 use fnv_collide::anim::ModelAnim;
@@ -31,9 +32,10 @@ pub(super) fn ms_since(t: Instant) -> f64 {
 type Objects = Arc<Vec<CollisionObject>>;
 
 /// What a model contributes: its solid collision objects, its water volumes (phantoms
-/// on the Water layer, physics.md §6.6) and, for a door model with "Open" and "Close"
-/// sequences, its animation (`crate::doors`); or why it could not be read.
-type ModelResult = Result<(Objects, Objects, Option<Arc<ModelAnim>>), String>;
+/// on the Water layer, physics.md §6.6), for a door model with "Open" and "Close"
+/// sequences its animation (`crate::doors`), and for a model with collision the floors
+/// of its drawn geometry ([`DrawnFloors`]); or why it could not be read.
+type ModelResult = Result<(Objects, Objects, Option<Arc<ModelAnim>>, Option<Arc<DrawnFloors>>), String>;
 
 /// Collision per model path (lower case), shared by the loader thread and the main
 /// thread. A model is read once: a second caller waits for the first.
@@ -62,13 +64,22 @@ impl ModelCache {
     /// A model's solid collision objects (empty when it has none), read through
     /// `fnv_collide::nif` once.
     pub fn objects(&self, data: &GameData, path: &str, times: &mut LoadTimes) -> Result<Objects, String> {
-        self.read(data, path, times).map(|(solid, _, _)| solid)
+        self.read(data, path, times).map(|(solid, ..)| solid)
+    }
+
+    /// The floors of a model's drawn geometry, when it was read (by
+    /// [`ModelCache::objects`]) and has collision and floors.
+    pub fn drawn(&self, path: &str) -> Option<Arc<DrawnFloors>> {
+        match self.slot(path).get() {
+            Some(Ok((_, _, _, drawn))) => drawn.clone(),
+            _ => None,
+        }
     }
 
     /// A door model's animation (read through the cache), when it has "Open" and
     /// "Close" sequences that move its nodes.
     pub fn door_anim(&self, data: &GameData, path: &str, times: &mut LoadTimes) -> Option<Arc<ModelAnim>> {
-        self.read(data, path, times).ok().and_then(|(_, _, anim)| anim)
+        self.read(data, path, times).ok().and_then(|(_, _, anim, _)| anim)
     }
 }
 
@@ -86,7 +97,7 @@ impl ModelCollision for Models<'_> {
 
     fn water(&mut self, path: &str) -> Objects {
         match self.cache.slot(path).get() {
-            Some(Ok((_, water, _))) => water.clone(),
+            Some(Ok((_, water, ..))) => water.clone(),
             _ => Arc::default(),
         }
     }
@@ -113,8 +124,10 @@ fn read_model(data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult
     let dec = dec.expect("decoded with the file");
     let anim = solid.iter().any(|o| o.motion == fnv_collide::Motion::Keyframed).then(|| ModelAnim::new(&file, &dec));
     let anim = anim.filter(|a| a.door().is_some()).map(Arc::new);
+    // Only what can be stood on needs its drawn floors.
+    let drawn = if solid.is_empty() { None } else { DrawnFloors::from_nif(&file, &dec).map(Arc::new) };
     times.convert += ms_since(t);
-    Ok((Arc::new(solid), Arc::new(water), anim))
+    Ok((Arc::new(solid), Arc::new(water), anim, drawn))
 }
 
 /// What preparing needs: the plugins, the archives and the world's parameters. Cheap to
@@ -172,6 +185,9 @@ pub struct RefShapes {
     pub dynamic_local: Option<fnv_collide::Iso>,
     /// A door that opens in place: its keyframed bodies follow its animation.
     pub door: Option<DoorBodies>,
+    /// The floors of the model's drawn geometry, for a reference whose collision stays
+    /// where it was placed (not dynamic, not a door that opens in place).
+    pub drawn: Option<Arc<DrawnFloors>>,
 }
 
 /// The keyframed bodies of a door that opens in place (`crate::doors`), posed from its
@@ -325,5 +341,10 @@ pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShap
             .map(|(i, o)| (i as u16, o.node_block, o.body_transform))
             .collect(),
     });
-    RefShapes { tallies, water: rc.water, prepared, dynamic_local, door }
+    let fixed = prepared.is_some() && dynamic_local.is_none() && door.is_none();
+    let drawn = match (&src.data, pl.base.and_then(|b| base_object(src.d.lo, src.d.schema, b)).and_then(|b| b.world_model_path())) {
+        (Some(_), Some(path)) if fixed => src.models.drawn(&path),
+        _ => None,
+    };
+    RefShapes { tallies, water: rc.water, prepared, dynamic_local, door, drawn }
 }
