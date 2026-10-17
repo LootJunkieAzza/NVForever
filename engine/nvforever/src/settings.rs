@@ -5,7 +5,8 @@
 //! `nvf_play::settings` like every switch of the page).
 //!
 //! Left on the command line: what is fixed when the game starts (`--no-npc-packages`,
-//! `--no-actors`, FaceGen, weapons, `--no-lodgen`), most numbers (volumes, `--radius`)
+//! `--no-actors`, FaceGen, weapons, `--no-lodgen`), most numbers (`--radius`; the volumes
+//! are the Sound tab, `nvf_play::audio_out::register_settings`)
 //! and the test aids. The draw distances are sliders here, each a part of the
 //! command line's distance (`draw_distance.rs`); the field of view, the frame-rate cap and the
 //! anti-aliasing and shadow-filter choices are sliders whose steps are the choices.
@@ -173,6 +174,8 @@ pub fn register(app: &mut App) {
     register_display(app);
     register_distances(app);
     register_graphics(app);
+    // The Sound tab after the picture's, as the original lists Audio after Display.
+    nvf_play::audio_out::register_settings(app);
     add_setting(
         app,
         Setting {

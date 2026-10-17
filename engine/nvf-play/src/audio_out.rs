@@ -33,13 +33,29 @@
 //! - With no device (none at startup, or all unplugged) the watcher drains the mixer at
 //!   the real-time rate into nothing, so sounds still end on time (one-shots despawn,
 //!   voice lines finish, music moves on), and it tries to open a device every [`POLL`].
+//! - **Volumes by category** (owner request 2026-10-17, the original's audio menu:
+//!   Master, Music, Footstep, Voice, Effects, Radio [observed: the owner's photo of the
+//!   game's settings]). Each [`SoundCategory`] has a mixer of its own that plays into the
+//!   run-long one at its volume times the master volume ([`SoundVolumes`]), so a change
+//!   reaches the sounds already playing, eased over [`VOLUME_EASE`] so a slider does not
+//!   click. A sound's category is the [`SoundCategory`] component of its entity, Effects
+//!   without one. Music (the music and the main menu's theme), voice (dialogue lines) and
+//!   radio tag their sounds; effects whose SOUN editor ID starts with `FST` (footsteps,
+//!   jumps, landings, armour steps) are Footstep [hypothesis: which sounds the original
+//!   counts as footsteps; the names are docs/spec-notes/audio.md §10]; everything else
+//!   (shots, impacts, interface, placed and background sounds, the intro) is Effects
+//!   [hypothesis]. A volume scales the samples linearly [hypothesis: the original's curve
+//!   is not known]. The settings page's Sound tab sets them ([`register_settings`]), kept
+//!   in the INI like every row.
 //! - Spatial `PlaybackSettings` (Bevy's `SpatialAudioSink`) are not built: NVForever pans
 //!   its own sounds (`sfx::Panned`); a spatial request plays plain, with a warning.
 //!
 //! Log lines: `audio output: opened <device> (<rate> Hz, <channels> ch)`, `audio output:
 //! reopening (<why>)`, `audio output: no device (<why>); sound runs silent until one
 //! appears`, and at the end `audio output summary: opened N times, M reopens, X s mixed,
-//! Y s since the last open`.
+//! Y s since the last open`, then `audio categories: music X s, footstep X s, voice X s,
+//! effects X s, radio X s heard; volumes master N%, music N%, …` (the seconds in which a
+//! category's mixer had sound, before its volume).
 //!
 //! Test aid (unattended runs only; no effect unless set):
 //! `NVF_PLAY_TEST_AUDIO_REOPEN=<seconds>[,...]` drops the device and opens the default
@@ -71,11 +87,193 @@ const CHANNELS: u16 = 2;
 const BLOCK: usize = 512;
 /// How often the watcher drains the mixer while there is no device.
 const DRAIN_STEP: Duration = Duration::from_millis(10);
+/// How long a change of volume takes to reach its new level.
+pub const VOLUME_EASE: Duration = Duration::from_millis(20);
+/// A sample louder than this counts as sound for the categories' summary.
+const HEARD: f32 = 1e-4;
+/// The settings page's tab of volumes.
+pub const GROUP_SOUND: &str = "Sound";
+
+/// What kind of sound an entity's `AudioPlayer` is, for its volume (module notes);
+/// Effects without the component.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SoundCategory {
+    Music,
+    Footstep,
+    Voice,
+    #[default]
+    Effects,
+    Radio,
+}
+
+impl SoundCategory {
+    /// In the order of the original's audio menu.
+    pub const ALL: [SoundCategory; 5] = [SoundCategory::Music, SoundCategory::Footstep, SoundCategory::Voice, SoundCategory::Effects, SoundCategory::Radio];
+
+    fn index(self) -> usize {
+        self as usize
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            SoundCategory::Music => "music",
+            SoundCategory::Footstep => "footstep",
+            SoundCategory::Voice => "voice",
+            SoundCategory::Effects => "effects",
+            SoundCategory::Radio => "radio",
+        }
+    }
+
+    /// The category of a sound effect by its SOUN editor ID (module notes).
+    pub fn of_effect(edid: Option<&str>) -> SoundCategory {
+        match edid.and_then(|e| e.get(..3)) {
+            Some(p) if p.eq_ignore_ascii_case("FST") => SoundCategory::Footstep,
+            _ => SoundCategory::Effects,
+        }
+    }
+}
+
+/// The volumes, each a linear part from 0 to 1: the master's (all sound) and each
+/// category's. Shared with the mixing, so a change is heard at once.
+#[derive(Resource, Clone)]
+pub struct SoundVolumes(Arc<Levels>);
+
+struct Levels {
+    master: AtomicU32,
+    categories: [AtomicU32; 5],
+    /// Stereo frames in which each category's mixer had sound.
+    heard: [AtomicU64; 5],
+}
+
+impl Default for SoundVolumes {
+    fn default() -> Self {
+        let one = || AtomicU32::new(1f32.to_bits());
+        SoundVolumes(Arc::new(Levels { master: one(), categories: std::array::from_fn(|_| one()), heard: Default::default() }))
+    }
+}
+
+impl SoundVolumes {
+    pub fn master(&self) -> f32 {
+        f32::from_bits(self.0.master.load(Ordering::Relaxed))
+    }
+
+    pub fn set_master(&self, v: f32) {
+        self.0.master.store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn get(&self, c: SoundCategory) -> f32 {
+        f32::from_bits(self.0.categories[c.index()].load(Ordering::Relaxed))
+    }
+
+    pub fn set(&self, c: SoundCategory, v: f32) {
+        self.0.categories[c.index()].store(v.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+    }
+
+    /// What a category's sound is played at: its volume times the master's.
+    pub fn gain(&self, c: SoundCategory) -> f32 {
+        self.master() * self.get(c)
+    }
+}
+
+/// A category's mixer as the run-long mixer hears it: at its [`SoundVolumes::gain`],
+/// eased to a new one, never ending (silence when nothing plays).
+struct Gain {
+    inner: MixerSource,
+    volumes: SoundVolumes,
+    category: SoundCategory,
+    now: f32,
+    /// Samples of the stereo frame being counted for the summary, and whether one had sound.
+    counted: u16,
+    heard: bool,
+}
+
+impl Gain {
+    fn new(inner: MixerSource, volumes: SoundVolumes, category: SoundCategory) -> Gain {
+        let now = volumes.gain(category);
+        Gain { inner, volumes, category, now, counted: 0, heard: false }
+    }
+}
+
+/// The most a gain moves per sample ([`VOLUME_EASE`] for the whole way).
+fn ease_step() -> f32 {
+    1.0 / (VOLUME_EASE.as_secs_f32() * RATE as f32 * CHANNELS as f32)
+}
+
+impl Iterator for Gain {
+    type Item = rodio::Sample;
+
+    fn next(&mut self) -> Option<rodio::Sample> {
+        let target = self.volumes.gain(self.category);
+        let step = ease_step();
+        self.now += (target - self.now).clamp(-step, step);
+        let s = self.inner.next().unwrap_or(0.0);
+        self.heard |= s.abs() > HEARD;
+        self.counted += 1;
+        if self.counted == CHANNELS {
+            if self.heard {
+                self.volumes.0.heard[self.category.index()].fetch_add(1, Ordering::Relaxed);
+            }
+            self.counted = 0;
+            self.heard = false;
+        }
+        Some(s * self.now)
+    }
+}
+
+impl Source for Gain {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+    fn channels(&self) -> rodio::ChannelCount {
+        NonZero::new(CHANNELS).unwrap()
+    }
+    fn sample_rate(&self) -> rodio::SampleRate {
+        NonZero::new(RATE).unwrap()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        None
+    }
+}
+
+/// The Sound tab of the settings page: the master volume and each category's, as the
+/// original's audio menu lists them. Called by the binary where the tab belongs among
+/// the others (a group's place is where its first row is added).
+pub fn register_settings(app: &mut App) {
+    use crate::settings::{add_setting, Setting, Slider};
+    if !app.world().contains_resource::<SoundVolumes>() {
+        return;
+    }
+    let slider = |get: fn(&World) -> f32, set: fn(&mut World, f32)| Slider { get, set, min: 0.0, step: 0.05, shown: None };
+    add_setting(
+        app,
+        Setting::slider(
+            "volume-master",
+            GROUP_SOUND,
+            "Master",
+            "How loud all sound is: each volume below is a part of this one.",
+            slider(|w| w.resource::<SoundVolumes>().master(), |w, v| w.resource::<SoundVolumes>().set_master(v)),
+        ),
+    );
+    // Key, label, note, get, set.
+    type Row = (&'static str, &'static str, &'static str, fn(&World) -> f32, fn(&mut World, f32));
+    let rows: [Row; 5] = [
+        ("volume-music", "Music", "The music of the place you are in and the main menu's theme.", |w| w.resource::<SoundVolumes>().get(SoundCategory::Music), |w, v| w.resource::<SoundVolumes>().set(SoundCategory::Music, v)),
+        ("volume-footstep", "Footstep", "Footsteps, jumps and landings, yours and everyone's.", |w| w.resource::<SoundVolumes>().get(SoundCategory::Footstep), |w, v| w.resource::<SoundVolumes>().set(SoundCategory::Footstep, v)),
+        ("volume-voice", "Voice", "Spoken lines: conversations and what people say around you.", |w| w.resource::<SoundVolumes>().get(SoundCategory::Voice), |w, v| w.resource::<SoundVolumes>().set(SoundCategory::Voice, v)),
+        ("volume-effects", "Effects", "Every other sound: weapons, impacts, menus, doors and the sounds of places.", |w| w.resource::<SoundVolumes>().get(SoundCategory::Effects), |w, v| w.resource::<SoundVolumes>().set(SoundCategory::Effects, v)),
+        ("volume-radio", "Radio", "Radio stations, from the Pip-Boy and from radios in the world.", |w| w.resource::<SoundVolumes>().get(SoundCategory::Radio), |w, v| w.resource::<SoundVolumes>().set(SoundCategory::Radio, v)),
+    ];
+    for (key, label, note, get, set) in rows {
+        add_setting(app, Setting::slider(key, GROUP_SOUND, label, note, slider(get, set)));
+    }
+}
 
 /// The run-long mixer every sound plays into, and the line to the watcher thread.
 #[derive(Resource)]
 pub struct AudioOut {
     mixer: Mixer,
+    /// Each category's mixer, in [`SoundCategory::ALL`]'s order, playing into `mixer`.
+    categories: [Mixer; 5],
     watcher: Sender<Command>,
     stats: Arc<Stats>,
 }
@@ -84,6 +282,11 @@ impl AudioOut {
     /// The mixer sounds play into (it outlives any device).
     pub fn mixer(&self) -> &Mixer {
         &self.mixer
+    }
+
+    /// The mixer a category's sounds play into.
+    pub fn category_mixer(&self, c: SoundCategory) -> &Mixer {
+        &self.categories[c.index()]
     }
 
     /// Drops the device and opens the default one again (`why` goes to the log).
@@ -113,7 +316,14 @@ pub struct AudioOutPlugin;
 
 impl Plugin for AudioOutPlugin {
     fn build(&self, app: &mut App) {
-        let (mixer, source) = rodio::mixer::mixer(NonZero::new(CHANNELS).unwrap(), NonZero::new(RATE).unwrap());
+        let new_mixer = || rodio::mixer::mixer(NonZero::new(CHANNELS).unwrap(), NonZero::new(RATE).unwrap());
+        let (mixer, source) = new_mixer();
+        let volumes = SoundVolumes::default();
+        let categories = SoundCategory::ALL.map(|c| {
+            let (m, s) = new_mixer();
+            mixer.add(Gain::new(s, volumes.clone(), c));
+            m
+        });
         let shared = Arc::new(Mutex::new(source));
         let stats = Arc::new(Stats::default());
         let (tx, rx) = channel();
@@ -125,7 +335,8 @@ impl Plugin for AudioOutPlugin {
         {
             warn!("audio output: no watcher thread ({e}); no sound");
         }
-        app.insert_resource(AudioOut { mixer, watcher: tx, stats })
+        app.insert_resource(AudioOut { mixer, categories, watcher: tx, stats })
+            .insert_resource(volumes)
             .init_resource::<GlobalVolume>()
             .add_systems(Update, test_reopen)
             .add_systems(Last, report)
@@ -165,18 +376,18 @@ fn play_queued<T: Decodable + Asset>(
     out: Option<Res<AudioOut>>,
     sources: Res<Assets<T>>,
     global: Res<GlobalVolume>,
-    queued: Query<(Entity, &AudioPlayer<T>, &PlaybackSettings), Without<AudioSink>>,
+    queued: Query<(Entity, &AudioPlayer<T>, &PlaybackSettings, Option<&SoundCategory>), Without<AudioSink>>,
     mut warned: Local<bool>,
     mut commands: Commands,
 ) {
     let Some(out) = out else { return };
-    for (entity, player, settings) in &queued {
+    for (entity, player, settings, category) in &queued {
         let Some(source) = sources.get(&player.0) else { continue };
         if settings.spatial && !*warned {
             *warned = true;
             warn!("audio output: spatial sound is not built; {entity} plays without it");
         }
-        let sink = Player::connect_new(&out.mixer);
+        let sink = Player::connect_new(out.category_mixer(category.copied().unwrap_or_default()));
         let decoder = source.decoder();
         let looped = matches!(settings.mode, PlaybackMode::Loop);
         match (settings.start_position, settings.duration, looped) {
@@ -397,7 +608,7 @@ fn test_reopen(time: Res<Time<Real>>, out: Res<AudioOut>, mut times: Local<Optio
     });
 }
 
-fn report(mut exit: MessageReader<AppExit>, out: Res<AudioOut>) {
+fn report(mut exit: MessageReader<AppExit>, out: Res<AudioOut>, volumes: Res<SoundVolumes>) {
     if exit.read().last().is_some() {
         let s = &out.stats;
         let frames = s.frames.load(Ordering::Relaxed);
@@ -408,5 +619,61 @@ fn report(mut exit: MessageReader<AppExit>, out: Res<AudioOut>) {
             frames as f64 / RATE as f64,
             frames.saturating_sub(s.frames_at_open.load(Ordering::Relaxed)) as f64 / RATE as f64,
         );
+        let heard = SoundCategory::ALL.map(|c| format!("{} {:.1} s", c.name(), volumes.0.heard[c.index()].load(Ordering::Relaxed) as f64 / RATE as f64));
+        let levels = SoundCategory::ALL.map(|c| format!("{} {:.0}%", c.name(), volumes.get(c) * 100.0));
+        info!("audio categories: {} heard; volumes master {:.0}%, {}", heard.join(", "), volumes.master() * 100.0, levels.join(", "));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rodio::buffer::SamplesBuffer;
+
+    fn ones(samples: usize) -> SamplesBuffer {
+        SamplesBuffer::new(NonZero::new(CHANNELS).unwrap(), NonZero::new(RATE).unwrap(), vec![1.0; samples])
+    }
+
+    #[test]
+    fn footsteps_are_the_fst_records() {
+        for (edid, c) in [
+            (Some("FSTDirtWalkL"), SoundCategory::Footstep),
+            (Some("fstWaterSwim"), SoundCategory::Footstep),
+            (Some("WPNPistol10mmFire3D"), SoundCategory::Effects),
+            (Some("FS"), SoundCategory::Effects),
+            (None, SoundCategory::Effects),
+        ] {
+            assert_eq!(SoundCategory::of_effect(edid), c, "{edid:?}");
+        }
+    }
+
+    #[test]
+    fn a_category_plays_at_its_volume_times_the_master_and_eases_to_a_change() {
+        let volumes = SoundVolumes::default();
+        let (music, source) = rodio::mixer::mixer(NonZero::new(CHANNELS).unwrap(), NonZero::new(RATE).unwrap());
+        let mut gain = Gain::new(source, volumes.clone(), SoundCategory::Music);
+        music.add(ones(RATE as usize));
+        assert_eq!(gain.next(), Some(1.0), "full volume at the start");
+        volumes.set_master(0.5);
+        volumes.set(SoundCategory::Music, 0.5);
+        volumes.set(SoundCategory::Effects, 0.0);
+        let eased: Vec<f32> = gain.by_ref().take(10).collect();
+        assert!(eased.windows(2).all(|w| w[1] < w[0]) && eased[9] > 0.9, "eased down, not jumped: {eased:?}");
+        let ease = (VOLUME_EASE.as_secs_f32() * RATE as f32 * CHANNELS as f32) as usize;
+        let settled = gain.by_ref().nth(ease).unwrap();
+        assert!((settled - 0.25).abs() < 1e-4, "{settled}");
+        // With nothing playing: silence, not the end.
+        let rest = gain.by_ref().take(RATE as usize * 2).last();
+        assert_eq!(rest, Some(0.0));
+        assert!(volumes.0.heard[SoundCategory::Music.index()].load(Ordering::Relaxed) > 0);
+        assert_eq!(volumes.0.heard[SoundCategory::Voice.index()].load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn volumes_stay_within_a_full_amount() {
+        let v = SoundVolumes::default();
+        v.set(SoundCategory::Radio, 1.5);
+        v.set_master(-1.0);
+        assert_eq!((v.get(SoundCategory::Radio), v.master(), v.gain(SoundCategory::Radio)), (1.0, 0.0, 0.0));
     }
 }

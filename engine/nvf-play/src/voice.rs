@@ -51,7 +51,7 @@ use crate::sfx::{pan_gains, Pan, Panned, PlaySound};
 use crate::sim::SimState;
 use crate::{PlaySet, PlayWorld};
 use bevy::audio::Volume;
-use crate::audio_out::AddAudioSource;
+use crate::audio_out::{AddAudioSource, SoundCategory};
 use bevy::prelude::*;
 use fnv_game::game::Speech;
 use fnv_game::Game;
@@ -495,9 +495,9 @@ fn play(
                         match (&pan, panned.as_mut()) {
                             (Some(pan), Some(panned)) => {
                                 let handle = panned.add(Panned { inner: source, pan: pan.clone() });
-                                Some(commands.spawn((AudioPlayer::<Panned<AudioSource>>(handle), playback, VoiceSound)).id())
+                                Some(commands.spawn((AudioPlayer::<Panned<AudioSource>>(handle), playback, VoiceSound, SoundCategory::Voice)).id())
                             }
-                            _ => Some(commands.spawn((AudioPlayer::new(assets.add(source)), playback, VoiceSound)).id()),
+                            _ => Some(commands.spawn((AudioPlayer::new(assets.add(source)), playback, VoiceSound, SoundCategory::Voice)).id()),
                         }
                     }
                     _ => None,

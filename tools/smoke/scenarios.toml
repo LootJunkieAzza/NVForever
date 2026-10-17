@@ -245,6 +245,25 @@ order = [[
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the ranges change" }]
 
 [[scenario]]
+name = "sound-volumes"
+source = "engine/nvf-play/src/audio_out.rs (owner request 2026-10-17): the settings page's Sound tab sets the master volume and each category's while the game runs; music and footsteps play into their own categories"
+areas = ["audio", "settings"]
+paths = ["engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/music.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "6:1:0,10:0:0", NVF_PLAY_TEST_PAUSE = "12:16", NVF_PLAY_TEST_SETTINGS = "13:volume-master=0.8,14:volume-footstep=0.25,15:volume-voice=0.5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+order = [[
+  "settings: volume-master 80%",
+  "settings: volume-footstep 25%",
+  "settings: volume-voice 50%",
+  { re = 'volumes master 80%, music 100%, footstep 25%, voice 50%, effects 100%, radio 100%$' },
+]]
+expect = [
+  { re = 'audio categories: music (?P<n>[\d.]+) s', range = [3, 1e9], label = "the music plays into the Music category" },
+  { re = 'audio categories: music [\d.]+ s, footstep (?P<n>[\d.]+) s', range = [0.1, 1e9], label = "the walk's footsteps play into the Footstep category" },
+]
+
+[[scenario]]
 name = "graphics-settings"
 source = "docs/design/graphics-enhanced.md §3.6, §3.9, §3.10: the settings page's anti-aliasing choice (multisampling levels, FXAA, SMAA, TAA), shadow filtering, field of view, vertical sync and frame-rate limit change while the game runs, without a rendering error"
 areas = ["renderer", "graphics", "settings"]
