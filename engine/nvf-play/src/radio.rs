@@ -36,6 +36,9 @@
 //!   the line has reached [design]. A station's programme starts when it is first heard
 //!   and runs on from then, heard or not [design: a station nobody has heard yet runs no
 //!   scripts]. A station that stops broadcasting finishes the line it is saying [design].
+//! - **The poker table** ([`TableStation`]): its casino's station plays at the listener,
+//!   flat, with the song's own file as the Pip-Boy plays it; while it does, nothing else
+//!   plays a station [design].
 //! - **StartRadioConversation** (`Game::take_radio_conversations`): the conversation
 //!   starts at once, heard or not, interrupting the programme's line (whose end script
 //!   then does not run) [documented: GECK wiki StartRadioConversation, "interrupt the
@@ -112,6 +115,14 @@ const JOIN: f64 = 0.25;
 /// The keys of the Pip-Boy and its static among the receivers.
 const PIPBOY: u32 = u32::MAX;
 const PIPBOY_STATIC: u32 = u32::MAX - 1;
+const TABLE: u32 = u32::MAX - 2;
+
+/// A station heard at the listener, flat, wherever the player is: the casino's music at
+/// NVForever's poker table (`crate::poker`, docs/design/poker.md §4). While it is set
+/// the world's receivers, actors and the Pip-Boy are not heard [design: the player is
+/// at the table, away from them].
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
+pub struct TableStation(pub Option<u32>);
 /// The Pip-Boy's static (see the module notes).
 const STATIC_SOUND: &str = "UIRadioStaticLP";
 
@@ -658,7 +669,7 @@ fn play(
     voice: Res<VoiceState>,
     mut script: ResMut<ScriptState>,
     mut sim: ResMut<SimState>,
-    (loc, state, paused, pw): (Res<Location>, Res<State<PlayState>>, Res<Paused>, Res<PlayWorld>),
+    (loc, state, paused, pw, table): (Res<Location>, Res<State<PlayState>>, Res<Paused>, Res<PlayWorld>, Res<TableStation>),
     player: Option<Res<Player>>,
     data: Option<Res<nvf_assets::GameData>>,
     (mut assets, mut panned): (ResMut<Assets<RadioSound>>, ResMut<Assets<Panned<RadioSound>>>),
@@ -747,7 +758,16 @@ fn play(
     // Everything that plays a station now: (key, station base, gain by distance, Pip-Boy,
     // where it is: `None` for the Pip-Boy, which is not panned).
     let mut heard: Vec<(u32, u32, f32, bool, Option<[f32; 3]>)> = Vec::new();
-    let receivers = if settings.play { places.receivers.get(&space).map_or(&[][..], Vec::as_slice) } else { &[] };
+    // At the poker table only its station is heard.
+    let table = table.0.filter(|_| settings.play);
+    if let Some(base) = table {
+        if places.station_ref.contains_key(&base) {
+            heard.push((TABLE, base, 1.0, false, None));
+        } else if radio.reported.insert(format!("table {base:08X}")) {
+            warn!("radio: the poker table's station {base:08X} is not a placed station: silent");
+        }
+    }
+    let receivers = if settings.play && table.is_none() { places.receivers.get(&space).map_or(&[][..], Vec::as_slice) } else { &[] };
     for r in receivers {
         let t = template(&places, &sfx, r.station, Some(r.base));
         let d = distance(r.position, eye);
@@ -769,7 +789,7 @@ fn play(
         }
         heard.push((r.ref_id, r.station, distance_gain(&t, d), false, Some(r.position)));
     }
-    if settings.play {
+    if settings.play && table.is_none() {
         for (&actor, &station_ref) in &rt.game.radio.npc_radios {
             let Some(base) = places.base_of(station_ref.0) else { continue };
             let Some(s) = sim.world.peek(actor) else { continue };
@@ -892,7 +912,8 @@ fn play(
         match p.and_then(|p| p.on_air.as_ref()) {
             Some(on) => {
                 let part = &on.parts[on.part];
-                let Some(path) = (if pipboy { part.stereo.clone() } else { part.path.clone() }) else { continue };
+                // The Pip-Boy and the table play the song's own (stereo) file.
+                let Some(path) = (if pipboy || key == TABLE { part.stereo.clone() } else { part.path.clone() }) else { continue };
                 wants.push(Want {
                     key,
                     station: st,
@@ -914,7 +935,7 @@ fn play(
             None => {}
         }
     }
-    if let (Some((_, base)), Some(share), Some(s)) = (pip_station, pip_share.filter(|&x| x > 0.0 && settings.play), static_sound.as_ref()) {
+    if let (Some((_, base)), Some(share), Some(s)) = (pip_station, pip_share.filter(|&x| x > 0.0 && settings.play && table.is_none()), static_sound.as_ref()) {
         if let Some(path) = sound_path(s) {
             wants.push(Want { key: PIPBOY_STATIC, station: base, track: Track::Loop(path.clone()), path, level: static_gain(s) * share, into: 0.0, response: None, at: None });
         }
@@ -963,6 +984,7 @@ fn play(
         let who = match w.key {
             PIPBOY => "the Pip-Boy".to_string(),
             PIPBOY_STATIC => "the Pip-Boy's static".to_string(),
+            TABLE => "the poker table".to_string(),
             k => format!("{k:08X}"),
         };
         let what = match (&w.track, w.response) {
@@ -977,7 +999,7 @@ fn play(
         );
         match w.key {
             PIPBOY => radio.pipboy_parts += 1,
-            PIPBOY_STATIC => {}
+            PIPBOY_STATIC | TABLE => {}
             k if rt.game.radio.npc_radios.contains_key(&FormId(k)) => {}
             k => {
                 radio.heard.insert(k);
@@ -1063,6 +1085,7 @@ pub struct RadioPlugin;
 impl Plugin for RadioPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Radio>()
+            .init_resource::<TableStation>()
             .add_audio_source::<RadioSound>()
             .add_audio_source::<Panned<RadioSound>>()
             .add_systems(Startup, (init, load_aids))

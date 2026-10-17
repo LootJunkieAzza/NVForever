@@ -52,6 +52,7 @@ mod lockpick_view;
 mod roulette_view;
 mod blackjack_view;
 mod terminal_view;
+mod poker_view;
 mod lod;
 mod locomotion;
 mod combat_stance;
@@ -1106,6 +1107,8 @@ fn main() -> AppExit {
         app.add_plugins(blackjack_view::BlackjackViewPlugin);
         // The terminal's monitor (terminal_view.rs).
         app.add_plugins(terminal_view::TerminalViewPlugin);
+        // The poker table (poker_view.rs).
+        app.add_plugins(poker_view::PokerViewPlugin);
     }
     if let Some(a) = actor_world {
         if let Some(c) = creator_data.take() {

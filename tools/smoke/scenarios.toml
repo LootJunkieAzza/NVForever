@@ -56,6 +56,7 @@ sep = ","
 sep = ","
 [timed.NVF_PLAY_TEST_LOCKPICK]
 sep = ","
+[timed.NVF_PLAY_TEST_POKER]
 [timed.NVF_PLAY_TEST_BLACKJACK]
 sep = ","
 [timed.NVF_PLAY_TEST_PIPBOY]
@@ -3687,6 +3688,35 @@ order = [[
 ]]
 # Ringo starts this run with his weapon out (the alert state of a new game's start, not the
 # progressed save nvftest the original was read in), so his first IsWeaponOut is not checked.
+
+[[scenario]]
+name = "poker"
+source = "docs/design/poker.md: refused with 50 caps; with 500 the table opens at The Tops (buy-in 200), the player's seat plays by itself for a few hands, then leaves and the difference is settled in caps"
+areas = ["poker", "menus"]
+paths = ["crates/fnv-game/src/poker.rs", "engine/nvf-play/src/poker.rs", "engine/nvf-play/src/poker/**", "engine/nvforever/src/poker_view.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_POKER = "2:seed:7,2:caps:50,3:open,5:caps:500,6:open:t,6.5:auto,44:exit", NVF_PLAY_TEST_SHOTS = "9:poker_table.png,30:poker_table_later.png" }
+args = ["--cell", "GSHouseInterior02", "--play", "--no-voice", "--no-messages"]
+run_seconds = 50
+order = [[
+  'poker: refused (50 caps): on screen: "You need at least 100 caps to play."',
+  "poker: open at The Tops (seed 7): buy-in 200 of 500 caps, blinds 5/10",
+  "poker view: the table built for The Tops",
+  "poker: hand 1:",
+  "poker: hand 1 over:",
+  "poker: leaving (the player left",
+  "poker: closed",
+  "poker: settled: left with",
+]]
+expect = [
+  { text = 'corner message: "You need at least 100 caps to play."', label = "the refusal as a top-left corner message" },
+  { re = "poker: (You|Seat [1-4]) posts the small blind 5", label = "blinds posted" },
+  { re = "poker: (You|Seat [1-4]) wins [0-9]+", label = "a pot is paid" },
+  { re = 'poker summary: 2 asked, 1 opened \(1 refused\); [1-9][0-9]* hands dealt', label = "the summary" },
+  { text = "poker sound: The Tops: loops AMBTopsCasinoALP, now and then AMBTopsCasinoAWallaOS", label = "the Tops' floor heard at the table" },
+  { re = "radio: the poker table tuned to .* playing ", label = "the Tops' radio station plays at the table" },
+  { text = "poker sound: stopped", label = "the table's sounds stop when it closes" },
+  { text = "poker sound:", count = 2, label = "no table sound missing from the plugins (only the start and stop lines)" },
+]
 
 [[scenario]]
 name = "character-creator"

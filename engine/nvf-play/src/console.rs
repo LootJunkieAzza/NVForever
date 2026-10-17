@@ -18,7 +18,7 @@
 //!   COC spot, `crate::player::safe::cell_spot`), `tgm` (god mode, `crate::combat`),
 //!   `cls` / `clear` (empty the scrollback), `advlevel` / `AdvancePCLevel` (the player's
 //!   level up by one and the level-up menu open, `crate::levelup`; the catalogue gives
-//!   it no console number).
+//!   it no console number), `poker [casino]` (NVForever's poker table, `crate::poker`).
 //! - **Console-only functions** (no opcode: `sq`, `sqt`, `movetoqt`, `sqs`, `sqv`, `sv`,
 //!   `caqs`, `inv`, `getavinfo`, `setgs`, `cam`, `qqq` …) run from
 //!   `fnv_game::functions::console`; what they ask of the engine (travel, quit, saving)
@@ -248,7 +248,7 @@ fn typing(
     mut commands: Commands,
     roots: Query<Entity, With<ConsoleRoot>>,
     mut clicks: Local<Vec<Vec2>>,
-    (mut index, play): (ResMut<SearchIndex>, Res<PlayWorld>),
+    (mut index, play, mut poker): (ResMut<SearchIndex>, Res<PlayWorld>, MessageWriter<crate::poker::OpenPoker>),
     (mut saves, mut loads, save_cfg, mut save_log): (MessageWriter<crate::save::SaveRequest>, MessageWriter<crate::save::LoadRequest>, Res<crate::save::SaveConfig>, ResMut<crate::save::SaveLog>),
     pipboy: Option<Res<crate::pipboy::data::DataState>>,
 ) {
@@ -320,7 +320,7 @@ fn typing(
                     c.print("A line is a script function: [reference.]Function argument ...  e.g. player.additem 0000000F 100");
                     c.print("help <text>: records and functions whose name or Editor ID contains it (not case sensitive); \"two words\" for a phrase, several words must all match");
                     c.print("prid <ref>, coc <cell>, tgm, cls, save <name>, load [name], saves, set <var> to <value>. Click something to select it; calls without a reference run on it.");
-                    c.print("Quests and info: sq, sqt, movetoqt [n], sqs <quest>, sqv <quest>, sv, caqs, inv, getavinfo <av>, setgs <setting> <value>, cam, qqq, advlevel (level up)");
+                    c.print("Quests and info: sq, sqt, movetoqt [n], sqs <quest>, sqv <quest>, sv, caqs, inv, getavinfo <av>, setgs <setting> <value>, cam, qqq, advlevel (level up), poker [casino] (a poker table)");
                     c.print("Toggles: tcl (collision), tai (actors' AI), tdetect, tgm, tscr (scripts), tg (grass), ts (sky), tws (water), tt (trees), ToggleLODLand, ToggleNavmesh");
                 } else {
                     let funcs = script.as_deref().and_then(|s| s.rt.as_ref()).map(|rt| matching_functions(&rt.game.data.table, &terms)).unwrap_or_default();
@@ -378,6 +378,17 @@ fn typing(
                     _ => c.print("click <x> <y>: fractions of the window"),
                 }
             }
+            // NVForever's own poker table (docs/design/poker.md §6); the console closes so
+            // the table opens on the world.
+            "poker" => match crate::poker::Casino::from_letter(rest) {
+                Some(casino) => {
+                    c.print(format!("Opening the poker table at {}", casino.title()));
+                    poker.write(crate::poker::OpenPoker { casino });
+                    close(&mut c, &mut next, &mut commands, &roots);
+                    return;
+                }
+                None => c.print("poker [t|g|u|l|b]: The Tops, Gomorrah, Ultra-Luxe, Lucky 38 or a plain deck"),
+            },
             "coc" => match coc(&sim, rest) {
                 Ok((t, name)) => {
                     c.print(format!("Travelling to {name}"));
