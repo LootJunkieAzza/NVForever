@@ -1138,11 +1138,11 @@ expect = [
 
 [[scenario]]
 name = "barter"
-note = "flaky on main 2026-10-12: 1 of 2 runs had the player carry nothing when the barter opened (the add-on packs' items not given yet) and 'You don't have enough caps.' instead of Traded"
+note = "the player is given 100 caps at the start (NVF_PLAY_TEST_GIVE, caps 0x0000000F): the add-on packs' GameMode scripts that hand out caps and items first run about one quest delay after the scripts start, the time of the 10 s talk, and wait while the conversation is open, so the player had nothing to pay with ('You don't have enough caps.' instead of Traded: 1 of 2 runs on main 2026-10-12, every run on main 539a8e6c and #408 2026-10-17)"
 source = "CLAUDE.md: after changes to the container or barter menus (docs/spec-notes/barter-menu.md §6): the barter from Chet's dialogue"
 areas = ["barter", "menus"]
 paths = ["engine/nvf-play/src/menu*", "crates/fnv-game/src/functions/misc.rs"]
-env = { NVF_PLAY_TEST_TALK = "10:GSChetRef=for sale|leave", NVF_PLAY_TEST_BARTER = "*", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3" }
+env = { NVF_PLAY_TEST_TALK = "10:GSChetRef=for sale|leave", NVF_PLAY_TEST_BARTER = "*", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GIVE = "0000000F:100" }
 args = ["--cell", "GSGeneralStore", "--play", "--no-voice"]
 run_seconds = 50
 order = [[
