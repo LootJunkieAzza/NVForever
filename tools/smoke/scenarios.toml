@@ -3469,6 +3469,9 @@ expect = [
   { json = "races.?edid=Caucasian.female.hairs.#", equals = 23 },
   { json = "races.?edid=Hispanic.male.eyes.#", equals = 4 },
   { json = "sliders.?label=Skin Shade Dark / Light.body_colour_per_unit.*", range = [15, 30], all = true },
+]
+
+[[scenario]]
 name = "roulette"
 source = "docs/spec-notes/roulette.md §7: The Tops' roulette table (0x0011ED93 in TOPSCasino) activated with 500 Tops chips: the help the first time, a straight-up on 17 and red, the ball made to stop in 17 (black): 25 x 36 back, 10 lost; screenshots of the felt and the wheel"
 areas = ["roulette"]
