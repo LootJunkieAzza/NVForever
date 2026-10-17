@@ -3614,6 +3614,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "death-fade"
+source = "owner todo 6 item 3 (2026-10-17): 2 s after the player dies the screen slowly fades to black, in real time whatever the slow motion (engine/nvforever/src/death_cam.rs FADE_DELAY, FADE_SECONDS)"
+note = "killed at 10 s as death-cam-first; the fade starts 2 s of real time after the death and is black 4 s later; the slow motion runs meanwhile, so these are not game seconds"
+areas = ["combat", "camera"]
+paths = ["engine/nvforever/src/death_cam.rs", "engine/nvforever/src/imagespace.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:player.killactor;11:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 22
+expect = [
+  "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
+  { re = 'death camera: the screen starts fading to black (?P<n>[\d.]+) s after the death', range = [2.0, 2.3], label = "the fade starts about 2 s after the death" },
+  { re = 'death camera: the screen is black (?P<n>[\d.]+) s after the death', range = [6.0, 6.3], label = "the screen is black about 6 s after the death" },
+]
+
+[[scenario]]
 name = "death-cam-third"
 source = "owner 2026-10-16: in third person the camera stays on the player's body as it drops, in slow motion and blurred (engine/nvforever/src/death_cam.rs)"
 areas = ["combat", "camera"]
