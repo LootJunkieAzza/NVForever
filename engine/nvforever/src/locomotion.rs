@@ -44,6 +44,9 @@ pub struct ClipSet {
     /// when the skeleton's folder has them [observed: the `_male` folder does].
     pub death: Vec<Arc<BoundClip>>,
     pub flinch: [Option<Arc<BoundClip>>; 6],
+    /// Getting up from a knockout (docs/spec-notes/unconscious.md §4): lying face up, and
+    /// face down ([`GET_UPS`]).
+    pub getup: [Option<Arc<BoundClip>>; 2],
 }
 
 impl ClipSet {
@@ -64,6 +67,14 @@ impl ClipSet {
 
 /// Death poses and hit reaction looked for in a skeleton's folder (combat C5).
 const DEATH_POSES: [&str; 2] = ["idleanims\\deathpose1.kf", "idleanims\\deathpose2.kf"];
+/// Get-up clips, face up then face down: the first of each that a skeleton's folder has
+/// [observed: the `_male` IDLE records GetUpFaceUp / GetUpFaceDown name
+/// `mt_knockdownface*.kf`; the creature folders' file names; hypothesis: a quadruped's
+/// "right" clip is its face-up one, unconscious.md §1].
+const GET_UPS: [[&str; 3]; 2] = [
+    ["idleanims\\mt_knockdownfaceup.kf", "idleanims\\specialidle_getupfaceup.kf", "idleanims\\mtspecialidle_getupright.kf"],
+    ["idleanims\\mt_knockdownfacedown.kf", "idleanims\\specialidle_getupfacedown.kf", "idleanims\\mtspecialidle_getupleft.kf"],
+];
 /// Hit reactions: torso, head, left and right arm, left and right leg [observed: the
 /// `_male\idleanims` names; design: which location plays which].
 const FLINCHES: [&str; 6] = [
@@ -149,6 +160,12 @@ impl ClipSet {
         for (k, f) in FLINCHES.iter().enumerate() {
             let path = format!("{folder}\\{f}");
             set.flinch[k] = ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)));
+        }
+        for (k, names) in GET_UPS.iter().enumerate() {
+            set.getup[k] = names.iter().find_map(|f| {
+                let path = format!("{folder}\\{f}");
+                ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)))
+            });
         }
         let missing: Vec<&str> = Move::ALL.iter().filter(|m| !set.clips.contains_key(m)).map(|m| m.group()).collect();
         let line = format!("{folder} {body:?} {stance}: {} clips, missing {missing:?}: {}", set.clips.len(), report.join("; "));

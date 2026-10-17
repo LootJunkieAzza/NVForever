@@ -101,13 +101,20 @@ pub fn force_flee(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 /// `actor.GetKnockedState`: −1 knocked out by fatigue, 0 normal, 1 knocked out
 /// (unconscious essentials, paralysis, negative fatigue), 2 knocked down [documented:
-/// catalogue notes]. Here 1 while the actor is unconscious (`RefExtra::unconscious`: an
-/// essential actor at its health floor, SetUnconscious), else 0: fatigue and live
-/// knockdowns are not built (PushActorAway is a stub), and an actor pushed away gives 0
-/// anyway [documented: catalogue notes].
+/// GECK wiki GetKnockedState]. Here −1 for a fatigue knockout, 1 for an essential one
+/// (`crate::unconscious`) and for SetUnconscious [hypothesis for SetUnconscious], else 0:
+/// live knockdowns are not built (PushActorAway is a stub), and an actor pushed away
+/// gives 0 anyway [documented: catalogue notes].
 pub fn get_knocked_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    use crate::unconscious::Cause;
     let r = ctx.subject()?;
-    Ok(Value::Num(if g.extra.get(&r).is_some_and(|e| e.unconscious) { 1.0 } else { 0.0 }))
+    let state = match g.knockout(r).map(|k| k.cause) {
+        Some(Cause::Fatigue) => -1.0,
+        Some(Cause::Essential) => 1.0,
+        None if g.extra.get(&r).is_some_and(|e| e.unconscious) => 1.0,
+        None => 0.0,
+    };
+    Ok(Value::Num(state))
 }
 
 /// The GetCauseofDeath code of a death by a weapon of WEAP DNAM animation type

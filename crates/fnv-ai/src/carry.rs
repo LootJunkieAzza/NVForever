@@ -683,7 +683,7 @@ impl Ai {
         // SetActorsAI 0: no packages, no walking, until it is switched on again. A
         // restrained actor stays in place though it still thinks and talks [documented:
         // catalogue summary of SetRestrained]; an unconscious one does nothing [hypothesis].
-        let held = game.extra.get(&actor).is_some_and(|e| e.dead || e.restrained || e.unconscious);
+        let held = game.extra.get(&actor).is_some_and(|e| e.dead || e.restrained || e.out_cold());
         if !game.present(actor) || held || game.ai_off(actor) || self.agents[&actor].rooted {
             return;
         }

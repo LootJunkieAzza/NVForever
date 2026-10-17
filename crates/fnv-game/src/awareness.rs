@@ -522,7 +522,7 @@ impl Game<'_> {
         if actor == other || actor == FormId::PLAYER_REF || !self.world.is_enabled(actor).unwrap_or(false) {
             return false;
         }
-        let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.unconscious || e.restrained);
+        let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.out_cold() || e.restrained);
         if out(self, actor) || out(self, other) || self.is_dead(other) {
             return false;
         }
@@ -669,10 +669,12 @@ impl Game<'_> {
                 self.awareness.tactics.calm(id);
                 continue;
             }
-            // Targets and alarm owners that died or went are forgotten.
+            // Targets and alarm owners that died or went are forgotten, and so are those
+            // knocked out: no longer a threat until they are up and seen again
+            // (docs/spec-notes/unconscious.md §3) [design, owner request 2026-10-17].
             let gone: Vec<FormId> = {
                 let a = &self.awareness.actors[&id];
-                a.targets.keys().copied().chain(a.alarms.iter().map(|x| x.owner)).filter(|&o| o != FormId::PLAYER_REF && (!self.present(o) || self.is_dead(o))).collect()
+                a.targets.keys().copied().chain(a.alarms.iter().map(|x| x.owner)).filter(|&o| o != FormId::PLAYER_REF && (!self.present(o) || self.is_dead(o) || self.knockout(o).is_some())).collect()
             };
             let may_alert = !self.no_combat_alert(id);
             let a = self.awareness.actors.get_mut(&id).expect("listed");

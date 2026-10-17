@@ -30,9 +30,10 @@
 //!   total health; hypothesis: the count-down form]. Conditions stop at 0.
 //! - **No damage** for actors of a race with the Child flag [documented: GECK wiki Race]
 //!   or creatures flagged Invulnerable [documented: xEdit flag name].
-//! - **Essential** actors (base flag or `SetActorRefEssential`) are not killed: at zero
-//!   health they fall unconscious and keep 1 health [documented: the flag; design: what
-//!   happens instead].
+//! - **Essential** actors (base flag, `SetEssential` or `SetActorRefEssential`) are not
+//!   killed: at zero health they are knocked out and keep 1 health, and get up later
+//!   (`crate::unconscious`, docs/spec-notes/unconscious.md) [documented: the flag and
+//!   KillActor's notes; design: what stays undone].
 //! - **Death** at zero health: as `KillActor` (dead flag, killer, GetDeadCount, OnDeath).
 //! - **Kill XP** for the player [documented: GECK wiki Experience Settings]: the target's
 //!   level picks its difficulty (the first `iXPLevelKill<NPC|Creature><Class>` at or above
@@ -81,7 +82,8 @@ pub struct HitResult {
     pub health: f64,
     pub max_health: f64,
     pub died: bool,
-    /// An essential actor fell unconscious instead of dying.
+    /// An essential actor was knocked out by this hit instead of dying
+    /// (`crate::unconscious`).
     pub knocked_out: bool,
     /// The target takes no damage (child race, invulnerable, already dead).
     pub immune: bool,
@@ -207,7 +209,7 @@ impl Game<'_> {
     }
 
     fn is_essential(&self, r: FormId) -> bool {
-        self.extra.get(&r).and_then(|e| e.essential).unwrap_or_else(|| self.base_data_def(r).is_some_and(|d| d.essential))
+        actor::essential(self, r)
     }
 
     /// Whether the actor takes no damage: its race has the Child flag, the creature is
@@ -311,7 +313,7 @@ impl Game<'_> {
         }
         if before - dealt <= floor {
             if essential {
-                self.extra.entry(target).or_default().unconscious = true;
+                self.knock_out(target, crate::unconscious::Cause::Essential, caster);
             } else if self.kill(target, caster) && caster == Some(FormId::PLAYER_REF) {
                 let xp = self.kill_xp(target);
                 crate::experience::award(self, crate::experience::Source::Kill, xp);
@@ -339,9 +341,17 @@ impl Game<'_> {
             }
             e.total_damage += dealt;
         }
+        if let Some(a) = info.attacker {
+            self.extra.entry(a).or_default().last_target = Some(target);
+        }
         self.ref_event(target, event::ON_HIT, info.attacker.map(|a| Value::Ref(a.0)), info.attacker);
         if let Some(w) = info.weapon {
             self.ref_event(target, event::ON_HIT_WITH, Some(Value::Ref(w.0)), info.attacker);
+        }
+        // The weapon's own OnHit block (the boxing gloves' fatigue damage,
+        // docs/spec-notes/unconscious.md §2.9) [hypothesis: after the target's blocks].
+        if let (Some(a), Some(w)) = (info.attacker, info.weapon) {
+            self.item_event(a, w, event::ON_HIT, Some(Value::Ref(target.0)));
         }
         let health = actor::actor_value(self, target, HEALTH).unwrap_or(before - dealt);
         let mut out = HitResult { dealt, health, max_health, ..HitResult::default() };
@@ -350,10 +360,10 @@ impl Game<'_> {
             out.limb = Some((l.condition, condition));
             out.crippled = crippled;
         }
-        if health <= floor {
+        if health <= floor && !self.is_dead(target) {
             if essential {
-                self.extra.entry(target).or_default().unconscious = true;
-                out.knocked_out = true;
+                // Said its KOed line when knocked out now (`Game::knock_out`).
+                out.knocked_out = self.knock_out(target, crate::unconscious::Cause::Essential, info.attacker);
             } else {
                 out.died = self.kill(target, info.attacker);
                 if out.died && info.attacker == Some(FormId::PLAYER_REF) {
@@ -362,10 +372,9 @@ impl Game<'_> {
                 }
             }
         }
-        // What the target says (`crate::combat_lines`): Death was said by `kill`.
-        if out.knocked_out {
-            self.combat_line(target, info.attacker, "KOed");
-        } else if !out.died {
+        // What the target says (`crate::combat_lines`): Death was said by `kill`, KOed by
+        // `knock_out`; nothing more from one lying knocked out.
+        if !out.died && self.knockout(target).is_none() {
             self.hit_lines(target, info.attacker, before, health, max_health, out.crippled);
         }
         out

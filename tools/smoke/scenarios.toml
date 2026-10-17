@@ -60,6 +60,8 @@ sep = ","
 sep = ","
 [timed.NVF_PLAY_TEST_PIPBOY]
 sep = ","
+[timed.NVF_PLAY_TEST_HIT]
+sep = ","
 [timed.NVF_PLAY_TEST_PIPBOY_STATS]
 sep = ","
 [timed.NVF_PLAY_TEST_SETTINGS]
@@ -1928,14 +1930,15 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/package-errands implemented the four used-item functions (GetIsUsedItem,
 # GetIsUsedItemType, GetIsUsedItemEquipType, GetUsedItemActivate: 26 condition uses,
 # §3.12): 52 → 48 stubs, 403 → 377 condition uses.
+# claude/npc-unconscious implemented GetOwnerLastTarget (5 calls, the last stub assigned to J,
+# so no "assigned" or "J karma and crime" row is left; docs/spec-notes/unconscious.md §2.8):
+# 48 → 47 stubs, 242 → 237 calls.
 expect = [
-  { json = "summary.stubs", equals = 48 },
-  { json = "summary.by_status.assigned", equals = 1 },
+  { json = "summary.stubs", equals = 47 },
   { json = "summary.by_status.implementable", equals = 1 },
   { json = "summary.by_status.needs_system", equals = 46 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 242 },
+  { json = "summary.stub_calls", equals = 237 },
   { json = "summary.stub_condition_uses", equals = 377 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -3861,6 +3864,52 @@ expect = [
   { text = "foot ik: … actors stood on uneven ground (the player)", label = "the player's feet placed on the hillside" },
   { re = 'foot ik: .*largest body drop (?P<n>[\d.]+) units', range = [0.5, 28.0], label = "the body lowered, within the limit" },
   { re = 'foot ik: .*foot raise (?P<n>[\d.]+) units', range = [0.5, 40.0], label = "a foot raised, within the limit" },
+]
+
+[[scenario]]
+name = "knockout-essential"
+source = "owner request 2026-10-17: an essential NPC beaten to 0 health is knocked out, not killed, shows \"<Name> is unconscious\" and gets up (docs/spec-notes/unconscious.md)"
+note = "in Goodsprings, away from the Fiends and their dogs, Sunny Smiles is made essential (SetActorRefEssential) and brought 300 units north of the player at 3 s, Ringo 600 units north; at 6 s the player hits her for 1,000 and Ringo starts fighting the player; she drops as a ragdoll exactly as a corpse does and stays down while Ringo fights (past her 10 s); at 40 s Ringo stops (scripted message boxes pause game time, so her 10 s take longer than that on the clock), and she plays her get-up clip from where the ragdoll lies"
+areas = ["combat", "knockouts"]
+paths = ["crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/combat.rs", "engine/nvf-play/src/knockouts.rs", "engine/nvforever/src/knockouts.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:SunnyRef:SetActorRefEssential:1,3:moveto:SunnyRef:player:0:300:0,3:moveto:RingoRef:player:0:600:0,6:combat:RingoRef:player,40:call:RingoRef:StopCombat", NVF_PLAY_TEST_HIT = "6:SunnyRef:1000" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 60
+order = [[
+  "knockout: Sunny Smiles … knocked out (essential)",
+  "knockout: Sunny Smiles … stays down: a fight goes on near it",
+  "knockout: Sunny Smiles … gets up (essential knockout over)",
+  "knockout: 00104E85 is up: it may move again",
+]]
+expect = [
+  { re = 'knockout: Sunny Smiles \S+ knocked out \(essential\)', label = "Sunny is knocked out as an essential actor" },
+  { re = 'knockout: Sunny Smiles \S+ stays down: a fight goes on near it', label = "she stays down while Ringo fights" },
+  { re = 'corner message: "Sunny Smiles is unconscious\.?"', label = "the corner says she is unconscious" },
+  { re = 'knockout: [0-9A-F]{8} falls \(ragdoll\)', label = "she drops as a ragdoll" },
+  { re = 'knockout: Sunny Smiles \S+ gets up', label = "she gets up again" },
+  { re = 'knockout: [0-9A-F]{8} gets up face (up|down) \([\d.]+ s clip\)', label = "with the get-up clip of her side" },
+  { re = 'knockout: 00104E85 is up: it may move again \(moved (?P<n>[\d.]+) units while getting up\)', range = [0.0, 1.0], label = "she does not move until her get-up clip is over" },
+  { re = 'combat: Sunny Smiles \S+ killed', count = 0, label = "she is not killed" },
+]
+
+[[scenario]]
+name = "knockout-boxing-gloves"
+source = "owner request 2026-10-17: boxing gloves knock out by fatigue, with no corner message (docs/spec-notes/unconscious.md)"
+note = "in Goodsprings, Easy Pete (not essential) is brought 300 units north of the player at 3 s; at 6 s and 7 s the player hits him with WeapNVBoxingGloves (1 damage each): the gloves' OnHit script takes 35 Fatigue a hit, so the second (fatigue 50 - 70) knocks him out; his fatigue returns at 10 a second and his fatigue knockout lasts 30 s (a test value, unconscious.md §2.5) whatever goes on, so he gets up at about 37 s of game time (later on the clock: scripted message boxes pause game time)"
+areas = ["combat", "knockouts"]
+paths = ["crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/knockouts.rs", "engine/nvforever/src/knockouts.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_HIT = "6:EasyPeteRef:1:WeapNVBoxingGloves,7:EasyPeteRef:1:WeapNVBoxingGloves" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 85
+expect = [
+  { re = 'test aid: the player hits \S+ for 1 with \S+', count = 2, label = "two hits with the gloves" },
+  { re = 'knockout: Easy Pete \S+ knocked out \(fatigue\)', label = "Easy Pete is knocked out by fatigue" },
+  { re = 'knockout: [0-9A-F]{8} falls \(ragdoll\)', label = "he drops as a ragdoll, as a corpse does" },
+  { re = 'knockout: [0-9A-F]{8} gets up face (up|down) \([\d.]+ s clip\)', label = "he plays the get-up clip of his side" },
+  { re = 'knockout: [0-9A-F]{8} is up: it may move again \(moved (?P<n>[\d.]+) units while getting up\)', range = [0.0, 1.0], label = "he does not move until his get-up clip is over" },
+  { re = 'corner message: ".* is unconscious', count = 0, label = "no corner message for a fatigue knockout" },
+  { re = 'knockout: Easy Pete \S+ gets up \(fatigue knockout over\)', label = "he gets up after his 30 s" },
+  { re = 'combat: Easy Pete \S+ killed', count = 0, label = "he is not killed" },
 ]
 
 [[scenario]]

@@ -258,6 +258,13 @@ pub struct RefExtra {
     /// The last hit taken (combat), for GetHitLocation.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_hit: Option<LastHit>,
+    /// The actor it last hit (GetOwnerLastTarget, `crate::unconscious`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub last_target: Option<FormId>,
+    /// Knocked out: an essential actor at zero health, or its Fatigue ran out
+    /// (`crate::unconscious`). Not SetUnconscious's flag (`unconscious`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub knocked_out: Option<crate::unconscious::KnockOut>,
     /// The actor has its weapon out (IsWeaponOut): told by whoever animates the actor
     /// ([`Game::set_weapon_out`]).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
@@ -737,6 +744,9 @@ pub struct Game<'a> {
     /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
     /// the engine to take.
     pub combat_requests: Vec<crate::combat::CombatRequest>,
+    /// Knockouts and getting up since the engine last took them
+    /// (`crate::unconscious::News`): actor, cause, `true` when it got up.
+    pub knockout_news: Vec<crate::unconscious::News>,
     /// The idle animations actors were asked to play (`crate::idles::IdleRequest`), for
     /// the layer that animates actors to take.
     pub idle_requests: Vec<crate::idles::IdleRequest>,
@@ -1045,6 +1055,7 @@ impl<'a> Game<'a> {
             data,
             toggles: Default::default(),
             combat_requests: Vec::new(),
+            knockout_news: Vec::new(),
             idle_requests: Vec::new(),
             weapon_uses: BTreeMap::new(),
             weapon_use_seq: 0,
@@ -1556,6 +1567,7 @@ impl<'a> Game<'a> {
         if !in_menu {
             self.update_effects(dt);
             self.tick_needs(dt);
+            self.tick_knockouts(dt);
             self.update_speech(dt);
             self.apply_rotations(dt);
         }

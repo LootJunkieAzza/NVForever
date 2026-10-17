@@ -18,7 +18,7 @@ travel (60, #393).
 
 | # | System | Quests | What is missing | Functions |
 |---|---|---|---|---|
-| 1 | Knockdowns and knock-outs | 64 (the intro chain among them) | A live actor knocked down or out never lies down and gets up; an essential knocked out by damage is flagged unconscious and never cleared | PushActorAway, GetKnockedState, GetUnconscious, SetUnconscious, IsLeftUp, IsFacingUp |
+| 1 | Knockdowns (knock-outs done 2026-10-17) | 64 (the intro chain among them) | Knock-outs are built ([unconscious](spec-notes/unconscious.md)): essential actors at zero health and actors out of fatigue drop as ragdolls, stay down (an essential while a fight goes on near it) and get up with the game's clips, and GetKnockedState, GetUnconscious, IsFacingUp and IsLeftUp answer for them. Left: a live actor knocked down without being knocked out (PushActorAway, explosions' knockdown) never lies down; SetUnconscious holds an actor's AI but does not lay it down | PushActorAway, SetUnconscious |
 | 2 | Saves from scripts | 29 | Saves exist; the script calls do nothing (cheap) | SystemSave, ForceSave |
 | 3 | Look turning the body | 26 | Look's rotate-body flag is stored, never acted on | Look |
 | 4 | Animation state told to the rules | 22 | The engine knows attacks, reloads and idles but does not tell the rules | IsPlayerActionActive, IsAnimPlaying, IsIdlePlaying, IsMoving's directions, GetAnimAction for attacks and reloads |

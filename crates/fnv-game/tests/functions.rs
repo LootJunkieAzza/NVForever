@@ -566,7 +566,9 @@ fn actor_flags_factions_and_essential_state() {
     assert_eq!(call(&mut g, 0x1162, Some(ADULT_REF), &[]), 1.0);
     call(&mut g, 0x1003, None, &[r(NPC_CHILD), n(1.0)]);
     assert_eq!(call(&mut g, 0x1162, Some(CHILD_REF), &[]), 1.0);
-    // KillActor keeps the killer.
+    // KillActor keeps the killer (of an actor no longer essential: an essential one is
+    // knocked out instead, docs/spec-notes/unconscious.md §2.2).
+    call(&mut g, 0x1003, None, &[r(NPC_CHILD), n(0.0)]);
     call(&mut g, 0x108B, Some(CHILD_REF), &[r(PLAYER)]);
     assert_eq!(call(&mut g, 0x1199, Some(CHILD_REF), &[r(PLAYER)]), 1.0);
     assert_eq!(call(&mut g, 0x1199, Some(CHILD_REF), &[r(ADULT_REF)]), 0.0);

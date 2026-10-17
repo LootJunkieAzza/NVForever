@@ -453,6 +453,14 @@ impl<'a> Game<'a> {
         if !self.present(actor) || self.extra.get(&actor).is_some_and(|e| e.dead) {
             return Err(format!("{} is not there to talk to", data.name(actor)));
         }
+        // Knocked out or set unconscious: no conversation (docs/spec-notes/unconscious.md
+        // §3); the player's attempt is told (`EventKind::TalkedToUnconscious`).
+        if self.is_out_cold(actor) {
+            if !forced {
+                self.emit(EventKind::TalkedToUnconscious { actor });
+            }
+            return Err(format!("{} is unconscious", data.name(actor)));
+        }
         let topic = topic.or(data.greeting).ok_or("the load order has no GREETING topic")?;
         let listener = Some(FormId::PLAYER_REF);
         let Some(info) = self.select_line(actor, listener, topic) else {

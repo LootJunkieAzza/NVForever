@@ -706,7 +706,14 @@ impl Runtime {
                         done = done.or(Some(ByHand::Greeted));
                     }
                 }
-                Err(e) => info!("dialogue: no conversation: {e}"),
+                Err(e) => {
+                    // Unconscious: the corner says so instead of "nothing to say"
+                    // (`EventKind::TalkedToUnconscious`, docs/spec-notes/unconscious.md §3).
+                    if g.is_out_cold(actor) {
+                        self.skip.insert(i);
+                    }
+                    info!("dialogue: no conversation: {e}");
+                }
             }
         }
         done
@@ -973,6 +980,13 @@ impl PlayCtx<'_> {
 impl EffectCtx for PlayCtx<'_> {
     fn name(&self, form: FormId) -> String {
         self.display(form)
+    }
+
+    fn setting_text(&self, name: &str) -> Option<String> {
+        match self.sim.forms.settings.get(&name.to_ascii_lowercase()) {
+            Some(fnv_sim::settings::Setting::Str(s)) => Some(s.clone()),
+            _ => None,
+        }
     }
 
     fn objective_text(&self, quest: FormId, index: i32) -> Option<String> {

@@ -529,7 +529,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x11DA, "GetIsAlignment", Impl(crate::crime::get_is_alignment)),
         (0x1118, "IsCellOwner", Impl(crate::crime::is_cell_owner)),
         (0x1092, "IsInMyOwnedCell", Impl(crate::crime::is_in_my_owned_cell)),
-        (0x124E, "GetOwnerLastTarget", Stub("crime")),
+        (0x124E, "GetOwnerLastTarget", Impl(actor::get_owner_last_target)),
         (0x11AE, "IsActorTalkingThroughActivator", Stub("dialogue (talking activators)")),
         (0x11B3, "GetDialogueEmotion", Impl(misc::get_dialogue_emotion)),
         (0x104C, "GetDisposition", Impl(actor::get_disposition)),

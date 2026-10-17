@@ -133,6 +133,17 @@ pub trait EffectCtx {
     fn is_furniture(&self, _r: FormId) -> bool {
         false
     }
+    /// A string game setting's text (GMST), by Editor ID.
+    fn setting_text(&self, _name: &str) -> Option<String> {
+        None
+    }
+}
+
+/// "<Name> is unconscious.": the name, then `sNoTalkUnConscious` ("is unconscious."
+/// [observed: FalloutNV.esm]), that text without the masters.
+pub fn unconscious_line(ctx: &dyn EffectCtx, actor: FormId) -> String {
+    let tail = ctx.setting_text("sNoTalkUnConscious").map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).unwrap_or_else(|| "is unconscious.".into());
+    format!("{} {tail}", ctx.name(actor))
 }
 
 /// `fnv_sim::world::Activation` as the trace serialises it (`EventKind::Activated`
@@ -266,6 +277,10 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
                     }
                 }
             }
+            // An essential actor knocked out, or the player trying to talk to an
+            // unconscious one: "<Name> is unconscious." (docs/spec-notes/unconscious.md
+            // §4); a fatigue knockout shows nothing [owner request 2026-10-17].
+            EventKind::KnockedOut { actor, cause: "essential" } | EventKind::TalkedToUnconscious { actor } => out.push(ScriptEffect::Notify(unconscious_line(ctx, *actor).into())),
             EventKind::MessageShown { message, text, buttons, hidden } => {
                 let text = text.clone().unwrap_or_default();
                 if !buttons.is_empty() || ctx.is_message_box(*message) {

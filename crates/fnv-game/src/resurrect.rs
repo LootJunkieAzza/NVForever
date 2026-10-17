@@ -68,6 +68,7 @@ impl Game<'_> {
         let e = self.extra.entry(r).or_default();
         e.dead = false;
         e.unconscious = false;
+        e.knocked_out = None;
         e.killer = None;
         e.death_cause = None;
         e.av_damage.clear();
