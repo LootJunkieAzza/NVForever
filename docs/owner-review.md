@@ -5506,3 +5506,24 @@ read 0 where the wiki lists −1 for none; NPC door use and OnActivate; far NPC 
 *Follow-up proposed:* make the engine dress and arm NPCs from the items the rules have
 equipped, so scripted EquipItem/UnequipItem show and the two leveled rolls agree.
 
+## Blackjack at the casino tables (2026-10-17, branch claude/blackjack)
+
+Built from the game's own files: the casinos' records (decks, shuffle point, 3:2 payout,
+the soft-17 rule, max winnings, the chip), the tables' scripts (ShowBlackJackMenuParams),
+`black_jack_menu.xml`, the table/card/chip models with their deal, reveal and discard
+sequences, the `GAMEBlackJack…` sounds and the `HelpBlackjack` message
+(docs/spec-notes/blackjack.md). Smoke `blackjack`; screenshots in `target/smoke/blackjack_*.png`
+of a run. Guesses a screenshot or a few hands at a real table would settle:
+
+- The words on the deal-phase buttons (Deal, Increase Bet, Decrease Bet, Max Bet, Exit Game,
+  taken from the menu file's comments), the result line ("Blackjack. Dealer has 16. +37") and
+  the refusals ("You need Gomorrah Chips to play here.", "You have been banned from gambling at …").
+- Choices that do not apply are hidden, not dimmed; the bet starts at the table's minimum and
+  steps 1 / 5 / 25.
+- The dealer does not peek for a natural; split aces play on normally; one split only;
+  surrender gives half back rounded up.
+- Winnings levels 1–3 (the floor manager's comps) at a quarter, half and three quarters of
+  the casino's max winnings; at the max the round ends, the menu closes and a corner line
+  says the player is banned.
+- The camera, the lights and where the bet's chips stand are fitted by eye to the one
+  screenshot.
