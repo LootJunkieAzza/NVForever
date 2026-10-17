@@ -366,3 +366,64 @@ GetCalculatedMaxCarryWeight calls CarryWeight an actor value; the formulas read 
 values, actor-values.md]. The game layer keeps the world's capacity (the menus' Wg line,
 `fnv_sim::World::encumbrance`) at the current Carry Weight whenever Strength or Carry
 Weight changes: Buffout's +2 Strength gives 220 at Strength 5 while it lasts.
+
+## 13. Authored abilities and worn enchantments
+
+An actor's own abilities and the enchantments of what it wears are active effects like
+an added spell's, so IsSpellTarget, HasMagicEffect, GetActorValue and RemoveSpell see them
+(code: `crates/fnv-game/src/abilities.rs`; tests: `crates/fnv-game/tests/abilities.rs`).
+
+What the records hold:
+
+- **NPC_ / CREA `SPLO`** "Actor Effect" [documented: schema `gameplay.json`]: 838 actor
+  records of FalloutNV.esm list 1414 of them, 1388 of type Ability (RadImmunity 383 times,
+  PoisonImmunity 198, PerkToughness 121, GhoulRadHeal 86, the creatures' DT abilities) and
+  26 of type Actor Effect (Ruthless, LegionExplorerAura, SporeCarrierRegen: effects with an
+  area or a duration) [observed, 2026-10-17]. With the ACBS template flag "Actor Effect
+  List" the template's list counts [documented: schema template flags; observed:
+  GSVictorRef's base Victor sets it, its template VSecuritronMk1TEMPLATE lists
+  SecuritronDT, RadImmunity and PoisonImmunity].
+- **RACE `SPLO`**: no race of FalloutNV.esm has one [observed]; read as NPC_'s for plugins
+  that add them [hypothesis].
+- **ARMO `EITM`**: the armour's object effect, an ENCH [documented: GECK wiki ActorValue,
+  "the various object effects found on armor pieces"; observed: 186 ARMO of FalloutNV.esm,
+  each naming an ENCH of ENIT type 3 Apparel]. WEAP `EITM` names one of type 2 Weapon (59
+  of them), applied by a hit instead (hit-effects.md).
+
+The rules:
+
+1. **Abilities are given once per actor**, the first time it is processed: every frame for
+   the player and the actors in the loaded cells, and before a script asks IsSpellTarget,
+   HasMagicEffect, GetActorValue, GetPermanentActorValue or RemoveSpell of any actor,
+   loaded or not [hypothesis: the original has them on the base; the GECK wiki AddSpell
+   notes that an added spell goes on the base object]. Only type Ability is given; an SPLO
+   of type Actor Effect is a spell the actor could cast [hypothesis]. They join the actor's
+   spell list as AddSpell's do, and the actor is marked so they are not given again
+   (saved, `RefExtra::abilities_given`).
+2. **Race abilities follow the race**: the player's race is the character creator's
+   choice; when it changes, the old race's abilities go and the new race's come
+   [hypothesis].
+3. **A worn enchantment lasts while the item is equipped**: its effects start when the
+   item is equipped (EquipItem at once, otherwise in the frame) and end, with their finish
+   blocks, when it is unequipped or leaves the inventory [documented: GECK wiki ActorValue,
+   "altering stats until you take the armor off"]. The effect records the item
+   (`ActiveEffect::worn`), saved with it. An actor never loaded (no inventory yet) wears
+   nothing.
+4. **Pools**: a Recover value modifier of a worn enchantment is in the temporary pool;
+   one of an ability without conditions is in the permanent pool for the player and the
+   temporary pool for anyone else [documented: GECK wiki ActorValue] (§3). So GetBaseAV is
+   unchanged and GetPermanentActorValue changes only for the player's abilities.
+5. **Conditions**: an ability's or a worn enchantment's effect whose conditions fail is
+   listed but inactive: no value change, no script; its conditions are checked again
+   every second, and it takes hold (or lets go, its modifier leaving the pool and its
+   finish block running) when they change [hypothesis: the interval and that the effect is
+   suspended rather than removed]. IsSpellTarget counts an inactive effect, HasMagicEffect
+   does not [hypothesis].
+6. **Removing them**: RemoveSpell takes an authored ability away for good, as an added one
+   [hypothesis]; Dispel and DispelAllSpells leave abilities and worn enchantments
+   [hypothesis: the catalogue says all effects; abilities are not spells cast];
+   RemoveSpell of an enchantment leaves a worn item's effect [hypothesis].
+
+The capture that settles the hypotheses: `abilities-1.toml` in the coordinator's requests
+(GSVictorRef, RexREF, LilyRef; the gambler hat, the Four Eyes glasses and reinforced
+metal armour on the player; RemoveSpell, Dispel and DispelAllSpells on Victor).

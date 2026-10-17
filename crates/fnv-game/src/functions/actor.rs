@@ -240,6 +240,8 @@ pub fn set_current(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(),
 
 pub fn get_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    // Authored abilities and worn enchantments are in the modifiers (`crate::abilities`).
+    g.sync_actor_effects(r);
     Ok(Value::Num(actor_value(g, r, a.code(0)?)?))
 }
 
@@ -254,6 +256,7 @@ pub fn get_base_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
 /// GECK wiki ActorValue, "the combined base value + the permanent modifier"].
 pub fn get_permanent_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    g.sync_actor_effects(r);
     Ok(Value::Num(permanent(g, r, a.code(0)?)?))
 }
 

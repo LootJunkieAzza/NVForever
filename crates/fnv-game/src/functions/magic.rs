@@ -29,14 +29,17 @@ pub fn add_spell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 }
 
 /// `actor.RemoveSpell spell`: the spell is removed with its active effects (their
-/// finish blocks run) [hypothesis].
+/// finish blocks run) [hypothesis]; an authored ability too, which is not given again
+/// (`crate::abilities`) [hypothesis]. A worn item's enchantment is no spell of the actor
+/// and stays while the item is worn [hypothesis; aid-items.md §13].
 pub fn remove_spell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let s = a.form(0)?;
+    g.sync_actor_effects(r);
     if let Some(e) = g.extra.get_mut(&r) {
         e.spells.retain(|&x| x != s);
     }
-    g.dispel(r, ctx.inst, |e| e.source == s);
+    g.dispel(r, ctx.inst, |e| e.source == s && e.worn.is_none());
     none()
 }
 
@@ -59,28 +62,34 @@ pub fn dispel(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
-/// Every effect on the actor ends except those of added spells (abilities)
-/// [hypothesis: the catalogue says all effects; abilities are not "spells cast"].
+/// Every effect on the actor ends except those of added spells (abilities, authored or
+/// not) and of worn enchantments [hypothesis: the catalogue says all effects; abilities
+/// are not "spells cast"].
 pub fn dispel_all_spells(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     g.dispel(r, ctx.inst, |e| !e.permanent);
     none()
 }
 
-/// 1 while an effect of the given magic item is active on the actor [documented:
-/// catalogue summary].
+/// 1 while an effect of the given magic item is on the actor [documented: catalogue
+/// summary; GECK wiki IsSpellTarget: an actor effect (abilities included), an object
+/// effect or an ingestible], its authored abilities and worn enchantments included
+/// (`crate::abilities`), an effect whose conditions fail too [hypothesis].
 pub fn is_spell_target(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let s = a.form(0)?;
+    g.sync_actor_effects(r);
     yes(g.effects.iter().any(|e| e.target == r && e.source == s))
 }
 
-/// 1 while an effect with the given base effect is active on the reference
-/// [documented: catalogue summary].
+/// 1 while an effect with the given base effect affects the reference [documented:
+/// catalogue summary; GECK wiki HasMagicEffect "currently being affected"]: not an
+/// ability's effect whose conditions fail [hypothesis].
 pub fn has_magic_effect(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let m = a.form(0)?;
-    yes(g.effects.iter().any(|e| e.target == r && e.effect == m))
+    g.sync_actor_effects(r);
+    yes(g.effects.iter().any(|e| e.target == r && e.effect == m && !e.inactive))
 }
 
 /// Seconds since the last effect update inside ScriptEffectUpdate, 0 elsewhere

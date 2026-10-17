@@ -1,0 +1,420 @@
+//! Authored abilities and worn enchantments as active effects, on a synthetic plugin (no
+//! game data): an actor's record and race SPLO, the template's "Actor Effect List",
+//! enchanted armour while worn, conditions, RemoveSpell / Dispel / DispelAllSpells and
+//! saving. docs/spec-notes/aid-items.md §13.
+
+mod common;
+
+use common::*;
+use fnv_esm::{LoadOrder, Plugin, Schema};
+use fnv_game::functions::{actor_value, set_actor_value_current, Ctx};
+use fnv_game::game::{Game, GameConfig};
+use fnv_game::trace::EventKind;
+use fnv_game::GameData;
+use fnv_script::vm::{ArgValue, Value};
+use fnv_script::FunctionTable;
+use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
+use serde_json::Value as Json;
+
+const CELL: u32 = 0x200;
+const RACE_GHOUL: u32 = 0x300;
+const RACE_HUMAN: u32 = 0x301;
+const MOD_DT: u32 = 0x850;
+const MOD_RAD: u32 = 0x851;
+const MOD_PER: u32 = 0x852;
+const REDUCE_AGI: u32 = 0x853;
+const DT_ABILITY: u32 = 0x870;
+const RAD_IMMUNITY: u32 = 0x871;
+const AURA: u32 = 0x872;
+const GHOUL_RAD: u32 = 0x873;
+const ENCH_HAT: u32 = 0x880;
+const ENCH_GLASSES: u32 = 0x881;
+const ENCH_METAL: u32 = 0x882;
+const HAT: u32 = 0x890;
+const GLASSES: u32 = 0x891;
+const METAL: u32 = 0x892;
+const ROBOT: u32 = 0x400;
+const ROBOT_TEMPLATE: u32 = 0x401;
+const GHOUL: u32 = 0x402;
+const ROBOT_REF: u32 = 0x500;
+const GHOUL_REF: u32 = 0x501;
+
+const P: FormId = FormId::PLAYER_REF;
+const PERCEPTION: u16 = 6;
+const AGILITY: u16 = 10;
+const LUCK: u16 = 11;
+const RAD_RESIST: u16 = 20;
+const DAMAGE_THRESHOLD: u16 = 76;
+
+const ADD_SPELL: u16 = 0x101C;
+const REMOVE_SPELL: u16 = 0x101D;
+const DISPEL: u16 = 0x1142;
+const DISPEL_ALL: u16 = 0x1148;
+const IS_SPELL_TARGET: u16 = 0x10DF;
+const HAS_MAGIC_EFFECT: u16 = 0x10D6;
+const GET_AV: u16 = 0x100E;
+const GET_PERMANENT_AV: u16 = 0x11EF;
+const GET_BASE_AV: u16 = 0x1115;
+const EQUIP: u16 = 0x10EE;
+const UNEQUIP: u16 = 0x10EF;
+
+fn f32b(v: f32) -> Vec<u8> {
+    v.to_le_bytes().to_vec()
+}
+
+/// MGEF DATA (72 bytes): flags, archetype and actor value; everything else empty.
+fn mgef(fid: u32, edid: &str, flags: u32, av: i32) -> Vec<u8> {
+    let data = [u32s(&[flags]), f32b(0.0), u32s(&[0]), vec![0xFF; 8], vec![0; 4], vec![0; 4], f32b(1.0), vec![0; 24], vec![0; 8], u32s(&[0]), av.to_le_bytes().to_vec()].concat();
+    record(b"MGEF", 0, fid, &[sub(b"EDID", z(edid)), sub(b"DATA", data)])
+}
+
+/// EFID + EFIT (magnitude, area, duration, type Self, actor value), with conditions.
+fn effect(base: u32, magnitude: u32, av: i32, conds: Vec<fnv_esm::raw::Subrecord>) -> Vec<fnv_esm::raw::Subrecord> {
+    let mut v = vec![sub(b"EFID", base.to_le_bytes().to_vec()), sub(b"EFIT", [u32s(&[magnitude, 0, 0, 0]), av.to_le_bytes().to_vec()].concat())];
+    v.extend(conds);
+    v
+}
+
+/// A condition `GetActorValue Luck >= value` on the subject.
+fn luck_at_least(value: f32) -> fnv_esm::raw::Subrecord {
+    let mut d = vec![0x60, 0, 0, 0];
+    d.extend(value.to_le_bytes());
+    d.extend(14u16.to_le_bytes());
+    d.extend([0, 0]);
+    d.extend(u32::from(LUCK).to_le_bytes());
+    d.extend([0; 12]);
+    sub(b"CTDA", d)
+}
+
+fn spel(fid: u32, edid: &str, kind: u32, effects: Vec<Vec<fnv_esm::raw::Subrecord>>) -> Vec<u8> {
+    let mut subs = vec![sub(b"EDID", z(edid)), sub(b"SPIT", [u32s(&[kind, 0, 0]), vec![0; 4]].concat())];
+    subs.extend(effects.into_iter().flatten());
+    record(b"SPEL", 0, fid, &subs)
+}
+
+/// ENCH with ENIT (type, charge, cost, flags) and effects.
+fn ench(fid: u32, edid: &str, kind: u32, effects: Vec<Vec<fnv_esm::raw::Subrecord>>) -> Vec<u8> {
+    let mut subs = vec![sub(b"EDID", z(edid)), sub(b"ENIT", [u32s(&[kind, 0, 0]), vec![0; 4]].concat())];
+    subs.extend(effects.into_iter().flatten());
+    record(b"ENCH", 0, fid, &subs)
+}
+
+/// ARMO in one biped slot with its object effect.
+fn armo(fid: u32, edid: &str, slot: u32, ench: u32) -> Vec<u8> {
+    let bmdt = [u32s(&[slot]), vec![0; 4]].concat();
+    let data = [u32s(&[1, 100]), f32b(1.0)].concat();
+    record(b"ARMO", 0, fid, &[sub(b"EDID", z(edid)), sub(b"EITM", ench.to_le_bytes().to_vec()), sub(b"BMDT", bmdt), sub(b"DATA", data)])
+}
+
+/// ACBS with template flags (0x08 Actor Effect List [documented: xEdit]).
+fn acbs(template_flags: u16) -> fnv_esm::raw::Subrecord {
+    let mut d = 0u32.to_le_bytes().to_vec();
+    for v in [50u16, 0, 1, 0, 0, 100] {
+        d.extend(v.to_le_bytes());
+    }
+    d.extend(0f32.to_le_bytes());
+    d.extend(0i16.to_le_bytes());
+    d.extend(template_flags.to_le_bytes());
+    sub(b"ACBS", d)
+}
+
+fn splo(spell: u32) -> fnv_esm::raw::Subrecord {
+    sub(b"SPLO", spell.to_le_bytes().to_vec())
+}
+
+fn npc(fid: u32, edid: &str, extra: Vec<fnv_esm::raw::Subrecord>) -> Vec<u8> {
+    let mut subs = vec![sub(b"EDID", z(edid)), sub(b"DATA", [100i32.to_le_bytes().to_vec(), vec![5; 7]].concat())];
+    subs.extend(extra);
+    record(b"NPC_", 0, fid, &subs)
+}
+
+fn placed(fid: u32, base: u32) -> Vec<u8> {
+    record(b"ACHR", 0, fid, &[sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])])
+}
+
+fn plugin_bytes() -> Vec<u8> {
+    // MGEF flag 2 Recover, 4 Detrimental.
+    let mgefs = [mgef(MOD_DT, "IncDT", 2, 76), mgef(MOD_RAD, "IncRad", 2, 20), mgef(MOD_PER, "IncPer", 2, 6), mgef(REDUCE_AGI, "RedAgi", 2 | 4, 10)].concat();
+    let spels = [
+        spel(DT_ABILITY, "RobotDT", 4, vec![effect(MOD_DT, 15, 76, vec![])]),
+        spel(RAD_IMMUNITY, "RadImmunity", 4, vec![effect(MOD_RAD, 100, 20, vec![])]),
+        spel(AURA, "Aura", 0, vec![effect(MOD_PER, 1, 6, vec![])]),
+        spel(GHOUL_RAD, "GhoulRad", 4, vec![effect(MOD_RAD, 50, 20, vec![])]),
+    ]
+    .concat();
+    let enchs = [
+        ench(ENCH_HAT, "EnchHat", 3, vec![effect(MOD_PER, 1, 6, vec![])]),
+        ench(ENCH_GLASSES, "EnchGlasses", 3, vec![effect(MOD_PER, 2, 6, vec![luck_at_least(7.0)])]),
+        ench(ENCH_METAL, "EnchMetal", 3, vec![effect(REDUCE_AGI, 1, 10, vec![])]),
+    ]
+    .concat();
+    let armos = [armo(HAT, "Hat", 1 << 0, ENCH_HAT), armo(GLASSES, "Glasses", 1 << 15, ENCH_GLASSES), armo(METAL, "Metal", 1 << 2, ENCH_METAL)].concat();
+    let races = [
+        record(b"RACE", 0, RACE_GHOUL, &[sub(b"EDID", z("Ghoul")), splo(GHOUL_RAD)]),
+        record(b"RACE", 0, RACE_HUMAN, &[sub(b"EDID", z("Human"))]),
+    ]
+    .concat();
+    let npcs = [
+        npc(0x7, "Player", vec![acbs(0), sub(b"RNAM", RACE_HUMAN.to_le_bytes().to_vec())]),
+        // The robot's own SPLO is ignored: its template supplies the actor effects.
+        npc(ROBOT, "Robot", vec![acbs(0x08), sub(b"TPLT", ROBOT_TEMPLATE.to_le_bytes().to_vec()), splo(RAD_IMMUNITY)]),
+        npc(ROBOT_TEMPLATE, "RobotTemplate", vec![acbs(0), splo(DT_ABILITY), splo(RAD_IMMUNITY), splo(AURA)]),
+        npc(GHOUL, "Ghoul", vec![acbs(0), sub(b"RNAM", RACE_GHOUL.to_le_bytes().to_vec())]),
+    ]
+    .concat();
+    let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
+    let refs = [placed(ROBOT_REF, ROBOT), placed(GHOUL_REF, GHOUL)].concat();
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
+    [
+        tes4(),
+        top(b"MGEF", &mgefs),
+        top(b"RACE", &races),
+        top(b"NPC_", &npcs),
+        top(b"SPEL", &spels),
+        top(b"ENCH", &enchs),
+        top(b"ARMO", &armos),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
+    ]
+    .concat()
+}
+
+struct Fixture {
+    data: GameData,
+    forms: FormStore,
+    refs: RefTable,
+}
+
+fn fixture() -> Fixture {
+    let plugins = vec![Plugin::parse(&plugin_bytes(), "Abilities.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    Fixture { data, forms, refs }
+}
+
+/// The player in the test cell with Perception 5, Agility 5 and Luck 5.
+fn game(f: &Fixture) -> Game<'_> {
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig { strict: true, ..GameConfig::default() });
+    g.player_entered(Some(FormId(CELL)));
+    for (code, v) in [(PERCEPTION, 5.0), (AGILITY, 5.0), (LUCK, 5.0)] {
+        set_actor_value_current(&mut g, P, code, v).unwrap();
+    }
+    g
+}
+
+fn call(g: &mut Game, on: FormId, op: u16, args: &[ArgValue]) -> f64 {
+    let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(on), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    let before = g.events.len();
+    let v = g.call_function(&ctx, args);
+    for e in &g.events[before..] {
+        if let EventKind::CallFailed { name, error, .. } | EventKind::Unhandled { name, unit: error, .. } = &e.kind {
+            panic!("0x{op:04X} {name}: {error}");
+        }
+    }
+    match v {
+        Value::Num(x) => x,
+        Value::Ref(f) => f as f64,
+    }
+}
+
+fn form(x: u32) -> ArgValue {
+    ArgValue::Value(Value::Ref(x))
+}
+
+fn code(c: u16) -> ArgValue {
+    ArgValue::Value(Value::Num(f64::from(c)))
+}
+
+fn target(g: &mut Game, on: FormId, item: u32) -> f64 {
+    call(g, on, IS_SPELL_TARGET, &[form(item)])
+}
+
+fn av(g: &mut Game, on: FormId, c: u16) -> f64 {
+    call(g, on, GET_AV, &[code(c)])
+}
+
+#[test]
+fn records_are_read() {
+    let f = fixture();
+    let d = &f.data;
+    assert_eq!(d.actors[&FormId(ROBOT_TEMPLATE)].spells, vec![FormId(DT_ABILITY), FormId(RAD_IMMUNITY), FormId(AURA)]);
+    assert!(d.actors[&FormId(ROBOT)].template_spells);
+    assert_eq!(d.race_spells[&FormId(RACE_GHOUL)], vec![FormId(GHOUL_RAD)]);
+    assert_eq!(d.armor_enchantments[&FormId(HAT)], FormId(ENCH_HAT));
+    assert_eq!(d.enchantment_types[&FormId(ENCH_HAT)], 3);
+}
+
+/// The template's abilities (not the record's own list, not the Actor Effect "Aura")
+/// are on the robot before it is loaded, as soon as a script asks; they raise its
+/// values in the temporary pool (GECK wiki ActorValue: the permanent pool only for the
+/// player).
+#[test]
+fn authored_abilities_are_effects() {
+    let f = fixture();
+    let mut g = game(&f);
+    let robot = FormId(ROBOT_REF);
+    assert_eq!(target(&mut g, robot, DT_ABILITY), 1.0);
+    assert_eq!(target(&mut g, robot, RAD_IMMUNITY), 1.0);
+    assert_eq!(target(&mut g, robot, AURA), 0.0);
+    assert_eq!(call(&mut g, robot, HAS_MAGIC_EFFECT, &[form(MOD_DT)]), 1.0);
+    assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 15.0);
+    assert_eq!(call(&mut g, robot, GET_PERMANENT_AV, &[code(DAMAGE_THRESHOLD)]), 0.0);
+    // The race's ability.
+    assert_eq!(target(&mut g, FormId(GHOUL_REF), GHOUL_RAD), 1.0);
+    let base = call(&mut g, FormId(GHOUL_REF), GET_BASE_AV, &[code(RAD_RESIST)]);
+    assert_eq!(av(&mut g, FormId(GHOUL_REF), RAD_RESIST), base + 50.0);
+    // Given once: another frame adds nothing.
+    let n = g.effects.len();
+    g.tick();
+    assert_eq!(g.effects.len(), n);
+    assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 15.0);
+    // The player has none.
+    assert_eq!(target(&mut g, P, RAD_IMMUNITY), 0.0);
+}
+
+/// The loaded actors get theirs in the frame, without a script asking.
+#[test]
+fn loaded_actors_get_abilities_in_the_frame() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.tick();
+    assert!(g.effects.iter().any(|e| e.target == FormId(ROBOT_REF) && e.source == FormId(DT_ABILITY)));
+    assert!(g.effects.iter().any(|e| e.target == FormId(GHOUL_REF) && e.source == FormId(GHOUL_RAD)));
+}
+
+/// RemoveSpell takes an authored ability away for good; Dispel and DispelAllSpells
+/// leave it; AddSpell puts it back.
+#[test]
+fn remove_spell_takes_an_authored_ability() {
+    let f = fixture();
+    let mut g = game(&f);
+    let robot = FormId(ROBOT_REF);
+    call(&mut g, robot, DISPEL, &[form(DT_ABILITY)]);
+    call(&mut g, robot, DISPEL_ALL, &[]);
+    assert_eq!(target(&mut g, robot, DT_ABILITY), 1.0);
+    call(&mut g, robot, REMOVE_SPELL, &[form(DT_ABILITY)]);
+    assert_eq!(target(&mut g, robot, DT_ABILITY), 0.0);
+    assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 0.0);
+    assert_eq!(target(&mut g, robot, RAD_IMMUNITY), 1.0);
+    for _ in 0..3 {
+        g.tick();
+    }
+    assert_eq!(target(&mut g, robot, DT_ABILITY), 0.0);
+    call(&mut g, robot, ADD_SPELL, &[form(DT_ABILITY)]);
+    assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 15.0);
+}
+
+/// A worn item's enchantment is active while it is equipped, in the temporary pool,
+/// and ends when it is unequipped or leaves the inventory.
+#[test]
+fn worn_enchantments_follow_equipment() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.world.add_item(P, FormId(HAT), 1).unwrap();
+    assert_eq!(target(&mut g, P, ENCH_HAT), 0.0);
+    call(&mut g, P, EQUIP, &[form(HAT)]);
+    assert_eq!(target(&mut g, P, ENCH_HAT), 1.0);
+    assert_eq!(call(&mut g, P, HAS_MAGIC_EFFECT, &[form(MOD_PER)]), 1.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 6.0);
+    assert_eq!(call(&mut g, P, GET_PERMANENT_AV, &[code(PERCEPTION)]), 5.0);
+    // Dispel, DispelAllSpells and RemoveSpell leave a worn enchantment.
+    call(&mut g, P, DISPEL, &[form(ENCH_HAT)]);
+    call(&mut g, P, DISPEL_ALL, &[]);
+    call(&mut g, P, REMOVE_SPELL, &[form(ENCH_HAT)]);
+    assert_eq!(av(&mut g, P, PERCEPTION), 6.0);
+    call(&mut g, P, UNEQUIP, &[form(HAT)]);
+    assert_eq!(target(&mut g, P, ENCH_HAT), 0.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+    // Equipped outside a script (the Pip-Boy): the frame picks it up.
+    g.world.equip(P, FormId(HAT)).unwrap();
+    g.tick();
+    assert_eq!(av(&mut g, P, PERCEPTION), 6.0);
+    g.world.remove_item(P, FormId(HAT), 1).unwrap();
+    g.tick();
+    assert_eq!(target(&mut g, P, ENCH_HAT), 0.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+    // A harmful one lowers the value while worn.
+    g.world.add_item(P, FormId(METAL), 1).unwrap();
+    call(&mut g, P, EQUIP, &[form(METAL)]);
+    assert_eq!(av(&mut g, P, AGILITY), 4.0);
+    call(&mut g, P, UNEQUIP, &[form(METAL)]);
+    assert_eq!(av(&mut g, P, AGILITY), 5.0);
+}
+
+/// An effect whose conditions fail is listed but changes nothing, and takes hold once
+/// they pass (checked every second).
+#[test]
+fn conditions_are_checked_while_worn() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.world.add_item(P, FormId(GLASSES), 1).unwrap();
+    call(&mut g, P, EQUIP, &[form(GLASSES)]);
+    assert_eq!(target(&mut g, P, ENCH_GLASSES), 1.0);
+    assert_eq!(call(&mut g, P, HAS_MAGIC_EFFECT, &[form(MOD_PER)]), 0.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+    set_actor_value_current(&mut g, P, LUCK, 8.0).unwrap();
+    for _ in 0..90 {
+        g.tick();
+    }
+    assert_eq!(call(&mut g, P, HAS_MAGIC_EFFECT, &[form(MOD_PER)]), 1.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 7.0);
+    set_actor_value_current(&mut g, P, LUCK, 2.0).unwrap();
+    for _ in 0..90 {
+        g.tick();
+    }
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+    call(&mut g, P, UNEQUIP, &[form(GLASSES)]);
+    assert_eq!(target(&mut g, P, ENCH_GLASSES), 0.0);
+    assert_eq!(actor_value(&mut g, P, PERCEPTION).unwrap(), 5.0);
+}
+
+/// The player's race abilities follow a race chosen in the character creator.
+#[test]
+fn a_race_change_swaps_race_abilities() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.tick();
+    assert_eq!(target(&mut g, P, GHOUL_RAD), 0.0);
+    let base = av(&mut g, P, RAD_RESIST);
+    let look = serde_json::json!({ "race": serde_json::to_value(FormId(RACE_GHOUL)).unwrap(), "female": false });
+    g.player.look = Some(serde_json::from_value(look).unwrap());
+    g.tick();
+    assert_eq!(target(&mut g, P, GHOUL_RAD), 1.0);
+    // A player's ability without conditions is in the permanent pool.
+    assert_eq!(call(&mut g, P, GET_PERMANENT_AV, &[code(RAD_RESIST)]), base + 50.0);
+    g.player.look.as_mut().unwrap().race = FormId(RACE_HUMAN);
+    g.tick();
+    assert_eq!(target(&mut g, P, GHOUL_RAD), 0.0);
+    assert_eq!(av(&mut g, P, RAD_RESIST), base);
+}
+
+/// Saved and restored: abilities are not given twice, worn effects stay tied to their
+/// item.
+#[test]
+fn abilities_and_worn_effects_are_saved() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.world.add_item(P, FormId(HAT), 1).unwrap();
+    call(&mut g, P, EQUIP, &[form(HAT)]);
+    g.tick();
+    call(&mut g, FormId(ROBOT_REF), REMOVE_SPELL, &[form(DT_ABILITY)]);
+    let s = g.snapshot();
+    let text = serde_json::to_string(&s).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&text).unwrap();
+    let world = World::restore(&f.forms, &f.refs, &back.sim).unwrap();
+    let mut h = Game::restore(&f.data, world, g.cfg, &back).unwrap();
+    let n = h.effects.len();
+    h.tick();
+    assert_eq!(h.effects.len(), n);
+    assert_eq!(target(&mut h, FormId(ROBOT_REF), DT_ABILITY), 0.0);
+    assert_eq!(target(&mut h, FormId(ROBOT_REF), RAD_IMMUNITY), 1.0);
+    assert_eq!(av(&mut h, P, PERCEPTION), 6.0);
+    call(&mut h, P, UNEQUIP, &[form(HAT)]);
+    assert_eq!(av(&mut h, P, PERCEPTION), 5.0);
+}
