@@ -3526,15 +3526,15 @@ expect = [
 
 [[scenario]]
 name = "abilities-worn"
-source = "docs/spec-notes/aid-items.md §13: authored abilities and worn enchantments are active effects: Victor (not loaded) has his template's SecuritronDT, the gambler hat's enchantment (Perception +1) is on the player while worn and gone once unequipped"
+source = "docs/spec-notes/aid-items.md §13 (capture abilities-1): authored abilities are on loaded actors only, so Victor outside reads 0 for his template's SecuritronDT from the gas station; the gambler hat's enchantment (Perception +1) is on the player while worn and gone once unequipped"
 areas = ["scripts", "items"]
 paths = ["crates/fnv-game/src/abilities.rs", "crates/fnv-game/src/functions/magic.rs", "crates/fnv-game/src/functions/items.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:001073E8.isspelltarget 0012B891;8.5:001073E8.hasmagiceffect 001630EF;9:player.additem 0010EA7F 1;9.5:player.equipitem 0010EA7F;10:player.isspelltarget 00071B88;10.5:player.hasmagiceffect 0001515D;11:player.getav perception;11.5:player.getbaseav perception;12:player.unequipitem 0010EA7F;12.5:player.isspelltarget 00071B88;13:player.getav perception;13.5:close" }
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10"]
 run_seconds = 18
 order = [[
-  "console: IsSpellTarget on 0x001073E8 >> 1.00",
-  "console: HasMagicEffect on 0x001073E8 >> 1.00",
+  "console: IsSpellTarget on 0x001073E8 >> 0.00",
+  "console: HasMagicEffect on 0x001073E8 >> 0.00",
   "console: IsSpellTarget on player >> 1.00",
   "console: HasMagicEffect on player >> 1.00",
   "console: IsSpellTarget on player >> 0.00",

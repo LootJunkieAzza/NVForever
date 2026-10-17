@@ -390,40 +390,61 @@ What the records hold:
   each naming an ENCH of ENIT type 3 Apparel]. WEAP `EITM` names one of type 2 Weapon (59
   of them), applied by a hit instead (hit-effects.md).
 
-The rules:
+The rules (capture `abilities-1`, 2026-10-17: the probe file sits in the coordinator's
+requests, the outputs in the private capture folder `probe\abilities-1`; all 79 probes both
+sides answered agree with ours):
 
-1. **Abilities are given once per actor**, the first time it is processed: every frame for
-   the player and the actors in the loaded cells, and before a script asks IsSpellTarget,
-   HasMagicEffect, GetActorValue, GetPermanentActorValue or RemoveSpell of any actor,
-   loaded or not [hypothesis: the original has them on the base; the GECK wiki AddSpell
-   notes that an added spell goes on the base object]. Only type Ability is given; an SPLO
-   of type Actor Effect is a spell the actor could cast [hypothesis]. They join the actor's
-   spell list as AddSpell's do, and the actor is marked so they are not given again
-   (saved, `RefExtra::abilities_given`).
-2. **Race abilities follow the race**: the player's race is the character creator's
+1. **Authored abilities join the spell list once per actor**, the first time it is
+   processed: every frame for the player and the actors in the loaded cells, and before a
+   script asks IsSpellTarget, HasMagicEffect, GetActorValue, GetPermanentActorValue,
+   AddSpell, RemoveSpell or Dispel of it. Only type Ability joins; an SPLO of type Actor
+   Effect is a spell the actor could cast [hypothesis]. The actor is marked so they are
+   not added again (saved, `RefExtra::abilities_given`).
+2. **Abilities are active only while the actor is loaded** (the player always): the
+   abilities in its spell list start when it is in a loaded cell and end when it is not
+   [observed: GSVictorRef seen from the gas station, RexREF and LilyRef far away read
+   IsSpellTarget 0, HasMagicEffect 0 and no modifier (Victor's DT 0, Lily's RadResist 14);
+   Victor next to the player read 1 and DT 20 = his SecuritronDT; hypothesis: a disabled
+   actor counts as not loaded, and an ability AddSpell gives an actor out of the loaded
+   area waits for it].
+3. **Race abilities follow the race**: the player's race is the character creator's
    choice; when it changes, the old race's abilities go and the new race's come
-   [hypothesis].
-3. **A worn enchantment lasts while the item is equipped**: its effects start when the
-   item is equipped (EquipItem at once, otherwise in the frame) and end, with their finish
-   blocks, when it is unequipped or leaves the inventory [documented: GECK wiki ActorValue,
-   "altering stats until you take the armor off"]. The effect records the item
-   (`ActiveEffect::worn`), saved with it. An actor never loaded (no inventory yet) wears
-   nothing.
-4. **Pools**: a Recover value modifier of a worn enchantment is in the temporary pool;
-   one of an ability without conditions is in the permanent pool for the player and the
-   temporary pool for anyone else [documented: GECK wiki ActorValue] (§3). So GetBaseAV is
-   unchanged and GetPermanentActorValue changes only for the player's abilities.
-5. **Conditions**: an ability's or a worn enchantment's effect whose conditions fail is
-   listed but inactive: no value change, no script; its conditions are checked again
-   every second, and it takes hold (or lets go, its modifier leaving the pool and its
-   finish block running) when they change [hypothesis: the interval and that the effect is
-   suspended rather than removed]. IsSpellTarget counts an inactive effect, HasMagicEffect
-   does not [hypothesis].
-6. **Removing them**: RemoveSpell takes an authored ability away for good, as an added one
-   [hypothesis]; Dispel and DispelAllSpells leave abilities and worn enchantments
-   [hypothesis: the catalogue says all effects; abilities are not spells cast];
-   RemoveSpell of an enchantment leaves a worn item's effect [hypothesis].
+   [hypothesis; no race of FalloutNV.esm has any].
+4. **A worn enchantment lasts while the item is equipped** on a loaded actor: its effects
+   start when the item is equipped (EquipItem at once, otherwise in the frame) and end,
+   with their finish blocks, when it is unequipped or leaves the inventory [observed: the
+   gambler hat: IsSpellTarget of its enchantment 0 carried, 1 worn, 0 unequipped and 0
+   once removed from the inventory while worn; Perception 5, 6, 5; reinforced metal
+   armour's Reduce Agility 5 to 4 and back; documented: GECK wiki ActorValue]. The effect
+   records the item (`ActiveEffect::worn`), saved with it. IsSpellTarget of the ARMO
+   itself is 0 [observed]. An actor never loaded (no inventory yet) wears nothing.
+5. **Pools**: a worn enchantment's Recover value modifier is in the temporary pool; an
+   ability's without conditions is in the permanent pool for the player and the temporary
+   pool for anyone else [documented: GECK wiki ActorValue; observed: the hat leaves
+   GetBaseAV and GetPermanentActorValue Perception at 5; Victor's DT ability leaves his
+   permanent DT at 0; the player's added PerkToughness raises GetPermanentActorValue
+   DamageResist to 10] (§3).
+6. **Conditions**: an effect whose conditions fail is listed but inactive: no value
+   change, no script; IsSpellTarget and HasMagicEffect both count it [observed: the Four
+   Eyes glasses worn without the trait: IsSpellTarget 1, HasMagicEffect IncreasePerception
+   1, Perception 5]. Its conditions are checked again every second and it takes hold (or
+   lets go, its modifier leaving the pool and its finish block running) when they change
+   [hypothesis: the interval, and suspended rather than removed].
+7. **Removing them**:
+   - RemoveSpell takes an authored ability away for good; AddSpell puts it back
+     [observed: Victor's SecuritronDT: IsSpellTarget 0, DT 0, RadImmunity kept; AddSpell:
+     1, DT 20].
+   - Dispel of an ability ends its effects [observed: Victor's SecuritronDT, DT 20 to 0];
+     it stays in the list and comes back when the actor is loaded again [hypothesis].
+   - Dispel of a worn item's enchantment ends it until the item is equipped again
+     [observed: the hat: 0 and Perception 5 after Dispel, 1 and 6 after unequip and
+     equip].
+   - DispelAllSpells leaves abilities [observed: Victor's RadImmunity and the player's
+     PerkToughness stayed] and worn enchantments [hypothesis: the probe's hat had already
+     been dispelled].
+   - RemoveSpell of an enchantment leaves a worn item's effect [hypothesis, as above].
 
-The capture that settles the hypotheses: `abilities-1.toml` in the coordinator's requests
-(GSVictorRef, RexREF, LilyRef; the gambler hat, the Four Eyes glasses and reinforced
-metal armour on the player; RemoveSpell, Dispel and DispelAllSpells on Victor).
+Not settled: GetActorValueModifier did not compile in the game's probe script (the
+function needs a different form), and the script name `PoisonResist` (the original answers
+125 on Victor: 25 + PoisonImmunity's 100) is missing from our decoder's actor value
+names (`crates/fnv-script/data/encodings.json` lists the names seen in compiled scripts).

@@ -186,8 +186,8 @@ The ranked table is in §6. Read with it:
    ignores it. Needs the engine to draw what the rules have equipped (audit §5).
 3. **Actor abilities and worn enchantments as effects** (IsSpellTarget, HasMagicEffect,
    RemoveSpell; 80 quests, VMQ03 and Ring-a-Ding-Ding among them): built
-   (docs/spec-notes/aid-items.md §13); the capture `abilities-1` settles its hypotheses
-   (conditions, the dispels).
+   (docs/spec-notes/aid-items.md §13) and checked against the capture `abilities-1` (79
+   probes agree; abilities are on loaded actors only, Dispel takes one off).
 4. **Corpses stood up again** (ResurrectActor; 76 quests, Yes Man's resurrections and
    every companion): the rules are right (§3.2), the engine keeps the ragdoll.
 5. **Knockdowns and knock-outs** (64 quests, the intro chain): an essential knocked out
@@ -466,7 +466,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetXPForNextLevel | 0x1215 | 3 / 0 | match | - | differs 1 |  |
 | HasBeenEaten | 0x107F | 6 / 4 | no-system | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]. |
 | HasLoaded3D | 0x122E | 4 / 0 | match | - | differs 5, same 1 | The original needed 1 game loop after a cell load or MoveTo [observed: probes]; ours answers at once. |
-| HasMagicEffect | 0x10D6 | 41 / 5 | match | - | - | As IsSpellTarget; an ability's effect whose conditions fail does not count [hypothesis; capture abilities-1]. |
+| HasMagicEffect | 0x10D6 | 41 / 5 | match | - | - | As IsSpellTarget, an effect whose conditions fail included [observed: probes abilities-1]. |
 | HasPerk | 0x11C1 | 126 / 493 | match | - | - |  |
 | IgnoreCrime | 0x10AB | 196 / 0 | match | - | - |  |
 | IncrementScriptedChallenge | 0x1275 | 134 / 0 | match | - | - |  |
@@ -507,7 +507,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsRaining | 0x103E | 6 / 3 | match | - | - |  |
 | IsRunning | 0x111F | 0 / 4 | match | - | - |  |
 | IsSneaking | 0x111E | 35 / 33 | match | - | - |  |
-| IsSpellTarget | 0x10DF | 33 / 37 | match | - | - | Authored abilities (NPC_/CREA SPLO through the template, RACE SPLO) and worn armour enchantments are active effects (aid-items.md §13); an effect whose conditions fail counts [hypothesis; capture abilities-1]. |
+| IsSpellTarget | 0x10DF | 33 / 37 | match | - | - | Authored abilities (NPC_/CREA SPLO through the template) on loaded actors only, and worn armour enchantments, are active effects; one whose conditions fail counts [observed: probes abilities-1, all agree] (aid-items.md §13). |
 | IsSwimming | 0x10B9 | 0 / 7 | wrong | swimming told to the rules | same 2 | Stub 0; 0 for the player and Ringo on land matches [observed: probes]. The engine knows the player swims. |
 | IsTalking | 0x108D | 19 / 33 | match | - | same 3 | 0 for Ringo, Sunny and the player at rest [observed: probes]; not seen during a conversation. |
 | IsTrespassing | 0x1091 | 0 / 1 | match | - | same 2 | 0 for Ringo and the player in the gas station [observed: probes]. |
@@ -559,7 +559,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | RemoveRecurringFromChallenge | 0x126C | 5 / 0 | match | - | - |  |
 | RemoveReputation | 0x123A | 11 / 0 | match | - | - |  |
 | RemoveScriptPackage | 0x1098 | 185 / 0 | match | - | - |  |
-| RemoveSpell | 0x101D | 146 / 0 | match | - | - | Takes an authored ability away for good; a worn item's enchantment stays [hypothesis; capture abilities-1]. |
+| RemoveSpell | 0x101D | 146 / 0 | match | - | - | Takes an authored ability away for good; AddSpell puts it back [observed: probes abilities-1]. |
 | Reset3DState | 0x1146 | 12 / 0 | match | - | - |  |
 | ResetAI | 0x11FA | 711 / 0 | open | - | - | Combat is not reset; capture of ResetAI on an actor in combat (attended). |
 | ResetHealth | 0x1150 | 54 / 0 | match | - | - |  |

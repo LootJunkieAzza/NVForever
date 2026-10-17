@@ -198,15 +198,15 @@ note = "Stub 0; 0 at rest matches [observed: probes]. The engine knows aiming (O
 
 [function.IsSpellTarget]
 status = "match"
-note = "Authored abilities (NPC_/CREA SPLO through the template, RACE SPLO) and worn armour enchantments are active effects (aid-items.md §13); an effect whose conditions fail counts [hypothesis; capture abilities-1]."
+note = "Authored abilities (NPC_/CREA SPLO through the template) on loaded actors only, and worn armour enchantments, are active effects; one whose conditions fail counts [observed: probes abilities-1, all agree] (aid-items.md §13)."
 
 [function.HasMagicEffect]
 status = "match"
-note = "As IsSpellTarget; an ability's effect whose conditions fail does not count [hypothesis; capture abilities-1]."
+note = "As IsSpellTarget, an effect whose conditions fail included [observed: probes abilities-1]."
 
 [function.RemoveSpell]
 status = "match"
-note = "Takes an authored ability away for good; a worn item's enchantment stays [hypothesis; capture abilities-1]."
+note = "Takes an authored ability away for good; AddSpell puts it back [observed: probes abilities-1]."
 
 [function.Look]
 status = "wrong"

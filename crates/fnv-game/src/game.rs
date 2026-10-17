@@ -282,6 +282,13 @@ pub struct RefExtra {
     pub abilities_given: bool,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub ability_race: Option<FormId>,
+    /// Abilities a Dispel took off while the actor is loaded (they come back when it is
+    /// loaded again), and worn items whose enchantment a Dispel took off (until the item
+    /// is unequipped).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub dispelled: Vec<FormId>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub worn_dispelled: Vec<FormId>,
     /// SetBroadcastState of a radio station (talking activator).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub broadcast: Option<bool>,

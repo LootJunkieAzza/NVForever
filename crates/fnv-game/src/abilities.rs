@@ -3,13 +3,14 @@
 //!
 //! - Authored abilities ([`Game::give_abilities`]): the actor effects of type Ability in
 //!   the SPLO list of the actor's record (or of the template that supplies its "Actor
-//!   Effect List") and of its race are added as AddSpell adds a spell, once per actor,
-//!   the first time the actor is processed (loaded, or asked about by a script). They
-//!   join the actor's spell list, so RemoveSpell takes them away and they are saved
-//!   with it. A race change (the character creator) swaps the race's abilities.
+//!   Effect List") and of its race join the actor's spell list once, the first time
+//!   the actor is processed (loaded, or asked about by a script), so RemoveSpell takes
+//!   them away and they are saved with it. A race change (the character creator) swaps
+//!   the race's abilities. The abilities in the list are active while the actor is
+//!   loaded ([`Game::sync_abilities`]).
 //! - Worn enchantments ([`Game::sync_worn`]): the object effect (ENCH of type Apparel)
-//!   of each equipped armour piece is active on the wearer while it is equipped, and
-//!   ends when it is unequipped or leaves the inventory.
+//!   of each equipped armour piece is active on the loaded wearer while it is equipped,
+//!   and ends when it is unequipped or leaves the inventory.
 //! - Effects of abilities and worn enchantments whose conditions fail stay listed but
 //!   inactive (no value change, no script) and their conditions are checked again
 //!   every second ([`Game::recheck_conditions`]).
@@ -54,8 +55,18 @@ impl Game<'_> {
         race.and_then(|r| self.data.race_spells.get(&r)).map_or_else(Vec::new, |l| self.abilities_of(l).collect())
     }
 
-    /// Give an actor its authored abilities the first time it is processed, and its
-    /// race's again after a race change. Not for references that are no actor.
+    /// Whether an actor's abilities and worn enchantments are on it: the player always,
+    /// another actor while it is enabled in a loaded cell [observed: capture abilities-1:
+    /// GSVictorRef, RexREF and LilyRef out of the loaded area read IsSpellTarget 0 and no
+    /// modifier for their abilities, Victor loaded 1 and DT 20; hypothesis for disabled
+    /// actors].
+    pub fn effects_loaded(&self, r: FormId) -> bool {
+        r == FormId::PLAYER_REF || (self.present(r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)))
+    }
+
+    /// Put an actor's authored abilities in its spell list the first time it is
+    /// processed, and its race's again after a race change. Not for references that are
+    /// no actor. The effects follow in [`Game::sync_abilities`].
     pub fn give_abilities(&mut self, r: FormId) {
         if r != FormId::PLAYER_REF && self.def_following(r, |d| d.template_spells).is_none() {
             return;
@@ -65,31 +76,57 @@ impl Game<'_> {
         if given && had_race == race {
             return;
         }
-        // Mark first: applying an effect reads actor values, which come back here.
-        {
-            let e = self.extra.entry(r).or_default();
-            e.abilities_given = true;
-            e.ability_race = race;
-        }
-        if given {
-            // A new race: the old race's abilities go (unless the record has them too).
-            let own = self.record_abilities(r);
-            for spell in self.race_abilities(had_race) {
-                if own.contains(&spell) {
-                    continue;
-                }
-                if let Some(x) = self.extra.get_mut(&r) {
-                    x.spells.retain(|&s| s != spell);
-                }
-                self.dispel(r, None, |e| e.source == spell && e.worn.is_none());
-            }
-        } else {
-            for spell in self.record_abilities(r) {
-                self.add_spell(r, spell);
+        let own = self.record_abilities(r);
+        // A new race: the old race's abilities go (unless the record has them too).
+        let gone: Vec<FormId> = if given { self.race_abilities(had_race).into_iter().filter(|s| !own.contains(s)).collect() } else { Vec::new() };
+        let mut add = if given { Vec::new() } else { own };
+        add.extend(self.race_abilities(race));
+        let e = self.extra.entry(r).or_default();
+        e.abilities_given = true;
+        e.ability_race = race;
+        e.spells.retain(|s| !gone.contains(s));
+        for spell in add {
+            if !e.spells.contains(&spell) {
+                e.spells.push(spell);
             }
         }
-        for spell in self.race_abilities(race) {
-            self.add_spell(r, spell);
+        for spell in gone {
+            self.dispel(r, None, |e| e.source == spell && e.worn.is_none());
+        }
+    }
+
+    /// Whether an effect is an ability's (an effect of a listed spell of type Ability).
+    pub fn is_ability_effect(&self, e: &crate::game::ActiveEffect) -> bool {
+        e.permanent && e.worn.is_none() && self.data.spell_types.get(&e.source) == Some(&SPELL_ABILITY)
+    }
+
+    /// The abilities in an actor's spell list are active while it is loaded: each one
+    /// without its effects starts (unless a Dispel took it off while loaded), and they
+    /// all end when the actor is not loaded [observed: abilities-1; hypothesis: an
+    /// ability added with AddSpell to an actor out of the loaded area waits for it the
+    /// same way, and a dispelled one comes back when the actor is loaded again].
+    pub fn sync_abilities(&mut self, r: FormId) {
+        if !self.effects_loaded(r) {
+            let data = self.data;
+            let ability = |e: &crate::game::ActiveEffect| e.permanent && e.worn.is_none() && data.spell_types.get(&e.source) == Some(&SPELL_ABILITY);
+            if self.effects.iter().any(|e| e.target == r && ability(e)) {
+                self.dispel(r, None, ability);
+            }
+            if let Some(x) = self.extra.get_mut(&r) {
+                x.dispelled.clear();
+            }
+            return;
+        }
+        let Some(x) = self.extra.get(&r) else { return };
+        let missing: Vec<FormId> = x
+            .spells
+            .iter()
+            .copied()
+            .filter(|s| self.data.spell_types.get(s) == Some(&SPELL_ABILITY) && !x.dispelled.contains(s))
+            .filter(|s| !self.effects.iter().any(|e| e.target == r && e.source == *s && e.permanent && e.worn.is_none()))
+            .collect();
+        for spell in missing {
+            self.apply_magic_item(r, spell, None, true);
         }
     }
 
@@ -114,8 +151,19 @@ impl Game<'_> {
     /// enchantment starts when it is worn and ends (its finish blocks run) when it is
     /// not [documented: GECK wiki ActorValue, armour's object effects alter stats "until
     /// you take the armor off"; hypothesis: they begin at once].
+    ///
+    /// An enchantment a Dispel took off stays off while that item stays equipped
+    /// [observed: abilities-1, the gambler hat's enchantment dispelled while worn was
+    /// gone until the hat was equipped again]; on an actor not loaded none is active
+    /// [hypothesis: as abilities].
     pub fn sync_worn(&mut self, r: FormId) {
-        let wanted = self.worn_enchantments(r);
+        let worn = self.worn_enchantments(r);
+        if let Some(x) = self.extra.get_mut(&r) {
+            x.worn_dispelled.retain(|i| worn.iter().any(|w| w.0 == *i));
+        }
+        let off = self.extra.get(&r).map(|x| x.worn_dispelled.clone()).unwrap_or_default();
+        let loaded = self.effects_loaded(r);
+        let wanted: Vec<(FormId, FormId)> = worn.into_iter().filter(|w| loaded && !off.contains(&w.0)).collect();
         let mut have: Vec<(FormId, FormId)> = self.effects.iter().filter(|e| e.target == r).filter_map(|e| Some((e.worn?, e.source))).collect();
         have.sort();
         have.dedup();
@@ -142,14 +190,17 @@ impl Game<'_> {
         }
         self.syncing_effects = true;
         self.give_abilities(r);
+        self.sync_abilities(r);
         self.sync_worn(r);
         self.syncing_effects = false;
     }
 
-    /// Every frame: the player and the actors in the loaded cells.
+    /// Every frame: the player, the actors in the loaded cells and those that still have
+    /// abilities' or worn enchantments' effects (to end them when they leave).
     pub(crate) fn sync_loaded_actor_effects(&mut self) {
         let mut actors = self.package_actors();
         actors.insert(FormId::PLAYER_REF);
+        actors.extend(self.effects.iter().filter(|e| e.worn.is_some() || self.is_ability_effect(e)).map(|e| e.target));
         for a in actors {
             self.sync_actor_effects(a);
         }

@@ -288,15 +288,46 @@ fn loaded_actors_get_abilities_in_the_frame() {
     assert!(g.effects.iter().any(|e| e.target == FormId(GHOUL_REF) && e.source == FormId(GHOUL_RAD)));
 }
 
-/// RemoveSpell takes an authored ability away for good; Dispel and DispelAllSpells
-/// leave it; AddSpell puts it back.
+/// Abilities are on an actor only while it is loaded (capture abilities-1: Victor, Rex
+/// and Lily out of the loaded area read 0), and come back when it is loaded again.
+#[test]
+fn abilities_only_while_loaded() {
+    let f = fixture();
+    let mut g = game(&f);
+    let robot = FormId(ROBOT_REF);
+    g.loaded_cells.remove(&FormId(CELL));
+    assert_eq!(target(&mut g, robot, DT_ABILITY), 0.0);
+    assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 0.0);
+    g.loaded_cells.insert(FormId(CELL));
+    g.tick();
+    assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 15.0);
+    // Leaving the loaded area ends them in the frame.
+    g.loaded_cells.remove(&FormId(CELL));
+    g.tick();
+    assert!(!g.effects.iter().any(|e| e.target == robot));
+    assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 0.0);
+}
+
+/// Dispel takes an ability off while the actor stays loaded; DispelAllSpells leaves the
+/// others; RemoveSpell takes one away for good; AddSpell puts it back (capture
+/// abilities-1, Victor).
 #[test]
 fn remove_spell_takes_an_authored_ability() {
     let f = fixture();
     let mut g = game(&f);
     let robot = FormId(ROBOT_REF);
     call(&mut g, robot, DISPEL, &[form(DT_ABILITY)]);
+    assert_eq!(target(&mut g, robot, DT_ABILITY), 0.0);
+    assert_eq!(av(&mut g, robot, DAMAGE_THRESHOLD), 0.0);
+    g.tick();
+    assert_eq!(target(&mut g, robot, DT_ABILITY), 0.0);
     call(&mut g, robot, DISPEL_ALL, &[]);
+    assert_eq!(target(&mut g, robot, RAD_IMMUNITY), 1.0);
+    // Loaded again: the dispelled ability is back.
+    g.loaded_cells.remove(&FormId(CELL));
+    g.tick();
+    g.loaded_cells.insert(FormId(CELL));
+    g.tick();
     assert_eq!(target(&mut g, robot, DT_ABILITY), 1.0);
     call(&mut g, robot, REMOVE_SPELL, &[form(DT_ABILITY)]);
     assert_eq!(target(&mut g, robot, DT_ABILITY), 0.0);
@@ -323,10 +354,18 @@ fn worn_enchantments_follow_equipment() {
     assert_eq!(call(&mut g, P, HAS_MAGIC_EFFECT, &[form(MOD_PER)]), 1.0);
     assert_eq!(av(&mut g, P, PERCEPTION), 6.0);
     assert_eq!(call(&mut g, P, GET_PERMANENT_AV, &[code(PERCEPTION)]), 5.0);
-    // Dispel, DispelAllSpells and RemoveSpell leave a worn enchantment.
-    call(&mut g, P, DISPEL, &[form(ENCH_HAT)]);
+    // DispelAllSpells and RemoveSpell leave a worn enchantment; Dispel takes it off
+    // until the item is equipped again (capture abilities-1, the gambler hat).
     call(&mut g, P, DISPEL_ALL, &[]);
     call(&mut g, P, REMOVE_SPELL, &[form(ENCH_HAT)]);
+    assert_eq!(av(&mut g, P, PERCEPTION), 6.0);
+    call(&mut g, P, DISPEL, &[form(ENCH_HAT)]);
+    g.tick();
+    assert_eq!(target(&mut g, P, ENCH_HAT), 0.0);
+    assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
+    call(&mut g, P, UNEQUIP, &[form(HAT)]);
+    call(&mut g, P, EQUIP, &[form(HAT)]);
+    assert_eq!(target(&mut g, P, ENCH_HAT), 1.0);
     assert_eq!(av(&mut g, P, PERCEPTION), 6.0);
     call(&mut g, P, UNEQUIP, &[form(HAT)]);
     assert_eq!(target(&mut g, P, ENCH_HAT), 0.0);
@@ -356,7 +395,8 @@ fn conditions_are_checked_while_worn() {
     g.world.add_item(P, FormId(GLASSES), 1).unwrap();
     call(&mut g, P, EQUIP, &[form(GLASSES)]);
     assert_eq!(target(&mut g, P, ENCH_GLASSES), 1.0);
-    assert_eq!(call(&mut g, P, HAS_MAGIC_EFFECT, &[form(MOD_PER)]), 0.0);
+    // Listed while its conditions fail (capture abilities-1, the Four Eyes glasses).
+    assert_eq!(call(&mut g, P, HAS_MAGIC_EFFECT, &[form(MOD_PER)]), 1.0);
     assert_eq!(av(&mut g, P, PERCEPTION), 5.0);
     set_actor_value_current(&mut g, P, LUCK, 8.0).unwrap();
     for _ in 0..90 {
