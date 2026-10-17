@@ -632,10 +632,27 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 22
 expect = [
-  { re = 'combat line: \S+ says PowerAttack line', label = "the player says a PowerAttack line", known_failing = "branch observer-npc-behaviour 2026-10-17, 3 of 3 runs: the dogs now bite from their reach (npc_combat::melee_spacing), so their bites land sooner and the player's power attack (22.72 s in one run) falls inside its own Hit line (22.44-22.90 s); a line is never started while the speaker talks. The player's line rules are unchanged; the aid timings need moving (npc-behaviour-compare.md §8)" },
+  { re = 'combat line: \S+ says PowerAttack line', label = "the player says a PowerAttack line" },
   { re = 'combat line: \S+ says Hit line', label = "someone says a Hit line" },
   { re = 'combat line: \S+ says Death line', label = "the player's Death line" },
   { re = 'combat lines: (?P<n>\d+) said', range = [2, 10000], label = "at least two combat lines in the summary" },
+]
+
+[[scenario]]
+name = "combat-voice"
+source = "owner requests 2026-10-17: the player's hurt and power attack sounds play (docs/spec-notes/combat-dialogue.md §2); the death music plays when the player dies (engine/nvf-play/src/music.rs)"
+note = "combat-lines with voice and music on: the player's Hit lines play their files, the power attack's line cuts the Hit grunt of the blow taken just before it, and the player's death plays MUSDeath"
+areas = ["combat", "dialogue", "audio", "music"]
+paths = ["crates/fnv-game/src/combat_lines.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/music.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'voice: playing \S+playervoicemale\\genericplayer_hit_', label = "a player hurt sound plays" },
+  { re = 'voice: playing \S+playervoicemale\\genericplayer_powerattack_', label = "the player's power attack sound plays" },
+  { re = 'voice: playing \S+playervoicemale\\genericplayer_death_', label = "the player's death sound plays" },
+  { re = 'music: the player died: the music stops, MUSDeath \(\S+\) plays$', label = "the death music plays" },
+  { re = 'music summary: .*, 1 death sounds', label = "one death sound in the music summary" },
 ]
 
 [[scenario]]
