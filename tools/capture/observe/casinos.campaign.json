@@ -1,0 +1,60 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "casinos",
+ "title": "Casinos over the day: staff, guards, gamblers and patrons (schedules, sandboxing, tables and bars, sitting and sleeping, conversations), the player standing at the arrival marker",
+ "save": "nvftest",
+ "defaults": {
+  "every": 60,
+  "depth": 1
+ },
+ "sessions": [
+  {
+   "name": "gomorrah",
+   "go": {
+    "coc": "Gomorrah01"
+   },
+   "hour": 12,
+   "hours": 24
+  },
+  {
+   "name": "tops",
+   "go": {
+    "coc": "TOPSCasino"
+   },
+   "hour": 12,
+   "hours": 24
+  },
+  {
+   "name": "ultra_luxe",
+   "go": {
+    "coc": "ULCasino"
+   },
+   "hour": 18,
+   "hours": 12
+  },
+  {
+   "name": "atomic_wrangler",
+   "go": {
+    "coc": "FreesideAtomicWrangler"
+   },
+   "hour": 18,
+   "hours": 12
+  },
+  {
+   "name": "vikki_vance",
+   "go": {
+    "coc": "VikkiAndVance"
+   },
+   "hour": 12,
+   "hours": 12
+  },
+  {
+   "name": "gomorrah_lobby",
+   "go": {
+    "coc": "Gomorrah00"
+   },
+   "hour": 20,
+   "hours": 6
+  }
+ ]
+}

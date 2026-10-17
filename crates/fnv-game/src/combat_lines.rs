@@ -5,8 +5,11 @@
 //!   [`Game::hit`], so every hit on the player, an NPC or a creature): a hit that cripples
 //!   a limb says Crippled; one that takes health to half or a quarter says HealthHalf or
 //!   HealthQuarter (once per crossing); otherwise, or when the actor has no such line, Hit
-//!   when the damage is more than `fCombatSpeakHitThreshold` of its health or a random
-//!   number is below `fCombatSpeakHitChance` [documented: Combat Tab].
+//!   when the damage is more than `fCombatSpeakHitThreshold` of its health and (an NPC
+//!   or creature) a random number is below `fCombatSpeakHitChance`, or (the player)
+//!   either [documented: Combat Tab names both settings; the "and" for NPCs is fitted:
+//!   in the original's NPC battles about 1 % of 217 hits were followed by a line,
+//!   observed 2026-10-17, docs/spec-notes/npc-behaviour-compare.md §2].
 //! - **Death** ([`Game::death_line`], from [`Game::kill`]): always, cutting the actor's
 //!   line; the line goes on although its speaker is dead (`Game::update_speech`). The
 //!   nearest living member of its group within [`RESPONSE_RADIUS`] then says
@@ -14,7 +17,10 @@
 //!   is nearby"; design: who is valid and how near].
 //! - **Attack, PowerAttack, FireExplosive** ([`Game::attack_line`], from the engine when
 //!   the player or an NPC begins an attack): at most one per actor per random time between
-//!   `fCombatDialogueAttackMinElapsedTime` and `…MaxElapsedTime` [documented: Combat Tab].
+//!   `fCombatDialogueAttackMinElapsedTime` and `…MaxElapsedTime` [documented: Combat Tab];
+//!   an NPC or creature also only when a random number is below `fCombatSpeakAttackChance`
+//!   [hypothesis fitted to the original: about 3 lines for some 175 attacks begun in its
+//!   NPC battles, observed 2026-10-17; the player keeps the timer alone, our design].
 //! - **WeaponBroke, NoAmmo** ([`Game::combat_line`], from the engine).
 //!
 //! A response with a sound of its own (creature grunts, robot buzzes) plays that sound
@@ -40,11 +46,13 @@ pub struct Timing {
     /// `fCombatDialogueAttackMin/MaxElapsedTime`: seconds between two Attack or
     /// PowerAttack lines of one actor.
     pub attack_wait: (f64, f64),
+    /// `fCombatSpeakAttackChance`: an NPC's chance, per attack begun, to say its line.
+    pub attack_chance: f64,
 }
 
 impl Default for Timing {
     fn default() -> Timing {
-        Timing { hit_threshold: 0.01, hit_chance: 0.01, attack_wait: (5.0, 30.0) }
+        Timing { hit_threshold: 0.01, hit_chance: 0.01, attack_wait: (5.0, 30.0), attack_chance: 0.01 }
     }
 }
 
@@ -56,6 +64,7 @@ impl Timing {
             hit_threshold: s("fCombatSpeakHitThreshold", d.hit_threshold),
             hit_chance: s("fCombatSpeakHitChance", d.hit_chance),
             attack_wait: (s("fCombatDialogueAttackMinElapsedTime", d.attack_wait.0), s("fCombatDialogueAttackMaxElapsedTime", d.attack_wait.1)),
+            attack_chance: s("fCombatSpeakAttackChance", d.attack_chance),
         }
     }
 }
@@ -111,9 +120,16 @@ pub fn mark_below(health: f64, max: f64) -> u8 {
 }
 
 /// Whether a hit of `dealt` damage on an actor of `max` health says Hit, with `roll` a
-/// random number in [0, 1) [documented: Combat Tab].
-pub fn says_hit(dealt: f64, max: f64, roll: f64, t: &Timing) -> bool {
-    (max > 0.0 && dealt / max > t.hit_threshold) || roll < t.hit_chance
+/// random number in [0, 1): an NPC or creature (`npc`) needs both the threshold and the
+/// chance, the player either (module notes).
+pub fn says_hit(dealt: f64, max: f64, roll: f64, t: &Timing, npc: bool) -> bool {
+    let over = max > 0.0 && dealt / max > t.hit_threshold;
+    let chance = roll < t.hit_chance;
+    if npc {
+        over && chance
+    } else {
+        over || chance
+    }
 }
 
 impl Game<'_> {
@@ -159,6 +175,9 @@ impl Game<'_> {
             return None;
         }
         let t = self.combat_timing();
+        if actor != FormId::PLAYER_REF && self.combat_lines.unit() >= t.attack_chance {
+            return None;
+        }
         let wait = t.attack_wait.0 + (t.attack_wait.1 - t.attack_wait.0).max(0.0) * self.combat_lines.unit();
         self.combat_lines.next_attack.insert(actor, now + wait);
         let topic = if power {
@@ -198,7 +217,7 @@ impl Game<'_> {
         }
         let t = self.combat_timing();
         let roll = self.combat_lines.unit();
-        if says_hit(before - after, max, roll, &t) {
+        if says_hit(before - after, max, roll, &t, target != FormId::PLAYER_REF) {
             self.combat_line(target, attacker, "Hit");
         }
     }
@@ -272,8 +291,13 @@ mod tests {
     #[test]
     fn hit_is_said_above_the_threshold_or_by_chance() {
         let t = Timing::default();
-        assert!(says_hit(2.0, 100.0, 0.5, &t));
-        assert!(!says_hit(0.5, 100.0, 0.5, &t));
-        assert!(says_hit(0.5, 100.0, 0.005, &t));
+        // The player: either.
+        assert!(says_hit(2.0, 100.0, 0.5, &t, false));
+        assert!(!says_hit(0.5, 100.0, 0.5, &t, false));
+        assert!(says_hit(0.5, 100.0, 0.005, &t, false));
+        // An NPC: both.
+        assert!(!says_hit(2.0, 100.0, 0.5, &t, true));
+        assert!(!says_hit(0.5, 100.0, 0.005, &t, true));
+        assert!(says_hit(2.0, 100.0, 0.005, &t, true));
     }
 }
