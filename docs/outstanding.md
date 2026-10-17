@@ -25,7 +25,7 @@ GetOwnerLastTarget (#403). About 50 functions are still stubs.
 | 3 | Look turning the body | 26 | Look's rotate-body flag is stored, never acted on | Look |
 | 4 | Animation state told to the rules | 22 | The engine knows attacks, reloads and idles but does not tell the rules | IsPlayerActionActive, IsAnimPlaying, IsIdlePlaying, IsMoving's directions, GetAnimAction for attacks and reloads |
 | 5 | Repair menu | 10 (Raul's quests among them) | No repair menu; item condition and broken weapons exist | ShowRepairMenu |
-| 6 | Barber, plastic surgeon and tutorial menus | 9 | Not built (the character creator could stand in for the barber and surgeon) | ShowBarberMenu, ShowPlasticSurgeonMenu, ShowTutorialMenu |
+| 6 | Barber, plastic surgeon and tutorial menus | 9 | The barber is built: the character creator as the barber, hair, colour and beard only (character-creator.md §10). Not built: the plastic surgeon, the tutorial menu | ShowPlasticSurgeonMenu, ShowTutorialMenu |
 | 7 | Pip-Boy reset | 8 | Not built | ResetPipboyManager |
 | 8 | Talking activators | 6 | Activators that speak (radios with lines, intercoms) do not talk | IsActorTalkingThroughActivator |
 | 9 | Menu codes | 6 | MenuMode does not report every menu's code (the Pip-Boy's 1 and the loading codes) | MenuMode |

@@ -275,14 +275,19 @@ fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Opt
         warn!("creator: no race to start from; the placeholder stays");
         return;
     };
-    let m = Model::new(data.0.clone(), start);
+    let kind = rt.game.race_menu;
+    let m = Model::of_kind(data.0.clone(), start, kind);
     if let Some(p) = &data.0.ctl_problem {
         warn!("creator: {p}; no sliders");
     }
     info!("creator: open on {} ({} sliders, {} races, {} beards, {} starting faces)", m.caption(), m.sliders().len(), data.0.catalogue.races.len(), data.0.catalogue.facial_hair.len(), data.0.catalogue.presets(m.look.race, m.look.female).len());
+    if kind == model::RaceMenu::Barber {
+        info!("creator: as the barber (ShowBarberMenu): the hair, its colour and the beard only");
+    }
     let mut m = m;
     let c = m.camera();
-    info!("creator: camera on opening: {:.0} units away, looking {:.0} under the eye (the face)", c.distance, c.drop);
+    let what = if kind == model::RaceMenu::Barber { "the hair" } else { "the face" };
+    info!("creator: camera on opening: {:.0} units away, looking {:.0} under the eye ({what})", c.distance, c.drop);
     control.portrait = Some(c);
     st.written = Some(m.look.clone());
     st.model = Some(m);
@@ -418,7 +423,7 @@ fn input(
         }
         if mouse.just_pressed(MouseButton::Left) {
             match under {
-                Some(HitWhat::Tab(i)) => ops.push((Op::Tab(TABS[i]), "click")),
+                Some(HitWhat::Tab(i)) => ops.push((Op::Tab(m.tabs()[i]), "click")),
                 Some(HitWhat::Arrow(i, by)) => ops.push((Op::AdjustRow(i, by), "click")),
                 Some(HitWhat::Track(i)) => {
                     st_ref.drag = Some(i);
@@ -611,7 +616,7 @@ fn apply(st: &mut CreatorMenu, script: &mut Option<ResMut<ScriptState>>, sim: &m
 /// A row by label on any tab (and any group of it): its tab and index.
 fn find_row(m: &mut Model, label: &str) -> Option<(Tab, usize)> {
     let keep = (m.tab, m.on_actions);
-    for t in TABS {
+    for &t in m.tabs() {
         m.set_tab(t);
         let groups = m.groups(t).len().max(1);
         for _ in 0..groups {

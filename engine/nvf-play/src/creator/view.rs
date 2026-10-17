@@ -15,7 +15,7 @@
 //! pointer is tested against those rectangles rather than UI interaction state (the
 //! panel is rebuilt while a slider is dragged).
 
-use super::model::{Model, RowView, ACTIONS, TABS};
+use super::model::{Model, RowView, ACTIONS};
 use crate::interface::{amber, at, face, plain_font, u, Face};
 use bevy::prelude::*;
 use fnv_font::Line;
@@ -201,11 +201,12 @@ pub fn spawn(p: &mut ChildSpawnerCommands, m: &Model, kit: &Kit, view_w: f32) ->
     fill(p, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, PANEL);
     fill(p, PANEL_X, PANEL_Y, 4.0, PANEL_H, accent(0.9));
     // The title and what the look is.
-    text(p, &kit.head, "APPEARANCE", LEFT, 52.0, 1.0, Align::Left, bone(1.0));
+    text(p, &kit.head, m.title(), LEFT, 52.0, 1.0, Align::Left, bone(1.0));
     text(p, &kit.body, &m.caption(), RIGHT, 60.0, 0.8, Align::Right, sand(0.9));
     // The tabs.
-    let tab_w = (RIGHT - LEFT) / TABS.len() as f32;
-    for (i, t) in TABS.iter().enumerate() {
+    let tabs = m.tabs();
+    let tab_w = (RIGHT - LEFT) / tabs.len() as f32;
+    for (i, t) in tabs.iter().enumerate() {
         let x = LEFT + tab_w * i as f32;
         let on = *t == m.tab;
         text(p, &kit.head, t.title(), x + tab_w / 2.0, 120.0, 0.75, Align::Centre, if on { bone(1.0) } else { bone(0.45) });

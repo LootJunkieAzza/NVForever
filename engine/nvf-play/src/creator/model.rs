@@ -22,6 +22,10 @@ pub enum Tab {
 }
 
 pub const TABS: [Tab; 6] = [Tab::Basics, Tab::Face, Tab::Detail, Tab::Skin, Tab::Hair, Tab::Eyes];
+/// The barber's one tab (docs/spec-notes/character-creator.md §10).
+pub const BARBER_TABS: [Tab; 1] = [Tab::Hair];
+
+pub use fnv_game::game::RaceMenu;
 
 impl Tab {
     pub fn title(self) -> &'static str {
@@ -260,6 +264,8 @@ pub struct Model {
     pub on_actions: Option<usize>,
     /// The player's turning, panning and zooming, over the tab's framing.
     pub view: View,
+    /// Which function opened the menu: what may be changed.
+    pub kind: RaceMenu,
 }
 
 fn tab_index(t: Tab) -> usize {
@@ -276,18 +282,42 @@ fn cycle(i: usize, by: i32, n: usize) -> usize {
 
 impl Model {
     pub fn new(data: Arc<Creator>, look: Look) -> Model {
+        Model::of_kind(data, look, RaceMenu::Creator)
+    }
+
+    /// The menu as the function that opened it has it: the character creator opens on
+    /// Basics framed on the face; the barber on its Hair tab, framed for the hair.
+    pub fn of_kind(data: Arc<Creator>, look: Look, kind: RaceMenu) -> Model {
+        let tab = if kind == RaceMenu::Barber { Tab::Hair } else { Tab::Basics };
         Model {
             data,
             start: look.clone(),
             look,
             undo: Vec::new(),
             last_edit: None,
-            tab: Tab::Basics,
+            tab,
             rows: [0; 6],
             groups: [0; 6],
             preset: 0,
             on_actions: None,
-            view: View::face_on(Tab::Basics),
+            view: if kind == RaceMenu::Barber { View::default() } else { View::face_on(Tab::Basics) },
+            kind,
+        }
+    }
+
+    /// The tabs this menu shows.
+    pub fn tabs(&self) -> &'static [Tab] {
+        match self.kind {
+            RaceMenu::Creator => &TABS,
+            RaceMenu::Barber => &BARBER_TABS,
+        }
+    }
+
+    /// The panel's title.
+    pub fn title(&self) -> &'static str {
+        match self.kind {
+            RaceMenu::Creator => "APPEARANCE",
+            RaceMenu::Barber => "BARBER",
         }
     }
 
@@ -361,6 +391,12 @@ impl Model {
                 if !self.look.female {
                     r.push(Row::FacialHair);
                 }
+                // The barber does the hair and the beard only [documented: GECK wiki
+                // ShowBarberMenu, "hair color and style"; owner 2026-10-17: and beards]:
+                // not the brows (part of the face) nor the face's shading.
+                if self.kind == RaceMenu::Barber {
+                    return r;
+                }
                 r.push(Row::Brows);
                 r.push(Row::Group);
                 r.extend(sliders_of(&group, Space::Skin));
@@ -388,6 +424,9 @@ impl Model {
     // ---- moving about -----------------------------------------------------------------
 
     pub fn set_tab(&mut self, t: Tab) -> bool {
+        if !self.tabs().contains(&t) {
+            return false;
+        }
         let changed = self.tab != t;
         self.tab = t;
         self.on_actions = None;
@@ -400,8 +439,9 @@ impl Model {
     }
 
     pub fn step_tab(&mut self, by: i32) -> bool {
-        let i = cycle(tab_index(self.tab), by, TABS.len());
-        self.set_tab(TABS[i])
+        let tabs = self.tabs();
+        let at = tabs.iter().position(|&x| x == self.tab).unwrap_or(0);
+        self.set_tab(tabs[cycle(at, by, tabs.len())])
     }
 
     /// Up and Down: rows, then the bottom buttons.
@@ -610,7 +650,16 @@ impl Model {
         self.undo.push(self.look.clone());
         self.last_edit = None;
         // The race stays: it is chosen on purpose [design].
-        self.look = creator::random_look(&self.data.catalogue, &self.look, Randomise { face: true, hair: true, race: false }, rng);
+        let before = self.look.clone();
+        self.look = creator::random_look(&self.data.catalogue, &self.look, Randomise { face: self.kind == RaceMenu::Creator, hair: true, race: false }, rng);
+        if self.kind == RaceMenu::Barber {
+            // Only the hair, its colour and the beard: the eyes and brows stay.
+            let beards = self.data.catalogue.facial_hair.clone();
+            let beard = creator::part_of(&self.look, &beards);
+            self.look.eyes = before.eyes;
+            self.look.head_parts = before.head_parts.clone();
+            creator::set_part(&mut self.look, &beards, beard);
+        }
         if self.look.female {
             let beards = self.data.catalogue.facial_hair.clone();
             creator::set_part(&mut self.look, &beards, None);
@@ -923,6 +972,27 @@ mod tests {
         assert!(tone_reading(tone(c, 1, 20.0), 1) > tone_reading(c, 1));
         assert!(tone_reading(tone(c, 2, 20.0), 2) > tone_reading(c, 2));
         assert_eq!(tone([250, 250, 250], 0, 20.0), [255, 255, 255]);
+    }
+
+    #[test]
+    fn the_barber_does_the_hair_only() {
+        let mut m = Model::of_kind(data(), Look { head_parts: vec![FormId(50)], ..look() }, RaceMenu::Barber);
+        assert_eq!((m.tab, m.title()), (Tab::Hair, "BARBER"));
+        assert_eq!(m.rows(), vec![Row::Hair, Row::HairColour, Row::HairTone(0), Row::HairTone(1), Row::HairTone(2), Row::FacialHair]);
+        // No other tab: not the sex, race, face or eyes.
+        assert!(!m.set_tab(Tab::Basics) && !m.set_tab(Tab::Face));
+        assert!(!m.step_tab(1));
+        assert_eq!(m.tab, Tab::Hair);
+        // Random changes the hair, its colour and the beard; the face, eyes and brows stay.
+        let mut rng = <rand_chacha::ChaCha8Rng as rand_core::SeedableRng>::seed_from_u64(3);
+        m.randomise(&mut rng);
+        assert_eq!(m.look.facegen, look().facegen);
+        assert_eq!(m.look.eyes, look().eyes);
+        assert!(m.look.head_parts.contains(&FormId(50)), "the brows stay");
+        assert_eq!(m.look.hair, Some(FormId(11)));
+        assert_eq!(m.look.hair_color, Some([200, 180, 90]));
+        assert!(m.look.head_parts.contains(&FormId(40)), "the authored face's beard");
+        assert_eq!((m.look.race, m.look.female), (look().race, look().female));
     }
 
     #[test]

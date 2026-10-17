@@ -4101,3 +4101,27 @@ order = [[
   { re = 'fast travel: to Goodsprings \(0x000CDF51\) refused \(Place\)', label = "refused: the worldspace forbids fast travel" },
   'fast travel: answered "OK"',
 ]]
+
+[[scenario]]
+name = "barber-menu"
+source = "owner todo 6 task 2: ShowBarberMenu opens the character creator as the barber, the hair, its colour and the beard only (docs/spec-notes/character-creator.md §10)"
+areas = ["chargen", "menus"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/**", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "4:ShowBarberMenu;4.3:close", NVF_PLAY_TEST_CREATOR = "7:next:Hair style,7.5:next:Facial hair,8:next:Hair colour,8.5:random,9:next:Origin,9.5:tab:face,11:done", NVF_PLAY_TEST_SHOTS = "6.5:barber_open.png,10:barber_changed.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 18
+order = [[
+  "console: > ShowBarberMenu",
+  "script: menu 1036 open",
+  "creator: open on",
+  "creator: as the barber (ShowBarberMenu): the hair, its colour and the beard only",
+  "creator: camera on opening: 58 units away, looking … under the eye (the hair)",
+  "creator: Hair style",
+  "creator: Facial hair",
+  "creator: Hair colour",
+  "creator: randomised",
+  'test aid: creator: no row "Origin"',
+  "creator: done (test aid NVF_PLAY_TEST_CREATOR)",
+  "creator: closed",
+]]
+manual = "barber_open.png: the panel titled BARBER with one tab (HAIR) and no brows or sliders, the head framed; barber_changed.png: another hair, colour and beard"
