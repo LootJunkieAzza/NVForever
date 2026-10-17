@@ -31,8 +31,9 @@
 //!   navmesh cover edge the attacker is beyond, `fnv_nav::CoverEdge`), or
 //!   fCombatFleeNormalDistance straight away from it (turning up to 90° either way when
 //!   the navmesh ends there); at the spot it stays, facing the attacker. Cornered (no
-//!   way out) it stands where it is [design: the choice among doors and cover, nearest
-//!   first].
+//!   way out) it stays where it is [design: the choice among doors and cover, nearest
+//!   first]. At its spot or cornered a person hides crouched (`Game::sneaks`,
+//!   `Game::at_flee_spot`; combat-ai.md §12.2.1).
 //! - **Posts** (§12.1): a place the combat AI wants a fighter at (cover, a peek out of
 //!   it, a flank, a step aside, a step back; `fnv_game::combat_group::Post`): it goes
 //!   there, running unless it aims down its sights, and stands facing its target. A post
@@ -412,7 +413,8 @@ impl Ai {
                     if let Some(f) = game.awareness.tactics.flights.get_mut(&actor) {
                         f.arrived = Some(now);
                     }
-                    self.log(game, actor, AiEvent::FleeArrived { from, seconds: (now - since) as f32, off: flat(feet, to) });
+                    let hides = game.sneaks(actor);
+                    self.log(game, actor, AiEvent::FleeArrived { from, seconds: (now - since) as f32, off: flat(feet, to), hides });
                 }
             }
             // At its spot until the combat AI has it flee again (a new flight: not arrived).
@@ -497,7 +499,8 @@ impl Ai {
         if let Some(f) = game.awareness.tactics.flights.get_mut(&actor) {
             f.arrived = Some(now);
         }
-        self.log(game, actor, AiEvent::Cornered { from });
+        let hides = game.sneaks(actor);
+        self.log(game, actor, AiEvent::Cornered { from, hides });
     }
 
     /// The search or the stand ends: the actor goes back to its package.

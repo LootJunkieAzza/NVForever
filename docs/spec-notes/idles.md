@@ -595,3 +595,79 @@ menu (`MenuMode 1009 == 1`). Below it, in order (conditions abridged):
 - The robots' and Mr. House's groups want `GetCurrentAIPackage == 6`; ours answers 6 in
   conversations, but the robots' skeletons were not tried.
 - The `.lip` head and look channels (lipsync.md §3.3) are not played.
+
+## 13. Fleeing: the run and the cower (owner request 2026-10-17)
+
+The owner asked for fleeing NPCs to run with the original's flee animations ("hands
+covering the head") and to hide crouched when they stop.
+
+### 13.1 What the data holds
+
+- **No flee run set** [observed: `fnvtool bsa list` of `Fallout - Meshes.bsa`, 2026-10-17].
+  `characters\_male\locomotion\` has the stance sets, `male\`, `female\`, `child\` and the
+  limping `hurt\` set, and nothing for fleeing. No path in the base archive, `Update.bsa`,
+  `Fallout - Misc.bsa` or the five add-on `Main` archives contains `flee`, `panic` or
+  `afraid` as a clip of people. The only `scared` clips are the add-ons' robot idles
+  (`nvdlc03\creatures\brainbot`, `nvdlc04\…\nvdlc04edeclone`). The IDLE tree has no idle
+  for a moving fleeing actor (below). A fleeing person therefore runs with its ordinary
+  run (`mtfastforward` of its stance) [hypothesis: nothing else is in the data; no game
+  capture was taken].
+- **The cower clip**: `characters\_male\idleanims\3rdp_cowering.kf` [observed]. Other
+  frightened clips in the same folder are played by scripts and dialogue only, never by
+  the tree's flee conditions: `handsupnoharm.kf` (`LooseHandsUpNoHarm`, no conditions),
+  `ms11shieldseyes.kf` (`MS11ShieldsEyes`, no conditions), `scared*`, `ttpfear*`,
+  `dlcpittflinchinga.kf`, `dlcpittsitfloorcoweringa.kf` [observed: `fnvtool actor
+  anims`, FalloutNV.esm].
+- **IDLE records naming the flee procedure** [observed: `fnvtool actor anims`,
+  FalloutNV.esm]. The values are GetCurrentAIProcedure codes: 16 FLEE, 34
+  FLEE_NON_COMBAT [documented: GECK wiki GetCurrentAIProcedure, owner's export].
+
+| IDLE | Where | File | Conditions |
+|---|---|---|---|
+| `NVKimbalCower` 0x0016AC8F | root | none (folder) | GetIsReference (one ref), a quest variable == 3, IsMoving == 0, procedure == 16 OR == 34, IsSwimming == 0 |
+| `CowerIdles` 0x0006CB4A | root, after `NVKimbalCower` in the chain | `3rdP_Cowering.kf`, Special Idle, loops 2–12 | IsMoving == 0, procedure == 16 OR == 34, IsSwimming == 0 |
+| `3rdPCrouchedHit` 0x00020EEE | `HitReactionIdles` > `3rdPersonHitReactions` | (inner node) | IsSneaking == 1 OR procedure == 16 OR == 34, IsMoving == 0 |
+| `3rdPCrouchedHitForce` 0x0014CC2A | `HitReactionIdles` > `3rdPersonHitReactionsForce` | (inner node) | as above, and GetForceHitReaction == 1 |
+| `LooseCowerIdles` 0x000C0A9A | root | `3rdP_Cowering.kf`, Loop Forever | none (asked for by scripts) |
+| `VanGraffCustomerCower` 0x001251F7 | root | `3rdp_cowering.kf` | GetIsID (one actor) |
+
+The creatures' combat idles (mole rat, giant rat, mantis, gecko) want procedure 13 OR
+16 while not moving. Their taunts want "not 16", and the Cazador's `NVCazFlyHigh` wants
+16. So the combat AI's flight runs as procedure 16 [hypothesis, from these conditions].
+
+### 13.2 Rules as built (`Game::flee_idle`, `engine/nvforever/src/idles.rs`)
+
+- `GetCurrentAIProcedure` reads 16 for an actor in a combat state with a flight
+  (`combat_group::Flight`), and `GetCurrentAIPackage` reads 5 COMBAT (ai_state.rs).
+- A drawn NPC that flees and stands still (as when its flight begins, or at its flee
+  spot) is checked every 0.5 s. The tree's roots
+  that are idles with a file of its folder and whose conditions name procedure 16 are
+  tried in chain order with their own conditions, and the first that passes plays
+  (`IdleSource::Cower`). In FalloutNV.esm that is `CowerIdles`. It is not stopped
+  when the actor runs, only when it no longer flees (fading out). After its loops it
+  is picked again the next time the actor stands still.
+- **Cowering while running, crouching when stopped** [owner 2026-10-17: "they'll cower
+  whilst running but they only crouch when stopped"; "they holster their weapon"]. The
+  priorities of the clips give this without a run clip of its own [observed: `fnvtool
+  nif decode`]. `3rdp_cowering.kf` has priority 23 on `Bip01`, the pelvis and legs, 30
+  on `Bip01 Spine` and 33 on the spine above, neck, head and arms.
+  `locomotion\male\mtfastforward.kf` (the unarmed run) has 30 on every bone, so the run's
+  legs win and the cower's arms and head win: it runs with its hands over its head.
+  `sneakmtidle.kf` has 20 on every bone, so stopped and crouched (§12.2.1 of
+  combat-ai.md) the whole cower shows. A drawn rifle's run (`2hrfastforward.kf`) has 36
+  on the upper body and would cover the cower: the weapon is holstered while the actor
+  flees (`Game::wants_weapon_out`). How the original keeps the idle on the run is a
+  hypothesis: it starts by its conditions when the flight begins (the actor still
+  stands) and loops 2 to 12 times of 12 s, and movement does not end an idle.
+- Hit reactions are not read from the tree (the staggers of `locomotion.rs` and
+  `npc_combat` follow their own rules), so the `3rdPCrouchedHit` branch is not played
+  while cowering.
+- Not built: Flee Not Combat packages (procedure 34) are not carried out
+  (`fnv_ai::goal`), so their actors never cower.
+
+### 13.3 Open
+
+- Whether the original ends the cower before its loops run out, and whether it starts
+  it again on the run. A capture of `GetCurrentAIProcedure`, `IsMoving`, `IsSneaking`,
+  `IsIdlePlaying` and `IsWeaponOut` on a fleeing NPC would settle it
+  (`tools/capture/observe.py`); none was taken.

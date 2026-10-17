@@ -47,6 +47,7 @@ const IDLE_SIT: u32 = 0xA02;
 const IDLE_FOLDER: u32 = 0xA03;
 const IDLE_OWN: u32 = 0xA04;
 const IDLE_UNREAD: u32 = 0xA05;
+const IDLE_COWER: u32 = 0xA06;
 const P_FIRST: u32 = 0xB01;
 const P_SECOND: u32 = 0xB02;
 const P_PLAIN: u32 = 0xB03;
@@ -84,6 +85,19 @@ fn idle_if(fid: u32, edid: &str, conds: Vec<Subrecord>) -> Vec<u8> {
 
 const GET_IS_ID: u16 = 72;
 
+/// A condition `function == value` on the subject, joined to the next by OR when `or`.
+fn ctda_eq(function: u16, value: f32, or: bool) -> Subrecord {
+    let mut d = vec![u8::from(or), 0, 0, 0];
+    d.extend(value.to_le_bytes());
+    d.extend(function.to_le_bytes());
+    d.extend([0u8; 18]);
+    sub(b"CTDA", d)
+}
+
+/// IsMoving and GetCurrentAIProcedure (condition function indices).
+const IS_MOVING: u16 = 25;
+const GET_CURRENT_AI_PROCEDURE: u16 = 143;
+
 /// A Travel package at the editor location with a begin idle, a change idle and an idle
 /// collection run in sequence.
 fn pack(fid: u32, edid: &str, begin: Option<u32>, change: Option<u32>, collection: &[u32]) -> Vec<u8> {
@@ -114,6 +128,9 @@ fn plugin_bytes() -> Vec<u8> {
         idle_if(IDLE_OWN, "OnlySomebody", vec![ctda(GET_IS_ID, NPC)]),
         // A function index the runtime has no function for.
         idle_if(IDLE_UNREAD, "Unknown", vec![ctda(4000, 0)]),
+        // As FalloutNV.esm's CowerIdles: not moving, fleeing (16) or fleeing a non-combat
+        // threat (34).
+        idle_if(IDLE_COWER, "Cower", vec![ctda_eq(IS_MOVING, 0.0, false), ctda_eq(GET_CURRENT_AI_PROCEDURE, 16.0, true), ctda_eq(GET_CURRENT_AI_PROCEDURE, 34.0, false)]),
     ]
     .concat();
     let packs = [
@@ -180,7 +197,7 @@ fn asked(g: &mut Game) -> Vec<(u32, u32, IdleSource)> {
 fn idle_records_and_package_idle_data_are_read() {
     let f = fixture();
     let d = &f.data;
-    assert_eq!(d.idles.len(), 5);
+    assert_eq!(d.idles.len(), 6);
     let wake = &d.idles[&FormId(IDLE_WAKE)];
     assert_eq!((wake.model.as_deref(), wake.loop_min, wake.loop_max, wake.has_file()), (Some("Characters\\_Male\\IdleAnims\\Wake.kf"), 255, 255, true));
     assert!(!d.idles[&FormId(IDLE_FOLDER)].has_file());
@@ -273,4 +290,31 @@ fn a_package_asks_for_its_begin_and_change_idles() {
     assert_eq!(asked(&mut g), [(player.0, IDLE_WAKE, IdleSource::PackageChange)]);
     assert_eq!(g.extra[&player].current_package, None);
     assert!(g.extra[&player].packages.is_empty());
+}
+
+/// The tree's root idles that want the flee procedure play on a fleeing actor standing
+/// still (docs/spec-notes/idles.md §13).
+#[test]
+fn a_fleeing_actor_standing_still_gets_the_cower_idle() {
+    let f = fixture();
+    let mut g = game(&f);
+    let actor = FormId(ACTOR);
+    let folder = "characters\\_male";
+    assert_eq!(g.flee_idle(actor, folder, &|_| false), None, "not fleeing");
+    g.start_combat(actor, FormId::PLAYER_REF);
+    assert_eq!(g.flee_idle(actor, folder, &|_| false), None, "fighting, not fleeing");
+    assert!(g.wants_weapon_out(actor), "fighting: the weapon is out");
+    g.start_flight(actor, FormId::PLAYER_REF, [0.0; 3]);
+    assert!(!g.wants_weapon_out(actor), "fleeing: the weapon is holstered");
+    assert_eq!(g.flee_idle(actor, folder, &|_| false), Some(FormId(IDLE_COWER)));
+    assert_eq!(g.flee_idle(actor, folder, &|i| i == FormId(IDLE_COWER)), None, "held back");
+    assert_eq!(g.flee_idle(actor, "creatures\\dog", &|_| false), None, "another folder");
+    // On its way it stands; at its flee spot a person hides crouched (combat-ai.md §12.2.1).
+    assert!(!g.at_flee_spot(actor) && !g.sneaks(actor));
+    let now = g.time;
+    g.awareness.tactics.flights.get_mut(&actor).unwrap().arrived = Some(now);
+    assert!(g.at_flee_spot(actor) && g.sneaks(actor));
+    g.end_flight(actor);
+    assert_eq!(g.flee_idle(actor, folder, &|_| false), None, "fighting again");
+    assert!(g.wants_weapon_out(actor), "fighting again: drawn again");
 }
