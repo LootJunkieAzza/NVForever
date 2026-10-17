@@ -169,12 +169,12 @@ struct Drawn {
     warned: bool,
 }
 
-fn node_index(rig: &Rig, name: &str) -> Option<usize> {
+pub(crate) fn node_index(rig: &Rig, name: &str) -> Option<usize> {
     rig.nodes.iter().position(|n| n.name.as_deref().is_some_and(|m| m.eq_ignore_ascii_case(name)))
 }
 
 /// A node's local transform at `t` of `clip`, else its stored one.
-fn sampled(rig: &Rig, clip: Option<&Clip>, i: usize, t: f32) -> Transform {
+pub(crate) fn sampled(rig: &Rig, clip: Option<&Clip>, i: usize, t: f32) -> Transform {
     let mut tr = rig.nodes[i].local;
     let Some(name) = rig.nodes[i].name.as_deref() else { return tr };
     let Some((_, track)) = clip.and_then(|c| c.tracks.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))) else { return tr };
@@ -192,7 +192,7 @@ fn sampled(rig: &Rig, clip: Option<&Clip>, i: usize, t: f32) -> Transform {
 
 /// Every node's transform in the model's space (the root's own left out), posed by
 /// `clip` at `t`.
-fn model_space(rig: &Rig, clip: Option<&Clip>, t: f32) -> Vec<Affine3A> {
+pub(crate) fn model_space(rig: &Rig, clip: Option<&Clip>, t: f32) -> Vec<Affine3A> {
     let mut out: Vec<Affine3A> = Vec::with_capacity(rig.nodes.len());
     for (i, n) in rig.nodes.iter().enumerate() {
         let local = if i == 0 { Affine3A::IDENTITY } else { sampled(rig, clip, i, t).compute_affine() };
@@ -239,7 +239,7 @@ pub fn wobble(t: f32, health: f32, strained: bool) -> f32 {
     amp * (0.6 * (t * 23.0 * std::f32::consts::TAU).sin() + 0.4 * (t * 37.0 * std::f32::consts::TAU).sin())
 }
 
-fn local_of(world: Affine3A, parent: Affine3A) -> Transform {
+pub(crate) fn local_of(world: Affine3A, parent: Affine3A) -> Transform {
     Transform::from_matrix(Mat4::from(parent.inverse() * world))
 }
 

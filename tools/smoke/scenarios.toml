@@ -3255,3 +3255,27 @@ order = [[
 ]]
 # Ringo starts this run with his weapon out (the alert state of a new game's start, not the
 # progressed save nvftest the original was read in), so his first IsWeaponOut is not checked.
+
+[[scenario]]
+name = "roulette"
+source = "docs/spec-notes/roulette.md §7: The Tops' roulette table (0x0011ED93 in TOPSCasino) activated with 500 Tops chips: the help the first time, a straight-up on 17 and red, the ball made to stop in 17 (black): 25 x 36 back, 10 lost; screenshots of the felt and the wheel"
+areas = ["roulette"]
+paths = ["crates/fnv-game/src/roulette.rs", "crates/fnv-game/src/casino.rs", "engine/nvf-play/src/roulette*", "engine/nvf-play/src/roulette/**", "engine/nvforever/src/roulette_view.rs", "crates/fnv-nif/src/anim.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0011ED93", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0011ED93", NVF_PLAY_TEST_ROULETTE = "18:chips:500,36:help,37:bet:25,37.2:at:D12,37.4:place,37.6:bet:10,37.8:at:S08,38:place,38.2:at:C13,39:pocket:17,39.2:spin,53.5:exit", NVF_PLAY_TEST_SHOTS = "35.5:roulette_help.png,38.8:roulette_bets.png,42:roulette_spin.png,46:roulette_ball.png,48:roulette_ball2.png,49.3:roulette_result.png" }
+args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
+run_seconds = 56
+order = [[
+  "roulette: the player is given 500 chips",
+  'roulette: open The Tops (0x00144C3F): bets 1 to 200, 500 chips carried, earnings 0 of 10000, table terminals\NV_Roulette\NV_Roulette-Table.NIF; help message shown (first use)',
+  "roulette view: ",
+  "roulette: help message closed",
+  "roulette: 25 on D12 (Straight-Up 17): 25 there, 25 on the table",
+  "roulette: 10 on S08 (Red): 10 there, 35 on the table",
+  "roulette: spin (Spin_",
+  "roulette: the ball stops in 17 Black: 1 of 2 bets win, 900 chips back of 35, net 865; earnings 865 of 10000 (level 0)",
+  "roulette: closed (the player left",
+]]
+expect = [
+  { re = 'roulette view: .* 159 bet points', label = "every bet point of the points model read" },
+  "roulette summary: 1 asked, 1 opened (0 refused); 2 bets placed, 0 refused; 1 spins, 865 chips won, 0 lost; 0 bans",
+]

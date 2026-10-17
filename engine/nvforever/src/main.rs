@@ -46,6 +46,7 @@ mod lights;
 mod limbs;
 mod lips;
 mod lockpick_view;
+mod roulette_view;
 mod lod;
 mod locomotion;
 mod combat_stance;
@@ -1080,6 +1081,8 @@ fn main() -> AppExit {
         app.add_plugins(effect_shaders::EffectShadersPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
         app.add_plugins(lockpick_view::LockpickViewPlugin);
+        // The table, wheel and chips of the roulette menu (roulette_view.rs).
+        app.add_plugins(roulette_view::RouletteViewPlugin);
     }
     if let Some(a) = actor_world {
         app.insert_resource(a);

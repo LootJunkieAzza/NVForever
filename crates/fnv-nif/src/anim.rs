@@ -577,6 +577,19 @@ pub fn transform_track(dec: &Decoded, idx: i32, type_name: &str) -> Option<Trans
             }
             Some(track)
         }
+        // A node aimed at another (a camera at its target): its place comes from its
+        // translation interpolator (an `NiPoint3Interpolator`); the aim is left to the
+        // caller, who knows the target node (`look_at_name`) [documented: nif.xml
+        // NiLookAtInterpolator; observed: `nv_roulette-table.nif`'s `Camera01` in its
+        // `Spin_1`–`Spin_3` sequences, docs/spec-notes/roulette.md §6].
+        "NiLookAtInterpolator" => {
+            let place = it.block_ref("translation_interpolator").and_then(|r| value_track(dec, r, "NiPoint3Interpolator"));
+            let translation = match place {
+                Some(ValueTrack::Point3(c)) => c,
+                _ => Channel::Static(t0),
+            };
+            Some(TransformTrack { translation, rotation: Channel::Static(None), euler: None, scale: Channel::Static(None) })
+        }
         "NiBSplineCompTransformInterpolator" | "NiBSplineTransformInterpolator" => {
             let comp = type_name == "NiBSplineCompTransformInterpolator";
             let (start, stop) = (it.float("start_time")?, it.float("stop_time")?);
