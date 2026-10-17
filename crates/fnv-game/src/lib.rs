@@ -62,6 +62,7 @@ pub mod lockpick;
 pub mod needs;
 pub mod package;
 pub mod perks;
+pub mod poker;
 pub mod provocation;
 pub mod quest;
 pub mod radio;
