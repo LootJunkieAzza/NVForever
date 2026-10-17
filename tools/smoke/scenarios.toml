@@ -619,6 +619,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-voice"
+source = "owner request 2026-10-17: the player's hurt and power attack sounds play (docs/spec-notes/combat-dialogue.md §2)"
+note = "combat-lines with voice on: the player's Hit lines play their files, and the power attack's line cuts the Hit grunt of the blow taken just before it"
+areas = ["combat", "dialogue", "audio"]
+paths = ["crates/fnv-game/src/combat_lines.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/combat.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'voice: playing \S+playervoicemale\\genericplayer_hit_', label = "a player hurt sound plays" },
+  { re = 'voice: playing \S+playervoicemale\\genericplayer_powerattack_', label = "the player's power attack sound plays" },
+  { re = 'voice: playing \S+playervoicemale\\genericplayer_death_', label = "the player's death sound plays" },
+]
+
+[[scenario]]
 name = "combat-sights"
 source = "playtest list 2026-10-11 items 32-33 (docs/design/combat-ai.md §10.6): NPCs aim down the sights beyond 20 m (1,400 units) and walk while aiming, fire from the hip nearer"
 note = "Violet (0x000F570B, placed at -46910,64897) stops about 1,600 units from the player, beyond 20 m: down the sights; at 38 s the player is put about 1,000 units from her: from the hip"

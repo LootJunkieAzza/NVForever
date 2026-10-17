@@ -42,7 +42,11 @@ value with no damage) [hypothesis: the page says "damage %" without saying of wh
   saying a line, and never by a dead actor except its Death line. Death cuts whatever the
   actor was saying.
 - Hit is not said by an actor that is saying an Attack/PowerAttack/Hit line (it would cut
-  its own grunt on every pellet of a shotgun); every other combat line cuts nothing either.
+  its own grunt on every pellet of a shotgun). The other way round, an Attack, PowerAttack
+  or FireExplosive line cuts the actor's own Hit line when the actor has a line to say
+  (otherwise a blow taken just before a power attack silences the power attack's grunt;
+  observed 2026-10-17 in the combat-lines smoke run with voice on). Every other combat
+  line cuts nothing.
 - HealthHalf and HealthQuarter: said when a hit takes health from above the mark to at
   or below it; the Hit line is not said for that hit. Each is said again only after health
   rose above the mark.
