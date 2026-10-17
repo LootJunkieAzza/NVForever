@@ -1148,6 +1148,14 @@ fn the_player_detects_and_far_pairs_fight() {
     // Behind the camera: out of the field of view, no line of sight.
     g.detect(&s, FormId(PLAYER), FormId(ADULT_REF), &Situation { in_view: false, ..seen });
     assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 0.0);
+    // The player's detection is the body's view, GetLineOfSight the camera's [observed:
+    // capture detection-2, third person]: detected while the camera does not see it.
+    g.detect(&s, FormId(PLAYER), FormId(ADULT_REF), &Situation { camera_sight: Some(false), ..seen });
+    assert_eq!(call(&mut g, get_detected, Some(PLAYER), &[r(ADULT_REF)]), 1.0);
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 0.0);
+    g.detect(&s, FormId(PLAYER), FormId(ADULT_REF), &Situation { in_view: false, camera_sight: Some(true), ..seen });
+    assert_eq!(call(&mut g, get_detected, Some(PLAYER), &[r(ADULT_REF)]), 0.0);
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 1.0);
     // Nothing in the rules asks where the player is: a Frenzied actor that detects
     // another (the engine measures pairs far from the player too, `fnv_game::sight`)
     // goes to Combat, and IsInCombat reads 1.
