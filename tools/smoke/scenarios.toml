@@ -1934,12 +1934,14 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/npc-unconscious implemented GetOwnerLastTarget (5 calls, the last stub assigned to J,
 # so no "assigned" or "J karma and crime" row is left; docs/spec-notes/unconscious.md §2.8):
 # 48 → 47 stubs, 242 → 237 calls.
+# claude/repair-services-menu implemented ShowRepairMenu (15 calls, docs/spec-notes/repair.md):
+# 47 → 46 stubs, 237 → 222 calls.
 expect = [
-  { json = "summary.stubs", equals = 47 },
+  { json = "summary.stubs", equals = 46 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 46 },
+  { json = "summary.by_status.needs_system", equals = 45 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 237 },
+  { json = "summary.stub_calls", equals = 222 },
   { json = "summary.stub_condition_uses", equals = 377 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -3037,6 +3039,27 @@ expect = [
   "recipe menu: closed",
 ]
 order = [["recipe menu: cannot make", "recipe menu: made"]]
+
+[[scenario]]
+name = "repair-services"
+source = "todo 6 item 4: the vendor's repair services menu (engine/nvf-play/src/repair.rs, crates/fnv-game/src/repair.rs, docs/spec-notes/repair.md) opened by ShowRepairMenu on Raul (RaulREF, the call his dialogue makes); a worn 9mm Pistol and Varmint Rifle listed with their costs, a Straight Razor at full condition not listed (owner's rule), the pistol repaired for caps; frame repair_menu.png in the working folder"
+areas = ["repair", "menus"]
+paths = ["engine/nvf-play/src/repair.rs", "crates/fnv-game/src/repair.rs"]
+env = { NVFOREVER_HOME = "repair-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "10:call:player:AddItem:Caps001:150,10.2:call:player:AddItemHealthPercent:WeapNV9mmPistol:1:0.35,10.4:call:player:AddItemHealthPercent:WeapNVVarmintRifle:1:0.34,10.6:call:player:AddItem:WeapNVStraightRazor:1,11:call:RaulREF:ShowRepairMenu", NVF_PLAY_TEST_REPAIR = "13:shot,14:repair,15:down,16:repair,17:all,18:done" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 21
+expect = [
+  "script: test aid calls ShowRepairMenu on RaulREF",
+  { re = 'repair menu: open, vendor RaulREF \(Repair \d+\), player caps \d+: 2 listed, [0-2] repairable', label = "the two worn weapons are listed, the razor at full condition is not" },
+  { re = 'repair menu: open, .*9mm Pistol 35% \d+ caps, Varmint Rifle 34% \d+ caps', label = "each row with its condition and cost, by name" },
+  "repair menu: screenshot repair_menu.png",
+  { re = 'repair menu: repaired 9mm Pistol 35% -> \d+% for \d+ caps', label = "the pistol is repaired for caps" },
+  { text = "ui sounds: repair services row or button picked: UIRepairWeapon", label = "a repair plays UIRepairWeapon" },
+  { re = 'repair menu: (repaired|cannot repair) Varmint Rifle', label = "the rifle is repaired or refused by the caps left" },
+  "repair menu: done",
+  "repair menu: closed",
+]
+order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu: done", "repair menu: closed"]]
 
 [[scenario]]
 name = "item-stacks"

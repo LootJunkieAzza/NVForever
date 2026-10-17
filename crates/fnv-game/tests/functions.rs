@@ -1215,3 +1215,18 @@ fn the_player_detects_and_far_pairs_fight() {
     assert_eq!(g.awareness.state(FormId(ADULT_REF)), State::Combat);
     assert_eq!(call(&mut g, in_combat, Some(ADULT_REF), &[]), 1.0);
 }
+
+#[test]
+fn show_repair_menu_opens_the_vendors_repair_services() {
+    use fnv_game::repair::{RepairRequest, REPAIR_SERVICES_MENU};
+    let f = fixture();
+    let mut g = game(&f);
+    // Without a calling reference nothing happens [documented: GECK wiki ShowRepairMenu].
+    call(&mut g, 0x117A, None, &[]);
+    assert!(g.repair_requests.is_empty());
+    assert_eq!(g.menu, None);
+    // On an actor: that actor's skill and purse, the menu open for scripts.
+    call(&mut g, 0x117A, Some(ADULT_REF), &[]);
+    assert_eq!(g.repair_requests, vec![RepairRequest { vendor: FormId(ADULT_REF) }]);
+    assert_eq!(g.menu, Some(REPAIR_SERVICES_MENU));
+}

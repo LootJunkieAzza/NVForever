@@ -295,6 +295,18 @@ impl Inventory {
         true
     }
 
+    /// Give one unit of the group `from` of `item` another condition (a fraction), keeping
+    /// its owner and whether it is worn: a repair. A condition of 1 or more is whole and
+    /// kept as none. Returns false when no unit of `item` has that extra data.
+    pub fn set_condition_one(&mut self, item: FormId, from: Extra, condition: f32) -> bool {
+        let Some(s) = self.items.get_mut(&item) else { return false };
+        let Some(g) = s.groups.iter_mut().find(|g| g.0 == from && g.1 > 0) else { return false };
+        g.1 -= 1;
+        s.groups.retain(|g| g.1 > 0);
+        s.add(Extra { condition: (condition < 1.0).then_some(condition.max(0.0)), ..from }, 1);
+        true
+    }
+
     /// Unequip every equipped unit of `item`. Returns false when none was equipped.
     pub fn clear_equipped(&mut self, item: FormId) -> bool {
         let Some(s) = self.items.get_mut(&item) else { return false };
@@ -379,6 +391,25 @@ mod tests {
         assert_eq!(inv.condition_in_use(id), Some(0.4));
         assert!(!inv.has_sound(id));
         assert_eq!(inv.condition_in_use(FormId(0x11)), None);
+    }
+
+    #[test]
+    fn a_repair_rewrites_one_unit() {
+        let mut inv = Inventory::new();
+        let id = FormId(0x10);
+        let worn = Extra { condition: Some(0.4), ..Extra::default() };
+        inv.add_extra(id, 2, worn);
+        assert!(inv.set_condition_one(id, worn, 0.9));
+        let groups: Vec<(Extra, i32)> = inv.groups().map(|g| (g.1, g.2)).collect();
+        assert_eq!(groups, vec![(worn, 1), (Extra { condition: Some(0.9), ..Extra::default() }, 1)]);
+        // To full: a plain unit; the equipped flag stays.
+        let on = Extra { equipped: true, ..worn };
+        inv.add_extra(id, 1, on);
+        assert!(inv.set_condition_one(id, on, 1.0));
+        assert!(inv.groups().any(|g| g.1 == Extra { equipped: true, ..Extra::default() }));
+        assert!(!inv.set_condition_one(id, on, 1.0));
+        assert!(!inv.set_condition_one(FormId(0x11), worn, 1.0));
+        assert_eq!(inv.count(id), 3);
     }
 
     #[test]
