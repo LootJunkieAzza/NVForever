@@ -2275,6 +2275,21 @@ expect = [
 forbid = [{ re = "combat: \\S+ blocks the player's blow", label = "a power attack is blocked as an ordinary blow" }]
 
 [[scenario]]
+name = "combat-fists-drawn"
+source = "owner's playtest 2026-10-17: unarmed NPCs in combat stood in their no-weapon idle; they draw their fists (h2hequip, then h2haim held) as any melee weapon is drawn (engine/nvforever/src/actors.rs arm)"
+note = "an NCR trooper with no weapon drawn (--actor-weapons none, so it fights with its fists) set on the player at 4 s in quiet Goodsprings and put 90 units north of it every 3 s"
+areas = ["combat"]
+paths = ["engine/nvforever/src/actors.rs", "engine/nvforever/src/outfits.rs", "engine/nvforever/src/weapons.rs", "engine/nvforever/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 18
+expect = [
+  { re = 'actor weapons: \S+_male h2h: clips \[Holster, Equip, Aim, Unequip\]', label = "the people's fists stance loads" },
+  { re = 'alert: .* 0x000F36F5 draws its weapon', label = "the trooper draws its fists" },
+  { re = 'attack anims: 000F36F5 plays \S+h2hattack', label = "its fist blows still play" },
+]
+
+[[scenario]]
 name = "combat-melee-combo"
 source = "owner request 2026-10-16: melee enemies chain attacks into combos of different clips (docs/design/combat-ai.md §15)"
 note = "the combat-block fist fight (NCR troopers against the Fiends, --actor-weapons none): blows go on combos by the clips' a: keys, AttackLeft clips play after AttackRight ones"
