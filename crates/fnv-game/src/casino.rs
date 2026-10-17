@@ -23,6 +23,9 @@ pub struct CasinoDef {
     pub stay_soft17: bool,
     /// MOD3: the blackjack table's model, under `meshes\`.
     pub table_model: Option<String>,
+    /// MOD4: the roulette table's model, under `meshes\` (roulette.md §2) [observed:
+    /// `terminals\NV_Roulette\NV_Roulette-Table<x>.NIF` in all five casinos].
+    pub roulette_model: Option<String>,
     /// ICO2: the deck's back, under `textures\`.
     pub back_texture: Option<String>,
 }
@@ -48,6 +51,7 @@ impl CasinoDef {
                     c.stay_soft17 = u32_at(d, 52).is_some_and(|f| f & 1 != 0);
                 }
                 b"MOD3" => c.table_model = Some(zstring(&s.data)).filter(|p| !p.is_empty()),
+                b"MOD4" => c.roulette_model = Some(zstring(&s.data)).filter(|p| !p.is_empty()),
                 b"ICO2" => c.back_texture = Some(zstring(&s.data)).filter(|p| !p.is_empty()),
                 _ => {}
             }
@@ -97,6 +101,15 @@ pub fn add_earnings(g: &mut Game, casino: FormId, net: i64, max: u32) -> i64 {
     earnings
 }
 
+/// The max winnings a table plays to: the menu call's, else (0) the casino's own
+/// [hypothesis: every table's script passes 0].
+pub fn max_winnings(g: &Game, casino: FormId, asked: u32) -> u32 {
+    if asked > 0 {
+        return asked;
+    }
+    g.data.casinos.get(&casino).map_or(0, |c| c.max_winnings)
+}
+
 /// Why the menu does not open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Closed {
@@ -122,6 +135,16 @@ pub fn opening(g: &Game, casino: FormId, chips: u32, max: u32) -> Result<(), Clo
         return Err(Closed::NoChips);
     }
     Ok(())
+}
+
+/// The line shown when a casino's menu does not open [hypothesis: the original's words are
+/// not in the plugins; these are NVForever's].
+pub fn closed_line(c: Closed, casino: &str) -> String {
+    match c {
+        Closed::NoCasino => "This table is closed.".into(),
+        Closed::NoChips => format!("You need {casino} chips to play."),
+        Closed::Banned => format!("You have been banned from playing at {casino}."),
+    }
 }
 
 #[cfg(test)]
@@ -151,10 +174,12 @@ mod tests {
             sub(b"FULL", b"Gommorah\0".to_vec()),
             sub(b"DATA", data),
             sub(b"MOD3", b"terminals\\NV_Blackjack\\NV_Blackjack-TableG.NIF\0".to_vec()),
+            sub(b"MOD4", b"terminals\\NV_Roulette\\NV_Roulette-TableG.NIF\0".to_vec()),
             sub(b"ICO2", b"terminals\\NV_PlayingCards\\DeckG\\cardG_Back.dds\0".to_vec()),
         ];
         let c = CasinoDef::from_raw(&subs, &Some);
         assert_eq!(c.name, "Gommorah");
+        assert_eq!(c.roulette_model.as_deref(), Some("terminals\\NV_Roulette\\NV_Roulette-TableG.NIF"));
         assert_eq!((c.decks, c.max_winnings, c.stay_soft17), (3, 9000, false));
         assert!((c.shuffle_share - 0.2).abs() < 1e-6 && (c.payout - 1.5).abs() < 1e-6);
         assert_eq!(c.chip, Some(FormId(0x0013_9FE0)));

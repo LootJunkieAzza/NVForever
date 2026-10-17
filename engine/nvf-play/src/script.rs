@@ -138,7 +138,7 @@ pub fn menu_code(mode: Mode) -> u16 {
 }
 
 /// A menu the scripts opened (a message box, a character-creation menu), as opposed to
-/// the engine's container, inventory, barter, wait and recipe menus: the script overlay shows it
+/// the engine's container, inventory, barter, wait, recipe and roulette menus: the script overlay shows it
 /// and the player closes it there.
 pub fn is_script_menu(code: u16) -> bool {
     code != MENU_CONTAINER
@@ -150,6 +150,7 @@ pub fn is_script_menu(code: u16) -> bool {
         && code != crate::lockpick::MENU_LOCKPICK
         && code != crate::blackjack::MENU_BLACKJACK
         && code != fnv_game::crafting::RECIPE_MENU
+        && code != crate::roulette::MENU_ROULETTE
 }
 
 /// Default of `NVF_PLAY_TEST_SCRIPT_MENUS` in unattended runs, seconds.
@@ -1469,6 +1470,15 @@ fn walk_player(mut script: ResMut<ScriptState>, mut phys: ResMut<PhysState>, mut
     }
 }
 
+/// The engine's own menus that hold `PlayState::Menu` themselves (`hold_player`).
+type EngineMenus<'w> = (
+    Res<'w, crate::terminal::TerminalScreen>,
+    Res<'w, crate::lockpick::LockpickScreen>,
+    Res<'w, crate::console::Console>,
+    Option<Res<'w, crate::crafting::RecipeMenu>>,
+    Option<Res<'w, crate::roulette::RouletteScreen>>,
+);
+
 /// While a script's menu or message box is open the player is in `PlayState::Menu`: no
 /// moving, looking or activating, and the game clock stops (sim.rs) [observed: the pack
 /// boxes held the world clock, layer5-captures.md §10.1]. The engine's own menus manage
@@ -1477,16 +1487,17 @@ fn hold_player(
     script: Res<ScriptState>,
     active: Res<ActiveMenu>,
     (paused, wait): (Res<crate::pause::Paused>, Res<crate::wait::WaitMenu>),
-    (terminal, lockpick, console, recipe): (Res<crate::terminal::TerminalScreen>, Res<crate::lockpick::LockpickScreen>, Res<crate::console::Console>, Option<Res<crate::crafting::RecipeMenu>>),
+    (terminal, lockpick, console, recipe, roulette): EngineMenus,
     blackjack: Option<Res<crate::blackjack::BlackjackScreen>>,
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
     // The pause menu is also a `PlayState::Menu` without an engine menu: it is its own.
     // So are the wait menu (`crate::wait`), a terminal (`crate::terminal`), the
-    // lockpicking menu (`crate::lockpick`), the console (`crate::console`) and the recipe
-    // menu (`crate::crafting`), and the blackjack table (`crate::blackjack`).
-    let table = blackjack.is_some_and(|b| b.0.is_some());
+    // lockpicking menu (`crate::lockpick`), the console (`crate::console`), the recipe
+    // menu (`crate::crafting`), the blackjack table (`crate::blackjack`) and the roulette
+    // table (`crate::roulette`).
+    let table = blackjack.is_some_and(|b| b.0.is_some()) || roulette.is_some_and(|r| r.0.is_some());
     if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() || console.open || recipe.is_some_and(|r| r.is_open()) || table {
         return;
     }

@@ -579,7 +579,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x117A, "ShowRepairMenu", Stub("menus (repair)")),
         (0x1250, "ShowRecipeMenu", Impl(misc::show_recipe_menu)),
         (0x1254, "ShowBlackJackMenuParams", Impl(misc::show_blackjack_menu)),
-        (0x1256, "ShowRouletteMenuParams", Stub("menus (casino)")),
+        (0x1256, "ShowRouletteMenuParams", Impl(misc::show_roulette_menu)),
         (0x1252, "ShowSlotMachineMenuParams", Stub("menus (casino)")),
         (0x11F1, "ShowBarberMenu", Stub("menus (appearance)")),
         (0x11F2, "ShowPlasticSurgeonMenu", Stub("menus (appearance)")),
