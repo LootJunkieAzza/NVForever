@@ -130,6 +130,17 @@ impl Default for View {
 }
 
 impl View {
+    /// The view that frames the face on `tab`: what the creator opens with [owner
+    /// 2026-10-17, todo 6: "the camera starts framed on the face instead of the whole
+    /// body"]. The face tabs frame it already; on another tab the zoom brings the camera
+    /// to the face framing's distance, where the point looked at is the face
+    /// ([`aim_drop`]), with the face framing's tilt; the turn is the tab's own (a turn
+    /// is kept from tab to tab, the player's).
+    pub fn face_on(tab: Tab) -> View {
+        let (f, face) = (tab.framing(), Tab::Face.framing());
+        View { turn: 0.0, tilt: face.pitch - f.pitch, zoom: face.distance / f.distance, pan: [0.0, 0.0] }
+    }
+
     /// Turn about the player (`dx`, radians; it goes all the way round) and tilt (`dy`).
     pub fn orbit(&mut self, dx: f32, dy: f32) {
         self.turn = (self.turn + dx + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
@@ -276,7 +287,7 @@ impl Model {
             groups: [0; 6],
             preset: 0,
             on_actions: None,
-            view: View::default(),
+            view: View::face_on(Tab::Basics),
         }
     }
 
@@ -915,8 +926,24 @@ mod tests {
     }
 
     #[test]
+    fn the_creator_opens_on_the_face() {
+        let mut m = Model::new(data(), look());
+        assert_eq!(m.tab, Tab::Basics);
+        let opening = m.camera();
+        m.set_tab(Tab::Face);
+        let face = m.camera();
+        assert!((opening.distance - face.distance).abs() < 1e-3 && (opening.drop - face.drop).abs() < 1e-3, "{opening:?} {face:?}");
+        assert!((opening.pitch - face.pitch).abs() < 1e-5);
+        assert_eq!(m.view.turn, 0.0, "no turn carried into the other tabs");
+        // Back on Basics after another tab: its own framing, the whole body.
+        m.set_tab(Tab::Basics);
+        assert_eq!(m.camera().distance, FAR);
+    }
+
+    #[test]
     fn the_camera_follows_the_tab() {
         let mut m = Model::new(data(), look());
+        m.view = View::default();
         let body = m.camera();
         assert_eq!(body.distance, FAR);
         m.set_tab(Tab::Face);
