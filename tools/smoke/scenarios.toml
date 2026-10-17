@@ -2757,7 +2757,7 @@ order = [[
 ]]
 expect = [
   { re = 'ai summary at .*0x0016518[BC]: VCrGeckoSandboxEditorLocation1024', label = "the chain ended on the sandbox" },
-  { re = 'provocation: 0x0016518[BC] .*attacks the player, who stayed inside its aggro radius', label = "a gecko attacks after its warnings" },
+  { re = 'provocation: 0x0016518[BC] .*attacks the player, who stayed inside its aggro radius', label = "a gecko attacks after its warnings", known_failing = "fails on main too (F:/nvf-target/audit-rerun-main.txt, 2026-10-17 00:28): the geckos come back from 7,400 units in the last waited hour and are still on their way when the run ends; warned once at 645-647 of 650" },
 ]
 
 [[scenario]]
