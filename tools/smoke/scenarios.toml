@@ -658,6 +658,26 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-npc-reload"
+source = "owner 2026-10-17: NPCs never reloaded in test runs; they need the same magazine and reload as the player (npc_combat module notes: Reloading)"
+note = "Chet (GSChetRef) in the general store is given and made to equip a .357 Magnum Revolver (WeapNV357Revolver: 6 rounds, ReloadX, round by round) and set on the player, who cannot die (GOD). He empties the cylinder, reloads all six round by round with the opening clip and a reload clip per round, and fires again. NPCs use no ammunition from their inventory (owner 2026-10-17)"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-combat/src/attack.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 45
+expect = [
+  { re = 'npc combat: GSChetRef .* fights the player with WeapNV357Revolver \(gun\)', label = "Chet fights with the .357" },
+  { re = 'npc combat: GSChetRef .* reloads WeapNV357Revolver round by round \(opens 1\.\d+ s, 0\.\d+ s a round', label = "Chet reloads round by round, timed by his rig's clips" },
+  { re = 'npc combat: GSChetRef .* reloaded 6, magazine 6/6', label = "all six rounds go in" },
+  { re = 'attack anims: \w+ plays .*1hpreloadxstart\.kf', label = "the opening clip plays" },
+  { re = 'attack anims: \w+ plays .*1hpreloadx\.kf', label = "the reload clip plays" },
+  { re = 'attack anims summary: .*?(?P<n>\d+) reload clips', range = [7, 100000], label = "the opening clip and a clip per round in the attack anims summary" },
+  { re = 'npc combat summary: .*?(?P<n>\d+) shots', range = [7, 100000], label = "more than one cylinder fired" },
+  { re = 'npc combat summary: .*? (?P<n>\d+) reloads \((?P<m>\d+) round by round\)', range = [1, 1000], label = "reloads in the npc combat summary" },
+]
+
+[[scenario]]
 name = "provoked-yield"
 source = "playtest list 2026-10-11 item 30 (docs/design/combat-ai.md §10.1-§10.2): a neutral NPC the player shoots fights back; holstering is a yield it accepts once, and ignores when it forgave the player recently"
 note = "Chet (GSChetRef) is the nearest NPC in the general store; shot twice at 18-19 s (after the add-ons' start-up message boxes), the weapon put away at 22 s, shot again at 33-34 s and put away at 37 s; each shot aimed anew, as Chet moves"

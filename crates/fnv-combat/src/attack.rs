@@ -225,6 +225,11 @@ impl Cycle {
         }
     }
 
+    /// A reload is under way (whole, or any part of a round-by-round one).
+    pub fn reloading(&self) -> bool {
+        matches!(self.phase, Phase::Reloading { .. } | Phase::ReloadOpen { .. } | Phase::ReloadRound { .. } | Phase::ReloadClose { .. })
+    }
+
     fn has_round(&self) -> bool {
         self.no_ammo || self.magazine >= self.ammo_use
     }

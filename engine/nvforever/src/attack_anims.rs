@@ -43,6 +43,16 @@
 //!   player's body does. Started again at every shot, it jerked the arms and shoulders
 //!   back to its start many times a second [observed in NVForever: owner's playtest
 //!   2026-10-16, Cook-Cook's flamer].
+//! - **Reloads of NPCs** (`npc_combat` asks with [`Move::Reload`] and
+//!   [`Move::ReloadRound`]): the weapon's reload clip as the player's body plays it
+//!   (`player_clips::reload_clips` of the WEAP reload animation: `1hpreloada.kf`,
+//!   crouched first), on the attack layers over the level aim without up or down forms;
+//!   a weapon that loads round by round (`1hpreloadxstart.kf` beside `1hpreloadx.kf`:
+//!   the .357 revolver, lever-actions) plays its opening clip, then the reload clip from
+//!   its start for each round, without a fade in, running on past its `Hit` key to close
+//!   (docs/spec-notes/combat-rules.md §4). The clips' lengths and `Hit` key in the
+//!   actor's own rig go to `npc_combat` ([`AttackTimes::reloads`]), whose gun cycle
+//!   reloads for as long. Their `Sound:` keys play as any clip's (`anim_sounds`).
 //! - While an attack clip plays, the actor's body block keeps the place it had when the
 //!   attack began (`nvf_play::blocking::ActorBlocks::attacking`): a dog's lunge shoved
 //!   the player back 40 units each bite before [design; owner 2026-10-11].
@@ -66,7 +76,7 @@ use crate::npc_combat::Fighters;
 use crate::weapons::WeaponHold;
 use bevy::prelude::*;
 use fnv_actor::idle_play::DEFAULT_FADE;
-use fnv_actor::player_clips::{aim_variant, aim_weights, attack_clips, attack_stem, block_clips, Aim, ClipKeys, Stance};
+use fnv_actor::player_clips::{aim_variant, aim_weights, attack_clips, attack_stem, block_clips, reload_clips, reload_open_clips, Aim, ClipKeys, Stance};
 use fnv_actor::weapon::{AnimType, Stage};
 use fnv_combat::melee::{swing_stem, NextAttack};
 use fnv_sim::FormId;
@@ -164,6 +174,18 @@ pub enum Move {
     BlockHit,
     /// Its blow was blocked (`1hmrecoil.kf`).
     Recoil,
+    /// A reload: the weapon's reload clip (`1hpreloada.kf`), or the opening clip of one
+    /// that loads round by round (`1hpreloadxstart.kf`).
+    Reload,
+    /// Round by round: the next round, the reload clip again from its start, without a
+    /// fade in (it follows the opening clip or the last round).
+    ReloadRound,
+}
+
+impl Move {
+    fn reloads(self) -> bool {
+        matches!(self, Move::Reload | Move::ReloadRound)
+    }
 }
 
 /// When each actor's next blow lands into its attack clip (its `Hit` key), seconds:
@@ -177,6 +199,10 @@ pub struct AttackTimes {
     /// The clip each actor's last melee blow with a [`SwingPick`] started, until
     /// `npc_combat` takes it.
     pub swings: HashMap<u32, SwingClip>,
+    /// Each armed actor's reload clips in its own rig, for the weapon drawn on it: their
+    /// length and `Hit` key and the opening clip's length (`fnv_combat::attack::
+    /// ClipTiming`), so its gun's cycle reloads for as long as the clip plays.
+    pub reloads: HashMap<u32, (FormId, fnv_combat::attack::ClipTiming)>,
 }
 
 /// One attack clip playing.
@@ -192,6 +218,10 @@ pub struct Attack {
     pub repeat: Option<(f32, f32)>,
     /// Seconds since the last shot or blow.
     pub since: f32,
+    /// It fades in (not a reload's next round, which follows a clip already playing).
+    pub fade_in: bool,
+    /// A reload clip: the actor's body block moves with it (an attack's holds still).
+    pub reload: bool,
 }
 
 /// A clip's repeated part: from its `Fire` key to its `Loop` key, seconds into it.
@@ -344,7 +374,8 @@ impl CombatPose {
             self.attack = None;
             return;
         }
-        let fade = ((a.t - a.repeat.map_or(0.0, |r| r.0)).max(0.0) / FADE_IN).min(1.0) * ((a.len - a.t) / FADE_OUT).min(1.0);
+        let fade_in = if a.fade_in { ((a.t - a.repeat.map_or(0.0, |r| r.0)).max(0.0) / FADE_IN).min(1.0) } else { 1.0 };
+        let fade = fade_in * ((a.len - a.t) / FADE_OUT).min(1.0);
         let phase = (a.t / a.len.max(1e-3)).min(0.999);
         player.layers[ATTACK_LAYER] = Some(Layer { clip: a.clip.clone(), phase, weight: fade });
         let form = if variant == Aim::Up { a.up.clone() } else { a.down.clone() };
@@ -380,7 +411,8 @@ struct Stats {
     missing: BTreeMap<String, usize>,
     clips: BTreeMap<String, usize>,
     /// Blows that went on a combo from the last one's `a:` key.
-    chained: usize,
+    chained: usize,    /// Reload clips started (an opening clip and each round count once).
+    reloads: usize,
 }
 
 impl AttackClips {
@@ -428,7 +460,7 @@ fn start(
 ) {
     // Who is in an attack now: their body blocks hold still (module notes).
     if let Some(mut b) = blocks {
-        let now: std::collections::HashSet<u32> = rigs.iter().filter(|r| r.3.is_some_and(|p| p.attack.is_some())).map(|r| r.1.reference).collect();
+        let now: std::collections::HashSet<u32> = rigs.iter().filter(|r| r.3.is_some_and(|p| p.attack.as_ref().is_some_and(|a| !a.reload))).map(|r| r.1.reference).collect();
         if b.attacking != now {
             b.attacking = now;
         }
@@ -492,6 +524,21 @@ fn start(
                 new_pose.block_idle = clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &block_clips(Stance::Stand, prefix)).map(|(_, c)| c);
             }
         }
+        // The reload clips of the weapon drawn on it, once per weapon (module notes).
+        let drawn_gun = fighters.weapon(id).filter(|_| hold.is_some());
+        if let Some(w) = drawn_gun.filter(|w| times.reloads.get(&id).is_none_or(|r| r.0 != *w)) {
+            let reload = combat.as_deref().and_then(|c| c.forms.weapons.get(&w)).and_then(|ws| ws.reload_anim.clone());
+            let prefix = weapon_prefix(Some(w));
+            let mut timing = fnv_combat::attack::ClipTiming::default();
+            if let Some(r) = reload {
+                if let Some((_, c)) = clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &reload_clips(Stance::Stand, prefix, &r)) {
+                    timing.reload_len = Some(c.clip.length()).filter(|l| *l > 0.0);
+                    timing.reload_hit = hit_time(&c);
+                }
+                timing.reload_open_len = clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &reload_open_clips(Stance::Stand, prefix, &r)).map(|(_, c)| c.clip.length());
+            }
+            times.reloads.insert(id, (w, timing));
+        }
         // A creature's power attacks, once (module notes).
         let creature_rig = hold.is_none() && rig.skeleton.to_ascii_lowercase().contains("creatures");
         if creature_rig && !times.powers.contains_key(&id) {
@@ -546,6 +593,11 @@ fn start(
                     }
                     Move::BlockHit => reaction_clips(stance, prefix, "blockhit"),
                     Move::Recoil => reaction_clips(stance, prefix, "recoil"),
+                    Move::Reload | Move::ReloadRound => {
+                        let reload = a.weapon.and_then(|w| combat.as_deref().and_then(|c| c.forms.weapons.get(&w))).and_then(|w| w.reload_anim.clone());
+                        let opens = a.kind == Move::Reload && a.weapon.and_then(|w| times.reloads.get(&id).filter(|r| r.0 == w)).is_some_and(|r| r.1.reload_open_len.is_some());
+                        reload.map_or(Vec::new(), |r| if opens { reload_open_clips(stance, prefix, &r).into_iter().chain(reload_clips(stance, prefix, &r)).collect() } else { reload_clips(stance, prefix, &r) })
+                    }
                 };
                 clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &names)
             };
@@ -559,8 +611,10 @@ fn start(
                 clips.stats.kept += 1;
                 continue;
             }
-            let up = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&path, Aim::Up));
-            let down = clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&path, Aim::Down));
+            // A reload has no up or down forms: it plays over the level aim.
+            let reloads = a.kind.reloads();
+            let up = if reloads { None } else { clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&path, Aim::Up)) };
+            let down = if reloads { None } else { clips.bind(&mut ctx, &rig.skeleton, &skel, &aim_variant(&path, Aim::Down)) };
             let len = clip.clip.length().max(0.05);
             if a.melee {
                 times.hit.insert(id, hit_time(&clip).unwrap_or(DEFAULT_HIT).min(len));
@@ -574,10 +628,13 @@ fn start(
                 }
             }
             let st = &mut clips.stats;
-            st.started += 1;
-            if a.melee {
+            if reloads {
+                st.reloads += 1;
+            } else if a.melee {
+                st.started += 1;
                 st.blows += 1;
             } else {
+                st.started += 1;
                 st.shots += 1;
             }
             let name = path.rsplit('\\').next().unwrap_or(&path).to_string();
@@ -585,9 +642,9 @@ fn start(
                 info!("attack anims: {id:08X} plays {path} ({len:.2} s{})", hit_time(&clip).map_or(String::new(), |h| format!(", hit at {h:.2} s")));
             }
             *st.clips.entry(name).or_default() += 1;
-            let repeat = repeat_of(&clip).filter(|_| !a.melee);
+            let repeat = repeat_of(&clip).filter(|_| !a.melee && !reloads);
             let t = repeat.map_or(0.0, |(from, _)| from);
-            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0 });
+            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in: a.kind != Move::ReloadRound, reload: reloads });
         }
         match pose {
             Some(mut p) => *p = new_pose,
@@ -639,11 +696,12 @@ fn report(mut exit: MessageReader<AppExit>, clips: Res<AttackClips>) {
     let s = &clips.stats;
     let list = |m: &BTreeMap<String, usize>| if m.is_empty() { "none".to_string() } else { m.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ") };
     info!(
-        "attack anims summary: {} attack clips started ({} shots, {} blows, {} blows went on a combo), {} shots went on with a looping clip: {}; without a clip: {}",
+        "attack anims summary: {} attack clips started ({} shots, {} blows, {} blows went on a combo, {} reload clips), {} shots went on with a looping clip: {}; without a clip: {}",
         s.started,
         s.shots,
         s.blows,
         s.chained,
+        s.reloads,
         s.kept,
         list(&s.clips),
         list(&s.missing)

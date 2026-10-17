@@ -17,6 +17,16 @@
 //!   (`fnv_combat::attack::Cycle`: fire rate, magazine, reload) as the player's does;
 //!   the trigger is held for automatic weapons and pulled once a shot for the others
 //!   [design].
+//! - **Reloading**: its gun's magazine (WEAP Clip Size) empties as it fires, and it
+//!   reloads as soon as it is empty, whether it can fire then or not, playing its
+//!   weapon's reload clips (`attack_anims`, [`Move::Reload`]) for as long as they run in
+//!   its rig ([`AttackTimes::reloads`]; the tuning's fallback time until they are
+//!   known). A weapon that loads round by round (the .357 revolver, lever-actions;
+//!   docs/spec-notes/combat-rules.md §4) loads every round: it pulls no trigger while it
+//!   reloads, which would close the weapon after one. The same gun keeps its magazine
+//!   on a new target. Rounds come from nowhere: an NPC uses no ammunition from its
+//!   inventory [design: owner 2026-10-17, "they dont use ammo"]. Reloading before the
+//!   magazine is empty (in cover, out of sight) is not built.
 //! - **Where it aims**: from its eyes at the target's chest, the shot drawn from its
 //!   weapon's muzzle (the model's `ProjectileNode`, `weapons::Muzzle`) closing onto that
 //!   line, as the player's first-person shots (`ActorFire`; owner 2026-10-11: "the shots
@@ -105,7 +115,8 @@
 //!   when there is none, or stays by a gunman of its group until the target comes near.
 //!
 //! Whom it fights is the detection states' (its combat target). Not built: grenades,
-//! ammunition use, weapon choice among several, dodging and power attacks of people.
+//! ammunition use (module notes: reloading), weapon choice among several, dodging and
+//! power attacks of people.
 
 use crate::attack_anims::{AttackTimes, Move, PlayAttack, Power, SwingPick, DEFAULT_HIT};
 use crate::combat_stance::{self as stance, Temperament};
@@ -121,7 +132,7 @@ use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 use crate::world::bevy_to_game;
 use bevy::prelude::*;
 use fnv_actor::weapon::Stage;
-use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
+use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Phase as GunPhase, Timing};
 use fnv_combat::damage::AttackKind;
 use fnv_combat::data::WeaponStats;
 use fnv_combat::spread::{self, Stance};
@@ -235,6 +246,9 @@ struct Fighter {
     seen_for: f32,
     firing_for: f32,
     cycle: Option<Cycle>,
+    /// The cycle reloads by the reload clips in the actor's rig (`AttackTimes::reloads`),
+    /// not the fallback time.
+    reload_timed: bool,
     /// Seconds to its next blow.
     strike_in: f32,
     /// The trigger was pulled last frame (a semi-automatic weapon is let go between
@@ -396,6 +410,8 @@ struct Stats {
     shots: usize,
     strikes: usize,
     reloads: usize,
+    /// Reloads that loaded round by round.
+    round_reloads: usize,
     /// Blows whose target had moved out of reach by the time they landed.
     missed: usize,
     /// Shots from a weapon's muzzle, and from the eyes (no muzzle node).
@@ -754,12 +770,18 @@ fn fight(
             };
             let fresh = f.fighters.get(&id).is_none_or(|x| x.target != target || x.arm != arm);
             if fresh {
-                let cycle = match &arm {
-                    Arm::Gun(w) => c.forms.weapons.get(w).map(|ws| {
-                        let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning);
-                        Cycle::new(ws, timing, false, ws.clip_size.max(1))
-                    }),
-                    _ => None,
+                // The same gun on a new target keeps its magazine (module notes).
+                let kept = f.fighters.get_mut(&id).filter(|x| x.arm == arm).and_then(|x| x.cycle.take().map(|cy| (cy, x.reload_timed)));
+                let (cycle, reload_timed) = match (&arm, kept) {
+                    (_, Some((cy, timed))) => (Some(cy), timed),
+                    (Arm::Gun(w), None) => (
+                        c.forms.weapons.get(w).map(|ws| {
+                            let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning);
+                            Cycle::new(ws, timing, false, ws.clip_size.max(1))
+                        }),
+                        false,
+                    ),
+                    _ => (None, false),
                 };
                 let name = g.data.name(me);
                 f.stats.fighters.insert(id, name.clone());
@@ -777,6 +799,7 @@ fn fight(
                         seen_for: 0.0,
                         firing_for: 0.0,
                         cycle,
+                        reload_timed,
                         strike_in: 0.0,
                         pulled: false,
                         blows: Vec::new(),
@@ -1380,13 +1403,28 @@ fn fight(
                 Arm::Gun(w) => {
                     let Some(ws) = c.forms.weapons.get(w) else { continue };
                     let Some(cycle) = fighter.cycle.as_mut() else { continue };
-                    fighter.firing_for = if ready { fighter.firing_for + dt } else { 0.0 };
+                    // Its reload takes as long as its reload clips in its rig, once known
+                    // (between reloads, so one under way runs to its end).
+                    if !fighter.reload_timed && matches!(cycle.phase, GunPhase::Ready | GunPhase::Cooldown { .. }) {
+                        if let Some((_, clips)) = times.reloads.get(&id).filter(|r| r.0 == *w) {
+                            cycle.timing = Timing::of(ws, &ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() }, &c.tuning);
+                            fighter.reload_timed = true;
+                        }
+                    }
+                    let reloading = cycle.reloading();
+                    fighter.firing_for = if ready && !reloading { fighter.firing_for + dt } else { 0.0 };
                     // Automatic weapons hold the trigger; others pull it again each time
-                    // the cycle is ready and the style's firing delay has passed.
+                    // the cycle is ready and the style's firing delay has passed. Not while
+                    // it reloads: a pull would stop a round-by-round reload after a round.
                     fighter.pull_in = (fighter.pull_in - dt).max(0.0);
-                    let trigger = ready && (ws.automatic || (!fighter.pulled && fighter.pull_in <= 0.0));
+                    let trigger = ready && !reloading && (ws.automatic || (!fighter.pulled && fighter.pull_in <= 0.0));
                     fighter.pulled = trigger;
-                    let events = cycle.step(&c.tuning, Input { trigger, reload: false, dt, carried: u32::MAX / 2 });
+                    // An empty magazine is reloaded at once, whether it can fire or not;
+                    // it carries what it loads (module notes).
+                    let empty = cycle.magazine < cycle.ammo_use && cycle.regen.is_none();
+                    let rounds = cycle.timing.rounds;
+                    let events = cycle.step(&c.tuning, Input { trigger, reload: empty && !reloading, dt, carried: u32::MAX / 2 });
+                    let (magazine, reload_secs) = ((cycle.magazine, cycle.clip_size), cycle.timing.reload);
                     for e in events {
                         match e {
                             Event::Fired { .. } => {
@@ -1432,7 +1470,23 @@ fn fight(
                                 // Its Attack line, on its own timer (fnv_game::combat_lines).
                                 g.attack_line(me, Some(target), false, false);
                             }
-                            Event::ReloadStarted => f.stats.reloads += 1,
+                            Event::ReloadStarted => {
+                                f.stats.reloads += 1;
+                                if rounds.is_some() {
+                                    f.stats.round_reloads += 1;
+                                }
+                                anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: false, kind: Move::Reload, power: None, swing: None });
+                                let how = match rounds {
+                                    Some(r) => format!("round by round (opens {:.2} s, {:.2} s a round, closes {:.2} s)", r.open, r.round, r.close),
+                                    None => format!("in {:.2} s{}", reload_secs, if fighter.reload_timed { "" } else { ", the fallback time" }),
+                                };
+                                info!("npc combat: {} {me} reloads {} {how}", g.data.name(me), ws.edid.as_deref().unwrap_or("?"));
+                            }
+                            // The opening clip played: each round the reload clip from its start.
+                            Event::ReloadRound => {
+                                anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: false, kind: Move::ReloadRound, power: None, swing: None });
+                            }
+                            Event::Reloaded { taken } => info!("npc combat: {} {me} reloaded {taken}, magazine {}/{}", g.data.name(me), magazine.0, magazine.1),
                             _ => {}
                         }
                     }
@@ -1618,7 +1672,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
     let s = &fighters.stats;
     let (hits, damage, died) = stats.map_or((0, 0.0, false), |c| (c.player_hits, c.player_damage, c.player_died));
     info!(
-        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} went on a combo, the longest {}; {} missed: out of reach when they landed; {} melee decisions to hold), {} reloads; {} flee checks, {} fled; the player was hit {hits} times for {damage:.1}{}; {} staggers held a fighter's attacks ({} blows cut short); {} frames a fighter waited to face its target",
+        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} went on a combo, the longest {}; {} missed: out of reach when they landed; {} melee decisions to hold), {} reloads ({} round by round); {} flee checks, {} fled; the player was hit {hits} times for {damage:.1}{}; {} staggers held a fighter's attacks ({} blows cut short); {} frames a fighter waited to face its target",
         s.fighters.len(),
         s.fighters.values().cloned().collect::<Vec<_>>().join(", "),
         s.shots,
@@ -1633,6 +1687,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.missed,
         s.holds,
         s.reloads,
+        s.round_reloads,
         s.flee_checks,
         s.flees,
         if died { " and died" } else { "" },
