@@ -2941,6 +2941,23 @@ order = [[
 ]]
 
 [[scenario]]
+name = "hud-crippled-limbs"
+source = "owner 2026-10-17 (screenshot of the original): a crippled limb shows the Vault Boy at the top right for about 5 s, the limb just crippled flashing red and dashed, limbs crippled before dashed in amber, whole limbs solid (engine/nvf-play/src/hud_limbs.rs, docs/spec-notes/hud.md §12)"
+note = "the console cripples the player's right leg at 10 s and left arm at 13 s; the second crippling starts the time again and only the arm flashes"
+areas = ["hud", "combat"]
+paths = ["engine/nvf-play/src/hud_limbs.rs", "engine/nvf-play/src/hud.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV RightMobilityCondition 1000;10.5:close;13:player.DamageAV LeftAttackCondition 1000;13.5:close", NVF_PLAY_TEST_SHOTS = "11.5:limbs_leg.png,14.5:limbs_arm.png,21:limbs_hidden.png" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 23
+manual = "limbs_leg.png: the Vault Boy at the top right, the right leg (the viewer's left) red and dashed; limbs_arm.png: the left arm red and dashed, the right leg dashed in amber; limbs_hidden.png: no Vault Boy"
+expect = [
+  "combat: player's right leg crippled",
+  { re = 'hud: crippled limbs shown, flashing right_leg \(crippled: right leg\)', label = "the leg's crippling shows the picture" },
+  { re = 'hud: crippled limbs shown, flashing left_arm \(crippled: left arm, right leg\)', label = "the arm's flashes, the leg's no longer" },
+  { re = 'hud: crippled limbs hidden', label = "the picture goes after its time" },
+]
+
+[[scenario]]
 name = "hud-dialogue"
 source = "owner's playtest list 5, item 74 (docs/spec-notes/hud.md §10): Sunny greets the player in the saloon; Trudy's lines to Cheyenne while the conversation runs are logged, not drawn as subtitles"
 note = "the conversation is the force-greet scenario's; Trudy's say_to lines come every 4 s so one falls inside it"

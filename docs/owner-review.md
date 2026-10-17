@@ -5553,3 +5553,20 @@ worn armour reads the same items. Creatures are unchanged. What to look at:
 - Seen while testing, not changed here: Sunny's rifle is hidden while her
   SunnyMeetPlayerDialoguePackage (Weapons Unequipped) runs (alert.rs), so it does not show
   in her conversation screenshots.
+
+## Crippled-limb picture on the HUD (2026-10-17, branch claude/crippled-limb-hud)
+
+A crippled limb shows the Vault Boy at the top right for 5 s (docs/spec-notes/hud.md §12;
+smoke `hud-crippled-limbs`, screenshots `limbs_leg.png`, `limbs_arm.png`,
+`limbs_hidden.png` in `target/smoke/`). Size and place are fitted to your screenshot. My
+guesses to check against the game:
+
+- **The face by health**: 00 above 80 %, 01 above 60 %, 02 above 15 %, 03 above 0, 04 at
+  0. Only "02 at about 15 %" is from your screenshot; the other steps are guesses, and
+  `face_10` (tongue out) is unused. A screenshot of the picture at a few health levels
+  would settle the steps.
+- **The flash**: the HUD's red pulsing between full and a third of it every 0.6 s. Your
+  screenshot caught a dim red; how fast the original flashes, and whether it fades in or
+  out at the end, I could not see.
+- **A second crippling while it shows** starts the 5 s again and only the new limb
+  flashes; healing a limb shows nothing.
