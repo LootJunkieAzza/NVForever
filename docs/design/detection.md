@@ -123,11 +123,16 @@ probes fp1/fp2, 2026-10-17]. On the player GetLineOfSight is the camera's ("it r
 true if the *camera* can see the object", so in third person things behind the player
 can count), with the same ±95° [documented: GECK wiki GetLineOfSight]. NVForever measures
 the player against every drawn actor with the same formula as an actor: its Perception
-against the target's Sneak, from the camera's position, within ±95° of where the camera
-looks, through the same line of sight [hypothesis: the formula]. Facing matters as for
-an actor [observed: capture detection-1 det1, 2026-10-17, in third person: Ringo 263
-units away read player.GetDetected and GetLineOfSight 1 at 45° either side of the view
-and 0 at 135° and 151°]. Out of reach the player still measures (the target is hidden,
+against the target's Sneak, from its eyes, within ±95° of where its body faces, through
+the same line of sight [hypothesis: the formula]. Facing matters as for an actor
+[observed: capture detection-1 det1, 2026-10-17, in third person: Ringo 263 units away
+read player.GetDetected and GetLineOfSight 1 at 45° either side of the view and 0 at
+135° and 151°; capture detection-2 det4, Ringo 200 units away: GetDetected 1 to 90° off
+the facing on both sides, 0 from 100°]. GetLineOfSight on the player is the camera's:
+the same ±95° and wall check, from the camera along its view (`Situation::camera_sight`)
+[observed: same capture, 0 at 90° to the left but 1 up to 110° to the right, 0 at 120°:
+lopsided as the third-person camera sits off to one side]. In first person the two are
+the same. Out of reach the player still measures (the target is hidden,
 GetDetected 0) so that GetLineOfSight answers at any distance [observed: same capture
 det2, player.GetLineOfSight Ringo 1 and GetDetected 0 at 6,682 units outdoors]. `tdetect` and `NVF_PLAY_TEST_UNSEEN` do not stop it. The
 player's own measurements feed the two functions only: no detection state, no alarm.
@@ -164,6 +169,14 @@ What it approximates:
   within reach. The exit line `detection summary, out of the player's reach` counts the
   pairs measured with both actors out of the player's reach, and the actors the player
   detected.
+
+**Walls and obstacles** [observed: capture detection-2, 2026-10-17; ours the same on each
+spot, checked first in NVForever]: Ringo 200 units away in clear sight 1, behind the gas
+station's checkout counter (a low obstacle; our one ray to the chest passes over it) 1,
+behind the grocery shelves 0, both ways (the player's and Ringo's GetLineOfSight and
+GetDetected); Doc Mitchell through a doorway of his house 1. Two cases of the capture
+did not place Doc where meant (a solid wall, a doorway edge: he ended in another room)
+and show nothing; no glass or chain-link spot was tried.
 
 Checks: `fnv_game::sight` tests (field of view, pairs far from the player, a ridge
 between two actors), `crates/fnv-game/tests/functions.rs`
