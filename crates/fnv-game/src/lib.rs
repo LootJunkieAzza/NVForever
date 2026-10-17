@@ -66,6 +66,7 @@ pub mod quest;
 pub mod radio;
 pub mod respawn;
 pub mod rest;
+pub mod roulette;
 pub mod sound;
 pub mod runner;
 pub mod templates;

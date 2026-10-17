@@ -500,10 +500,13 @@ pub struct PlayerState {
     /// Casino winnings level (0–4) per casino (CSNO), set by the casino games (Layer 6).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub casino_levels: BTreeMap<FormId, i32>,
-    /// The net chips won at each casino over every round (`crate::blackjack`; a ban at the
+    /// The net chips won at each casino over every game (`crate::casino`; a ban at the
     /// casino's max winnings).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub casino_earnings: BTreeMap<FormId, i64>,
+    /// The roulette help message has been shown (it comes the first time only).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub roulette_help_shown: bool,
     /// The blackjack help message has been shown (it comes the first time only).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub blackjack_help_shown: bool,
@@ -726,6 +729,9 @@ pub struct Game<'a> {
     /// draw; the menu is open for scripts ([`crate::crafting::RECIPE_MENU`]) until the
     /// engine closes it. Not part of the saved state.
     pub recipe_requests: Vec<crate::crafting::RecipeRequest>,
+    /// Roulette menus asked for by ShowRouletteMenuParams (`crate::roulette`); the engine
+    /// opens them.
+    pub roulette_requests: Vec<crate::roulette::RouletteRequest>,
     /// Blackjack menus asked for by ShowBlackJackMenuParams (`crate::blackjack`); the
     /// engine opens them.
     pub blackjack_requests: Vec<crate::blackjack::BlackjackRequest>,
@@ -999,6 +1005,7 @@ impl<'a> Game<'a> {
             anims: Default::default(),
             barter_requests: Vec::new(),
             recipe_requests: Vec::new(),
+            roulette_requests: Vec::new(),
             blackjack_requests: Vec::new(),
             teammate_containers: Vec::new(),
             brought_along: BTreeSet::new(),

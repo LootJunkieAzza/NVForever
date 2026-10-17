@@ -45,6 +45,7 @@ pub mod hud_target;
 pub mod loading;
 pub mod main_menu;
 pub mod lockpick;
+pub mod roulette;
 pub mod blackjack;
 pub mod menu;
 pub mod message_menu;
@@ -268,6 +269,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)
             .add_plugins(lockpick::LockpickPlugin)
+            .add_plugins(roulette::RoulettePlugin)
             .add_plugins(blackjack::BlackjackPlugin)
             .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin))
             .add_plugins(console::ConsolePlugin)
