@@ -26,7 +26,22 @@
 //!   sets `fItemRepairCostMult` to 2.0 — observed]. The value is the record's, not the
 //!   worn item's lower one [hypothesis: the same fit].
 
+//!
+//! Repair from the inventory (the Pip-Boy's Repair, docs/spec-notes/repair.md §5): the
+//! player takes the parts of a like item to raise an item's condition; the item used is
+//! scrapped.
+//! - Which items can be used: those on the item's repair list (WEAP/ARMO `REPL`, a form
+//!   list), and items of the same kind always [documented: GECK wiki Armor, "Repair Item
+//!   List"]. Items at full condition are neither repaired nor used [owner's rule,
+//!   2026-10-17]; neither are equipped ones used [design].
+//! - How much: the GECK wiki's "Item Repair Formula" with the player's Repair skill
+//!   ([`merged_condition`]).
+
 use fnv_sim::FormId;
+
+/// MenuMode of the Pip-Boy's repair menu [documented: GECK wiki GetMenuTargetRef, "1035
+/// The item being repaired"]. Not reported yet: the Pip-Boy keeps its own code.
+pub const REPAIR_MENU: u16 = 1035;
 
 /// MenuMode of the repair services menu [documented: GECK wiki GetMenuTargetRef].
 pub const REPAIR_SERVICES_MENU: u16 = 1058;
@@ -61,6 +76,73 @@ impl RepairSettings {
     pub fn from_settings(setting: impl Fn(&str) -> Option<f32>) -> RepairSettings {
         let d = RepairSettings::default();
         RepairSettings { cost_mult: setting("fItemRepairCostMult").unwrap_or(d.cost_mult) }
+    }
+}
+
+/// The settings of the inventory repair [documented: GECK wiki "Item Repair Formula",
+/// the defaults; FalloutNV.esm sets none of them, observed].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MergeSettings {
+    /// `fRepairMax`: the effectiveness at Repair 100.
+    pub repair_max: f32,
+    /// `fRepairMin`: the effectiveness at Repair 0.
+    pub repair_min: f32,
+    /// `fRepairScavengeMult`: how much of the poorer item's condition is kept.
+    pub scavenge_mult: f32,
+}
+
+impl Default for MergeSettings {
+    fn default() -> MergeSettings {
+        MergeSettings { repair_max: 2.0, repair_min: 0.5, scavenge_mult: 0.05 }
+    }
+}
+
+impl MergeSettings {
+    pub fn from_settings(setting: impl Fn(&str) -> Option<f32>) -> MergeSettings {
+        let d = MergeSettings::default();
+        MergeSettings {
+            repair_max: setting("fRepairMax").unwrap_or(d.repair_max),
+            repair_min: setting("fRepairMin").unwrap_or(d.repair_min),
+            scavenge_mult: setting("fRepairScavengeMult").unwrap_or(d.scavenge_mult),
+        }
+    }
+}
+
+/// The condition (a fraction) of `target` after the parts of `source` (both fractions)
+/// went into it at this Repair skill [documented: GECK wiki "Item Repair Formula": with
+/// TIC and SIC the two conditions on 0 to 10, the gain in percent is `(max(TIC, SIC) +
+/// fRepairMin + (fRepairMax − fRepairMin) × Repair / 100 + min(TIC, SIC) ×
+/// fRepairScavengeMult − TIC) × 10`; the result is capped at 100 % and is at least 5 %;
+/// in Fallout: New Vegas it is not rounded]. Checked against the owner's screenshots at
+/// Repair 17: +9 % and +10 % for items near a third and a half [observed].
+pub fn merged_condition(s: &MergeSettings, target: f32, source: f32, skill: f32) -> f32 {
+    let (t, so) = (target.clamp(0.0, 1.0) * 10.0, source.clamp(0.0, 1.0) * 10.0);
+    let skill = skill.clamp(0.0, 100.0);
+    let gain = (t.max(so) + s.repair_min + (s.repair_max - s.repair_min) * skill / 100.0 + t.min(so) * s.scavenge_mult - t) * 10.0;
+    (target + gain.max(0.0) / 100.0).clamp(0.05, 1.0)
+}
+
+/// Whether `source` can go into `target`: the same kind of item, or one on the target's
+/// repair list.
+pub fn repairs_with(target: FormId, source: FormId, repair_list: &[FormId]) -> bool {
+    source == target || repair_list.contains(&source)
+}
+
+/// The ITEMS page's hint for an item: "Maintain" once it works as well as it can (a
+/// weapon above 75 %, apparel above 50 %), "Repair" below [observed: the owner's
+/// screenshots, "Maintain R)" on armour at about 65 %, "Repair R)" at about 35 % and on a
+/// rifle at about 40 %; documented: FalloutNV.esm MESG `HelpWeapons` "At 75% Condition
+/// or higher, a weapon does maximum damage and only needs to be maintained", `HelpApparel`
+/// "Apparel above 50% CND provides maximum protection and only needs to be maintained"].
+pub fn hint(gear: Gear, condition: f32) -> &'static str {
+    let full = match gear {
+        Gear::Weapon => 0.75,
+        Gear::Armor => 0.5,
+    };
+    if condition >= full {
+        "Maintain"
+    } else {
+        "Repair"
     }
 }
 
@@ -164,6 +246,35 @@ mod tests {
         assert_eq!(gain_percent(0.345, 1.0), 66);
         assert_eq!(gain_percent(0.999, 1.0), 0);
         assert_eq!(gain_percent(0.55, 1.0), 45);
+    }
+
+    #[test]
+    fn merging_follows_the_wikis_formula() {
+        let s = MergeSettings::default();
+        // Repair 17: 0.5 + 1.5 x 0.17 = 0.755 on the 0-10 scale, and 5 % of the poorer.
+        let gain = |t: f32, so: f32| ((merged_condition(&s, t, so, 17.0) - t) * 100.0 * 100.0).round() / 100.0;
+        // The owner's screenshots: armour at about 53 % with a piece at 30 %: +9 %; two
+        // rifles at about 40 %: +10 %.
+        assert_eq!(gain(0.53, 0.30), 9.05);
+        assert_eq!(gain(0.40, 0.40), 9.55);
+        // The better item's condition is the base: a poor target gains the source's.
+        assert!((merged_condition(&s, 0.2, 0.6, 100.0) - 0.81).abs() < 1e-5);
+        // Capped at full, and at least 5 %.
+        assert_eq!(merged_condition(&s, 0.9, 0.9, 100.0), 1.0);
+        assert_eq!(merged_condition(&MergeSettings { repair_min: 0.0, repair_max: 0.0, scavenge_mult: 0.0 }, 0.0, 0.0, 0.0), 0.05);
+        assert_eq!(MergeSettings::from_settings(|n| (n == "fRepairMax").then_some(3.0)).repair_max, 3.0);
+    }
+
+    #[test]
+    fn what_repairs_what_and_the_hint() {
+        let (a, b, c) = (FormId(1), FormId(2), FormId(3));
+        assert!(repairs_with(a, a, &[]));
+        assert!(repairs_with(a, b, &[a, b]));
+        assert!(!repairs_with(a, c, &[a, b]));
+        assert_eq!(hint(Gear::Weapon, 0.74), "Repair");
+        assert_eq!(hint(Gear::Weapon, 0.75), "Maintain");
+        assert_eq!(hint(Gear::Armor, 0.35), "Repair");
+        assert_eq!(hint(Gear::Armor, 0.65), "Maintain");
     }
 
     #[test]

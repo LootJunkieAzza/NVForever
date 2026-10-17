@@ -110,7 +110,7 @@ fn plugin_bytes() -> Vec<u8> {
     let crea = record(b"CREA", 0, CREA, &[sub(b"EDID", z("Robot")), sub(b"DATA", crea_data)]);
     let misc = record(b"MISC", 0, MISC, &[sub(b"EDID", z("Junk")), sub(b"DATA", [1i32.to_le_bytes().to_vec(), f32b(1.0)].concat())]);
     let weap_data = [10i32.to_le_bytes().to_vec(), 100i32.to_le_bytes().to_vec(), f32b(2.0), 5i16.to_le_bytes().to_vec(), vec![6]].concat();
-    let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("Gun")), sub(b"DATA", weap_data)]);
+    let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("Gun")), sub(b"DATA", weap_data), sub(b"REPL", FLST.to_le_bytes().to_vec())]);
     let note = record(b"NOTE", 0, NOTE, &[sub(b"EDID", z("TestHolotape"))]);
     let flst = record(b"FLST", 0, FLST, &[sub(b"EDID", z("GunList")), sub(b"LNAM", WEAP.to_le_bytes().to_vec())]);
     // The base effect: archetype 1 (Script), its script 0x851 (scripts.md §7.6).
@@ -284,6 +284,11 @@ fn records_read_for_the_new_functions() {
     let rg = &d.regions[&FormId(REGN)];
     assert_eq!(rg.world, Some(FormId(WRLD)));
     assert!(rg.contains(100.0, 100.0) && !rg.contains(5000.0, 100.0) && !rg.contains(-1.0, 2000.0));
+    // The gun's repair list (REPL) is the form list holding the gun.
+    assert_eq!(d.repair_lists[&FormId(WEAP)], FormId(FLST));
+    let g = game(&f);
+    assert_eq!(fnv_game::functions::repair_list(&g, FormId(WEAP)), vec![FormId(WEAP)]);
+    assert!(fnv_game::functions::repair_list(&g, FormId(MISC)).is_empty());
 }
 
 #[test]
