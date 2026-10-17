@@ -123,7 +123,7 @@ pub struct Kit {
 }
 
 impl Kit {
-    fn load(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Kit {
+    pub(crate) fn load(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Kit {
         Kit {
             font: face(FONT, plain_font(36.0, 15.0), data, images, bc),
             title: face(TITLE_FONT, plain_font(38.0, 16.0), data, images, bc),
@@ -211,10 +211,10 @@ pub fn draw(
 }
 
 pub struct Ctx<'a> {
-    kit: &'a mut Kit,
-    data: Option<&'a GameData>,
-    images: &'a mut Assets<Image>,
-    bc: bool,
+    pub(crate) kit: &'a mut Kit,
+    pub(crate) data: Option<&'a GameData>,
+    pub(crate) images: &'a mut Assets<Image>,
+    pub(crate) bc: bool,
 }
 
 impl Ctx<'_> {

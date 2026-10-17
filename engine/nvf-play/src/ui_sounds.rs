@@ -67,6 +67,8 @@ pub enum UiMenu {
     MainMenu,
     /// The recipe menu (`crate::crafting`).
     Recipe,
+    /// The blackjack table (`crate::blackjack`).
+    Blackjack,
 }
 
 impl UiMenu {
@@ -96,6 +98,7 @@ impl UiMenu {
             UiMenu::Terminal => "terminal",
             UiMenu::MainMenu => "main menu",
             UiMenu::Recipe => "recipe",
+            UiMenu::Blackjack => "blackjack",
         }
     }
 }
@@ -154,6 +157,16 @@ pub enum UiEvent {
     Reset,
     /// The hacking game: the password entered, access granted.
     Granted,
+    /// Blackjack: a card dealt.
+    CardDealt,
+    /// Blackjack: the dealer's hole card turned over.
+    CardFlipped,
+    /// Blackjack: the shoe shuffled.
+    Shuffled,
+    /// Blackjack: the cards swept off the table (`dealer`: the dealer's).
+    Collected { dealer: bool },
+    /// Blackjack: a round won (`won`) or lost.
+    RoundOver { won: bool },
 }
 
 impl UiEvent {
@@ -188,6 +201,12 @@ impl UiEvent {
             UiEvent::Value { up: false } => "value lowered",
             UiEvent::Reset => "reset",
             UiEvent::Granted => "access granted",
+            UiEvent::CardDealt => "card dealt",
+            UiEvent::CardFlipped => "card turned over",
+            UiEvent::Shuffled => "shoe shuffled",
+            UiEvent::Collected { .. } => "cards collected",
+            UiEvent::RoundOver { won: true } => "round won",
+            UiEvent::RoundOver { won: false } => "round lost",
         }
     }
 }
@@ -341,6 +360,19 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         (Pause | MainMenu, Focus) => Named("UIMenuFocus"),
         // The settings' toggles [observed: start_menu.xml lb_toggle_left, _value, _right].
         (Settings, Flipped) => Named("UIMenuPrevNext"),
+        // Blackjack (blackjack.md §6): the SOUN records named for it [observed:
+        // FalloutNV.esm `GAMEBlackJack…`; design: which event each is for, by its name].
+        (Blackjack, CardDealt) => Named("GAMEBlackJackCardDeal"),
+        (Blackjack, CardFlipped) => Named("GAMEBlackJackCardFlip"),
+        (Blackjack, Shuffled) => Named("GAMEBlackJackCardShuffle"),
+        (Blackjack, Collected { dealer: false }) => Named("GAMEBlackJackCardCollect"),
+        (Blackjack, Collected { dealer: true }) => Named("GAMEBlackJackCardCollectDealer"),
+        (Blackjack, Value { up: true }) => Named("GAMEBlackJackIncreaseBet"),
+        (Blackjack, Value { up: false }) => Named("GAMEBlackJackDecreaseBet"),
+        (Blackjack, RoundOver { won: true }) => Named("GAMEBlackJackWin"),
+        (Blackjack, RoundOver { won: false }) => Named("GAMEBlackJackLose"),
+        (Blackjack, Opened) => Named("UIMenuMode"),
+        (Blackjack, Back | Closed) => Named("UIMenuCancel"),
         _ => Silent("no sound for this"),
     }
 }

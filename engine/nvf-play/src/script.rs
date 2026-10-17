@@ -148,6 +148,7 @@ pub fn is_script_menu(code: u16) -> bool {
         && code != crate::terminal::MENU_HACKING
         && code != crate::terminal::MENU_TERMINAL
         && code != crate::lockpick::MENU_LOCKPICK
+        && code != crate::blackjack::MENU_BLACKJACK
         && code != fnv_game::crafting::RECIPE_MENU
 }
 
@@ -1475,17 +1476,18 @@ fn walk_player(mut script: ResMut<ScriptState>, mut phys: ResMut<PhysState>, mut
 fn hold_player(
     script: Res<ScriptState>,
     active: Res<ActiveMenu>,
-    paused: Res<crate::pause::Paused>,
-    wait: Res<crate::wait::WaitMenu>,
+    (paused, wait): (Res<crate::pause::Paused>, Res<crate::wait::WaitMenu>),
     (terminal, lockpick, console, recipe): (Res<crate::terminal::TerminalScreen>, Res<crate::lockpick::LockpickScreen>, Res<crate::console::Console>, Option<Res<crate::crafting::RecipeMenu>>),
+    blackjack: Option<Res<crate::blackjack::BlackjackScreen>>,
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
     // The pause menu is also a `PlayState::Menu` without an engine menu: it is its own.
     // So are the wait menu (`crate::wait`), a terminal (`crate::terminal`), the
     // lockpicking menu (`crate::lockpick`), the console (`crate::console`) and the recipe
-    // menu (`crate::crafting`).
-    if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() || console.open || recipe.is_some_and(|r| r.is_open()) {
+    // menu (`crate::crafting`), and the blackjack table (`crate::blackjack`).
+    let table = blackjack.is_some_and(|b| b.0.is_some());
+    if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() || console.open || recipe.is_some_and(|r| r.is_open()) || table {
         return;
     }
     let held = script.rt.as_ref().and_then(|rt| rt.game.menu).is_some_and(is_script_menu);
