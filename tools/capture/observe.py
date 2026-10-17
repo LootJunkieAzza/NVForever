@@ -56,7 +56,7 @@ MAX_FPS = 240
 # Seconds allowed per session on top of its game time (start-up, load, travel, quit).
 SESSION_MARGIN = 300
 DEFAULTS = {"every": 60, "depth": 1, "settle_frames": 300, "timescale": None, "max_actors": 128,
-            "console_first": [], "close_menus_after": 600}
+            "console_first": [], "console_after": [], "script_after": [], "close_menus_after": 600}
 # A walk starts this far from its target (player.MoveTo <target> <offset> 0 0; MoveTo's
 # offsets [documented: GECK wiki MoveTo]): a straight walk from further away ran into a
 # fence and stayed there [observed 2026-10-08, walk_to_settler]. The game loops allowed
@@ -283,7 +283,7 @@ def check_campaign(c):
     if len(set(names)) != len(names):
         raise InputError("session names must be unique")
     known = {"name", "go", "hour", "hours", "walk", "track", "every", "depth", "settle_frames", "timescale",
-             "max_actors", "console_first", "close_menus_after"}
+             "max_actors", "console_first", "console_after", "script_after", "close_menus_after"}
     for s in c["sessions"] + [c.get("defaults", {})]:
         extra = set(s) - known
         if extra:
@@ -338,6 +338,16 @@ def session_job(campaign, session, ctx):
     if s.get("hour") is not None:
         steps += [{"script": set_hour_script(s["hour"])}, {"frames": cs.SETTLE_FRAMES_LONG}]
     steps += go_steps(s.get("go"), ctx)
+    # After the teleport: lines that need the player where the session watches (an
+    # actor moved up to the player, a script package given to it).
+    steps += [{"console": line} for line in s["console_after"]]
+    # The same as compiled scripts that name forms by Editor ID (BuildRef): a console
+    # line cannot address a reference by FormID [observed 2026-10-17: package_kinds'
+    # `<FormID>.AddScriptPackage` lines ran without error and changed nothing].
+    for item in s["script_after"]:
+        if not (isinstance(item, list) and item and all(isinstance(x, str) for x in item)):
+            raise InputError(f"session {s['name']}: script_after items are [statement, name...]")
+        steps.append({"script": cs.run_script([item[0]], ctx, item[1:])})
     steps.append({"frames": int(s["settle_frames"])})
     if s.get("timescale"):
         steps += [{"remember": cs.global_query("TimeScale"), "as": "ts0"},

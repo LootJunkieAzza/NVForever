@@ -110,6 +110,23 @@ class ScriptRules(unittest.TestCase):
         self.assertNotIn("GetDistance", "".join(o["groups"][0]["probe"]), "GetDistance ends scripts for far targets")
         self.assertEqual(session["hours"], 2)
 
+    def test_console_after_runs_after_the_teleport(self):
+        job = ob.campaign_jobs(campaign(console_first=["tgm"], console_after=["BobRef.AddScriptPackage P"]), EDIDS)["obs_c1_s1"][1]
+        lines = [s.get("console") for s in job["steps"]]
+        self.assertLess(lines.index("tgm"), lines.index("BobRef.AddScriptPackage P"))
+        arrived = max(i for i, s in enumerate(job["steps"]) if "until" in s)
+        self.assertGreater(lines.index("BobRef.AddScriptPackage P"), arrived, "after the arrival is waited for")
+
+    def test_script_after_names_forms_by_buildref(self):
+        job = ob.campaign_jobs(campaign(script_after=[["{0}.AddScriptPackage {1}", "Bob", "Ann"]]), EDIDS)["obs_c1_s1"][1]
+        self.check(job)
+        script = [s["script"] for s in job["steps"] if "script" in s and "AddScriptPackage" in s["script"]]
+        self.assertEqual(len(script), 1)
+        self.assertIn("BuildRef", script[0])
+        self.assertNotIn("Bob", script[0])
+        with self.assertRaises(ob.InputError):
+            ob.campaign_jobs(campaign(script_after=["Bob.Disable"]), EDIDS)
+
     def test_hour_and_bad_campaigns(self):
         self.assertIn("let fH := 6", ob.set_hour_script(6))
         for bad in (dict(hour=24), dict(hours=0), dict(every=0), dict(go={"teleport": "x"}), dict(color=1)):

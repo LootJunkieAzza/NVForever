@@ -250,6 +250,11 @@ pub struct RefExtra {
     /// The furniture the actor is on, getting on or getting off.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub furniture: Option<FurnitureUse>,
+    /// The item (base form) the actor last used or took under its package (a Find or
+    /// Use Item At package), until its package changes; with the furniture it is on, what
+    /// GetIsUsedItem and its kin read (`functions::furniture`). Not saved.
+    #[serde(skip)]
+    pub used_item: Option<FormId>,
     /// The last hit taken (combat), for GetHitLocation.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_hit: Option<LastHit>,

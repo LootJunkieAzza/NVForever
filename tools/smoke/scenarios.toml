@@ -329,8 +329,12 @@ expect = [
   { json = "verdicts.talks: goes up to its target from where it is", schema = "fnv.ai.reach/1", equals = 126 },
   # main on 2026-10-11, so any change shows here and gets explained
   { json = "actor_package_pairs", schema = "fnv.ai.reach/1", equals = 16935, label = "pairs as on main 2026-10-11: 16,935" },
-  { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 10258, label = "reachable as on main 2026-10-11: 10,258" },
-  { json = "verdicts.stays where it is", schema = "fnv.ai.reach/1", equals = 1602, label = "staying as on main 2026-10-11: 1,602" },
+  { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 10258, label = "reachable as on main 2026-10-11: 10,258", known_failing = "main 2026-10-17 (6a53e8e7): 10,403; with every package type carried out (Escort, Find, Use Item At, Ambush, Flee, actor-behaviour.md §5.10): 10,620" },
+  { json = "verdicts.stays where it is", schema = "fnv.ai.reach/1", equals = 1602, label = "staying as on main 2026-10-11: 1,602", known_failing = "main 2026-10-17 (6a53e8e7): 1,691; with every package type carried out (Finds near the current location, Flees without a destination, §5.10): 1,835" },
+  # actor-behaviour.md §5.10 (2026-10-17): no package type is left "not carried out".
+  { json = "verdicts.not carried out yet: an ambush or flee package", schema = "fnv.ai.reach/1", count = 0, label = "Ambush and Flee Not Combat carried out" },
+  { json = "verdicts.not carried out yet: a package that searches for or uses an object", schema = "fnv.ai.reach/1", count = 0, label = "Find and Use Item At carried out" },
+  { json = "verdicts.not carried out yet: a package that leads its target", schema = "fnv.ai.reach/1", count = 0, label = "Escort carried out" },
   { json = "verdicts.never chosen: needs a linked reference the actor lacks", schema = "fnv.ai.reach/1", equals = 3185, label = "never chosen as on main 2026-10-11: 3,185" },
   { json = "verdicts.nowhere to go: the location is the player, who is nowhere yet", schema = "fnv.ai.reach/1", equals = 182, label = "at the player as on main 2026-10-11: 182" },
 ]
@@ -3672,4 +3676,79 @@ expect = [
   { text = "foot ik: … actors stood on uneven ground (the player)", label = "the player's feet placed on the hillside" },
   { re = 'foot ik: .*largest body drop (?P<n>[\d.]+) units', range = [0.5, 28.0], label = "the body lowered, within the limit" },
   { re = 'foot ik: .*foot raise (?P<n>[\d.]+) units', range = [0.5, 40.0], label = "a foot raised, within the limit" },
+]
+
+[[scenario]]
+name = "package-escort"
+source = "Escort packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): GomezEscortToAtrium given to a Goodsprings settler"
+note = "the settler is put 256 units from the player and given GomezEscortToAtrium (lead the player to its editor location, escort distance 300); the player stands still, so it walks off and stops to wait about 300 units away"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler01Ref:player:256:0:0,4:call:GoodspringsSettler01Ref:AddScriptPackage:GomezEscortToAtrium" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler01Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler01Ref: package GomezEscortToAtrium",
+  { re = 'GoodspringsSettler01Ref: escorts 0x00000014: waits, it is (?P<n>\d+) units behind', range = [300, 420], label = "it waits about the escort distance (300) ahead of the player" },
+]
+
+[[scenario]]
+name = "package-find"
+source = "Find packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): FFER24FindFood given to a Goodsprings settler"
+note = "mole rat meat is placed at the player and a settler 300 units off is given FFER24FindFood (find one MoleRatMeat within 1000 of where it is): it walks to the meat and takes it"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:300:0:0,4:call:player:PlaceAtMe:MoleRatMeat,5:call:GoodspringsSettler03Ref:AddScriptPackage:FFER24FindFood" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler03Ref: package FFER24FindFood",
+  { re = 'GoodspringsSettler03Ref: finds 0x[0-9A-F]+: goes to it', label = "it sets off to the meat" },
+  { re = 'GoodspringsSettler03Ref: found 0x[0-9A-F]+: takes \(FFER24FindFood\)', label = "it takes the meat" },
+]
+
+[[scenario]]
+name = "package-use-item-at"
+source = "Use Item At packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): DefaultUseNearbyFurniturePackage given to a Goodsprings settler"
+note = "GoodspringsSettler04Ref, in the saloon at noon, is given DefaultUseNearbyFurniturePackage (furniture within 100 of his editor location): the stool 00106192, 46 units from it (TrudyRef and GoodspringsSettler02Ref are disabled at this point of the game)"
+areas = ["ai", "packages", "furniture"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:GoodspringsSettler04Ref:AddScriptPackage:DefaultUseNearbyFurniturePackage" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler04Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler04Ref: package DefaultUseNearbyFurniturePackage",
+  "GoodspringsSettler04Ref: uses 0x00106192 (DefaultUseNearbyFurniturePackage)",
+  { text = "furniture: 00104F08 is on 00106192", label = "he sits on the stool" },
+]
+
+[[scenario]]
+name = "package-ambush"
+source = "Ambush packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): QJDeathclawAmbushPackage given to a Goodsprings settler"
+note = "GoodspringsSettler04Ref, in the saloon at noon, is given QJDeathclawAmbushPackage (wait at the editor location, hidden; the player within 5000 of it sets it off): it lies in wait, then attacks the player (god mode)"
+areas = ["ai", "packages", "combat"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:GoodspringsSettler04Ref:AddScriptPackage:QJDeathclawAmbushPackage" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler04Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler04Ref: package QJDeathclawAmbushPackage",
+  "GoodspringsSettler04Ref: lies in wait, hidden (QJDeathclawAmbushPackage)",
+  { re = 'GoodspringsSettler04Ref: springs its ambush on the player from \d+ units', label = "the player in the trigger location sets it off" },
+]
+
+[[scenario]]
+name = "package-flee"
+source = "Flee Not Combat packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): VTerrifyingPresencePackage and EasyPeteHideInSaloonPackage"
+note = "GoodspringsSettler03Ref, put 200 units from the player, is given VTerrifyingPresencePackage (flee the player to 768); the player is no enemy of his, so he stays and the package is done, as the original's settler did (packages.md §4: 0.4 game hours in procedure FLEE without moving); Easy Pete is given EasyPeteHideInSaloonPackage (no target) with nothing threatening him: he stays, the package done (the original: procedure DONE). Running from an enemy is the unit tests' (crates/fnv-ai/tests/errands.rs)"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:200:0:0,4:call:GoodspringsSettler03Ref:AddScriptPackage:VTerrifyingPresencePackage,4:call:EasyPeteRef:AddScriptPackage:EasyPeteHideInSaloonPackage" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref,EasyPeteRef"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler03Ref: package VTerrifyingPresencePackage",
+  "GoodspringsSettler03Ref: is safe (VTerrifyingPresencePackage)",
+  { text = "GoodspringsSettler03Ref: flees from", count = 0, label = "he does not run from the player, who is no enemy" },
+  "EasyPeteRef: is safe (EasyPeteHideInSaloonPackage)",
 ]

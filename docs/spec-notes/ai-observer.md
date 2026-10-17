@@ -121,7 +121,7 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
   (default 1200; 0 no limit), "approach": units (default 600; 0 none), "follow": bool}`
   (follow: within `within` the key is released and the drive goes on, to keep up with a
   moving actor), `track` = [ref Editor IDs], `every`,
-  `depth`, `settle_frames`, `timescale`, `max_actors`, `console_first`,
+  `depth`, `settle_frames`, `timescale`, `max_actors`, `console_first`, `console_after`, `script_after`,
   `close_menus_after` (game loops, default 600; 0 keeps menus open)).
 - **Walks** start with `player.MoveTo <target> <approach> 0 0` (MoveTo's offsets
   [documented: GECK wiki MoveTo]; the move is queued, so the job waits 120 loops), then
@@ -146,7 +146,11 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
   killed, depth 2, every 5 loops, 2 game hours). God mode is a console toggle: the save must not have it on
   already [hypothesis: it is not stored in saves].
 - **Session job**: console_first lines; clock forward to `hour` (GameHour set past 24
-  carries the day [observed 2026-10-08]); teleport and wait to arrive; `settle_frames`;
+  carries the day [observed 2026-10-08]); teleport and wait to arrive; `console_after` lines
+  and `script_after` items (`[statement, name…]`: a compiled script with `{0}`… the
+  named forms, built with BuildRef: an actor moved up to the player and given a script
+  package; a console line cannot address a reference by FormID [observed 2026-10-17:
+  `<FormID>.AddScriptPackage` lines ran and changed nothing]); `settle_frames`;
   optional TimeScale (remembered and restored); remember GameDaysPassed; observe until
   `hours` of game time have passed; release the Forward key.
 - Order matters: the clock is set **before** the teleport, so the cell loads at the new

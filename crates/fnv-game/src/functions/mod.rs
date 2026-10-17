@@ -38,6 +38,7 @@ pub use reputation::{crime_infamy, reputations_of, store as reputation_store, ti
 pub use actor::{actor_value, actor_value_capped, actor_value_parts, temporary as actor_value_temporary, add_damage as add_actor_value_damage, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
 pub use actor::{faction_rank, faction_relation, factions_of, factions_relation};
 pub use misc::clock_now;
+pub use refs::list_members;
 pub use fighting::cause_code;
 /// The level (0–3) of fame or infamy against a reputation's scale (the Pip-Boy's STATS page).
 pub use reputation::level as reputation_level;
@@ -481,10 +482,10 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x115B, "SetNoAvoidance", Stub("AI")),
         (0x118B, "SetActorsAI", Impl(ai_state::set_actors_ai)),
         (0x1122, "SetPackDuration", Impl(ai_state::set_pack_duration)),
-        (0x10F6, "GetIsUsedItem", Stub("AI (used items)")),
-        (0x10F7, "GetIsUsedItemType", Stub("AI (used items)")),
-        (0x11E0, "GetIsUsedItemEquipType", Stub("AI (used items)")),
-        (0x1103, "GetUsedItemActivate", Stub("AI (used items)")),
+        (0x10F6, "GetIsUsedItem", Impl(furniture::get_is_used_item)),
+        (0x10F7, "GetIsUsedItemType", Impl(furniture::get_is_used_item_type)),
+        (0x11E0, "GetIsUsedItemEquipType", Impl(furniture::get_is_used_item_equip_type)),
+        (0x1103, "GetUsedItemActivate", Impl(furniture::get_used_item_activate)),
         (0x107E, "StartCannibal", Stub("AI (Cannibal perk)")),
         (0x10E3, "GetCannibal", Stub("AI (Cannibal perk)")),
         (0x107F, "HasBeenEaten", Stub("AI (Cannibal perk)")),
@@ -678,7 +679,9 @@ pub fn actor_health(g: &mut Game, actor: FormId) -> Result<f64, String> {
     actor::actor_value(g, actor, crate::combat::HEALTH)
 }
 
-pub(crate) fn base_of(g: &Game, r: FormId) -> Option<FormId> {
+/// The base form of a reference (moved or created ones included; the player's base for
+/// the player).
+pub fn base_of(g: &Game, r: FormId) -> Option<FormId> {
     match g.world.peek(r) {
         Some(s) => Some(s.base),
         None if r == FormId::PLAYER_REF => Some(FormId::PLAYER_BASE),
