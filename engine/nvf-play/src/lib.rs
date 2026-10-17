@@ -44,6 +44,7 @@ pub mod levelup;
 pub mod hud;
 pub mod hud_limbs;
 pub mod hud_target;
+pub mod knockouts;
 pub mod loading;
 pub mod main_menu;
 pub mod lockpick;
@@ -275,7 +276,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(roulette::RoulettePlugin)
             .add_plugins(blackjack::BlackjackPlugin)
             .add_plugins(poker::PokerPlugin)
-            .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin))
+            .add_plugins((crime::CrimePlugin, reputation::ReputationPlugin, knockouts::KnockoutsPlugin))
             .add_plugins(console::ConsolePlugin)
             .add_plugins(free_cam::FreeCamPlugin)
             .add_plugins(aim_zoom::AimZoomPlugin)

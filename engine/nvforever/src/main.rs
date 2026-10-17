@@ -27,6 +27,7 @@ mod creature_stance;
 mod creator_view;
 mod death_cam;
 mod deaths;
+mod knockouts;
 mod detection;
 mod dialogue_look;
 mod door_fade;
@@ -1128,6 +1129,7 @@ fn main() -> AppExit {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
+            app.add_plugins(knockouts::KnockoutsPlugin);
             app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
             app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin));
             // What drawn NPCs wear and hold follows their inventories (outfits.rs).

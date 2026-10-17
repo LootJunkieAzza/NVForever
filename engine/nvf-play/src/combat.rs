@@ -1496,7 +1496,7 @@ fn hit_items(c: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, s
 
 /// Apply `dealt` health damage through the script runtime; report and remember it.
 #[allow(clippy::too_many_arguments)]
-fn apply_hit(
+pub(crate) fn apply_hit(
     script: Option<&mut ScriptState>,
     sim: &mut SimState,
     target: FormId,

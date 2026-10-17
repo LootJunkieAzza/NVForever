@@ -85,7 +85,7 @@ impl Game<'_> {
         let mut turned = 0;
         for w in watchers {
             let Some(radius) = self.aggro_radius(w) else { continue };
-            let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.unconscious || e.restrained || e.teammate);
+            let out = |g: &Game, r: FormId| g.extra.get(&r).is_some_and(|e| e.dead || e.out_cold() || e.restrained || e.teammate);
             if out(self, w) || !self.present(w) || self.provocations.holds(w, FormId::PLAYER_REF) {
                 continue;
             }

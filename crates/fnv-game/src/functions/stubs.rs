@@ -35,7 +35,6 @@ pub const FOLLOWERS: &str = "H followers";
 
 /// Stubs whose system another workstream is building now or next.
 pub const ASSIGNED: &[(u16, &str)] = &[
-    (0x124E, CRIME),  // GetOwnerLastTarget
 ];
 
 /// Stubs whose system exists, left for a later round; the text says what is missing.
@@ -80,7 +79,6 @@ mod tests {
     fn every_stub_has_a_status() {
         let a = audit();
         assert!(a.iter().any(|(_, n, s)| *n == "SetRumble" && s.key() == "no_op"));
-        assert!(a.iter().any(|(_, n, s)| *n == "GetOwnerLastTarget" && *s == Status::Assigned(CRIME)));
         assert!(a.iter().all(|(op, ..)| !super::super::implemented(*op) || matches!(lookup(*op), Some(Kind::NoOp(_)))));
     }
 }

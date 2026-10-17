@@ -139,6 +139,9 @@ pub(crate) fn actor_value_base(g: &mut Game, actor: FormId, code: u16) -> f64 {
 pub fn add_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
     let total = damage(g, actor, code) + d.max(0.0);
     set_damage(g, actor, code, total);
+    if code == crate::actor_values::FATIGUE && d > 0.0 {
+        g.fatigue_changed(actor);
+    }
 }
 
 /// The damage an actor value has taken (0 or more).
@@ -328,6 +331,10 @@ pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     }
     let d = damage(g, r, code) + a.num(1)?;
     set_damage(g, r, code, d);
+    // Out of fatigue: knocked out (docs/spec-notes/unconscious.md §2.3).
+    if code == crate::actor_values::FATIGUE {
+        g.fatigue_changed(r);
+    }
     none()
 }
 
@@ -365,6 +372,12 @@ pub fn get_dead(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 /// not acted on (no dismemberment yet).
 pub fn kill_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    // An essential actor is knocked out "for a few seconds" instead [documented: GECK
+    // wiki KillActor notes] (docs/spec-notes/unconscious.md §2.2).
+    if essential(g, r) && r != FormId::PLAYER_REF {
+        g.knock_out(r, crate::unconscious::Cause::Essential, a.opt_form(0));
+        return none();
+    }
     if g.kill(r, a.opt_form(0)) {
         if let Ok(cause) = a.int(2) {
             g.extra.entry(r).or_default().death_cause = Some(cause);
@@ -892,13 +905,28 @@ pub fn get_health_percentage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
 }
 
 /// IsFacingUp (bipeds) and IsLeftUp (quadrupeds), the idle manager's checks of a knocked
-/// down actor's side [documented: GECK wiki]: 1 [observed, function probes `fp1_queries`
-/// 2026-10-17: both read 1 on Ringo standing in the gas station]. Knockdowns are not
-/// built, so no actor lies on its other side; 1 always [hypothesis for a knocked-down
-/// actor].
-pub fn knocked_side_up(_g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
-    ctx.subject()?;
-    yes(true)
+/// down actor's side [documented: GECK wiki]: 1 for a standing actor [observed, function
+/// probes `fp1_queries` 2026-10-17: both read 1 on Ringo standing in the gas station];
+/// for a knocked-out one the side the engine saw its body come to rest on, 1 until then
+/// (docs/spec-notes/unconscious.md §2.8) [hypothesis: IsLeftUp reads the same side].
+pub fn knocked_side_up(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.knockout(r).and_then(|k| k.facing_up).unwrap_or(true))
+}
+
+/// `GetOwnerLastTarget`: "the most recent target of whoever owns the calling reference"
+/// [documented: catalogue summary]: the actor the calling item's holder (an item
+/// script's instance), or the calling actor, last hit (`RefExtra::last_target`), else
+/// its combat target [hypothesis: the hit target is the target meant; the weapon scripts
+/// that call it run in OnHit, docs/spec-notes/unconscious.md §1].
+pub fn get_owner_last_target(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let owner = match ctx.inst {
+        Some(crate::game::InstKey::Item { holder, .. }) => Some(holder),
+        _ => ctx.on.or(ctx.self_ref),
+    };
+    let Some(owner) = owner else { return Ok(Value::NONE) };
+    let target = g.extra.get(&owner).and_then(|e| e.last_target).or_else(|| g.awareness.get(owner).and_then(|a| a.combat_target()).map(|t| t.0));
+    Ok(target.map_or(Value::NONE, |t| Value::Ref(t.0)))
 }
 
 /// `actor.GetDisposition target`: the actor's record's Disposition Base (ACBS) plus

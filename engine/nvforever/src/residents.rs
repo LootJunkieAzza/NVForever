@@ -487,6 +487,18 @@ fn is_actor(refs: &RefTable, id: FormId) -> bool {
 }
 
 impl Residents {
+    /// Put an actor's walker where its body now stands (game space feet, heading), as
+    /// after getting up from furniture: a knocked-out actor laid over its ragdoll to get up
+    /// (`knockouts.rs`) is drawn there from now on. False for an actor that is not a
+    /// resident.
+    pub fn put_walker(&mut self, actor: FormId, feet: [f32; 3], heading: f32) -> bool {
+        let Some(a) = self.core.ai.agents.get_mut(&actor) else { return false };
+        a.walker.feet = feet;
+        a.walker.heading = heading;
+        a.walker.tri = fnv_nav::graph::NONE;
+        true
+    }
+
     /// The walking and running speeds of actors without their own.
     pub fn default_speeds(&self) -> fnv_ai::Speeds {
         fnv_ai::Speeds { walk: self.core.ai.cfg.walk_speed, run: self.core.ai.cfg.run_speed }

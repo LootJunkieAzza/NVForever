@@ -421,7 +421,7 @@ impl Game<'_> {
             .iter()
             .filter(|((w, t), (d, at))| *t == FormId::PLAYER_REF && *w != FormId::PLAYER_REF && d.band == Band::Detected && now - at <= 1.0)
             .map(|((w, _), _)| *w)
-            .filter(|&w| self.present(w) && !self.is_dead(w) && !self.extra.get(&w).is_some_and(|e| e.teammate || e.ignore_crime || e.unconscious))
+            .filter(|&w| self.present(w) && !self.is_dead(w) && !self.extra.get(&w).is_some_and(|e| e.teammate || e.ignore_crime || e.out_cold()))
             .collect()
     }
 

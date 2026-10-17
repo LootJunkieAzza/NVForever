@@ -138,6 +138,13 @@ pub enum EventKind {
     ImageModifierRemoved { modifier: FormId, #[serde(skip_serializing_if = "std::ops::Not::not")] ended: bool },
     /// A reputation changed: infamy (axis 0) or fame (axis 1), the new value.
     ReputationChanged { reputation: FormId, axis: usize, value: f64 },
+    /// An actor was knocked out (`crate::unconscious`): `cause` is "essential" or
+    /// "fatigue".
+    KnockedOut { actor: FormId, cause: &'static str },
+    /// A knocked-out actor got up.
+    GotUp { actor: FormId, cause: &'static str },
+    /// The player tried to talk to an unconscious actor.
+    TalkedToUnconscious { actor: FormId },
 }
 
 /// A value in the trace: a number, or a reference as its FormID.

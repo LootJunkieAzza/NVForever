@@ -375,7 +375,7 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   - OnHit runs with the attacker, then OnHitWith with the weapon.
   - Child races and Invulnerable creatures take nothing.
   - Essential actors (base flag or `SetActorRefEssential`) fall unconscious at 1 health
-    instead of dying [design].
+    instead of dying [design]; they get up again (docs/spec-notes/unconscious.md).
   - At 0 health the actor dies as with `KillActor`: dead flag, killer, GetDeadCount,
     OnDeath. `KillActor` now uses the same `Game::kill`.
 - **Kill XP** [documented: Experience Settings]. The target's level picks the class
