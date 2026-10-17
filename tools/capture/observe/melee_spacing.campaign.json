@@ -1,0 +1,287 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "melee_spacing",
+ "title": "Melee spacing: one attacker at a time against the player standing still in god mode (tgm in the first session) near Goodsprings, where Violet's dogs roam (the two dogs, an NCR trooper with each class of melee weapon, then one creature of each kind, each spawned 700 units away and set on the player); every game loop, the fight field set. With the player's Health raised to 100000 instead of tgm, attackers kept 280-500 units away [observed 2026-10-17]",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "every": 1,
+  "depth": 1,
+  "hours": 0.25,
+  "settle_frames": 120
+ },
+ "sessions": [
+  {
+   "name": "dogs",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -12,
+     15
+    ]
+   },
+   "note": "the two dogs of the smoke scenario combat-dogs set on the player; the player is first put where one of them stands (on the navmesh: after cow alone, walking attackers stopped 190-280 units short [observed 2026-10-17])",
+   "do": [
+    [
+     "player.MoveTo {0}",
+     "0x000F573F"
+    ],
+    [
+     "{0}.MoveTo player 0 500 0",
+     "0x000F573F"
+    ],
+    [
+     "{0}.MoveTo player 300 500 0",
+     "0x0013E5BB"
+    ],
+    [
+     "{0}.StartCombat player",
+     "0x000F573F"
+    ],
+    [
+     "{0}.StartCombat player",
+     "0x0013E5BB"
+    ]
+   ],
+   "console_first": [
+    "tgm"
+   ]
+  },
+  {
+   "name": "trooper_fists",
+   "console_first": [
+    "killall"
+   ],
+   "note": "an NCR trooper (leveled list) spawned 700 units away, all items taken, given none, set on the player",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "arm": "none",
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "trooper_knife",
+   "console_first": [
+    "killall"
+   ],
+   "note": "an NCR trooper (leveled list) spawned 700 units away, all items taken, given WeapKnife, set on the player",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "arm": "WeapKnife",
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "trooper_machete",
+   "console_first": [
+    "killall"
+   ],
+   "note": "an NCR trooper (leveled list) spawned 700 units away, all items taken, given WeapNVMachete, set on the player",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "arm": "WeapNVMachete",
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "trooper_lead_pipe",
+   "console_first": [
+    "killall"
+   ],
+   "note": "an NCR trooper (leveled list) spawned 700 units away, all items taken, given WeapLeadPipe, set on the player",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "arm": "WeapLeadPipe",
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "trooper_sledgehammer",
+   "console_first": [
+    "killall"
+   ],
+   "note": "an NCR trooper (leveled list) spawned 700 units away, all items taken, given WeapSledgehammer, set on the player",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "arm": "WeapSledgehammer",
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "trooper_power_fist",
+   "console_first": [
+    "killall"
+   ],
+   "note": "an NCR trooper (leveled list) spawned 700 units away, all items taken, given WeapPowerFist, set on the player",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 1,
+     "distance": 700,
+     "arm": "WeapPowerFist",
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "creature_giant_rat",
+   "console_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier1GiantRatMed",
+     "count": 1,
+     "distance": 700,
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "creature_dog",
+   "console_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier1DogMed",
+     "count": 1,
+     "distance": 700,
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "creature_coyote",
+   "console_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier1CoyoteMed",
+     "count": 1,
+     "distance": 700,
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "creature_mole_rat",
+   "console_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier1MoleRatMed",
+     "count": 1,
+     "distance": 700,
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "creature_gecko",
+   "console_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier2GeckoMed",
+     "count": 1,
+     "distance": 700,
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "creature_giant_mantis",
+   "console_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier2GiantMantisMed",
+     "count": 1,
+     "distance": 700,
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "creature_radscorpion",
+   "console_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier2RadscorpionMed",
+     "count": 1,
+     "distance": 700,
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "creature_cazador",
+   "console_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier4CazadorMed",
+     "count": 1,
+     "distance": 700,
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "creature_young_deathclaw",
+   "console_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier3DeathClawSmall",
+     "count": 1,
+     "distance": 700,
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "creature_feral_ghoul",
+   "console_first": [
+    "killall"
+   ],
+   "place": [
+    {
+     "base": "VCrTier1FeralGhoul1A",
+     "count": 1,
+     "distance": 700,
+     "attack": "player"
+    }
+   ]
+  }
+ ]
+}

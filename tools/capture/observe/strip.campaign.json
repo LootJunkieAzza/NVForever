@@ -1,0 +1,10 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "strip",
+ "title": "The Strip from the owner's save nvfstrip (saved on the Strip with its crowd spawned: arriving by coc from the early-game save left NPCs behind a trigger disabled), the player standing where the save has it: conversations, patrols and speech for 6 game hours",
+ "save": "nvfstrip",
+ "defaults": {"every": 30, "depth": 1},
+ "sessions": [
+  {"name": "strip_evening", "hours": 6}
+ ]
+}
