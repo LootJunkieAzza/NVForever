@@ -86,8 +86,36 @@ PARTS = [
      ("sneaking", "num", "IsSneaking"), ("running", "num", "IsRunning"), ("weapon_out", "num", "IsWeaponOut"),
      ("moving", "num", "IsMoving"), ("health", "num", "GetAV Health"), ("persistent", "num", "IsPersistent"),
      ("creature", "num", "GetIsCreature"), ("teammate", "num", "GetPlayerTeammate")],
+    # Who an actor talks to, what it does with its weapon and what furniture it uses
+    # (from 2026-10-17). GetDialogueTarget (NVSE): the NPC spoken to, the actor's dialogue
+    # package target; GetAnimAction (GECK1): -1 none, 2 attack (a melee swing or full
+    # auto), 3 attack follow-through (semi auto), 4 back from an attack, 7 block, 8
+    # stagger, 9 reload, 13 scripted and furniture animations [documented: GECK wiki, its
+    # "revised for GECK NV" table]; GetEquippedObject 5 (FOSE1): the weapon's base form;
+    # GetWeaponAnimType (GECK1): the weapon animation type (the wiki's table of values is
+    # a template missing from the export, so codes are recorded raw); GetFurnitureMarkerID
+    # (GECK1): 0 none, 1-10 beds, 11-20 chairs; GetAttacked (GECK1): attacked since the
+    # actor last left combat. Probed only for actors in the loaded area: what these return
+    # for an actor whose 3D is not loaded was not checked.
+    [("dialogue_target", "ref", "GetDialogueTarget"), ("anim_action", "num", "GetAnimAction"),
+     ("weapon", "ref", "GetEquippedObject 5"), ("weapon_anim", "num", "GetWeaponAnimType"),
+     ("furniture", "num", "GetFurnitureMarkerID"), ("attacked", "num", "GetAttacked")],
 ]
-FIELD_KIND = {name: kind for part in PARTS for name, kind, _ in part}
+# Parts probed for tracked actors (named, wherever they are, also unloaded): the first two.
+TRACKED_PARTS = 2
+# The fight field set (session "fields": "fight"): one part with what a fight needs,
+# cheap enough to sample every game loop (positions for melee spacing, the attack phase,
+# speech for combat lines, targets and deaths for the encounter timeline).
+FIGHT_PARTS = [
+    [("id", "ref", None), ("base", "ref", "GetBaseObject"), ("x", "num", "GetPos X"), ("y", "num", "GetPos Y"),
+     ("z", "num", "GetPos Z"), ("heading", "num", "GetAngle Z"), ("in_combat", "num", "IsInCombat"),
+     ("combat_target", "ref", "GetCombatTarget"), ("procedure", "num", "GetCurrentAIProcedure"),
+     ("anim_action", "num", "GetAnimAction"), ("talking", "num", "IsTalking"), ("knocked", "num", "GetKnockedState"),
+     ("dead", "num", "GetDead"), ("health", "num", "GetAV Health"), ("weapon", "ref", "GetEquippedObject 5"),
+     ("creature", "num", "GetIsCreature")],
+]
+FIELD_SETS = {"full": PARTS, "fight": FIGHT_PARTS}
+FIELD_KIND = {name: kind for parts in FIELD_SETS.values() for part in parts for name, kind, _ in part}
 HEADER = [("days", "num", "GameDaysPassed"), ("hour", "num", "GameHour"), ("timescale", "num", "TimeScale"),
           ("player_x", "num", "player.GetPos X"), ("player_y", "num", "player.GetPos Y"),
           ("player_z", "num", "player.GetPos Z"), ("player_heading", "num", "player.GetAngle Z"),
@@ -242,24 +270,27 @@ def release_script():
     return cs.function(["int iK"], [f"let iK := GetControl {CONTROL_FORWARD}", "ReleaseKey iK"], returns_value=False)
 
 
-def groups(depth, max_actors, tracked, ctx):
-    """The observe step's groups: actors in the loaded area, and named actors."""
+def groups(depth, max_actors, tracked, ctx, fields="full"):
+    """The observe step's groups: actors in the loaded area, and named actors (with the
+    full set only its first TRACKED_PARTS parts: a named actor may be unloaded)."""
+    parts = FIELD_SETS[fields]
     near = {"name": "nearby", "count": count_script(f"GetNumRefs {ACTOR_TYPE} {int(depth)}"),
-            "probe": [probe_part(p, [], [], nearby_select(depth), True) for p in PARTS], "max": int(max_actors)}
+            "probe": [probe_part(p, [], [], nearby_select(depth), True) for p in parts], "max": int(max_actors)}
     out = [near]
     if tracked:
         n = cs.Names(*ctx)
         vars_ = [n.operand(t) for t in tracked]
+        tparts = parts[:TRACKED_PARTS] if fields == "full" else parts
         out.append({"name": "tracked", "count": count_script(str(len(tracked))),
-                    "probe": [probe_part(p, n.decls, n.setup, tracked_select(vars_), False) for p in PARTS],
+                    "probe": [probe_part(p, n.decls, n.setup, tracked_select(vars_), False) for p in tparts],
                     "max": len(tracked)})
     return out
 
 
-def fields_doc(tracked):
+def fields_doc(tracked, fields="full"):
     return {"header": [[name, kind] for name, kind, _ in HEADER],
-            "parts": [[[name, kind] for name, kind, _ in part] for part in PARTS],
-            "tracked": list(tracked)}
+            "parts": [[[name, kind] for name, kind, _ in part] for part in FIELD_SETS[fields]],
+            "tracked": list(tracked), "set": fields}
 
 
 # --------------------------------------------------------------------------- campaigns
@@ -283,15 +314,21 @@ def check_campaign(c):
     if len(set(names)) != len(names):
         raise InputError("session names must be unique")
     known = {"name", "go", "hour", "hours", "walk", "track", "every", "depth", "settle_frames", "timescale",
-             "max_actors", "console_first", "close_menus_after"}
+             "max_actors", "console_first", "close_menus_after", "fields", "do", "place", "note"}
     for s in c["sessions"] + [c.get("defaults", {})]:
         extra = set(s) - known
         if extra:
             raise InputError(f"unknown session keys {sorted(extra)}")
+        if s.get("fields", "full") not in FIELD_SETS:
+            raise InputError(f"fields must be one of {sorted(FIELD_SETS)}, got {s.get('fields')!r}")
 
 
 def job_name(campaign, session):
-    return f"obs_{campaign['name']}_{session['name']}"
+    """obs_<campaign>_<NN>_<session>: the plugin runs pending jobs in file-name order
+    [observed 2026-10-17: melee_spacing's creature_cazador ran before its first session,
+    dogs], so the session's place in the campaign leads its name."""
+    k = next(i for i, x in enumerate(campaign["sessions"]) if x["name"] == session["name"])
+    return f"obs_{campaign['name']}_{k + 1:02d}_{session['name']}"
 
 
 def go_steps(go, ctx):
@@ -320,6 +357,66 @@ def go_steps(go, ctx):
     raise InputError(f"unknown go {how!r} (coc, cow or moveto)")
 
 
+# Game loops after each scene action of a session (MoveTo is queued [documented: GECK
+# wiki MoveTo]; a spawned actor is given time to load before the next action).
+DO_FRAMES = 30
+
+
+def do_steps(items, ctx):
+    """A session's scene actions, run after arrival: a string is a console line; a list
+    [statement, name, ...] is a script statement with {0}, {1}, ... replaced by the
+    named references or forms (e.g. ["{0}.MoveTo player -400 600 0", "0x000F36F5"])."""
+    steps = []
+    for item in items or []:
+        if isinstance(item, str):
+            steps.append({"console": item})
+        elif isinstance(item, list) and item and isinstance(item[0], str):
+            steps.append({"script": cs.run_script([item[0]], ctx, item[1:])})
+        else:
+            raise InputError(f"a do item is a console line or [statement, names...], got {item!r}")
+        steps.append({"frames": DO_FRAMES})
+    return steps
+
+
+def place_steps(items, ctx):
+    """`place`: [{"base": form, "count": n, "distance": units, "direction": d, "arm":
+    weapon | "none", "attack": ref}]: spawn actors near the player with PlaceAtMe
+    (count, distance, direction 0 front, 1 back, 2 left, 3 right [documented: GECK wiki
+    PlaceAtMe]). Its result cannot be kept: `let`/`set` of PlaceAtMe's return did not
+    compile in the runtime compiler [observed 2026-10-17, aa_obs_place_test], so `arm`
+    and `attack` then act on every reference created at run time (GetSourceModIndex 255)
+    in the loaded area that is alive and not in combat: `arm` takes all its items and
+    gives and equips the weapon ("none": fists), `attack` sets it on the reference with
+    StartCombat (spawned creatures did not always attack the player by themselves
+    [observed 2026-10-17, melee_spacing]). Spawned actors are found by the nearby scan
+    only (FormIDs 0xFF...)."""
+    out = []
+    for p in items or []:
+        unknown = set(p) - {"base", "count", "distance", "direction", "attack", "arm"}
+        if unknown or "base" not in p:
+            raise InputError(f"a place item takes base, count, distance, direction, arm, attack; got {sorted(p)}")
+        stmt = (f"player.PlaceAtMe {{0}} {int(p.get('count', 1))} {cs.number(p.get('distance', 600))} "
+                f"{int(p.get('direction', 0))}")
+        out += [{"script": cs.run_script([stmt], ctx, [p["base"]])}, {"frames": DO_FRAMES}]
+        if p.get("arm") or p.get("attack"):
+            n = cs.Names(*ctx)
+            act = []
+            if p.get("arm"):
+                act.append("    rA.RemoveAllItems")
+                if p["arm"] != "none":
+                    w = n.operand(p["arm"])
+                    act += [f"    rA.AddItem {w} 1", f"    rA.EquipItem {w}"]
+            if p.get("attack"):
+                act.append(f"    rA.StartCombat {n.operand(p['attack'])}")
+            body = [f"let rA := GetFirstRef {ACTOR_TYPE} 1", "while rA != 0",
+                    f"  if rA.GetSourceModIndex == {cs.CREATED_MOD_INDEX}",
+                    "    let fD := rA.GetDead + rA.IsInCombat", "  else", "    let fD := 1", "  endif",
+                    "  if fD == 0"] + act + ["  endif", "  let rA := GetNextRef", "loop"]
+            out += [{"script": cs.function(n.decls + ["ref rA", "float fD"], n.setup + body, returns_value=False)},
+                    {"frames": DO_FRAMES}]
+    return out
+
+
 def session_seconds(s):
     ts = s.get("timescale") or DEFAULT_TIMESCALE
     return float(s["hours"]) * 3600 / ts
@@ -339,13 +436,16 @@ def session_job(campaign, session, ctx):
         steps += [{"script": set_hour_script(s["hour"])}, {"frames": cs.SETTLE_FRAMES_LONG}]
     steps += go_steps(s.get("go"), ctx)
     steps.append({"frames": int(s["settle_frames"])})
+    steps += place_steps(s.get("place"), ctx) + do_steps(s.get("do"), ctx)
     if s.get("timescale"):
         steps += [{"remember": cs.global_query("TimeScale"), "as": "ts0"},
                   {"console": f"set TimeScale to {cs.number(s['timescale'])}"}]
     steps.append({"remember": cs.global_query("GameDaysPassed"), "as": "t0"})
     loops = session_seconds(s) * MAX_FPS
-    obs = {"label": s["name"], "fields": fields_doc(tracked), "header": [header_script(k, e) for _, k, e in HEADER],
-           "groups": groups(s["depth"], s["max_actors"], tracked, ctx), "every": every,
+    fields = s.get("fields", "full")
+    obs = {"label": s["name"], "fields": fields_doc(tracked, fields),
+           "header": [header_script(k, e) for _, k, e in HEADER],
+           "groups": groups(s["depth"], s["max_actors"], tracked, ctx, fields), "every": every,
            "until": until_hours_script("t0", hours), "max_samples": int(math.ceil(loops / every)) + 10}
     close_after = s.get("close_menus_after")
     if close_after:
@@ -363,7 +463,7 @@ def session_job(campaign, session, ctx):
         obs["drive_end"] = release_script()
         approach = float(walk.get("approach", WALK_APPROACH))
         if approach > 0:
-            steps.insert(-1, {"script": approach_script(walk["to"], approach, ctx)})
+            steps.insert(-1, {"script": approach_script(walk["to"], approach, ctx)})  # before remembering t0
             steps.insert(-1, {"frames": MOVETO_FRAMES})
     steps.append({"observe": obs})
     if walk:
@@ -430,6 +530,10 @@ def diag_job():
     steps.append({"observe": {"label": "diag", "fields": fields_doc([]),
                               "header": [header_script(k, e) for _, k, e in HEADER],
                               "groups": groups(1, 64, [], (cs.MASTERS, None)), "every": 30, "max_samples": 5}})
+    # The fight field set every game loop: what one sample costs (`us`) at full rate.
+    steps.append({"observe": {"label": "diag_fight", "fields": fields_doc([], "fight"),
+                              "header": [header_script(k, e) for _, k, e in HEADER],
+                              "groups": groups(1, 64, [], (cs.MASTERS, None), "fight"), "every": 1, "max_samples": 60}})
     return cs.job("aa_observe_diag", "Load a save with a few NPCs nearby (e.g. Goodsprings by day).", steps, cs.MASTERS)
 
 

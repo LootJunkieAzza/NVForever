@@ -62,7 +62,7 @@ class ScriptRules(unittest.TestCase):
         self.assertEqual(job["format"], cs.STEPS_FORMAT)
         fields = [s.get("field") for s in job["steps"] if s.get("label") == "field"]
         self.assertEqual(fields, [f[0] for p in ob.PARTS for f in p], "every field is checked on its own")
-        self.assertEqual(sum("observe" in s for s in job["steps"]), 1)
+        self.assertEqual(sum("observe" in s for s in job["steps"]), 2, "the full set, then the fight set")
 
     def test_committed_diag_job_is_current(self):
         with open(os.path.join(os.path.dirname(HERE), "jobs", "aa_observe_diag.steps.json"), encoding="utf-8") as f:
@@ -71,7 +71,7 @@ class ScriptRules(unittest.TestCase):
     def test_campaign_job(self):
         jobs = ob.campaign_jobs(campaign(walk={"to": "Ann", "within": 100}, timescale=60), EDIDS)
         (name, (session, job)), = jobs.items()
-        self.assertEqual(name, "obs_c1_s1")
+        self.assertEqual(name, "obs_c1_01_s1")
         self.check(job)
         kinds = [next(iter(s)) for s in job["steps"] if next(iter(s)) != "query"]
         self.assertEqual(kinds, ["script", "frames", "console", "until", "frames", "frames", "remember", "console",
@@ -94,13 +94,13 @@ class ScriptRules(unittest.TestCase):
         with self.assertRaises(ob.InputError):
             ob.campaign_jobs(campaign(walk={"to": "Ann", "noclip": True}), EDIDS)
         follow = ob.campaign_jobs(campaign(walk={"to": "Ann", "follow": True, "approach": 0, "max_frames": 0}), EDIDS)
-        fjob = follow["obs_c1_s1"][1]
+        fjob = follow["obs_c1_01_s1"][1]
         fo = [s for s in fjob["steps"] if "observe" in s][0]["observe"]
         self.assertIn("    ReleaseKey iK\n    let fA := 0\n", fo["drive"], "close enough only releases the key")
         self.assertNotIn(f"let fA := {ob.WALK_ARRIVED}", fo["drive"])
         self.assertEqual(fo["drive_frames"], 0, "no limit: follow for the whole observation")
         self.assertFalse(any("MoveTo" in s.get("script", "") for s in fjob["steps"]), "approach 0: no teleport")
-        no_hook = ob.campaign_jobs(campaign(close_menus_after=0), EDIDS)["obs_c1_s1"][1]
+        no_hook = ob.campaign_jobs(campaign(close_menus_after=0), EDIDS)["obs_c1_01_s1"][1]
         self.assertNotIn("hooks", [s for s in no_hook["steps"] if "observe" in s][0]["observe"])
         self.assertIn("BuildRef fM1 4098", o["drive"], "Ann = 0x1002")
         tracked = o["groups"][1]
@@ -251,26 +251,26 @@ class Supervise(unittest.TestCase):
         return rep, calls
 
     def test_a_crash_is_retried_and_the_rest_continue(self):
-        rep, calls = self.supervise([{"obs_c_a": "running"}, {"obs_c_a": "ended", "obs_c_b": "ended"}])
-        self.assertEqual([c[0] for c in calls], [["obs_c_a", "obs_c_b"], ["obs_c_a", "obs_c_b"]])
+        rep, calls = self.supervise([{"obs_c_01_a": "running"}, {"obs_c_01_a": "ended", "obs_c_02_b": "ended"}])
+        self.assertEqual([c[0] for c in calls], [["obs_c_01_a", "obs_c_02_b"], ["obs_c_01_a", "obs_c_02_b"]])
         self.assertTrue(all(c[2] for c in calls), "hung games are closed")
         self.assertEqual(calls[0][1], int(2 * 3600 / 30 * 1.5) + 2 * ob.SESSION_MARGIN)
         s = rep["sessions"]
-        self.assertEqual((s["obs_c_a"]["status"], s["obs_c_a"]["cut_off"]), ("ended", 1))
-        self.assertEqual(s["obs_c_a"]["outputs"], ["obs_c_a.out", "obs_c_a.out"])
-        self.assertEqual(s["obs_c_b"]["status"], "ended")
+        self.assertEqual((s["obs_c_01_a"]["status"], s["obs_c_01_a"]["cut_off"]), ("ended", 1))
+        self.assertEqual(s["obs_c_01_a"]["outputs"], ["obs_c_01_a.out", "obs_c_01_a.out"])
+        self.assertEqual(s["obs_c_02_b"]["status"], "ended")
         self.assertEqual(rep["problems"], [])
 
     def test_a_session_that_keeps_crashing_is_given_up(self):
-        rep, calls = self.supervise([{"obs_c_a": "running"}, {"obs_c_a": "running"}, {"obs_c_b": "ended"}], retries=1)
-        self.assertEqual(calls[2][0], ["obs_c_b"])
-        self.assertFalse(os.path.exists(os.path.join(self.dir, "jobs", "obs_c_a.steps.json")),
+        rep, calls = self.supervise([{"obs_c_01_a": "running"}, {"obs_c_01_a": "running"}, {"obs_c_02_b": "ended"}], retries=1)
+        self.assertEqual(calls[2][0], ["obs_c_02_b"])
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "jobs", "obs_c_01_a.steps.json")),
                          "a given-up job is taken out of jobs/ so the plugin does not run it again")
-        self.assertEqual(rep["sessions"]["obs_c_a"]["status"], "given up")
-        self.assertEqual(rep["sessions"]["obs_c_b"]["status"], "ended")
+        self.assertEqual(rep["sessions"]["obs_c_01_a"]["status"], "given up")
+        self.assertEqual(rep["sessions"]["obs_c_02_b"]["status"], "ended")
 
     def test_fatal_problems_and_no_progress_stop(self):
-        rep, calls = self.supervise([{"_problems": ["plugin: skipping obs_c_a.steps.json: unknown step"]}])
+        rep, calls = self.supervise([{"_problems": ["plugin: skipping obs_c_01_a.steps.json: unknown step"]}])
         self.assertEqual(len(calls), 1)
         self.assertTrue(rep["problems"][0].startswith("stopped: plugin:"))
         rep, calls = self.supervise([{}])
@@ -286,19 +286,19 @@ class Supervise(unittest.TestCase):
             for n, (path, _) in jobs.items():
                 with open(os.path.join(capture_dir, "jobs", f"{n}.steps.json"), "w") as f:
                     f.write("{}")
-            with open(os.path.join(out, f"obs_c_a.{int(time.time()) + 1}.jsonl"), "w") as f:
+            with open(os.path.join(out, f"obs_c_01_a.{int(time.time()) + 1}.jsonl"), "w") as f:
                 f.write('{"kind": "start"}\n{"kind": "end"}\n')
-            with open(os.path.join(out, f"obs_c_b.{int(time.time()) + 1}.jsonl"), "w") as f:
+            with open(os.path.join(out, f"obs_c_02_b.{int(time.time()) + 1}.jsonl"), "w") as f:
                 f.write('{"kind": "start"}\n{"kind": "sample"}\n')
             game_.alive = True
             raise KeyboardInterrupt
 
         rep = ob.supervise(self.jobs, self.dir, game, "nvftest", 1, os.path.join(self.dir, "stage"), run=run)
-        self.assertEqual(rep["sessions"]["obs_c_a"]["status"], "ended")
-        self.assertEqual(rep["sessions"]["obs_c_b"]["status"], "interrupted")
-        self.assertEqual(len(rep["sessions"]["obs_c_b"]["outputs"]), 1, "the partial output is kept")
+        self.assertEqual(rep["sessions"]["obs_c_01_a"]["status"], "ended")
+        self.assertEqual(rep["sessions"]["obs_c_02_b"]["status"], "interrupted")
+        self.assertEqual(len(rep["sessions"]["obs_c_02_b"]["outputs"]), 1, "the partial output is kept")
         self.assertEqual(game.kills, 1)
-        self.assertEqual(os.listdir(os.path.join(self.dir, "jobs")), ["obs_c_a.steps.json"],
+        self.assertEqual(os.listdir(os.path.join(self.dir, "jobs")), ["obs_c_01_a.steps.json"],
                          "only the ended job's file is left (the plugin moves it to done/ itself)")
         self.assertIn("interrupted", rep["problems"][0])
         self.assertNotIn("_round_start", rep)
@@ -317,7 +317,7 @@ class Supervise(unittest.TestCase):
         def fake_supervise(jobs, capture_dir, game, save, retries, stage, **kw):
             calls.append(save)
             status = "ended" if len(calls) < 3 else "cut off"
-            return {"started": len(calls), "problems": [], "sessions": {"obs_c_a": {"status": status, "cut_off": 0, "outputs": []}}}
+            return {"started": len(calls), "problems": [], "sessions": {"obs_c_01_a": {"status": status, "cut_off": 0, "outputs": []}}}
 
         real, ob.supervise = ob.supervise, fake_supervise
         try:
