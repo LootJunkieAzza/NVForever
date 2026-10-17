@@ -2395,12 +2395,40 @@ expect = [
 name = "feet-on-ground"
 source = "owner report 2026-10-16 (screenshot in Goodsprings, third person): the player's boots hung above the ground (Camp Golf's open ground: 3.7 units before the fix); the body was drawn at the character's feet, which rest the terrain's 3.5-unit contact shell above it (physics.md §6.2); docs/spec-notes/floating-actors.md §6"
 areas = ["player-body", "actors"]
-paths = ["engine/nvforever/src/actor_feet.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/phys.rs"]
+paths = ["engine/nvforever/src/actor_feet.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/phys/drawn.rs"]
 env = { NVF_TEST_ACTOR_FEET = "12:3500", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "6:view" }
 args = ["--play", "--pos=29500,62000,3400", "--heading", "0", "--pitch", "-10", "--hour", "12", "--no-voice"]
 run_seconds = 18
 expect = [
   { re = 'actor feet: player body at .*, root (?P<n>-?[\d.]+) above it', range = [-1.5, 1.5], label = "the drawn body stands on the drawn landscape" },
+]
+
+[[scenario]]
+name = "pete-porch"
+source = "owner report 2026-10-17: Easy Pete drawn sinking into the Prospector Saloon's porch; the porch's collision is a plane 2.5 units under the top of its drawn boards and the body was drawn on the collision (2.8 under the boards standing, 3.5 walking); docs/spec-notes/floating-actors.md §7"
+note = "Pete is held (SetRestrained) and put by MoveTo at his placement's x, y and the height the game itself recorded him standing on the porch (8384.6, AI observer captures), 0.3 above where our character would rest; the boards' top there is 8387.1, the collision 8383.6. Before the fix he was drawn at 8384 (the probe found no actor then: it measured from the water's reflection camera)"
+areas = ["actors", "player-body"]
+paths = ["engine/nvforever/src/actor_feet.rs", "engine/nvforever/src/residents.rs", "engine/nvforever/src/player_body.rs", "engine/nvforever/src/foot_ik.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/phys/**"]
+env = { NVF_TEST_ACTOR_FEET = "34:600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "1:call:EasyPeteRef:SetRestrained:1,2:moveto:EasyPeteRef:0x0010636F:-130.9:-286:-8.4", NVF_PLAY_TEST_FACE = "24:00104C80", NVF_PLAY_TEST_LOOK = "25.5:22.4:-36", NVF_PLAY_TEST_SHOTS = "34:pete_porch.png" }
+args = ["--play", "--pos=-67900,3200,8360", "--heading", "0", "--pitch", "-10", "--hour", "12", "--no-voice"]
+run_seconds = 36
+expect = [
+  { re = 'actor feet: 00104C80 GSEasyPete at \(-?\d+, -?\d+, (?P<n>[\d.]+)\)', range = [8386.1, 8388.1], label = "Pete's body stands on the porch's drawn boards (top 8387.1)" },
+  { re = 'actor feet: 00104C80 GSEasyPete at .*, root (?P<n>-?[\d.]+) above the drawn ground', range = [-1.0, 1.0], label = "on the drawn ground the probe finds" },
+]
+
+[[scenario]]
+name = "pete-terrain"
+source = "the twin of pete-porch on bare landscape (owner, 2026-10-17: both must hold together): over terrain the drawn ground is the collision's own surface, so the body is drawn the 3.5-unit terrain shell below the feet (feet-on-ground); docs/spec-notes/floating-actors.md §6, §7"
+note = "Pete is held (SetRestrained) and put by MoveTo on the landscape in front of the saloon's steps (x -67845, y 3170; drawn landscape 8352.0) at the terrain rest height, 3.5 above it, where a character standing there rests (physics.md §6.2)"
+areas = ["actors", "player-body"]
+paths = ["engine/nvforever/src/actor_feet.rs", "engine/nvforever/src/residents.rs", "engine/nvforever/src/foot_ik.rs", "engine/nvf-play/src/phys.rs", "engine/nvf-play/src/phys/**"]
+env = { NVF_TEST_ACTOR_FEET = "34:600", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "1:call:EasyPeteRef:SetRestrained:1,2:moveto:EasyPeteRef:0x0010636F:-131:-450:-37.5", NVF_PLAY_TEST_FACE = "24:00104C80", NVF_PLAY_TEST_LOOK = "25.5:0:-36", NVF_PLAY_TEST_SHOTS = "34:pete_terrain.png" }
+args = ["--play", "--pos=-67845,2950,8360", "--heading", "0", "--pitch", "-10", "--hour", "12", "--no-voice"]
+run_seconds = 36
+expect = [
+  { re = 'actor feet: 00104C80 GSEasyPete at .*, root (?P<n>-?[\d.]+) above it', range = [-1.0, 1.0], label = "Pete's body stands on the drawn landscape" },
+  { re = 'actor feet: 00104C80 GSEasyPete at .*, root (?P<n>-?[\d.]+) above the drawn ground', range = [-1.0, 1.0], label = "on the drawn ground the probe finds" },
 ]
 
 [[scenario]]
@@ -3589,6 +3617,22 @@ expect = [
   { re = 'blackjack: round [3-9] over:', label = "rounds played by themselves" },
   { re = 'blackjack summary: 2 asked, 1 opened \(1 refused\); [3-9][0-9]* rounds', label = "the summary" },
 ]
+
+[[scenario]]
+name = "abilities-worn"
+source = "docs/spec-notes/aid-items.md §13 (capture abilities-1): authored abilities are on loaded actors only, so Victor outside reads 0 for his template's SecuritronDT from the gas station; the gambler hat's enchantment (Perception +1) is on the player while worn and gone once unequipped"
+areas = ["scripts", "items"]
+paths = ["crates/fnv-game/src/abilities.rs", "crates/fnv-game/src/functions/magic.rs", "crates/fnv-game/src/functions/items.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:001073E8.isspelltarget 0012B891;8.5:001073E8.hasmagiceffect 001630EF;9:player.additem 0010EA7F 1;9.5:player.equipitem 0010EA7F;10:player.isspelltarget 00071B88;10.5:player.hasmagiceffect 0001515D;11:player.getav perception;11.5:player.getbaseav perception;12:player.unequipitem 0010EA7F;12.5:player.isspelltarget 00071B88;13:player.getav perception;13.5:close" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10"]
+run_seconds = 18
+order = [[
+  "console: IsSpellTarget on 0x001073E8 >> 0.00",
+  "console: HasMagicEffect on 0x001073E8 >> 0.00",
+  "console: IsSpellTarget on player >> 1.00",
+  "console: HasMagicEffect on player >> 1.00",
+  "console: IsSpellTarget on player >> 0.00",
+]]
 
 [[scenario]]
 name = "character-creator-opening"

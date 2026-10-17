@@ -192,19 +192,16 @@ system = "animation state told to the rules"
 note = "Stub 0; 0 at rest matches [observed: probes]. The engine knows aiming (OWB asks action 9, iron sights)."
 
 [function.IsSpellTarget]
-status = "wrong"
-system = "actor abilities and worn enchantments as effects"
-note = "Abilities (SPLO) and enchantments are never in the effects list."
+status = "match"
+note = "Authored abilities (NPC_/CREA SPLO through the template) on loaded actors only, and worn armour enchantments, are active effects; one whose conditions fail counts [observed: probes abilities-1, all agree] (aid-items.md §13)."
 
 [function.HasMagicEffect]
-status = "wrong"
-system = "actor abilities and worn enchantments as effects"
-note = "As IsSpellTarget."
+status = "match"
+note = "As IsSpellTarget, an effect whose conditions fail included [observed: probes abilities-1]."
 
 [function.RemoveSpell]
-status = "wrong"
-system = "actor abilities and worn enchantments as effects"
-note = "Cannot remove authored abilities (never applied)."
+status = "match"
+note = "Takes an authored ability away for good; AddSpell puts it back [observed: probes abilities-1]."
 
 [function.Look]
 status = "wrong"
