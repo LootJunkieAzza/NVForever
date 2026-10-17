@@ -3432,9 +3432,9 @@ name = "character-creator"
 source = "docs/spec-notes/character-creator.md §7: the race menu (1036) drawn by the creator, live look, Done"
 areas = ["chargen", "menus", "actors"]
 paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/**", "crates/fnv-actor/src/creator.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/control.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Sex,9.5:next:Origin,10:prev:Hair style,10.5:set:Skin Shade Dark / Light:0.2,11:set:Nose - short / long:0.9,11.5:next:Eye colour,12:random,12.5:undo,13:tab:face,15.5:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_open.png,12:creator_changed.png,15:creator_face_tab.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Sex,9.5:next:Origin,10:prev:Hair style,10.5:set:Skin Shade Dark / Light:0.2,11:set:Nose - short / long:0.9,11.5:next:Eye colour,12:random,12.5:undo,13:tab:face,14:orbit:60:15,15.5:zoom:0.7,15.6:pan:3:-2,17:tab:basics,18.5:zoom:0.35,20.5:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_open.png,12:creator_changed.png,13.8:creator_face_tab.png,15.2:creator_orbit.png,16.7:creator_pan_zoom.png,18.2:creator_body.png,19.8:creator_body_zoomed.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
-run_seconds = 20
+run_seconds = 30
 order = [[
   "creator: open on Male Caucasian (115 sliders, 4 races",
   "creator: Sex Female",
@@ -3452,8 +3452,13 @@ expect = [
   "creator: data: 4 races, 115 sliders",
   { text = "player body: third-person rig", min = 3, label = "the body rebuilt for the new looks" },
   { text = "ui sounds: creator accepted: UIMenuOK", label = "Done" },
+  { text = "creator: camera (test aid NVF_PLAY_TEST_CREATOR): turned", count = 4, label = "orbit, zoom, pan, zoom (owner 2026-10-17)" },
+  { text = "creator view: lights on", count = 1, label = "the creator's lights (owner 2026-10-17)" },
+  { text = "creator view: lights off", count = 1, label = "and gone again after Done" },
+  { re = 'creator: camera \(test aid NVF_PLAY_TEST_CREATOR\): turned 69°, tilted (?P<n>\d+)°', range = [16, 19], label = "turned 60° and tilted 15° on the face framing" },
+  { re = 'creator: camera .*, 61 units away, looking (?P<n>\d+) under the eye', range = [5, 15], label = "zoomed in on the whole body: aimed near the face, not the pelvis" },
 ]
-manual = "creator_open.png, creator_changed.png, creator_face_tab.png in the run's folder: the panel on the left, the player framed on the right; after the changes a darker-skinned woman with longer nose"
+manual = "creator_open.png … creator_body_zoomed.png in the run's folder: the panel on the left, the player framed on the right; after the changes a darker-skinned woman with longer nose; orbit: her face from her left and above; pan_zoom: nearer, moved; body: the whole body; body_zoomed: the head and shoulders"
 
 [[scenario]]
 name = "actor-creator"
@@ -3523,3 +3528,24 @@ expect = [
   { re = 'blackjack: round [3-9] over:', label = "rounds played by themselves" },
   { re = 'blackjack summary: 2 asked, 1 opened \(1 refused\); [3-9][0-9]* rounds', label = "the summary" },
 ]
+
+[[scenario]]
+name = "character-creator-opening"
+source = "owner 2026-10-17: no mouse pointer in the character creator in a real new game (docs/spec-notes/character-creator.md §6)"
+note = "In the opening menu 1036 opens at the end of Doc Mitchell's line, still in the conversation and with the wake-up idle driving the view; the pointer stayed hidden there. Each script menu stays 3 s before the test aid closes it."
+areas = ["chargen", "menus", "controls"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "8", NVF_PLAY_TEST_SHOTS = "103:opening_creator_103.png,106:opening_creator_106.png" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 130
+order = [[
+  "script: menu 1036 open",
+  "creator: open on",
+  "pointer: shown (the character creator)",
+  "creator: closed",
+]]
+expect = [
+  { text = "creator view: lights on", label = "the creator's lights in the real opening" },
+  { text = "creator view: lights off", label = "removed when it closes" },
+]
+manual = "opening_creator_*.png: one or more shows the creator open in Doc Mitchell's house: the player lit, Doc not in front of them, no E) Talk prompt, no subtitle over the panel"

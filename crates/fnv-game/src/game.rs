@@ -574,7 +574,7 @@ impl MessageBox {
 pub mod menus {
     /// A message box (ShowMessage of a message with the Message Box flag).
     pub const MESSAGE: u16 = 1001;
-    /// The race menu (ShowRaceMenu).
+    /// The race menu (ShowRaceMenu) [observed: layer5-captures.md §10.3].
     pub const RACE: u16 = 1036;
     /// The tag-skill menu (SetTagSkills).
     pub const TAG_SKILLS: u16 = 1048;

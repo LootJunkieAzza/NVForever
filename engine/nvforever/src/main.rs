@@ -24,6 +24,7 @@ mod anim_sounds;
 mod crash;
 mod creature_pace;
 mod creature_stance;
+mod creator_view;
 mod death_cam;
 mod deaths;
 mod detection;
@@ -1114,6 +1115,7 @@ fn main() -> AppExit {
         app.add_plugins(head_look::HeadLookPlugin { enabled: !args.no_head_tracking, camera_is_player: args.head_track_camera, force_point });
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
+            app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
             app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
             app.add_plugins(cell_resets::CellResetsPlugin);
