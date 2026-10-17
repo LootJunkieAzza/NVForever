@@ -3425,6 +3425,53 @@ order = [[
 # progressed save nvftest the original was read in), so his first IsWeaponOut is not checked.
 
 [[scenario]]
+name = "character-creator"
+source = "docs/spec-notes/character-creator.md §7: the race menu (1036) drawn by the creator, live look, Done"
+areas = ["chargen", "menus", "actors"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/**", "crates/fnv-actor/src/creator.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Sex,9.5:next:Origin,10:prev:Hair style,10.5:set:Skin Shade Dark / Light:0.2,11:set:Nose - short / long:0.9,11.5:next:Eye colour,12:random,12.5:undo,13:tab:face,15.5:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_open.png,12:creator_changed.png,15:creator_face_tab.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 20
+order = [[
+  "creator: open on Male Caucasian (115 sliders, 4 races",
+  "creator: Sex Female",
+  "creator: Origin Hispanic",
+  "creator: Hair style",
+  "creator: Skin Shade -60",
+  "creator: Nose +80",
+  "creator: Eye colour",
+  "creator: randomised",
+  "creator: undone",
+  "creator: done (test aid NVF_PLAY_TEST_CREATOR): Female Hispanic",
+  "creator: closed",
+]]
+expect = [
+  "creator: data: 4 races, 115 sliders",
+  { text = "player body: third-person rig", min = 3, label = "the body rebuilt for the new looks" },
+  { text = "ui sounds: creator accepted: UIMenuOK", label = "Done" },
+]
+manual = "creator_open.png, creator_changed.png, creator_face_tab.png in the run's folder: the panel on the left, the player framed on the right; after the changes a darker-skinned woman with longer nose"
+
+[[scenario]]
+name = "actor-creator"
+kind = "tool"
+source = "docs/spec-notes/character-creator.md §2, §7: what the creator offers, from the masters and the FaceGen controls file si.ctl"
+areas = ["actors", "chargen"]
+paths = ["crates/fnv-actor/src/creator.rs", "crates/fnv-actor/src/facegen.rs", "crates/fnv-actor/src/records.rs", "crates/fnvtool/src/actor_creator.rs"]
+commands = [["actor", "creator", "--schema", "schemas/fnv", "{data}", "FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "CaravanPack.esm"]]
+expect = [
+  { json = "ctl_problem", null = true },
+  { json = "counts.races", equals = 4 },
+  { json = "counts.sliders", equals = 115 },
+  { json = "counts.presets", equals = 80 },
+  { json = "counts.facial_hair", equals = 32 },
+  { json = "races.?edid=Caucasian.male.hairs.#", equals = 18 },
+  { json = "races.?edid=Caucasian.female.hairs.#", equals = 23 },
+  { json = "races.?edid=Hispanic.male.eyes.#", equals = 4 },
+  { json = "sliders.?label=Skin Shade Dark / Light.body_colour_per_unit.*", range = [15, 30], all = true },
+]
+
+[[scenario]]
 name = "roulette"
 source = "docs/spec-notes/roulette.md §7: The Tops' roulette table (0x0011ED93 in TOPSCasino) activated with 500 Tops chips: the help the first time, a straight-up on 17 and red, the ball made to stop in 17 (black): 25 x 36 back, 10 lost; screenshots of the felt and the wheel"
 areas = ["roulette"]

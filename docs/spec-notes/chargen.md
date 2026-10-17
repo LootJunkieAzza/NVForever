@@ -4,7 +4,8 @@ Tags as in `nif.md`: `[documented]` cites a page or file, `[observed]` says what
 looked at, `[hypothesis]` is a reading that nothing has confirmed yet. `[design]` marks
 what is NVForever's own. Rules: `crates/fnv-game/src/chargen.rs`; drawing:
 `engine/nvf-play/src/chargen.rs` and `chargen/{draw,lists,name}.rs`; the Vigor Tester's
-S.P.E.C.I.A.L. menu has its own note, `vigor-tester.md`.
+S.P.E.C.I.A.L. menu has its own note, `vigor-tester.md`; the race menu (1036) is NVForever's own
+character creator, `character-creator.md`.
 
 ## 1. Sources and when the menus open
 

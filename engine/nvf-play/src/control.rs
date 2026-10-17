@@ -80,6 +80,37 @@ impl Orbit {
     }
 }
 
+/// The camera in front of the player looking back at them, while the character creator
+/// is open (`crate::creator`) [design, docs/spec-notes/character-creator.md §5].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Portrait {
+    /// Turned about the player from straight in front of them, radians.
+    pub yaw: f32,
+    /// From the point looked at, game units.
+    pub distance: f32,
+    /// The point looked at, this far under the eye, game units.
+    pub drop: f32,
+    /// Looking down (positive) or up, radians.
+    pub pitch: f32,
+    /// The camera stepped this far to its left, game units, so the player stands right
+    /// of the picture's middle (clear of the creator's panel).
+    pub shift: f32,
+}
+
+impl Portrait {
+    /// Where the camera stands and the heading and pitch it looks with, for a player
+    /// whose eye is at `eye` and who faces `heading`.
+    pub fn spot(&self, eye: [f32; 3], heading: f32) -> ([f32; 3], f32, f32) {
+        let target = [eye[0], eye[1], eye[2] - self.drop];
+        let out = space::look_dir(heading + self.yaw, self.pitch);
+        let look = heading + self.yaw + std::f32::consts::PI;
+        // The camera's right, level: (cos h, −sin h) for the heading it looks with.
+        let (s, c) = look.sin_cos();
+        let at = [target[0] + out[0] * self.distance - c * self.shift, target[1] + out[1] * self.distance + s * self.shift, target[2] + out[2] * self.distance];
+        (at, look, -self.pitch)
+    }
+}
+
 /// What the player asks of their character besides moving.
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
 pub struct PlayerControl {
@@ -110,6 +141,8 @@ pub struct PlayerControl {
     /// each frame; `None` in first person and while the camera circles. Activation and
     /// the player's shots aim along it ([`Crosshair::ray`]).
     pub crosshair: Option<Crosshair>,
+    /// The character creator's camera, while it is open.
+    pub portrait: Option<Portrait>,
 }
 
 impl Default for PlayerControl {
@@ -128,6 +161,7 @@ impl Default for PlayerControl {
             reload: false,
             ammo_swap: false,
             crosshair: None,
+            portrait: None,
         }
     }
 }
@@ -135,7 +169,7 @@ impl Default for PlayerControl {
 impl PlayerControl {
     /// Whether the camera shows the player from outside (third person, or circling).
     pub fn third_person_view(&self) -> bool {
-        self.pov == Pov::Third || self.orbit.active()
+        self.pov == Pov::Third || self.orbit.active() || self.portrait.is_some()
     }
 }
 
@@ -608,6 +642,13 @@ pub fn place_camera(
     let (Some(p), Ok(mut t)) = (player, cams.single_mut()) else { return };
     let eye = p.eye();
     control.crosshair = None;
+    if let Some(portrait) = control.portrait {
+        // No collision: the creator's room is the player's own space [design].
+        let (at, heading, pitch) = portrait.spot(eye, p.heading);
+        t.translation = space::to_bevy(at);
+        t.rotation = space::look_rotation(heading, pitch);
+        return;
+    }
     if !control.third_person_view() {
         t.rotation = p.body_view.map_or_else(|| space::look_rotation(p.heading, p.pitch), space::view_rotation);
         t.translation = space::to_bevy(eye);
@@ -661,6 +702,23 @@ mod tests {
         let t = r[0] * d[0] + r[1] * d[1] + r[2] * d[2];
         let q = [r[0] - d[0] * t, r[1] - d[1] * t, r[2] - d[2] * t];
         (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt()
+    }
+
+    #[test]
+    fn the_portrait_camera_stands_in_front_and_looks_back() {
+        let p = Portrait { yaw: 0.0, distance: 50.0, drop: 10.0, pitch: 0.0, shift: 0.0 };
+        // Facing +y (heading 0): the camera is 50 in front, level with the point under the eye.
+        let (at, heading, pitch) = p.spot([0.0, 0.0, 120.0], 0.0);
+        assert!(at[0].abs() < 1e-4 && (at[1] - 50.0).abs() < 1e-4 && (at[2] - 110.0).abs() < 1e-4, "{at:?}");
+        let back = space::look_dir(heading, pitch);
+        assert!((back[1] + 1.0).abs() < 1e-5);
+        // Turned a quarter: beside the player, still looking at them.
+        let (at, heading, _) = Portrait { yaw: FRAC_PI_2, ..p }.spot([0.0, 0.0, 120.0], 0.0);
+        assert!((at[0] - 50.0).abs() < 1e-3 && at[1].abs() < 1e-3);
+        assert!((space::look_dir(heading, 0.0)[0] + 1.0).abs() < 1e-5);
+        // Stepped left: looking back along −y from +y, the camera's left is +x.
+        let (at, ..) = Portrait { shift: 10.0, ..p }.spot([0.0, 0.0, 120.0], 0.0);
+        assert!((at[0] - 10.0).abs() < 1e-3 && (at[1] - 50.0).abs() < 1e-3, "{at:?}");
     }
 
     #[test]

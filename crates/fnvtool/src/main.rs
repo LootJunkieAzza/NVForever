@@ -19,6 +19,7 @@ mod actor_karma;
 mod actor_values;
 mod actor_aid;
 mod actor_chargen;
+mod actor_creator;
 mod actor_weapons;
 mod actor_cmd;
 mod bsa_cmd;
@@ -336,6 +337,15 @@ pub enum ActorCmd {
         /// false): the part an independent implementation can reproduce exactly.
         #[arg(long)]
         deterministic: bool,
+    },
+    /// The character creator (docs/spec-notes/character-creator.md §7): playable races
+    /// with their hairs, eyes and starting faces, beards, hair colours, and the named
+    /// sliders of `facegen\si.ctl` with their ranges and effects (fnv.actor.creator/1).
+    Creator {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
     },
     /// What the appearance loaders read, with observational statistics on templates,
     /// skeletons, races and FaceGen data (fnv.actor.forms/1).

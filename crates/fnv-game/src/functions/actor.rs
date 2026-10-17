@@ -535,7 +535,9 @@ pub fn sex_change(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 pub fn get_is_race(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(g.traits_def(r).and_then(|d| d.race) == Some(a.form(0)?))
+    // The race chosen in the character creator stands for the record's.
+    let chosen = g.player.look.as_ref().filter(|_| r == FormId::PLAYER_REF).map(|l| l.race);
+    yes(chosen.or_else(|| g.traits_def(r).and_then(|d| d.race)) == Some(a.form(0)?))
 }
 
 pub fn get_is_class(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {

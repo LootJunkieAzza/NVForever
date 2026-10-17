@@ -1,0 +1,321 @@
+//! Drawing the character creator (docs/spec-notes/character-creator.md §4): a panel on
+//! the left over the world, the player standing in the clear part of the picture. Its
+//! own look [owner 2026-10-16: "something new in design without having to add new
+//! assets"]: the game's Futura and Monofonto fonts and plain drawn shapes, in bone white
+//! with a turquoise accent instead of the Pip-Boy's amber [design].
+//!
+//! Lengths are the interface's units (960 to the view's height) from the view's top
+//! left. [`spawn`] returns where each thing the pointer can use lies ([`Hit`]), so the
+//! pointer is tested against those rectangles rather than UI interaction state (the
+//! panel is rebuilt while a slider is dragged).
+
+use super::model::{Model, RowView, ACTIONS, TABS};
+use crate::interface::{at, face, plain_font, u, Face};
+use bevy::prelude::*;
+use fnv_font::Line;
+use nvf_assets::GameData;
+
+const HEAD_FONT: &str = "textures\\fonts\\glow_futura_caps_large.fnt";
+const BODY_FONT: &str = "textures\\fonts\\monofonto_large.fnt";
+
+/// The colours [design].
+pub fn bone(alpha: f32) -> Color {
+    Color::srgba(0.93, 0.90, 0.84, alpha)
+}
+pub fn accent(alpha: f32) -> Color {
+    Color::srgba(0.37, 0.77, 0.72, alpha)
+}
+pub fn sand(alpha: f32) -> Color {
+    Color::srgba(0.85, 0.70, 0.46, alpha)
+}
+const PANEL: Color = Color::srgba(0.035, 0.045, 0.055, 0.82);
+
+/// The panel's place.
+pub const PANEL_X: f32 = 32.0;
+pub const PANEL_Y: f32 = 32.0;
+pub const PANEL_W: f32 = 640.0;
+pub const PANEL_H: f32 = 896.0;
+const LEFT: f32 = 64.0;
+const RIGHT: f32 = PANEL_X + PANEL_W - 24.0;
+const ROWS_TOP: f32 = 226.0;
+const ROWS_BOTTOM: f32 = 812.0;
+const ACTIONS_Y: f32 = 836.0;
+/// The slider track's ends.
+pub const TRACK_X0: f32 = LEFT;
+pub const TRACK_X1: f32 = RIGHT;
+
+/// What the pointer can use.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum HitWhat {
+    Tab(usize),
+    /// A row (its index among the tab's rows).
+    Row(usize),
+    /// A row's left or right arrow.
+    Arrow(usize, i32),
+    /// A slider's track: the pointer's place along it sets it.
+    Track(usize),
+    Swatch(usize, usize),
+    Action(usize),
+    /// The panel itself (the wheel scrolls its rows; elsewhere it zooms).
+    Panel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hit {
+    pub rect: [f32; 4],
+    pub what: HitWhat,
+}
+
+impl Hit {
+    pub fn contains(&self, p: Vec2) -> bool {
+        let [x, y, w, h] = self.rect;
+        p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h
+    }
+}
+
+/// The thing under the pointer: the last (topmost) rectangle holding it.
+pub fn hit_at(hits: &[Hit], p: Vec2) -> Option<HitWhat> {
+    hits.iter().rev().find(|h| h.contains(p)).map(|h| h.what)
+}
+
+/// A slider track's fraction under the pointer.
+pub fn track_fraction(x: f32) -> f64 {
+    f64::from(((x - TRACK_X0) / (TRACK_X1 - TRACK_X0)).clamp(0.0, 1.0))
+}
+
+pub struct Kit {
+    pub head: Face,
+    pub body: Face,
+}
+
+impl Kit {
+    pub fn load(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Kit {
+        Kit { head: face(HEAD_FONT, plain_font(30.0, 16.0), data, images, bc), body: face(BODY_FONT, plain_font(31.0, 12.0), data, images, bc) }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Align {
+    Left,
+    Right,
+    Centre,
+}
+
+fn first_line(face: &Face, s: &str) -> Line {
+    face.font.lines(s, None).into_iter().next().unwrap_or_default()
+}
+
+pub fn width(face: &Face, s: &str, scale: f32) -> f32 {
+    first_line(face, s).width * scale
+}
+
+/// One line of text, its top at `top`, `scale` times the font's size. Its width.
+#[allow(clippy::too_many_arguments)]
+pub fn text(p: &mut ChildSpawnerCommands, face: &Face, s: &str, x: f32, top: f32, scale: f32, align: Align, color: Color) -> f32 {
+    let line = first_line(face, s);
+    let w = line.width * scale;
+    let x = match align {
+        Align::Left => x,
+        Align::Right => x - w,
+        Align::Centre => x - w / 2.0,
+    };
+    // The letters stand on a line three quarters of the font's size down [design: as
+    // the menus' body text, chargen::draw::BODY_BASE for 31].
+    let base = top + face.font.size * 0.75 * scale;
+    let Some((image, size)) = &face.image else {
+        p.spawn(Node { position_type: PositionType::Absolute, left: u(x), top: u(top), ..default() }).with_children(|n| {
+            n.spawn((Text::new(s.to_string()), TextFont { font_size: FontSize::Vh(face.font.size * 0.75 * scale / 9.6), ..default() }, TextColor(color)));
+        });
+        return w;
+    };
+    for placed in &line.glyphs {
+        let g = face.font.glyph(placed.code);
+        if !g.drawn() {
+            continue;
+        }
+        let rect = Rect::new(g.uv[0] * size.x, g.uv[1] * size.y, g.uv[2] * size.x, g.uv[3] * size.y);
+        p.spawn((
+            at(x + (placed.x + g.before) * scale, base - g.ascent * scale, g.width * scale, g.height * scale),
+            ImageNode { rect: Some(rect), color, ..ImageNode::new(image.clone()) },
+        ));
+    }
+    w
+}
+
+pub fn fill(p: &mut ChildSpawnerCommands, x: f32, y: f32, w: f32, h: f32, color: Color) {
+    p.spawn((at(x, y, w, h), BackgroundColor(color)));
+}
+
+fn outline(p: &mut ChildSpawnerCommands, x: f32, y: f32, w: f32, h: f32, t: f32, color: Color) {
+    fill(p, x, y, w, t, color);
+    fill(p, x, y + h - t, w, t, color);
+    fill(p, x, y + t, t, h - 2.0 * t, color);
+    fill(p, x + w - t, y + t, t, h - 2.0 * t, color);
+}
+
+/// A row's height.
+fn height(v: &RowView) -> f32 {
+    match v {
+        RowView::Choice { .. } => 52.0,
+        RowView::Slider { .. } => 82.0,
+        RowView::Swatches { .. } => 76.0,
+    }
+}
+
+/// The first row drawn, so that the chosen one is in view.
+pub fn first_shown(heights: &[f32], chosen: usize) -> usize {
+    let room = ROWS_BOTTOM - ROWS_TOP;
+    let mut first = 0;
+    loop {
+        let used: f32 = heights[first..=chosen.min(heights.len().saturating_sub(1)).max(first)].iter().sum();
+        if used <= room || first >= chosen {
+            return first;
+        }
+        first += 1;
+    }
+}
+
+/// Draw the creator into `p` (a full-view node). `view_w`: the view's width in units.
+pub fn spawn(p: &mut ChildSpawnerCommands, m: &Model, kit: &Kit, view_w: f32) -> Vec<Hit> {
+    let mut hits = vec![Hit { rect: [PANEL_X, PANEL_Y, PANEL_W, PANEL_H], what: HitWhat::Panel }];
+    fill(p, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, PANEL);
+    fill(p, PANEL_X, PANEL_Y, 4.0, PANEL_H, accent(0.9));
+    // The title and what the look is.
+    text(p, &kit.head, "APPEARANCE", LEFT, 52.0, 1.0, Align::Left, bone(1.0));
+    text(p, &kit.body, &m.caption(), RIGHT, 60.0, 0.8, Align::Right, sand(0.9));
+    // The tabs.
+    let tab_w = (RIGHT - LEFT) / TABS.len() as f32;
+    for (i, t) in TABS.iter().enumerate() {
+        let x = LEFT + tab_w * i as f32;
+        let on = *t == m.tab;
+        text(p, &kit.head, t.title(), x + tab_w / 2.0, 120.0, 0.62, Align::Centre, if on { bone(1.0) } else { bone(0.45) });
+        if on {
+            fill(p, x + 10.0, 154.0, tab_w - 20.0, 4.0, accent(1.0));
+        }
+        hits.push(Hit { rect: [x, 112.0, tab_w, 50.0], what: HitWhat::Tab(i) });
+    }
+    fill(p, LEFT, 162.0, RIGHT - LEFT, 2.0, bone(0.18));
+    text(p, &kit.body, m.tab.blurb(), LEFT, 176.0, 0.72, Align::Left, bone(0.55));
+    // The rows.
+    let rows = m.rows();
+    let views: Vec<RowView> = rows.iter().map(|&r| m.view(r)).collect();
+    let heights: Vec<f32> = views.iter().map(height).collect();
+    let chosen = m.chosen_row().map(|_| m.row());
+    let first = first_shown(&heights, chosen.unwrap_or(0));
+    let mut y = ROWS_TOP;
+    for (i, v) in views.iter().enumerate().skip(first) {
+        let h = heights[i];
+        if y + h > ROWS_BOTTOM + 0.5 {
+            break;
+        }
+        let on = chosen == Some(i);
+        if on {
+            fill(p, PANEL_X + 4.0, y, PANEL_W - 4.0, h - 6.0, accent(0.10));
+            fill(p, PANEL_X + 4.0, y, 4.0, h - 6.0, accent(1.0));
+        }
+        hits.push(Hit { rect: [PANEL_X, y, PANEL_W, h], what: HitWhat::Row(i) });
+        let label_colour = if on { bone(1.0) } else { bone(0.78) };
+        match v {
+            RowView::Choice { label, value, at: n, of } => {
+                text(p, &kit.body, label, LEFT, y + 10.0, 0.85, Align::Left, label_colour);
+                let count = if *of > 0 { format!("{n}/{of}") } else { String::new() };
+                let lw = width(&kit.body, label, 0.85);
+                text(p, &kit.body, &count, LEFT + lw + 14.0, y + 14.0, 0.62, Align::Left, bone(0.4));
+                let (ax0, ax1) = (RIGHT - 270.0, RIGHT - 20.0);
+                text(p, &kit.body, "<", ax0, y + 10.0, 0.85, Align::Centre, if on { accent(1.0) } else { bone(0.5) });
+                text(p, &kit.body, ">", ax1, y + 10.0, 0.85, Align::Centre, if on { accent(1.0) } else { bone(0.5) });
+                text(p, &kit.body, value, (ax0 + ax1) / 2.0, y + 10.0, 0.85, Align::Centre, if on { sand(1.0) } else { sand(0.8) });
+                hits.push(Hit { rect: [ax0 - 24.0, y, 48.0, h], what: HitWhat::Arrow(i, -1) });
+                hits.push(Hit { rect: [ax1 - 24.0, y, 48.0, h], what: HitWhat::Arrow(i, 1) });
+            }
+            RowView::Slider { label, low, high, value, fraction, race } => {
+                text(p, &kit.body, label, LEFT, y + 6.0, 0.85, Align::Left, label_colour);
+                text(p, &kit.body, value, RIGHT, y + 6.0, 0.85, Align::Right, if on { sand(1.0) } else { sand(0.8) });
+                let ty = y + 42.0;
+                let span = TRACK_X1 - TRACK_X0;
+                fill(p, TRACK_X0, ty, span, 2.0, bone(0.25));
+                let mid = TRACK_X0 + span / 2.0;
+                fill(p, mid - 1.0, ty - 5.0, 2.0, 12.0, bone(0.35));
+                if let Some(r) = race {
+                    // Where the race alone puts the face.
+                    let rx = TRACK_X0 + span * r;
+                    fill(p, rx - 1.0, ty - 8.0, 2.0, 6.0, sand(0.8));
+                }
+                let kx = TRACK_X0 + span * fraction;
+                let (a, b) = if kx < mid { (kx, mid) } else { (mid, kx) };
+                fill(p, a, ty - 1.0, b - a, 4.0, accent(if on { 0.95 } else { 0.6 }));
+                fill(p, kx - 5.0, ty - 10.0, 10.0, 22.0, if on { bone(1.0) } else { bone(0.75) });
+                text(p, &kit.body, low, TRACK_X0, ty + 12.0, 0.55, Align::Left, bone(0.45));
+                text(p, &kit.body, high, TRACK_X1, ty + 12.0, 0.55, Align::Right, bone(0.45));
+                hits.push(Hit { rect: [TRACK_X0 - 12.0, ty - 16.0, span + 24.0, 34.0], what: HitWhat::Track(i) });
+            }
+            RowView::Swatches { label, colours, at: sel } => {
+                text(p, &kit.body, label, LEFT, y + 6.0, 0.85, Align::Left, label_colour);
+                let size = ((RIGHT - LEFT) / colours.len().max(1) as f32 - 6.0).min(30.0);
+                for (k, c) in colours.iter().enumerate() {
+                    let x = LEFT + k as f32 * (size + 6.0);
+                    let sy = y + 38.0;
+                    if *sel == Some(k) {
+                        outline(p, x - 4.0, sy - 4.0, size + 8.0, size + 8.0, 2.0, bone(1.0));
+                    }
+                    fill(p, x, sy, size, size, Color::srgb_u8(c[0], c[1], c[2]));
+                    hits.push(Hit { rect: [x, sy, size, size], what: HitWhat::Swatch(i, k) });
+                }
+            }
+        }
+        y += h;
+    }
+    if first > 0 {
+        text(p, &kit.body, "more above", RIGHT, ROWS_TOP - 22.0, 0.55, Align::Right, bone(0.4));
+    }
+    if y < ROWS_BOTTOM && views.len() > first && heights[first..].iter().sum::<f32>() > ROWS_BOTTOM - ROWS_TOP {
+        text(p, &kit.body, "more below", RIGHT, ROWS_BOTTOM - 4.0, 0.55, Align::Right, bone(0.4));
+    }
+    // The buttons.
+    fill(p, LEFT, ACTIONS_Y - 14.0, RIGHT - LEFT, 2.0, bone(0.18));
+    let bw = (RIGHT - LEFT - 3.0 * 10.0) / ACTIONS.len() as f32;
+    for (i, a) in ACTIONS.iter().enumerate() {
+        let x = LEFT + i as f32 * (bw + 10.0);
+        let on = m.on_actions == Some(i);
+        let done = i == ACTIONS.len() - 1;
+        if on {
+            fill(p, x, ACTIONS_Y, bw, 48.0, accent(0.28));
+        }
+        outline(p, x, ACTIONS_Y, bw, 48.0, 2.0, if done || on { accent(1.0) } else { bone(0.35) });
+        text(p, &kit.head, a.title(), x + bw / 2.0, ACTIONS_Y + 10.0, 0.6, Align::Centre, bone(if on || done { 1.0 } else { 0.8 }));
+        text(p, &kit.body, a.hint(), x + bw / 2.0, ACTIONS_Y + 54.0, 0.5, Align::Centre, bone(0.4));
+        hits.push(Hit { rect: [x, ACTIONS_Y, bw, 48.0], what: HitWhat::Action(i) });
+    }
+    // How to look round, at the bottom of the picture.
+    text(p, &kit.body, "Right-drag or right stick: turn    Wheel or triggers: zoom", view_w - 40.0, 900.0, 0.6, Align::Right, bone(0.6));
+    hits
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_topmost_rectangle_takes_the_pointer() {
+        let hits = [Hit { rect: [0.0, 0.0, 100.0, 100.0], what: HitWhat::Panel }, Hit { rect: [10.0, 10.0, 20.0, 20.0], what: HitWhat::Row(2) }];
+        assert_eq!(hit_at(&hits, Vec2::new(15.0, 15.0)), Some(HitWhat::Row(2)));
+        assert_eq!(hit_at(&hits, Vec2::new(50.0, 50.0)), Some(HitWhat::Panel));
+        assert_eq!(hit_at(&hits, Vec2::new(150.0, 50.0)), None);
+    }
+
+    #[test]
+    fn the_track_reads_the_pointer() {
+        assert_eq!(track_fraction(TRACK_X0 - 5.0), 0.0);
+        assert_eq!(track_fraction(TRACK_X1 + 5.0), 1.0);
+        assert!((track_fraction((TRACK_X0 + TRACK_X1) / 2.0) - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_chosen_row_is_kept_in_view() {
+        let h = vec![82.0; 15];
+        assert_eq!(first_shown(&h, 0), 0);
+        // 586 units of room hold 7 rows of 82.
+        assert_eq!(first_shown(&h, 7), 1);
+        assert_eq!(first_shown(&h, 14), 8);
+    }
+}

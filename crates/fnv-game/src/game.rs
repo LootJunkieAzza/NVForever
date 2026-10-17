@@ -448,6 +448,10 @@ pub struct PlayerState {
     /// `SexChange`: true = female.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub female: Option<bool>,
+    /// The look chosen in the character creator (the race menu, `crate::chargen::Look`);
+    /// `None` keeps the player record's.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub look: Option<crate::chargen::Look>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub tag_skills: BTreeSet<u16>,
     /// The points spent on each skill in the level-up menu (`crate::levelup`), added to

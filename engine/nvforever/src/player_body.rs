@@ -527,6 +527,9 @@ impl Rig {
 
 struct Body {
     worn: Vec<FormId>,
+    /// The look chosen in the character creator the body was built with (`None`: the
+    /// player record's).
+    look: Option<fnv_actor::Look>,
     female: bool,
     scale: f32,
     third: Rig,
@@ -751,6 +754,7 @@ fn ensure_body(
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
     death: Res<crate::death_cam::DeathCam>,
+    (script, real, mut last_look): (Option<Res<nvf_play::script::ScriptState>>, Res<Time<Real>>, Local<f32>),
 ) {
     let (Some(world), Ok(world_root)) = (world, root.single()) else { return };
     // The dead player's body lies as its ragdoll left it: it is not rebuilt.
@@ -758,9 +762,19 @@ fn ensure_body(
         return;
     }
     let (worn, weapon) = equipped(&sim, &world);
+    // The look chosen in the character creator (docs/spec-notes/character-creator.md §5).
+    let look = script.as_deref().and_then(|s| s.rt.as_ref()).and_then(|rt| rt.game.player.look.as_ref()).map(nvf_play::creator::actor_look);
     let state = &mut *state;
     let mut rebuilt = false;
-    if state.body.as_ref().is_none_or(|b| b.worn != worn) {
+    // A new look rebuilds the body, at most every [`LOOK_REBUILD`] seconds while a
+    // slider is dragged [design].
+    let look_changed = state.body.as_ref().is_some_and(|b| b.look != look);
+    let look_due = look_changed && real.elapsed_secs() - *last_look >= LOOK_REBUILD;
+    if state.body.as_ref().is_none_or(|b| b.worn != worn) || look_due {
+        if look_due {
+            *last_look = real.elapsed_secs();
+            debug!("player body: the look changed; rebuilt");
+        }
         if let Some(old) = state.body.take() {
             commands.entity(old.third.root).despawn();
             if let Some(f) = old.first {
@@ -768,7 +782,7 @@ fn ensure_body(
             }
         }
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-        match build(&mut commands, world_root, &world, &mut ctx, &worn) {
+        match build(&mut commands, world_root, &world, &mut ctx, &worn, look.as_ref()) {
             Ok(b) => {
                 info!(
                     "player body: third-person rig {} nodes (eye {:.1?} in the head's space), first-person rig {}, wearing {:?}",
@@ -897,8 +911,11 @@ fn ensure_body(
     }
 }
 
-fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, worn: &[FormId]) -> Result<Body, String> {
-    let a = world.resolve_wearing(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(worn))?;
+/// The least time between two body rebuilds for a changed look, seconds.
+const LOOK_REBUILD: f32 = 0.1;
+
+fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, worn: &[FormId], look: Option<&fnv_actor::Look>) -> Result<Body, String> {
+    let a = world.resolve_as(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(worn), look)?;
     let scale = a.race_height as f32;
     let third = build_rig(commands, parent, world, ctx, &a, View::Third, None)?;
     let vfs = ctx.models.data.vfs.clone();
@@ -910,7 +927,7 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
             None
         }
     };
-    Ok(Body { worn: worn.to_vec(), female: a.female, scale, third, first })
+    Ok(Body { worn: worn.to_vec(), look: look.cloned(), female: a.female, scale, third, first })
 }
 
 /// Spawn one rig of appearance `a` under `parent` (its transform set each frame).

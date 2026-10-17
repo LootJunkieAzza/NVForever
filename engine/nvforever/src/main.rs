@@ -849,6 +849,12 @@ fn main() -> AppExit {
         info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
         a
     });
+    // The character creator's choices and sliders (nvf_play::creator), in play; it says
+    // what it has once the log is up.
+    let mut creator_data = actor_world
+        .as_ref()
+        .filter(|_| play.is_some())
+        .map(|a| nvf_play::creator::CreatorData(std::sync::Arc::new(fnv_actor::creator::Creator::build(&a.actors, |p| game.read(p)))));
     let open_doors = args.open_doors;
     // What the overlay system and the settings page go by.
     args.no_overlay |= args.frame_json.is_some() || (args.play && !args.overlay);
@@ -1095,6 +1101,9 @@ fn main() -> AppExit {
         app.add_plugins(terminal_view::TerminalViewPlugin);
     }
     if let Some(a) = actor_world {
+        if let Some(c) = creator_data.take() {
+            app.insert_resource(c);
+        }
         app.insert_resource(a);
         let force_point = match args.head_track_point.as_deref().map(|p| parse_vec::<3>(p).ok_or(p)) {
             Some(Err(p)) => return fail(format!("--head-track-point {p}: expected x,y,z")),
