@@ -3790,3 +3790,54 @@ expect = [
   { re = 'foot ik: .*largest body drop (?P<n>[\d.]+) units', range = [0.5, 28.0], label = "the body lowered, within the limit" },
   { re = 'foot ik: .*foot raise (?P<n>[\d.]+) units', range = [0.5, 40.0], label = "a foot raised, within the limit" },
 ]
+
+[[scenario]]
+name = "fast-travel-primm"
+source = "owner request 2026-10-17: fast travel from the Pip-Boy's World Map (docs/spec-notes/fast-travel.md): a script block refuses, then Yes takes the player to Primm's arrival marker behind a loading screen and moves the clock on"
+note = "Primm 0x000CDF46 made a travel target by ShowMap's canTravel; EnableFastTravel 0 at 6 s refuses the first ask (sNoFastTravelScriptBlock), EnableFastTravel 1 at 18 s lets the second through; the marker's linked reference 0x00169225 (-56411, -53185) is where the player arrives"
+areas = ["pipboy", "fast-travel", "loading"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/test_aid.rs", "engine/nvf-play/src/loading.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,6.5:call:-:EnableFastTravel:0,18:call:-:EnableFastTravel:1", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=000CDF46,17:key=use,20:travel=000CDF46,22:key=use" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 45
+order = [[
+  { re = 'fast travel: to Primm \(0x000CDF46\) refused \(Script\); the box says "Fast travel is currently unavailable from this location\."', label = "refused while a script blocks it (sNoFastTravelScriptBlock, FalloutNV.esm's text)" },
+  'fast travel: answered "OK"',
+  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  'fast travel: answered "Yes"',
+  { re = 'fast travel: to Primm \(0x000CDF46\): arrive at its linked reference 0x00169225', label = "the destination is the marker's linked reference" },
+  "pipboy: down",
+  { re = 'fast travel: \d+\.\d\d hours passed', label = "the clock moved on by the travel time" },
+  { re = 'travel to worldspace 000DA726 \(WastelandNV\): feet \(-564\d\d, -531\d\d', label = "the player stands at Primm's arrival marker" },
+]]
+
+[[scenario]]
+name = "fast-travel-enemies-near"
+source = "owner request 2026-10-17 (docs/spec-notes/fast-travel.md §2): no travel while in combat or with a hostile actor near; the box shows the refusal with OK"
+note = "the Very Aggressive geckos 0x00157B3D and 0x00157B3E at wait-enemies-near's spot, god mode; Goodsprings 0x000CDF51 made a travel target by ShowMap; the gecko that has noticed the player refuses it as combat, one that has not as enemies near"
+areas = ["pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "crates/fnv-game/src/rest.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:00157B3D", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowMap:0x000CDF51:1", NVF_PLAY_TEST_PIPBOY = "10:open,11:page=data,12:tab=1,13:travel=000CDF51,15:key=use,17:close" }
+args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { re = 'fast travel: to Goodsprings \(0x000CDF51\) refused \((Combat|.* is hostile and within \d+ units)\)', label = "refused: in combat or a hostile actor near" },
+  'fast travel: answered "OK"',
+]]
+expect = [
+  { text = "fast travel: asks", count = 0, label = "no question was asked" },
+]
+
+[[scenario]]
+name = "fast-travel-no-travel-place"
+source = "owner request 2026-10-17 (docs/spec-notes/fast-travel.md §2): no travel from a worldspace flagged Can't Fast Travel (Lucky38World, WRLD DATA bit 1)"
+note = "the player starts on an XMarkerHeading of Lucky38World (0x00116A55); Goodsprings 0x000CDF51 made a travel target by ShowMap"
+areas = ["pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy/data/read.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowMap:0x000CDF51:1", NVF_PLAY_TEST_PIPBOY = "10:open,11:page=data,12:tab=1,13:travel=000CDF51,15:key=use,17:close" }
+args = ["--play", "--world", "Lucky38World", "--pos=-2376,6057,19200", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { re = 'fast travel: to Goodsprings \(0x000CDF51\) refused \(Place\)', label = "refused: the worldspace forbids fast travel" },
+  'fast travel: answered "OK"',
+]]
