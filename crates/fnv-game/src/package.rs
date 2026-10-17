@@ -126,8 +126,8 @@ impl PackageType {
     /// are matched by name against the function's documented table [documented: GECK
     /// wiki, GetCurrentAIPackage]; `fnvtool ai observed` checks them against the AI
     /// observer's samples and packages.md §4 lists which pairs were seen in the game.
-    /// Find has no entry of its name in that table (0 is "EXPLORE" there) and is not
-    /// mapped.
+    /// Find has no entry of its name in that table; it runs as 0, which the table calls
+    /// "EXPLORE" [observed: FFER24FindFood on CheyenneREF, packages.md §4].
     pub fn runtime_code(self) -> Option<u8> {
         Some(match self {
             PackageType::Follow => 1,
@@ -145,7 +145,8 @@ impl PackageType {
             PackageType::Guard => 35,
             PackageType::Sandbox => 36,
             PackageType::Patrol => 37,
-            PackageType::Find | PackageType::Other(_) => return None,
+            PackageType::Find => 0,
+            PackageType::Other(_) => return None,
         })
     }
 }
@@ -806,12 +807,12 @@ mod tests {
         assert_eq!(PackageType::from_code(11), PackageType::Other(11));
         assert_eq!(PackageType::Travel.code(), 6);
         assert_eq!(PackageType::Travel.runtime_code(), Some(14));
-        assert_eq!(PackageType::Find.runtime_code(), None);
+        assert_eq!(PackageType::Find.runtime_code(), Some(0));
         // The run-time codes are distinct.
         let mut codes: Vec<u8> = PackageType::ALL.iter().filter_map(|t| t.runtime_code()).collect();
         codes.sort_unstable();
         codes.dedup();
-        assert_eq!(codes.len(), 15);
+        assert_eq!(codes.len(), 16);
     }
 
     #[test]

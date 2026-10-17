@@ -341,6 +341,13 @@ fn compare(w: &Loaded, args: &RunArgs, actors: &[FormId], forced: &[(FormId, For
 pub fn reach(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable) -> anyhow::Result<Value> {
     use fnv_ai::goal::{self, Goal};
     use fnv_nav::{PathError, PathParams, Place};
+    let stay_places = |g: &Goal| -> Vec<Place> {
+        match g {
+            Goal::Near { place, .. } => vec![*place],
+            Goal::Inside { at, .. } => vec![*at],
+            _ => Vec::new(),
+        }
+    };
     let forms = FormStore::build(lo, schema);
     let ix = fnv_world::WorldIndex::build(lo, schema);
     let nav = NavGraph::build(lo, schema, &ix, &NavRecords::read(lo));
@@ -397,6 +404,14 @@ pub fn reach(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable) 
                     *by_type.entry(ty).or_default().entry("goes after its target".into()).or_default() += 1;
                     continue;
                 }
+                // The five kinds with places of their own: where they go first is judged
+                // (the destination, the search location, the wait location); a Flee
+                // without a destination runs from wherever its threat is.
+                Goal::Escort(e) => stay_places(&e.to),
+                Goal::Find(f) => stay_places(&f.search),
+                Goal::UseAt(u) => stay_places(&u.at),
+                Goal::Ambush(a) => stay_places(&a.wait),
+                Goal::Flee(f) => f.to.as_deref().map(stay_places).unwrap_or_default(),
                 Goal::NotCarriedOut(why) => {
                     *verdicts.entry(format!("not carried out yet: {why}")).or_default() += 1;
                     *by_type.entry(ty).or_default().entry("not carried out yet".into()).or_default() += 1;

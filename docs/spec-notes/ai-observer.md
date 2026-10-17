@@ -146,7 +146,9 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
   nearby scan finds them), `do` = [console line | [statement, name, ...]] (scene actions
   after arrival and `place`, each followed by 30 game loops; a statement's `{0}`, `{1}`
   ... are the named references or forms, e.g. `["{0}.MoveTo player -400 600 0",
-  "0x000F36F5"]`), `note`). One game load serves all sessions of a run, so a console
+  "0x000F36F5"]`; a console line cannot address a reference by FormID: `<FormID>.AddScriptPackage`
+  lines ran without error and changed nothing [observed 2026-10-17, package_kinds], so
+  actors are given packages by statements), `note`). One game load serves all sessions of a run, so a console
   toggle such as `tgm` belongs in the first session's `console_first` only.
 - **Walks** start with `player.MoveTo <target> <approach> 0 0` (MoveTo's offsets
   [documented: GECK wiki MoveTo]; the move is queued, so the job waits 120 loops), then

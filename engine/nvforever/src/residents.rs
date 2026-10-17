@@ -1025,7 +1025,18 @@ impl Core {
                 | AiEvent::SearchBack { .. }
                 | AiEvent::BackHome { .. }
                 | AiEvent::WeaponUse { .. }
-                | AiEvent::WeaponUseOver => info!("{line}"),
+                | AiEvent::WeaponUseOver
+                | AiEvent::EscortWaits { .. }
+                | AiEvent::EscortOn { .. }
+                | AiEvent::FindGoes { .. }
+                | AiEvent::Found { .. }
+                | AiEvent::NothingFound { .. }
+                | AiEvent::UsesAt { .. }
+                | AiEvent::UsesItem { .. }
+                | AiEvent::AmbushWaits { .. }
+                | AiEvent::AmbushSprung { .. }
+                | AiEvent::FleeRuns { .. }
+                | AiEvent::FleeSafe { .. } => info!("{line}"),
                 _ => debug!("{line}"),
             }
         }
@@ -1214,6 +1225,27 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             if *length > 0.0 { format!("walks to its place, {length:.0} units to go") } else { "from where it stands".to_string() }
         ),
         AiEvent::WeaponUseOver => "has used its weapon: back to its package".into(),
+        AiEvent::EscortWaits { package, target, away } => format!(
+            "escorts {}: waits, it is {} behind ({})",
+            n(target),
+            away.map_or("in another place".to_string(), |a| format!("{a:.0} units")),
+            n(package)
+        ),
+        AiEvent::EscortOn { target, .. } => format!("escorts {}: goes on", n(target)),
+        AiEvent::FindGoes { package, object, length } => format!("finds {}: goes to it, {length:.0} units ({})", n(object), n(package)),
+        AiEvent::Found { package, object, act } => format!("found {}: {} ({})", n(object), serde_json::to_value(act).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default(), n(package)),
+        AiEvent::NothingFound { package, found } => format!("finds nothing more ({found} found, {})", n(package)),
+        AiEvent::UsesAt { package, thing: Some(t) } => format!("uses {} ({})", n(t), n(package)),
+        AiEvent::UsesAt { package, thing: None } => format!("has nothing to use: stays ({})", n(package)),
+        AiEvent::UsesItem { package, item, had } => format!("uses item {}{} ({})", n(item), if *had { "" } else { ": has none" }, n(package)),
+        AiEvent::AmbushWaits { package, hidden } => format!("lies in wait{} ({})", if *hidden { ", hidden" } else { "" }, n(package)),
+        AiEvent::AmbushSprung { package, enemy, away } => format!("springs its ambush on {} from {away:.0} units ({})", if *enemy == FormId::PLAYER_REF { "the player".to_string() } else { n(enemy) }, n(package)),
+        AiEvent::FleeRuns { package, from, length, .. } => format!("flees from {}: runs {length:.0} units ({})", if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }, n(package)),
+        AiEvent::FleeSafe { package, from, .. } => format!(
+            "is safe{} ({})",
+            from.map(|f| format!(" from {}", if f == FormId::PLAYER_REF { "the player".to_string() } else { n(&f) })).unwrap_or_default(),
+            n(package)
+        ),
     }
 }
 
