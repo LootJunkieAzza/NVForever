@@ -750,8 +750,8 @@ pub struct GameData {
     pub recipes: HashMap<FormId, crate::crafting::RecipeDef>,
     /// RCCT: the recipe categories and subcategories.
     pub recipe_categories: HashMap<FormId, crate::crafting::RecipeCategoryDef>,
-    /// CSNO: the casinos (`crate::blackjack`).
-    pub casinos: HashMap<FormId, crate::blackjack::CasinoDef>,
+    /// CSNO: the casinos (`crate::casino`).
+    pub casinos: HashMap<FormId, crate::casino::CasinoDef>,
     /// RADS, DEHY, HUNG, SLPD: the stages of rads and of Hardcore's needs by actor value
     /// code, lowest threshold first (`crate::needs`).
     pub need_stages: HashMap<u16, Vec<NeedStage>>,
@@ -1059,7 +1059,7 @@ struct Read {
     av_info: Option<ActorValueInfo>,
     recipe: Option<crate::crafting::RecipeDef>,
     recipe_category: Option<crate::crafting::RecipeCategoryDef>,
-    casino: Option<crate::blackjack::CasinoDef>,
+    casino: Option<crate::casino::CasinoDef>,
     need_stage: Option<(u16, u32, FormId)>,
     units: Vec<ScriptUnit>,
     issues: Issues,
@@ -1655,7 +1655,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         out.recipe_category = Some(crate::crafting::RecipeCategoryDef::from_raw(&subs));
     }
     if &sig == b"CSNO" {
-        out.casino = Some(crate::blackjack::CasinoDef::from_raw(&subs, &map));
+        out.casino = Some(crate::casino::CasinoDef::from_raw(&subs, &map));
     }
     if &sig == b"IMAD" {
         let word = |o: usize| subs.iter().find(|s| &s.sig == b"DNAM").and_then(|s| <[u8; 4]>::try_from(s.data.get(o..o + 4)?).ok());

@@ -54,7 +54,7 @@ Laid out in `schemas/fnv/objects.json` [documented: xEdit wbDefinitionsFNV.pas]:
   screenshot], the flag being unset there: the flag set means the dealer stands on a soft
   17, unset that the dealer hits it [observed].
 - The faces are the back's folder with `card<deck>_<suit><rank>.dds`, suits `c d h s`,
-  ranks `01` (ace) to `13` [observed: `fnvtool bsa list`, docs/design/poker.md §5].
+  ranks `01` (ace) to `13` [observed: `fnvtool bsa list` of `Fallout - Textures.bsa`].
 
 ## 3. The rules
 
