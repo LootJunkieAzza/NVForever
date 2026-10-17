@@ -255,6 +255,12 @@ A sketch: the published mockup (the owner's review). The rules:
   race's default) and is rebuilt when it changes, at most every 0.1 s while a slider is
   dragged. Face shape, the face and body skin and the hands follow (actors.md §4); hair
   and beards take the hair colour.
+- **No T-pose between bodies** [owner 2026-10-17: "theres a few frames where the model
+  is t posing can we blend the transitions together"]: a rebuilt player body (a new
+  look, another outfit) goes on with the old body's clips, their times and fades and
+  its last pose (`anim_blend::Animator::continue_from`); before, its clips faded in from
+  nothing over 0.2 s and the bind pose showed through. NPCs are not rebuilt when their
+  outfit changes: the parts are swapped on their posed skeleton (`outfits.rs`).
 
 ## 6. Keys, pointer, controller, flow [design]
 

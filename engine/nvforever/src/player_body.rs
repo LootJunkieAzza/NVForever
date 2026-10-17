@@ -775,15 +775,26 @@ fn ensure_body(
             *last_look = real.elapsed_secs();
             debug!("player body: the look changed; rebuilt");
         }
-        if let Some(old) = state.body.take() {
+        let old = state.body.take();
+        if let Some(old) = &old {
             commands.entity(old.third.root).despawn();
-            if let Some(f) = old.first {
+            if let Some(f) = &old.first {
                 commands.entity(f.lens.map_or(f.root, |[outer, _]| outer)).despawn();
             }
         }
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         match build(&mut commands, world_root, &world, &mut ctx, &worn, look.as_ref()) {
-            Ok(b) => {
+            Ok(mut b) => {
+                // The new body goes on with the old one's clips and pose: no T-pose while
+                // its clips would fade in [owner 2026-10-17: "a few frames where the model
+                // is t posing"].
+                if let Some(old) = &old {
+                    b.third.animator.continue_from(&old.third.animator);
+                    info!("player body: rebuilt; it goes on with the old body's {} clips and pose", b.third.animator.layers.len());
+                    if let (Some(n), Some(o)) = (b.first.as_mut(), old.first.as_ref()) {
+                        n.animator.continue_from(&o.animator);
+                    }
+                }
                 info!(
                     "player body: third-person rig {} nodes (eye {:.1?} in the head's space), first-person rig {}, wearing {:?}",
                     b.third.animator.nodes.len(),
