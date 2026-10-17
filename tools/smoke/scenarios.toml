@@ -4085,3 +4085,62 @@ order = [[
   { re = 'fast travel: to Goodsprings \(0x000CDF51\) refused \(Place\)', label = "refused: the worldspace forbids fast travel" },
   'fast travel: answered "OK"',
 ]]
+
+[[scenario]]
+name = "vats-mode-two-marks"
+source = "owner's todo 6: VATS mode, a Dead Eye-style mark and fire (docs/design/vats-mode.md §13)"
+note = "the two Goodsprings dogs (combat-dogs' spot) attack the player, who cannot die (GOD) and holds a .357 (WeapNV357Revolver 0008F216: 26 AP a shot from its DNAM override, 6 rounds; god mode keeps the magazine full). V at 6 s enters VATS mode; the clock then runs at 0.05, so the aids 6.3-6.42 s (game time) come about 1 s apart in real time; aimvats turns to the nearest unmarked living actor, the left button marks it, twice; E fires both. 2 x 26 = 52 AP"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs", "crates/fnv-game/src/vats.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/control.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,6.3:aimvats,6.36:aimvats", NVF_PLAY_TEST_KEYS = "6:v,6.32:mouse-left,6.38:mouse-left,6.42:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 14
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver, 26 AP a shot, 6 rounds loaded', label = "V enters VATS mode with the .357: 26 AP a shot, 6 rounds" },
+  { re = 'vats mode: marked .* mark 1; 26 AP reserved', label = "the first mark reserves 26 AP" },
+  { re = 'vats mode: marked .* mark 2; 52 AP reserved', label = "the second mark reserves 52 AP" },
+  "vats mode: firing 2 marked shots",
+  { re = 'vats mode: shot 1 of 2 at .*, 26 AP spent', label = "the first shot" },
+  { re = 'vats mode: shot 2 of 2 at .*, 26 AP spent', label = "the second shot" },
+  { re = 'vats mode: off \(2 shots fired, 52 AP spent; all shots fired\)', label = "the mode ends after both shots, 52 AP spent" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 2 marks, 2 shots, 52 AP spent', label = "the summary: two marks, two shots, 52 AP" },
+  { text = "the VATS mode shot could not leave", count = 0, label = "every marked shot left the weapon" },
+]
+
+[[scenario]]
+name = "vats-mode-unmark"
+source = "owner's todo 6: right click removes the last mark; right click with no marks ends VATS mode (docs/design/vats-mode.md §2)"
+note = "a .357 in hand among the Goodsprings dogs (left to their packages, god mode). V at 6 s; one mark, a right click takes it back, a second right click ends the mode: nothing fired, nothing spent. Aid times 6.3+ are game time at the 0.05 clock"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:24", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,6.3:aimvats", NVF_PLAY_TEST_KEYS = "6:v,6.32:mouse-left,6.36:mouse-right,6.4:mouse-right" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 12
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver', label = "V enters VATS mode" },
+  { re = 'vats mode: marked .* mark 1;', label = "one mark" },
+  { re = 'vats mode: unmarked .*, 0 marks left', label = "the right click takes it back" },
+  { re = 'vats mode: off \(0 shots fired, 0 AP spent; right click with no marks\)', label = "a right click with no marks ends the mode" },
+]]
+expect = [
+  { re = 'vats mode summary: entered 1 times, 1 marks, 0 shots, 0 AP spent', label = "nothing fired or spent" },
+]
+forbid = [{ re = 'vats mode: firing', label = "nothing is fired" }]
+
+[[scenario]]
+name = "vats-mode-ammo-limit"
+source = "owner's todo 6: marks are limited by the rounds loaded as well as the AP (docs/design/vats-mode.md §7.2)"
+note = "a .357 with one round (no god mode, so the magazine holds what is carried) among the Goodsprings dogs, left to their packages. The player's AP covers three 26 AP shots, so the second mark is refused for the rounds; E fires the one mark"
+areas = ["combat", "vats"]
+paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:1", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,6.3:aimvats,6.36:aimvats", NVF_PLAY_TEST_KEYS = "6:v,6.32:mouse-left,6.38:mouse-left,6.42:e" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 12
+order = [[
+  { re = 'vats mode: on \(WeapNV357Revolver, 26 AP a shot, 1 rounds loaded', label = "one round loaded" },
+  { re = 'vats mode: marked .* mark 1;', label = "the first mark" },
+  { re = 'vats mode: mark refused: No more rounds loaded\.', label = "the second mark is refused for the rounds" },
+  { re = 'vats mode: off \(1 shots fired, 26 AP spent; all shots fired\)', label = "the one mark is fired" },
+]]
