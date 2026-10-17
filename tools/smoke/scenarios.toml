@@ -2547,10 +2547,10 @@ expect = [
 [[scenario]]
 name = "follower-boone"
 source = "owner's list 2 (H followers): a companion hired by the game's own recruit line follows the player through a door, ignores the player's friendly fire, joins the player's fight and waits when told (docs/design/followers.md)"
-note = "Boone's recruit line INFO 0x0015F30D runs at 3 s (its result script hires him: SetPlayerTeammate, SetIgnoreFriendlyHits, VNPCFollowers.bBooneHired); the player shoots him twice at 18 s, leaves his room by its door at 26 s, walks off at 32 s; a feral ghoul is put 600 units from the player at 45 s; Boone's Waiting variable is set at 62 s"
+note = "Boone's recruit line INFO 0x0015F30D runs at 3 s (its result script hires him: SetPlayerTeammate, SetIgnoreFriendlyHits, VNPCFollowers.bBooneHired); the player shoots him twice at 24 s (the controls' clock is not moved when the scripts first run late, as the script steps are: on a busy machine the recruit line ran 7.2 s late and Boone, who takes about 9.5 s to walk over, was still 501 units off at 18 s), leaves his room by its door at 26 s, walks off at 32 s; a feral ghoul is put 600 units from the player at 45 s; Boone's Waiting variable is set at 62 s"
 areas = ["followers", "combat"]
-paths = ["crates/fnv-game/src/followers.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/provocation.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "9:weapon,18:aimnpc,18.1:fire,18.3:fire,22:weapon", NVF_PLAY_TEST_SCRIPT = "3:info:0x0015F30D:CraigBooneREF,26:activate:0x000CED40,45:moveto:0x000CE9E7:player:0:600:0,62:var:CraigBooneREF:waiting:1", NVF_PLAY_TEST_GOTO = "32:24086:-30000:6980" }
+paths = ["crates/fnv-game/src/followers.rs", "crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/provocation.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-nav/src/follow.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NO_SPREAD = "1", NVF_PLAY_TEST_EQUIP = "0000434F", NVF_PLAY_TEST_GIVE = "00004241:50", NVF_PLAY_TEST_CONTROL = "9:weapon,24:aimnpc,24.1:fire,24.3:fire,25:weapon", NVF_PLAY_TEST_SCRIPT = "3:info:0x0015F30D:CraigBooneREF,26:activate:0x000CED40,45:moveto:0x000CE9E7:player:0:600:0,62:var:CraigBooneREF:waiting:1", NVF_PLAY_TEST_GOTO = "32:24086:-30000:6980" }
 args = ["--cell", "NovacBoonesRoom", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 80
 expect = [
@@ -3593,7 +3593,7 @@ run_seconds = 22
 expect = [
   "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
   "player controls: all held, the player is dead",
-  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest" },
+  { re = 'death camera: the body is on the ground [\d.]+ s after the death', label = "the ragdoll comes to rest", known_failing = "main d2637b64 (2026-10-17, 31 fps) and the poker branch on #399 (65 fps): the player's ragdoll never calm for 1.5 s in the 15 s after the death ('ragdolls: ... 0 came to rest'); it passed 2026-10-16 in 12.4 s, and #363's notes saw this check fail on main once. The logs give no speeds, so the cause is open: the exit line 'ragdoll: actor 00000014 not at rest at exit' now says how fast its fastest body moves and how long it stayed calm" },
   "death camera: 1 death(s) shown, the player dead at exit",
 ]
 

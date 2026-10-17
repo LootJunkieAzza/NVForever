@@ -69,6 +69,17 @@ pub struct Ragdolls {
     /// whose stored pose did not fit their skeleton.
     pub authored: usize,
     pub authored_skipped: usize,
+    /// Per live ragdoll: its fastest body's speed and spin at the last update, and the
+    /// longest it has been calm ([`CALM_TIME`] sets it at rest), for the exit report of
+    /// ragdolls that never came to rest.
+    calm: HashMap<u32, Calm>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct Calm {
+    speed: f32,
+    spin: f32,
+    longest: f32,
 }
 
 impl Ragdolls {
@@ -305,8 +316,14 @@ pub(crate) fn pose(
             continue;
         }
         seen.insert(id);
-        let calm = phys.world.ragdoll_speed(id).is_some_and(|(v, w)| v < CALM_SPEED && w < CALM_SPIN);
+        let speed = phys.world.ragdoll_speed(id);
+        let calm = speed.is_some_and(|(v, w)| v < CALM_SPEED && w < CALM_SPIN);
         c.calm = if calm { c.calm + time.delta_secs() } else { 0.0 };
+        let seen_calm = ragdolls.calm.entry(id).or_default();
+        if let Some((v, w)) = speed {
+            (seen_calm.speed, seen_calm.spin) = (v, w);
+        }
+        seen_calm.longest = seen_calm.longest.max(c.calm);
         if c.calm > CALM_TIME || phys.world.ragdoll_asleep(id) {
             phys.world.set_ragdoll_at_rest(id);
         }
@@ -368,11 +385,22 @@ fn report(mut exit: MessageReader<AppExit>, ragdolls: Res<Ragdolls>, phys: Optio
     if exit.read().last().is_none() || ragdolls.started + ragdolls.restored == 0 {
         return;
     }
-    let (live, asleep) = phys.map_or((0, 0), |p| (p.world.ragdolls().count(), p.world.ragdolls().filter(|&id| p.world.ragdoll_asleep(id)).count()));
+    let (live, asleep) = phys.as_deref().map_or((0, 0), |p| (p.world.ragdolls().count(), p.world.ragdolls().filter(|&id| p.world.ragdoll_asleep(id)).count()));
     info!(
         "ragdolls: {} started, {} put back at rest, {} came to rest, {} shoved by hits, {} lifted back above the terrain; {live} in the world at exit ({asleep} at rest); {} laid in the pose their reference stores ({} stored poses did not fit)",
         ragdolls.started, ragdolls.restored, ragdolls.rested, ragdolls.pushes, ragdolls.lifted, ragdolls.authored, ragdolls.authored_skipped
     );
+    // Those still moving: how fast, and how near they came to resting.
+    if let Some(p) = phys.as_deref() {
+        for id in p.world.ragdolls().filter(|&id| !p.world.ragdoll_asleep(id)) {
+            let c = ragdolls.calm.get(&id).copied().unwrap_or_default();
+            let at = p.world.ragdoll_center(id).map_or_else(|| "unknown".to_string(), |a| format!("({:.0}, {:.0}, {:.0})", a[0], a[1], a[2]));
+            info!(
+                "ragdoll: actor {id:08X} not at rest at exit: its fastest body moves {:.1} units/s (calm below {CALM_SPEED}) and turns {:.2} rad/s (below {CALM_SPIN}); calm for {:.2} s at most ({CALM_TIME} s sets it at rest); trunk at {at}",
+                c.speed, c.spin, c.longest
+            );
+        }
+    }
 }
 
 #[cfg(test)]
