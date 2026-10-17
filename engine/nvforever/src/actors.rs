@@ -548,7 +548,7 @@ pub fn spawn_creature(
 /// `Weapon` node and a [`WeaponHold`] with the stance's clips, or nothing when the actor
 /// carries no drawable weapon or weapons are off.
 #[allow(clippy::too_many_arguments)]
-fn arm(
+pub(crate) fn arm(
     commands: &mut Commands,
     spawned: &nvf_assets::actor::SpawnedActor,
     skel: &nvf_assets::actor::PreparedSkeleton,

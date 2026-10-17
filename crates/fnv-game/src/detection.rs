@@ -468,8 +468,11 @@ impl Game<'_> {
 
 /// `detector.GetDetected target`: 1 when the calling actor detects the target
 /// [documented: catalogue notes], that is when its latest detection value is above 0; 0
-/// for a pair the engine has not measured (the player as the detector, an actor too far
-/// away or not loaded) [engineering choice].
+/// for a pair the engine has not measured (an actor out of reach or not loaded)
+/// [engineering choice]. The player is a detector too, measured from the camera with the
+/// same formula (its Perception against the target's Sneak) [observed: player.GetDetected
+/// Ringo 1 and Chet 1, function probes fp1/fp2 2026-10-17, also with `tdetect` on;
+/// hypothesis: the same formula].
 pub fn get_detected(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let detector = ctx.subject()?;
     let target = a.form(0)?;

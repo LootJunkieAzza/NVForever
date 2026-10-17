@@ -134,11 +134,15 @@ pub fn is_running(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 /// `actor.GetLineOfSight target`: 1 when the calling actor can see the target: nothing
 /// solid between them and within ±95° of where it looks [documented: GECK wiki
 /// GetLineOfSight]. Read from the detection the engine last measured for the pair
-/// (`crate::detection`, `Detection::seen`: line of sight and field of view): pairs
-/// within detection reach of the player. A pair not measured reads 0, as does the
-/// player as the caller (the player is not a detector) [engineering choice]. A target
-/// that is not an actor is not measured: 0 [documented: on a non-player actor GetLOS
-/// returns false for anything but an actor].
+/// (`crate::detection`, `Detection::seen`: line of sight and field of view): every two
+/// actors of the loaded area within detection reach of each other (`crate::sight`). On
+/// the player it is the camera that sees, from where the camera is and along its view
+/// [documented: same page, "it returns true if the *camera* can see the object";
+/// observed: player.GetLineOfSight Ringo 1, function probes fp1, 2026-10-17]. A pair not
+/// measured reads 0 [engineering choice]. A target that is not an actor is not
+/// measured: 0 [documented: on a non-player actor GetLOS returns false for anything but
+/// an actor; on the player the original also tests other objects, which NVForever does
+/// not yet].
 pub fn get_line_of_sight(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let target = a.form(0)?;

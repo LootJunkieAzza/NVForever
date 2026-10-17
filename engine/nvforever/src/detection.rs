@@ -1,6 +1,7 @@
 //! Detection in the running game (docs/design/detection.md): every living, drawn actor
-//! near the player measures how well it perceives the player and the other actors near
-//! it, a few times a second, with `fnv_game::detection`'s formula. This module measures
+//! (the loaded area) measures how well it perceives the player and the other actors within
+//! its reach, a few times a second, with `fnv_game::detection`'s formula; so does the
+//! player, from the camera. This module measures
 //! what the formula needs from the world: distance, line of sight and field of view,
 //! the light at the target, who is moving, running or sneaking, and the player's shots.
 //!
@@ -10,13 +11,31 @@
 //! DANGER). Nothing acts on them yet: combat AI is the next step.
 //!
 //! What is measured here and how sure it is:
+//! - **Who**: every two actors of the loaded area within detection reach of each other,
+//!   near the player or not (`fnv_game::sight::pairs_within`) [observed: a Frenzied Chet
+//!   6,682 units from the player fought Ringo within 1 s, capture detection-1 det2,
+//!   2026-10-17]; the player measures every drawn actor, out of reach too (hidden there,
+//!   but GetLineOfSight can read 1: 1 at 6,682 units, same capture). Actors out of the
+//!   loaded area (the low process) do not detect anyone [observed: with the player in the
+//!   gas station, a Frenzied Chet outdoors never fought Ringo in 155 s, same capture
+//!   det3].
 //! - **Line of sight**: a ray through the collision world from the detector's eyes to the
 //!   target's chest; the world's solid shapes block it, actors do not [engineering
-//!   choice]. Collision exists only around the player, so between actors far from the
-//!   player nothing blocks sight [engineering choice].
-//! - **Field of view**: about 95° either side of straight ahead for every non-player
-//!   actor [documented: catalogue notes, GetLineOfSight]; [hypothesis: detection's
-//!   "can see the target" is the same test].
+//!   choice]. Collision exists only around the player (3 × 3 cells): where either end is
+//!   out of it, only the landscape blocks sight (`fnv_game::sight::over_land`, the
+//!   heights read from the cells' LAND records) [engineering choice].
+//! - **Field of view**: 95° either side of straight ahead, for every actor and for the
+//!   player, whose view is the camera's (where it is, where it looks, first or third
+//!   person) [documented: GECK wiki GetLineOfSight]; detection's "can see the target" is
+//!   the same test [observed for the player: Ringo 263 units away read GetDetected and
+//!   GetLineOfSight 1 at ±45° off the view and 0 at ±135°, third person, capture
+//!   detection-1 det1].
+//! - **The player as a detector**: measured like an actor, its Perception against the
+//!   target's Sneak [observed: player.GetDetected Ringo and Chet 1 in the original,
+//!   function probes fp1/fp2 2026-10-17, also with `tdetect` on, so the toggle and
+//!   `NVF_PLAY_TEST_UNSEEN` leave it measuring; 0 for Ringo out of view and at 6,682
+//!   units, capture detection-1; hypothesis: the same formula]. It feeds
+//!   GetDetected / GetLineOfSight only: no detection state.
 //! - **Light at the target** (0–100) [hypothesis, no source gives the game's measure]:
 //!   100 × the luminance of the ambient light, plus the sunlight's times daylight outdoors
 //!   or the cell's directional light indoors, plus each point light that reaches the
@@ -53,10 +72,11 @@ use crate::limbs::ActorRig;
 use crate::locomotion::Dying;
 use crate::ragdoll::Corpse;
 use crate::sky::SkyState;
-use crate::world::bevy_to_game;
+use crate::world::{bevy_to_game, WorldData};
 use bevy::prelude::*;
 use fnv_game::awareness::{Change, DetectionEvent, EventType, State};
 use fnv_game::detection::{Band, Settings, Situation};
+use fnv_game::sight::in_view;
 use fnv_phys::{layers, Filter, Owner};
 use fnv_game::functions::senses::Motion;
 use fnv_sim::FormId;
@@ -66,7 +86,7 @@ use nvf_play::phys::PhysState;
 use nvf_play::player::{MoveIntent, Player, EYE_HEIGHT};
 use nvf_play::script::{with_world, ScriptState};
 use nvf_play::sim::SimState;
-use nvf_play::Location;
+use nvf_play::{Location, PlayerCamera};
 use std::collections::{BTreeSet, HashMap};
 
 /// Seconds between two measurements [engineering choice].
@@ -74,8 +94,6 @@ pub const INTERVAL: f32 = 0.25;
 /// An actor turning faster than this (radians per second, about 30°/s) is turning for
 /// IsTurning [hypothesis].
 pub const TURN_RATE: f32 = 0.5;
-/// Half the field of view, degrees [documented: catalogue notes, GetLineOfSight].
-pub const HALF_FIELD_OF_VIEW: f32 = 95.0;
 /// Below this speed (units per second) an actor stands still [engineering choice].
 const MOVING_SPEED: f32 = 10.0;
 /// Above this speed an actor other than the player runs: halfway between the player's
@@ -101,10 +119,16 @@ struct Stats {
     measurements: usize,
     pairs: usize,
     most_pairs: usize,
-    /// Band changes of pairs with the player as the target, and of pairs between actors,
-    /// by the band changed to.
+    /// Band changes of pairs with the player as the target, of pairs between actors, and
+    /// of the player's own (the player as the detector), by the band changed to.
     player_changes: [usize; 3],
     actor_changes: [usize; 3],
+    own_changes: [usize; 3],
+    /// Pairs measured between actors both out of the player's reach; those detected.
+    far_pairs: usize,
+    far_detected: usize,
+    /// Actors the player ever had detected.
+    player_saw: BTreeSet<u32>,
     /// Actors that measured the player; those that had it noticed, and detected.
     watchers: BTreeSet<u32>,
     noticed_by: BTreeSet<u32>,
@@ -146,7 +170,30 @@ pub struct DetectionState {
     hits: Vec<(u32, u32)>,
     /// The player's highest band at the last measurement (the meter).
     meter: Option<Band>,
+    /// Landscape heights of the exterior cells, for sight out of the collision world.
+    land: LandCache,
     stats: Stats,
+}
+
+/// The heights of each exterior cell's LAND record, read when first needed (worldspace,
+/// grid square → heights; `None` for a square without land).
+#[derive(Default)]
+struct LandCache {
+    cells: HashMap<(u32, i32, i32), Option<Vec<f32>>>,
+}
+
+impl LandCache {
+    /// The land's height at game (x, y) in worldspace `ws`.
+    fn height(&mut self, world: &WorldData, ws: u32, x: f32, y: f32) -> Option<f32> {
+        let g = fnv_world::cell_of(x, y);
+        let h = self.cells.entry((ws, g.0, g.1)).or_insert_with(|| {
+            let w = world.index.worldspaces.get(&ws)?;
+            let land = world.index.cells.get(w.grid.get(&g)?)?.land?;
+            fnv_world::land::load_land(world.lo, world.schema, land, fnv_world::land::LandParts::HEIGHTS)?.heights
+        });
+        let (ox, oy) = (g.0 as f32 * fnv_world::CELL_SIZE, g.1 as f32 * fnv_world::CELL_SIZE);
+        h.as_deref().map(|h| fnv_world::grass::height_at(h, x - ox, y - oy))
+    }
 }
 
 /// An actor taking part in a measurement.
@@ -155,9 +202,11 @@ struct Person {
     label: String,
     feet: [f32; 3],
     eyes: [f32; 3],
-    /// Where it looks, horizontal unit vector (game space); `None` for the player (only
-    /// actors detect).
-    forward: Option<[f32; 2]>,
+    /// Where it looks, horizontal unit vector (game space): the body's facing, or for the
+    /// player the camera's.
+    forward: [f32; 2],
+    /// Where it sees from: the eyes, or for the player the camera.
+    view: [f32; 3],
     moving: bool,
     running: bool,
     sneaking: bool,
@@ -178,18 +227,6 @@ fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 fn luminance(c: [f32; 3]) -> f32 {
     0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
-}
-
-/// Whether `to` is within the field of view of an actor at `from` looking along
-/// `forward` (horizontal angle).
-pub fn in_view(from: [f32; 3], forward: [f32; 2], to: [f32; 3]) -> bool {
-    let d = [to[0] - from[0], to[1] - from[1]];
-    let len = (d[0] * d[0] + d[1] * d[1]).sqrt();
-    if len < 1.0 {
-        return true;
-    }
-    let cos = (d[0] * forward[0] + d[1] * forward[1]) / len;
-    cos >= HALF_FIELD_OF_VIEW.to_radians().cos()
 }
 
 /// The light level at a point, 0–100 (see the module notes).
@@ -264,11 +301,31 @@ pub(crate) fn clear_sight(phys: Option<&mut PhysState>, from: [f32; 3], to: [f32
     true
 }
 
+/// Whether `from` sees `to` for detection: through the collision world where both are
+/// in it, else over the landscape alone (the module notes).
+fn sight(phys: Option<&mut PhysState>, land: &mut LandCache, world: Option<&WorldData>, exterior: bool, from: [f32; 3], to: [f32; 3]) -> bool {
+    let Some(phys) = phys else { return true };
+    if phys.ready_at(from) && phys.ready_at(to) {
+        return clear_sight(Some(phys), from, to);
+    }
+    let (Some(world), true) = (world, exterior) else { return true };
+    let ws = phys.worldspace;
+    fnv_game::sight::over_land(from, to, |x, y| land.height(world, ws, x, y))
+}
+
 /// A band change: detector and target (indices into the people), distance, the band
 /// before, the detection, and how the target was in sight.
 type BandChange = (usize, usize, f64, Option<Band>, fnv_game::detection::Detection, &'static str);
 
 type Watched = (&'static ActorRig, &'static GlobalTransform, &'static InheritedVisibility, Has<Dying>, Has<Corpse>, Option<&'static Name>);
+
+/// The light sources, the camera and the worldspace's records.
+type Scene<'w, 's> = (
+    Query<'w, 's, (&'static PointLight, &'static GlobalTransform, &'static InheritedVisibility)>,
+    Query<'w, 's, (&'static SpotLight, &'static GlobalTransform, &'static InheritedVisibility), Without<crate::flashlight::PlayerFlashlight>>,
+    Query<'w, 's, &'static GlobalTransform, With<PlayerCamera>>,
+    Option<Res<'w, WorldData>>,
+);
 
 /// What the player is doing and where, the player's weapons and the sky.
 type Inputs<'w> = (
@@ -292,8 +349,7 @@ fn measure(
     mut shots: MessageReader<ShotFired>,
     (mut impacts, mut hits): (MessageReader<ImpactFx>, MessageReader<ActorHit>),
     actors: Query<Watched>,
-    point_lights: Query<(&PointLight, &GlobalTransform, &InheritedVisibility)>,
-    spot_lights: Query<(&SpotLight, &GlobalTransform, &InheritedVisibility), Without<crate::flashlight::PlayerFlashlight>>,
+    (point_lights, spot_lights, camera, world): Scene,
 ) {
     let state = &mut *state;
     // Shots, heard at the next measurement.
@@ -334,7 +390,7 @@ fn measure(
     let exterior = location.as_deref().is_none_or(|l| l.interior.is_none());
     let reach = settings.max_distance(exterior) as f32;
 
-    // Who takes part: the player and the living actors within reach of the player.
+    // Who takes part: the player and the living actors of the loaded area (drawn).
     let motion = |id: u32, feet: [f32; 3], last: &mut HashMap<u32, ([f32; 3], f32)>| -> f32 {
         let speed = match last.get(&id) {
             Some(&(p, t)) if now > t => distance([p[0], p[1], 0.0], [feet[0], feet[1], 0.0]) / (now - t),
@@ -366,12 +422,22 @@ fn measure(
     let player_run_mode = !intent.as_deref().is_some_and(|i| i.walk);
     let pspeed = motion(FormId::PLAYER_REF.0, player.feet, &mut state.last);
     let pmoving = pspeed > MOVING_SPEED;
+    // The player sees with the camera, first or third person [documented: GECK wiki
+    // GetLineOfSight]; without one, from the eyes along the heading.
+    let (view, forward) = match camera.iter().next() {
+        Some(c) => {
+            let ahead = bevy_to_game(c.forward().as_vec3());
+            (bevy_to_game(c.translation()).to_array(), Vec2::new(ahead.x, ahead.y).normalize_or_zero())
+        }
+        None => (player.eye(), Vec2::new(player.heading.sin(), player.heading.cos())),
+    };
     people.push(Person {
         id: FormId::PLAYER_REF.0,
         label: "the player".into(),
         feet: player.feet,
         eyes: player.eye(),
-        forward: None,
+        forward: [forward.x, forward.y],
+        view,
         moving: pmoving,
         running: pmoving && !intent.as_deref().is_some_and(|i| i.walk),
         sneaking: control.as_deref().is_some_and(|c| c.sneak),
@@ -382,9 +448,6 @@ fn measure(
             continue;
         }
         let feet = bevy_to_game(g.translation()).to_array();
-        if distance(feet, player.feet) > reach {
-            continue;
-        }
         let ahead = bevy_to_game(g.affine().transform_vector3(Vec3::Y));
         let flat = Vec2::new(ahead.x, ahead.y).normalize_or_zero();
         let scale = g.affine().transform_vector3(Vec3::Z).length().max(0.1);
@@ -392,12 +455,14 @@ fn measure(
         // "Actor 0010634A EasyPete" → "EasyPete 0010634A".
         let edid = name.and_then(|n| n.as_str().split_whitespace().nth(2)).unwrap_or("");
         let label = format!("{edid} {:08X}", rig.reference).trim().to_string();
+        let eyes = [feet[0], feet[1], feet[2] + EYE_HEIGHT * scale];
         people.push(Person {
             id: rig.reference,
             label,
             feet,
-            eyes: [feet[0], feet[1], feet[2] + EYE_HEIGHT * scale],
-            forward: Some([flat.x, flat.y]),
+            eyes,
+            forward: [flat.x, flat.y],
+            view: eyes,
             moving: speed > MOVING_SPEED,
             running: speed > RUNNING_SPEED,
             sneaking: rt.game.sneaks(FormId(rig.reference)),
@@ -429,7 +494,9 @@ fn measure(
     let mut phys = phys.as_deref_mut();
     let mut changes: Vec<BandChange> = Vec::new();
     let mut player_bands: Vec<(usize, fnv_game::detection::Detection)> = Vec::new();
-    let mut pairs = 0;
+    let (mut pairs, mut far_pairs, mut far_detected) = (0, 0, 0);
+    let land = &mut state.land;
+    let world = world.as_deref();
     let impacts = std::mem::take(&mut state.impacts);
     let hits = std::mem::take(&mut state.hits);
     let shot_levels = state.shot_levels.clone();
@@ -445,52 +512,60 @@ fn measure(
             let run_mode = if p.id == FormId::PLAYER_REF.0 { player_run_mode } else { p.running };
             g.set_motion(FormId(p.id), Motion { moving: p.moving, running: p.running, sneaking: p.sneaking, turning: p.turning, run_mode });
         }
-        for (i, d) in people.iter().enumerate() {
-            let Some(forward) = d.forward else { continue };
-            if g.ai_off(FormId(d.id)) {
+        // Every two within reach of each other, both ways; the player detects too.
+        let feet: Vec<[f32; 3]> = people.iter().map(|p| p.feet).collect();
+        let near_player: Vec<bool> = feet.iter().map(|f| distance(*f, player.feet) <= reach).collect();
+        let within = fnv_game::sight::pairs_within(&feet, reach);
+        // The player sees every drawn actor, whatever the distance (out of reach it is
+        // hidden): player.GetLineOfSight Ringo read 1 at 6,682 units [observed: capture
+        // detection-1 det2, 2026-10-17].
+        let beyond: Vec<(usize, usize)> = (1..people.len()).filter(|&j| !near_player[j]).map(|j| (0, j)).collect();
+        let ordered = within.into_iter().flat_map(|(a, b)| [(a, b), (b, a)]).chain(beyond);
+        for (i, j) in ordered {
+            let (d, t) = (&people[i], &people[j]);
+            let by_player = i == 0;
+            if (j == 0 && (unseen() || g.toggles.detection_off)) || (!by_player && g.ai_off(FormId(d.id))) {
                 continue;
             }
-            let asleep = g.asleep(FormId(d.id));
             let aware = g.awareness.get(FormId(d.id));
             let alert = aware.is_some_and(|a| a.state.in_combat());
             let fighting = aware.filter(|a| a.state == State::Combat).and_then(|a| a.combat_target()).map(|(t, _)| t);
-            for (j, t) in people.iter().enumerate() {
-                if i == j || (j == 0 && (unseen() || g.toggles.detection_off)) {
-                    continue;
-                }
-                let dist = distance(d.feet, t.feet);
-                if dist > reach {
-                    continue;
-                }
-                let target = t.chest();
-                let sit = Situation {
-                    distance: dist as f64,
-                    exterior,
-                    line_of_sight: clear_sight(phys.as_deref_mut(), d.eyes, target),
-                    in_view: in_view(d.eyes, forward, target),
-                    light: light[j],
-                    moving: t.moving,
-                    running: t.running,
-                    sneaking: t.sneaking,
-                    action_sound: shots.get(&t.id).copied().unwrap_or(0.0),
-                    detector_alert: alert,
-                    detector_asleep: asleep,
-                    detector_busy: fighting.is_some_and(|f| f != FormId(t.id)),
-                };
-                let (det, before) = g.detect(&settings, FormId(d.id), FormId(t.id), &sit);
+            let dist = distance(d.feet, t.feet);
+            let target = t.chest();
+            let sit = Situation {
+                distance: dist as f64,
+                exterior,
+                line_of_sight: sight(phys.as_deref_mut(), land, world, exterior, d.view, target),
+                in_view: in_view(d.view, d.forward, target),
+                light: light[j],
+                moving: t.moving,
+                running: t.running,
+                sneaking: t.sneaking,
+                action_sound: shots.get(&t.id).copied().unwrap_or(0.0),
+                detector_alert: alert,
+                detector_asleep: !by_player && g.asleep(FormId(d.id)),
+                detector_busy: fighting.is_some_and(|f| f != FormId(t.id)),
+            };
+            let (det, before) = g.detect(&settings, FormId(d.id), FormId(t.id), &sit);
+            // The player's own detection feeds the script functions only.
+            if !by_player {
                 g.observe_threat(FormId(d.id), FormId(t.id), &det, t.feet);
-                pairs += 1;
-                if j == 0 {
-                    player_bands.push((i, det));
-                }
-                if before != Some(det.band) {
-                    let sight = match (sit.line_of_sight, sit.in_view) {
-                        (true, true) => "in sight",
-                        (false, _) => "out of sight (blocked)",
-                        (true, false) => "out of sight (out of view)",
-                    };
-                    changes.push((i, j, dist as f64, before, det, sight));
-                }
+            }
+            pairs += 1;
+            if !near_player[i] && !near_player[j] {
+                far_pairs += 1;
+                far_detected += usize::from(det.band == Band::Detected);
+            }
+            if j == 0 {
+                player_bands.push((i, det));
+            }
+            if before != Some(det.band) {
+                let sight = match (sit.line_of_sight, sit.in_view) {
+                    (true, true) => "in sight",
+                    (false, _) => "out of sight (blocked)",
+                    (true, false) => "out of sight (out of view)",
+                };
+                changes.push((i, j, dist as f64, before, det, sight));
             }
         }
         g.detection.forget_older_than(g.time - 1.0);
@@ -505,7 +580,8 @@ fn measure(
                 continue;
             }
             events += 1;
-            for d in people.iter().filter(|d| d.forward.is_some()) {
+            // Actors hear events; the player (first) does not take part.
+            for d in people.iter().skip(1) {
                 let dist = distance(d.feet, ev.at);
                 if FormId(d.id) == ev.owner || dist > reach {
                     continue;
@@ -513,7 +589,7 @@ fn measure(
                 let sit = Situation {
                     distance: dist as f64,
                     exterior,
-                    line_of_sight: clear_sight(phys.as_deref_mut(), d.eyes, ev.at),
+                    line_of_sight: sight(phys.as_deref_mut(), land, world, exterior, d.eyes, ev.at),
                     // An event is heard, not seen [hypothesis].
                     in_view: false,
                     sneaking: ev.owner == FormId::PLAYER_REF && people[0].sneaking,
@@ -542,7 +618,7 @@ fn measure(
         g.call_allies();
         g.settle_awareness();
         // Who started fighting or noticed a hostile alarms its comrades near it
-        // (`fnv_game::combat_group`); only those measured here: drawn, near the player.
+        // (`fnv_game::combat_group`); only those measured here: drawn (the loaded area).
         let near: std::collections::BTreeMap<FormId, [f32; 3]> = people.iter().map(|p| (FormId(p.id), p.feet)).collect();
         g.raise_alarms(&near);
         let held = std::mem::take(&mut g.awareness.held_back);
@@ -557,6 +633,8 @@ fn measure(
     st.measurements += 1;
     st.barks_held += held;
     st.pairs += pairs;
+    st.far_pairs += far_pairs;
+    st.far_detected += far_detected;
     st.most_pairs = st.most_pairs.max(pairs);
     for (i, j, dist, before, det, sight) in changes {
         let (d, t) = (&people[i], &people[j]);
@@ -587,6 +665,12 @@ fn measure(
         if j == 0 {
             st.player_changes[k] += 1;
             info!("{line}");
+        } else if i == 0 {
+            st.own_changes[k] += 1;
+            if det.band == Band::Detected {
+                st.player_saw.insert(t.id);
+            }
+            debug!("{line}");
         } else {
             st.actor_changes[k] += 1;
             debug!("{line}");
@@ -685,6 +769,13 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
         s.shots_heard,
         s.range.map_or("none".into(), |(lo, hi)| format!("{lo:.1} to {hi:.1}")),
     );
+    info!(
+        "detection summary, out of the player's reach: {} pairs, {} measured detected; the player as a detector: {}; {} actors detected by the player",
+        s.far_pairs,
+        s.far_detected,
+        bands(s.own_changes),
+        s.player_saw.len(),
+    );
     let changes: Vec<String> = s.changes.iter().map(|((f, t), n)| format!("{} → {} {n}", f.name(), t.name())).collect();
     info!(
         "alert summary: {} actors became Alert; changes: {}; {} detection events, heard {} times; {} hits alarmed; {} Detection topic lines said, {} asked for without a line, {} held back by the group cooldown",
@@ -702,19 +793,6 @@ fn report(mut exit: MessageReader<AppExit>, state: Res<DetectionState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_field_of_view_is_95_degrees_either_side() {
-        let at = [0.0, 0.0, 0.0];
-        let north = [0.0, 1.0];
-        assert!(in_view(at, north, [0.0, 100.0, 0.0]));
-        assert!(in_view(at, north, [100.0, 0.0, 0.0]));
-        // 94° and 96° off straight ahead.
-        let off = |deg: f32| [100.0 * deg.to_radians().sin(), 100.0 * deg.to_radians().cos(), 0.0];
-        assert!(in_view(at, north, off(94.0)));
-        assert!(!in_view(at, north, off(96.0)));
-        assert!(!in_view(at, north, [0.0, -100.0, 0.0]));
-    }
 
     #[test]
     fn light_adds_point_lights_with_the_game_falloff_and_caps_at_100() {

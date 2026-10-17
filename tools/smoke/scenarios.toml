@@ -539,7 +539,7 @@ name = "detection-game"
 note = "--no-messages added 2026-10-12 (fixes workstream): on a loaded machine the add-on packs' twelve start-up message boxes came up while the test aids ran (a menu request ignored, the game clock held for about 10 s while the aids' clock ran on); with it they close on the frame they open. Expectations unchanged"
 source = "CLAUDE.md: after detection changes, the in-game check of docs/design/detection.md §5"
 areas = ["detection"]
-paths = ["crates/fnv-game/src/detection.rs", "engine/nvforever/src/detection.rs"]
+paths = ["crates/fnv-game/src/detection.rs", "crates/fnv-game/src/sight.rs", "engine/nvforever/src/detection.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "000E3778", NVF_PLAY_TEST_GIVE = "0008ED03:50", NVF_PLAY_TEST_CONTROL = "10:sneak,14:weapon,17:reload,22:fire,22.2:fire" }
 args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 40
@@ -547,7 +547,10 @@ order = [[
   { re = 'detection: GSSettlerAM 00104F0A → the player: hidden → noticed .*sneaking' },
   { re = 'detection: GSSettlerAM 00104F0A → the player: \w+ → detected' },
 ]]
-expect = ["detection summary"]
+expect = [
+  "detection summary",
+  { re = '(?P<n>\d+) actors detected by the player', range = [1, 1000], label = "the player detects actors from the camera (player.GetDetected, added 2026-10-17)" },
+]
 
 [[scenario]]
 name = "alert-fiend"
@@ -2140,6 +2143,28 @@ expect = [
   { re = 'crime summary: .* 0 murders', label = "no murder" },
 ]
 
+# ---- Detection out of the player's reach (docs/design/detection.md §7) ------------------
+# The NCR troopers of "ncr-fiends" are put 600 units north of the player, then at 4 s the
+# player goes about 5,700 units south of them (out of the outdoor reach of 5,000; the
+# Fiend camp about 8,000 away, still in the loaded 5 × 5 cells). Before 2026-10-17 only
+# actors within reach of the player measured each other, and this fight never started.
+
+[[scenario]]
+name = "detection-far-fight"
+source = "script-function coverage §5 item 1 (PR #370): fights between NPCs out of the player's reach start (IsInCombat), docs/design/detection.md §7"
+areas = ["detection", "combat"]
+paths = ["engine/nvforever/src/detection.rs", "crates/fnv-game/src/sight.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:0x000F36F5:player:-400:600:0,3:moveto:0x000F36F6:player:-200:650:0,3:moveto:0x0015CE0A:player:0:600:0,3:moveto:0x0015CE08:player:200:650:0,3:moveto:0x000FCEB1:player:400:600:0,3:moveto:0x000FD572:player:600:550:0", NVF_PLAY_TEST_GOTO = "4:-43200:66300:9000" }
+args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 100
+expect = [
+  { re = "detection summary, out of the player's reach: (?P<n>\\d+) pairs", range = [1, 10000000], label = "pairs out of the player's reach are measured" },
+  { re = "detection summary, out of the player's reach: \\d+ pairs, (?P<n>\\d+) measured detected", range = [1, 10000000], label = "and some detected" },
+  { re = 'npc combat: 0x000(F36F|FCEB|FD57|15CE)\S* 0x\S+ fights (FiendCookCookRef|0x000F9CE)', label = "the NCR troopers fight the Fiends, far from the player" },
+  { re = 'npc combat: (FiendCookCookRef|0x000F9CE\S*) 0x\S+ fights 0x000(F36F|FCEB|FD57|15CE)', label = "the Fiends fight the NCR troopers" },
+]
+forbid = [{ re = 'the player died', label = "the player dies" }]
+
 # ---- Combat AI list 2 (docs/design/combat-ai.md §12) ------------------------------------
 # Six NCR troopers from near Camp McCarran are put (moveto) 600 units north of the player,
 # about 1,900 units south of Cook-Cook's Fiend camp (Cook-Cook and four Fiends); nobody
@@ -2467,15 +2492,35 @@ expect = [
 [[scenario]]
 name = "corpse-undressed"
 source = "playtest list 4 item 15 (engine/nvforever/src/outfits.rs): taking a corpse's armour and weapon takes them off its drawn body and puts the body under them on"
-note = "a dead Fiend of the tribal village (0x001578F7, TCFiend01DEAD, a random leveled outfit: the simulation's roll stands for the drawn one); the menu test aid opens it at 16 s (after the add-ons' start-up message boxes) and takes all a second later"
+note = "a dead Fiend of the tribal village (0x001578F7, TCFiend01DEAD, a random leveled outfit: drawn as the simulation's roll equips it); the menu test aid opens it at 16 s (after the add-ons' start-up message boxes) and takes all a second later"
 areas = ["actors", "menus", "deaths"]
 paths = ["engine/nvforever/src/outfits.rs", "engine/nvforever/src/actors.rs", "engine/nvf-assets/src/actor.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_FACE = "5:001578F7", NVF_PLAY_TEST_MENU = "001578F7", NVF_PLAY_TEST_DELAY = "16" }
 args = ["--play", "--pos=-73500,29700,8000", "--heading", "300", "--hour", "12", "--no-voice"]
 run_seconds = 30
 expect = [
-  { re = 'outfit: actor 001578F7: .* left its inventory: taken off the body; [1-9]\d* part\(s\) put on', label = "the corpse's armour comes off and its body goes on" },
+  { re = 'outfit: actor 001578F7: armour 0x[0-9A-F]{8}.* taken off, nothing put on; [1-9]\d* part\(s\) put on', label = "the corpse's armour comes off and its body goes on" },
   { re = 'outfit summary: (?P<n>\d+) armour pieces', range = [1, 100], label = "outfit summary: armour taken off" },
+]
+
+[[scenario]]
+name = "npc-equip-drawn"
+source = "docs/design/script-function-audit.md §5 (engine/nvforever/src/outfits.rs, fnv_sim::World::equipment): an NPC is drawn wearing and holding what the rules have equipped; a script's EquipItem and UnequipItem change what is drawn"
+note = "Sunny Smiles (SunnyRef 0x00104E85, leather armour 00020423, varmint rifle 0007EA24) in the saloon, packages off: at 8 s she is given Trudy's outfit (000EF1CB) and at 9 s EquipItem puts it on (the leather armour shares its slot and comes off); UnequipItem takes her rifle off at 12 s and EquipItem puts it back at 14 s; screenshots at 7, 11, 13 and 16 s"
+areas = ["actors", "scripting"]
+paths = ["engine/nvforever/src/outfits.rs", "engine/nvforever/src/actors.rs", "crates/fnv-sim/src/world.rs", "crates/fnv-actor/src/resolve.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:00104E85", NVF_PLAY_TEST_SCRIPT = "3:moveto:player:SunnyRef:0:-160:0,8:call:SunnyRef:AddItem:0x000EF1CB:1,9:call:SunnyRef:EquipItem:0x000EF1CB,12:call:SunnyRef:UnequipItem:0x0007EA24,14:call:SunnyRef:EquipItem:0x0007EA24", NVF_PLAY_TEST_SHOTS = "7,11,13,16" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+order = [[
+  "outfit: actor 00104E85: armour 0x00020423 taken off, 0x000EF1CB put on",
+  "outfit: actor 00104E85: weapon 0x0007EA24 no longer held",
+  "outfit: actor 00104E85: weapon 0x0007EA24 now held",
+]]
+expect = [
+  { re = 'outfit: actor 00104E85: armour 0x00020423 taken off, 0x000EF1CB put on; [1-9]\d* part\(s\) put on', label = "EquipItem dresses Sunny in Trudy's outfit and takes her leather armour off" },
+  { re = 'outfit summary: \d+ armour pieces taken off and \d+ put on, (?P<n>\d+) weapons taken off', range = [1, 100], label = "outfit summary: UnequipItem took the rifle off" },
+  { re = 'outfit summary: .* weapons taken off and (?P<n>\d+) put on', range = [1, 100], label = "outfit summary: EquipItem put the rifle back" },
 ]
 
 [[scenario]]
@@ -3432,9 +3477,9 @@ name = "character-creator"
 source = "docs/spec-notes/character-creator.md §7: the race menu (1036) drawn by the creator, live look, Done"
 areas = ["chargen", "menus", "actors"]
 paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/**", "crates/fnv-actor/src/creator.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/control.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Sex,9.5:next:Origin,10:prev:Hair style,10.5:set:Skin Shade Dark / Light:0.2,11:set:Nose - short / long:0.9,11.5:next:Eye colour,12:random,12.5:undo,13:tab:face,15.5:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_open.png,12:creator_changed.png,15:creator_face_tab.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_SCRIPT = "3:menu:1036", NVF_PLAY_TEST_CREATOR = "9:next:Sex,9.5:next:Origin,10:prev:Hair style,10.5:set:Skin Shade Dark / Light:0.2,11:set:Nose - short / long:0.9,11.5:next:Eye colour,12:random,12.5:undo,13:tab:face,14:orbit:60:15,15.5:zoom:0.7,15.6:pan:3:-2,17:tab:basics,18.5:zoom:0.35,20.5:done", NVF_PLAY_TEST_SHOTS = "8.5:creator_open.png,12:creator_changed.png,13.8:creator_face_tab.png,15.2:creator_orbit.png,16.7:creator_pan_zoom.png,18.2:creator_body.png,19.8:creator_body_zoomed.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
-run_seconds = 20
+run_seconds = 30
 order = [[
   "creator: open on Male Caucasian (115 sliders, 4 races",
   "creator: Sex Female",
@@ -3452,8 +3497,14 @@ expect = [
   "creator: data: 4 races, 115 sliders",
   { text = "player body: third-person rig", min = 3, label = "the body rebuilt for the new looks" },
   { text = "ui sounds: creator accepted: UIMenuOK", label = "Done" },
+  { text = "creator: camera (test aid NVF_PLAY_TEST_CREATOR): turned", count = 4, label = "orbit, zoom, pan, zoom (owner 2026-10-17)" },
+  { text = "creator view: lights on", count = 1, label = "the creator's lights (owner 2026-10-17)" },
+  { re = "player body: rebuilt; it goes on with the old body's [1-9][0-9]* clips and pose", min = 3, label = "no T-pose between bodies: each new look's body takes over the playing clips (owner 2026-10-17)" },
+  { text = "creator view: lights off", count = 1, label = "and gone again after Done" },
+  { re = 'creator: camera \(test aid NVF_PLAY_TEST_CREATOR\): turned 69°, tilted (?P<n>\d+)°', range = [16, 19], label = "turned 60° and tilted 15° on the face framing" },
+  { re = 'creator: camera .*, 61 units away, looking (?P<n>\d+) under the eye', range = [5, 15], label = "zoomed in on the whole body: aimed near the face, not the pelvis" },
 ]
-manual = "creator_open.png, creator_changed.png, creator_face_tab.png in the run's folder: the panel on the left, the player framed on the right; after the changes a darker-skinned woman with longer nose"
+manual = "creator_open.png … creator_body_zoomed.png in the run's folder: the panel on the left, the player framed on the right; after the changes a darker-skinned woman with longer nose; orbit: her face from her left and above; pan_zoom: nearer, moved; body: the whole body; body_zoomed: the head and shoulders"
 
 [[scenario]]
 name = "actor-creator"
@@ -3539,3 +3590,39 @@ order = [[
   "console: HasMagicEffect on player >> 1.00",
   "console: IsSpellTarget on player >> 0.00",
 ]]
+name = "character-creator-opening"
+source = "owner 2026-10-17: no mouse pointer in the character creator in a real new game (docs/spec-notes/character-creator.md §6)"
+note = "In the opening menu 1036 opens at the end of Doc Mitchell's line, still in the conversation and with the wake-up idle driving the view; the pointer stayed hidden there. Each script menu stays 3 s before the test aid closes it."
+areas = ["chargen", "menus", "controls"]
+paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/player.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "8", NVF_PLAY_TEST_SHOTS = "103:opening_creator_103.png,106:opening_creator_106.png" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 130
+order = [[
+  "script: menu 1036 open",
+  "creator: open on",
+  "pointer: shown (the character creator)",
+  "creator: closed",
+]]
+expect = [
+  { text = "creator view: lights on", label = "the creator's lights in the real opening" },
+  { text = "creator view: lights off", label = "removed when it closes" },
+]
+manual = "opening_creator_*.png: one or more shows the creator open in Doc Mitchell's house: the player lit, Doc not in front of them, no E) Talk prompt, no subtitle over the panel"
+
+[[scenario]]
+name = "foot-ik-goodsprings"
+source = "owner request 2026-10-17 (screenshots of the original on the slopes around Goodsprings): on a slope the lower foot lowers the body and the higher knee bends, each foot lying on the slope (docs/spec-notes/actors.md §13)"
+note = "the player is put on a 20° hillside east of Goodsprings (land heights: -62336,4352) at 24 s and seen in third person from 26 s; the summary at exit says how many actors stood on uneven ground and how far the body dropped and the feet rose (both within the limits of §13.2)"
+areas = ["actors", "animation", "player-body"]
+paths = ["engine/nvforever/src/foot_ik.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_GOTO = "24:-62336:4352:8700", NVF_PLAY_TEST_CONTROL = "26:view", NVF_PLAY_TEST_SHOTS = "31:foot-ik.png" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
+run_seconds = 34
+expect = [
+  "foot ik: on (--no-foot-ik)",
+  'foot ik: meshes\characters\_male\skeleton.nif: lowers Bip01 NonAccum and bends both legs',
+  { text = "foot ik: … actors stood on uneven ground (the player)", label = "the player's feet placed on the hillside" },
+  { re = 'foot ik: .*largest body drop (?P<n>[\d.]+) units', range = [0.5, 28.0], label = "the body lowered, within the limit" },
+  { re = 'foot ik: .*foot raise (?P<n>[\d.]+) units', range = [0.5, 40.0], label = "a foot raised, within the limit" },
+]

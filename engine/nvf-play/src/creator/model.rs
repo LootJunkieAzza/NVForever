@@ -56,21 +56,107 @@ impl Tab {
         }
     }
 
-    /// How the camera frames the player on this tab [design].
-    pub fn framing(self) -> Portrait {
+    /// How the camera frames the player on this tab, before the player's own turning,
+    /// panning and zooming ([`View`]) [design]: the whole body on Basics, the head
+    /// turned a little on Hair, the face on the others.
+    pub fn framing(self) -> Framing {
         match self {
-            // The camera steps left a third of its distance: the player stands in the
-            // clear part of the picture, right of the panel [design; observed on the
-            // smoke run's screenshots at 16:10].
-            Tab::Basics => Portrait { yaw: 0.0, distance: 125.0, drop: 30.0, pitch: 0.05, shift: 125.0 * SHIFT },
-            Tab::Hair => Portrait { yaw: 0.45, distance: 58.0, drop: -2.0, pitch: 0.12, shift: 58.0 * SHIFT },
-            _ => Portrait { yaw: 0.15, distance: 42.0, drop: 2.0, pitch: 0.03, shift: 42.0 * SHIFT },
+            Tab::Basics => Framing { yaw: 0.0, pitch: 0.05, distance: FAR, aim: 0.0 },
+            Tab::Hair => Framing { yaw: 0.45, pitch: 0.12, distance: 58.0, aim: -4.0 },
+            _ => Framing { yaw: 0.15, pitch: 0.03, distance: NEAR, aim: 0.0 },
         }
     }
 }
 
-/// How far the camera steps left, as a part of its distance from the player.
+/// A tab's framing: the camera's turn and tilt, its distance, and how far above (−) or
+/// below the point [`aim_drop`] gives for that distance it looks.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Framing {
+    pub yaw: f32,
+    pub pitch: f32,
+    pub distance: f32,
+    pub aim: f32,
+}
+
+/// How far the camera steps left, as a part of its distance from the player: the player
+/// stands in the clear part of the picture, right of the panel [design; observed on the
+/// smoke run's screenshots at 16:10].
 const SHIFT: f32 = 0.33;
+/// The face framing's distance and the whole body's, game units [design].
+pub const NEAR: f32 = 42.0;
+pub const FAR: f32 = 175.0;
+/// The point looked at, under the eye: the face (2) when the camera is at [`NEAR`] or
+/// closer, the middle of the body (58) at [`FAR`] or further, in between in proportion
+/// [design; owner 2026-10-17: zooming went "in and out on the pelvis"].
+const FACE_DROP: f32 = 2.0;
+const BODY_DROP: f32 = 58.0;
+/// The camera's reach [design].
+const MIN_DISTANCE: f32 = 20.0;
+const MAX_DISTANCE: f32 = 260.0;
+/// The tilt's reach (the framing's pitch plus the player's), radians: from a little
+/// below the eye to well above the head.
+const MIN_PITCH: f32 = -0.35;
+const MAX_PITCH: f32 = 0.8;
+/// How far the view may be panned: to either side, and up or down from the point
+/// looked at (game units) [design: the player stays in the picture].
+const PAN_SIDE: f32 = 40.0;
+const PAN_UP: f32 = 30.0;
+const PAN_DOWN: f32 = 80.0;
+
+/// The point looked at, under the eye, for a camera at `distance`.
+pub fn aim_drop(distance: f32) -> f32 {
+    let t = ((distance - NEAR) / (FAR - NEAR)).clamp(0.0, 1.0);
+    FACE_DROP + (BODY_DROP - FACE_DROP) * t
+}
+
+/// The player's own turning, tilting, panning and zooming of the creator's camera
+/// (docs/spec-notes/character-creator.md §5) [owner 2026-10-17: "we need a way to drag
+/// and pan our view not just zoom in and out"].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct View {
+    /// Added to the framing's turn and tilt, radians.
+    pub turn: f32,
+    pub tilt: f32,
+    /// The framing's distance times this.
+    pub zoom: f32,
+    /// The picture moved right and up, game units at the point looked at.
+    pub pan: [f32; 2],
+}
+
+impl Default for View {
+    fn default() -> View {
+        View { turn: 0.0, tilt: 0.0, zoom: 1.0, pan: [0.0, 0.0] }
+    }
+}
+
+impl View {
+    /// Turn about the player (`dx`, radians; it goes all the way round) and tilt (`dy`).
+    pub fn orbit(&mut self, dx: f32, dy: f32) {
+        self.turn = (self.turn + dx + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        self.tilt += dy;
+    }
+
+    /// Move the picture right and up by game units.
+    pub fn pan_by(&mut self, right: f32, up: f32) {
+        self.pan[0] = (self.pan[0] + right).clamp(-PAN_SIDE, PAN_SIDE);
+        self.pan[1] = (self.pan[1] + up).clamp(-PAN_UP, PAN_DOWN);
+    }
+
+    /// Zoom in (`factor` below 1) or out.
+    pub fn zoom_by(&mut self, factor: f32) {
+        self.zoom *= factor;
+    }
+
+    /// The camera for a framing, everything clamped (the clamped values are kept, so a
+    /// drag past a limit does not have to be undone first).
+    pub fn camera(&mut self, f: Framing) -> Portrait {
+        let distance = (f.distance * self.zoom).clamp(MIN_DISTANCE, MAX_DISTANCE);
+        self.zoom = distance / f.distance;
+        let pitch = (f.pitch + self.tilt).clamp(MIN_PITCH, MAX_PITCH);
+        self.tilt = pitch - f.pitch;
+        Portrait { yaw: f.yaw + self.turn, distance, drop: aim_drop(distance) + f.aim + self.pan[1], pitch, shift: SHIFT * distance + self.pan[0] }
+    }
+}
 
 /// The skin groups the Eyes tab shows instead of the Skin tab [design].
 const EYE_GROUPS: [&str; 5] = ["Eyes", "Eye Sockets", "Eyelids", "Eyeliner", "Eyeshadow"];
@@ -161,9 +247,8 @@ pub struct Model {
     preset: usize,
     /// The bottom buttons are chosen (Down past the last row).
     pub on_actions: Option<usize>,
-    /// Turned and zoomed by the player, over the tab's framing.
-    pub turn: f32,
-    pub zoom: f32,
+    /// The player's turning, panning and zooming, over the tab's framing.
+    pub view: View,
 }
 
 fn tab_index(t: Tab) -> usize {
@@ -191,8 +276,7 @@ impl Model {
             groups: [0; 6],
             preset: 0,
             on_actions: None,
-            turn: 0.0,
-            zoom: 1.0,
+            view: View::default(),
         }
     }
 
@@ -296,6 +380,11 @@ impl Model {
         let changed = self.tab != t;
         self.tab = t;
         self.on_actions = None;
+        // A new tab frames its own part: the zoom and pan start again, the turn stays
+        // [design].
+        if changed {
+            self.view = View { turn: self.view.turn, ..View::default() };
+        }
         changed
     }
 
@@ -618,10 +707,10 @@ impl Model {
         }
     }
 
-    /// The camera for the open tab, turned and zoomed by the player.
-    pub fn camera(&self) -> Portrait {
+    /// The camera for the open tab, turned, panned and zoomed by the player.
+    pub fn camera(&mut self) -> Portrait {
         let f = self.tab.framing();
-        Portrait { yaw: f.yaw + self.turn, distance: f.distance * self.zoom, shift: f.shift * self.zoom, ..f }
+        self.view.camera(f)
     }
 
     /// A line naming the look, for the log and the caption.
@@ -828,10 +917,54 @@ mod tests {
     #[test]
     fn the_camera_follows_the_tab() {
         let mut m = Model::new(data(), look());
-        let far = m.camera().distance;
+        let body = m.camera();
+        assert_eq!(body.distance, FAR);
         m.set_tab(Tab::Face);
-        assert!(m.camera().distance < far);
-        m.zoom = 2.0;
-        assert!((m.camera().distance - 2.0 * Tab::Face.framing().distance).abs() < 1e-4);
+        let face = m.camera();
+        assert_eq!(face.distance, NEAR);
+        // The whole body is looked at from afar, the face from near.
+        assert!(body.drop > 40.0 && face.drop < 5.0);
+        // A new tab starts its own zoom and pan again, but keeps the turn.
+        m.view.zoom_by(2.0);
+        m.view.pan_by(5.0, 5.0);
+        m.view.orbit(0.5, 0.0);
+        m.set_tab(Tab::Basics);
+        assert_eq!((m.view.zoom, m.view.pan), (1.0, [0.0, 0.0]));
+        assert!((m.view.turn - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn zooming_in_on_the_body_aims_at_the_face() {
+        let mut v = View::default();
+        let f = Tab::Basics.framing();
+        let far = v.camera(f);
+        v.zoom_by(0.3);
+        let near = v.camera(f);
+        assert!(near.distance < far.distance);
+        assert!(near.drop < far.drop - 30.0, "{} {}", near.drop, far.drop);
+        assert_eq!(aim_drop(NEAR), FACE_DROP);
+        assert_eq!(aim_drop(1000.0), BODY_DROP);
+    }
+
+    #[test]
+    fn the_view_stays_within_its_limits() {
+        let mut v = View::default();
+        let f = Tab::Face.framing();
+        v.zoom_by(0.01);
+        assert_eq!(v.camera(f).distance, MIN_DISTANCE);
+        v.zoom_by(1000.0);
+        assert_eq!(v.camera(f).distance, MAX_DISTANCE);
+        // The clamp is kept: one step back in comes back at once.
+        v.zoom_by(0.5);
+        assert!((v.camera(f).distance - MAX_DISTANCE / 2.0).abs() < 1e-3);
+        v.orbit(0.0, 5.0);
+        assert_eq!(v.camera(f).pitch, MAX_PITCH);
+        v.orbit(0.0, -0.1);
+        assert!((v.camera(f).pitch - (MAX_PITCH - 0.1)).abs() < 1e-5);
+        // All the way round and on.
+        v.orbit(7.0, 0.0);
+        assert!(v.turn.abs() <= std::f32::consts::PI);
+        v.pan_by(500.0, -500.0);
+        assert_eq!(v.pan, [PAN_SIDE, -PAN_UP]);
     }
 }
