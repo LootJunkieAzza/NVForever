@@ -108,19 +108,17 @@ note = "Easy Pete sitting read 1 [observed: probes]; ours 0 headless; the engine
 status = "match"
 note = "`IsInCriticalStage None` 1 and GooStart / DisintegrateEnd 0 on a live actor, as ours [observed: probes fp7]; the parameter is a stage name (a number does not compile). No engine critical death sets a stage (see SetCriticalStage)."
 [function.GetDetected]
-status = "wrong"
-system = "detection beyond the player's reach; the player as a detector"
-note = "player.GetDetected Ringo 1 and Chet 1 in the original [observed: probes]; ours 0 for the player as detector and for pairs the engine does not measure."
+status = "match"
+note = "player.GetDetected Ringo 1 and Chet 1 in the original [observed: probes]; the player now measures the actors within its reach from the camera, and every pair of the loaded area is measured, near the player or not (detection.md §7, 2026-10-17)."
 
 [function.GetLineOfSight]
-status = "wrong"
-system = "detection beyond the player's reach; the player as a detector"
-note = "player.GetLineOfSight Ringo 1 [observed: probes; and 1 at 41 units, audit §3]; ours 0."
+status = "match"
+note = "player.GetLineOfSight Ringo 1 [observed: probes; and 1 at 41 units, audit §3]; the player's is the camera's, ±95° [documented: GECK wiki GetLineOfSight] (detection.md §7). Not built: on the player, a target that is not an actor."
 
 [function.IsInCombat]
-status = "wrong"
-system = "detection beyond the player's reach; the player as a detector"
-note = "Correct near the player; NPC fights out of the player's detection reach never start (audit §5)."
+status = "open"
+system = "fights out of the loaded area (low process)"
+note = "NPC fights out of the player's detection reach start in the loaded area since 2026-10-17 (detection.md §7); out of it (the low process) nobody detects anyone. Whether the original's do: capture request detection-1, batch det3."
 
 [function.GetActionRef]
 status = "open"

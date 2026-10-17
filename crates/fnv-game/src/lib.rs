@@ -69,6 +69,7 @@ pub mod rest;
 pub mod roulette;
 pub mod sound;
 pub mod runner;
+pub mod sight;
 pub mod templates;
 pub mod terminal;
 pub mod trace;
