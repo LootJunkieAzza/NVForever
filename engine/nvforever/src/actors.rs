@@ -83,6 +83,9 @@ pub struct ActorWorld {
     sets: Mutex<ClipSets>,
     /// Weapon stances by (skeleton, prefix); `None` when they could not be loaded.
     stances: Mutex<Stances>,
+    /// How many times ResurrectActor rolled a reference's random choices again
+    /// (`fnv_game::resurrect`, told by `resurrect.rs`): the seed of its leveled picks.
+    pub rolls: Mutex<HashMap<u32, u32>>,
 }
 
 type ClipSets = HashMap<(String, Body, &'static str), Option<Arc<ClipSet>>>;
@@ -104,7 +107,15 @@ impl ActorWorld {
             weapon_test: None,
             sets: Mutex::new(HashMap::new()),
             stances: Mutex::new(HashMap::new()),
+            rolls: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The reference whose FormID seeds the leveled picks of `reference`: itself until a
+    /// resurrection rolled them again (`fnv_sim::leveled::roll_seed`).
+    fn seed(&self, reference: u32) -> FormId {
+        let rolls = self.rolls.lock().map_or(0, |r| r.get(&reference).copied().unwrap_or(0));
+        fnv_sim::leveled::roll_seed(FormId(reference), rolls)
     }
 
     pub fn resolve(&self, base: u32, reference: u32) -> Result<Appearance, String> {
@@ -114,17 +125,17 @@ impl ActorWorld {
     /// [`Self::resolve`] wearing the given armour instead of the chosen one
     /// (`Resolver::resolve_wearing`; the player's body).
     pub fn resolve_wearing(&self, base: u32, reference: u32, wearing: Option<&[FormId]>) -> Result<Appearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_wearing(FormId(base), FormId(reference), wearing).map_err(|e| e.to_string())
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_wearing(FormId(base), self.seed(reference), wearing).map_err(|e| e.to_string())
     }
 
     /// [`Self::resolve_wearing`] with a chosen look (the player's, from the character
     /// creator) in place of the record's.
     pub fn resolve_as(&self, base: u32, reference: u32, wearing: Option<&[FormId]>, look: Option<&fnv_actor::Look>) -> Result<Appearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_as(FormId(base), FormId(reference), wearing, look).map_err(|e| e.to_string())
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_as(FormId(base), self.seed(reference), wearing, look).map_err(|e| e.to_string())
     }
 
     pub fn resolve_creature(&self, base: u32, reference: u32) -> Result<CreatureAppearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_creature(FormId(base), FormId(reference)).map_err(|e| e.to_string())
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_creature(FormId(base), self.seed(reference)).map_err(|e| e.to_string())
     }
 
     /// The locomotion clip set of a skeleton and body (loaded once), if it has an idle.
@@ -148,15 +159,17 @@ impl ActorWorld {
     }
 
     /// The limping set (`locomotion::ClipSet::load_hurt`) built on `base`, the standing
-    /// set of the skeleton and body (loaded once).
-    fn clip_set_hurt(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, base: &ClipSet) -> Option<Arc<ClipSet>> {
-        let key = (fnv_vfs::normalize(skeleton), body, "hurt");
+    /// set of the skeleton and body, or with `alert` on a creature's alert set with the
+    /// alert stance's limping clips too (loaded once each).
+    fn clip_set_hurt(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, base: &ClipSet, alert: bool) -> Option<Arc<ClipSet>> {
+        let key = (fnv_vfs::normalize(skeleton), body, if alert { "hurt-alert" } else { "hurt" });
+        let stances: &[&str] = if alert { &[crate::locomotion::STANCE, crate::locomotion::ALERT_STANCE] } else { &[crate::locomotion::STANCE] };
         self.sets
             .lock()
             .expect("clip sets")
             .entry(key)
             .or_insert_with(|| {
-                let (set, line) = ClipSet::load_hurt(ctx, skeleton, skel, base)?;
+                let (set, line) = ClipSet::load_hurt(ctx, skeleton, skel, base, stances)?;
                 info!("actor locomotion: {line}");
                 Some(Arc::new(set))
             })
@@ -233,6 +246,8 @@ pub struct ActorStats {
     /// Actors holding a weapon, and those whose weapon model or stance clips are missing.
     pub armed: usize,
     pub weapon_missing: usize,
+    /// Actors holding their fists (no weapon, or the Fists): the `h2h` stance alone.
+    pub fists: usize,
 }
 
 /// A race skin texture and the `.egt` that tints it; `image` is made on first use.
@@ -427,7 +442,7 @@ pub fn spawn(
                 // People crouch to sneak (`sneaking.rs`).
                 lo.sneak = world.clip_set_stance(ctx, &a.skeleton, &skel, body, crate::locomotion::SNEAK_STANCE);
                 // A crippled leg limps (`limping.rs`).
-                lo.hurt = world.clip_set_hurt(ctx, &a.skeleton, &skel, body, &set);
+                lo.hurt = world.clip_set_hurt(ctx, &a.skeleton, &skel, body, &set, false);
                 let walk = world.walk_test.filter(|w| w.radius <= 0.0 || at.distance(w.center) <= w.radius);
                 let mut player = blend_player(&spawned, &skel);
                 if let Some(w) = walk {
@@ -523,9 +538,13 @@ pub fn spawn_creature(
         match world.clip_set(ctx, &c.skeleton, &skel, Body::Male) {
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
-                lo.hurt = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set);
-                // Some creatures move otherwise when alert (`creature_pace.rs`).
+                lo.hurt = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set, false);
+                // Some creatures move otherwise when alert (`creature_pace.rs`), and limp
+                // otherwise when alert too (`limping.rs`).
                 lo.alert = world.alert_set(ctx, &c.skeleton, &skel, &set);
+                if let Some(alert) = lo.alert.clone() {
+                    lo.hurt_alert = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &alert, true);
+                }
                 if let Some(t) = world.pose_time {
                     let len = set.info(Move::Idle).map_or(1.0, |c| c.duration).max(f32::EPSILON);
                     lo.blend = Blend::new(Move::Idle, t / len);
@@ -545,8 +564,13 @@ pub fn spawn_creature(
 }
 
 /// Give an actor its weapon (part H, actors.md §9): the model under the skeleton's
-/// `Weapon` node and a [`WeaponHold`] with the stance's clips, or nothing when the actor
-/// carries no drawable weapon or weapons are off.
+/// `Weapon` node and a [`WeaponHold`] with the stance's clips. An actor that fights with
+/// its fists (no weapon, the Fists or another weapon without a model, a weapon that
+/// cannot be drawn, or weapons off: the combat code takes an actor with no weapon in its
+/// hand as unarmed) holds them: the `h2h` stance without a model (`h2hequip.kf`,
+/// `h2haim.kf`, `h2hunequip.kf` in `characters\_male` [observed: the base meshes archive
+/// listing]), drawn and holstered as any weapon is [design: as the game's fists look in
+/// third person]. Nothing when the skeleton has no such stance.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn arm(
     commands: &mut Commands,
@@ -559,19 +583,29 @@ pub(crate) fn arm(
     player: &mut nvf_assets::anim_play::BlendPlayer,
     stats: &mut ActorStats,
 ) -> Option<WeaponHold> {
-    if world.weapon_mode == WeaponMode::None {
-        return None;
-    }
-    let w = a.weapon.and_then(|id| world.actors.weapons.get(&id))?;
-    let prefix = w.anim_type.as_deref().and_then(AnimType::from_name)?.prefix();
-    let model = w.model.as_deref()?;
-    let key = (fnv_vfs::normalize(&a.skeleton), prefix.to_string());
-    let stance = world
+    let held = if world.weapon_mode == WeaponMode::None { None } else { arm_weapon(commands, spawned, skel, a, reference, world, ctx, player, stats) };
+    held.or_else(|| {
+        let stance = stance_for(world, ctx, &a.skeleton, skel, AnimType::HandToHand.prefix())?;
+        let skel_parent = skel.parents[stance.weapon_node].unwrap_or(0);
+        let mut hold = WeaponHold::new(stance, world.weapon_mode == WeaponMode::Drawn, skel_parent);
+        if let Some(period) = world.weapon_test {
+            hold.test = Some((period, clip_phase(reference) * 2.0 * period));
+        }
+        hold.layers(player);
+        stats.fists += 1;
+        Some(hold)
+    })
+}
+
+/// The stance `prefix` bound to the skeleton at `skeleton`, loaded once.
+fn stance_for(world: &ActorWorld, ctx: &mut ActorCtx, skeleton: &str, skel: &nvf_assets::actor::PreparedSkeleton, prefix: &str) -> Option<Arc<Stance>> {
+    let key = (fnv_vfs::normalize(skeleton), prefix.to_string());
+    world
         .stances
         .lock()
         .expect("stances")
         .entry(key)
-        .or_insert_with(|| match Stance::load(ctx, &a.skeleton, skel, prefix) {
+        .or_insert_with(|| match Stance::load(ctx, skeleton, skel, prefix) {
             Ok((s, line)) => {
                 info!("actor weapons: {line}");
                 Some(Arc::new(s))
@@ -581,7 +615,26 @@ pub(crate) fn arm(
                 None
             }
         })
-        .clone();
+        .clone()
+}
+
+/// [`arm`] with the actor's weapon model, or nothing when it has none to draw.
+#[allow(clippy::too_many_arguments)]
+fn arm_weapon(
+    commands: &mut Commands,
+    spawned: &nvf_assets::actor::SpawnedActor,
+    skel: &nvf_assets::actor::PreparedSkeleton,
+    a: &Appearance,
+    reference: u32,
+    world: &ActorWorld,
+    ctx: &mut ActorCtx,
+    player: &mut nvf_assets::anim_play::BlendPlayer,
+    stats: &mut ActorStats,
+) -> Option<WeaponHold> {
+    let w = a.weapon.and_then(|id| world.actors.weapons.get(&id))?;
+    let prefix = w.anim_type.as_deref().and_then(AnimType::from_name)?.prefix();
+    let model = w.model.as_deref()?;
+    let stance = stance_for(world, ctx, &a.skeleton, skel, prefix);
     let (Some(stance), Some(part)) = (stance, ctx.part(&fnv_actor::resolve::mesh_path(model))) else {
         stats.weapon_missing += 1;
         return None;

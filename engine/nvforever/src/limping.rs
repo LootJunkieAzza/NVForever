@@ -15,6 +15,12 @@
 //!   FalloutNV.esm BPTD]; forelegs name the attack conditions and do not make a creature
 //!   limp. One crippled leg is enough [design: the owner's words; hypothesis for the
 //!   original].
+//! - **In a fight**: a creature with an alert stance limps on its alert set with the
+//!   `mt` and then the `h2h` limping clips over it (the dog's `h2hfastforward_hurt.kf`,
+//!   the cazador's `h2hforward.kf`; `Locomotion::hurt_alert`) [design].
+//! - **Arms, head, torso**: no archive has limping or other crippled clips for them
+//!   (actors.md §8.12) [observed]; a crippled arm widens an NPC's aim as the player's
+//!   (`npc_combat.rs`, `fnv_combat::spread`).
 //! - **How fast**: unchanged; the playback follows the ground speed as for any clip
 //!   (`fnv_actor::locomotion::choose`).
 //!
@@ -24,6 +30,7 @@
 use crate::limbs::ActorRig;
 use crate::locomotion::Locomotion;
 use bevy::prelude::*;
+use std::sync::Arc;
 use fnv_sim::FormId;
 use nvf_play::script::{with_world, ScriptState};
 use nvf_play::sim::SimState;
@@ -54,6 +61,8 @@ struct LimpStats {
     started: usize,
     stopped: usize,
     no_clips: std::collections::BTreeSet<u32>,
+    /// (actor, move, alerted) whose limping clip was seen playing, logged once each.
+    played: std::collections::BTreeSet<(u32, &'static str, bool)>,
 }
 
 fn limp(time: Res<Time>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>, mut actors: Query<(&ActorRig, &mut Locomotion)>, mut stats: ResMut<LimpStats>) {
@@ -70,6 +79,14 @@ fn limp(time: Res<Time>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut
             let id = FormId(rig.reference);
             let want = LEGS.iter().any(|&c| game.is_crippled(id, c));
             if want == lo.limping {
+                // Which limping clip a limping actor moves on, once per move.
+                let mv = lo.blend.cur.mv;
+                let Some(clip) = lo.limping.then(|| lo.set.clips.get(&mv)).flatten().filter(|_| mv.is_moving()) else { continue };
+                let upright = [Some(&lo.stand), lo.alert.as_ref(), lo.sneak.as_ref()].into_iter().flatten().any(|s| s.clips.get(&mv).is_some_and(|c| Arc::ptr_eq(&c.bound, &clip.bound)));
+                if !upright && stats.played.insert((rig.reference, mv.group(), lo.alerted)) {
+                    let how = if lo.alerted { " (alerted)" } else { "" };
+                    info!("limping: {} {id} moves {} on its limping clip {}{how}", game.data.name(id), mv.group(), clip.bound.clip.name);
+                }
                 continue;
             }
             if lo.set_limping(want) {

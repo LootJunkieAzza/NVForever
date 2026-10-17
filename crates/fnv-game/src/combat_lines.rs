@@ -21,6 +21,7 @@
 //!   an NPC or creature also only when a random number is below `fCombatSpeakAttackChance`
 //!   [hypothesis fitted to the original: about 3 lines for some 175 attacks begun in its
 //!   NPC battles, observed 2026-10-17; the player keeps the timer alone, our design].
+//!   It cuts the actor's own Hit line [design].
 //! - **WeaponBroke, NoAmmo** ([`Game::combat_line`], from the engine).
 //!
 //! A response with a sound of its own (creature grunts, robot buzzes) plays that sound
@@ -153,6 +154,12 @@ impl Game<'_> {
         self.say_combat(actor, about, topic)
     }
 
+    /// Whether `actor` is saying a line of the topic with editor ID `topic`.
+    fn saying_topic(&self, actor: FormId, topic: &str) -> bool {
+        let t = self.data.by_edid(topic);
+        t.is_some() && self.speech.iter().any(|s| s.speaker == actor && Some(s.topic) == t)
+    }
+
     fn say_combat(&mut self, actor: FormId, about: Option<FormId>, topic: &'static str) -> Option<FormId> {
         let data = self.data;
         let t = data.by_edid(topic).filter(|t| data.topic_defs.contains_key(t))?;
@@ -171,7 +178,10 @@ impl Game<'_> {
         if self.combat_lines.next_attack.get(&actor).is_some_and(|&t| now < t) {
             return None;
         }
-        if self.menu.is_some() || self.dialogue.is_some() || self.is_talking(actor) || self.is_dead(actor) {
+        // The attack's effort cuts the actor's own Hit grunt: a blow taken just before the
+        // swing would silence it otherwise (combat-dialogue.md §2).
+        let cuts_hit = self.saying_topic(actor, "Hit");
+        if self.menu.is_some() || self.dialogue.is_some() || (self.is_talking(actor) && !cuts_hit) || self.is_dead(actor) {
             return None;
         }
         let t = self.combat_timing();
@@ -187,7 +197,26 @@ impl Game<'_> {
         } else {
             "Attack"
         };
-        self.say_combat(actor, target, topic).or_else(|| if topic == "Attack" { None } else { self.say_combat(actor, target, "Attack") })
+        if !cuts_hit {
+            return self.say_combat(actor, target, topic).or_else(|| if topic == "Attack" { None } else { self.say_combat(actor, target, "Attack") });
+        }
+        // Cut the Hit line only for a line that takes its place.
+        let data = self.data;
+        let listener = target.or(Some(FormId::PLAYER_REF));
+        let topics: &[&'static str] = if topic == "Attack" { &["Attack"] } else { &[topic, "Attack"] };
+        for &name in topics {
+            let Some(t) = data.by_edid(name).filter(|t| data.topic_defs.contains_key(t)) else { continue };
+            let Some(info) = self.select_line(actor, listener, t) else {
+                self.emit(crate::trace::EventKind::NoLine { speaker: actor, topic: t });
+                self.combat_lines.said.push((name, actor, None));
+                continue;
+            };
+            self.cut_line(actor);
+            self.say_line(actor, target, t, info, crate::game::LineKind::Say);
+            self.combat_lines.said.push((name, actor, Some(info)));
+            return Some(info);
+        }
+        None
     }
 
     /// The lines of a hit that took `target` from `before` to `after` health of `max`

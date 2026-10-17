@@ -65,7 +65,8 @@ AFTER_LOAD = 60
 COC_FRAMES = 3600  # capture_steps.DOOR_LOOPS
 AFTER_COC = 300  # capture_steps.AFTER_DOOR_FRAMES
 TOLERANCE = 1e-3
-STEP_KINDS = ("ask", "do", "frames", "console", "until", "moveto", "coc", "game")
+STEP_KINDS = ("ask", "do", "frames", "console", "until", "moveto", "coc", "game", "screenshot")
+HUD_FRAMES = 30  # loops between the HUD toggle and the picture (capture_frames.HUD_FRAMES)
 
 
 class ProbeError(Exception):
@@ -316,6 +317,14 @@ def build_batch(batch, forms, masters, fnames=None):
             if on_ours:
                 ours.append({"op": "go_to_cell", "cell": cell})
                 ours.append({"op": "wait_frames", "frames": step.get("settle", AFTER_COC)})
+        elif kind == "screenshot":
+            # A picture of the game window (plugin version 7), the HUD hidden meanwhile;
+            # the game only (our side takes its own with --screenshot runs).
+            lab = step["screenshot"]
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", lab):
+                raise ProbeError(f"{where}: a screenshot label is letters, digits, _ and -")
+            if on_game:
+                gsteps += [{"console": "tm"}, {"frames": HUD_FRAMES}, {"screenshot": lab}, {"console": "tm"}, {"frames": HUD_FRAMES}]
         if row is not None:
             plan.append(row)
     job = {"format": cs.STEPS_FORMAT, "name": name, "title": batch.get("title", name),

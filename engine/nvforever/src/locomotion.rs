@@ -8,7 +8,7 @@
 //! (actors.md §8.9), which plays its turn clip; `--actor-turn-test` ([`TurnTest`]) tries it.
 
 use bevy::prelude::*;
-use fnv_actor::locomotion::{choose, direction, hurt_move, wrap01, Blend, Body, Choice, ClipInfo, LocomotionSet, Move, Slot, HURT_FOLDER, RATE_MAX, RATE_MIN};
+use fnv_actor::locomotion::{choose, direction, hurt_move_in, wrap01, Blend, Body, Choice, ClipInfo, LocomotionSet, Move, Slot, HURT_FOLDER, RATE_MAX, RATE_MIN};
 use fnv_nav::follow::{heading_delta, SPOT_TURN_RATE, SPOT_TURN_START};
 use nvf_assets::actor::{bind_clip, clip_binding, ActorCtx, PreparedSkeleton};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
@@ -156,30 +156,39 @@ impl ClipSet {
     }
 
     /// The limping set of a skeleton (a leg crippled): `base` with each move that the
-    /// skeleton's `locomotion\hurt\` folder has a clip for replaced by that clip
-    /// (`fnv_actor::locomotion::hurt_move`), the others kept; `None` when the folder has
-    /// none. Also returns a report line.
-    pub fn load_hurt(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, base: &ClipSet) -> Option<(ClipSet, String)> {
+    /// skeleton's `locomotion\hurt\` folder has a clip for, in one of `stances`, replaced
+    /// by that clip (`fnv_actor::locomotion::hurt_move_in`), the others kept; a later
+    /// stance's clip wins over an earlier one's. `None` when the folder has none. Also
+    /// returns a report line. The calm set takes `["mt"]`; a creature's alert set
+    /// (`h2h` moves over the calm ones, [`ClipSet::alert_from`]) takes `["mt", "h2h"]`,
+    /// so that a dog in a fight limps on its `h2hfastforward_hurt.kf` [design].
+    pub fn load_hurt(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, base: &ClipSet, stances: &[&str]) -> Option<(ClipSet, String)> {
         let s = fnv_vfs::normalize(skeleton);
         let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();
         let dir = format!("{folder}\\{HURT_FOLDER}\\");
         let files = ctx.models.data.vfs.paths(|p| p.strip_prefix(&dir).is_some_and(|f| f.ends_with(".kf") && !f.contains('\\')));
         let mut set = base.clone();
-        let mut found = Vec::new();
-        for path in files {
-            let stem = path[dir.len()..path.len() - 3].to_string();
-            let Some(clip) = ctx.clip(&path) else { continue };
-            // The first file (in name order) of a move wins.
-            let Some(m) = hurt_move(&stem, Some(&clip.name)).filter(|m| !found.iter().any(|(f, _)| f == m)) else { continue };
-            let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
-            found.push((m, format!("{} {stem} {:.1}u/s", m.group(), info.speed)));
-            set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info });
+        let mut found: Vec<(Move, String)> = Vec::new();
+        for stance in stances {
+            let mut mine: Vec<Move> = Vec::new();
+            for path in &files {
+                let stem = path[dir.len()..path.len() - 3].to_string();
+                let Some(clip) = ctx.clip(path) else { continue };
+                // The first file (in name order) of a move wins within a stance.
+                let Some(m) = hurt_move_in(&stem, Some(&clip.name), stance).filter(|m| !mine.contains(m)) else { continue };
+                mine.push(m);
+                let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
+                found.retain(|(f, _)| *f != m);
+                found.push((m, format!("{} {stem} {:.1}u/s", m.group(), info.speed)));
+                set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info });
+            }
         }
         if found.is_empty() {
             return None;
         }
         let moves: Vec<String> = found.into_iter().map(|(_, l)| l).collect();
-        let line = format!("{folder} limping: {} of {} moves from hurt\\: {}", moves.len(), set.clips.len(), moves.join("; "));
+        let what = if stances.len() > 1 { format!("limping ({})", stances.join("+")) } else { "limping".to_string() };
+        let line = format!("{folder} {what}: {} of {} moves from hurt\\: {}", moves.len(), set.clips.len(), moves.join("; "));
         Some((set, line))
     }
 }
@@ -205,6 +214,9 @@ pub struct Locomotion {
     pub stand: Arc<ClipSet>,
     pub sneak: Option<Arc<ClipSet>>,
     pub hurt: Option<Arc<ClipSet>>,
+    /// The limping set while alerted (creatures with an alert stance: the alert set with
+    /// the `mt` and `h2h` limping clips over it, `ClipSet::load_hurt`); `None`: `hurt`.
+    pub hurt_alert: Option<Arc<ClipSet>>,
     pub sneaking: bool,
     pub limping: bool,
     /// The alert stance's set (creatures whose folder has `h2h` movement clips: the
@@ -224,7 +236,7 @@ pub struct Locomotion {
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, sneaking: false, limping: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0 }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0 }
     }
 
     /// The upright set: the alert stance's while alerted, else the standing one.
@@ -236,10 +248,12 @@ impl Locomotion {
     }
 
     /// The set for the actor's posture: sneaking wins over limping (there are no
-    /// crouched limping clips [observed]), limping over the alert stance [design], and
-    /// either falls back to the upright set.
+    /// crouched limping clips [observed]); limping while alerted takes the alert limping
+    /// set where there is one, else the calm limping set wins over the alert stance
+    /// [design]; either falls back to the upright set.
     fn posture_set(&self) -> Arc<ClipSet> {
-        let pick = if self.sneaking { self.sneak.as_ref() } else if self.limping { self.hurt.as_ref() } else { None };
+        let limp = if self.alerted { self.hurt_alert.as_ref().or(self.hurt.as_ref()) } else { self.hurt.as_ref() };
+        let pick = if self.sneaking { self.sneak.as_ref() } else if self.limping { limp } else { None };
         pick.cloned().unwrap_or_else(|| self.upright())
     }
 

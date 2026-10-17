@@ -75,6 +75,15 @@ class GameScripts(unittest.TestCase):
         self.assertEqual(actions["actions"][0], {"op": "go_to_cell", "cell": "GSGasStation"})
         self.assertEqual(actions["actions"][2], {"op": "call", "line": "player.MoveTo 0x00104E85"})
 
+    def test_a_screenshot_hides_the_hud_in_game_only(self):
+        job, actions, _ = fp.build_batch(batch([{"screenshot": "ringo-up"}]), FORMS, cs.MASTERS, FNAMES)
+        steps = job["steps"][len(cs.MASTERS):]
+        self.assertEqual([next(iter(s)) for s in steps], ["console", "frames", "screenshot", "console", "frames"])
+        self.assertEqual(steps[2]["screenshot"], "ringo-up")
+        self.assertEqual(actions["actions"], [])
+        with self.assertRaises(fp.ProbeError):
+            fp.build_batch(batch([{"screenshot": "two words"}]), FORMS, cs.MASTERS, FNAMES)
+
     def test_sides_and_per_side_queries(self):
         job, actions, plan = fp.build_batch(batch([
             {"ask": "@sunny.GetDisposition player", "side": "game"},
