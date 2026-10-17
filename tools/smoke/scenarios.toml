@@ -3454,6 +3454,7 @@ expect = [
   { text = "ui sounds: creator accepted: UIMenuOK", label = "Done" },
   { text = "creator: camera (test aid NVF_PLAY_TEST_CREATOR): turned", count = 4, label = "orbit, zoom, pan, zoom (owner 2026-10-17)" },
   { text = "creator view: lights on", count = 1, label = "the creator's lights (owner 2026-10-17)" },
+  { re = "player body: rebuilt; it goes on with the old body's [1-9][0-9]* clips and pose", min = 3, label = "no T-pose between bodies: each new look's body takes over the playing clips (owner 2026-10-17)" },
   { text = "creator view: lights off", count = 1, label = "and gone again after Done" },
   { re = 'creator: camera \(test aid NVF_PLAY_TEST_CREATOR\): turned 69°, tilted (?P<n>\d+)°', range = [16, 19], label = "turned 60° and tilted 15° on the face framing" },
   { re = 'creator: camera .*, 61 units away, looking (?P<n>\d+) under the eye', range = [5, 15], label = "zoomed in on the whole body: aimed near the face, not the pelvis" },

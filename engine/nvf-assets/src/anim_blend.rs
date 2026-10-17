@@ -155,6 +155,28 @@ impl Animator {
         }
     }
 
+    /// Go on from where `old` is, for a model rebuilt in its place (another outfit, a new
+    /// look): its clips with their times, weights and fades, its phase, and its last pose
+    /// on the nodes of the same name. Without this the new model's clips fade in from
+    /// nothing and the bind pose (a T-pose) shows for their first fifth of a second
+    /// [owner 2026-10-17]. The clips are bound to this animator's nodes by name, so a
+    /// different skeleton takes what it shares.
+    pub fn continue_from(&mut self, old: &Animator) {
+        self.phase = old.phase;
+        self.layers = old.layers.clone();
+        for i in 0..self.layers.len() {
+            let bound = self.bind(&self.layers[i].clip);
+            self.layers[i].bound = bound;
+        }
+        for (name, &i) in &self.skel.by_name {
+            if let (Some(&j), Some(l)) = (old.skel.by_name.get(name), self.locals.get_mut(i)) {
+                if let Some(&t) = old.locals.get(j) {
+                    *l = t;
+                }
+            }
+        }
+    }
+
     /// The node a track named `name` drives: a skeleton node (not the root), else an
     /// extra node, numbered after the skeleton's.
     fn target(&self, name: &str) -> Option<usize> {
@@ -504,6 +526,36 @@ mod tests {
         a.layers.clear();
         a.pose();
         assert_eq!(a.locals[2].translation, Vec3::new(1.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn a_rebuilt_model_goes_on_in_the_old_ones_pose() {
+        let idle = clip(&[("A", [10.0, 0.0, 0.0], 10), ("B", [0.0, 10.0, 0.0], 10)], 2.0);
+        let mut old = animator();
+        old.begin();
+        old.want(&idle, 0, 1.0, Mode::Loop, DEFAULT_FADE);
+        old.end();
+        for _ in 0..10 {
+            old.advance(0.05, 1.0);
+        }
+        old.pose();
+        // A fresh animator asking for the same clip starts faded out: the bind pose shows.
+        let mut fresh = animator();
+        fresh.begin();
+        fresh.want(&idle, 0, 1.0, Mode::Loop, DEFAULT_FADE);
+        fresh.end();
+        fresh.pose();
+        assert_eq!(fresh.locals[2].translation, Vec3::new(1.0, 0.0, 0.0), "the bind pose (the T-pose)");
+        // Going on from the old one: the same pose on its first frame, the clip at its time.
+        let mut new = animator();
+        new.continue_from(&old);
+        assert_eq!(new.locals[2], old.locals[2]);
+        new.begin();
+        new.want(&idle, 0, 1.0, Mode::Loop, DEFAULT_FADE);
+        new.end();
+        new.pose();
+        assert_eq!(new.locals[2].translation, Vec3::new(10.0, 0.0, 0.0));
+        assert_eq!(new.layers[0].time, old.layers[0].time);
     }
 
     #[test]
