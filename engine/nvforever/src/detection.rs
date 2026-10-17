@@ -20,8 +20,11 @@
 //!   gas station, a Frenzied Chet outdoors never fought Ringo in 155 s, same capture
 //!   det3].
 //! - **Line of sight**: a ray through the collision world from the detector's eyes to the
-//!   target's chest; the world's solid shapes block it, actors do not [engineering
-//!   choice]. Collision exists only around the player (3 × 3 cells): where either end is
+//!   target's chest, and when that is blocked a second to its eyes (a head over a low
+//!   wall is seen); the world's solid shapes block them, actors do not [engineering
+//!   choice; the second ray: hypothesis, fitted to capture detection-2 det4, where Ringo
+//!   behind the gas station's checkout counter read GetLineOfSight 1 both ways while our
+//!   ray to the chest from the player's eyes hit the counter]. Collision exists only around the player (3 × 3 cells): where either end is
 //!   out of it, only the landscape blocks sight (`fnv_game::sight::over_land`, the
 //!   heights read from the cells' LAND records) [engineering choice].
 //! - **Field of view**: 95° either side of where the body faces, for every actor and for
@@ -540,7 +543,7 @@ fn measure(
             let sit = Situation {
                 distance: dist as f64,
                 exterior,
-                line_of_sight: sight(phys.as_deref_mut(), land, world, exterior, d.view, target),
+                line_of_sight: sight(phys.as_deref_mut(), land, world, exterior, d.view, target) || sight(phys.as_deref_mut(), land, world, exterior, d.view, t.eyes),
                 in_view: in_view(d.view, d.forward, target),
                 light: light[j],
                 moving: t.moving,
@@ -550,7 +553,9 @@ fn measure(
                 detector_alert: alert,
                 detector_asleep: !by_player && g.asleep(FormId(d.id)),
                 detector_busy: fighting.is_some_and(|f| f != FormId(t.id)),
-                camera_sight: d.camera.map(|(at, ahead)| in_view(at, ahead, target) && sight(phys.as_deref_mut(), land, world, exterior, at, target)),
+                camera_sight: d.camera.map(|(at, ahead)| {
+                    in_view(at, ahead, target) && (sight(phys.as_deref_mut(), land, world, exterior, at, target) || sight(phys.as_deref_mut(), land, world, exterior, at, t.eyes))
+                }),
             };
             let (det, before) = g.detect(&settings, FormId(d.id), FormId(t.id), &sit);
             // The player's own detection feeds the script functions only.

@@ -44,7 +44,7 @@ Each is also listed in the module notes of `detection.rs`.
 |---|---|---|
 | Distance | feet to feet | — |
 | Reach | fSneakMaxDistance, × fSneakExteriorDistanceMult outside | [documented] |
-| Line of sight | a ray through the collision world from the detector's eyes (the player's: the camera) to the target's chest (¾ of its eye height); world shapes block it; actors and their capsules do not (the ray goes on past them), nor do the transparent layers, invisible walls, clutter, small debris and shell casings (docs/design/alert.md §7). Where either end is out of the loaded collision (3 × 3 cells around the player), only the landscape blocks it (§7) | [engineering choice]; the layers: [hypothesis] |
+| Line of sight | a ray through the collision world from the detector's eyes to the target's chest (¾ of its eye height), and when that is blocked one to its eyes (§7); for the player's GetLineOfSight from the camera; world shapes block it; actors and their capsules do not (the ray goes on past them), nor do the transparent layers, invisible walls, clutter, small debris and shell casings (docs/design/alert.md §7). Where either end is out of the loaded collision (3 × 3 cells around the player), only the landscape blocks it (§7) | [engineering choice]; the layers: [hypothesis] |
 | Field of view | 95° either side of where the actor's body faces, horizontally; for the player, of where the camera looks | [documented: GECK wiki GetLineOfSight]; using it for detection: [hypothesis] |
 | Light at the target, 0–100 | 100 × (luminance of the ambient colour + the sunlight's × daylight outdoors, or the cell's directional light indoors + each point or spot light that reaches the target × (1 − (d/r)²)), capped at 100. No shade from the sun | [hypothesis] |
 | Moving, running | from the distance moved since the last measurement: moving above 10 units/s; actors run above 215 units/s; the player runs when moving without holding Walk, sneaking or not | [engineering choice]; sneak-running counts as running: [hypothesis] |
@@ -172,11 +172,14 @@ What it approximates:
 
 **Walls and obstacles** [observed: capture detection-2, 2026-10-17; ours the same on each
 spot, checked first in NVForever]: Ringo 200 units away in clear sight 1, behind the gas
-station's checkout counter (a low obstacle; our one ray to the chest passes over it) 1,
+station's checkout counter (a low obstacle) 1,
 behind the grocery shelves 0, both ways (the player's and Ringo's GetLineOfSight and
 GetDetected); Doc Mitchell through a doorway of his house 1. Two cases of the capture
 did not place Doc where meant (a solid wall, a doorway edge: he ended in another room)
-and show nothing; no glass or chain-link spot was tried.
+and show nothing; no glass or chain-link spot was tried. Looking from the player's
+eyes, our one ray to Ringo's chest hit the counter (0), so a blocked ray to the chest is
+followed by one to the target's eyes: a head over a low wall is seen [hypothesis, fitted
+to this case; every detector, NPCs too].
 
 Checks: `fnv_game::sight` tests (field of view, pairs far from the player, a ridge
 between two actors), `crates/fnv-game/tests/functions.rs`
