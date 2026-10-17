@@ -148,15 +148,17 @@ impl ActorWorld {
     }
 
     /// The limping set (`locomotion::ClipSet::load_hurt`) built on `base`, the standing
-    /// set of the skeleton and body (loaded once).
-    fn clip_set_hurt(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, base: &ClipSet) -> Option<Arc<ClipSet>> {
-        let key = (fnv_vfs::normalize(skeleton), body, "hurt");
+    /// set of the skeleton and body, or with `alert` on a creature's alert set with the
+    /// alert stance's limping clips too (loaded once each).
+    fn clip_set_hurt(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, base: &ClipSet, alert: bool) -> Option<Arc<ClipSet>> {
+        let key = (fnv_vfs::normalize(skeleton), body, if alert { "hurt-alert" } else { "hurt" });
+        let stances: &[&str] = if alert { &[crate::locomotion::STANCE, crate::locomotion::ALERT_STANCE] } else { &[crate::locomotion::STANCE] };
         self.sets
             .lock()
             .expect("clip sets")
             .entry(key)
             .or_insert_with(|| {
-                let (set, line) = ClipSet::load_hurt(ctx, skeleton, skel, base)?;
+                let (set, line) = ClipSet::load_hurt(ctx, skeleton, skel, base, stances)?;
                 info!("actor locomotion: {line}");
                 Some(Arc::new(set))
             })
@@ -429,7 +431,7 @@ pub fn spawn(
                 // People crouch to sneak (`sneaking.rs`).
                 lo.sneak = world.clip_set_stance(ctx, &a.skeleton, &skel, body, crate::locomotion::SNEAK_STANCE);
                 // A crippled leg limps (`limping.rs`).
-                lo.hurt = world.clip_set_hurt(ctx, &a.skeleton, &skel, body, &set);
+                lo.hurt = world.clip_set_hurt(ctx, &a.skeleton, &skel, body, &set, false);
                 let walk = world.walk_test.filter(|w| w.radius <= 0.0 || at.distance(w.center) <= w.radius);
                 let mut player = blend_player(&spawned, &skel);
                 if let Some(w) = walk {
@@ -525,9 +527,13 @@ pub fn spawn_creature(
         match world.clip_set(ctx, &c.skeleton, &skel, Body::Male) {
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
-                lo.hurt = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set);
-                // Some creatures move otherwise when alert (`creature_pace.rs`).
+                lo.hurt = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set, false);
+                // Some creatures move otherwise when alert (`creature_pace.rs`), and limp
+                // otherwise when alert too (`limping.rs`).
                 lo.alert = world.alert_set(ctx, &c.skeleton, &skel, &set);
+                if let Some(alert) = lo.alert.clone() {
+                    lo.hurt_alert = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &alert, true);
+                }
                 if let Some(t) = world.pose_time {
                     let len = set.info(Move::Idle).map_or(1.0, |c| c.duration).max(f32::EPSILON);
                     lo.blend = Blend::new(Move::Idle, t / len);

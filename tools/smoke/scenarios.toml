@@ -3243,15 +3243,62 @@ expect = [
 [[scenario]]
 name = "crippled-limp-creature"
 source = "owner 2026-10-16: a creature with a crippled leg limps where its skeleton has limping clips (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11)"
-note = "VERGSCoyote6REF 0x00157B38 (dog skeleton: locomotion/hurt/ has the walk and run forward) at the coyote-warning spot; god mode as the coyote is Aggressive"
+note = "VERGSCoyote6REF 0x00157B38 (dog skeleton: locomotion/hurt/ has the walk and run forward) at the coyote-warning spot; god mode as the coyote is Aggressive; it attacks after its two warnings (about 13 s in), alerted, so the run goes on to 24 s to see it run on its limping clips"
 areas = ["actors", "combat"]
-paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/actors.rs"]
+paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-actor/src/locomotion.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:VERGSCoyote6REF.DamageAV RightMobilityCondition 1000;8.5:close" }
 args = ["--play", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 16
+run_seconds = 24
 expect = [
   { re = 'actor locomotion: meshes.creatures.dog limping: 2 of \d+ moves from hurt', label = "the dog skeleton's limping set loads" },
   { re = 'limping: VERGSCoyote6REF 0x00157B38 limps on a crippled leg', label = "the coyote limps" },
+  { re = 'actor locomotion: meshes.creatures.dog limping \(mt\+h2h\): 2 of \d+ moves from hurt.*FastForward h2hfastforward_hurt', label = "... and its fighting set, the h2h limping run over the mt one" },
+  { re = 'limping: VERGSCoyote6REF 0x00157B38 moves \w+ on its limping clip \w+', label = "the coyote moves on a limping clip" },
+]
+
+[[scenario]]
+name = "crippled-limp-deathclaw"
+source = "owner 2026-10-17: every actor with limping clips limps on a crippled leg (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11, §8.12)"
+note = "the creature-alert-stance setup: the deathclaw QJDeathclawWanderer01 0x000E62E5 at Quarry Junction fights the feral ghoul 0x000CE9E7 put 500 units north of the player at 2 s; its Left Mobility Condition is damaged at 8 s, so it limps while it fights (alerted)"
+areas = ["actors", "combat", "creatures"]
+paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/actors.rs", "crates/fnv-actor/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT = "2:moveto:0x000CE9E7:player:0:500:0,8:damage:0x000E62E5:LeftMobilityCondition:1000" }
+args = ["--pos=-14138,25200,4700", "--heading", "0", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'actor locomotion: meshes.creatures.deathclaw limping: 7 of \d+ moves from hurt', label = "the deathclaw's limping set loads (walk and run forward, back, sideways, turns)" },
+  { re = 'limping: \S+ 0x000E62E5 limps on a crippled leg', label = "the deathclaw limps" },
+  { re = 'limping: \S+ 0x000E62E5 moves \w+ on its limping clip \w+', label = "the deathclaw moves on a limping clip" },
+]
+
+[[scenario]]
+name = "crippled-limp-supermutant"
+source = "owner 2026-10-17: every actor with limping clips limps on a crippled leg; super mutants (creatures on the smspinebreaker skeleton) included (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11, §8.12)"
+note = "the Jacobstown super mutant 0x0014B0E3 (JacobstownMutant1): its Right Mobility Condition is damaged at 8 s, then it fights the player (god mode) from 9 s, so it walks or runs at them"
+areas = ["actors", "combat", "creatures"]
+paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/actors.rs", "crates/fnv-actor/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "8:damage:0x0014B0E3:RightMobilityCondition:1000,9:combat:0x0014B0E3:player" }
+args = ["--play", "--pos=-108200,96700,12100", "--heading", "330", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'actor locomotion: meshes.creatures.smspinebreaker limping: 9 of \d+ moves from hurt', label = "the super mutants' limping set loads (idle, walk and run forward and back, sideways, turns)" },
+  { re = 'limping: \S+ 0x0014B0E3 limps on a crippled leg', label = "the super mutant limps" },
+  { re = 'limping: \S+ 0x0014B0E3 moves \w+ on its limping clip \w+', label = "the super mutant moves on a limping clip" },
+]
+
+[[scenario]]
+name = "crippled-limp-gecko"
+source = "owner 2026-10-17: every actor with limping clips limps on a crippled leg; a gecko's hind legs are its mobility limbs (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11, §8.12)"
+note = "VERGSGecko2REF 0x00157B3D (Very Aggressive) at the wait-enemies-near spot goes for the player (god mode); its Left Mobility Condition (left hind leg) is damaged at 8 s"
+areas = ["actors", "combat", "creatures"]
+paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/actors.rs", "crates/fnv-actor/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "8:damage:0x00157B3D:LeftMobilityCondition:1000" }
+args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'actor locomotion: meshes.creatures.nvgecko limping: 2 of \d+ moves from hurt', label = "the gecko's limping set loads (walk and run forward)" },
+  { re = 'limping: \S+ 0x00157B3D limps on a crippled leg', label = "the gecko limps" },
+  { re = 'limping: \S+ 0x00157B3D moves \w+ on its limping clip \w+', label = "the gecko moves on a limping clip" },
 ]
 
 [[scenario]]
