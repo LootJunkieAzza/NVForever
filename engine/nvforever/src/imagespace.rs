@@ -191,6 +191,17 @@ const PIPBOY_BLUR: f32 = 3.5;
 /// front of the eye; the nearest world the player can stand against is further].
 const PIPBOY_SHARP: f32 = 40.0;
 
+/// A fade colour and amount (`ScreenEffect::fade`) with black laid over it to `f` (0 …
+/// 1): the share of the screen covered grows to `f` of what was left, and the colour
+/// darkens with it.
+fn black_over(fade: [f32; 4], f: f32) -> [f32; 4] {
+    let f = f.clamp(0.0, 1.0);
+    let a = fade[3].clamp(0.0, 1.0);
+    let covered = a + (1.0 - a) * f;
+    let keep = if covered > 0.0 { a * (1.0 - f) / covered } else { 0.0 };
+    [fade[0] * keep, fade[1] * keep, fade[2] * keep, covered]
+}
+
 /// Copy the sky's grade, with the modifiers on the screen, onto every graded camera.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn update_grade(
@@ -216,13 +227,14 @@ fn update_grade(
     if new_game.is_some() && script.as_deref().is_some_and(|s| s.rt.is_none() && s.off.is_none()) {
         effect.fade = [1.0; 4];
     }
-    // Sleeping fades the world to black under the menu (`nvf_play::wait`): black over
-    // whatever fade is on the screen already.
+    // Sleeping fades the world to black under the menu (`nvf_play::wait`), and the dead
+    // player's screen goes black (`death_cam.rs`): black over whatever fade is on the
+    // screen already.
     if let Some(f) = sleep.map(|s| s.0).filter(|f| *f > 0.0) {
-        let a = effect.fade[3].clamp(0.0, 1.0);
-        let covered = a + (1.0 - a) * f;
-        let keep = if covered > 0.0 { a * (1.0 - f) / covered } else { 0.0 };
-        effect.fade = [effect.fade[0] * keep, effect.fade[1] * keep, effect.fade[2] * keep, covered];
+        effect.fade = black_over(effect.fade, f);
+    }
+    if let Some(f) = death.as_deref().map(|d| d.black()).filter(|f| *f > 0.0) {
+        effect.fade = black_over(effect.fade, f);
     }
     if forms != mods.shown {
         if let Some(w) = &world {
@@ -360,5 +372,22 @@ pub(crate) fn blur_pass(
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, &bind_group, &[index.index()]);
         pass.draw(0..3, 0..1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::black_over;
+
+    #[test]
+    fn black_lays_over_a_fade() {
+        // Nothing on the screen: black to the amount asked.
+        assert_eq!(black_over([0.0; 4], 0.0), [0.0; 4]);
+        assert_eq!(black_over([0.0; 4], 0.25), [0.0, 0.0, 0.0, 0.25]);
+        // Fully black whatever was there.
+        assert_eq!(black_over([1.0, 1.0, 1.0, 0.5], 1.0), [0.0, 0.0, 0.0, 1.0]);
+        // Half black over a half white fade: three quarters covered, a third of it white.
+        let [r, _, _, a] = black_over([1.0, 1.0, 1.0, 0.5], 0.5);
+        assert!((a - 0.75).abs() < 1e-6 && (r - 1.0 / 3.0).abs() < 1e-6, "{r} {a}");
     }
 }
