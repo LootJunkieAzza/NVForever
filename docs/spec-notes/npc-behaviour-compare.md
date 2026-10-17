@@ -96,6 +96,26 @@ swing and 92 closest [hypothesis: the rule is fitted to the knife and machete ro
 creatures' rows are larger than their reach (a dog's 58) gives, follow-up §8]. Results
 after the fix: §7.
 
+**Creatures (`npc_combat::creature_spacing`, follow-up §8.2)**: the creatures' rows set
+against their records (`fnvtool esm decode`, the template's Attack Reach RNAM and Base
+Scale BNAM as our engine reads them) [observed]:
+
+| Creature | RNAM × scale | Original: swing starts, median | RNAM × scale + 59 × scale |
+|---|---|---|---|
+| Violet's dogs (CrNVDogFiend, template CrDogVicious) | 48 × 1.2 = 58 | 133 | 128 |
+| Violetta (scale 1.0 on her record, 1.2 on the template) | 48–58 | 122 | 107–128 |
+| Coyote (VCrTier1CoyoteMed, CrCoyote) | 48 × 1.0 = 48 | 109 | 107 |
+| Giant mantis (VCrTier2GiantMantisMed) | 100 × 1.0 = 100 | 163 | 159 |
+| Giant rat (VCrTier1GiantRatMed, 2 swings) | 25 × 1.1 = 28 | 84 | 92 |
+
+A creature's blows reach a near-constant 55–75 units beyond its RNAM, more for the larger
+dog: (RNAM + 59) × scale fits the four kinds within 10 units [hypothesis: the 59 stands
+for the creature's body ahead of its centre and the target's; the records cannot say,
+the dogs' and coyotes' Object Bounds being 0, so a creature far longer or shorter than
+these (a deathclaw, a radroach) is not covered by the rows]. Ours now keeps that distance
+centre to centre: it stops at 0.9 of it and bites within it, never nearer than the two
+bodies' gaps.
+
 ## 4. Encounters
 
 | | Original | Ours |
@@ -228,21 +248,23 @@ The same scenes in our engine with this branch's two changes:
 |---|---|---|---|
 | NCR–Fiend battle: combat lines | 47 (26 Hit, 15 Attack) in 32 s | 11 (2 Hit, 2 Attack, 4 Death, 3 DeathResponse) in 46 s | 6–7 in 120 s |
 | Melee blows in that battle: start, median (range) | 36 (34–86), closest 33 | 84 (64–90), closest 64 | weapons 95–96, closest 91–92 |
-| Violet's dogs on the player: start, median | 14, closest 0 | 54 (52–63), closest 52 | 133 (95), closest 87 |
+| Violet's dogs on the player: start, median | 14, closest 0 | 54 (52–63), closest 52; with the creature rule 121 (104–128), closest 104 | 133 (95), closest 87 |
 | Trooper with a knife or machete scenes: blows, median | 24–25, closest 0 | 55–56, closest 16–44 (most blows there are the dogs') | 95–96 |
 
 Combat lines are now within the original's order of magnitude (about 1.3 per
 fighter-minute against 0.3–0.6) and melee people stand where the original's do; creatures
-still close in nearer than the original's (follow-up §8.2). Detection barks were
+closed in nearer than the original's until the creature rule of §3 (follow-up §8.2,
+`combat-dogs` smoke, 2026-10-17). Detection barks were
 unchanged (6 in the battle).
 
 ## 8. Mismatches and follow-ups
 
 1. **Combat lines** (fixed here, §2). Check the fixed rate against the original's 0.3–0.6
    per fighter-minute in a long fight; Detection barks (7 in our battle) were not looked at.
-2. **Melee spacing** (fixed here for weapons, §3). Creatures: the original's dogs, coyotes
-   and mantises swing from 109–163 units, more than their reach plus bodies gives in our
-   rule; fit a creature rule from these rows (and from the creature's model size).
+2. **Melee spacing** (fixed here for weapons, §3; creatures: done, §3, the rule
+   (RNAM + 59) × scale fitted to dogs, coyotes, mantises and a rat). Open: creatures far
+   longer or shorter than these (deathclaws, radroaches, cazadors) were only seen holding
+   off a god-mode player; check them against NPCs.
 3. **Fight length**: our NCR–Fiend battle ends in 32 s, the original's runs past 120 s.
    Look at hit chance and damage per shot at range (the original's 217 hits over about
    240 s of two runs against our 110 in 32 s).
@@ -257,7 +279,8 @@ unchanged (6 in the battle).
    `combat-lines` (the dogs' first bites now land before the player's power attack, which
    falls inside the player's own Hit line; fixed 2026-10-17: an attack's line now cuts
    the attacker's own Hit line, combat-dialogue.md §2, and the mark is gone) and
-   `combat-cover` (no cover in 2 of 3 runs, 2 covers in the third).
+   `combat-cover` (no cover in 2 of 3 runs, 2 covers in the third; with the creature
+   rule of §3 the same, cover in 1 of 3 runs: the mark stays).
 9. **A walk up to a partner that ends at once** (§5; fixed, branch
    `claude/chat-walk-up`): in Westside 7 of our 10 old-rule conversations started where
    the starter stood, 218–907 units from its partner (the original's median is 120, but

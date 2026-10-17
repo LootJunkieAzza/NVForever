@@ -58,7 +58,9 @@
 //!   gap is within [`MELEE_HIT_GAP`] or the target within its reach and it sees the
 //!   target, a blow every [`STRIKE_SECONDS`] (divided by the weapon's attack speed)
 //!   [design; owner 2026-10-11: a dog gets into range and bites, it does not push the
-//!   player around]. Without bodies to measure, its reach from its feet counts.
+//!   player around]. Without bodies to measure, its reach from its feet counts. A
+//!   creature keeps its own reach and body from its target's centre instead
+//!   ([`creature_spacing`], [`CREATURE_BODY_REACH`]).
 //! - **Creatures' power attacks** (a radscorpion's sting): a creature's blow is a power
 //!   attack by its combat style's Power Attack % Chance [documented: GECK wiki Combat
 //!   Style], or [`FALLBACK_POWER_CHANCE`] where the style gives none [design: owner
@@ -188,6 +190,18 @@ pub const MELEE_HIT_GAP: f32 = 24.0;
 pub const MELEE_SPACING_SHARE: f32 = 0.9;
 /// A creature without a reach of its own reaches this far, game units [design].
 pub const CREATURE_REACH: f32 = 96.0;
+/// A creature's blows reach this much beyond its own Attack Reach (CREA RNAM), before
+/// its scale, centre to centre: its spacing is (RNAM + this) × scale ([`creature_spacing`]).
+/// In the original the creatures began their swings a median 133 units from their
+/// target (Violet's dogs, RNAM 48 × 1.2), 109 (coyotes, 48 × 1.0), 163 (giant mantises,
+/// 100 × 1.0) and 84 (a giant rat, 25 × 1.1, 2 swings) [observed 2026-10-17, AI observer
+/// campaigns melee_spacing and battles]; (RNAM + 59) × scale gives 128, 107, 159 and 92
+/// [hypothesis: fitted to those rows, docs/spec-notes/npc-behaviour-compare.md §3; it
+/// stands for the creature's body in front of its centre, which the records do not give
+/// (the dogs' and coyotes' Object Bounds are 0), so a creature whose body is far longer
+/// or shorter than these is not covered]. Ours, by the weapon rule, began them at 54
+/// (the dogs).
+pub const CREATURE_BODY_REACH: f32 = 59.0;
 /// A fleeing person hiding at its flee spot that its enemy has seen this long runs on
 /// to another spot, at most [`HIDE_MOVES`] times a flight (§12.2.1) [design].
 pub const HIDE_SEEN_SECONDS: f32 = 4.0;
@@ -548,6 +562,15 @@ fn player_arm(c: &Combat) -> Arm {
 pub fn melee_spacing(bodies: f32, reach: f32) -> (f32, f32) {
     let half = bodies * 0.5;
     ((bodies + MELEE_STOP_GAP).max(reach * MELEE_SPACING_SHARE + half), (bodies + MELEE_HIT_GAP).max(reach + half))
+}
+
+/// A creature's (stop, strike) distances, centre to centre, from its reach with its body
+/// already in ([`CREATURE_BODY_REACH`]): it stops at [`MELEE_SPACING_SHARE`] of it and
+/// strikes within it, never nearer than the bodies' gaps when the two bodies (`bodies`,
+/// their radii summed as in [`melee_spacing`]) are known.
+pub fn creature_spacing(bodies: Option<f32>, reach: f32) -> (f32, f32) {
+    let b = bodies.unwrap_or(0.0);
+    ((b + MELEE_STOP_GAP).max(reach * MELEE_SPACING_SHARE), (b + MELEE_HIT_GAP).max(reach))
 }
 
 pub fn engage(arm_reach: Option<f32>, gun_max_range: Option<f32>) -> (f32, f32) {
@@ -960,7 +983,8 @@ fn fight(
             let want = match (&arm, gap) {
                 // Melee with bodies to measure: from where its feet are, as far as the
                 // bodies' gap allows.
-                (Arm::Melee(_) | Arm::Creature(..), Some(gap)) => melee_spacing(away - gap, reach),
+                (Arm::Melee(_), Some(gap)) => melee_spacing(away - gap, reach),
+                (Arm::Creature(..), gap) => creature_spacing(gap.map(|gap| away - gap), reach),
                 _ => engage((!matches!(arm, Arm::Gun(_))).then_some(reach), gun),
             };
             g.awareness.engage.insert(me, want);
@@ -1544,7 +1568,10 @@ fn fight(
                 Arm::Melee(_) | Arm::Creature(..) => {
                     f.stats.melee_closest = Some(f.stats.melee_closest.map_or(away, |c| c.min(away)));
                     fighter.strike_in = (fighter.strike_in - dt).max(0.0);
-                    let near = gap.map_or(away <= reach, |gap| away <= melee_spacing(away - gap, reach).1);
+                    let near = match (&arm, gap) {
+                        (Arm::Creature(..), gap) => away <= creature_spacing(gap.map(|gap| away - gap), reach).1,
+                        (_, gap) => gap.map_or(away <= reach, |gap| away <= melee_spacing(away - gap, reach).1),
+                    };
                     // The last blow's clip, once started: its blow lands at its own `Hit`
                     // key, and the next decision comes at its `a:` key (module notes).
                     if let Some(sw) = fighter.swing.as_mut() {
@@ -1699,7 +1726,7 @@ fn arm_of(c: &Combat, g: &fnv_game::game::Game, weapon: Option<FormId>, me: Form
         Some(w) if c.forms.weapons.get(&w).is_some_and(|ws| is_gun(c, ws, w)) => Arm::Gun(w),
         Some(w) => Arm::Melee(Some(w)),
         None => match g.creature_attack(me) {
-            Some((damage, reach)) => Arm::Creature(damage as f32, reach.filter(|r| *r > 0.0).map_or(CREATURE_REACH, |r| r as f32) * scale),
+            Some((damage, reach)) => Arm::Creature(damage as f32, reach.filter(|r| *r > 0.0).map_or(CREATURE_REACH, |r| r as f32 + CREATURE_BODY_REACH) * scale),
             None => Arm::Melee(None),
         },
     }
@@ -1791,6 +1818,18 @@ mod tests {
         assert!((stop - 89.5).abs() < 0.01 && (strike - 97.0).abs() < 0.01, "{stop} {strike}");
         // A short reach still keeps the bodies' gaps.
         assert_eq!(melee_spacing(44.0, 10.0), (44.0 + MELEE_STOP_GAP, 44.0 + MELEE_HIT_GAP));
+    }
+
+    #[test]
+    fn creatures_keep_their_reach_and_body_from_the_target() {
+        // Violet's dogs (RNAM 48, scale 1.2): the original began its swings a median 133
+        // units away, coyotes (48, 1.0) 109, giant mantises (100, 1.0) 163.
+        for (rnam, scale, original) in [(48.0, 1.2, 133.0), (48.0, 1.0, 109.0), (100.0, 1.0, 163.0)] {
+            let (stop, strike) = creature_spacing(None, (rnam + CREATURE_BODY_REACH) * scale);
+            assert!(stop < strike && (strike - original).abs() < 0.05 * original, "{rnam} {strike} {original}");
+        }
+        // Big bodies still keep their gaps.
+        assert_eq!(creature_spacing(Some(150.0), 100.0), (150.0 + MELEE_STOP_GAP, 150.0 + MELEE_HIT_GAP));
     }
 
     #[test]
