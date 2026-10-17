@@ -66,6 +66,7 @@ pub mod poker;
 pub mod provocation;
 pub mod quest;
 pub mod radio;
+pub mod repair;
 pub mod respawn;
 pub mod resurrect;
 pub mod rest;

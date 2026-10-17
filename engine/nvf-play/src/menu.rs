@@ -57,7 +57,7 @@
 //!   the inventory menu at those times (see [`test_aid`]).
 
 pub mod barter;
-mod look;
+pub(crate) mod look;
 pub mod model;
 mod test_aid;
 

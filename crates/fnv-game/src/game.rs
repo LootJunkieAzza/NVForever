@@ -778,6 +778,11 @@ pub struct Game<'a> {
     /// draw; the menu is open for scripts ([`crate::crafting::RECIPE_MENU`]) until the
     /// engine closes it. Not part of the saved state.
     pub recipe_requests: Vec<crate::crafting::RecipeRequest>,
+    /// Repair services menus scripts opened (ShowRepairMenu, `crate::repair`), for the
+    /// engine to draw; the menu is open for scripts
+    /// ([`crate::repair::REPAIR_SERVICES_MENU`]) until the engine closes it. Not part of
+    /// the saved state.
+    pub repair_requests: Vec<crate::repair::RepairRequest>,
     /// Roulette menus asked for by ShowRouletteMenuParams (`crate::roulette`); the engine
     /// opens them.
     pub roulette_requests: Vec<crate::roulette::RouletteRequest>,
@@ -1066,6 +1071,7 @@ impl<'a> Game<'a> {
             anims: Default::default(),
             barter_requests: Vec::new(),
             recipe_requests: Vec::new(),
+            repair_requests: Vec::new(),
             roulette_requests: Vec::new(),
             blackjack_requests: Vec::new(),
             teammate_containers: Vec::new(),
