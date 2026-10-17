@@ -3880,6 +3880,8 @@ expect = [
   { re = 'physics moved actors in .* gave up (?P<n>\d+) times', range = [0, 1], label = "physics gives up at most once" },
   { re = 'moved (?P<n>\d+) stuck actors on', range = [0, 2], label = "at most two stuck actors moved on" },
 ]
+
+[[scenario]]
 name = "package-escort"
 source = "Escort packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): GomezEscortToAtrium given to a Goodsprings settler"
 note = "the settler is put 256 units from the player and given GomezEscortToAtrium (lead the player to its editor location, escort distance 300); the player stands still, so it walks off and stops to wait about 300 units away"
