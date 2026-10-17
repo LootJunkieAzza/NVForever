@@ -42,6 +42,7 @@ pub mod interface;
 pub mod intro;
 pub mod levelup;
 pub mod hud;
+pub mod hud_limbs;
 pub mod hud_target;
 pub mod loading;
 pub mod main_menu;

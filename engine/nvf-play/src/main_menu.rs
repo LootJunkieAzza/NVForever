@@ -278,7 +278,7 @@ fn open_at_start(
         }
     });
     if let Some((music, levels)) = theme {
-        let entity = commands.spawn((AudioPlayer::<crate::music::LayeredMusic>(music_assets.add(music)), PlaybackSettings::DESPAWN)).id();
+        let entity = commands.spawn((AudioPlayer::<crate::music::LayeredMusic>(music_assets.add(music)), PlaybackSettings::DESPAWN, crate::audio_out::SoundCategory::Music)).id();
         menu.theme = Some(Theme { levels, entity, level: 0.0 });
         info!("main menu: theme {THEME}");
     }

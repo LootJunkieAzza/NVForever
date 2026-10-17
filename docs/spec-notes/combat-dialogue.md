@@ -17,7 +17,7 @@ about each:
 |---|---|---|
 | Attack | an actor begins an attack | per actor: after an Attack or PowerAttack line, no other for a random time between `fCombatDialogueAttackMinElapsedTime` and `…MaxElapsedTime` |
 | PowerAttack | an actor begins a power attack | as Attack (one timer for both) |
-| Hit | an actor is hit | no timer; said when the damage as a fraction of health is above `fCombatSpeakHitThreshold`, or a random number in [0, 1) is below `fCombatSpeakHitChance` |
+| Hit | an actor is hit | no timer; said when the damage as a fraction of health is above `fCombatSpeakHitThreshold` and (an NPC or creature; the player: or) a random number in [0, 1) is below `fCombatSpeakHitChance` (from 2026-10-17, below) |
 | Death | an actor dies | always |
 | Crippled | one of its limbs is crippled | none given [design: always] |
 | HealthHalf, HealthQuarter | at half, at a quarter of its health | none given [design: once per crossing, §2] |
@@ -29,8 +29,13 @@ about each:
 The game settings in FalloutNV.esm [observed 2026-10-16, `fnvtool esm decode`]:
 `fCombatSpeakHitThreshold` 0.01, `fCombatSpeakHitChance` 0.01,
 `fCombatDialogueAttackMinElapsedTime` 5, `fCombatDialogueAttackMaxElapsedTime` 30.
-`fCombatSpeakAttackChance` 0.01 exists too; the page names no chance for Attack, and a 1 %
-chance per attack would make the lines rare [design: not used; the timer alone decides].
+`fCombatSpeakAttackChance` 0.01 exists too; the page names no chance for Attack. From
+2026-10-17 an NPC or creature needs a random number below it on top of the timer, and a
+Hit line needs both the threshold and `fCombatSpeakHitChance`, while the player keeps the
+timer alone and either condition [hypothesis fitted to the original: in its NPC battles
+about 3 Attack-like lines for some 175 attacks begun and about 1 % of 217 hits followed by
+a line; ours said 47 combat lines in one 32-second battle, 26 of them Hit;
+npc-behaviour-compare.md §2].
 
 "Health" for Hit and for HealthHalf/Quarter is the actor's base health (the Health actor
 value with no damage) [hypothesis: the page says "damage %" without saying of what].
@@ -42,7 +47,11 @@ value with no damage) [hypothesis: the page says "damage %" without saying of wh
   saying a line, and never by a dead actor except its Death line. Death cuts whatever the
   actor was saying.
 - Hit is not said by an actor that is saying an Attack/PowerAttack/Hit line (it would cut
-  its own grunt on every pellet of a shotgun); every other combat line cuts nothing either.
+  its own grunt on every pellet of a shotgun). The other way round, an Attack, PowerAttack
+  or FireExplosive line cuts the actor's own Hit line when the actor has a line to say
+  (otherwise a blow taken just before a power attack silences the power attack's grunt;
+  observed 2026-10-17 in the combat-lines smoke run with voice on). Every other combat
+  line cuts nothing.
 - HealthHalf and HealthQuarter: said when a hit takes health from above the mark to at
   or below it; the Hit line is not said for that hit. Each is said again only after health
   rose above the mark.

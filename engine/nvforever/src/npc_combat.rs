@@ -17,6 +17,16 @@
 //!   (`fnv_combat::attack::Cycle`: fire rate, magazine, reload) as the player's does;
 //!   the trigger is held for automatic weapons and pulled once a shot for the others
 //!   [design].
+//! - **Reloading**: its gun's magazine (WEAP Clip Size) empties as it fires, and it
+//!   reloads as soon as it is empty, whether it can fire then or not, playing its
+//!   weapon's reload clips (`attack_anims`, [`Move::Reload`]) for as long as they run in
+//!   its rig ([`AttackTimes::reloads`]; the tuning's fallback time until they are
+//!   known). A weapon that loads round by round (the .357 revolver, lever-actions;
+//!   docs/spec-notes/combat-rules.md §4) loads every round: it pulls no trigger while it
+//!   reloads, which would close the weapon after one. The same gun keeps its magazine
+//!   on a new target. Rounds come from nowhere: an NPC uses no ammunition from its
+//!   inventory [design: owner 2026-10-17, "they dont use ammo"]. Reloading before the
+//!   magazine is empty (in cover, out of sight) is not built.
 //! - **Where it aims**: from its eyes at the target's chest, the shot drawn from its
 //!   weapon's muzzle (the model's `ProjectileNode`, `weapons::Muzzle`) closing onto that
 //!   line, as the player's first-person shots (`ActorFire`; owner 2026-10-11: "the shots
@@ -44,7 +54,8 @@
 //!   Each fighter's pitch to its target ([`Fighters::pitch`]) bends its aim.
 //! - **Melee**: it closes in until its body is [`MELEE_STOP_GAP`] from its target's
 //!   (the bodies as `nvf_play::blocking` has them: a long creature reaches out in front
-//!   of its feet), and strikes while the gap is within [`MELEE_HIT_GAP`] and it sees the
+//!   of its feet) and its reach keeps it off ([`melee_spacing`]), and strikes while the
+//!   gap is within [`MELEE_HIT_GAP`] or the target within its reach and it sees the
 //!   target, a blow every [`STRIKE_SECONDS`] (divided by the weapon's attack speed)
 //!   [design; owner 2026-10-11: a dog gets into range and bites, it does not push the
 //!   player around]. Without bodies to measure, its reach from its feet counts.
@@ -111,7 +122,8 @@
 //!   when there is none, or stays by a gunman of its group until the target comes near.
 //!
 //! Whom it fights is the detection states' (its combat target). Not built: grenades,
-//! ammunition use, weapon choice among several, dodging and power attacks of people.
+//! ammunition use (module notes: reloading), weapon choice among several, dodging and
+//! power attacks of people.
 
 use crate::attack_anims::{AttackTimes, Move, PlayAttack, Power, SwingPick, DEFAULT_HIT};
 use crate::combat_stance::{self as stance, Temperament};
@@ -127,7 +139,7 @@ use crate::weapons::{HeldWeapon, Muzzle, WeaponHold};
 use crate::world::bevy_to_game;
 use bevy::prelude::*;
 use fnv_actor::weapon::Stage;
-use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
+use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Phase as GunPhase, Timing};
 use fnv_combat::damage::AttackKind;
 use fnv_combat::data::WeaponStats;
 use fnv_combat::spread::{self, Stance};
@@ -164,6 +176,16 @@ pub const MELEE_ENGAGE_SHARE: f32 = 0.8;
 /// blows land and beyond which it closes in again, game units [design].
 pub const MELEE_STOP_GAP: f32 = 6.0;
 pub const MELEE_HIT_GAP: f32 = 24.0;
+/// Melee with bodies to measure: an attacker also keeps its weapon's reach between its
+/// centre and the target's body: it stops closing at this share of its reach plus half
+/// the two bodies' radii, and its blows begin and land within its reach plus half the
+/// radii (centre to centre), never nearer than the gaps above. In the original a
+/// trooper with a knife or a machete (Reach 0.5: 75 units) began its swings a median 96
+/// and 95 units from its target, the closest during a swing a median 92 and 91
+/// [observed 2026-10-17, AI observer campaign melee_spacing; the rule is fitted to that,
+/// docs/spec-notes/npc-behaviour-compare.md §3]; ours, by the gaps alone, began them a
+/// median 14 to 36 units away and came to 0 (inside the target).
+pub const MELEE_SPACING_SHARE: f32 = 0.9;
 /// A creature without a reach of its own reaches this far, game units [design].
 pub const CREATURE_REACH: f32 = 96.0;
 /// A fleeing person hiding at its flee spot that its enemy has seen this long runs on
@@ -235,6 +257,9 @@ struct Fighter {
     seen_for: f32,
     firing_for: f32,
     cycle: Option<Cycle>,
+    /// The cycle reloads by the reload clips in the actor's rig (`AttackTimes::reloads`),
+    /// not the fallback time.
+    reload_timed: bool,
     /// Seconds to its next blow.
     strike_in: f32,
     /// The trigger was pulled last frame (a semi-automatic weapon is let go between
@@ -401,6 +426,8 @@ struct Stats {
     shots: usize,
     strikes: usize,
     reloads: usize,
+    /// Reloads that loaded round by round.
+    round_reloads: usize,
     /// Blows whose target had moved out of reach by the time they landed.
     missed: usize,
     /// Shots from a weapon's muzzle, and from the eyes (no muzzle node).
@@ -415,6 +442,11 @@ struct Stats {
     /// Blows that went on a combo, and the longest combo.
     chained: usize,
     longest_combo: u32,
+    /// Feet-to-feet distances (2D, centre to centre) to the target when each melee blow
+    /// began, and the closest a melee fighter came to its target: to compare with the AI
+    /// observer's melee spacing in the original (docs/spec-notes/npc-behaviour-compare.md).
+    swing_distances: Vec<f32>,
+    melee_closest: Option<f32>,
     flee_checks: usize,
     flees: usize,
     /// Hiding at flee spots (§12.2.1): times a fleeing person crouched to hide, and
@@ -511,6 +543,13 @@ fn player_arm(c: &Combat) -> Arm {
 /// how far its target may be before it closes in again (module notes): a gun stops at
 /// [`GUN_RANGE_SHARE`] of its range and goes again beyond its range; melee stops at
 /// [`MELEE_ENGAGE_SHARE`] of its reach and goes again beyond its reach [design].
+/// A melee attacker's (stop, strike) distances, centre to centre, from the two bodies'
+/// radii summed (`bodies`) and its reach ([`MELEE_SPACING_SHARE`]).
+pub fn melee_spacing(bodies: f32, reach: f32) -> (f32, f32) {
+    let half = bodies * 0.5;
+    ((bodies + MELEE_STOP_GAP).max(reach * MELEE_SPACING_SHARE + half), (bodies + MELEE_HIT_GAP).max(reach + half))
+}
+
 pub fn engage(arm_reach: Option<f32>, gun_max_range: Option<f32>) -> (f32, f32) {
     match (gun_max_range, arm_reach) {
         (Some(r), _) if r > 0.0 => {
@@ -751,12 +790,18 @@ fn fight(
             };
             let fresh = f.fighters.get(&id).is_none_or(|x| x.target != target || x.arm != arm);
             if fresh {
-                let cycle = match &arm {
-                    Arm::Gun(w) => c.forms.weapons.get(w).map(|ws| {
-                        let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning);
-                        Cycle::new(ws, timing, false, ws.clip_size.max(1))
-                    }),
-                    _ => None,
+                // The same gun on a new target keeps its magazine (module notes).
+                let kept = f.fighters.get_mut(&id).filter(|x| x.arm == arm).and_then(|x| x.cycle.take().map(|cy| (cy, x.reload_timed)));
+                let (cycle, reload_timed) = match (&arm, kept) {
+                    (_, Some((cy, timed))) => (Some(cy), timed),
+                    (Arm::Gun(w), None) => (
+                        c.forms.weapons.get(w).map(|ws| {
+                            let timing = Timing::of(ws, &ClipTiming::default(), &c.tuning);
+                            Cycle::new(ws, timing, false, ws.clip_size.max(1))
+                        }),
+                        false,
+                    ),
+                    _ => (None, false),
                 };
                 let name = g.data.name(me);
                 f.stats.fighters.insert(id, name.clone());
@@ -774,6 +819,7 @@ fn fight(
                         seen_for: 0.0,
                         firing_for: 0.0,
                         cycle,
+                        reload_timed,
                         strike_in: 0.0,
                         pulled: false,
                         blows: Vec::new(),
@@ -914,10 +960,7 @@ fn fight(
             let want = match (&arm, gap) {
                 // Melee with bodies to measure: from where its feet are, as far as the
                 // bodies' gap allows.
-                (Arm::Melee(_) | Arm::Creature(..), Some(gap)) => {
-                    let bodies = away - gap;
-                    (bodies + MELEE_STOP_GAP, bodies + MELEE_HIT_GAP)
-                }
+                (Arm::Melee(_) | Arm::Creature(..), Some(gap)) => melee_spacing(away - gap, reach),
                 _ => engage((!matches!(arm, Arm::Gun(_))).then_some(reach), gun),
             };
             g.awareness.engage.insert(me, want);
@@ -1407,13 +1450,28 @@ fn fight(
                 Arm::Gun(w) => {
                     let Some(ws) = c.forms.weapons.get(w) else { continue };
                     let Some(cycle) = fighter.cycle.as_mut() else { continue };
-                    fighter.firing_for = if ready { fighter.firing_for + dt } else { 0.0 };
+                    // Its reload takes as long as its reload clips in its rig, once known
+                    // (between reloads, so one under way runs to its end).
+                    if !fighter.reload_timed && matches!(cycle.phase, GunPhase::Ready | GunPhase::Cooldown { .. }) {
+                        if let Some((_, clips)) = times.reloads.get(&id).filter(|r| r.0 == *w) {
+                            cycle.timing = Timing::of(ws, &ClipTiming { reload_len: clips.reload_len, reload_hit: clips.reload_hit, reload_open_len: clips.reload_open_len, ..ClipTiming::default() }, &c.tuning);
+                            fighter.reload_timed = true;
+                        }
+                    }
+                    let reloading = cycle.reloading();
+                    fighter.firing_for = if ready && !reloading { fighter.firing_for + dt } else { 0.0 };
                     // Automatic weapons hold the trigger; others pull it again each time
-                    // the cycle is ready and the style's firing delay has passed.
+                    // the cycle is ready and the style's firing delay has passed. Not while
+                    // it reloads: a pull would stop a round-by-round reload after a round.
                     fighter.pull_in = (fighter.pull_in - dt).max(0.0);
-                    let trigger = ready && (ws.automatic || (!fighter.pulled && fighter.pull_in <= 0.0));
+                    let trigger = ready && !reloading && (ws.automatic || (!fighter.pulled && fighter.pull_in <= 0.0));
                     fighter.pulled = trigger;
-                    let events = cycle.step(&c.tuning, Input { trigger, reload: false, dt, carried: u32::MAX / 2 });
+                    // An empty magazine is reloaded at once, whether it can fire or not;
+                    // it carries what it loads (module notes).
+                    let empty = cycle.magazine < cycle.ammo_use && cycle.regen.is_none();
+                    let rounds = cycle.timing.rounds;
+                    let events = cycle.step(&c.tuning, Input { trigger, reload: empty && !reloading, dt, carried: u32::MAX / 2 });
+                    let (magazine, reload_secs) = ((cycle.magazine, cycle.clip_size), cycle.timing.reload);
                     for e in events {
                         match e {
                             Event::Fired { .. } => {
@@ -1450,8 +1508,11 @@ fn fight(
                                 } else {
                                     f.stats.hip_shots += 1;
                                 }
-                                // Crouched: no standing term in the spread (§14.2).
-                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled: false, right_arm_crippled: false };
+                                // Crouched: no standing term in the spread (§14.2). A crippled
+                                // arm (Left/Right Attack Condition) widens it as the player's
+                                // [design: the same settings, actors.md §8.12].
+                                let (left_arm_crippled, right_arm_crippled) = (g.is_crippled(me, 27), g.is_crippled(me, 28));
+                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled, right_arm_crippled };
                                 let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &st), 0.0, ws, &[]) + settling(fighter.firing_for);
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
@@ -1459,14 +1520,31 @@ fn fight(
                                 // Its Attack line, on its own timer (fnv_game::combat_lines).
                                 g.attack_line(me, Some(target), false, false);
                             }
-                            Event::ReloadStarted => f.stats.reloads += 1,
+                            Event::ReloadStarted => {
+                                f.stats.reloads += 1;
+                                if rounds.is_some() {
+                                    f.stats.round_reloads += 1;
+                                }
+                                anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: false, kind: Move::Reload, power: None, swing: None });
+                                let how = match rounds {
+                                    Some(r) => format!("round by round (opens {:.2} s, {:.2} s a round, closes {:.2} s)", r.open, r.round, r.close),
+                                    None => format!("in {:.2} s{}", reload_secs, if fighter.reload_timed { "" } else { ", the fallback time" }),
+                                };
+                                info!("npc combat: {} {me} reloads {} {how}", g.data.name(me), ws.edid.as_deref().unwrap_or("?"));
+                            }
+                            // The opening clip played: each round the reload clip from its start.
+                            Event::ReloadRound => {
+                                anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: false, kind: Move::ReloadRound, power: None, swing: None });
+                            }
+                            Event::Reloaded { taken } => info!("npc combat: {} {me} reloaded {taken}, magazine {}/{}", g.data.name(me), magazine.0, magazine.1),
                             _ => {}
                         }
                     }
                 }
                 Arm::Melee(_) | Arm::Creature(..) => {
+                    f.stats.melee_closest = Some(f.stats.melee_closest.map_or(away, |c| c.min(away)));
                     fighter.strike_in = (fighter.strike_in - dt).max(0.0);
-                    let near = gap.map_or(away <= reach, |gap| gap <= MELEE_HIT_GAP);
+                    let near = gap.map_or(away <= reach, |gap| away <= melee_spacing(away - gap, reach).1);
                     // The last blow's clip, once started: its blow lands at its own `Hit`
                     // key, and the next decision comes at its `a:` key (module notes).
                     if let Some(sw) = fighter.swing.as_mut() {
@@ -1580,6 +1658,9 @@ fn fight(
                         let swing = SwingPick { next, rolls: [next_unit(&mut f.swing_rng), next_unit(&mut f.swing_rng)] };
                         anims.write(PlayAttack { actor: id, weapon, melee: true, sights: false, kind: Move::Attack, power: power.map(|p| p.0), swing: power.is_none().then_some(swing) });
                         f.stats.strikes += 1;
+                        f.stats.swing_distances.push(away);
+                        info!("npc combat: {me_name} swings at {target_name} from {away:.0} units (feet to feet, {})",
+                              gap.map_or_else(|| format!("reach {reach:.0}"), |x| format!("bodies' gap {x:.0}")));
                         fighter.blows_begun += 1;
                         g.attack_line(me, Some(target), false, false);
                     }
@@ -1641,7 +1722,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
     let s = &fighters.stats;
     let (hits, damage, died) = stats.map_or((0, 0.0, false), |c| (c.player_hits, c.player_damage, c.player_died));
     info!(
-        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} went on a combo, the longest {}; {} missed: out of reach when they landed; {} melee decisions to hold), {} reloads; {} flee checks, {} fled ({} hid at their flee spot, {} ran on when seen there); the player was hit {hits} times for {damage:.1}{}; {} staggers held a fighter's attacks ({} blows cut short); {} frames a fighter waited to face its target",
+        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} went on a combo, the longest {}; {} missed: out of reach when they landed; {} melee decisions to hold), {} reloads ({} round by round); {} flee checks, {} fled ({} hid at their flee spot, {} ran on when seen there); the player was hit {hits} times for {damage:.1}{}; {} staggers held a fighter's attacks ({} blows cut short); {} frames a fighter waited to face its target",
         s.fighters.len(),
         s.fighters.values().cloned().collect::<Vec<_>>().join(", "),
         s.shots,
@@ -1656,6 +1737,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.missed,
         s.holds,
         s.reloads,
+        s.round_reloads,
         s.flee_checks,
         s.flees,
         s.hides,
@@ -1665,6 +1747,18 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.blows_cut,
         s.unfaced,
     );
+    let mut d = s.swing_distances.clone();
+    d.sort_by(f32::total_cmp);
+    if !d.is_empty() {
+        info!(
+            "npc melee spacing: {} blows began at {:.0} to {:.0} units from the target (median {:.0}, feet to feet); the closest a melee fighter came: {:.0}",
+            d.len(),
+            d[0],
+            d[d.len() - 1],
+            d[d.len() / 2],
+            s.melee_closest.unwrap_or(0.0),
+        );
+    }
     info!(
         "npc stance summary: crouched {} times ({} behind low cover), stood up {} times ({} for a close-combat enemy), {} shifts; {} blocks ({} in reaction), {} blows blocked by fighters, {} recoils; {} bounds to cover, {} charges in the open, {} guards",
         s.crouches,
@@ -1688,6 +1782,16 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn melee_keeps_its_reach_from_the_target() {
+        // Two people (radii 22 + 22) with a knife (Reach 0.5 of fCombatDistance 150): the
+        // original began its swings a median 96 units away (melee_spacing campaign).
+        let (stop, strike) = melee_spacing(44.0, 75.0);
+        assert!((stop - 89.5).abs() < 0.01 && (strike - 97.0).abs() < 0.01, "{stop} {strike}");
+        // A short reach still keeps the bodies' gaps.
+        assert_eq!(melee_spacing(44.0, 10.0), (44.0 + MELEE_STOP_GAP, 44.0 + MELEE_HIT_GAP));
+    }
 
     #[test]
     fn a_creatures_power_attack() {

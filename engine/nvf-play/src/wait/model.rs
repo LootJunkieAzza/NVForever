@@ -249,21 +249,43 @@ pub enum Refusal {
     /// A script turned waiting off (`EnableFastTravel`'s canWait).
     Forbidden,
     UnderWater,
+    /// The player is in the air (jumping or falling).
+    Falling,
+    /// The player is taking radiation damage. Never given yet: nothing irradiates the
+    /// player from the world (`refusal` keeps the check empty).
+    Radiation,
+    /// An actor in a combat state hunts the player (IsInCombat on the player).
+    InCombat,
     HostilesNear,
+    /// The player is in an owned cell that is not theirs and not public.
+    Trespassing,
     /// Sleeping only: the bed is someone else's.
     OwnedBed,
 }
 
 impl Refusal {
-    pub const COUNT: usize = 4;
-    pub const ALL: [Refusal; Refusal::COUNT] = [Refusal::Forbidden, Refusal::UnderWater, Refusal::HostilesNear, Refusal::OwnedBed];
+    pub const COUNT: usize = 8;
+    pub const ALL: [Refusal; Refusal::COUNT] = [
+        Refusal::Forbidden,
+        Refusal::UnderWater,
+        Refusal::Falling,
+        Refusal::Radiation,
+        Refusal::InCombat,
+        Refusal::HostilesNear,
+        Refusal::Trespassing,
+        Refusal::OwnedBed,
+    ];
 
     /// For the log.
     pub fn label(self) -> &'static str {
         match self {
             Refusal::Forbidden => "forbidden by a script",
             Refusal::UnderWater => "under water",
+            Refusal::Falling => "in the air",
+            Refusal::Radiation => "taking radiation damage",
+            Refusal::InCombat => "in combat",
             Refusal::HostilesNear => "enemies near",
+            Refusal::Trespassing => "trespassing",
             Refusal::OwnedBed => "someone else's bed",
         }
     }
@@ -273,11 +295,18 @@ impl Refusal {
 /// [documented: GECK wiki "Settings" lists the names; SetPCHasSleepWaitOverride says the
 /// flag's text is `sNoWaitInCell`]. Only the two about enemies have a record in
 /// FalloutNV.esm [observed], and those are read from it; the defaults here are
-/// NVForever's own wording, used where no plugin sets the setting.
+/// NVForever's own wording, used where no plugin sets the setting. Falling, radiation and
+/// trespassing have no setting named by any source read (wait-menu.md §9): their lines
+/// are NVForever's only [owner request 2026-10-17].
 #[derive(Debug, Clone, PartialEq, bevy::prelude::Resource)]
 pub struct RefusalWords {
     pub forbidden: String,
     pub under_water: String,
+    pub falling: String,
+    pub radiation: String,
+    pub combat_wait: String,
+    pub combat_sleep: String,
+    pub trespassing: String,
     pub hostiles_wait: String,
     pub hostiles_sleep: String,
     pub owned_bed: String,
@@ -289,6 +318,11 @@ impl Default for RefusalWords {
         RefusalWords {
             forbidden: s("You cannot wait here."),
             under_water: s("You cannot wait while swimming."),
+            falling: s("You cannot wait while falling."),
+            radiation: s("You cannot wait while taking radiation damage."),
+            combat_wait: s("You cannot wait while in combat."),
+            combat_sleep: s("You cannot sleep while in combat."),
+            trespassing: s("You cannot wait while trespassing."),
             hostiles_wait: s("You cannot wait with enemies close by."),
             hostiles_sleep: s("You cannot sleep with enemies close by."),
             owned_bed: s("This bed belongs to someone else."),
@@ -302,6 +336,8 @@ impl RefusalWords {
         let slots = [
             ("sNoWaitInCell", &mut w.forbidden),
             ("sNoWaitUnderWater", &mut w.under_water),
+            ("sNoWaitInCombat", &mut w.combat_wait),
+            ("sNoSleepCombat", &mut w.combat_sleep),
             ("sNoWaitHostilActorsNear", &mut w.hostiles_wait),
             ("sNoSleepHostileActorsNear", &mut w.hostiles_sleep),
             ("sNoSleepInOwnedBed", &mut w.owned_bed),
@@ -318,6 +354,11 @@ impl RefusalWords {
         match (why, sleep) {
             (Refusal::Forbidden, _) => &self.forbidden,
             (Refusal::UnderWater, _) => &self.under_water,
+            (Refusal::Falling, _) => &self.falling,
+            (Refusal::Radiation, _) => &self.radiation,
+            (Refusal::InCombat, false) => &self.combat_wait,
+            (Refusal::InCombat, true) => &self.combat_sleep,
+            (Refusal::Trespassing, _) => &self.trespassing,
             (Refusal::HostilesNear, false) => &self.hostiles_wait,
             (Refusal::HostilesNear, true) => &self.hostiles_sleep,
             (Refusal::OwnedBed, _) => &self.owned_bed,
@@ -461,6 +502,10 @@ mod tests {
         let w = RefusalWords::from_settings(|name| (name == "sNoSleepHostileActorsNear").then(|| "Not now.".to_string()));
         assert_eq!(w.line(Refusal::HostilesNear, true), "Not now.");
         assert_eq!(w.line(Refusal::HostilesNear, false), own.hostiles_wait);
+        // Combat has a setting each for waiting and sleeping.
+        let w = RefusalWords::from_settings(|name| (name == "sNoSleepCombat").then(|| "Fight first.".to_string()));
+        assert_eq!(w.line(Refusal::InCombat, true), "Fight first.");
+        assert_eq!(w.line(Refusal::InCombat, false), own.combat_wait);
         assert_eq!(Refusal::ALL.len(), Refusal::COUNT);
         for (i, r) in Refusal::ALL.iter().enumerate() {
             assert_eq!(*r as usize, i);
