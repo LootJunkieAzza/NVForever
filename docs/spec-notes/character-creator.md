@@ -156,17 +156,24 @@ reader; full tables kept in the session notes, not in the repository).
 - Without `si.ctl` the creator still offers races, hair, beards, brows, eyes, colours,
   starting faces and Randomise, with no sliders (and says so in the log).
 
-## 4. The look of the menu [design]
+## 4. The look of the menu [design unless tagged]
 
 A sketch: the published mockup (the owner's review). The rules:
 
-- **No new art**: the game's `glow_futura_caps_large` font for titles, tabs and buttons
-  (the original's chargen menus use Monofonto throughout), `monofonto_large` for rows,
-  and plain filled rectangles. No picture, no Pip-Boy frame, no amber.
-- **Colours**: bone white (0.93, 0.90, 0.84) for text, a turquoise accent (0.37, 0.77,
-  0.72) for the chosen row, the tab underline, the slider fill and Done; sand (0.85,
-  0.70, 0.46) for values and the race tick; a smoked panel (0.035, 0.045, 0.055 at 0.82)
-  — Mojave turquoise and bone instead of the Pip-Boy's amber.
+- **No new art**: the game menus' own fonts and plain filled rectangles; no picture, no
+  Pip-Boy frame.
+- **Fonts** [owner 2026-10-17: "if we can also get the font to match our game"]: the
+  menus' title font (font 6, `glow_monofonto_vl_dialogs`, the tag-skill and trait menus'
+  headlines) for the title, the tabs and the buttons, `monofonto_large` (font 2) for the
+  rest. The first version had Futura (`glow_futura_caps_large`) for those.
+- **Colours** [owner 2026-10-17: "can we also change the colour scheme to match the UI
+  amber look im not a fan of the light blue trim"]: everything in the interface's amber
+  (`interface::AMBER`): text at brightness 215 (fainter by transparency where it is a
+  hint or not chosen), values, the edge bar, the chosen tab's underline, the chosen
+  row's bar, the slider's fill and knob, the race
+  tick and Done's outline at full brightness; the chosen row's band and button's fill dim amber (brightness 128) a quarter opaque, as the menus' highlight; dividers at 18%; a black panel at 0.8 so
+  the text reads over a bright room. The first version was bone white with a turquoise
+  accent and sand values.
 - **Layout** (interface units, 960 high): one panel on the left, 640 wide, 32 in from the
   top and left; the rest of the picture is the player, framed by the camera (§5).
   - Title "APPEARANCE", the look's name on the right ("Female Hispanic").
@@ -178,28 +185,70 @@ A sketch: the published mockup (the owner's review). The rules:
     (eye colour, then eye sockets, eyelids, eyeliner, eyeshadow, the eyes' tint).
   - A line under the tabs saying what the tab is for.
   - Rows: a list row is its label, "n/m", and `< value >`; a slider row its label and
-    value over a thin track with a centre mark, the race tick, a turquoise fill from the
-    centre to a bone knob, and the two end words under the ends. The chosen row has a
-    turquoise bar at its left and a faint band. "more above / below" when a region has
+    value over a thin track with a centre mark, the race tick, an amber fill from the
+    centre to the knob, and the two end words under the ends. The chosen row has a
+    bar at its left and a band of dim amber, a quarter opaque (the menus' highlight fill). "more above / below" when a region has
     more rows than fit.
-  - Four buttons along the bottom: RANDOM, UNDO, RESET, DONE (outlined turquoise), each
+  - Four buttons along the bottom: RANDOM, UNDO, RESET, DONE (outlined brighter), each
     with its key and button under it.
   - A hint in the bottom right of the picture: turning and zooming.
 - **Sounds**: the game's own UI sound records (`ui_sounds.rs`): rows and tabs
   `UIMenuFocus` / `UIMenuPrevNext`, Reset and Undo `UIMenuCancel`, Done `UIMenuOK`.
 
-## 5. The camera and the preview [design]
+## 5. The camera and the preview [design unless tagged]
 
 - While the creator is open the camera stands in front of the player looking back
-  (`control::Portrait`): turned 0.15 rad off straight-on, 42 units from a point 2 under
-  the eye for the face tabs; 58 units, turned 0.45 and a little above for Hair; 125
-  units at the chest for Basics. It steps left a third of its distance so the player
-  stands right of the picture's middle, clear of the panel [observed: the smoke run's
-  screenshots at 1280 × 800 had the face behind the panel without it]. Between tabs it eases over about 0.2 s. No
-  collision: the player's own space.
-- Right-drag or the right stick turns the camera about the player (±3 rad); the wheel
-  (outside the panel) or the triggers zoom (0.6 to 3 times). The third-person body is
-  drawn while the creator is open (`third_person_view`).
+  (`control::Portrait`). Each tab has a framing: the **whole body** on Basics (175
+  units away), the head turned 0.45 rad and seen a little from above on Hair (58), the
+  **face** on the others (42, turned 0.15). The camera steps left a third of its
+  distance so the player stands right of the picture's middle, clear of the panel
+  [observed: the smoke run's screenshots at 1280 × 800 had the face behind the panel
+  without it]. No collision: the player's own space.
+- **Aimed from the drawn body's eye** (`BodyView::portrait_eye`), not the first-person
+  view's: in the real opening the first-person eye still sat where the wake-up idle had
+  put it while the body already stood, and the whole-body framing showed the chest to
+  the feet [observed: the `character-creator-opening` screenshot, 2026-10-17].
+- **The point looked at follows the zoom**: 2 units under the eye (the face) at 42
+  units or nearer, 58 under it (the middle of the body) at 175 or further, in between
+  in proportion. So zooming in on the whole body ends on the face [owner 2026-10-17:
+  zooming went "in and out on the pelvis"].
+- **Looking round** [owner 2026-10-17: "we need a way to drag and pan our view not just
+  zoom in and out"]: over the picture (not the panel), left-drag turns the camera about
+  the player (all the way round; half a turn across the picture's height) and tilts it
+  (−0.35 to 0.8 rad, a little below the eye to well above the head); right- or
+  middle-drag, or Shift + left-drag, pans: the picture follows the pointer, up to 40
+  units to either side, 30 up and 80 down; the wheel zooms a tenth a notch, from 20 to
+  260 units. C or Home puts the tab's framing back. On the controller the right stick
+  turns and tilts, the left stick pans, the triggers zoom, the right stick's click puts
+  the framing back. A new tab starts its own zoom and pan again and keeps the turn. The
+  camera eases onto where it is asked to be over about 0.1 s, the short way round.
+- The third-person body is drawn while the creator is open (`third_person_view`).
+- **Light** [owner 2026-10-17: "we need some kind of light its hard to see details you
+  are changing in the shadow"; design: the rig, `engine/nvforever/src/creator_view.rs`]:
+  two point lights of the engine's own go with the camera while the creator is open, a
+  warm key (fade 1.6) above and to the camera's left and a cool fill (0.55) to its right
+  and lower, 320 units' reach, no shadows, in the units of the game's own lights and
+  scaled by `--light-scale` like them. They are removed when the creator closes, so the
+  room's lighting is as before.
+- **Where the player stands** [owner 2026-10-17: "maybe we move the character to a
+  different spot during the creation opening instead of doc mitchells bed"; design:
+  stay, decided 2026-10-17]: the player stays where the opening has them. Menu 1036
+  opens at stage 36, at the end of one of Doc Mitchell's lines, with the player by the
+  bed after the wake-up idle; stages 45, 50 and 55 follow at the end of his next lines
+  and by timers, and the player is next asked to walk to the Vigor Tester
+  [observed: layer5-captures.md §10.3]. Moving the player would have to undo itself
+  without upsetting the bed's furniture state, the idle that had just driven the view,
+  Doc's head turning to the player and his packages, for nothing the picture needs.
+  Instead the creator lights the player (above) and clears the line of sight: an actor
+  whose root lies within 40 units of the line from the camera to the point looked at,
+  between them, is hidden while it is in the way and shown again when it is not, or
+  when the creator closes (Doc Mitchell in his chair, between the camera and the bed in
+  the owner's screenshot).
+- **Nothing else over it** [owner 2026-10-17: "hide the UI so no health bar or AP or
+  dialogue"]: the HUD (health, action points, compass, the weapon's condition), the
+  activation prompt ("E) Talk"), the dialogue menu's line and the subtitles are not
+  drawn while the creator is open (the subtitles are still logged), whatever state the
+  opening leaves the game in (it can be Playing with menu 1036 open).
 - **Live preview**: each change is written into the game (`PlayerState::look`); the
   player body resolves with it (`Resolver::resolve_as`: race, sex, hair, hair colour,
   eyes, head parts and FaceGen values in place of the record's; no hair is bald, not the
@@ -214,10 +263,17 @@ A sketch: the published mockup (the owner's review). The rules:
   steps a second; Shift for steps a quarter as big: 0.6% of the range instead of 2.5%).
   Space randomise, Z undo, R reset, Enter: the chosen button, or (from a row) go to Done
   — a second Enter is Done.
-- **Pointer**: click a tab, a row, its arrows, a hair-colour swatch or a button; press on
-  a slider's track and drag; the wheel over the panel steps the rows; right-drag turns.
+- **Pointer**: shown and free whenever the creator is open [owner 2026-10-17: "we
+  should have mouse pointer in this menu"]. In the real opening menu 1036 opens at the
+  end of Doc Mitchell's line, still in the conversation (the Dialogue state, not Menu)
+  and with the wake-up idle still driving the view, and the rule that hides the pointer
+  while an idle drives the view kept it hidden [observed: a `--new-game` run, "pointer:
+  hidden (an idle drives the view)" and no "shown" after "creator: open"]; the creator
+  now overrides it (`player::grab_cursor`). Click a tab, a row, its arrows, a
+  hair-colour swatch or a button; press on a slider's track and drag; the wheel over
+  the panel steps the rows; over the picture, drag and the wheel move the camera (§5).
 - **Controller** (the menu keys of `crate::pad`: D-pad arrows, A Enter, LB / RB Page Up /
-  Down): X randomise, Y undo, Back reset, right stick turn, triggers zoom.
+  Down): X randomise, Y undo, Back reset; the sticks and triggers move the camera (§5).
 - **Changing sex** starts the face from the race's first starting face for that sex: a
   face shaped for one sex reads as that sex on the other's head [observed: the smoke
   run's screenshot of the record's male values on the female head]. Changing race keeps
@@ -244,9 +300,15 @@ A sketch: the published mockup (the owner's review). The rules:
   randomise, buttons, camera, hair tones (`nvf_play::creator::model`); hit tests and
   scrolling (`view`); the test aid, look conversion (`creator`); the portrait camera
   (`control`); the look's rules (`fnv_game::chargen`).
-- Test aid `NVF_PLAY_TEST_CREATOR=<s>:<op>[,…]` (`creator.rs`); smoke scenario
-  `character-creator` (`tools/smoke/scenarios.toml`): opens menu 1036 in Doc Mitchell's
-  house, changes sex, origin, hair, two sliders, eyes, randomises and undoes, Done.
+- Test aid `NVF_PLAY_TEST_CREATOR=<s>:<op>[,…]` (`creator.rs`), the camera's steps
+  `orbit:<deg>:<deg>`, `pan:<right>:<up>`, `zoom:<factor>`, `view`; each camera change
+  logs "creator: camera …" with the turn, tilt, distance, the point looked at and the
+  pan. Smoke scenarios (`tools/smoke/scenarios.toml`): `character-creator` opens menu
+  1036 in Doc Mitchell's house, changes sex, origin, hair, two sliders, eyes,
+  randomises and undoes, turns, zooms and pans the camera on the Face tab, zooms in on
+  the whole body (aimed near the face), Done, with screenshots of each view;
+  `character-creator-opening` plays the real opening to menu 1036 and checks the
+  pointer is shown there.
 
 ## 8. Not built, and ideas for later
 
@@ -275,7 +337,7 @@ A sketch: the published mockup (the owner's review). The rules:
 
 ## 9. Questions for the owner
 
-1. Colours: bone and turquoise (the published mockup) — keep, or another accent?
+1. Colours: settled, the interface's amber (owner 2026-10-17).
 2. Brows: offer both brows to both sexes, or the authored one per sex?
 3. Should a woman be allowed facial hair (the data does not forbid it)?
 4. Ranges: the authored faces' spread plus a quarter at each end — wider or narrower?

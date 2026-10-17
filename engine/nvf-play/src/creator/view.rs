@@ -1,8 +1,14 @@
 //! Drawing the character creator (docs/spec-notes/character-creator.md §4): a panel on
 //! the left over the world, the player standing in the clear part of the picture. Its
 //! own look [owner 2026-10-16: "something new in design without having to add new
-//! assets"]: the game's Futura and Monofonto fonts and plain drawn shapes, in bone white
-//! with a turquoise accent instead of the Pip-Boy's amber [design].
+//! assets"]: the game menus' own fonts and plain drawn shapes, in the
+//! interface's amber [owner 2026-10-17: "can we also change the colour scheme to match
+//! the UI amber look im not a fan of the light blue trim"; it was bone white with a
+//! turquoise accent before]. The fonts are the menus' [owner 2026-10-17: "if we can also
+//! get the font to match our game"; it was Futura for titles, tabs and buttons before]:
+//! the titles' glowing Monofonto (font 6, as the tag-skill and trait menus' headlines,
+//! chargen.md §3) for the title, the tabs and the buttons, Monofonto (font 2) for the
+//! rest.
 //!
 //! Lengths are the interface's units (960 to the view's height) from the view's top
 //! left. [`spawn`] returns where each thing the pointer can use lies ([`Hit`]), so the
@@ -10,25 +16,39 @@
 //! panel is rebuilt while a slider is dragged).
 
 use super::model::{Model, RowView, ACTIONS, TABS};
-use crate::interface::{at, face, plain_font, u, Face};
+use crate::interface::{amber, at, face, plain_font, u, Face};
 use bevy::prelude::*;
 use fnv_font::Line;
 use nvf_assets::GameData;
 
-const HEAD_FONT: &str = "textures\\fonts\\glow_futura_caps_large.fnt";
+/// Font 6, the menus' titles, and font 2, their body text [documented:
+/// Fallout_default.ini, docs/spec-notes/fonts.md; the same files as `chargen::draw`].
+const HEAD_FONT: &str = "textures\\fonts\\glow_monofonto_vl_dialogs.fnt";
 const BODY_FONT: &str = "textures\\fonts\\monofonto_large.fnt";
 
-/// The colours [design].
+/// The colours: all the interface's amber (`crate::interface::AMBER`) [owner
+/// 2026-10-17], at the brightnesses the other menus use for them [design]: text at 215
+/// (and fainter by alpha where it is a hint or not chosen), the trim, the chosen row's
+/// bar and band, the slider's fill and knob, Done's outline at full brightness, values at
+/// full brightness too.
 pub fn bone(alpha: f32) -> Color {
-    Color::srgba(0.93, 0.90, 0.84, alpha)
+    amber(215.0).with_alpha(alpha)
 }
 pub fn accent(alpha: f32) -> Color {
-    Color::srgba(0.37, 0.77, 0.72, alpha)
+    amber(255.0).with_alpha(alpha)
 }
 pub fn sand(alpha: f32) -> Color {
-    Color::srgba(0.85, 0.70, 0.46, alpha)
+    amber(255.0).with_alpha(alpha)
 }
-const PANEL: Color = Color::srgba(0.035, 0.045, 0.055, 0.82);
+/// The chosen row's band and the chosen button's fill: the menus' highlight fill, amber
+/// at brightness 128 and alpha 40 of 255 [documented: box.xml `_fill_alpha` 40, as
+/// `chargen::draw::Ctx::highlight`; design: a little stronger over the dark panel].
+pub fn highlight() -> Color {
+    amber(128.0).with_alpha(0.25)
+}
+
+/// The dark backing behind the panel (the text must stay readable over a bright room).
+const PANEL: Color = Color::srgba(0.0, 0.0, 0.0, 0.8);
 
 /// The panel's place.
 pub const PANEL_X: f32 = 32.0;
@@ -90,7 +110,7 @@ pub struct Kit {
 
 impl Kit {
     pub fn load(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool) -> Kit {
-        Kit { head: face(HEAD_FONT, plain_font(30.0, 16.0), data, images, bc), body: face(BODY_FONT, plain_font(31.0, 12.0), data, images, bc) }
+        Kit { head: face(HEAD_FONT, plain_font(34.0, 14.0), data, images, bc), body: face(BODY_FONT, plain_font(31.0, 12.0), data, images, bc) }
     }
 }
 
@@ -188,7 +208,7 @@ pub fn spawn(p: &mut ChildSpawnerCommands, m: &Model, kit: &Kit, view_w: f32) ->
     for (i, t) in TABS.iter().enumerate() {
         let x = LEFT + tab_w * i as f32;
         let on = *t == m.tab;
-        text(p, &kit.head, t.title(), x + tab_w / 2.0, 120.0, 0.62, Align::Centre, if on { bone(1.0) } else { bone(0.45) });
+        text(p, &kit.head, t.title(), x + tab_w / 2.0, 120.0, 0.75, Align::Centre, if on { bone(1.0) } else { bone(0.45) });
         if on {
             fill(p, x + 10.0, 154.0, tab_w - 20.0, 4.0, accent(1.0));
         }
@@ -210,7 +230,7 @@ pub fn spawn(p: &mut ChildSpawnerCommands, m: &Model, kit: &Kit, view_w: f32) ->
         }
         let on = chosen == Some(i);
         if on {
-            fill(p, PANEL_X + 4.0, y, PANEL_W - 4.0, h - 6.0, accent(0.10));
+            fill(p, PANEL_X + 4.0, y, PANEL_W - 4.0, h - 6.0, highlight());
             fill(p, PANEL_X + 4.0, y, 4.0, h - 6.0, accent(1.0));
         }
         hits.push(Hit { rect: [PANEL_X, y, PANEL_W, h], what: HitWhat::Row(i) });
@@ -279,15 +299,18 @@ pub fn spawn(p: &mut ChildSpawnerCommands, m: &Model, kit: &Kit, view_w: f32) ->
         let on = m.on_actions == Some(i);
         let done = i == ACTIONS.len() - 1;
         if on {
-            fill(p, x, ACTIONS_Y, bw, 48.0, accent(0.28));
+            fill(p, x, ACTIONS_Y, bw, 48.0, highlight());
         }
         outline(p, x, ACTIONS_Y, bw, 48.0, 2.0, if done || on { accent(1.0) } else { bone(0.35) });
-        text(p, &kit.head, a.title(), x + bw / 2.0, ACTIONS_Y + 10.0, 0.6, Align::Centre, bone(if on || done { 1.0 } else { 0.8 }));
+        text(p, &kit.head, a.title(), x + bw / 2.0, ACTIONS_Y + 8.0, 0.7, Align::Centre, bone(if on || done { 1.0 } else { 0.8 }));
         text(p, &kit.body, a.hint(), x + bw / 2.0, ACTIONS_Y + 54.0, 0.5, Align::Centre, bone(0.4));
         hits.push(Hit { rect: [x, ACTIONS_Y, bw, 48.0], what: HitWhat::Action(i) });
     }
     // How to look round, at the bottom of the picture.
-    text(p, &kit.body, "Right-drag or right stick: turn    Wheel or triggers: zoom", view_w - 40.0, 900.0, 0.6, Align::Right, bone(0.6));
+    // Over the picture: how to look round (the mouse, then the controller).
+    for (k, line) in ["Drag: turn    Right-drag or Shift-drag: pan    Wheel: zoom    C: reset view", "Right stick: turn    Left stick: pan    Triggers: zoom    Click right stick: reset view"].iter().enumerate() {
+        text(p, &kit.body, line, view_w - 40.0, 872.0 + 28.0 * k as f32, 0.6, Align::Right, bone(0.6));
+    }
     hits
 }
 
