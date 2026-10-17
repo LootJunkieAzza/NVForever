@@ -1476,16 +1476,16 @@ fn hold_player(
     script: Res<ScriptState>,
     active: Res<ActiveMenu>,
     paused: Res<crate::pause::Paused>,
-    wait: Res<crate::wait::WaitMenu>,
+    (wait, poker): (Res<crate::wait::WaitMenu>, Res<crate::poker::PokerScreen>),
     (terminal, lockpick, console, recipe): (Res<crate::terminal::TerminalScreen>, Res<crate::lockpick::LockpickScreen>, Res<crate::console::Console>, Option<Res<crate::crafting::RecipeMenu>>),
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
     // The pause menu is also a `PlayState::Menu` without an engine menu: it is its own.
     // So are the wait menu (`crate::wait`), a terminal (`crate::terminal`), the
-    // lockpicking menu (`crate::lockpick`), the console (`crate::console`) and the recipe
-    // menu (`crate::crafting`).
-    if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() || console.open || recipe.is_some_and(|r| r.is_open()) {
+    // lockpicking menu (`crate::lockpick`), the poker table (`crate::poker`), the console
+    // (`crate::console`) and the recipe menu (`crate::crafting`).
+    if active.0.is_some() || paused.0 || wait.is_open() || terminal.0.is_some() || lockpick.0.is_some() || poker.0.is_some() || console.open || recipe.is_some_and(|r| r.is_open()) {
         return;
     }
     let held = script.rt.as_ref().and_then(|rt| rt.game.menu).is_some_and(is_script_menu);

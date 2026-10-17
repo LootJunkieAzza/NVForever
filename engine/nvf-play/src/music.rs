@@ -683,15 +683,17 @@ fn play(
     state: Res<State<PlayState>>,
     mut assets: ResMut<Assets<LayeredMusic>>,
     (main_menu, intro): (Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>),
+    poker: Option<Res<crate::poker::PokerScreen>>,
 ) {
     let (Some(mut music), Some(places), Some(player), Some(data)) = (music, places, player, data) else { return };
     let music = &mut *music;
     let now = time.elapsed_secs();
     let eye = player.eye();
     let hour = game_hour(&sim);
-    // The place's music is silent under the main menu, which plays its own theme, and
-    // under the intro film, which has its own sound.
-    let front = main_menu.is_some_and(|m| m.open) || intro.is_some_and(|i| i.is_playing());
+    // The place's music is silent under the main menu, which plays its own theme, under
+    // the intro film, which has its own sound, and at the poker table, which plays its
+    // casino's station (`crate::poker`).
+    let front = main_menu.is_some_and(|m| m.open) || intro.is_some_and(|i| i.is_playing()) || poker.is_some_and(|p| p.0.is_some());
     let audible = settings.play && settings.volume > 0.0 && !front;
 
     // Music scripts asked for: beside the place's music.

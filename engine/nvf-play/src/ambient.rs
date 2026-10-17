@@ -19,8 +19,8 @@
 //! - Loops are decoded as they play (WAV or Ogg Vorbis, [`LayeredMusic`] with one file),
 //!   so a long one costs no more memory than its file. Placed loops are panned
 //!   ([`crate::sfx::Panned`], as the sound effects are), the background loop is not.
-//! - The Esc pause menu and a loading screen hold the loops; other menus do not
-//!   [design].
+//! - The Esc pause menu, a loading screen and the poker table (`crate::poker`) hold the
+//!   loops; other menus do not [design].
 //! - Not built: sound markers that neither loop nor play at random (played by scripts
 //!   or once), Random Location, Start at Random Position, Mute When Submerged, an
 //!   acoustic space's reverb environment, walla and region sounds (REGN `RDSD`).
@@ -170,7 +170,7 @@ fn play(
     places: Option<Res<AudioPlaces>>,
     sfx: Option<ResMut<Sfx>>,
     (d, loc, sim): (Res<PlayWorld>, Res<Location>, Res<SimState>),
-    (state, paused): (Res<State<PlayState>>, Res<Paused>),
+    (state, paused, poker): (Res<State<PlayState>>, Res<Paused>, Option<Res<crate::poker::PokerScreen>>),
     player: Option<Res<Player>>,
     data: Option<Res<nvf_assets::GameData>>,
     mut pcm: ResMut<Assets<PcmSound>>,
@@ -183,7 +183,8 @@ fn play(
         return;
     };
     let (amb, sfx) = (&mut *amb, &mut *sfx);
-    let held = paused.0 || *state.get() == PlayState::Loading;
+    // The poker table holds them too: it plays its casino's sounds (`crate::poker`).
+    let held = paused.0 || *state.get() == PlayState::Loading || poker.is_some_and(|p| p.0.is_some());
     let now = time.elapsed_secs_f64();
     let eye = player.eye();
     let hour = game_hour(&sim);
