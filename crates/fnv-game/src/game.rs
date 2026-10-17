@@ -301,6 +301,10 @@ pub struct RefExtra {
     /// The actor has been in a conversation with the player (GetTalkedToPC).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub talked_to_pc: bool,
+    /// SetDisposition: the disposition towards an actor, set by a script
+    /// (`functions::actor::get_disposition`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub dispositions: BTreeMap<FormId, f64>,
     /// The special idle the actor plays (IsIdlePlaying): told by whoever animates the
     /// actor ([`Game::set_idle_playing`]); not part of the saved state.
     #[serde(skip)]
@@ -934,6 +938,9 @@ pub struct GameSnapshot {
     /// Terminals hacked or locked out (`crate::terminal::Terminals::access`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub terminals: BTreeMap<FormId, crate::terminal::Access>,
+    /// Terminals scripts locked or unlocked (`crate::terminal::Terminals::script_locks`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub terminal_locks: BTreeMap<FormId, crate::terminal::ScriptLock>,
     /// The Pip-Boy radio as scripts and the player left it: on, and the station tuned.
     #[serde(default)]
     pub pipboy_radio_on: bool,
@@ -2503,6 +2510,7 @@ impl<'a> Game<'a> {
             image_modifiers: self.image_modifiers.clone(),
             locks: self.locks.clone(),
             terminals: self.terminals.access.clone(),
+            terminal_locks: self.terminals.script_locks.clone(),
             pipboy_radio_on: self.radio.pipboy.on,
             pipboy_station: self.radio.pipboy.station,
             npc_radios: self.radio.npc_radios.clone(),
@@ -2542,6 +2550,7 @@ impl<'a> Game<'a> {
         g.image_modifiers = s.image_modifiers.clone();
         g.locks = s.locks.clone();
         g.terminals.access = s.terminals.clone();
+        g.terminals.script_locks = s.terminal_locks.clone();
         g.radio.pipboy.on = s.pipboy_radio_on;
         g.radio.pipboy.station = s.pipboy_station;
         g.radio.npc_radios = s.npc_radios.clone();

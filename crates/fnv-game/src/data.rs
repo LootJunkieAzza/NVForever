@@ -401,6 +401,9 @@ pub struct ActorDef {
     pub fatigue: i64,
     pub speed_mult: i64,
     pub karma: f64,
+    /// ACBS Disposition Base [documented: xEdit]: 35 on the Goodsprings people
+    /// [observed], the disposition GetDisposition starts from.
+    pub disposition_base: i64,
     /// AIDT Aggression, Confidence, Responsibility, Mood and Assistance as their codes
     /// [documented: xEdit enumerations; GECK wiki Confidence for that scale].
     pub aggression: Option<i64>,
@@ -2146,6 +2149,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         (a.level_raw, a.calc_min, a.calc_max) = (n("level_or_level_mult_raw"), n("calc_min"), n("calc_max"));
                         (a.fatigue, a.speed_mult) = (n("fatigue"), n("speed_multiplier"));
                         a.karma = v.as_ref().and_then(|v| v.get("karma")).and_then(Json::as_f64).unwrap_or(0.0);
+                        a.disposition_base = n("disposition_base");
                         let tf = v.as_ref().and_then(|v| v.get("template_flags"));
                         a.template_packages = has_flag(tf, "AI Packages");
                         a.template_stats = has_flag(tf, "Stats");

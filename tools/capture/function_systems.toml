@@ -1,0 +1,532 @@
+# The script functions that do not simply match the original, for
+# docs/design/script-function-coverage.md (`function_coverage.py`). Every function the
+# audit (docs/design/script-function-audit.md §6) does not call "matches" or "fixed here"
+# is here; so are those it calls matches whose system is still missing.
+#
+# status: match | wrong (wrong or a stub while the system behind it exists) |
+#         no-system (the system is not built; `system` names it) | open (not settled)
+# Evidence tags as CLAUDE.md asks; "probes" are the function probes of 2026-10-17
+# (tools/capture/probes/audit2.toml), private outputs in C:\fnv-private\capture\probe.
+format = "fnv.function.systems/1"
+
+[groups]
+# Main quest: the intro chain (VCG*) and the main line with its faction branches (VMQ*)
+# [observed: quest names in FalloutNV.esm].
+main = ["^VCG0", "^VMQ"]
+# Companions: the follower quests, each companion's dialogue quest and the personal
+# quests named after them [observed: names; hypothesis for which quest is whose].
+companions = ["Followers", "VNPCFollowers", "VDialogueCraigBoone", "VMS39", "VDialogueRaul", "VDialogueRex", "VMS24",
+              "VDialogueCass", "VCassCompanion", "vDialogueLily", "VDialogueVeronica", "VMS49", "vDialogueEDE",
+              "VDialogueArcadeGannon", "VMS54", "VFollowerDialogueRose"]
+
+# ---------------------------------------------------------------- fixed in this round
+
+[function.GetDisposition]
+status = "match"
+note = "Base + fDispTargetCharMult x (target's Charisma - 5), 0..100; SetDisposition wins [observed: probes, 13 values]. Faction and crime modifiers not applied (none seen)."
+
+[function.SetDisposition]
+status = "match"
+note = "GetDisposition reads the value set [observed: probes]."
+
+[function.IsFacingUp]
+status = "match"
+note = "1 on a standing actor [observed: probes]; knockdowns are not built, so never 0."
+
+[function.IsLeftUp]
+status = "match"
+note = "As IsFacingUp [observed: probes]."
+
+[function.GetLocked]
+status = "match"
+note = "Terminals now: 0 unloaded, 1 with lock data, 2 after Lock, 0 after Unlock [observed: probes]; doors and containers unchanged."
+
+[function.GetLockLevel]
+status = "match"
+note = "Terminals: their difficulty (Easy 1), 5 after Lock 50, -1 after Unlock, 0 unloaded; a load door without lock data reads its other side's (255 at the gas station); 0 without a lock [observed: probes fp1, fp3, fp7]."
+[function.Lock]
+status = "match"
+note = "On a terminal: locked at the level (at most 5), the terminal's own state, read by the opening [observed: probes; documented: GECK wiki Lock]."
+
+[function.Unlock]
+status = "match"
+note = "On a terminal: it opens at its menu [documented: GECK wiki Unlock]; GetLocked 0, GetLockLevel -1 [observed: probes]."
+
+[function.GetPCMiscStat]
+status = "wrong"
+system = "player statistics counters"
+note = "The two names the shipped scripts ask for now count: Locations Discovered the found map markers [hypothesis, one data point], Times Addicted the addiction rolls. People Killed read 1 after a kill in the original [observed]; the codes of the other wiki names are not known, so no script can ask for them."
+
+[function.RewardXP]
+status = "match"
+note = "Levelling by experience exists now (experience.rs, levelup.rs); the audit's gap is closed."
+
+# ---------------------------------------------------------------- open or settled by the probes
+
+[function.GetCurrentAIPackage]
+status = "match"
+note = "Codes agree where both run the same package: Sandbox 36, Dialogue 34, Travel 14, Patrol 37; 0 with no package (was -1) [observed: probes fp7 with GetIsCurrentPackage]. Other differences were different package choices (the save's hour and quest state)."
+[function.GetCurrentAIProcedure]
+status = "wrong"
+system = "AI package codes"
+note = "A Dialogue package reads 43 (was 4), no package 0 (was -1) [observed: Sunny; Trudy, Joe Cobb]. Still apart: a loaded actor sandboxing read 0 (ours 45), an unloaded one 45; a Travel package at its chair 17 [observed: probes]."
+[function.HasLoaded3D]
+status = "match"
+note = "The original needed 1 game loop after a cell load or MoveTo [observed: probes]; ours answers at once."
+
+[function.GetSleeping]
+status = "open"
+note = "0 for the player with the bed's sleep menu open (MenuMode 1012) [observed: probes]; ours gives 3 while the engine lays the player on a bed (an owner request); not seen while sleeping."
+
+[function.IsTalking]
+status = "match"
+note = "0 for Ringo, Sunny and the player at rest [observed: probes]; not seen during a conversation."
+
+[function.IsTrespassing]
+status = "match"
+note = "0 for Ringo and the player in the gas station [observed: probes]."
+
+[function.GetAlarmed]
+status = "match"
+note = "0 at rest [observed: probes]; meaning still hypothesis."
+
+[function.GetShouldAttack]
+status = "match"
+note = "0 for Ringo towards the player [observed: probes]; no wiki page."
+
+[function.IsAnimPlaying]
+status = "wrong"
+system = "animation state told to the rules"
+note = "Sunny standing read IsAnimPlaying Idle 1 [observed: probes]: the actor's own idle counts; ours counts PlayGroup groups only."
+
+[function.IsIdlePlaying]
+status = "wrong"
+system = "animation state told to the rules"
+note = "Easy Pete sitting read 1 [observed: probes]; ours 0 headless; the engine tells PlayIdle idles only."
+
+[function.IsInCriticalStage]
+status = "match"
+note = "`IsInCriticalStage None` 1 and GooStart / DisintegrateEnd 0 on a live actor, as ours [observed: probes fp7]; the parameter is a stage name (a number does not compile). No engine critical death sets a stage (see SetCriticalStage)."
+[function.GetDetected]
+status = "wrong"
+system = "detection beyond the player's reach; the player as a detector"
+note = "player.GetDetected Ringo 1 and Chet 1 in the original [observed: probes]; ours 0 for the player as detector and for pairs the engine does not measure."
+
+[function.GetLineOfSight]
+status = "wrong"
+system = "detection beyond the player's reach; the player as a detector"
+note = "player.GetLineOfSight Ringo 1 [observed: probes; and 1 at 41 units, audit §3]; ours 0."
+
+[function.IsInCombat]
+status = "wrong"
+system = "detection beyond the player's reach; the player as a detector"
+note = "Correct near the player; NPC fights out of the player's detection reach never start (audit §5)."
+
+[function.GetActionRef]
+status = "open"
+system = "NPCs activating doors"
+note = "Correct for scripts and the player; whether an NPC opening a door fires its OnActivate is not captured (attended)."
+
+[function.IsActionRef]
+status = "open"
+system = "NPCs activating doors"
+note = "As GetActionRef."
+
+[function.ResetAI]
+status = "open"
+note = "Combat is not reset; capture of ResetAI on an actor in combat (attended)."
+
+[function.GetCasinoWinningsLevel]
+status = "open"
+note = "Blackjack and roulette count winnings; whether cashing chips counts needs a capture (attended)."
+
+[function.GetCasinoWinningStage]
+status = "open"
+note = "As GetCasinoWinningsLevel."
+
+# ---------------------------------------------------------------- wrong or stub, the system exists
+
+[function.EquipItem]
+status = "wrong"
+system = "NPC equipment drawn from the rules"
+note = "The rules' flags change; the engine dresses NPCs by its own roll and does not redraw (audit §5)."
+
+[function.UnequipItem]
+status = "wrong"
+system = "NPC equipment drawn from the rules"
+note = "As EquipItem."
+
+[function.GetChallengeCompleted]
+status = "wrong"
+system = "challenge counters"
+note = "Only scripted challenges progress; kill challenges (CHAL Kill from a Form List) never count."
+
+[function.GetDialogueEmotion]
+status = "wrong"
+system = "dialogue: current response"
+note = "SayTo/Say lines read the first response's emotion throughout (audit §6)."
+
+[function.GetKnockedState]
+status = "no-system"
+system = "knockdowns and knock-outs"
+note = "Never 2: explosion knockdowns are rolled in the engine but not animated or told; 1 never clears after an essential knock-out."
+
+[function.GetUnconscious]
+status = "no-system"
+system = "knockdowns and knock-outs"
+note = "An essential knocked out stays unconscious for good; 0 for Ringo at rest and dead [observed: probes]."
+
+[function.PushActorAway]
+status = "no-system"
+system = "knockdowns and knock-outs"
+note = "Stub."
+
+[function.GetOwnerLastTarget]
+status = "wrong"
+system = "combat targets told to weapon scripts"
+note = "Stub; combat targets exist (awareness). Called by weapon scripts (cattle prod, boxing gloves)."
+
+[function.IsMoving]
+status = "wrong"
+system = "animation state told to the rules"
+note = "Only 0/1; backward/left/right (2-4) never, though the player's move intent holds them. 0 at rest matches [observed: probes]."
+
+[function.IsPlayerActionActive]
+status = "wrong"
+system = "animation state told to the rules"
+note = "Stub 0; 0 at rest matches [observed: probes]. The engine knows aiming (OWB asks action 9, iron sights)."
+
+[function.IsSpellTarget]
+status = "wrong"
+system = "actor abilities and worn enchantments as effects"
+note = "Abilities (SPLO) and enchantments are never in the effects list."
+
+[function.HasMagicEffect]
+status = "wrong"
+system = "actor abilities and worn enchantments as effects"
+note = "As IsSpellTarget."
+
+[function.RemoveSpell]
+status = "wrong"
+system = "actor abilities and worn enchantments as effects"
+note = "Cannot remove authored abilities (never applied)."
+
+[function.Look]
+status = "wrong"
+system = "Look turning the body"
+note = "The rotate-body flag is kept, not drawn."
+
+[function.MenuMode]
+status = "wrong"
+system = "menu codes: Pip-Boy as 1, loading 1007, start menu 1013"
+note = "MenuMode 1 is compared as a literal code; 1007/1013 never set (audit §5). The sleep menu is 1012 [observed: probes]."
+
+[function.SetLevel]
+status = "wrong"
+system = "NPC inventory re-rolled on SetLevel"
+note = "6 calls; minor."
+
+[function.SetPCCanUsePowerArmor]
+status = "wrong"
+system = "power armour training"
+note = "Stored, never read: equipping power armour is not gated."
+
+[function.SetScale]
+status = "wrong"
+system = "drawn scale (SetScale)"
+note = "GetScale is right; the drawn size does not change."
+
+[function.SexChange]
+status = "wrong"
+system = "race and sex change on NPCs"
+note = "Errors on NPCs; all base-game callers are the player."
+
+[function.PlaceAtReticle]
+status = "wrong"
+system = "crosshair placement"
+note = "Stub; the engine has the crosshair ray."
+
+[function.SystemSave]
+status = "wrong"
+system = "saves from scripts"
+note = "Stub; saves and Autosave exist."
+
+[function.ForceSave]
+status = "wrong"
+system = "saves from scripts"
+note = "As SystemSave."
+
+[function.SetCellImageSpace]
+status = "wrong"
+system = "cell image spaces"
+note = "Stub; image modifiers exist."
+
+[function.PickIdle]
+status = "wrong"
+system = "IDLE-tree idles picked by scripts"
+note = "Stub; furniture and weapon fidgets use the IDLE tree already."
+
+[function.PlayBink]
+status = "wrong"
+system = "Bink videos"
+note = "Stub; the intro decoder exists (licence note)."
+
+[function.IsSwimming]
+status = "wrong"
+system = "swimming told to the rules"
+note = "Stub 0; 0 for the player and Ringo on land matches [observed: probes]. The engine knows the player swims."
+
+[function.ExitGame]
+status = "wrong"
+system = "quitting from scripts"
+note = "Stub, 1 call; the console's qqq exists."
+
+[function.AutoDisplayObjectives]
+status = "wrong"
+system = "objective display switch"
+note = "Implementable (script-stubs.md)."
+
+[function.ResetPipboyManager]
+status = "wrong"
+system = "Pip-Boy reset"
+note = "Stub, 4 calls."
+
+# ---------------------------------------------------------------- no system yet
+
+[function.GetVATSValue]
+status = "no-system"
+system = "VATS"
+note = "Stub; 0 outside VATS [hypothesis]."
+
+[function.SetVatsTarget]
+status = "no-system"
+system = "VATS"
+note = "Stub."
+
+[function.GetVATSTargetHeight]
+status = "no-system"
+system = "VATS"
+note = "Stub."
+
+[function.GetVATSMode]
+status = "no-system"
+system = "VATS"
+note = "0 outside VATS matches [observed: probes]."
+
+[function.IsLimbGone]
+status = "no-system"
+system = "dismemberment and critical deaths"
+note = "0 on Ringo matches [observed: probes]."
+
+[function.AttachAshPile]
+status = "no-system"
+system = "dismemberment and critical deaths"
+note = "Stub."
+
+[function.GetIsUsedItem]
+status = "no-system"
+system = "used-item AI"
+note = "Condition only."
+
+[function.GetIsUsedItemType]
+status = "no-system"
+system = "used-item AI"
+note = "Condition only."
+
+[function.GetIsUsedItemEquipType]
+status = "no-system"
+system = "used-item AI"
+note = "Condition only."
+
+[function.GetUsedItemActivate]
+status = "no-system"
+system = "used-item AI"
+note = "0 at rest matches [observed: probes]."
+
+[function.GetRadiationLevel]
+status = "no-system"
+system = "environment radiation"
+note = "0 in the gas station matches [observed: probes]."
+
+[function.IsActorTalkingThroughActivator]
+status = "no-system"
+system = "talking activators"
+note = "0 at rest matches [observed: probes]."
+
+[function.IsPlayerGrabbedRef]
+status = "no-system"
+system = "grabbing objects"
+note = "0 at rest matches [observed: probes]."
+
+[function.StartCannibal]
+status = "no-system"
+system = "Cannibal and Mister Sandman"
+note = "Stub."
+
+[function.GetCannibal]
+status = "no-system"
+system = "Cannibal and Mister Sandman"
+note = "0 at rest matches [observed: probes]."
+
+[function.HasBeenEaten]
+status = "no-system"
+system = "Cannibal and Mister Sandman"
+note = "0 at rest matches [observed: probes]."
+
+[function.StartMisterSandman]
+status = "no-system"
+system = "Cannibal and Mister Sandman"
+note = "Stub."
+
+[function.GetSandman]
+status = "no-system"
+system = "Cannibal and Mister Sandman"
+note = "0 at rest matches [observed: probes]."
+
+[function.GetPlantedExplosive]
+status = "no-system"
+system = "planted explosives (reverse pickpocket)"
+note = "0 at rest matches [observed: probes]."
+
+[function.GetForceHitReaction]
+status = "no-system"
+system = "forced hit reactions"
+note = "0 at rest matches [observed: probes]."
+
+[function.IsWaterObject]
+status = "no-system"
+system = "drinking from water"
+note = "Condition only."
+
+[function.ShowCaravanMenu]
+status = "no-system"
+system = "Caravan card game"
+note = "Stub."
+
+[function.AddCardToPlayer]
+status = "no-system"
+system = "Caravan card game"
+note = "Stub."
+
+[function.ShowSlotMachineMenuParams]
+status = "no-system"
+system = "casino slot machines"
+note = "Stub; blackjack and roulette are built."
+
+[function.ShowRepairMenu]
+status = "no-system"
+system = "repair menu"
+note = "Item condition exists; repair does not."
+
+[function.ShowBarberMenu]
+status = "no-system"
+system = "barber, plastic surgeon and tutorial menus"
+note = "Stub."
+
+[function.ShowPlasticSurgeonMenu]
+status = "no-system"
+system = "barber, plastic surgeon and tutorial menus"
+note = "Stub."
+
+[function.ShowTutorialMenu]
+status = "no-system"
+system = "barber, plastic surgeon and tutorial menus"
+note = "Stub."
+
+[function.TriggerScreenSplatter]
+status = "no-system"
+system = "screen blood splatter"
+note = "Stub."
+
+[function.SetScreenSplatterFade]
+status = "no-system"
+system = "screen blood splatter"
+note = "Stub."
+
+[function.ClearScreenSplatter]
+status = "no-system"
+system = "screen blood splatter"
+note = "Stub."
+
+[function.AgeRace]
+status = "no-system"
+system = "race and sex change on NPCs"
+note = "Stub, 2 calls."
+
+[function.EnableLoadingMenu]
+status = "no-system"
+system = "loading screen control"
+note = "Stub."
+
+[function.trapUpdate]
+status = "no-system"
+system = "trap updates"
+note = "Stub; the catalogue says nothing."
+
+[function.EnableNavMesh]
+status = "no-system"
+system = "navmesh switches"
+note = "Stub."
+
+[function.DisableNavmesh]
+status = "no-system"
+system = "navmesh switches"
+note = "Stub."
+
+[function.setAllReachable]
+status = "no-system"
+system = "navmesh switches"
+note = "Stub."
+
+# ---------------------------------------------------------------- deliberately nothing
+
+[function.SetAllVisible]
+status = "match"
+note = "A performance switch: nothing to do here."
+
+[function.SetNoAvoidance]
+status = "match"
+note = "A performance switch: nothing to do here."
+
+[function.SetSceneIsComplex]
+status = "match"
+note = "No-op (script-stubs.md §5)."
+
+[function.SetRumble]
+status = "match"
+note = "No-op (script-stubs.md §5); the controller workstream may take it."
+
+[function.PurgeCellBuffers]
+status = "match"
+note = "No-op (script-stubs.md §5)."
+
+[function.PreloadMagicEffect]
+status = "match"
+note = "No-op (script-stubs.md §5)."
+
+# ---------------------------------------------------------------- the audit says matches, the system is missing
+
+[function.EnableFastTravel]
+status = "no-system"
+system = "fast travel"
+note = "The switch is kept; fast travel itself is not built."
+
+[function.IsTimePassing]
+status = "no-system"
+system = "fast travel"
+note = "Waiting and sleeping count; travelling never does."
+
+[function.SetCriticalStage]
+status = "no-system"
+system = "dismemberment and critical deaths"
+note = "The stage is kept; goo and disintegration effects are not built."
+
+[function.ResurrectActor]
+status = "wrong"
+system = "corpses stood up again"
+note = "Rules state right (dead, cause, health) [observed: probes]; the engine does not stand a corpse up."
+
+[function.SetUnconscious]
+status = "no-system"
+system = "knockdowns and knock-outs"
+note = "Unconscious actors stop walking; lying down is not built."

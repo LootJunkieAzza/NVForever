@@ -1829,16 +1829,19 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # The script function audit implemented GetAnimAction (44 calls, 1 condition use, §3.9):
 # 59 → 58 stubs, 300 → 256 calls, 482 → 481 condition uses.
 # claude/blackjack implemented ShowBlackJackMenuParams (6 calls, §3.10): 58 → 57 stubs,
-# 256 → 250 calls.
+# 256 → 250 calls. claude/roulette implemented ShowRouletteMenuParams (6 calls): 57 → 56,
+# 250 → 244. The function probes (script-function-coverage.md §4) implemented
+# GetDisposition, SetDisposition, IsFacingUp and IsLeftUp (2 calls, 78 condition uses,
+# observed in game): 56 → 52 stubs, 244 → 242 calls, 481 → 403 condition uses.
 expect = [
-  { json = "summary.stubs", equals = 57 },
+  { json = "summary.stubs", equals = 52 },
   { json = "summary.by_status.assigned", equals = 1 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 55 },
+  { json = "summary.by_status.needs_system", equals = 50 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
-  { json = "summary.stub_calls", equals = 250 },
-  { json = "summary.stub_condition_uses", equals = 481 },
+  { json = "summary.stub_calls", equals = 242 },
+  { json = "summary.stub_condition_uses", equals = 403 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
 
