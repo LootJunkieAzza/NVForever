@@ -257,9 +257,13 @@ fn draw(
     areas: Query<Entity, With<SubtitleArea>>,
     player: Option<Res<crate::player::Player>>,
     (data, mut images, formats, mut font): (Option<Res<GameData>>, ResMut<Assets<Image>>, Option<Res<CompressedImageFormatSupport>>, Local<Option<Face>>),
-    creator: Option<Res<crate::creator::CreatorData>>,
+    (creator, creator_menu): (Option<Res<crate::creator::CreatorData>>, Option<Res<crate::creator::CreatorMenu>>),
 ) {
-    let (p, front, subs) = view(&hud, &script, &sim, player.as_deref(), creator.is_some());
+    let (p, front, mut subs) = view(&hud, &script, &sim, player.as_deref(), creator.is_some());
+    // No subtitles over the character creator; they are still logged [owner 2026-10-17].
+    if creator_menu.is_some_and(|c| c.is_open()) {
+        subs.on_screen.clear();
+    }
     hud.on_screen = front;
     if panel.view != p {
         panel.set(p);

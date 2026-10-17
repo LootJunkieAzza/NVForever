@@ -1356,6 +1356,34 @@ fn an_npc_starts_with_its_outfit_and_weapon_equipped() {
     assert!(!w.outfit(FormId::PLAYER_REF).unwrap());
 }
 
+#[test]
+fn an_npcs_equipment_is_what_it_has_equipped_once_outfitted() {
+    // World::equipment, what the engine draws: the equipped items once outfitted (EquipItem
+    // and UnequipItem change it), before that the items the outfitting will equip.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let g = w.place(id(GUARD), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    let set = |v: Option<Vec<FormId>>| -> Vec<u32> {
+        let mut v: Vec<u32> = v.unwrap().into_iter().map(|i| i.0).collect();
+        v.sort();
+        v
+    };
+    let mut dressed = vec![HELMET, SUIT, LONG_GUN];
+    dressed.sort();
+    assert_eq!(set(w.equipment(g)), dressed);
+    w.unequip(g, id(SUIT)).unwrap();
+    w.equip(g, id(PISTOL)).unwrap();
+    let mut now = vec![HELMET, PISTOL];
+    now.sort();
+    assert_eq!(set(w.equipment(g)), now);
+    // Not outfitted yet: what the outfitting would equip, whatever the flags say.
+    w.get(g).unwrap().outfitted = false;
+    assert_eq!(set(w.equipment(g)), dressed);
+    // A container is no actor.
+    let s = w.place(id(SAFE), None, [0.0; 3], [0.0; 3], 1).unwrap();
+    assert!(w.equipment(s).is_none());
+}
+
 // ---- quest items ----------------------------------------------------------------
 
 #[test]

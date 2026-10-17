@@ -465,11 +465,13 @@ fn barter_put_up_take_back_and_accept() {
     let t = m.trade.as_ref().unwrap();
     assert!(t.is_empty());
     assert_eq!((t.purse, t.balance), ([110, 95], 0));
+    assert!(t.affordable());
     // Buy the rifle: 330 caps, more than the player has.
     select(&mut m, Side::Container, "Varmint Rifle");
     m.apply(&mut w, Command::One);
     assert_eq!(prices(m.list(Side::Player))[0], ("Varmint Rifle", 1, "330".into(), true));
     assert_eq!(m.trade.as_ref().unwrap().balance, -330);
+    assert!(!m.trade.as_ref().unwrap().affordable());
     m.apply(&mut w, Command::Accept);
     assert_eq!(m.status.as_deref(), Some("You don't have enough caps."));
     assert_eq!(count(&mut w, 0x14, RIFLE), 0);
@@ -483,6 +485,7 @@ fn barter_put_up_take_back_and_accept() {
     select(&mut m, Side::Container, "tin can");
     m.apply(&mut w, Command::Stack);
     assert_eq!(m.trade.as_ref().unwrap().balance, 36 - 4);
+    assert!(m.trade.as_ref().unwrap().affordable());
     m.apply(&mut w, Command::Accept);
     assert_eq!(m.status.as_deref(), Some("Traded: received 32 caps"));
     assert_eq!((count(&mut w, 0x14, AID), count(&mut w, 0x14, CAN), count(&mut w, 0x14, CAPS)), (0, 2, 127));
@@ -497,6 +500,7 @@ fn a_merchant_without_enough_caps_cannot_buy() {
     let mut m = barter(&mut w);
     select(&mut m, Side::Player, "Varmint Rifle");
     m.apply(&mut w, Command::One);
+    assert!(!m.trade.as_ref().unwrap().affordable());
     m.apply(&mut w, Command::Accept);
     assert_eq!(m.status.as_deref(), Some("Cash Box doesn't have enough caps."));
     assert_eq!(count(&mut w, 0x14, RIFLE), 1);

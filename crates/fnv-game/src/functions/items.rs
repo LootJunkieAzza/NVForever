@@ -99,6 +99,8 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     } else {
         g.item_event(actor, item, event::ON_EQUIP, Some(Value::Ref(actor.0)));
     }
+    // A worn enchantment takes hold at once (`crate::abilities`).
+    g.sync_actor_effects(actor);
     none()
 }
 
@@ -108,6 +110,7 @@ pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     if g.world.unequip(actor, item).map_err(|e| e.to_string())? {
         g.item_event(actor, item, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
     }
+    g.sync_actor_effects(actor);
     none()
 }
 

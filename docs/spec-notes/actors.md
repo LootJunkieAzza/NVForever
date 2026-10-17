@@ -1951,3 +1951,90 @@ turn is made against (§12.3): yaw to either side of straight ahead, pitch up an
 - Eyes do not move; a target beyond the turn limit is looked at with the head at the
   limit.
 - The original's values (§12.1, "Not captured").
+
+## 13. Feet on the ground (NVForever design)
+
+On a slope or a step an actor's feet stand on the ground under each of them: the body is
+lowered for the lower foot and the higher foot's knee bends further (owner request
+2026-10-17, with three screenshots of the original taken on the slopes around
+Goodsprings, kept privately in `C:\fnv-private\legincline`). Like §12 this is an
+**NVForever design feature, not a parity target**: the original's method, limits and
+timings are not captured. Engine: `engine/nvforever/src/foot_ik.rs` (the solve and its
+tests are in the same file).
+
+### 13.1 Facts used
+
+- **What the original shows** [observed: the owner's screenshots, 2026-10-17]: the player
+  character in third person standing across a slope has the uphill foot higher and its
+  knee bent further than the downhill one, both soles on the ground; standing on a
+  slope facing up or down it, the feet lie on the slope.
+- **The clips stand on level ground at the root**: a standing actor's ankles are about 7
+  units above its root and a walking one's lift a little more, with the pelvis height on
+  `Bip01 NonAccum` (floating-actors.md §2) [observed]. The body is drawn on the bare
+  surface (floating-actors.md §6).
+- **The human leg chain** (`characters\_male\skeleton.nif`): `Bip01 L Thigh` →
+  `Bip01 L Calf` → `Bip01 L Foot`, and the same for `R`, with `Bip01 NonAccum` above
+  the pelvis [observed: the `foot ik:` log line of `--play` runs, 2026-10-17]. The dog's
+  and the brahmin's skeletons name their hind legs the same way and stand on their
+  `Hand` bones [observed: the same lines]; they are left out (§13.2). Whether
+  the body part data's "IK Data" flags (§12.1) have anything to do with feet in the
+  original is not known.
+
+### 13.2 Rules [design]
+
+- **Who**: drawn, living actors whose skeleton has the leg chain of §13.1 (NPCs, the
+  player's third-person body, creatures on such a skeleton) and stands on two legs
+  (no `Bip01 L Hand` below half the hips' height in the bind pose), within 2,500 units of the
+  camera, not on furniture, not swimming or in the air (the physics character's own
+  flags). Otherwise the legs ease back to the animation.
+- **Ground**: with `--play`, a ray straight down through each ankle in the collision
+  world (terrain and static models; the actor's own capsule, other characters, hit
+  volumes and the layers a character walks through are ignored), from 45 units above
+  the root to 60 below; without `--play`, the drawn landscape's heights and the slope
+  from them. Ground more than 40 units above the root is not stood on (the foot is
+  inside a rock or a crate): that foot keeps the animation.
+- **Body and legs**: with `h` the ground's height under a foot against the root, the
+  body (`Bip01 NonAccum`) is lowered by the lower of the two when it is below the root
+  (28 units at most), and each foot is then raised by its own `h` less that drop (40
+  units at most). A two-bone solve turns the thigh and the calf so the ankle reaches
+  that point, the knee staying in the plane the animation bends it in (a straight leg
+  bends forward); the bone lengths do not change.
+- **Foot on the slope**: each foot is turned from level to the ground's normal under
+  it, 35° at most, fully while the animation holds the ankle within 3 units of its bind
+  height and not at all from 14 units up, so a stepping foot swings as animated.
+- **Easing**: the drop, the raises and the foot turns follow their targets at a rate of
+  12 a second (exponential), in and out.
+- **Switch**: `--no-foot-ik`, and the settings page's "Feet follow the ground".
+
+### 13.3 Engine
+
+`foot_ik.rs` runs in `Update` after `locomotion::drive` and the player's body
+(`BodySet`), before transforms are propagated, on top of the animated pose: it writes
+`Bip01 NonAccum`'s translation and the six leg bones' rotations. As head tracking
+(§12.3), it remembers what it wrote so a bone no clip poses this frame is not moved
+twice. Log lines start `foot ik:`: one per skeleton (which body node is lowered), and at
+the end of a run how many actors stood on uneven ground, the largest drop, raise and
+foot turn, and the time a frame.
+
+### 13.4 Checks (2026-10-17, owner's install)
+
+- Smoke `foot-ik-goodsprings`: the player put on a hillside east of Goodsprings
+  (-62336, 4352; about 20° by the landscape heights) and seen in third person: body
+  lowered 2.9 units, uphill foot raised 4.5, feet turned 19° onto the slope; ground found
+  under every foot looked at; 0.13 ms a frame for all actors [observed].
+- On a steeper patch (-63488, 7936) with and without `--no-foot-ik`, seen from behind:
+  the body stands about 3 units lower with the feet on the ground and nothing bent
+  backwards; at a standing stance (feet about 16 units apart) the difference is small
+  by eye (screenshots kept privately) [observed]. Not yet compared by eye against the
+  owner's reference screenshots on the same slope.
+- First run near Cook-Cook's camp: an NPC's foot was raised the full 40 units, the
+  ground found above it being a prop or rock the foot stood in; such ground is now not
+  stood on (§13.2) [observed].
+
+### 13.5 Open
+
+- The original's limits and speed (a capture of the ankle and pelvis heights on a known
+  slope would make this a parity target).
+- Creatures with four legs or other leg names are not placed.
+- The hit capsules (`limbs.rs`) follow the placed legs, since they are read after
+  propagation; the ragdoll starts from the placed pose.

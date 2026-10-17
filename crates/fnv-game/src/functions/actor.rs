@@ -63,9 +63,31 @@ pub fn av_by_name(name: &str) -> Option<u16> {
     AV_NAMES.iter().position(|n| squash(n) == want).map(|i| i as u16)
 }
 
-/// An actor value code from its name: the script name the decoder uses
-/// (`encodings.json`, e.g. `NightEye`, `PerceptionCondition`) or the xEdit name, either
-/// without regard to case and spaces (`Nighteye`, `Night Eye`), or a number.
+/// Script names of actor values that shipped source never spells (so `encodings.json`
+/// has none) and whose xEdit name squashes to something else. Each is its AVIF record's
+/// Editor ID without the `AV` prefix [observed: FalloutNV.esm AVIF `AVCritChance`
+/// 0x44E, `AVPoisonResist` 0x453, `AVDetectLifeRange` 0x5E1, `AVFireResist` 0x5E2,
+/// `AVEnergyResist` 0x5EA; the masters' AVIF FormIDs run in code order]. The original
+/// compiler takes that name [observed: `GetAV PoisonResist` compiled and answered 125 in
+/// the game, capture abilities-1; hypothesis for the others: every spelling of shipped
+/// source is its AVIF Editor ID without `AV`, except Guns (AVSmallGuns) and Survival
+/// (AVThrowing)]. Electric, Frost and EMP resistance have no AVIF record in the masters;
+/// their names follow the pattern [hypothesis].
+const SCRIPT_AV_NAMES: [(u16, &str); 8] = [
+    (14, "CritChance"),
+    (19, "PoisonResist"),
+    (51, "DetectLifeRange"),
+    (52, "FireResist"),
+    (58, "ElectricResist"),
+    (59, "FrostResist"),
+    (60, "EnergyResist"),
+    (61, "EMPResist"),
+];
+
+/// An actor value code from its name: the script name (the decoder's, `encodings.json`,
+/// e.g. `NightEye`, `PerceptionCondition`, else [`SCRIPT_AV_NAMES`], e.g. `PoisonResist`)
+/// or the xEdit name, either without regard to case and spaces (`Nighteye`, `Night
+/// Eye`), or a number.
 pub fn av_code(g: &Game, name: &str) -> Result<u16, String> {
     if let Ok(n) = name.parse::<u16>() {
         return Ok(n);
@@ -75,6 +97,9 @@ pub fn av_code(g: &Game, name: &str) -> Result<u16, String> {
         if let Some((&c, _)) = m.iter().find(|(_, n)| squash(n) == want) {
             return Ok(c);
         }
+    }
+    if let Some((c, _)) = SCRIPT_AV_NAMES.iter().find(|(_, n)| squash(n) == want) {
+        return Ok(*c);
     }
     AV_NAMES.iter().position(|n| squash(n) == want).map(|i| i as u16).ok_or_else(|| format!("no actor value named {name:?}"))
 }
@@ -240,6 +265,8 @@ pub fn set_current(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(),
 
 pub fn get_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    // Authored abilities and worn enchantments are in the modifiers (`crate::abilities`).
+    g.sync_actor_effects(r);
     Ok(Value::Num(actor_value(g, r, a.code(0)?)?))
 }
 
@@ -254,6 +281,7 @@ pub fn get_base_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
 /// GECK wiki ActorValue, "the combined base value + the permanent modifier"].
 pub fn get_permanent_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    g.sync_actor_effects(r);
     Ok(Value::Num(permanent(g, r, a.code(0)?)?))
 }
 

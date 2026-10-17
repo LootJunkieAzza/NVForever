@@ -387,3 +387,23 @@ fn something_that_is_no_actor_has_no_attributes() {
     assert_eq!(fnv_game::functions::actor_value(&mut g, chest, av::BARTER).unwrap(), 0.0);
     assert_eq!(fnv_game::functions::actor_value(&mut g, chest, 25).unwrap(), 100.0);
 }
+
+#[test]
+fn script_names_without_a_shipped_spelling_resolve() {
+    // `GetAV PoisonResist` compiles in the original game (capture abilities-1); shipped
+    // source never spells code 19, so encodings.json has no name for it.
+    let f = fixture();
+    let g = game(&f);
+    let av = |s: &str| fnv_game::functions::av_code(&g, s);
+    assert_eq!(av("PoisonResist"), Ok(19));
+    assert_eq!(av("poisonresist"), Ok(19));
+    assert_eq!(av("Poison Resistance"), Ok(19));
+    assert_eq!(av("CritChance"), Ok(14));
+    assert_eq!(av("FireResist"), Ok(52));
+    assert_eq!(av("EnergyResist"), Ok(60));
+    // The shipped spellings and the xEdit names still win.
+    assert_eq!(av("DamageResist"), Ok(18));
+    assert_eq!(av("RadResist"), Ok(20));
+    assert_eq!(av("Energy"), Ok(2));
+    assert!(av("PoisonResistance2").is_err());
+}

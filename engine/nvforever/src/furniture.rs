@@ -730,6 +730,13 @@ pub struct PlayerUse {
     serial: u32,
 }
 
+impl PlayerUse {
+    /// Whether the player is on furniture (getting on, on it, or getting off).
+    pub fn in_use(&self) -> bool {
+        self.using.is_some()
+    }
+}
+
 /// Where a getting-on or getting-off clip has the root at `t` seconds into it: the
 /// player's body holds `Bip01` still (`nvf_assets::anim_blend`), so the root follows its
 /// track.

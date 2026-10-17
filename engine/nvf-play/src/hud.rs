@@ -376,7 +376,11 @@ fn gather(
     // [documented: GECK wiki DisablePlayerControls, the movement flag: "HUD is partially
     // disabled: Action Points, Health, Crosshair".]
     let held = locks.is_some_and(|l| l.movement);
-    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held, ..view.clone() };
+    // Nor over the character creator (its camera is up), whatever state the opening
+    // leaves the game in [owner 2026-10-17: "hide the UI so no health bar or AP or
+    // dialogue"].
+    let creating = control.as_ref().is_some_and(|c| c.portrait.is_some());
+    let mut now = HudView { shown: *state.get() == PlayState::Playing && !held && !creating, ..view.clone() };
     if let Some(p) = &player {
         now.heading = p.heading.to_degrees();
     }
@@ -430,7 +434,7 @@ pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HudView>()
-            .add_plugins(crate::hud_target::HudTargetPlugin)
+            .add_plugins((crate::hud_target::HudTargetPlugin, crate::hud_limbs::HudLimbsPlugin))
             .add_systems(Update, (gather, draw, pips, texts).chain().in_set(HudSet).in_set(PlaySet::Ui));
     }
 }

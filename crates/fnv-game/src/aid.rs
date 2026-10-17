@@ -175,11 +175,13 @@ pub struct Mods {
     /// and the same item's active effect is refreshed rather than lengthened
     /// (docs/spec-notes/hit-effects.md §2, §3).
     pub hit: bool,
+    /// A worn enchantment: the equipped item it comes from (`crate::abilities`).
+    pub worn: Option<FormId>,
 }
 
 impl Default for Mods {
     fn default() -> Mods {
-        Mods { potency: 1.0, duration: 1.0, rads: 1.0, hit: false }
+        Mods { potency: 1.0, duration: 1.0, rads: 1.0, hit: false, worn: None }
     }
 }
 
@@ -269,7 +271,7 @@ impl Game<'_> {
         // take"; the GECK wiki's entry point says "any ingestible"].
         let duration = if def.equip_type == EQUIP_CHEMS { perk(self, crate::perks::MODIFY_POSITIVE_CHEM_DURATION, 1.0) } else { 1.0 };
         let rads = perk(self, crate::perks::MODIFY_RADIATION_CONSUMED, 1.0);
-        let mods = Mods { potency, duration, rads, hit: false };
+        let mods = Mods { potency, duration, rads, ..Mods::default() };
         self.emit(EventKind::Ingested { actor, item, potency });
         let applied = self.apply_magic_item_with(actor, item, Some(actor), false, &mods);
         let effects = applied.iter().filter(|a| !a.extended).map(|a| a.id).collect();

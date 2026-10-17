@@ -775,15 +775,26 @@ fn ensure_body(
             *last_look = real.elapsed_secs();
             debug!("player body: the look changed; rebuilt");
         }
-        if let Some(old) = state.body.take() {
+        let old = state.body.take();
+        if let Some(old) = &old {
             commands.entity(old.third.root).despawn();
-            if let Some(f) = old.first {
+            if let Some(f) = &old.first {
                 commands.entity(f.lens.map_or(f.root, |[outer, _]| outer)).despawn();
             }
         }
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         match build(&mut commands, world_root, &world, &mut ctx, &worn, look.as_ref()) {
-            Ok(b) => {
+            Ok(mut b) => {
+                // The new body goes on with the old one's clips and pose: no T-pose while
+                // its clips would fade in [owner 2026-10-17: "a few frames where the model
+                // is t posing"].
+                if let Some(old) = &old {
+                    b.third.animator.continue_from(&old.third.animator);
+                    info!("player body: rebuilt; it goes on with the old body's {} clips and pose", b.third.animator.layers.len());
+                    if let (Some(n), Some(o)) = (b.first.as_mut(), old.first.as_ref()) {
+                        n.animator.continue_from(&o.animator);
+                    }
+                }
                 info!(
                     "player body: third-person rig {} nodes (eye {:.1?} in the head's space), first-person rig {}, wearing {:?}",
                     b.third.animator.nodes.len(),
@@ -1843,9 +1854,9 @@ fn drive_body(
         reload_round_now,
         spin_now,
     };
-    // The body stands on the ground under the feet, the rest gap below them
-    // (`nvf_play::phys::drawn_sink`); its eye counts from the feet as before.
-    let sink = Vec3::Z * phys.player.as_ref().map_or(0.0, nvf_play::phys::drawn_sink);
+    // The body stands on the drawn ground under the feet (`nvf_play::phys::drawn_sink`);
+    // its eye counts from the feet as before.
+    let sink = Vec3::Z * phys.drawn_sink_of(FormId::PLAYER_REF.0);
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);

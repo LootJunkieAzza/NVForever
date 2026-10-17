@@ -32,6 +32,7 @@
 //! `NVF_PLAY_TEST_PHYS_TRACE`, `phys/trace.rs`, logs what moves after a cell loads).
 
 pub mod cells;
+pub mod drawn;
 mod loader;
 pub mod prepare;
 #[cfg(test)]
@@ -46,7 +47,8 @@ use bevy::prelude::*;
 use cells::{PhysCell, Space};
 use fnv_collide::{Iso, Motion};
 use fnv_phys::terrain::height_at;
-use fnv_phys::{Arrival, Character, CharacterParams, Filter, PhysParams, PhysWorld, RayHit, RefPose, Stepper, WaterArea};
+use drawn::DrawnFloors;
+use fnv_phys::{Arrival, Character, CharacterParams, Filter, Owner, PhysParams, PhysWorld, RayHit, RefPose, Stepper, WaterArea};
 use fnv_sim::{FormId, World};
 use fnv_world::placed::placement;
 use fnv_world::transform::{max_diff, ref_angles, ref_rotation};
@@ -96,6 +98,15 @@ pub struct PhysState {
     /// Doors that open in place, in the world now: their keyframed bodies follow
     /// `crate::doors::Doors` ([`pose_doors`]).
     pub doors: BTreeMap<u32, PosedDoor>,
+    /// The drawn floors of the references in the world whose collision stays where it
+    /// was placed, with their pose ([`PhysState::drawn_ground`]).
+    drawn: HashMap<u32, (Arc<DrawnFloors>, RefPose)>,
+    /// How far below the player character's feet its body is drawn ([`drawn_sink`]),
+    /// as of its last physics step.
+    player_sink: f32,
+    /// Actors drawn standing without a character: their feet and how far below them
+    /// the body is drawn ([`PhysState::standing_drawn_feet`]).
+    standing: HashMap<u32, ([f32; 3], f32)>,
     pub stats: PhysStats,
     /// Feet before the last fixed step (the camera interpolates from it).
     pub(crate) prev_feet: [f32; 3],
@@ -140,6 +151,9 @@ impl Default for PhysState {
             placed_dynamic: BTreeMap::new(),
             moved_now: Vec::new(),
             doors: BTreeMap::new(),
+            drawn: HashMap::new(),
+            player_sink: 0.0,
+            standing: HashMap::new(),
             stats: PhysStats::default(),
             prev_feet: [0.0; 3],
             persistent_by_grid: HashMap::new(),
@@ -151,20 +165,65 @@ impl Default for PhysState {
     }
 }
 
-/// How far below a character's feet its body is drawn: the gap the character keeps from
-/// its support (`CharacterParams::rest_gap`: 3.5 units over terrain, 0.7 over static
-/// models), so the soles touch the drawn ground while the feet, and with them the
-/// reference's position, the eye and every query, stay where the game measures them
-/// [observed: rest heights, physics.md §6.2; that the game draws the body on the bare
-/// surface is [hypothesis] from the owner's report of 2026-10-16 that the player's boots
-/// hung in the air, floating-actors.md §6]. None while swimming (the float depth counts
-/// from the feet).
-pub fn drawn_sink(c: &Character) -> f32 {
+/// Drawn geometry this far below or above the collision under a character is not the
+/// floor it stands on [design: the Prospector Saloon's porch boards are drawn 2.5 above
+/// their collision, floating-actors.md §7].
+pub const DRAWN_FLOOR_WINDOW: f32 = 4.0;
+
+/// How far below a character's feet its body is drawn: down to the drawn ground under
+/// it (`drawn`, from [`PhysState::drawn_ground`]), so the soles touch what the player
+/// sees while the feet, and with them the reference's position, the eye and every
+/// query, stay where the game measures them. Over terrain the drawn ground is the
+/// collision's bare surface, the rest gap (`CharacterParams::rest_gap`, 3.5 units) below
+/// the feet [observed: rest heights, physics.md §6.2; that the game draws the body on
+/// the bare surface is [hypothesis] from the owner's report of 2026-10-16 that the
+/// player's boots hung in the air, floating-actors.md §6]. Over a model it is the top of
+/// its drawn geometry, which can lie above its collision and so above the feet: the body
+/// is then drawn raised (a negative sink) [hypothesis: the owner's report of 2026-10-17
+/// that Easy Pete sank into the Prospector Saloon's porch, floating-actors.md §7]. With
+/// no ground found (`drawn` is `None`), the rest gap. None while swimming (the float
+/// depth counts from the feet).
+pub fn drawn_sink(c: &Character, drawn: Option<f32>) -> f32 {
     if c.swimming {
         0.0
     } else {
-        c.gap
+        drawn.map_or(c.gap, |z| c.feet[2] - z)
     }
+}
+
+/// Feet this close to a character's rest height over the collision under them stand
+/// where a character would rest, game units [design: the observed rest heights spread
+/// 0.35 either side of the shell, physics.md §6.2].
+pub const REST_TOLERANCE: f32 = 0.5;
+
+/// The ground under a point ([`PhysState::ground_drawn`]): the bare collision surface,
+/// the drawn ground and the collision's contact shell.
+struct GroundUnder {
+    bare: f32,
+    drawn: f32,
+    shell: f32,
+}
+
+/// Tilted more than this (the cosine of the reference's up axis against the world's), a
+/// model's drawn floors are not looked at [design: placed floors stand upright].
+const UPRIGHT_MIN_COS: f32 = 0.996;
+
+/// The highest drawn floor of a placed model over game point `at` within
+/// [`DRAWN_FLOOR_WINDOW`] of its height, in game space; `None` when there is none or the
+/// reference is tilted (its floors are then not under the point the same way).
+fn drawn_floor(floors: &DrawnFloors, pose: &RefPose, at: [f32; 3]) -> Option<f32> {
+    let r = &pose.rotation;
+    let s = pose.scale;
+    if r[8] < UPRIGHT_MIN_COS || s <= 0.0 {
+        return None;
+    }
+    // Into the model's frame: world = R·(s·v) + position, R row-major.
+    let d = [at[0] - pose.position[0], at[1] - pose.position[1], at[2] - pose.position[2]];
+    let local = |k: usize| (r[k] * d[0] + r[3 + k] * d[1] + r[6 + k] * d[2]) / s;
+    let (x, y, z) = (local(0), local(1), local(2));
+    let w = DRAWN_FLOOR_WINDOW / s;
+    let top = floors.height_at(x, y, z - w, z + w)?;
+    Some(at[2] + (top - z) * s)
 }
 
 /// An actor's character in the physics world: who moves it sets `velocity`.
@@ -175,6 +234,9 @@ pub struct NpcBody {
     pub prev_feet: [f32; 3],
     /// Wanted horizontal velocity (x, y), game units per second.
     pub velocity: [f32; 2],
+    /// How far below the feet the body is drawn ([`drawn_sink`]), as of the last
+    /// physics step.
+    pub sink: f32,
 }
 
 /// The steepest slope an actor's character walks: navmeshes cross slopes a little above
@@ -425,15 +487,65 @@ impl PhysState {
     pub fn npc_drawn_feet(&self, id: u32) -> Option<[f32; 3]> {
         let b = self.npcs.get(&id)?;
         let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
-        let sink = drawn_sink(&b.ch);
-        Some(std::array::from_fn(|i| b.prev_feet[i] + (b.ch.feet[i] - b.prev_feet[i]) * a - if i == 2 { sink } else { 0.0 }))
+        Some(std::array::from_fn(|i| b.prev_feet[i] + (b.ch.feet[i] - b.prev_feet[i]) * a - if i == 2 { b.sink } else { 0.0 }))
     }
 
     /// How far below its character's feet actor `id`'s body is drawn ([`drawn_sink`]; the
-    /// player is `FormId::PLAYER_REF`); 0 for an actor without a character.
+    /// player is `FormId::PLAYER_REF`); for an actor drawn standing without one, how far
+    /// below its feet it was last drawn ([`PhysState::standing_drawn_feet`]); else 0.
     pub fn drawn_sink_of(&self, id: u32) -> f32 {
-        let c = if id == fnv_sim::FormId::PLAYER_REF.0 { self.player.as_ref() } else { self.npcs.get(&id).map(|b| &b.ch) };
-        c.map_or(0.0, drawn_sink)
+        if id == fnv_sim::FormId::PLAYER_REF.0 {
+            if self.player.is_some() { self.player_sink } else { 0.0 }
+        } else {
+            self.npcs.get(&id).map(|b| b.sink).or_else(|| self.standing.get(&id).map(|l| l.1)).unwrap_or(0.0)
+        }
+    }
+
+    /// The height of the drawn ground under a character's feet ([`PhysState::ground_drawn`]
+    /// from just above them, as far down as its gap and [`DRAWN_FLOOR_WINDOW`] reach).
+    pub fn drawn_ground(&mut self, c: &Character) -> Option<f32> {
+        self.ground_drawn([c.feet[0], c.feet[1], c.feet[2] + 1.0], 1.0 + c.gap + DRAWN_FLOOR_WINDOW, Some(c.key())).map(|(_, drawn)| drawn)
+    }
+
+    /// The ground under `at` within `down` (the first collision a vertical ray meets,
+    /// leaving out characters, actor hit volumes and the layers characters pass
+    /// through): its bare surface's height and the drawn ground's. The drawn ground is
+    /// that surface, or, when it is a placed model with drawn floors, the highest of its
+    /// drawn floors within [`DRAWN_FLOOR_WINDOW`] of it (`drawn::DrawnFloors`).
+    pub fn ground_drawn(&mut self, at: [f32; 3], down: f32, exclude: Option<fnv_phys::Key>) -> Option<(f32, f32)> {
+        self.ground_under(at, down, exclude).map(|g| (g.bare, g.drawn))
+    }
+
+    fn ground_under(&mut self, at: [f32; 3], down: f32, exclude: Option<fnv_phys::Key>) -> Option<GroundUnder> {
+        let mut filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
+        filter.exclude.extend(self.npcs.values().map(|b| b.ch.key()).chain(exclude));
+        let hit = self.ray(at, [0.0, 0.0, -1.0], down, filter)?;
+        Some(GroundUnder { bare: hit.point[2], drawn: self.drawn_over(&hit), shell: hit.shell })
+    }
+
+    /// The drawn ground at a downward ray's hit: the hit's height, or, on a placed model
+    /// with drawn floors, the highest of them within [`DRAWN_FLOOR_WINDOW`] of it.
+    pub fn drawn_over(&self, hit: &RayHit) -> f32 {
+        let bare = hit.point[2];
+        let drawn = match hit.owner {
+            Owner::Ref { form_id, .. } => self.drawn.get(&form_id).and_then(|(floors, pose)| drawn_floor(floors, pose, hit.point)),
+            _ => None,
+        };
+        drawn.unwrap_or(bare)
+    }
+
+    /// Bring every character's drawn sink up to date (after its physics step).
+    pub fn update_drawn_sinks(&mut self) {
+        if let Some(c) = self.player.clone() {
+            self.player_sink = drawn_sink(&c, self.drawn_ground(&c));
+        }
+        let chars: Vec<(u32, Character)> = self.npcs.iter().map(|(id, b)| (*id, b.ch.clone())).collect();
+        for (id, ch) in chars {
+            let sink = drawn_sink(&ch, self.drawn_ground(&ch));
+            if let Some(b) = self.npcs.get_mut(&id) {
+                b.sink = sink;
+            }
+        }
     }
 
     /// Whether the player is placed and every cell asked for around them is in (the
@@ -588,7 +700,7 @@ impl PhysState {
             *counts.entry("not_present").or_default() += 1;
             return false;
         }
-        let RefShapes { tallies, water, prepared, dynamic_local, door } = shapes(&pl);
+        let RefShapes { tallies, water, prepared, dynamic_local, door, drawn } = shapes(&pl);
         for what in tallies {
             *counts.entry(what).or_default() += 1;
         }
@@ -601,6 +713,14 @@ impl PhysState {
         let Some(prepared) = prepared else { return false };
         let rep = self.world.insert_ref(prepared);
         *counts.entry("with_collision").or_default() += 1;
+        match drawn {
+            Some(d) => {
+                self.drawn.insert(pl.form_id, (d, RefPose::from_placement(&pl)));
+            }
+            None => {
+                self.drawn.remove(&pl.form_id);
+            }
+        }
         if !rep.errors.is_empty() {
             *counts.entry("object_errors").or_default() += rep.errors.len();
         }
@@ -644,6 +764,7 @@ impl PhysState {
             self.created.remove(&r);
             self.placed_dynamic.remove(&r);
             self.doors.remove(&r);
+            self.drawn.remove(&r);
             if self.ref_cell.get(&r) == Some(&cell) {
                 self.ref_cell.remove(&r);
             }
@@ -661,6 +782,7 @@ impl PhysState {
         if !ctx.sim.present(form_id) {
             self.placed_dynamic.remove(&form_id);
             self.doors.remove(&form_id);
+            self.drawn.remove(&form_id);
             if self.world.remove_ref(form_id) {
                 debug!("collision of {form_id:08X} removed");
             }
@@ -871,7 +993,9 @@ impl PhysState {
         let start = [feet[0], feet[1], hit.point[2] + params.rest_gap(hit.shell)];
         let mut ch = self.world.add_character(id, params, start);
         ch.ignore_layers = fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes());
-        self.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0, 0.0] });
+        let mut b = NpcBody { prev_feet: ch.feet, ch, velocity: [0.0, 0.0], sink: 0.0 };
+        b.sink = drawn_sink(&b.ch, self.drawn_ground(&b.ch));
+        self.npcs.insert(id, b);
         true
     }
 
@@ -881,10 +1005,33 @@ impl PhysState {
         }
     }
 
+    /// Where actor `id`, standing at `feet` without a character, is drawn. Feet where a
+    /// character rests (the contact shell above the collision under them, within
+    /// [`REST_TOLERANCE`]: where a walk by physics, the arrival rule or a placement on
+    /// the ground left them) are drawn as a character's would be, on the drawn ground
+    /// ([`PhysState::ground_drawn`]); others (a placed height, the navmesh's height) at
+    /// `feet`. Looked up again only when the feet move.
+    pub fn standing_drawn_feet(&mut self, id: u32, feet: [f32; 3]) -> [f32; 3] {
+        let sink = match self.standing.get(&id) {
+            Some((at, sink)) if *at == feet => *sink,
+            _ => {
+                let down = 1.0 + fnv_phys::TERRAIN_SHELL + REST_TOLERANCE;
+                let sink = match self.ground_under([feet[0], feet[1], feet[2] + 1.0], down, None) {
+                    Some(g) if (feet[2] - g.bare - g.shell).abs() <= REST_TOLERANCE => feet[2] - g.drawn,
+                    _ => 0.0,
+                };
+                self.standing.insert(id, (feet, sink));
+                sink
+            }
+        };
+        [feet[0], feet[1], feet[2] - sink]
+    }
+
     pub fn reset(&mut self, space: Space) {
         for id in self.npcs.keys().copied().collect::<Vec<_>>() {
             self.remove_npc(id);
         }
+        self.standing.clear();
         self.loader.clear();
         let all: Vec<PhysCell> = self.cells.keys().copied().collect();
         for c in all {

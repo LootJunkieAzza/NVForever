@@ -1175,3 +1175,33 @@ fn function_probe_round_two_fixes() {
     g.set_found_markers([FormId(ACTI_REF), FormId(CONT_REF)]);
     assert_eq!(call(&mut g, 0x1138, None, &[ArgValue::Enum(1)]), 2.0);
 }
+
+#[test]
+fn the_player_detects_and_far_pairs_fight() {
+    use fnv_game::awareness::State;
+    use fnv_game::detection::{Settings, Situation};
+    let f = fixture();
+    let mut g = game(&f);
+    let s = Settings::default();
+    let (get_detected, get_los, in_combat) = (0x102D, 0x101B, 0x1121);
+    // The player as the detector: what the engine measured from the camera, read by
+    // player.GetDetected / player.GetLineOfSight [observed: Ringo and Chet read 1 in the
+    // original, function probes fp1/fp2 2026-10-17].
+    let seen = Situation { distance: 300.0, exterior: true, line_of_sight: true, in_view: true, light: 80.0, ..Default::default() };
+    g.detect(&s, FormId(PLAYER), FormId(ADULT_REF), &seen);
+    assert_eq!(call(&mut g, get_detected, Some(PLAYER), &[r(ADULT_REF)]), 1.0);
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 1.0);
+    // Behind the camera: out of the field of view, no line of sight.
+    g.detect(&s, FormId(PLAYER), FormId(ADULT_REF), &Situation { in_view: false, ..seen });
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 0.0);
+    // Nothing in the rules asks where the player is: a Frenzied actor that detects
+    // another (the engine measures pairs far from the player too, `fnv_game::sight`)
+    // goes to Combat, and IsInCombat reads 1.
+    call(&mut g, 0x100F, Some(ADULT_REF), &[ArgValue::Enum(fnv_game::actor_values::AGGRESSION), n(3.0)]);
+    assert_eq!(call(&mut g, in_combat, Some(ADULT_REF), &[]), 0.0);
+    let (det, _) = g.detect(&s, FormId(ADULT_REF), FormId(CREA_REF), &seen);
+    g.observe_threat(FormId(ADULT_REF), FormId(CREA_REF), &det, [8000.0, 300.0, 0.0]);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(FormId(ADULT_REF)), State::Combat);
+    assert_eq!(call(&mut g, in_combat, Some(ADULT_REF), &[]), 1.0);
+}

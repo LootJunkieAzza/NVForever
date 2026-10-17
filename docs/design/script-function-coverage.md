@@ -177,21 +177,28 @@ Tests: `crates/fnv-game/tests/functions.rs` (`function_probe_round_two_fixes`),
 The ranked table is in §6. Read with it:
 
 1. **Detection beyond the player's reach, and the player as a detector** (GetDetected,
-   GetLineOfSight, IsInCombat; 153 quests): correct near the player; the original also
-   measures the player's own detection (§3.2) and fights between NPCs far away. Most uses
-   are near the player, so this is a correctness gap more than a blocker; the player as a
-   detector is the cheaper half (the engine's detection pass, with the player as detector).
-2. **NPC equipment drawn from the rules** (EquipItem, UnequipItem; 82 quests, the intro
-   chain among them): scripts dress and arm NPCs (Doc Mitchell, companions) and the engine
-   ignores it. Needs the engine to draw what the rules have equipped (audit §5).
+   GetLineOfSight, IsInCombat; 153 quests): done 2026-10-17 (docs/design/detection.md
+   §7): the player measures the actors from the camera, and every pair of the loaded
+   area is measured, near the player or not, so far fights start (smoke
+   `detection-far-fight`), as the original does [observed: capture detection-1,
+   2026-10-17: a Frenzied Chet 6,682 units from the player fought Ringo within 1 s; the
+   player's GetDetected / GetLineOfSight follow the camera's facing; player.GetLineOfSight
+   reads 1 at 6,682 units; with the player indoors the pair outdoors did not fight,
+   as ours: only the loaded area detects]. Left: wall cases of the player's sight
+   (capture request detection-2).
+2. ~~**NPC equipment drawn from the rules**~~ (EquipItem, UnequipItem; 82 quests, the intro
+   chain among them): built 2026-10-17 (PR #374): the engine draws what the rules have
+   equipped and redraws on EquipItem/UnequipItem (audit §5).
 3. **Actor abilities and worn enchantments as effects** (IsSpellTarget, HasMagicEffect,
-   RemoveSpell; 80 quests, VMQ03 and Ring-a-Ding-Ding among them).
+   RemoveSpell; 80 quests, VMQ03 and Ring-a-Ding-Ding among them): built
+   (docs/spec-notes/aid-items.md §13) and checked against the capture `abilities-1` (79
+   probes agree; abilities are on loaded actors only, Dispel takes one off).
 4. **Corpses stood up again** (ResurrectActor; 76 quests, Yes Man's resurrections and
-   every companion): built on branch claude/resurrect-actor-652a0f
-   (docs/spec-notes/resurrect.md): the corpse goes, a fresh body stands where the
-   body lay and its packages take it up; what is left in its inventory stays (capture
-   rs1); a leveled actor's pick (and items that come through it) are rolled again (the
-   owner, 2026-10-17).
+   every companion): built (docs/spec-notes/resurrect.md, branch
+   claude/resurrect-actor-652a0f): the corpse goes, a fresh body stands where the body
+   lay and its packages take it up; what is left in its inventory stays [observed:
+   capture rs1, 2026-10-17]; a leveled actor's pick (and items that come through it) are
+   rolled again (the owner, 2026-10-17).
 5. **Knockdowns and knock-outs** (64 quests, the intro chain): an essential knocked out
    never gets up in the rules; no actor lies down.
 6. **Fast travel** (60 quests, the whole VMQ line): EnableFastTravel is kept, fast travel
@@ -216,8 +223,8 @@ with no Locked flag and is open in the original; worth a GetLocked probe on it).
 
 | Status | Functions | Calls | Condition uses |
 |---|---|---|---|
-| matches the original | 317 | 62214 | 79324 |
-| wrong or stub, system exists | 34 | 1810 | 436 |
+| matches the original | 325 | 63114 | 79607 |
+| wrong or stub, system exists | 26 | 910 | 153 |
 | no system yet | 43 | 500 | 530 |
 | open (capture needed) | 6 | 1648 | 43 |
 | all used | 400 | 66172 | 80333 |
@@ -228,51 +235,48 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 
 | # | System | Kind | Quests | Calls / cond. in them | All calls / cond. | Functions | Main quest | Companions |
 |---|---|---|---|---|---|---|---|---|
-| 1 | detection beyond the player's reach; the player as a detector | wrong | 153 | 568 / 132 | 430 / 241 | GetDetected, GetLineOfSight, IsInCombat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle), VMQ02 (Render Unto Caesar), VMQ05 (For the Republic, Part 2), VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management) and 1 more | VCassCompanion (Heartache by the Number), VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue) and 8 more |
-| 2 | NPC equipment drawn from the rules | wrong | 82 | 275 / 0 | 250 / 0 | EquipItem, UnequipItem | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle), VMQ03bTimer (VMQ03b Timer) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog), VDialogueVeronica (Veronica Dialogue) and 2 more |
-| 3 | actor abilities and worn enchantments as effects | wrong | 80 | 326 / 35 | 220 / 42 | HasMagicEffect, IsSpellTarget, RemoveSpell | VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQTops (Ring-a-Ding-Ding!) and 1 more | VDialogueCass, VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest), vDialogueLily (Lily's Dialogue) |
-| 4 | corpses stood up again | built | 76 | 603 / 0 | 515 / 0 | ResurrectActor | VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management), VMQYesManSupport (Scripting for Yes Man positioning and resurrections) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog) and 6 more |
-| 5 | knockdowns and knock-outs | no-system | 64 | 196 / 10 | 282 / 134 | GetKnockedState, GetUnconscious, PushActorAway, SetUnconscious | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ01 (They Went That-a-Way) | - |
-| 6 | fast travel | no-system | 60 | 140 / 0 | 83 / 0 | EnableFastTravel | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ04 (Bright and Shiny), VMQ05 (For the Republic, Part 2) and 4 more | - |
-| 7 | saves from scripts | wrong | 29 | 32 / 0 | 7 / 0 | ForceSave, SystemSave | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQ04 (Bright and Shiny) and 8 more | - |
-| 8 | Look turning the body | wrong | 26 | 110 / 0 | 159 / 0 | Look | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ03a (You'll Know It When It Happens) | VDialogueVeronica (Veronica Dialogue), VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest) |
-| 9 | animation state told to the rules | wrong | 22 | 46 / 0 | 121 / 51 | IsAnimPlaying, IsIdlePlaying, IsMoving, IsPlayerActionActive | VMQ03a (You'll Know It When It Happens), VMQ03b (Arizona Killer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQYesMan03 (Wild Card: Finishing Touches) | - |
-| 10 | repair menu | no-system | 10 | 13 / 0 | 15 / 0 | ShowRepairMenu | - | VDialogueRaul (Raul's Dialog) |
-| 11 | barber, plastic surgeon and tutorial menus | no-system | 9 | 16 / 0 | 8 / 0 | ShowBarberMenu, ShowPlasticSurgeonMenu, ShowTutorialMenu | - | - |
-| 12 | Pip-Boy reset | wrong | 8 | 8 / 0 | 4 / 0 | ResetPipboyManager | VCG01 (Ain't That a Kick in the Head) | - |
-| 13 | talking activators | no-system | 6 | 0 / 91 | 0 / 92 | IsActorTalkingThroughActivator | - | - |
-| 14 | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | wrong | 6 | 12 / 0 | 13 / 11 | MenuMode | VCG04 (Player Character Revision) | - |
-| 15 | Caravan card game | no-system | 5 | 29 / 0 | 33 / 0 | AddCardToPlayer, ShowCaravanMenu | - | - |
-| 16 | race and sex change on NPCs | no-system | 5 | 16 / 0 | 14 / 0 | AgeRace, SexChange | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head) | - |
-| 17 | crosshair placement | wrong | 5 | 10 / 0 | 3 / 0 | PlaceAtReticle | - | VDialogueVeronica (Veronica Dialogue), VMS49 (I Could Make You Care) |
-| 18 | NPC inventory re-rolled on SetLevel | wrong | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
-| 19 | Cannibal and Mister Sandman | no-system | 3 | 8 / 0 | 11 / 7 | GetCannibal, GetSandman, HasBeenEaten, StartCannibal, StartMisterSandman | - | - |
-| 20 | VATS | no-system | 3 | 6 / 0 | 12 / 259 | GetVATSMode, GetVATSTargetHeight, GetVATSValue, SetVatsTarget | - | - |
-| 21 | player statistics counters | wrong | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
-| 22 | drawn scale (SetScale) | wrong | 3 | 4 / 0 | 9 / 0 | SetScale | VCG00 (Welcome To Fabulous New Vegas) | - |
-| 23 | dismemberment and critical deaths | no-system | 2 | 4 / 0 | 23 / 0 | AttachAshPile, IsLimbGone, SetCriticalStage | - | - |
-| 24 | Bink videos | wrong | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
-| 25 | cell image spaces | wrong | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
-| 26 | screen blood splatter | no-system | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
-| 27 | AI package codes | wrong | 1 | 5 / 0 | 16 / 64 | GetCurrentAIProcedure | - | - |
-| 28 | objective display switch | wrong | 1 | 2 / 0 | 2 / 0 | AutoDisplayObjectives | VCG01 (Ain't That a Kick in the Head) | - |
-| 29 | navmesh switches | no-system | 1 | 1 / 0 | 9 / 0 | DisableNavmesh, EnableNavMesh, setAllReachable | - | - |
-| 30 | combat targets told to weapon scripts | wrong | 1 | 1 / 0 | 5 / 0 | GetOwnerLastTarget | - | - |
-| 31 | power armour training | wrong | 1 | 1 / 0 | 2 / 0 | SetPCCanUsePowerArmor | - | - |
-| 32 | quitting from scripts | wrong | 1 | 1 / 0 | 1 / 0 | ExitGame | - | - |
-| 33 | used-item AI | no-system | 0 | 0 / 0 | 0 / 26 | GetIsUsedItem, GetIsUsedItemEquipType, GetIsUsedItemType, GetUsedItemActivate | - | - |
-| 34 | challenge counters | wrong | 0 | 0 / 0 | 23 / 0 | GetChallengeCompleted | - | - |
-| 35 | dialogue: current response | wrong | 0 | 0 / 0 | 0 / 20 | GetDialogueEmotion | - | - |
-| 36 | environment radiation | no-system | 0 | 0 / 0 | 0 / 7 | GetRadiationLevel | - | - |
-| 37 | swimming told to the rules | wrong | 0 | 0 / 0 | 0 / 7 | IsSwimming | - | - |
-| 38 | casino slot machines | no-system | 0 | 0 / 0 | 5 / 0 | ShowSlotMachineMenuParams | - | - |
-| 39 | grabbing objects | no-system | 0 | 0 / 0 | 3 / 1 | IsPlayerGrabbedRef | - | - |
-| 40 | IDLE-tree idles picked by scripts | wrong | 0 | 0 / 0 | 2 / 0 | PickIdle | - | - |
-| 41 | forced hit reactions | no-system | 0 | 0 / 0 | 0 / 2 | GetForceHitReaction | - | - |
-| 42 | loading screen control | no-system | 0 | 0 / 0 | 2 / 0 | EnableLoadingMenu | - | - |
-| 43 | drinking from water | no-system | 0 | 0 / 0 | 0 / 1 | IsWaterObject | - | - |
-| 44 | planted explosives (reverse pickpocket) | no-system | 0 | 0 / 0 | 0 / 1 | GetPlantedExplosive | - | - |
-| 45 | trap updates | no-system | 0 | 0 / 0 | 1 / 0 | trapUpdate | - | - |
+| 1 | corpses stood up again | built | 76 | 603 / 0 | 515 / 0 | ResurrectActor | VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management), VMQYesManSupport (Scripting for Yes Man positioning and resurrections) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog) and 6 more |
+| 2 | knockdowns and knock-outs | no-system | 64 | 196 / 10 | 282 / 134 | GetKnockedState, GetUnconscious, PushActorAway, SetUnconscious | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ01 (They Went That-a-Way) | - |
+| 3 | fast travel | no-system | 60 | 140 / 0 | 83 / 0 | EnableFastTravel | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ04 (Bright and Shiny), VMQ05 (For the Republic, Part 2) and 4 more | - |
+| 4 | saves from scripts | wrong | 29 | 32 / 0 | 7 / 0 | ForceSave, SystemSave | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQ04 (Bright and Shiny) and 8 more | - |
+| 5 | Look turning the body | wrong | 26 | 110 / 0 | 159 / 0 | Look | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ03a (You'll Know It When It Happens) | VDialogueVeronica (Veronica Dialogue), VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest) |
+| 6 | animation state told to the rules | wrong | 22 | 46 / 0 | 121 / 51 | IsAnimPlaying, IsIdlePlaying, IsMoving, IsPlayerActionActive | VMQ03a (You'll Know It When It Happens), VMQ03b (Arizona Killer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQYesMan03 (Wild Card: Finishing Touches) | - |
+| 7 | repair menu | no-system | 10 | 13 / 0 | 15 / 0 | ShowRepairMenu | - | VDialogueRaul (Raul's Dialog) |
+| 8 | barber, plastic surgeon and tutorial menus | no-system | 9 | 16 / 0 | 8 / 0 | ShowBarberMenu, ShowPlasticSurgeonMenu, ShowTutorialMenu | - | - |
+| 9 | Pip-Boy reset | wrong | 8 | 8 / 0 | 4 / 0 | ResetPipboyManager | VCG01 (Ain't That a Kick in the Head) | - |
+| 10 | talking activators | no-system | 6 | 0 / 91 | 0 / 92 | IsActorTalkingThroughActivator | - | - |
+| 11 | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | wrong | 6 | 12 / 0 | 13 / 11 | MenuMode | VCG04 (Player Character Revision) | - |
+| 12 | Caravan card game | no-system | 5 | 29 / 0 | 33 / 0 | AddCardToPlayer, ShowCaravanMenu | - | - |
+| 13 | race and sex change on NPCs | no-system | 5 | 16 / 0 | 14 / 0 | AgeRace, SexChange | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head) | - |
+| 14 | crosshair placement | wrong | 5 | 10 / 0 | 3 / 0 | PlaceAtReticle | - | VDialogueVeronica (Veronica Dialogue), VMS49 (I Could Make You Care) |
+| 15 | NPC inventory re-rolled on SetLevel | wrong | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
+| 16 | Cannibal and Mister Sandman | no-system | 3 | 8 / 0 | 11 / 7 | GetCannibal, GetSandman, HasBeenEaten, StartCannibal, StartMisterSandman | - | - |
+| 17 | VATS | no-system | 3 | 6 / 0 | 12 / 259 | GetVATSMode, GetVATSTargetHeight, GetVATSValue, SetVatsTarget | - | - |
+| 18 | player statistics counters | wrong | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
+| 19 | drawn scale (SetScale) | wrong | 3 | 4 / 0 | 9 / 0 | SetScale | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 20 | dismemberment and critical deaths | no-system | 2 | 4 / 0 | 23 / 0 | AttachAshPile, IsLimbGone, SetCriticalStage | - | - |
+| 21 | Bink videos | wrong | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 22 | cell image spaces | wrong | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
+| 23 | screen blood splatter | no-system | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 24 | AI package codes | wrong | 1 | 5 / 0 | 16 / 64 | GetCurrentAIProcedure | - | - |
+| 25 | objective display switch | wrong | 1 | 2 / 0 | 2 / 0 | AutoDisplayObjectives | VCG01 (Ain't That a Kick in the Head) | - |
+| 26 | navmesh switches | no-system | 1 | 1 / 0 | 9 / 0 | DisableNavmesh, EnableNavMesh, setAllReachable | - | - |
+| 27 | combat targets told to weapon scripts | wrong | 1 | 1 / 0 | 5 / 0 | GetOwnerLastTarget | - | - |
+| 28 | power armour training | wrong | 1 | 1 / 0 | 2 / 0 | SetPCCanUsePowerArmor | - | - |
+| 29 | quitting from scripts | wrong | 1 | 1 / 0 | 1 / 0 | ExitGame | - | - |
+| 30 | used-item AI | no-system | 0 | 0 / 0 | 0 / 26 | GetIsUsedItem, GetIsUsedItemEquipType, GetIsUsedItemType, GetUsedItemActivate | - | - |
+| 31 | challenge counters | wrong | 0 | 0 / 0 | 23 / 0 | GetChallengeCompleted | - | - |
+| 32 | dialogue: current response | wrong | 0 | 0 / 0 | 0 / 20 | GetDialogueEmotion | - | - |
+| 33 | environment radiation | no-system | 0 | 0 / 0 | 0 / 7 | GetRadiationLevel | - | - |
+| 34 | swimming told to the rules | wrong | 0 | 0 / 0 | 0 / 7 | IsSwimming | - | - |
+| 35 | casino slot machines | no-system | 0 | 0 / 0 | 5 / 0 | ShowSlotMachineMenuParams | - | - |
+| 36 | grabbing objects | no-system | 0 | 0 / 0 | 3 / 1 | IsPlayerGrabbedRef | - | - |
+| 37 | IDLE-tree idles picked by scripts | wrong | 0 | 0 / 0 | 2 / 0 | PickIdle | - | - |
+| 38 | forced hit reactions | no-system | 0 | 0 / 0 | 0 / 2 | GetForceHitReaction | - | - |
+| 39 | loading screen control | no-system | 0 | 0 / 0 | 2 / 0 | EnableLoadingMenu | - | - |
+| 40 | drinking from water | no-system | 0 | 0 / 0 | 0 / 1 | IsWaterObject | - | - |
+| 41 | planted explosives (reverse pickpocket) | no-system | 0 | 0 / 0 | 0 / 1 | GetPlantedExplosive | - | - |
+| 42 | trap updates | no-system | 0 | 0 / 0 | 1 / 0 | trapUpdate | - | - |
 
 ### Every function
 
@@ -328,7 +332,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | EnableNavMesh | 0x11C0 | 5 / 0 | no-system | navmesh switches | - | Stub. |
 | EnablePlayerControls | 0x1060 | 177 / 0 | match | - | - |  |
 | EnterTrigger | 0x11BA | 160 / 0 | match | - | - |  |
-| EquipItem | 0x10EE | 199 / 0 | wrong | NPC equipment drawn from the rules | - | The rules' flags change; the engine dresses NPCs by its own roll and does not redraw (audit §5). |
+| EquipItem | 0x10EE | 199 / 0 | match | - | - | The rules' flags change and the engine redraws the NPC from them (outfits.rs, smoke npc-equip-drawn; audit §5) [design]. |
 | EvaluatePackage | 0x105E | 2285 / 0 | match | - | - |  |
 | Exists | 0x119F | 0 / 21 | match | - | - |  |
 | ExitGame | 0x11B5 | 1 / 0 | wrong | quitting from scripts | - | Stub, 1 call; the console's qqq exists. |
@@ -359,15 +363,15 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetCombatTarget | 0x10E8 | 26 / 0 | match | - | - |  |
 | GetContainer | 0x10CF | 11 / 0 | match | - | - |  |
 | GetContainerInventoryCount | 0x127A | 3 / 0 | match | - | - |  |
-| GetCurrentAIPackage | 0x106E | 15 / 15 | match | - | differs 10, same 13 | Codes agree where both run the same package: Sandbox 36, Dialogue 34, Travel 14, Patrol 37; 0 with no package (was -1) [observed: probes fp7 with GetIsCurrentPackage]. Other differences were different package choices (the save's hour and quest state). |
-| GetCurrentAIProcedure | 0x108F | 16 / 64 | wrong | AI package codes | differs 9, same 5 | A Dialogue package reads 43 (was 4), no package 0 (was -1) [observed: Sunny; Trudy, Joe Cobb]. Still apart: a loaded actor sandboxing read 0 (ours 45), an unloaded one 45; a Travel package at its chair 17 [observed: probes]. |
+| GetCurrentAIPackage | 0x106E | 15 / 15 | match | - | differs 11, same 4 | Codes agree where both run the same package: Sandbox 36, Dialogue 34, Travel 14, Patrol 37; 0 with no package (was -1) [observed: probes fp7 with GetIsCurrentPackage]. Other differences were different package choices (the save's hour and quest state). |
+| GetCurrentAIProcedure | 0x108F | 16 / 64 | wrong | AI package codes | differs 6 | A Dialogue package reads 43 (was 4), no package 0 (was -1) [observed: Sunny; Trudy, Joe Cobb]. Still apart: a loaded actor sandboxing read 0 (ours 45), an unloaded one 45; a Travel package at its chair 17 [observed: probes]. |
 | GetCurrentTime | 0x1012 | 89 / 138 | match | - | - |  |
 | GetDayOfWeek | 0x10AA | 24 / 11 | match | - | same 2 |  |
 | GetDead | 0x102E | 1120 / 725 | match | - | same 3 |  |
 | GetDeadCount | 0x1054 | 27 / 444 | match | - | - |  |
 | GetDestroyed | 0x10CB | 27 / 6 | match | - | - |  |
 | GetDestructionStage | 0x11D7 | 15 / 9 | match | - | - |  |
-| GetDetected | 0x102D | 69 / 22 | wrong | detection beyond the player's reach; the player as a detector | differs 3, same 1 | player.GetDetected Ringo 1 and Chet 1 in the original [observed: probes]; ours 0 for the player as detector and for pairs the engine does not measure. |
+| GetDetected | 0x102D | 69 / 22 | match | - | differs 3, same 1 | player.GetDetected Ringo 1 and Chet 1 in the original [observed: probes]; the player now measures the actors within its reach from the camera, and every pair of the loaded area is measured, near the player or not (detection.md §7, 2026-10-17). |
 | GetDialogueEmotion | 0x11B3 | 0 / 20 | wrong | dialogue: current response | - | SayTo/Say lines read the first response's emotion throughout (audit §6). |
 | GetDisabled | 0x1023 | 804 / 168 | match | - | - |  |
 | GetDisposition | 0x104C | 0 / 15 | match | - | same 17 | Base + fDispTargetCharMult x (target's Charisma - 5), 0..100; SetDisposition wins [observed: probes, 13 values]. Faction and crime modifiers not applied (none seen). |
@@ -401,7 +405,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetIsClass | 0x1044 | 0 / 10 | match | - | - |  |
 | GetIsCreature | 0x1040 | 1 / 57 | match | - | - |  |
 | GetIsCreatureType | 0x11B6 | 9 / 79 | match | - | - |  |
-| GetIsCurrentPackage | 0x10A1 | 29 / 5 | match | - | differs 6, same 42 |  |
+| GetIsCurrentPackage | 0x10A1 | 29 / 5 | match | - | - |  |
 | GetIsCurrentWeather | 0x1095 | 2 / 0 | match | - | - |  |
 | GetIsGhost | 0x10ED | 4 / 0 | match | - | - |  |
 | GetIsID | 0x1048 | 111 / 23785 | match | - | - |  |
@@ -417,10 +421,10 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetItemCount | 0x102F | 737 / 1286 | match | - | - |  |
 | GetKnockedState | 0x106B | 5 / 35 | no-system | knockdowns and knock-outs | same 2 | Never 2: explosion knockdowns are rolled in the engine but not animated or told; 1 never clears after an essential knock-out. |
 | GetLevel | 0x1050 | 46 / 46 | match | - | same 1 |  |
-| GetLineOfSight | 0x101B | 49 / 0 | wrong | detection beyond the player's reach; the player as a detector | differs 2 | player.GetLineOfSight Ringo 1 [observed: probes; and 1 at 41 units, audit §3]; ours 0. |
+| GetLineOfSight | 0x101B | 49 / 0 | match | - | differs 2 | player.GetLineOfSight Ringo 1 [observed: probes; and 1 at 41 units, audit §3]; the player's is the camera's, ±95° [documented: GECK wiki GetLineOfSight] (detection.md §7). Not built: on the player, a target that is not an actor. |
 | GetLinkedRef | 0x116B | 529 / 0 | match | - | - |  |
-| GetLocked | 0x1005 | 58 / 95 | match | - | same 12 | Terminals now: 0 unloaded, 1 with lock data, 2 after Lock, 0 after Unlock [observed: probes]; doors and containers unchanged. |
-| GetLockLevel | 0x1041 | 5 / 1 | match | - | same 15 | Terminals: their difficulty (Easy 1), 5 after Lock 50, -1 after Unlock, 0 unloaded; a load door without lock data reads its other side's (255 at the gas station); 0 without a lock [observed: probes fp1, fp3, fp7]. |
+| GetLocked | 0x1005 | 58 / 95 | match | - | same 7 | Terminals now: 0 unloaded, 1 with lock data, 2 after Lock, 0 after Unlock [observed: probes]; doors and containers unchanged. |
+| GetLockLevel | 0x1041 | 5 / 1 | match | - | differs 1, same 6 | Terminals: their difficulty (Easy 1), 5 after Lock 50, -1 after Unlock, 0 unloaded; a load door without lock data reads its other side's (255 at the gas station); 0 without a lock [observed: probes fp1, fp3, fp7]. |
 | GetMajorCrimeCount | 0x1075 | 0 / 2 | match | - | - |  |
 | GetMapMarkerVisible | 0x11EC | 41 / 31 | match | - | differs 2 |  |
 | GetObjectiveCompleted | 0x11A4 | 1032 / 1284 | match | - | - |  |
@@ -468,8 +472,8 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetWeaponHealthPerc | 0x11F4 | 2 / 0 | match | - | - |  |
 | GetXPForNextLevel | 0x1215 | 3 / 0 | match | - | differs 1 |  |
 | HasBeenEaten | 0x107F | 6 / 4 | no-system | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]. |
-| HasLoaded3D | 0x122E | 4 / 0 | match | - | differs 6, same 1 | The original needed 1 game loop after a cell load or MoveTo [observed: probes]; ours answers at once. |
-| HasMagicEffect | 0x10D6 | 41 / 5 | wrong | actor abilities and worn enchantments as effects | - | As IsSpellTarget. |
+| HasLoaded3D | 0x122E | 4 / 0 | match | - | differs 5, same 1 | The original needed 1 game loop after a cell load or MoveTo [observed: probes]; ours answers at once. |
+| HasMagicEffect | 0x10D6 | 41 / 5 | match | - | - | As IsSpellTarget, an effect whose conditions fail included [observed: probes abilities-1]. |
 | HasPerk | 0x11C1 | 126 / 493 | match | - | - |  |
 | IgnoreCrime | 0x10AB | 196 / 0 | match | - | - |  |
 | IncrementScriptedChallenge | 0x1275 | 134 / 0 | match | - | - |  |
@@ -490,8 +494,8 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsHardcore | 0x124A | 11 / 278 | match | - | - |  |
 | IsIdlePlaying | 0x1070 | 11 / 2 | wrong | animation state told to the rules | differs 1, same 2 | Easy Pete sitting read 1 [observed: probes]; ours 0 headless; the engine tells PlayIdle idles only. |
 | IsImageSpaceActive | 0x1232 | 43 / 0 | match | - | - |  |
-| IsInCombat | 0x1121 | 312 / 219 | wrong | detection beyond the player's reach; the player as a detector | same 1 | Correct near the player; NPC fights out of the player's detection reach never start (audit §5). |
-| IsInCriticalStage | 0x1213 | 16 / 0 | match | - | game error 3, same 3 | `IsInCriticalStage None` 1 and GooStart / DisintegrateEnd 0 on a live actor, as ours [observed: probes fp7]; the parameter is a stage name (a number does not compile). No engine critical death sets a stage (see SetCriticalStage). |
+| IsInCombat | 0x1121 | 312 / 219 | match | - | same 1 | NPC fights out of the player's detection reach start in the loaded area since 2026-10-17, as in the original [observed: capture detection-1 det2] (detection.md §7); out of it nobody detects anyone, as in the original with the player indoors [observed: det3]. |
+| IsInCriticalStage | 0x1213 | 16 / 0 | match | - | game error 3 | `IsInCriticalStage None` 1 and GooStart / DisintegrateEnd 0 on a live actor, as ours [observed: probes fp7]; the parameter is a stage name (a number does not compile). No engine critical death sets a stage (see SetCriticalStage). |
 | IsInInterior | 0x112C | 35 / 56 | match | - | - |  |
 | IsInList | 0x1174 | 10 / 49 | match | - | - |  |
 | IsKiller | 0x1199 | 45 / 0 | match | - | same 1 |  |
@@ -510,7 +514,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsRaining | 0x103E | 6 / 3 | match | - | - |  |
 | IsRunning | 0x111F | 0 / 4 | match | - | - |  |
 | IsSneaking | 0x111E | 35 / 33 | match | - | - |  |
-| IsSpellTarget | 0x10DF | 33 / 37 | wrong | actor abilities and worn enchantments as effects | - | Abilities (SPLO) and enchantments are never in the effects list. |
+| IsSpellTarget | 0x10DF | 33 / 37 | match | - | - | Authored abilities (NPC_/CREA SPLO through the template) on loaded actors only, and worn armour enchantments, are active effects; one whose conditions fail counts [observed: probes abilities-1, all agree] (aid-items.md §13). |
 | IsSwimming | 0x10B9 | 0 / 7 | wrong | swimming told to the rules | same 2 | Stub 0; 0 for the player and Ringo on land matches [observed: probes]. The engine knows the player swims. |
 | IsTalking | 0x108D | 19 / 33 | match | - | same 3 | 0 for Ringo, Sunny and the player at rest [observed: probes]; not seen during a conversation. |
 | IsTrespassing | 0x1091 | 0 / 1 | match | - | same 2 | 0 for Ringo and the player in the gas station [observed: probes]. |
@@ -562,7 +566,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | RemoveRecurringFromChallenge | 0x126C | 5 / 0 | match | - | - |  |
 | RemoveReputation | 0x123A | 11 / 0 | match | - | - |  |
 | RemoveScriptPackage | 0x1098 | 185 / 0 | match | - | - |  |
-| RemoveSpell | 0x101D | 146 / 0 | wrong | actor abilities and worn enchantments as effects | - | Cannot remove authored abilities (never applied). |
+| RemoveSpell | 0x101D | 146 / 0 | match | - | - | Takes an authored ability away for good; AddSpell puts it back [observed: probes abilities-1]. |
 | Reset3DState | 0x1146 | 12 / 0 | match | - | - |  |
 | ResetAI | 0x11FA | 711 / 0 | open | - | - | Combat is not reset; capture of ResetAI on an actor in combat (attended). |
 | ResetHealth | 0x1150 | 54 / 0 | match | - | - |  |
@@ -675,7 +679,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SystemSave | 0x127B | 5 / 0 | wrong | saves from scripts | - | Stub; saves and Autosave exist. |
 | trapUpdate | 0x110C | 1 / 0 | no-system | trap updates | - | Stub; the catalogue says nothing. |
 | TriggerScreenSplatter | 0x1240 | 8 / 0 | no-system | screen blood splatter | - | Stub. |
-| UnequipItem | 0x10EF | 51 / 0 | wrong | NPC equipment drawn from the rules | - | As EquipItem. |
+| UnequipItem | 0x10EF | 51 / 0 | match | - | - | As EquipItem. |
 | Unlock | 0x1073 | 450 / 0 | match | - | - | On a terminal: it opens at its menu [documented: GECK wiki Unlock]; GetLocked 0, GetLockLevel -1 [observed: probes]. |
 | UnlockChallenge | 0x125E | 44 / 0 | match | - | - |  |
 | UseWeapon | 0x119C | 13 / 0 | match | - | - |  |
