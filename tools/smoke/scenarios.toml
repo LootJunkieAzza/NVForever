@@ -3590,6 +3590,8 @@ order = [[
   "console: HasMagicEffect on player >> 1.00",
   "console: IsSpellTarget on player >> 0.00",
 ]]
+
+[[scenario]]
 name = "character-creator-opening"
 source = "owner 2026-10-17: no mouse pointer in the character creator in a real new game (docs/spec-notes/character-creator.md §6)"
 note = "In the opening menu 1036 opens at the end of Doc Mitchell's line, still in the conversation and with the wake-up idle driving the view; the pointer stayed hidden there. Each script menu stays 3 s before the test aid closes it."
