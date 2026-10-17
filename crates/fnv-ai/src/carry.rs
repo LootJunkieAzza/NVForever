@@ -187,10 +187,11 @@ pub enum AiEvent {
     /// It flees `from` (`how`): to `to`, `away` units from the one it flees, a way of
     /// `length` units.
     Flee { from: FormId, how: fnv_game::combat_group::FleeBy, to: [f32; 3], away: f32, length: f32 },
-    /// It reached its flee spot after `seconds`, `off` units from it.
-    FleeArrived { from: FormId, seconds: f32, off: f32 },
-    /// It has nowhere to flee to and stands.
-    Cornered { from: FormId },
+    /// It reached its flee spot after `seconds`, `off` units from it; whether it hides
+    /// there crouched (a person, `Game::sneaks`).
+    FleeArrived { from: FormId, seconds: f32, off: f32, hides: bool },
+    /// It has nowhere to flee to and stays where it is; whether it hides there crouched.
+    Cornered { from: FormId, hides: bool },
     /// It stops searching or holding (`why`).
     SearchOver { why: &'static str },
     /// After a search it goes back to its package's place, `away` units off.

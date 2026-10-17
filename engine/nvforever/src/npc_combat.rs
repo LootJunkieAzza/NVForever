@@ -98,6 +98,13 @@
 //!   fCombatFleeBoostConfidenceTargetRadius, its confidence goes up a level and it checks
 //!   again: it fights again or flees on; after fCombatFleeWaitTime there it checks again
 //!   without a boost [hypothesis: what the wait time is for].
+//! - **Hiding at the flee spot** (docs/design/combat-ai.md §12.2.1): a person that has
+//!   reached its flee spot is crouched there by the rules (`Game::sneaks`,
+//!   `Game::at_flee_spot`: the crouched set, and the original's cower idle over it,
+//!   `idles.rs`) while it waits.
+//!   Seen by its enemy there for [`HIDE_SEEN_SECONDS`], it runs on to another spot, at
+//!   most [`HIDE_MOVES`] times a flight [design: owner 2026-10-17, "fleeing enemies run
+//!   and hide, crouching down when they stop, to hide from their enemies"].
 //! - **Tactics** (`combat_tactics`): cover by the style's Take Cover Chance and timers,
 //!   flank places for a group's gunmen, no shot while a friend stands in the line of
 //!   fire, and a step back from a target nearer than [`tactics::BACK_OFF_WITHIN`]
@@ -195,6 +202,10 @@ pub const CREATURE_REACH: f32 = 96.0;
 /// or shorter than these is not covered]. Ours, by the weapon rule, began them at 54
 /// (the dogs).
 pub const CREATURE_BODY_REACH: f32 = 59.0;
+/// A fleeing person hiding at its flee spot that its enemy has seen this long runs on
+/// to another spot, at most [`HIDE_MOVES`] times a flight (§12.2.1) [design].
+pub const HIDE_SEEN_SECONDS: f32 = 4.0;
+pub const HIDE_MOVES: u8 = 2;
 /// Within this distance of its target an actor fires from the hip, beyond it down its
 /// sights: 20 m at 70 units per metre [owner's playtest list 2026-10-11; the units per
 /// metre: observed, gravity fits 9.81 m/s² at 70 units/m, physics.md §6.3].
@@ -306,6 +317,11 @@ struct Fighter {
     recoil_until: f32,
     /// Closing in on a gunman (§14.4).
     approach: Approach,
+    /// Hiding crouched at its flee spot (§12.2.1); seconds seen there by its enemy; the
+    /// times it ran on, seen, since it began to flee.
+    hiding: bool,
+    hide_seen: f32,
+    hide_moves: u8,
     /// Its last melee blow's swing, for a combo (module notes).
     swing: Option<NpcSwing>,
 }
@@ -447,6 +463,10 @@ struct Stats {
     melee_closest: Option<f32>,
     flee_checks: usize,
     flees: usize,
+    /// Hiding at flee spots (§12.2.1): times a fleeing person crouched to hide, and
+    /// times it ran on, seen.
+    hides: usize,
+    hides_seen: usize,
     /// Hit reactions (crippled staggers) that held a fighter back, and blows being
     /// swung that they cut short.
     staggers: usize,
@@ -846,6 +866,9 @@ fn fight(
                         recoil_until: 0.0,
                         approach,
                         swing: None,
+                        hiding: false,
+                        hide_seen: 0.0,
+                        hide_moves: 0,
                     },
                 );
                 // This fight's confidence modifier, not for the foolhardy; the first
@@ -907,6 +930,7 @@ fn fight(
                             g.start_flight(me, target, tfeet);
                             fighter.tactic.fled_health = None;
                             fighter.tactic.cover = None;
+                            fighter.hide_moves = 0;
                             f.stats.flees += 1;
                             let side = battle.side_of(g, id);
                             battle.sides[side].flights += 1;
@@ -1287,10 +1311,33 @@ fn fight(
             }
             // Crouching to fire (§14.2): a person with a gun, by the rules of
             // `combat_stance`, deciding now and then.
+            // Hiding at its flee spot (§12.2.1): a person is crouched there by the rules
+            // (`Game::sneaks`); seen by its enemy a while, it runs on to another spot.
+            let hiding = person && g.at_flee_spot(me);
+            if hiding != fighter.hiding {
+                fighter.hiding = hiding;
+                fighter.hide_seen = 0.0;
+                if hiding {
+                    f.stats.hides += 1;
+                    info!("npc combat: {me_name} hides crouched from {target_name} at its flee spot ({away:.0} units away, {})", if sees_now { "in its sight" } else { "out of its sight" });
+                }
+            }
+            if hiding {
+                fighter.hide_seen = if sees_now { fighter.hide_seen + dt } else { 0.0 };
+                if fighter.hide_seen >= HIDE_SEEN_SECONDS && fighter.hide_moves < HIDE_MOVES {
+                    fighter.hide_moves += 1;
+                    fighter.hide_seen = 0.0;
+                    f.stats.hides_seen += 1;
+                    g.start_flight(me, target, tfeet);
+                    info!("npc combat: {me_name} flees on from {target_name} (seen where it hides, {away:.0} units away)");
+                }
+            }
             let mut crouched = g.awareness.crouching.contains(&me);
             let was = crouched;
             let mut stand_why: Option<&str> = None;
-            if person && matches!(arm, Arm::Gun(_)) {
+            if fighter.hiding {
+                // Crouched while it hides, whatever it holds (`Game::sneaks`).
+            } else if person && matches!(arm, Arm::Gun(_)) {
                 let moved = fighter.last_feet.map_or(0.0, |l| flat(l, feet));
                 fighter.last_feet = Some(feet);
                 let settling = fighter.still_for < stance::CROUCH_SETTLE;
@@ -1702,7 +1749,7 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
     let s = &fighters.stats;
     let (hits, damage, died) = stats.map_or((0, 0.0, false), |c| (c.player_hits, c.player_damage, c.player_died));
     info!(
-        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} went on a combo, the longest {}; {} missed: out of reach when they landed; {} melee decisions to hold), {} reloads ({} round by round); {} flee checks, {} fled; the player was hit {hits} times for {damage:.1}{}; {} staggers held a fighter's attacks ({} blows cut short); {} frames a fighter waited to face its target",
+        "npc combat summary: {} actors fought ({}); {} shots ({} from a muzzle, {} from the eyes; {} down the sights, {} from the hip, sights raised {} times), {} blows ({} went on a combo, the longest {}; {} missed: out of reach when they landed; {} melee decisions to hold), {} reloads ({} round by round); {} flee checks, {} fled ({} hid at their flee spot, {} ran on when seen there); the player was hit {hits} times for {damage:.1}{}; {} staggers held a fighter's attacks ({} blows cut short); {} frames a fighter waited to face its target",
         s.fighters.len(),
         s.fighters.values().cloned().collect::<Vec<_>>().join(", "),
         s.shots,
@@ -1720,6 +1767,8 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.round_reloads,
         s.flee_checks,
         s.flees,
+        s.hides,
+        s.hides_seen,
         if died { " and died" } else { "" },
         s.staggers,
         s.blows_cut,

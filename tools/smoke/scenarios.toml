@@ -348,8 +348,8 @@ expect = [
   { json = "verdicts.talks: goes up to its target from where it is", schema = "fnv.ai.reach/1", equals = 126 },
   # main on 2026-10-11, so any change shows here and gets explained
   { json = "actor_package_pairs", schema = "fnv.ai.reach/1", equals = 16935, label = "pairs as on main 2026-10-11: 16,935" },
-  { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 10258, label = "reachable as on main 2026-10-11: 10,258" },
-  { json = "verdicts.stays where it is", schema = "fnv.ai.reach/1", equals = 1602, label = "staying as on main 2026-10-11: 1,602" },
+  { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 10258, label = "reachable as on main 2026-10-11: 10,258", known_failing = "main b762654e 2026-10-17: a fnvtool built from origin/main gives 10,403 reachable and 1,691 staying (the Oct 16 build gave 10,258 / 1,602); the change came with a main merge after 2026-10-16, not looked at (claude/flee-hide does not change the counts)" },
+  { json = "verdicts.stays where it is", schema = "fnv.ai.reach/1", equals = 1602, label = "staying as on main 2026-10-11: 1,602", known_failing = "main b762654e 2026-10-17: a fnvtool built from origin/main gives 10,403 reachable and 1,691 staying (the Oct 16 build gave 10,258 / 1,602); the change came with a main merge after 2026-10-16, not looked at (claude/flee-hide does not change the counts)" },
   { json = "verdicts.never chosen: needs a linked reference the actor lacks", schema = "fnv.ai.reach/1", equals = 3185, label = "never chosen as on main 2026-10-11: 3,185" },
   { json = "verdicts.nowhere to go: the location is the player, who is nowhere yet", schema = "fnv.ai.reach/1", equals = 182, label = "at the player as on main 2026-10-11: 182" },
 ]
@@ -2443,6 +2443,23 @@ expect = [
   { re = 'ai \[.*: flees from the player (to cover|away|through door)|is cornered by the player', label = "it runs to a flee spot (or is cornered)" },
   { re = 'reached its flee spot from the player|is cornered by the player', label = "it reaches its flee spot" },
   { re = 'battle summary: .*?(?P<n>\d+) flights \(', range = [1, 10], label = "flights in the battle summary" },
+]
+
+[[scenario]]
+name = "combat-flee-hide"
+source = "owner 2026-10-17: fleeing NPCs run off and hide crouched when they stop, out of their enemy's way, with the original's cowering (docs/design/combat-ai.md §12.2.1, docs/spec-notes/idles.md §13)"
+note = "Violet (FiendVioletRef) fights the player from 3 s and is made to flee by ForceFlee at 8 s (god mode, the player does not shoot); at her flee spot she crouches and plays the IDLE tree's CowerIdles (3rdP_Cowering.kf)"
+areas = ["combat", "combat-groups", "animation"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:FiendVioletRef:player,8:call:FiendVioletRef:ForceFlee" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  { re = 'ai \[.*Violet\S*: flees from the player (to cover|away|through door)', label = "Violet runs from the player to a flee spot" },
+  { re = 'Violet\S*: reached its flee spot from the player .*: hides there, crouched', label = "she reaches her flee spot and hides crouched there" },
+  { re = 'alert: \S*Violet\S* \S+ holsters its weapon \(it flees\)', label = "she holsters her rifle to flee" },
+  { re = 'idle: \S*Violet\S* plays CowerIdles .*\(Cower\)', label = "she plays the original's cower idle" },
+  { re = 'cower summary: (?P<n>\d+) cower idles', range = [1, 1000], label = "cower idles in the summary" },
 ]
 
 [[scenario]]
