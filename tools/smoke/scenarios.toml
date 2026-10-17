@@ -658,12 +658,12 @@ args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", 
 run_seconds = 30
 expect = [
   "combat: the player died",
-  { re = 'alert: FiendVioletRef 000F570B Combat → Normal', label = "Violet goes from Combat to Normal once the player is dead" },
-  { re = 'alert: FiendVioletRef 000F570B says CombatToNormal line', label = "she says a CombatToNormal line" },
+  { re = 'alert: \S*FiendViolet 000F570B Combat → Normal', label = "Violet goes from Combat to Normal once the player is dead" },
+  { re = 'alert: \S*FiendViolet 000F570B says CombatToNormal line', label = "she says a CombatToNormal line" },
 ]
 forbid = [
-  { re = 'alert: FiendVioletRef 000F570B Combat → Lost', label = "Violet loses a dead target" },
-  { re = 'alert: FiendVioletRef 000F570B says (CombatToLost|LostIdle|LostToNormal) line', label = "a Lost line about a dead target" },
+  { re = 'alert: \S*FiendViolet 000F570B Combat → Lost', label = "Violet loses a dead target" },
+  { re = 'alert: \S*FiendViolet 000F570B says (CombatToLost|LostIdle|LostToNormal) line', label = "a Lost line about a dead target" },
 ]
 
 [[scenario]]
