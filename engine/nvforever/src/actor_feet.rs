@@ -55,8 +55,7 @@ pub fn probe(
     roots: Query<(&Name, &GlobalTransform, &InheritedVisibility, &ActorRig)>,
     nodes: Query<&GlobalTransform>,
     bodies: Query<(&Name, &GlobalTransform), Without<ActorRig>>,
-    world: Option<Res<WorldData>>,
-    mut phys: Option<ResMut<PhysState>>,
+    (world, mut phys): (Option<Res<WorldData>>, Option<ResMut<PhysState>>),
 ) {
     if p.done || time.elapsed_secs() < p.at {
         return;

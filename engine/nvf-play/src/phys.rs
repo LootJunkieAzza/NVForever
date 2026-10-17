@@ -520,12 +520,18 @@ impl PhysState {
         let mut filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
         filter.exclude.extend(self.npcs.values().map(|b| b.ch.key()).chain(exclude));
         let hit = self.ray(at, [0.0, 0.0, -1.0], down, filter)?;
+        Some(GroundUnder { bare: hit.point[2], drawn: self.drawn_over(&hit), shell: hit.shell })
+    }
+
+    /// The drawn ground at a downward ray's hit: the hit's height, or, on a placed model
+    /// with drawn floors, the highest of them within [`DRAWN_FLOOR_WINDOW`] of it.
+    pub fn drawn_over(&self, hit: &RayHit) -> f32 {
         let bare = hit.point[2];
         let drawn = match hit.owner {
-            Owner::Ref { form_id, .. } => self.drawn.get(&form_id).and_then(|(floors, pose)| drawn_floor(floors, pose, [at[0], at[1], bare])),
+            Owner::Ref { form_id, .. } => self.drawn.get(&form_id).and_then(|(floors, pose)| drawn_floor(floors, pose, hit.point)),
             _ => None,
         };
-        Some(GroundUnder { bare, drawn: drawn.unwrap_or(bare), shell: hit.shell })
+        drawn.unwrap_or(bare)
     }
 
     /// Bring every character's drawn sink up to date (after its physics step).
