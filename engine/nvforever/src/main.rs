@@ -47,6 +47,7 @@ mod lights;
 mod limbs;
 mod lips;
 mod lockpick_view;
+mod blackjack_view;
 mod terminal_view;
 mod lod;
 mod locomotion;
@@ -1085,6 +1086,8 @@ fn main() -> AppExit {
         app.add_plugins(effect_shaders::EffectShadersPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
         app.add_plugins(lockpick_view::LockpickViewPlugin);
+        // The blackjack table (blackjack_view.rs).
+        app.add_plugins(blackjack_view::BlackjackViewPlugin);
         // The terminal's monitor (terminal_view.rs).
         app.add_plugins(terminal_view::TerminalViewPlugin);
     }
