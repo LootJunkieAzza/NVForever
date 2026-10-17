@@ -3260,10 +3260,10 @@ expect = [
 [[scenario]]
 name = "crippled-limp-creature"
 source = "owner 2026-10-16: a creature with a crippled leg limps where its skeleton has limping clips (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11)"
-note = "VERGSCoyote6REF 0x00157B38 (dog skeleton: locomotion/hurt/ has the walk and run forward) at the coyote-warning spot; god mode as the coyote is Aggressive; it attacks after its two warnings (about 13 s in), alerted, so the run goes on to 24 s to see it run on its limping clips"
+note = "VERGSCoyote6REF 0x00157B38 (dog skeleton: locomotion/hurt/ has the walk and run forward) at the coyote-warning spot; god mode as the coyote is Aggressive; left alone it attacks only after its two warnings, about 13 s in, too late to be seen moving, so a test aid starts its fight with the player at 9 s (alerted, it runs at them on its limping clips)"
 areas = ["actors", "combat"]
 paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-actor/src/locomotion.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:VERGSCoyote6REF.DamageAV RightMobilityCondition 1000;8.5:close" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:VERGSCoyote6REF.DamageAV RightMobilityCondition 1000;8.5:close", NVF_PLAY_TEST_SCRIPT = "9:combat:0x00157B38:player" }
 args = ["--play", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 24
 expect = [
