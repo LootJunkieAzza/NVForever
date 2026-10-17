@@ -3872,6 +3872,8 @@ expect = [
   { text = "GoodspringsSettler03Ref: flees from", count = 0, label = "he does not run from the player, who is no enemy" },
   "EasyPeteRef: is safe (EasyPeteHideInSaloonPackage)",
 ]
+
+[[scenario]]
 name = "fast-travel-primm"
 source = "owner request 2026-10-17: fast travel from the Pip-Boy's World Map (docs/spec-notes/fast-travel.md): a script block refuses, then Yes takes the player to Primm's arrival marker behind a loading screen and moves the clock on"
 note = "Primm 0x000CDF46 made a travel target by ShowMap's canTravel; EnableFastTravel 0 at 6 s refuses the first ask (sNoFastTravelScriptBlock), EnableFastTravel 1 at 18 s lets the second through; the marker's linked reference 0x00169225 (-56411, -53185) is where the player arrives"
