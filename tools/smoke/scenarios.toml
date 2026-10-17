@@ -1800,6 +1800,32 @@ expect = [
 ]
 
 [[scenario]]
+name = "conversation-timer"
+source = "NPC conversation rate against the original's, docs/spec-notes/npc-behaviour-compare.md §5 (2026-10-17): one 30–60 s timer for the loaded area, not one per actor"
+note = "the player stands among Westside's citizens at 10:00; in about 90 s of play the area tries a conversation once to three times (a timer per actor tried dozens of times)"
+areas = ["ai", "residents"]
+paths = ["crates/fnv-ai/src/social.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Westside", "--pos=-37600,106750,4600", "--play", "--hour", "10", "--no-voice"]
+run_seconds = 100
+expect = [
+  { re = 'social summary: .* (?P<n>\d+) tries next to the player', range = [1, 3], label = "one to three tries for the whole area in about 90 s" },
+]
+
+[[scenario]]
+name = "conversation-walk-up"
+source = "NPC conversation walk, docs/spec-notes/npc-behaviour-compare.md §8 follow-up 9 (2026-10-17): the original's conversations start at a median of 120 units, after the starter walks up"
+note = "Westside's citizens at 10:00, conversations anywhere in the loaded area (test aid) so a few start in 5 min; until the fix a sandboxing starter 'arrived' in its walk's first frame and talked from 218-907 units"
+areas = ["ai", "residents"]
+paths = ["crates/fnv-ai/src/social.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CHATS_ANYWHERE = "1" }
+args = ["--cell", "Westside", "--pos=-36112,106897,4600", "--play", "--hour", "10", "--no-voice"]
+run_seconds = 300
+expect = [
+  { re = 'starts a conversation with .* from (?P<n>\d+) units', range = [0, 150], all = true, label = "every conversation starts within 150 units (one or more in 5 min)" },
+]
+
+[[scenario]]
 name = "far-actors"
 source = "owner's playtest 2026-10-11 (Fiends heard talking far away): process levels, docs/design/actor-behaviour.md §5.9"
 areas = ["ai", "residents"]

@@ -22,11 +22,17 @@
 //!   after the player has gone beyond [`HELLO_REARM`] times that distance. One hello is
 //!   said at a time [stand-ins: the game's distance and repeat rules are not in the
 //!   documentation or the masters].
-//! - **Random conversation**: every actor that may start one looks for a partner after
-//!   a time drawn between `fAISocialTimerForConversationsMin` and `…Max` seconds (30 and
-//!   60 in FalloutNV.esm), and does so with a chance of `fAISocialchanceForConversation`
-//!   per cent (`…Interior` indoors; 25 both) [observed: the settings' values in
-//!   FalloutNV.esm; hypothesis: what they mean, from their names]. The partner is the
+//! - **Random conversation**: the loaded area tries one after a time drawn between
+//!   `fAISocialTimerForConversationsMin` and `…Max` seconds of play (30 and 60 in
+//!   FalloutNV.esm), with a chance of `fAISocialchanceForConversation` per cent
+//!   (`…Interior` indoors; 25 both); the starter is drawn among the actors that may
+//!   start one, and one who has rested since its last conversation for a time drawn the
+//!   same way [observed: the settings' values in FalloutNV.esm; the original's rate,
+//!   docs/spec-notes/npc-behaviour-compare.md §5: 4 conversations in 6 game hours of
+//!   Westside, one per 180 real seconds as one timer of 30–60 s at 25 % gives, where a
+//!   timer per actor gives about ten times more, and a timer in game seconds a hundred;
+//!   hypothesis: one timer for the area, and real seconds rather than game minutes,
+//!   which the four do not tell apart]. The partner is the
 //!   nearest actor that may take part, for whom the starter has a HELLO line (Link From
 //!   blank) and to whom it has a way, within `fAISocialRadiusToTriggerConversationInterior`
 //!   (1000) indoors and `fAISocialRadiusToTriggerConversation` outdoors (not in the
@@ -36,8 +42,9 @@
 //!   far away: the player must stand next to them"; the distance is a stand-in].
 //!
 //! **The walk** ([`Chat`]): the starter goes up to the partner, who waits where it stands
-//! and turns to it, and they talk once the starter is within [`TALK_DISTANCE`] (or as
-//! near as the navmesh lets it get) [documented: Sandbox Package, "Conversation -- no
+//! and turns to it, and they talk once the starter is within [`TALK_DISTANCE`]; a way
+//! that ends farther off (the navmesh goes no nearer) gives the conversation up [hypothesis:
+//! the original's start at a median of 120 units, npc-behaviour-compare.md §8] [documented: Sandbox Package, "Conversation -- no
 //! duration, the behavior is done when the conversation is finished"; StartConversation:
 //! "the calling actor will seek out the target actor"; the distance: the standard
 //! Activate Distance of a Dialogue package, iActivatePickLength 150 (Dialogue Package);
@@ -101,17 +108,33 @@ pub enum Chat {
 }
 
 pub(crate) struct Social {
-    /// When (`Game::time`) each actor that may start a conversation next looks for a
-    /// partner.
+    /// When (`Game::time`) the loaded area next tries a random conversation.
+    next_try: Option<f64>,
+    /// Until when (`Game::time`) an actor rests after a conversation before it starts
+    /// another.
     next_chat: BTreeMap<FormId, f64>,
     /// Actors that said hello and wait for the player to go away.
     greeted: BTreeSet<FormId>,
     pub(crate) rng: Rng,
+    pub(crate) stats: SocialStats,
+}
+
+/// Counts for the log's summary, to set the conversation rate against the original's
+/// (docs/spec-notes/npc-behaviour-compare.md §5).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+pub struct SocialStats {
+    /// Seconds summed over the actors in the loaded area within [`CHAT_NEAR_PLAYER`] of
+    /// the player (actor-seconds of play).
+    pub near_player_seconds: f64,
+    /// Times a starter was due with someone to talk to next to the player.
+    pub tries: u64,
+    /// Of these, the times the chance was won.
+    pub chances_won: u64,
 }
 
 impl Default for Social {
     fn default() -> Self {
-        Social { next_chat: BTreeMap::new(), greeted: BTreeSet::new(), rng: Rng(0x5EED_C0DE) }
+        Social { next_try: None, next_chat: BTreeMap::new(), greeted: BTreeSet::new(), rng: Rng(0x5EED_C0DE), stats: SocialStats::default() }
     }
 }
 
@@ -145,6 +168,11 @@ fn here(game: &Game, actor: FormId) -> bool {
 }
 
 impl Ai {
+    /// The counts of random conversations for the log's summary.
+    pub fn social_stats(&self) -> SocialStats {
+        self.social.stats
+    }
+
     /// Whether the engine should keep `actor` where it stands for a random conversation:
     /// it waits for its partner, or talks.
     pub fn holds_for_chat(&self, actor: FormId) -> bool {
@@ -173,6 +201,10 @@ impl Ai {
             free.push(Free { actor, at: Place { space: a.walker.space, pos: a.walker.feet }, def, seated: a.using.is_some() });
         }
         let player = goal::place_of_ref(game, FormId::PLAYER_REF);
+        let anywhere = self.cfg.chats_anywhere;
+        let near_player = |at: &Place| player.is_some_and(|p| p.space == at.space && dist(p.pos, at.pos) <= CHAT_NEAR_PLAYER);
+        let near = self.agents.iter().filter(|(id, a)| self.is_high(**id) && here(game, **id) && near_player(&Place { space: a.walker.space, pos: a.walker.feet })).count();
+        self.social.stats.near_player_seconds += near as f64 * f64::from(dt);
         let mut events: Vec<(FormId, AiEvent)> = Vec::new();
         // Hellos.
         if let Some(p) = player {
@@ -194,16 +226,19 @@ impl Ai {
         for (actor, e) in events {
             self.log(game, actor, e);
         }
-        // Random conversations, only next to the player.
-        let near_player = |at: &Place| player.is_some_and(|p| p.space == at.space && dist(p.pos, at.pos) <= CHAT_NEAR_PLAYER);
-        let mut taken: BTreeSet<FormId> = BTreeSet::new();
+        // Random conversations, only next to the player: one try for the whole loaded
+        // area when its timer is due.
+        let (lo, hi) = (setting(game, "fAISocialTimerForConversationsMin", TIMER_MIN), setting(game, "fAISocialTimerForConversationsMax", TIMER_MAX));
+        let due = *self.social.next_try.get_or_insert_with(|| now + self.social.rng.range(lo, hi) as f64);
+        if now < due {
+            return;
+        }
+        // Who may start one: its package lets it, it is not resting after a conversation,
+        // and it has someone within the radius, the one or the other next to the player.
+        let mut starters: Vec<(&Free, Vec<(f32, &Free)>)> = Vec::new();
         for f in &free {
-            if taken.contains(&f.actor) || !STARTERS.contains(&f.def.ty) || !chats(f.def) {
-                continue;
-            }
-            let (lo, hi) = (setting(game, "fAISocialTimerForConversationsMin", TIMER_MIN), setting(game, "fAISocialTimerForConversationsMax", TIMER_MAX));
-            let due = *self.social.next_chat.entry(f.actor).or_insert_with(|| now + self.social.rng.range(lo, hi) as f64);
-            if now < due {
+            // Not one that has just said hello either.
+            if !STARTERS.contains(&f.def.ty) || !chats(f.def) || self.social.next_chat.get(&f.actor).is_some_and(|&t| now < t) || game.is_talking(f.actor) {
                 continue;
             }
             let indoors = matches!(f.at.space, Space::Interior(_));
@@ -211,22 +246,33 @@ impl Ai {
             let radius = if indoors { interior } else { setting(game, "fAISocialRadiusToTriggerConversation", interior) };
             let mut near: Vec<(f32, &Free)> = free
                 .iter()
-                .filter(|o| o.actor != f.actor && !taken.contains(&o.actor) && o.at.space == f.at.space && chats(o.def) && (near_player(&f.at) || near_player(&o.at)))
+                .filter(|o| o.actor != f.actor && o.at.space == f.at.space && chats(o.def) && (anywhere || near_player(&f.at) || near_player(&o.at)))
                 .map(|o| (dist(o.at.pos, f.at.pos), o))
                 .filter(|(d, _)| *d <= radius)
                 .collect();
-            // Nobody to talk to next to the player: it is due again as soon as there is
-            // (the timer is not drawn again, so a player who comes up hears one soon).
-            if near.is_empty() {
-                continue;
-            }
-            let next = self.social.rng.range(lo, hi);
-            self.social.next_chat.insert(f.actor, now + next as f64);
-            let chance = setting(game, if indoors { "fAISocialchanceForConversationInterior" } else { "fAISocialchanceForConversation" }, CHANCE);
-            if self.social.rng.next() * 100.0 >= chance || game.is_talking(f.actor) || game.in_actor_conversation(f.actor) {
-                continue;
-            }
             near.sort_by(|a, b| a.0.total_cmp(&b.0));
+            if !near.is_empty() {
+                starters.push((f, near));
+            }
+        }
+        // Nobody to talk to next to the player: the try is due again as soon as there is
+        // (the timer is not drawn again, so a player who comes up hears one soon).
+        if starters.is_empty() {
+            return;
+        }
+        self.social.next_try = Some(now + self.social.rng.range(lo, hi) as f64);
+        self.social.stats.tries += 1;
+        let indoors = matches!(starters[0].0.at.space, Space::Interior(_));
+        let chance = setting(game, if indoors { "fAISocialchanceForConversationInterior" } else { "fAISocialchanceForConversation" }, CHANCE);
+        if self.social.rng.next() * 100.0 >= chance {
+            return;
+        }
+        self.social.stats.chances_won += 1;
+        // The starter is drawn; one without a line for anyone near passes the try on to
+        // the next drawn.
+        while !starters.is_empty() {
+            let i = ((self.social.rng.next() * starters.len() as f32) as usize).min(starters.len() - 1);
+            let (f, near) = starters.swap_remove(i);
             for (away, o) in near {
                 // A seated starter does not get up to go to someone.
                 if away > TALK_DISTANCE && f.seated {
@@ -237,8 +283,7 @@ impl Ai {
                 }
                 let started = if away <= TALK_DISTANCE { self.chat_start(game, f.actor, o.actor, away) } else { self.chat_set_off(game, nav, f.actor, o.actor, o.at, away) };
                 if started {
-                    taken.extend([f.actor, o.actor]);
-                    break;
+                    return;
                 }
             }
         }
@@ -273,12 +318,16 @@ impl Ai {
                     let a = &self.agents[&actor];
                     let at = goal::place_of_ref(game, partner);
                     let away = at.filter(|p| p.space == a.walker.space).map_or(f32::INFINITY, |p| dist(p.pos, a.walker.feet));
-                    // Near enough, or as near as the navmesh lets it get.
+                    // Near enough; or the way is at its end (the navmesh lets it get no
+                    // nearer, or it was stopped) still out of reach: it gives up rather
+                    // than talk across the distance.
                     if away <= TALK_DISTANCE || a.activity != Activity::Travelling {
                         let a = self.agents.get_mut(&actor).expect("listed");
                         a.walker.follower = None;
                         a.activity = Activity::There;
-                        if !self.chat_start(game, actor, partner, away) {
+                        if away > TALK_DISTANCE {
+                            self.chat_give_up(game, nav, actor, partner, "the way ends out of reach");
+                        } else if !self.chat_start(game, actor, partner, away) {
                             self.chat_give_up(game, nav, actor, partner, "it has no line for the partner");
                         }
                     }

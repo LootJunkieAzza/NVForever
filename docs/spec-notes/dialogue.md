@@ -628,11 +628,13 @@ a five-line exchange at Nellis. 1,065 have Link From blank, so can start one
   script trace, `NVF_PLAY_SCRIPT_TRACE`].
 - **A random conversation** (`Game::start_actor_conversation` with HELLO, then §5.1):
   an actor whose package may start one (Sandbox, Guard, Eat, Patrol; the behaviour
-  allowed; not "No Conversation") looks for a partner after a time drawn between
-  `fAISocialTimerForConversationsMin` and `…Max` (30 and 60 s), and starts with a chance
-  of `fAISocialchanceForConversation` per cent (`…Interior` indoors; 25 both)
-  [observed: the values in FalloutNV.esm; hypothesis: what the settings mean, from
-  their names, which the wiki only lists]. The partner is the nearest actor whose
+  allowed; not "No Conversation") may start one. The loaded area tries one after a time
+  drawn between `fAISocialTimerForConversationsMin` and `…Max` (30 and 60 s of play),
+  with a chance of `fAISocialchanceForConversation` per cent (`…Interior` indoors; 25
+  both), the starter drawn among those that may [observed: the values in FalloutNV.esm;
+  the original's rate, npc-behaviour-compare.md §5: Westside's 0.66 conversations per
+  game hour is what one such timer gives, a timer per actor five times more there;
+  hypothesis: one timer for the area, in real seconds]. The partner is the nearest actor whose
   package lets it take part, to whom the starter has a HELLO line
   (`Game::conversation_opener`) and a way over the navmesh: within
   `fAISocialRadiusToTriggerConversationInterior` (1000) indoors,
@@ -652,9 +654,9 @@ a five-line exchange at Nellis. 1,065 have Link From blank, so can start one
   its package has it do (no sandbox choice, no patrol), and the engine keeps whoever
   waits or talks where it stands; afterwards each goes back to its package's place, a
   sandboxing actor going on from where it is, as after a push [hypothesis]. Both
-  actors' timers start over when a conversation ends [hypothesis: without it, in the
-  engine in Vault 3 the same two Fiends started a second conversation the moment the
-  first ended].
+  actors rest a time drawn the same way when a conversation ends before either starts
+  another [hypothesis: without it, in the engine in Vault 3 the same two Fiends started a
+  second conversation the moment the first ended].
 - **Nobody talks** while asleep (a Sleep package), on its way, already talking, carrying
   out a Dialogue package, dead or disabled, or while a menu or a conversation with the
   player holds the game [hypothesis].

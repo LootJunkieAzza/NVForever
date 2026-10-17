@@ -167,8 +167,9 @@ def is_actor(ref, known):
 def conversations(o, known):
     """NPC-to-NPC conversations of one observation: a pair is in conversation while
     either has a dialogue package (type 6 or 34) whose target, or whose dialogue target
-    (GetDialogueTarget), is the other. The talk starts when both are on it or one is in
-    procedure DIALOGUE; before that the starter walks up (procedure DIALOGUE_ACTIVATE)."""
+    (GetDialogueTarget), is the other, an actor sampled (not a chair, a stove or a marker,
+    which those also name). The talk starts when both are on it or one is in procedure
+    DIALOGUE; before that the starter walks up (procedure DIALOGUE_ACTIVATE)."""
     open_, done = {}, []
     for s in o["samples"]:
         acts = s["actors"]
@@ -182,7 +183,7 @@ def conversations(o, known):
             if not partner or partner == PLAYER:
                 dt_ = r.get("dialogue_target")
                 partner = dt_ if dt_ and dt_ != PLAYER else partner
-            if not partner or partner == PLAYER or partner == aid:
+            if not partner or partner == PLAYER or partner == aid or not is_actor(partner, known):
                 continue
             pairs.setdefault(frozenset((aid, partner)), set()).add(aid)
         for pair, who in pairs.items():
