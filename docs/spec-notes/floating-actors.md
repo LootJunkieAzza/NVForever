@@ -89,8 +89,8 @@ little above the terrain, "most places".
   terrain, which is most of the outdoors; on floors 0.7 hardly shows [observed: the
   probe's root height over the drawn landscape, §4].
 
-Rule (engine): the body is drawn the character's rest gap below its feet
-(`nvf_play::phys::drawn_sink`; not while swimming, whose float depth counts from the
+Rule (engine): the body is drawn the character's rest gap below its feet (over a
+model, on its drawn floor instead: §7) (`nvf_play::phys::drawn_sink`; not while swimming, whose float depth counts from the
 feet); the feet, the reference's position, the eye and the camera stay where they were
 [hypothesis: the game draws the body on the bare surface, from the owner's report that
 it does not float there; not measured in the game]. Furniture places bodies its own
@@ -104,3 +104,63 @@ with the raise it passes as on main, where that rest check is itself flaky: main
 Before the fix the player's drawn body stood 3.7 units over the drawn landscape on Camp
 Golf's open ground (`--pos=29500,62000,3400`) [observed: probe, §4]. The smoke scenario
 `feet-on-ground` puts the player in third person there and expects the drawn body's root within 1.5 units of the drawn landscape.
+
+## 7. Easy Pete sunk into the saloon porch (owner report 2026-10-17)
+
+The owner's screenshot showed Easy Pete (EasyPeteRef 0x00104C80) on the Prospector
+Saloon's porch with his boots below its boards. Which of the suspected causes it was:
+
+- **Not his placement.** His reference is placed at z 8391.5, 7.9 above the porch's
+  collision; a resident that never walks stands there (§5), above the boards, not in
+  them. Once his character has walked he stands where it rested [observed: the test
+  aid's sim position, 8384 after a walk].
+- **The porch's collision lies under its drawn boards.** `nv_prospectorsaloon.nif` (STAT
+  0x0010243E, reference 0x001055E0) has one packed-strips collision plane at z 8383.6
+  under the whole porch; its drawn shape `NV_ProspectorSaloon:2` draws the boards with
+  their top at 8385.3–8387.1 (8386.1 to 8387.1 around Pete's spot) and their underside
+  2.6 below the collision [observed: the decoded NIF's render strips and collision
+  strips at the reference's pose; `fnvtool phys cell` rays and a dropped probe agree on
+  8383.6]. The navmesh there is at 8386.2, on the drawn top [observed: `fnvtool nav
+  near`].
+- **The sink was right for the collision, wrong for the drawn floor.** A character
+  rests 0.7 above that collision (8384.3); the rule of §6 drew the walking body 0.7
+  below its feet, on the collision, 2.5 under the boards' top; a resident standing
+  after its walk was drawn at its feet, 1.8 under it [observed: probe].
+- **The game puts him at the collision too.** Over hours of AI observer captures the
+  game reports Pete standing on the porch at z 8384.6 (sitting in his chair, 8387.3)
+  [observed: `capture/out/obs_*.jsonl`, private], the rest band of physics.md §6.2 over
+  8383.6. So the reference's position is not what lifts him in the game; that the game
+  draws him on the boards is the owner's observation, and how it does is not known
+  [hypothesis: on the drawn surface, as below].
+
+Rule (engine): the body is drawn on the **drawn ground** under the feet. Over terrain
+that is the collision's own surface (the landscape draws the heights it collides with),
+so §6 is unchanged there. Over a placed model whose collision stays where it was placed
+(not dynamic, not a door that opens in place) it is the highest of the model's drawn
+floor-like triangles (facing up or down more than 60° from the side) within 4 units of
+the collision under the feet (`DRAWN_FLOOR_WINDOW`); with none there, the collision
+(`nvf_play::phys::drawn`, `PhysState::drawn_ground`, `drawn_sink`) [hypothesis: from the
+owner's report; the window is a design choice]. Drawn floors are read with a model's
+collision, from the shapes the renderer draws for a placed reference (not skinned, not
+hidden, not editor helpers, below the root's own transform), and are not looked at for
+a reference tilted more than about 5°. The body can then be drawn above its feet (a
+negative sink): on the porch 2.8 above. A resident standing without a character is
+drawn the same way when its feet are where a character rests (the contact shell above
+the collision under them, within 0.5: after a walk, MoveTo onto that height); others
+(a placed height, the navmesh's height) stay at their feet
+(`PhysState::standing_drawn_feet`). Foot IK (actors.md §13) puts each foot on the same
+drawn ground (`PhysState::drawn_over`), or it lowered the raised body back onto the
+collision.
+
+The test aid `NVF_TEST_ACTOR_FEET` (§4) chose the first `Camera3d`, and when the water's
+reflection camera came first it reported no actor in range (so `floating-troopers` could
+pass without looking at anyone); it now leaves that camera out, and with `--play` also
+logs the collision and drawn ground under each actor.
+
+Smoke scenarios: `pete-porch` holds Pete (SetRestrained) and puts him by MoveTo at his
+placement's x and y at the height the game recorded him at (8384.6), looks at his feet,
+and expects his root on the boards' top (8387.1 ± 1) [observed: before the fix 8384,
+after it 8387.1; screenshots `pete_porch.png`]. Its twin `pete-terrain` puts him on the
+bare landscape in front of the steps at the terrain rest height and expects his root on
+the drawn landscape (0.0 above it after the fix; the terrain shots before and after are
+alike). `feet-on-ground` and `floating-troopers` pass with the change.

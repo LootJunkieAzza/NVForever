@@ -1854,9 +1854,9 @@ fn drive_body(
         reload_round_now,
         spin_now,
     };
-    // The body stands on the ground under the feet, the rest gap below them
-    // (`nvf_play::phys::drawn_sink`); its eye counts from the feet as before.
-    let sink = Vec3::Z * phys.player.as_ref().map_or(0.0, nvf_play::phys::drawn_sink);
+    // The body stands on the drawn ground under the feet (`nvf_play::phys::drawn_sink`);
+    // its eye counts from the feet as before.
+    let sink = Vec3::Z * phys.drawn_sink_of(FormId::PLAYER_REF.0);
     let root = Transform { translation: Vec3::from_array(feet) - sink, rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
     let third = Posed { root, look_pitch: player.pitch, special: &idles.third, pipboy: None };
     let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e + sink);

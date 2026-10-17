@@ -12,8 +12,10 @@
 //!   [`ACTIVE_RADIUS`] from the camera: there the feet ease back to the animation.
 //! - **The ground.** With `--play`, a ray down through each ankle in the collision world
 //!   (terrain and static models; not characters, actor hit volumes nor the layers a
-//!   character walks through), which gives the height and the slope; without it the
-//!   drawn landscape's heights.
+//!   character walks through), which gives the height and the slope, the height raised
+//!   to a model's drawn floor where its collision lies under it
+//!   (`PhysState::drawn_over`, floating-actors.md §7); without it the drawn landscape's
+//!   heights.
 //! - **How.** After the frame's animation has posed the skeleton and before transforms are
 //!   propagated, on top of the animated pose: the clips stand on level ground at the
 //!   actor's root, so each foot is moved up or down by the ground's height under it
@@ -436,10 +438,10 @@ fn place(
                 let g = space::to_game(to_world.transform_point3(ankle));
                 let ground: Ground = if let Some(p) = phys.as_deref_mut() {
                     let filter = Filter { exclude: key.into_iter().collect(), exclude_layers: layers::character_ignores().union(layers::actor_volumes()), ..Default::default() };
-                    p.world
-                        .queries()
-                        .ray([g[0], g[1], root_game[2] + PROBE_UP], [0.0, 0.0, -1.0], PROBE_UP + PROBE_DOWN, &filter)
-                        .map(|hit| (hit.point[2], Vec3::from(hit.normal)))
+                    // On a model's drawn floor, not its collision when that lies lower
+                    // (`PhysState::drawn_over`, floating-actors.md §7).
+                    let hit = p.world.queries().ray([g[0], g[1], root_game[2] + PROBE_UP], [0.0, 0.0, -1.0], PROBE_UP + PROBE_DOWN, &filter);
+                    hit.map(|hit| (p.drawn_over(&hit), Vec3::from(hit.normal)))
                 } else {
                     world.as_deref().and_then(|w| land.ground(w, Vec3::from(g)))
                 };
