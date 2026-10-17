@@ -1934,12 +1934,14 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/npc-unconscious implemented GetOwnerLastTarget (5 calls, the last stub assigned to J,
 # so no "assigned" or "J karma and crime" row is left; docs/spec-notes/unconscious.md §2.8):
 # 48 → 47 stubs, 242 → 237 calls.
+# claude/repair-services-menu implemented ShowRepairMenu (15 calls, docs/spec-notes/repair.md):
+# 47 → 46 stubs, 237 → 222 calls.
 expect = [
-  { json = "summary.stubs", equals = 47 },
+  { json = "summary.stubs", equals = 46 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 46 },
+  { json = "summary.by_status.needs_system", equals = 45 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 237 },
+  { json = "summary.stub_calls", equals = 222 },
   { json = "summary.stub_condition_uses", equals = 377 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
