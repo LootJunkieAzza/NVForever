@@ -25,16 +25,25 @@
 //!   `imagespace.rs`) over [`BLUR_IN`] and stays blurred while the player is dead.
 //!   `--death-imod <Editor ID or 0xFormID>` also plays that image space modifier when the
 //!   player dies, as a script's ApplyImageSpaceModifier would.
+//! - **Fade to black** (owner, todo 6 item 3, 2026-10-17): [`FADE_DELAY`] real seconds
+//!   after the death the screen starts to go black, slowly, and is black [`FADE_SECONDS`]
+//!   later; it stays black while the player is dead. Real seconds, menus excluded, like
+//!   the blur: the slow motion does not stretch it. It is drawn over the blur and over
+//!   whatever fade a modifier puts on the screen (`imagespace.rs`, as sleeping's fade).
 //! - The player alive again (a save loaded, a script resurrecting): the ragdoll leaves
 //!   the world, the body and the view are the player's again and the clock runs at full
 //!   speed.
 //!
 //! Every constant here is [design]: how the original's death camera moves, how slow its
-//! slow motion is and which image space modifier it plays, if any, are not known. The
-//! original reloads the last save some seconds after the death; that is not built.
+//! slow motion is and which image space modifier it plays, if any, are not known; the
+//! fade's timing is the owner's. The original reloads the last save some seconds after
+//! the death; that is not built, and how long the original waits, and whether it fades,
+//! is not in our notes.
 //!
 //! Log lines: `death camera: the player died in first person: …` when it starts,
-//! `death camera: the body is on the ground …` when the ragdoll comes to rest, and
+//! `death camera: the body is on the ground …` when the ragdoll comes to rest,
+//! `death camera: the screen starts fading to black …` and `death camera: the screen is
+//! black …` for the fade, and
 //! `death camera: the player lives again …` when it ends.
 
 use crate::limbs::ActorRig;
@@ -59,6 +68,11 @@ pub const SLOW_OUT: f32 = 1.5;
 /// The blur radius the picture goes to, and the real seconds it takes.
 pub const BLUR: f32 = 4.0;
 pub const BLUR_IN: f32 = 2.5;
+/// Real seconds after the death before the screen starts fading to black, and the real
+/// seconds it takes to go fully black [design: owner 2026-10-17, todo 6 item 3: "wait 2
+/// seconds and then slowly fade the screen to black"; the duration is chosen as slow].
+pub const FADE_DELAY: f32 = 2.0;
+pub const FADE_SECONDS: f32 = 4.0;
 /// Real seconds the third-person camera takes to turn to the body.
 pub const LOOK_IN: f32 = 0.8;
 /// The camera eases towards where it wants to be at this rate (per real second).
@@ -104,6 +118,11 @@ impl DeathCam {
     pub fn blur(&self) -> f32 {
         self.down.as_ref().map_or(0.0, |d| blur_at(d.real))
     }
+
+    /// How black the screen is now, 0 … 1 (`imagespace.rs`).
+    pub fn black(&self) -> f32 {
+        self.down.as_ref().map_or(0.0, |d| black_at(d.real))
+    }
 }
 
 /// A dead player.
@@ -120,6 +139,9 @@ struct Down {
     last: Option<Transform>,
     /// The ragdoll came to rest (told once).
     rested: bool,
+    /// The fade to black started, and ended (each told once).
+    fading: bool,
+    black: bool,
 }
 
 /// Where the camera is held, against what.
@@ -162,6 +184,12 @@ pub fn slow_at(t: f32) -> f32 {
 /// The blur radius `t` real seconds after the death.
 pub fn blur_at(t: f32) -> f32 {
     BLUR * smoothstep(t / BLUR_IN)
+}
+
+/// How black the screen is `t` real seconds after the death: nothing until
+/// [`FADE_DELAY`], then easing to fully black over [`FADE_SECONDS`].
+pub fn black_at(t: f32) -> f32 {
+    smoothstep((t - FADE_DELAY) / FADE_SECONDS)
 }
 
 /// Start the death camera when the player dies, end it when the player lives again, and
@@ -209,7 +237,7 @@ fn watch(
                 }
             );
             cam.deaths += 1;
-            cam.down = Some(Down { third, real: 0.0, game: 0.0, body, view: None, last: None, rested: false });
+            cam.down = Some(Down { third, real: 0.0, game: 0.0, body, view: None, last: None, rested: false, fading: false, black: false });
         }
         (Some(d), true) => {
             if !virt.is_paused() {
@@ -221,6 +249,14 @@ fn watch(
                     d.rested = true;
                     info!("death camera: the body is on the ground {:.1} s after the death ({:.1} s of game time)", d.real, d.game);
                 }
+            }
+            if !d.fading && black_at(d.real) > 0.0 {
+                d.fading = true;
+                info!("death camera: the screen starts fading to black {:.1} s after the death, black over {FADE_SECONDS:.1} s", d.real);
+            }
+            if !d.black && black_at(d.real) >= 1.0 {
+                d.black = true;
+                info!("death camera: the screen is black {:.1} s after the death ({:.1} s of game time)", d.real, d.game);
             }
         }
         (Some(d), false) => {
@@ -379,5 +415,34 @@ mod tests {
         assert!(blur_at(BLUR_IN / 2.0) > 0.0 && blur_at(BLUR_IN / 2.0) < BLUR);
         assert!((blur_at(BLUR_IN) - BLUR).abs() < 1e-6);
         assert!((blur_at(60.0) - BLUR).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_screen_waits_then_fades_slowly_to_black() {
+        // Nothing for the first FADE_DELAY seconds (real time: the fade reads `Down::real`,
+        // which the slow motion does not stretch).
+        for i in 0..=20 {
+            assert_eq!(black_at(i as f32 * FADE_DELAY / 20.0), 0.0);
+        }
+        // Under way, and never backwards.
+        assert!(black_at(FADE_DELAY + 0.01) > 0.0);
+        let mid = black_at(FADE_DELAY + FADE_SECONDS / 2.0);
+        assert!((mid - 0.5).abs() < 1e-6, "{mid}");
+        let mut last = 0.0;
+        for i in 0..400 {
+            let b = black_at(i as f32 * 0.025);
+            assert!(b >= last && (0.0..=1.0).contains(&b), "{b}");
+            last = b;
+        }
+        // Slow: not black within a second of starting; black at the end and after.
+        assert!(black_at(FADE_DELAY + 1.0) < 0.5);
+        assert!((black_at(FADE_DELAY + FADE_SECONDS) - 1.0).abs() < 1e-6);
+        assert_eq!(black_at(600.0), 1.0);
+    }
+
+    #[test]
+    fn alive_is_not_black() {
+        assert_eq!(DeathCam::default().black(), 0.0);
+        assert_eq!(DeathCam::default().blur(), 0.0);
     }
 }
