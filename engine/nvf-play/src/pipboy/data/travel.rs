@@ -2,8 +2,8 @@
 //!
 //! - A click on a marker of the World Map (or the test aid's `travel=`) is a
 //!   [`FastTravelAsk`]; [`answer`] tries the refusals (§2, [`refusal`]) and puts up the
-//!   question box ([`Popup`]): "Do you want to travel to …?" with Yes and No, or the
-//!   refusal's text with OK. The DATA page draws the box over the map and takes its keys
+//!   question box ([`Popup`]): "Do you want to travel to …?" with Yes and No; a refusal
+//!   is a top-left corner message instead (`crate::corner_messages`). The DATA page draws the box over the map and takes its keys
 //!   and clicks (`super::take_input`); Yes is a [`FastTravelGo`].
 //! - [`go`] puts the Pip-Boy away and keeps the trip; once the game runs again
 //!   ([`depart`]) the trip goes out as a door's does (`crate::loading::TravelRequest`),
@@ -109,6 +109,11 @@ pub fn refusal(c: &Checks) -> Option<Refusal> {
     Refusal::ALL.into_iter().find(|&r| applies(r))
 }
 
+/// The perk entry point "Has Fast Travel Always": "Access Fast Travel even when
+/// overencumbered" [documented: GECK wiki perk entry points, its perk LongHaul]; code 51
+/// [observed: Long Haul's entry, PERK 0x00146098 `DATA` 0x33, Set Value 1].
+pub const HAS_FAST_TRAVEL_ALWAYS: u8 = 51;
+
 /// The CELL `DATA` flag "Can't Travel From Here" and the WRLD `DATA` flag "Can't Fast
 /// Travel" [documented: xEdit, schemas/fnv/world.json].
 pub const CELL_NO_TRAVEL: u8 = 1 << 2;
@@ -141,19 +146,11 @@ pub fn travel_hours(distance: f32, walk: f32, time_scale: f64) -> f64 {
 /// TimeScale, default 30].
 const OWN_TIME_SCALE: f64 = 30.0;
 
-/// What the question box asks.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Ask {
-    /// "Do you want to travel to …?": the marker.
-    Travel(u32),
-    /// A refusal: OK only.
-    Refused,
-}
-
 /// The question box over the World Map.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Popup {
-    pub ask: Ask,
+    /// The marker asked about.
+    pub marker: u32,
     pub text: String,
     pub buttons: Vec<String>,
     pub selected: usize,
@@ -161,11 +158,7 @@ pub struct Popup {
 
 impl Popup {
     pub fn travel(marker: u32, text: String) -> Popup {
-        Popup { ask: Ask::Travel(marker), text, buttons: vec!["Yes".into(), "No".into()], selected: 0 }
-    }
-
-    pub fn refused(text: String) -> Popup {
-        Popup { ask: Ask::Refused, text, buttons: vec!["OK".into()], selected: 0 }
+        Popup { marker, text, buttons: vec!["Yes".into(), "No".into()], selected: 0 }
     }
 
     /// Move the choice, stopping at the ends.
@@ -175,10 +168,7 @@ impl Popup {
 
     /// The answer `i` was taken: the marker to travel to, if it was Yes.
     pub fn take(&self, i: usize) -> Option<u32> {
-        match self.ask {
-            Ask::Travel(m) if i == 0 => Some(m),
-            _ => None,
-        }
+        (i == 0).then_some(self.marker)
     }
 }
 
@@ -217,6 +207,7 @@ pub fn answer(
     mut sim: ResMut<SimState>,
     mut script: Option<ResMut<ScriptState>>,
     (phys, location, actors, cues, world): Around,
+    mut corner: Option<ResMut<crate::corner_messages::CornerMessages>>,
 ) {
     let Some(&FastTravelAsk(marker)) = asks.read().last() else { return };
     let Some(mut st) = state else { return };
@@ -240,7 +231,20 @@ pub fn answer(
             near.iter().copied().find(|&a| fnv_game::rest::hostile_to_player(&mut rt.game, FormId(a))).map(|a| rt.game.data.name(FormId(a)))
         });
     }
-    let encumbered = sim.world.encumbrance(FormId::PLAYER_REF).is_ok_and(|e| e.over) && !crate::combat::god_mode();
+    let over = sim.world.encumbrance(FormId::PLAYER_REF).ok().filter(|e| e.over).map(|e| (e.weight, e.capacity));
+    // A perk with the entry point Has Fast Travel Always (Long Haul) lets the player
+    // travel over-encumbered.
+    let always = match (over, script.as_mut().and_then(|s| s.rt.as_mut())) {
+        (Some(_), Some(rt)) => crate::script::with_world(rt, &mut sim, |rt| {
+            let (v, by) = rt.game.entry_point(FormId::PLAYER_REF, HAS_FAST_TRAVEL_ALWAYS, 0.0);
+            (v != 0.0).then(|| by.first().map(|a| rt.game.data.name(a.perk)).unwrap_or_default())
+        }),
+        _ => None,
+    };
+    if let (Some((weight, capacity)), Some(perk)) = (over, &always) {
+        info!("fast travel: over-encumbered ({weight:.1} / {capacity:.0}) but {perk} allows it");
+    }
+    let encumbered = over.is_some() && always.is_none() && !crate::combat::god_mode();
     let checks = Checks {
         target: travel_target(&st, script.as_deref(), &m),
         script_block,
@@ -251,22 +255,27 @@ pub fn answer(
         hostiles_near: hostile.is_some(),
         encumbered,
     };
-    st.popup = Some(match refusal(&checks) {
+    match refusal(&checks) {
+        // A refusal is a top-left corner message, as the Wait menu's [owner request
+        // 2026-10-17]; no box comes up.
         Some(r) => {
             let text = setting_str(&sim, r.setting()).unwrap_or_else(|| r.own_text().to_string());
             let why = match (r, &hostile) {
                 (Refusal::HostilesNear, Some(n)) => format!("{n} is hostile and within {distance:.0} units"),
                 _ => format!("{r:?}"),
             };
-            info!("fast travel: to {} ({}) refused ({why}); the box says {text:?}", m.name, FormId(marker));
-            Popup::refused(text)
+            info!("fast travel: to {} ({}) refused ({why}); on screen: {text:?}", m.name, FormId(marker));
+            if let Some(c) = corner.as_deref_mut() {
+                c.push(text.into());
+            }
+            st.popup = None;
         }
         None => {
             let text = question(&setting_str(&sim, "sTravelQuestion").unwrap_or_else(|| OWN_QUESTION.to_string()), &m.name);
             info!("fast travel: asks {text:?} ({})", FormId(marker));
-            Popup::travel(marker, text)
+            st.popup = Some(Popup::travel(marker, text));
         }
-    });
+    }
 }
 
 /// A trip waiting for the Pip-Boy to go away.
@@ -412,7 +421,5 @@ mod tests {
         p.step(1);
         assert_eq!(p.selected, 1);
         assert_eq!(p.take(p.selected), None);
-        let r = Popup::refused("No.".into());
-        assert_eq!((r.buttons.len(), r.take(0)), (1, None));
     }
 }

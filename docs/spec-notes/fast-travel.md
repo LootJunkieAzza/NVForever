@@ -71,12 +71,15 @@ are tried in, are NVForever's reading [hypothesis unless marked]:
 6. **Over-encumbered** [documented: GECK wiki EnableFastTravel, "if they are
    over-encumbered … they will still be not permitted to fast travel"]: the carried
    weight over the limit, outside god mode (as `crate::player::encumbered_walks`). Text
-   `sNoFastTravelOverencumbered`. The perk entry "Has Fast Travel Always" (Long Haul)
-   lifts this [documented: GECK wiki perk entry points]; not built.
+   `sNoFastTravelOverencumbered`. A perk with the entry point "Has Fast Travel Always"
+   lifts this ("Access Fast Travel even when overencumbered", its perk LongHaul
+   [documented: GECK wiki perk entry points]); Long Haul's description says the same
+   [observed: PERK 0x00146098 `DESC`]. The entry point's code is 51 [observed: Long
+   Haul's entry `DATA` 0x33, function Set Value, value 1]; the player has it when the
+   perk entries of point 51 set a value other than 0 (`fnv_game::Game::entry_point`).
 
 Not built: the alarm refusal (`sNoFastTravelAlarm`: no alarm state is modelled), the
-health refusal (`sFastTravelNoTravelHealthDamage`: what it checks is not known),
-Long Haul, and the scripted checks of the script extenders (GetPCCanFastTravel).
+health refusal (`sFastTravelNoTravelHealthDamage`: what it checks is not known), and the scripted checks of the script extenders (GetPCCanFastTravel).
 
 ## 3. The question box
 
@@ -96,8 +99,9 @@ frames its button (`message-menu.md` §2: the line at brightness 200, the fill a
 opacity). It opens on Yes [observed: the screenshot]. Up and Down (W and S) move the
 choice, Enter, Space or E take it, Y and N answer directly; the pointer chooses the
 answer it is on and a click takes it. While it is up the map does not pan or follow the
-pointer. A refusal is the same box with its text and an "OK" [hypothesis: the original
-answers a click with a box; not seen].
+pointer. The question is the only box: a refusal is a top-left corner message with the
+refusal's text, as the Wait menu's refusals are (`corner-messages.md`), and the map stays
+as it was [owner request 2026-10-17].
 
 ## 4. The trip
 
