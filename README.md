@@ -7,23 +7,26 @@ NVForever is an independent project, not affiliated with or endorsed by Bethesda
 Softworks, ZeniMax Media, Microsoft or Obsidian Entertainment; *Fallout* and *Fallout:
 New Vegas* are their trademarks. See [LEGAL.md](LEGAL.md).
 
-Status (2026-10-16, FNV 1.4.0.525, base game + all DLC): the archive and plugin readers,
+Status (2026-10-17, FNV 1.4.0.525, base game + all DLC): the archive and plugin readers,
 the asset formats, the world renderer, physics, the simulation core and the script runtime
 run on the whole game. `nvforever --play --menu` opens on the original's main menu
 (Continue, New Game, Load Game, Settings, Quit); New Game plays the intro film and the
-opening at Doc Mitchell's. From there it is a playable slice of the game: walk the Mojave
-with collision; talk to NPCs in the original's dialogue menu with their recorded voices;
-NPCs live by their AI packages, detect you, fight, flee and take cover; shoot, strike and
-throw with the player's side of combat; companions such as Boone follow you through doors
-and fight with you; pick locks, hack terminals, use aid items, craft at workbenches and
-campfires, wait and sleep; crime, karma and reputation are tracked; the HUD, Pip-Boy,
-inventory, barter, container, pause and main menus are drawn from the game's own menu
-files; music, sounds and radio play; save and load games (F5/F9, the pause menu,
-autosaves). Not started: VATS, levelling up and perks, repair, the Caravan and casino
-games.
+opening at Doc Mitchell's, with NVForever's own character creator for the face. From there
+it is a playable slice of the game: walk the Mojave with collision and fast travel from the
+Pip-Boy's map; talk to NPCs in the original's dialogue menu with their recorded voices;
+NPCs live by their AI packages, talk among themselves, detect you, fight, flee and hide,
+take cover and limp when crippled; shoot, strike and throw with the player's side of
+combat; companions such as Boone follow you through doors and fight with you; gain
+experience, level up and pick perks; pick locks, hack terminals, use aid items, craft at
+workbenches and campfires, play blackjack and roulette, wait and sleep; crime, karma and
+reputation are tracked; the HUD, Pip-Boy, inventory, barter, container, pause, settings
+and main menus are drawn from the game's own menu files; music, sounds and radio play;
+save and load games (F5/F9, the pause menu, autosaves). Not built yet: VATS, knockdowns,
+the repair menu, Caravan and the slot machines, the companion wheel.
 
-**The full map of what is complete, partly built and not started, per system, with links to
-each design and spec note: [docs/status.md](docs/status.md).**
+**What is complete, partly built and not started, per system: [docs/status.md](docs/status.md).
+Everything still to do, ranked by what blocks a full playthrough:
+[docs/outstanding.md](docs/outstanding.md).**
 
 | Layer | Scope | State |
 |---|---|---|
@@ -32,9 +35,9 @@ each design and spec note: [docs/status.md](docs/status.md).**
 | 2 | NIF, DDS, KF assets, viewer | done ([docs/design/layer2.md](docs/design/layer2.md)) |
 | 3 | World and rendering | done, with known gaps: exterior lighting and clouds against the game's frames, effect shaders, depth of field; an optional enhanced look (`--graphics enhanced`) ([docs/design/layer3.md](docs/design/layer3.md)) |
 | 4 | Core simulation, collision, physics, play | done; 3 accepted physics residuals ([docs/design/layer4.md](docs/design/layer4.md)) |
-| 5 | Scripting | done; 76 script functions remain stubs that need systems not built yet ([docs/design/layer5.md](docs/design/layer5.md), [docs/design/script-stubs.md](docs/design/script-stubs.md)) |
-| 6 | Gameplay: AI, dialogue, combat, followers, crime, aid | mostly done; crafting first version; VATS, levelling up and repair not started |
-| 7 | Interface, audio, saves | mostly done; saved games and the main menu first versions; the companion wheel, credits and the Caravan and casino menus not started |
+| 5 | Scripting | done; every function the shipped scripts use probed against the original, about 55 still stubs that need systems not built yet ([docs/design/layer5.md](docs/design/layer5.md), [docs/design/script-function-coverage.md](docs/design/script-function-coverage.md)) |
+| 6 | Gameplay: AI, dialogue, combat, followers, crime, aid, progression | mostly done; levelling up and perks, blackjack and roulette built; crafting first version; VATS, knockdowns, repair and Caravan not started |
+| 7 | Interface, audio, saves | mostly done; saved games and the main menu first versions; the companion wheel, credits, repair, barber and surgeon, Caravan and slot menus not started |
 
 Decisions taken by working sessions while the owner was away, and questions for the
 owner, are listed in [docs/owner-review.md](docs/owner-review.md).
@@ -61,7 +64,7 @@ Details: [docs/design/install-layout.md](docs/design/install-layout.md).
 
 Pre-release builds for Windows and Linux are on the
 [releases page](https://github.com/LootJunkieAzza/NVForever/releases) (v0.1.0, 2026-10-13,
-built before saved games, crafting and the main menu). Unpack outside the game folder and
+built before saved games, crafting, the main menu, levelling up and the casino games). Unpack outside the game folder and
 start through the launchers beside the programs, which point them at the shipped schemas:
 `nvforever.cmd` (Windows) or `./nvforever.sh` (Linux); `README-release.md` in the archive
 explains the rest. v0.1.0 needs `NVFOREVER_DATA` set to your game's `Data` folder and has
@@ -252,6 +255,7 @@ docs/
   spec-notes/   clean-room format/behaviour notes (tagged documented/observed/hypothesis)
   design/       per-layer and per-system designs
   status.md     what is complete, partly built and not started, per system
+  outstanding.md  everything still to do, ranked for a full playthrough
   handoff/      hand-over notes between coordinating sessions
   adr/          architecture decision records
   cli-contract.md
