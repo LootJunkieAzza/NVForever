@@ -401,6 +401,9 @@ pub struct ActorDef {
     pub fatigue: i64,
     pub speed_mult: i64,
     pub karma: f64,
+    /// ACBS Disposition Base [documented: xEdit]: 35 on the Goodsprings people
+    /// [observed], the disposition GetDisposition starts from.
+    pub disposition_base: i64,
     /// AIDT Aggression, Confidence, Responsibility, Mood and Assistance as their codes
     /// [documented: xEdit enumerations; GECK wiki Confidence for that scale].
     pub aggression: Option<i64>,
@@ -461,6 +464,9 @@ pub struct ActorDef {
     /// read here as covering the unarmed attack effect too [hypothesis: EITM and EAMT
     /// sit beside SPLO in the record].
     pub template_spells: bool,
+    /// SPLO: the actor effects (abilities, mostly) of the record, in record order; with
+    /// [`ActorDef::template_spells`] the template's list counts instead.
+    pub spells: Vec<FormId>,
 }
 
 /// A leveled actor list (LVLN, LVLC) [documented: xEdit; schema `gameplay.json`]: the
@@ -700,6 +706,13 @@ pub struct GameData {
     /// SPEL SPIT type (0 Actor Effect, 1 Disease, 2 Power, 3 Lesser Power, 4 Ability,
     /// 5 Poison, 10 Addiction) [documented: xEdit wbDefinitionsFNV.pas SPEL].
     pub spell_types: HashMap<FormId, i64>,
+    /// RACE SPLO: the race's actor effects [hypothesis: as NPC_'s; none in FalloutNV.esm,
+    /// observed].
+    pub race_spells: HashMap<FormId, Vec<FormId>>,
+    /// ARMO EITM: the object effect (ENCH) an armour piece carries.
+    pub armor_enchantments: HashMap<FormId, FormId>,
+    /// ENCH ENIT type: 2 Weapon (applied by a hit), 3 Apparel (applied while worn).
+    pub enchantment_types: HashMap<FormId, u32>,
     /// Races with the Child flag (RACE DATA).
     pub child_races: HashSet<FormId>,
     /// FACT XNAM: (other faction, group combat reaction 0 neutral, 1 enemy, 2 ally,
@@ -750,6 +763,8 @@ pub struct GameData {
     pub recipes: HashMap<FormId, crate::crafting::RecipeDef>,
     /// RCCT: the recipe categories and subcategories.
     pub recipe_categories: HashMap<FormId, crate::crafting::RecipeCategoryDef>,
+    /// CSNO: the casinos (`crate::casino`).
+    pub casinos: HashMap<FormId, crate::casino::CasinoDef>,
     /// RADS, DEHY, HUNG, SLPD: the stages of rads and of Hardcore's needs by actor value
     /// code, lowest threshold first (`crate::needs`).
     pub need_stages: HashMap<u16, Vec<NeedStage>>,
@@ -974,6 +989,9 @@ pub struct CombatStyleDef {
     pub attack_chance: f32,
     pub hand_to_hand_bonus: f32,
     pub power_attack_chance: f32,
+    /// Power Attacks: the shares (0–100) of the normal, forward, back, left and right
+    /// power attacks [documented: GECK wiki Combat Style; layout xEdit CSTD].
+    pub power_attack_dirs: [f32; 5],
     /// Melee decision: how long an actor that neither attacks nor blocks holds, seconds.
     pub hold_timer: (f32, f32),
     /// Advanced: the attack skill modifier (`base + mult × skill / 100`) and the attack
@@ -1037,6 +1055,10 @@ struct Read {
     effects: Option<Vec<EffectItem>>,
     ingestible: Option<IngestibleDef>,
     spell_type: Option<i64>,
+    /// RACE SPLO list; ARMO EITM; ENCH ENIT type (`GameData::race_spells` …).
+    race_spells: Option<Vec<FormId>>,
+    object_effect: Option<FormId>,
+    enchantment_type: Option<u32>,
     child_race: bool,
     faction: Option<Vec<(FormId, i64)>>,
     faction_flags: Option<u16>,
@@ -1054,6 +1076,7 @@ struct Read {
     av_info: Option<ActorValueInfo>,
     recipe: Option<crate::crafting::RecipeDef>,
     recipe_category: Option<crate::crafting::RecipeCategoryDef>,
+    casino: Option<crate::casino::CasinoDef>,
     need_stage: Option<(u16, u32, FormId)>,
     units: Vec<ScriptUnit>,
     issues: Issues,
@@ -1118,6 +1141,9 @@ impl GameData {
             effect_items: HashMap::new(),
             ingestibles: HashMap::new(),
             spell_types: HashMap::new(),
+            race_spells: HashMap::new(),
+            armor_enchantments: HashMap::new(),
+            enchantment_types: HashMap::new(),
             child_races: HashSet::new(),
             faction_reactions: HashMap::new(),
             faction_flags: HashMap::new(),
@@ -1137,6 +1163,7 @@ impl GameData {
             actor_value_infos: HashMap::new(),
             recipes: HashMap::new(),
             recipe_categories: HashMap::new(),
+            casinos: HashMap::new(),
             need_stages: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
@@ -1279,6 +1306,15 @@ impl GameData {
             if let Some(v) = r.spell_type {
                 d.spell_types.insert(id, v);
             }
+            if let Some(v) = r.race_spells.filter(|v| !v.is_empty()) {
+                d.race_spells.insert(id, v);
+            }
+            if let Some(v) = r.object_effect {
+                d.armor_enchantments.insert(id, v);
+            }
+            if let Some(v) = r.enchantment_type {
+                d.enchantment_types.insert(id, v);
+            }
             if r.child_race {
                 d.child_races.insert(id);
             }
@@ -1317,6 +1353,9 @@ impl GameData {
             }
             if let Some(v) = r.recipe_category {
                 d.recipe_categories.insert(id, v);
+            }
+            if let Some(v) = r.casino {
+                d.casinos.insert(id, v);
             }
             if let Some(v) = r.faction_flags {
                 d.faction_flags.insert(id, v);
@@ -1596,6 +1635,20 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"AVIF"
             | b"CSTY"
     ) || subs.iter().any(|s| &s.sig == b"DEST");
+    // Abilities and worn enchantments (docs/spec-notes/aid-items.md §13), read raw: the
+    // schema has no ARMO EITM or RACE SPLO. ENCH ENIT's first u32 is the type, 2 Weapon,
+    // 3 Apparel [documented: schema `combat.json` EnchantmentData]; ARMO EITM names the
+    // armour's object effect [documented: GECK wiki ActorValue, "object effects found on
+    // armor"; observed: 186 ARMO of FalloutNV.esm carry a 4-byte EITM naming an ENCH of
+    // type Apparel]; RACE SPLO is read as NPC_'s [hypothesis: FalloutNV.esm's races carry
+    // none, observed].
+    let word = |b: &[u8]| <[u8; 4]>::try_from(b.get(..4)?).ok().map(u32::from_le_bytes);
+    match &sig {
+        b"RACE" => out.race_spells = Some(subs.iter().filter(|s| &s.sig == b"SPLO").filter_map(|s| word(&s.data).and_then(map)).map(FormId).collect()),
+        b"ARMO" => out.object_effect = subs.iter().find(|s| &s.sig == b"EITM").and_then(|s| word(&s.data)).filter(|&l| l != 0).and_then(map).map(FormId),
+        b"ENCH" => out.enchantment_type = subs.iter().find(|s| &s.sig == b"ENIT").and_then(|s| word(&s.data)),
+        _ => {}
+    }
     if &sig == b"FURN" {
         let flags = subs.iter().find(|s| &s.sig == b"MNAM").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(u32::from_le_bytes);
         out.furniture = Some(flags.unwrap_or(0));
@@ -1643,6 +1696,9 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     }
     if &sig == b"RCCT" {
         out.recipe_category = Some(crate::crafting::RecipeCategoryDef::from_raw(&subs));
+    }
+    if &sig == b"CSNO" {
+        out.casino = Some(crate::casino::CasinoDef::from_raw(&subs, &map));
     }
     if &sig == b"IMAD" {
         let word = |o: usize| subs.iter().find(|s| &s.sig == b"DNAM").and_then(|s| <[u8; 4]>::try_from(s.data.get(o..o + 4)?).ok());
@@ -2041,6 +2097,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 attack_chance: n(std, "attack_chance", 100.0),
                 hand_to_hand_bonus: n(std, "hand_to_hand_bonus_to_attack", 0.0),
                 power_attack_chance: n(std, "power_attack_chance", 0.0),
+                power_attack_dirs: ["normal", "forward", "back", "left", "right"].map(|d| n(std, &format!("power_attack_{d}"), 0.0)),
                 hold_timer: (n(std, "hold_timer_min", 0.0), n(std, "hold_timer_max", 0.0)),
                 attack_skill_mod: (n(adv, "attack_skill_modifier_base", 0.0), n(adv, "attack_skill_modifier_mult", 0.0)),
                 attack_under_attack_mult: n(adv, "attack_while_under_attack_mult", 1.0),
@@ -2085,6 +2142,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     }
                     b"VTCK" => a.voice = fid(v),
                     b"PKID" => a.packages.extend(fid(v)),
+                    b"SPLO" => a.spells.extend(fid(v).filter(|f| f.0 != 0)),
                     b"TPLT" => a.template = fid(v),
                     b"EITM" => a.unarmed_effect = fid(v).filter(|f| f.0 != 0),
                     b"EAMT" => a.unarmed_anim = v.as_ref().and_then(Json::as_str).map(str::to_string),
@@ -2132,6 +2190,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         (a.level_raw, a.calc_min, a.calc_max) = (n("level_or_level_mult_raw"), n("calc_min"), n("calc_max"));
                         (a.fatigue, a.speed_mult) = (n("fatigue"), n("speed_multiplier"));
                         a.karma = v.as_ref().and_then(|v| v.get("karma")).and_then(Json::as_f64).unwrap_or(0.0);
+                        a.disposition_base = n("disposition_base");
                         let tf = v.as_ref().and_then(|v| v.get("template_flags"));
                         a.template_packages = has_flag(tf, "AI Packages");
                         a.template_stats = has_flag(tf, "Stats");

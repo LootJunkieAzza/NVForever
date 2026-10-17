@@ -24,7 +24,8 @@
 //!   the player: `type:<text>`, `clear` (rub the name out), `pick:<row name>` (choose a
 //!   row and tag or take it), `raise:<row name>` / `lower:<row name>` (the attributes
 //!   page), `reset`, `done`.
-//! - The race menu (1036) keeps the placeholder panel (`crate::script_hud`).
+//! - The race menu (1036) is the character creator's (`crate::creator`), NVForever's own
+//!   design (docs/spec-notes/character-creator.md).
 
 pub mod draw;
 pub mod lists;

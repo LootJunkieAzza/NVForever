@@ -258,10 +258,21 @@ pub fn set_scale(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 }
 
 /// The lock level of a door or container (0, 25, 50, 75, 100, 255) [documented:
-/// catalogue notes]; 0 without a lock [hypothesis]. Terminals are not read yet.
+/// catalogue notes]; a load door without lock data of its own reads its other side's
+/// [observed, function probes 2026-10-17: the gas station's outer door has no XLOC and read
+/// 255, the level of the XLOC on the door inside it links to, loaded or not]; 0 without a
+/// lock [observed: a crate, a sack, VHostetlerRoomDoorREF]. A terminal reads its own lock
+/// (`crate::terminal::lock_level`) while its cell is loaded, else 0 [observed].
 pub fn get_lock_level(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    let l = g.world.get(r).map_err(|e| e.to_string())?.lock.map(|l| l.level).unwrap_or(0);
+    if super::refs::is_terminal(g, r) {
+        let l = if super::refs::in_loaded_cell(g, r) { crate::terminal::lock_level(g, r) } else { 0 };
+        return Ok(Value::Num(l as f64));
+    }
+    let own = g.world.get(r).map_err(|e| e.to_string())?.lock.map(|l| l.level);
+    let door = g.world.placed.get(r).and_then(|p| p.teleport.as_ref()).map(|t| t.door);
+    let other = door.and_then(|d| g.world.get(d).ok()).and_then(|s| s.lock.map(|l| l.level));
+    let l = own.or(other).unwrap_or(0);
     Ok(Value::Num(l as f64))
 }
 

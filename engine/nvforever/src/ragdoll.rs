@@ -207,6 +207,11 @@ fn start(
             Some(s) => s.iter().copied().collect(),
             None => c.bones.iter().map(|&b| globals.get(rig.nodes[b]).ok().map(|g| game_iso(&g.affine()))).collect(),
         };
+        // A body is drawn its rest gap below its character's feet (`drawn_sink`), in the
+        // ground's contact shell: its ragdoll starts at the character's height, clear of
+        // that shell, or it never settles.
+        let lift = if stored.is_some() { 0.0 } else { phys.drawn_sink_of(rig.reference) };
+        let nodes = nodes.map(|n| n.into_iter().map(|mut i| { i.translation[2] += lift; i }).collect::<Vec<_>>());
         let Some(nodes) = nodes.filter(|n| !n.is_empty()) else { continue };
         if !phys.ready_at(nodes[0].translation) {
             continue;

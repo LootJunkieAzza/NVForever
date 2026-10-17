@@ -145,7 +145,10 @@ Not built: the reverb environment, walla, and the region an acoustic space point
   (sets started, changes of layers, files not played, battles, battle loops, intro and
   outro sounds, script requests, incidental phrases) and `ambient summary: …`.
 - Switches: `--no-music`, `--music-volume`; placed sounds and background loops go with
-  `--no-sound`. The settings page has a Music switch.
+  `--no-sound`. The settings page has a Music switch, and its Sound tab the volumes by
+  category (`nvf-play/src/audio_out.rs`: Master, Music, Footstep, Voice, Effects,
+  Radio, as the original's audio menu [observed: the owner's photo, 2026-10-17]; Footstep
+  is the `FST` records, Effects every other effect [hypothesis]).
 - Smoke test (CLAUDE.md): standing in Goodsprings, expect the desert exploration set
   with three layers, two placed loops (the air conditioners) and one background loop.
 

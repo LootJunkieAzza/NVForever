@@ -36,12 +36,24 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
         ActorCmd::Karma { w, functions, actor, cell, survey } => {
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_karma::run(lo, schema, data, refs, &actor, &cell, survey))
         }
-        ActorCmd::Fidgets { w, functions, actor, weapon, checks } => {
-            crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_fidgets::run(lo, schema, data, refs, &actor, weapon.as_deref(), checks))
+        ActorCmd::Fidgets { w, functions, actor, weapon, checks, furniture, first_person } => crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| {
+            let how = crate::actor_fidgets::How { weapon: weapon.as_deref(), furniture: furniture.as_deref(), first_person, checks };
+            crate::actor_fidgets::run(lo, schema, data, refs, &actor, &how)
+        }),
+        ActorCmd::Gestures { w, functions, actor, line, checks } => {
+            crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_gestures::run(lo, schema, data, refs, &actor, line.as_deref(), checks))
         }
         ActorCmd::Detect { w, functions, detector, target, interior, light, dark } => {
             let o = crate::actor_detect::Options { detector, target, interior, light, dark };
             crate::ai_cmd::with_data(&w, functions, |lo, schema, data, refs, _| crate::actor_detect::run(lo, schema, data, refs, &o))
+        }
+        ActorCmd::Creator { lo, schema } => {
+            let schema = Schema::load_dir(&schema).with_context(|| schema.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let order = LoadOrder::new(&plugins)?;
+            let actors = ActorForms::build(&order, &schema);
+            let vfs = fnv_vfs::Vfs::open_for_plugins(&lo.data_dir, &lo.plugins).with_context(|| lo.data_dir.display().to_string())?;
+            Ok(crate::actor_creator::report(&actors, |p| vfs.read(p).and_then(Result::ok)))
         }
         ActorCmd::Appearance { lo, schema, reference, cell, all, deterministic } => {
             let schema = Schema::load_dir(&schema).with_context(|| schema.display().to_string())?;

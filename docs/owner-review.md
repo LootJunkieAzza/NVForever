@@ -5445,6 +5445,34 @@ rebound on the Controls page shows in the next message.
    mouse buttons "Left Mouse", and `&sDeviceMouse;` ("… Look around") reads "Mouse".
    A screenshot of the sneak tutorial or the controls help in the game would settle them.
 
+## Talking gestures (2026-10-16, branch claude/talk-gestures-bc034f)
+
+Your report: lips move but heads and bodies stand still while NPCs talk. NPCs in the
+dialogue screen, and both actors of a conversation between NPCs, now play the IDLE
+tree's talking and listening clips (spec: docs/spec-notes/idles.md §12). The tree picks
+mood, sitting or standing, power armour and arms crossed by itself. My guesses, each
+worth a look in the original:
+
+- **When a new clip starts**: at each new response, when the NPC stops talking (it
+  listens while you choose), and whenever a clip ends while it is still talking. Talk
+  clips are 3–7 s, so a long response gets several. A new response cross-fades the clip
+  at once rather than letting it finish.
+- **Random rolls**: each `GetRandomPercent` condition is a fresh roll. The mood groups'
+  rising thresholds (11, 22, … 88) look written for one shared roll, which would split
+  the clips evenly; with fresh rolls the later clips in a list come up more often.
+- **Arms crossed sticks**: once an NPC crosses its arms (5 %, at most once per 240 s)
+  the tree keeps them crossed for the rest of the conversation (`IsLastIdlePlayed`, a
+  function the GECK docs do not describe; I read it as "the last idle played was X").
+- **NPC-to-NPC conversations** count as the dialogue procedure for the tree
+  (`GetCurrentAIProcedure` 4, `GetCurrentAIPackage` 6), else their branch could never
+  be reached.
+- **The listener's mood** is Neutral (`GetDialogueEmotion` is read from the actor's own
+  line).
+- **SayTo lines, hellos and barks** get no gestures: the tree's dialogue root wants the
+  dialogue screen or a conversation. Doc Mitchell's SayTo lines in the opening therefore
+  still use only their own speaker idles.
+- **Replay delays** are read as seconds (as for the weapon fidgets).
+- Not done: the `.lip` files' head and look channels.
 ## Script function audit (2026-10-16, branch claude/serene-chaplygin-ee2772)
 
 Every registered script function checked for "the engine knows it, the rules never hear it"
@@ -5478,3 +5506,67 @@ read 0 where the wiki lists −1 for none; NPC door use and OnActivate; far NPC 
 *Follow-up proposed:* make the engine dress and arm NPCs from the items the rules have
 equipped, so scripted EquipItem/UnequipItem show and the two leveled rolls agree.
 
+## Blackjack at the casino tables (2026-10-17, branch claude/blackjack)
+
+Built from the game's own files: the casinos' records (decks, shuffle point, 3:2 payout,
+the soft-17 rule, max winnings, the chip), the tables' scripts (ShowBlackJackMenuParams),
+`black_jack_menu.xml`, the table/card/chip models with their deal, reveal and discard
+sequences, the `GAMEBlackJack…` sounds and the `HelpBlackjack` message
+(docs/spec-notes/blackjack.md). Smoke `blackjack`; screenshots in `target/smoke/blackjack_*.png`
+of a run. Guesses a screenshot or a few hands at a real table would settle:
+
+- The words on the deal-phase buttons (Deal, Increase Bet, Decrease Bet, Max Bet, Exit Game,
+  taken from the menu file's comments), the result line ("Blackjack. Dealer has 16. +37") and
+  the refusals ("You need Gomorrah Chips to play here.", "You have been banned from gambling at …").
+- Choices that do not apply are hidden, not dimmed; the bet starts at the table's minimum and
+  steps 1 / 5 / 25.
+- The dealer does not peek for a natural; split aces play on normally; one split only;
+  surrender gives half back rounded up.
+- Winnings levels 1–3 (the floor manager's comps) at a quarter, half and three quarters of
+  the casino's max winnings; at the max the round ends, the menu closes and a corner line
+  says the player is banned.
+- The camera, the lights and where the bet's chips stand are fitted by eye to the one
+  screenshot.
+
+## NPCs drawn as the rules equip them (2026-10-17, branch claude/npc-equip-drawn)
+
+The engine now dresses and arms every NPC by what the rules have equipped
+(`fnv_sim::World::equipment`), and redraws it when a script's EquipItem/UnequipItem or a
+taken item changes that (engine/nvforever/src/outfits.rs; smoke `npc-equip-drawn`:
+Sunny Smiles put into Trudy's outfit, her varmint rifle taken off and put back). Combat's
+worn armour reads the same items. Creatures are unchanged. What to look at:
+
+- **NPCs with a fixed outfit look as before** (Sunny, Trudy, Joe Cobb, Easy Pete: the two
+  rolls already agreed). Sunny's screenshots before and after EquipItem are in
+  `target/smoke/play-*.png` of an `npc-equip-drawn` run.
+- **NPCs whose outfit is a random leveled pick now wear the rules' roll instead of the
+  engine's own.** One run each: of the 9 Fiends at the camp west of Violet, 5 wear other
+  armour pieces and 2 hold other weapons (e.g. 000FF561 a 9mm pistol in place of a 10mm
+  pistol); at the tribal village 12 of the dead Fiends and nearby actors wear another
+  piece (e.g. 001578F9 other leather/headgear). Which pieces is still a roll, so it is no
+  closer to or further from your game, only consistent with what looting the body gives.
+- **An NPC whose cell the rules never loaded** keeps the engine's own pick until the rules
+  hold its inventory, then changes to the rules' pick at once (it may change in view at the
+  edge of the streamed area) [design].
+- **A weapon put on by EquipItem goes to the holster**, not the hand; the NPC draws it as
+  usual (combat, package flags). A corpse given a weapon is not armed.
+- Seen while testing, not changed here: Sunny's rifle is hidden while her
+  SunnyMeetPlayerDialoguePackage (Weapons Unequipped) runs (alert.rs), so it does not show
+  in her conversation screenshots.
+
+## Crippled-limb picture on the HUD (2026-10-17, branch claude/crippled-limb-hud)
+
+A crippled limb shows the Vault Boy at the top right for 5 s (docs/spec-notes/hud.md §12;
+smoke `hud-crippled-limbs`, screenshots `limbs_leg.png`, `limbs_arm.png`,
+`limbs_hidden.png` in `target/smoke/`). Size and place are fitted to your screenshot. My
+guesses to check against the game:
+
+- **The face by health**: 00 above 80 %, 01 above 60 %, 02 above 15 %, 03 above 0, 04 at
+  0. Only "02 at about 15 %" is from your screenshot; the other steps are guesses, and
+  `face_10` (tongue out) is unused. A screenshot of the picture at a few health levels
+  would settle the steps.
+- **The flash**: the HUD's red pulsing between full and a third of it every 0.6 s. Your
+  screenshot caught a dim red; how fast the original flashes, and whether it fades in or
+  out at the end, I could not see.
+- **A second crippling while it shows** starts the 5 s again and only the new limb
+  flashes; healing a limb shows nothing.

@@ -262,7 +262,7 @@ impl Settings {
         };
 
         let value = self.base_value + sound + visual + self.skill_mult * (detector_skill - target_skill);
-        Detection { value, band: self.band(value), attenuation: a, sound, visual, detector_skill, target_skill, seen }
+        Detection { value, band: self.band(value), attenuation: a, sound, visual, detector_skill, target_skill, seen: s.camera_sight.unwrap_or(seen) }
     }
 }
 
@@ -328,6 +328,11 @@ pub struct Situation {
     pub detector_asleep: bool,
     /// The detector is fighting someone other than the target.
     pub detector_busy: bool,
+    /// What GetLineOfSight reads when it differs from the sight above: the player's is the
+    /// camera's, its detection the body's [observed: capture detection-2 det4, 2026-10-17,
+    /// third person: player.GetDetected Ringo 1 to 90° off the facing on both sides, 0
+    /// from 100°; player.GetLineOfSight 0 at 90° left but 1 to 110° right].
+    pub camera_sight: Option<bool>,
 }
 
 /// Where a detection value falls against the two thresholds.
@@ -374,7 +379,8 @@ pub struct Detection {
     pub visual: f64,
     pub detector_skill: f64,
     pub target_skill: f64,
-    /// The detector could see the target (line of sight and field of view).
+    /// The detector could see the target (line of sight and field of view; for the player
+    /// the camera's, `Situation::camera_sight`): what GetLineOfSight reads.
     pub seen: bool,
 }
 
@@ -468,8 +474,11 @@ impl Game<'_> {
 
 /// `detector.GetDetected target`: 1 when the calling actor detects the target
 /// [documented: catalogue notes], that is when its latest detection value is above 0; 0
-/// for a pair the engine has not measured (the player as the detector, an actor too far
-/// away or not loaded) [engineering choice].
+/// for a pair the engine has not measured (an actor out of reach or not loaded)
+/// [engineering choice]. The player is a detector too, measured from the camera with the
+/// same formula (its Perception against the target's Sneak) [observed: player.GetDetected
+/// Ringo 1 and Chet 1, function probes fp1/fp2 2026-10-17, also with `tdetect` on;
+/// hypothesis: the same formula].
 pub fn get_detected(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let detector = ctx.subject()?;
     let target = a.form(0)?;

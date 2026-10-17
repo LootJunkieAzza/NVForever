@@ -225,11 +225,12 @@ the compass the eight directions' letters in Bevy's font.
 - Compass markers: quest targets, places, the player's own marker, actors nearby.
 - The compass's faded ends.
 - The XP meter is built: experience.md (`xp_meter.rs`).
-- The messages at the top left with their icons, subtitles, the radiation meter, the breath meter, the crippled-limb
-  picture, the armour-piercing icons, the ammo type's label, Hardcore mode's words.
+- The messages at the top left with their icons, subtitles, the radiation meter, the breath meter,
+  the armour-piercing icons, the ammo type's label, Hardcore mode's words. The crippled-limb
+  picture is built (§12).
   (The crosshair and the prompt under it are drawn as the original's: `reticle.md`.)
-  The developer's stand-ins for some of these (`activate.rs`, `combat.rs`,
-  `script_hud.rs`) are unchanged; the crippled limbs stay a line of words.
+  The developer's stand-ins for some of these (`activate.rs`, `script_hud.rs`) are
+  unchanged.
 - The HUD's fading in and out, its opacity setting, and the glow the game adds over it
   (`[InterfaceFX]` `fBlurIntensityHUD`).
 - What the condition bar looks like for a weapon being repaired or broken.
@@ -240,15 +241,16 @@ the compass the eight directions' letters in Bevy's font.
 
 [documented: hud_main_menu.xml, hudtemplates.xml] `EnemyHealth` is a piece 350 x 52;
 its bracket `glow_enemy_health_seperator.dds` (512 x 64) stands at (-7, 3) in it.
-[observed: the texture] A long line (upper edge at y 19, from x 36 to 327) with a corner
-mark rising at each end; their inner edges at x 56 and 307.
+[observed: the texture] A long line (solid in rows 21–23 under a glow, from x 36 to
+327) with a corner mark rising at each end; their inner edges at x 56 and 307.
 
 [observed: the `Target healthbar` screenshot] The piece is centred across the view; its
-long line is level with the corner pieces' long lines; the ticks (the same tick picture
-as the player's bars) stand on it between the corner marks, about 32 of them (31 here,
-as many as fit); the actor's name is centred under the line in font 7, standing on
-y 53 of the piece. All of it is in the HUD's alternative colour, red: about
-(248, 68, 45) on the screenshot, `iSystemColorHUDAlt*` 255, 67, 42 (`reticle.md`).
+long line is level with the upper of the corner pieces' two solid lines; the ticks (the
+same tick picture as the player's bars) stand right on it, with no gap (the player's
+bars stand 4 units over theirs), between the corner marks, about 32 of them (31 here, as
+many as fit); the actor's name is centred under the line in font 7, standing on y 53 of
+the piece. All of it is in the HUD's alternative colour, red: about (248, 68, 45) on the
+screenshot, `iSystemColorHUDAlt*` 255, 67, 42 (`reticle.md`).
 
 [owner, playtest list 5, item 32] The bar empties from both ends towards its middle:
 the lit ticks are the middle `ceil(value × 31)`, an odd one gone from the right first.
@@ -325,3 +327,35 @@ menu's (`dialogue_menu.rs`).
 - Log: `compass: <n> actors (<h> hostile), <m> map markers (<f> found) on the compass,
   Perception <p>` when the counts change; `compass: discovered <name> (<FormID>), +<xp> XP`.
 
+## 12. The crippled-limb picture (owner 2026-10-17)
+
+`engine/nvf-play/src/hud_limbs.rs`; smoke `hud-crippled-limbs`.
+
+- [documented: `hud_main_menu.xml`, `crippled_limb_indicator`] A hidden rect of seven
+  images: `Interface\Stats\head.dds`, `face_00.dds`, `torso.dds`, `left_arm.dds`,
+  `right_arm.dds`, `left_leg.dds`, `right_leg.dds`, all at alpha 0; places and showing are
+  left to the code. The `_broken` pictures (dashed outlines) are in the same folder and in
+  `interfaceshared.tai`.
+- [observed: the owner's 1920 × 1080 screenshot of the original] The Vault Boy at the top
+  right, his pieces as on the Pip-Boy's CND page (pipboy.md) at 0.74 of their unzoomed
+  size (0.735 by the width, 0.744 by the height); his ink 100.5 units from the view's
+  right edge and 170.7 from its top. The crippled right leg is drawn dashed in a dim red
+  (about 105, 30, 30), the other pieces solid in the HUD's amber. Drawn over the
+  screenshot, the pieces at that size and place fall on the original's lines.
+- [design: owner 2026-10-17] The picture shows for 5 s after a limb is crippled; the limb
+  just crippled flashes red (dashed), limbs crippled before are dashed in amber, whole
+  limbs solid. A second crippling while it shows starts the 5 s again and only the new
+  limb flashes. Healing shows nothing. The time stands while the HUD is off (menus,
+  scripts holding the player).
+- [design] The flash: the HUD's red (the enemy bar's) pulsing between full and 0.35 of
+  it every 0.6 s.
+- [observed: the pictures] The faces grow worse from `face_00` (the smile) through 01
+  (worried), 02 (grimace), 03 (crying) to 04 (eyes crossed out); `face_10` has the tongue
+  out. The screenshot shows `face_02` at about 15 % health (6 of 37 ticks).
+  [hypothesis: owner 2026-10-17, health picks the face] Above 80 % 00, above 60 % 01,
+  above 15 % 02, above 0 03, else 04; `face_10` is not used. The Pip-Boy's CND page still
+  shows `face_00` always.
+- The brain (condition 31) has no piece.
+- Log: `hud: crippled limbs shown, flashing <pieces> (crippled: <limbs>)`,
+  `hud: crippled limbs hidden`. The stand-in line of words ("crippled: …", `combat.rs`)
+  is gone.

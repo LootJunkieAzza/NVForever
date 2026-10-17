@@ -9,6 +9,7 @@
 //! layer's work, which tells the rules what an actor plays ([`Game::set_idle_playing`])
 //! so `IsIdlePlaying` can answer. With nothing animating, no idle is ever playing.
 
+use crate::cond::Condition;
 use crate::data::IdleDef;
 use crate::functions::{none, yes, Args, Ctx};
 use crate::game::Game;
@@ -35,8 +36,50 @@ pub enum IdleSource {
     /// The speaker's or the listener's idle of a dialogue response (INFO `SNAM`, `LNAM`).
     Speaker,
     Listener,
-    /// A drawn-weapon fidget picked from the idle tree ([`Game::weapon_fidget`]).
+    /// A drawn-weapon fidget picked from the idle tree ([`Game::fidget`]).
     Fidget,
+    /// A fidget on furniture (sitting or lying) picked from the idle tree.
+    FurnitureFidget,
+    /// A talking or listening gesture picked from the idle tree
+    /// ([`Game::talk_gesture`]).
+    Gesture,
+    /// A fleeing actor standing still cowers: an idle at the root of the tree that
+    /// wants the flee procedure ([`Game::flee_idle`]).
+    Cower,
+}
+
+/// Which fidgets of the idle tree are played: the branch below a node whose conditions
+/// require them (the rest of the tree is not built).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FidgetKind {
+    /// Standing with the weapon out: below a node requiring `IsWeaponOut == 1`
+    /// (idles.md §11).
+    WeaponOut,
+    /// On furniture: below a node requiring `GetSitting == 3` or `GetSleeping == 3`, the
+    /// state of being on it (furniture.md §8).
+    OnFurniture,
+}
+
+impl FidgetKind {
+    /// Whether idle `idle`'s own conditions make the branch below it this kind's.
+    fn gates(self, data: &crate::data::GameData, idle: FormId) -> bool {
+        self.gated_by(data.idles.get(&idle).and_then(|d| d.conditions.as_deref()).unwrap_or_default())
+    }
+
+    fn gated_by(self, conds: &[Condition]) -> bool {
+        match self {
+            FidgetKind::WeaponOut => requires(conds, IS_WEAPON_OUT, 1.0),
+            FidgetKind::OnFurniture => requires(conds, GET_SITTING, 3.0) || requires(conds, GET_SLEEPING, 3.0),
+        }
+    }
+
+    pub fn source(self) -> IdleSource {
+        match self {
+            FidgetKind::WeaponOut => IdleSource::Fidget,
+            FidgetKind::OnFurniture => IdleSource::FurnitureFidget,
+        }
+    }
 }
 
 impl IdleSource {
@@ -152,17 +195,28 @@ impl<'a> Game<'a> {
     /// and he does not smoke; idles.md §5]. An idle with a condition that could not be
     /// read is not allowed [design: what cannot be judged is not chosen].
     pub fn idle_allowed(&mut self, actor: FormId, idle: FormId) -> bool {
+        self.idle_allowed_with(actor, None, idle)
+    }
+
+    /// As [`Game::idle_allowed`], with `target` as the conditions' target (Run On
+    /// Target): the one the actor talks with, for the talking gestures.
+    fn idle_allowed_with(&mut self, actor: FormId, target: Option<FormId>, idle: FormId) -> bool {
         let data = self.data;
         match data.idles.get(&idle).map(|d| d.conditions.as_deref()) {
-            Some(Some(c)) => c.is_empty() || self.conditions_pass(c, Some(actor), None, &format!("IDLE {idle}")),
+            Some(Some(c)) => c.is_empty() || self.conditions_pass(c, Some(actor), target, &format!("IDLE {idle}")),
             _ => false,
         }
     }
 
     /// The animating layer says what special idle `actor` plays now (`None`: none).
+    /// An idle told is also the actor's last idle played (IsLastIdlePlayed).
     pub fn set_idle_playing(&mut self, actor: FormId, idle: Option<FormId>) {
         if idle.is_some() || self.extra.contains_key(&actor) {
-            self.extra.entry(actor).or_default().idle = idle;
+            let e = self.extra.entry(actor).or_default();
+            e.idle = idle;
+            if idle.is_some() {
+                e.last_idle = idle;
+            }
         }
     }
 
@@ -180,10 +234,10 @@ impl<'a> Game<'a> {
         (!c.idles.is_empty()).then_some((p, c))
     }
 
-    /// A drawn-weapon fidget for `actor` from the idle tree, or `None`. `folder` is the
+    /// A fidget of `kind` for `actor` from the idle tree, or `None`. `folder` is the
     /// actor's animation folder below `meshes\` (`characters\_male`); `held_back` says
     /// which idles are still within their replay delay. The rules
-    /// (docs/spec-notes/idles.md §11):
+    /// (docs/spec-notes/idles.md §11, furniture.md §8):
     ///
     /// - Only the branches of the actor's own folder: an inner node's `MODL` names the
     ///   folder its idles are for (`Characters\_Male\IdleAnims`), and the creatures'
@@ -193,25 +247,27 @@ impl<'a> Game<'a> {
     ///   gone into, and the first leaf found that way is the pick; a node whose children
     ///   all fail is left for its next sibling [hypothesis: animation.md §2.2]. Roots
     ///   without children are idles played on request and are not walked. The pick is
-    ///   kept only when a node on its way requires the weapon out (`IsWeaponOut == 1`):
-    ///   the rest of the tree (talking, eating, other fidgets) is not built [design].
-    /// - The player [design, owner 2026-10-16: fidgets for the player standing still]:
-    ///   the tree gives the player none with a weapon out (the people's weapon branch is
+    ///   kept only when a node on its way, the leaf included, gates `kind`
+    ///   ([`FidgetKind`]): the rest of the tree is not built [design].
+    /// - The player on furniture walks the same way: the furniture branch has the
+    ///   player's own nodes (`PlayerSittingChairIdles`, third person only) [observed].
+    /// - The player with a weapon out [design, owner 2026-10-16: fidgets for the player
+    ///   standing still]: the tree gives the player none (the people's weapon branch is
     ///   under an NPC-only node, the player's under a node that wants the weapon away),
     ///   so the walk starts at each node that requires the weapon out, its own
     ///   conditions and those below it judged, those above it not.
-    pub fn weapon_fidget(&mut self, actor: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<FormId> {
+    pub fn fidget(&mut self, actor: FormId, folder: &str, kind: FidgetKind, held_back: &dyn Fn(FormId) -> bool) -> Option<FormId> {
         let data = self.data;
         let folder = folder.to_ascii_lowercase();
         let own = |id: &FormId| data.idles.get(id).and_then(|d| d.model.as_deref()).is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder));
         let roots: Vec<FormId> = data.idle_children.get(&None).into_iter().flatten().copied().filter(|r| own(r) && data.idle_children.contains_key(&Some(*r))).collect();
-        if actor != FormId::PLAYER_REF {
+        if actor != FormId::PLAYER_REF || kind == FidgetKind::OnFurniture {
             for root in roots {
                 if !self.idle_allowed(actor, root) {
                     continue;
                 }
-                if let Some((leaf, weapon)) = self.first_leaf(actor, root, wants_weapon_out(data, root), held_back) {
-                    return weapon.then_some(leaf);
+                if let Some((leaf, gated)) = self.first_leaf(actor, root, kind, kind.gates(data, root), held_back) {
+                    return gated.then_some(leaf);
                 }
             }
             return None;
@@ -220,31 +276,146 @@ impl<'a> Game<'a> {
         let mut stack: Vec<FormId> = roots;
         while let Some(n) = stack.pop() {
             let kids = data.idle_children.get(&Some(n)).map(Vec::as_slice).unwrap_or_default();
-            if data.idles[&n].parent.is_some() && wants_weapon_out(data, n) && !kids.is_empty() {
+            if data.idles[&n].parent.is_some() && kind.gates(data, n) && !kids.is_empty() {
                 starts.push(n);
             } else {
                 stack.extend(kids.iter().rev());
             }
         }
-        starts.into_iter().find_map(|s| self.idle_allowed(actor, s).then(|| self.first_leaf(actor, s, true, held_back)).flatten().map(|(leaf, _)| leaf))
+        starts.into_iter().find_map(|s| self.idle_allowed(actor, s).then(|| self.first_leaf(actor, s, kind, true, held_back)).flatten().map(|(leaf, _)| leaf))
+    }
+
+    /// The idle a fleeing `actor` plays from the idle tree now, or `None` (idles.md §13).
+    /// The tree's own roots that are idles (a file, no children) and whose conditions
+    /// name the flee procedure (`GetCurrentAIProcedure == 16`, alone or among ORs) are
+    /// tried in chain order, and the first whose conditions the actor meets is the pick
+    /// [observed: FalloutNV.esm has two such roots, `NVKimbalCower` (no file) and
+    /// `CowerIdles` 0x0006CB4A, `3rdP_Cowering.kf`, which wants IsMoving 0, the
+    /// procedure 16 FLEE or 34 FLEE_NON_COMBAT and IsSwimming 0; hypothesis: the
+    /// original's idle manager plays such a root by its conditions, as the roots of
+    /// the fidget branches]. `folder` and `held_back` as for [`Game::fidget`].
+    pub fn flee_idle(&mut self, actor: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<FormId> {
+        let data = self.data;
+        let folder = folder.to_ascii_lowercase();
+        let roots: Vec<FormId> = data
+            .idle_children
+            .get(&None)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|r| !data.idle_children.contains_key(&Some(*r)))
+            .filter(|r| {
+                data.idles.get(r).is_some_and(|d| {
+                    d.has_file()
+                        && d.model.as_deref().is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder))
+                        && names(d.conditions.as_deref().unwrap_or_default(), GET_CURRENT_AI_PROCEDURE, FLEE_PROCEDURE)
+                })
+            })
+            .collect();
+        roots.into_iter().find(|r| !held_back(*r) && self.idle_allowed(actor, *r))
     }
 
     /// The first leaf below `node` whose way down passes, and whether a node on that
-    /// way (or `weapon`, said of those above) requires the weapon out.
-    fn first_leaf(&mut self, actor: FormId, node: FormId, weapon: bool, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, bool)> {
+    /// way (or `gated`, said of those above) gates `kind`.
+    fn first_leaf(&mut self, actor: FormId, node: FormId, kind: FidgetKind, gated: bool, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, bool)> {
         let data = self.data;
         for &child in data.idle_children.get(&Some(node)).into_iter().flatten() {
             let leaf = !data.idle_children.contains_key(&Some(child));
             if (leaf && (!data.idles[&child].has_file() || held_back(child))) || !self.idle_allowed(actor, child) {
                 continue;
             }
-            let weapon = weapon || wants_weapon_out(data, child);
+            let gated = gated || kind.gates(data, child);
             if leaf {
-                return Some((child, weapon));
+                return Some((child, gated));
             }
-            if let Some(found) = self.first_leaf(actor, child, weapon, held_back) {
+            if let Some(found) = self.first_leaf(actor, child, kind, gated, held_back) {
                 return Some(found);
             }
+        }
+        None
+    }
+
+    /// The actors in a conversation and their part in it, for the talking gestures
+    /// (docs/spec-notes/idles.md §12): the actor the player talks with (saying a line,
+    /// or listening while the player chooses), and both sides of a conversation between
+    /// actors (the one saying the line, and the one it says it to). The player is left
+    /// out.
+    pub fn talk_parts(&self) -> Vec<TalkPart> {
+        let mut out: Vec<TalkPart> = Vec::new();
+        if let Some(c) = self.dialogue.as_ref() {
+            let line = c.line.as_ref();
+            out.push(TalkPart { actor: c.actor, partner: FormId::PLAYER_REF, talking: line.is_some(), info: line.map(|l| l.info), response: line.map_or(0, |l| l.response) });
+        }
+        for s in self.speech.iter().filter(|s| s.conversation.is_some()) {
+            let Some(to) = s.target else { continue };
+            for (actor, partner, talking) in [(s.speaker, to, true), (to, s.speaker, false)] {
+                if actor != FormId::PLAYER_REF && !out.iter().any(|p| p.actor == actor) {
+                    out.push(TalkPart { actor, partner, talking, info: Some(s.info), response: s.response });
+                }
+            }
+        }
+        out
+    }
+
+    /// A talking or listening gesture for `actor`, who is in a conversation with
+    /// `partner`, from the idle tree, with the nodes gone into on the way (the root
+    /// first, the pick last); `None` when the walk finds nothing, or finds a leaf that
+    /// is not under a node of the tree's dialogue groups. `folder` and `held_back` as
+    /// for [`Game::weapon_fidget`]. The rules (docs/spec-notes/idles.md §12):
+    ///
+    /// - The walk is the fidgets' [hypothesis: animation.md §2.2; idles.md §9, the
+    ///   editor's picking]: roots of the actor's folder in chain order, the first whose
+    ///   conditions pass is gone into, and so on down; a node whose children all fail is
+    ///   left for its next sibling. The conditions' target is `partner` (the people's
+    ///   branch for conversations between actors asks whether the target is the player).
+    /// - The pick is kept only when a node on its way is a dialogue node
+    ///   ([`talk_node`]) [design: the rest of the idle manager is not built]. The tree
+    ///   itself chooses between talking and listening (`IsTalking`), the mood
+    ///   (`GetDialogueEmotion`), sitting or standing, power armour, and keeps a pose
+    ///   going (`IsLastIdlePlayed`).
+    /// - `GetRandomPercent` in these conditions draws from its own generator, so the
+    ///   picks do not move the scripts' random numbers [engineering choice].
+    pub fn talk_gesture(&mut self, actor: FormId, partner: FormId, folder: &str, held_back: &dyn Fn(FormId) -> bool) -> Option<(FormId, Vec<FormId>)> {
+        let data = self.data;
+        let folder = folder.to_ascii_lowercase();
+        let own = |id: &FormId| data.idles.get(id).and_then(|d| d.model.as_deref()).is_some_and(|m| m.to_ascii_lowercase().starts_with(&folder));
+        let roots: Vec<FormId> = data.idle_children.get(&None).into_iter().flatten().copied().filter(|r| own(r) && data.idle_children.contains_key(&Some(*r))).collect();
+        std::mem::swap(&mut self.rng, &mut self.idle_rng);
+        let mut found = None;
+        for root in roots {
+            if !self.idle_allowed_with(actor, Some(partner), root) {
+                continue;
+            }
+            let mut way = vec![root];
+            if let Some((leaf, talk)) = self.talk_leaf(actor, partner, root, talk_node(data, root), held_back, &mut way) {
+                found = talk.then_some((leaf, way));
+                break;
+            }
+        }
+        std::mem::swap(&mut self.rng, &mut self.idle_rng);
+        found
+    }
+
+    /// The first leaf below `node` whose way down passes for `actor` talking with
+    /// `partner` (the conditions' target), and whether a node on that way (or `talk`,
+    /// said of those above) is a dialogue node ([`talk_node`]); `way` gets the nodes
+    /// gone into, the leaf last. The walk of [`Game::weapon_fidget`] otherwise.
+    fn talk_leaf(&mut self, actor: FormId, partner: FormId, node: FormId, talk: bool, held_back: &dyn Fn(FormId) -> bool, way: &mut Vec<FormId>) -> Option<(FormId, bool)> {
+        let data = self.data;
+        for &child in data.idle_children.get(&Some(node)).into_iter().flatten() {
+            let leaf = !data.idle_children.contains_key(&Some(child));
+            if (leaf && (!data.idles[&child].has_file() || held_back(child))) || !self.idle_allowed_with(actor, Some(partner), child) {
+                continue;
+            }
+            let talk = talk || talk_node(data, child);
+            way.push(child);
+            if leaf {
+                return Some((child, talk));
+            }
+            if let Some(found) = self.talk_leaf(actor, partner, child, talk, held_back, way) {
+                return Some(found);
+            }
+            way.pop();
         }
         None
     }
@@ -275,18 +446,86 @@ impl<'a> Game<'a> {
     }
 }
 
-/// Whether an IDLE's conditions require the weapon out: an `IsWeaponOut == 1` that is
-/// not joined to another by OR.
-fn wants_weapon_out(data: &crate::data::GameData, idle: FormId) -> bool {
+/// One actor's part in a conversation ([`Game::talk_parts`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct TalkPart {
+    pub actor: FormId,
+    /// The one it talks with (the player, or the other actor).
+    pub partner: FormId,
+    /// Saying a line (else listening).
+    pub talking: bool,
+    /// The line being said (by the actor, or to it), and the position of its response
+    /// in the order they are said.
+    pub info: Option<FormId>,
+    pub response: usize,
+}
+
+/// Whether an IDLE is a node of the tree's dialogue groups: one of its conditions asks
+/// for the dialogue procedure (`GetCurrentAIProcedure == 4`), the dialogue menu
+/// (`MenuMode 1009 == 1`) or the actor saying a line (`IsTalking == 1`) [observed: the
+/// people's `DialogueIdles` and its chair, stool, wall-lean and floor-sitting groups,
+/// and the robots' and Mr. House's dialogue groups, each have one of these; idles.md
+/// §12.1].
+pub fn talk_node(data: &crate::data::GameData, idle: FormId) -> bool {
+    use crate::cond::{Cmp, Operand};
     let conds = data.idles.get(&idle).and_then(|d| d.conditions.as_deref()).unwrap_or_default();
-    conds.iter().enumerate().any(|(i, c)| {
-        let joined = c.or || (i > 0 && conds[i - 1].or);
-        c.opcode() == IS_WEAPON_OUT && c.cmp == crate::cond::Cmp::Eq && c.rhs == crate::cond::Operand::Value(1.0) && !joined
+    conds.iter().any(|c| {
+        let is = |v: f64| c.cmp == Cmp::Eq && c.rhs == Operand::Value(v);
+        match c.opcode() {
+            GET_CURRENT_AI_PROCEDURE => is(4.0),
+            IS_TALKING => is(1.0),
+            MENU_MODE => is(1.0) && matches!(c.params.first(), Some(ArgValue::Enum(m)) if *m == crate::dialogue::DIALOGUE_MENU),
+            _ => false,
+        }
     })
 }
 
-/// `IsWeaponOut`'s opcode (`functions::mod`).
+const GET_CURRENT_AI_PROCEDURE: u16 = 0x108F;
+const IS_TALKING: u16 = 0x108D;
+const MENU_MODE: u16 = 0x1024;
+
+/// IsLastIdlePlayed's condition index: it has no page in the script catalogue and no
+/// script opcode [documented: xEdit wbCTDAFunctions names index 451 IsLastIdlePlayed,
+/// parameter an IDLE; animation.md §1.2]. 86 IDLE conditions use it [observed].
+pub const IS_LAST_IDLE_PLAYED: u16 = 451;
+
+/// IsLastIdlePlayed `idle`: 1 when the last idle the actor played is `idle` [hypothesis
+/// from the name: the dialogue groups use it to keep a pose going, arms crossed once
+/// crossed; idles.md §12.1]. The last idle played is the last one the animating layer
+/// reported ([`Game::set_idle_playing`]).
+pub(crate) fn is_last_idle_played(g: &Game, on: Option<FormId>, params: &[ArgValue]) -> f64 {
+    let want = match params.first() {
+        Some(ArgValue::Value(Value::Ref(r))) if *r != 0 => FormId(*r),
+        _ => return 0.0,
+    };
+    let last = on.and_then(|a| g.extra.get(&a)).and_then(|e| e.last_idle);
+    if last == Some(want) {
+        1.0
+    } else {
+        0.0
+    }
+}
+
+/// Whether conditions require `opcode == value`: such a condition not joined to another
+/// by OR.
+fn requires(conds: &[Condition], opcode: u16, value: f64) -> bool {
+    conds.iter().enumerate().any(|(i, c)| {
+        let joined = c.or || (i > 0 && conds[i - 1].or);
+        c.opcode() == opcode && c.cmp == crate::cond::Cmp::Eq && c.rhs == crate::cond::Operand::Value(value) && !joined
+    })
+}
+
+/// Whether conditions ask for `opcode == value`, alone or as one of several joined by OR.
+fn names(conds: &[Condition], opcode: u16, value: f64) -> bool {
+    conds.iter().any(|c| c.opcode() == opcode && c.cmp == crate::cond::Cmp::Eq && c.rhs == crate::cond::Operand::Value(value))
+}
+
+/// Opcodes of `IsWeaponOut`, `GetSitting` and `GetSleeping` (`functions::mod`).
 const IS_WEAPON_OUT: u16 = 0x1065;
+const GET_SITTING: u16 = 0x109F;
+const GET_SLEEPING: u16 = 0x1031;
+/// The procedure of a fleeing actor, 16 FLEE (`functions::ai_state`).
+const FLEE_PROCEDURE: f64 = 16.0;
 
 /// `actor.PlayIdle name`: the actor plays the idle whose Editor ID is `name`, whatever
 /// its conditions say [documented: catalogue notes on PickIdle, "the forced-idle
@@ -373,6 +612,27 @@ mod tests {
         assert!(!IdleDef::from_raw(None, None).has_file());
         // The replay delay is the i16 after the unused byte.
         assert_eq!(IdleDef::from_raw(None, Some(&[0, 0, 0, 0, 45, 0])).replay_delay, 45);
+    }
+
+    #[test]
+    fn fidget_kinds_are_gated_by_a_required_condition() {
+        use crate::cond::{Cmp, Operand, RunOn};
+        let c = |function: u16, cmp: Cmp, v: f64, or: bool| Condition { cmp, or, run_on: RunOn::Subject, function, params: Vec::new(), rhs: Operand::Value(v) };
+        let (sitting, sleeping, weapon, random) = (GET_SITTING - 0x1000, GET_SLEEPING - 0x1000, IS_WEAPON_OUT - 0x1000, 0x4D);
+        let on = FidgetKind::OnFurniture;
+        // `SittingChairIdles`: GetSitting == 3 among others.
+        assert!(on.gated_by(&[c(random, Cmp::Lt, 50.0, false), c(sitting, Cmp::Eq, 3.0, false)]));
+        // `BedSpecialIdles`: GetSleeping == 3.
+        assert!(on.gated_by(&[c(sleeping, Cmp::Eq, 3.0, false)]));
+        // The root (> 0, joined by OR), getting on (== 2), and an OR-joined 3: no gate.
+        assert!(!on.gated_by(&[c(sitting, Cmp::Gt, 0.0, true), c(sleeping, Cmp::Gt, 0.0, false)]));
+        assert!(!on.gated_by(&[c(sitting, Cmp::Eq, 2.0, false)]));
+        assert!(!on.gated_by(&[c(sitting, Cmp::Eq, 3.0, true), c(random, Cmp::Lt, 5.0, false)]));
+        // The two kinds do not gate each other's branches.
+        assert!(FidgetKind::WeaponOut.gated_by(&[c(weapon, Cmp::Eq, 1.0, false)]));
+        assert!(!on.gated_by(&[c(weapon, Cmp::Eq, 1.0, false)]));
+        assert!(!FidgetKind::WeaponOut.gated_by(&[c(sitting, Cmp::Eq, 3.0, false)]));
+        assert_eq!(on.source(), IdleSource::FurnitureFidget);
     }
 
     #[test]

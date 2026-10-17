@@ -224,9 +224,13 @@ fn shoot(
             let drawn = hold.is_none_or(|h| h.anim.stage == Stage::Drawn);
             let facing = facing_off(global, feet, tfeet) <= FIRE_FACING;
             let ready = why.is_none() && drawn && facing;
-            let trigger = ready && shooter.wait <= 0.0 && (ws.automatic || !shooter.pulled);
+            // No pull while it reloads (a pull would close a round-by-round reload after a
+            // round); an empty magazine is reloaded at once, as the combat AI's gunmen do.
+            let reloading = shooter.cycle.reloading();
+            let trigger = ready && !reloading && shooter.wait <= 0.0 && (ws.automatic || !shooter.pulled);
             shooter.pulled = trigger;
-            for e in shooter.cycle.step(&c.tuning, Input { trigger, reload: false, dt, carried: u32::MAX / 2 }) {
+            let empty = shooter.cycle.magazine < shooter.cycle.ammo_use && shooter.cycle.regen.is_none();
+            for e in shooter.cycle.step(&c.tuning, Input { trigger, reload: empty && !reloading, dt, carried: u32::MAX / 2 }) {
                 match e {
                     Event::Fired { .. } => {
                         let muzzle = muzzle_at.get(&id).copied();
@@ -242,7 +246,7 @@ fn shoot(
                             spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &stance), 0.0, ws, &[])
                         };
                         fire.write(ActorFire { shooter: me, weapon: gun, origin, aim, cone, muzzle, harmless: w.no_damage });
-                        anims.write(PlayAttack { actor: id, weapon: Some(gun), melee: false, sights: false, kind: Default::default(), swing: None });
+                        anims.write(PlayAttack { actor: id, weapon: Some(gun), melee: false, sights: false, kind: Default::default(), power: None, swing: None });
                         s.stats.shots += 1;
                         s.stats.sure += usize::from(w.always_hit);
                         s.stats.harmless += usize::from(w.no_damage);

@@ -31,12 +31,41 @@
 //!   (a rifle loitering, lifting it one-handed to rest the arm, shifting its weight; an
 //!   automatic rifle scanning), and the player standing still in third person with a
 //!   weapon out and not aiming or firing, is checked every [`FIDGET_CHECK_SECONDS`]
-//!   for a fidget from the IDLE tree (`Game::weapon_fidget`); the tree's own random
+//!   for a fidget from the IDLE tree (`Game::fidget`); the tree's own random
 //!   percentages decide whether one plays. A fidget ends when its actor moves, puts the
 //!   weapon away, or (the player) aims, fires, reloads or goes to first person.
+//! - **Fidgets on furniture** (furniture.md §8). An actor on a chair, a bench, a bed or
+//!   other furniture (`GetSitting` or `GetSleeping` 3: not getting on or off) is
+//!   checked the same way for a fidget from the tree's furniture branch (a seated man
+//!   relaxing, a sleeper stirring, a dancer, a wall leaner); so is the player on
+//!   furniture in third person. It plays over the furniture's loop and ends (fades
+//!   out) when its actor starts getting off.
+//!
+//! - **Talking gestures** (idles.md §12). An NPC in a conversation (with the player
+//!   in the dialogue screen, or with another actor) is given a gesture from the IDLE
+//!   tree's dialogue groups (`Game::talk_gesture`) when it starts saying a response,
+//!   when it stops (it listens), and whenever the gesture it plays ends while it is
+//!   still in the same part; the tree chooses talking or listening, the mood, sitting
+//!   or standing. A response's own idle (INFO `SNAM`/`LNAM`) or any other idle asked
+//!   for comes first: no gesture is picked while one plays. A gesture ends when the
+//!   conversation does, or when the actor walks.
+//!
+//! - **Cowering** (idles.md §13). An NPC fleeing from a fight that stands still (as
+//!   when its flight begins, or at its flee spot) is checked every
+//!   [`COWER_CHECK_SECONDS`] for the idle the tree plays while fleeing
+//!   (`Game::flee_idle`: `CowerIdles`, `3rdP_Cowering.kf`, by its own conditions
+//!   IsMoving 0 and GetCurrentAIProcedure 16), before its fidgets. Started, it is not
+//!   stopped when its actor runs: its arms and head (priority 33) are laid over the
+//!   unarmed run (30), whose legs win over its own (23), so it runs with its hands over
+//!   its head; standing, over the crouched set (20) the rules give a person at its flee
+//!   spot, the whole cower shows [observed: the clips' priorities; owner 2026-10-17,
+//!   "they'll cower whilst running but they only crouch when stopped"]. It ends when its
+//!   actor no longer flees; after its loops (2 to 12 of 12 s) it is picked again when
+//!   the actor next stands still. Flee Not Combat packages (procedure 34) are not
+//!   carried out (`fnv_ai::goal`), so only combat flights cower.
 //!
 //! Not done: the rest of the idle manager (idles chosen from the IDLE tree by their
-//! conditions: `PickIdle`, other fidgets, talking gestures), the sounds and other text keys of idle clips,
+//! conditions: `PickIdle`, other fidgets), the sounds and other text keys of idle clips,
 //! and package idles of actors that are not residents. The props idles hold (ANIO) are
 //! drawn by `anim_objects.rs`.
 
@@ -49,7 +78,7 @@ use fnv_actor::idle::meshes_path;
 use fnv_actor::idle_play::{IdleKeys, IdlePlay};
 use fnv_actor::weapon::Stage;
 use fnv_game::game::Game;
-use fnv_game::idles::{IdlePicker, IdleRequest, IdleSource, Loops};
+use fnv_game::idles::{FidgetKind, IdlePicker, IdleRequest, IdleSource, Loops};
 use fnv_game::package::flags;
 use fnv_sim::FormId;
 use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts};
@@ -77,6 +106,15 @@ const RETRY_SECONDS: f32 = 5.0;
 /// [design: how often the original evaluates its tree is not known; with the rifle
 /// branch's three 5% leaves a standing rifleman fidgets about every 14 s].
 pub const FIDGET_CHECK_SECONDS: f32 = 2.0;
+
+/// Seconds between two looks at the idle tree for a fleeing actor's cower idle: short,
+/// so it cowers soon after it stops and again soon after the idle's loops end
+/// [engineering choice].
+pub const COWER_CHECK_SECONDS: f32 = 0.5;
+
+/// After the tree gave an actor in a conversation no gesture, seconds until it is asked
+/// again in the same part (a new response asks at once) [engineering choice].
+pub const GESTURE_RETRY_SECONDS: f32 = 1.0;
 
 /// The player moved when their feet went further than this in a frame, game units
 /// [engineering choice: above the collision's settling].
@@ -265,6 +303,32 @@ pub struct Stats {
     /// Drawn-weapon fidgets started on actors and on the player.
     pub actor_fidgets: u32,
     pub player_fidgets: u32,
+    /// Fidgets on furniture started on actors and on the player.
+    pub actor_furniture_fidgets: u32,
+    pub player_furniture_fidgets: u32,
+    /// Talking gestures started while the actor talked and while it listened; walks of
+    /// the tree that gave none.
+    pub talk_gestures: u32,
+    pub listen_gestures: u32,
+    pub no_gesture: u32,
+    /// Cower idles started on fleeing actors.
+    pub cowers: u32,
+}
+
+/// An actor's part in a conversation as the gestures last saw it: talking or listening,
+/// the line and its response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TalkKey {
+    talking: bool,
+    info: Option<FormId>,
+    response: usize,
+}
+
+/// The gestures of one actor in a conversation.
+struct Gesturing {
+    key: TalkKey,
+    /// Seconds until the tree is asked again after it gave nothing.
+    retry: f32,
 }
 
 /// A small deterministic generator (SplitMix64) for loop counts and random picks: the
@@ -284,11 +348,14 @@ impl Rng {
 #[derive(Resource)]
 pub struct Idles {
     collections: HashMap<u32, Collection>,
-    /// Seconds until each actor's next look for a fidget.
+    /// Seconds until each actor's next look for a fidget, and for its cower idle.
     fidget_check: HashMap<u32, f32>,
-    /// When each actor last started each fidget (seconds of `clock`), for the replay
-    /// delay.
+    cower_check: HashMap<u32, f32>,
+    /// When each actor last started each fidget or gesture (seconds of `clock`), for
+    /// the replay delay.
     fidget_last: HashMap<(u32, u32), f32>,
+    /// The actors in a conversation.
+    gesturing: HashMap<u32, Gesturing>,
     clock: f32,
     /// The player's feet the frame before.
     player_feet: Option<[f32; 3]>,
@@ -303,7 +370,9 @@ impl Default for Idles {
         Idles {
             collections: HashMap::new(),
             fidget_check: HashMap::new(),
+            cower_check: HashMap::new(),
             fidget_last: HashMap::new(),
+            gesturing: HashMap::new(),
             clock: 0.0,
             player_feet: None,
             told: HashMap::new(), rng: Rng(0x1D1E_5EED), stats: Stats::default() }
@@ -384,8 +453,8 @@ pub fn drive(
     let mut busy: HashMap<u32, bool> = HashMap::new();
     // The rules are told which NPCs hold their weapon in the hand (`IsWeaponOut`, as for
     // the player: once the weapon is on the hand [documented: catalogue notes]), and
-    // which weapon that is (`GetWeaponAnimType`: NPCs' weapons are not equipped in the
-    // rules' inventories).
+    // which weapon that is (`GetWeaponAnimType` for NPCs with no weapon equipped in the
+    // rules' inventories; the drawn one is the equipped one otherwise, outfits.rs).
     for h in &held {
         game.set_held_weapon(FormId(h.reference), Some(h.weapon));
     }
@@ -401,6 +470,8 @@ pub fn drive(
             game.set_anim_action(FormId(v.0), action);
         }
     }
+    // Who is in a conversation, and their part in it (talking gestures).
+    let talk_parts = game.talk_parts();
     for (_, v, _, idle, lo, _) in &mut actors {
         let Some(mut idle) = idle else { continue };
         idle.0.check_owner(|s| owner_now(game, v.0, s));
@@ -412,6 +483,21 @@ pub fn drive(
         // A fidget ends when its actor moves or puts the weapon away [design].
         let moving = lo.is_some_and(|l| l.velocity != [0.0; 2]);
         if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Fidget && (moving || !weapon_out(game, v.0))) {
+            c.play.stop();
+        }
+        // A fidget on furniture ends when its actor starts getting off: it fades out over
+        // the start of the getting-off clip, which starts where the body sits
+        // (furniture.md §4) [design].
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && !on_furniture(game, v.0)) {
+            c.play.stop();
+        }
+        // A cower goes on while its actor runs and ends when it no longer flees
+        // (idles.md §13.2).
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Cower && !fleeing(game, v.0)) {
+            c.play.stop();
+        }
+        // A gesture ends when its actor walks or is no longer in a conversation [design].
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Gesture && (moving || !talk_parts.iter().any(|p| p.actor.0 == v.0))) {
             c.play.stop();
         }
         busy.insert(v.0, idle.0.playing().is_some());
@@ -429,6 +515,12 @@ pub fn drive(
         && weapon_out(game, player_ref)
         && package_of(game, player_ref).is_none();
     if let Some(c) = pi.third.cur.as_mut().filter(|c| c.source == IdleSource::Fidget && !player_still) {
+        c.play.stop();
+    }
+    // On furniture in third person: may fidget there (the tree's player nodes want the
+    // third person, and a fidget in first person would sway the view) [design].
+    let player_seated = on_furniture(game, player_ref) && control.as_deref().is_some_and(|c| c.third_person_view()) && package_of(game, player_ref).is_none();
+    if let Some(c) = pi.third.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && !player_seated) {
         c.play.stop();
     }
     busy.insert(player_ref, pi.first.playing().is_some() || pi.third.playing().is_some());
@@ -483,19 +575,58 @@ pub fn drive(
         game.ask_idle(FormId(actor), idle, source);
     }
 
-    // Drawn-weapon fidgets: NPCs standing still with a weapon out, and the player.
     st.clock += dt;
-    let mut still: Vec<(u32, String)> = actors
+    // Cowering: fleeing NPCs standing still (idles.md §13); before their fidgets.
+    let cowering: Vec<(u32, String)> = actors
         .iter()
-        .filter(|(_, v, _, _, lo, _)| lo.is_some_and(|l| l.velocity == [0.0; 2]) && !live.contains(&v.0) && weapon_out(game, v.0) && !game.is_dead(FormId(v.0)))
-        .filter_map(|(_, v, rig, _, _, _)| Some((v.0, skeleton_folder(&rig.skeleton)?)))
+        .filter(|(_, v, ..)| !live.contains(&v.0) && fleeing(game, v.0) && !game.is_dead(FormId(v.0)) && game.furniture_use(FormId(v.0)).is_none())
+        .filter(|(_, _, _, _, lo, _)| lo.is_some_and(|l| l.velocity == [0.0; 2]))
+        .filter_map(|(_, v, rig, ..)| Some((v.0, skeleton_folder(&rig.skeleton)?)))
         .collect();
-    if player_still {
-        still.push((player_ref, PEOPLE_FOLDER.to_string()));
+    st.cower_check.retain(|a, _| cowering.iter().any(|(c, _)| c == a));
+    let mut cowers: Vec<(u32, FormId)> = Vec::new();
+    for (actor, folder) in &cowering {
+        let check = st.cower_check.entry(*actor).or_insert(0.0);
+        *check -= dt;
+        if *check > 0.0 || busy.get(actor).copied().unwrap_or(false) {
+            continue;
+        }
+        *check = COWER_CHECK_SECONDS;
+        let mut pick = None;
+        with_world(game, &mut |game| pick = game.flee_idle(FormId(*actor), folder, &|_| false));
+        if let Some(idle) = pick {
+            cowers.push((*actor, idle));
+            busy.insert(*actor, true);
+        }
     }
-    let mut fidgets: Vec<(u32, FormId)> = Vec::new();
-    st.fidget_check.retain(|a, _| still.iter().any(|(s, _)| s == a));
-    for (actor, folder) in still {
+    for (actor, idle) in cowers {
+        st.stats.cowers += 1;
+        game.ask_idle(FormId(actor), idle, IdleSource::Cower);
+    }
+
+    // Fidgets: NPCs on furniture, or standing still with a weapon out; the player too.
+    let mut still: Vec<(u32, String, FidgetKind)> = actors
+        .iter()
+        // An actor in a conversation has its talking gestures instead (idles.md §12).
+        .filter(|(_, v, ..)| !live.contains(&v.0) && !game.is_dead(FormId(v.0)) && !talk_parts.iter().any(|p| p.actor.0 == v.0) && !cowering.iter().any(|(c, _)| *c == v.0))
+        .filter_map(|(_, v, rig, _, lo, _)| {
+            let kind = if game.furniture_use(FormId(v.0)).is_some() {
+                on_furniture(game, v.0).then_some(FidgetKind::OnFurniture)?
+            } else {
+                (lo.is_some_and(|l| l.velocity == [0.0; 2]) && weapon_out(game, v.0)).then_some(FidgetKind::WeaponOut)?
+            };
+            Some((v.0, skeleton_folder(&rig.skeleton)?, kind))
+        })
+        .collect();
+    if player_seated {
+        still.push((player_ref, PEOPLE_FOLDER.to_string(), FidgetKind::OnFurniture));
+    } else if player_still {
+        still.push((player_ref, PEOPLE_FOLDER.to_string(), FidgetKind::WeaponOut));
+    }
+    let mut fidgets: Vec<(u32, FormId, FidgetKind)> = Vec::new();
+    let mut stop_gesture: Vec<u32> = Vec::new();
+    st.fidget_check.retain(|a, _| still.iter().any(|(s, ..)| s == a));
+    for (actor, folder, kind) in still {
         let check = st.fidget_check.entry(actor).or_insert(FIDGET_CHECK_SECONDS);
         *check -= dt;
         if *check > 0.0 || busy.get(&actor).copied().unwrap_or(false) {
@@ -510,14 +641,90 @@ pub fn drive(
             delay > 0.0 && last.get(&(actor, idle.0)).is_some_and(|t| clock - t < delay)
         };
         let mut pick = None;
-        with_world(game, &mut |game| pick = game.weapon_fidget(FormId(actor), &folder, &held_back));
+        with_world(game, &mut |game| pick = game.fidget(FormId(actor), &folder, kind, &held_back));
         if let Some(idle) = pick {
-            fidgets.push((actor, idle));
+            fidgets.push((actor, idle, kind));
         }
     }
-    for (actor, idle) in fidgets {
+    for (actor, idle, kind) in fidgets {
         st.fidget_last.insert((actor, idle.0), st.clock);
-        game.ask_idle(FormId(actor), idle, IdleSource::Fidget);
+        game.ask_idle(FormId(actor), idle, kind.source());
+    }
+
+    // Talking gestures: NPCs drawn in a conversation (idles.md §12).
+    let asked_now: Vec<u32> = game.idle_requests.iter().map(|r| r.actor.0).collect();
+    st.gesturing.retain(|a, _| talk_parts.iter().any(|p| p.actor.0 == *a));
+    let mut gestures: Vec<(u32, FormId, Vec<FormId>, TalkKey)> = Vec::new();
+    for part in &talk_parts {
+        let actor = part.actor.0;
+        let Some((_, _, rig, slot, lo, _)) = actors.iter().find(|(_, v, ..)| v.0 == actor) else { continue };
+        let Some(folder) = skeleton_folder(&rig.skeleton) else { continue };
+        if game.is_dead(part.actor) {
+            continue;
+        }
+        let key = TalkKey { talking: part.talking, info: part.info, response: part.response };
+        let g = st.gesturing.entry(actor).or_insert(Gesturing { key, retry: 0.0 });
+        let changed = g.key != key;
+        if changed {
+            g.key = key;
+            g.retry = 0.0;
+        }
+        g.retry = (g.retry - dt).max(0.0);
+        let playing = slot.and_then(|s| s.0.playing());
+        // Another idle (the response's own, a script's) plays, or was asked for this
+        // frame: it comes first. A gesture goes on until the part changes.
+        let other = playing.is_some_and(|p| p.source != IdleSource::Gesture) || asked_now.contains(&actor);
+        let gesture_on = playing.is_some_and(|p| p.source == IdleSource::Gesture);
+        // Walking, or turning on the spot to face the other fast enough for the turn
+        // clips (they step the feet; the walker's heading noise is far below it).
+        let busy_body = lo.is_some_and(|l| l.velocity != [0.0; 2] || l.turn.abs() > fnv_actor::locomotion::TURN_RATE);
+        if other || busy_body || (gesture_on && !changed) || (g.retry > 0.0 && !changed) {
+            if changed && (other || busy_body) {
+                let why = if other { "another idle plays" } else if lo.is_some_and(|l| l.velocity != [0.0; 2]) { "it walks" } else { "it turns on the spot" };
+                info!("talk gesture: {} waits: {why}", game.data.name(part.actor));
+            }
+            continue;
+        }
+        let (clock, last, data) = (st.clock, &st.fidget_last, game.data);
+        let held_back = |idle: FormId| {
+            let delay = data.idles.get(&idle).map_or(0.0, |d| d.replay_delay.max(0) as f32);
+            delay > 0.0 && last.get(&(actor, idle.0)).is_some_and(|t| clock - t < delay)
+        };
+        let mut pick = None;
+        let partner = part.partner;
+        with_world(game, &mut |game| pick = game.talk_gesture(FormId(actor), partner, &folder, &held_back));
+        match pick {
+            Some((idle, way)) => gestures.push((actor, idle, way, key)),
+            None => {
+                st.stats.no_gesture += 1;
+                g.retry = GESTURE_RETRY_SECONDS;
+                // The part changed and the tree has nothing for it: the old gesture ends.
+                if changed && gesture_on {
+                    stop_gesture.push(actor);
+                }
+            }
+        }
+    }
+    for (actor, idle, way, key) in gestures {
+        st.fidget_last.insert((actor, idle.0), st.clock);
+        let data = game.data;
+        let way: Vec<String> = way.iter().map(|n| data.name(*n)).collect();
+        let line = key.info.map_or(String::new(), |i| format!(", line {} response {}", data.name(i), key.response + 1));
+        info!("talk gesture: {} {} ({}{line}): {} by {}", data.name(FormId(actor)), if key.talking { "talks" } else { "listens" }, data.name(talk_parts.iter().find(|p| p.actor.0 == actor).map_or(FormId(0), |p| p.partner)), data.name(idle), way.join(" > "));
+        if key.talking {
+            st.stats.talk_gestures += 1;
+        } else {
+            st.stats.listen_gestures += 1;
+        }
+        game.ask_idle(FormId(actor), idle, IdleSource::Gesture);
+    }
+
+    for actor in stop_gesture {
+        if let Some(mut s) = actors.iter_mut().find(|(_, v, ..)| v.0 == actor).and_then(|(_, _, _, s, _, _)| s) {
+            if let Some(c) = s.0.cur.as_mut().filter(|c| c.source == IdleSource::Gesture) {
+                c.play.stop();
+            }
+        }
     }
 
     // Start what was asked for.
@@ -526,7 +733,7 @@ pub fn drive(
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
         for IdleRequest { actor, idle, source } in requests {
-            if source != IdleSource::Fidget {
+            if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::Gesture | IdleSource::Cower) {
                 st.stats.asked += 1;
             }
             match source {
@@ -534,7 +741,7 @@ pub fn drive(
                 IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
                 IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
                 IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
-                IdleSource::Fidget => {}
+                IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::Gesture | IdleSource::Cower => {}
             }
             let name = game.data.name(actor);
             let failed = |st: &mut Idles, why: &str| {
@@ -565,10 +772,10 @@ pub fn drive(
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
                 if first { &mut pi.first } else { &mut pi.third }.start(idle.0, source, owner, clip, play);
-                if source == IdleSource::Fidget {
-                    st.stats.player_fidgets += 1;
-                } else {
-                    st.stats.player_started += 1;
+                match source {
+                    IdleSource::Fidget => st.stats.player_fidgets += 1,
+                    IdleSource::FurnitureFidget => st.stats.player_furniture_fidgets += 1,
+                    _ => st.stats.player_started += 1,
                 }
                 let facing = player.as_deref().map_or(String::new(), |p| {
                     // A first-person idle plays where the player is held.
@@ -594,13 +801,14 @@ pub fn drive(
                     commands.entity(e).insert(s);
                 }
             }
-            if source == IdleSource::Fidget {
-                st.stats.actor_fidgets += 1;
-            } else {
-                st.stats.started += 1;
+            match source {
+                IdleSource::Fidget => st.stats.actor_fidgets += 1,
+                IdleSource::FurnitureFidget => st.stats.actor_furniture_fidgets += 1,
+                IdleSource::Gesture | IdleSource::Cower => {}
+                _ => st.stats.started += 1,
             }
             match source {
-                IdleSource::PackageIdles | IdleSource::MarkerIdles => debug!("idle: {name} plays {what} ({source:?})"),
+                IdleSource::PackageIdles | IdleSource::MarkerIdles | IdleSource::Gesture => debug!("idle: {name} plays {what} ({source:?})"),
                 _ => info!("idle: {name} plays {what} ({source:?})"),
             }
         }
@@ -640,6 +848,18 @@ pub fn drive(
     st.told = now;
 }
 
+/// Whether `actor` flees from a fight (`GetCurrentAIProcedure` 16).
+fn fleeing(game: &Game, actor: u32) -> bool {
+    let a = FormId(actor);
+    game.awareness.state(a).in_combat() && game.awareness.tactics.flights.contains_key(&a)
+}
+
+/// Whether `actor` is on furniture, neither getting on nor off (`GetSitting` or
+/// `GetSleeping` 3).
+fn on_furniture(game: &Game, actor: u32) -> bool {
+    game.furniture_use(FormId(actor)).is_some_and(|u| u.state == 3)
+}
+
 /// Whether the rules hold `actor`'s weapon out (`IsWeaponOut`).
 fn weapon_out(game: &Game, actor: u32) -> bool {
     game.extra.get(&FormId(actor)).is_some_and(|e| e.weapon_out)
@@ -664,6 +884,9 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
         s.asked, s.script, s.package, s.collection, s.dialogue, s.started, s.player_started, s.not_drawn, s.no_clip
     );
     info!("fidget summary: {} drawn-weapon fidgets started on actors, {} on the player", s.actor_fidgets, s.player_fidgets);
+    info!("furniture fidget summary: {} fidgets on furniture started on actors, {} on the player", s.actor_furniture_fidgets, s.player_furniture_fidgets);
+    info!("talk gesture summary: {} gestures picked while talking, {} while listening; {} walks of the tree gave none", s.talk_gestures, s.listen_gestures, s.no_gesture);
+    info!("cower summary: {} cower idles started on fleeing actors", s.cowers);
 }
 
 #[cfg(test)]

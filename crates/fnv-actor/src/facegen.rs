@@ -7,6 +7,14 @@
 //! - EGT: 64-byte header (`FREGT003`, rows, columns, S, A, basis version, 36 reserved
 //!   bytes), then S + A modes, each an f32 scale and three rows × columns i8 images
 //!   (red, green, blue), rows top to bottom.
+//! - CTL (the named controls, [`Ctl`]): `FRCTL001`, the geometry and texture basis
+//!   versions, GS, GA, TS, TA and the number of symmetric shape controls (u32 each); the
+//!   symmetric shape controls, then a count and the asymmetric shape controls, a count
+//!   and the symmetric texture controls, a count and the asymmetric texture controls,
+//!   each control GS (GA, TS, TA) f32 and a label (u32 length, bytes); then per race
+//!   group (All, Afro, Asia, Eind, Euro) two offset controls, age and gender, each GS
+//!   f32 and an offset, then TS f32 and an offset; then the race-morph controls and the
+//!   densities, not read here.
 //!
 //! Combination [hypothesis, actors.md §4]: vertex = base + Σ coefficient × scale × delta
 //! over the symmetric (FGGS) then asymmetric (FGGA) modes; texture offset = Σ FGTS ×
@@ -153,6 +161,99 @@ impl Egt {
     }
 }
 
+/// One linear control: a direction in one coefficient space and its label.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Control {
+    pub label: String,
+    pub dir: Vec<f32>,
+}
+
+/// An offset control (age, gender): value = direction · coefficients + offset, for the
+/// shape and the texture coefficients each.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OffsetControl {
+    pub shape: Vec<f32>,
+    pub shape_offset: f32,
+    pub texture: Vec<f32>,
+    pub texture_offset: f32,
+}
+
+/// The named controls of a FaceGen model set (`facegen\si.ctl`) [documented: FaceGen SDK
+/// manual, "File Formats", CTL; observed: the game's file reads to its age and gender
+/// controls and its sizes account for every byte, docs/spec-notes/character-creator.md].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ctl {
+    pub geometry_basis: u32,
+    pub texture_basis: u32,
+    /// Symmetric shape (GS), asymmetric shape (GA), symmetric texture (TS), asymmetric
+    /// texture (TA) controls.
+    pub shape: Vec<Control>,
+    pub asymmetry: Vec<Control>,
+    pub texture: Vec<Control>,
+    pub texture_asymmetry: Vec<Control>,
+    /// The All group's age and gender controls, if the file holds them.
+    pub age: Option<OffsetControl>,
+    pub gender: Option<OffsetControl>,
+}
+
+impl Ctl {
+    pub fn parse(b: &[u8]) -> Result<Ctl, FaceGenError> {
+        let short = |need: usize| FaceGenError::Truncated { need, have: b.len() };
+        if b.len() < 36 || &b[..8] != b"FRCTL001" {
+            return Err(FaceGenError::Magic(String::from_utf8_lossy(&b[..b.len().min(8)]).into_owned()));
+        }
+        let [gv, tv, gs, ga, ts, ta, lgs] = [8, 12, 16, 20, 24, 28, 32].map(|o| u32_at(b, o));
+        let (gs, ga, ts, ta) = (gs as usize, ga as usize, ts as usize, ta as usize);
+        let mut o = 36usize;
+        let floats = |o: &mut usize, n: usize| -> Result<Vec<f32>, FaceGenError> {
+            let end = *o + 4 * n;
+            if end > b.len() {
+                return Err(short(end));
+            }
+            let v = (0..n).map(|i| f32_at(b, *o + 4 * i)).collect();
+            *o = end;
+            Ok(v)
+        };
+        let u32_next = |o: &mut usize| -> Result<usize, FaceGenError> {
+            if *o + 4 > b.len() {
+                return Err(short(*o + 4));
+            }
+            let v = u32_at(b, *o) as usize;
+            *o += 4;
+            Ok(v)
+        };
+        let controls = |o: &mut usize, n: usize, dim: usize| -> Result<Vec<Control>, FaceGenError> {
+            let mut out = Vec::new();
+            for _ in 0..n {
+                let dir = floats(o, dim)?;
+                let len = u32_next(o)?;
+                if *o + len > b.len() {
+                    return Err(short(*o + len));
+                }
+                let label = String::from_utf8_lossy(&b[*o..*o + len]).trim_end_matches('\0').to_string();
+                *o += len;
+                out.push(Control { label, dir });
+            }
+            Ok(out)
+        };
+        let shape = controls(&mut o, lgs as usize, gs)?;
+        let n = u32_next(&mut o)?;
+        let asymmetry = controls(&mut o, n, ga)?;
+        let n = u32_next(&mut o)?;
+        let texture = controls(&mut o, n, ts)?;
+        let n = u32_next(&mut o)?;
+        let texture_asymmetry = controls(&mut o, n, ta)?;
+        let offset = |o: &mut usize| -> Option<OffsetControl> {
+            let g = floats(o, gs + 1).ok()?;
+            let t = floats(o, ts + 1).ok()?;
+            Some(OffsetControl { shape: g[..gs].to_vec(), shape_offset: g[gs], texture: t[..ts].to_vec(), texture_offset: t[ts] })
+        };
+        let age = offset(&mut o);
+        let gender = offset(&mut o);
+        Ok(Ctl { geometry_basis: gv, texture_basis: tv, shape, asymmetry, texture, texture_asymmetry, age, gender })
+    }
+}
+
 /// Two sets of FaceGen coefficients added value by value (an actor's and its race's,
 /// docs/spec-notes/actors.md §4.2); a value missing from the shorter set counts as 0.
 pub fn add_coefficients(a: &[f64], b: &[f64]) -> Vec<f64> {
@@ -214,6 +315,43 @@ mod tests {
             }
         }
         b
+    }
+
+    #[test]
+    fn a_controls_file_reads() {
+        let mut b = b"FRCTL001".to_vec();
+        // basis versions, GS 2, GA 1, TS 2, TA 0, one symmetric shape control
+        for x in [7u32, 81, 2, 1, 2, 0, 1] {
+            b.extend(x.to_le_bytes());
+        }
+        let control = |b: &mut Vec<u8>, dir: &[f32], label: &str| {
+            for v in dir {
+                b.extend(v.to_le_bytes());
+            }
+            b.extend((label.len() as u32).to_le_bytes());
+            b.extend(label.as_bytes());
+        };
+        control(&mut b, &[0.6, 0.8], "Nose - short / long");
+        b.extend(1u32.to_le_bytes());
+        control(&mut b, &[1.0], "Nose - tip transverse shift");
+        b.extend(1u32.to_le_bytes());
+        control(&mut b, &[0.0, -1.0], "Skin Shade Dark / Light");
+        b.extend(0u32.to_le_bytes());
+        // age: shape 2 + offset, texture 2 + offset; no gender
+        for v in [0.5f32, 0.5, 30.0, 1.0, 0.0, 32.0] {
+            b.extend(v.to_le_bytes());
+        }
+        let c = Ctl::parse(&b).unwrap();
+        assert_eq!((c.geometry_basis, c.texture_basis), (7, 81));
+        assert_eq!(c.shape[0], Control { label: "Nose - short / long".into(), dir: vec![0.6, 0.8] });
+        assert_eq!(c.asymmetry[0].label, "Nose - tip transverse shift");
+        assert_eq!(c.texture[0].dir, vec![0.0, -1.0]);
+        assert!(c.texture_asymmetry.is_empty());
+        let age = c.age.unwrap();
+        assert_eq!((age.shape_offset, age.texture, age.texture_offset), (30.0, vec![1.0, 0.0], 32.0));
+        assert!(c.gender.is_none());
+        assert!(matches!(Ctl::parse(&b[..60]), Err(FaceGenError::Truncated { .. })));
+        assert!(matches!(Ctl::parse(b"FREGM002xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"), Err(FaceGenError::Magic(_))));
     }
 
     #[test]

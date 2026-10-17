@@ -19,7 +19,8 @@ parity does not matter.
 | The table | `Game::detection` | the latest value of every (detector, target) pair the engine measured; not saved |
 | Script functions | `fnv_game::detection` | `GetDetected` (band detected), `GetDetectionLevel` (0 not measured, 1 hidden, 2 noticed, 3 detected) |
 | Armour class | `fnv_sim::forms::Item::armor_class` | ARMO BMDT general flags Medium and Heavy [documented: xEdit] |
-| The engine | `engine/nvforever/src/detection.rs` (`--play`) | four times a second every living drawn actor within reach of the player measures the player and the other actors within its reach; logs band changes and the player's highest band; `detection summary` at exit |
+| The engine | `engine/nvforever/src/detection.rs` (`--play`) | four times a second every living drawn actor (the loaded area) measures the player and the other actors within its reach, near the player or not, and the player measures the actors from the camera (§7); logs band changes and the player's highest band; `detection summary` at exit |
+| Geometry | `fnv_game::sight` | the field of view, the pairs to measure, sight over the landscape (§7) |
 | Numbers without the game | `fnvtool actor detect` | §4 |
 
 ## 2. The formula
@@ -43,8 +44,8 @@ Each is also listed in the module notes of `detection.rs`.
 |---|---|---|
 | Distance | feet to feet | — |
 | Reach | fSneakMaxDistance, × fSneakExteriorDistanceMult outside | [documented] |
-| Line of sight | a ray through the collision world from the detector's eyes to the target's chest (¾ of its eye height); world shapes block it; actors and their capsules do not (the ray goes on past them), nor do the transparent layers, invisible walls, clutter, small debris and shell casings (docs/design/alert.md §7) | [engineering choice]; the layers: [hypothesis] |
-| Field of view | 95° either side of where the actor's body faces, horizontally | [documented: catalogue notes, GetLineOfSight]; using it for detection: [hypothesis] |
+| Line of sight | a ray through the collision world from the detector's eyes to the target's chest (¾ of its eye height), and when that is blocked one to its eyes (§7); for the player's GetLineOfSight from the camera; world shapes block it; actors and their capsules do not (the ray goes on past them), nor do the transparent layers, invisible walls, clutter, small debris and shell casings (docs/design/alert.md §7). Where either end is out of the loaded collision (3 × 3 cells around the player), only the landscape blocks it (§7) | [engineering choice]; the layers: [hypothesis] |
+| Field of view | 95° either side of where the actor's body faces, horizontally; for the player, of where the camera looks | [documented: GECK wiki GetLineOfSight]; using it for detection: [hypothesis] |
 | Light at the target, 0–100 | 100 × (luminance of the ambient colour + the sunlight's × daylight outdoors, or the cell's directional light indoors + each point or spot light that reaches the target × (1 − (d/r)²)), capped at 100. No shade from the sun | [hypothesis] |
 | Moving, running | from the distance moved since the last measurement: moving above 10 units/s; actors run above 215 units/s; the player runs when moving without holding Walk, sneaking or not | [engineering choice]; sneak-running counts as running: [hypothesis] |
 | Sneaking | the player's sneak toggle; actors never sneak (Always Sneak packages are not acted on) | — |
@@ -53,8 +54,7 @@ Each is also listed in the module notes of `detection.rs`.
 | Detector alert or busy | alert in a combat state (Alert, Combat, Lost); busy in Combat with someone other than the target (docs/design/alert.md) | [documented] |
 | Interval | 0.25 s | [engineering choice] |
 
-Collision is loaded only around the player, so far from the player nothing blocks sight
-between actors. Pairs not measured for 1 s of game time are dropped from the table.
+Pairs not measured for 1 s of game time are dropped from the table.
 
 ## 4. `fnvtool actor detect`
 
@@ -107,6 +107,83 @@ The light level decides most of the visual term, and its measure is a hypothesis
   player standing, walking, running and sneaking at set distances, lit and dark, and the
   game's values of the fSneak* settings (the masters may override the documented
   defaults; `Settings::read` takes them when present).
-- Not modelled: perk entry point "Ignore Running During Detection", NPC sneaking, melee
-  and explosion sounds, SetAllVisible, GetLineOfSight (still a stub), the sneak meter on
-  the HUD, sun shade in the light measure.
+- Not modelled: perk entry point "Ignore Running During Detection", melee and explosion
+  sounds, SetAllVisible, player.GetLineOfSight on objects that are not actors, the sneak
+  meter on the HUD, sun shade in the light measure, fights in the low process (§7).
+
+## 7. The player as a detector, and pairs far from the player (2026-10-17)
+
+Two gaps the function probes found (docs/design/script-function-coverage.md §5 item 1):
+`player.GetDetected X` and `player.GetLineOfSight X` always read 0, and two hostile NPCs
+out of the player's reach never noticed each other, so their fight never started.
+
+**The player detects.** In the original `player.GetDetected Ringo`, `player.GetLineOfSight
+Ringo` and `player.GetDetected Chet` read 1, the last with `tdetect` on [observed: function
+probes fp1/fp2, 2026-10-17]. On the player GetLineOfSight is the camera's ("it returns
+true if the *camera* can see the object", so in third person things behind the player
+can count), with the same ±95° [documented: GECK wiki GetLineOfSight]. NVForever measures
+the player against every drawn actor with the same formula as an actor: its Perception
+against the target's Sneak, from its eyes, within ±95° of where its body faces, through
+the same line of sight [hypothesis: the formula]. Facing matters as for an actor
+[observed: capture detection-1 det1, 2026-10-17, in third person: Ringo 263 units away
+read player.GetDetected and GetLineOfSight 1 at 45° either side of the view and 0 at
+135° and 151°; capture detection-2 det4, Ringo 200 units away: GetDetected 1 to 90° off
+the facing on both sides, 0 from 100°]. GetLineOfSight on the player is the camera's:
+the same ±95° and wall check, from the camera along its view (`Situation::camera_sight`)
+[observed: same capture, 0 at 90° to the left but 1 up to 110° to the right, 0 at 120°:
+lopsided as the third-person camera sits off to one side]. In first person the two are
+the same. Out of reach the player still measures (the target is hidden,
+GetDetected 0) so that GetLineOfSight answers at any distance [observed: same capture
+det2, player.GetLineOfSight Ringo 1 and GetDetected 0 at 6,682 units outdoors]. `tdetect` and `NVF_PLAY_TEST_UNSEEN` do not stop it. The
+player's own measurements feed the two functions only: no detection state, no alarm.
+Not built: player.GetLineOfSight on an object that is not an actor (the original allows
+it on the player).
+
+**Every pair of the loaded area.** All living, drawn actors (the loaded 5 × 5 exterior
+cells, or the loaded interior) measure each other within detection reach, wherever the
+player is (`fnv_game::sight::pairs_within`); the player is one of the points, no
+longer the centre of the pass [observed: capture detection-1 det2, 2026-10-17: Chet made
+Frenzied 1,400 units from Ringo and 6,682 from the player was in combat with Ringo within
+1 s (IsInCombat 1 for both, combat target Ringo, GetDetected 1); the fight was over by
+26 s]. The detection states, the combat
+AI and alarms take these pairs as they did the near ones, so a far fight starts and
+IsInCombat reads 1.
+
+What it approximates:
+
+- **Sight far away.** Collision is loaded only in the 3 × 3 cells around the player.
+  When either end of a line of sight is out of it, the landscape alone blocks it,
+  sampled every 96 units along the line from the cells' LAND heights (read once per
+  cell) [engineering choice]: hills hide one camp from another, buildings and rocks do
+  not. Inside the collision world nothing changed.
+- **Out of the loaded area** (the low process, `fnv_ai::process`) nobody detects
+  anyone: those actors keep walking their packages and have no combat state, so a fight
+  there starts only once the player comes near enough to load their cells. So does the
+  original, as far as one capture shows [observed: capture detection-1 det3: with the
+  player in the gas station, Chet made Frenzied outdoors near Ringo never detected him
+  (GetDetected 0) and neither was in combat at 5, 35 and 155 s; their GetDistance read
+  the float maximum, as for references not loaded]. Only the cell buffer case (Mid-High,
+  the player indoors next to them) was tried, not actors far out in the Low level.
+- **Cost.** Pairs are found by distance among the drawn actors (all pairs, at most a few
+  thousand distance checks four times a second); rays and land samples only for pairs
+  within reach. The exit line `detection summary, out of the player's reach` counts the
+  pairs measured with both actors out of the player's reach, and the actors the player
+  detected.
+
+**Walls and obstacles** [observed: capture detection-2, 2026-10-17; ours the same on each
+spot, checked first in NVForever]: Ringo 200 units away in clear sight 1, behind the gas
+station's checkout counter (a low obstacle) 1,
+behind the grocery shelves 0, both ways (the player's and Ringo's GetLineOfSight and
+GetDetected); Doc Mitchell through a doorway of his house 1. Two cases of the capture
+did not place Doc where meant (a solid wall, a doorway edge: he ended in another room)
+and show nothing; no glass or chain-link spot was tried. Looking from the player's
+eyes, our one ray to Ringo's chest hit the counter (0), so a blocked ray to the chest is
+followed by one to the target's eyes: a head over a low wall is seen [hypothesis, fitted
+to this case; every detector, NPCs too].
+
+Checks: `fnv_game::sight` tests (field of view, pairs far from the player, a ridge
+between two actors), `crates/fnv-game/tests/functions.rs`
+(`the_player_detects_and_far_pairs_fight`: player.GetDetected / GetLineOfSight from a
+measured pair; a Frenzied actor out of the player's reach goes to Combat, IsInCombat 1);
+smoke `detection-far-fight` (the NCR troopers and Cook-Cook's Fiends fight with the
+player about 5,700 units away) and `detection-game` (the player detects actors).

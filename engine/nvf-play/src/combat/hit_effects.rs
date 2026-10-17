@@ -6,7 +6,8 @@
 //!   "Burning");
 //! - a blast's (EXPL `EITM`: the incinerator's and the incendiary grenade's);
 //! - an actor's unarmed attack effect (`EITM` on its base, `EAMT` the attack it needs)
-//!   for a blow without a weapon: a cazador's or a radscorpion's poison.
+//!   for a blow without a weapon: a cazador's poison with every blow, a radscorpion's
+//!   with its forward power attack (its sting) only ([`applies`]).
 //!
 //! The effects are applied before the hit's damage, so a killing hit leaves only those
 //! that outlast a death ("No Death Dispel": a corpse burns on) (§4). The player in god
@@ -38,28 +39,47 @@ pub struct HitEffects {
 }
 
 /// What a hit applies: the weapon's object effect, or with no weapon (fists, a
-/// creature's own attack) the attacker's unarmed attack effect.
-pub fn hit_items(forms: &CombatForms, game: &Game, attacker: Option<FormId>, weapon: Option<FormId>, unarmed: bool, fx: &mut HitEffects) -> Vec<FormId> {
+/// creature's own attack) the attacker's unarmed attack effect; `anim`: the blow's power
+/// attack group ("AttackForwardPower"), `None` for an ordinary blow.
+pub fn hit_items(forms: &CombatForms, game: &Game, attacker: Option<FormId>, weapon: Option<FormId>, unarmed: bool, anim: Option<&str>, fx: &mut HitEffects) -> Vec<FormId> {
     let mut out = Vec::new();
     if let Some(e) = weapon.and_then(|w| forms.weapons.get(&w)).and_then(|w| w.enchantment) {
         out.push(e);
     }
     if unarmed {
-        if let Some((e, anim)) = attacker.and_then(|a| game.unarmed_effect(a)) {
-            // "Any" goes with every blow. Another attack (a radscorpion's
-            // AttackForwardPower) is not told apart: the creatures' attacks here are
-            // their h2hattack clips taken in turn, power and forward ones left out, so it
-            // goes with every blow too [design, hit-effects.md §1].
-            if anim.is_some_and(|a| !a.eq_ignore_ascii_case("Any")) && !fx.told.contains(&e) {
-                fx.told.push(e);
-                info!("hit effect: {} names the attack {} for its blows; every blow applies it here", game.data.name(e), anim.unwrap_or("?"));
+        if let Some((e, needs)) = attacker.and_then(|a| game.unarmed_effect(a)) {
+            if applies(needs, anim) {
+                out.push(e);
+            } else {
+                debug!("hit effect: {} needs the attack {}; this blow is {}", game.data.name(e), needs.unwrap_or("?"), anim.unwrap_or("an ordinary one"));
             }
-            out.push(e);
+            // An ordinary attack group (AttackLeft …) is not told apart (module notes).
+            if needs.is_some_and(|n| !n.eq_ignore_ascii_case("Any") && !is_power(n)) && !fx.told.contains(&e) {
+                fx.told.push(e);
+                info!("hit effect: {} names the attack {} for its blows; every ordinary blow applies it here", game.data.name(e), needs.unwrap_or("?"));
+            }
         } else {
             debug!("hit effect: a blow by {} has no unarmed attack effect", attacker.map_or("?".to_string(), |a| who(game, a)));
         }
     }
     out
+}
+
+/// Whether an unarmed attack effect naming the attack group `needs` (EAMT) goes with a
+/// blow of power attack group `blow` (`None`: an ordinary blow): "Any" (or none named)
+/// with every blow; a power attack's group only with that power attack (a radscorpion's
+/// sting, AttackForwardPower); an ordinary group with every ordinary blow, as the
+/// ordinary attacks are not told apart here [design, hit-effects.md §1].
+pub fn applies(needs: Option<&str>, blow: Option<&str>) -> bool {
+    match needs.filter(|n| !n.eq_ignore_ascii_case("Any")) {
+        None => true,
+        Some(n) if is_power(n) => blow.is_some_and(|b| b.eq_ignore_ascii_case(n)),
+        Some(_) => blow.is_none(),
+    }
+}
+
+fn is_power(group: &str) -> bool {
+    group.to_ascii_lowercase().ends_with("power")
 }
 
 /// Apply `items` to `target` for a hit by `attacker` (before the hit's damage).
@@ -141,4 +161,18 @@ pub fn summary(fx: &HitEffects) -> String {
         fx.ended,
         fx.live.len()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::applies;
+
+    #[test]
+    fn an_unarmed_effect_goes_with_the_attack_it_names() {
+        assert!(applies(Some("Any"), None) && applies(Some("Any"), Some("AttackPower")) && applies(None, None));
+        assert!(applies(Some("AttackForwardPower"), Some("AttackForwardPower")));
+        assert!(!applies(Some("AttackForwardPower"), Some("AttackPower")));
+        assert!(!applies(Some("AttackForwardPower"), None));
+        assert!(applies(Some("AttackLeft"), None) && !applies(Some("AttackLeft"), Some("AttackPower")));
+    }
 }

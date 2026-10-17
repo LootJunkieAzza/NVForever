@@ -1315,7 +1315,90 @@ and run with the limping clips. `engine/nvforever/src/limping.rs` (NPCs, creatur
   weapon without limping clips limps on the unarmed legs and is held by its aim clip
   [design].
 - **Not checked** on screen: how the limping clips look in place, foot sliding at the
-  speeds AI walks a crippled NPC, creature limps other than the coyote's (dog skeleton).
+  speeds AI walks a crippled NPC. Creature limps are checked by log only (§8.12).
+
+### 8.12 Crippled limbs per skeleton
+
+Owner's request (2026-10-17): every actor whose skeleton has crippled clips uses them.
+Survey [observed: `fnvtool bsa list` of `Fallout - Meshes.bsa`, `Update.bsa` and the
+add-on `Main` archives; `fnvtool actor creatures --all` over FalloutNV.esm for each
+skeleton's placed creatures; `fnvtool combat form` of all 49 BPTD records; 2026-10-17].
+
+- **Only legs have crippled clips.** No `.kf` in any archive outside the
+  `locomotion\hurt\` folders has `hurt`, `crippl`, `injur`, `wound`, `limp` or `broken`
+  in its path [observed]. So there are no crippled-arm, head or torso clips, no crippled
+  idles besides the hurt folders' own (`characters\_male\…\hurt\mtidle.kf`,
+  `smspinebreaker\…\hurt\idle_hurt.kf`) and no arm-crippled weapon stances. A crippled
+  arm shows only in aim: NPCs now widen their spread with the player's settings
+  (`fnv_combat::spread`, `npc_combat.rs`) [design; hypothesis for the original].
+- **Which limbs are legs** [observed: BPTD parts' actor values]: the parts naming Left or
+  Right Mobility Condition (29, 30). That is the legs for people, deathclaws, super
+  mutants (`SupermutantrBodyPartData`, SMSpineBreaker skeleton), ghouls, mirelurks,
+  protectrons; the hind legs for geckos and giant rats (forelegs: Attack Conditions);
+  every leg for dogs, molerats, ants, radscorpions, brahmin, bighorners, nightstalkers,
+  centaurs; the **wings** for cazadores and bloatflies (their legs name the Attack
+  Conditions); the wheel for Securitrons, `Legs` for the sentry bot, the tracks for
+  robobrains and the thruster for Mister Handy and Gutsy (Left Mobility only). Eyebots,
+  turrets, spore plants and ravens have none.
+- **Super mutants and nightkin** are creatures (CREA, kind `Super Mutant`) on
+  `creatures\smspinebreaker\skeleton.nif` [observed: `JacobstownMutant1` MODL,
+  `VCrTier0CrNightkin` MODL], not the `_male` skeleton, so they use the spinebreaker's
+  hurt folder.
+- **The table** (skeleton folder below `meshes\`; placed creatures in FalloutNV.esm on
+  it, a leveled choice taken once; the files of its `locomotion\hurt\`; the moves
+  `hurt_move_in` reads from them) [observed; moves: design]:
+
+  | Skeleton | Placed | Hurt files | Limping moves |
+  |---|---|---|---|
+  | `characters\_male` (people) | NPCs | 29: `mt`/`1hm`/`1hp` × 8 moves `_hurt`, `h2hforward_hurt`, `mtidle`, `pamtidle`, `mtturnleft`, `mtturnright` | 11 (all `mt` moves, idle, turns) |
+  | `creatures\radscorpion` (also robo-scorpion's `skeleton_roboscopion`) | 265 | `mt_backward_hurt`, `mt_fastforward_hurtfastforward_hurt`, `mt_forward_hurt`, `mt_left_hurt`, `mt_right_hurt`, `mtleft_hurt`, `mtright_hurt` | 5: Forward, FastForward, Backward, Left, Right |
+  | `creatures\nvgecko` | 259 | `mtforward`, `mtfastforward` | 2 |
+  | `creatures\ghoul` (feral) | 237 | `mt` Forward, FastForward, Backward, FastBackward, Left, Right, TurnLeft, TurnRight `_hurt` | 8 |
+  | `creatures\nvcazadores` | 205 | `mtforward`, `mtfastforward`, `h2hforward`, `h2hfastforward` | 2, and 2 alerted |
+  | `creatures\dog` (dogs, coyotes, Rex) | 163 | `mtforward_hurt`, `mtfastforward_hurt`, `h2hfastforward_hurt` | 2, and 1 alerted |
+  | `creatures\nvbighorner` | 140 | none | none |
+  | `creatures\nvmantis` | 125 | `mtforward`, `mtfastforward` | 2 |
+  | `creatures\deathclaw` | 118 | `mt` Forward, FastForward, Backward, Left, Right, TurnLeft, TurnRight `_hurt` | 7 |
+  | `creatures\nvgiantrat` | 118 | `mtforward`, `mtfastforward`, `mtbackward` | 3 |
+  | `creatures\nvsecuritron` | 104 | `mtforward`, `mtfastforward`, `mtbackward` | 3 |
+  | `creatures\giantant` | 97 | `mt` Forward, FastForward, Backward `_hurt` | 3 |
+  | `creatures\nightstalker` | 96 | none | none |
+  | `creatures\brahmin` | 91 | `mt forwardforward_hurt` | 1 (Forward) |
+  | `creatures\smspinebreaker` (super mutants, nightkin) | 90 | `idle_hurt`, `mt` Forward, FastForward, Backward, FastBackward, Left, Right, TurnLeft, TurnRight `_hurt`, `2hmfastforward` | 9 (the `2hm` run is a weapon stance's) |
+  | `creatures\mirelurkking` (lakelurks) | 81 | `mt_hurtforward_hurt`, `mt_hurtfastforward`, `mt_hurtbackward`, `h2hforward` | 3, and 1 alerted |
+  | `creatures\molerat` | 59 | `mtforward`, `mtfastforward`, `mtbackward` | 3 |
+  | `creatures\mistergutsy` (Handy, Gutsy) | 46 | none | none |
+  | `creatures\protectron` | 38 | `mtforward_hurt` | 1 |
+  | `creatures\sentrybot` | 23 | `mt` Forward, FastForward, Backward, FastBackward, TurnLeft, TurnRight `_hurt` | 6 |
+  | `creatures\nvsporecarrier` | 20 | `mt` Forward, FastForward, Backward `_hurt` | 3 |
+  | `creatures\centaur` (both skeletons) | 30 | `mt` Forward, FastForward, Backward, TurnLeft, TurnRight `_hurt` | 5 |
+  | `creatures\robobrain` | 3 | `mt` Forward, FastForward, Backward `_hurt` | 3 |
+  | `nvdlc02\creatures\yaoguai` (and `creatures\yaoguai`) | add-on | `mtforward_hurt`, `mtfastforward_hurt` | 2 |
+  | `nvdlc03\creatures\roboscorpion` | add-on | as the radscorpion's | 5 |
+  | `dlc05\creatures\alien` | 3 | `forwardwalk`, `fastforward`, `1hmforwardwalk`, `1hmfastforward` | FastForward; Forward only if the sequence names it |
+
+  No hurt folder: bighorner, nightstalker, Mister Handy/Gutsy, eyebot, turrets, raven,
+  bloatfly, radroach, spore plant, queen ant, Festus, Mr. House, the Dead Money ghosts and
+  hologram, Old World Blues brainbot and hologram. Folders with hurt clips but no
+  FalloutNV.esm creature on them (Fallout 3 leftovers in the archive): mirelurk,
+  smbehemoth, `dlc03\…\smbonecrusher`, `dlc04\…\hillfolk*`, `dlc05\…\abomination`,
+  `combatdroid`, `maintenancerobot`, `dlcanch\…\chimera`, `dlcpitt\…\streettrog`. The
+  `actor creatures --all` listing resolves 429 random spawns to `creatures\nvvoid` (its
+  leveled choice, not a real skeleton).
+- **Alerted** [design]: a creature with an alert stance (`h2h` movement clips, §8.10)
+  limps on its alert set with the `mt` limping clips over it and then the `h2h` ones
+  (`Locomotion::hurt_alert`), so a fighting dog runs on `h2hfastforward_hurt.kf`
+  (sequence `FastForward_Hurt_H2H`) and a cazador flies on `h2hforward.kf`; before, an
+  alerted limping creature dropped back to its calm set.
+- **When** (unchanged from §8.11): either mobility condition at 0 or below; for a
+  Securitron or Mister Handy that is the wheel or thruster alone (Left Mobility)
+  [observed: BPTD], and only the Securitron has clips.
+- **Smoke**: `crippled-limp` (Chet, the player), `crippled-limp-creature` (a coyote,
+  alerted), `crippled-limp-deathclaw` (alerted, fighting a ghoul),
+  `crippled-limp-supermutant` (Jacobstown), `crippled-limp-gecko`. Each expects the
+  skeleton's limping set and `limping: … moves <Move> on its limping clip <sequence>`,
+  logged once per actor, move and alert state when the clip played is not the upright
+  set's.
 
 ## 9. Weapons: holstering and drawing (part H)
 
@@ -1847,6 +1930,12 @@ turn is made against (§12.3): yaw to either side of straight ahead, pitch up an
 - **Frame**: the turn is measured against the bone above the chain (how that bone is
   turned away from its bind pose), not against the actor's root, so the limits are the
   neck's own whatever the spine does.
+  The pitch limits are the exception: they are kept from the level, widened by how far
+  that bone leans (its forward's elevation), so a seated actor hunched forward still
+  lifts its head to someone standing or lying before it, and one leaning back can look
+  down; never narrower than upright, never past 75° up or 60° down against the bone
+  (`fnv_actor::head_look::leaning_limits`) [design: owner report 2026-10-16, Doc
+  Mitchell in the opening looked at the floor while speaking to the player].
 - **On top of the animation**: each frame, after `locomotion::drive` has posed the
   skeleton and before transforms are propagated, the animated direction of the head is
   read, the wanted direction (the target's, limited) gives the turn wanted on top of it,
@@ -1935,10 +2024,100 @@ turn is made against (§12.3): yaw to either side of straight ahead, pitch up an
   `LookOverride(LookAt::Player)` would remove all three [open].
 - Sitting, sleeping and other furniture poses: nothing marks such actors yet;
   `NoHeadLook` is there for it. The frame of §12.3 keeps the limits sensible in such a
-  pose, but that is not checked.
+  pose, with the pitch limits widened by the lean [observed: smoke `head-look-seated`,
+  Doc Mitchell seated in the opening: on "Whoa, easy there" (`VCG01DocWhoaThere`) his
+  head stopped 31° below the player's eyes with the limits against the spine, 0° with
+  them from the level; not checked by eye].
 - Creatures: only the skeletons of §12.1 were seen; none was checked by eye. Without
   `--play` a creature with a `Bip01 Head` tracks even when its body part data has no
   head-tracking part (the data is not read then).
 - Eyes do not move; a target beyond the turn limit is looked at with the head at the
   limit.
 - The original's values (§12.1, "Not captured").
+
+## 13. Feet on the ground (NVForever design)
+
+On a slope or a step an actor's feet stand on the ground under each of them: the body is
+lowered for the lower foot and the higher foot's knee bends further (owner request
+2026-10-17, with three screenshots of the original taken on the slopes around
+Goodsprings, kept privately in `C:\fnv-private\legincline`). Like §12 this is an
+**NVForever design feature, not a parity target**: the original's method, limits and
+timings are not captured. Engine: `engine/nvforever/src/foot_ik.rs` (the solve and its
+tests are in the same file).
+
+### 13.1 Facts used
+
+- **What the original shows** [observed: the owner's screenshots, 2026-10-17]: the player
+  character in third person standing across a slope has the uphill foot higher and its
+  knee bent further than the downhill one, both soles on the ground; standing on a
+  slope facing up or down it, the feet lie on the slope.
+- **The clips stand on level ground at the root**: a standing actor's ankles are about 7
+  units above its root and a walking one's lift a little more, with the pelvis height on
+  `Bip01 NonAccum` (floating-actors.md §2) [observed]. The body is drawn on the bare
+  surface (floating-actors.md §6).
+- **The human leg chain** (`characters\_male\skeleton.nif`): `Bip01 L Thigh` →
+  `Bip01 L Calf` → `Bip01 L Foot`, and the same for `R`, with `Bip01 NonAccum` above
+  the pelvis [observed: the `foot ik:` log line of `--play` runs, 2026-10-17]. The dog's
+  and the brahmin's skeletons name their hind legs the same way and stand on their
+  `Hand` bones [observed: the same lines]; they are left out (§13.2). Whether
+  the body part data's "IK Data" flags (§12.1) have anything to do with feet in the
+  original is not known.
+
+### 13.2 Rules [design]
+
+- **Who**: drawn, living actors whose skeleton has the leg chain of §13.1 (NPCs, the
+  player's third-person body, creatures on such a skeleton) and stands on two legs
+  (no `Bip01 L Hand` below half the hips' height in the bind pose), within 2,500 units of the
+  camera, not on furniture, not swimming or in the air (the physics character's own
+  flags). Otherwise the legs ease back to the animation.
+- **Ground**: with `--play`, a ray straight down through each ankle in the collision
+  world (terrain and static models; the actor's own capsule, other characters, hit
+  volumes and the layers a character walks through are ignored), from 45 units above
+  the root to 60 below; without `--play`, the drawn landscape's heights and the slope
+  from them. Ground more than 40 units above the root is not stood on (the foot is
+  inside a rock or a crate): that foot keeps the animation.
+- **Body and legs**: with `h` the ground's height under a foot against the root, the
+  body (`Bip01 NonAccum`) is lowered by the lower of the two when it is below the root
+  (28 units at most), and each foot is then raised by its own `h` less that drop (40
+  units at most). A two-bone solve turns the thigh and the calf so the ankle reaches
+  that point, the knee staying in the plane the animation bends it in (a straight leg
+  bends forward); the bone lengths do not change.
+- **Foot on the slope**: each foot is turned from level to the ground's normal under
+  it, 35° at most, fully while the animation holds the ankle within 3 units of its bind
+  height and not at all from 14 units up, so a stepping foot swings as animated.
+- **Easing**: the drop, the raises and the foot turns follow their targets at a rate of
+  12 a second (exponential), in and out.
+- **Switch**: `--no-foot-ik`, and the settings page's "Feet follow the ground".
+
+### 13.3 Engine
+
+`foot_ik.rs` runs in `Update` after `locomotion::drive` and the player's body
+(`BodySet`), before transforms are propagated, on top of the animated pose: it writes
+`Bip01 NonAccum`'s translation and the six leg bones' rotations. As head tracking
+(§12.3), it remembers what it wrote so a bone no clip poses this frame is not moved
+twice. Log lines start `foot ik:`: one per skeleton (which body node is lowered), and at
+the end of a run how many actors stood on uneven ground, the largest drop, raise and
+foot turn, and the time a frame.
+
+### 13.4 Checks (2026-10-17, owner's install)
+
+- Smoke `foot-ik-goodsprings`: the player put on a hillside east of Goodsprings
+  (-62336, 4352; about 20° by the landscape heights) and seen in third person: body
+  lowered 2.9 units, uphill foot raised 4.5, feet turned 19° onto the slope; ground found
+  under every foot looked at; 0.13 ms a frame for all actors [observed].
+- On a steeper patch (-63488, 7936) with and without `--no-foot-ik`, seen from behind:
+  the body stands about 3 units lower with the feet on the ground and nothing bent
+  backwards; at a standing stance (feet about 16 units apart) the difference is small
+  by eye (screenshots kept privately) [observed]. Not yet compared by eye against the
+  owner's reference screenshots on the same slope.
+- First run near Cook-Cook's camp: an NPC's foot was raised the full 40 units, the
+  ground found above it being a prop or rock the foot stood in; such ground is now not
+  stood on (§13.2) [observed].
+
+### 13.5 Open
+
+- The original's limits and speed (a capture of the ankle and pelvis heights on a known
+  slope would make this a parity target).
+- Creatures with four legs or other leg names are not placed.
+- The hit capsules (`limbs.rs`) follow the placed legs, since they are read after
+  propagation; the ragdoll starts from the placed pose.

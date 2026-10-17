@@ -355,6 +355,15 @@ impl<'a> World<'a> {
         self.inventory_sources = sources;
     }
 
+    /// The base whose carried items `id` starts with, in place of its own base's (`None`:
+    /// its own base's), after its leveled choices were rolled again.
+    pub fn set_inventory_source(&mut self, id: FormId, source: Option<FormId>) {
+        match source {
+            Some(s) => self.inventory_sources.insert(id, s),
+            None => self.inventory_sources.remove(&id),
+        };
+    }
+
     /// The base whose carried items `id` (placed with `base`) starts with.
     fn inventory_base(&self, id: FormId, base: FormId) -> FormId {
         self.inventory_sources.get(&id).copied().unwrap_or(base)
@@ -394,8 +403,18 @@ impl<'a> World<'a> {
     /// nothing happens for other bases (returns false).
     fn equip_default(&self, inventory_source: FormId, inventory: &mut Option<Inventory>) -> bool {
         let Some(inv) = inventory.as_mut() else { return false };
+        let Some(chosen) = self.default_choice(inventory_source, inv) else { return false };
+        for id in chosen {
+            inv.set_equipped(id);
+        }
+        true
+    }
+
+    /// The items [`World::equip_default`] equips from `inv` (armour, then the weapon);
+    /// `None` when `inventory_source` is no actor base.
+    fn default_choice(&self, inventory_source: FormId, inv: &Inventory) -> Option<Vec<FormId>> {
         if !matches!(self.forms.get(inventory_source).map(|b| &b.data), Some(BaseData::Actor(_))) {
-            return false;
+            return None;
         }
         // Carried order is the inventory's order (FormID order here; the engine uses the
         // record's entry order, so ties between equal pieces may fall the other way).
@@ -425,10 +444,21 @@ impl<'a> World<'a> {
                 weapon = Some((d, i));
             }
         }
-        for id in wear.into_iter().chain(weapon.map(|w| w.1)) {
-            inv.set_equipped(id);
+        Some(wear.into_iter().chain(weapon.map(|w| w.1)).collect())
+    }
+
+    /// What actor `id` (not the player) wears and holds by the rules: its equipped items
+    /// once outfitted ([`World::outfit`]), before that the ones its outfitting will
+    /// equip, so what is drawn does not change when it is. `None` while the simulation
+    /// holds no inventory for it, or for an inventory not rolled from an actor base. For
+    /// the engine, which dresses and arms NPCs by it [design].
+    pub fn equipment(&self, id: FormId) -> Option<Vec<FormId>> {
+        let s = self.refs.get(&id)?;
+        let inv = s.inventory.as_ref()?;
+        if s.outfitted {
+            return Some(inv.equipped());
         }
-        true
+        self.default_choice(self.inventory_base(id, s.base), inv)
     }
 
     /// The first time an actor other than the player is loaded, it puts on its outfit

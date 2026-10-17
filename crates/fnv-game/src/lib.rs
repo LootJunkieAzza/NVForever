@@ -30,12 +30,15 @@
 //!
 //! Behaviour notes with confidence tags: docs/spec-notes/scripts.md §4 and later.
 
+pub mod abilities;
 pub mod actor_values;
 pub mod aggro;
 pub mod aid;
 pub mod ai;
 pub mod anims;
 pub mod awareness;
+pub mod blackjack;
+pub mod casino;
 pub mod chargen;
 pub mod combat;
 pub mod combat_group;
@@ -64,9 +67,12 @@ pub mod provocation;
 pub mod quest;
 pub mod radio;
 pub mod respawn;
+pub mod resurrect;
 pub mod rest;
+pub mod roulette;
 pub mod sound;
 pub mod runner;
+pub mod sight;
 pub mod templates;
 pub mod terminal;
 pub mod trace;

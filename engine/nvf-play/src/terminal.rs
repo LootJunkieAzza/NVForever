@@ -8,6 +8,12 @@
 //! choosing one runs its result script, shows its result text at the bottom, shows its
 //! note or opens its sub menu.
 //!
+//! The screen is drawn into a picture ([`TerminalImage`]) that the engine puts on the
+//! screen of the game's monitor model (nvforever `terminal_view.rs`), as the original
+//! does; the monitor is drawn over the darkened world, and a click on its power button
+//! leaves the terminal. Where the model is not drawn the picture is shown flat in the
+//! middle of the window instead (hacking.md §7).
+//!
 //! It is a `PlayState::Menu`: the world and the game clock stand still and the cursor is
 //! free. To scripts it is menu 1055 while hacking and 1057 in the menu [documented: GECK
 //! wiki GetMenuTargetRef, "the terminal being hacked", "the terminal being used"].
@@ -23,7 +29,8 @@
 //! terminal as if the player had activated it, `science:<n>` makes the player's Science
 //! that for terminals, `wrong` enters a word that is not the password, `right` the
 //! password, `brackets` the first bracket pair left, `symbol` a lone symbol,
-//! `item:<n>` takes the n-th listed item (from 0), `back` and `exit` as Tab and Esc.
+//! `item:<n>` takes the n-th listed item (from 0), `back` and `exit` as Tab and Esc,
+//! `power` clicks the monitor's power button.
 //! At exit, when a terminal was opened: "terminal summary: …".
 
 pub mod screen;
@@ -34,9 +41,12 @@ use crate::script::{with_world, ScriptState};
 use crate::sim::SimState;
 use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
 use crate::{PlaySet, PlayState};
+use bevy::asset::RenderAssetUsages;
+use bevy::camera::{ImageRenderTarget, RenderTarget};
 use bevy::image::CompressedImageFormatSupport;
 use bevy::prelude::*;
-use bevy::ui::RelativeCursorPosition;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
+use bevy::window::PrimaryWindow;
 use fnv_game::hacking::{Dictionary, Outcome, Puzzle, State as GameState, Target, ROWS, ROW_CHARS};
 use fnv_game::terminal::{self as rules, Opening};
 use fnv_sim::FormId;
@@ -62,6 +72,40 @@ pub const DICTIONARY: &str = "menus\\falloutdict.txt";
 pub struct OpenTerminal {
     pub reference: u32,
 }
+
+/// The picture the screen is drawn into, one pixel to a unit of the interface: the
+/// canvas is its top left [`screen::CANVAS`] (as the Pip-Boy's, `crate::pipboy`).
+#[derive(Resource)]
+pub struct TerminalImage {
+    pub image: Handle<Image>,
+    pub camera: Entity,
+}
+
+/// The picture's size, pixels.
+pub const TARGET: UVec2 = UVec2::new(1280, 960);
+
+/// The monitor as the engine draws it (nvforever `terminal_view.rs`): a picture the size
+/// of the window, clear where the model is not.
+#[derive(Resource)]
+pub struct MonitorView {
+    pub image: Handle<Image>,
+}
+
+/// Where the window's pointer lies on the screen's canvas (interface units from its top
+/// left), if on it: set by the engine from the monitor's screen, or here from the flat
+/// picture.
+#[derive(Resource, Default)]
+pub struct TerminalPointer {
+    pub canvas: Option<Vec2>,
+}
+
+/// Test aid `power`: the engine clicks the monitor's power button.
+#[derive(Resource, Default)]
+pub struct PowerAid(pub bool);
+
+/// The menu's rows on the canvas as last drawn, for the pointer.
+#[derive(Resource, Default)]
+struct MenuRows(Vec<(usize, Rect)>);
 
 /// The game's word list, read once.
 #[derive(Resource, Default)]
@@ -171,6 +215,7 @@ enum AidStep {
     Open(u32),
     Science(f32),
     Input(TerminalInput),
+    Power,
 }
 
 fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
@@ -188,7 +233,8 @@ fn parse_aid(v: &str) -> Result<Vec<(f32, AidStep)>, String> {
                 "item" => AidStep::Input(TerminalInput::Aid(AidPick::Item(arg.trim().parse().map_err(|_| format!("{what:?}: expected item:<n>"))?))),
                 "back" => AidStep::Input(TerminalInput::Back),
                 "exit" => AidStep::Input(TerminalInput::Exit),
-                _ => return Err(format!("{what:?}: expected open:, science:, wrong, right, brackets, symbol, item:, back or exit")),
+                "power" => AidStep::Power,
+                _ => return Err(format!("{what:?}: expected open:, science:, wrong, right, brackets, symbol, item:, back, exit or power")),
             };
             Ok((t, step))
         })
@@ -210,13 +256,16 @@ impl Plugin for TerminalPlugin {
         app.init_resource::<TerminalScreen>()
             .init_resource::<TerminalStats>()
             .init_resource::<Words>()
+            .init_resource::<TerminalPointer>()
+            .init_resource::<PowerAid>()
+            .init_resource::<MenuRows>()
             .insert_resource(TerminalAid { steps, science: None })
             .add_message::<OpenTerminal>()
             .add_message::<TerminalInput>()
-            .add_systems(Startup, read_words)
+            .add_systems(Startup, (read_words, setup_image))
             .add_systems(
                 Update,
-                (run_aid, open, (keys, mouse, apply, timers).chain().run_if(in_state(PlayState::Menu)), draw)
+                (run_aid, open, backdrop, (keys, mouse, apply, timers).chain().run_if(in_state(PlayState::Menu)), draw)
                     .chain()
                     .after(crate::menu::open_menus)
                     .in_set(PlaySet::Ui),
@@ -237,7 +286,83 @@ fn read_words(data: Option<Res<GameData>>, mut words: ResMut<Words>) {
     }
 }
 
-fn run_aid(time: AidTime, mut aid: ResMut<TerminalAid>, mut open: MessageWriter<OpenTerminal>, mut input: MessageWriter<TerminalInput>) {
+fn setup_image(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    let size = Extent3d { width: TARGET.x, height: TARGET.y, ..default() };
+    let [r, g, b, _] = screen::screen_color().to_srgba().to_u8_array();
+    let mut image = Image::new_fill(size, TextureDimension::D2, &[b, g, r, 255], TextureFormat::Bgra8UnormSrgb, RenderAssetUsages::default());
+    image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+    let image = images.add(image);
+    let camera = commands
+        .spawn((
+            Name::new("Terminal screen camera"),
+            Camera2d,
+            // Off the canvas the picture is the screen's colour.
+            Camera { order: -2, is_active: false, clear_color: ClearColorConfig::Custom(screen::screen_color()), ..default() },
+            RenderTarget::Image(ImageRenderTarget::from(image.clone())),
+        ))
+        .id();
+    commands.insert_resource(TerminalImage { image, camera });
+}
+
+/// What lies under the screen while a terminal is open: the world darkened, and over it
+/// the monitor the engine draws ([`MonitorView`]), or else the screen's picture flat in
+/// the middle of the window (whose pointer is found here). The screen's camera draws only
+/// while a terminal is open.
+#[allow(clippy::too_many_arguments)]
+fn backdrop(
+    mut commands: Commands,
+    screen: Res<TerminalScreen>,
+    image: Option<Res<TerminalImage>>,
+    monitor: Option<Res<MonitorView>>,
+    roots: Query<(Entity, &screen::Backdrop)>,
+    flat: Query<(&ComputedNode, &UiGlobalTransform), With<screen::FlatScreen>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut cams: Query<&mut Camera>,
+    mut pointer: ResMut<TerminalPointer>,
+) {
+    let Some(image) = image else { return };
+    let open = screen.0.is_some();
+    if let Ok(mut c) = cams.get_mut(image.camera) {
+        if c.is_active != open {
+            c.is_active = open;
+        }
+    }
+    // The flat picture until the monitor is drawn (the engine draws it a frame or more
+    // after the terminal opens), then the monitor; `None` once closed.
+    let want = open.then_some(monitor.is_none());
+    let have = roots.iter().next().map(|(_, b)| b.flat);
+    if want != have {
+        for (e, _) in &roots {
+            commands.entity(e).despawn();
+        }
+        match (want, monitor.as_ref()) {
+            (Some(false), Some(m)) => screen::spawn_backdrop(&mut commands, screen::Under::Monitor(m.image.clone())),
+            (Some(_), _) => screen::spawn_backdrop(&mut commands, screen::Under::Flat(image.image.clone())),
+            (None, _) => {}
+        }
+    }
+    if want != Some(true) {
+        if !open {
+            pointer.canvas = None;
+        }
+        return;
+    }
+    let Some((computed, at)) = flat.iter().next() else { return };
+    let cursor = windows.single().ok().and_then(|w| w.physical_cursor_position());
+    let size = computed.size();
+    pointer.canvas = cursor.and_then(|c| {
+        let p = (c - (at.translation - size / 2.0)) / size * screen::CANVAS;
+        (p.x >= 0.0 && p.y >= 0.0 && p.x < screen::CANVAS.x && p.y < screen::CANVAS.y).then_some(p)
+    });
+}
+
+fn run_aid(
+    time: AidTime,
+    mut aid: ResMut<TerminalAid>,
+    mut open: MessageWriter<OpenTerminal>,
+    mut input: MessageWriter<TerminalInput>,
+    mut power: ResMut<PowerAid>,
+) {
     if aid.steps.is_empty() {
         return;
     }
@@ -255,6 +380,7 @@ fn run_aid(time: AidTime, mut aid: ResMut<TerminalAid>, mut open: MessageWriter<
             AidStep::Input(i) => {
                 input.write(i);
             }
+            AidStep::Power => power.0 = true,
         }
     }
 }
@@ -447,18 +573,21 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, screen: Res<TerminalScreen>, mut out: M
     }
 }
 
+/// The pointer on the screen's canvas ([`TerminalPointer`]) puts the cursor on the dump
+/// character or the menu row under it, and a click enters that.
 fn mouse(
     screen: Res<TerminalScreen>,
     buttons: Res<ButtonInput<MouseButton>>,
-    area: Query<&RelativeCursorPosition, With<screen::DumpArea>>,
-    rows: Query<(&Interaction, &screen::MenuRow), Changed<Interaction>>,
+    pointer: Res<TerminalPointer>,
+    rows: Res<MenuRows>,
     mut last: Local<Option<usize>>,
+    mut last_row: Local<Option<usize>>,
     mut out: MessageWriter<TerminalInput>,
 ) {
     let Some(s) = screen.0.as_ref() else { return };
     match &s.page {
         Page::Hacking(h) => {
-            let under = area.iter().find_map(screen::pointer_index);
+            let under = pointer.canvas.and_then(screen::canvas_index);
             if under != *last {
                 *last = under;
                 match under {
@@ -476,17 +605,16 @@ fn mouse(
             }
         }
         Page::Menu(_) => {
-            for (i, row) in &rows {
-                match i {
-                    Interaction::Hovered => {
-                        out.write(TerminalInput::Row(row.0));
-                    }
-                    Interaction::Pressed => {
-                        out.write(TerminalInput::Row(row.0));
-                        out.write(TerminalInput::Select);
-                    }
-                    Interaction::None => {}
+            let under = pointer.canvas.and_then(|p| rows.0.iter().find(|(_, r)| r.contains(p)).map(|(i, _)| *i));
+            if under != *last_row {
+                *last_row = under;
+                if let Some(i) = under {
+                    out.write(TerminalInput::Row(i));
                 }
+            }
+            if let (Some(i), true) = (under, buttons.just_pressed(MouseButton::Left)) {
+                out.write(TerminalInput::Row(i));
+                out.write(TerminalInput::Select);
             }
         }
         Page::LockedOut => {
@@ -780,6 +908,8 @@ fn draw(
     roots: Query<Entity, With<screen::ScreenRoot>>,
     mut blinks: Query<&mut Visibility, With<screen::Blink>>,
     time: Res<Time<Real>>,
+    image: Option<Res<TerminalImage>>,
+    mut rows: ResMut<MenuRows>,
     mut faces: Local<Option<screen::Faces>>,
     mut shown: Local<Option<String>>,
 ) {
@@ -795,12 +925,19 @@ fn draw(
         commands.entity(e).despawn();
     }
     *shown = key;
-    let (Some(s), Some(rt)) = (screen.0.as_ref(), script.as_ref().and_then(|s| s.rt.as_ref())) else { return };
+    rows.0.clear();
+    let (Some(s), Some(rt), Some(image)) = (screen.0.as_ref(), script.as_ref().and_then(|s| s.rt.as_ref()), image) else { return };
     let faces = faces.get_or_insert_with(|| screen::load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref())));
-    screen::spawn(&mut commands, faces, s, rt.game.data, on);
+    rows.0 = screen::spawn(&mut commands, image.camera, faces, s, rt.game.data, on);
 }
 
-fn close(mut commands: Commands, mut screen: ResMut<TerminalScreen>, roots: Query<Entity, With<screen::ScreenRoot>>, script: Option<ResMut<ScriptState>>) {
+fn close(
+    mut commands: Commands,
+    mut screen: ResMut<TerminalScreen>,
+    roots: Query<Entity, With<screen::ScreenRoot>>,
+    backdrops: Query<Entity, With<screen::Backdrop>>,
+    script: Option<ResMut<ScriptState>>,
+) {
     if screen.0.take().is_some() {
         if let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) {
             if matches!(rt.game.menu, Some(MENU_HACKING | MENU_TERMINAL)) {
@@ -808,7 +945,7 @@ fn close(mut commands: Commands, mut screen: ResMut<TerminalScreen>, roots: Quer
             }
         }
     }
-    for e in &roots {
+    for e in roots.iter().chain(&backdrops) {
         commands.entity(e).despawn();
     }
 }

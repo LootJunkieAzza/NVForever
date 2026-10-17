@@ -10,7 +10,9 @@
 //!   minutes) [hypothesis; GECK wiki "TimeScale" describes it as the game-time ratio].
 //! - Advancing by h game hours adds h to GameHour and h / 24 to GameDaysPassed; each
 //!   wrap of GameHour past 24 advances GameDay, rolling the month and year over with
-//!   Gregorian month lengths, GameMonth counting from 0 (January). [observed in game for
+//!   Gregorian month lengths but no leap days, GameMonth counting from 0 (January)
+//!   [observed: February 2280 and February 2284 have 28 days, docs/spec-notes/simulation.md
+//!   §5b and the function probes `fp6_calendar`, 2026-10-17]. [observed in game for
 //!   the day and month: day 18 + 30 h → day 19; day 31 of month 9 at 20:00 + 6 h → day
 //!   1 of month 10 (xNVSE capture, `L4.sim.trace.goodsprings_weight_and_time`). The
 //!   GameHour/GameDaysPassed arithmetic and the year rollover are still hypothesis: the
@@ -34,16 +36,12 @@ pub struct Calendar {
     pub days_passed: f32,
 }
 
-/// Days of a month (`month0`: 0 January … 11 December), Gregorian.
-pub fn days_in_month(year: i64, month0: i64) -> i64 {
+/// Days of a month (`month0`: 0 January … 11 December): the Gregorian lengths without
+/// leap days, February always 28 [observed: 28 February 2280 and 28 February 2284 + 24 h
+/// gave 1 March, simulation.md §5b]. `year` is kept for callers; it changes nothing.
+pub fn days_in_month(_year: i64, month0: i64) -> i64 {
     match month0 {
-        1 => {
-            if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 {
-                29
-            } else {
-                28
-            }
-        }
+        1 => 28,
         3 | 5 | 8 | 10 => 30,
         _ => 31,
     }
@@ -89,7 +87,7 @@ mod tests {
         let ny = Calendar { year: 2281.0, month: 11.0, day: 31.0, hour: 12.0, days_passed: 0.0 }.advance(24.0);
         assert_eq!((ny.year, ny.month, ny.day, ny.hour), (2282.0, 0.0, 1.0, 12.0));
         let leap = Calendar { year: 2284.0, month: 1.0, day: 28.0, hour: 0.0, days_passed: 0.0 }.advance(24.0);
-        assert_eq!((leap.month, leap.day), (1.0, 29.0));
+        assert_eq!((leap.month, leap.day), (2.0, 1.0), "no 29 February, even in 2284");
         assert_eq!(c.advance(-5.0), c);
         assert_eq!(c.advance(f64::NAN), c);
         let long = c.advance(24.0 * 400.0);

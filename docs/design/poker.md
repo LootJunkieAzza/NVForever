@@ -58,7 +58,7 @@ hand. They see nothing they could not see at a real table.
 
 It is a `PlayState::Menu`, as lockpicking is: the world and the game clock stand still.
 
-- **The view** (nvforever `poker_view.rs`): a camera of its own on render layer 8 draws
+- **The view** (nvforever `poker_view.rs`): a camera of its own on render layer 11 draws
   the table into a picture shown behind the menu's text, from the player's seat, looking
   down at about 33°. The table is an oval (two half circles of radius 48 joined by
   straight sides 80 long; game units), its felt, padded rail and the floor under it made

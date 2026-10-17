@@ -385,6 +385,42 @@ fn a_revolver_loads_round_by_round() {
     assert_eq!((rounds(&ev), shots(&ev)), (6, 0));
 }
 
+/// An NPC's revolver as the combat AI drives it (nvforever `npc_combat`): a pull on
+/// every other tick, none while it reloads, a reload asked for once it is empty. It fires
+/// its six, loads all six round by round and fires again; pulling through the reload
+/// would close the cylinder after one round.
+#[test]
+fn a_gunman_that_holds_fire_while_reloading_loads_every_round() {
+    let t = CombatTuning::default();
+    let w = WeaponStats { clip_size: 6, ..gun(26) };
+    let clips = ClipTiming { reload_len: Some(1.767), reload_hit: Some(0.633), reload_open_len: Some(1.067), ..Default::default() };
+    let dt = 0.01;
+    let drive = |guard: bool| {
+        let mut c = Cycle::new(&w, Timing::of(&w, &clips, &t), false, 6);
+        let mut pulled = false;
+        let mut ev = Vec::new();
+        let mut loaded = Vec::new();
+        for _ in 0..1600 {
+            let reloading = c.reloading();
+            let trigger = !(guard && reloading) && !pulled;
+            pulled = trigger;
+            let empty = c.magazine < c.ammo_use;
+            let e = c.step(&t, Input { trigger, reload: guard && empty && !reloading, dt, carried: u32::MAX / 2 });
+            loaded.extend(e.iter().filter_map(|e| match e {
+                Event::Reloaded { taken } => Some(*taken),
+                _ => None,
+            }));
+            ev.extend(e);
+        }
+        (shots(&ev), loaded)
+    };
+    let (fired, loaded) = drive(true);
+    assert_eq!(loaded.first(), Some(&6), "{loaded:?}");
+    assert!(fired > 6, "fires again after the reload: {fired}");
+    let (_, loaded) = drive(false);
+    assert_eq!(loaded.first(), Some(&1), "pulled through, the reload stops after a round: {loaded:?}");
+}
+
 /// Floor at z = 0, spherical actors, and an optional small-transparent fence at x = 500.
 struct Toy {
     actors: Vec<(ActorId, V3, f32)>,
@@ -619,6 +655,10 @@ fn melee_reach_power_and_block() {
     let d = damage::hit(&r, &t, &h, &Attacker { unarmed_skill: 40.0, ..Attacker::default() }, &Target::default(), &NoPerks, &NoPerks, 0.99);
     assert!(!d.miss && close(d.dealt, 0.5 + 0.05 * 40.0));
     assert!(close(damage::blocked(&t, 10.0), 10.0 * (1.0 - t.block)));
+    // A power attack breaks through a block: all of it is dealt and the guard breaks.
+    assert_eq!(damage::against_block(&t, 10.0, true), (10.0, true));
+    let (left, broken) = damage::against_block(&t, 10.0, false);
+    assert!(close(left, damage::blocked(&t, 10.0)) && !broken);
 }
 
 /// Where a shot leaves and where it is seen to leave (docs/design/combat.md §5.1).

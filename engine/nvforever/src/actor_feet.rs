@@ -1,11 +1,29 @@
 //! Test aid `NVF_TEST_ACTOR_FEET=<seconds>[:<range>]`: once, after that many seconds,
 //! log for every drawn actor within `range` game units of the camera (default 3000) where
-//! its root stands, where its lowest foot bone is, and the drawn landscape height under
-//! it, so a floating actor shows in the log (docs/spec-notes/floating-actors.md).
+//! its root stands, where its lowest foot bone is, the drawn landscape height under it
+//! and, with `--play`, the collision under it and the drawn ground (the top of a model's
+//! drawn floors over that collision, `PhysState::ground_drawn`), so a floating or sunken
+//! actor shows in the log (docs/spec-notes/floating-actors.md).
 
 use crate::limbs::ActorRig;
+use crate::reflection::ReflectionCamera;
 use crate::world::{bevy_to_game, WorldData};
 use bevy::prelude::*;
+use nvf_play::phys::PhysState;
+
+/// The ground under an actor is looked for from this far above its root (above a floor
+/// it is drawn sunk into) [design].
+const GROUND_FROM: f32 = 30.0;
+
+/// The collision and drawn ground under a drawn root, as log text: ", collision ground
+/// z …, drawn ground z …, root … above the drawn ground", or nothing without physics.
+fn ground_text(phys: Option<&mut PhysState>, root: Vec3) -> String {
+    let Some(phys) = phys else { return String::new() };
+    match phys.ground_drawn([root.x, root.y, root.z + GROUND_FROM], 2.0 * GROUND_FROM, None) {
+        Some((bare, drawn)) => format!(", collision ground z {bare:.1}, drawn ground z {drawn:.1}, root {:.1} above the drawn ground", root.z - drawn),
+        None => ", no collision ground under it".to_string(),
+    }
+}
 
 /// A foot bone this far above the actor's root is off the ground: a standing actor's
 /// ankles are about 7 units up, a walking one's lift a little more [observed].
@@ -31,10 +49,13 @@ pub fn from_env() -> Option<FeetProbe> {
 pub fn probe(
     time: Res<Time>,
     mut p: ResMut<FeetProbe>,
-    cams: Query<&GlobalTransform, With<Camera3d>>,
+    // Not the water's reflection camera, which follows the view mirrored below the
+    // water (and came first in this query: no actor was in range of it).
+    cams: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
     roots: Query<(&Name, &GlobalTransform, &InheritedVisibility, &ActorRig)>,
     nodes: Query<&GlobalTransform>,
-    world: Option<Res<WorldData>>,
+    bodies: Query<(&Name, &GlobalTransform), Without<ActorRig>>,
+    (world, mut phys): (Option<Res<WorldData>>, Option<ResMut<PhysState>>),
 ) {
     if p.done || time.elapsed_secs() < p.at {
         return;
@@ -57,18 +78,30 @@ pub fn probe(
             .reduce(f32::min);
         let ground = world.as_deref().and_then(|w| land_height(w, root.x, root.y));
         let fmt = |v: Option<f32>| v.map_or("-".to_string(), |v| format!("{v:.0}"));
+        let fmt1 = |v: Option<f32>| v.map_or("-".to_string(), |v| format!("{v:.1}"));
         info!(
-            "actor feet: {} at ({:.0}, {:.0}, {:.0}): lowest foot bone z {}, drawn landscape z {}, root {} above it",
+            "actor feet: {} at ({:.0}, {:.0}, {:.1}): lowest foot bone z {}, drawn landscape z {}, root {} above it{}",
             name.as_str().trim_start_matches("Actor "),
             root.x,
             root.y,
             root.z,
             fmt(foot),
             fmt(ground),
-            fmt(ground.map(|g| root.z - g)),
+            fmt1(ground.map(|g| root.z - g)),
+            ground_text(phys.as_deref_mut(), root),
         );
         n += 1;
         lifted += usize::from(foot.is_some_and(|f| f - root.z > LIFTED));
+    }
+    // The player's own body (third-person rig), where it is drawn over the landscape.
+    for (name, gt) in &bodies {
+        if name.as_str() == "Player body (Third person)" {
+            let root = bevy_to_game(gt.translation());
+            let ground = world.as_deref().and_then(|w| land_height(w, root.x, root.y));
+            let above = ground.map_or("-".to_string(), |g| format!("{:.1}", root.z - g));
+            let more = ground_text(phys.as_deref_mut(), root);
+            info!("actor feet: player body at ({:.0}, {:.0}, {:.1}): drawn landscape z {}, root {above} above it{more}", root.x, root.y, root.z, ground.map_or("-".to_string(), |g| format!("{g:.1}")));
+        }
     }
     info!("actor feet: {n} actors within {:.0} units of the camera, {lifted} with a foot bone over {LIFTED} units above the root", p.range);
 }

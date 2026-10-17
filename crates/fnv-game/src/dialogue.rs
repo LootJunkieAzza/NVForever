@@ -750,6 +750,15 @@ impl<'a> Game<'a> {
         let actor = c.actor;
         let choice = c.choices.get(index).cloned().ok_or_else(|| format!("no choice {index} ({} offered)", c.choices.len()))?;
         self.emit(EventKind::ChoiceMade { actor, index, topic: choice.topic, info: choice.info });
+        // A Fallout 3 style speech challenge (the flag and a difficulty) gives its XP when
+        // its line is said. The roll is not modelled, so the line always passes
+        // [hypothesis, dialogue.md §3.3]. New Vegas's skill checks (KNAM without the
+        // flag) give none here: their pass lines' result scripts carry RewardXP (638 of
+        // the 1,499 in the masters [observed]), which would count twice.
+        if let Some(d) = self.data.infos.get(&choice.info).filter(|d| d.has(info_flag::SPEECH_CHALLENGE)).and_then(|d| d.challenge_difficulty) {
+            let x = crate::experience::speech_challenge_xp(self, d);
+            crate::experience::award(self, crate::experience::Source::SpeechChallenge, x);
+        }
         self.speak(actor, choice.topic, choice.info);
         Ok(choice.info)
     }
@@ -958,7 +967,7 @@ impl<'a> Game<'a> {
     }
 
     /// The emotion type code of the response an actor is saying (GetDialogueEmotion):
-    /// in a conversation, or the first response of a SayTo line; 0 (Neutral) otherwise
+    /// in a conversation, or the response of a SayTo line being said; 0 (Neutral) otherwise
     /// [documented: GECK wiki GetDialogueEmotion, the codes; hypothesis: 0 when silent].
     pub fn dialogue_emotion(&self, actor: FormId) -> u8 {
         let data = self.data;
@@ -970,8 +979,11 @@ impl<'a> Game<'a> {
         self.speech
             .iter()
             .find(|s| s.speaker == actor)
-            .and_then(|s| data.infos.get(&s.info))
-            .and_then(|def| def.response_order().first().map(|&r| def.responses[r].emotion))
+            .and_then(|s| data.infos.get(&s.info).map(|def| (def, s.response)))
+            .and_then(|(def, at)| {
+                let order = def.response_order();
+                order.get(at).or(order.first()).map(|&r| def.responses[r].emotion)
+            })
             .unwrap_or(0)
     }
 }

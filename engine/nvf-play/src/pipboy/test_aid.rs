@@ -12,10 +12,14 @@
 //! - `click=<x>:<y>`: the same, then a left click there;
 //! - `click=stats|items|data`: a left click on the page's button on the device;
 //! - `drag=<dx>:<dy>`: drag the map shown by that much (canvas units), as the left button
-//!   held on it and moved would.
+//!   held on it and moved would;
+//! - `travel=<marker FormID>`: what a click on that map marker of the World Map does (the
+//!   fast-travel question, docs/spec-notes/fast-travel.md); `key=use` takes the chosen
+//!   answer (Yes at first), `key=down` moves to No.
 //!
 //! Each step is logged. Screenshots are `NVF_PLAY_TEST_SHOTS`'.
 
+use super::data::travel::FastTravelAsk;
 use super::{AidTarget, Page, PipBoyAid, PipBoyInput};
 use crate::menu::model::Command;
 use crate::menu::{MenuInput, OpenInventory};
@@ -31,6 +35,7 @@ enum Step {
     Point(Option<Vec2>),
     Click(AidTarget),
     Drag(Vec2),
+    Travel(u32),
 }
 
 fn page(p: &str) -> Option<Page> {
@@ -60,6 +65,7 @@ fn step(s: &str) -> Option<Step> {
             ("point", "off") => Step::Point(None),
             ("point", p) => Step::Point(Some(canvas(p)?)),
             ("drag", p) => Step::Drag(canvas(p)?),
+            ("travel", m) => Step::Travel(u32::from_str_radix(m.trim().trim_start_matches("0x"), 16).ok()?),
             ("click", p) => Step::Click(page(p).map(AidTarget::Button).or_else(|| canvas(p).map(AidTarget::Canvas))?),
             ("tab", t) => Step::Tab(t.trim().parse().ok().filter(|t| *t < 5)?),
             ("key", k) => Step::Key(match k.trim() {
@@ -102,6 +108,7 @@ fn run(
     mut menu: MessageWriter<MenuInput>,
     mut pip: MessageWriter<PipBoyInput>,
     mut aid: ResMut<PipBoyAid>,
+    mut ask: MessageWriter<FastTravelAsk>,
 ) {
     let now = time.elapsed_secs();
     while let Some(&(t, s)) = script.0.first() {
@@ -141,6 +148,9 @@ fn run(
             Step::Drag(d) => {
                 aid.drag += d;
             }
+            Step::Travel(m) => {
+                ask.write(FastTravelAsk(m));
+            }
         }
     }
 }
@@ -151,7 +161,7 @@ mod tests {
 
     #[test]
     fn steps_are_read_in_time_order() {
-        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25");
+        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25, 8.95:travel=0x000CDF51");
         assert_eq!(
             s,
             vec![
@@ -164,6 +174,7 @@ mod tests {
                 (8.7, Step::Point(None)),
                 (8.8, Step::Point(Some(Vec2::new(1.0, 2.0)))),
                 (8.9, Step::Drag(Vec2::new(-40.0, 25.0))),
+                (8.95, Step::Travel(0x000C_DF51)),
                 (9.0, Step::Close)
             ]
         );

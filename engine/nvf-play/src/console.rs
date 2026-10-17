@@ -50,11 +50,8 @@ use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use fnv_game::functions::console::{ConsoleCtx, ConsoleRequest};
-use fnv_game::functions::Ctx;
-use fnv_game::trace::EventKind;
 use fnv_phys::{layers, Filter, Owner};
-use fnv_script::vm::{ArgValue, Value};
-use fnv_script::ParamEnc;
+use fnv_script::vm::Value;
 use fnv_sim::FormId;
 
 /// Lines kept in the scrollback.
@@ -859,31 +856,7 @@ fn search_ready(mut index: ResMut<SearchIndex>, mut c: ResMut<Console>) {
 
 /// Split a line into words; `"…"` keeps spaces, commas separate as spaces do.
 pub fn words(line: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut quoted = false;
-    for ch in line.chars() {
-        match ch {
-            '"' => {
-                if quoted {
-                    out.push(format!("\"{cur}\""));
-                    cur.clear();
-                }
-                quoted = !quoted;
-            }
-            c if quoted => cur.push(c),
-            c if c.is_whitespace() || c == ',' => {
-                if !cur.is_empty() {
-                    out.push(std::mem::take(&mut cur));
-                }
-            }
-            c => cur.push(c),
-        }
-    }
-    if !cur.is_empty() {
-        out.push(if quoted { format!("\"{cur}\"") } else { cur });
-    }
-    out
+    fnv_game::functions::console::words(line)
 }
 
 /// A form by name as the console takes it: `player`, an Editor ID (a reference's first),
@@ -943,50 +916,11 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
         let lines = r.map_err(|e| format!("{name}: {e}"))?;
         return Ok(ConsoleReply { lines, requests, ..Default::default() });
     }
-    let opcode = g.data.table.by_name(&func).ok_or_else(|| format!("Script command \"{func}\" not found."))?;
-    let def = g.data.table.get(opcode).cloned();
-    let fname = def.as_ref().map_or(func.clone(), |d| d.name.clone());
-    let mut values = Vec::new();
-    for (i, a) in args.iter().enumerate() {
-        let kind = def.as_ref().and_then(|d| d.params.get(i)).map(|p| p.kind.to_ascii_lowercase()).unwrap_or_default();
-        let v = match g.data.table.param_enc(opcode, i) {
-            ParamEnc::Enum(e) => ArgValue::Enum(enum_code(g, &e, a)?),
-            ParamEnc::Axis => ArgValue::Axis(a.chars().next().unwrap_or('Z').to_ascii_uppercase()),
-            ParamEnc::String => ArgValue::Str(a.trim_matches('"').to_string()),
-            ParamEnc::Value => {
-                let numeric = matches!(kind.as_str(), "int" | "integer" | "float" | "number" | "short" | "long");
-                // Eight hex digits are a FormID as the console prints them (`00015169`), never
-                // a number, whatever the parameter.
-                let full_id = a.len() == 8 && a.chars().all(|c| c.is_ascii_hexdigit());
-                if a.starts_with('"') {
-                    ArgValue::Str(a.trim_matches('"').to_string())
-                } else if let (true, Some(f)) = (full_id, parse_form_id(a)) {
-                    ArgValue::Value(Value::Ref(f.0))
-                } else if let (true, Ok(n)) = (numeric || kind.is_empty(), a.parse::<f64>()) {
-                    ArgValue::Value(Value::Num(n))
-                } else {
-                    match fnv_game::runner::resolve(g, a).ok().or_else(|| parse_form_id(a)) {
-                        Some(f) => ArgValue::Value(Value::Ref(f.0)),
-                        None => match a.parse::<f64>() {
-                            Ok(n) => ArgValue::Value(Value::Num(n)),
-                            Err(_) => return Err(format!("{fname}: no form or number {a:?}")),
-                        },
-                    }
-                }
-            }
-        };
-        values.push(v);
-    }
-    let ctx = Ctx { unit: "console".into(), opcode, on, self_ref: on, action_ref: None, quest: None, inst: None, in_condition: false };
-    let from = g.events.len();
     let asked = g.toggles.asked.len();
-    let v = g.call_function(&ctx, &values);
-    if let Some(EventKind::CallFailed { error, .. }) = g.events[from..].iter().map(|e| &e.kind).find(|k| matches!(k, EventKind::CallFailed { .. })) {
-        return Err(format!("{fname}: {error}"));
-    }
+    let called = fnv_game::functions::console::call_words(g, on, &func, args, "console")?;
+    let (fname, v) = (called.name, called.value);
     // A function of a system not built says so instead of its 0.
-    let kind = fnv_game::functions::lookup(opcode).or_else(|| fnv_game::functions::lookup_console(&fname));
-    if let Some(fnv_game::functions::Kind::Stub(why)) = kind {
+    if let Some(why) = called.stub {
         return Ok(ConsoleReply { lines: vec![format!("{fname}: not built ({why})")], ..Default::default() });
     }
     // A toggle: [`replies`] prints its new state.
@@ -1001,19 +935,6 @@ fn run_line(rt: &mut Runtime, call: &ConsoleCall) -> Result<ConsoleReply, String
     };
     let on_text = on.map(|r| format!(" on {}", name(r))).unwrap_or_default();
     Ok(ConsoleReply { lines: vec![format!("{fname}{on_text} >> {shown}")], ..Default::default() })
-}
-
-/// An enumeration code by name or number (`actor_value` by the game's own names too).
-fn enum_code(g: &fnv_game::Game, e: &str, a: &str) -> Result<u16, String> {
-    if let Ok(n) = a.parse::<u16>() {
-        return Ok(n);
-    }
-    if e == "actor_value" {
-        return fnv_game::functions::av_code(g, a);
-    }
-    let squash = |s: &str| s.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase();
-    let want = squash(a);
-    g.data.table.enums.get(e).and_then(|m| m.iter().find(|(_, n)| squash(n) == want).map(|(&c, _)| c)).ok_or_else(|| format!("no {e} named {a:?}"))
 }
 
 #[cfg(test)]

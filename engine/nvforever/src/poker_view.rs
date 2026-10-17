@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::f32::consts::{PI, TAU};
 
 /// The render layer of the table, its lights and its camera.
-pub const POKER_LAYER: usize = 8;
+pub const POKER_LAYER: usize = 11;
 /// Where the table is put, far from the world (Bevy space) [design].
 const PLACE: Vec3 = Vec3::new(0.0, -300_000.0, 0.0);
 

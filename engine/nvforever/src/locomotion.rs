@@ -8,7 +8,7 @@
 //! (actors.md §8.9), which plays its turn clip; `--actor-turn-test` ([`TurnTest`]) tries it.
 
 use bevy::prelude::*;
-use fnv_actor::locomotion::{choose, direction, hurt_move, Blend, Body, Choice, ClipInfo, LocomotionSet, Move, HURT_FOLDER, RATE_MAX, RATE_MIN};
+use fnv_actor::locomotion::{choose, direction, hurt_move_in, wrap01, Blend, Body, Choice, ClipInfo, LocomotionSet, Move, Slot, HURT_FOLDER, RATE_MAX, RATE_MIN};
 use fnv_nav::follow::{heading_delta, SPOT_TURN_RATE, SPOT_TURN_START};
 use nvf_assets::actor::{bind_clip, clip_binding, ActorCtx, PreparedSkeleton};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
@@ -156,30 +156,39 @@ impl ClipSet {
     }
 
     /// The limping set of a skeleton (a leg crippled): `base` with each move that the
-    /// skeleton's `locomotion\hurt\` folder has a clip for replaced by that clip
-    /// (`fnv_actor::locomotion::hurt_move`), the others kept; `None` when the folder has
-    /// none. Also returns a report line.
-    pub fn load_hurt(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, base: &ClipSet) -> Option<(ClipSet, String)> {
+    /// skeleton's `locomotion\hurt\` folder has a clip for, in one of `stances`, replaced
+    /// by that clip (`fnv_actor::locomotion::hurt_move_in`), the others kept; a later
+    /// stance's clip wins over an earlier one's. `None` when the folder has none. Also
+    /// returns a report line. The calm set takes `["mt"]`; a creature's alert set
+    /// (`h2h` moves over the calm ones, [`ClipSet::alert_from`]) takes `["mt", "h2h"]`,
+    /// so that a dog in a fight limps on its `h2hfastforward_hurt.kf` [design].
+    pub fn load_hurt(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, base: &ClipSet, stances: &[&str]) -> Option<(ClipSet, String)> {
         let s = fnv_vfs::normalize(skeleton);
         let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();
         let dir = format!("{folder}\\{HURT_FOLDER}\\");
         let files = ctx.models.data.vfs.paths(|p| p.strip_prefix(&dir).is_some_and(|f| f.ends_with(".kf") && !f.contains('\\')));
         let mut set = base.clone();
-        let mut found = Vec::new();
-        for path in files {
-            let stem = path[dir.len()..path.len() - 3].to_string();
-            let Some(clip) = ctx.clip(&path) else { continue };
-            // The first file (in name order) of a move wins.
-            let Some(m) = hurt_move(&stem, Some(&clip.name)).filter(|m| !found.iter().any(|(f, _)| f == m)) else { continue };
-            let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
-            found.push((m, format!("{} {stem} {:.1}u/s", m.group(), info.speed)));
-            set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info });
+        let mut found: Vec<(Move, String)> = Vec::new();
+        for stance in stances {
+            let mut mine: Vec<Move> = Vec::new();
+            for path in &files {
+                let stem = path[dir.len()..path.len() - 3].to_string();
+                let Some(clip) = ctx.clip(path) else { continue };
+                // The first file (in name order) of a move wins within a stance.
+                let Some(m) = hurt_move_in(&stem, Some(&clip.name), stance).filter(|m| !mine.contains(m)) else { continue };
+                mine.push(m);
+                let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
+                found.retain(|(f, _)| *f != m);
+                found.push((m, format!("{} {stem} {:.1}u/s", m.group(), info.speed)));
+                set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info });
+            }
         }
         if found.is_empty() {
             return None;
         }
         let moves: Vec<String> = found.into_iter().map(|(_, l)| l).collect();
-        let line = format!("{folder} limping: {} of {} moves from hurt\\: {}", moves.len(), set.clips.len(), moves.join("; "));
+        let what = if stances.len() > 1 { format!("limping ({})", stances.join("+")) } else { "limping".to_string() };
+        let line = format!("{folder} {what}: {} of {} moves from hurt\\: {}", moves.len(), set.clips.len(), moves.join("; "));
         Some((set, line))
     }
 }
@@ -189,6 +198,10 @@ impl ClipSet {
 pub struct Locomotion {
     pub set: Arc<ClipSet>,
     pub blend: Blend,
+    /// The set the blend's fading-out clip (`blend.prev`) belongs to, while a change of
+    /// set (crouching, standing up, starting or stopping a limp) fades the old set's pose
+    /// out ([`Locomotion::switch_set`]); `None`: the current set.
+    pub prev_set: Option<Arc<ClipSet>>,
     /// Velocity in the actor's axes (x right, y forward; units per second, in the actor's
     /// own scale) and turn rate (radians per second, positive = left).
     pub velocity: [f32; 2],
@@ -201,6 +214,9 @@ pub struct Locomotion {
     pub stand: Arc<ClipSet>,
     pub sneak: Option<Arc<ClipSet>>,
     pub hurt: Option<Arc<ClipSet>>,
+    /// The limping set while alerted (creatures with an alert stance: the alert set with
+    /// the `mt` and `h2h` limping clips over it, `ClipSet::load_hurt`); `None`: `hurt`.
+    pub hurt_alert: Option<Arc<ClipSet>>,
     pub sneaking: bool,
     pub limping: bool,
     /// The alert stance's set (creatures whose folder has `h2h` movement clips: the
@@ -220,7 +236,7 @@ pub struct Locomotion {
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, sneaking: false, limping: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0 }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0 }
     }
 
     /// The upright set: the alert stance's while alerted, else the standing one.
@@ -232,26 +248,53 @@ impl Locomotion {
     }
 
     /// The set for the actor's posture: sneaking wins over limping (there are no
-    /// crouched limping clips [observed]), limping over the alert stance [design], and
-    /// either falls back to the upright set.
+    /// crouched limping clips [observed]); limping while alerted takes the alert limping
+    /// set where there is one, else the calm limping set wins over the alert stance
+    /// [design]; either falls back to the upright set.
     fn posture_set(&self) -> Arc<ClipSet> {
-        let pick = if self.sneaking { self.sneak.as_ref() } else if self.limping { self.hurt.as_ref() } else { None };
+        let limp = if self.alerted { self.hurt_alert.as_ref().or(self.hurt.as_ref()) } else { self.hurt.as_ref() };
+        let pick = if self.sneaking { self.sneak.as_ref() } else if self.limping { limp } else { None };
         pick.cloned().unwrap_or_else(|| self.upright())
     }
 
+    /// Change to another set (crouching, standing up, a limp starting or ending), fading
+    /// from the old set's pose as the player's body does between its stances: the move
+    /// goes on in the new set (a walk at the old walk's footfall phase), or the new set's
+    /// idle where it has no such clip, and the old pose fades out over the new clip's
+    /// blend time (its `Blend: N` key, else [`fnv_actor::locomotion::DEFAULT_BLEND`]).
+    /// Changing set used to snap to the new pose in one frame [observed in NVForever: the
+    /// owner's playtest 2026-10-17, "NPC crouching to standing and vice versa look
+    /// unnaturally fast compared to the player's"]. A fade between two moves of the old
+    /// set still running is cut short (its older clip dropped) [design].
+    fn switch_set(&mut self, set: Arc<ClipSet>) {
+        if Arc::ptr_eq(&set, &self.set) {
+            return;
+        }
+        let old = std::mem::replace(&mut self.set, set);
+        let cur = self.blend.cur;
+        let mv = if self.set.clips.contains_key(&cur.mv) { cur.mv } else { Move::Idle };
+        let (from, to) = (old.info(cur.mv), self.set.info(mv));
+        let phase = match (from, to) {
+            (Some(f), Some(t)) if mv == cur.mv && mv.is_moving() => wrap01(cur.phase - f.foot_phase + t.foot_phase),
+            _ if mv == cur.mv => cur.phase,
+            _ => 0.0,
+        };
+        let fade_time = to.map_or(0.0, |t| t.blend_time);
+        let fading = from.is_some() && fade_time > 0.0;
+        self.blend = Blend { cur: Slot { mv, phase, rate: cur.rate }, prev: fading.then_some(cur), fade: 0.0, fade_time };
+        self.prev_set = fading.then_some(old);
+    }
+
     /// Limp (`true`, a leg crippled) or walk normally again: the set's clips change and
-    /// the current move goes on in the new set at its phase, blending from the old pose
-    /// [design]. Without a limping set nothing changes. Returns whether anything changed.
+    /// the current move goes on in the new set, blending from the old pose
+    /// ([`Locomotion::switch_set`]). Without a limping set nothing changes. Returns
+    /// whether anything changed.
     pub fn set_limping(&mut self, on: bool) -> bool {
         if self.limping == on || self.hurt.is_none() {
             return false;
         }
         self.limping = on;
-        let set = self.posture_set();
-        if !Arc::ptr_eq(&set, &self.set) {
-            self.set = set;
-            self.blend = Blend::new(self.blend.cur.mv, self.blend.cur.phase);
-        }
+        self.switch_set(self.posture_set());
         true
     }
 
@@ -268,9 +311,10 @@ impl Locomotion {
         true
     }
 
-    /// Crouch (`true`) or stand up: the set's clips change, and the move is chosen again
-    /// from the idle (a sneaking walk starts from the crouched idle) [design]. Without a
-    /// sneaking set the actor stays upright. Returns whether anything changed.
+    /// Crouch (`true`) or stand up: the set's clips change and the body goes down or up
+    /// by a cross-fade from the old pose ([`Locomotion::switch_set`]); a walk goes on as
+    /// the other set's walk. Without a sneaking set the actor stays upright. Returns
+    /// whether anything changed.
     pub fn set_sneaking(&mut self, on: bool) -> bool {
         if self.sneaking == on {
             return false;
@@ -279,8 +323,7 @@ impl Locomotion {
             return false;
         }
         self.sneaking = on;
-        self.set = self.posture_set();
-        self.blend = Blend::new(Move::Idle, self.blend.cur.phase);
+        self.switch_set(self.posture_set());
         true
     }
 
@@ -299,15 +342,27 @@ impl Locomotion {
         if choice.mv.is_moving() {
             choice.rate *= pace;
         }
+        // A blend reset from outside (a held pose) leaves no clip of another set.
+        if self.blend.prev.is_none() {
+            self.prev_set = None;
+        }
+        let before = self.blend.cur.mv;
         self.blend.step(choice, dt, |m| set.info(m));
+        // The other set's pose has faded out, or a fade within this set has taken over
+        // (a new move starts only once a fade has ended).
+        if self.blend.prev.is_none() || self.blend.cur.mv != before {
+            self.prev_set = None;
+        }
     }
 
-    /// The blend's clips and weights as player layers.
+    /// The blend's clips and weights as player layers; the fading-out clip from the set
+    /// it belongs to ([`Locomotion::prev_set`]).
     pub fn layers(&self, player: &mut BlendPlayer) {
-        let layer = |mv: Move, phase: f32, weight: f32| self.set.clips.get(&mv).map(|c| Layer { clip: c.bound.clone(), phase, weight });
+        let layer = |set: &ClipSet, mv: Move, phase: f32, weight: f32| set.clips.get(&mv).map(|c| Layer { clip: c.bound.clone(), phase, weight });
         let w = self.blend.weight();
-        player.layers[0] = layer(self.blend.cur.mv, self.blend.cur.phase, w);
-        player.layers[1] = self.blend.prev.and_then(|p| layer(p.mv, p.phase, 1.0 - w));
+        player.layers[0] = layer(&self.set, self.blend.cur.mv, self.blend.cur.phase, w);
+        let prev_set = self.prev_set.as_deref().unwrap_or(&self.set);
+        player.layers[1] = self.blend.prev.and_then(|p| layer(prev_set, p.mv, p.phase, 1.0 - w));
     }
 }
 
@@ -746,6 +801,52 @@ mod tests {
         let turn = |step: f32| choose(|m| s.info(m), [0.0; 2], -step / dt).mv;
         assert_eq!(turn(SPOT_TURN_RATE * dt), Move::TurnRight);
         assert_eq!(turn(-SPOT_TURN_RATE * dt), Move::TurnLeft);
+    }
+
+    #[test]
+    fn crouching_and_standing_fade_from_the_old_pose() {
+        let (stand, sneak) = (set(), set());
+        let mut lo = Locomotion::new(stand.clone(), 0.0);
+        lo.sneak = Some(sneak.clone());
+        // Walking in the standing set, the walk's fade-in over.
+        lo.velocity = [0.0, 85.26];
+        for _ in 0..30 {
+            lo.step(1.0 / 60.0);
+        }
+        assert_eq!((lo.blend.cur.mv, lo.blend.prev), (Move::Forward, None));
+        let phase = lo.blend.cur.phase;
+        // Crouching: the walk goes on as the sneaking walk at the same footfall, and the
+        // standing walk fades out from the old set over the clip's blend time (0.2 s).
+        assert!(lo.set_sneaking(true));
+        assert!(Arc::ptr_eq(&lo.set, &sneak));
+        assert_eq!(lo.blend.cur.mv, Move::Forward);
+        assert!((lo.blend.cur.phase - phase).abs() < 1e-6);
+        assert_eq!(lo.blend.prev.map(|p| p.mv), Some(Move::Forward));
+        assert!(lo.prev_set.as_ref().is_some_and(|s| Arc::ptr_eq(s, &stand)));
+        assert_eq!(lo.blend.weight(), 0.0);
+        lo.step(0.1);
+        let w = lo.blend.weight();
+        assert!(w > 0.0 && w < 1.0, "{w}");
+        assert!(lo.prev_set.is_some());
+        lo.step(0.15);
+        assert_eq!((lo.blend.prev, lo.blend.weight()), (None, 1.0));
+        assert!(lo.prev_set.is_none());
+        // Standing up while still: from the crouched idle, faded the same way.
+        lo.velocity = [0.0; 2];
+        for _ in 0..60 {
+            lo.step(1.0 / 60.0);
+        }
+        assert_eq!((lo.blend.cur.mv, lo.blend.prev), (Move::Idle, None));
+        assert!(lo.set_sneaking(false));
+        assert!(Arc::ptr_eq(&lo.set, &stand) && lo.prev_set.as_ref().is_some_and(|s| Arc::ptr_eq(s, &sneak)));
+        assert_eq!(lo.blend.prev.map(|p| p.mv), Some(Move::Idle));
+        // A move asked for during the fade waits for it to end, then fades within the set.
+        lo.velocity = [0.0, 85.26];
+        lo.step(0.1);
+        assert_eq!(lo.blend.cur.mv, Move::Idle);
+        lo.step(0.15);
+        assert_eq!(lo.blend.cur.mv, Move::Forward);
+        assert!(lo.prev_set.is_none(), "the idle fading out now is the standing set's");
     }
 
     fn set() -> Arc<ClipSet> {

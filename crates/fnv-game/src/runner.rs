@@ -327,6 +327,15 @@ pub enum Action {
     Consume { item: String, #[serde(default)] actor: Option<String>, #[serde(default)] label: Option<String> },
     /// A comment in the input (why the next stand-in is there); no effect, no frames.
     Note { text: String },
+    /// A console line run as the console runs it (`functions::console::call_words`):
+    /// `reference.Function words…`. Observation `value` (a number, or a reference as its
+    /// FormID text), and `stub` when the function is one; a statement leaves out `label`.
+    /// The function probes' side of ours (tools/capture/function_probe.py).
+    Call { line: String, #[serde(default)] label: Option<String> },
+    /// A console line run once per frame until it gives a non-zero number, at most
+    /// `max_frames` times (the capture plugin's `until`). Observation `frames`, or an
+    /// error when it never did.
+    CallUntil { line: String, max_frames: u64, label: String },
     // ---- conversations (docs/spec-notes/dialogue.md §8) ----
     /// A conversation between the player and `actor` starts (`Game::start_dialogue`):
     /// the player activating the actor, or the actor's dialogue package; with `topic`,
@@ -383,6 +392,9 @@ fn frames_after(a: &Action) -> u64 {
         Action::GetQuest { .. } | Action::SampleVar { .. } | Action::WaitFrames { .. } | Action::AdvanceSeconds { .. } => 0,
         Action::SampleRefVar { .. } | Action::SampleItems { .. } | Action::MenuGap { .. } => 0,
         Action::Note { .. } => 0,
+        // As the probes' game jobs: a query has no pause after it, an action 10 frames.
+        Action::Call { label: Some(_), .. } | Action::CallUntil { .. } => 0,
+        Action::Call { label: None, .. } => 10,
         // Round 3 (layer5-captures.md §9.2).
         Action::SetReputation { .. } | Action::AddReputation { .. } | Action::RemoveReputation { .. } => 11,
         Action::GetReputation { .. } => 0,
@@ -606,6 +618,17 @@ pub fn set_local(ty: &str, value: f64) -> Result<f64, String> {
 
 fn label(l: &Option<String>, i: usize) -> String {
     l.clone().unwrap_or_else(|| format!("step{i}"))
+}
+
+/// Run a console line (`reference.Function words…`) through the console's reading of
+/// its words.
+fn call_line(g: &mut Game, line: &str) -> Result<crate::functions::console::Called, String> {
+    let (on, func, args) = crate::functions::console::split_call(line).ok_or("an empty line")?;
+    let on = match on {
+        Some(n) => Some(crate::functions::console::form(g, &n)?),
+        None => None,
+    };
+    crate::functions::console::call_words(g, on, &func, &args, "runner")
 }
 
 /// Call a script function as a script would (`on.Func args`).
@@ -973,6 +996,32 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
         }
         Action::GetQuest { .. } | Action::SampleVar { .. } | Action::SampleRefVar { .. } => unreachable!("handled by the caller"),
         Action::WaitFrames { .. } | Action::AdvanceSeconds { .. } | Action::Note { .. } => {}
+        Action::Call { line, label: l } => {
+            let c = call_line(g, line)?;
+            match c.value {
+                Value::Ref(r) => obs.insert("value".into(), json!(FormId(r).to_string())),
+                Value::Num(n) => obs.insert("value".into(), json!(n)),
+            };
+            if let Some(why) = c.stub {
+                obs.insert("stub".into(), json!(why));
+            }
+            lab = l.clone();
+        }
+        Action::CallUntil { line, max_frames, label: l } => {
+            lab = Some(l.clone());
+            let mut frames = 0;
+            loop {
+                if call_line(g, line)?.value.num() != 0.0 {
+                    break;
+                }
+                if frames >= *max_frames {
+                    return Err(format!("{line:?} still 0 after {max_frames} frames"));
+                }
+                g.tick();
+                frames += 1;
+            }
+            obs.insert("frames".into(), json!(frames));
+        }
         Action::AddItem { to, item, count } => {
             let (to, item) = (resolve(g, to)?, resolve(g, item)?);
             call(g, 0x1002, Some(to), vec![form_arg(item), num_arg(*count as f64)]);
@@ -1898,7 +1947,9 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::Talk { label, .. }
         | Action::Choose { label, .. }
         | Action::WaitTalk { label, .. }
-        | Action::SampleJumps { label, .. } => label.clone(),
+        | Action::SampleJumps { label, .. }
+        | Action::Call { label, .. } => label.clone(),
+        Action::CallUntil { label, .. } => Some(label.clone()),
         Action::DismissMessageBoxes { label, .. } => label.clone(),
         Action::WaitQuest { label, .. }
         | Action::WaitMenu { label, .. }

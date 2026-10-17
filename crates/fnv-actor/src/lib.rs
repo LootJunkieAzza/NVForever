@@ -30,6 +30,7 @@
 
 pub mod anim_sounds;
 pub mod anims;
+pub mod creator;
 pub mod facegen;
 pub mod first_person;
 pub mod furniture;
@@ -45,4 +46,4 @@ pub mod tri;
 pub mod weapon;
 
 pub use records::ActorForms;
-pub use resolve::{Appearance, CreatureAppearance, Part, ResolveError, Resolver};
+pub use resolve::{Appearance, CreatureAppearance, Look, Part, ResolveError, Resolver};

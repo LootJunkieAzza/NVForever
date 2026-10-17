@@ -13,6 +13,7 @@ use crate::functions::actor;
 use crate::game::Game;
 use fnv_script::vm::ArgValue;
 use fnv_sim::FormId;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 /// The S.P.E.C.I.A.L. points a new character has in all: seven attributes at 5 and 5 to
@@ -66,6 +67,39 @@ pub fn name_acceptable(s: &str) -> bool {
 /// Done in the name menu: the player is called `name` (spaces around it taken off).
 pub fn apply_name(g: &mut Game, name: &str) {
     g.player.name = Some(clean_name(name).trim().to_string());
+}
+
+// ---- the look (the race menu) ------------------------------------------------------------
+
+/// What the character creator sets in place of the player record's appearance
+/// (docs/spec-notes/character-creator.md): race, sex, hair (`None` is bald), hair colour,
+/// eyes, head parts (beard, brows) and the FaceGen values (50 symmetric shape, 30
+/// asymmetric shape, 50 texture; the player's own, the race's are added when drawn).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Look {
+    pub race: FormId,
+    pub female: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub hair: Option<FormId>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub hair_color: Option<[u8; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub eyes: Option<FormId>,
+    #[serde(default)]
+    pub head_parts: Vec<FormId>,
+    #[serde(default)]
+    pub fggs: Vec<f32>,
+    #[serde(default)]
+    pub fgga: Vec<f32>,
+    #[serde(default)]
+    pub fgts: Vec<f32>,
+}
+
+/// Done in the race menu: the player looks as `look` says, and is of its sex
+/// (GetIsSex, GetPCIsSex; GetIsRace reads the look's race).
+pub fn apply_look(g: &mut Game, look: Look) {
+    g.player.female = Some(look.female);
+    g.player.look = Some(look);
 }
 
 // ---- S.P.E.C.I.A.L. ----------------------------------------------------------------------
@@ -411,6 +445,17 @@ pub fn requirement_line(g: &Game, perk: FormId) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_look_is_saved_with_the_player() {
+        let mut p = crate::game::PlayerState::default();
+        // No look: nothing written, so older saves read the same.
+        assert!(!serde_json::to_string(&p).unwrap().contains("look"));
+        let look = Look { race: FormId(0x38E5), female: true, hair: None, hair_color: Some([10, 20, 30]), eyes: Some(FormId(4)), head_parts: vec![], fggs: vec![0.5; 50], fgga: vec![0.0; 30], fgts: vec![-1.0; 50] };
+        p.look = Some(look.clone());
+        let back: crate::game::PlayerState = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(back.look, Some(look));
+    }
 
     #[test]
     fn special_points_stay_within_the_rules() {

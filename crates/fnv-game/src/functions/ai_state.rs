@@ -44,7 +44,9 @@ pub fn reset_ai(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 /// TRAVEL, 15 ACCOMPANY, 16 USEITEMAT, 17 AMBUSH, 18 FLEE_NON_COMBAT, 33 USE_WEAPON, 34
 /// DIALOGUE, 35 GUARD, 36 SANDBOX, 37 PATROL; hypothesis: Find is 0 EXPLORE, the table
 /// having no FIND, and a Dialogue package is the second DIALOGUE (34), 6 being the
-/// conversation itself].
+/// conversation itself]. The original agreed for Sandbox 36, Dialogue 34, Travel 14 and
+/// Patrol 37 [observed: function probes `fp7_packages_locks` 2026-10-17, each actor's
+/// current package found with GetIsCurrentPackage].
 pub fn package_code(t: PackageType) -> i32 {
     match t {
         PackageType::Find => 0,
@@ -67,11 +69,13 @@ pub fn package_code(t: PackageType) -> i32 {
     }
 }
 
-/// What the actor does over its package: in a conversation with the player, in combat,
-/// searching, or the package.
+/// What the actor does over its package: in a conversation (with the player, or a
+/// conversation between two actors), in combat, searching, or the package.
 enum Doing {
     Talking,
     Fighting,
+    /// Fleeing from a fight (`combat_group::Flight`, in any combat state).
+    Fleeing,
     Searching,
     Package(Option<PackageType>),
 }
@@ -79,6 +83,16 @@ enum Doing {
 fn doing(g: &mut Game, r: FormId) -> Doing {
     if g.dialogue.as_ref().is_some_and(|d| d.actor == r) {
         return Doing::Talking;
+    }
+    // Both sides of a conversation between actors talk [hypothesis: the IDLE tree's
+    // branch for such conversations (NPCtoNPC) lies under a root that wants the dialogue
+    // procedure or the dialogue menu, so it is reached only if they do;
+    // docs/spec-notes/idles.md §12].
+    if g.speech.iter().any(|s| s.conversation.is_some() && (s.speaker == r || s.target == Some(r))) {
+        return Doing::Talking;
+    }
+    if g.awareness.state(r).in_combat() && g.awareness.tactics.flights.contains_key(&r) {
+        return Doing::Fleeing;
     }
     match g.awareness.state(r) {
         State::Combat => return Doing::Fighting,
@@ -90,18 +104,18 @@ fn doing(g: &mut Game, r: FormId) -> Doing {
 }
 
 /// `actor.GetCurrentAIPackage`: the kind of package the actor runs, by the codes of
-/// [`package_code`]; 5 COMBAT in combat, 29 SEARCH_FOR_ATTACKER while it searches
+/// [`package_code`]; 5 COMBAT in combat (fleeing from it too), 29 SEARCH_FOR_ATTACKER while it searches
 /// (Alert, Lost), 6 DIALOGUE in a conversation with the player [hypothesis: the
 /// game's combat, search and conversation run as packages of their own, as the table's
-/// COMBAT, SEARCH_FOR_ATTACKER and DIALOGUE suggest]; −1 with no package [engineering
-/// choice].
+/// COMBAT, SEARCH_FOR_ATTACKER and DIALOGUE suggest]; 0 with no package [observed:
+/// Trudy and Joe Cobb, none of whose packages was current, read 0, `fp7_packages_locks`].
 pub fn get_current_ai_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let code = match doing(g, r) {
         Doing::Talking => 6,
-        Doing::Fighting => 5,
+        Doing::Fighting | Doing::Fleeing => 5,
         Doing::Searching => 29,
-        Doing::Package(t) => t.map_or(-1, package_code),
+        Doing::Package(t) => t.map_or(0, package_code),
     };
     Ok(Value::Num(code as f64))
 }
@@ -113,15 +127,21 @@ pub fn get_current_ai_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Valu
 /// FLEE_NON_COMBAT, 36 SEARCH, 41 PATROL, 42 USE_WEAPON, 44 GUARD, 45 SANDBOX, 48
 /// SITTING; "a Travel package travels, then waits at its destination"]. Chosen here:
 ///
-/// - a conversation with the player 4, combat 13, Alert or Lost 36;
+/// - a conversation with the player or between two actors 4, combat 13, Alert or Lost 36;
+/// - fleeing from a fight 16 FLEE [documented: the wiki's table names 16 FLEE;
+///   hypothesis: it is the procedure of the combat AI's flight, as the IDLE tree reads it:
+///   `CowerIdles` (FalloutNV.esm 0x0006CB4A) and `3rdPCrouchedHit` want 16 or 34 with
+///   IsMoving 0, and the creatures' combat idles 13 or 16];
 /// - getting off a seat or bed 21, lying on a bed 8, sitting 48;
 /// - a package whose goal was met 17 DONE [hypothesis: the end scripts of eight
 ///   packages of FalloutNV.esm (0x0012FEED-F0, 0x0016954E-51) wait for four actors' 17];
 /// - else by the package type: Travel 0, Sleep 0 (on its way to the bed), Find 2,
 ///   Wander 7, Eat 10, Follow 11, Escort 12, Accompany 27, Use Item At 28, Ambush 30,
-///   Flee Not Combat 34, Patrol 41, Use Weapon 42, Guard 44, Sandbox 45, Dialogue 4
-///   [hypothesis: each package's main procedure];
-/// - −1 with no package [engineering choice].
+///   Flee Not Combat 34, Patrol 41, Use Weapon 42, Guard 44, Sandbox 45 [hypothesis:
+///   each package's main procedure]; Dialogue 43 [observed: Sunny Smiles on her Dialogue
+///   package, near and far, captures `fa_batch2_loaded_npcs` and `fp7_packages_locks`;
+///   not in the wiki's table];
+/// - 0 with no package [observed: Trudy and Joe Cobb, `fp7_packages_locks`].
 pub fn get_current_ai_procedure(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let furniture = g.furniture_use(r);
@@ -129,13 +149,14 @@ pub fn get_current_ai_procedure(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Va
     let code = match doing(g, r) {
         Doing::Talking => 4,
         Doing::Fighting => 13,
+        Doing::Fleeing => 16,
         Doing::Searching => 36,
         Doing::Package(t) => match furniture {
             Some(u) if u.state == 4 => 21,
             Some(u) if u.state == 3 && bed(&u) => 8,
             Some(u) if u.state == 3 => 48,
             _ if goal_met => 17,
-            _ => t.map_or(-1, procedure_code),
+            _ => t.map_or(0, procedure_code),
         },
     };
     Ok(Value::Num(code as f64))
@@ -146,7 +167,7 @@ pub fn procedure_code(t: PackageType) -> i32 {
     match t {
         PackageType::Travel | PackageType::Sleep => 0,
         PackageType::Find => 2,
-        PackageType::Dialogue => 4,
+        PackageType::Dialogue => 43,
         PackageType::Wander => 7,
         PackageType::Eat => 10,
         PackageType::Follow => 11,

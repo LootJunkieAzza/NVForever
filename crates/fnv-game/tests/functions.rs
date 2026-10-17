@@ -101,7 +101,8 @@ fn plugin_bytes() -> Vec<u8> {
     let snam = |f: u32| sub(b"SNAM", [f.to_le_bytes().to_vec(), vec![0; 4]].concat());
     let npcs = [
         npc(0x7, "Player", vec![]),
-        npc(NPC_CHILD, "ChildNpc", vec![sub(b"RNAM", RACE_CHILD.to_le_bytes().to_vec()), snam(F1)]),
+        // DATA: base health 50, S.P.E.C.I.A.L. 5 5 5 4 5 5 5 (Charisma 4).
+        npc(NPC_CHILD, "ChildNpc", vec![sub(b"RNAM", RACE_CHILD.to_le_bytes().to_vec()), snam(F1), sub(b"DATA", [50i32.to_le_bytes().to_vec(), vec![5, 5, 5, 4, 5, 5, 5]].concat())]),
         npc(NPC_ADULT, "AdultNpc", vec![snam(F2)]),
     ]
     .concat();
@@ -364,6 +365,52 @@ fn reputation_limits_levels_and_ignored_sizes() {
 }
 
 /// Damage and restore [documented: catalogue; observed: layer5-captures.md §9.3 b].
+#[test]
+fn resurrect_generates_a_dead_actor_again_where_it_lies() {
+    let f = fixture();
+    let mut g = game(&f);
+    let adult = FormId(ADULT_REF);
+    let av = |c: u16| ArgValue::Enum(c);
+    // Alive, given three items and hurt: ResurrectActor only heals it.
+    call(&mut g, 0x1002, Some(ADULT_REF), &[r(MISC), n(3.0)]);
+    call(&mut g, 0x1181, Some(ADULT_REF), &[av(16), n(5.0)]);
+    call(&mut g, 0x108C, Some(ADULT_REF), &[]);
+    assert_eq!(call(&mut g, 0x102F, Some(ADULT_REF), &[r(MISC)]), 3.0);
+    assert!(g.extra[&adult].av_damage.is_empty());
+    assert_eq!(g.rolls(adult), 0);
+    let first = g.take_resurrections();
+    assert_eq!((first.len(), first[0].regenerated, first[0].animate), (1, false, false));
+    // Killed, one item taken from the corpse, moved by a script, then raised with the
+    // animate flag: its own item list is not rolled again (what is left stays, capture
+    // rs1), and it stands where it was put.
+    call(&mut g, 0x108B, Some(ADULT_REF), &[r(PLAYER)]);
+    call(&mut g, 0x1052, Some(ADULT_REF), &[r(MISC), n(1.0)]);
+    let put = [150.0, -20.0, 8.0];
+    g.world.get(adult).unwrap().pos = put;
+    call(&mut g, 0x108C, Some(ADULT_REF), &[n(1.0)]);
+    assert_eq!(call(&mut g, 0x102E, Some(ADULT_REF), &[]), 0.0);
+    assert_eq!(call(&mut g, 0x102F, Some(ADULT_REF), &[r(MISC)]), 2.0);
+    assert_eq!(g.world.peek(adult).unwrap().pos, put);
+    // The engine tells where its body lay: the reference goes there, its walker starts
+    // again from it.
+    g.teleported.clear();
+    g.stand_where_the_body_lies(adult, [180.0, -10.0, 9.0]);
+    assert_eq!(g.world.peek(adult).unwrap().pos, [180.0, -10.0, 9.0]);
+    assert!(g.teleported.contains(&adult));
+    assert_eq!(g.rolls(adult), 1);
+    assert_eq!(g.take_resurrections(), vec![fnv_game::resurrect::Resurrection { actor: adult, animate: true, regenerated: true, rolls: 1 }]);
+    assert!(g.take_resurrections().is_empty());
+}
+
+#[test]
+fn roll_seeds_keep_the_first_pick_and_differ_after() {
+    use fnv_sim::leveled::roll_seed;
+    let r = FormId(ADULT_REF);
+    assert_eq!(roll_seed(r, 0), r);
+    let seeds: std::collections::BTreeSet<FormId> = (0..64).map(|n| roll_seed(r, n)).collect();
+    assert_eq!(seeds.len(), 64);
+}
+
 #[test]
 fn restore_heals_damage_only() {
     let f = fixture();
@@ -1077,4 +1124,92 @@ fn is_weapon_out_answers_for_undrawn_actors() {
     // The dead hold nothing out.
     call(&mut g, 0x108B, Some(ADULT_REF), &[]);
     assert_eq!(call(&mut g, 0x1065, Some(ADULT_REF), &[]), 0.0);
+}
+
+/// The second audit round (docs/design/script-function-coverage.md §4): what the function
+/// probes of 2026-10-17 observed in the original game.
+#[test]
+fn function_probe_round_two_fixes() {
+    let mut f = fixture();
+    // The adult's record: Disposition Base 35 (as every Goodsprings resident); the
+    // activator stands in for a terminal of difficulty Easy (code 1).
+    f.data.actors.get_mut(&FormId(NPC_ADULT)).unwrap().disposition_base = 35;
+    f.data.terminals.insert(FormId(ACTI), fnv_game::data::TerminalDef { difficulty: 1, ..Default::default() });
+    let mut g = game(&f);
+    let av = |c: u16| ArgValue::Enum(c);
+    let cha = fnv_game::actor_values::CHARISMA;
+    // GetDisposition (towards the child): base + 10 x (target's Charisma - 5), within 0..100; SetDisposition wins.
+    assert_eq!(call(&mut g, 0x104C, Some(ADULT_REF), &[r(CHILD_REF)]), 25.0);
+    call(&mut g, 0x100F, Some(CHILD_REF), &[av(cha), n(5.0)]);
+    assert_eq!(call(&mut g, 0x104C, Some(ADULT_REF), &[r(CHILD_REF)]), 35.0);
+    call(&mut g, 0x100F, Some(CHILD_REF), &[av(cha), n(10.0)]);
+    assert_eq!(call(&mut g, 0x104C, Some(ADULT_REF), &[r(CHILD_REF)]), 85.0);
+    call(&mut g, 0x100F, Some(CHILD_REF), &[av(cha), n(1.0)]);
+    assert_eq!(call(&mut g, 0x104C, Some(ADULT_REF), &[r(CHILD_REF)]), 0.0);
+    call(&mut g, 0x1184, Some(ADULT_REF), &[r(CHILD_REF), n(20.0)]);
+    assert_eq!(call(&mut g, 0x104C, Some(ADULT_REF), &[r(CHILD_REF)]), 20.0);
+    // A terminal: nothing while its cell is not loaded; its difficulty once it is; Lock
+    // 50 gives 2 and 5, Unlock 0 and -1, and the terminal then opens at its menu.
+    let (get_locked, get_level) = (0x1005, 0x1041);
+    g.set_loaded(Default::default());
+    assert_eq!((call(&mut g, get_locked, Some(ACTI_REF), &[]), call(&mut g, get_level, Some(ACTI_REF), &[])), (0.0, 0.0));
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    assert_eq!((call(&mut g, get_locked, Some(ACTI_REF), &[]), call(&mut g, get_level, Some(ACTI_REF), &[])), (1.0, 1.0));
+    call(&mut g, 0x1072, Some(ACTI_REF), &[n(50.0)]);
+    assert_eq!((call(&mut g, get_locked, Some(ACTI_REF), &[]), call(&mut g, get_level, Some(ACTI_REF), &[])), (2.0, 5.0));
+    call(&mut g, 0x1073, Some(ACTI_REF), &[]);
+    assert_eq!((call(&mut g, get_locked, Some(ACTI_REF), &[]), call(&mut g, get_level, Some(ACTI_REF), &[])), (0.0, -1.0));
+    assert_eq!(fnv_game::terminal::opening(&mut g, FormId(ACTI_REF), FormId(ACTI), 0.0), Some(fnv_game::terminal::Opening::Menu));
+    // The terminal's own lock, not the world's: a container keeps its lock data.
+    assert!(g.world.get(FormId(ACTI_REF)).unwrap().lock.is_none());
+    // IsFacingUp / IsLeftUp read 1 on a standing actor.
+    assert_eq!(call(&mut g, 0x106A, Some(ADULT_REF), &[]), 1.0);
+    assert_eq!(call(&mut g, 0x111D, Some(CREA_REF), &[]), 1.0);
+    // GetDayOfWeek follows GameDaysPassed, not the calendar globals: day 5 is a Friday
+    // whatever the date says; day 13 a Saturday.
+    g.world.set_global(FormId(G_YEAR), 2284.0).unwrap();
+    assert_eq!(call(&mut g, 0x10AA, None, &[]), 5.0);
+    g.world.set_global(FormId(0x805), 13.4).unwrap();
+    assert_eq!(call(&mut g, 0x10AA, None, &[]), 6.0);
+    // GetPCMiscStat "Locations Discovered" (code 1) counts the markers found.
+    g.set_found_markers([FormId(ACTI_REF), FormId(CONT_REF)]);
+    assert_eq!(call(&mut g, 0x1138, None, &[ArgValue::Enum(1)]), 2.0);
+}
+
+#[test]
+fn the_player_detects_and_far_pairs_fight() {
+    use fnv_game::awareness::State;
+    use fnv_game::detection::{Settings, Situation};
+    let f = fixture();
+    let mut g = game(&f);
+    let s = Settings::default();
+    let (get_detected, get_los, in_combat) = (0x102D, 0x101B, 0x1121);
+    // The player as the detector: what the engine measured from the camera, read by
+    // player.GetDetected / player.GetLineOfSight [observed: Ringo and Chet read 1 in the
+    // original, function probes fp1/fp2 2026-10-17].
+    let seen = Situation { distance: 300.0, exterior: true, line_of_sight: true, in_view: true, light: 80.0, ..Default::default() };
+    g.detect(&s, FormId(PLAYER), FormId(ADULT_REF), &seen);
+    assert_eq!(call(&mut g, get_detected, Some(PLAYER), &[r(ADULT_REF)]), 1.0);
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 1.0);
+    // Behind the camera: out of the field of view, no line of sight.
+    g.detect(&s, FormId(PLAYER), FormId(ADULT_REF), &Situation { in_view: false, ..seen });
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 0.0);
+    // The player's detection is the body's view, GetLineOfSight the camera's [observed:
+    // capture detection-2, third person]: detected while the camera does not see it.
+    g.detect(&s, FormId(PLAYER), FormId(ADULT_REF), &Situation { camera_sight: Some(false), ..seen });
+    assert_eq!(call(&mut g, get_detected, Some(PLAYER), &[r(ADULT_REF)]), 1.0);
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 0.0);
+    g.detect(&s, FormId(PLAYER), FormId(ADULT_REF), &Situation { in_view: false, camera_sight: Some(true), ..seen });
+    assert_eq!(call(&mut g, get_detected, Some(PLAYER), &[r(ADULT_REF)]), 0.0);
+    assert_eq!(call(&mut g, get_los, Some(PLAYER), &[r(ADULT_REF)]), 1.0);
+    // Nothing in the rules asks where the player is: a Frenzied actor that detects
+    // another (the engine measures pairs far from the player too, `fnv_game::sight`)
+    // goes to Combat, and IsInCombat reads 1.
+    call(&mut g, 0x100F, Some(ADULT_REF), &[ArgValue::Enum(fnv_game::actor_values::AGGRESSION), n(3.0)]);
+    assert_eq!(call(&mut g, in_combat, Some(ADULT_REF), &[]), 0.0);
+    let (det, _) = g.detect(&s, FormId(ADULT_REF), FormId(CREA_REF), &seen);
+    g.observe_threat(FormId(ADULT_REF), FormId(CREA_REF), &det, [8000.0, 300.0, 0.0]);
+    g.settle_awareness();
+    assert_eq!(g.awareness.state(FormId(ADULT_REF)), State::Combat);
+    assert_eq!(call(&mut g, in_combat, Some(ADULT_REF), &[]), 1.0);
 }

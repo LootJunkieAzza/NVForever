@@ -22,11 +22,14 @@
 //! A row can be a [`Slider`] instead ([`Setting::slider`]): a part of a full amount, up
 //! to 1, set in steps by Left/Right or its meter (e.g. how far objects are drawn, as a
 //! part of how far they are drawn at most). It is kept as `key=0.50`; a value that is not
-//! a number is skipped with a warning, one out of range is brought into it.
+//! a number is skipped with a warning, one out of range is brought into it. A slider can
+//! show its value as words instead of a percentage ([`Slider::shown`]): a choice among a
+//! few (the anti-aliasing, [`Slider::choice`]) or a number of its own (the field of
+//! view's degrees), still kept as the part.
 //!
 //! What is not here: choices fixed when the game starts (which NPCs live by their
-//! packages, FaceGen, the load order), most numbers (volumes, the field of view) and the
-//! test aids.
+//! packages, FaceGen, the load order), most numbers (the volumes, the field of view and the
+//! draw distances are sliders) and the test aids.
 
 use bevy::prelude::*;
 use fnv_install::{guard_write, ini_get, ini_set, EngineHome, HOME_ENV};
@@ -73,9 +76,25 @@ pub struct Slider {
     pub set: fn(&mut World, f32),
     pub min: f32,
     pub step: f32,
+    /// How the page and the log show a value (`None`: as a percentage).
+    pub shown: Option<fn(f32) -> String>,
 }
 
 impl Slider {
+    /// A choice among `n` (at least 2) as a slider: choice `i` is the part `i / (n - 1)`
+    /// ([`choice_part`], [`choice_index`]), `shown` names it.
+    pub fn choice(n: usize, get: fn(&World) -> f32, set: fn(&mut World, f32), shown: fn(f32) -> String) -> Slider {
+        Slider { get, set, min: 0.0, step: 1.0 / (n.max(2) - 1) as f32, shown: Some(shown) }
+    }
+
+    /// The value as the page and the log show it.
+    pub fn text(&self, v: f32) -> String {
+        match self.shown {
+            Some(f) => f(v),
+            None => format!("{:.0}%", v * 100.0),
+        }
+    }
+
     /// `v` brought into `min..=1` and onto a step (so a stored value is one the keys
     /// reach), rounded to a thousandth so 0.55 stays 0.55.
     pub fn fit(&self, v: f32) -> f32 {
@@ -83,6 +102,18 @@ impl Slider {
         let v = (v.clamp(self.min, 1.0) / step).round() * step;
         ((v * 1000.0).round() / 1000.0).clamp(self.min, 1.0)
     }
+}
+
+/// Choice `i` of `n` as a slider's part, as [`Slider::fit`] keeps it.
+pub fn choice_part(i: usize, n: usize) -> f32 {
+    let n = n.max(2) - 1;
+    ((i.min(n) as f32 / n as f32) * 1000.0).round() / 1000.0
+}
+
+/// The choice of `n` a slider's part `v` stands for.
+pub fn choice_index(v: f32, n: usize) -> usize {
+    let n = n.max(2) - 1;
+    ((v.clamp(0.0, 1.0) * n as f32).round() as usize).min(n)
 }
 
 impl Setting {
@@ -184,7 +215,7 @@ pub fn set_slider(world: &mut World, i: usize, v: f32) -> Option<f32> {
     let v = slider.fit(v);
     if (slider.get)(world) != v {
         (slider.set)(world, v);
-        info!("settings: {} {:.0}%", s.key, v * 100.0);
+        info!("settings: {} {}", s.key, slider.text(v));
         store(world);
     }
     Some(v)
@@ -265,7 +296,7 @@ pub fn apply_stored(world: &mut World) {
         if s.value(world) != v {
             s.put(world, v);
             changed.push(match s.slider {
-                Some(_) => format!("{} {:.0}%", s.key, v * 100.0),
+                Some(sl) => format!("{} {}", s.key, sl.text(v)),
                 None => format!("{} {}", s.key, if v > 0.5 { "on" } else { "off" }),
             });
         }
@@ -316,7 +347,7 @@ mod tests {
     struct Reach(f32);
 
     fn slider(key: &'static str) -> Setting {
-        Setting::slider(key, "Test", key, "", Slider { get: |w| w.resource::<Reach>().0, set: |w, v| w.resource_mut::<Reach>().0 = v, min: 0.1, step: 0.05 })
+        Setting::slider(key, "Test", key, "", Slider { get: |w| w.resource::<Reach>().0, set: |w, v| w.resource_mut::<Reach>().0 = v, min: 0.1, step: 0.05, shown: None })
     }
 
     #[test]
@@ -416,5 +447,22 @@ mod tests {
         assert_eq!(bad, ["reach=far"]);
         assert_eq!(stored("[Settings]\nreach=3\n", &[slider("reach")], &mut bad), [(0, 1.0)]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_choice_is_a_slider_whose_steps_are_the_choices_and_survives_the_ini() {
+        let shown: fn(f32) -> String = |v| ["off", "low", "high"][choice_index(v, 3)].to_string();
+        let c = Slider::choice(3, |_| 0.0, |_, _| {}, shown);
+        assert_eq!((c.text(0.5), c.text(1.0)), ("low".to_string(), "high".to_string()));
+        for n in [2, 3, 4, 5, 7, 13] {
+            let c = Slider::choice(n, |_| 0.0, |_, _| {}, shown);
+            let row = Setting::slider("c", "Test", "c", "", c);
+            for i in 0..n {
+                let v = choice_part(i, n);
+                assert_eq!(c.fit(v), v, "{i} of {n} is on a step");
+                let back = row.parse(&row.stored_text(v)).expect("a number");
+                assert_eq!((back, choice_index(back, n)), (v, i), "{i} of {n} read back");
+            }
+        }
     }
 }

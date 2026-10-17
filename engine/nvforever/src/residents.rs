@@ -485,7 +485,8 @@ impl Residents {
         let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(world.lo, world.schema, world.index)));
         let mut all = false;
         let mut core = Core {
-            ai: Ai::new(AiConfig { walk_speed, ..AiConfig::default() }),
+            // Test aid: conversations between NPCs anywhere in the loaded area.
+            ai: Ai::new(AiConfig { walk_speed, chats_anywhere: std::env::var("NVF_PLAY_TEST_CHATS_ANYWHERE").is_ok_and(|v| v == "1"), ..AiConfig::default() }),
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
@@ -581,6 +582,19 @@ impl Residents {
 
     pub fn references(&self) -> impl Iterator<Item = u32> + '_ {
         self.core.list.iter().map(|r| r.actor.0)
+    }
+
+    /// Draw `actor` anew (a resurrected corpse, `resurrect.rs`): its body is taken away and
+    /// [`drive`] spawns a fresh one where its walker stands. Whether it is a resident.
+    pub fn redraw(&mut self, commands: &mut Commands, actor: u32) -> bool {
+        let Some(r) = self.core.list.iter_mut().find(|r| r.actor.0 == actor) else { return false };
+        if let Some(e) = r.root.take() {
+            commands.entity(e).despawn();
+        }
+        r.spawned = false;
+        r.last_drawn = None;
+        r.seat = Seat::None;
+        true
     }
 }
 
@@ -1178,11 +1192,16 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             to[2],
             if away.is_finite() { format!("{away:.0} units") } else { "in another cell".to_string() }
         ),
-        AiEvent::FleeArrived { from, seconds, off } => format!(
-            "reached its flee spot from {} after {seconds:.1}s ({off:.0} units off): stays there",
-            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }
+        AiEvent::FleeArrived { from, seconds, off, hides } => format!(
+            "reached its flee spot from {} after {seconds:.1}s ({off:.0} units off): {}",
+            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) },
+            if *hides { "hides there, crouched" } else { "stays there" }
         ),
-        AiEvent::Cornered { from } => format!("is cornered by {}: nowhere to flee, stands", if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }),
+        AiEvent::Cornered { from, hides } => format!(
+            "is cornered by {}: nowhere to flee, {}",
+            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) },
+            if *hides { "hides where it is, crouched" } else { "stands" }
+        ),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
         AiEvent::BackHome { away, length } => format!(
@@ -1409,7 +1428,9 @@ pub fn drive(
         // Drawn where its character is between two physics steps (as the player is): the
         // steps run at a fixed rate, and frames that held none showed the actor standing
         // (no movement this frame, so the idle clip), which made walks stop and start.
-        let feet = phys.as_deref().and_then(|p| p.npc_drawn_feet(r.actor.0)).unwrap_or(w.feet);
+        // Without a character, standing: on the drawn ground when its feet rest on the
+        // collision as a character's would.
+        let feet = phys.as_deref_mut().map_or(w.feet, |p| p.npc_drawn_feet(r.actor.0).unwrap_or_else(|| p.standing_drawn_feet(r.actor.0, w.feet)));
         let step = [feet[0] - r.drawn_feet[0], feet[1] - r.drawn_feet[1]];
         let moving = agent.activity == Activity::Travelling && step[0].hypot(step[1]) > 1e-4;
         if visible && r.spawned && !on && !core.held_now && agent.activity == Activity::Travelling {
@@ -1579,9 +1600,10 @@ pub fn report(
         core.waited[1],
         each.join("; ")
     );
+    let st = core.ai.social_stats();
     info!(
-        "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up)",
-        core.social[0], core.social[1], core.social[2], core.social[3]
+        "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up); {} tries next to the player, {} chances won; {:.0} actor-seconds next to the player",
+        core.social[0], core.social[1], core.social[2], core.social[3], st.tries, st.chances_won, st.near_player_seconds
     );
     let p = &core.ai.process_stats;
     let (high, low) = core.ai.process_counts();

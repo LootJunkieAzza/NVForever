@@ -366,3 +366,85 @@ GetCalculatedMaxCarryWeight calls CarryWeight an actor value; the formulas read 
 values, actor-values.md]. The game layer keeps the world's capacity (the menus' Wg line,
 `fnv_sim::World::encumbrance`) at the current Carry Weight whenever Strength or Carry
 Weight changes: Buffout's +2 Strength gives 220 at Strength 5 while it lasts.
+
+## 13. Authored abilities and worn enchantments
+
+An actor's own abilities and the enchantments of what it wears are active effects like
+an added spell's, so IsSpellTarget, HasMagicEffect, GetActorValue and RemoveSpell see them
+(code: `crates/fnv-game/src/abilities.rs`; tests: `crates/fnv-game/tests/abilities.rs`).
+
+What the records hold:
+
+- **NPC_ / CREA `SPLO`** "Actor Effect" [documented: schema `gameplay.json`]: 838 actor
+  records of FalloutNV.esm list 1414 of them, 1388 of type Ability (RadImmunity 383 times,
+  PoisonImmunity 198, PerkToughness 121, GhoulRadHeal 86, the creatures' DT abilities) and
+  26 of type Actor Effect (Ruthless, LegionExplorerAura, SporeCarrierRegen: effects with an
+  area or a duration) [observed, 2026-10-17]. With the ACBS template flag "Actor Effect
+  List" the template's list counts [documented: schema template flags; observed:
+  GSVictorRef's base Victor sets it, its template VSecuritronMk1TEMPLATE lists
+  SecuritronDT, RadImmunity and PoisonImmunity].
+- **RACE `SPLO`**: no race of FalloutNV.esm has one [observed]; read as NPC_'s for plugins
+  that add them [hypothesis].
+- **ARMO `EITM`**: the armour's object effect, an ENCH [documented: GECK wiki ActorValue,
+  "the various object effects found on armor pieces"; observed: 186 ARMO of FalloutNV.esm,
+  each naming an ENCH of ENIT type 3 Apparel]. WEAP `EITM` names one of type 2 Weapon (59
+  of them), applied by a hit instead (hit-effects.md).
+
+The rules (capture `abilities-1`, 2026-10-17: the probe file sits in the coordinator's
+requests, the outputs in the private capture folder `probe\abilities-1`; all 79 probes both
+sides answered agree with ours):
+
+1. **Authored abilities join the spell list once per actor**, the first time it is
+   processed: every frame for the player and the actors in the loaded cells, and before a
+   script asks IsSpellTarget, HasMagicEffect, GetActorValue, GetPermanentActorValue,
+   AddSpell, RemoveSpell or Dispel of it. Only type Ability joins; an SPLO of type Actor
+   Effect is a spell the actor could cast [hypothesis]. The actor is marked so they are
+   not added again (saved, `RefExtra::abilities_given`).
+2. **Abilities are active only while the actor is loaded** (the player always): the
+   abilities in its spell list start when it is in a loaded cell and end when it is not
+   [observed: GSVictorRef seen from the gas station, RexREF and LilyRef far away read
+   IsSpellTarget 0, HasMagicEffect 0 and no modifier (Victor's DT 0, Lily's RadResist 14);
+   Victor next to the player read 1 and DT 20 = his SecuritronDT; hypothesis: a disabled
+   actor counts as not loaded, and an ability AddSpell gives an actor out of the loaded
+   area waits for it].
+3. **Race abilities follow the race**: the player's race is the character creator's
+   choice; when it changes, the old race's abilities go and the new race's come
+   [hypothesis; no race of FalloutNV.esm has any].
+4. **A worn enchantment lasts while the item is equipped** on a loaded actor: its effects
+   start when the item is equipped (EquipItem at once, otherwise in the frame) and end,
+   with their finish blocks, when it is unequipped or leaves the inventory [observed: the
+   gambler hat: IsSpellTarget of its enchantment 0 carried, 1 worn, 0 unequipped and 0
+   once removed from the inventory while worn; Perception 5, 6, 5; reinforced metal
+   armour's Reduce Agility 5 to 4 and back; documented: GECK wiki ActorValue]. The effect
+   records the item (`ActiveEffect::worn`), saved with it. IsSpellTarget of the ARMO
+   itself is 0 [observed]. An actor never loaded (no inventory yet) wears nothing.
+5. **Pools**: a worn enchantment's Recover value modifier is in the temporary pool; an
+   ability's without conditions is in the permanent pool for the player and the temporary
+   pool for anyone else [documented: GECK wiki ActorValue; observed: the hat leaves
+   GetBaseAV and GetPermanentActorValue Perception at 5; Victor's DT ability leaves his
+   permanent DT at 0; the player's added PerkToughness raises GetPermanentActorValue
+   DamageResist to 10] (§3).
+6. **Conditions**: an effect whose conditions fail is listed but inactive: no value
+   change, no script; IsSpellTarget and HasMagicEffect both count it [observed: the Four
+   Eyes glasses worn without the trait: IsSpellTarget 1, HasMagicEffect IncreasePerception
+   1, Perception 5]. Its conditions are checked again every second and it takes hold (or
+   lets go, its modifier leaving the pool and its finish block running) when they change
+   [hypothesis: the interval, and suspended rather than removed].
+7. **Removing them**:
+   - RemoveSpell takes an authored ability away for good; AddSpell puts it back
+     [observed: Victor's SecuritronDT: IsSpellTarget 0, DT 0, RadImmunity kept; AddSpell:
+     1, DT 20].
+   - Dispel of an ability ends its effects [observed: Victor's SecuritronDT, DT 20 to 0];
+     it stays in the list and comes back when the actor is loaded again [hypothesis].
+   - Dispel of a worn item's enchantment ends it until the item is equipped again
+     [observed: the hat: 0 and Perception 5 after Dispel, 1 and 6 after unequip and
+     equip].
+   - DispelAllSpells leaves abilities [observed: Victor's RadImmunity and the player's
+     PerkToughness stayed] and worn enchantments [hypothesis: the probe's hat had already
+     been dispelled].
+   - RemoveSpell of an enchantment leaves a worn item's effect [hypothesis, as above].
+
+Not settled: GetActorValueModifier did not compile in the game's probe script (the
+function needs a different form), and the script name `PoisonResist` (the original answers
+125 on Victor: 25 + PoisonImmunity's 100) is missing from our decoder's actor value
+names (`crates/fnv-script/data/encodings.json` lists the names seen in compiled scripts).

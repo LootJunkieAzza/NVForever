@@ -37,11 +37,14 @@ Rules here:
   actor base that supplies its actor effects (template flag "Actor Effect List")
   [hypothesis: EITM belongs to that group]; a blast applies its EXPL's to every actor it
   damages.
-- **EAMT**: "Any" goes with every blow. Another animation is not told apart [design]:
-  the creatures' attacks here are their `h2hattack*` clips taken in turn with the power
-  and forward ones left out (attack_anims.rs), so a radscorpion would never poison.
-  Every blow applies it, logged once per item (`hit effect: … names the attack …`). The
-  original presumably poisons only on the sting attack [hypothesis from the name].
+- **EAMT**: "Any" goes with every blow. A power attack's group (`AttackPower`,
+  `AttackForwardPower`) goes only with that power attack: creatures make power attacks
+  (npc_combat.rs, by the combat style's Power Attack % Chance, else a 25 % fallback
+  [design: owner 2026-10-16]) with their own clips, the radscorpion's sting being
+  `h2hattackforwardpower.kf` and `h2hattackpower.kf` [observed: the base meshes archive],
+  so a radscorpion poisons with its forward power attack only [hypothesis from the
+  name]. An ordinary group (`AttackLeft` …) is not told apart [design]: every ordinary
+  blow applies it, logged once per item (`hit effect: … names the attack …`).
 - The weapon's critical effect (`CRDT`, e.g. `FlamerCritEffect02`) is not applied here.
 
 ## 2. The effects and the refresh rule
@@ -118,7 +121,8 @@ at exit. Smoke: `flamer-burns-player`, `flamer-burns-npc`, `radscorpion-poison`,
 
 - How long the flamer's burn lasts after the last hit, and whether a corpse burns.
 - Several cazador stings: one poison refreshed, or several adding up?
-- Does a radscorpion poison with every attack or only its forward power attack?
+- Does a radscorpion poison with every attack or only its forward power attack (built:
+  only the forward power attack)? How often does it sting?
 
 ## 7. Seen in this engine (smoke runs, 2026-10-16)
 

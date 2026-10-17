@@ -1,0 +1,481 @@
+# Script-function probes, round 2 of the audit (docs/design/script-function-audit.md §4,
+# docs/design/script-function-coverage.md). `function_probe.py jobs` turns this file into
+# game jobs and our runner's inputs; the plugin runs the jobs one after another in one
+# session, in name order, so later batches see what earlier ones did. Everything here is
+# FormIDs of the shipped masters (facts of the format, no game data).
+format = "fnv.function.probes/1"
+
+[forms]
+sunny = "FalloutNV.esm:104E85"        # SunnyRef
+trudy = "FalloutNV.esm:104C6D"        # TrudyRef
+ringo = "FalloutNV.esm:104C7D"        # RingoRef (in the gas station of nvftest)
+chet = "FalloutNV.esm:104C79"         # GSChetRef
+pete = "FalloutNV.esm:104C80"         # EasyPeteRef
+doc = "FalloutNV.esm:104C0F"          # DocMitchellREF
+cobb = "FalloutNV.esm:104C68"         # GSJoeCobbRef
+victor = "FalloutNV.esm:1073E8"       # GSVictorRef
+safe = "FalloutNV.esm:10B2D4"         # the gas station's safe
+gsdoor = "FalloutNV.esm:10903F"       # the gas station's door
+hostdoor = "FalloutNV.esm:13F859"     # VHostetlerRoomDoorREF (a script asks GetLockLevel == 255)
+gsmarker = "FalloutNV.esm:0CDF51"     # Goodsprings map marker
+term = "FalloutNV.esm:0D74D5"         # DefaultUnlockTermDESK1Easy in BisonSteve01
+bed = "FalloutNV.esm:176ACE"          # a bed in GSHouseInterior03
+gsgas = "FalloutNV.esm:109038"        # CELL GSGasStation
+gsstore = "FalloutNV.esm:1057F1"      # CELL GSGeneralStore
+bison = "FalloutNV.esm:0D6FAF"        # CELL BisonSteve01
+gshouse = "FalloutNV.esm:105619"      # CELL GSHouseInterior03
+saloon = "FalloutNV.esm:106185"       # CELL GSProspectorSaloonInterior
+saloonterm = "FalloutNV.esm:10872F"   # DefaultUnlockTermDESK1Easy in the saloon
+crate = "FalloutNV.esm:10B2CF"        # a crate in the gas station (no lock)
+sack = "FalloutNV.esm:10B2D2"         # a sack in the gas station (no lock)
+storelocker = "FalloutNV.esm:1735BD"  # a footlocker in the general store
+saloondoor = "FalloutNV.esm:108BC7"   # RamshackleScrapDoor01 in the saloon
+# AI packages of the Goodsprings people (fp7)
+pk0200d5 = "FalloutNV.esm:0200D5"
+pk104c1d = "FalloutNV.esm:104C1D"
+pk104c1e = "FalloutNV.esm:104C1E"
+pk1055bd = "FalloutNV.esm:1055BD"
+pk10588c = "FalloutNV.esm:10588C"
+pk105bd1 = "FalloutNV.esm:105BD1"
+pk105bd2 = "FalloutNV.esm:105BD2"
+pk105cc7 = "FalloutNV.esm:105CC7"
+pk10655e = "FalloutNV.esm:10655E"
+pk10663e = "FalloutNV.esm:10663E"
+pk106641 = "FalloutNV.esm:106641"
+pk107238 = "FalloutNV.esm:107238"
+pk10a215 = "FalloutNV.esm:10A215"
+pk10a216 = "FalloutNV.esm:10A216"
+pk10a217 = "FalloutNV.esm:10A217"
+pk10a218 = "FalloutNV.esm:10A218"
+pk10a219 = "FalloutNV.esm:10A219"
+pk10a21a = "FalloutNV.esm:10A21A"
+pk10a21b = "FalloutNV.esm:10A21B"
+pk10a21c = "FalloutNV.esm:10A21C"
+pk10a21d = "FalloutNV.esm:10A21D"
+pk10aae9 = "FalloutNV.esm:10AAE9"
+pk10aba8 = "FalloutNV.esm:10ABA8"
+pk10aba9 = "FalloutNV.esm:10ABA9"
+pk10b046 = "FalloutNV.esm:10B046"
+pk10b756 = "FalloutNV.esm:10B756"
+pk1111c5 = "FalloutNV.esm:1111C5"
+pk116810 = "FalloutNV.esm:116810"
+pk15d9f5 = "FalloutNV.esm:15D9F5"
+pk15ed62 = "FalloutNV.esm:15ED62"
+pk15ef9e = "FalloutNV.esm:15EF9E"
+pk15f31a = "FalloutNV.esm:15F31A"
+pk15f8c5 = "FalloutNV.esm:15F8C5"
+pk15f8dc = "FalloutNV.esm:15F8DC"
+pk168fac = "FalloutNV.esm:168FAC"
+pk168fad = "FalloutNV.esm:168FAD"
+pk16a9af = "FalloutNV.esm:16A9AF"
+pk16a9b0 = "FalloutNV.esm:16A9B0"
+pk16addc = "FalloutNV.esm:16ADDC"
+pk176acc = "FalloutNV.esm:176ACC"
+pk176acd = "FalloutNV.esm:176ACD"
+pk176acf = "FalloutNV.esm:176ACF"
+pk176ad3 = "FalloutNV.esm:176AD3"
+pk1790f3 = "FalloutNV.esm:1790F3"
+pk1790f9 = "FalloutNV.esm:1790F9"
+
+# ---------------------------------------------------------------- 1: read-only, gas station
+
+[[batch]]
+name = "fp1_queries"
+title = "Function probes 1: read-only queries in the gas station (about 1 min, no input)"
+start = "nvftest (Goodsprings gas station); nothing is changed."
+ours_start = [{ op = "go_to_cell", cell = "GSGasStation" }, { op = "wait_frames", frames = 300 }]
+steps = [
+  # GetDisposition: base value, what differs between NPCs (stub 0 on ours).
+  { ask = "@sunny.GetDisposition player" },
+  { ask = "@trudy.GetDisposition player" },
+  { ask = "@ringo.GetDisposition player" },
+  { ask = "@chet.GetDisposition player" },
+  { ask = "@pete.GetDisposition player" },
+  { ask = "@doc.GetDisposition player" },
+  { ask = "@cobb.GetDisposition player" },
+  { ask = "@ringo.GetDisposition @sunny" },
+  # GetCurrentAIPackage / Procedure codes: the same NPCs, loaded or not.
+  { ask = "@ringo.GetCurrentAIPackage" },
+  { ask = "@ringo.GetCurrentAIProcedure" },
+  { ask = "@sunny.GetCurrentAIPackage" },
+  { ask = "@trudy.GetCurrentAIPackage" },
+  { ask = "@chet.GetCurrentAIPackage" },
+  { ask = "@pete.GetCurrentAIPackage" },
+  { ask = "@doc.GetCurrentAIPackage" },
+  { ask = "@cobb.GetCurrentAIPackage" },
+  { ask = "@victor.GetCurrentAIPackage" },
+  # GetCauseofDeath of a live, loaded actor.
+  { ask = "@ringo.GetCauseofDeath" },
+  { ask = "@ringo.GetDead" },
+  # Ringo at rest: detection, combat, talking, idles.
+  { ask = "@ringo.HasLoaded3D" },
+  { ask = "@ringo.IsInCombat" },
+  { ask = "@ringo.GetDetected player" },
+  { ask = "player.GetDetected @ringo" },
+  { ask = "player.GetLineOfSight @ringo" },
+  { ask = "@ringo.GetLineOfSight player" },
+  { ask = "@ringo.IsTalking" },
+  { ask = "player.IsTalking" },
+  { ask = "@ringo.IsIdlePlaying" },
+  { ask = "@ringo.GetSitting" },
+  { ask = "@ringo.GetSleeping" },
+  { ask = "player.GetSleeping" },
+  { ask = "IsPCSleeping" },
+  { ask = "@ringo.IsMoving" },
+  { ask = "player.IsMoving" },
+  { ask = "@ringo.GetIsAlerted" },
+  { ask = "@ringo.GetAlarmed" },
+  { ask = "@ringo.GetShouldAttack player" },
+  { ask = "@ringo.IsTrespassing" },
+  { ask = "player.IsTrespassing" },
+  { ask = "@ringo.GetKnockedState" },
+  { ask = "@ringo.GetUnconscious" },
+  { ask = "@ringo.IsInCriticalStage 0" },
+  { ask = "@ringo.IsInCriticalStage 1" },
+  { ask = "@ringo.GetAnimAction" },
+  # Stubs at rest: does the original also give 0 here?
+  { ask = "player.GetRadiationLevel" },
+  { ask = "player.IsSwimming" },
+  { ask = "@ringo.IsSwimming" },
+  { ask = "@ringo.IsLimbGone 1" },
+  { ask = "@ringo.IsFacingUp" },
+  { ask = "@ringo.IsLeftUp" },
+  { ask = "@ringo.IsActorTalkingThroughActivator" },
+  { ask = "IsPlayerActionActive 9" },
+  { ask = "IsPlayerActionActive 1" },
+  { ask = "GetVATSMode" },
+  { ask = "@ringo.HasBeenEaten" },
+  { ask = "player.GetCannibal" },
+  { ask = "player.GetSandman" },
+  { ask = "@ringo.GetPlantedExplosive" },
+  { ask = "@ringo.GetForceHitReaction" },
+  { ask = "@ringo.GetUsedItemActivate" },
+  { ask = "IsPlayerGrabbedRef @safe" },
+  # Menus and the player.
+  { ask = "MenuMode" },
+  { ask = "MenuMode 1" },
+  { ask = "IsPC1stPerson" },
+  { ask = "player.GetLevel" },
+  { ask = "GetXPForNextLevel" },
+  { ask = "GetPlayerTeammateCount" },
+  # Locks: a safe, a door, a far door a script compares with 255, a far terminal.
+  { ask = "@safe.GetLocked" },
+  { ask = "@safe.GetLockLevel" },
+  { ask = "@gsdoor.GetLocked" },
+  { ask = "@gsdoor.GetLockLevel" },
+  { ask = "@hostdoor.GetLocked" },
+  { ask = "@hostdoor.GetLockLevel" },
+  { ask = "@term.GetLocked", label = "terminal GetLocked (unloaded)" },
+  { ask = "@term.GetLockLevel", label = "terminal GetLockLevel (unloaded)" },
+  # Map marker and the calendar.
+  { ask = "@gsmarker.GetMapMarkerVisible" },
+  { ask = "GetDayOfWeek" },
+  { game = "GameYear", ours = { op = "get_global", name = "GameYear" }, label = "GameYear" },
+  { game = "GameMonth", ours = { op = "get_global", name = "GameMonth" }, label = "GameMonth" },
+  { game = "GameDay", ours = { op = "get_global", name = "GameDay" }, label = "GameDay" },
+  { game = "GameDaysPassed", ours = { op = "get_global", name = "GameDaysPassed" }, label = "GameDaysPassed", tolerance = 0.5 },
+  # GetPCMiscStat: every statistic the wiki lists for New Vegas [documented: GECK wiki
+  # GetPCMiscStat]; ours counts only ModPCMiscStat.
+  { ask = 'GetPCMiscStat "Barter Amount Traded"' },
+  { ask = 'GetPCMiscStat "Blackjack Games Played"' },
+  { ask = 'GetPCMiscStat "Books Read"' },
+  { ask = 'GetPCMiscStat "Caravan Games Lost"' },
+  { ask = 'GetPCMiscStat "Caravan Games Won"' },
+  { ask = 'GetPCMiscStat "Challenges Completed"' },
+  { ask = 'GetPCMiscStat "Chems Taken"' },
+  { ask = 'GetPCMiscStat "Computers Hacked"' },
+  { ask = 'GetPCMiscStat "Corpses Eaten"' },
+  { ask = 'GetPCMiscStat "Creatures Killed"' },
+  { ask = 'GetPCMiscStat "Disintegrations"' },
+  { ask = 'GetPCMiscStat "Dismembered Limbs"' },
+  { ask = 'GetPCMiscStat "Doctor Bags Used"' },
+  { ask = 'GetPCMiscStat "Have Limbs Crippled"' },
+  { ask = 'GetPCMiscStat "Health From Food"' },
+  { ask = 'GetPCMiscStat "Health From Stimpaks"' },
+  { ask = 'GetPCMiscStat "Items Crafted"' },
+  { ask = 'GetPCMiscStat "Items Repaired"' },
+  { ask = 'GetPCMiscStat "Locations Discovered"' },
+  { ask = 'GetPCMiscStat "Locks Picked"' },
+  { ask = 'GetPCMiscStat "Mines Disarmed"' },
+  { ask = 'GetPCMiscStat "Miss Fortunate Occurrences"' },
+  { ask = 'GetPCMiscStat "Mysterious Stranger Visits"' },
+  { ask = 'GetPCMiscStat "Pants Exploded"' },
+  { ask = 'GetPCMiscStat "Paralyzing Punches"' },
+  { ask = 'GetPCMiscStat "People Killed"' },
+  { ask = 'GetPCMiscStat "Pockets Picked"' },
+  { ask = 'GetPCMiscStat "Quests Completed"' },
+  { ask = 'GetPCMiscStat "Rad-X Taken"' },
+  { ask = 'GetPCMiscStat "RadAway Taken"' },
+  { ask = 'GetPCMiscStat "Robots Disabled"' },
+  { ask = 'GetPCMiscStat "Roulette Games Played"' },
+  { ask = 'GetPCMiscStat "Sandman Kills"' },
+  { ask = 'GetPCMiscStat "Slots Games Played"' },
+  { ask = 'GetPCMiscStat "Speech Failures"' },
+  { ask = 'GetPCMiscStat "Speech Successes"' },
+  { ask = 'GetPCMiscStat "Stimpaks Taken"' },
+  { ask = 'GetPCMiscStat "Times Addicted"' },
+  { ask = 'GetPCMiscStat "Times Slept"' },
+  { ask = 'GetPCMiscStat "Total Things Killed"' },
+  { ask = 'GetPCMiscStat "Water Consumed"' },
+  { ask = 'GetPCMiscStat "Weapon Modifications"' },
+  { ask = 'GetPCMiscStat "Weapons Created"' },
+]
+
+# ---------------------------------------------------------------- 2: Goodsprings, cell loads
+
+[[batch]]
+name = "fp2_goodsprings"
+title = "Function probes 2: a cell load, then Goodsprings' people up close (about 2 min, no input)"
+start = "after fp1_queries (gas station)."
+ours_start = [{ op = "go_to_cell", cell = "GSGasStation" }, { op = "wait_frames", frames = 300 }]
+steps = [
+  { console = "tgm" },
+  { console = "tdetect" },
+  # HasLoaded3D after a cell load: how many loops until Chet has his 3D.
+  { coc = "GSGeneralStore", cell = "@gsstore", settle = 0 },
+  { until = "@chet.HasLoaded3D", max_frames = 1200, label = "frames until Chet HasLoaded3D after coc" },
+  { frames = 120 },
+  { ask = "@chet.GetCurrentAIPackage", label = "chet GetCurrentAIPackage (loaded)" },
+  { ask = "@chet.GetCurrentAIProcedure", label = "chet GetCurrentAIProcedure (loaded)" },
+  { ask = "@chet.GetDisposition player", label = "chet GetDisposition (loaded)" },
+  { ask = "@chet.GetSitting", label = "chet GetSitting (loaded)" },
+  { ask = "@chet.IsIdlePlaying", label = "chet IsIdlePlaying (loaded)" },
+  { ask = "@chet.GetDetected player", label = "chet GetDetected player (loaded)" },
+  { ask = "player.GetDetected @chet", label = "player GetDetected chet (loaded)" },
+  # Outdoors next to each NPC: MoveTo, then until the target has its 3D.
+  { do = "player.MoveTo @sunny", settle = 0 },
+  { until = "@sunny.HasLoaded3D", max_frames = 1800, label = "frames until Sunny HasLoaded3D after MoveTo" },
+  { frames = 120 },
+  { ask = "@sunny.GetCurrentAIPackage", label = "sunny GetCurrentAIPackage (near)" },
+  { ask = "@sunny.GetCurrentAIProcedure", label = "sunny GetCurrentAIProcedure (near)" },
+  { ask = "@sunny.GetDisposition player", label = "sunny GetDisposition (near)" },
+  { ask = "@trudy.GetCurrentAIPackage", label = "trudy GetCurrentAIPackage (near sunny)" },
+  { ask = "@pete.GetCurrentAIPackage", label = "pete GetCurrentAIPackage (near sunny)" },
+  { ask = "@pete.GetCurrentAIProcedure", label = "pete GetCurrentAIProcedure (near sunny)" },
+  { ask = "@pete.GetSitting", label = "pete GetSitting (near sunny)" },
+  { ask = "@cobb.GetCurrentAIPackage", label = "cobb GetCurrentAIPackage (near sunny)" },
+  { ask = "@victor.GetCurrentAIPackage", label = "victor GetCurrentAIPackage (near sunny)" },
+  { ask = "@victor.GetCurrentAIProcedure", label = "victor GetCurrentAIProcedure (near sunny)" },
+  { ask = "@sunny.IsAnimPlaying Idle", label = "sunny IsAnimPlaying Idle" },
+  { ask = "@sunny.IsAnimPlaying Forward", label = "sunny IsAnimPlaying Forward" },
+  { ask = "@sunny.IsMoving", label = "sunny IsMoving (near)" },
+  { ask = "@sunny.IsTalking", label = "sunny IsTalking (near)" },
+  { do = "player.MoveTo @pete", settle = 0 },
+  { until = "@pete.HasLoaded3D", max_frames = 1800, label = "frames until Pete HasLoaded3D after MoveTo" },
+  { frames = 120 },
+  { ask = "@pete.GetCurrentAIPackage", label = "pete GetCurrentAIPackage (near)" },
+  { ask = "@pete.GetCurrentAIProcedure", label = "pete GetCurrentAIProcedure (near)" },
+  { ask = "@pete.GetSitting", label = "pete GetSitting (near)" },
+  { ask = "@pete.GetDisposition player", label = "pete GetDisposition (near)" },
+  { ask = "@pete.IsIdlePlaying", label = "pete IsIdlePlaying (near)" },
+  { ask = 'GetPCMiscStat "Locations Discovered"', label = "Locations Discovered (Goodsprings)" },
+  { ask = "@gsmarker.GetMapMarkerVisible", label = "Goodsprings marker (outdoors)" },
+  { console = "tdetect" },
+  { console = "tgm" },
+]
+
+# ---------------------------------------------------------------- 3: a terminal
+
+[[batch]]
+name = "fp3_terminal"
+title = "Function probes 3: a terminal's lock (about 1 min, no input)"
+start = "after fp2_goodsprings."
+ours_start = [{ op = "go_to_cell", cell = "BisonSteve01" }, { op = "wait_frames", frames = 300 }]
+steps = [
+  { coc = "BisonSteve01", cell = "@bison" },
+  { until = "@term.HasLoaded3D", max_frames = 1200, label = "frames until the terminal HasLoaded3D" },
+  { ask = "@term.GetLocked", label = "terminal GetLocked (Easy, loaded)" },
+  { ask = "@term.GetLockLevel", label = "terminal GetLockLevel (Easy, loaded)" },
+  { ask = "@term.GetOpenState", label = "terminal GetOpenState" },
+  { do = "@term.Lock 50" },
+  { ask = "@term.GetLocked", label = "terminal GetLocked after Lock 50" },
+  { ask = "@term.GetLockLevel", label = "terminal GetLockLevel after Lock 50" },
+  { do = "@term.Unlock" },
+  { ask = "@term.GetLocked", label = "terminal GetLocked after Unlock" },
+  { ask = "@term.GetLockLevel", label = "terminal GetLockLevel after Unlock" },
+]
+
+# ---------------------------------------------------------------- 4: a bed
+
+[[batch]]
+name = "fp4_bed"
+title = "Function probes 4: the player activates a bed (about 1 min, no input)"
+start = "after fp3_terminal."
+ours_start = [{ op = "go_to_cell", cell = "GSHouseInterior03" }, { op = "wait_frames", frames = 300 }]
+steps = [
+  { coc = "GSHouseInterior03", cell = "@gshouse" },
+  { ask = "player.GetSleeping", label = "player GetSleeping before the bed" },
+  { do = "@bed.Activate player", settle = 60 },
+  { ask = "MenuMode", label = "MenuMode after activating the bed" },
+  { ask = "MenuMode 1012", label = "MenuMode 1012 after activating the bed" },
+  { ask = "player.GetSleeping", label = "player GetSleeping after activating the bed" },
+  { ask = "IsPCSleeping", label = "IsPCSleeping after activating the bed" },
+  { ask = "player.GetSitting", label = "player GetSitting after activating the bed" },
+  { console = "CloseAllMenus", settle = 30 },
+  { ask = "MenuMode", label = "MenuMode after CloseAllMenus" },
+  { ask = "player.GetSleeping", label = "player GetSleeping after CloseAllMenus" },
+]
+
+# ---------------------------------------------------------------- 5: actions in the gas station
+
+[[batch]]
+name = "fp5_actions"
+title = "Function probes 5: disposition modifiers and a kill with a cause (about 1 min, no input)"
+start = "after fp4_bed; the player goes back to the gas station."
+ours_start = [{ op = "go_to_cell", cell = "GSGasStation" }, { op = "wait_frames", frames = 300 }]
+steps = [
+  { coc = "GSGasStation", cell = "@gsgas" },
+  { console = "tgm" },
+  { until = "@ringo.HasLoaded3D", max_frames = 1200, label = "frames until Ringo HasLoaded3D after coc" },
+  { ask = "@ringo.GetDisposition player", label = "ringo disposition at start" },
+  { ask = "player.GetAV Charisma", label = "player Charisma at start" },
+  { do = "player.SetAV Charisma 10", settle = 30 },
+  { ask = "@ringo.GetDisposition player", label = "ringo disposition with Charisma 10" },
+  { do = "player.SetAV Charisma 1", settle = 30 },
+  { ask = "@ringo.GetDisposition player", label = "ringo disposition with Charisma 1" },
+  { do = "player.SetAV Charisma 5", settle = 30 },
+  { ask = "player.GetAV Karma", label = "player Karma at start" },
+  { do = "player.SetAV Karma 1000", settle = 30 },
+  { ask = "@ringo.GetDisposition player", label = "ringo disposition with Karma 1000" },
+  { do = "player.SetAV Karma -1000", settle = 30 },
+  { ask = "@ringo.GetDisposition player", label = "ringo disposition with Karma -1000" },
+  { do = "player.SetAV Karma 0", settle = 30 },
+  { do = "@ringo.SetDisposition player 20" },
+  { ask = "@ringo.GetDisposition player", label = "ringo disposition after SetDisposition player 20" },
+  # A loaded, non-essential actor killed with a cause; then raised again.
+  { ask = "@ringo.IsEssential", label = "ringo IsEssential" },
+  { do = "@ringo.KillActor player 0 1", settle = 30 },
+  { ask = "@ringo.GetDead", label = "ringo GetDead after KillActor player 0 1" },
+  { ask = "@ringo.GetCauseofDeath", label = "ringo GetCauseofDeath after KillActor player 0 1" },
+  { ask = "@ringo.IsInCriticalStage 0", label = "ringo IsInCriticalStage 0 dead" },
+  { ask = "@ringo.GetKnockedState", label = "ringo GetKnockedState dead" },
+  { ask = "@ringo.GetUnconscious", label = "ringo GetUnconscious dead" },
+  { ask = "@ringo.IsKiller player", label = "ringo IsKiller player" },
+  { ask = 'GetPCMiscStat "People Killed"', label = "People Killed after the kill" },
+  { do = "@ringo.ResurrectActor 0", settle = 60 },
+  { ask = "@ringo.GetDead", label = "ringo GetDead after ResurrectActor" },
+  { ask = "@ringo.GetCauseofDeath", label = "ringo GetCauseofDeath after ResurrectActor" },
+  { ask = "@ringo.GetHealthPercentage", label = "ringo GetHealthPercentage after ResurrectActor" },
+  { console = "tgm" },
+]
+
+# ---------------------------------------------------------------- 6: the calendar
+
+[[batch]]
+name = "fp6_calendar"
+title = "Function probes 6: weekdays across 29 February 2284 (about 1 min, no input)"
+start = "after fp5_actions; the calendar is moved (the save is not written)."
+steps = [
+  { ask = "GetDayOfWeek", label = "GetDayOfWeek at start" },
+  { console = "set GameYear to 2284" },
+  { console = "set GameMonth to 1" },
+  { console = "set GameDay to 28" },
+  { ask = "GetDayOfWeek", label = "GetDayOfWeek after setting 28 Feb 2284", side = "game" },
+  { do = "set GameHour to GameHour + 24", side = "game", settle = 30 },
+  { game = "GameMonth", label = "GameMonth one day after 28 Feb 2284" },
+  { game = "GameDay", label = "GameDay one day after 28 Feb 2284" },
+  { ask = "GetDayOfWeek", label = "GetDayOfWeek one day after 28 Feb 2284", side = "game" },
+  { do = "set GameHour to GameHour + 24", side = "game", settle = 30 },
+  { game = "GameMonth", label = "GameMonth two days after 28 Feb 2284" },
+  { game = "GameDay", label = "GameDay two days after 28 Feb 2284" },
+  { ask = "GetDayOfWeek", label = "GetDayOfWeek two days after 28 Feb 2284", side = "game" },
+  { game = "GameDaysPassed", label = "GameDaysPassed after the calendar moves" },
+]
+
+
+# ---------------------------------------------------------------- 7: package codes, locks
+
+[[batch]]
+name = "fp7_packages_locks"
+title = "Function probes 7: which package each code is, lock levels without lock data (about 1 min, no input)"
+start = "nvftest (gas station), or after fp6_calendar."
+ours_start = [{ op = "go_to_cell", cell = "GSGasStation" }, { op = "wait_frames", frames = 300 }]
+steps = [
+  { console = "tdetect" },
+  { ask = "@ringo.GetCurrentAIPackage", label = "ringo GetCurrentAIPackage (fp7)" },
+  { ask = "@ringo.GetIsCurrentPackage @pk1790f9", label = "ringo GetIsCurrentPackage 001790F9" },
+  { ask = "@ringo.GetIsCurrentPackage @pk1790f3", label = "ringo GetIsCurrentPackage 001790F3" },
+  { ask = "@ringo.GetIsCurrentPackage @pk15f8c5", label = "ringo GetIsCurrentPackage 0015F8C5" },
+  { ask = "@ringo.GetIsCurrentPackage @pk10aba9", label = "ringo GetIsCurrentPackage 0010ABA9" },
+  { ask = "@ringo.GetIsCurrentPackage @pk10aba8", label = "ringo GetIsCurrentPackage 0010ABA8" },
+  { ask = "@ringo.GetCurrentAIProcedure", label = "ringo GetCurrentAIProcedure (fp7)" },
+  { ask = "@chet.GetCurrentAIPackage", label = "chet GetCurrentAIPackage (fp7)" },
+  { ask = "@chet.GetIsCurrentPackage @pk168fad", label = "chet GetIsCurrentPackage 00168FAD" },
+  { ask = "@chet.GetIsCurrentPackage @pk168fac", label = "chet GetIsCurrentPackage 00168FAC" },
+  { ask = "@chet.GetCurrentAIProcedure", label = "chet GetCurrentAIProcedure (fp7)" },
+  { ask = "@pete.GetCurrentAIPackage", label = "pete GetCurrentAIPackage (fp7)" },
+  { ask = "@pete.GetIsCurrentPackage @pk15f8dc", label = "pete GetIsCurrentPackage 0015F8DC" },
+  { ask = "@pete.GetIsCurrentPackage @pk15ed62", label = "pete GetIsCurrentPackage 0015ED62" },
+  { ask = "@pete.GetIsCurrentPackage @pk10655e", label = "pete GetIsCurrentPackage 0010655E" },
+  { ask = "@pete.GetIsCurrentPackage @pk16a9b0", label = "pete GetIsCurrentPackage 0016A9B0" },
+  { ask = "@pete.GetIsCurrentPackage @pk16a9af", label = "pete GetIsCurrentPackage 0016A9AF" },
+  { ask = "@pete.GetIsCurrentPackage @pk176acf", label = "pete GetIsCurrentPackage 00176ACF" },
+  { ask = "@pete.GetCurrentAIProcedure", label = "pete GetCurrentAIProcedure (fp7)" },
+  { ask = "@doc.GetCurrentAIPackage", label = "doc GetCurrentAIPackage (fp7)" },
+  { ask = "@doc.GetIsCurrentPackage @pk15ed62", label = "doc GetIsCurrentPackage 0015ED62" },
+  { ask = "@doc.GetIsCurrentPackage @pk10b756", label = "doc GetIsCurrentPackage 0010B756" },
+  { ask = "@doc.GetIsCurrentPackage @pk105bd2", label = "doc GetIsCurrentPackage 00105BD2" },
+  { ask = "@doc.GetIsCurrentPackage @pk105bd1", label = "doc GetIsCurrentPackage 00105BD1" },
+  { ask = "@doc.GetIsCurrentPackage @pk1055bd", label = "doc GetIsCurrentPackage 001055BD" },
+  { ask = "@doc.GetIsCurrentPackage @pk10b046", label = "doc GetIsCurrentPackage 0010B046" },
+  { ask = "@doc.GetIsCurrentPackage @pk104c1e", label = "doc GetIsCurrentPackage 00104C1E" },
+  { ask = "@doc.GetIsCurrentPackage @pk107238", label = "doc GetIsCurrentPackage 00107238" },
+  { ask = "@doc.GetIsCurrentPackage @pk104c1d", label = "doc GetIsCurrentPackage 00104C1D" },
+  { ask = "@doc.GetCurrentAIProcedure", label = "doc GetCurrentAIProcedure (fp7)" },
+  { ask = "@sunny.GetCurrentAIPackage", label = "sunny GetCurrentAIPackage (fp7)" },
+  { ask = "@sunny.GetIsCurrentPackage @pk105cc7", label = "sunny GetIsCurrentPackage 00105CC7" },
+  { ask = "@sunny.GetIsCurrentPackage @pk10a21a", label = "sunny GetIsCurrentPackage 0010A21A" },
+  { ask = "@sunny.GetIsCurrentPackage @pk10a21c", label = "sunny GetIsCurrentPackage 0010A21C" },
+  { ask = "@sunny.GetIsCurrentPackage @pk10a219", label = "sunny GetIsCurrentPackage 0010A219" },
+  { ask = "@sunny.GetIsCurrentPackage @pk10a217", label = "sunny GetIsCurrentPackage 0010A217" },
+  { ask = "@sunny.GetIsCurrentPackage @pk10a218", label = "sunny GetIsCurrentPackage 0010A218" },
+  { ask = "@sunny.GetIsCurrentPackage @pk10a216", label = "sunny GetIsCurrentPackage 0010A216" },
+  { ask = "@sunny.GetIsCurrentPackage @pk10a21b", label = "sunny GetIsCurrentPackage 0010A21B" },
+  { ask = "@sunny.GetIsCurrentPackage @pk10a215", label = "sunny GetIsCurrentPackage 0010A215" },
+  { ask = "@sunny.GetIsCurrentPackage @pk10a21d", label = "sunny GetIsCurrentPackage 0010A21D" },
+  { ask = "@sunny.GetIsCurrentPackage @pk15d9f5", label = "sunny GetIsCurrentPackage 0015D9F5" },
+  { ask = "@sunny.GetIsCurrentPackage @pk15ed62", label = "sunny GetIsCurrentPackage 0015ED62" },
+  { ask = "@sunny.GetIsCurrentPackage @pk176ad3", label = "sunny GetIsCurrentPackage 00176AD3" },
+  { ask = "@sunny.GetIsCurrentPackage @pk0200d5", label = "sunny GetIsCurrentPackage 000200D5" },
+  { ask = "@sunny.GetCurrentAIProcedure", label = "sunny GetCurrentAIProcedure (fp7)" },
+  { ask = "@trudy.GetCurrentAIPackage", label = "trudy GetCurrentAIPackage (fp7)" },
+  { ask = "@trudy.GetIsCurrentPackage @pk15ed62", label = "trudy GetIsCurrentPackage 0015ED62" },
+  { ask = "@trudy.GetIsCurrentPackage @pk116810", label = "trudy GetIsCurrentPackage 00116810" },
+  { ask = "@trudy.GetIsCurrentPackage @pk176acd", label = "trudy GetIsCurrentPackage 00176ACD" },
+  { ask = "@trudy.GetIsCurrentPackage @pk106641", label = "trudy GetIsCurrentPackage 00106641" },
+  { ask = "@trudy.GetIsCurrentPackage @pk176acc", label = "trudy GetIsCurrentPackage 00176ACC" },
+  { ask = "@trudy.GetCurrentAIProcedure", label = "trudy GetCurrentAIProcedure (fp7)" },
+  { ask = "@cobb.GetCurrentAIPackage", label = "cobb GetCurrentAIPackage (fp7)" },
+  { ask = "@cobb.GetIsCurrentPackage @pk15f31a", label = "cobb GetIsCurrentPackage 0015F31A" },
+  { ask = "@cobb.GetIsCurrentPackage @pk15ef9e", label = "cobb GetIsCurrentPackage 0015EF9E" },
+  { ask = "@cobb.GetIsCurrentPackage @pk10588c", label = "cobb GetIsCurrentPackage 0010588C" },
+  { ask = "@cobb.GetIsCurrentPackage @pk10663e", label = "cobb GetIsCurrentPackage 0010663E" },
+  { ask = "@cobb.GetCurrentAIProcedure", label = "cobb GetCurrentAIProcedure (fp7)" },
+  { ask = "@victor.GetCurrentAIPackage", label = "victor GetCurrentAIPackage (fp7)" },
+  { ask = "@victor.GetIsCurrentPackage @pk16addc", label = "victor GetIsCurrentPackage 0016ADDC" },
+  { ask = "@victor.GetIsCurrentPackage @pk1111c5", label = "victor GetIsCurrentPackage 001111C5" },
+  { ask = "@victor.GetIsCurrentPackage @pk10aae9", label = "victor GetIsCurrentPackage 0010AAE9" },
+  { ask = "@victor.GetCurrentAIProcedure", label = "victor GetCurrentAIProcedure (fp7)" },
+
+  # Lock levels without lock data, loaded and unloaded, and a terminal in another cell.
+  { ask = "@crate.GetLockLevel", label = "crate GetLockLevel (no lock, loaded)" },
+  { ask = "@crate.GetLocked", label = "crate GetLocked (no lock, loaded)" },
+  { ask = "@sack.GetLockLevel", label = "sack GetLockLevel (no lock, loaded)" },
+  { ask = "@saloonterm.GetLockLevel", label = "saloon terminal GetLockLevel (unloaded)" },
+  { ask = "@saloonterm.GetLocked", label = "saloon terminal GetLocked (unloaded)" },
+  { ask = "@storelocker.GetLockLevel", label = "store footlocker GetLockLevel (unloaded)" },
+  # IsInCriticalStage takes a stage name [documented: GECK wiki IsInCriticalStage].
+  { ask = "@ringo.IsInCriticalStage None", label = "ringo IsInCriticalStage None" },
+  { ask = "@ringo.IsInCriticalStage GooStart", label = "ringo IsInCriticalStage GooStart" },
+  { ask = "@ringo.IsInCriticalStage DisintegrateEnd", label = "ringo IsInCriticalStage DisintegrateEnd" },
+  { coc = "GSProspectorSaloonInterior", cell = "@saloon" },
+  { until = "@saloonterm.HasLoaded3D", max_frames = 1200, label = "frames until the saloon terminal HasLoaded3D" },
+  { ask = "@saloonterm.GetLockLevel", label = "saloon terminal GetLockLevel (loaded)" },
+  { ask = "@saloonterm.GetLocked", label = "saloon terminal GetLocked (loaded)" },
+  { ask = "@safe.GetLockLevel", label = "gas safe GetLockLevel (unloaded)" },
+  { ask = "@safe.GetLocked", label = "gas safe GetLocked (unloaded)" },
+  { ask = "@gsdoor.GetLockLevel", label = "gas door GetLockLevel (unloaded)" },
+  { ask = "@saloondoor.GetLockLevel", label = "saloon door GetLockLevel (loaded)" },
+  { ask = "@saloondoor.GetLocked", label = "saloon door GetLocked (loaded)" },
+  { console = "tdetect" },
+]

@@ -24,6 +24,7 @@ mod anim_sounds;
 mod crash;
 mod creature_pace;
 mod creature_stance;
+mod creator_view;
 mod death_cam;
 mod deaths;
 mod detection;
@@ -36,6 +37,8 @@ mod fade;
 mod facegen;
 mod flashlight;
 mod fly;
+mod foot_ik;
+mod frame_pace;
 mod handoff;
 mod furniture;
 mod graphics;
@@ -46,6 +49,9 @@ mod lights;
 mod limbs;
 mod lips;
 mod lockpick_view;
+mod roulette_view;
+mod blackjack_view;
+mod terminal_view;
 mod poker_view;
 mod lod;
 mod locomotion;
@@ -69,6 +75,7 @@ mod shot_fx;
 mod ragdoll;
 mod reflection;
 mod residents;
+mod resurrect;
 mod script_look;
 mod ripples;
 mod settings;
@@ -317,14 +324,15 @@ struct Args {
     /// The look: `vanilla` (the picture the parity and picture checks compare) or
     /// `enhanced` (ambient occlusion, finer and longer sun shadows, bloom, sharpening,
     /// 16x anisotropic filtering, sun shafts, screen-space water reflections; each also on
-    /// the settings page, which also offers temporal anti-aliasing instead of --msaa;
+    /// the settings page, which also offers FXAA, SMAA or temporal anti-aliasing instead of --msaa;
     /// docs/design/graphics-enhanced.md). Default: vanilla (`graphics::PLAY_DEFAULT`); test
     /// runs (--screenshot, --timelapse, --frame-json, --run-seconds) always default to it.
     #[arg(long, value_enum)]
     graphics: Option<graphics::Preset>,
     /// Instead of --graphics: exactly these improvements on, by the settings page's keys
-    /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, taa, light-shafts,
-    /// water-reflections), for comparing them one at a time.
+    /// (ambient-occlusion, fine-shadows, bloom, sharpen, anisotropic, light-shafts,
+    /// water-reflections) and choices (fxaa, smaa or taa instead of --msaa;
+    /// shadow-filter-hardware or shadow-filter-temporal), for comparing them one at a time.
     #[arg(long, value_delimiter = ',', conflicts_with = "graphics")]
     graphics_only: Option<Vec<String>>,
     /// Test aid: log the mean and the slowest frame time every this many seconds (real
@@ -517,6 +525,10 @@ struct Args {
     /// docs/spec-notes/actors.md §12).
     #[arg(long)]
     no_head_tracking: bool,
+    /// Do not put actors' feet on the ground under them (slopes, steps): the legs play
+    /// the animation as it is (foot_ik.rs, docs/spec-notes/actors.md §13).
+    #[arg(long)]
+    no_foot_ik: bool,
     /// Test aid without --play: the free camera stands in for the player, so actors near
     /// it look at it.
     #[arg(long, conflicts_with_all = ["play", "no_head_tracking"])]
@@ -845,6 +857,12 @@ fn main() -> AppExit {
         info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
         a
     });
+    // The character creator's choices and sliders (nvf_play::creator), in play; it says
+    // what it has once the log is up.
+    let mut creator_data = actor_world
+        .as_ref()
+        .filter(|_| play.is_some())
+        .map(|a| nvf_play::creator::CreatorData(std::sync::Arc::new(fnv_actor::creator::Creator::build(&a.actors, |p| game.read(p)))));
     let open_doors = args.open_doors;
     // What the overlay system and the settings page go by.
     args.no_overlay |= args.frame_json.is_some() || (args.play && !args.overlay);
@@ -962,6 +980,8 @@ fn main() -> AppExit {
     .add_plugins(nvf_play::audio_out::AudioOutPlugin)
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin, graphics::GraphicsPlugin(graphics, msaa, frame_times)))
+    // Vsync as Bevy's default, off while frame times are measured; no frame-rate cap.
+    .add_plugins(frame_pace::FramePacePlugin(frame_pace::FramePace { vsync: args.log_frame_times.is_none(), cap: 0 }))
     .add_plugins(grass::GrassPlugin(grass::GrassConfig {
         enabled: !args.no_grass,
         fade_start: args.grass_distance.max(0.0),
@@ -1081,10 +1101,19 @@ fn main() -> AppExit {
         app.add_plugins(effect_shaders::EffectShadersPlugin);
         // The lock and the bobby pin of the lockpicking menu (lockpick_view.rs).
         app.add_plugins(lockpick_view::LockpickViewPlugin);
+        // The table, wheel and chips of the roulette menu (roulette_view.rs).
+        app.add_plugins(roulette_view::RouletteViewPlugin);
+        // The blackjack table (blackjack_view.rs).
+        app.add_plugins(blackjack_view::BlackjackViewPlugin);
+        // The terminal's monitor (terminal_view.rs).
+        app.add_plugins(terminal_view::TerminalViewPlugin);
         // The poker table (poker_view.rs).
         app.add_plugins(poker_view::PokerViewPlugin);
     }
     if let Some(a) = actor_world {
+        if let Some(c) = creator_data.take() {
+            app.insert_resource(c);
+        }
         app.insert_resource(a);
         let force_point = match args.head_track_point.as_deref().map(|p| parse_vec::<3>(p).ok_or(p)) {
             Some(Err(p)) => return fail(format!("--head-track-point {p}: expected x,y,z")),
@@ -1093,11 +1122,14 @@ fn main() -> AppExit {
         };
         // Also with --no-head-tracking: the settings page can switch it on.
         app.add_plugins(head_look::HeadLookPlugin { enabled: !args.no_head_tracking, camera_is_player: args.head_track_camera, force_point });
+        // Also with --no-foot-ik: the settings page can switch it on.
+        app.add_plugins(foot_ik::FootIkPlugin { enabled: !args.no_foot_ik });
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
+            app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
             app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
-            app.add_plugins(cell_resets::CellResetsPlugin);
+            app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin));
             // What drawn NPCs wear and hold follows their inventories (outfits.rs).
             app.add_plugins(outfits::OutfitsPlugin);
             if shadow_probe::enabled() {
