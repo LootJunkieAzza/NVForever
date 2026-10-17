@@ -648,6 +648,25 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-target-killed"
+source = "owner's todo 6 item 1 (2026-10-17): after the player died near Violet she said a line; a fighter whose target died goes back to Normal and says CombatToNormal, never CombatToLost (Category:Detection, docs/spec-notes/combat-dialogue.md §5)"
+note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897) is set on the player, about 1,000 units from her, at 9 s; no god mode, the player's health set to 10 by the console at 8 s (once the scripts run) so her shots kill the player. Her GenericFiend CombatToNormal lines are written as if the player ran ('You're lucky I didn't find you.'): that is the data's text for the topic, not a Lost line"
+areas = ["combat", "alert", "dialogue"]
+paths = ["crates/fnv-game/src/awareness.rs", "crates/fnv-game/src/combat_lines.rs", "engine/nvforever/src/detection.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 10;8.3:close", NVF_PLAY_TEST_SCRIPT = "9:combat:0x000F570B:player" }
+args = ["--cell", "Goodsprings", "--pos=-45900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 30
+expect = [
+  "combat: the player died",
+  { re = 'alert: FiendVioletRef 000F570B Combat → Normal', label = "Violet goes from Combat to Normal once the player is dead" },
+  { re = 'alert: FiendVioletRef 000F570B says CombatToNormal line', label = "she says a CombatToNormal line" },
+]
+forbid = [
+  { re = 'alert: FiendVioletRef 000F570B Combat → Lost', label = "Violet loses a dead target" },
+  { re = 'alert: FiendVioletRef 000F570B says (CombatToLost|LostIdle|LostToNormal) line', label = "a Lost line about a dead target" },
+]
+
+[[scenario]]
 name = "combat-voice"
 source = "owner requests 2026-10-17: the player's hurt and power attack sounds play (docs/spec-notes/combat-dialogue.md §2); the death music plays when the player dies (engine/nvf-play/src/music.rs)"
 note = "combat-lines with voice and music on: the player's Hit lines play their files, the power attack's line cuts the Hit grunt of the blow taken just before it, and the player's death plays MUSDeath"

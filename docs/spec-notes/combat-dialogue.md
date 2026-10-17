@@ -81,3 +81,49 @@ value with no damage) [hypothesis: the page says "damage %" without saying of wh
 
 See `combat_lines.rs`'s module comment for the list of hooks (hits, attacks, power attacks,
 deaths, crippled limbs, broken weapons, empty magazines, grenades).
+
+## 5. Which situation says which topic (audit 2026-10-17, todo 6 item 1)
+
+The owner heard Violet say "You're lucky I didn't find you." after she killed the player
+and took it for a Lost line. That line is GenericFiend's line 0x00175190 of
+**CombatToNormal** [observed: `fnvtool dialogue lines --topic CombatToNormal --text`,
+FalloutNV.esm], conditioned only on the speaker's voice type; GenericFiend's other two
+CombatToNormal lines are "That's right, run." and "Fucking chicken." So Violet said the
+right topic: the data's Fiend lines for the end of a fight are written as if the target
+ran, while GenericAdultCombat's ("Teach you to mess with me.") and the robots' read as a
+win [observed, same listing]. A fight whose target died ends in Normal: "Combat → Normal
+… whenever I have no targets in my combat list (i.e. they're all dead or no longer
+considered hostile), and I have nothing in my alert list" [documented: GECK wiki
+Category:Detection, owner export `Actor-Behavior.xml`]. No topic of the masters is meant
+for "my target died" [observed: the 55 Combat and Detection topics of FalloutNV.esm].
+
+What was wrong: a dead **player** was forgotten only when the engine measured it again
+(`Game::observe_threat` drops a target the actor no longer would attack); the clean-up
+in `Game::settle_awareness` that forgets dead and gone targets skipped the player. When
+no measurement came (detection off, the test aid that hides the player), a fighter kept
+the dead player as an undetected target and went to Lost after `Timers::lost`, saying
+CombatToLost, then LostToNormal. Since 2026-10-17 a dead player is forgotten there too.
+Tests: `crates/fnv-game/tests/combat_transitions.rs`; smoke `combat-target-killed`.
+
+Every Combat and Detection topic of FalloutNV.esm and what says it in NVForever
+(meaning: [documented: GECK wiki Combat Tab, Category:Detection], unless marked):
+
+| Topic | Meaning | Said by NVForever |
+|---|---|---|
+| NormalToAlert, NormalToCombat, AlertToCombat, AlertToNormal, CombatToNormal, CombatToLost, LostToNormal, LostToCombat | the change of detection state the name gives | `awareness::State::topic_to` on every change ([`Game::settle_awareness`]); matches the documented transitions; a dead target ends Combat in Normal (above) |
+| AlertIdle, LostIdle | now and then while searching | `State::idle_topic` |
+| Attack, PowerAttack, FireExplosive, Hit, Death, DeathResponse, Crippled, HealthHalf, HealthQuarter, WeaponBroke, NoAmmo | §1 | §1 (`combat_lines.rs`, engine hooks) |
+| Flee | an actor begins to flee | `combat_group.rs` when a flight begins |
+| Assault | first attacked | `provocation.rs`, `combat_group.rs`, `crime.rs` (SendAssaultAlarm) |
+| AcceptYield | accepts a yield | `provocation.rs` |
+| Steal, Murder, GuardTrespass | a witness of theft or murder; a trespass or aggro-radius warning | `crime.rs` (`Kind::topic`), `aggro.rs` |
+| KOed | loses all fatigue and falls unconscious | `unconscious.rs` (also an essential actor at 0 health, design) |
+| Wake | wakes from unconsciousness | `unconscious.rs` when it begins to get up (added 2026-10-17; before, never said) |
+| AssaultNoCrime, MurderNoCrime, StealNoCrime, TrespassNoCrime, PickpocketNoCrime | as Assault, Murder … when the actor does not count it a crime | not said: the crime code says the crime topics only for crimes (follow-up) |
+| Pickpocket | notices the player picking its pocket | not said: pickpocketing is not built |
+| Yield | yields to whom it fights | not said: NPCs do not yield |
+| AvoidThreat, AvoidThreatResponse | begins avoiding a threat ("It's going to blow!"); per-group timer | not said: avoiding grenades is not built |
+| AttackResponse, FleeResponse, FireExplosiveResponse | a valid actor nearby answers that line | not said (follow-up; DeathResponse is) |
+| StartCombatResponse, NormalToAlertResponse | (Detection; not on the pages) | not said [hypothesis: answers to NormalToCombat/NormalToAlert, as the other Response topics] |
+| ArmorIneffective, WeaponIneffective, OnFire, Poisoned, KnockedBack, UsedDoctorBag, Regenerating, Frenzy | the situation the name gives | not said (follow-up) |
+| CombatIdleChatter, GroupStrategy, DeathResponseUnderworld, Stea | "Unknown" / "Unused" | not said |

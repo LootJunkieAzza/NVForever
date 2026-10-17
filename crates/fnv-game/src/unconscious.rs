@@ -264,6 +264,9 @@ impl Game<'_> {
             }
             self.emit(EventKind::GotUp { actor: r, cause: k.cause.name() });
             self.knockout_news.push(News { actor: r, cause: k.cause, what: Happened::Up });
+            // "Said when an actor wakes from unconsciousness" [documented: GECK wiki
+            // Combat Tab, Wake; docs/spec-notes/combat-dialogue.md §5].
+            self.combat_line(r, None, "Wake");
             up.push(r);
         }
         up
