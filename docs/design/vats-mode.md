@@ -1,6 +1,8 @@
 # VATS mode: slow-time mark and fire
 
-Status 2026-10-17: **design for review; build on `claude/vats-mode`**. Owner request (todo
+Status 2026-10-17: **design for review; built on `claude/vats-mode`** (the engine's
+`nvf-play` `vats_mode.rs`, `fnv_combat::vats`, `fnv_game::vats`; not yet seen in a game
+run). Owner request (todo
 6): "VATS mode", NVForever's own take on VATS, modelled on Red Dead Redemption's Dead Eye.
 Combat is not a parity target (docs/design/combat.md §1: only the quest script hooks must
 behave as in the original), so this is deliberately **not** the original's VATS (no
@@ -63,7 +65,9 @@ Nothing of the mode is saved (§11.7).
 V (`Control::Vats`, the game's `Vats` binding 0x002FFF0E, already read by
 `engine/nvf-play/src/bindings.rs`; until now it said "not available yet",
 `control.rs` `NOT_BUILT`) enters Marking when all of these hold, else it plays
-`UIVATSEnterFail` and the HUD says why [design]:
+`UIVATSEnterFail` and logs why [design: the masters hold no VATS message strings, and the
+owner wants no placeholder text on screen (`activate::HudMessage` keeps the line, not
+drawn); the refusal sound tells the player]:
 
 1. The game is playing (`PlayState::Playing`), the player is alive, and no script has
    disabled the fighting controls (`DisablePlayerControls`, `ControlLocks::fighting`).
@@ -190,9 +194,9 @@ change the AP cost [hypothesis].
   3 × Agility [documented: `fAVDActionPointsBase`, `fAVDActionPointsMult`, observed 65
   and 3], modifiers, damage), as the HUD's AP bar shows it (`hud.rs`).
 - **A mark reserves** the cost; nothing is spent while marking. A mark is refused
-  (`UIVATSInsufficientAP`, HUD "Not enough action points") when `reserved + cost`
+  (`UIVATSInsufficientAP`, logged "Not enough action points") when `reserved + cost`
   would exceed the AP left now.
-- **Ammunition**: a mark is refused (the same sound, HUD "No more rounds loaded") when
+- **Ammunition**: a mark is refused (the same sound, logged "No more rounds loaded") when
   the marks would need more rounds than the magazine holds now: `marks × ammo_use ≤
   magazine` [design: the rounds loaded, not those carried; Dead Eye does not reload
   mid-sequence either]. God mode (a full magazine always) keeps the magazine's size as
@@ -221,7 +225,7 @@ AP, rounds needed, the shots in order). The engine module only feeds it.
   reservations (`(AP − reserved) / max`), so it drains mark by mark [design]; firing
   spends it for real, so the bar stays where it was.
 - The crosshair stays as it is. The HUD is not hidden [design].
-- A HUD line says why a press did nothing (the messages of §3 and §7.2).
+- A refused press is heard (§10) and logged, not written on the screen (§3).
 
 ## 9. Firing
 
@@ -324,9 +328,9 @@ not overlap.
 - In Marking and Firing the mode takes Use (left mouse: mark), Block (right mouse:
   unmark) and Activate (E: accept) for itself: `PlayerControl::trigger` and
   `PlayerControl::aiming` are cleared and activation is held (`activate.rs`) [design].
-  Movement, looking, sneaking and the camera keep working (slowed with the world).
-  Ready Item, Ammo Swap and Toggle POV are held while the mode is on [design: no
-  reload or weapon change mid-mode].
+  Movement, looking, sneaking and the camera (Toggle POV too) keep working, slowed with
+  the world. Ready Item's reload and Ammo Swap are held while the mode is on [design: no
+  reload or ammunition change mid-mode].
 - Controller: the same controls on their pad bindings (`Bindings::pad`), nothing extra.
 - `DisablePlayerControls` with the fighting group off refuses entering and ends the mode
   (§3, §9.3).
@@ -389,14 +393,14 @@ each frame. The `in_vats` flag in `fnv_combat::damage::Attacker` is the hit side
 - Aid times are on the virtual clock (§4): an aid 0.05 s after another while marking
   comes about 1 s later in real time.
 - Log lines (smoke tests read them):
-  - `vats mode: on (<weapon EDID>, <n> AP a shot, <m> rounds loaded, <ap> AP)`
+  - `vats mode: on (<weapon EDID>, <n> AP a shot, <m> rounds loaded, <ap> AP; at most <k> marks)`
   - `vats mode: refused: <why>` (entering)
   - `vats mode: marked <name> <ref> (<part>), mark <k>; <r> AP reserved, <left> AP left`
   - `vats mode: mark refused: <why>`
-  - `vats mode: unmarked <ref> (<part>)`
+  - `vats mode: unmarked <ref> (<part>), <n> marks left`
   - `vats mode: firing <n> marked shots`
-  - `vats mode: shot <k> of <n> at <ref> (<part>), <cost> AP spent`
-  - `vats mode: off (<n> shots fired, <ap> AP spent)`
+  - `vats mode: shot <k> of <n> at <name> <ref> (<part>), <cost> AP spent`
+  - `vats mode: off (<n> shots fired, <ap> AP spent; <why>)`
   - at exit: `vats mode summary: entered <e> times, <m> marks, <s> shots, <ap> AP spent, <r> refused`
 - Scenarios in `tools/smoke/scenarios.toml`: `vats-mode-two-marks` (the Goodsprings dogs,
   a .357: enter, mark both, accept, two shots, 52 AP), `vats-mode-unmark` (mark, unmark,
