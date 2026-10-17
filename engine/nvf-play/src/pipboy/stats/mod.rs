@@ -72,13 +72,13 @@ const HINT_KEYS: [&str; 4] = ["S)", "E)", "A)", "X)"];
 /// that size. Places are from the parent piece (the torso's from the head, the limbs'
 /// from the torso).
 const BOY_ZOOM: f32 = 1.45;
-const HEAD: Vec2 = Vec2::new(85.0, 92.0);
+pub(crate) const HEAD: Vec2 = Vec2::new(85.0, 92.0);
 const HEAD_Y: f32 = 40.0;
-const FACE: (Vec2, Vec2) = (Vec2::new(21.0, 16.0), Vec2::new(48.0, 64.0));
-const TORSO: (Vec2, Vec2) = (Vec2::new(-14.0, 86.0), Vec2::new(102.0, 128.0));
+pub(crate) const FACE: (Vec2, Vec2) = (Vec2::new(21.0, 16.0), Vec2::new(48.0, 64.0));
+pub(crate) const TORSO: (Vec2, Vec2) = (Vec2::new(-14.0, 86.0), Vec2::new(102.0, 128.0));
 /// Left arm, right arm, left leg, right leg: place (from the torso) and size. The left
 /// arm's y is not zoomed in the file.
-const LIMB_PIECES: [(Vec2, Vec2, &str); 4] = [
+pub(crate) const LIMB_PIECES: [(Vec2, Vec2, &str); 4] = [
     (Vec2::new(90.0, 0.0), Vec2::new(100.0, 52.0), "left_arm"),
     (Vec2::new(-88.0, -5.0), Vec2::new(96.0, 54.0), "right_arm"),
     (Vec2::new(47.0, 86.0), Vec2::new(72.0, 112.0), "left_leg"),

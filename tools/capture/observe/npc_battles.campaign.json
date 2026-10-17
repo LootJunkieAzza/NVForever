@@ -1,0 +1,135 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "npc_battles",
+ "title": "Fights between NPCs at the smoke scenarios' spot south of Cook-Cook's Fiend camp: the six NCR troopers against the Fiends (battle-ncr-fiends), then NCR troopers against Legion melee raiders, a creature pack against troopers, and a three-party fight, spawned 1,500-2,300 units in front of the player so that they meet each other first; the player in god mode (tgm, first session), crouched (SetForceSneak), Sneak 100 and under a Stealth Boy's invisibility (owner's suggestion 2026-10-17). tdetect is not used: with it nobody entered combat at all [observed 2026-10-17]",
+ "save": "nvftest",
+ "defaults": {
+  "fields": "fight",
+  "every": 2,
+  "depth": 1,
+  "settle_frames": 120
+ },
+ "sessions": [
+  {
+   "name": "ncr_fiends",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -11,
+     17
+    ]
+   },
+   "hours": 1,
+   "do": [
+    [
+     "{0}.MoveTo player -400 600 0",
+     "0x000F36F5"
+    ],
+    [
+     "{0}.MoveTo player -200 650 0",
+     "0x000F36F6"
+    ],
+    [
+     "{0}.MoveTo player 0 600 0",
+     "0x0015CE0A"
+    ],
+    [
+     "{0}.MoveTo player 200 650 0",
+     "0x0015CE08"
+    ],
+    [
+     "{0}.MoveTo player 400 600 0",
+     "0x000FCEB1"
+    ],
+    [
+     "{0}.MoveTo player 600 550 0",
+     "0x000FD572"
+    ]
+   ],
+   "console_first": [
+    "tgm",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ]
+  },
+  {
+   "name": "ncr_legion",
+   "hours": 0.75,
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 4,
+     "distance": 1500,
+     "direction": 0
+    },
+    {
+     "base": "LvlLegionRaiderMelee",
+     "count": 4,
+     "distance": 2300,
+     "direction": 0
+    }
+   ],
+   "console_first": [
+    "killall",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ]
+  },
+  {
+   "name": "coyotes_ncr",
+   "hours": 0.5,
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 3,
+     "distance": 1500,
+     "direction": 0
+    },
+    {
+     "base": "VCrTier1CoyoteMed",
+     "count": 5,
+     "distance": 2300,
+     "direction": 0
+    }
+   ],
+   "console_first": [
+    "killall",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ]
+  },
+  {
+   "name": "three_party",
+   "hours": 0.75,
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 3,
+     "distance": 1500,
+     "direction": 0
+    },
+    {
+     "base": "LvlLegionRaiderMelee",
+     "count": 3,
+     "distance": 2300,
+     "direction": 0
+    },
+    {
+     "base": "VCrTier2GiantMantisMed",
+     "count": 3,
+     "distance": 1900,
+     "direction": 2
+    }
+   ],
+   "console_first": [
+    "killall",
+    "player.SetAV Sneak 100",
+    "player.SetForceSneak 1",
+    "player.CastImmediateOnSelf StealthBoyInvisibilitySpell"
+   ]
+  }
+ ]
+}

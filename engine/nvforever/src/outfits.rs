@@ -131,27 +131,34 @@ fn follow_inventory(
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         let mut spawned = SpawnedActor { root: rig.nodes[0], nodes: rig.nodes.clone(), drawn: Vec::new(), part_of: Vec::new(), shape_of: Vec::new(), unbound: 0 };
         if weapon != dressed.weapon {
+            // The old hold goes, the weapon's or the fists' (`actors::arm`).
+            for (e, _) in held.iter().filter(|(_, h)| h.reference == rig.reference) {
+                commands.entity(e).despawn();
+            }
+            for (e, _) in muzzles.iter().filter(|(_, m)| m.reference == rig.reference) {
+                commands.entity(e).despawn();
+            }
+            commands.entity(entity).remove::<WeaponHold>();
+            if let Some(p) = player.as_deref_mut() {
+                (p.layers[2], p.layers[3]) = (None, None);
+            }
             if let Some(w) = dressed.weapon {
-                for (e, _) in held.iter().filter(|(_, h)| h.reference == rig.reference) {
-                    commands.entity(e).despawn();
-                }
-                for (e, _) in muzzles.iter().filter(|(_, m)| m.reference == rig.reference) {
-                    commands.entity(e).despawn();
-                }
-                commands.entity(entity).remove::<WeaponHold>();
-                if let Some(p) = player.as_deref_mut() {
-                    (p.layers[2], p.layers[3]) = (None, None);
-                }
                 stats.weapons_off += 1;
                 info!("outfit: actor {who}: weapon {w} no longer held: taken off the body");
             }
             // A corpse is not armed; an actor drawn without clips has no holster pose.
-            if let (Some(w), Some(p), false) = (weapon, player.as_deref_mut(), dead) {
+            // Without a weapon it holds its fists.
+            if let (Some(p), false) = (player.as_deref_mut(), dead) {
                 let mut st = ActorStats::default();
                 if let Some(hold) = crate::actors::arm(&mut commands, &spawned, &rig.skel, &new, rig.reference, &world, &mut ctx, p, &mut st) {
                     commands.entity(entity).insert(hold);
-                    stats.weapons_on += 1;
-                    info!("outfit: actor {who}: weapon {w} now held: put in its holster");
+                    match weapon {
+                        Some(w) if st.fists == 0 => {
+                            stats.weapons_on += 1;
+                            info!("outfit: actor {who}: weapon {w} now held: put in its holster");
+                        }
+                        _ => info!("outfit: actor {who}: no weapon held: its fists"),
+                    }
                 }
             }
             dressed.weapon = weapon;

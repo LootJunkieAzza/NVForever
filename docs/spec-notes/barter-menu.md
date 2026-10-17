@@ -172,6 +172,9 @@ screen's height):
 - The item's picture and the WG and VAL tiles, and CND as a bar for weapons and
   armour; WG has two decimals [observed]. The damage, resistance, strength, ammunition,
   effects and mods tiles are not built.
+- The caps arrow and its figure are drawn at half brightness, as a disabled button is,
+  while the side that pays holds fewer caps than the balance (Accept is then refused)
+  [design: the owner's request].
 - The container menu's note shows for a container whose record has the Respawns flag
   [hypothesis: every such container]; a refused trade's words show in the same place
   [design].
