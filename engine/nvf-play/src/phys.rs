@@ -151,6 +151,22 @@ impl Default for PhysState {
     }
 }
 
+/// How far below a character's feet its body is drawn: the gap the character keeps from
+/// its support (`CharacterParams::rest_gap`: 3.5 units over terrain, 0.7 over static
+/// models), so the soles touch the drawn ground while the feet, and with them the
+/// reference's position, the eye and every query, stay where the game measures them
+/// [observed: rest heights, physics.md §6.2; that the game draws the body on the bare
+/// surface is [hypothesis] from the owner's report of 2026-10-16 that the player's boots
+/// hung in the air, floating-actors.md §6]. None while swimming (the float depth counts
+/// from the feet).
+pub fn drawn_sink(c: &Character) -> f32 {
+    if c.swimming {
+        0.0
+    } else {
+        c.gap
+    }
+}
+
 /// An actor's character in the physics world: who moves it sets `velocity`.
 pub struct NpcBody {
     pub ch: Character,
@@ -405,10 +421,19 @@ impl PhysState {
     /// the last physics step, by the time accumulated towards the next (as the player's
     /// body), so a walk is as smooth on screen as the frame rate allows. `None` when the
     /// actor has no character.
+    /// The body is drawn [`drawn_sink`] below the character's feet.
     pub fn npc_drawn_feet(&self, id: u32) -> Option<[f32; 3]> {
         let b = self.npcs.get(&id)?;
         let a = (self.stepper.accumulated / self.world.params.dt).clamp(0.0, 1.0);
-        Some(std::array::from_fn(|i| b.prev_feet[i] + (b.ch.feet[i] - b.prev_feet[i]) * a))
+        let sink = drawn_sink(&b.ch);
+        Some(std::array::from_fn(|i| b.prev_feet[i] + (b.ch.feet[i] - b.prev_feet[i]) * a - if i == 2 { sink } else { 0.0 }))
+    }
+
+    /// How far below its character's feet actor `id`'s body is drawn ([`drawn_sink`]; the
+    /// player is `FormId::PLAYER_REF`); 0 for an actor without a character.
+    pub fn drawn_sink_of(&self, id: u32) -> f32 {
+        let c = if id == fnv_sim::FormId::PLAYER_REF.0 { self.player.as_ref() } else { self.npcs.get(&id).map(|b| &b.ch) };
+        c.map_or(0.0, drawn_sink)
     }
 
     /// Whether the player is placed and every cell asked for around them is in (the

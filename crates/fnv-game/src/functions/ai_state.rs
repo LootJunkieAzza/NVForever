@@ -67,8 +67,8 @@ pub fn package_code(t: PackageType) -> i32 {
     }
 }
 
-/// What the actor does over its package: in a conversation with the player, in combat,
-/// searching, or the package.
+/// What the actor does over its package: in a conversation (with the player, or a
+/// conversation between two actors), in combat, searching, or the package.
 enum Doing {
     Talking,
     Fighting,
@@ -78,6 +78,13 @@ enum Doing {
 
 fn doing(g: &mut Game, r: FormId) -> Doing {
     if g.dialogue.as_ref().is_some_and(|d| d.actor == r) {
+        return Doing::Talking;
+    }
+    // Both sides of a conversation between actors talk [hypothesis: the IDLE tree's
+    // branch for such conversations (NPCtoNPC) lies under a root that wants the dialogue
+    // procedure or the dialogue menu, so it is reached only if they do;
+    // docs/spec-notes/idles.md §12].
+    if g.speech.iter().any(|s| s.conversation.is_some() && (s.speaker == r || s.target == Some(r))) {
         return Doing::Talking;
     }
     match g.awareness.state(r) {
@@ -113,7 +120,7 @@ pub fn get_current_ai_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Valu
 /// FLEE_NON_COMBAT, 36 SEARCH, 41 PATROL, 42 USE_WEAPON, 44 GUARD, 45 SANDBOX, 48
 /// SITTING; "a Travel package travels, then waits at its destination"]. Chosen here:
 ///
-/// - a conversation with the player 4, combat 13, Alert or Lost 36;
+/// - a conversation with the player or between two actors 4, combat 13, Alert or Lost 36;
 /// - getting off a seat or bed 21, lying on a bed 8, sitting 48;
 /// - a package whose goal was met 17 DONE [hypothesis: the end scripts of eight
 ///   packages of FalloutNV.esm (0x0012FEED-F0, 0x0016954E-51) wait for four actors' 17];

@@ -81,6 +81,8 @@ impl Plugin for ShaftsPlugin {
                     .after(tonemapping)
                     .after(crate::ssao::ao_pass)
                     .after(crate::taa::taa_pass)
+                    .after(bevy::anti_alias::fxaa::fxaa)
+                    .after(bevy::anti_alias::smaa::smaa)
                     .before(crate::imagespace::blur_pass),
             );
     }
