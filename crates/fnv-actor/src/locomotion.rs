@@ -161,12 +161,20 @@ pub const HURT_FOLDER: &str = "locomotion\\hurt";
 /// starts with `mt` or with no stance at all (a weapon stance, `1hp…`, `h2h…`, is not
 /// the unarmed one), and a sequence name may end in its stance (`FastForward_Hurt_H2H`).
 pub fn hurt_move(stem: &str, sequence: Option<&str>) -> Option<Move> {
+    hurt_move_in(stem, sequence, "mt")
+}
+
+/// [`hurt_move`] for the clips of another stance, `h2h` (the creatures' alert stance:
+/// the dog's `h2hfastforward_hurt.kf`, the cazador's `h2hforward.kf` [observed,
+/// actors.md §8.11]): the stem must start with `stance`; only `mt` also takes a stem
+/// with no stance.
+pub fn hurt_move_in(stem: &str, sequence: Option<&str>, stance: &str) -> Option<Move> {
     let clean = |s: &str| s.to_ascii_lowercase().replace([' ', '_'], "").replace("hurt", "");
     let by_name = |s: &str| Move::ALL.into_iter().find(|m| m.group().eq_ignore_ascii_case(s));
     let stem = clean(stem);
-    let rest = match stem.strip_prefix("mt") {
+    let rest = match stem.strip_prefix(stance) {
         Some(rest) => rest,
-        None if stem.starts_with(|c: char| c.is_ascii_digit()) || stem.starts_with("h2h") => return None,
+        None if stance != "mt" || stem.starts_with(|c: char| c.is_ascii_digit()) || stem.starts_with("h2h") => return None,
         None => &stem,
     };
     by_name(rest).or_else(|| {
@@ -511,6 +519,11 @@ mod tests {
         assert_eq!(hurt_move("h2hforward_hurt", Some("Forward_Hurt")), None);
         assert_eq!(hurt_move("2hmfastforward", Some("FastForward_Hurt")), None);
         assert_eq!(hurt_move("mtsomething", Some("Something")), None);
+        // The alert stance's clips (actors.md §8.11).
+        assert_eq!(hurt_move_in("h2hfastforward_hurt", Some("FastForward_Hurt_H2H"), "h2h"), Some(Move::FastForward));
+        assert_eq!(hurt_move_in("h2hforward", Some("Forward"), "h2h"), Some(Move::Forward));
+        assert_eq!(hurt_move_in("mtforward_hurt", Some("Forward_Hurt"), "h2h"), None);
+        assert_eq!(hurt_move_in("forward", Some("Forward"), "h2h"), None);
     }
 
     fn keys<const N: usize>(pts: &[(f32, [f32; N])]) -> Keys<N> {

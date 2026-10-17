@@ -83,6 +83,9 @@ pub struct ActorWorld {
     sets: Mutex<ClipSets>,
     /// Weapon stances by (skeleton, prefix); `None` when they could not be loaded.
     stances: Mutex<Stances>,
+    /// How many times ResurrectActor rolled a reference's random choices again
+    /// (`fnv_game::resurrect`, told by `resurrect.rs`): the seed of its leveled picks.
+    pub rolls: Mutex<HashMap<u32, u32>>,
 }
 
 type ClipSets = HashMap<(String, Body, &'static str), Option<Arc<ClipSet>>>;
@@ -104,7 +107,15 @@ impl ActorWorld {
             weapon_test: None,
             sets: Mutex::new(HashMap::new()),
             stances: Mutex::new(HashMap::new()),
+            rolls: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The reference whose FormID seeds the leveled picks of `reference`: itself until a
+    /// resurrection rolled them again (`fnv_sim::leveled::roll_seed`).
+    fn seed(&self, reference: u32) -> FormId {
+        let rolls = self.rolls.lock().map_or(0, |r| r.get(&reference).copied().unwrap_or(0));
+        fnv_sim::leveled::roll_seed(FormId(reference), rolls)
     }
 
     pub fn resolve(&self, base: u32, reference: u32) -> Result<Appearance, String> {
@@ -114,17 +125,17 @@ impl ActorWorld {
     /// [`Self::resolve`] wearing the given armour instead of the chosen one
     /// (`Resolver::resolve_wearing`; the player's body).
     pub fn resolve_wearing(&self, base: u32, reference: u32, wearing: Option<&[FormId]>) -> Result<Appearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_wearing(FormId(base), FormId(reference), wearing).map_err(|e| e.to_string())
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_wearing(FormId(base), self.seed(reference), wearing).map_err(|e| e.to_string())
     }
 
     /// [`Self::resolve_wearing`] with a chosen look (the player's, from the character
     /// creator) in place of the record's.
     pub fn resolve_as(&self, base: u32, reference: u32, wearing: Option<&[FormId]>, look: Option<&fnv_actor::Look>) -> Result<Appearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_as(FormId(base), FormId(reference), wearing, look).map_err(|e| e.to_string())
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_as(FormId(base), self.seed(reference), wearing, look).map_err(|e| e.to_string())
     }
 
     pub fn resolve_creature(&self, base: u32, reference: u32) -> Result<CreatureAppearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_creature(FormId(base), FormId(reference)).map_err(|e| e.to_string())
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_creature(FormId(base), self.seed(reference)).map_err(|e| e.to_string())
     }
 
     /// The locomotion clip set of a skeleton and body (loaded once), if it has an idle.
@@ -148,15 +159,17 @@ impl ActorWorld {
     }
 
     /// The limping set (`locomotion::ClipSet::load_hurt`) built on `base`, the standing
-    /// set of the skeleton and body (loaded once).
-    fn clip_set_hurt(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, base: &ClipSet) -> Option<Arc<ClipSet>> {
-        let key = (fnv_vfs::normalize(skeleton), body, "hurt");
+    /// set of the skeleton and body, or with `alert` on a creature's alert set with the
+    /// alert stance's limping clips too (loaded once each).
+    fn clip_set_hurt(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, base: &ClipSet, alert: bool) -> Option<Arc<ClipSet>> {
+        let key = (fnv_vfs::normalize(skeleton), body, if alert { "hurt-alert" } else { "hurt" });
+        let stances: &[&str] = if alert { &[crate::locomotion::STANCE, crate::locomotion::ALERT_STANCE] } else { &[crate::locomotion::STANCE] };
         self.sets
             .lock()
             .expect("clip sets")
             .entry(key)
             .or_insert_with(|| {
-                let (set, line) = ClipSet::load_hurt(ctx, skeleton, skel, base)?;
+                let (set, line) = ClipSet::load_hurt(ctx, skeleton, skel, base, stances)?;
                 info!("actor locomotion: {line}");
                 Some(Arc::new(set))
             })
@@ -429,7 +442,7 @@ pub fn spawn(
                 // People crouch to sneak (`sneaking.rs`).
                 lo.sneak = world.clip_set_stance(ctx, &a.skeleton, &skel, body, crate::locomotion::SNEAK_STANCE);
                 // A crippled leg limps (`limping.rs`).
-                lo.hurt = world.clip_set_hurt(ctx, &a.skeleton, &skel, body, &set);
+                lo.hurt = world.clip_set_hurt(ctx, &a.skeleton, &skel, body, &set, false);
                 let walk = world.walk_test.filter(|w| w.radius <= 0.0 || at.distance(w.center) <= w.radius);
                 let mut player = blend_player(&spawned, &skel);
                 if let Some(w) = walk {
@@ -525,9 +538,13 @@ pub fn spawn_creature(
         match world.clip_set(ctx, &c.skeleton, &skel, Body::Male) {
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
-                lo.hurt = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set);
-                // Some creatures move otherwise when alert (`creature_pace.rs`).
+                lo.hurt = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set, false);
+                // Some creatures move otherwise when alert (`creature_pace.rs`), and limp
+                // otherwise when alert too (`limping.rs`).
                 lo.alert = world.alert_set(ctx, &c.skeleton, &skel, &set);
+                if let Some(alert) = lo.alert.clone() {
+                    lo.hurt_alert = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &alert, true);
+                }
                 if let Some(t) = world.pose_time {
                     let len = set.info(Move::Idle).map_or(1.0, |c| c.duration).max(f32::EPSILON);
                     lo.blend = Blend::new(Move::Idle, t / len);

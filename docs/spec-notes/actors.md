@@ -1315,7 +1315,90 @@ and run with the limping clips. `engine/nvforever/src/limping.rs` (NPCs, creatur
   weapon without limping clips limps on the unarmed legs and is held by its aim clip
   [design].
 - **Not checked** on screen: how the limping clips look in place, foot sliding at the
-  speeds AI walks a crippled NPC, creature limps other than the coyote's (dog skeleton).
+  speeds AI walks a crippled NPC. Creature limps are checked by log only (§8.12).
+
+### 8.12 Crippled limbs per skeleton
+
+Owner's request (2026-10-17): every actor whose skeleton has crippled clips uses them.
+Survey [observed: `fnvtool bsa list` of `Fallout - Meshes.bsa`, `Update.bsa` and the
+add-on `Main` archives; `fnvtool actor creatures --all` over FalloutNV.esm for each
+skeleton's placed creatures; `fnvtool combat form` of all 49 BPTD records; 2026-10-17].
+
+- **Only legs have crippled clips.** No `.kf` in any archive outside the
+  `locomotion\hurt\` folders has `hurt`, `crippl`, `injur`, `wound`, `limp` or `broken`
+  in its path [observed]. So there are no crippled-arm, head or torso clips, no crippled
+  idles besides the hurt folders' own (`characters\_male\…\hurt\mtidle.kf`,
+  `smspinebreaker\…\hurt\idle_hurt.kf`) and no arm-crippled weapon stances. A crippled
+  arm shows only in aim: NPCs now widen their spread with the player's settings
+  (`fnv_combat::spread`, `npc_combat.rs`) [design; hypothesis for the original].
+- **Which limbs are legs** [observed: BPTD parts' actor values]: the parts naming Left or
+  Right Mobility Condition (29, 30). That is the legs for people, deathclaws, super
+  mutants (`SupermutantrBodyPartData`, SMSpineBreaker skeleton), ghouls, mirelurks,
+  protectrons; the hind legs for geckos and giant rats (forelegs: Attack Conditions);
+  every leg for dogs, molerats, ants, radscorpions, brahmin, bighorners, nightstalkers,
+  centaurs; the **wings** for cazadores and bloatflies (their legs name the Attack
+  Conditions); the wheel for Securitrons, `Legs` for the sentry bot, the tracks for
+  robobrains and the thruster for Mister Handy and Gutsy (Left Mobility only). Eyebots,
+  turrets, spore plants and ravens have none.
+- **Super mutants and nightkin** are creatures (CREA, kind `Super Mutant`) on
+  `creatures\smspinebreaker\skeleton.nif` [observed: `JacobstownMutant1` MODL,
+  `VCrTier0CrNightkin` MODL], not the `_male` skeleton, so they use the spinebreaker's
+  hurt folder.
+- **The table** (skeleton folder below `meshes\`; placed creatures in FalloutNV.esm on
+  it, a leveled choice taken once; the files of its `locomotion\hurt\`; the moves
+  `hurt_move_in` reads from them) [observed; moves: design]:
+
+  | Skeleton | Placed | Hurt files | Limping moves |
+  |---|---|---|---|
+  | `characters\_male` (people) | NPCs | 29: `mt`/`1hm`/`1hp` × 8 moves `_hurt`, `h2hforward_hurt`, `mtidle`, `pamtidle`, `mtturnleft`, `mtturnright` | 11 (all `mt` moves, idle, turns) |
+  | `creatures\radscorpion` (also robo-scorpion's `skeleton_roboscopion`) | 265 | `mt_backward_hurt`, `mt_fastforward_hurtfastforward_hurt`, `mt_forward_hurt`, `mt_left_hurt`, `mt_right_hurt`, `mtleft_hurt`, `mtright_hurt` | 5: Forward, FastForward, Backward, Left, Right |
+  | `creatures\nvgecko` | 259 | `mtforward`, `mtfastforward` | 2 |
+  | `creatures\ghoul` (feral) | 237 | `mt` Forward, FastForward, Backward, FastBackward, Left, Right, TurnLeft, TurnRight `_hurt` | 8 |
+  | `creatures\nvcazadores` | 205 | `mtforward`, `mtfastforward`, `h2hforward`, `h2hfastforward` | 2, and 2 alerted |
+  | `creatures\dog` (dogs, coyotes, Rex) | 163 | `mtforward_hurt`, `mtfastforward_hurt`, `h2hfastforward_hurt` | 2, and 1 alerted |
+  | `creatures\nvbighorner` | 140 | none | none |
+  | `creatures\nvmantis` | 125 | `mtforward`, `mtfastforward` | 2 |
+  | `creatures\deathclaw` | 118 | `mt` Forward, FastForward, Backward, Left, Right, TurnLeft, TurnRight `_hurt` | 7 |
+  | `creatures\nvgiantrat` | 118 | `mtforward`, `mtfastforward`, `mtbackward` | 3 |
+  | `creatures\nvsecuritron` | 104 | `mtforward`, `mtfastforward`, `mtbackward` | 3 |
+  | `creatures\giantant` | 97 | `mt` Forward, FastForward, Backward `_hurt` | 3 |
+  | `creatures\nightstalker` | 96 | none | none |
+  | `creatures\brahmin` | 91 | `mt forwardforward_hurt` | 1 (Forward) |
+  | `creatures\smspinebreaker` (super mutants, nightkin) | 90 | `idle_hurt`, `mt` Forward, FastForward, Backward, FastBackward, Left, Right, TurnLeft, TurnRight `_hurt`, `2hmfastforward` | 9 (the `2hm` run is a weapon stance's) |
+  | `creatures\mirelurkking` (lakelurks) | 81 | `mt_hurtforward_hurt`, `mt_hurtfastforward`, `mt_hurtbackward`, `h2hforward` | 3, and 1 alerted |
+  | `creatures\molerat` | 59 | `mtforward`, `mtfastforward`, `mtbackward` | 3 |
+  | `creatures\mistergutsy` (Handy, Gutsy) | 46 | none | none |
+  | `creatures\protectron` | 38 | `mtforward_hurt` | 1 |
+  | `creatures\sentrybot` | 23 | `mt` Forward, FastForward, Backward, FastBackward, TurnLeft, TurnRight `_hurt` | 6 |
+  | `creatures\nvsporecarrier` | 20 | `mt` Forward, FastForward, Backward `_hurt` | 3 |
+  | `creatures\centaur` (both skeletons) | 30 | `mt` Forward, FastForward, Backward, TurnLeft, TurnRight `_hurt` | 5 |
+  | `creatures\robobrain` | 3 | `mt` Forward, FastForward, Backward `_hurt` | 3 |
+  | `nvdlc02\creatures\yaoguai` (and `creatures\yaoguai`) | add-on | `mtforward_hurt`, `mtfastforward_hurt` | 2 |
+  | `nvdlc03\creatures\roboscorpion` | add-on | as the radscorpion's | 5 |
+  | `dlc05\creatures\alien` | 3 | `forwardwalk`, `fastforward`, `1hmforwardwalk`, `1hmfastforward` | FastForward; Forward only if the sequence names it |
+
+  No hurt folder: bighorner, nightstalker, Mister Handy/Gutsy, eyebot, turrets, raven,
+  bloatfly, radroach, spore plant, queen ant, Festus, Mr. House, the Dead Money ghosts and
+  hologram, Old World Blues brainbot and hologram. Folders with hurt clips but no
+  FalloutNV.esm creature on them (Fallout 3 leftovers in the archive): mirelurk,
+  smbehemoth, `dlc03\…\smbonecrusher`, `dlc04\…\hillfolk*`, `dlc05\…\abomination`,
+  `combatdroid`, `maintenancerobot`, `dlcanch\…\chimera`, `dlcpitt\…\streettrog`. The
+  `actor creatures --all` listing resolves 429 random spawns to `creatures\nvvoid` (its
+  leveled choice, not a real skeleton).
+- **Alerted** [design]: a creature with an alert stance (`h2h` movement clips, §8.10)
+  limps on its alert set with the `mt` limping clips over it and then the `h2h` ones
+  (`Locomotion::hurt_alert`), so a fighting dog runs on `h2hfastforward_hurt.kf`
+  (sequence `FastForward_Hurt_H2H`) and a cazador flies on `h2hforward.kf`; before, an
+  alerted limping creature dropped back to its calm set.
+- **When** (unchanged from §8.11): either mobility condition at 0 or below; for a
+  Securitron or Mister Handy that is the wheel or thruster alone (Left Mobility)
+  [observed: BPTD], and only the Securitron has clips.
+- **Smoke**: `crippled-limp` (Chet, the player), `crippled-limp-creature` (a coyote,
+  alerted), `crippled-limp-deathclaw` (alerted, fighting a ghoul),
+  `crippled-limp-supermutant` (Jacobstown), `crippled-limp-gecko`. Each expects the
+  skeleton's limping set and `limping: … moves <Move> on its limping clip <sequence>`,
+  logged once per actor, move and alert state when the clip played is not the upright
+  set's.
 
 ## 9. Weapons: holstering and drawing (part H)
 

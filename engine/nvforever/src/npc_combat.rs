@@ -1461,8 +1461,11 @@ fn fight(
                                 } else {
                                     f.stats.hip_shots += 1;
                                 }
-                                // Crouched: no standing term in the spread (§14.2).
-                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled: false, right_arm_crippled: false };
+                                // Crouched: no standing term in the spread (§14.2). A crippled
+                                // arm (Left/Right Attack Condition) widens it as the player's
+                                // [design: the same settings, actors.md §8.12].
+                                let (left_arm_crippled, right_arm_crippled) = (g.is_crippled(me, 27), g.is_crippled(me, 28));
+                                let st = Stance { aiming: fighter.sights, moving: false, running: false, sneaking: crouched, airborne: false, skill, strength, aiming_move_divisor: 1.0, left_arm_crippled, right_arm_crippled };
                                 let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, ws, &st), 0.0, ws, &[]) + settling(fighter.firing_for);
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
