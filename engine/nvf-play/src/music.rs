@@ -42,10 +42,16 @@
 //! - **Files** are MP3, decoded by rodio (symphonia) as they play; a set loops by
 //!   starting its files again. Intro, outro and incidental sounds are SOUN records,
 //!   played by `crate::sfx` at the listener.
+//! - **The player's death** ([`MusicCues::dead`]): what plays fades out, a battle ends
+//!   without its outro, and the SOUN `MUSDeath` plays once at the listener (FalloutNV.esm
+//!   0x00078595, `fx\mus\mus_death.wav`, flagged 2D; the archives hold it as `.ogg`)
+//!   [observed: the record and its file; hypothesis: that the death plays it, by its
+//!   name]. No music plays while the player is dead; alive again, the place's music
+//!   comes back [design].
 //! - Music goes on in menus and behind loading screens [design].
 //! - Not built: the main menu's music (no main menu yet; `SMainMenuMusicTrack`), the
-//!   death music (the player does not die yet), the controllers' retrigger delay and
-//!   `NAM1` (not understood), `IsMusicPlaying`-style queries.
+//!   controllers' retrigger delay and `NAM1` (not understood), `IsMusicPlaying`-style
+//!   queries.
 //!
 //! [`MusicSettings`] turns it off (`nvforever --no-music`) and sets the volume
 //! (`--music-volume`). One log line per set started, per change of layers, per battle,
@@ -58,7 +64,7 @@ use crate::sfx::PlaySound;
 use crate::sim::SimState;
 use crate::{Location, PlayState, PlayWorld};
 use bevy::audio::{ChannelCount, Decodable, Sample, SampleRate, Source};
-use crate::audio_out::AddAudioSource;
+use crate::audio_out::{AddAudioSource, SoundCategory};
 use bevy::prelude::*;
 use fnv_combat::rng::SplitMix;
 use fnv_sim::FormId;
@@ -248,6 +254,8 @@ const LOCATION_LAYERS: [&str; 3] = ["outer", "middle", "inner"];
 const ONE_LAYER: [&str; 3] = ["loop", "-", "-"];
 /// Seconds between two looks at the actors near the player [design].
 const CUE_INTERVAL: f32 = 0.25;
+/// The sound the player's death plays (see the module notes).
+const DEATH_SOUND: &str = "MUSDeath";
 /// The game settings battle music reads, with the values FalloutNV.esm stores
 /// [observed], used when a setting is missing.
 const STOP_TIME: (&str, f32) = ("fCombatMusicStopTime", 3.0);
@@ -412,6 +420,8 @@ pub struct Music {
     /// the set picked for it.
     marker: Option<(u32, Option<i64>, Option<u32>)>,
     battle: Battle,
+    /// The player is dead: no music plays.
+    dead: bool,
     /// When the next incidental phrase is due, and the region it is for.
     incidental: Option<(u32, f32)>,
     reported: HashSet<String>,
@@ -424,6 +434,7 @@ pub struct Music {
     pub script_requests: u32,
     pub incidentals: u32,
     pub stingers: u32,
+    pub deaths: u32,
 }
 
 impl Default for Music {
@@ -438,6 +449,7 @@ impl Default for Music {
             script: None,
             marker: None,
             battle: Battle::default(),
+            dead: false,
             incidental: None,
             reported: HashSet::new(),
             rng: SplitMix(0x6d75_7369),
@@ -449,6 +461,7 @@ impl Default for Music {
             script_requests: 0,
             incidentals: 0,
             stingers: 0,
+            deaths: 0,
         }
     }
 }
@@ -462,6 +475,8 @@ pub struct MusicCues {
     pub alert: bool,
     /// The hostile actor that made the battle, for the log.
     pub by: Option<u32>,
+    /// The player is dead (`Game::is_dead`).
+    pub dead: bool,
     /// GetFactionRelation of each conditional faction towards the player.
     pub relations: HashMap<u32, i64>,
     requests: Vec<FormId>,
@@ -514,6 +529,7 @@ fn cues(
 ) {
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
     cues.requests.append(&mut rt.game.music_requests);
+    cues.dead = rt.game.is_dead(FormId::PLAYER_REF);
     let now = time.elapsed_secs();
     if now < cues.next || *state.get() != PlayState::Playing {
         return;
@@ -617,7 +633,7 @@ impl Music {
         }
         let entity = format.map(|(channels, rate)| {
             let music = assets.add(LayeredMusic { stems, levels: levels.clone(), channels, rate, looping: w.looping });
-            commands.spawn((AudioPlayer::<LayeredMusic>(music), PlaybackSettings::DESPAWN, MusicSound)).id()
+            commands.spawn((AudioPlayer::<LayeredMusic>(music), PlaybackSettings::DESPAWN, MusicSound, SoundCategory::Music)).id()
         });
         self.started += 1;
         let layers: Vec<&str> = (0..3).filter(|&k| w.on[k] && w.files[k].is_some()).map(|k| w.layers[k]).collect();
@@ -683,6 +699,7 @@ fn play(
     state: Res<State<PlayState>>,
     mut assets: ResMut<Assets<LayeredMusic>>,
     (main_menu, intro): (Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>),
+    sfx: Option<Res<crate::sfx::Sfx>>,
 ) {
     let (Some(mut music), Some(places), Some(player), Some(data)) = (music, places, player, data) else { return };
     let music = &mut *music;
@@ -758,9 +775,39 @@ fn play(
     let cell = cell_at(&d, &loc, eye);
     let region = cell.and_then(|c| *music.regions.entry(c).or_insert_with(|| region_of(&d, &places, c))).and_then(|r| places.forms.regions.get(&r));
 
+    // The player's death: the music stops and the death sound plays, once per death.
+    if cues.dead != music.dead {
+        music.dead = cues.dead;
+        if music.dead {
+            if let Some(mut old) = music.script.take() {
+                old.target = [0.0; 3];
+                old.fade = DEFAULT_FADE;
+                music.leaving.push(old);
+            }
+            let b = &mut music.battle;
+            b.active = false;
+            b.ended = None;
+            b.intro_at = None;
+            music.incidental = None;
+            let death = sfx.as_deref().and_then(|x| x.forms.sounds.iter().find(|(_, s)| s.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(DEATH_SOUND))).map(|(&id, _)| id));
+            match death {
+                Some(s) => {
+                    info!("music: the player died: the music stops, {DEATH_SOUND} ({s}) plays{}", if audible { "" } else { " [silent: music is off]" });
+                    if audible {
+                        sounds.write(PlaySound { sound: s, at: None });
+                        music.deaths += 1;
+                    }
+                }
+                None => info!("music: the player died: the music stops; no {DEATH_SOUND} in the load order"),
+            }
+        } else {
+            info!("music: the player lives again: the place's music comes back");
+        }
+    }
+
     // Battle.
     let in_game = *state.get() == PlayState::Playing;
-    if cues.combat && in_game {
+    if cues.combat && in_game && !music.dead {
         music.battle.last = now;
         if !music.battle.active {
             let dungeon = place_set.filter(|s| s.kind == MediaSetKind::Dungeon);
@@ -817,7 +864,9 @@ fn play(
             wanted_type(places.forms.music.get(&of_cell.or_else(of_world)?)?)
         })
     };
-    let wanted = if battle_loop {
+    let wanted = if music.dead {
+        None
+    } else if battle_loop {
         battle_set.map(wanted_battle)
     } else if recovering {
         None
@@ -863,7 +912,7 @@ fn play(
     }
 
     // Incidental phrases where nothing plays.
-    let silent = music.current.is_none() && !music.battle.active && !recovering;
+    let silent = music.current.is_none() && !music.battle.active && !recovering && !music.dead;
     match region.and_then(|r| Some((r.form_id, places.forms.sets.get(&r.incidental?)?))).filter(|_| silent && in_game) {
         Some((r, set)) => {
             let day = incidental_day(hour);
@@ -908,7 +957,7 @@ fn play(
 fn report(mut exit: MessageReader<AppExit>, music: Option<Res<Music>>) {
     if let (Some(_), Some(m)) = (exit.read().last(), music) {
         info!(
-            "music summary: {} started, {} changes of layers, {} files not played, {} battles ({} battle loops started), {} intro and outro sounds, {} script requests, {} incidental phrases{}",
+            "music summary: {} started, {} changes of layers, {} files not played, {} battles ({} battle loops started), {} intro and outro sounds, {} script requests, {} incidental phrases, {} death sounds{}",
             m.started,
             m.layer_changes,
             m.failed,
@@ -917,6 +966,7 @@ fn report(mut exit: MessageReader<AppExit>, music: Option<Res<Music>>) {
             m.stingers,
             m.script_requests,
             m.incidentals,
+            m.deaths,
             m.current.as_ref().map_or(String::new(), |t| format!("; playing {}", t.name))
         );
     }

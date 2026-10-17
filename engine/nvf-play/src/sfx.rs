@@ -43,7 +43,7 @@
 use crate::player::Player;
 use crate::PlayWorld;
 use bevy::audio::{ChannelCount, Decodable, Sample, SampleRate, Source, Volume};
-use crate::audio_out::AddAudioSource;
+use crate::audio_out::{AddAudioSource, SoundCategory};
 use bevy::prelude::*;
 use fnv_combat::fx::{FxForms, Sound};
 use fnv_combat::rng::SplitMix;
@@ -497,7 +497,7 @@ fn play(
         debug!("sfx: {name} {path} looping, gain {gain:.3}");
         if settings.play {
             sfx.played += 1;
-            commands.spawn((AudioPlayer::<PcmSound>(handle), PlaybackSettings::LOOP.with_volume(Volume::Linear(gain)), Looping(l.sound), SfxSound));
+            commands.spawn((AudioPlayer::<PcmSound>(handle), PlaybackSettings::LOOP.with_volume(Volume::Linear(gain)), Looping(l.sound), SfxSound, SoundCategory::of_effect(s.edid.as_deref())));
         } else {
             sfx.silent += 1;
         }
@@ -577,13 +577,14 @@ fn one_shot_at(
     }
     sfx.played += 1;
     let playback = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(gain)).with_speed(speed);
+    let category = SoundCategory::of_effect(s.edid.as_deref());
     match placed.and_then(|p| assets.get(&handle).map(|pcm| (PcmSound { pan: Some(p.pan.clone()), ..pcm.clone() }, p))) {
         // This playing's own asset: the samples are shared, the pan is its own.
         Some((pcm, placed)) => {
-            commands.spawn((AudioPlayer::<PcmSound>(assets.add(pcm)), playback, placed, SfxSound));
+            commands.spawn((AudioPlayer::<PcmSound>(assets.add(pcm)), playback, placed, SfxSound, category));
         }
         None => {
-            commands.spawn((AudioPlayer::<PcmSound>(handle), playback, SfxSound));
+            commands.spawn((AudioPlayer::<PcmSound>(handle), playback, SfxSound, category));
         }
     }
     Some(seconds)

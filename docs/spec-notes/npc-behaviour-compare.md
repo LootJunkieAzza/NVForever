@@ -255,8 +255,9 @@ unchanged (6 in the battle).
    `NVF_PLAY_TEST_SCRIPT`, so the creature scenes in our engine only had Violet's dogs.
 8. **Smoke scenarios moved by the fixes** (marked `known_failing` with the reason):
    `combat-lines` (the dogs' first bites now land before the player's power attack, which
-   falls inside the player's own Hit line; move the aid's timings) and `combat-cover`
-   (no cover in 2 of 3 runs, 2 covers in the third).
+   falls inside the player's own Hit line; fixed 2026-10-17: an attack's line now cuts
+   the attacker's own Hit line, combat-dialogue.md §2, and the mark is gone) and
+   `combat-cover` (no cover in 2 of 3 runs, 2 covers in the third).
 9. **A walk up to a partner that ends at once** (§5): in Westside 7 of our 10 old-rule
    conversations started where the starter stood, 218–907 units from its partner (the
    original's median is 120, but one of its five started at 624). `Ai::chats_on` takes a

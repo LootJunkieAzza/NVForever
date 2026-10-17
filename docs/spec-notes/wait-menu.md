@@ -345,7 +345,13 @@ screen instead of the menu, in this order [engineering choice: the order]:
    `sNoWaitInCell` line, for a sleep too [documented].
 2. **Swimming**: the `sNoWaitUnderWater` line [hypothesis: "under water" is the
    character's swimming state].
-3. **A hostile actor near**: the "enemies are nearby" line for waiting or for sleeping
+3. **In the air** (jumping or falling: the character controller is not on the ground,
+   not swimming, and no furniture holds the player) [owner request 2026-10-17]: an
+   NVForever line, no setting being known for it.
+4. **Taking radiation damage** [owner request 2026-10-17]: an empty check for now,
+   never true: nothing in the world irradiates the player yet (rads come only from aid
+   items, `fnv_game::aid`). Its line is NVForever's.
+5. **A hostile actor near**: the "enemies are nearby" line for waiting or for sleeping
    (the two texts FalloutNV.esm has). An actor is hostile when it is drawn, alive,
    enabled, not a teammate, not unconscious or restrained, and, by its Aggression:
    Aggressive and the player is an enemy of its factions; Very Aggressive and the
@@ -356,7 +362,20 @@ screen instead of the menu, in this order [engineering choice: the order]:
    sets `fHostileActorExteriorDistance` or `fHostileActorInteriorDistance` is followed.
    NVForever's actors do not fight on their own yet, so this is "would attack", not "is
    attacking".
-4. **Someone else's bed** (sleeping only): the bed reference has an owner that is an
+6. **In combat** [owner request 2026-10-17]: a drawn actor in a combat state (Alert,
+   Combat, Lost) has the player on its target or alert list, which is what IsInCombat
+   on the player reads (`fnv_game::awareness`), limited to the drawn actors
+   [hypothesis: an actor in a cell no longer loaded keeps its combat state after the
+   player left (observed in the corpse-respawn smoke run: cazadors 28000 units away),
+   and the player who went away is not being fought]. It comes after rule 5
+   [hypothesis: in a fight the enemy is near, and the "enemies are nearby" line is the
+   original's own], so it catches a hunter farther away or one the player provoked.
+   The line is `sNoWaitInCombat` or `sNoSleepCombat` [documented names; no record in
+   FalloutNV.esm, so NVForever's wording unless a plugin sets them].
+7. **Trespassing** [owner request 2026-10-17]: the player is in an owned cell, not
+   public, that is not theirs (`fnv_game::crime`'s trespass cell, the one owners warn
+   the player in): an NVForever line, no setting being known for it.
+8. **Someone else's bed** (sleeping only): the bed reference has an owner that is an
    actor other than the player, or a faction the player is not in: the
    `sNoSleepInOwnedBed` line [hypothesis: the reference's own owner, as `IsOwner` reads
    it; the cell's owner is not looked at]. The player still lies down on it.
@@ -371,9 +390,8 @@ tested (FiendVioletRef) came out neutral to the player by its factions. Such act
 refuse a wait only when Very Aggressive or Frenzied: two coyotes 300 units away
 (Aggressive) did not, the Fiend (Very Aggressive) did.
 
-Not built: `sNoWaitInCombat` and `sNoSleepCombat` (the player has no combat state: no
-actor fights on its own yet), `sNoWaitWhileAlarmSounding` (nothing says what the alarm
-is), the cells' own flag.
+Not built: `sNoWaitWhileAlarmSounding` (nothing says what the alarm is), the cells' own
+flag.
 
 ## 10. Not built
 

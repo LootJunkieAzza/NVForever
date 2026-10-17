@@ -28,8 +28,8 @@
 //! view's degrees), still kept as the part.
 //!
 //! What is not here: choices fixed when the game starts (which NPCs live by their
-//! packages, FaceGen, the load order), most numbers (volumes; the field of view is a slider) and the
-//! test aids.
+//! packages, FaceGen, the load order), most numbers (the volumes, the field of view and the
+//! draw distances are sliders) and the test aids.
 
 use bevy::prelude::*;
 use fnv_install::{guard_write, ini_get, ini_set, EngineHome, HOME_ENV};
