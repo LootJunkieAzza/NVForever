@@ -556,6 +556,26 @@ console lines in these sessions), so quests are built with `BuildRef` and their 
 read and written with xNVSE's `GetVariable` / `SetVariable`; `job` resolves quest Editor
 IDs through `--defs` or `--data`.
 
+### Script-function probes (`function_probe.py`, `function_coverage.py`)
+
+The same script calls in the original game and in ours, lined up function by function
+(docs/design/script-function-coverage.md §2). A probe file (`probes/*.toml`,
+`fnv.function.probes/1`) names forms as `Plugin.esm:FormID` and lists batches of steps
+(`ask`, `do`, `until`, `moveto`, `coc`, `console`, `frames`):
+
+```
+python tools/capture/function_probe.py jobs tools/capture/probes/audit2.toml -o C:/fnv-private/capture/probe/audit2
+python tools/capture/function_probe.py ours C:/fnv-private/capture/probe/audit2 --fnvtool <root target>/release/fnvtool.exe --data "<Data>"
+python tools/capture/function_probe.py game C:/fnv-private/capture/probe/audit2 --game "<FNV folder>" [--only BATCH ...]
+python tools/capture/function_probe.py compare C:/fnv-private/capture/probe/audit2 -o compare.md --json compare.json
+```
+
+`game` takes both game locks (as the smoke runner does), then runs the jobs unattended
+through `capture_run.py` from the save `nvftest`; `ours` runs `fnvtool script run` with the
+runner's `call` action. `function_coverage.py` writes the coverage doc's tables from
+`fnvtool script coverage`, `fnvtool script uses`, `function_systems.toml` and the
+comparison.
+
 ## Tests
 
 ```

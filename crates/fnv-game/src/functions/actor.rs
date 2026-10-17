@@ -867,3 +867,46 @@ pub fn get_health_percentage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value
     let now = actor_value(g, r, crate::combat::HEALTH)?;
     Ok(Value::Num(if base != 0.0 { (now / base).max(0.0) } else { 1.0 }))
 }
+
+/// IsFacingUp (bipeds) and IsLeftUp (quadrupeds), the idle manager's checks of a knocked
+/// down actor's side [documented: GECK wiki]: 1 [observed, function probes `fp1_queries`
+/// 2026-10-17: both read 1 on Ringo standing in the gas station]. Knockdowns are not
+/// built, so no actor lies on its other side; 1 always [hypothesis for a knocked-down
+/// actor].
+pub fn knocked_side_up(_g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    ctx.subject()?;
+    yes(true)
+}
+
+/// `actor.GetDisposition target`: the actor's record's Disposition Base (ACBS) plus
+/// `fDispTargetCharMult` × (the target's Charisma − 5), kept within 0 to 100; a value
+/// SetDisposition gave for that target instead [observed, function probes 2026-10-17
+/// (`fp1_queries`, `fp5_actions`): every Goodsprings resident (base 35) read 35 towards a
+/// player of Charisma 5, 85 at Charisma 10 and 0 at Charisma 1; Ringo towards Sunny Smiles
+/// (Charisma 4) 25; Karma ±1000 changed nothing; after `SetDisposition player 20` it read
+/// 20. The GMST is 10 in FalloutNV.esm and the slope observed is 10: that the GMST is the
+/// factor, the anchor 5 and the upper bound 100 are hypothesis]. The wiki's "all
+/// modifiers" (factions, crimes, the actor's own Charisma via `fDispActorCharMult`) are
+/// not applied: the actor's Charisma (3 to 6 among those probed) made no difference.
+pub fn get_disposition(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let actor = ctx.subject()?;
+    let target = a.form(0)?;
+    if let Some(v) = g.extra.get(&actor).and_then(|x| x.dispositions.get(&target)) {
+        return Ok(Value::Num(*v));
+    }
+    let base = g.base_data_def(actor).map_or(0, |d| d.disposition_base) as f64;
+    let cha = crate::actor_values::capped(crate::actor_values::CHARISMA, actor_value(g, target, crate::actor_values::CHARISMA).unwrap_or(5.0));
+    let mult = crate::combat::setting(g, "fDispTargetCharMult", 10.0);
+    Ok(Value::Num((base + mult * (cha - 5.0)).clamp(0.0, 100.0).round()))
+}
+
+/// `actor.SetDisposition target value`: GetDisposition towards `target` reads `value`
+/// from now on [documented: GECK wiki SetDisposition; observed: 20 after
+/// `SetDisposition player 20`]. Kept in the saved state.
+pub fn set_disposition(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let actor = ctx.subject()?;
+    let target = a.form(0)?;
+    let v = a.num(1)?;
+    g.extra.entry(actor).or_default().dispositions.insert(target, v);
+    none()
+}

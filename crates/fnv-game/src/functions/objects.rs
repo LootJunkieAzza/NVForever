@@ -261,6 +261,10 @@ pub fn set_scale(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// catalogue notes]; 0 without a lock [hypothesis]. Terminals are not read yet.
 pub fn get_lock_level(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    if super::refs::is_terminal(g, r) {
+        let l = if super::refs::in_loaded_cell(g, r) { crate::terminal::lock_level(g, r) } else { 0 };
+        return Ok(Value::Num(l as f64));
+    }
     let l = g.world.get(r).map_err(|e| e.to_string())?.lock.map(|l| l.level).unwrap_or(0);
     Ok(Value::Num(l as f64))
 }

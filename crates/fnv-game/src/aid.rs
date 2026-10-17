@@ -289,6 +289,9 @@ impl Game<'_> {
                 let hit = chance > 0.0 && ((self.rng.next_u64() >> 11) as f64 / (1u64 << 53) as f64) < chance;
                 if hit {
                     self.add_spell(actor, spell);
+                    if actor == FormId::PLAYER_REF {
+                        *self.player.misc_stats.entry(crate::functions::player::STAT_TIMES_ADDICTED).or_default() += 1.0;
+                    }
                     self.emit(EventKind::Addicted { actor, item, spell });
                 }
                 addiction = Some((chance, hit));

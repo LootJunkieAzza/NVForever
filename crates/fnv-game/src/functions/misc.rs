@@ -140,11 +140,16 @@ pub fn abs(_g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     Ok(Value::Num(a.num(0)?.abs()))
 }
 
-/// The day of the week, 0 Sunday … 6 Saturday [documented: GECK wiki GetDayOfWeek], of
-/// the GameYear / GameMonth (from 0) / GameDay globals: [`weekday`].
+/// The day of the week, 0 Sunday … 6 Saturday [documented: GECK wiki GetDayOfWeek]: the
+/// whole days of GameDaysPassed modulo 7, day 0 (13 October 2281) a Sunday [observed,
+/// function probes `fp1_queries` / `fp6_calendar` 2026-10-17: 5 at GameDaysPassed 12.39;
+/// setting GameYear / GameMonth / GameDay to 28 February 2284 left it at 5, and each 24
+/// hours after moved it to 6 and then 0 with GameDaysPassed 13 and 14]. The calendar
+/// globals are not read: a script that sets them does not change the weekday. On a
+/// calendar the clock keeps, both give the same day ([`weekday`]).
 pub fn get_day_of_week(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let c = g.world.calendar().map_err(|e| e.to_string())?;
-    Ok(Value::Num(weekday(c.year as i64, c.month as i64 + 1, c.day as i64) as f64))
+    Ok(Value::Num((c.days_passed as f64).floor().rem_euclid(7.0)))
 }
 
 /// The weekday of a game date (month from 1), 0 Sunday: the days since 13 October 2281,
@@ -153,8 +158,8 @@ pub fn get_day_of_week(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, Str
 /// being a Sunday [observed: GetDayOfWeek read 5 on 25 October 2281 (capture
 /// `fa_batch1_queries`, 2026-10-16), and the owner's screenshot of the wait menu shows
 /// 19 October 2281 as a Saturday; the Gregorian calendar gives Tuesday and Wednesday].
-/// The engine's wait menu counts the same way (`nvf-play` `wait::model::weekday`).
-/// Whether a 29 February ever comes is not checked (2284 is the first candidate).
+/// The engine's wait menu counts the same way (`nvf-play` `wait::model::weekday`). There is
+/// no 29 February [observed: 2280 and 2284, `fnv_sim::clock::days_in_month`].
 pub fn weekday(year: i64, month: i64, day: i64) -> i64 {
     const BEFORE: [i64; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
     let day_number = |year: i64, month: i64, day: i64| year * 365 + BEFORE[(month - 1).clamp(0, 11) as usize] + day - 1;
