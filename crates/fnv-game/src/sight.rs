@@ -8,10 +8,10 @@
 //!   actor, player, or camera)"; "When called on the player … it returns true if the
 //!   *camera* can see the object"].
 //! - **Pairs**: every two actors of the loaded area within detection reach of each other
-//!   are measured, whether the player is near or not ([`pairs_within`]) [hypothesis: the
-//!   original's High process ("processed every frame", GECK wiki (JIP)
-//!   GetActorProcessingLevel) runs detection for all of its actors; capture
-//!   requests/detection-1.toml batch det2 checks it]. NVForever used to measure only
+//!   are measured, whether the player is near or not ([`pairs_within`]) [observed: a
+//!   Frenzied Chet 6,682 units from the player fought Ringo within 1 s and GetDetected
+//!   him, capture detection-1 det2, 2026-10-17; the original's High process is
+//!   "processed every frame", GECK wiki (JIP) GetActorProcessingLevel]. NVForever used to measure only
 //!   actors within reach of the player, so fights between NPCs out of that reach never
 //!   started (docs/design/script-function-coverage.md §5 item 1).
 //! - **Sight over the land** ([`over_land`]): where the collision world is not loaded (it

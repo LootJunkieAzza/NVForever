@@ -12,9 +12,13 @@
 //!
 //! What is measured here and how sure it is:
 //! - **Who**: every two actors of the loaded area within detection reach of each other,
-//!   near the player or not (`fnv_game::sight::pairs_within`) [hypothesis: the original's
-//!   High process measures them all; actors out of the loaded area (the low process) do
-//!   not detect anyone here].
+//!   near the player or not (`fnv_game::sight::pairs_within`) [observed: a Frenzied Chet
+//!   6,682 units from the player fought Ringo within 1 s, capture detection-1 det2,
+//!   2026-10-17]; the player measures every drawn actor, out of reach too (hidden there,
+//!   but GetLineOfSight can read 1: 1 at 6,682 units, same capture). Actors out of the
+//!   loaded area (the low process) do not detect anyone [observed: with the player in the
+//!   gas station, a Frenzied Chet outdoors never fought Ringo in 155 s, same capture
+//!   det3].
 //! - **Line of sight**: a ray through the collision world from the detector's eyes to the
 //!   target's chest; the world's solid shapes block it, actors do not [engineering
 //!   choice]. Collision exists only around the player (3 × 3 cells): where either end is
@@ -22,12 +26,15 @@
 //!   heights read from the cells' LAND records) [engineering choice].
 //! - **Field of view**: 95° either side of straight ahead, for every actor and for the
 //!   player, whose view is the camera's (where it is, where it looks, first or third
-//!   person) [documented: GECK wiki GetLineOfSight]; [hypothesis: detection's "can see
-//!   the target" is the same test].
+//!   person) [documented: GECK wiki GetLineOfSight]; detection's "can see the target" is
+//!   the same test [observed for the player: Ringo 263 units away read GetDetected and
+//!   GetLineOfSight 1 at ±45° off the view and 0 at ±135°, third person, capture
+//!   detection-1 det1].
 //! - **The player as a detector**: measured like an actor, its Perception against the
 //!   target's Sneak [observed: player.GetDetected Ringo and Chet 1 in the original,
 //!   function probes fp1/fp2 2026-10-17, also with `tdetect` on, so the toggle and
-//!   `NVF_PLAY_TEST_UNSEEN` leave it measuring; hypothesis: the same formula]. It feeds
+//!   `NVF_PLAY_TEST_UNSEEN` leave it measuring; 0 for Ringo out of view and at 6,682
+//!   units, capture detection-1; hypothesis: the same formula]. It feeds
 //!   GetDetected / GetLineOfSight only: no detection state.
 //! - **Light at the target** (0–100) [hypothesis, no source gives the game's measure]:
 //!   100 × the luminance of the ambient light, plus the sunlight's times daylight outdoors
@@ -508,7 +515,12 @@ fn measure(
         // Every two within reach of each other, both ways; the player detects too.
         let feet: Vec<[f32; 3]> = people.iter().map(|p| p.feet).collect();
         let near_player: Vec<bool> = feet.iter().map(|f| distance(*f, player.feet) <= reach).collect();
-        let ordered = fnv_game::sight::pairs_within(&feet, reach).into_iter().flat_map(|(a, b)| [(a, b), (b, a)]);
+        let within = fnv_game::sight::pairs_within(&feet, reach);
+        // The player sees every drawn actor, whatever the distance (out of reach it is
+        // hidden): player.GetLineOfSight Ringo read 1 at 6,682 units [observed: capture
+        // detection-1 det2, 2026-10-17].
+        let beyond: Vec<(usize, usize)> = (1..people.len()).filter(|&j| !near_player[j]).map(|j| (0, j)).collect();
+        let ordered = within.into_iter().flat_map(|(a, b)| [(a, b), (b, a)]).chain(beyond);
         for (i, j) in ordered {
             let (d, t) = (&people[i], &people[j]);
             let by_player = i == 0;

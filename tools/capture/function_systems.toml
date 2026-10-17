@@ -116,9 +116,8 @@ status = "match"
 note = "player.GetLineOfSight Ringo 1 [observed: probes; and 1 at 41 units, audit §3]; the player's is the camera's, ±95° [documented: GECK wiki GetLineOfSight] (detection.md §7). Not built: on the player, a target that is not an actor."
 
 [function.IsInCombat]
-status = "open"
-system = "fights out of the loaded area (low process)"
-note = "NPC fights out of the player's detection reach start in the loaded area since 2026-10-17 (detection.md §7); out of it (the low process) nobody detects anyone. Whether the original's do: capture request detection-1, batch det3."
+status = "match"
+note = "NPC fights out of the player's detection reach start in the loaded area since 2026-10-17, as in the original [observed: capture detection-1 det2] (detection.md §7); out of it nobody detects anyone, as in the original with the player indoors [observed: det3]."
 
 [function.GetActionRef]
 status = "open"

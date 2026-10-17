@@ -180,9 +180,12 @@ The ranked table is in §6. Read with it:
    GetLineOfSight, IsInCombat; 153 quests): done 2026-10-17 (docs/design/detection.md
    §7): the player measures the actors from the camera, and every pair of the loaded
    area is measured, near the player or not, so far fights start (smoke
-   `detection-far-fight`). Left open: fights out of the loaded area (the low process),
-   asked of the original by capture request detection-1 (batch det3); IsInCombat stays
-   open until then.
+   `detection-far-fight`), as the original does [observed: capture detection-1,
+   2026-10-17: a Frenzied Chet 6,682 units from the player fought Ringo within 1 s; the
+   player's GetDetected / GetLineOfSight follow the camera's facing; player.GetLineOfSight
+   reads 1 at 6,682 units; with the player indoors the pair outdoors did not fight,
+   as ours: only the loaded area detects]. Left: wall cases of the player's sight
+   (capture request detection-2).
 2. **NPC equipment drawn from the rules** (EquipItem, UnequipItem; 82 quests, the intro
    chain among them): scripts dress and arm NPCs (Doc Mitchell, companions) and the engine
    ignores it. Needs the engine to draw what the rules have equipped (audit §5).
@@ -214,10 +217,10 @@ with no Locked flag and is open in the original; worth a GetLocked probe on it).
 
 | Status | Functions | Calls | Condition uses |
 |---|---|---|---|
-| matches the original | 319 | 62332 | 79346 |
+| matches the original | 320 | 62644 | 79565 |
 | wrong or stub, system exists | 31 | 1380 | 195 |
 | no system yet | 43 | 500 | 530 |
-| open (capture needed) | 7 | 1960 | 262 |
+| open (capture needed) | 6 | 1648 | 43 |
 | all used | 400 | 66172 | 80333 |
 
 ### Playthrough blockers
@@ -487,7 +490,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsHardcore | 0x124A | 11 / 278 | match | - | - |  |
 | IsIdlePlaying | 0x1070 | 11 / 2 | wrong | animation state told to the rules | differs 1, same 2 | Easy Pete sitting read 1 [observed: probes]; ours 0 headless; the engine tells PlayIdle idles only. |
 | IsImageSpaceActive | 0x1232 | 43 / 0 | match | - | - |  |
-| IsInCombat | 0x1121 | 312 / 219 | open | fights out of the loaded area (low process) | same 1 | NPC fights out of the player's detection reach start in the loaded area since 2026-10-17 (detection.md §7); out of it (the low process) nobody detects anyone. Whether the original's do: capture request detection-1, batch det3. |
+| IsInCombat | 0x1121 | 312 / 219 | match | - | same 1 | NPC fights out of the player's detection reach start in the loaded area since 2026-10-17, as in the original [observed: capture detection-1 det2] (detection.md §7); out of it nobody detects anyone, as in the original with the player indoors [observed: det3]. |
 | IsInCriticalStage | 0x1213 | 16 / 0 | match | - | game error 3, same 3 | `IsInCriticalStage None` 1 and GooStart / DisintegrateEnd 0 on a live actor, as ours [observed: probes fp7]; the parameter is a stage name (a number does not compile). No engine critical death sets a stage (see SetCriticalStage). |
 | IsInInterior | 0x112C | 35 / 56 | match | - | - |  |
 | IsInList | 0x1174 | 10 / 49 | match | - | - |  |

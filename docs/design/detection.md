@@ -122,11 +122,14 @@ Ringo` and `player.GetDetected Chet` read 1, the last with `tdetect` on [observe
 probes fp1/fp2, 2026-10-17]. On the player GetLineOfSight is the camera's ("it returns
 true if the *camera* can see the object", so in third person things behind the player
 can count), with the same ±95° [documented: GECK wiki GetLineOfSight]. NVForever measures
-the player against every actor within its reach with the same formula as an actor: its
-Perception against the target's Sneak, from the camera's position, within ±95° of where
-the camera looks, through the same line of sight [hypothesis: the formula and the field
-of view for GetDetected; whether facing matters is asked by capture request
-detection-1, batch det1]. `tdetect` and `NVF_PLAY_TEST_UNSEEN` do not stop it. The
+the player against every drawn actor with the same formula as an actor: its Perception
+against the target's Sneak, from the camera's position, within ±95° of where the camera
+looks, through the same line of sight [hypothesis: the formula]. Facing matters as for
+an actor [observed: capture detection-1 det1, 2026-10-17, in third person: Ringo 263
+units away read player.GetDetected and GetLineOfSight 1 at 45° either side of the view
+and 0 at 135° and 151°]. Out of reach the player still measures (the target is hidden,
+GetDetected 0) so that GetLineOfSight answers at any distance [observed: same capture
+det2, player.GetLineOfSight Ringo 1 and GetDetected 0 at 6,682 units outdoors]. `tdetect` and `NVF_PLAY_TEST_UNSEEN` do not stop it. The
 player's own measurements feed the two functions only: no detection state, no alarm.
 Not built: player.GetLineOfSight on an object that is not an actor (the original allows
 it on the player).
@@ -134,9 +137,10 @@ it on the player).
 **Every pair of the loaded area.** All living, drawn actors (the loaded 5 × 5 exterior
 cells, or the loaded interior) measure each other within detection reach, wherever the
 player is (`fnv_game::sight::pairs_within`); the player is one of the points, no
-longer the centre of the pass [hypothesis: the original's High process, "processed every
-frame", measures them all; capture request detection-1 batch det2 places a Frenzied Chet
-beside Ringo 6,000 units from the player to check]. The detection states, the combat
+longer the centre of the pass [observed: capture detection-1 det2, 2026-10-17: Chet made
+Frenzied 1,400 units from Ringo and 6,682 from the player was in combat with Ringo within
+1 s (IsInCombat 1 for both, combat target Ringo, GetDetected 1); the fight was over by
+26 s]. The detection states, the combat
 AI and alarms take these pairs as they did the near ones, so a far fight starts and
 IsInCombat reads 1.
 
@@ -149,9 +153,12 @@ What it approximates:
   not. Inside the collision world nothing changed.
 - **Out of the loaded area** (the low process, `fnv_ai::process`) nobody detects
   anyone: those actors keep walking their packages and have no combat state, so a fight
-  there starts only once the player comes near enough to load their cells. Whether the
-  original fights there is asked by batch det3 (a Frenzied Chet while the player is in
-  the gas station); the audit left it open.
+  there starts only once the player comes near enough to load their cells. So does the
+  original, as far as one capture shows [observed: capture detection-1 det3: with the
+  player in the gas station, Chet made Frenzied outdoors near Ringo never detected him
+  (GetDetected 0) and neither was in combat at 5, 35 and 155 s; their GetDistance read
+  the float maximum, as for references not loaded]. Only the cell buffer case (Mid-High,
+  the player indoors next to them) was tried, not actors far out in the Low level.
 - **Cost.** Pairs are found by distance among the drawn actors (all pairs, at most a few
   thousand distance checks four times a second); rays and land samples only for pairs
   within reach. The exit line `detection summary, out of the player's reach` counts the
