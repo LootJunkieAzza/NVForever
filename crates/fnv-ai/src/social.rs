@@ -235,7 +235,8 @@ impl Ai {
         // and it has someone within the radius, the one or the other next to the player.
         let mut starters: Vec<(&Free, Vec<(f32, &Free)>)> = Vec::new();
         for f in &free {
-            if !STARTERS.contains(&f.def.ty) || !chats(f.def) || self.social.next_chat.get(&f.actor).is_some_and(|&t| now < t) {
+            // Not one that has just said hello either.
+            if !STARTERS.contains(&f.def.ty) || !chats(f.def) || self.social.next_chat.get(&f.actor).is_some_and(|&t| now < t) || game.is_talking(f.actor) {
                 continue;
             }
             let indoors = matches!(f.at.space, Space::Interior(_));
