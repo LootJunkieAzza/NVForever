@@ -73,3 +73,34 @@ Golf and expects that count to be 0.
   `--play` the physics puts walking residents on the ground; a resident that never walks
   keeps its placed height [observed in code: `residents.rs` gives physics only to
   walkers]. Not changed.
+
+## 6. Boots above the ground (owner report 2026-10-16)
+
+The owner's third-person screenshot in Goodsprings showed the player's boots hanging a
+little above the terrain, "most places".
+
+- The character controller rests the feet the support's contact shell above the bare
+  surface: 3.5 units over terrain, 0.7 over static models (`CharacterParams::rest_gap`,
+  physics.md §6.2) [observed: in-game rest heights after door teleports and drops]. The
+  reference's position in the game is that height too, so the physics keeps it.
+- The bodies (the player's third-person rig, and NPCs that have a character) were drawn
+  with their root at the feet. A standing body's soles are at about its root's height
+  (ankle bones 6–8 units up, §1), so they hung the rest gap in the air: 3.5 units over
+  terrain, which is most of the outdoors; on floors 0.7 hardly shows [observed: the
+  probe's root height over the drawn landscape, §4].
+
+Rule (engine): the body is drawn the character's rest gap below its feet
+(`nvf_play::phys::drawn_sink`; not while swimming, whose float depth counts from the
+feet); the feet, the reference's position, the eye and the camera stay where they were
+[hypothesis: the game draws the body on the bare surface, from the owner's report that
+it does not float there; not measured in the game]. Furniture places bodies its own
+way and is unchanged; residents without a character stand at their placed height (§5).
+A ragdoll that starts from the drawn bones is raised by the same gap
+(`PhysState::drawn_sink_of`, `ragdoll.rs`): started inside the ground's contact shell,
+the player's death ragdoll never came to rest (smoke `death-cam-third` failed 3 of 3;
+with the raise it passes as on main, where that rest check is itself flaky: main failed
+`death-cam-first` once) [observed].
+
+Before the fix the player's drawn body stood 3.7 units over the drawn landscape on Camp
+Golf's open ground (`--pos=29500,62000,3400`) [observed: probe, §4]. The smoke scenario
+`feet-on-ground` puts the player in third person there and expects the drawn body's root within 1.5 units of the drawn landscape.

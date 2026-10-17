@@ -305,6 +305,10 @@ pub struct RefExtra {
     /// actor ([`Game::set_idle_playing`]); not part of the saved state.
     #[serde(skip)]
     pub idle: Option<FormId>,
+    /// The special idle the actor last played (IsLastIdlePlayed): the last one told
+    /// ([`Game::set_idle_playing`]); not part of the saved state.
+    #[serde(skip)]
+    pub last_idle: Option<FormId>,
 }
 
 fn is_zero(v: &u16) -> bool {
@@ -846,6 +850,9 @@ pub struct Game<'a> {
     unhandled_seen: BTreeSet<(u16, String)>,
     stubs_seen: BTreeSet<(u16, String, String)>,
     pub rng: ChaCha8Rng,
+    /// The random numbers of the idle tree's talking gestures (`crate::idles`), kept
+    /// apart so that picking them does not move the scripts' `rng`. Not saved.
+    pub(crate) idle_rng: ChaCha8Rng,
     /// Run-time changes to base forms and cells.
     pub forms: FormChanges,
     /// Magic effects active on actors, in the order they started.
@@ -1035,6 +1042,7 @@ impl<'a> Game<'a> {
             unhandled_seen: BTreeSet::new(),
             stubs_seen: BTreeSet::new(),
             rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x5C21_7000),
+            idle_rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x1D1E_7A1C),
             forms: FormChanges::default(),
             effects: Vec::new(),
             next_effect: 1,
@@ -2392,6 +2400,10 @@ impl<'a> Game<'a> {
             inst: None,
             in_condition: true,
         };
+        // IsLastIdlePlayed has a condition index but no script opcode (`crate::idles`).
+        if c.function == crate::idles::IS_LAST_IDLE_PLAYED {
+            return crate::idles::is_last_idle_played(self, on, &c.params);
+        }
         self.call_function(&ctx, &c.params).num()
     }
 

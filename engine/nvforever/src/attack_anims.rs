@@ -19,7 +19,11 @@
 //!   folder (the dog's `h2hattackleft.kf` and `h2hattackright.kf`, the radscorpion's
 //!   `h2hattackleft_mid.kf` …) [observed: the base meshes archive, 2026-10-11], power and
 //!   forward attacks left out, taken in turn [design]; a blow that goes on a combo takes
-//!   the clip its last clip's `a:` key named first, where the creature has one.
+//!   the clip its last clip's `a:` key named first, where the creature has one. A power
+//!   attack `npc_combat` asks for ([`Power`]) plays its own clip: the radscorpion's sting
+//!   is `h2hattackpower.kf` and `h2hattackforwardpower.kf` [observed: the base meshes
+//!   archive, 2026-10-16]. Which power attacks a creature has clips for, and when each
+//!   lands, are told to `npc_combat` ([`AttackTimes::powers`]).
 //! - **Melee combos** (`fnv_combat::melee`, as the player's swings): a blow carries a
 //!   [`SwingPick`], the attack group the last swing's `a:` text key named (`a:L` on
 //!   `AttackRight` clips, `a:R` on `AttackLeft` ones [observed, `fnv_combat::melee`]) or
@@ -98,8 +102,37 @@ pub struct PlayAttack {
     pub sights: bool,
     /// An attack, or a block's reactions (docs/design/combat-ai.md §14.3).
     pub kind: Move,
+    /// A creature's power attack (module notes).
+    pub power: Option<Power>,
     /// A melee blow's place in its combo (module notes); `None` for shots and reactions.
     pub swing: Option<SwingPick>,
+}
+
+/// A creature's power attack: its clip in the skeleton's folder and the attack group an
+/// unarmed attack effect may name (EAMT "AttackPower", "AttackForwardPower") [observed:
+/// the radscorpion's clips; documented: the groups, schema gameplay.json 92 and 93].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Power {
+    Normal,
+    Forward,
+}
+
+impl Power {
+    pub const ALL: [Power; 2] = [Power::Normal, Power::Forward];
+
+    pub fn clip(self) -> &'static str {
+        match self {
+            Power::Normal => "h2hattackpower.kf",
+            Power::Forward => "h2hattackforwardpower.kf",
+        }
+    }
+
+    pub fn group(self) -> &'static str {
+        match self {
+            Power::Normal => "AttackPower",
+            Power::Forward => "AttackForwardPower",
+        }
+    }
 }
 
 /// Which swing a melee blow plays (module notes).
@@ -137,6 +170,9 @@ pub enum Move {
 #[derive(Resource, Default)]
 pub struct AttackTimes {
     pub hit: HashMap<u32, f32>,
+    /// The power attacks each fighting creature has clips for, with when each lands
+    /// (its clip's `Hit` key), seconds.
+    pub powers: HashMap<u32, Vec<(Power, f32)>>,
     /// The clip each actor's last melee blow with a [`SwingPick`] started, until
     /// `npc_combat` takes it.
     pub swings: HashMap<u32, SwingClip>,
@@ -407,6 +443,15 @@ fn start(
                 new_pose.block_idle = clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &block_clips(Stance::Stand, prefix)).map(|(_, c)| c);
             }
         }
+        // A creature's power attacks, once (module notes).
+        let creature_rig = hold.is_none() && rig.skeleton.to_ascii_lowercase().contains("creatures");
+        if creature_rig && !times.powers.contains_key(&id) {
+            let found: Vec<(Power, f32)> = Power::ALL
+                .into_iter()
+                .filter_map(|p| clips.bind(&mut ctx, &rig.skeleton, &skel, &format!("{folder}\\{}", p.clip())).map(|c| (p, hit_time(&c).unwrap_or(DEFAULT_HIT).min(c.clip.length().max(0.05)))))
+                .collect();
+            times.powers.insert(id, found);
+        }
         for a in mine {
             let creature = hold.is_none() && a.weapon.is_none() && rig.skeleton.to_ascii_lowercase().contains("creatures");
             let found = if creature {
@@ -425,12 +470,16 @@ fn start(
                             .collect()
                     })
                     .clone();
+                // A power attack plays its own clip; the others go in turn.
                 let k = clips.turn.entry(id).or_insert(0);
                 let n = list.len();
-                let mut names: Vec<String> = (0..n).map(|i| list[(*k + i) % n.max(1)].clone()).collect();
-                *k = (*k + 1) % n.max(1);
-                if let Some(p) = a.swing.filter(|_| a.kind == Move::Attack) {
-                    put_chained_first(&mut names, p);
+                let mut names: Vec<String> = a.power.map(|p| p.clip().to_string()).into_iter().collect();
+                names.extend((0..n).map(|i| list[(*k + i) % n.max(1)].clone()));
+                if a.power.is_none() {
+                    *k = (*k + 1) % n.max(1);
+                    if let Some(p) = a.swing.filter(|_| a.kind == Move::Attack) {
+                        put_chained_first(&mut names, p);
+                    }
                 }
                 clips.first(&mut ctx, &rig.skeleton, &skel, &folder, &names)
             } else {

@@ -157,7 +157,13 @@ Owner request 2026-10-11: "add attack animations so NPCs aim, fire and bite visi
   plays `2hrattack3.kf`), with its own up or down form at the aim's weight; fists are
   `h2h`.
 - **Creatures**: their own `h2hattack….kf` clips in the skeleton's folder, power and
-  forward attacks left out, taken in turn [design]. The dog has `h2hattackleft`,
+  forward attacks left out, taken in turn [design]. A blow is a power attack by the
+  combat style's Power Attack % Chance [documented: GECK wiki Combat Style], else 25 %
+  [design: owner 2026-10-16, random power attacks where the rule is not found]; normal
+  or forward by the style's shares (evenly where both are 0), among the power clips the
+  creature has (`h2hattackpower.kf`, `h2hattackforwardpower.kf`: the radscorpion's
+  sting). It lands at its own clip's `Hit` key with the creature's usual damage, and an
+  unarmed attack effect naming its group goes with it (hit-effects.md §1). The dog has `h2hattackleft`,
   `h2hattackleft_midbite`, `h2hattackright`, `h2hattackright__midbite`; the radscorpion
   `h2hattackleft_mid`, `_high`, `_low` … [observed: the base meshes archive].
 - **When a blow lands**: at its clip's `Hit` text key [documented: NiTextKeyExtraData]
@@ -926,6 +932,11 @@ still get through, and a reaction slower than the blow comes too late.
   of it is stopped (`fnv_combat::damage::blocked`; combat.md §5.4: "Block reduces
   incoming melee damage and staggers an attacker who hits it") [design: the share]. Shots
   and explosions are never blocked.
+- A **power attack** (the player's, a creature's) breaks through the block instead
+  (owner request 2026-10-16; `damage::against_block`, combat-rules.md §12): all of it
+  is dealt, its attacker does not recoil, and the blocker staggers (its torso hit
+  reaction), which ends its block and holds its attacks while it plays. A player whose
+  block is broken cannot block for `CombatTuning::guard_break` (1 s) [design].
 - The NPC whose blow was blocked **recoils**: it plays its stance's recoil clip
   (`1hmrecoil.kf`, `2hmrecoil.kf`, `h2hrecoil.kf` [observed: the archive]) and cannot
   strike for 1.0 s [design]. While it recoils its opponent gets the Recoil/Stagger

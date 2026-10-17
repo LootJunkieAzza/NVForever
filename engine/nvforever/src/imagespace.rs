@@ -139,7 +139,7 @@ impl Plugin for ImageSpacePlugin {
         render_app
             .add_systems(RenderStartup, init_blur)
             .add_systems(Render, prepare_blur.in_set(RenderSystems::Prepare))
-            .add_systems(Core3d, blur_pass.in_set(Core3dSystems::PostProcess).after(tonemapping).before(fullscreen_material_system::<ImageSpaceGrade>));
+            .add_systems(Core3d, blur_pass.in_set(Core3dSystems::PostProcess).after(tonemapping).after(bevy::anti_alias::fxaa::fxaa).after(bevy::anti_alias::smaa::smaa).before(fullscreen_material_system::<ImageSpaceGrade>));
     }
 }
 

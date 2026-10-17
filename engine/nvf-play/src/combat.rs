@@ -222,6 +222,9 @@ pub struct ActorStrike {
     /// Where the blow lands and which way it goes (game space).
     pub point: V3,
     pub dir: V3,
+    /// A power attack's attack group ("AttackForwardPower"), for an unarmed attack effect
+    /// that names it; `None`: an ordinary blow.
+    pub anim: Option<&'static str>,
 }
 
 /// A melee or unarmed blow a blocker stopped part of (docs/design/combat-ai.md §14.3).
@@ -318,6 +321,8 @@ pub struct ActorHit {
     pub by: Option<FormId>,
     /// The share of its maximum health the hit took (0 to 1; `crate::rumble`).
     pub share: f32,
+    /// A power attack broke through its block (`damage::against_block`): it staggers.
+    pub guard_broken: bool,
 }
 
 /// An actor's weapon reached zero condition in its hand and fell (§17): the renderer
@@ -479,6 +484,8 @@ pub struct CombatStats {
     pub power_attacks: u32,
     /// Melee blows a blocker stopped part of (docs/design/combat-ai.md §14.3).
     pub blows_blocked: u32,
+    /// Blocks power attacks broke through (combat-rules.md §12).
+    pub blocks_broken: u32,
     /// Combat-tab lines said by anyone (Hit, Attack, PowerAttack, Death …), and tries by
     /// actors that have no line of the topic (`fnv_game::combat_lines`).
     pub combat_lines: u32,
@@ -659,6 +666,8 @@ pub struct Combat {
     pub guarding: HashMap<FormId, [f32; 2]>,
     /// Blows blocked since the combat AI last took them.
     pub blocked_blows: Vec<BlockedBlow>,
+    /// Until when (`time`) the player cannot block: a power attack broke its block.
+    guard_down_until: f32,
     marks: Vec<Mark>,
     rng: SplitMix,
     /// The melee swings' own rolls (variants), so they leave the hit rolls as they were.
@@ -820,6 +829,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         script_shots: Vec::new(),
         guarding: HashMap::new(),
         blocked_blows: Vec::new(),
+        guard_down_until: 0.0,
         marks: Vec::new(),
         rng: SplitMix(1),
         swing_rng: SplitMix(2),
@@ -1469,11 +1479,12 @@ fn strike_weapon(
 /// weapon's object effect; for a blow without a weapon or with the Fists, the attacker's
 /// unarmed attack effect.
 /// Read inside the simulation's world: an attacker a script created (PlaceAtMe) is only
-/// there.
-fn hit_items(c: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, stats: &mut CombatStats, attacker: FormId, weapon: Option<FormId>) -> Vec<FormId> {
+/// there. `anim`: a power attack's attack group ([`ActorStrike::anim`]).
+#[allow(clippy::too_many_arguments)]
+fn hit_items(c: &Combat, script: Option<&mut ScriptState>, sim: &mut SimState, stats: &mut CombatStats, attacker: FormId, weapon: Option<FormId>, anim: Option<&str>) -> Vec<FormId> {
     let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return Vec::new() };
     let unarmed = weapon.is_none() || weapon == c.fists;
-    with_world(rt, sim, |rt| hit_effects::hit_items(&c.forms, &rt.game, Some(attacker), weapon, unarmed, &mut stats.hit_effects))
+    with_world(rt, sim, |rt| hit_effects::hit_items(&c.forms, &rt.game, Some(attacker), weapon, unarmed, anim, &mut stats.hit_effects))
 }
 
 /// Apply `dealt` health damage through the script runtime; report and remember it.
@@ -1489,6 +1500,7 @@ fn apply_hit(
     mut hud: Option<&mut HudMessage>,
     messages: &mut MessageWriter<ActorHit>,
     effects: &[FormId],
+    guard_broken: bool,
 ) -> Option<HitResult> {
     let mine = info.attacker == Some(FormId::PLAYER_REF);
     let rt = script.and_then(|s| s.rt.as_mut())?;
@@ -1532,7 +1544,7 @@ fn apply_hit(
             feedback.kill = r.died;
             feedback.target = Some((name, r.health as f32, r.max_health as f32, 0.0));
         }
-        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 } });
+        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 }, guard_broken });
     }
     Some(r)
 }
@@ -1706,13 +1718,20 @@ fn melee(
                 continue;
             }
             let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
-            // A person blocking it from the front stops part of it (combat-ai.md §14.3).
+            // A person blocking it from the front stops part of it (combat-ai.md §14.3); a
+            // power attack breaks through and staggers it (combat-rules.md §12).
+            let mut guard_broken = false;
             if c.guarding.get(&target).is_some_and(|f| damage::from_front(*f, player.look_dir())) {
                 let before = d.dealt;
-                d.dealt = damage::blocked(&c.tuning, before);
-                stats.blows_blocked += 1;
-                info!("combat: {target} blocks the player's blow: {:.1} of {before:.1} stopped", before - d.dealt);
-                c.blocked_blows.push(BlockedBlow { attacker: FormId::PLAYER_REF, blocker: target, damage: before, dealt: d.dealt });
+                (d.dealt, guard_broken) = damage::against_block(&c.tuning, before, power.is_some());
+                if guard_broken {
+                    stats.blocks_broken += 1;
+                    info!("combat: the player's power attack breaks {target}'s block ({before:.1}, all dealt)");
+                } else {
+                    stats.blows_blocked += 1;
+                    info!("combat: {target} blocks the player's blow: {:.1} of {before:.1} stopped", before - d.dealt);
+                    c.blocked_blows.push(BlockedBlow { attacker: FormId::PLAYER_REF, blocker: target, damage: before, dealt: d.dealt });
+                }
             }
             let agility = actor_av(script.as_deref_mut(), &mut sim, target, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
             let push = damage::knockback_force(&c.rules, d.dealt, agility);
@@ -1720,8 +1739,8 @@ fn melee(
             let limb = limb_hit(bp.as_ref(), d.dealt, &w);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
             pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power.is_some() { POWER_PUSH } else { 1.0 }) });
-            let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id));
-            let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items);
+            let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, FormId::PLAYER_REF, Some(id), None);
+            let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken);
             if r.as_ref().is_none_or(|r| !r.immune) {
                 wear_armor(c, &mut sim, &mut stats, target, Zone::of(bp.as_ref()), d.raw);
             }
@@ -1885,14 +1904,26 @@ fn actor_attacks(
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, b.target);
         let roll = c.rng.next_f32();
         let mut d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
-        // A blocker facing the blow stops part of it (docs/design/combat-ai.md §14.3).
+        // A blocker facing the blow stops part of it (docs/design/combat-ai.md §14.3); a
+        // power attack (a creature's, `ActorStrike::anim`) breaks through (combat-rules.md
+        // §12): an NPC staggers, the player cannot block for a while.
+        let player_guard = player_guard.filter(|_| c.time >= c.guard_down_until);
         let guard = if b.target == FormId::PLAYER_REF { player_guard } else { c.guarding.get(&b.target).copied() };
+        let mut guard_broken = false;
         if guard.is_some_and(|f| damage::from_front(f, b.dir)) {
             let before = d.dealt;
-            d.dealt = damage::blocked(&c.tuning, before);
-            stats.blows_blocked += 1;
-            info!("combat: {} blocks {}'s blow: {:.1} of {before:.1} stopped", b.target, b.attacker, before - d.dealt);
-            c.blocked_blows.push(BlockedBlow { attacker: b.attacker, blocker: b.target, damage: before, dealt: d.dealt });
+            (d.dealt, guard_broken) = damage::against_block(&c.tuning, before, b.anim.is_some());
+            if guard_broken {
+                stats.blocks_broken += 1;
+                info!("combat: {}'s power attack breaks {}'s block ({before:.1}, all dealt)", b.attacker, b.target);
+                if b.target == FormId::PLAYER_REF {
+                    c.guard_down_until = c.time + c.tuning.guard_break;
+                }
+            } else {
+                stats.blows_blocked += 1;
+                info!("combat: {} blocks {}'s blow: {:.1} of {before:.1} stopped", b.target, b.attacker, before - d.dealt);
+                c.blocked_blows.push(BlockedBlow { attacker: b.attacker, blocker: b.target, damage: before, dealt: d.dealt });
+            }
         }
         let info = HitInfo { attacker: Some(b.attacker), weapon: b.weapon, location: 0, critical: d.critical, limb: None };
         if b.target != FormId::PLAYER_REF {
@@ -1908,8 +1939,8 @@ fn actor_attacks(
                 show_impact(s, ImpactFx { impact, shooter: b.attacker, point: b.point, normal: vec::scale(b.dir, -1.0), dir: b.dir }, &mut sounds, &mut impacts);
             }
         }
-        let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon);
-        let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items);
+        let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, b.attacker, b.weapon, b.anim);
+        let r = apply_hit(script.as_deref_mut(), &mut sim, b.target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, guard_broken);
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, b.target, Zone::Body, d.raw);
         }
@@ -2125,7 +2156,7 @@ fn fly(
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: -1, critical: false, limb: None };
             // The blast's object effect on those it catches (hit-effects.md §1).
             let items: Vec<FormId> = x.enchantment.into_iter().collect();
-            let r = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items);
+            let r = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false);
             if r.as_ref().is_none_or(|r| !r.immune) {
                 wear_armor(c, &mut sim, &mut stats, target, Zone::All, b.damage);
             }
@@ -2251,8 +2282,8 @@ fn fly(
         if target != FormId::PLAYER_REF {
             pushes.write(ActorPush { form_id: target.0, point: p.point, dv: vec::scale(p.dir, SHOT_PUSH) });
         }
-        let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id));
-        let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items);
+        let items = hit_items(c, script.as_deref_mut(), &mut sim, &mut stats, shooter, Some(id), None);
+        let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages, &items, false);
         if r.as_ref().is_none_or(|r| !r.immune) {
             wear_armor(c, &mut sim, &mut stats, target, Zone::of(bp.as_ref()), d.raw);
         }
@@ -2361,6 +2392,7 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
             s.shots, s.muzzle_shots, s.covered_shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.chained_swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires, s.jams, s.melee_impacts
         );
         info!("combat lines: {} said, {} tries without a line", s.combat_lines, s.combat_lines_none);
+        info!("combat blocks: {} blows blocked, {} blocks broken by power attacks", s.blows_blocked, s.blocks_broken);
         info!(
             "condition summary: the player's weapons lost {:.1} health, {} hits on held weapons, {} weapons broken, armour lost {:.1} health, {} pieces worn to nothing",
             s.weapon_wear, s.weapon_hits, s.weapons_broken, s.armor_wear, s.armor_broken

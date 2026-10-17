@@ -114,9 +114,19 @@ impl ParamTypes {
                 m.insert(i as u16, t);
             }
         }
+        // Condition functions with no page (so no entry) in the catalogue, by xEdit's
+        // table [documented: xEdit wbCTDAFunctions; animation.md §1.2].
+        for (i, t) in XEDIT_ONLY {
+            m.entry(*i).or_insert_with(|| t.iter().map(|s| s.to_string()).collect());
+        }
         ParamTypes(m)
     }
 }
+
+/// Condition indices xEdit knows that the catalogue has no entry for, with their
+/// parameter types: 451 IsLastIdlePlayed takes an IDLE [documented: xEdit
+/// wbCTDAFunctions].
+const XEDIT_ONLY: &[(u16, &[&str])] = &[(451, &["ptIdleForm"])];
 
 /// How a raw 4-byte parameter is read for an xEdit parameter type. Types that name a
 /// record are FormIDs (mapped through the plugin's master list); enumerations are codes;

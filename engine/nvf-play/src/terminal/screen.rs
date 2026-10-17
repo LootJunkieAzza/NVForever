@@ -5,14 +5,16 @@
 //!
 //! The original draws this into a texture shown on a monitor model
 //! (`meshes\terminals\terminalinterface01.nif`, `[RenderedTerminal]` in
-//! `Fallout_default.ini`); NVForever draws it flat over a darkened world until the model
-//! is drawn [design, hacking.md §7]. Lengths are the interface's units (960 to the view's
-//! height): the owner's screenshots show the screen at almost that scale (0.99).
+//! `Fallout_default.ini`), and so does NVForever: the canvas is drawn into
+//! `super::TerminalImage` and the engine puts that on the model's screen (nvforever
+//! `terminal_view.rs`), where the texture spans [`TEXTURE_UNITS`] of the canvas. Without
+//! the model the picture is drawn flat over the darkened world [design, hacking.md §7].
+//! Lengths are the interface's units (960 to the view's height): the owner's screenshots
+//! show the screen at almost that scale (0.99).
 
 use super::{Hacking, MenuView, Page, Session};
 use crate::interface::{at, face, plain_font, set_line, texture, u, Face};
 use bevy::prelude::*;
-use bevy::ui::RelativeCursorPosition;
 use fnv_font::Line;
 use fnv_game::data::NoteDef;
 use fnv_game::hacking::{Puzzle, Target, ROWS, ROW_CHARS};
@@ -23,7 +25,7 @@ use nvf_assets::GameData;
 /// The screen: four by three [documented: computers_menu.xml, "screen height × 0.75" and
 /// four thirds of that wide].
 pub const CANVAS: Vec2 = Vec2::new(960.0, 720.0);
-/// Its top, down from the view's [observed: the owner's screenshots put the first row of
+/// Its top, down from the view's, when drawn flat [observed: the owner's screenshots put the first row of
 /// the dump 204 units under the screen's top at 0.74 pixels a unit, so the screen starts
 /// 62 of 720 pixels down; `fRenderedTerminalVPos` 0.38 moves it up from the middle].
 pub const CANVAS_TOP: f32 = 83.0;
@@ -39,7 +41,7 @@ pub fn bright() -> Color {
 
 /// The screen behind the text [observed: 16 to 23, 38 to 52, 15 to 32 in the middle of
 /// the owner's screenshots; the Pip-Boy background over it gives the shading].
-fn screen_color() -> Color {
+pub fn screen_color() -> Color {
     Color::srgb_u8(19, 45, 26)
 }
 
@@ -51,8 +53,19 @@ pub fn lit_text() -> Color {
     Color::srgb(0.0, 5.0 / 255.0, 0.0)
 }
 
-/// How dark the world is behind the screen while there is no monitor model [design].
-const SHADE: f32 = 0.88;
+/// How much of the canvas the screen's texture spans, 0 to 1 each way, interface units
+/// [observed: the screen shape's texture coordinates run to 0.767 across and 0.755 down
+/// (`screen:0`); fitted to the owner's screenshot, where the dump's rows are 0.76 pixels
+/// a unit apart at 720 high and its columns 0.73, the header's top 0.08 of the glass
+/// down and the dump's last row's foot 0.95; the case hides the glass's edge]. The
+/// canvas's right edge falls inside the glass, its bottom (where nothing is drawn) about
+/// at the glass's foot.
+pub const TEXTURE_UNITS: Vec2 = Vec2::new(1350.0, 960.0);
+
+/// How dark the world is behind the monitor [design: the owner's screenshot shows the
+/// room dim and blurred; the blur is not drawn], and behind the flat screen.
+const SHADE: f32 = 0.4;
+const SHADE_FLAT: f32 = 0.88;
 
 // ---- the hacking menu's numbers [documented: menus\hacking_menu.xml] --------------------
 
@@ -132,6 +145,11 @@ pub fn cell_at(index: usize) -> Vec2 {
     Vec2::new(column as f32 * COLUMN_2 + (7 + col) as f32 * CHAR, HEADER_HEIGHT + row as f32 * ROW)
 }
 
+/// The dump character under a point of the canvas.
+pub fn canvas_index(p: Vec2) -> Option<usize> {
+    index_at(p - DEPTH - Vec2::new(0.0, HEADER_HEIGHT))
+}
+
 /// The dump character under a point of the dump area (`(0, 0)` its top left, which is
 /// the depth area's left edge and the header's bottom).
 pub fn index_at(p: Vec2) -> Option<usize> {
@@ -174,17 +192,47 @@ pub fn load_faces(data: Option<&GameData>, images: &mut Assets<Image>, bc: bool)
 #[derive(Component)]
 pub struct ScreenRoot;
 
+/// What lies under the screen: the darkened world and the monitor, or the flat picture.
+#[derive(Component)]
+pub struct Backdrop {
+    pub flat: bool,
+}
+
+/// The flat picture of the screen, for the pointer.
+#[derive(Component)]
+pub struct FlatScreen;
+
+/// What [`spawn_backdrop`] draws over the darkened world.
+pub enum Under {
+    /// The screen's picture (`super::TerminalImage`), flat where the original's screen is.
+    Flat(Handle<Image>),
+    /// The monitor's picture (`super::MonitorView`), over the whole window.
+    Monitor(Handle<Image>),
+}
+
+pub fn spawn_backdrop(commands: &mut Commands, under: Under) {
+    let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+    let (flat, shade) = match under {
+        Under::Flat(_) => (true, SHADE_FLAT),
+        Under::Monitor(_) => (false, SHADE),
+    };
+    // The flat picture's top is [`CANVAS_TOP`] down; the monitor's picture fills the window.
+    let top = if flat { u(CANVAS_TOP) } else { Val::ZERO };
+    let root = Node { justify_content: JustifyContent::Center, align_items: AlignItems::FlexStart, padding: UiRect::top(top), ..full.clone() };
+    commands.spawn((Backdrop { flat }, Name::new("Terminal backdrop"), root, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, shade)), GlobalZIndex(106))).with_children(|r| match under {
+        Under::Flat(image) => {
+            let crop = Rect::new(0.0, 0.0, CANVAS.x, CANVAS.y);
+            r.spawn((FlatScreen, Node { width: u(CANVAS.x), height: u(CANVAS.y), ..default() }, ImageNode { rect: Some(crop), ..ImageNode::new(image) }));
+        }
+        Under::Monitor(image) => {
+            r.spawn((full, ImageNode::new(image)));
+        }
+    });
+}
+
 /// The blinking cursor block.
 #[derive(Component)]
 pub struct Blink;
-
-/// The dump area, for the pointer.
-#[derive(Component)]
-pub struct DumpArea;
-
-/// A menu row (index into the listed items), for the pointer.
-#[derive(Component, Clone, Copy)]
-pub struct MenuRow(pub usize);
 
 /// One line of text from its top.
 fn text(p: &mut ChildSpawnerCommands, face: &Face, s: &str, x: f32, top: f32, color: Color) -> f32 {
@@ -218,31 +266,25 @@ fn centred(p: &mut ChildSpawnerCommands, face: &Face, s: &str, width: f32, top: 
     text(p, face, s, (width - w) / 2.0, top, color);
 }
 
-pub fn spawn(commands: &mut Commands, faces: &Faces, session: &Session, terminals: &fnv_game::GameData, cursor_on: bool) {
-    let root = Node {
-        position_type: PositionType::Absolute,
-        width: Val::Percent(100.0),
-        height: Val::Percent(100.0),
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::FlexStart,
-        padding: UiRect::top(u(CANVAS_TOP)),
-        ..default()
-    };
-    commands.spawn((ScreenRoot, root, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, SHADE)), GlobalZIndex(106))).with_children(|r| {
-        r.spawn(Node { width: u(CANVAS.x), height: u(CANVAS.y), ..default() }).with_children(|c| {
-            // [documented] The Pip-Boy background (at brightness 90 in the file; here over
-            // the screen's measured colour).
-            c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), BackgroundColor(screen_color())));
-            if let Some(image) = &faces.background {
-                c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), ImageNode { color: bright().with_alpha(BACKGROUND_ALPHA), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }));
-            }
-            match &session.page {
-                Page::Hacking(h) => hacking_page(c, &faces.text, h, cursor_on),
-                Page::LockedOut => lockout_page(c, &faces.text),
-                Page::Menu(m) => menu_page(c, &faces.text, m, terminals, cursor_on),
-            }
-        });
+/// Draw the screen into the picture `camera` renders; returns the menu's rows on the
+/// canvas, for the pointer.
+pub fn spawn(commands: &mut Commands, camera: Entity, faces: &Faces, session: &Session, terminals: &fnv_game::GameData, cursor_on: bool) -> Vec<(usize, Rect)> {
+    let mut rows = Vec::new();
+    let root = Node { overflow: Overflow::clip(), ..at(0.0, 0.0, CANVAS.x, CANVAS.y) };
+    commands.spawn((ScreenRoot, root, UiTargetCamera(camera), Name::new("Terminal screen"))).with_children(|c| {
+        // [documented] The Pip-Boy background (at brightness 90 in the file; here over
+        // the screen's measured colour).
+        c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), BackgroundColor(screen_color())));
+        if let Some(image) = &faces.background {
+            c.spawn((at(0.0, 0.0, CANVAS.x, CANVAS.y), ImageNode { color: bright().with_alpha(BACKGROUND_ALPHA), image_mode: NodeImageMode::Stretch, ..ImageNode::new(image.clone()) }));
+        }
+        match &session.page {
+            Page::Hacking(h) => hacking_page(c, &faces.text, h, cursor_on),
+            Page::LockedOut => lockout_page(c, &faces.text),
+            Page::Menu(m) => menu_page(c, &faces.text, m, terminals, cursor_on, &mut rows),
+        }
     });
+    rows
 }
 
 fn hacking_page(c: &mut ChildSpawnerCommands, face: &Face, h: &Hacking, cursor_on: bool) {
@@ -279,8 +321,6 @@ fn hacking_page(c: &mut ChildSpawnerCommands, face: &Face, h: &Hacking, cursor_o
                 }
             }
         }
-        // The pointer's area over the dump.
-        d.spawn((DumpArea, Interaction::default(), RelativeCursorPosition::default(), at(0.0, HEADER_HEIGHT, LOG_X, FILE_HEIGHT)));
         // The log, the prompt and what the cursor would enter.
         d.spawn(at(LOG_X, HEADER_HEIGHT, DEPTH_SIZE.x - LOG_X, FILE_HEIGHT)).with_children(|l| {
             let shown = shown_log(&p.log);
@@ -317,7 +357,7 @@ pub fn note_text(n: Option<&NoteDef>) -> String {
     }
 }
 
-fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, m: &MenuView, data: &fnv_game::GameData, cursor_on: bool) {
+fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, m: &MenuView, data: &fnv_game::GameData, cursor_on: bool, rows: &mut Vec<(usize, Rect)>) {
     let bright = bright();
     let Some(t) = data.terminals.get(&m.terminal) else { return };
     let mut y = MENU_HEADER_Y;
@@ -370,7 +410,8 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, m: &MenuView, data: &fnv
                 let Some(it) = t.items.get(item) else { continue };
                 let top = y + (row - first) as f32 * LIST_ROW;
                 let lit = row == m.selected && !m.hidden;
-                c.spawn((Button, MenuRow(row), at(MENU_X, top, LIST_WIDTH, LIST_ROW))).with_children(|b| {
+                rows.push((row, Rect::new(MENU_X, top, MENU_X + LIST_WIDTH, top + LIST_ROW)));
+                c.spawn(at(MENU_X, top, LIST_WIDTH, LIST_ROW)).with_children(|b| {
                     let s = format!("> {}", it.text);
                     let w = face.font.width(&s);
                     if lit {
@@ -388,14 +429,6 @@ fn menu_page(c: &mut ChildSpawnerCommands, face: &Face, m: &MenuView, data: &fnv
     let w = text(c, face, &m.result, MENU_X + RESULT_X, top, bright);
     let x = MENU_X + RESULT_X + if m.result.is_empty() { 0.0 } else { w + CHAR };
     c.spawn((Blink, at(x, top + BASE - 18.0, BLOCK, BLOCK), BackgroundColor(bright), if cursor_on { Visibility::Inherited } else { Visibility::Hidden }));
-}
-
-/// What under the pointer: the dump character, from the dump area's relative position.
-pub fn pointer_index(rel: &RelativeCursorPosition) -> Option<usize> {
-    let n = rel.normalized?;
-    // `normalized` runs from -0.5 to 0.5 across the node.
-    let p = Vec2::new((n.x + 0.5) * LOG_X, (n.y + 0.5) * FILE_HEIGHT);
-    index_at(p)
 }
 
 /// Whether a row's character `index` is drawn lit (tests).

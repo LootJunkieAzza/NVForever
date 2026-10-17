@@ -281,6 +281,14 @@ pub fn blocked(t: &CombatTuning, dealt: f32) -> f32 {
     dealt * (1.0 - t.block.clamp(0.0, 1.0))
 }
 
+/// What a block makes of a melee or unarmed blow that meets it from the front: an
+/// ordinary blow is [`blocked`] (the health damage left, `false`); a power attack breaks
+/// through the block, deals all of it and staggers the blocker (`true`) [design: the
+/// owner's request, 2026-10-16; no page documents the original's rule].
+pub fn against_block(t: &CombatTuning, dealt: f32, power: bool) -> (f32, bool) {
+    if power { (dealt, true) } else { (blocked(t, dealt), false) }
+}
+
 /// A blow is blocked only coming from within this of where the blocker faces, radians
 /// [design: docs/design/combat-ai.md §14.3].
 pub const BLOCK_FRONT: f32 = std::f32::consts::FRAC_PI_2;

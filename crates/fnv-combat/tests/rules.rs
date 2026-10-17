@@ -619,6 +619,10 @@ fn melee_reach_power_and_block() {
     let d = damage::hit(&r, &t, &h, &Attacker { unarmed_skill: 40.0, ..Attacker::default() }, &Target::default(), &NoPerks, &NoPerks, 0.99);
     assert!(!d.miss && close(d.dealt, 0.5 + 0.05 * 40.0));
     assert!(close(damage::blocked(&t, 10.0), 10.0 * (1.0 - t.block)));
+    // A power attack breaks through a block: all of it is dealt and the guard breaks.
+    assert_eq!(damage::against_block(&t, 10.0, true), (10.0, true));
+    let (left, broken) = damage::against_block(&t, 10.0, false);
+    assert!(close(left, damage::blocked(&t, 10.0)) && !broken);
 }
 
 /// Where a shot leaves and where it is seen to leave (docs/design/combat.md §5.1).

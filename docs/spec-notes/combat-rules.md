@@ -30,6 +30,7 @@ them.
 | `default_bounce` | 0.3 | lobbers whose PROJ has no bounce value |
 | `auto_reload`, `fallback_reload` | true, 2 s | empty-trigger reload; reload without a clip length |
 | `stagger_cooldown` | 3 s | after a hit reaction ends, how long hits on a crippled part start no other (§12) |
+| `guard_break` | 1 s | how long the player cannot block after a power attack broke its block (§12) |
 
 The bloom values were lowered after the first `combat sim` runs: at 0.15 × Min Spread
 with a cap of 1.0, the 10mm SMG hit 2 of 60 shots at 1000 units from the hip [observed
@@ -633,11 +634,21 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   - A later hit on a part that is already crippled plays one when the actor's last
     reaction ended at least `stagger_cooldown` seconds ago (3 s; one clock per actor,
     whichever part was hit).
+  - A power attack that breaks a block (below) always plays one.
   - Any other hit plays none: a hit on a healthy part, or a blast (no part).
   - The clip is the one for where the hit landed: `mt_hithead`, `mt_hittorso`,
     `mt_hitarmleft`/`right` or `mt_hitlegleft`/`right` (`idleanims`, the `_male`
     folder) [observed: the clips exist; design: which location plays which].
   - The log names each one ("hit reaction: … staggers").
+- **Power attacks break blocks** (`damage::against_block`) [design: the owner's
+  request, 2026-10-16; no page documents the original's rule]: a power attack (the
+  player's, or a creature's such as the radscorpion's sting) that meets a blocker from
+  its front is not reduced by the block. All of it is dealt, the attacker does not
+  recoil, and the blocker does not play its block hit. A blocking NPC staggers instead
+  (its torso hit reaction, whatever part was hit); the stagger ends its block and holds
+  its attacks while it plays (combat-ai.md §14.3). The player has no stagger clip, so
+  a broken block means it cannot block for `guard_break` seconds (1 s). The log says
+  "breaks …'s block".
   - Checked [observed 2026-10-11, `nvforever --play`, exit 0, "run finished"; the
     Goodsprings Settler 0x00104F0A, 9mm pistol, `aimpart=0` and `aimnpc`]:
     - Four torso hits and an arm hit on healthy parts played nothing.

@@ -200,14 +200,14 @@ expect = [
 
 [[scenario]]
 name = "graphics-enhanced"
-source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, its switches change while the game runs, and temporal anti-aliasing replaces the multisampling and back without a rendering error"
+source = "docs/design/graphics-enhanced.md §3: the enhanced look starts, its switches change while the game runs, and temporal anti-aliasing (the Anti-aliasing choice) replaces the multisampling and back without a rendering error"
 areas = ["renderer", "graphics"]
 paths = [
   "engine/nvforever/src/graphics.rs", "engine/nvforever/src/ssao*", "engine/nvforever/src/post*",
   "engine/nvforever/src/taa*", "engine/nvforever/src/shafts*",
   "engine/nvforever/src/settings.rs", "engine/nvf-play/src/pause.rs",
 ]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16,19.5:20.5", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion,15:taa,15.5:light-shafts,20:taa", NVF_PLAY_TEST_LOOK = "17:90:0,17.5:120:0,18:150:0", NVF_PLAY_TEST_MOVE = "17:1:0,19:0:0" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:16,19.5:20.5", NVF_PLAY_TEST_SETTINGS = "11:ambient-occlusion,12:bloom,13:fine-shadows,14:ambient-occlusion,15:anti-aliasing=1,15.5:light-shafts,20:anti-aliasing=0.333", NVF_PLAY_TEST_LOOK = "17:90:0,17.5:120:0,18:150:0", NVF_PLAY_TEST_MOVE = "17:1:0,19:0:0" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--hour", "12", "--graphics", "enhanced"]
 run_seconds = 24
 order = [[
@@ -241,6 +241,40 @@ order = [[
   { re = 'draw distances: objects 100%, actors 30%, items 25%' },
 ]]
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the ranges change" }]
+
+[[scenario]]
+name = "graphics-settings"
+source = "docs/design/graphics-enhanced.md §3.6, §3.9, §3.10: the settings page's anti-aliasing choice (multisampling levels, FXAA, SMAA, TAA), shadow filtering, field of view, vertical sync and frame-rate limit change while the game runs, without a rendering error"
+areas = ["renderer", "graphics", "settings"]
+paths = [
+  "engine/nvforever/src/graphics.rs", "engine/nvforever/src/frame_pace.rs", "engine/nvforever/src/settings.rs",
+  "engine/nvforever/src/taa*", "engine/nvf-play/src/settings.rs", "engine/nvf-play/src/pause.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PAUSE = "10:20", NVF_PLAY_TEST_SETTINGS = "11:anti-aliasing=0.667,12:anti-aliasing=0.833,13:anti-aliasing=1,14:anti-aliasing=0.5,15:shadow-filter=0,16:shadow-filter=1,17:shadow-filter=0.5,17.5:field-of-view=0.667,18:frame-cap=0.4,18.5:vsync,19:frame-cap=0,19.5:field-of-view=0.417" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12", "--sun-shadows"]
+run_seconds = 23
+order = [[
+  "settings: anti-aliasing FXAA",
+  { re = 'graphics: FXAA$' },
+  "settings: anti-aliasing SMAA",
+  { re = 'graphics: SMAA$' },
+  "settings: anti-aliasing TAA",
+  { re = 'graphics: temporal anti-aliasing$' },
+  "settings: anti-aliasing 8x",
+  "graphics: multisampling 8x",
+  "settings: shadow-filter Fast",
+  { re = 'graphics: hardware 2x2 shadow filtering$' },
+  "settings: shadow-filter Temporal",
+  { re = 'graphics: temporal shadow filtering$' },
+  "settings: shadow-filter Smooth",
+  "settings: field-of-view 90",
+  "settings: frame-cap 60",
+  "settings: vsync off",
+  "frame pace: vsync off",
+  "settings: frame-cap Off",
+  "settings: field-of-view 75",
+]]
+forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while anti-aliasing or the filters change" }]
 
 # ------------------------------------------------------------------ navmesh and AI
 
@@ -850,6 +884,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "head-look-seated"
+source = "owner report 2026-10-16: Doc Mitchell, seated in the opening, looked at the floor while saying \"Whoa, easy there\" to the player (docs/spec-notes/actors.md §12.3: the pitch limits are kept from the level, widened by the spine's lean)"
+note = "Doc sits hunched in his chair playing VCG01DocWhoaThere; speech_look forces his head onto the player's eyes for each line. The 'line over' line says how far the head ended from them: with the limits measured against the hunched spine it stayed well below"
+areas = ["head-look", "speech-look"]
+paths = ["crates/fnv-actor/src/head_look.rs", "engine/nvforever/src/head_look.rs", "engine/nvforever/src/speech_look.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 40
+expect = [
+  { re = 'speech look: line 00104BEF over: DocMitchellREF has the player .*its head is [+-]?\d+° to the right of them and (?P<n>[+-]?\d+)° above', range = [-12, 12], label = "seated Doc Mitchell's head reaches the player's eyes up and down on \"Whoa, easy there\"" },
+  { re = 'speech look: line 00104BEF over: DocMitchellREF has the player .*its head is (?P<n>[+-]?\d+)° to the right of them', range = [-12, 12], label = "and to the side" },
+]
+
+[[scenario]]
 name = "weapon-fidgets"
 source = "docs/spec-notes/idles.md §11 (owner 2026-10-16): NPCs standing with a rifle out fidget from the IDLE tree (2hrLoiter, 2hrLoiterOnehanded, 2hrShiftWeight, 2haAlertScan), and so does the player standing still in third person"
 note = "every NPC's weapon is drawn unless its package hides it (--actor-weapons drawn); the Fiends' camp with the player about 4,000 units west of Violet (the Fiends with rifles out fidget until they spot the player; in combat the tree gives none; 2026-10-16: 16 NPC fidgets, 5 the player's); the player draws a varmint rifle (0007EA24) at 3 s and goes to third person at 4 s, then stands still"
@@ -880,6 +928,91 @@ expect = [
   { json = "actors.*.by_idle.2hrLoiter", schema = "fnv.actor.fidgets/1", range = [10, 200], count = 2, label = "a rifle: the loiter" },
   { json = "actors.*.by_idle.2haAlertScan", schema = "fnv.actor.fidgets/1", range = [10, 200], count = 2, label = "an automatic rifle: the scan" },
   { json = "actors.*.fidgets", schema = "fnv.actor.fidgets/1", equals = 0, count = 2, label = "a pistol: none (the tree has no pistol branch)" },
+]
+
+[[scenario]]
+name = "talk-gestures-tree"
+kind = "tool"
+source = "docs/spec-notes/idles.md §12: the IDLE tree's talking gestures, headless: an NPC in the dialogue screen gets a gesture of the dialogue groups at every walk, talking and listening; Neutral mood"
+areas = ["idles", "dialogue"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/cond.rs", "crates/fnv-game/src/functions/ai_state.rs", "crates/fnvtool/src/actor_gestures.rs"]
+commands = [
+  ["actor", "gestures", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "DocMitchellREF", "--actor", "GSChetRef", "--checks", "200"],
+]
+expect = [
+  { json = "actors.*.talking.none", schema = "fnv.actor.gestures/1", equals = 0, count = 2, label = "every walk while talking gives a gesture" },
+  { json = "actors.*.listening.none", schema = "fnv.actor.gestures/1", equals = 0, count = 2, label = "every walk while listening gives a gesture" },
+  { json = "actors.*.talking.by_group.NeutralNoWeightShift", schema = "fnv.actor.gestures/1", range = [1, 200], count = 2, label = "the Neutral talk group is reached" },
+  { json = "actors.*.talking.by_group.ArmsCrossedLoop", schema = "fnv.actor.gestures/1", range = [1, 200], count = 2, label = "once arms are crossed they stay crossed (IsLastIdlePlayed)" },
+]
+
+[[scenario]]
+name = "talk-gestures-menu"
+source = "docs/spec-notes/idles.md §12: an NPC in the dialogue screen plays the IDLE tree's talking gestures while it says its lines and a listening one while the player chooses"
+areas = ["idles", "dialogue"]
+paths = ["crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs", "crates/fnv-game/src/functions/ai_state.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TALK = "10:GSChetRef=leave", NVF_PLAY_TEST_TALK_DELAY = "4" }
+args = ["--cell", "GSGeneralStore", "--play", "--no-voice", "--hour", "12"]
+run_seconds = 40
+expect = [
+  { re = 'talk gesture: GSChetRef talks .* by DialogueIdles > TalkToPlayer > DialogTalking > ', min = 3, label = "Chet's talk clips from the dialogue screen's group, one per response at least (2026-10-16: 5 for 4 responses)" },
+  { re = 'talk gesture: GSChetRef listens .* by DialogueIdles > TalkToPlayer > DialogTalking > .*Listen', label = "a listen clip while the player chooses" },
+  { re = 'talk gesture summary: (?P<n>\d+) gestures picked while talking', range = [3, 20], label = "talk gestures counted" },
+  { re = 'idle summary: .* 0 by dialogue lines\)', label = "gestures are not counted as dialogue lines' idles (Chet's broom idle after the talk may be)" },
+]
+
+[[scenario]]
+name = "talk-gestures-npcs"
+source = "docs/spec-notes/idles.md §12: two NPCs in a conversation between actors (Joe Cobb and Trudy, started by the test aid) play the tree's NPC-to-NPC gestures"
+note = "Trudy, Joe Cobb and the quest are enabled and started by the aid (in a game they come from INFO 0015F8B6 and the saloon trigger, dialogue.md §5.1)"
+areas = ["idles", "dialogue"]
+paths = ["crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs", "crates/fnv-game/src/functions/ai_state.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "2:start:VFreeformGoodsprings,3:enable:GSJoeCobbRef,3.1:enable:TrudyRef,6:call:GSJoeCobbRef:StartConversation:TrudyRef:GSJoeCobbIntro" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice"]
+run_seconds = 40
+expect = [
+  "dialogue: conversation between GSJoeCobbRef and TrudyRef started (topic GSJoeCobbIntro)",
+  { re = 'talk gesture: GSJoeCobbRef talks \(TrudyRef, line 0x00105219 .* by DialogueIdles > NPCtoNPC > NPCTalking > AngerTalk > ', label = "Joe Cobb's angry line: an anger talk clip of the NPC-to-NPC branch" },
+  { re = 'talk gesture: GSJoeCobbRef listens \(TrudyRef, line 0x00105218 .* by DialogueIdles > NPCtoNPC > NPCListening > ', label = "Joe Cobb listens to Trudy's answer" },
+  { re = 'idle: TrudyRef plays LooseStandingArmsFolded .*\(Listener\)', label = "Trudy's line idles (LNAM, SNAM) play instead of gestures" },
+  { re = 'talk gesture: TrudyRef (talks|listens) ', count = 0, label = "no gesture for Trudy while her own line idles play" },
+]
+
+[[scenario]]
+name = "furniture-fidgets-tree"
+kind = "tool"
+source = "docs/spec-notes/furniture.md §8: the IDLE tree's fidgets on furniture, headless: a man on a chair relaxes (SitChairRelaxIdleA/B/C), a woman sits as women do (ChairFemaleSittingA), the player in third person has the player's relax idles and none in first person, a man in bed stirs (BedStirInSleepA/B/C), a bar stool gives none (the tree has only talk, food and gambling there)"
+areas = ["idles", "furniture"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/functions/furniture.rs", "crates/fnvtool/src/actor_fidgets.rs"]
+commands = [
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "EasyPeteRef", "--actor", "SunnyRef", "--actor", "player", "--furniture", "0010634A:14"],
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "EasyPeteRef", "--actor", "player", "--furniture", "00176ACE:1"],
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "EasyPeteRef", "--furniture", "00106194:15"],
+  ["actor", "fidgets", "{data}", "FalloutNV.esm", "--schema", "schemas/fnv", "--actor", "player", "--furniture", "0010634A:14", "--first-person"],
+]
+expect = [
+  { json = "actors.?actor=EasyPeteRef.by_idle.SitChairRelaxIdleA", schema = "fnv.actor.fidgets/1", range = [300, 600], label = "a man on a chair: relaxing A (the first of three, 45%)" },
+  { json = "actors.?actor=EasyPeteRef.by_idle.SitChairRelaxIdleC", schema = "fnv.actor.fidgets/1", range = [100, 300], label = "a man on a chair: relaxing C (what A and B leave)" },
+  { json = "actors.?actor=SunnyRef.by_idle.ChairFemaleSittingA", schema = "fnv.actor.fidgets/1", equals = 1000, label = "a woman on a chair: the female sitting idle at every check" },
+  { json = "actors.*.by_idle.PlayerSitChairRelaxIdleB", schema = "fnv.actor.fidgets/1", range = [200, 500], count = 1, label = "the player on a chair in third person: the player's relax idles" },
+  { json = "actors.*.by_idle.BedStirInSleepB", schema = "fnv.actor.fidgets/1", range = [250, 550], count = 2, label = "a man and the player in bed: stirring" },
+  { json = "actors.*.fidgets", schema = "fnv.actor.fidgets/1", equals = 0, count = 2, label = "none on a bar stool, none for the player in first person" },
+]
+
+[[scenario]]
+name = "furniture-fidgets"
+source = "docs/spec-notes/furniture.md §8: an actor on furniture plays the IDLE tree's fidgets over the furniture's loop, and gets off as before; the player on furniture in third person too"
+note = "Easy Pete walks to his porch chair (0010634A) and stays 45 s; the player starts by the next chair (00106349), activates it at 3 s and goes to third person at 6 s (pressed together, the view change left nothing under the crosshair). 2026-10-16: Pete played SitChairRelaxIdle fidgets back to back on the chair"
+areas = ["idles", "furniture"]
+paths = ["crates/fnv-game/src/idles.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/furniture.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_NEAR = "00106349", NVF_PLAY_TEST_ACTIVATE = "3", NVF_PLAY_TEST_CONTROL = "6:view" }
+args = ["--cell", "Goodsprings", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-sit", "EasyPeteRef=0010634A:45"]
+run_seconds = 90
+expect = [
+  "furniture summary: 1 of 1 actors sat down, 1 got up again",
+  { re = 'idle: .* plays SitChairRelaxIdle[ABC] .*\(FurnitureFidget\)', label = "Easy Pete fidgets on his chair" },
+  { re = 'furniture fidget summary: (?P<n>\d+) fidgets on furniture started on actors', range = [1, 100], label = "fidgets on furniture started on actors" },
+  { re = 'idle: the player plays PlayerSitChairRelaxIdle[ABC] .*FurnitureFidget', label = "the player on a chair in third person fidgets" },
 ]
 
 [[scenario]]
@@ -1409,8 +1542,8 @@ expect = [
 name = "hacking"
 source = "CLAUDE.md: after changes to terminals or the hacking game (docs/spec-notes/hacking.md §9): the Easy terminal"
 areas = ["hacking", "terminal"]
-paths = ["crates/fnv-game/src/hacking.rs", "crates/fnv-game/src/terminal.rs", "engine/nvf-play/src/terminal*"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:back" }
+paths = ["crates/fnv-game/src/hacking.rs", "crates/fnv-game/src/terminal.rs", "engine/nvf-play/src/terminal*", "engine/nvf-play/src/terminal/**", "engine/nvforever/src/terminal_view.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_TERMINAL = "30:science:25,31:open:000D74D5,33:wrong,34:brackets,35:symbol,36:wrong,37:right,41:item:0,43:power" }
 args = ["--cell", "BisonSteve01", "--play", "--no-voice"]
 run_seconds = 48
 expect = [
@@ -1420,6 +1553,8 @@ expect = [
   'menu of DefaultUnlockTermDESK1Easy (1 of 1 items listed): "Disengage Lock"',
   "result script",
   "terminal summary: 1 opened (0 refused), 1 hacking games (1 hacked, 0 locked out)",
+  { text = "terminal view: the monitor drawn (", label = "the monitor model around the screen (owner 2026-10-16)" },
+  { text = "terminal: the power button pressed", label = "a click on the monitor's power button leaves" },
   { text = "ui sounds: terminal row or button picked: UIHackingCharEnter", label = "a word or row entered (list 5 item 47)" },
   { text = "ui sounds: terminal refused: UIHackingPassBad", label = "a wrong word" },
   { text = "ui sounds: terminal access granted: UIHackingPassGood", label = "the password" },
@@ -2091,6 +2226,23 @@ expect = [
 forbid = [{ re = 'npc combat: .* crouches ', label = "a fist fighter crouches" }]
 
 [[scenario]]
+name = "combat-block-break"
+source = "owner request 2026-10-16: power attacks break through a blocking enemy's block and stagger it (docs/spec-notes/combat-rules.md §12)"
+note = "an NCR trooper with no weapon drawn (--actor-weapons none) set on the player at 4 s in quiet Goodsprings and put 90 units north of it every 3 s from 6 s; 0.8 s later the player, fists drawn, turns to it and holds Use 1.5 s (a power attack); it blocks most of them (80 % under attack)"
+areas = ["combat"]
+paths = ["engine/nvforever/src/deaths.rs", "engine/nvforever/src/npc_combat.rs", "engine/nvf-play/src/combat.rs", "crates/fnv-combat/src/damage.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0,15:moveto:0x000F36F5:player:0:90:0,18:moveto:0x000F36F5:player:0:90:0,21:moveto:0x000F36F5:player:0:90:0,24:moveto:0x000F36F5:player:0:90:0,27:moveto:0x000F36F5:player:0:90:0", NVF_PLAY_TEST_CONTROL = "3:weapon,6.8:aimnpc,6.9:fire,8.4:fire,9.8:aimnpc,9.9:fire,11.4:fire,12.8:aimnpc,12.9:fire,14.4:fire,15.8:aimnpc,15.9:fire,17.4:fire,18.8:aimnpc,18.9:fire,20.4:fire,21.8:aimnpc,21.9:fire,23.4:fire,24.8:aimnpc,24.9:fire,26.4:fire,27.8:aimnpc,27.9:fire,29.4:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 34
+expect = [
+  { re = "combat: the player's power attack breaks \\S+'s block", label = "a power attack breaks the trooper's block" },
+  { re = 'hit reaction: \S+ staggers for [\d.]+ s \(its block broken by a power attack\)', label = "the blocker staggers" },
+  { re = 'npc combat: .* holds its attacks while it staggers', label = "the stagger holds its attacks" },
+  { re = 'combat blocks: \d+ blows blocked, (?P<n>\d+) blocks broken', range = [1, 100000], label = "broken blocks in the summary" },
+]
+forbid = [{ re = "combat: \\S+ blocks the player's blow", label = "a power attack is blocked as an ordinary blow" }]
+
+[[scenario]]
 name = "combat-melee-combo"
 source = "owner request 2026-10-16: melee enemies chain attacks into combos of different clips (docs/design/combat-ai.md §15)"
 note = "the combat-block fist fight (NCR troopers against the Fiends, --actor-weapons none): blows go on combos by the clips' a: keys, AttackLeft clips play after AttackRight ones"
@@ -2190,6 +2342,18 @@ run_seconds = 20
 expect = [
   "actor feet: 0010B35A CampGolfNCRTrooperTower1A at ",
   "actor feet: … actors within 3500 units of the camera, 0 with a foot bone over 30 units above the root",
+]
+
+[[scenario]]
+name = "feet-on-ground"
+source = "owner report 2026-10-16 (screenshot in Goodsprings, third person): the player's boots hung above the ground (Camp Golf's open ground: 3.7 units before the fix); the body was drawn at the character's feet, which rest the terrain's 3.5-unit contact shell above it (physics.md §6.2); docs/spec-notes/floating-actors.md §6"
+areas = ["player-body", "actors"]
+paths = ["engine/nvforever/src/actor_feet.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_TEST_ACTOR_FEET = "12:3500", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONTROL = "6:view" }
+args = ["--play", "--pos=29500,62000,3400", "--heading", "0", "--pitch", "-10", "--hour", "12", "--no-voice"]
+run_seconds = 18
+expect = [
+  { re = 'actor feet: player body at .*, root (?P<n>-?[\d.]+) above it', range = [-1.5, 1.5], label = "the drawn body stands on the drawn landscape" },
 ]
 
 [[scenario]]
@@ -2883,16 +3047,17 @@ expect = [
 
 [[scenario]]
 name = "radscorpion-poison"
-source = "owner's playtest 2026-10-16: radscorpion stings poison (the creature's unarmed attack effect, EITM RadScorpion1Poison / RadScorpion2Poison; health drained by the second; docs/spec-notes/hit-effects.md §1)"
+source = "owner's playtest 2026-10-16: radscorpion stings poison (the creature's unarmed attack effect, EITM RadScorpion1Poison / RadScorpion2Poison, EAMT AttackForwardPower: only its forward power attack, the sting, poisons; health drained by the second; docs/spec-notes/hit-effects.md §1)"
 note = "the player, health raised to 5000 by the console at 8 s (no god mode, so the poison lands), is put in front of the radscorpion VERGSRadscorpion5REF 00157B4D south of Goodsprings at 9 s, which is set on the player at 10 s"
 areas = ["combat", "effects"]
-paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvf-play/src/combat/**", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs", "crates/fnv-game/src/data.rs", "engine/nvforever/src/attack_anims.rs", "engine/nvforever/src/npc_combat.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "8:player.setav health 5000;8.5:close", NVF_PLAY_TEST_FACE = "9:00157B4D", NVF_PLAY_TEST_SCRIPT = "10:call:0x00157B4D:StartCombat:player" }
 args = ["--cell", "Goodsprings", "--pos=-61000,4500,8500", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 40
 expect = [
   { re = 'hit effect: RadScorpion\dPoison on the player by \S+: Poison -[\d.]+ Health/s for \d+ s', label = "a radscorpion's sting poisons the player" },
-  { re = 'hit effect: RadScorpion\dPoison names the attack AttackForwardPower', label = "its AttackForwardPower filter reported as not told apart" },
+  { re = 'npc combat: .* power attack AttackForwardPower at ', label = "the radscorpion stings (its forward power attack)" },
+  { re = 'attack anims: \S+ plays meshes\\creatures\\radscorpion\\h2hattackforwardpower\.kf', label = "the sting plays its own clip" },
 ]
 
 [[scenario]]
