@@ -1,7 +1,7 @@
 {
  "format": "fnv.observe.campaign/1",
  "name": "package_kinds",
- "title": "Escort, Find, Use Item At, Ambush and Flee Not Combat packages given to Goodsprings residents by AddScriptPackage: what the original does with each (docs/spec-notes/packages.md section 3).. The actors are moved and given their packages by compiled scripts (script_after): console lines cannot address references [observed 2026-10-17]. GoodspringsSettler02Ref and TrudyRef are disabled at the save's point of the game [observed 2026-10-17], so they are not used.",
+ "title": "Escort, Find, Use Item At, Ambush and Flee Not Combat packages given to Goodsprings residents by AddScriptPackage: what the original does with each (docs/spec-notes/packages.md section 3).. The actors are moved and given their packages by compiled scripts (`do` statements): console lines cannot address references [observed 2026-10-17]. GoodspringsSettler02Ref and TrudyRef are disabled at the save's point of the game [observed 2026-10-17], so they are not used.",
  "save": "nvftest",
  "defaults": {
   "every": 15,
@@ -29,7 +29,7 @@
    },
    "hour": 12,
    "hours": 0.4,
-   "script_after": [
+   "do": [
     [
      "{0}.MoveTo player 256 0 0",
      "GoodspringsSettler01Ref"
@@ -59,7 +59,7 @@
     "approach": 0,
     "max_frames": 0
    },
-   "script_after": [
+   "do": [
     [
      "{0}.MoveTo player 256 0 0",
      "GoodspringsSettler01Ref"
@@ -78,7 +78,7 @@
    },
    "hour": 12,
    "hours": 0.4,
-   "script_after": [
+   "do": [
     [
      "{0}.MoveTo player 200 0 0",
      "GoodspringsSettler03Ref"
@@ -97,7 +97,7 @@
    },
    "hour": 9,
    "hours": 0.4,
-   "script_after": [
+   "do": [
     [
      "{0}.AddScriptPackage {1}",
      "EasyPeteRef",
@@ -112,7 +112,7 @@
    },
    "hour": 12,
    "hours": 0.4,
-   "script_after": [
+   "do": [
     [
      "player.PlaceAtMe {0} 1",
      "MoleRatMeat"
@@ -135,7 +135,7 @@
    },
    "hour": 12,
    "hours": 0.4,
-   "script_after": [
+   "do": [
     [
      "{0}.AddScriptPackage {1}",
      "GoodspringsSettler04Ref",
@@ -150,7 +150,7 @@
    },
    "hour": 12,
    "hours": 0.3,
-   "script_after": [
+   "do": [
     [
      "{0}.AddScriptPackage {1}",
      "GoodspringsSettler04Ref",

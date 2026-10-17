@@ -331,6 +331,11 @@ pub struct RefExtra {
     /// ([`Game::set_idle_playing`]); not part of the saved state.
     #[serde(skip)]
     pub last_idle: Option<FormId>,
+    /// How many times ResurrectActor rolled the actor's random choices again (its leveled
+    /// template and carried items, `crate::resurrect`); the seed of its picks
+    /// (`fnv_sim::leveled::roll_seed`).
+    #[serde(skip_serializing_if = "is_zero_u32", default)]
+    pub rolls: u32,
 }
 
 fn is_zero(v: &u16) -> bool {
@@ -851,6 +856,9 @@ pub struct Game<'a> {
     /// Cell resets since the engine last took them ([`Game::take_cell_resets`],
     /// `crate::respawn`). Not saved.
     pub cell_resets: Vec<crate::respawn::CellReset>,
+    /// Actors ResurrectActor brought back since the engine last took them
+    /// ([`Game::take_resurrections`], `crate::resurrect`). Not saved.
+    pub resurrections: Vec<crate::resurrect::Resurrection>,
     /// The open menu, by menu code. While a menu is open, [`Game::tick`] runs MenuMode
     /// blocks instead of GameMode, and game time stops for scripts (GetSecondsPassed and
     /// the quest delay of GameMode) [observed: layer5-captures.md §8.3 e]. Part of the
@@ -1078,6 +1086,7 @@ impl<'a> Game<'a> {
             rotations: BTreeMap::new(),
             turned: BTreeSet::new(),
             cell_resets: Vec::new(),
+            resurrections: Vec::new(),
             fighting: BTreeSet::new(),
             condition_target: None,
             menu: None,

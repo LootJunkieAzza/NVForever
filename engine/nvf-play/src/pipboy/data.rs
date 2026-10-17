@@ -17,7 +17,9 @@
 //! - **World Map**: the worldspace's map picture with the map markers the player knows
 //!   (found within their radius, made visible by ShowMap or by their flag), the active
 //!   quest's markers and the player's arrow; dragged to pan, the wheel zooms; the
-//!   highlight box follows the pointer and takes a marker's name when over one.
+//!   highlight box follows the pointer and takes a marker's name when over one. A click
+//!   on a marker asks whether to fast travel there, in a box over the map ([`travel`],
+//!   docs/spec-notes/fast-travel.md).
 //! - **Local Map**: the doors leading elsewhere, the known map markers and the quest
 //!   markers around the player, with the player's arrow, over an outline of the place
 //!   made from the physics world's collision ([`outline`]; the original's picture of the
@@ -36,8 +38,9 @@
 mod model;
 mod outline;
 mod read;
+pub mod travel;
 
-use super::frame::{base, Align, Ctx, Kit, FADE, LINE, MAIN, TEXT, THICK};
+use super::frame::{base, Align, Ctx, Kit, FADE, FILL, LINE, MAIN, TEXT, THICK};
 use super::{Page, PageBody, PipBoy, PipBoyAid, PipBoyInput, PipBoyScreen};
 use crate::interface::{amber, at};
 use crate::menu::model::Command;
@@ -54,6 +57,7 @@ use bevy::prelude::*;
 use fnv_sim::FormId;
 use model::{ObjectiveLine, QuestKey, WorldMap};
 use outline::Outline;
+use travel::{FastTravelAsk, FastTravelGo, Popup};
 use nvf_assets::GameData;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeSet, HashMap};
@@ -165,6 +169,17 @@ const QUEST_ASPECT: f32 = 1.25;
 const QUEST_NUDGE: Vec2 = Vec2::new(15.0, 5.0);
 /// The pointer takes the highlight box to a marker this near [hypothesis].
 const SNAP: f32 = 40.0;
+/// A press and release on the World Map is a click (it asks to travel) while the pointer
+/// moved at most this far between them [design].
+const CLICK_SLOP: f32 = 6.0;
+/// The fast-travel question box (fast-travel.md §3) [design: by the owner's screenshot]:
+/// its width, the room round its text, its text's wrap, the room under an answer's text
+/// and the answer's frame round the widest answer (the message box's 42, message-menu.md
+/// §3).
+const POPUP_W: f32 = 520.0;
+const POPUP_PAD: f32 = 30.0;
+const POPUP_ROW_PAD: f32 = 16.0;
+const POPUP_FRAME_PAD: f32 = 42.0;
 /// The local map: game units to one canvas unit at a magnification of 1 [observed:
 /// fitted to the owner's Local Map screenshot, where the gas station's door (-75242, 4076)
 /// and the quest marker at the saloon's door (-67714, 3620) stand 168 px apart; the
@@ -197,6 +212,9 @@ enum Act {
     Use(usize, usize),
     /// A button was clicked.
     Button(ButtonKind),
+    /// The pointer came onto an answer of the question box, or clicked it.
+    PopupOver(usize),
+    PopupPick(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,6 +288,13 @@ pub struct DataState {
     outline_land: HashMap<(i32, i32), Option<Vec<f32>>>,
     /// How many markers the world map showed when last logged.
     world_logged: Option<usize>,
+    /// The World Map's marker under the highlight box, when last drawn.
+    cursor_marker: Option<u32>,
+    /// Where the left button went down on the World Map, and how far the pointer has
+    /// moved since (a click asks to travel, a drag does not).
+    press: Option<(Vec2, f32)>,
+    /// The fast-travel question box over the World Map (`travel`).
+    popup: Option<Popup>,
 }
 
 // ---- what is shown ------------------------------------------------------------------------
@@ -353,6 +378,7 @@ pub struct View {
     when: String,
     buttons: Vec<Button>,
     body: Body,
+    popup: Option<Popup>,
 }
 
 // ---- the system -------------------------------------------------------------------------
@@ -380,6 +406,8 @@ pub struct Input<'w, 's> {
     time: Res<'w, Time<Real>>,
     buttons: Res<'w, ButtonInput<MouseButton>>,
     aid: ResMut<'w, PipBoyAid>,
+    ask: MessageWriter<'w, FastTravelAsk>,
+    go: MessageWriter<'w, FastTravelGo>,
 }
 
 /// The page's drawing tools.
@@ -418,6 +446,7 @@ pub fn draw(
     let body = bodies.iter().find(|(_, b)| b.page == Page::Data && pip.open());
     let Some((body, b)) = body else {
         st.was_open = false;
+        st.popup = None;
         input.wheel.clear();
         input.menu.clear();
         return;
@@ -426,6 +455,7 @@ pub fn draw(
     if st.last_tab != Some(tab) {
         st.last_tab = Some(tab);
         st.boxed = false;
+        st.popup = None;
     }
     if !st.was_open {
         st.was_open = true;
@@ -624,6 +654,10 @@ fn list_len(tab: usize, l: &Lists) -> usize {
 /// Keys, the wheel, the test aid's steps and what the pointer did.
 fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input: &mut Input, pointer: Option<Vec2>) {
     use KeyCode::*;
+    if st.popup.is_some() {
+        popup_input(st, input);
+        return;
+    }
     let len = list_len(tab, l);
     let mut moves: Vec<i32> = Vec::new();
     let mut use_it = input.keys.any_just_pressed([Enter, NumpadEnter, Space]);
@@ -700,6 +734,24 @@ fn take_input(st: &mut DataState, tab: usize, l: &Lists, game: &mut Game, input:
         st.sel[tab] = st.sel[tab].min(len - 1);
         st.first[tab] = model::keep_in_view(st.sel[tab], st.first[tab].min(len - 1), st.fit[tab]);
     }
+    // A click on the World Map (the left button let go where it went down) on a marker
+    // asks to travel there (`travel`).
+    if tab == WORLD {
+        if input.buttons.just_pressed(MouseButton::Left) {
+            st.press = in_map(pointer).and(pointer).map(|p| (p, 0.0));
+        } else if let (Some((from, moved)), Some(p)) = (st.press.as_mut(), pointer) {
+            *moved = moved.max(p.distance(*from));
+        }
+        if input.buttons.just_released(MouseButton::Left) {
+            if let (Some((_, moved)), Some(m)) = (st.press.take(), st.cursor_marker) {
+                if moved <= CLICK_SLOP {
+                    input.ask.write(FastTravelAsk(m));
+                }
+            }
+        }
+    } else {
+        st.press = None;
+    }
     // Dragging a map moves the point at its middle: the left button held down on it, the
     // pointer moving (or the test aid's drag).
     let held = input.buttons.pressed(MouseButton::Left);
@@ -761,6 +813,56 @@ fn use_row(st: &mut DataState, tab: usize, i: usize, l: &Lists, game: &mut Game)
     }
 }
 
+/// The question box's keys and clicks (fast-travel.md §3): Up and Down (W, S) move the
+/// choice, Enter, Space or E take it, Y and N answer; the pointer chooses the answer it
+/// is on and a click takes it. Nothing else on the page moves meanwhile.
+fn popup_input(st: &mut DataState, input: &mut Input) {
+    use KeyCode::*;
+    input.wheel.clear();
+    st.press = None;
+    st.drag_from = None;
+    input.aid.drag = Vec2::ZERO;
+    let acts = std::mem::take(&mut st.acts);
+    let Some(p) = st.popup.as_mut() else { return };
+    let mut pick = None;
+    if input.keys.any_just_pressed([ArrowUp, KeyW]) {
+        p.step(-1);
+    }
+    if input.keys.any_just_pressed([ArrowDown, KeyS]) {
+        p.step(1);
+    }
+    if input.keys.any_just_pressed([Enter, NumpadEnter, Space, KeyE]) {
+        pick = Some(p.selected);
+    }
+    if input.keys.just_pressed(KeyY) {
+        pick = Some(0);
+    }
+    if input.keys.just_pressed(KeyN) {
+        pick = Some(p.buttons.len() - 1);
+    }
+    for m in input.menu.read() {
+        match m.0 {
+            Command::Up => p.step(-1),
+            Command::Down => p.step(1),
+            Command::One => pick = Some(p.selected),
+            _ => {}
+        }
+    }
+    for a in acts {
+        match a {
+            Act::PopupOver(i) if i < p.buttons.len() => p.selected = i,
+            Act::PopupPick(i) if i < p.buttons.len() => pick = Some(i),
+            _ => {}
+        }
+    }
+    let Some(i) = pick else { return };
+    info!("fast travel: answered {:?}", p.buttons[i]);
+    if let Some(m) = p.take(i) {
+        input.go.write(FastTravelGo(m));
+    }
+    st.popup = None;
+}
+
 fn button(st: &mut DataState, k: ButtonKind, input: &mut Input) {
     match k {
         ButtonKind::NotesFilter => {
@@ -786,6 +888,8 @@ fn map_of(st: &mut DataState, game: &Game) -> Option<WorldMap> {
 
 /// Gather what the page shows.
 fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option<Vec2>) -> View {
+    // Under the question box the map stands still.
+    let pointer = pointer.filter(|_| st.popup.is_none());
     let place = place(st, game);
     let when = game.sim.as_ref().and_then(|s| s.world.calendar().ok()).map(|c| model::date_time(&c)).unwrap_or_default();
     let mut buttons = Vec::new();
@@ -826,7 +930,7 @@ fn build(st: &mut DataState, tab: usize, l: &Lists, game: &Game, pointer: Option
             Body::List { rows, first: st.first[RADIO], boxed: st.boxed.then_some(st.sel[RADIO]), right: Right::Wave { on: l.playing.is_some() } }
         }
     };
-    View { tab, place, when, buttons, body }
+    View { tab, place, when, buttons, body, popup: st.popup.clone() }
 }
 
 fn quest_name(game: &Game, q: u32) -> String {
@@ -878,16 +982,16 @@ fn in_map(pointer: Option<Vec2>) -> Option<Vec2> {
 /// (the window's middle at first); on a marker within reach it takes the marker's place
 /// and name [hypothesis: the owner's screenshots show it away from the middle, once round
 /// a door with the door's place name].
-fn place_cursor(st: &mut DataState, tab: usize, pointer: Option<Vec2>, marks: &mut [MapMark], names: &[String]) -> (Vec2, Option<String>) {
+fn place_cursor(st: &mut DataState, tab: usize, pointer: Option<Vec2>, marks: &mut [MapMark], names: &[String]) -> (Vec2, Option<String>, Option<usize>) {
     let want = in_map(pointer).or(st.cursor[tab]).unwrap_or(MAP_MID);
     st.cursor[tab] = Some(want);
     let near = marks.iter().enumerate().map(|(i, m)| (i, m.at.distance(want))).filter(|(_, d)| *d <= SNAP).min_by(|a, b| a.1.total_cmp(&b.1));
     match near {
         Some((i, _)) => {
             marks[i].highlighted = true;
-            (marks[i].at, names.get(i).cloned())
+            (marks[i].at, names.get(i).cloned(), Some(i))
         }
-        None => (want, None),
+        None => (want, None, None),
     }
 }
 
@@ -917,11 +1021,13 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
     };
     let mut marks = Vec::new();
     let mut names = Vec::new();
+    let mut forms = Vec::new();
     let all = markers(st, game).cloned().unwrap_or_default();
     for mk in all.iter().filter(|mk| mk.world == world) {
         let Some(found) = known(st, game, mk) else { continue };
         marks.push(MapMark { icon: Some((mk.kind, found)), highlighted: false, at: on_map(mk.pos[0], mk.pos[1]) });
         names.push(mk.name.clone());
+        forms.push(mk.form);
     }
     let quests = quest_targets(st, game)
         .into_iter()
@@ -932,7 +1038,8 @@ fn world_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
         st.world_logged = Some(marks.len());
         info!("pipboy data: world map shows {} of {} markers of this worldspace", marks.len(), all.iter().filter(|mk| mk.world == world).count());
     }
-    let (cursor, label) = place_cursor(st, WORLD, pointer, &mut marks, &names);
+    let (cursor, label, under) = place_cursor(st, WORLD, pointer, &mut marks, &names);
+    st.cursor_marker = under.map(|i| forms[i]);
     MapShown {
         picture: Some((m.texture.clone(), Rect::from_corners(left, left + size))),
         outline: None,
@@ -1079,7 +1186,7 @@ fn local_map(st: &mut DataState, game: &Game, pointer: Option<Vec2>) -> MapShown
             Vec2::new(c.x.clamp(0.0, MAP.width() - w), c.y.clamp(0.0, MAP.height() - 0.75 * h))
         })
         .collect();
-    let (cursor, label) = place_cursor(st, LOCAL, pointer, &mut marks, &names);
+    let (cursor, label, _) = place_cursor(st, LOCAL, pointer, &mut marks, &names);
     MapShown { picture: None, outline, marks, player: Some((on_map(feet[0], feet[1]), heading)), quests, cursor, label }
 }
 
@@ -1153,6 +1260,22 @@ struct ButtonHit(ButtonKind);
 #[derive(Component, Clone, Copy)]
 struct MapHit;
 
+/// An answer of the question box (0-based).
+#[derive(Component, Clone, Copy)]
+struct PopupHit(usize);
+
+fn on_popup_over(e: On<Pointer<Over>>, hits: Query<&PopupHit>, state: Option<ResMut<DataState>>) {
+    if let (Ok(h), Some(mut s)) = (hits.get(e.entity), state) {
+        s.acts.push(Act::PopupOver(h.0));
+    }
+}
+
+fn on_popup_click(e: On<Pointer<Click>>, hits: Query<&PopupHit>, state: Option<ResMut<DataState>>) {
+    if let (Ok(h), Some(mut s)) = (hits.get(e.entity), state) {
+        s.acts.push(Act::PopupPick(h.0));
+    }
+}
+
 fn on_row_over(e: On<Pointer<Over>>, rows: Query<&RowHit>, state: Option<ResMut<DataState>>) {
     if let (Ok(r), Some(mut s)) = (rows.get(e.entity), state) {
         s.acts.push(Act::Hover(r.0, r.1));
@@ -1202,6 +1325,39 @@ fn show(p: &mut ChildSpawnerCommands, c: &mut Ctx, st: &mut DataState, v: &View)
                 Right::Wave { on } => wave(p, c, *on),
             }
         }
+    }
+    if let Some(q) = &v.popup {
+        popup(p, c, q);
+    }
+}
+
+/// The question box in the middle of the map's window (fast-travel.md §3): black with a
+/// line all round, the text centred at the top, the answers centred one under the other,
+/// the chosen one framed. It takes the pointer over the whole page, so nothing under it
+/// is clicked.
+fn popup(p: &mut ChildSpawnerCommands, c: &mut Ctx, q: &Popup) {
+    let lines = c.lines(2, &q.text, Some(POPUP_W - 2.0 * POPUP_PAD));
+    let pitch = c.line_height(2) + 4.0;
+    let row = c.line_height(2) + POPUP_ROW_PAD;
+    let text_h = c.line_height(2) + pitch * lines.len().saturating_sub(1) as f32;
+    let h = POPUP_PAD + text_h + POPUP_PAD + row * q.buttons.len() as f32 + POPUP_PAD;
+    let mid = MAIN.min + MAP.min + MAP_MID;
+    let r = Rect::new(mid.x - POPUP_W / 2.0, mid.y - h / 2.0, mid.x + POPUP_W / 2.0, mid.y + h / 2.0);
+    p.spawn((at(0.0, 0.0, super::CANVAS.x, super::CANVAS.y), Pickable::default()));
+    c.boxed(p, r, amber(LINE), Some(Color::BLACK));
+    for (i, l) in lines.iter().enumerate() {
+        c.set(p, 2, l, mid.x, r.min.y + POPUP_PAD + pitch * i as f32, Align::Centre, amber(TEXT));
+    }
+    let frame_w = q.buttons.iter().map(|b| c.width(2, b)).fold(0.0, f32::max) + POPUP_FRAME_PAD;
+    let top = r.min.y + POPUP_PAD + text_h + POPUP_PAD;
+    for (i, b) in q.buttons.iter().enumerate() {
+        let y = top + row * i as f32;
+        let frame = Rect::new(mid.x - frame_w / 2.0, y, mid.x + frame_w / 2.0, y + row - 1.0);
+        if i == q.selected {
+            c.boxed(p, frame, amber(LINE), Some(amber(FILL.0).with_alpha(FILL.1 / 255.0)));
+        }
+        c.text(p, 2, b, mid.x, y + POPUP_ROW_PAD / 2.0, Align::Centre, amber(TEXT));
+        p.spawn((at(frame.min.x, frame.min.y, frame.width(), frame.height()), PopupHit(i), Pickable::default())).observe(on_popup_over).observe(on_popup_click);
     }
 }
 

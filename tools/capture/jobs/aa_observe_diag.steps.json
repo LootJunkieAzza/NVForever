@@ -285,6 +285,36 @@
    "field": "teammate"
   },
   {
+   "query": "ref rA\nref rX0\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetDialogueTarget\n  SetFunctionValue ((GetFormIDString rX0))\nendif\nEnd\n",
+   "label": "field",
+   "field": "dialogue_target"
+  },
+  {
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetAnimAction\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "label": "field",
+   "field": "anim_action"
+  },
+  {
+   "query": "ref rA\nref rX0\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetEquippedObject 5\n  SetFunctionValue ((GetFormIDString rX0))\nendif\nEnd\n",
+   "label": "field",
+   "field": "weapon"
+  },
+  {
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetWeaponAnimType\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "label": "field",
+   "field": "weapon_anim"
+  },
+  {
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetFurnitureMarkerID\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "label": "field",
+   "field": "furniture"
+  },
+  {
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetAttacked\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "label": "field",
+   "field": "attacked"
+  },
+  {
    "query": "ref rA\nref rX1\nref rX2\nref rX7\nref rX10\nint iN\nfloat fS\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV8\nfloat fV9\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX1 := rA.GetBaseObject\n  let rX2 := rA.GetParentCell\n  let fV3 := rA.GetPos X\n  let fV4 := rA.GetPos Y\n  let fV5 := rA.GetPos Z\n  let fV6 := rA.GetAngle Z\n  let rX7 := rA.GetCurrentPackage\n  let fV8 := rA.GetCurrentAIPackage\n  let fV9 := rA.GetCurrentAIProcedure\n  let rX10 := rA.GetPackageTarget\n  SetFunctionValue ((GetFormIDString rA) + \"|\" + (GetFormIDString rX1) + \"|\" + (GetFormIDString rX2) + \"|\" + ($ fV3) + \"|\" + ($ fV4) + \"|\" + ($ fV5) + \"|\" + ($ fV6) + \"|\" + (GetFormIDString rX7) + \"|\" + ($ fV8) + \"|\" + ($ fV9) + \"|\" + (GetFormIDString rX10))\nendif\nEnd\n",
    "label": "part",
    "field": "part0.actor0"
@@ -313,6 +343,21 @@
    "query": "ref rA\nref rX1\nint iN\nfloat fS\nfloat fV0\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nfloat fV12\nfloat fV13\nfloat fV14\nfloat fV15\nfloat fV16\nfloat fV17\nfloat fV18\nfloat fV19\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 2\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsInCombat\n  let rX1 := rA.GetCombatTarget\n  let fV2 := rA.GetDetected player\n  let fV3 := rA.GetIsAlerted\n  let fV4 := rA.GetAlarmed\n  let fV5 := rA.GetSitting\n  let fV6 := rA.GetSleeping\n  let fV7 := rA.GetKnockedState\n  let fV8 := rA.IsTalking\n  let fV9 := rA.GetDead\n  let fV10 := rA.GetUnconscious\n  let fV11 := rA.GetDisabled\n  let fV12 := rA.IsSneaking\n  let fV13 := rA.IsRunning\n  let fV14 := rA.IsWeaponOut\n  let fV15 := rA.IsMoving\n  let fV16 := rA.GetAV Health\n  let fV17 := rA.IsPersistent\n  let fV18 := rA.GetIsCreature\n  let fV19 := rA.GetPlayerTeammate\n  SetFunctionValue (($ fV0) + \"|\" + (GetFormIDString rX1) + \"|\" + ($ fV2) + \"|\" + ($ fV3) + \"|\" + ($ fV4) + \"|\" + ($ fV5) + \"|\" + ($ fV6) + \"|\" + ($ fV7) + \"|\" + ($ fV8) + \"|\" + ($ fV9) + \"|\" + ($ fV10) + \"|\" + ($ fV11) + \"|\" + ($ fV12) + \"|\" + ($ fV13) + \"|\" + ($ fV14) + \"|\" + ($ fV15) + \"|\" + ($ fV16) + \"|\" + ($ fV17) + \"|\" + ($ fV18) + \"|\" + ($ fV19))\nendif\nEnd\n",
    "label": "part",
    "field": "part1.actor2"
+  },
+  {
+   "query": "ref rA\nref rX0\nref rX2\nint iN\nfloat fS\nfloat fV1\nfloat fV3\nfloat fV4\nfloat fV5\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetDialogueTarget\n  let fV1 := rA.GetAnimAction\n  let rX2 := rA.GetEquippedObject 5\n  let fV3 := rA.GetWeaponAnimType\n  let fV4 := rA.GetFurnitureMarkerID\n  let fV5 := rA.GetAttacked\n  SetFunctionValue ((GetFormIDString rX0) + \"|\" + ($ fV1) + \"|\" + (GetFormIDString rX2) + \"|\" + ($ fV3) + \"|\" + ($ fV4) + \"|\" + ($ fV5))\nendif\nEnd\n",
+   "label": "part",
+   "field": "part2.actor0"
+  },
+  {
+   "query": "ref rA\nref rX0\nref rX2\nint iN\nfloat fS\nfloat fV1\nfloat fV3\nfloat fV4\nfloat fV5\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetDialogueTarget\n  let fV1 := rA.GetAnimAction\n  let rX2 := rA.GetEquippedObject 5\n  let fV3 := rA.GetWeaponAnimType\n  let fV4 := rA.GetFurnitureMarkerID\n  let fV5 := rA.GetAttacked\n  SetFunctionValue ((GetFormIDString rX0) + \"|\" + ($ fV1) + \"|\" + (GetFormIDString rX2) + \"|\" + ($ fV3) + \"|\" + ($ fV4) + \"|\" + ($ fV5))\nendif\nEnd\n",
+   "label": "part",
+   "field": "part2.actor1"
+  },
+  {
+   "query": "ref rA\nref rX0\nref rX2\nint iN\nfloat fS\nfloat fV1\nfloat fV3\nfloat fV4\nfloat fV5\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 2\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetDialogueTarget\n  let fV1 := rA.GetAnimAction\n  let rX2 := rA.GetEquippedObject 5\n  let fV3 := rA.GetWeaponAnimType\n  let fV4 := rA.GetFurnitureMarkerID\n  let fV5 := rA.GetAttacked\n  SetFunctionValue ((GetFormIDString rX0) + \"|\" + ($ fV1) + \"|\" + (GetFormIDString rX2) + \"|\" + ($ fV3) + \"|\" + ($ fV4) + \"|\" + ($ fV5))\nendif\nEnd\n",
+   "label": "part",
+   "field": "part2.actor2"
   },
   {
    "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
@@ -532,9 +577,36 @@
         "teammate",
         "num"
        ]
+      ],
+      [
+       [
+        "dialogue_target",
+        "ref"
+       ],
+       [
+        "anim_action",
+        "num"
+       ],
+       [
+        "weapon",
+        "ref"
+       ],
+       [
+        "weapon_anim",
+        "num"
+       ],
+       [
+        "furniture",
+        "num"
+       ],
+       [
+        "attacked",
+        "num"
+       ]
       ]
      ],
-     "tracked": []
+     "tracked": [],
+     "set": "full"
     },
     "header": [
      "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
@@ -553,13 +625,152 @@
       "count": "float fV\nBegin Function { }\nlet fV := GetNumRefs 200 1\nSetFunctionValue fV\nEnd\n",
       "probe": [
        "ref rA\nref rX1\nref rX2\nref rX7\nref rX10\nint iN\nfloat fS\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV8\nfloat fV9\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < %{i}\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX1 := rA.GetBaseObject\n  let rX2 := rA.GetParentCell\n  let fV3 := rA.GetPos X\n  let fV4 := rA.GetPos Y\n  let fV5 := rA.GetPos Z\n  let fV6 := rA.GetAngle Z\n  let rX7 := rA.GetCurrentPackage\n  let fV8 := rA.GetCurrentAIPackage\n  let fV9 := rA.GetCurrentAIProcedure\n  let rX10 := rA.GetPackageTarget\n  SetFunctionValue ((GetFormIDString rA) + \"|\" + (GetFormIDString rX1) + \"|\" + (GetFormIDString rX2) + \"|\" + ($ fV3) + \"|\" + ($ fV4) + \"|\" + ($ fV5) + \"|\" + ($ fV6) + \"|\" + (GetFormIDString rX7) + \"|\" + ($ fV8) + \"|\" + ($ fV9) + \"|\" + (GetFormIDString rX10))\nendif\nEnd\n",
-       "ref rA\nref rX1\nint iN\nfloat fS\nfloat fV0\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nfloat fV12\nfloat fV13\nfloat fV14\nfloat fV15\nfloat fV16\nfloat fV17\nfloat fV18\nfloat fV19\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < %{i}\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsInCombat\n  let rX1 := rA.GetCombatTarget\n  let fV2 := rA.GetDetected player\n  let fV3 := rA.GetIsAlerted\n  let fV4 := rA.GetAlarmed\n  let fV5 := rA.GetSitting\n  let fV6 := rA.GetSleeping\n  let fV7 := rA.GetKnockedState\n  let fV8 := rA.IsTalking\n  let fV9 := rA.GetDead\n  let fV10 := rA.GetUnconscious\n  let fV11 := rA.GetDisabled\n  let fV12 := rA.IsSneaking\n  let fV13 := rA.IsRunning\n  let fV14 := rA.IsWeaponOut\n  let fV15 := rA.IsMoving\n  let fV16 := rA.GetAV Health\n  let fV17 := rA.IsPersistent\n  let fV18 := rA.GetIsCreature\n  let fV19 := rA.GetPlayerTeammate\n  SetFunctionValue (($ fV0) + \"|\" + (GetFormIDString rX1) + \"|\" + ($ fV2) + \"|\" + ($ fV3) + \"|\" + ($ fV4) + \"|\" + ($ fV5) + \"|\" + ($ fV6) + \"|\" + ($ fV7) + \"|\" + ($ fV8) + \"|\" + ($ fV9) + \"|\" + ($ fV10) + \"|\" + ($ fV11) + \"|\" + ($ fV12) + \"|\" + ($ fV13) + \"|\" + ($ fV14) + \"|\" + ($ fV15) + \"|\" + ($ fV16) + \"|\" + ($ fV17) + \"|\" + ($ fV18) + \"|\" + ($ fV19))\nendif\nEnd\n"
+       "ref rA\nref rX1\nint iN\nfloat fS\nfloat fV0\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nfloat fV12\nfloat fV13\nfloat fV14\nfloat fV15\nfloat fV16\nfloat fV17\nfloat fV18\nfloat fV19\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < %{i}\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsInCombat\n  let rX1 := rA.GetCombatTarget\n  let fV2 := rA.GetDetected player\n  let fV3 := rA.GetIsAlerted\n  let fV4 := rA.GetAlarmed\n  let fV5 := rA.GetSitting\n  let fV6 := rA.GetSleeping\n  let fV7 := rA.GetKnockedState\n  let fV8 := rA.IsTalking\n  let fV9 := rA.GetDead\n  let fV10 := rA.GetUnconscious\n  let fV11 := rA.GetDisabled\n  let fV12 := rA.IsSneaking\n  let fV13 := rA.IsRunning\n  let fV14 := rA.IsWeaponOut\n  let fV15 := rA.IsMoving\n  let fV16 := rA.GetAV Health\n  let fV17 := rA.IsPersistent\n  let fV18 := rA.GetIsCreature\n  let fV19 := rA.GetPlayerTeammate\n  SetFunctionValue (($ fV0) + \"|\" + (GetFormIDString rX1) + \"|\" + ($ fV2) + \"|\" + ($ fV3) + \"|\" + ($ fV4) + \"|\" + ($ fV5) + \"|\" + ($ fV6) + \"|\" + ($ fV7) + \"|\" + ($ fV8) + \"|\" + ($ fV9) + \"|\" + ($ fV10) + \"|\" + ($ fV11) + \"|\" + ($ fV12) + \"|\" + ($ fV13) + \"|\" + ($ fV14) + \"|\" + ($ fV15) + \"|\" + ($ fV16) + \"|\" + ($ fV17) + \"|\" + ($ fV18) + \"|\" + ($ fV19))\nendif\nEnd\n",
+       "ref rA\nref rX0\nref rX2\nint iN\nfloat fS\nfloat fV1\nfloat fV3\nfloat fV4\nfloat fV5\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < %{i}\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetDialogueTarget\n  let fV1 := rA.GetAnimAction\n  let rX2 := rA.GetEquippedObject 5\n  let fV3 := rA.GetWeaponAnimType\n  let fV4 := rA.GetFurnitureMarkerID\n  let fV5 := rA.GetAttacked\n  SetFunctionValue ((GetFormIDString rX0) + \"|\" + ($ fV1) + \"|\" + (GetFormIDString rX2) + \"|\" + ($ fV3) + \"|\" + ($ fV4) + \"|\" + ($ fV5))\nendif\nEnd\n"
       ],
       "max": 64
      }
     ],
     "every": 30,
     "max_samples": 5
+   }
+  },
+  {
+   "observe": {
+    "label": "diag_fight",
+    "fields": {
+     "header": [
+      [
+       "days",
+       "num"
+      ],
+      [
+       "hour",
+       "num"
+      ],
+      [
+       "timescale",
+       "num"
+      ],
+      [
+       "player_x",
+       "num"
+      ],
+      [
+       "player_y",
+       "num"
+      ],
+      [
+       "player_z",
+       "num"
+      ],
+      [
+       "player_heading",
+       "num"
+      ],
+      [
+       "player_cell",
+       "ref"
+      ],
+      [
+       "player_in_combat",
+       "num"
+      ]
+     ],
+     "parts": [
+      [
+       [
+        "id",
+        "ref"
+       ],
+       [
+        "base",
+        "ref"
+       ],
+       [
+        "x",
+        "num"
+       ],
+       [
+        "y",
+        "num"
+       ],
+       [
+        "z",
+        "num"
+       ],
+       [
+        "heading",
+        "num"
+       ],
+       [
+        "in_combat",
+        "num"
+       ],
+       [
+        "combat_target",
+        "ref"
+       ],
+       [
+        "procedure",
+        "num"
+       ],
+       [
+        "anim_action",
+        "num"
+       ],
+       [
+        "talking",
+        "num"
+       ],
+       [
+        "knocked",
+        "num"
+       ],
+       [
+        "dead",
+        "num"
+       ],
+       [
+        "health",
+        "num"
+       ],
+       [
+        "weapon",
+        "ref"
+       ],
+       [
+        "creature",
+        "num"
+       ]
+      ]
+     ],
+     "tracked": [],
+     "set": "fight"
+    },
+    "header": [
+     "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+     "ref rX\nBegin Function { }\nlet rX := player.GetParentCell\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+     "float fV\nBegin Function { }\nlet fV := player.IsInCombat\nSetFunctionValue fV\nEnd\n"
+    ],
+    "groups": [
+     {
+      "name": "nearby",
+      "count": "float fV\nBegin Function { }\nlet fV := GetNumRefs 200 1\nSetFunctionValue fV\nEnd\n",
+      "probe": [
+       "ref rA\nref rX1\nref rX7\nref rX14\nint iN\nfloat fS\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nfloat fV12\nfloat fV13\nfloat fV15\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < %{i}\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX1 := rA.GetBaseObject\n  let fV2 := rA.GetPos X\n  let fV3 := rA.GetPos Y\n  let fV4 := rA.GetPos Z\n  let fV5 := rA.GetAngle Z\n  let fV6 := rA.IsInCombat\n  let rX7 := rA.GetCombatTarget\n  let fV8 := rA.GetCurrentAIProcedure\n  let fV9 := rA.GetAnimAction\n  let fV10 := rA.IsTalking\n  let fV11 := rA.GetKnockedState\n  let fV12 := rA.GetDead\n  let fV13 := rA.GetAV Health\n  let rX14 := rA.GetEquippedObject 5\n  let fV15 := rA.GetIsCreature\n  SetFunctionValue ((GetFormIDString rA) + \"|\" + (GetFormIDString rX1) + \"|\" + ($ fV2) + \"|\" + ($ fV3) + \"|\" + ($ fV4) + \"|\" + ($ fV5) + \"|\" + ($ fV6) + \"|\" + (GetFormIDString rX7) + \"|\" + ($ fV8) + \"|\" + ($ fV9) + \"|\" + ($ fV10) + \"|\" + ($ fV11) + \"|\" + ($ fV12) + \"|\" + ($ fV13) + \"|\" + (GetFormIDString rX14) + \"|\" + ($ fV15))\nendif\nEnd\n"
+      ],
+      "max": 64
+     }
+    ],
+    "every": 1,
+    "max_samples": 60
    }
   }
  ]

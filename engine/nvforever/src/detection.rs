@@ -20,16 +20,21 @@
 //!   gas station, a Frenzied Chet outdoors never fought Ringo in 155 s, same capture
 //!   det3].
 //! - **Line of sight**: a ray through the collision world from the detector's eyes to the
-//!   target's chest; the world's solid shapes block it, actors do not [engineering
-//!   choice]. Collision exists only around the player (3 × 3 cells): where either end is
+//!   target's chest, and when that is blocked a second to its eyes (a head over a low
+//!   wall is seen); the world's solid shapes block them, actors do not [engineering
+//!   choice; the second ray: hypothesis, fitted to capture detection-2 det4, where Ringo
+//!   behind the gas station's checkout counter read GetLineOfSight 1 both ways while our
+//!   ray to the chest from the player's eyes hit the counter]. Collision exists only around the player (3 × 3 cells): where either end is
 //!   out of it, only the landscape blocks sight (`fnv_game::sight::over_land`, the
 //!   heights read from the cells' LAND records) [engineering choice].
-//! - **Field of view**: 95° either side of straight ahead, for every actor and for the
-//!   player, whose view is the camera's (where it is, where it looks, first or third
-//!   person) [documented: GECK wiki GetLineOfSight]; detection's "can see the target" is
-//!   the same test [observed for the player: Ringo 263 units away read GetDetected and
-//!   GetLineOfSight 1 at ±45° off the view and 0 at ±135°, third person, capture
-//!   detection-1 det1].
+//! - **Field of view**: 95° either side of where the body faces, for every actor and for
+//!   the player's detection [documented: GECK wiki GetLineOfSight; observed for the
+//!   player: player.GetDetected Ringo 1 to 90° off the facing on both sides and 0 from
+//!   100°, capture detection-2 det4, 2026-10-17, third person]. The player's
+//!   GetLineOfSight is the camera's instead: the same ±95° and wall check from where the
+//!   camera is, along where it looks (`Situation::camera_sight`) [documented: same page,
+//!   "the *camera*"; observed: same capture, 0 at 90° left but 1 to 110° right, the
+//!   third-person camera being off to one side].
 //! - **The player as a detector**: measured like an actor, its Perception against the
 //!   target's Sneak [observed: player.GetDetected Ringo and Chet 1 in the original,
 //!   function probes fp1/fp2 2026-10-17, also with `tdetect` on, so the toggle and
@@ -202,11 +207,12 @@ struct Person {
     label: String,
     feet: [f32; 3],
     eyes: [f32; 3],
-    /// Where it looks, horizontal unit vector (game space): the body's facing, or for the
-    /// player the camera's.
+    /// Where it looks, horizontal unit vector (game space): the body's facing.
     forward: [f32; 2],
-    /// Where it sees from: the eyes, or for the player the camera.
+    /// Where it sees from: the eyes.
     view: [f32; 3],
+    /// The player's camera (where it is, where it looks): GetLineOfSight's sight.
+    camera: Option<([f32; 3], [f32; 2])>,
     moving: bool,
     running: bool,
     sneaking: bool,
@@ -422,22 +428,23 @@ fn measure(
     let player_run_mode = !intent.as_deref().is_some_and(|i| i.walk);
     let pspeed = motion(FormId::PLAYER_REF.0, player.feet, &mut state.last);
     let pmoving = pspeed > MOVING_SPEED;
-    // The player sees with the camera, first or third person [documented: GECK wiki
-    // GetLineOfSight]; without one, from the eyes along the heading.
-    let (view, forward) = match camera.iter().next() {
-        Some(c) => {
-            let ahead = bevy_to_game(c.forward().as_vec3());
-            (bevy_to_game(c.translation()).to_array(), Vec2::new(ahead.x, ahead.y).normalize_or_zero())
-        }
-        None => (player.eye(), Vec2::new(player.heading.sin(), player.heading.cos())),
-    };
+    // The player detects from its eyes along its heading; GetLineOfSight is the camera's,
+    // first or third person [documented: GECK wiki GetLineOfSight; observed: capture
+    // detection-2 det4, the detection's edge symmetric about the facing, the line of
+    // sight's not, in third person].
+    let cam = camera.iter().next().map(|c| {
+        let ahead = bevy_to_game(c.forward().as_vec3());
+        let flat = Vec2::new(ahead.x, ahead.y).normalize_or_zero();
+        (bevy_to_game(c.translation()).to_array(), [flat.x, flat.y])
+    });
     people.push(Person {
         id: FormId::PLAYER_REF.0,
         label: "the player".into(),
         feet: player.feet,
         eyes: player.eye(),
-        forward: [forward.x, forward.y],
-        view,
+        forward: [player.heading.sin(), player.heading.cos()],
+        view: player.eye(),
+        camera: cam,
         moving: pmoving,
         running: pmoving && !intent.as_deref().is_some_and(|i| i.walk),
         sneaking: control.as_deref().is_some_and(|c| c.sneak),
@@ -463,6 +470,7 @@ fn measure(
             eyes,
             forward: [flat.x, flat.y],
             view: eyes,
+            camera: None,
             moving: speed > MOVING_SPEED,
             running: speed > RUNNING_SPEED,
             sneaking: rt.game.sneaks(FormId(rig.reference)),
@@ -535,7 +543,7 @@ fn measure(
             let sit = Situation {
                 distance: dist as f64,
                 exterior,
-                line_of_sight: sight(phys.as_deref_mut(), land, world, exterior, d.view, target),
+                line_of_sight: sight(phys.as_deref_mut(), land, world, exterior, d.view, target) || sight(phys.as_deref_mut(), land, world, exterior, d.view, t.eyes),
                 in_view: in_view(d.view, d.forward, target),
                 light: light[j],
                 moving: t.moving,
@@ -545,6 +553,9 @@ fn measure(
                 detector_alert: alert,
                 detector_asleep: !by_player && g.asleep(FormId(d.id)),
                 detector_busy: fighting.is_some_and(|f| f != FormId(t.id)),
+                camera_sight: d.camera.map(|(at, ahead)| {
+                    in_view(at, ahead, target) && (sight(phys.as_deref_mut(), land, world, exterior, at, target) || sight(phys.as_deref_mut(), land, world, exterior, at, t.eyes))
+                }),
             };
             let (det, before) = g.detect(&settings, FormId(d.id), FormId(t.id), &sit);
             // The player's own detection feeds the script functions only.

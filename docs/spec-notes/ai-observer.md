@@ -28,11 +28,16 @@ Per sample (every `every` game loops, default 60):
   loaded. This is the window on background AI: where the game moves a persistent NPC
   while the player is elsewhere, and what package it reports there.
 
-Per actor (two script "parts" per sample, fields in `observe.PARTS`): reference, base
+Per actor (three script "parts" per sample, fields in `observe.PARTS`): reference, base
 form, cell, position X/Y/Z, heading, current package (form), package type, procedure,
 package target, in combat, combat target, detects the player, alerted, alarmed, sitting,
 sleeping, knocked, talking, dead, unconscious, disabled, sneaking, running, weapon out,
-moving (direction), Health, persistent, creature, player teammate.
+moving (direction), Health, persistent, creature, player teammate; and (third part, from
+2026-10-17, actors in the loaded area only) dialogue target, animation action (attack
+phase, block, stagger, reload), equipped weapon, weapon animation type, furniture marker
+type, attacked. Tracked actors get the first two parts only: what the third part's
+functions do on an actor whose 3D is not loaded was not tried. A smaller field set for
+fights is in §9.
 
 Not recorded, because no base-game or xNVSE function reports it [documented: absent
 from the GECK wiki dump of 2026-10-07; the functions that exist come from other plugins,
@@ -55,7 +60,20 @@ comes from the masters, read offline, not from the observer.
   `GetSitting` (0–4), `GetSleeping` (0–4), `GetKnockedState` (-1–2), `IsTalking`,
   `GetDead`, `GetUnconscious`, `GetDisabled`, `IsSneaking`, `IsRunning`, `IsWeaponOut`,
   `IsMoving` (0 none, 1 forward, 2 backward, 3 left, 4 right), `GetAV Health`,
-  `IsPersistent` (FOSE1), `GetIsCreature`, `GetPlayerTeammate`.
+  `IsPersistent` (FOSE1), `GetIsCreature`, `GetPlayerTeammate`; from 2026-10-17
+  `GetDialogueTarget` (NVSE: the NPC being spoken to, the actor's dialogue package
+  target), `GetAnimAction` (GECK1; the wiki's NV table: -1 none, 0 equip, 1 unequip, 2
+  attack: a melee swing or full auto, 3 follow-through: semi auto, 4 back from an
+  attack, 5 winding up a throw, 7 block, 8 stagger, 9 reload, 13 scripted, furniture and
+  getting-up animations), `GetEquippedObject 5` (FOSE1: the weapon slot's base form),
+  `GetWeaponAnimType` (GECK1; its table of values is a template missing from the
+  export, so the codes are kept raw), `GetFurnitureMarkerID` (GECK1: 0 none, 1-10 beds,
+  11-20 chairs), `GetAttacked` (GECK1: attacked since it last left combat; the wiki warns
+  against calling it on the player, which the probes never do).
+- Scene actions (§5 `place`, `do`): `PlaceAtMe` (GECK1: count, distance, direction 0
+  front, 1 back, 2 left, 3 right), `MoveTo` with offsets, `StartCombat`,
+  `RemoveAllItems`, `AddItem`, `EquipItem` (GECK1), and the console's `killall` (kills
+  every actor in the loaded area but the player), `tgm` and `tdetect`.
 - Movement: `coc` (CenterOnCell, console only: interior cells; coc to the exterior cell
   `Goodsprings` is used by the example campaign [hypothesis that it works like an
   interior]), `cow` (CenterOnWorld: worldspace and cell grid X Y), `MoveTo`,
@@ -121,8 +139,17 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
   (default 1200; 0 no limit), "approach": units (default 600; 0 none), "follow": bool}`
   (follow: within `within` the key is released and the drive goes on, to keep up with a
   moving actor), `track` = [ref Editor IDs], `every`,
-  `depth`, `settle_frames`, `timescale`, `max_actors`, `console_first`, `console_after`, `script_after`,
-  `close_menus_after` (game loops, default 600; 0 keeps menus open)).
+  `depth`, `settle_frames`, `timescale`, `max_actors`, `console_first`,
+  `close_menus_after` (game loops, default 600; 0 keeps menus open), `fields` ("full",
+  default, or "fight", §9), `place` = [{base, count, distance, direction}] (actors
+  spawned near the player with PlaceAtMe after arrival; created at run time, so only the
+  nearby scan finds them), `do` = [console line | [statement, name, ...]] (scene actions
+  after arrival and `place`, each followed by 30 game loops; a statement's `{0}`, `{1}`
+  ... are the named references or forms, e.g. `["{0}.MoveTo player -400 600 0",
+  "0x000F36F5"]`; a console line cannot address a reference by FormID: `<FormID>.AddScriptPackage`
+  lines ran without error and changed nothing [observed 2026-10-17, package_kinds], so
+  actors are given packages by statements), `note`). One game load serves all sessions of a run, so a console
+  toggle such as `tgm` belongs in the first session's `console_first` only.
 - **Walks** start with `player.MoveTo <target> <approach> 0 0` (MoveTo's offsets
   [documented: GECK wiki MoveTo]; the move is queued, so the job waits 120 loops), then
   face the target and hold Forward with normal collision. The walk is a straight line
@@ -146,11 +173,7 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
   killed, depth 2, every 5 loops, 2 game hours). God mode is a console toggle: the save must not have it on
   already [hypothesis: it is not stored in saves].
 - **Session job**: console_first lines; clock forward to `hour` (GameHour set past 24
-  carries the day [observed 2026-10-08]); teleport and wait to arrive; `console_after` lines
-  and `script_after` items (`[statement, name…]`: a compiled script with `{0}`… the
-  named forms, built with BuildRef: an actor moved up to the player and given a script
-  package; a console line cannot address a reference by FormID [observed 2026-10-17:
-  `<FormID>.AddScriptPackage` lines ran and changed nothing]); `settle_frames`;
+  carries the day [observed 2026-10-08]); teleport and wait to arrive; `settle_frames`;
   optional TimeScale (remembered and restored); remember GameDaysPassed; observe until
   `hours` of game time have passed; release the Forward key.
 - Order matters: the clock is set **before** the teleport, so the cell loads at the new
@@ -395,3 +418,97 @@ SunnyRef outside as she heads to the fight; `tgm`; the player follows SunnyRef w
   walks up (`walk`), greet (procedure GREET), turn to face, talk?
 - Combat: package and procedure sequence from combat start to end, combat targets,
   fleeing.
+
+## 9. Fast sampling for fights (from 2026-10-17)
+
+Melee spacing needs positions at frame rate: a swing lasts well under a second. The
+plugin already samples every game loop with `every: 1`; what makes that affordable is a
+smaller probe. The **fight field set** (`"fields": "fight"`, `observe.FIGHT_PARTS`) is
+one part per actor: reference, base form, position X/Y/Z, heading, in combat, combat
+target, procedure, animation action, talking, knocked, dead, Health, weapon, creature.
+No plugin change was needed (plugin version 6 or later reads these jobs).
+
+Cost [observed 2026-10-17, `aa_observe_diag`, plugin version 7, save `nvftest` in
+GSGasStation with RingoRef]: the fight set every game loop took 0.15-0.31 ms per sample
+for one actor (the first sample 5.9 ms, compiling); the full set's three parts took
+0.13-0.42 ms. Each probe walks the scan from its first actor (§3), so with n actors a
+sample costs about n²/2 GetNextRef steps. Every new function answered on RingoRef:
+dialogue target none, animation action -1, weapon `000E3778`, weapon animation type 4,
+furniture 0, attacked 0.
+
+## 10. The map step (`observe_map.py`)
+
+`observe_map.py OUT.jsonl ... [--data <Data>] [--packages show.json] [-o map.json]
+[--text summary.txt]` reads observer outputs of any campaigns and writes
+`fnv.observe.map/1`. Times: game hours from the header (§5); real seconds from game
+time and the header's TimeScale (at 30, a game minute is two real seconds). A sample
+stands for the time to the next one, at most 5 game minutes.
+
+- **Conversations** between NPCs: a pair is in conversation while either has a dialogue
+  package (type 6 or 34) whose target is the other, or names the other as its dialogue
+  target; records more than 2 game minutes apart are two conversations. Recorded: who,
+  the starter (the one that had the package first), the distance between the two at the
+  first record, when the talk starts (both on the package, or one in procedure
+  DIALOGUE; before that the starter walks up in DIALOGUE_ACTIVATE), during (quantiles),
+  game minutes and real seconds, lines (IsTalking rising edges). Rates: conversations
+  per NPC per game hour it was in the loaded area, per session and per hour of day.
+- **Speech**: every IsTalking rising edge is a line. A line of an actor in combat, or
+  within 5 real seconds of leaving it, is a combat line. Per fighter: lines, seconds in
+  combat, lines per minute, the gap between its lines; overall the share of fight time
+  with 0, 1, 2 ... fighters talking. The topic of a line is not readable with base-game
+  or xNVSE functions, so each combat line gets a **guessed trigger** from what happened
+  to the speaker within 1.5 real seconds before it [hypothesis]: a death nearby, a hit
+  (Health fell), the target lost, SEARCH, FLEE, combat start, an attack (GetAnimAction
+  rose to 2), PURSUE, ALARM, YIELD, else other.
+- **Melee spacing**: a swing is GetAnimAction rising to 2 for an actor with no weapon, a
+  melee weapon or a creature. Recorded: the 2D distance between the attacker's and its
+  combat target's positions (centre to centre: GetPos is the actor's reference point at
+  its feet) when the swing starts and the closest during it (until the action leaves
+  2-4), the attacker's speed over the last 0.25 s (below 30 units/s counts as stopped),
+  whether it is a combo (starts within 0.6 s of the previous swing's end), and how far
+  it backed off between two swings (the largest distance between them less the distance
+  at the end of the earlier one). Weapons are classed by words in their Editor ID
+  (knife, machete, unarmed weapon, long melee) [hypothesis: a reading aid].
+- **Encounters** per session: each fighter's combat spans, its targets in order, death,
+  game minutes in FLEE, SEARCH, PURSUE, YIELD, ALARM; whether it entered combat before
+  anyone targeted it ("joined": an ally's call or seeing the fight, which no function
+  tells apart [hypothesis]); sides from two-colouring the targets graph. Taking cover is
+  not readable (no base-game or xNVSE function reports it).
+- **Interaction graph**: edges `talks_to`, `targets`, `follows` (FOLLOW, ESCORT,
+  ACCOMPANY packages or procedures with an actor target), `uses` (a package target that
+  is not an actor, in ACTIVATE, SLEEP, EAT, USE_ITEM_AT, USE_IDLE_MARKER, SITTING,
+  SANDBOX, GUARD or USE_WEAPON), `sits` and `sleeps` (GetSitting / GetSleeping 3, with
+  the furniture marker type), each with game minutes, hours of day and sessions.
+- **Packages**: per package the actors, the share of time per package type code and per
+  procedure, the hours of day, cells and main targets; with `--packages` (the output of
+  `fnvtool ai show --package ...`) the record's type, runtime type code, schedule and
+  location kind, whether the observed type code matches, and the share of time used
+  outside the record's schedule window.
+
+## 11. Campaigns of 2026-10-17 [observed 2026-10-17, plugin version 7]
+
+Campaigns `melee_spacing`, `npc_battles`, `goodsprings_fight_fast`, `conversations` and
+`casinos` (only its first session, Gomorrah, cut short at the owner's request); the
+measures and the comparison with our engine are in npc-behaviour-compare.md. What the runs
+taught about running them:
+
+- **Job order**: the plugin runs pending jobs in file-name order, so `creature_cazador`
+  ran before `dogs`, whose `tgm` never came first; the player died, the save reloaded and
+  the job started over and over. Job names now carry the session's place (§5).
+- **God mode, not health**: with the player's Health raised to 100,000 instead of `tgm`,
+  every attacker kept 280–500 units off and never swung.
+- **`tdetect` turns detection off for everyone**: with it, no actor entered combat in three
+  battles. To keep the player out of NPC fights: god mode, `SetForceSneak 1`, Sneak 100 and
+  a Stealth Boy's spell (`CastImmediateOnSelf StealthBoyInvisibilitySpell`) (owner's
+  suggestion); Fiends still targeted the player now and then.
+- **PlaceAtMe's result cannot be kept**: `let rS := player.PlaceAtMe …` and `set rS to …`
+  did not compile in the runtime compiler; spawned actors are found by a scan of
+  references created at run time instead (§5 `place`).
+- **Off the navmesh**: after `cow` the player stood where walking attackers stopped 190–280
+  units short; sessions now move the player onto an actor's spot first.
+- **Disabled crowds**: arriving by `coc` from the early-game save left the Strip's
+  trigger-enabled NPCs disabled (the owner saw them missing); the scan skips disabled
+  actors. Campaign `strip` starts from the owner's save `nvfstrip` instead (not run).
+- **Stopping a run without freeing the game too early**: when a campaign is cut short,
+  remove its pending jobs, stop the supervisor (it would restart the game for the rest),
+  and keep the locks until the game has quit.
