@@ -15,6 +15,7 @@ use crate::fly::FlyCam;
 use crate::frame_pace::{self, FramePace};
 use crate::graphics::{self, Graphics};
 use crate::grass::GrassConfig;
+use crate::foot_ik::FootIkSettings;
 use crate::head_look::HeadLookSettings;
 use crate::lips::LipState;
 use crate::lod::LodState;
@@ -38,6 +39,7 @@ const GROUP_GRAPHICS: &str = "Graphics";
 pub fn register(app: &mut App) {
     let has_lips = app.world().contains_resource::<LipState>();
     let has_heads = app.world().contains_resource::<HeadLookSettings>();
+    let has_feet = app.world().contains_resource::<FootIkSettings>();
     let has_nav = app.world().contains_resource::<NavState>();
     let has_body = app.world().contains_resource::<PlayerBody>();
     if has_lips {
@@ -64,6 +66,20 @@ pub fn register(app: &mut App) {
                 note: "On: actors turn their heads to the player and to others near them. Off: heads ease back to their animation. (--no-head-tracking)",
                 get: |w| w.resource::<HeadLookSettings>().enabled,
                 set: |w, on| w.resource_mut::<HeadLookSettings>().enabled = on,
+                slider: None,
+            },
+        );
+    }
+    if has_feet {
+        add_setting(
+            app,
+            Setting {
+                key: "foot-ik",
+                group: GROUP_WORLD,
+                label: "Feet follow the ground",
+                note: "On: on slopes and steps actors bend their knees and set each foot on the ground under it. Off: the legs play the animation as it is. (--no-foot-ik)",
+                get: |w| w.resource::<FootIkSettings>().enabled,
+                set: |w, on| w.resource_mut::<FootIkSettings>().enabled = on,
                 slider: None,
             },
         );
