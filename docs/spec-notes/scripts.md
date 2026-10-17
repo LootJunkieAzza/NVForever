@@ -1177,7 +1177,14 @@ Round 3 of the contract (layer5-captures.md §9.2), frames as there:
 
 `given` kinds `reputation` (SetReputation) and `actor_value` (the current value, with no
 damage). Actor values are named by their script name (`encodings.json`, e.g. `NightEye`)
-or xEdit name, ignoring case and spaces (`Nighteye`).
+or xEdit name, ignoring case and spaces (`Nighteye`). Codes shipped source never spells
+take their AVIF Editor ID without `AV` (`PoisonResist` 19, `CritChance` 14, `FireResist`
+52, `EnergyResist` 60, `DetectLifeRange` 51) [observed: FalloutNV.esm AVIF; the original
+compiler takes `GetAV PoisonResist`, capture abilities-1; hypothesis for the others], and
+`ElectricResist`, `FrostResist`, `EMPResist` (58, 59, 61; no AVIF in the masters)
+[hypothesis: the same pattern]. They live in `av_code` (crates/fnv-game), not in
+encodings.json, which holds shipped spellings only and drives the decompiler's text (a
+code 19 still prints `#19`).
 
 Round 4 of the contract (layer5-captures.md §10.4), frames as there:
 

@@ -471,6 +471,7 @@ fn draw(
     mut frames: Query<(&Frame, &mut Visibility)>,
     mut kit: Local<Option<Kit>>,
     mut shown: Local<Option<(MenuView, usize, u32)>>,
+    creator: Option<Res<crate::creator::CreatorMenu>>,
 ) {
     let width = windows.single().map_or(960.0 * 16.0 / 9.0, |w| 960.0 * w.width() / w.height().max(1.0));
     let selected = menu.selected;
@@ -483,7 +484,10 @@ fn draw(
     if menu.first != first {
         menu.first = first;
     }
-    let key = menu.view.clone().map(|v| (v, first, width.round() as u32));
+    // Nothing over the character creator: the opening opens it at the end of a line of
+    // Doc Mitchell's, still in the conversation [owner 2026-10-17].
+    let creating = creator.is_some_and(|c| c.is_open());
+    let key = menu.view.clone().filter(|_| !creating).map(|v| (v, first, width.round() as u32));
     if key != *shown {
         for e in &roots {
             commands.entity(e).despawn();

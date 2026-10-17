@@ -72,6 +72,12 @@ All three ran unattended and ended; the game's saves were not changed.
 
 ## 4. Open: what a later capture batch needs
 
+Round 2 (2026-10-17, docs/design/script-function-coverage.md §3) ran the unattended
+group with the probe generator `tools/capture/function_probe.py`: GetDisposition, GetCauseofDeath,
+HasLoaded3D, GetPCMiscStat and the leap day are settled; GetCurrentAIPackage's codes are
+partly (Sandbox 36 agrees), GetSleeping on the player in the bed's menu reads 0. The
+attended group below is still open.
+
 Grouped so they can run together (the owner asked for batches). Jobs that need actions the
 plugin cannot script (combat, walking an NPC through a door) are attended.
 
@@ -90,11 +96,14 @@ plugin cannot script (combat, walking an NPC through a door) are attended.
 
 ## 5. Gaps left, with the reason
 
-- **EquipItem / UnequipItem on NPCs are not drawn** (199 / 51 calls): the engine dresses
-  and arms NPCs from its own roll of their inventory (`fnv_actor::resolve`, outfits.rs) and
-  only follows items leaving the inventory. Making it draw what the rules have equipped
-  also removes the mismatch between the two leveled rolls; it changes how NPCs look, so it
-  is its own piece of work with screenshots (follow-up).
+(Round 2 closed the terminal locks and RewardXP's levelling; the full status of every used
+function, with the system each gap needs, is now docs/design/script-function-coverage.md.)
+
+- ~~EquipItem / UnequipItem on NPCs are not drawn~~ (199 / 51 calls): fixed 2026-10-17.
+  The engine now dresses and arms NPCs by what the rules have equipped
+  (`fnv_sim::World::equipment`, engine/nvforever/src/outfits.rs) and redraws when that
+  changes; combat's worn armour reads the same; smoke `npc-equip-drawn` [design]. NPCs
+  whose cell the rules have not loaded keep the engine's own roll until they are.
 - **ResurrectActor and SetUnconscious in the engine**: a corpse is not stood up again, an
   unconscious actor does not lie down (ragdolls are for corpses only).
 - **GetKnockedState / GetUnconscious**: an essential knocked out by damage sets the same
@@ -169,7 +178,7 @@ what writes it now).
 | EnableNavMesh / DisableNavmesh / setAllReachable | 0x11C0 / 0x11BF / 0x1159 | 5/0, 2/0, 0/0 | stub | — | stub |  |
 | EnablePlayerControls | 0x1060 | 177/0 | writes | same | matches | short-list rule [hypothesis] |
 | EnterTrigger | 0x11BA | 160/- | ref event | rules | matches |  |
-| EquipItem | 0x10EE | 199/- | `w.equip` | rules / engine never reads NPC `equipped` | gap left | The rules' equipped flags change (and NPCs now start equipped), but the engine dresses and arms NPCs by its own choice and does not redraw on EquipItem/UnequipItem (§5). |
+| EquipItem | 0x10EE | 199/- | `w.equip` | rules; the engine draws NPCs' equipped items (outfits.rs) | fixed 2026-10-17 | The rules' equipped flags change (NPCs start equipped), and the engine redresses and rearms the NPC from them (§5; smoke `npc-equip-drawn`). |
 | EvaluatePackage | 0x105E | 2285/ | package choice | rules | matches | (package layer, not audited deeply) |
 | Exists | 0x119F | /21 | combat_group / condition_target | rules | matches | "near" not measured (hypothesis). |
 | ExitGame | 0x11B5 | 1/0 | stub | — | stub |  |
@@ -194,7 +203,7 @@ what writes it now).
 | GetButtonPressed | 0x101F | 211/0 | `message_box.pressed` | engine: script.rs:530 answer() | matches |  |
 | GetCasinoWinningsLevel | 0x125C | 24/0 | `casino_levels` | written by blackjack rounds: a quarter of the casino's max winnings per level, 4 at the max (blackjack.md §4; the quarters a hypothesis) | open | roulette and slots still stubs. Open: does cashing chips at a cage count (CSNO max_winnings)? capture needed |
 | GetCasinoWinningStage | 0x1262 | 0/25 | same | same | open | as above |
-| GetCauseofDeath | 0x118D | 1/1 | `extra.last_hit.weapon` | KillActor's cause, else the last hit | fixed here | KillActor's cause now counts. Open: a live unloaded coyote read 0, not −1 (`fa_batch3_actions`), §4. |
+| GetCauseofDeath | 0x118D | 1/1 | `extra.last_hit.weapon` | KillActor's cause, else the last hit | fixed here | KillActor's cause now counts. A live loaded actor reads -1, 1 after KillActor player 0 1, -1 after ResurrectActor [observed: probes, as ours]. A live unloaded coyote read 0 (`fa_batch3_actions`). |
 | GetChallengeCompleted | 0x1266 | 23/0 | `challenges[c].completed` | rules: IncrementScriptedChallenge, runner | gap left | decomp asks e.g. NVChallengeShootemUp/Fistful (CHAL type "Kill from a Form List" [observed: esm decode]); nothing counts kills into challenges → always 0 |
 | GetCombatTarget | 0x10E8 | 26/ | awareness combat target | rules | matches | Player as caller (auto-aim target) [documented] returns 0, but no base-esm script calls it on the player [observed]. |
 | GetContainer | 0x10CF | 11/- | `ctx.inst` holder | runner | matches |  |
@@ -202,7 +211,7 @@ what writes it now).
 | GetCurrentAIPackage | 0x106E | 15/15 | dialogue, awareness state, current package | rules | matches | Codes partly hypothesis. |
 | GetCurrentAIProcedure | 0x108F | 16/64 | as above + `extra.furniture`, `package_goal_met` | rules; furniture from engine | open | Travel reads 0 until goal met then 17; page says a Travel package waits (3) at its destination. Capture: GetCurrentAIProcedure on an NPC that arrived at a Travel target. |
 | GetCurrentTime | 0x1012 | 89/138 | GameHour global | fnv-sim clock | matches |  |
-| GetDayOfWeek | 0x10AA | 24/11 | calendar globals | calendar globals | fixed here | Gregorian weekdays were 3 days off. Now days since Sunday 13 October 2281, 365-day years [observed: 5 on 25 October 2281; owner screenshot 19 October = Saturday]; package schedules follow. |
+| GetDayOfWeek | 0x10AA | 24/11 | calendar globals | calendar globals | fixed round 2 (2026-10-17) | Now whole GameDaysPassed mod 7, day 0 a Sunday [observed: setting the calendar globals to 28 February 2284 left it at 5; each day passed moved it]. No 29 February [observed: 28 Feb 2284 + 24 h = 1 March]; the sim clock had Gregorian leap days (fixed). |
 | GetDead | 0x102E | 1120/725 | `extra.dead` | `Game::kill` (KillActor, `combat.rs:356` engine hits, effects), `starts_dead` at new game | matches | Engine hits route through rules `hit`. |
 | GetDeadCount | 0x1054 | 27/444 | `player.dead_count[base]` | `Game::kill` | matches | Templated-actor special case [documented: notes] not modelled; minor. |
 | GetDestroyed | 0x10CB | 27/6 | `x.destroyed` | SetDestroyed, `Game::damage_object` stage (combat.rs:484) via engine combat.rs:1783 | matches |  |
@@ -211,7 +220,7 @@ what writes it now).
 | GetDetectionLevel | 0x10B4 | / | detection band | engine | matches | Player-as-target 0 in original [documented] not copied; unused. |
 | GetDialogueEmotion | 0x11B3 | 0/20 | dialogue_emotion | rules | gap left | SayTo/Say lines read the first response's emotion throughout; `Speech::response` (game.rs:615) tracks the current one (dialogue.rs:963) |
 | GetDisabled | 0x1023 | 804/168 | `w.is_enabled` | Enable/Disable, destruction stage / - | matches |  |
-| GetDisposition | 0x104C | 0/15 | stub 0 | — | open | if the 15 conditions test `>= n`, 0 fails them; FNV disposition value not documented locally |
+| GetDisposition | 0x104C | 0/15 | stub 0 | — | fixed round 2 (2026-10-17) | Was a stub (0). Now the record's Disposition Base + fDispTargetCharMult x (the target's Charisma - 5), 0..100, or SetDisposition's value [observed: 35 for every Goodsprings resident at Charisma 5, 85 at 10, 0 at 1, 25 towards Sunny (Charisma 4), Karma no effect; script-function-coverage.md §3.2]. |
 | GetDistance | 0x1001 | 350/140 | `w.{cell,pos}` both | AI set_actor_place (NPCs), sync_sim (player) | matches | f32::MAX across spaces is a [hypothesis] (wiki: script crashes). |
 | GetEquipped | 0x10B6 | 76/479 | `inventory.is_equipped(item)` | fnv-sim `World::outfit` (first load), EquipItem/UnequipItem | fixed here | NPCs had nothing equipped. Now an NPC puts on its outfit and weapon the first time its cell loads, by the engine's wearing and arming rules [observed: Sunny Smiles 0 before her cell ever loaded, 1 after, kept after leaving; `fa_batch2_loaded_npcs`]. Form lists: any member [documented: wiki notes]. |
 | GetFactionCombatReaction | 0x119B | /1 | reaction() | records/rules | matches |  |
@@ -258,8 +267,8 @@ what writes it now).
 | GetLevel | 0x1050 | 46/46 | `player.level` / `extra.level` | `Game::actor_level` | fixed here | Errored for NPCs without SetLevel; now their record's level [documented; observed: Sunny 2, Trudy 5]. |
 | GetLineOfSight | 0x101B | 49/ | `detection.get(r,t).seen` | engine detection (actor pairs only) | gap left | Player as caller always 0 [documented: player may test any object via the camera]; 4 of 5 base-esm callers are `player.GetLineOfSight 0x00123CC7` (package scripts 0x00123CC8, 0x001480E4, 0x00147556, SCPT 0x001639C8) [observed]. |
 | GetLinkedRef | 0x116B | 529/- | `placed.linked` | ESM / - | matches |  |
-| GetLocked | 0x1005 | 58/95 | `w.lock_status`, `locks.broken` | Lock/Unlock, lockpick.rs:523 / engine lockpick | gap left | Doors/containers OK (255 reads 1 [observed sim.md §5]). Terminals always 0; wiki: 1 with lock data, 2 locked out (`terminals.access` LockedOut exists but is not read). |
-| GetLockLevel | 0x1041 | 5/1 | `w.lock.level` | Lock, XLOC | gap left | Terminals read 0; wiki gives 0-5 from TERM DNAM difficulty, which `data.terminals[base].difficulty` already holds. |
+| GetLocked | 0x1005 | 58/95 | `w.lock_status`, `locks.broken` | Lock/Unlock, lockpick.rs:523 / engine lockpick | fixed round 2 (2026-10-17) | Terminals: 0 while their cell is not loaded, 1 with lock data, 2 after Lock or a lockout, 0 after Unlock [observed: an Easy terminal; documented: wiki]. Doors and containers as before. |
+| GetLockLevel | 0x1041 | 5/1 | `w.lock.level` | Lock, XLOC | fixed round 2 (2026-10-17) | Terminals: their difficulty code while loaded (Easy 1), 5 after Lock 50, -1 after Unlock, 0 unloaded [observed]. Gap left: a loaded door without lock data reads 255 in the original, 0 here [observed: the gas station's door]. |
 | GetMajorCrimeCount | 0x1075 | /2 | crime_counts | rules | matches |  |
 | GetMapMarkerVisible | 0x11EC | 41/31 | `map_marker_shown` (ShowMap / ShowAllMapMarkers) | ShowMap / ShowAllMapMarkers, and markers the player found (engine compass → `Game::set_found_markers`) | fixed here | Gave 0/1 only and never heard of found markers. Now 0/1/2 [documented]; a found marker 2 [observed: Goodsprings]. Markers authored Visible: not known to the rules. |
 | GetMinorCrimeCount | 0x1074 | / | crime_counts | rules | matches |  |
@@ -270,7 +279,7 @@ what writes it now).
 | GetParentRef | 0x1113 | 2/- | `placed.enable_parent` | ESM / - | matches |  |
 | GetPCEnemyOfFaction | 0x10C5 | 7/2 | `player.enemy_of` | rules | matches |  |
 | GetPCIsSex | 0x1083 | 8/190 | `player.female` | chargen | matches |  |
-| GetPCMiscStat | 0x1138 | 4/0 | `misc_stats` | rules: ModPCMiscStat only | gap left | game counters never counted [documented: wiki stat list]; decomp asks "locations discovered" (engine compass.rs:119 discovers, never tells) and "times addicted" |
+| GetPCMiscStat | 0x1138 | 4/0 | `misc_stats` | rules: ModPCMiscStat only | fixed round 2 (2026-10-17) (partly) | "locations discovered" counts the found markers [hypothesis: 1 in nvftest with Goodsprings found], "times addicted" the addictions. Only these two names occur in shipped scripts; the other names' codes are not known. Original read People Killed 1 after a kill [observed]. |
 | GetPermanentActorValue | 0x11EF | 7/134 | base+permanent | rules | matches |  |
 | GetPlayerControlsDisabled | 0x1062 | 5/0 | `controls_disabled` | rules only (scripts) | matches | wiki examples match `controls()` |
 | GetPlayerName / ShowRaceMenu / SetTagSkills / ShowTraitMenu | 0x11E1 / 0x10DA / 0x121A / 0x1268 | 3/3/3/5 | open menus | engine chargen | matches |  |
@@ -303,7 +312,7 @@ what writes it now).
 | GetWeaponAnimType | 0x106C | 14/44 | equipped weapon else `extra.held_weapon` | equipped weapon (now set for NPCs), else the engine's held weapon | fixed here | NPCs not drawn read 1 (unarmed). Equipping on first load answers for them [observed: Sunny 5 once loaded, Ringo 4]. |
 | GetWeaponHealthPerc | 0x11F4 | 2/- | equipped weapon's condition | equipped weapon (now set for NPCs) | fixed here | NPCs had no equipped weapon (read 100). |
 | GetXPForNextLevel | 0x1215 | 3/0 | level, xp | — | matches | remaining XP [hypothesis] |
-| HasLoaded3D | 0x122E | 4/- | present && cell in `loaded_cells` | engine set_loaded via script.rs | open | [hypothesis] in code. Engine knows when 3D exists (RefVisual; actors spawn ≤3 per frame, residents.rs SPAWNS_PER_FRAME), so this reads 1 before an actor is drawn. A capture of HasLoaded3D right after a cell load would settle timing. |
+| HasLoaded3D | 0x122E | 4/- | present && cell in `loaded_cells` | engine set_loaded via script.rs | matches | The original needed 1 game loop after a cell load or MoveTo [observed: probes]; ours answers at once. |
 | HasMagicEffect | 0x10D6 | 41/5 | `g.effects` by MGEF | as IsSpellTarget | gap left | Same missing sources. |
 | HasPerk | 0x11C1 | 126/493 | `player.perks` (player only) | rules | fixed here | forTeammates asks the teammates' list [documented]. |
 | IgnoreCrime | 0x10AB | 196/ | `extra.ignore_crime` | rules; read by crime witnesses | matches |  |
@@ -333,7 +342,7 @@ what writes it now).
 | IsInList | 0x1174 | 10/49 | ref or base in list | AddFormToFormList | matches | Leveled-actor base caveat as GetIsID. |
 | IsInMyOwnedCell | 0x1092 | / | cell ownership | records/rules | matches |  |
 | IsKiller | 0x1199 | 45/ | `extra.killer` | `Game::kill` | matches | "Lost when disabled" [documented] not modelled; minor. |
-| IsLeftUp / IsFacingUp | 0x111D / 0x106A | 0/22, 0/41 | stub 0 | — | stub | knocked-down idle checks; no live knockdown |
+| IsLeftUp / IsFacingUp | 0x111D / 0x106A | 0/22, 0/41 | stub 0 | — | fixed round 2 (2026-10-17) | Were stubs (0); 1 on a standing actor [observed: Ringo]. Knockdowns not built. |
 | IsLimbGone | 0x118E | 12(51 decoded)/0 | stub 0 | — | stub | no dismemberment |
 | IsMoving | 0x1019 | /49 | `motion.moving` | engine detection.rs (drawn+near) | gap left | Only 0/1: backward/left/right (2/3/4) never [documented]; the player's `MoveIntent.forward/right` already holds the direction. |
 | IsOwner | 0x1116 | -/18 | `w.extra.owner` (placed XOWN at start, world.rs:337) | rules | matches |  |
@@ -361,7 +370,7 @@ what writes it now).
 | IsWin32 | 0x120C | 1/2 | const 1 | — | matches |  |
 | IsXBox / IsPS3 | 0x1135 / 0x120B | 2/2, 15/2 | const 0 | — | matches | PC [decision] |
 | KillActor | 0x108B | 597/ | `Game::kill` | rules (`Game::kill`) | fixed here | The cause parameter was dropped; it now reaches GetCauseofDeath [documented]. The limb is not dismembered (no dismemberment). |
-| Lock | 0x1072 | 303/- | `w.lock` | rules / lockpick reads | gap left | On a terminal it creates a world lock nobody reads: `terminal::opening` checks only the TERM Unlocked flag, hacked state and note (terminal.rs:63-66). |
+| Lock | 0x1072 | 303/- | `w.lock` | rules / lockpick reads | fixed round 2 (2026-10-17) | On a terminal: the terminal's own saved lock (level at most 5; 0 keeps the level) [documented: wiki Lock; observed: GetLockLevel 5 after Lock 50]; the opening reads it. |
 | Look | 0x105C | 159/30 | `senses.looks` | engine `script_look.rs` (head only) | gap left | `rotate_body` stored but never read by the engine (grep: only ai_state.rs/senses.rs). |
 | MarkForDelete | 0x11BB | 602/- | writes deleted | rules | matches | Immediate removal [hypothesis]. |
 | MenuMode | 0x1024 | 13/11 | `menu` / `dialogue` | engine: menu.rs (1002/1008/1053), lockpick, terminal, wait, crafting, levelup, script boxes | gap left | (a) `MenuMode 1` = Pip-Boy open [documented: wiki example] compared as a literal code: 2 `Begin MenuMode 1` blocks + LonesomeRoad `if menumode(1)` never fire though the Pip-Boy is 1002; (b) 1007 / 1013 never set: engine `PlayState::Loading` and the pause menu never reach rules; 8 `Begin MenuMode 1007` blocks (DM, HH, OWB) + 4 `menumode(1007) ∥ (1013)` never run. Code meanings 1007 loading / 1013 start menu [hypothesis; wiki: both true at the main menu] |
@@ -410,7 +419,7 @@ what writes it now).
 | RestoreActorValue | 0x1182 | 284/ | `av_damage` | rules | matches |  |
 | ResurrectActor | 0x108C | 515/46 | sets `extra.dead=false` | rules | fixed here | Only cleared `dead`. Now also heals Health, clears unconscious, killer and cause [documented: "from the dead or unconscious state"; hypothesis for the rest]. The engine does not stand a corpse up again (gap left, §5). |
 | RewardKarma | 0x1204 | 163/ | `change_karma` | rules | matches | Clamp iKarmaMin/Max and corner note present. clamped iKarmaMin/Max |
-| RewardXP | 0x1177 | 1303/0 | writes `player.xp` | rules: combat.rs, lockpick.rs; engine: compass.rs:131 | gap left | XP never levels the player: nothing calls `levelup::open` on a threshold (only console `advlevel`); status.md says so. Feeds GetLevel |
+| RewardXP | 0x1177 | 1303/0 | writes `player.xp` | rules: combat.rs, lockpick.rs; engine: compass.rs:131 | matches | Levelling by experience is built now (experience.rs; status.md); the gap is closed. |
 | Rotate | 0x1004 | 4/- | `g.rotations` -> `w.rot`, `turned` | rules / moved.rs:62, script_draw.rs:131 | matches |  |
 | Say | 0x1033 | 623/0 | Game::say | — | matches |  |
 | SayTo | 0x1034 | 994/0 | Game::say | engine facings, voice | matches | forceSubtitle not read |
@@ -434,7 +443,7 @@ what writes it now).
 | SetCombatStyle | 0x10B1 | 92/ | `extra.combat_style` | rules | matches |  |
 | SetCriticalStage | 0x1212 | 7/- | writes `x.critical_stage` | rules | matches | Effects (ragdoll/cull) not built. |
 | SetDestroyed | 0x10CC | 517/- | writes `x.destroyed` | rules / engine reads (radio.rs:760, activators.rs:83) | matches |  |
-| SetDisposition | 0x1184 | 2/0 | stub | — | stub |  |
+| SetDisposition | 0x1184 | 2/0 | stub | — | fixed round 2 (2026-10-17) | Was a stub; GetDisposition reads the value [observed: 20 after SetDisposition player 20]. |
 | SetEnemy | 0x1078 | 478/ | `forms.faction_reactions` | rules | matches |  |
 | SetEssential | 0x1003 | 37/ | `forms.essential` | rules | matches |  |
 | SetFactionRank | 0x1089 | 34/ | as above | rules | matches | Negative rank stored as membership -1, fine. |
@@ -518,8 +527,8 @@ what writes it now).
 | ToggleWireframe (console) | — | — | stub | — | stub | console only |
 | trapUpdate | 0x110C | 0/0 | stub | — | stub |  |
 | TriggerScreenSplatter / SetScreenSplatterFade / ClearScreenSplatter | 0x1240 / 0x1243 / 0x1241 | 0-1/0 | stub | — | stub |  |
-| UnequipItem | 0x10EF | 51/- | `w.unequip` | as EquipItem | gap left | The rules' equipped flags change (and NPCs now start equipped), but the engine dresses and arms NPCs by its own choice and does not redraw on EquipItem/UnequipItem (§5). |
-| Unlock | 0x1073 | 450/- | `w.lock` | rules | gap left | Unlocking a terminal does nothing (no XLOC on any placed terminal, hacking.md §1; opening ignores w.lock). Known, hacking.md §6 "Not built". |
+| UnequipItem | 0x10EF | 51/- | `w.unequip` | as EquipItem | fixed 2026-10-17 | As EquipItem: the item comes off the drawn NPC (§5). |
+| Unlock | 0x1073 | 450/- | `w.lock` | rules | fixed round 2 (2026-10-17) | On a terminal: it opens at its menu [documented: wiki Unlock; observed: GetLocked 0, GetLockLevel -1]. |
 | UnlockChallenge | 0x125E | 44/0 | writes | — | matches |  |
 | UseWeapon | 0x119C | 13/ | `weapon_uses`, `world.equip` | engine use_weapon.rs | matches | The only place an NPC weapon gets the equipped flag. |
 | WakeUpPC | 0x10AE | 3/- | `rest.requests` | rules / wait.rs | matches |  |

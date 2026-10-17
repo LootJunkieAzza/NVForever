@@ -430,8 +430,8 @@ pub fn drive(
     let mut busy: HashMap<u32, bool> = HashMap::new();
     // The rules are told which NPCs hold their weapon in the hand (`IsWeaponOut`, as for
     // the player: once the weapon is on the hand [documented: catalogue notes]), and
-    // which weapon that is (`GetWeaponAnimType`: NPCs' weapons are not equipped in the
-    // rules' inventories).
+    // which weapon that is (`GetWeaponAnimType` for NPCs with no weapon equipped in the
+    // rules' inventories; the drawn one is the equipped one otherwise, outfits.rs).
     for h in &held {
         game.set_held_weapon(FormId(h.reference), Some(h.weapon));
     }

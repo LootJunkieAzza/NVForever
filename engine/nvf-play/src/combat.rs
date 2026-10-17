@@ -1345,10 +1345,17 @@ fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimS
 }
 
 /// The armour `target` wears, each piece with its condition: what the player has
-/// equipped; of another actor, its carried ARMO by the wearing rule.
+/// equipped; of another actor, what the rules dress it in (`World::equipment`: its
+/// equipped items once outfitted, as the engine draws it), else its carried ARMO by the
+/// wearing rule.
 fn worn_armor(forms: &CombatForms, sim: &mut SimState, target: FormId) -> Vec<(FormId, f32)> {
+    let dressed = if target == FormId::PLAYER_REF { None } else { sim.world.equipment(target) };
     let Ok(inv) = sim.world.inventory_mut(target) else { return Vec::new() };
-    let items: Vec<FormId> = if target == FormId::PLAYER_REF { inv.equipped() } else { inv.iter().filter(|(_, n)| *n > 0).map(|(id, _)| id).collect() };
+    let items: Vec<FormId> = match dressed {
+        Some(d) => d,
+        None if target == FormId::PLAYER_REF => inv.equipped(),
+        None => inv.iter().filter(|(_, n)| *n > 0).map(|(id, _)| id).collect(),
+    };
     forms.worn_armor(items).into_iter().map(|id| (id, inv.condition_in_use(id).unwrap_or(1.0))).collect()
 }
 
@@ -2415,10 +2422,6 @@ fn watch_hit_effects(script: Option<Res<ScriptState>>, mut stats: ResMut<CombatS
 #[derive(Component)]
 struct HitMarker;
 
-/// The player's crippled limbs, in words (the original's picture of them is not built).
-#[derive(Component)]
-struct CrippledText;
-
 fn spawn_hit_hud(mut commands: Commands) {
     // The hit marker: a small square ring around the crosshair.
     commands.spawn((
@@ -2435,31 +2438,12 @@ fn spawn_hit_hud(mut commands: Commands) {
         BorderColor::all(Color::NONE),
         HitMarker,
     ));
-    commands.spawn((
-        Node { position_type: PositionType::Absolute, left: Val::Vh(4.0), bottom: Val::Vh(17.0), ..default() },
-        Text::new(""),
-        TextFont { font_size: FontSize::Px(16.0), ..default() },
-        TextColor(Color::srgb(1.0, 0.85, 0.4)),
-        CrippledText,
-    ));
 }
 
-/// The hit marker and the player's crippled limbs [design].
-/// The player's health is `crate::hud`'s; the limbs go with it while a script has the
-/// player's movement off (docs/spec-notes/hud.md §5).
-#[allow(clippy::too_many_arguments)]
-fn update_hit_hud(
-    time: Res<Time>,
-    state: Res<State<PlayState>>,
-    mut fb: ResMut<HitFeedback>,
-    mut marker: Query<&mut BorderColor, With<HitMarker>>,
-    mut health: Query<&mut Text, With<CrippledText>>,
-    limbs: Res<PlayerLimbs>,
-    locks: Option<Res<crate::control::ControlLocks>>,
-) {
+/// The hit marker [design]. The player's crippled limbs are `crate::hud_limbs`' picture.
+fn update_hit_hud(time: Res<Time>, state: Res<State<PlayState>>, mut fb: ResMut<HitFeedback>, mut marker: Query<&mut BorderColor, With<HitMarker>>) {
     let dt = time.delta_secs();
     let playing = *state.get() == PlayState::Playing;
-    let health_shown = playing && !locks.is_some_and(|l| l.movement);
     let mut col = Color::NONE;
     if let Some(a) = fb.marker_age.as_mut() {
         *a += dt;
@@ -2469,15 +2453,6 @@ fn update_hit_hud(
     }
     if let Ok(mut b) = marker.single_mut() {
         *b = BorderColor::all(col);
-    }
-    let hp = match limbs.crippled_names() {
-        names if health_shown && !names.is_empty() => format!("crippled: {}", names.join(", ")),
-        _ => String::new(),
-    };
-    if let Ok(mut t) = health.single_mut() {
-        if t.0 != hp {
-            t.0 = hp;
-        }
     }
 }
 
@@ -2509,7 +2484,7 @@ mod tests {
         let mut phys = PhysState::default();
         let id = 0x1234;
         let ch = phys.world.add_character(id, fnv_phys::CharacterParams::default(), [0.0, 0.0, 0.0]);
-        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2] });
+        phys.npcs.insert(id, NpcBody { prev_feet: ch.feet, ch, velocity: [0.0; 2], sink: 0.0 });
         phys.world.set_actor_volume(id, fnv_phys::HitVolume { feet: [0.0, 0.0, 30.0], radius: 8.0, height: 30.0, dead: false });
         phys
     }

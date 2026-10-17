@@ -5527,3 +5527,46 @@ of a run. Guesses a screenshot or a few hands at a real table would settle:
   says the player is banned.
 - The camera, the lights and where the bet's chips stand are fitted by eye to the one
   screenshot.
+
+## NPCs drawn as the rules equip them (2026-10-17, branch claude/npc-equip-drawn)
+
+The engine now dresses and arms every NPC by what the rules have equipped
+(`fnv_sim::World::equipment`), and redraws it when a script's EquipItem/UnequipItem or a
+taken item changes that (engine/nvforever/src/outfits.rs; smoke `npc-equip-drawn`:
+Sunny Smiles put into Trudy's outfit, her varmint rifle taken off and put back). Combat's
+worn armour reads the same items. Creatures are unchanged. What to look at:
+
+- **NPCs with a fixed outfit look as before** (Sunny, Trudy, Joe Cobb, Easy Pete: the two
+  rolls already agreed). Sunny's screenshots before and after EquipItem are in
+  `target/smoke/play-*.png` of an `npc-equip-drawn` run.
+- **NPCs whose outfit is a random leveled pick now wear the rules' roll instead of the
+  engine's own.** One run each: of the 9 Fiends at the camp west of Violet, 5 wear other
+  armour pieces and 2 hold other weapons (e.g. 000FF561 a 9mm pistol in place of a 10mm
+  pistol); at the tribal village 12 of the dead Fiends and nearby actors wear another
+  piece (e.g. 001578F9 other leather/headgear). Which pieces is still a roll, so it is no
+  closer to or further from your game, only consistent with what looting the body gives.
+- **An NPC whose cell the rules never loaded** keeps the engine's own pick until the rules
+  hold its inventory, then changes to the rules' pick at once (it may change in view at the
+  edge of the streamed area) [design].
+- **A weapon put on by EquipItem goes to the holster**, not the hand; the NPC draws it as
+  usual (combat, package flags). A corpse given a weapon is not armed.
+- Seen while testing, not changed here: Sunny's rifle is hidden while her
+  SunnyMeetPlayerDialoguePackage (Weapons Unequipped) runs (alert.rs), so it does not show
+  in her conversation screenshots.
+
+## Crippled-limb picture on the HUD (2026-10-17, branch claude/crippled-limb-hud)
+
+A crippled limb shows the Vault Boy at the top right for 5 s (docs/spec-notes/hud.md §12;
+smoke `hud-crippled-limbs`, screenshots `limbs_leg.png`, `limbs_arm.png`,
+`limbs_hidden.png` in `target/smoke/`). Size and place are fitted to your screenshot. My
+guesses to check against the game:
+
+- **The face by health**: 00 above 80 %, 01 above 60 %, 02 above 15 %, 03 above 0, 04 at
+  0. Only "02 at about 15 %" is from your screenshot; the other steps are guesses, and
+  `face_10` (tongue out) is unused. A screenshot of the picture at a few health levels
+  would settle the steps.
+- **The flash**: the HUD's red pulsing between full and a third of it every 0.6 s. Your
+  screenshot caught a dim red; how fast the original flashes, and whether it fades in or
+  out at the end, I could not see.
+- **A second crippling while it shows** starts the 5 s again and only the new limb
+  flashes; healing a limb shows nothing.

@@ -273,9 +273,22 @@ pub struct RefExtra {
     /// Self-damage per second of the destruction stage reached (burning down).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub burning: Option<f64>,
-    /// Spells added with AddSpell, in order.
+    /// Spells added with AddSpell, in order (the authored abilities among them).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub spells: Vec<FormId>,
+    /// The actor's authored abilities (record and race SPLO) were given
+    /// (`crate::abilities`), and the race they were given for.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub abilities_given: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ability_race: Option<FormId>,
+    /// Abilities a Dispel took off while the actor is loaded (they come back when it is
+    /// loaded again), and worn items whose enchantment a Dispel took off (until the item
+    /// is unequipped).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub dispelled: Vec<FormId>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub worn_dispelled: Vec<FormId>,
     /// SetBroadcastState of a radio station (talking activator).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub broadcast: Option<bool>,
@@ -301,6 +314,10 @@ pub struct RefExtra {
     /// The actor has been in a conversation with the player (GetTalkedToPC).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub talked_to_pc: bool,
+    /// SetDisposition: the disposition towards an actor, set by a script
+    /// (`functions::actor::get_disposition`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub dispositions: BTreeMap<FormId, f64>,
     /// The special idle the actor plays (IsIdlePlaying): told by whoever animates the
     /// actor ([`Game::set_idle_playing`]); not part of the saved state.
     #[serde(skip)]
@@ -406,6 +423,14 @@ pub struct ActiveEffect {
     /// (GetSpellUsageNum; docs/spec-notes/aid-items.md §5).
     #[serde(skip_serializing_if = "is_zero_f64", default)]
     pub usage: f64,
+    /// A worn enchantment: the equipped item it comes from (`crate::abilities`); it
+    /// lasts while the item is worn.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub worn: Option<FormId>,
+    /// An ability's or worn enchantment's effect whose conditions fail: listed, with no
+    /// value change and no script running (aid-items.md §13).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub inactive: bool,
 }
 
 /// An image space modifier playing on the screen (docs/spec-notes/image-modifiers.md §3).
@@ -570,7 +595,7 @@ impl MessageBox {
 pub mod menus {
     /// A message box (ShowMessage of a message with the Message Box flag).
     pub const MESSAGE: u16 = 1001;
-    /// The race menu (ShowRaceMenu).
+    /// The race menu (ShowRaceMenu) [observed: layer5-captures.md §10.3].
     pub const RACE: u16 = 1036;
     /// The tag-skill menu (SetTagSkills).
     pub const TAG_SKILLS: u16 = 1048;
@@ -874,6 +899,11 @@ pub struct Game<'a> {
     /// Magic effects active on actors, in the order they started.
     pub effects: Vec<ActiveEffect>,
     pub next_effect: u32,
+    /// Bringing an actor's abilities and worn enchantments up to date
+    /// (`crate::abilities`): not again inside. Not saved.
+    pub(crate) syncing_effects: bool,
+    /// When the abilities' and worn enchantments' conditions are checked next. Not saved.
+    pub(crate) condition_check_due: f64,
     /// Image space modifiers on the screen, in the order they were applied
     /// (ApplyImageSpaceModifier). An animatable one ends by itself when its duration has
     /// passed; the others stay until removed. Their time passes with the frames outside
@@ -934,6 +964,9 @@ pub struct GameSnapshot {
     /// Terminals hacked or locked out (`crate::terminal::Terminals::access`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub terminals: BTreeMap<FormId, crate::terminal::Access>,
+    /// Terminals scripts locked or unlocked (`crate::terminal::Terminals::script_locks`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub terminal_locks: BTreeMap<FormId, crate::terminal::ScriptLock>,
     /// The Pip-Boy radio as scripts and the player left it: on, and the station tuned.
     #[serde(default)]
     pub pipboy_radio_on: bool,
@@ -1064,6 +1097,8 @@ impl<'a> Game<'a> {
             forms: FormChanges::default(),
             effects: Vec::new(),
             next_effect: 1,
+            syncing_effects: false,
+            condition_check_due: 0.0,
             image_modifiers: Vec::new(),
             effect_elapsed: 0.0,
             depth: 0,
@@ -1501,6 +1536,9 @@ impl<'a> Game<'a> {
                 self.run_event(key, script, ev, subject, RunCtx { self_ref: None, action_ref: Some(holder), quest: None });
             }
         }
+        // Abilities and worn enchantments follow the loaded actors and what they wear,
+        // menus included (an item equipped in the Pip-Boy).
+        self.sync_loaded_actor_effects();
         if !in_menu {
             self.update_effects(dt);
             self.tick_needs(dt);
@@ -2123,7 +2161,10 @@ impl<'a> Game<'a> {
         let mut started: Vec<crate::aid::Applied> = Vec::new();
         for (index, e) in items.iter().enumerate() {
             let label = format!("{} effect {index}", data.name(source));
-            if !self.conditions_pass(&e.conditions, Some(target), caster, &label) {
+            // A lasting effect (an ability, a worn enchantment) whose conditions fail is
+            // listed inactive, to take hold when they pass (`crate::abilities`).
+            let pass = self.conditions_pass(&e.conditions, Some(target), caster, &label);
+            if !pass && !permanent {
                 continue;
             }
             let seconds = mods.seconds(data.magic_effects.get(&e.effect), e);
@@ -2180,8 +2221,14 @@ impl<'a> Game<'a> {
                 script,
                 change,
                 usage,
+                worn: mods.worn,
+                inactive: !pass,
             });
             self.emit(EventKind::EffectStarted { id, target, source, effect: e.effect });
+            if !pass {
+                started.push(crate::aid::Applied { id, effect: e.effect, change, duration: seconds, extended: false });
+                continue;
+            }
             self.start_change(id);
             let change = self.effects.iter().find(|x| x.id == id).and_then(|x| x.change);
             started.push(crate::aid::Applied { id, effect: e.effect, change, duration: seconds, extended: false });
@@ -2206,6 +2253,16 @@ impl<'a> Game<'a> {
         Ok(self.ingest(actor, item).effects)
     }
 
+    /// ScriptEffectStart of an effect taking hold later (`crate::abilities`).
+    pub(crate) fn effect_started(&mut self, id: u32) {
+        self.effect_event(id, event::SCRIPT_EFFECT_START, 0.0);
+    }
+
+    /// ScriptEffectFinish of an effect letting go while it stays listed.
+    pub(crate) fn effect_finished(&mut self, id: u32) {
+        self.effect_event(id, event::SCRIPT_EFFECT_FINISH, 0.0);
+    }
+
     /// Run an effect's script block (if its script has one) on the effect's target.
     fn effect_event(&mut self, id: u32, ev: u16, elapsed: f64) {
         let Some(e) = self.effects.iter().find(|x| x.id == id) else { return };
@@ -2227,7 +2284,9 @@ impl<'a> Game<'a> {
         if !self.effects.iter().any(|x| x.id == id) {
             return;
         }
-        if run_finish {
+        // An inactive effect never started: nothing of it runs.
+        let inactive = self.effects.iter().any(|x| x.id == id && x.inactive);
+        if run_finish && !inactive {
             self.effect_event(id, event::SCRIPT_EFFECT_FINISH, 0.0);
         }
         self.end_change(id);
@@ -2260,7 +2319,8 @@ impl<'a> Game<'a> {
 
     fn update_effects(&mut self, dt: f64) {
         self.refresh_suspended(dt);
-        let ids: Vec<u32> = self.effects.iter().map(|e| e.id).collect();
+        self.recheck_conditions();
+        let ids: Vec<u32> = self.effects.iter().filter(|e| !e.inactive).map(|e| e.id).collect();
         for id in ids {
             let Some(e) = self.effects.iter_mut().find(|x| x.id == id) else { continue };
             let before = e.elapsed;
@@ -2503,6 +2563,7 @@ impl<'a> Game<'a> {
             image_modifiers: self.image_modifiers.clone(),
             locks: self.locks.clone(),
             terminals: self.terminals.access.clone(),
+            terminal_locks: self.terminals.script_locks.clone(),
             pipboy_radio_on: self.radio.pipboy.on,
             pipboy_station: self.radio.pipboy.station,
             npc_radios: self.radio.npc_radios.clone(),
@@ -2542,6 +2603,7 @@ impl<'a> Game<'a> {
         g.image_modifiers = s.image_modifiers.clone();
         g.locks = s.locks.clone();
         g.terminals.access = s.terminals.clone();
+        g.terminals.script_locks = s.terminal_locks.clone();
         g.radio.pipboy.on = s.pipboy_radio_on;
         g.radio.pipboy.station = s.pipboy_station;
         g.radio.npc_radios = s.npc_radios.clone();

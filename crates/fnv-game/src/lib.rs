@@ -30,6 +30,7 @@
 //!
 //! Behaviour notes with confidence tags: docs/spec-notes/scripts.md §4 and later.
 
+pub mod abilities;
 pub mod actor_values;
 pub mod aggro;
 pub mod aid;
@@ -69,6 +70,7 @@ pub mod rest;
 pub mod roulette;
 pub mod sound;
 pub mod runner;
+pub mod sight;
 pub mod templates;
 pub mod terminal;
 pub mod trace;

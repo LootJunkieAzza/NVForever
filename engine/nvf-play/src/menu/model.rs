@@ -386,6 +386,15 @@ pub struct Trade {
 }
 
 impl Trade {
+    /// Whether the side that pays holds the caps the balance asks of it.
+    pub fn affordable(&self) -> bool {
+        let (player, merchant) = (Side::Player as usize, Side::Container as usize);
+        match self.balance {
+            b if b < 0 => self.purse[player] as i64 >= -b,
+            b => self.purse[merchant] as i64 >= b,
+        }
+    }
+
     /// What one unit of value is worth when it comes from `from`.
     fn mult(&self, from: Side) -> f32 {
         match from {
@@ -875,11 +884,8 @@ impl MenuModel {
             return Ok("Nothing to trade".into());
         }
         let (player, merchant) = (Side::Player as usize, Side::Container as usize);
-        if t.balance < 0 && (t.purse[player] as i64) < -t.balance {
-            return Ok("You don't have enough caps.".into());
-        }
-        if t.balance > 0 && (t.purse[merchant] as i64) < t.balance {
-            return Ok(format!("{} doesn't have enough caps.", self.title));
+        if !t.affordable() {
+            return Ok(if t.balance < 0 { "You don't have enough caps.".into() } else { format!("{} doesn't have enough caps.", self.title) });
         }
         for (&(item, at), &n) in &t.offered[player] {
             world.transfer_at(PLAYER, t.stock, item, n, at.map(f32::from_bits))?;

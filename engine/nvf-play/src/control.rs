@@ -472,6 +472,14 @@ pub struct BodyView {
     pub pivot: Option<[f32; 3]>,
 }
 
+impl BodyView {
+    /// The drawn body's eye (the pivot is 5 above it, at the feet), for the character
+    /// creator's camera.
+    pub fn portrait_eye(&self) -> Option<[f32; 3]> {
+        self.pivot.map(|p| [p[0], p[1], p[2] - 5.0])
+    }
+}
+
 pub fn init_settings(mut commands: Commands, sim: Res<SimState>) {
     let f = |n: &str| sim.forms.setting_f32(n);
     let s = ControlSettings::from_settings(f("fMoveSneakMult"), f("fOverShoulderPosX"), f("fOverShoulderPosZ"));
@@ -643,8 +651,10 @@ pub fn place_camera(
     let eye = p.eye();
     control.crosshair = None;
     if let Some(portrait) = control.portrait {
-        // No collision: the creator's room is the player's own space [design].
-        let (at, heading, pitch) = portrait.spot(eye, p.heading);
+        // No collision: the creator's room is the player's own space [design]. Aimed from
+        // the drawn body's eye ([`BodyView::portrait_eye`]): the first-person eye can lag
+        // where an idle put it (the opening's wake-up) while the body already stands.
+        let (at, heading, pitch) = portrait.spot(body.portrait_eye().unwrap_or(eye), p.heading);
         t.translation = space::to_bevy(at);
         t.rotation = space::look_rotation(heading, pitch);
         return;

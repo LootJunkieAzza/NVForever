@@ -25,6 +25,13 @@ pub struct Intro<'d> {
 
 pub fn intro<'d>(data: &'d GameData, refs: &RefTable) -> Intro<'d> {
     let quests: Vec<FormId> = INTRO_QUESTS.iter().filter_map(|e| data.by_edid(e)).filter(|q| data.is_quest(*q)).collect();
+    quest_scope(data, refs, quests)
+}
+
+/// The units and conditions of any set of quests, by the intro chain's rule above (the
+/// quests' own scripts, stages, objectives and dialogue lines, and one level of the
+/// references and quests their units name). `fnvtool script uses` takes each quest alone.
+pub fn quest_scope<'d>(data: &'d GameData, refs: &RefTable, quests: Vec<FormId>) -> Intro<'d> {
     let mut units = BTreeSet::new();
     let mut conditions = Vec::new();
     for q in &quests {

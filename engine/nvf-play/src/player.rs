@@ -413,7 +413,10 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
 /// inventory), message boxes and a conversation's choices. Not while the intro film plays
 /// (`crate::intro`) nor while an idle drives the view (the opening's wake-up,
 /// [`ViewDriven`]) unless a menu or box is up [design: the owner's playtest of 2026-10-16].
-#[allow(clippy::too_many_arguments)]
+/// The character creator (`crate::creator`) always has it, whatever state the game is in
+/// when the opening opens it [owner 2026-10-17: "we should have mouse pointer in this
+/// menu"].
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn grab_cursor(
     state: Res<State<PlayState>>,
     d: Res<PlayWorld>,
@@ -422,7 +425,7 @@ fn grab_cursor(
     look: Option<Res<crate::dialogue::FreeLook>>,
     over_lock: Option<Res<crate::lockpick::PointerOverLock>>,
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
-    (intro, view): (Option<Res<crate::intro::Intro>>, Option<Res<ViewDriven>>),
+    (intro, view, creator): (Option<Res<crate::intro::Intro>>, Option<Res<ViewDriven>>, Option<Res<crate::creator::CreatorMenu>>),
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut wanted_before: Local<Option<bool>>,
 ) {
@@ -432,12 +435,21 @@ fn grab_cursor(
     // Also while an actor speaks in a conversation (free look, `crate::dialogue`), and
     // kept through a loading screen: the player is back in the world after it.
     // And while the console's free camera flies, also when it holds the world.
-    let playing = matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active);
+    let creating = creator.is_some_and(|c| c.is_open());
+    let playing = !creating && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active));
     let film = intro.is_some_and(|i| i.is_playing());
-    let scene = view.is_some_and(|v| v.0) && *state.get() != PlayState::Menu && !boxed;
-    let wanted = (!playing || boxed) && !film && !scene;
+    let scene = view.is_some_and(|v| v.0) && *state.get() != PlayState::Menu && !boxed && !creating;
+    let wanted = creating || ((!playing || boxed) && !film && !scene);
     if *wanted_before != Some(wanted) {
-        let why = if film { " (the intro film)" } else if scene { " (an idle drives the view)" } else { "" };
+        let why = if creating {
+            " (the character creator)"
+        } else if film {
+            " (the intro film)"
+        } else if scene {
+            " (an idle drives the view)"
+        } else {
+            ""
+        };
         info!("pointer: {}{why}", if wanted { "shown" } else { "hidden" });
         *wanted_before = Some(wanted);
     }
@@ -1056,6 +1068,10 @@ fn step(
     }
     let alpha = (p.stepper.accumulated / dt).clamp(0.0, 1.0);
     player.feet = lerp3(p.prev_feet, c.feet, alpha);
+    if n > 0 {
+        // Where the bodies are drawn after the steps (the drawn ground under each).
+        p.update_drawn_sinks();
+    }
 }
 
 /// Feet, cell and heading last written to the simulation.

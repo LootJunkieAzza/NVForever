@@ -26,7 +26,7 @@ mod items;
 mod magic;
 pub mod misc;
 mod objects;
-mod player;
+pub(crate) mod player;
 mod quest;
 mod refs;
 mod reputation;
@@ -417,7 +417,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1056, "StartConversation", Impl(misc::start_conversation)),
         (0x1016, "StartCombat", Impl(crate::awareness::start_combat)),
         (0x1017, "StopCombat", Impl(crate::awareness::stop_combat)),
-        (0x1184, "SetDisposition", Stub("dialogue (disposition)")),
+        (0x1184, "SetDisposition", Impl(actor::set_disposition)),
         (0x115C, "SendTrespassAlarm", Impl(crate::crime::send_trespass_alarm)),
         (0x1013, "PlayGroup", Impl(crate::anims::play_group)),
         (0x1190, "PlayIdle", Impl(crate::idles::play_idle)),
@@ -470,8 +470,8 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10DB, "GetAnimAction", Impl(misc::get_anim_action)),
         (0x1070, "IsIdlePlaying", Impl(crate::idles::is_idle_playing)),
         (0x1064, "PickIdle", Stub("animation")),
-        (0x111D, "IsLeftUp", Stub("animation")),
-        (0x106A, "IsFacingUp", Stub("animation (ragdoll)")),
+        (0x111D, "IsLeftUp", Impl(actor::knocked_side_up)),
+        (0x106A, "IsFacingUp", Impl(actor::knocked_side_up)),
         (0x1004, "Rotate", Impl(refs::rotate)),
         (0x109F, "GetSitting", Impl(furniture::get_sitting)),
         (0x10A3, "IsCurrentFurnitureObj", Impl(furniture::is_current_furniture_obj)),
@@ -531,7 +531,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x124E, "GetOwnerLastTarget", Stub("crime")),
         (0x11AE, "IsActorTalkingThroughActivator", Stub("dialogue (talking activators)")),
         (0x11B3, "GetDialogueEmotion", Impl(misc::get_dialogue_emotion)),
-        (0x104C, "GetDisposition", Stub("dialogue (disposition)")),
+        (0x104C, "GetDisposition", Impl(actor::get_disposition)),
         (0x1277, "AlwaysShowActorSubtitles", Impl(senses::always_show_actor_subtitles)),
         (0x1263, "PlaceAtReticle", Stub("HUD (reticle)")),
         (0x1019, "IsMoving", Impl(senses::is_moving)),

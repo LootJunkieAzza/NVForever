@@ -65,6 +65,7 @@ use crate::locomotion::Dying;
 use crate::npc_combat::Fighters;
 use crate::weapons::WeaponHold;
 use bevy::prelude::*;
+use fnv_actor::idle_play::DEFAULT_FADE;
 use fnv_actor::player_clips::{aim_variant, aim_weights, attack_clips, attack_stem, block_clips, Aim, ClipKeys, Stance};
 use fnv_actor::weapon::{AnimType, Stage};
 use fnv_combat::melee::{swing_stem, NextAttack};
@@ -238,6 +239,10 @@ pub struct CombatPose {
     /// pose after the fight.
     pub fighting: bool,
     pub attack: Option<Attack>,
+    /// The clip the aim layer showed last frame, and the one it is fading from with the
+    /// seconds since the change and the fade's length ([`CombatPose::fade_level`]).
+    pub level_last: Option<Arc<BoundClip>>,
+    pub level_from: Option<(Arc<BoundClip>, f32, f32)>,
 }
 
 /// The weight to give the up or down form, played beside its level clip at weight 1,
@@ -248,6 +253,44 @@ fn variant_weight(share: f32) -> f32 {
 }
 
 impl CombatPose {
+    /// Cross-fade the aim layer (layer 2) when its clip changes in a fight: the block
+    /// idle raised or lowered, the crouched aim taken or left, the sights raised. The old
+    /// clip fades out on [`AIM_VARIANT_LAYER`] over the new clip's blend time (its
+    /// `Blend: N` key, else 0.2 s), as the player's body fades its clips
+    /// (`player_body.rs`, `ClipInfo::fade`). The clip was swapped in one frame before
+    /// [observed in NVForever: owner's playtest 2026-10-17, NPC blocking looked
+    /// unnaturally fast next to the player's]. The aim's up or down form is left out
+    /// while the fade runs [design: it shares that layer]. Returns whether a fade runs.
+    /// Out of a fight nothing fades and nothing is remembered: the weapon's own draw
+    /// cycle has the layer.
+    fn fade_level(&mut self, player: &mut BlendPlayer, dt: f32) -> bool {
+        let shown = player.layers[2].as_ref().map(|l| l.clip.clone());
+        let changed = match (&self.level_last, &shown) {
+            (Some(a), Some(b)) => !Arc::ptr_eq(a, b),
+            _ => false,
+        };
+        if changed {
+            let to = shown.as_ref().map_or(DEFAULT_FADE, |c| ClipKeys::parse(&c.clip.text_keys).blend_seconds(DEFAULT_FADE));
+            self.level_from = self.level_last.take().filter(|_| to > 0.0).map(|c| (c, 0.0, to));
+        }
+        self.level_last = shown;
+        let Some((from, t, len)) = self.level_from.as_mut() else { return false };
+        *t += dt;
+        if *t >= *len {
+            self.level_from = None;
+            return false;
+        }
+        let Some(l) = player.layers[2].as_mut() else {
+            self.level_from = None;
+            return false;
+        };
+        let x = (*t / *len).clamp(0.0, 1.0);
+        let w = x * x * (3.0 - 2.0 * x);
+        let base = l.weight;
+        l.weight = base * w;
+        player.layers[AIM_VARIANT_LAYER] = Some(Layer { clip: from.clone(), phase: l.phase, weight: base * (1.0 - w) });
+        true
+    }
     /// Lay the aim's up or down form and the attack over the actor's layers;
     /// `drawn`: its weapon is drawn (the aim clip plays). Advances the attack by `dt`.
     pub fn layers(&mut self, player: &mut BlendPlayer, drawn: bool, dt: f32) {
@@ -275,7 +318,13 @@ impl CombatPose {
         if let (Some(l), Some(clip)) = (player.layers[2].as_mut(), level) {
             l.clip = clip;
         }
-        if can && !self.blocking && w > 1e-3 {
+        let fading = if can {
+            self.fade_level(player, dt)
+        } else {
+            (self.level_last, self.level_from) = (None, None);
+            false
+        };
+        if can && !self.blocking && !fading && w > 1e-3 {
             let pick = |sneak: &Option<Arc<BoundClip>>, stand: &Option<Arc<BoundClip>>| if crouched { sneak.clone().or(stand.clone()) } else { stand.clone() };
             let clip = match (variant, sights) {
                 (Aim::Up, true) => pick(&self.sneak_aim_is_up, &self.aim_is_up).or(pick(&self.sneak_aim_up, &self.aim_up)),
