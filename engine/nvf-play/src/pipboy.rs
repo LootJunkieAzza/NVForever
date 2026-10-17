@@ -284,6 +284,9 @@ impl Plugin for PipBoyPlugin {
             .init_resource::<frame::Kit>()
             .add_message::<PipBoyInput>()
             .add_message::<sounds::TabHovered>()
+            .add_message::<data::travel::FastTravelAsk>()
+            .add_message::<data::travel::FastTravelGo>()
+            .init_resource::<data::travel::Pending>()
             .add_systems(Startup, setup_screen)
             .add_systems(
                 Update,
@@ -296,6 +299,7 @@ impl Plugin for PipBoyPlugin {
                     flat_screen,
                     frame::draw,
                     (stats::draw, items::draw, data::draw),
+                    (data::travel::answer, data::travel::go, data::travel::depart),
                     (frame::hover_boxes, sounds::play),
                 )
                     .chain()

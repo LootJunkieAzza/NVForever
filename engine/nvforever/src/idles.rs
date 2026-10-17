@@ -50,6 +50,20 @@
 //!   for comes first: no gesture is picked while one plays. A gesture ends when the
 //!   conversation does, or when the actor walks.
 //!
+//! - **Cowering** (idles.md §13). An NPC fleeing from a fight that stands still (as
+//!   when its flight begins, or at its flee spot) is checked every
+//!   [`COWER_CHECK_SECONDS`] for the idle the tree plays while fleeing
+//!   (`Game::flee_idle`: `CowerIdles`, `3rdP_Cowering.kf`, by its own conditions
+//!   IsMoving 0 and GetCurrentAIProcedure 16), before its fidgets. Started, it is not
+//!   stopped when its actor runs: its arms and head (priority 33) are laid over the
+//!   unarmed run (30), whose legs win over its own (23), so it runs with its hands over
+//!   its head; standing, over the crouched set (20) the rules give a person at its flee
+//!   spot, the whole cower shows [observed: the clips' priorities; owner 2026-10-17,
+//!   "they'll cower whilst running but they only crouch when stopped"]. It ends when its
+//!   actor no longer flees; after its loops (2 to 12 of 12 s) it is picked again when
+//!   the actor next stands still. Flee Not Combat packages (procedure 34) are not
+//!   carried out (`fnv_ai::goal`), so only combat flights cower.
+//!
 //! Not done: the rest of the idle manager (idles chosen from the IDLE tree by their
 //! conditions: `PickIdle`, other fidgets), the sounds and other text keys of idle clips,
 //! and package idles of actors that are not residents. The props idles hold (ANIO) are
@@ -92,6 +106,11 @@ const RETRY_SECONDS: f32 = 5.0;
 /// [design: how often the original evaluates its tree is not known; with the rifle
 /// branch's three 5% leaves a standing rifleman fidgets about every 14 s].
 pub const FIDGET_CHECK_SECONDS: f32 = 2.0;
+
+/// Seconds between two looks at the idle tree for a fleeing actor's cower idle: short,
+/// so it cowers soon after it stops and again soon after the idle's loops end
+/// [engineering choice].
+pub const COWER_CHECK_SECONDS: f32 = 0.5;
 
 /// After the tree gave an actor in a conversation no gesture, seconds until it is asked
 /// again in the same part (a new response asks at once) [engineering choice].
@@ -292,6 +311,8 @@ pub struct Stats {
     pub talk_gestures: u32,
     pub listen_gestures: u32,
     pub no_gesture: u32,
+    /// Cower idles started on fleeing actors.
+    pub cowers: u32,
 }
 
 /// An actor's part in a conversation as the gestures last saw it: talking or listening,
@@ -327,8 +348,9 @@ impl Rng {
 #[derive(Resource)]
 pub struct Idles {
     collections: HashMap<u32, Collection>,
-    /// Seconds until each actor's next look for a fidget.
+    /// Seconds until each actor's next look for a fidget, and for its cower idle.
     fidget_check: HashMap<u32, f32>,
+    cower_check: HashMap<u32, f32>,
     /// When each actor last started each fidget or gesture (seconds of `clock`), for
     /// the replay delay.
     fidget_last: HashMap<(u32, u32), f32>,
@@ -348,6 +370,7 @@ impl Default for Idles {
         Idles {
             collections: HashMap::new(),
             fidget_check: HashMap::new(),
+            cower_check: HashMap::new(),
             fidget_last: HashMap::new(),
             gesturing: HashMap::new(),
             clock: 0.0,
@@ -468,6 +491,11 @@ pub fn drive(
         if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::FurnitureFidget && !on_furniture(game, v.0)) {
             c.play.stop();
         }
+        // A cower goes on while its actor runs and ends when it no longer flees
+        // (idles.md §13.2).
+        if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Cower && !fleeing(game, v.0)) {
+            c.play.stop();
+        }
         // A gesture ends when its actor walks or is no longer in a conversation [design].
         if let Some(c) = idle.0.cur.as_mut().filter(|c| c.source == IdleSource::Gesture && (moving || !talk_parts.iter().any(|p| p.actor.0 == v.0))) {
             c.play.stop();
@@ -547,12 +575,40 @@ pub fn drive(
         game.ask_idle(FormId(actor), idle, source);
     }
 
-    // Fidgets: NPCs on furniture, or standing still with a weapon out; the player too.
     st.clock += dt;
+    // Cowering: fleeing NPCs standing still (idles.md §13); before their fidgets.
+    let cowering: Vec<(u32, String)> = actors
+        .iter()
+        .filter(|(_, v, ..)| !live.contains(&v.0) && fleeing(game, v.0) && !game.is_dead(FormId(v.0)) && game.furniture_use(FormId(v.0)).is_none())
+        .filter(|(_, _, _, _, lo, _)| lo.is_some_and(|l| l.velocity == [0.0; 2]))
+        .filter_map(|(_, v, rig, ..)| Some((v.0, skeleton_folder(&rig.skeleton)?)))
+        .collect();
+    st.cower_check.retain(|a, _| cowering.iter().any(|(c, _)| c == a));
+    let mut cowers: Vec<(u32, FormId)> = Vec::new();
+    for (actor, folder) in &cowering {
+        let check = st.cower_check.entry(*actor).or_insert(0.0);
+        *check -= dt;
+        if *check > 0.0 || busy.get(actor).copied().unwrap_or(false) {
+            continue;
+        }
+        *check = COWER_CHECK_SECONDS;
+        let mut pick = None;
+        with_world(game, &mut |game| pick = game.flee_idle(FormId(*actor), folder, &|_| false));
+        if let Some(idle) = pick {
+            cowers.push((*actor, idle));
+            busy.insert(*actor, true);
+        }
+    }
+    for (actor, idle) in cowers {
+        st.stats.cowers += 1;
+        game.ask_idle(FormId(actor), idle, IdleSource::Cower);
+    }
+
+    // Fidgets: NPCs on furniture, or standing still with a weapon out; the player too.
     let mut still: Vec<(u32, String, FidgetKind)> = actors
         .iter()
         // An actor in a conversation has its talking gestures instead (idles.md §12).
-        .filter(|(_, v, ..)| !live.contains(&v.0) && !game.is_dead(FormId(v.0)) && !talk_parts.iter().any(|p| p.actor.0 == v.0))
+        .filter(|(_, v, ..)| !live.contains(&v.0) && !game.is_dead(FormId(v.0)) && !talk_parts.iter().any(|p| p.actor.0 == v.0) && !cowering.iter().any(|(c, _)| *c == v.0))
         .filter_map(|(_, v, rig, _, lo, _)| {
             let kind = if game.furniture_use(FormId(v.0)).is_some() {
                 on_furniture(game, v.0).then_some(FidgetKind::OnFurniture)?
@@ -677,7 +733,7 @@ pub fn drive(
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
         let drawn: HashMap<u32, Entity> = actors.iter().map(|(e, v, ..)| (v.0, e)).collect();
         for IdleRequest { actor, idle, source } in requests {
-            if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::Gesture) {
+            if !matches!(source, IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::Gesture | IdleSource::Cower) {
                 st.stats.asked += 1;
             }
             match source {
@@ -685,7 +741,7 @@ pub fn drive(
                 IdleSource::PackageBegin | IdleSource::PackageEnd | IdleSource::PackageChange => st.stats.package += 1,
                 IdleSource::PackageIdles | IdleSource::MarkerIdles => st.stats.collection += 1,
                 IdleSource::Speaker | IdleSource::Listener => st.stats.dialogue += 1,
-                IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::Gesture => {}
+                IdleSource::Fidget | IdleSource::FurnitureFidget | IdleSource::Gesture | IdleSource::Cower => {}
             }
             let name = game.data.name(actor);
             let failed = |st: &mut Idles, why: &str| {
@@ -748,7 +804,7 @@ pub fn drive(
             match source {
                 IdleSource::Fidget => st.stats.actor_fidgets += 1,
                 IdleSource::FurnitureFidget => st.stats.actor_furniture_fidgets += 1,
-                IdleSource::Gesture => {}
+                IdleSource::Gesture | IdleSource::Cower => {}
                 _ => st.stats.started += 1,
             }
             match source {
@@ -792,6 +848,12 @@ pub fn drive(
     st.told = now;
 }
 
+/// Whether `actor` flees from a fight (`GetCurrentAIProcedure` 16).
+fn fleeing(game: &Game, actor: u32) -> bool {
+    let a = FormId(actor);
+    game.awareness.state(a).in_combat() && game.awareness.tactics.flights.contains_key(&a)
+}
+
 /// Whether `actor` is on furniture, neither getting on nor off (`GetSitting` or
 /// `GetSleeping` 3).
 fn on_furniture(game: &Game, actor: u32) -> bool {
@@ -824,6 +886,7 @@ pub fn report(mut exit: MessageReader<AppExit>, st: Res<Idles>) {
     info!("fidget summary: {} drawn-weapon fidgets started on actors, {} on the player", s.actor_fidgets, s.player_fidgets);
     info!("furniture fidget summary: {} fidgets on furniture started on actors, {} on the player", s.actor_furniture_fidgets, s.player_furniture_fidgets);
     info!("talk gesture summary: {} gestures picked while talking, {} while listening; {} walks of the tree gave none", s.talk_gestures, s.listen_gestures, s.no_gesture);
+    info!("cower summary: {} cower idles started on fleeing actors", s.cowers);
 }
 
 #[cfg(test)]

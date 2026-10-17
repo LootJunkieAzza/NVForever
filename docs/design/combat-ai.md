@@ -62,6 +62,16 @@ fists (the default draws it holstered).
 - **Guns** keep their own `fnv_combat::attack::Cycle`, as the player's: the weapon's fire
   rate, magazine and reload. The trigger is held for automatic weapons and pulled again
   for each shot of the others.
+- **Reloads** (owner 2026-10-17: NPCs never reloaded in test runs): an empty magazine is
+  reloaded at once, fired at or not, with the weapon's reload clips (the player's:
+  `1hpreloada.kf`; round by round the opening clip `1hpreloadxstart.kf`, then
+  `1hpreloadx.kf` from its start for each round, closing past its `Hit` key) for as
+  long as they run in the actor's rig (2 s, the tuning's fallback, until they are
+  known). It pulls no trigger while it reloads, so a .357 revolver or a lever-action
+  loads every round. The same gun keeps its magazine on a new target. The rounds come
+  from nowhere: NPCs use no ammunition from their inventory (owner 2026-10-17). Not
+  built: reloading a part-empty magazine in cover or out of sight, the weapon model's
+  own reload animation on NPCs (the revolver's cylinder). Smoke `combat-npc-reload`.
 - **Aim**: from its eyes at the target's chest, inside a cone of the documented actor
   spread for its weapon skill (standing, not aiming down the sights), plus 4° that
   settles away over 3 s of firing at the same target (the first shots of a burst miss
@@ -189,7 +199,7 @@ Owner request 2026-10-11: "add attack animations so NPCs aim, fire and bite visi
   the dog crouch and rear up at the player's upper body. Violet's: `2hrattack3.kf
   (1.33 s)` per shot, `shots are drawn from its weapon's muzzle`, `9 shots (9 from a
   muzzle, 0 from the eyes)`, 8 hits.
-- Not done: reload clips for NPCs, recoil of the `##` weapon parts on the muzzle node,
+- Not done: recoil of the `##` weapon parts on the muzzle node,
   turning a standing NPC that is not run on its packages to face its target, aiming
   while moving (the movement clips drive the spine above the aim, animation.md §9.6).
 
@@ -450,7 +460,7 @@ the gaps above suggest:
 8. **Pursuit limits**: Combat Radius, Max Targeting FOV, Follow and Guard radii in
    combat, Pretend In Combat.
 9. Weapon choice among several (Weapon Restrictions "Ranged Only"), ammunition use,
-   reload clips for NPCs, the fCombatYieldRetryTime as the player's timer if the owner
+   the fCombatYieldRetryTime as the player's timer if the owner
    prefers the wiki's reading (§10.2).
 
 ## 12. Fleeing, cover, groups and searching (list 2, "E2", 2026-10-12)
@@ -515,6 +525,45 @@ kind for 3 s (`NO_POST_SECONDS`); cover it could not reach is not chosen again [
 - Log: `npc combat: … flees from … : group threat ratio … below its confidence …`,
   `ai … flees from … away / to cover / through door …`, `reached its flee spot`,
   `is cornered`, `turns to fight … again (hurt at its flee spot …)`, `flees on`.
+
+### 12.2.1 Running and hiding (owner request 2026-10-17)
+
+The owner: fleeing NPCs should run with the original's flee animations and "run and
+hide, crouching down when they stop, to hide from their enemies".
+
+- **The run**: the game data has no flee run set (docs/spec-notes/idles.md §13.1)
+  [observed]. A fleeing actor **holsters its weapon** [owner 2026-10-17] and runs with
+  the unarmed run, with the cower idle's arms and head laid over it (its hands over its
+  head) [owner 2026-10-17: "they'll cower whilst running but they only crouch when
+  stopped"; the clips' priorities make it so, idles.md §13.2]. It draws again when it
+  fights again.
+- **Where it runs**: the wiki's order (above) already prefers a door, then cover the
+  attacker is beyond (a navmesh cover edge), and only then open ground.
+- **At its flee spot, or cornered, a person hides crouched** [design: owner
+  2026-10-17]. `Game::sneaks` says so in any combat state (`Game::at_flee_spot`: in the
+  first smoke run Violet was Lost by the time she got there). So it takes the crouched
+  set (cross-faded, `Locomotion::switch_set`), is measured as sneaking by detection
+  and is a smaller target, whatever it holds. Over that set it plays the original's
+  cower idle: the IDLE tree's `CowerIdles` (`3rdP_Cowering.kf`) wants a fleeing actor
+  standing still [observed: FalloutNV.esm, idles.md §13.1], and `GetCurrentAIProcedure`
+  reads 16 FLEE while it flees [hypothesis, idles.md §13.1]. The idle starts when a
+  fleeing actor stands still (its flight's first moment, its flee spot) and goes on
+  while it runs. Creatures do not crouch;
+  their cower is whatever the tree gives their folder (nothing in FalloutNV.esm).
+- **Seen there** (in Combat, where `npc_combat` runs it): if it sees its enemy
+  (detected and in sight) for `HIDE_SEEN_SECONDS`
+  (4 s) without a break while it hides, it runs on to a new flee spot, which may be
+  cover or farther away. It does this at most `HIDE_MOVES` (2) times per flight
+  [design]. The wiki's rules above still apply: hurt, or with the enemy within 512
+  units in sight, it checks again and fights or flees on.
+- **It stands up** when it flees on (a new flight has not arrived), fights again, or
+  the fight ends.
+- Log: `ai … reached its flee spot from …: hides there, crouched` (`is cornered by …:
+  nowhere to flee, hides where it is, crouched`), in Combat also `npc combat: … hides
+  crouched from … at its flee spot (… units away, in / out of its sight)` and `flees on
+  from … (seen where it hides …)`, `idle: … plays CowerIdles … (Cower)`. The counts are
+  in the npc combat summary (`… hid at their flee spot, … ran on when seen there`, in
+  Combat only) and in `cower summary`; `alert: … holsters its weapon (it flees)`.
 
 ### 12.3 Alarms to allies [documented: Confidence, Alarms; design on top]
 

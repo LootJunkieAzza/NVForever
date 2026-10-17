@@ -74,6 +74,8 @@ pub fn package_code(t: PackageType) -> i32 {
 enum Doing {
     Talking,
     Fighting,
+    /// Fleeing from a fight (`combat_group::Flight`, in any combat state).
+    Fleeing,
     Searching,
     Package(Option<PackageType>),
 }
@@ -89,6 +91,9 @@ fn doing(g: &mut Game, r: FormId) -> Doing {
     if g.speech.iter().any(|s| s.conversation.is_some() && (s.speaker == r || s.target == Some(r))) {
         return Doing::Talking;
     }
+    if g.awareness.state(r).in_combat() && g.awareness.tactics.flights.contains_key(&r) {
+        return Doing::Fleeing;
+    }
     match g.awareness.state(r) {
         State::Combat => return Doing::Fighting,
         State::Alert | State::Lost => return Doing::Searching,
@@ -99,7 +104,7 @@ fn doing(g: &mut Game, r: FormId) -> Doing {
 }
 
 /// `actor.GetCurrentAIPackage`: the kind of package the actor runs, by the codes of
-/// [`package_code`]; 5 COMBAT in combat, 29 SEARCH_FOR_ATTACKER while it searches
+/// [`package_code`]; 5 COMBAT in combat (fleeing from it too), 29 SEARCH_FOR_ATTACKER while it searches
 /// (Alert, Lost), 6 DIALOGUE in a conversation with the player [hypothesis: the
 /// game's combat, search and conversation run as packages of their own, as the table's
 /// COMBAT, SEARCH_FOR_ATTACKER and DIALOGUE suggest]; 0 with no package [observed:
@@ -108,7 +113,7 @@ pub fn get_current_ai_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Valu
     let r = ctx.subject()?;
     let code = match doing(g, r) {
         Doing::Talking => 6,
-        Doing::Fighting => 5,
+        Doing::Fighting | Doing::Fleeing => 5,
         Doing::Searching => 29,
         Doing::Package(t) => t.map_or(0, package_code),
     };
@@ -123,6 +128,10 @@ pub fn get_current_ai_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Valu
 /// SITTING; "a Travel package travels, then waits at its destination"]. Chosen here:
 ///
 /// - a conversation with the player or between two actors 4, combat 13, Alert or Lost 36;
+/// - fleeing from a fight 16 FLEE [documented: the wiki's table names 16 FLEE;
+///   hypothesis: it is the procedure of the combat AI's flight, as the IDLE tree reads it:
+///   `CowerIdles` (FalloutNV.esm 0x0006CB4A) and `3rdPCrouchedHit` want 16 or 34 with
+///   IsMoving 0, and the creatures' combat idles 13 or 16];
 /// - getting off a seat or bed 21, lying on a bed 8, sitting 48;
 /// - a package whose goal was met 17 DONE [hypothesis: the end scripts of eight
 ///   packages of FalloutNV.esm (0x0012FEED-F0, 0x0016954E-51) wait for four actors' 17];
@@ -140,6 +149,7 @@ pub fn get_current_ai_procedure(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Va
     let code = match doing(g, r) {
         Doing::Talking => 4,
         Doing::Fighting => 13,
+        Doing::Fleeing => 16,
         Doing::Searching => 36,
         Doing::Package(t) => match furniture {
             Some(u) if u.state == 4 => 21,

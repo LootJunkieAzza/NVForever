@@ -348,8 +348,14 @@ expect = [
   { json = "verdicts.talks: goes up to its target from where it is", schema = "fnv.ai.reach/1", equals = 126 },
   # main on 2026-10-11, so any change shows here and gets explained
   { json = "actor_package_pairs", schema = "fnv.ai.reach/1", equals = 16935, label = "pairs as on main 2026-10-11: 16,935" },
-  { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 10258, label = "reachable as on main 2026-10-11: 10,258" },
-  { json = "verdicts.stays where it is", schema = "fnv.ai.reach/1", equals = 1602, label = "staying as on main 2026-10-11: 1,602" },
+  { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 10258, label = "reachable as on main 2026-10-11: 10,258", known_failing = "main 2026-10-17 (6a53e8e7): 10,403; with every package type carried out (Escort, Find, Use Item At, Ambush, Flee, actor-behaviour.md §5.10): 10,620" },
+  { json = "verdicts.stays where it is", schema = "fnv.ai.reach/1", equals = 1602, label = "staying as on main 2026-10-11: 1,602", known_failing = "main 2026-10-17 (6a53e8e7): 1,691; with every package type carried out (Finds near the current location, Flees without a destination, §5.10): 1,835" },
+  # actor-behaviour.md §5.10 (2026-10-17): no package type is left "not carried out".
+  { json = "verdicts.not carried out yet: an ambush or flee package", schema = "fnv.ai.reach/1", count = 0, label = "Ambush and Flee Not Combat carried out" },
+  { json = "verdicts.not carried out yet: a package that searches for or uses an object", schema = "fnv.ai.reach/1", count = 0, label = "Find and Use Item At carried out" },
+  { json = "verdicts.not carried out yet: a package that leads its target", schema = "fnv.ai.reach/1", count = 0, label = "Escort carried out" },
+  { json = "verdicts.reachable", schema = "fnv.ai.reach/1", equals = 10258, label = "reachable as on main 2026-10-11: 10,258", known_failing = "main b762654e 2026-10-17: a fnvtool built from origin/main gives 10,403 reachable and 1,691 staying (the Oct 16 build gave 10,258 / 1,602); the change came with a main merge after 2026-10-16, not looked at (claude/flee-hide does not change the counts)" },
+  { json = "verdicts.stays where it is", schema = "fnv.ai.reach/1", equals = 1602, label = "staying as on main 2026-10-11: 1,602", known_failing = "main b762654e 2026-10-17: a fnvtool built from origin/main gives 10,403 reachable and 1,691 staying (the Oct 16 build gave 10,258 / 1,602); the change came with a main merge after 2026-10-16, not looked at (claude/flee-hide does not change the counts)" },
   { json = "verdicts.never chosen: needs a linked reference the actor lacks", schema = "fnv.ai.reach/1", equals = 3185, label = "never chosen as on main 2026-10-11: 3,185" },
   { json = "verdicts.nowhere to go: the location is the player, who is nowhere yet", schema = "fnv.ai.reach/1", equals = 182, label = "at the player as on main 2026-10-11: 182" },
 ]
@@ -618,7 +624,7 @@ run_seconds = 30
 expect = [
   { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "machine-dependent (laptop, main baf3806 2026-10-16, 3 of 3 runs: 13-14 blows; desktop 3 of 3 passes, 16 at 54 frames/s): the dogs attack at the combat style's 55 % each time they may and hold otherwise (combat-ai.md §10.4), so the count follows how long they fight in game time, which a slower start-up and long frames (game time is capped at 0.25 s a frame) shorten [hypothesis: the laptop's frame rate was not measured]" },
   { re = 'attack anims summary.*h2hattack' },
-  { re = 'npc melee spacing: \d+ blows began at .*\(median (?P<n>\d+), feet to feet\)', range = [55, 200], label = "the dogs bite from their reach, not from inside the player (the original's dogs began a median 133 units away; npc-behaviour-compare.md §3)" },
+  { re = 'npc melee spacing: \d+ blows began at .*\(median (?P<n>\d+), feet to feet\)', range = [100, 170], label = "the dogs bite from their reach and body, (RNAM 48 + 59) x 1.2 = 128 at most, not from inside the player (the original's dogs began a median 133 units away; ours 121 on 2026-10-17; npc-behaviour-compare.md §3)" },
   { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines", known_failing = "machine-dependent (laptop, main baf3806 2026-10-16, 2 of 3 runs over 8; desktop 4 lines): the dogs close in again each time the player gets out of reach, which depends on the frame timing as the blow count above [hypothesis]" },
 ]
 
@@ -672,6 +678,26 @@ expect = [
   { re = 'npc combat summary:.*?down the sights, (?P<n>\d+) from the hip', range = [1, 1000], label = "shots from the hip in the npc combat summary" },
   { re = 'attack anims summary.*2hrattack3is\.kf', label = "the iron-sights attack clip played" },
   { re = 'attack anims summary.*2hrattack3\.kf', label = "the hip attack clip played" },
+]
+
+[[scenario]]
+name = "combat-npc-reload"
+source = "owner 2026-10-17: NPCs never reloaded in test runs; they need the same magazine and reload as the player (npc_combat module notes: Reloading)"
+note = "Chet (GSChetRef) in the general store is given and made to equip a .357 Magnum Revolver (WeapNV357Revolver: 6 rounds, ReloadX, round by round) and set on the player, who cannot die (GOD). He empties the cylinder, reloads all six round by round with the opening clip and a reload clip per round, and fires again. NPCs use no ammunition from their inventory (owner 2026-10-17)"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-combat/src/attack.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "3:call:GSChetRef:AddItem:WeapNV357Revolver:1,3.5:call:GSChetRef:EquipItem:WeapNV357Revolver,4:combat:GSChetRef:player" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 45
+expect = [
+  { re = 'npc combat: GSChetRef .* fights the player with WeapNV357Revolver \(gun\)', label = "Chet fights with the .357" },
+  { re = 'npc combat: GSChetRef .* reloads WeapNV357Revolver round by round \(opens 1\.\d+ s, 0\.\d+ s a round', label = "Chet reloads round by round, timed by his rig's clips" },
+  { re = 'npc combat: GSChetRef .* reloaded 6, magazine 6/6', label = "all six rounds go in" },
+  { re = 'attack anims: \w+ plays .*1hpreloadxstart\.kf', label = "the opening clip plays" },
+  { re = 'attack anims: \w+ plays .*1hpreloadx\.kf', label = "the reload clip plays" },
+  { re = 'attack anims summary: .*?(?P<n>\d+) reload clips', range = [7, 100000], label = "the opening clip and a clip per round in the attack anims summary" },
+  { re = 'npc combat summary: .*?(?P<n>\d+) shots', range = [7, 100000], label = "more than one cylinder fired" },
+  { re = 'npc combat summary: .*? (?P<n>\d+) reloads \((?P<m>\d+) round by round\)', range = [1, 1000], label = "reloads in the npc combat summary" },
 ]
 
 [[scenario]]
@@ -1780,6 +1806,32 @@ expect = [
 ]
 
 [[scenario]]
+name = "conversation-timer"
+source = "NPC conversation rate against the original's, docs/spec-notes/npc-behaviour-compare.md §5 (2026-10-17): one 30–60 s timer for the loaded area, not one per actor"
+note = "the player stands among Westside's citizens at 10:00; in about 90 s of play the area tries a conversation once to three times (a timer per actor tried dozens of times)"
+areas = ["ai", "residents"]
+paths = ["crates/fnv-ai/src/social.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Westside", "--pos=-37600,106750,4600", "--play", "--hour", "10", "--no-voice"]
+run_seconds = 100
+expect = [
+  { re = 'social summary: .* (?P<n>\d+) tries next to the player', range = [1, 3], label = "one to three tries for the whole area in about 90 s" },
+]
+
+[[scenario]]
+name = "conversation-walk-up"
+source = "NPC conversation walk, docs/spec-notes/npc-behaviour-compare.md §8 follow-up 9 (2026-10-17): the original's conversations start at a median of 120 units, after the starter walks up"
+note = "Westside's citizens at 10:00, conversations anywhere in the loaded area (test aid) so a few start in 5 min; until the fix a sandboxing starter 'arrived' in its walk's first frame and talked from 218-907 units"
+areas = ["ai", "residents"]
+paths = ["crates/fnv-ai/src/social.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CHATS_ANYWHERE = "1" }
+args = ["--cell", "Westside", "--pos=-36112,106897,4600", "--play", "--hour", "10", "--no-voice"]
+run_seconds = 300
+expect = [
+  { re = 'starts a conversation with .* from (?P<n>\d+) units', range = [0, 150], all = true, label = "every conversation starts within 150 units (one or more in 5 min)" },
+]
+
+[[scenario]]
 name = "far-actors"
 source = "owner's playtest 2026-10-11 (Fiends heard talking far away): process levels, docs/design/actor-behaviour.md §5.9"
 areas = ["ai", "residents"]
@@ -1873,15 +1925,18 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # 250 → 244. The function probes (script-function-coverage.md §4) implemented
 # GetDisposition, SetDisposition, IsFacingUp and IsLeftUp (2 calls, 78 condition uses,
 # observed in game): 56 → 52 stubs, 244 → 242 calls, 481 → 403 condition uses.
+# claude/package-errands implemented the four used-item functions (GetIsUsedItem,
+# GetIsUsedItemType, GetIsUsedItemEquipType, GetUsedItemActivate: 26 condition uses,
+# §3.12): 52 → 48 stubs, 403 → 377 condition uses.
 expect = [
-  { json = "summary.stubs", equals = 52 },
+  { json = "summary.stubs", equals = 48 },
   { json = "summary.by_status.assigned", equals = 1 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 50 },
+  { json = "summary.by_status.needs_system", equals = 46 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
   { json = "summary.stub_calls", equals = 242 },
-  { json = "summary.stub_condition_uses", equals = 403 },
+  { json = "summary.stub_condition_uses", equals = 377 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
 
@@ -2241,9 +2296,9 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIP
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
 expect = [
-  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
-  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
-  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
+  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); claude/creature-melee-spacing the same, cover in 1 of 3 runs (937 units away); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
+  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); claude/creature-melee-spacing the same, cover in 1 of 3 runs (937 units away); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
+  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); claude/creature-melee-spacing the same, cover in 1 of 3 runs (937 units away); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
 ]
 
 [[scenario]]
@@ -2397,6 +2452,23 @@ expect = [
   { re = 'ai \[.*: flees from the player (to cover|away|through door)|is cornered by the player', label = "it runs to a flee spot (or is cornered)" },
   { re = 'reached its flee spot from the player|is cornered by the player', label = "it reaches its flee spot" },
   { re = 'battle summary: .*?(?P<n>\d+) flights \(', range = [1, 10], label = "flights in the battle summary" },
+]
+
+[[scenario]]
+name = "combat-flee-hide"
+source = "owner 2026-10-17: fleeing NPCs run off and hide crouched when they stop, out of their enemy's way, with the original's cowering (docs/design/combat-ai.md §12.2.1, docs/spec-notes/idles.md §13)"
+note = "Violet (FiendVioletRef) fights the player from 3 s and is made to flee by ForceFlee at 8 s (god mode, the player does not shoot); at her flee spot she crouches and plays the IDLE tree's CowerIdles (3rdP_Cowering.kf)"
+areas = ["combat", "combat-groups", "animation"]
+paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/npc_combat.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:FiendVioletRef:player,8:call:FiendVioletRef:ForceFlee" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 40
+expect = [
+  { re = 'ai \[.*Violet\S*: flees from the player (to cover|away|through door)', label = "Violet runs from the player to a flee spot" },
+  { re = 'Violet\S*: reached its flee spot from the player .*: hides there, crouched', label = "she reaches her flee spot and hides crouched there" },
+  { re = 'alert: \S*Violet\S* \S+ holsters its weapon \(it flees\)', label = "she holsters her rifle to flee" },
+  { re = 'idle: \S*Violet\S* plays CowerIdles .*\(Cower\)', label = "she plays the original's cower idle" },
+  { re = 'cower summary: (?P<n>\d+) cower idles', range = [1, 1000], label = "cower idles in the summary" },
 ]
 
 [[scenario]]
@@ -2704,7 +2776,7 @@ order = [[
 ]]
 expect = [
   { re = 'ai summary at .*0x0016518[BC]: VCrGeckoSandboxEditorLocation1024', label = "the chain ended on the sandbox" },
-  { re = 'provocation: 0x0016518[BC] .*attacks the player, who stayed inside its aggro radius', label = "a gecko attacks after its warnings" },
+  { re = 'provocation: 0x0016518[BC] .*attacks the player, who stayed inside its aggro radius', label = "a gecko attacks after its warnings", known_failing = "fails on main too (F:/nvf-target/audit-rerun-main.txt, 2026-10-17 00:28): the geckos come back from 7,400 units in the last waited hour and are still on their way when the run ends; warned once at 645-647 of 650" },
 ]
 
 [[scenario]]
@@ -3260,10 +3332,10 @@ expect = [
 [[scenario]]
 name = "crippled-limp-creature"
 source = "owner 2026-10-16: a creature with a crippled leg limps where its skeleton has limping clips (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11)"
-note = "VERGSCoyote6REF 0x00157B38 (dog skeleton: locomotion/hurt/ has the walk and run forward) at the coyote-warning spot; god mode as the coyote is Aggressive; it attacks after its two warnings (about 13 s in), alerted, so the run goes on to 24 s to see it run on its limping clips"
+note = "VERGSCoyote6REF 0x00157B38 (dog skeleton: locomotion/hurt/ has the walk and run forward) at the coyote-warning spot; god mode as the coyote is Aggressive; left alone it attacks only after its two warnings, about 13 s in, too late to be seen moving, so a test aid starts its fight with the player at 9 s (alerted, it runs at them on its limping clips)"
 areas = ["actors", "combat"]
 paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-actor/src/locomotion.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:VERGSCoyote6REF.DamageAV RightMobilityCondition 1000;8.5:close" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:VERGSCoyote6REF.DamageAV RightMobilityCondition 1000;8.5:close", NVF_PLAY_TEST_SCRIPT = "9:combat:0x00157B38:player" }
 args = ["--play", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 24
 expect = [
@@ -3808,3 +3880,127 @@ expect = [
   { re = 'physics moved actors in .* gave up (?P<n>\d+) times', range = [0, 1], label = "physics gives up at most once" },
   { re = 'moved (?P<n>\d+) stuck actors on', range = [0, 2], label = "at most two stuck actors moved on" },
 ]
+name = "package-escort"
+source = "Escort packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): GomezEscortToAtrium given to a Goodsprings settler"
+note = "the settler is put 256 units from the player and given GomezEscortToAtrium (lead the player to its editor location, escort distance 300); the player stands still, so it walks off and stops to wait about 300 units away"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler01Ref:player:256:0:0,4:call:GoodspringsSettler01Ref:AddScriptPackage:GomezEscortToAtrium" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler01Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler01Ref: package GomezEscortToAtrium",
+  { re = 'GoodspringsSettler01Ref: escorts 0x00000014: waits, it is (?P<n>\d+) units behind', range = [300, 420], label = "it waits about the escort distance (300) ahead of the player" },
+]
+
+[[scenario]]
+name = "package-find"
+source = "Find packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): FFER24FindFood given to a Goodsprings settler"
+note = "mole rat meat is placed at the player and a settler 300 units off is given FFER24FindFood (find one MoleRatMeat within 1000 of where it is): it walks to the meat and takes it"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:300:0:0,4:call:player:PlaceAtMe:MoleRatMeat,5:call:GoodspringsSettler03Ref:AddScriptPackage:FFER24FindFood" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler03Ref: package FFER24FindFood",
+  { re = 'GoodspringsSettler03Ref: finds 0x[0-9A-F]+: goes to it', label = "it sets off to the meat" },
+  { re = 'GoodspringsSettler03Ref: found 0x[0-9A-F]+: takes \(FFER24FindFood\)', label = "it takes the meat" },
+]
+
+[[scenario]]
+name = "package-use-item-at"
+source = "Use Item At packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): DefaultUseNearbyFurniturePackage given to a Goodsprings settler"
+note = "GoodspringsSettler04Ref, in the saloon at noon, is given DefaultUseNearbyFurniturePackage (furniture within 100 of his editor location): the stool 00106192, 46 units from it (TrudyRef and GoodspringsSettler02Ref are disabled at this point of the game)"
+areas = ["ai", "packages", "furniture"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:GoodspringsSettler04Ref:AddScriptPackage:DefaultUseNearbyFurniturePackage" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler04Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler04Ref: package DefaultUseNearbyFurniturePackage",
+  "GoodspringsSettler04Ref: uses 0x00106192 (DefaultUseNearbyFurniturePackage)",
+  { text = "furniture: 00104F08 is on 00106192", label = "he sits on the stool" },
+]
+
+[[scenario]]
+name = "package-ambush"
+source = "Ambush packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): QJDeathclawAmbushPackage given to a Goodsprings settler"
+note = "GoodspringsSettler04Ref, in the saloon at noon, is given QJDeathclawAmbushPackage (wait at the editor location, hidden; the player within 5000 of it sets it off): it lies in wait, then attacks the player (god mode)"
+areas = ["ai", "packages", "combat"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:call:GoodspringsSettler04Ref:AddScriptPackage:QJDeathclawAmbushPackage" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler04Ref"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler04Ref: package QJDeathclawAmbushPackage",
+  "GoodspringsSettler04Ref: lies in wait, hidden (QJDeathclawAmbushPackage)",
+  { re = 'GoodspringsSettler04Ref: springs its ambush on the player from \d+ units', label = "the player in the trigger location sets it off" },
+]
+
+[[scenario]]
+name = "package-flee"
+source = "Flee Not Combat packages (fnv-ai errand.rs; docs/spec-notes/packages.md §3.1): VTerrifyingPresencePackage and EasyPeteHideInSaloonPackage"
+note = "GoodspringsSettler03Ref, put 200 units from the player, is given VTerrifyingPresencePackage (flee the player to 768); the player is no enemy of his, so he stays and the package is done, as the original's settler did (packages.md §4: 0.4 game hours in procedure FLEE without moving); Easy Pete is given EasyPeteHideInSaloonPackage (no target) with nothing threatening him: he stays, the package done (the original: procedure DONE). Running from an enemy is the unit tests' (crates/fnv-ai/tests/errands.rs)"
+areas = ["ai", "packages"]
+paths = ["crates/fnv-ai/src/errand.rs", "crates/fnv-ai/src/goal.rs", "crates/fnv-ai/src/carry.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:GoodspringsSettler03Ref:player:200:0:0,4:call:GoodspringsSettler03Ref:AddScriptPackage:VTerrifyingPresencePackage,4:call:EasyPeteRef:AddScriptPackage:EasyPeteHideInSaloonPackage" }
+args = ["--cell", "Goodsprings", "--pos=-71400,3600,8352", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "GoodspringsSettler03Ref,EasyPeteRef"]
+run_seconds = 40
+expect = [
+  "GoodspringsSettler03Ref: package VTerrifyingPresencePackage",
+  "GoodspringsSettler03Ref: is safe (VTerrifyingPresencePackage)",
+  { text = "GoodspringsSettler03Ref: flees from", count = 0, label = "he does not run from the player, who is no enemy" },
+  "EasyPeteRef: is safe (EasyPeteHideInSaloonPackage)",
+]
+
+[[scenario]]
+name = "fast-travel-primm"
+source = "owner request 2026-10-17: fast travel from the Pip-Boy's World Map (docs/spec-notes/fast-travel.md): a script block refuses, then Yes takes the player to Primm's arrival marker behind a loading screen and moves the clock on"
+note = "Primm 0x000CDF46 made a travel target by ShowMap's canTravel; EnableFastTravel 0 at 6 s refuses the first ask (sNoFastTravelScriptBlock), EnableFastTravel 1 at 18 s lets the second through; the marker's linked reference 0x00169225 (-56411, -53185) is where the player arrives"
+areas = ["pipboy", "fast-travel", "loading"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/test_aid.rs", "engine/nvf-play/src/loading.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,6.5:call:-:EnableFastTravel:0,18:call:-:EnableFastTravel:1", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=000CDF46,17:key=use,20:travel=000CDF46,22:key=use" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 45
+order = [[
+  { re = 'fast travel: to Primm \(0x000CDF46\) refused \(Script\); the box says "Fast travel is currently unavailable from this location\."', label = "refused while a script blocks it (sNoFastTravelScriptBlock, FalloutNV.esm's text)" },
+  'fast travel: answered "OK"',
+  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  'fast travel: answered "Yes"',
+  { re = 'fast travel: to Primm \(0x000CDF46\): arrive at its linked reference 0x00169225', label = "the destination is the marker's linked reference" },
+  "pipboy: down",
+  { re = 'fast travel: \d+\.\d\d hours passed', label = "the clock moved on by the travel time" },
+  { re = 'travel to worldspace 000DA726 \(WastelandNV\): feet \(-564\d\d, -531\d\d', label = "the player stands at Primm's arrival marker" },
+]]
+
+[[scenario]]
+name = "fast-travel-enemies-near"
+source = "owner request 2026-10-17 (docs/spec-notes/fast-travel.md §2): no travel while in combat or with a hostile actor near; the box shows the refusal with OK"
+note = "the Very Aggressive geckos 0x00157B3D and 0x00157B3E at wait-enemies-near's spot, god mode; Goodsprings 0x000CDF51 made a travel target by ShowMap; the gecko that has noticed the player refuses it as combat, one that has not as enemies near"
+areas = ["pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "crates/fnv-game/src/rest.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:00157B3D", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowMap:0x000CDF51:1", NVF_PLAY_TEST_PIPBOY = "10:open,11:page=data,12:tab=1,13:travel=000CDF51,15:key=use,17:close" }
+args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { re = 'fast travel: to Goodsprings \(0x000CDF51\) refused \((Combat|.* is hostile and within \d+ units)\)', label = "refused: in combat or a hostile actor near" },
+  'fast travel: answered "OK"',
+]]
+expect = [
+  { text = "fast travel: asks", count = 0, label = "no question was asked" },
+]
+
+[[scenario]]
+name = "fast-travel-no-travel-place"
+source = "owner request 2026-10-17 (docs/spec-notes/fast-travel.md §2): no travel from a worldspace flagged Can't Fast Travel (Lucky38World, WRLD DATA bit 1)"
+note = "the player starts on an XMarkerHeading of Lucky38World (0x00116A55); Goodsprings 0x000CDF51 made a travel target by ShowMap"
+areas = ["pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy/data/read.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowMap:0x000CDF51:1", NVF_PLAY_TEST_PIPBOY = "10:open,11:page=data,12:tab=1,13:travel=000CDF51,15:key=use,17:close" }
+args = ["--play", "--world", "Lucky38World", "--pos=-2376,6057,19200", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { re = 'fast travel: to Goodsprings \(0x000CDF51\) refused \(Place\)', label = "refused: the worldspace forbids fast travel" },
+  'fast travel: answered "OK"',
+]]

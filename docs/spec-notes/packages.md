@@ -18,7 +18,9 @@ Sources:
 - **GECK wiki** pages from the owner's private exports (`C:\fnv-private\geckwiki`, not
   committed): Category:Packages, How Are Packages Evaluated, one page per package type
   (Accompany, Ambush, Dialogue, Eat, Escort, Find, Flee not Combat, Follow, Guard,
-  Patrol, Sandbox, Sleep, Travel, Use Item At, Use Weapon), Combat Package Flags, Idle
+  Patrol, Sandbox, Sleep, Travel, Use Item At, Use Weapon; the Ambush, Escort, Find, Flee
+  and Use Item At pages are not in the export as it is on 2026-10-17, §3.1), Combat
+  Package Flags, Combat Flee, Idle
   Markers, Idle Collection, XMarkerHeading, and the function pages (AddScriptPackage,
   EvaluatePackage, RemoveScriptPackage, GetCurrentAIPackage, GetCurrentAIProcedure,
   GetIsCurrentPackage, JIP's GetPackageFlag). Cited as [documented: GECK wiki, page].
@@ -58,8 +60,9 @@ Enumerations and flags:
   are paired by name (`PackageType::runtime_code`): Follow 1, Escort 2, Eat 3, Sleep 4,
   Wander 13, Travel 14, Accompany 15, Use Item At 16, Ambush 17, Flee Not Combat 18,
   Use Weapon 33, Dialogue 34, Guard 35, Sandbox 36, Patrol 37; ten of the fifteen pairs
-  were seen in the game (§4). Find has no entry of its name in the function's table
-  (0 is "EXPLORE") and is not paired [hypothesis: 0].
+  were seen in the game (§4), and Escort and Use Item At since 2026-10-17. Find has no
+  entry of its name in the function's table; a Find package ran as 0 ("EXPLORE"), which
+  `runtime_code` now gives it [observed 2026-10-17, §4].
 - **General flags** (PKDT): 0 Offers Services, 1 Must Reach Location, 2 Must Complete,
   3–5 Lock Doors At Package Start / End / Location, 6–8 Unlock Doors At Package Start /
   End / Location, 9 Continue If PC Near, 10 Once Per Day, 12 Skip Fallout Behavior,
@@ -317,6 +320,157 @@ Low Level Processing" travel only while the player is near.
 at the destination; Fallout behaviour can start a procedure without changing the package
 [documented: GECK wiki, GetCurrentAIProcedure].
 
+### 3.1 Escort, Find, Use Item At, Ambush and Flee Not Combat
+
+The owner's GECK wiki export has no page of its own for these five types (the links of
+Category:Packages, "Escort Package", "Find Package" and so on, lead to pages that are not
+in it) [observed 2026-10-17: no page titled so in `C:\fnv-private\geckwiki`]. What it
+says of them is on Category:Packages, Combat Package Flags, Combat Flee, the function
+pages and the records themselves; the rest is marked [hypothesis] or [our choice].
+Carried out in `fnv_ai::errand` (goals in `fnv_ai::goal`: `Escort`, `Find`, `UseAt`,
+`Ambush`, `Flee`); the in-game checks are §4.
+
+**What the masters hold** [observed: `fnvtool ai show` over every PACK of the five
+masters, 2026-10-17]:
+- **Escort** (13): target always a specific reference (the player in 9, captives in 4);
+  location 1 the destination (near a reference 8, near the editor location 4, in a cell
+  1); PKE2 escort distance 200 (7), 300 (2), 500 (1) or 600 (3); the target's count / distance
+  0, 256 (4) or 800 (1); mostly Defensive Combat (11).
+- **Find** (88): targets by object type (50: Food 12, Furniture 16, Flora 7, Containers 2,
+  NPCs 4, weapons 2, ammo, chems, "Actors: Any", ingredients, and "None" 3), by base form
+  (23: meats, leveled actor lists, form lists, a faction) or a specific reference (14:
+  the player, actors, items, doors); the count is the target's count / distance (0 to 100,
+  mostly 1 to 3); the search location mostly near the current location (28) or the editor
+  location (30), or near a reference (22); 8 have none. Flags: Allow Killing 21, Allow
+  Stealing 5, Allow Buying 0. Some are Fallout 3 leftovers (the 14 CG03 school packages,
+  "ArmitageSleep22x8": Furniture or "None" with count 0).
+- **Use Item At** (30): the object as a specific reference (12: chairs, markers, a
+  repair marker), an object type (13, all Furniture) or a base form (5: a gambling stool,
+  a face-down marker, the Stealth Boy 3 times); location 1 the place, mostly near a
+  reference (18), most with radius 0. Sit Down on 4 (one with a specific chair, one with a
+  marker, two by object type).
+- **Ambush** (44): location 1 where it waits (radius mostly 0 to 256), location 2 every
+  time (the trigger: near a reference 24, often with radius 0, near the linked reference
+  10, near the editor location 8, in a cell 1, near the current location 1); a target in
+  15 (the player 13, a faction 1, a reference no master defines 1); Hide
+  While Ambushing 30, Weapon Drawn 26, Always Run 14, No Combat Alert 9, Always Sneak 7.
+- **Flee Not Combat** (15): a specific-reference target in 7 (the player 5) whose count /
+  distance is 256 to 2,000; a location in 9 (in a cell 2, near the editor location 4,
+  near a reference 2, near the current location 1; both in 2); one has neither
+  (GoodspringsFleePackage, first in the Goodsprings settlers' lists).
+
+**Escort** [documented: Category:Packages "Follow/Escort/Accompany: Idles play while not
+moving but waiting for target to move"; Defensive Combat "The exception is for the
+Accompany, Escort and Follow packages … if the target is attacked, the actor will join
+into the combat"; Combat Package Flags: Pretend In Combat and Continue During Combat "do
+not work" on Escort]:
+- It goes to location 1 with its target and stops to wait when the target is more than
+  the PKE2 escort distance away (or in another cell), facing it; it goes on once the
+  target is within that distance less 64 [observed: §4, a settler 352 units from the
+  player under an escort distance of 300 stood until the session ended, and one the
+  player followed led the player to its location; our choice: the 64]. At the destination its goal is met. A target that is gone or dead
+  is not waited for [our choice]. Without PKE2, 200 [our choice: the most common value].
+  The target's own count / distance (256, 800) is not used [hypothesis: unknown meaning].
+- Not built: joining the target's fights (Defensive Combat's exception).
+
+**Find** [documented: Category:Packages "Standard Search Data" (a search location with a
+radius; Allow Buying, Allow Killing, Allow Stealing; "Replace after use?" greyed out on
+Find), Must Complete "the target must be found with a find", "Find: Idles play when
+'activating' the target of the find"; Combat Package Flags "The actor will perform the
+travel behavior on the way to the object, then will drop out of combat and perform the
+normal package behavior"]:
+- It goes to the search location, then looks in the area (the radius around it; the
+  whole cell for "in cell"; around where it stands for "near current location"; 512 when
+  the radius is 0 [our choice]) for what the target names: a reference, references of a
+  base form or of the bases of a form list, actors of a faction, or references of an
+  object type. Nearest first, it goes to each and acts on it, until it has found the
+  target's count (at least 1) [hypothesis for every part of this paragraph]:
+  - an item (ALCH, AMMO, ARMO, BOOK, INGR, KEYM, MISC, WEAP, NOTE, CHIP, IMOD, CCRD,
+    CMNY): it picks it up (the default activation); flora: it harvests it; furniture: it
+    sits (or lies) on it; an actor, a container or anything else: it goes up to it (for a
+    specific reference, within the target's distance);
+  - a dead actor carrying what it looks for: it takes one from the body;
+  - **Allow Killing**: it attacks a living actor it looks for, or one carrying what it
+    looks for (the geckos' and stalkers' "Find Food" packages with object type Food and
+    Allow Killing hunt in this reading) — the fight is the combat AI's;
+  - **Allow Stealing**: items owned by another (the reference's owner, not the actor or
+    one of its factions) are taken only with it [documented name; hypothesis: the
+    owner test];
+  - **Allow Buying** is not carried out: there is no trading between actors.
+- With nothing (more) to find its goal is met and it stays; it looks again every 10
+  seconds [our choice: else a Must Complete Find with nothing in reach would hold its
+  actor for ever]. Object type "None" finds nothing: it goes to the location and stays.
+- What it took is GetIsUsedItem's (below).
+
+**Use Item At** [documented: Category:Packages "Use Item: Idles play at idle location
+(instead of pulling from the idle manager)"; Standard Search Data's "Replace after
+use?"; Combat Package Flags "travel behavior on the way to the fire location, then
+… the normal package behavior"]:
+- It chooses what to use: the target's reference; else the nearest object of the
+  target's base form or object type in the area around location 1 that no other actor
+  uses or is going to (with Sit Down, only furniture to sit on); a base form that is an
+  ingestible (the Stealth Boys of Lonesome Road) it uses from its inventory where it
+  stands, if it carries one. It goes there and uses it: furniture it sits or lies on (the
+  engine's furniture code); anything else (a marker) it stands at, facing the way the
+  object faces. Its goal is met [hypothesis for all of this].
+- **Sit Down** [hypothesis: only furniture to sit on is chosen; the masters set it on
+  HVMcNamaraWaitingPackage but not on HVMcNamaraDeskPackage, which name the same chair,
+  so it may mean more].
+- Nothing to use: it goes to location 1 and stays.
+
+**Ambush** [documented: Category:Packages "wait at a location until enemies enter
+another" (§3); the Patrol and Ambush packages located near a linked reference need one
+(§3); Combat Package Flags "The actor will perform the travel behavior on the way to the
+ambush location, then will drop out of combat and perform the normal package behavior"]:
+- It goes to location 1 and lies in wait there; the first enemy inside location 2 (the
+  trigger location, read as a Dialogue package's: `Trigger`, §3) sets it off: it starts
+  combat with it and its goal is met [hypothesis]. An enemy is the package's target (a
+  reference, always; a base form or faction: its members) or, with no target, an actor it
+  would attack (`Game::would_attack`) [hypothesis]. Without a location 2, within 1,024 of
+  where it waits [our choice; every master Ambush has one].
+- **Hide While Ambushing** does not make it sneak [observed: §4, IsSneaking 0 in every
+  sample of GoodspringsSettler04Ref waiting under GSSettlerAmbushPackage, which sets
+  it]; what it does is not known, and here it is only reported.
+- The ambush settings the wiki names (§2) are not in the masters and not used.
+
+**Flee Not Combat** [documented: Category:Packages "Flee: Idles play when at flee
+destination"; IsFleeing (JIP) "Returns whether the calling actor is either fleeing from
+combat, or is running a Flee-type AI package"; Combat Flee (the combat AI's flight, a
+different thing: `fnv_ai::alert`); ForceFlee]:
+- Its threat is the package's target within the target's count / distance (2,048 when
+  0 [our choice: fCombatFleeNormalDistance's default]), else the nearest actor within that
+  distance, and either only when it is an enemy: one of the two would attack the other
+  [observed: a settler 200 units from the player, who was no enemy, did not run, §4;
+  hypothesis: that an enemy makes it run]. While it has one it runs: to location 1
+  when the package has one, else to a spot the flee distance plus 256 beyond the threat,
+  straight away from it (turning up to 90° when the navmesh ends) [our choice: as the
+  combat flight's third try]. Arrived, or out of reach of the threat, its goal is met and
+  it stands; a threat that comes near again sends it off again. It never starts combat.
+- Nothing threatens it: it stands and its goal is met [observed: §4, Easy Pete].
+
+**Flags these packages bring up** (`fnv_ai::carry`, `fnv_game`):
+- **Pretend In Combat** (on 4 Find and 1 Dialogue package of the masters): "The Pretend
+  In Combat flag causes the actor to enter combat when the package is begun … to move
+  from cover point to cover point on their way to a destination" [documented: Combat
+  Package Flags]. Here it only runs and has its weapon out [our choice]: the cover
+  moves are not built.
+- **Allow Swimming**: "Actors will not swim to reach destinations unless this flag is
+  set" [documented: Category:Packages]: without it a way through water costs 50 times a
+  way on land (it is still taken when there is no other) [our choice]; with it 3 times,
+  as before.
+- **Allow Falls**: "Actors will not jump off of an elevation that will cause damage
+  unless this flag is set" [documented]: with it the way may use the navmesh's ledge links
+  [hypothesis: ledge links are those drops].
+- **No Warn/Attack Behavior** (4 Ambush, 18 Dialogue, 6 Eat and others): no aggro-radius
+  warnings or attack (`fnv_game::aggro`) [hypothesis: the flag's name, xEdit; no page
+  describes it].
+- **GetIsUsedItem / GetIsUsedItemType / GetIsUsedItemEquipType / GetUsedItemActivate**
+  [documented: GECK wiki, each page]: what an actor "uses" is the furniture it is on, or
+  the item its Find or Use Item At package last had it take or use, until its package
+  changes [hypothesis]. GetIsUsedItemType takes a form type code (ACTI 21, TACT 22,
+  TERM 23, CONT 27, DOOR 28, FLOR 38, FURN 39 added to the inventory codes RemoveAllTypedItems
+  uses [hypothesis: the same numbering]) or a type name.
+
 ## 4. In-game observations so far
 
 - The AI observer (ai-observer.md) records, per actor and sample, the current package
@@ -411,6 +565,43 @@ at the destination; Fallout behaviour can start a procedure without changing the
   and 100% (GSChetRef, RingoRef, GoodspringsSettler01Ref, CheyenneREF) of them.
   GSVictorRef, given his patrol package, was in the same place 36% of the time: the
   game's patrol stops at its points (design §7, note 6).
+
+- **Escort, Find, Use Item At, Ambush and Flee Not Combat** [observed 2026-10-17: the
+  `package_kinds` campaign, `tools/capture/observe/package_kinds.campaign.json`, save
+  `nvftest`, the packages given to Goodsprings residents with AddScriptPackage from a
+  compiled script (a console line naming a reference by FormID changed nothing), every
+  15 game loops; and the three gunfight runs of `goodsprings_fight`]. GoodspringsSettler02Ref
+  and TrudyRef are disabled at this point of the game (no package, in no scan).
+  - **Escort** (GomezEscortToAtrium on GoodspringsSettler01Ref, put 352 units from the
+    player; escort distance 300): run-time type 2 ESCORT, procedure 12 ESCORT, package
+    target the player. With the player standing still it did not move for the whole
+    0.4 game hours. With the player following it (staying within 200), it walked to its
+    editor location 1,700 units off in 0.21 game hours, the player 186 to 201 units
+    behind, and the package ended there (its sandbox came back).
+  - **Find** (FFER24FindFood on CheyenneREF, mole rat meat placed by the saloon door
+    about 300 units away): run-time type 0, the code the function's table calls EXPLORE
+    (§1: Find's code, not known before), procedure 7 WANDER, package target none. She
+    wandered about the saloon (1,400 units in 0.3 game hours) and did not go to the
+    meat. Here the actor goes straight to the nearest object it looks for (§3.1): the
+    original's searching by wandering, and when it then finds, are open (§6).
+  - **Use Item At** (DefaultUseNearbyFurniturePackage on GoodspringsSettler04Ref, at his
+    editor location, a stool 46 units off): type 16 USEITEMAT, procedure 17 DONE at once,
+    standing, not sitting, for 0.12 game hours; then the script package was gone and his
+    own Travel package sat him on that stool. Here he sits on it (§3.1, after the
+    packages that name a chair or throne): open (§6).
+  - **Ambush** (GSSettlerAmbushPackage on GoodspringsSettler04Ref in the gunfight runs,
+    3 of 3): procedure TRAVEL to his location in the saloon, then WAIT_AMBUSH, IsSneaking
+    0 throughout although the package sets Hide While Ambushing, weapon out on the way
+    and holstered while waiting; it ended (DONE, then no package) when the quest moved on.
+    Given by AddScriptPackage in the Goodsprings save it did not become his package (its
+    condition, a quest variable, presumably failed).
+  - **Flee Not Combat**: VTerrifyingPresencePackage (flee the player, 768; near the current
+    location, 2,000) on GoodspringsSettler03Ref 200 units from the player: the game ran a
+    run-time package (0xFF00131F, type 10 FLEE, procedure 16 FLEE, target the player) and
+    he did not move in 0.4 game hours; the player was no enemy of his.
+    EasyPeteHideInSaloonPackage (in the saloon's cell, no target) on EasyPeteRef outside,
+    nothing threatening him: type 18 FLEE_NON_COMBAT, procedure 17 DONE at once, and he
+    stayed (as in the three gunfight runs, until the fight came to him and he fought).
 
 ## 5. The reader and the CLI contract
 
@@ -519,6 +710,15 @@ packages, packages in no list, placed actors whose base lists packages).
 
 ## 6. Open questions
 
+- **The five package types of §3.1** (captures `package_kinds`, §4): how a Find package
+  searches (the original's dog wandered and did not go to meat 300 units away) and when
+  it finds; why DefaultUseNearbyFurniturePackage left its actor standing, DONE, next to
+  a stool; what Hide While Ambushing does (not sneaking); whether a Flee package runs from
+  a target that is an enemy (the case not captured) and how far; what an Escort's
+  target count / distance means; whether AddScriptPackage checks a package's
+  conditions. Captures to make: a Find package for an item in plain sight, watched for
+  longer; an Ambush package given to a creature the player is an enemy of; a Flee
+  package whose target is hostile.
 - The re-evaluation interval (the wiki's "seem to be every 10 seconds"; switches were
   seen 0.4 to 25.6 real seconds after a boundary, §4), whether it runs on real or game
   time (every capture used timescale 30), and how the game treats actors in unloaded
@@ -537,8 +737,8 @@ packages, packages in no list, placed actors whose base lists packages).
 - Script packages: one or several, and when one without Must Complete ends (§4).
 - The meaning of the type-specific bits on package types without such flags (§2), and of
   Fallout behaviour bit 3.
-- The run-time type code of Find, Follow, Escort, Wander, Use Item At and Use Weapon
-  packages (paired by name, not yet seen running), and what the package target is for
+- The run-time type code of Follow, Wander and Use Weapon packages (paired by name, not
+  yet seen running; Find runs as 0, Escort as 2, Use Item At as 16 [observed, §4]), and what the package target is for
   packages whose record names none (§4).
 - Which patrol point a patrol located near a reference with no linked reference (59
   packages) uses, and how a patrol located near the editor location (61) finds its route.

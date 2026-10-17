@@ -21,7 +21,7 @@ seconds).
 | NCR troopers against Fiends | `npc_battles` session `ncr_fiends` (nvftest), twice: the six NCR troopers of the smoke scenarios moved 600 units north of the player south of Cook-Cook's camp, 120 real s, every 2 game loops; the player in god mode, crouched, Sneak 100, under a Stealth Boy | `battle-ncr-fiends` (`cmp-battle`): the same troopers and offsets, the player unseen (`NVF_PLAY_TEST_UNSEEN`), 120 s |
 | Other fights | `npc_battles`: NCR troopers against Legion melee raiders, coyotes against troopers, a three-party fight with giant mantises (spawned) | not run (no spawn aid for our engine's fights; §8) |
 | The Goodsprings gunfight | `goodsprings_fight_fast` (owner's save nvfCombatTown), 88 real s, every game loop | no comparable scene (needs the quest state) |
-| Conversations | `conversations` (nvftest): the player standing at the arrival marker in Goodsprings (10 game h), Freeside (8), the Strip (2, cut off), Westside (6), Camp McCarran (8), Primm (6), Novac (6), every 30 game loops | `cmp-goodsprings-day` (5 real min from 08:00), `cmp-saloon-evening` (4 real min from 18:00) |
+| Conversations | `conversations` (nvftest): the player standing at the arrival marker in Goodsprings (10 game h), Freeside (8), the Strip (2, cut off), Westside (6), Camp McCarran (8), Primm (6), Novac (6), every 30 game loops | `cmp-goodsprings-day` (5 real min from 08:00), `cmp-saloon-evening` (4 real min from 18:00); then Westside and Novac for 3 game hours each from 10:00, from the original's spots and next to the NPCs, old and new rule (§5) |
 | Casinos | `casinos` session `gomorrah` only (the owner stopped the other five, 2026-10-17): Gomorrah's main floor for 24 game hours from 12:00, every 60 game loops | none (§6) |
 
 Arrival by `coc` from the early-game save leaves NPCs that a trigger enables disabled
@@ -96,6 +96,26 @@ swing and 92 closest [hypothesis: the rule is fitted to the knife and machete ro
 creatures' rows are larger than their reach (a dog's 58) gives, follow-up §8]. Results
 after the fix: §7.
 
+**Creatures (`npc_combat::creature_spacing`, follow-up §8.2)**: the creatures' rows set
+against their records (`fnvtool esm decode`, the template's Attack Reach RNAM and Base
+Scale BNAM as our engine reads them) [observed]:
+
+| Creature | RNAM × scale | Original: swing starts, median | RNAM × scale + 59 × scale |
+|---|---|---|---|
+| Violet's dogs (CrNVDogFiend, template CrDogVicious) | 48 × 1.2 = 58 | 133 | 128 |
+| Violetta (scale 1.0 on her record, 1.2 on the template) | 48–58 | 122 | 107–128 |
+| Coyote (VCrTier1CoyoteMed, CrCoyote) | 48 × 1.0 = 48 | 109 | 107 |
+| Giant mantis (VCrTier2GiantMantisMed) | 100 × 1.0 = 100 | 163 | 159 |
+| Giant rat (VCrTier1GiantRatMed, 2 swings) | 25 × 1.1 = 28 | 84 | 92 |
+
+A creature's blows reach a near-constant 55–75 units beyond its RNAM, more for the larger
+dog: (RNAM + 59) × scale fits the four kinds within 10 units [hypothesis: the 59 stands
+for the creature's body ahead of its centre and the target's; the records cannot say,
+the dogs' and coyotes' Object Bounds being 0, so a creature far longer or shorter than
+these (a deathclaw, a radroach) is not covered by the rows]. Ours now keeps that distance
+centre to centre: it stops at 0.9 of it and bites within it, never nearer than the two
+bodies' gaps.
+
 ## 4. Encounters
 
 | | Original | Ours |
@@ -110,14 +130,58 @@ Taking cover is not readable in the original (no function reports it).
 
 ## 5. Conversations between NPCs
 
-| | Original | Ours |
-|---|---|---|
-| Conversations | 10 in 46 game hours of seven towns (309.6 NPC-hours in the loaded area, 78 NPCs): 5 in Westside, 5 in Novac, none in Goodsprings, Freeside, Camp McCarran or Primm | 0 in Goodsprings (2.5 game hours) and the saloon in the evening (2 game hours) |
-| Rate | 0.065 per NPC per loaded game hour (about one every 15 game hours) | by the rule: a try every 30–60 real s at 25 % per NPC near the player, about 0.67 per NPC per game hour while the player is within 300 units, else none |
-| Starter's distance when it starts walking up | median 624 (164–937) | within `fAISocialRadiusToTriggerConversationInterior` 1000 |
-| Distance when the talk starts | median 120 (82–624) | 150 (`TALK_DISTANCE`) |
-| Length | median 1.8 game minutes (0.2–5), about 1 line each | until a Goodbye or no more links |
-| Hours of day | 10:00–13:00 | any |
+**Correction (2026-10-17, later)**: the first map counted 10 conversations in the towns and
+15 in Gomorrah, but `observe_map` took any dialogue package or dialogue target as a partner,
+and half of them named a stool, a cook stove, a guard marker or an XMarker (a sandboxing
+NPC's dialogue target). With both sides required to be sampled actors (fixed on this
+branch), the original has **5** in the towns (Westside 4, Novac 1) and **5** in Gomorrah.
+All five in the towns were **960–3,050 units from the player** (the observer standing at
+the arrival marker): the original has no rule that the player be near.
+
+Ours was run from the same spots and hours as the original (smoke-style launches of
+`nvforever --play --hour 10 --no-voice`, 370 real s each = 3 game hours; logs private):
+"next to the player" is our rule as shipped (only with the player within 300 units of the
+starter or its partner, the owner's playtest list 5 item 28, the player among Westside's
+citizens or in the Novac diner); "anywhere" is a measurement-only build with that limit
+lifted, which is what the original's numbers compare with.
+
+| | Original | Ours, old rule (a timer per actor) | Ours, new rule (one timer for the area) |
+|---|---|---|---|
+| Westside, anywhere | 4 in 6.07 game h (**0.66 an hour**), 36.4 NPC-hours | 10 in 3 game h (**3.3 an hour**) | 2 in 3 game h (**0.67 an hour**), 32.5 NPC-hours |
+| Novac, anywhere | 1 in 6.07 game h (0.16 an hour), 84.1 NPC-hours | 2 in 3 game h (0.67 an hour); 22 tries, 6 won, most starters had no line for their partner | 2 in 3 game h (0.67 an hour), 49.1 NPC-hours |
+| Goodsprings, Freeside, Camp McCarran, Primm | 0 in 32.4 game h | not run | not run |
+| Gomorrah | 5 in 14.1 game h (0.35 an hour), 296 NPC-hours | not run | not run |
+| Per NPC per loaded game hour (each conversation counts for both) | 0.032 over the seven towns (Westside 0.22, Novac 0.024); Gomorrah 0.034 | Westside 0.62 | Westside 0.12, Novac 0.08 |
+| Westside, next to the player | — | 0 in 3 game h (15 tries, 1 won, no partner line) | 0 in 3 game h (5 tries, 2 won; one walk given up, the partner greeting the player) |
+| Novac diner, next to the player | — | 0 in 3 game h (22 tries, 5 won, no partner line) | 1 in 3 game h (7 tries, 2 won) |
+| Who | Westside: the four citizens 0x001381A7, 0x001381A8, 0x001393C2, 0x001393C6 | the same four and 0x0015D441 with 0x0015D443 | the same; Novac: AdaStrausREF with two settlers |
+| Starter's distance when it starts walking up | median 624 (164–937) | 150–907 | 149–533 |
+| Distance when the talk starts | median 120 (82–624) | 150 after a walk, but 7 of 10 started where the starter stood (218–907): the walk ended at once (follow-up 9) | 150, one at 533; with follow-up 9 fixed 148–149 after a walk (2 of 2) |
+| Length | median 2.0 game minutes (0.8–5), 1 line each | until a Goodbye or no more links | the same |
+| Hours of day | 10:00–13:00 (the runs' hours) | 10:00–13:00 | 10:00–13:00 |
+
+**The timer** [hypothesis, fitted to the counts above]: `fAISocialTimerForConversationsMin`
+/ `…Max` (30 / 60) count **seconds of play**, and there is **one timer for the loaded
+area**, not one per actor. One try every 45 s on average at 25 % is one conversation per
+180 real s, 0.67 per game hour at TimeScale 30: Westside's 4 in 6.07 hours (0.66) match
+it, and no town or Gomorrah went above it. A timer per actor (our old rule) gave 3.3 an
+hour in Westside, five times the original, and would grow with the crowd; a timer in game
+seconds would try every 1–2 real s, a hundred times the original. Game minutes (one
+conversation per 6 real min, 0.33 an hour) are not ruled out by four conversations.
+Where few pairs have lines for each other (Novac, the four towns with none) the original
+stays below the timer's rate; ours shows the same in Novac's old-rule run (6 chances won,
+2 conversations).
+
+**Change (this branch, `fnv_ai::social`)**: one timer for the loaded area: when it is due
+and some actor that may start a conversation has someone within the radius (one of the two
+next to the player), the timer is drawn again (30–60 s) and the chance (25 %) is rolled;
+on a win a starter is drawn among those actors, and if it has no line for anyone near, the
+next drawn. An actor rests a time drawn the same way after a conversation; one that has
+just said hello does not start one. The next-to-the-player rule stays (the owner's), so in
+play the player hears at most one conversation per 1.5 game hours, and only where a pair is
+next to them. The `social summary` line now gives the tries, the chances won and the
+actor-seconds next to the player; smoke scenario `conversation-timer` checks one to three
+tries in 90 s of Westside.
 
 Other speech outside combat (hellos, idle comments) in the original: 11 lines in the same
 46 game hours (Freeside 4, Westside 4, Novac 3).
@@ -137,10 +201,11 @@ covers Gomorrah's main floor from 12:00 to about 02:00 (14.1 game hours, 1,759 s
 21 actors in the cell). The Tops, the Ultra-Luxe, the Atomic Wrangler, Vikki & Vance and
 Gomorrah's lobby were not observed.
 
-- **Conversations**: 15 between NPCs (0.10 per NPC per game hour, against 0.065 over the
-  seven towns), at 120–190 units when they start (median 161) and 120–175 when the talk
-  starts, 0.5–3 game minutes long (median 1.0), at most one line each; at 12:00–14:00 (7),
-  16:00–18:00 (6) and 21:00 (2).
+- **Conversations**: 5 between NPCs (first counted 15, ten of them an NPC with an XMarker
+  or an idle marker, §5), 0.35 per game hour in the cell, 0.034 per NPC per game hour
+  (each counts for both; 0.032 over the seven towns), at 120–190 units when they start
+  (median 161) and 120–175 when the talk starts, 0.5–1 game minute long, one line each; at
+  12:00–13:00 (3), 14:00 and 21:00.
 - **Seats**: 37 sitting edges; one NPC sat in up to five different chairs over the day,
   each for 1–14 game hours; chairs of furniture marker types 12, 14, 15 and 20.
 - **What the time went to**, by procedure: PATROL (most), SITTING, GUARD, then TRAVEL and
@@ -183,29 +248,30 @@ The same scenes in our engine with this branch's two changes:
 |---|---|---|---|
 | NCR–Fiend battle: combat lines | 47 (26 Hit, 15 Attack) in 32 s | 11 (2 Hit, 2 Attack, 4 Death, 3 DeathResponse) in 46 s | 6–7 in 120 s |
 | Melee blows in that battle: start, median (range) | 36 (34–86), closest 33 | 84 (64–90), closest 64 | weapons 95–96, closest 91–92 |
-| Violet's dogs on the player: start, median | 14, closest 0 | 54 (52–63), closest 52 | 133 (95), closest 87 |
+| Violet's dogs on the player: start, median | 14, closest 0 | 54 (52–63), closest 52; with the creature rule 121 (104–128), closest 104 | 133 (95), closest 87 |
 | Trooper with a knife or machete scenes: blows, median | 24–25, closest 0 | 55–56, closest 16–44 (most blows there are the dogs') | 95–96 |
 
 Combat lines are now within the original's order of magnitude (about 1.3 per
 fighter-minute against 0.3–0.6) and melee people stand where the original's do; creatures
-still close in nearer than the original's (follow-up §8.2). Detection barks were
+closed in nearer than the original's until the creature rule of §3 (follow-up §8.2,
+`combat-dogs` smoke, 2026-10-17). Detection barks were
 unchanged (6 in the battle).
 
 ## 8. Mismatches and follow-ups
 
 1. **Combat lines** (fixed here, §2). Check the fixed rate against the original's 0.3–0.6
    per fighter-minute in a long fight; Detection barks (7 in our battle) were not looked at.
-2. **Melee spacing** (fixed here for weapons, §3). Creatures: the original's dogs, coyotes
-   and mantises swing from 109–163 units, more than their reach plus bodies gives in our
-   rule; fit a creature rule from these rows (and from the creature's model size).
+2. **Melee spacing** (fixed here for weapons, §3; creatures: done, §3, the rule
+   (RNAM + 59) × scale fitted to dogs, coyotes, mantises and a rat). Open: creatures far
+   longer or shorter than these (deathclaws, radroaches, cazadors) were only seen holding
+   off a god-mode player; check them against NPCs.
 3. **Fight length**: our NCR–Fiend battle ends in 32 s, the original's runs past 120 s.
    Look at hit chance and damage per shot at range (the original's 217 hits over about
    240 s of two runs against our 110 in 32 s).
 4. **Attackers that hold off a god-mode or very healthy player** (§3): measure with a
    normal player (the owner's save, no god mode) before copying it.
-5. **Conversation rate**: run our engine with the player beside NPCs in Novac or Westside
-   for game hours and compare with 0.065 per NPC-hour; our rule's 25 % every 30–60 s
-   looks far above it if the timer counts real seconds.
+5. **Conversation rate** (done, §5): one timer for the loaded area; Westside's rate now
+   matches. Gomorrah and the four towns without conversations were not run in ours.
 6. **Strip crowd**: run the `strip` campaign from `nvfstrip`.
 7. **Spawn aid for our engine's fights**: `combat:placed:<base>` is not accepted by
    `NVF_PLAY_TEST_SCRIPT`, so the creature scenes in our engine only had Violet's dogs.
@@ -213,7 +279,26 @@ unchanged (6 in the battle).
    `combat-lines` (the dogs' first bites now land before the player's power attack, which
    falls inside the player's own Hit line; fixed 2026-10-17: an attack's line now cuts
    the attacker's own Hit line, combat-dialogue.md §2, and the mark is gone) and
-   `combat-cover` (no cover in 2 of 3 runs, 2 covers in the third).
+   `combat-cover` (no cover in 2 of 3 runs, 2 covers in the third; with the creature
+   rule of §3 the same, cover in 1 of 3 runs: the mark stays).
+9. **A walk up to a partner that ends at once** (§5; fixed, branch
+   `claude/chat-walk-up`): in Westside 7 of our 10 old-rule conversations started where
+   the starter stood, 218–907 units from its partner (the original's median is 120, but
+   one of its five started at 624). **Cause** [observed: unit test
+   `a_sandboxer_walking_up_to_a_conversation_partner_walks_the_whole_way` fails without
+   the fix]: the walk's "reached" test (`Ai::walk`) still looked at the starter's package
+   goal, which the walk to the partner does not replace. These citizens sandbox, and a
+   sandbox's goal is its area (`Goal::Near`, the package's radius): a starter already
+   inside it "arrived" in the walk's first frame, and `Ai::chats_on` took the walker that
+   was no longer Travelling as "as near as the navmesh lets it get". **Fix**: a walk to a
+   partner ends only at its path's end (as a sandbox's own walks and searches do), and a
+   way that ends still farther than `TALK_DISTANCE` (150) gives the conversation up
+   instead of talking across the distance [hypothesis: the original's 624 shows it can
+   talk from farther; ours keeps to 150 until that is understood]. Westside at 10:00 with
+   conversations allowed anywhere (test aid `NVF_PLAY_TEST_CHATS_ANYWHERE=1`), 5 min
+   [observed 2026-10-17]: 2 conversations, both after a walk, 535 to 149 units in 4.5 s
+   and 283 to 148, none given up. Smoke scenario `conversation-walk-up` checks that every
+   conversation starts within 150 units.
 
 Gomorrah stopped early and the Strip run from `nvfstrip` was dropped when the owner needed
 the game for other sessions (2026-10-17).

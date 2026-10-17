@@ -174,7 +174,8 @@ Tests: `crates/fnv-game/tests/functions.rs` (`function_probe_round_two_fixes`),
 
 ## 5. Playthrough blockers and follow-ups
 
-The ranked table is in §6. Read with it:
+The ranked table is in §6 (generated before the fixes below; the current ranking of what is
+left is [outstanding.md](../outstanding.md) §1). Read with it:
 
 1. **Detection beyond the player's reach, and the player as a detector** (GetDetected,
    GetLineOfSight, IsInCombat; 153 quests): done 2026-10-17 (docs/design/detection.md
@@ -184,25 +185,26 @@ The ranked table is in §6. Read with it:
    2026-10-17: a Frenzied Chet 6,682 units from the player fought Ringo within 1 s; the
    player's GetDetected / GetLineOfSight follow the camera's facing; player.GetLineOfSight
    reads 1 at 6,682 units; with the player indoors the pair outdoors did not fight,
-   as ours: only the loaded area detects]. Left: wall cases of the player's sight
-   (capture request detection-2).
+   as ours: only the loaded area detects]. The wall cases (capture detection-2) followed
+   in #389: the player is detected along its body's facing (±95°), its GetLineOfSight is
+   the camera's, and a second ray to the eyes lets a head show over a low wall.
 2. ~~**NPC equipment drawn from the rules**~~ (EquipItem, UnequipItem; 82 quests, the intro
    chain among them): built 2026-10-17 (PR #374): the engine draws what the rules have
    equipped and redraws on EquipItem/UnequipItem (audit §5).
-3. **Actor abilities and worn enchantments as effects** (IsSpellTarget, HasMagicEffect,
+3. ~~**Actor abilities and worn enchantments as effects**~~ (IsSpellTarget, HasMagicEffect,
    RemoveSpell; 80 quests, VMQ03 and Ring-a-Ding-Ding among them): built
    (docs/spec-notes/aid-items.md §13) and checked against the capture `abilities-1` (79
-   probes agree; abilities are on loaded actors only, Dispel takes one off).
-4. **Corpses stood up again** (ResurrectActor; 76 quests, Yes Man's resurrections and
+   probes agree; abilities are on loaded actors only, Dispel takes one off; PR #377).
+4. ~~**Corpses stood up again**~~ (ResurrectActor; 76 quests, Yes Man's resurrections and
    every companion): built (docs/spec-notes/resurrect.md, branch
    claude/resurrect-actor-652a0f): the corpse goes, a fresh body stands where the body
    lay and its packages take it up; what is left in its inventory stays [observed:
    capture rs1, 2026-10-17]; a leveled actor's pick (and items that come through it) are
-   rolled again (the owner, 2026-10-17).
+   rolled again (the owner, 2026-10-17). Merged in PR #391.
 5. **Knockdowns and knock-outs** (64 quests, the intro chain): an essential knocked out
    never gets up in the rules; no actor lies down.
-6. **Fast travel** (60 quests, the whole VMQ line): EnableFastTravel is kept, fast travel
-   is not built.
+6. ~~**Fast travel**~~ (60 quests, the whole VMQ line): built from the Pip-Boy's world map
+   (PR #393; EnableFastTravel gates it).
 7. **Saves from scripts** (SystemSave, ForceSave; 29 quests): cheap, saves exist.
 8. **Look turning the body**, **the engine's animation state** (IsAnimPlaying,
    IsIdlePlaying, IsMoving's directions, IsPlayerActionActive) and **AI package codes**

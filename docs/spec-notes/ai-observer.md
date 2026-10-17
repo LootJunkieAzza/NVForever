@@ -146,7 +146,9 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
   nearby scan finds them), `do` = [console line | [statement, name, ...]] (scene actions
   after arrival and `place`, each followed by 30 game loops; a statement's `{0}`, `{1}`
   ... are the named references or forms, e.g. `["{0}.MoveTo player -400 600 0",
-  "0x000F36F5"]`), `note`). One game load serves all sessions of a run, so a console
+  "0x000F36F5"]`; a console line cannot address a reference by FormID: `<FormID>.AddScriptPackage`
+  lines ran without error and changed nothing [observed 2026-10-17, package_kinds], so
+  actors are given packages by statements), `note`). One game load serves all sessions of a run, so a console
   toggle such as `tgm` belongs in the first session's `console_first` only.
 - **Walks** start with `player.MoveTo <target> <approach> 0 0` (MoveTo's offsets
   [documented: GECK wiki MoveTo]; the move is queued, so the job waits 120 loops), then
@@ -444,7 +446,8 @@ stands for the time to the next one, at most 5 game minutes.
 
 - **Conversations** between NPCs: a pair is in conversation while either has a dialogue
   package (type 6 or 34) whose target is the other, or names the other as its dialogue
-  target; records more than 2 game minutes apart are two conversations. Recorded: who,
+  target, the other being an actor sampled (a sandboxing NPC's dialogue target can be a
+  stool, a stove or a marker; counted as conversations until 2026-10-17); records more than 2 game minutes apart are two conversations. Recorded: who,
   the starter (the one that had the package first), the distance between the two at the
   first record, when the talk starts (both on the package, or one in procedure
   DIALOGUE; before that the starter walks up in DIALOGUE_ACTIVATE), during (quantiles),

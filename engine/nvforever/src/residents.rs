@@ -515,7 +515,8 @@ impl Residents {
         let refs: &'static RefTable = Box::leak(Box::new(RefTable::from_index(world.lo, world.schema, world.index)));
         let mut all = false;
         let mut core = Core {
-            ai: Ai::new(AiConfig { walk_speed, ..AiConfig::default() }),
+            // Test aid: conversations between NPCs anywhere in the loaded area.
+            ai: Ai::new(AiConfig { walk_speed, chats_anywhere: std::env::var("NVF_PLAY_TEST_CHATS_ANYWHERE").is_ok_and(|v| v == "1"), ..AiConfig::default() }),
             list: Vec::new(),
             known: HashSet::new(),
             cells_seen: HashSet::new(),
@@ -1055,7 +1056,18 @@ impl Core {
                 | AiEvent::SearchBack { .. }
                 | AiEvent::BackHome { .. }
                 | AiEvent::WeaponUse { .. }
-                | AiEvent::WeaponUseOver => info!("{line}"),
+                | AiEvent::WeaponUseOver
+                | AiEvent::EscortWaits { .. }
+                | AiEvent::EscortOn { .. }
+                | AiEvent::FindGoes { .. }
+                | AiEvent::Found { .. }
+                | AiEvent::NothingFound { .. }
+                | AiEvent::UsesAt { .. }
+                | AiEvent::UsesItem { .. }
+                | AiEvent::AmbushWaits { .. }
+                | AiEvent::AmbushSprung { .. }
+                | AiEvent::FleeRuns { .. }
+                | AiEvent::FleeSafe { .. } => info!("{line}"),
                 _ => debug!("{line}"),
             }
         }
@@ -1222,11 +1234,16 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             to[2],
             if away.is_finite() { format!("{away:.0} units") } else { "in another cell".to_string() }
         ),
-        AiEvent::FleeArrived { from, seconds, off } => format!(
-            "reached its flee spot from {} after {seconds:.1}s ({off:.0} units off): stays there",
-            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }
+        AiEvent::FleeArrived { from, seconds, off, hides } => format!(
+            "reached its flee spot from {} after {seconds:.1}s ({off:.0} units off): {}",
+            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) },
+            if *hides { "hides there, crouched" } else { "stays there" }
         ),
-        AiEvent::Cornered { from } => format!("is cornered by {}: nowhere to flee, stands", if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }),
+        AiEvent::Cornered { from, hides } => format!(
+            "is cornered by {}: nowhere to flee, {}",
+            if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) },
+            if *hides { "hides where it is, crouched" } else { "stands" }
+        ),
         AiEvent::SearchOver { why } => format!("stops searching: {why}"),
         AiEvent::SearchBack { package, away } => format!("has searched: back to the place of {}, {away:.0} units off", n(package)),
         AiEvent::BackHome { away, length } => format!(
@@ -1239,6 +1256,27 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             if *length > 0.0 { format!("walks to its place, {length:.0} units to go") } else { "from where it stands".to_string() }
         ),
         AiEvent::WeaponUseOver => "has used its weapon: back to its package".into(),
+        AiEvent::EscortWaits { package, target, away } => format!(
+            "escorts {}: waits, it is {} behind ({})",
+            n(target),
+            away.map_or("in another place".to_string(), |a| format!("{a:.0} units")),
+            n(package)
+        ),
+        AiEvent::EscortOn { target, .. } => format!("escorts {}: goes on", n(target)),
+        AiEvent::FindGoes { package, object, length } => format!("finds {}: goes to it, {length:.0} units ({})", n(object), n(package)),
+        AiEvent::Found { package, object, act } => format!("found {}: {} ({})", n(object), serde_json::to_value(act).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default(), n(package)),
+        AiEvent::NothingFound { package, found } => format!("finds nothing more ({found} found, {})", n(package)),
+        AiEvent::UsesAt { package, thing: Some(t) } => format!("uses {} ({})", n(t), n(package)),
+        AiEvent::UsesAt { package, thing: None } => format!("has nothing to use: stays ({})", n(package)),
+        AiEvent::UsesItem { package, item, had } => format!("uses item {}{} ({})", n(item), if *had { "" } else { ": has none" }, n(package)),
+        AiEvent::AmbushWaits { package, hidden } => format!("lies in wait{} ({})", if *hidden { ", hidden" } else { "" }, n(package)),
+        AiEvent::AmbushSprung { package, enemy, away } => format!("springs its ambush on {} from {away:.0} units ({})", if *enemy == FormId::PLAYER_REF { "the player".to_string() } else { n(enemy) }, n(package)),
+        AiEvent::FleeRuns { package, from, length, .. } => format!("flees from {}: runs {length:.0} units ({})", if *from == FormId::PLAYER_REF { "the player".to_string() } else { n(from) }, n(package)),
+        AiEvent::FleeSafe { package, from, .. } => format!(
+            "is safe{} ({})",
+            from.map(|f| format!(" from {}", if f == FormId::PLAYER_REF { "the player".to_string() } else { n(&f) })).unwrap_or_default(),
+            n(package)
+        ),
     }
 }
 
@@ -1626,9 +1664,10 @@ pub fn report(
         core.waited[1],
         each.join("; ")
     );
+    let st = core.ai.social_stats();
     info!(
-        "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up)",
-        core.social[0], core.social[1], core.social[2], core.social[3]
+        "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up); {} tries next to the player, {} chances won; {:.0} actor-seconds next to the player",
+        core.social[0], core.social[1], core.social[2], core.social[3], st.tries, st.chances_won, st.near_player_seconds
     );
     let p = &core.ai.process_stats;
     let (high, low) = core.ai.process_counts();

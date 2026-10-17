@@ -12,6 +12,9 @@
 //! Movement here is `fnv_nav::Walker` (on the navmesh surface, no physics): the engine
 //! moves actors near the player with collision instead and uses this for the rest.
 //!
+//! Escort, Find, Use Item At, Ambush and Flee Not Combat packages are carried out in
+//! `crate::errand`, on the walks planned here.
+//!
 //! An actor that stands ([`Ai::stands`]) can be pushed aside by one that walks into it
 //! ([`Ai::push`]: over the navmesh, as far as it has room); left alone again it goes
 //! back to where its package has it (docs/design/actor-behaviour.md §5.7).
@@ -42,18 +45,26 @@ pub struct AiConfig {
     /// Actors standing or walking inside each other are moved apart ([`Ai::keep_apart`],
     /// `crate::apart`) [design].
     pub keep_apart: bool,
+    /// Test aid: random conversations start anywhere in the loaded area, not only next to
+    /// the player (`crate::social`; the engine's `NVF_PLAY_TEST_CHATS_ANYWHERE`). Off in
+    /// play.
+    pub chats_anywhere: bool,
 }
 
 /// An actor without a package walks back to where it was placed from at most this far,
 /// game units [design: a cell; farther away a script has put it there].
 const HOME_REACH: f32 = 4096.0;
 
+/// What a unit of water costs on a way planned for an actor whose package does not
+/// allow swimming (`Ai::path_params`), against 1 on land [our choice].
+pub const NO_SWIM_WATER_COST: f32 = 50.0;
+
 /// fMoveSneakMult when the load order does not set it [observed: FalloutNV.esm].
 const SNEAK_MULT: f32 = 0.57;
 
 impl Default for AiConfig {
     fn default() -> Self {
-        AiConfig { walk_speed: 86.8, run_speed: 344.0, arrive: 32.0, retry_hours: 1.0, params: PathParams::default(), keep_apart: true }
+        AiConfig { walk_speed: 86.8, run_speed: 344.0, arrive: 32.0, retry_hours: 1.0, params: PathParams::default(), keep_apart: true, chats_anywhere: false }
     }
 }
 
@@ -183,10 +194,11 @@ pub enum AiEvent {
     /// It flees `from` (`how`): to `to`, `away` units from the one it flees, a way of
     /// `length` units.
     Flee { from: FormId, how: fnv_game::combat_group::FleeBy, to: [f32; 3], away: f32, length: f32 },
-    /// It reached its flee spot after `seconds`, `off` units from it.
-    FleeArrived { from: FormId, seconds: f32, off: f32 },
-    /// It has nowhere to flee to and stands.
-    Cornered { from: FormId },
+    /// It reached its flee spot after `seconds`, `off` units from it; whether it hides
+    /// there crouched (a person, `Game::sneaks`).
+    FleeArrived { from: FormId, seconds: f32, off: f32, hides: bool },
+    /// It has nowhere to flee to and stays where it is; whether it hides there crouched.
+    Cornered { from: FormId, hides: bool },
     /// It stops searching or holding (`why`).
     SearchOver { why: &'static str },
     /// After a search it goes back to its package's place, `away` units off.
@@ -200,6 +212,33 @@ pub enum AiEvent {
     WeaponUse { target: FormId, length: f32 },
     /// The script's weapon use is over: it goes back to its package.
     WeaponUseOver,
+    /// An Escort package: the one it leads is `away` units behind (`None`: in another
+    /// space): it stops and waits (`crate::errand`).
+    EscortWaits { package: FormId, target: FormId, away: Option<f32> },
+    /// The one it leads has come up: it goes on.
+    EscortOn { package: FormId, target: FormId },
+    /// A Find package: it sets off to `object`, a way of `length` units (0: it is there).
+    FindGoes { package: FormId, object: FormId, length: f32 },
+    /// A Find package: it has reached `object` and did `act` with it.
+    Found { package: FormId, object: FormId, act: crate::errand::Act },
+    /// A Find package: nothing (more) to find; `found` so far.
+    NothingFound { package: FormId, found: u32 },
+    /// A Use Item At package: it uses `thing` (furniture, or stands at it), or stays at
+    /// the location (`None`: nothing to use found).
+    UsesAt { package: FormId, thing: Option<FormId> },
+    /// A Use Item At package naming an item: it uses one it carries (`had` false: it
+    /// has none).
+    UsesItem { package: FormId, item: FormId, had: bool },
+    /// An Ambush package: it lies in wait (`hidden`: sneaking).
+    AmbushWaits { package: FormId, hidden: bool },
+    /// An Ambush package: `enemy` came into the trigger location, `away` units off: it
+    /// attacks.
+    AmbushSprung { package: FormId, enemy: FormId, away: f32 },
+    /// A Flee Not Combat package: it runs from `from` to `to`, a way of `length` units.
+    FleeRuns { package: FormId, from: FormId, to: [f32; 3], length: f32 },
+    /// A Flee Not Combat package: it is where it fled to, after `seconds`, or nothing
+    /// threatens it (`from` the threat it got away from, if any).
+    FleeSafe { package: FormId, from: Option<FormId>, seconds: f64 },
 }
 
 /// How far an actor is with its Dialogue package ([`goal::Talk`]).
@@ -322,6 +361,9 @@ pub struct Agent {
     following: Option<(Place, f64)>,
     /// The number of the script's weapon use it carries out ([`Ai::weapon_step`]).
     weapon_order: Option<u64>,
+    /// An Escort, Find, Use Item At, Ambush or Flee Not Combat package's progress
+    /// (`crate::errand`).
+    pub errand: Option<crate::errand::Errand>,
 }
 
 #[derive(Default)]
@@ -395,7 +437,7 @@ impl Ai {
         if let Some(s) = self.speeds.get(&actor) {
             own_turning(&mut walker, s);
         }
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None, chat: None, search: None, face_to: None, following: None, rooted: false, weapon_order: None, errand: None });
         Ok(())
     }
 
@@ -442,6 +484,7 @@ impl Ai {
         a.chat = None;
         a.search = None;
         a.following = None;
+        a.errand = None;
         self.taken.retain(|_, user| *user != actor);
     }
 
@@ -457,6 +500,7 @@ impl Ai {
         a.sandbox = None;
         a.search = None;
         a.chat = None;
+        a.errand = None;
         self.set_using(game, actor, None);
         self.taken.retain(|_, user| *user != actor);
     }
@@ -661,8 +705,13 @@ impl Ai {
             a.search = None;
             a.face_to = None;
             a.following = None;
+            a.errand = None;
             self.set_using(game, actor, None);
             self.taken.retain(|_, user| *user != actor);
+            // What the old package had it use ends with it.
+            if let Some(e) = game.extra.get_mut(&actor) {
+                e.used_item = None;
+            }
             // The old package's weapon use ends with it.
             if game.weapon_use(actor).is_some_and(|w| matches!(w.source, Source::Package(_))) {
                 game.drop_weapon_use(actor);
@@ -699,6 +748,9 @@ impl Ai {
         }
         if !alerted && !chatting && !ordered && matches!(self.agents[&actor].goal, Some(Goal::Follow(_))) {
             self.follow_step(game, nav, actor);
+        }
+        if !quiet && !alerted && !chatting && !ordered && self.agents[&actor].errand.is_some() {
+            self.errand_step(game, nav, actor, dt);
         }
     }
 
@@ -1005,6 +1057,17 @@ impl Ai {
         goal::cell_of_place(game.world.placed, &place).is_some_and(|c| game.loaded_cells.contains(&c))
     }
 
+    /// Furniture kept for, or used by, actors other than `actor`.
+    pub(crate) fn taken_by_others(&self, actor: FormId) -> Vec<FormId> {
+        self.taken.iter().filter(|(_, u)| **u != actor).map(|(f, _)| *f).collect()
+    }
+
+    /// Keep furniture for `actor` (it is on its way to it).
+    pub(crate) fn reserve(&mut self, actor: FormId, furniture: FormId) {
+        self.taken.retain(|_, user| *user != actor);
+        self.taken.insert(furniture, actor);
+    }
+
     /// The furniture `actor` uses changes (to none: it gets up).
     pub(crate) fn set_using(&mut self, game: &Game, actor: FormId, furniture: Option<FormId>) {
         let Some(a) = self.agents.get_mut(&actor) else { return };
@@ -1040,6 +1103,20 @@ impl Ai {
     /// locks name a key form].
     pub(crate) fn path_params(&self, game: &mut Game, actor: FormId) -> PathParams {
         let mut params = self.cfg.params.clone();
+        // "Allow Swimming: Actors will not swim to reach destinations unless this flag is
+        // set"; "Allow Falls: Actors will not jump off of an elevation that will cause
+        // damage unless this flag is set" [documented: GECK wiki Packages, Flags tab].
+        // Without Allow Swimming water costs [`NO_SWIM_WATER_COST`] times as much (a way
+        // through water is still taken when there is no other) [our choice]; Allow Falls
+        // lets the way use the navmesh's ledge links [hypothesis: ledges are the drops].
+        if game.package_has(actor, flags::ALLOW_SWIMMING) {
+            params.water_cost = params.water_cost.min(self.cfg.params.water_cost);
+        } else {
+            params.water_cost = params.water_cost.max(NO_SWIM_WATER_COST);
+        }
+        if game.package_has(actor, flags::ALLOW_FALLS) {
+            params.ledges = true;
+        }
         if let Ok(s) = game.world.get(actor) {
             params.keys.extend(s.inventory.iter().flat_map(|inv| inv.iter()).map(|(item, _)| item.0));
         }
@@ -1168,6 +1245,7 @@ impl Ai {
                 self.agents.get_mut(&actor).expect("listed").activity = Activity::There;
                 game.package_goal_met(actor);
             }
+            Goal::Escort(_) | Goal::Find(_) | Goal::UseAt(_) | Goal::Ambush(_) | Goal::Flee(_) => self.errand_begin(game, nav, actor, package, &goal),
             Goal::NotCarriedOut(why) => {
                 self.agents.get_mut(&actor).expect("listed").activity = Activity::Staying;
                 self.log(game, actor, AiEvent::NotCarriedOut { package, why });
@@ -1178,7 +1256,7 @@ impl Ai {
 
     /// Where an actor standing at `feet` has to go to be at a place to stay at
     /// ([`Goal::Near`], [`Goal::Inside`]); `None`: it is there.
-    fn way_to(&self, feet: Place, stay: &Goal) -> Option<Place> {
+    pub(crate) fn way_to(&self, feet: Place, stay: &Goal) -> Option<Place> {
         match stay {
             Goal::Near { place, radius } => (!self.within(feet, *place, *radius)).then_some(*place),
             Goal::Inside { space, at } => (feet.space != *space).then_some(*at),
@@ -1194,7 +1272,7 @@ impl Ai {
     /// fMoveSneakMult (0.57 in FalloutNV.esm [observed]) while the actor sneaks
     /// (`Game::sneaks`: SetForceSneak, the package's Always Sneak) [hypothesis: the
     /// setting's name; the player's sneaking pace uses it too].
-    fn pace(&self, game: &Game, actor: FormId, running: bool) -> f32 {
+    pub(crate) fn pace(&self, game: &Game, actor: FormId, running: bool) -> f32 {
         let own = self.calm_speeds(actor);
         let speed = if running { own.run } else { own.walk };
         if game.sneaks(actor) {
@@ -1205,8 +1283,11 @@ impl Ai {
     }
 
     /// Plan a walk to `to`; without a way there the package is set aside.
-    fn plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, to: Place, patrol_point: Option<FormId>) {
-        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN));
+    pub(crate) fn plan(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, to: Place, patrol_point: Option<FormId>) {
+        // Pretend In Combat: it goes as in a fight, running [our choice; documented: the
+        // actor "move[s] from cover point to cover point", Combat Package Flags, which
+        // is not built].
+        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN) || d.has(flags::PRETEND_IN_COMBAT));
         let params = self.path_params(game, actor);
         let speed = self.pace(game, actor, running);
         let a = self.agents.get_mut(&actor).expect("listed");
@@ -1325,9 +1406,11 @@ impl Ai {
         let reached = match (&a.goal, ev) {
             (_, WalkEvent::Arrived) => true,
             (_, WalkEvent::Idle) => a.walker.follower.is_none(),
-            // A sandbox's own walks and searches end where they lead, not at the
-            // package's place.
-            _ if own_walk || a.search.is_some() => false,
+            // A sandbox's own walks, searches and walks up to a conversation partner end
+            // where they lead, not at the package's place (a starter inside its sandbox's
+            // radius had "arrived" in the walk's first frame and talked from where it
+            // stood, docs/spec-notes/npc-behaviour-compare.md §8).
+            _ if own_walk || a.search.is_some() || a.chat.is_some() => false,
             (Some(Goal::Near { place, radius }), _) => *radius > self.cfg.arrive && self.within(feet, *place, *radius),
             (Some(Goal::Inside { space, .. }), _) => feet.space == *space,
             _ => false,
@@ -1384,6 +1467,10 @@ impl Ai {
                 a.talk = Some(Talking::Waiting);
                 self.log(game, actor, AiEvent::Arrived { package, seconds, travelled, patrol_point: None });
             }
+            return;
+        }
+        if a.errand.is_some() {
+            self.errand_arrived(game, nav, actor, package);
             return;
         }
         let route = match &a.goal {
