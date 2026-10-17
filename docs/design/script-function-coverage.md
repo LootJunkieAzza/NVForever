@@ -194,7 +194,11 @@ The ranked table is in §6. Read with it:
    (docs/spec-notes/aid-items.md §13) and checked against the capture `abilities-1` (79
    probes agree; abilities are on loaded actors only, Dispel takes one off).
 4. **Corpses stood up again** (ResurrectActor; 76 quests, Yes Man's resurrections and
-   every companion): the rules are right (§3.2), the engine keeps the ragdoll.
+   every companion): built (docs/spec-notes/resurrect.md, branch
+   claude/resurrect-actor-652a0f): the corpse goes, a fresh body stands where the body
+   lay and its packages take it up; what is left in its inventory stays [observed:
+   capture rs1, 2026-10-17]; a leveled actor's pick (and items that come through it) are
+   rolled again (the owner, 2026-10-17).
 5. **Knockdowns and knock-outs** (64 quests, the intro chain): an essential knocked out
    never gets up in the rules; no actor lies down.
 6. **Fast travel** (60 quests, the whole VMQ line): EnableFastTravel is kept, fast travel
@@ -231,7 +235,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 
 | # | System | Kind | Quests | Calls / cond. in them | All calls / cond. | Functions | Main quest | Companions |
 |---|---|---|---|---|---|---|---|---|
-| 1 | corpses stood up again | wrong | 76 | 603 / 0 | 515 / 0 | ResurrectActor | VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management), VMQYesManSupport (Scripting for Yes Man positioning and resurrections) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog) and 6 more |
+| 1 | corpses stood up again | built | 76 | 603 / 0 | 515 / 0 | ResurrectActor | VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management), VMQYesManSupport (Scripting for Yes Man positioning and resurrections) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog) and 6 more |
 | 2 | knockdowns and knock-outs | no-system | 64 | 196 / 10 | 282 / 134 | GetKnockedState, GetUnconscious, PushActorAway, SetUnconscious | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ01 (They Went That-a-Way) | - |
 | 3 | fast travel | no-system | 60 | 140 / 0 | 83 / 0 | EnableFastTravel | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ04 (Bright and Shiny), VMQ05 (For the Republic, Part 2) and 4 more | - |
 | 4 | saves from scripts | wrong | 29 | 32 / 0 | 7 / 0 | ForceSave, SystemSave | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQ04 (Bright and Shiny) and 8 more | - |
@@ -571,7 +575,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ResetQuest | 0x11DB | 6 / 0 | match | - | - |  |
 | ResetXP | 0x126D | 2 / 0 | match | - | - |  |
 | RestoreActorValue | 0x1182 | 284 / 0 | match | - | - |  |
-| ResurrectActor | 0x108C | 515 / 0 | wrong | corpses stood up again | - | Rules state right (dead, cause, health) [observed: probes]; the engine does not stand a corpse up. |
+| ResurrectActor | 0x108C | 515 / 0 | built | corpses stood up again | - | Rules state right (dead, cause, health) [observed: probes]. A dead actor stands up at once where its body lay, keeps the items left on its corpse, GetKnockedState 0, combat ended [observed: capture rs1]; a leveled actor's pick and the items that come through it are rolled again [observed: owner 2026-10-17]; no get-up clip for either flag (owner). The engine takes the ragdoll away and draws it anew (`resurrect.rs`, smoke `resurrect-actor`). A living actor is only healed [hypothesis] (docs/spec-notes/resurrect.md). |
 | RewardKarma | 0x1204 | 163 / 0 | match | - | - |  |
 | RewardXP | 0x1177 | 1303 / 0 | match | - | - | Levelling by experience exists now (experience.rs, levelup.rs); the audit's gap is closed. |
 | Rotate | 0x1004 | 4 / 0 | match | - | - |  |
