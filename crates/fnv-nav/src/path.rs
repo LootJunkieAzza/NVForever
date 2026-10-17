@@ -38,6 +38,10 @@ pub struct PathParams {
     pub max_slope_deg: Option<f32>,
     /// Keys the actor carries: locked doors these open may be used.
     pub keys: Vec<u32>,
+    /// Doors that open in place known to stand open: a path that starts (or turns) within
+    /// the approach to one goes straight on through it instead of backing off to the stop
+    /// in front of it ([`NavGraph::square_approach`]).
+    pub open_doors: Vec<u32>,
 }
 
 impl Default for PathParams {
@@ -54,6 +58,7 @@ impl Default for PathParams {
             open_locked: false,
             max_slope_deg: None,
             keys: Vec::new(),
+            open_doors: Vec::new(),
         }
     }
 }
@@ -511,7 +516,12 @@ impl NavGraph {
     /// the hinge end, half the opening's width to the side, so the way through stays clear
     /// whichever way it opens. Where that cannot be walked, the stop is put on the
     /// polyline the stand-off before the crossing instead. Doors whose bounds the polyline
-    /// passes beside get no stop. Engine choices (docs/design/navmesh.md §6.1).
+    /// passes beside get no stop. A door in [`PathParams::open_doors`] that the polyline
+    /// reaches from a corner already within that approach (a path planned again on the
+    /// way through: Follow packages replan every half second) has its stop at that corner
+    /// and no back-off (owner's playtest 2026-10-17: a pack brahmin following its
+    /// merchant through the open Novac motel gate walked back to the stop at each
+    /// replan and never got through). Engine choices (docs/design/navmesh.md §6.1).
     pub fn door_stops(&self, space: Space, corridor: &[u32], mut points: Vec<[f32; 3]>, p: &PathParams) -> (Vec<[f32; 3]>, Vec<DoorStop>) {
         let mut doors: Vec<u32> = corridor.iter().filter_map(|t| self.door_tris.get(t)).flatten().copied().collect();
         if doors.is_empty() {
@@ -624,6 +634,26 @@ impl NavGraph {
         let beyond = half + p.radius + crate::doors::STOP_MARGIN;
         let (_, b) = on_mesh(c[0] + n[0] * beyond, c[1] + n[1] * beyond)?;
         let full = half + p.radius + crate::doors::STOP_MARGIN.max(opening);
+        let after: Vec<usize> = ((seg + 1)..points.len()).take(16).collect();
+        let past = |k: &[usize]| {
+            k.iter()
+                .copied()
+                .find(|&k| ahead(points[k]) >= beyond - 1.0 && walkable(b, points[k]).is_some())
+                .or_else(|| k.iter().copied().find(|&k| walkable(b, points[k]).is_some()))
+        };
+        let hd = |a: [f32; 3], q: [f32; 3]| (a[0] - q[0]).hypot(a[1] - q[1]);
+        // Through an open door from a corner within the approach: no back-off.
+        if p.open_doors.contains(&door) {
+            let near = (0..=seg).rev().take(16).find(|&h| (-full..0.0).contains(&ahead(points[h])) && walkable(points[h], b).is_some());
+            if let (Some(h), Some(k)) = (near, past(&after)) {
+                let mut out: Vec<[f32; 3]> = points[..=h].to_vec();
+                out.push(b);
+                if hd(b, points[k]) > 1.0 || k + 1 < points.len() {
+                    out.extend_from_slice(&points[k..]);
+                }
+                return Some((out, h));
+            }
+        }
         for depth in [full, 0.75 * full, 0.5 * full, beyond] {
             let Some((_, s)) = on_mesh(c[0] - n[0] * depth, c[1] - n[1] * depth) else { continue };
             if walkable(s, b).is_none() {
@@ -639,15 +669,8 @@ impl NavGraph {
                 .find(|&h| ahead(points[h]) <= -depth + 1.0 && walkable(points[h], s).is_some())
                 .or_else(|| before.iter().copied().find(|&h| walkable(points[h], s).is_some()));
             let Some(h) = h else { continue };
-            let after: Vec<usize> = ((seg + 1)..points.len()).take(16).collect();
-            let k = after
-                .iter()
-                .copied()
-                .find(|&k| ahead(points[k]) >= beyond - 1.0 && walkable(b, points[k]).is_some())
-                .or_else(|| after.iter().copied().find(|&k| walkable(b, points[k]).is_some()));
-            let Some(k) = k else { continue };
+            let Some(k) = past(&after) else { continue };
             let mut out: Vec<[f32; 3]> = points[..=h].to_vec();
-            let hd = |a: [f32; 3], q: [f32; 3]| (a[0] - q[0]).hypot(a[1] - q[1]);
             if hd(points[h], s) > 1.0 {
                 out.push(s);
             }

@@ -1043,6 +1043,8 @@ impl Ai {
         if let Ok(s) = game.world.get(actor) {
             params.keys.extend(s.inventory.iter().flat_map(|inv| inv.iter()).map(|(item, _)| item.0));
         }
+        // Doors the game has open (opened, or open by default and since touched).
+        params.open_doors.extend(game.world.changed().filter(|(_, s)| s.open).map(|(id, _)| id.0));
         params
     }
 

@@ -3790,3 +3790,21 @@ expect = [
   { re = 'foot ik: .*largest body drop (?P<n>[\d.]+) units', range = [0.5, 28.0], label = "the body lowered, within the limit" },
   { re = 'foot ik: .*foot raise (?P<n>[\d.]+) units', range = [0.5, 40.0], label = "a foot raised, within the limit" },
 ]
+
+[[scenario]]
+name = "novac-brahmin-gate"
+source = "Owner 2026-10-17: a Novac pack brahmin could not get through the open chain-link gate by the motel (CLFenceGate01 0008EF2F)"
+areas = ["navigation"]
+paths = ["crates/fnv-nav/src/follow.rs", "crates/fnv-nav/src/path.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Novac", "--pos=23300,-32300,7100", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "all"]
+# The caravan sets off for Freeside at noon; the brahmin follows its merchant through the
+# open gate (about 12,000 units walked by each in a run of 2026-10-17; before the fixes
+# it detoured or walked back to the stop in front of the gate at each replan).
+run_seconds = 150
+expect = [
+  { re = 'ai \[[\d:]+\] 0x001650BD: runs after VCaravanMerchant01NovacREF \(VES09BrahminFollowMerchant\)' },
+  { re = '0x001650BD: VES09BrahminFollowMerchant, on its way in WastelandNV, walked (?P<n>\d+) units', range = [8000, 100000], label = "the brahmin follows its merchant out of Novac" },
+  { re = 'physics moved actors in .* gave up (?P<n>\d+) times', range = [0, 1], label = "physics gives up at most once" },
+  { re = 'moved (?P<n>\d+) stuck actors on', range = [0, 2], label = "at most two stuck actors moved on" },
+]
