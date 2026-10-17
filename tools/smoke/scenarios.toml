@@ -1840,15 +1840,18 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # 250 → 244. The function probes (script-function-coverage.md §4) implemented
 # GetDisposition, SetDisposition, IsFacingUp and IsLeftUp (2 calls, 78 condition uses,
 # observed in game): 56 → 52 stubs, 244 → 242 calls, 481 → 403 condition uses.
+# claude/package-errands implemented the four used-item functions (GetIsUsedItem,
+# GetIsUsedItemType, GetIsUsedItemEquipType, GetUsedItemActivate: 26 condition uses,
+# §3.12): 52 → 48 stubs, 403 → 377 condition uses.
 expect = [
-  { json = "summary.stubs", equals = 52 },
+  { json = "summary.stubs", equals = 48 },
   { json = "summary.by_status.assigned", equals = 1 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 50 },
+  { json = "summary.by_status.needs_system", equals = 46 },
   { json = "summary.by_status.no_op", equals = 4 },
   { json = "summary.by_workstream.J karma and crime", equals = 1 },
   { json = "summary.stub_calls", equals = 242 },
-  { json = "summary.stub_condition_uses", equals = 403 },
+  { json = "summary.stub_condition_uses", equals = 377 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
 
