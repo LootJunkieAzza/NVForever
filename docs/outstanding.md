@@ -5,7 +5,7 @@ of the base game. Drawn from [status.md](status.md) (per system), the script fun
 coverage table ([design/script-function-coverage.md](design/script-function-coverage.md),
 every function the shipped scripts use, probed against the original), the open items of
 [owner-review.md](owner-review.md) and the outcome sections of the playtest lists in
-[handoff/](handoff/). It states the project's own state as of PR #398; facts about the
+[handoff/](handoff/). It states the project's own state as of PR #403; facts about the
 original game are tagged in the linked notes. Update it when a PR closes an item.
 
 ## 1. Playthrough blockers (systems the quests need)
@@ -14,7 +14,9 @@ Ranked by the quests whose scripts, stages, objectives or dialogue use the missi
 wrong functions (the coverage table's §6 count). Fixed since that table: NPC equipment
 drawn from the rules (82 quests, #374), detection by and of the player (153, #376, #389),
 abilities and worn enchantments (80, #377), corpses stood up again (76, #391), fast
-travel (60, #393).
+travel (60, #393), knock-outs (essential and fatigue, #403; row 1 below keeps what is
+left of knockdowns), used items and the remaining package types and flags (#400),
+GetOwnerLastTarget (#403). About 50 functions are still stubs.
 
 | # | System | Quests | What is missing | Functions |
 |---|---|---|---|---|
@@ -35,7 +37,7 @@ travel (60, #393).
 | 15 | VATS | 3 quests, 250 conditions | Not started | GetVATSValue and the other VATS functions |
 | 16 | Miscellaneous stats, scale | 3 each | Counters other than ModPCMiscStat's; SetScale not read by the engine | GetPCMiscStat, SetScale |
 | 17 | Dismemberment, end videos, cell image space | 2 each | Not built | (dismemberment), PlayBink, SetCellImageSpace |
-| 18 | One quest each | 1 each | Screen splatter, AI package codes (Sandbox, Travel-at-goal), AutoDisplayObjectives, navmesh switches, GetOwnerLastTarget, SetPCCanUsePowerArmor, ExitGame | |
+| 18 | One quest each | 1 each | Screen splatter, AI package codes (Sandbox, Travel-at-goal), AutoDisplayObjectives, navmesh switches, SetPCCanUsePowerArmor, ExitGame | |
 
 Rows the coverage table ranks with 0 quests are not listed. The table's own §3.3 lists
 six functions still waiting for an in-game capture to settle their answers.
@@ -112,6 +114,12 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
 - No spawn aid for creature fights in our engine's test runs.
 
 ## 5. Process
+
+- **Smoke scenarios failing on main**: #403's full changed-path run (2026-10-17) found
+  `follower-boone`, `crippled-limp-gecko` and `death-cam-first` failing the same way on
+  origin/main as on its branch, from the #400 build on. They are not marked
+  `known_failing`; each needs a look (a regression from #400–#402, or timing on a loaded
+  machine).
 
 - **Game lock queue**: the smoke runner takes the game locks per launch, and the waiter
   that polls fastest wins, so a multi-scenario run is split up and early waiters can
