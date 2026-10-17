@@ -43,7 +43,7 @@ use crate::locomotion::Dying;
 use crate::ragdoll::Corpse;
 use crate::reflection::ReflectionCamera;
 use bevy::prelude::*;
-use fnv_actor::head_look::{choose, limited, shares, sided, wrap, yaw_limit, yaw_pitch, Ease, Seen, Target, KEEP_RADIUS};
+use fnv_actor::head_look::{choose, limited_leaning, shares, sided, wrap, yaw_limit, yaw_pitch, Ease, Seen, Target, KEEP_RADIUS};
 use fnv_sim::FormId;
 use nvf_play::combat::{is_dead, Combat};
 use nvf_play::player::Player;
@@ -142,6 +142,8 @@ pub struct HeadLook {
     /// and how far away the target is, game units.
     shown: (f32, f32),
     distance: f32,
+    /// Where the target is, yaw and pitch in the same frame (before the limits).
+    aim: Option<(f32, f32)>,
     /// Per bone of the chain: the local rotation the animation gave it and the one
     /// written over it last frame ([`animated_rotation`]).
     written: [Option<(Quat, Quat)>; MAX_CHAIN],
@@ -163,6 +165,12 @@ impl HeadLook {
     /// pitch, radians (the animation's own direction plus [`Self::turn`]).
     pub fn facing(&self) -> (f32, f32) {
         self.shown
+    }
+
+    /// How far the head faces from its target: yaw (positive = the head is to the right
+    /// of it) and pitch (positive = above it), radians; `None` while it looks at nothing.
+    pub fn off_target(&self) -> Option<(f32, f32)> {
+        self.aim.filter(|_| self.target.is_some()).map(|a| (wrap(self.shown.0 - a.0), self.shown.1 - a.1))
     }
 
     /// The rotation the animation gave skeleton node `node`, which has `now`: `now`,
@@ -441,6 +449,7 @@ fn attach(
             ease: Ease::default(),
             shown: (0.0, 0.0),
             distance: 0.0,
+            aim: None,
             written: [None; MAX_CHAIN],
         });
     }
@@ -561,6 +570,9 @@ fn track(
         }
         let pose = ChainPose::new(parent.normalize(), &locals[..n], h.frame_bind);
         let from = pose.head_angles(h.head_bind);
+        // How far the bone above the neck leans (a seated actor hunches forward): the
+        // pitch limits are kept from the level (`limited_leaning`).
+        let lean = yaw_pitch((pose.frame * Vec3::Y).to_array()).1;
 
         // Whom it looks at.
         let mut chosen: Option<(LookAt, Seen)> = None;
@@ -614,7 +626,7 @@ fn track(
             Some((_, s)) => {
                 let yaw = sided(s.yaw, look.side);
                 look.side = Some(yaw);
-                let to = limited((yaw, s.pitch), h.yaw_limit);
+                let to = limited_leaning((yaw, s.pitch), h.yaw_limit, lean);
                 (wrap(to.0 - from.0), to.1 - from.1)
             }
             None => {
@@ -639,6 +651,7 @@ fn track(
         look.ease.step(want, dt);
         look.shown = (from.0 + look.ease.yaw, from.1 + look.ease.pitch);
         look.distance = chosen.as_ref().map_or(0.0, |c| c.1.distance);
+        look.aim = chosen.as_ref().map(|c| (c.1.yaw, c.1.pitch));
 
         if target.is_none() && look.ease.at_rest() {
             // Back on the animation: give back the bones no clip poses.
