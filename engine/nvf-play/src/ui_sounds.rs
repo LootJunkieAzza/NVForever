@@ -67,6 +67,8 @@ pub enum UiMenu {
     MainMenu,
     /// The recipe menu (`crate::crafting`).
     Recipe,
+    /// The character creator (the race menu, `crate::creator`).
+    Creator,
 }
 
 impl UiMenu {
@@ -96,6 +98,7 @@ impl UiMenu {
             UiMenu::Terminal => "terminal",
             UiMenu::MainMenu => "main menu",
             UiMenu::Recipe => "recipe",
+            UiMenu::Creator => "creator",
         }
     }
 }
@@ -292,6 +295,12 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         // under the pointer, text_box.xml); Done clicks `UIMenuOK` [observed:
         // CGM_DoneButton, LUM_ContinueButton]; Reset names no click: `UIMenuCancel` as
         // the settings' back button [design].
+        // The character creator (docs/spec-notes/character-creator.md §6) [design: the
+        // tag-skill menu's sounds; a tab changed as the level-up menu's arrows].
+        (Creator, Focus) => Named("UIMenuFocus"),
+        (Creator, Switch | Value { .. } | Slider | Picked) => Named("UIMenuPrevNext"),
+        (Creator, Reset) => Named("UIMenuCancel"),
+        (Creator, Accepted) => Named("UIMenuOK"),
         (TagSkills | Traits, Focus) => Named("UIMenuFocus"),
         (TagSkills | Traits, Picked) => Named("UIMenuPrevNext"),
         // The attributes page's arrows [documented: char_gen_menu.xml

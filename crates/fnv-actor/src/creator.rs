@@ -35,7 +35,7 @@ pub enum Space {
 }
 
 impl Space {
-    pub fn len(self) -> usize {
+    pub fn values(self) -> usize {
         match self {
             Space::Shape | Space::Skin => 50,
             Space::Asymmetry => 30,
@@ -143,7 +143,7 @@ impl Slider {
                 continue;
             }
             let c = space.of_mut(own);
-            c.resize(space.len().max(c.len()), 0.0);
+            c.resize(space.values().max(c.len()), 0.0);
             for (x, d) in c.iter_mut().zip(dir) {
                 *x += by * d / norm;
             }
@@ -233,6 +233,8 @@ pub struct Creator {
     pub sliders: [Vec<Slider>; 2],
     /// Why the controls file gave no sliders, if it did not.
     pub ctl_problem: Option<String>,
+    /// The player record's own look (NPC_ 7), where the creator starts the first time.
+    pub player: Option<Look>,
 }
 
 impl Creator {
@@ -252,7 +254,18 @@ impl Creator {
             s
         };
         let sliders = [per_sex(false), per_sex(true)];
-        Creator { catalogue, sliders, ctl_problem }
+        let player = forms.npcs.get(&FormId::PLAYER_BASE).and_then(|n| {
+            Some(Look {
+                race: n.race?,
+                female: n.female,
+                hair: n.hair,
+                hair_color: n.hair_color,
+                eyes: n.eyes,
+                head_parts: n.head_parts.clone(),
+                facegen: full(n.facegen.as_ref().unwrap_or(&FaceGen::default())),
+            })
+        });
+        Creator { catalogue, sliders, ctl_problem, player }
     }
 }
 
@@ -398,8 +411,8 @@ impl Catalogue {
             if let Some(c) = n.hair_color {
                 let e = counts.entry(bucket(c)).or_default();
                 e.0 += 1;
-                for k in 0..3 {
-                    e.1[k] += u64::from(c[k]);
+                for (sum, &x) in e.1.iter_mut().zip(&c) {
+                    *sum += u64::from(x);
                 }
             }
             let (Some(race), Some(fg)) = (n.race, n.facegen.as_ref()) else { continue };

@@ -117,6 +117,12 @@ impl ActorWorld {
         Resolver { actors: &self.actors, forms: &self.forms }.resolve_wearing(FormId(base), FormId(reference), wearing).map_err(|e| e.to_string())
     }
 
+    /// [`Self::resolve_wearing`] with a chosen look (the player's, from the character
+    /// creator) in place of the record's.
+    pub fn resolve_as(&self, base: u32, reference: u32, wearing: Option<&[FormId]>, look: Option<&fnv_actor::Look>) -> Result<Appearance, String> {
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_as(FormId(base), FormId(reference), wearing, look).map_err(|e| e.to_string())
+    }
+
     pub fn resolve_creature(&self, base: u32, reference: u32) -> Result<CreatureAppearance, String> {
         Resolver { actors: &self.actors, forms: &self.forms }.resolve_creature(FormId(base), FormId(reference)).map_err(|e| e.to_string())
     }

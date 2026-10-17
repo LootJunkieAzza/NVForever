@@ -16,6 +16,9 @@ const HEAD_EGM: [&str; 2] = ["meshes\\characters\\head\\headhuman.egm", "meshes\
 const HEAD_TRI: [&str; 2] = ["meshes\\characters\\head\\headhuman.tri", "meshes\\characters\\head\\headfemale.tri"];
 const BODY_EGT: [&str; 2] = ["meshes\\characters\\_male\\upperbodyhumanmale.egt", "meshes\\characters\\_male\\upperbodyhumanfemale.egt"];
 
+/// A sex's head morphs, head vertices and body skin morphs.
+type Effects = (Egm, Vec<[f32; 3]>, Egt);
+
 fn round(x: f64, places: i32) -> f64 {
     let k = 10f64.powi(places);
     (x * k).round() / k
@@ -45,7 +48,7 @@ pub fn report(forms: &ActorForms, read: impl Fn(&str) -> Option<Vec<u8>>) -> Val
         .collect();
     let player = forms.npcs.get(&FormId::PLAYER_BASE);
     let player_race = player.and_then(|p| p.race).and_then(|r| forms.races.get(&r));
-    let effects: Vec<Option<(Egm, Vec<[f32; 3]>, Egt)>> = (0..2)
+    let effects: Vec<Option<Effects>> = (0..2)
         .map(|i| {
             let egm = Egm::parse(&read(HEAD_EGM[i])?).ok()?;
             let tri = fnv_actor::tri::Tri::parse(&read(HEAD_TRI[i])?).ok()?;

@@ -447,6 +447,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_look_is_saved_with_the_player() {
+        let mut p = crate::game::PlayerState::default();
+        // No look: nothing written, so older saves read the same.
+        assert!(!serde_json::to_string(&p).unwrap().contains("look"));
+        let look = Look { race: FormId(0x38E5), female: true, hair: None, hair_color: Some([10, 20, 30]), eyes: Some(FormId(4)), head_parts: vec![], fggs: vec![0.5; 50], fgga: vec![0.0; 30], fgts: vec![-1.0; 50] };
+        p.look = Some(look.clone());
+        let back: crate::game::PlayerState = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(back.look, Some(look));
+    }
+
+    #[test]
     fn special_points_stay_within_the_rules() {
         let mut s = SpecialSheet::new([5; 7]);
         assert_eq!(s.remaining(), 5);

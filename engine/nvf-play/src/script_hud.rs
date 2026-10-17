@@ -16,7 +16,8 @@
 //!   coordinator playing the original, 2026-10-09]; the cursor is free while a box is
 //!   open (`PlayState::Menu`). The next queued box then opens (the runtime's rule).
 //! - **Menus scripts open** for character creation: the name, S.P.E.C.I.A.L., tag-skill
-//!   and trait menus are drawn by `crate::chargen`; the race menu (1036) is a
+//!   and trait menus are drawn by `crate::chargen`, the race menu (1036) by
+//!   `crate::creator` when the engine gave it its data; otherwise the race menu is a
 //!   placeholder in the same box that names the menu, and Enter or a click on Done
 //!   closes it as the player's Done would (`Game::close_menu`); nothing is chosen there.
 //! - While a script's menu or box is open the player cannot move or look
@@ -182,7 +183,7 @@ pub fn box_buttons(b: &BoxMessage) -> Vec<String> {
 
 /// What the overlay shows this frame: the panel (a message box or a menu placeholder),
 /// the box on screen, and the subtitles.
-fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&crate::player::Player>) -> (Option<PanelView>, Option<BoxMessage>, Subtitles) {
+fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&crate::player::Player>, creator: bool) -> (Option<PanelView>, Option<BoxMessage>, Subtitles) {
     let Some(rt) = script.rt.as_ref() else { return (None, None, Subtitles::default()) };
     let g = &rt.game;
     let front = match g.menu {
@@ -199,8 +200,11 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
             buttons: box_buttons(b),
             icon: None,
         }),
-        // The name, S.P.E.C.I.A.L., tag-skill, trait and level-up menus draw themselves.
-        Some(code) if crate::script::is_script_menu(code) && !crate::chargen::has_own_menu(code) && !crate::levelup::draws(code) => Some(menu_panel(code)),
+        // The name, S.P.E.C.I.A.L., tag-skill, trait and level-up menus draw themselves,
+        // and the race menu with the creator's data (`crate::creator`).
+        Some(code) if crate::script::is_script_menu(code) && !crate::chargen::has_own_menu(code) && !crate::levelup::draws(code) && !crate::creator::draws(code, creator) => {
+            Some(menu_panel(code))
+        }
         _ => None,
     };
     let mut subs = Vec::new();
@@ -253,8 +257,9 @@ fn draw(
     areas: Query<Entity, With<SubtitleArea>>,
     player: Option<Res<crate::player::Player>>,
     (data, mut images, formats, mut font): (Option<Res<GameData>>, ResMut<Assets<Image>>, Option<Res<CompressedImageFormatSupport>>, Local<Option<Face>>),
+    creator: Option<Res<crate::creator::CreatorData>>,
 ) {
-    let (p, front, subs) = view(&hud, &script, &sim, player.as_deref());
+    let (p, front, subs) = view(&hud, &script, &sim, player.as_deref(), creator.is_some());
     hud.on_screen = front;
     if panel.view != p {
         panel.set(p);
@@ -289,6 +294,7 @@ pub fn menu_keys(
     hud: Res<ScriptHud>,
     mut panel: ResMut<MessagePanel>,
     mut script: ResMut<ScriptState>,
+    creator: Option<Res<crate::creator::CreatorData>>,
 ) {
     use KeyCode::*;
     let Some(code) = script.rt.as_ref().and_then(|rt| rt.game.menu) else { return };
@@ -297,7 +303,7 @@ pub fn menu_keys(
     }
     let clicked = clicks.iter().find(|(i, _)| **i == Interaction::Pressed).map(|(_, b)| b.0);
     let enter = keys.any_just_pressed([Enter, NumpadEnter]);
-    if crate::chargen::has_own_menu(code) || crate::levelup::draws(code) {
+    if crate::chargen::has_own_menu(code) || crate::levelup::draws(code) || crate::creator::draws(code, creator.is_some()) {
         return;
     }
     if code != MENU_MESSAGE {
