@@ -3612,8 +3612,8 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:001073E8.
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10"]
 run_seconds = 18
 order = [[
-  "console: IsSpellTarget on 0x001073E8 >> 0.00",
-  "console: HasMagicEffect on 0x001073E8 >> 0.00",
+  "console: IsSpellTarget on GSVictorRef >> 0.00",
+  "console: HasMagicEffect on GSVictorRef >> 0.00",
   "console: IsSpellTarget on player >> 1.00",
   "console: HasMagicEffect on player >> 1.00",
   "console: IsSpellTarget on player >> 0.00",
