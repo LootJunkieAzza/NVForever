@@ -1581,9 +1581,10 @@ pub fn report(
         core.waited[1],
         each.join("; ")
     );
+    let st = core.ai.social_stats();
     info!(
-        "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up)",
-        core.social[0], core.social[1], core.social[2], core.social[3]
+        "social summary: {} hellos said to the player, {} random conversations started, {} walks up to a partner ({} given up); {} tries next to the player, {} chances won; {:.0} actor-seconds next to the player",
+        core.social[0], core.social[1], core.social[2], core.social[3], st.tries, st.chances_won, st.near_player_seconds
     );
     let p = &core.ai.process_stats;
     let (high, low) = core.ai.process_counts();

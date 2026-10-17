@@ -1744,6 +1744,20 @@ expect = [
 ]
 
 [[scenario]]
+name = "conversation-timer"
+source = "NPC conversation rate against the original's, docs/spec-notes/npc-behaviour-compare.md §5 (2026-10-17): one 30–60 s timer for the loaded area, not one per actor"
+note = "the player stands among Westside's citizens at 10:00; in about 90 s of play the area tries a conversation once to three times (a timer per actor tried dozens of times)"
+areas = ["ai", "residents"]
+paths = ["crates/fnv-ai/src/social.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Westside", "--pos=-37600,106750,4600", "--play", "--hour", "10", "--no-voice"]
+run_seconds = 100
+expect = [
+  { re = 'social summary: .* (?P<n>\d+) tries next to the player', range = [1, 3], label = "one to three tries for the whole area in about 90 s" },
+  { re = 'social summary: .* (?P<n>\d+) actor-seconds next to the player', range = [100, 1e9], label = "actors stand next to the player" },
+]
+
+[[scenario]]
 name = "far-actors"
 source = "owner's playtest 2026-10-11 (Fiends heard talking far away): process levels, docs/design/actor-behaviour.md §5.9"
 areas = ["ai", "residents"]
