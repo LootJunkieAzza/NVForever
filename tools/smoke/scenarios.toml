@@ -245,6 +245,25 @@ order = [[
 forbid = [{ text = "Caught rendering error", label = "a rendering (validation) error while the ranges change" }]
 
 [[scenario]]
+name = "sound-volumes"
+source = "engine/nvf-play/src/audio_out.rs (owner request 2026-10-17): the settings page's Sound tab sets the master volume and each category's while the game runs; music and footsteps play into their own categories"
+areas = ["audio", "settings"]
+paths = ["engine/nvf-play/src/audio_out.rs", "engine/nvf-play/src/sfx.rs", "engine/nvf-play/src/music.rs", "engine/nvf-play/src/settings.rs", "engine/nvforever/src/settings.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MOVE = "6:1:0,10:0:0", NVF_PLAY_TEST_PAUSE = "12:16", NVF_PLAY_TEST_SETTINGS = "13:volume-master=0.8,14:volume-footstep=0.25,15:volume-voice=0.5" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 18
+order = [[
+  "settings: volume-master 80%",
+  "settings: volume-footstep 25%",
+  "settings: volume-voice 50%",
+  { re = 'volumes master 80%, music 100%, footstep 25%, voice 50%, effects 100%, radio 100%$' },
+]]
+expect = [
+  { re = 'audio categories: music (?P<n>[\d.]+) s', range = [3, 1e9], label = "the music plays into the Music category" },
+  { re = 'audio categories: music [\d.]+ s, footstep (?P<n>[\d.]+) s', range = [0.1, 1e9], label = "the walk's footsteps play into the Footstep category" },
+]
+
+[[scenario]]
 name = "graphics-settings"
 source = "docs/design/graphics-enhanced.md §3.6, §3.9, §3.10: the settings page's anti-aliasing choice (multisampling levels, FXAA, SMAA, TAA), shadow filtering, field of view, vertical sync and frame-rate limit change while the game runs, without a rendering error"
 areas = ["renderer", "graphics", "settings"]
@@ -613,10 +632,27 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 22
 expect = [
-  { re = 'combat line: \S+ says PowerAttack line', label = "the player says a PowerAttack line", known_failing = "branch observer-npc-behaviour 2026-10-17, 3 of 3 runs: the dogs now bite from their reach (npc_combat::melee_spacing), so their bites land sooner and the player's power attack (22.72 s in one run) falls inside its own Hit line (22.44-22.90 s); a line is never started while the speaker talks. The player's line rules are unchanged; the aid timings need moving (npc-behaviour-compare.md §8)" },
+  { re = 'combat line: \S+ says PowerAttack line', label = "the player says a PowerAttack line" },
   { re = 'combat line: \S+ says Hit line', label = "someone says a Hit line" },
   { re = 'combat line: \S+ says Death line', label = "the player's Death line" },
   { re = 'combat lines: (?P<n>\d+) said', range = [2, 10000], label = "at least two combat lines in the summary" },
+]
+
+[[scenario]]
+name = "combat-voice"
+source = "owner requests 2026-10-17: the player's hurt and power attack sounds play (docs/spec-notes/combat-dialogue.md §2); the death music plays when the player dies (engine/nvf-play/src/music.rs)"
+note = "combat-lines with voice and music on: the player's Hit lines play their files, the power attack's line cuts the Hit grunt of the blow taken just before it, and the player's death plays MUSDeath"
+areas = ["combat", "dialogue", "audio", "music"]
+paths = ["crates/fnv-game/src/combat_lines.rs", "engine/nvf-play/src/voice.rs", "engine/nvf-play/src/combat.rs", "engine/nvf-play/src/music.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F573F:player,3:combat:0x0013E5BB:player", NVF_PLAY_TEST_EQUIP = "00004337", NVF_PLAY_TEST_CONTROL = "3:weapon,6:aimflat,6.1:fire,7.6:fire,8.4:aimflat,8.5:fire,8.6:fire" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
+run_seconds = 22
+expect = [
+  { re = 'voice: playing \S+playervoicemale\\genericplayer_hit_', label = "a player hurt sound plays" },
+  { re = 'voice: playing \S+playervoicemale\\genericplayer_powerattack_', label = "the player's power attack sound plays" },
+  { re = 'voice: playing \S+playervoicemale\\genericplayer_death_', label = "the player's death sound plays" },
+  { re = 'music: the player died: the music stops, MUSDeath \(\S+\) plays$', label = "the death music plays" },
+  { re = 'music summary: .*, 1 death sounds', label = "one death sound in the music summary" },
 ]
 
 [[scenario]]
@@ -2302,6 +2338,21 @@ expect = [
 forbid = [{ re = "combat: \\S+ blocks the player's blow", label = "a power attack is blocked as an ordinary blow" }]
 
 [[scenario]]
+name = "combat-fists-drawn"
+source = "owner's playtest 2026-10-17: unarmed NPCs in combat stood in their no-weapon idle; they draw their fists (h2hequip, then h2haim held) as any melee weapon is drawn (engine/nvforever/src/actors.rs arm)"
+note = "an NCR trooper with no weapon drawn (--actor-weapons none, so it fights with its fists) set on the player at 4 s in quiet Goodsprings and put 90 units north of it every 3 s"
+areas = ["combat"]
+paths = ["engine/nvforever/src/actors.rs", "engine/nvforever/src/outfits.rs", "engine/nvforever/src/weapons.rs", "engine/nvforever/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "4:combat:0x000F36F5:player,6:moveto:0x000F36F5:player:0:90:0,9:moveto:0x000F36F5:player:0:90:0,12:moveto:0x000F36F5:player:0:90:0" }
+args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--actor-weapons", "none"]
+run_seconds = 18
+expect = [
+  { re = 'actor weapons: \S+_male h2h: clips \[Holster, Equip, Aim, Unequip\]', label = "the people's fists stance loads" },
+  { re = 'alert: .* 0x000F36F5 draws its weapon', label = "the trooper draws its fists" },
+  { re = 'attack anims: 000F36F5 plays \S+h2hattack', label = "its fist blows still play" },
+]
+
+[[scenario]]
 name = "combat-melee-combo"
 source = "owner request 2026-10-16: melee enemies chain attacks into combos of different clips (docs/design/combat-ai.md §15)"
 note = "the combat-block fist fight (NCR troopers against the Fiends, --actor-weapons none): blows go on combos by the clips' a: keys, AttackLeft clips play after AttackRight ones"
@@ -3235,15 +3286,62 @@ expect = [
 [[scenario]]
 name = "crippled-limp-creature"
 source = "owner 2026-10-16: a creature with a crippled leg limps where its skeleton has limping clips (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11)"
-note = "VERGSCoyote6REF 0x00157B38 (dog skeleton: locomotion/hurt/ has the walk and run forward) at the coyote-warning spot; god mode as the coyote is Aggressive"
+note = "VERGSCoyote6REF 0x00157B38 (dog skeleton: locomotion/hurt/ has the walk and run forward) at the coyote-warning spot; god mode as the coyote is Aggressive; it attacks after its two warnings (about 13 s in), alerted, so the run goes on to 24 s to see it run on its limping clips"
 areas = ["actors", "combat"]
-paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/actors.rs"]
+paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/locomotion.rs", "crates/fnv-actor/src/locomotion.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:VERGSCoyote6REF.DamageAV RightMobilityCondition 1000;8.5:close" }
 args = ["--play", "--pos=-59300,-753,9100", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 16
+run_seconds = 24
 expect = [
   { re = 'actor locomotion: meshes.creatures.dog limping: 2 of \d+ moves from hurt', label = "the dog skeleton's limping set loads" },
   { re = 'limping: VERGSCoyote6REF 0x00157B38 limps on a crippled leg', label = "the coyote limps" },
+  { re = 'actor locomotion: meshes.creatures.dog limping \(mt\+h2h\): 2 of \d+ moves from hurt.*FastForward h2hfastforward_hurt', label = "... and its fighting set, the h2h limping run over the mt one" },
+  { re = 'limping: VERGSCoyote6REF 0x00157B38 moves \w+ on its limping clip \w+', label = "the coyote moves on a limping clip" },
+]
+
+[[scenario]]
+name = "crippled-limp-deathclaw"
+source = "owner 2026-10-17: every actor with limping clips limps on a crippled leg (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11, §8.12)"
+note = "the creature-alert-stance setup: the deathclaw QJDeathclawWanderer01 0x000E62E5 at Quarry Junction fights the feral ghoul 0x000CE9E7 put 500 units north of the player at 2 s; its Left Mobility Condition is damaged at 8 s, so it limps while it fights (alerted)"
+areas = ["actors", "combat", "creatures"]
+paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/actors.rs", "crates/fnv-actor/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT = "2:moveto:0x000CE9E7:player:0:500:0,8:damage:0x000E62E5:LeftMobilityCondition:1000" }
+args = ["--pos=-14138,25200,4700", "--heading", "0", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'actor locomotion: meshes.creatures.deathclaw limping: 7 of \d+ moves from hurt', label = "the deathclaw's limping set loads (walk and run forward, back, sideways, turns)" },
+  { re = 'limping: \S+ 0x000E62E5 limps on a crippled leg', label = "the deathclaw limps" },
+  { re = 'limping: \S+ 0x000E62E5 moves \w+ on its limping clip \w+', label = "the deathclaw moves on a limping clip" },
+]
+
+[[scenario]]
+name = "crippled-limp-supermutant"
+source = "owner 2026-10-17: every actor with limping clips limps on a crippled leg; super mutants (creatures on the smspinebreaker skeleton) included (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11, §8.12)"
+note = "the Jacobstown super mutant 0x0014B0E3 (JacobstownMutant1): its Right Mobility Condition is damaged at 8 s, then it fights the player (god mode) from 9 s, so it walks or runs at them"
+areas = ["actors", "combat", "creatures"]
+paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/actors.rs", "crates/fnv-actor/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "8:damage:0x0014B0E3:RightMobilityCondition:1000,9:combat:0x0014B0E3:player" }
+args = ["--play", "--pos=-108200,96700,12100", "--heading", "330", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+expect = [
+  { re = 'actor locomotion: meshes.creatures.smspinebreaker limping: 9 of \d+ moves from hurt', label = "the super mutants' limping set loads (idle, walk and run forward and back, sideways, turns)" },
+  { re = 'limping: \S+ 0x0014B0E3 limps on a crippled leg', label = "the super mutant limps" },
+  { re = 'limping: \S+ 0x0014B0E3 moves \w+ on its limping clip \w+', label = "the super mutant moves on a limping clip" },
+]
+
+[[scenario]]
+name = "crippled-limp-gecko"
+source = "owner 2026-10-17: every actor with limping clips limps on a crippled leg; a gecko's hind legs are its mobility limbs (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11, §8.12)"
+note = "VERGSGecko2REF 0x00157B3D (Very Aggressive) at the wait-enemies-near spot goes for the player (god mode); its Left Mobility Condition (left hind leg) is damaged at 8 s"
+areas = ["actors", "combat", "creatures"]
+paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/actors.rs", "crates/fnv-actor/src/locomotion.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "8:damage:0x00157B3D:LeftMobilityCondition:1000" }
+args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'actor locomotion: meshes.creatures.nvgecko limping: 2 of \d+ moves from hurt', label = "the gecko's limping set loads (walk and run forward)" },
+  { re = 'limping: \S+ 0x00157B3D limps on a crippled leg', label = "the gecko limps" },
+  { re = 'limping: \S+ 0x00157B3D moves \w+ on its limping clip \w+', label = "the gecko moves on a limping clip" },
 ]
 
 [[scenario]]
@@ -3648,6 +3746,24 @@ expect = [
 ]
 
 [[scenario]]
+name = "resurrect-actor"
+source = "docs/design/script-function-coverage.md section 5 item 4, docs/spec-notes/resurrect.md: Ringo in the gas station is given three Stimpaks, killed (his ragdoll drops), one taken from his corpse, then raised with ResurrectActor 0; his corpse goes, a fresh body stands where his body lay and his packages take him up; he keeps what is left of his items (capture rs1, 2026-10-17)"
+areas = ["combat", "ragdoll", "scripting"]
+paths = ["engine/nvforever/src/resurrect.rs", "crates/fnv-game/src/resurrect.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/deaths.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_CONSOLE = "10:00104C7D.removeallitems;10.3:00104C7D.additem 00015169 3;10.6:00104C7D.getitemcount 00015169;11:00104C7D.killactor;16.7:00104C7D.getdead;17:00104C7D.removeitem 00015169 1;17.3:00104C7D.resurrectactor 0;17.6:00104C7D.getdead;18:00104C7D.getitemcount 00015169;18.5:close" }
+args = ["--cell", "GSGasStation", "--play", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { re = 'console: GetItemCount on .*>> 3\.00', label = "Ringo carries the three Stimpaks given" },
+  { re = 'console: GetDead on .*>> 1\.00', label = "Ringo is dead" },
+  { re = 'resurrect: 0x00104C7D \(GSRingo\) alive again \(animate 0\): its (ragdoll|death pose) taken away', label = "his corpse is taken away" },
+  { re = 'console: GetDead on .*>> 0\.00', label = "Ringo is alive" },
+  { re = 'console: GetItemCount on .*>> 2\.00', label = "one Stimpak taken from the corpse, two still carried alive (capture rs1)" },
+  { re = 'resurrect: 0x00104C7D drawn standing again [\d.]+ s after, package \S', label = "drawn standing, running a package" },
+]
+order = [[{ re = 'GetDead on .*>> 1\.00' }, { re = 'resurrect: 0x00104C7D \(GSRingo\) alive again' }, { re = 'resurrect: 0x00104C7D drawn standing again' }]]
+
+[[scenario]]
 name = "abilities-worn"
 source = "docs/spec-notes/aid-items.md §13 (capture abilities-1): authored abilities are on loaded actors only, so Victor outside reads 0 for his template's SecuritronDT from the gas station; the gambler hat's enchantment (Perception +1) is on the player while worn and gone once unequipped"
 areas = ["scripts", "items"]
@@ -3656,8 +3772,8 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "8:001073E8.
 args = ["--cell", "GSGasStation", "--play", "--no-voice", "--hour", "10"]
 run_seconds = 18
 order = [[
-  "console: IsSpellTarget on 0x001073E8 >> 0.00",
-  "console: HasMagicEffect on 0x001073E8 >> 0.00",
+  "console: IsSpellTarget on GSVictorRef >> 0.00",
+  "console: HasMagicEffect on GSVictorRef >> 0.00",
   "console: IsSpellTarget on player >> 1.00",
   "console: HasMagicEffect on player >> 1.00",
   "console: IsSpellTarget on player >> 0.00",
@@ -3700,3 +3816,54 @@ expect = [
   { re = 'foot ik: .*largest body drop (?P<n>[\d.]+) units', range = [0.5, 28.0], label = "the body lowered, within the limit" },
   { re = 'foot ik: .*foot raise (?P<n>[\d.]+) units', range = [0.5, 40.0], label = "a foot raised, within the limit" },
 ]
+
+[[scenario]]
+name = "fast-travel-primm"
+source = "owner request 2026-10-17: fast travel from the Pip-Boy's World Map (docs/spec-notes/fast-travel.md): a script block refuses, then Yes takes the player to Primm's arrival marker behind a loading screen and moves the clock on"
+note = "Primm 0x000CDF46 made a travel target by ShowMap's canTravel; EnableFastTravel 0 at 6 s refuses the first ask (sNoFastTravelScriptBlock), EnableFastTravel 1 at 18 s lets the second through; the marker's linked reference 0x00169225 (-56411, -53185) is where the player arrives"
+areas = ["pipboy", "fast-travel", "loading"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy/data.rs", "engine/nvf-play/src/pipboy/test_aid.rs", "engine/nvf-play/src/loading.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "6:call:-:ShowMap:0x000CDF46:1,6.5:call:-:EnableFastTravel:0,18:call:-:EnableFastTravel:1", NVF_PLAY_TEST_PIPBOY = "12:open,14:page=data,15:tab=1,16:travel=000CDF46,17:key=use,20:travel=000CDF46,22:key=use" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 45
+order = [[
+  { re = 'fast travel: to Primm \(0x000CDF46\) refused \(Script\); the box says "Fast travel is currently unavailable from this location\."', label = "refused while a script blocks it (sNoFastTravelScriptBlock, FalloutNV.esm's text)" },
+  'fast travel: answered "OK"',
+  'fast travel: asks "Do you want to travel to Primm?" (0x000CDF46)',
+  'fast travel: answered "Yes"',
+  { re = 'fast travel: to Primm \(0x000CDF46\): arrive at its linked reference 0x00169225', label = "the destination is the marker's linked reference" },
+  "pipboy: down",
+  { re = 'fast travel: \d+\.\d\d hours passed', label = "the clock moved on by the travel time" },
+  { re = 'travel to worldspace 000DA726 \(WastelandNV\): feet \(-564\d\d, -531\d\d', label = "the player stands at Primm's arrival marker" },
+]]
+
+[[scenario]]
+name = "fast-travel-enemies-near"
+source = "owner request 2026-10-17 (docs/spec-notes/fast-travel.md §2): no travel while in combat or with a hostile actor near; the box shows the refusal with OK"
+note = "the Very Aggressive geckos 0x00157B3D and 0x00157B3E at wait-enemies-near's spot, god mode; Goodsprings 0x000CDF51 made a travel target by ShowMap; the gecko that has noticed the player refuses it as combat, one that has not as enemies near"
+areas = ["pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "crates/fnv-game/src/rest.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_FACE = "5:00157B3D", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowMap:0x000CDF51:1", NVF_PLAY_TEST_PIPBOY = "10:open,11:page=data,12:tab=1,13:travel=000CDF51,15:key=use,17:close" }
+args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { re = 'fast travel: to Goodsprings \(0x000CDF51\) refused \((Combat|.* is hostile and within \d+ units)\)', label = "refused: in combat or a hostile actor near" },
+  'fast travel: answered "OK"',
+]]
+expect = [
+  { text = "fast travel: asks", count = 0, label = "no question was asked" },
+]
+
+[[scenario]]
+name = "fast-travel-no-travel-place"
+source = "owner request 2026-10-17 (docs/spec-notes/fast-travel.md §2): no travel from a worldspace flagged Can't Fast Travel (Lucky38World, WRLD DATA bit 1)"
+note = "the player starts on an XMarkerHeading of Lucky38World (0x00116A55); Goodsprings 0x000CDF51 made a travel target by ShowMap"
+areas = ["pipboy", "fast-travel"]
+paths = ["engine/nvf-play/src/pipboy/data/travel.rs", "engine/nvf-play/src/pipboy/data/read.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "4:call:-:ShowMap:0x000CDF51:1", NVF_PLAY_TEST_PIPBOY = "10:open,11:page=data,12:tab=1,13:travel=000CDF51,15:key=use,17:close" }
+args = ["--play", "--world", "Lucky38World", "--pos=-2376,6057,19200", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 22
+order = [[
+  { re = 'fast travel: to Goodsprings \(0x000CDF51\) refused \(Place\)', label = "refused: the worldspace forbids fast travel" },
+  'fast travel: answered "OK"',
+]]

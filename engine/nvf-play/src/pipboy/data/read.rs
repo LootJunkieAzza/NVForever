@@ -110,6 +110,12 @@ pub fn world_map(lo: &LoadOrder, schema: &Schema, index: &WorldIndex, world: u32
     None
 }
 
+/// A worldspace's `DATA` flags (bit 1: Can't Fast Travel [documented: xEdit]); 0 when
+/// it has none.
+pub fn world_flags(lo: &LoadOrder, schema: &Schema, world: u32) -> u8 {
+    fields(lo, schema, world).filter(|f| &f.sig == b"WRLD").and_then(|f| byte(&f, b"DATA")).unwrap_or(0)
+}
+
 /// A region's map name (`RDMP`) and the priority of the map entry it belongs to (the
 /// `RDAT` before it).
 fn region_name(lo: &LoadOrder, schema: &Schema, region: u32) -> Option<(String, f64)> {

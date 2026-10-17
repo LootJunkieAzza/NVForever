@@ -27,7 +27,8 @@
 //!
 //! **Refusals** (wait-menu.md §9): instead of opening, a line on the screen says why the
 //! player cannot wait or sleep now ([`refusal`]): a script forbade waiting, the player is
-//! swimming, hostile actors are near, the bed is someone else's. A script that opens the
+//! swimming or in the air, takes radiation damage (an empty check yet), is in combat, has
+//! hostile actors near, trespasses, or the bed is someone else's. A script that opens the
 //! menu without asking for the check gets it regardless.
 //!
 //! **Scripts** see a sleep or a wait while its hours pass (`fnv_game::rest`:
@@ -302,6 +303,7 @@ fn refusal(
     rt: Option<&mut crate::script::Runtime>,
     sim: &mut SimState,
     swimming: bool,
+    airborne: bool,
     feet: Option<[f32; 3]>,
     indoors: bool,
     actors: &[(u32, [f32; 3])],
@@ -318,6 +320,15 @@ fn refusal(
     if swimming {
         return Some((Refusal::UnderWater, "the player is swimming".into()));
     }
+    // In the air: jumping or falling [owner request 2026-10-17].
+    if airborne {
+        return Some((Refusal::Falling, "the player is in the air".into()));
+    }
+    // Taking radiation damage [owner request 2026-10-17]: kept as an empty check, since
+    // nothing in the world irradiates the player yet (rads come from aid items only).
+    if taking_radiation_damage() {
+        return Some((Refusal::Radiation, "the player is taking radiation damage".into()));
+    }
     let rt = rt?;
     crate::script::with_world(rt, sim, |rt| {
         let g = &mut rt.game;
@@ -331,9 +342,36 @@ fn refusal(
                 return Some((Refusal::HostilesNear, format!("{} is hostile and within {distance:.0} units ({place})", g.data.name(a))));
             }
         }
+        // In combat: a drawn actor in a combat state has the player on its target or
+        // alert list, as IsInCombat on the player reads it (`fnv_game::awareness`) [owner
+        // request 2026-10-17; the texts' names are documented, wait-menu.md §9]. After the
+        // hostiles near, whose line is the original's own [hypothesis: in a fight the
+        // enemy is near]; this catches a hunter farther away, or one the player provoked
+        // that would not attack on its own. Only the drawn ones count: an actor left
+        // behind in an unloaded cell keeps its combat state, and the player who went away
+        // is no longer fought [hypothesis].
+        let player = FormId::PLAYER_REF;
+        let hunter = actors.iter().map(|(id, _)| FormId(*id)).find(|&a| {
+            g.awareness.get(a).is_some_and(|w| w.state.in_combat() && (w.targets.contains_key(&player) || w.alarms.iter().any(|x| x.owner == player)))
+        });
+        if let Some(a) = hunter {
+            return Some((Refusal::InCombat, format!("{} is in a combat state and hunts the player", g.data.name(a))));
+        }
+        // Trespassing: an owned cell, not public, that is not the player's, the cell
+        // `fnv_game::crime` warns the player in [owner request 2026-10-17].
+        if let Some((cell, _)) = g.trespass_cell() {
+            return Some((Refusal::Trespassing, format!("the player trespasses in {}", g.data.name(cell))));
+        }
         let owner = bed.filter(|_| sleep).and_then(|b| fnv_game::rest::bed_owned_by_another(g, FormId(b)))?;
         Some((Refusal::OwnedBed, format!("the bed belongs to {}", g.data.name(owner))))
     })
+}
+
+/// Whether the player takes radiation damage now. Always no: NVForever has no
+/// radiation in the world yet (no irradiated water, areas or hazards); the refusal waits
+/// for it [owner request 2026-10-17].
+fn taking_radiation_damage() -> bool {
+    false
 }
 
 /// Whether the player is in the world, where a request opens the menu: no menu, no
@@ -470,7 +508,9 @@ fn open(
         })[usize::from(indoors)]
         .unwrap_or(HOSTILE_DISTANCE[usize::from(indoors)]);
         let rt = script.as_mut().and_then(|s| s.rt.as_mut());
-        let no = refusal(sleep, bed, rt, &mut sim, player.is_some_and(|c| c.swimming), player.map(|c| c.feet), indoors, &actors.living, distance);
+        // Furniture holds the player off the ground's rules (a bed, a chair).
+        let airborne = seat.on.is_none() && player.is_some_and(|c| !c.grounded && !c.swimming);
+        let no = refusal(sleep, bed, rt, &mut sim, player.is_some_and(|c| c.swimming), airborne, player.map(|c| c.feet), indoors, &actors.living, distance);
         if let Some((why, detail)) = no {
             let line = refusals.line(why, sleep);
             info!("wait menu: refused ({}): {detail}; on screen: {line:?}", if sleep { "sleep" } else { "wait" });
