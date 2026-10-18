@@ -88,6 +88,27 @@ reads the larger of the two axes, forward and back on a tie [hypothesis]. 0 at r
   2026-10-17]: an actor on furniture plays an idle; NVForever reads 1 at GetSitting or
   GetSleeping 3 [hypothesis for beds].
 
+### 1.1 The anim_actions campaign (2026-10-18)
+
+Observer campaign `anim_actions` (save nvfstrip, plugin v7; NCR troopers spawned and set on
+the player in god mode, one weapon each, every game loop; private outputs
+`C:\fnv-private\capture\out\obs_anim_actions_*.jsonl`) [observed]:
+
+- **Throws** (dynamite, four throws): 5 for 52–58 samples, then **6 for 11–40 (median
+  36)**, then 4 (16–23) or −1. NVForever holds 6 for 0.6 s (`THROWN_SECONDS`). The frag
+  grenade troopers did not throw; one throwing-spear trooper began a 5 the session ended
+  on.
+- **17**: on the .357 (three reloads: 17 for 113–115 samples, then 9 for 119–133) and the
+  hunting revolver (two: 17 for 75–81, 9 for 105–106), always between the last shot's 4
+  and the reload's 9. The 9mm pistol's three reloads went from 4 to 9 with no 17. The
+  Cowboy Repeater and hunting shotgun troopers did not reload in their sessions.
+- **10, 11 and 12** never appeared on these NPCs.
+- **3** after a shot: one sample on the .357 and the 9mm (46 shots); 23–24 on the single
+  shotgun, 27–28 on the varmint rifle, 30–31 on the hunting revolver, 30–37 on a hunting
+  rifle: the guns that cycle by hand hold 3 through the cycle. NVForever still holds 3
+  one frame for every gun [gap left].
+- **0** drawing 46–86 samples, **1** holstering 35–75, **13** 78–93 (staggers, getting up).
+
 ## 4. IsPlayerActionActive
 
 Its argument is an ActionIndex, 1 to 10; the list is a wiki template the export lacks
@@ -109,8 +130,8 @@ did). The follow-up `player_actions_anim2` taps instead.
 
 ## 5. Open, and the captures that settle it
 
-- What 17 means; whether 3 lasts through a bolt or pump cycle by the clip's keys; how
-  long 6 lasts. AI observer campaign `tools/capture/observe/anim_actions.campaign.json`
+- What 17 is exactly (§1.1 settles where it falls, not what it covers); 3 through a hand
+  cycle (§1.1: it does, not reproduced yet). AI observer campaign `tools/capture/observe/anim_actions.campaign.json`
   (nvfstrip): NCR troopers each armed with one weapon and its ammo (the place item's
   `give`, new) set on the player in god mode: frag grenades, throwing spears, dynamite,
   the .357, the Cowboy Repeater and the hunting shotgun (round by round), the hunting

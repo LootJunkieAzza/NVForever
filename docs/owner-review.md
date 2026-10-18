@@ -5788,8 +5788,8 @@ What GetAnimAction now answers beyond #433 (docs/spec-notes/anim-state.md §1), 
 guesses in it:
 
 - **5 and 6 (throws)**, from the wiki's New Vegas table: 5 while the player gears up to
-  throw a grenade, spear or mine, 6 the frame it leaves the hand, then 4. *Guess*: that 6
-  lasts one frame, as 3 does after a shot. NPCs throw nothing yet in NVForever, so only
+  throw a grenade, spear or mine, 6 the frame it leaves the hand, then 4. 6 lasts about 0.6 s [observed: the
+  anim_actions campaign, troopers throwing dynamite]. NPCs throw nothing yet in NVForever, so only
   the player reads them.
 - **10–11**: never answered. The wiki calls them probable left-overs, and none of the
   observer's samples showed them. **12**: the original's player read it for about 0.8 s
@@ -5798,8 +5798,9 @@ guesses in it:
 - **17**: the original showed it only on .357 revolvers, before their reloads. *Guess*:
   it is the opening of a round-by-round reload (cylinder or gate opened), so NVForever
   answers it there for the .357, lever-actions and the hunting shotgun, player and NPCs.
-  The timing does not quite fit: the opening clip is 1.07 s, the original's 17 lasted
-  1.5–1.9 s. No shipped script asks for 17, so a wrong guess changes nothing scripted.
+  The campaign confirmed where it falls: between the last shot and the reload's 9 on
+  the .357 and the hunting revolver, never on the 9mm [observed]. The timing still does
+  not fit: the opening clip is 1.07 s, the original's 17 lasted 1.3–1.9 s. No shipped script asks for 17, so a wrong guess changes nothing scripted.
 - **IsPlayerActionActive** still answers 9 only: the ActionIndex list is not in the wiki
   export or any other reference here.
 

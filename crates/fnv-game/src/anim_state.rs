@@ -54,9 +54,10 @@ pub enum AnimAction {
     /// 5: "gearing up to throw" [documented]: a thrown weapon's clip until it leaves the
     /// hand ([`throw_action`]).
     ThrowWindUp,
-    /// 6: "the throwable weapon has left the player's hand" [documented]: the frame after
-    /// the throw, as 3 follows a semi-automatic shot [hypothesis: the observer read 6 in
-    /// 10 samples and 5 in 79 over a fight's throws, docs/spec-notes/anim-state.md §1].
+    /// 6: "the throwable weapon has left the player's hand" [documented]: for
+    /// [`THROWN_SECONDS`] after the throw [observed: troopers throwing dynamite read 5
+    /// for 52–58 samples, then 6 for 11–40 (median 36), then 4 or −1; campaign
+    /// `anim_actions`, 2026-10-18, docs/spec-notes/anim-state.md §1].
     Thrown,
     /// 7: blocking.
     Block,
@@ -65,7 +66,8 @@ pub enum AnimAction {
     /// 9: reloading [documented; observed: about two seconds after a magazine's last
     /// shot, every gun of the gunfight].
     Reload,
-    /// 12: ANIM_ACTION_WAIT_FOR_SPECIAL_IDLE [documented: the name]. The player read 12
+    /// 12: ANIM_ACTION_WAIT_FOR_SPECIAL_IDLE [documented: the name]. No NPC of the
+    /// campaign `anim_actions` read 10–12 [observed]. The player read 12
     /// for about 49 frames, starting about 50 frames after a jump [observed: capture
     /// `player_actions_anim`, 2026-10-18]: NVForever answers it while the player's landing
     /// clip plays [hypothesis: that the landing is what 12 marks; the timing fits a jump's
@@ -76,10 +78,12 @@ pub enum AnimAction {
     ForceScriptAnim,
     /// 17 (not in the page's table): a round-by-round reload opening the weapon (the
     /// `reloadxstart` clip of the .357 revolver and the lever-actions), before its rounds'
-    /// 9 [hypothesis: the observer saw 17 on .357 revolvers only, for 89–116 samples
-    /// (about 1.5–1.9 s) directly before many of their reloads' 9; the opening clip
-    /// `1hpreloadxstart.kf` lasts 1.07 s, the round clip `1hpreloadx.kf` 1.77 s
-    /// [observed: `fnvtool nif anim`], so the phase may be another one].
+    /// 9. Where it falls is [observed: campaign `anim_actions`, 2026-10-18: every reload of
+    /// the .357 (113–115 samples) and of the hunting revolver (75–81) read 17 between the
+    /// last shot's 4 and the reload's 9; the 9mm pistol went from 4 straight to 9]; that
+    /// it is the opening is [hypothesis]: the opening clip `1hpreloadxstart.kf` lasts
+    /// 1.07 s, shorter than the 1.3–1.9 s the original held 17 [observed: `fnvtool nif
+    /// anim`].
     ReloadOpen,
 }
 
@@ -182,17 +186,26 @@ pub fn shot_action(t: f32, fire: f32, len: f32, dt: f32, repeating: bool) -> Opt
     }
 }
 
+/// How long a throw reads 6 after the weapon left the hand, seconds [observed: median 36
+/// samples, 11–40, at about 60 a second; campaign `anim_actions`].
+pub const THROWN_SECONDS: f32 = 0.6;
+
 /// GetAnimAction of a throw `t` seconds into its clip of `len` seconds, the weapon leaving
-/// the hand at `release`: as a semi-automatic shot ([`shot_action`]), with 5 for 2 and 6
-/// for 3: gearing up to throw until it leaves, the frame after it left, then 4 while the
-/// next one is drawn [documented: GECK wiki GetAnimAction, 5, 6 and 4; hypothesis: 6
-/// lasts one frame, as 3 does].
+/// the hand at `release` (at least one frame, `dt`, in): 5 until it leaves, 6 for
+/// [`THROWN_SECONDS`] after, then 4 for the rest of the clip while the next one is drawn,
+/// then none [documented: GECK wiki GetAnimAction, 5, 6 and 4; observed: 5 → 6 → 4 or
+/// −1 on four dynamite throws; hypothesis: the boundaries are the clip's release and end].
 pub fn throw_action(t: f32, release: f32, len: f32, dt: f32) -> Option<AnimAction> {
-    shot_action(t, release, len, dt, false).map(|a| match a {
-        AnimAction::Attack => AnimAction::ThrowWindUp,
-        AnimAction::FollowThrough => AnimAction::Thrown,
-        other => other,
-    })
+    let release = release.max(dt);
+    if t < release {
+        Some(AnimAction::ThrowWindUp)
+    } else if t < release + THROWN_SECONDS {
+        Some(AnimAction::Thrown)
+    } else if t < len {
+        Some(AnimAction::AttackReturn)
+    } else {
+        None
+    }
 }
 
 /// GetAnimAction of a melee swing (or a creature's blow) `t` seconds into its clip of
@@ -288,12 +301,15 @@ mod tests {
     #[test]
     fn a_throw_reads_5_then_6_then_4() {
         let dt = 1.0 / 60.0;
-        let seq: Vec<Option<i32>> = (0..40).map(|i| throw_action(i as f32 * dt, 0.2, 0.6, dt).map(AnimAction::code)).collect();
+        let seq: Vec<Option<i32>> = (0..100).map(|i| throw_action(i as f32 * dt, 0.9, 1.6, dt).map(AnimAction::code)).collect();
         let first6 = seq.iter().position(|c| *c == Some(6)).unwrap();
         assert!(seq[..first6].iter().all(|c| *c == Some(5)), "gearing up until it leaves: {seq:?}");
-        assert_eq!(seq.iter().filter(|c| **c == Some(6)).count(), 1, "6 the frame after");
-        assert!(seq[first6 + 1..].iter().take_while(|c| c.is_some()).all(|c| *c == Some(4)));
-        assert_eq!(throw_action(0.7, 0.2, 0.6, dt), None);
+        let sixes = seq.iter().filter(|c| **c == Some(6)).count();
+        assert!((35..=37).contains(&sixes), "6 for about 0.6 s: {sixes}");
+        assert_eq!(seq.iter().position(|c| *c == Some(4)), Some(first6 + sixes));
+        assert_eq!(throw_action(1.7, 0.9, 1.6, dt), None);
+        // A clip that ends within 0.6 s of the release ends while it still reads 6.
+        assert_eq!(throw_action(0.4, 0.2, 0.5, dt), Some(AnimAction::Thrown));
     }
 
     #[test]
