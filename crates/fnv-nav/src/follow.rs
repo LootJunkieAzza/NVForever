@@ -166,6 +166,13 @@ impl Follower {
         Some(pts[limit])
     }
 
+    /// Whether the rest of the path (the leg being walked and those after it) crosses a
+    /// triangle paths may no longer cross (a navmesh disabled since it was planned,
+    /// [`NavGraph::usable`]).
+    pub fn blocked(&self, nav: &NavGraph) -> bool {
+        self.path.legs.iter().skip(self.leg).flat_map(|l| &l.corridor).any(|&t| (t as usize) < nav.tris.len() && !nav.usable(t))
+    }
+
     /// The path's destination.
     pub fn destination(&self) -> Option<Place> {
         let l = self.path.legs.last()?;

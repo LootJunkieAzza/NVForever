@@ -1,0 +1,3577 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "kd_player_knockdown",
+ "title": "The player knocked down by PushActorAway (force 10, from a tin can 150 units south), first in first person, then in third person: screenshots and the player's position, heading, GetKnockedState and GameDaysPassed every 15 game loops (eight steps and 8 frames) for 48 samples, about 12 s each (docs/spec-notes/unconscious.md \u00a75.4: whether the view goes to third person, how the camera follows, how long the player lies and gets up; one manual step to switch the view)",
+ "start": "nvfstrip, in first person, standing in the open on the Strip. Keep the game window in front for the whole job: an unfocused game stands still (the first run's first-person trial did) and its screenshots fail. God mode is switched on by the job.",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "screenshot": "first_before"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_before",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_before",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_before",
+   "field": "pos_z"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X fX\nrR.SetPos Y (fY - 150)\nrR.SetPos Z (fZ + 40)\nrR.PushActorAway player 10\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "screenshot": "first_00"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_00",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_00",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_00",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_00",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_00",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_00",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_01"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_01",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_01",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_01",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_01",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_01",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_01",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_02"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_02",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_02",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_02",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_02",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_02",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_02",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_03"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_03",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_03",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_03",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_03",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_03",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_03",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_04"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_04",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_04",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_04",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_04",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_04",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_04",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_05"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_05",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_05",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_05",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_05",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_05",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_05",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_06"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_06",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_06",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_06",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_06",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_06",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_06",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_07"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_07",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_07",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_07",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_07",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_07",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_07",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_08"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_08",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_08",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_08",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_08",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_08",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_08",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_09"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_09",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_09",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_09",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_09",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_09",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_09",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_10"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_10",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_10",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_10",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_10",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_10",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_10",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_11"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_11",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_11",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_11",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_11",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_11",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_11",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_12"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_12",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_12",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_12",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_12",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_12",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_12",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_13"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_13",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_13",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_13",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_13",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_13",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_13",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_14"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_14",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_14",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_14",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_14",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_14",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_14",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_15"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_15",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_15",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_15",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_15",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_15",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_15",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_16"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_16",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_16",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_16",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_16",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_16",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_16",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_17"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_17",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_17",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_17",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_17",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_17",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_17",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_18"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_18",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_18",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_18",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_18",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_18",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_18",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_19"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_19",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_19",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_19",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_19",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_19",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_19",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_20"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_20",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_20",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_20",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_20",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_20",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_20",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_21"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_21",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_21",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_21",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_21",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_21",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_21",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_22"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_22",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_22",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_22",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_22",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_22",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_22",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_23"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_23",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_23",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_23",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_23",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_23",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_23",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_24"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_24",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_24",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_24",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_24",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_24",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_24",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_25"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_25",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_25",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_25",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_25",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_25",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_25",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_26"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_26",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_26",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_26",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_26",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_26",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_26",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_27"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_27",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_27",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_27",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_27",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_27",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_27",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_28"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_28",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_28",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_28",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_28",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_28",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_28",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_29"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_29",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_29",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_29",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_29",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_29",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_29",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_30"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_30",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_30",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_30",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_30",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_30",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_30",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_31"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_31",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_31",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_31",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_31",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_31",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_31",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_32"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_32",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_32",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_32",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_32",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_32",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_32",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_33"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_33",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_33",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_33",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_33",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_33",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_33",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_34"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_34",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_34",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_34",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_34",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_34",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_34",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_35"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_35",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_35",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_35",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_35",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_35",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_35",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_36"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_36",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_36",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_36",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_36",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_36",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_36",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_37"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_37",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_37",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_37",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_37",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_37",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_37",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_38"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_38",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_38",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_38",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_38",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_38",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_38",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_39"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_39",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_39",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_39",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_39",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_39",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_39",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_40"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_40",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_40",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_40",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_40",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_40",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_40",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_41"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_41",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_41",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_41",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_41",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_41",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_41",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_42"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_42",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_42",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_42",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_42",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_42",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_42",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_43"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_43",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_43",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_43",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_43",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_43",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_43",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_44"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_44",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_44",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_44",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_44",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_44",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_44",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_45"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_45",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_45",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_45",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_45",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_45",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_45",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_46"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_46",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_46",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_46",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_46",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_46",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_46",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "first_47"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "first_47",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "first_47",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_47",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "first_47",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "first_47",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "first_47",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "frames": 120
+  },
+  {
+   "manual": "Press the POV key (F) once to go to third person, then press End."
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "screenshot": "third_before"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_before",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_before",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_before",
+   "field": "pos_z"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X fX\nrR.SetPos Y (fY - 150)\nrR.SetPos Z (fZ + 40)\nrR.PushActorAway player 10\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "screenshot": "third_00"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_00",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_00",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_00",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_00",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_00",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_00",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_01"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_01",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_01",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_01",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_01",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_01",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_01",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_02"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_02",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_02",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_02",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_02",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_02",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_02",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_03"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_03",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_03",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_03",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_03",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_03",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_03",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_04"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_04",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_04",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_04",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_04",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_04",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_04",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_05"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_05",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_05",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_05",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_05",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_05",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_05",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_06"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_06",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_06",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_06",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_06",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_06",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_06",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_07"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_07",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_07",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_07",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_07",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_07",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_07",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_08"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_08",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_08",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_08",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_08",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_08",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_08",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_09"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_09",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_09",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_09",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_09",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_09",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_09",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_10"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_10",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_10",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_10",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_10",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_10",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_10",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_11"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_11",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_11",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_11",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_11",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_11",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_11",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_12"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_12",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_12",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_12",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_12",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_12",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_12",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_13"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_13",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_13",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_13",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_13",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_13",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_13",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_14"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_14",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_14",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_14",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_14",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_14",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_14",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_15"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_15",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_15",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_15",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_15",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_15",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_15",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_16"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_16",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_16",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_16",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_16",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_16",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_16",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_17"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_17",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_17",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_17",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_17",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_17",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_17",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_18"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_18",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_18",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_18",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_18",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_18",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_18",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_19"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_19",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_19",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_19",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_19",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_19",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_19",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_20"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_20",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_20",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_20",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_20",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_20",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_20",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_21"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_21",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_21",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_21",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_21",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_21",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_21",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_22"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_22",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_22",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_22",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_22",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_22",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_22",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_23"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_23",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_23",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_23",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_23",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_23",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_23",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_24"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_24",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_24",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_24",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_24",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_24",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_24",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_25"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_25",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_25",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_25",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_25",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_25",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_25",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_26"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_26",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_26",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_26",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_26",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_26",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_26",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_27"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_27",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_27",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_27",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_27",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_27",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_27",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_28"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_28",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_28",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_28",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_28",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_28",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_28",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_29"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_29",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_29",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_29",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_29",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_29",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_29",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_30"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_30",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_30",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_30",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_30",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_30",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_30",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_31"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_31",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_31",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_31",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_31",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_31",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_31",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_32"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_32",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_32",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_32",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_32",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_32",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_32",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_33"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_33",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_33",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_33",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_33",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_33",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_33",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_34"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_34",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_34",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_34",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_34",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_34",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_34",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_35"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_35",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_35",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_35",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_35",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_35",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_35",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_36"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_36",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_36",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_36",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_36",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_36",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_36",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_37"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_37",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_37",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_37",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_37",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_37",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_37",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_38"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_38",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_38",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_38",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_38",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_38",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_38",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_39"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_39",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_39",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_39",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_39",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_39",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_39",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_40"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_40",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_40",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_40",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_40",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_40",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_40",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_41"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_41",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_41",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_41",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_41",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_41",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_41",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_42"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_42",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_42",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_42",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_42",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_42",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_42",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_43"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_43",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_43",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_43",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_43",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_43",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_43",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_44"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_44",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_44",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_44",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_44",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_44",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_44",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_45"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_45",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_45",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_45",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_45",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_45",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_45",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_46"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_46",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_46",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_46",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_46",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_46",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_46",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "screenshot": "third_47"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "third_47",
+   "field": "pos_x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "third_47",
+   "field": "pos_y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_47",
+   "field": "pos_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "third_47",
+   "field": "angle_z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetKnockedState\nSetFunctionValue fV\nEnd\n",
+   "label": "third_47",
+   "field": "knocked_state"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "third_47",
+   "field": "days_passed"
+  },
+  {
+   "frames": 8
+  }
+ ]
+}
