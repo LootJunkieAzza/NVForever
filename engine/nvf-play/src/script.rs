@@ -640,7 +640,7 @@ impl Runtime {
                     g.emit(EventKind::Activated { reference: target, by: player, outcome: serde_json::to_value(&a).ok() });
                     if let Outcome::PickedUp { item, count, .. } = a.outcome {
                         self.skip.insert(g.events.len());
-                        g.emit(EventKind::ItemAdded { to: player, item, count });
+                        g.emit(EventKind::ItemAdded { to: player, item, count, silent: false });
                         g.item_event(player, item, event::ON_ADD, Some(Value::Ref(player.0)));
                     }
                     // Through a load door: the player's teammates come along
@@ -1596,8 +1596,8 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::MenuClosed { menu } => info!("script: menu {menu} closed"),
         EventKind::LineStarted { speaker, info, seconds, .. } => info!("script: {} says {} ({seconds:.2} s)", n(*speaker), n(*info)),
         EventKind::LineEnded { speaker, info, cut } => info!("script: {} {} line {}", n(*speaker), if *cut { "cut" } else { "ended" }, n(*info)),
-        EventKind::ItemAdded { to, item, count } => debug!("script: {count} x {} added to {}", n(*item), n(*to)),
-        EventKind::ItemRemoved { from, item, count } => debug!("script: {count} x {} removed from {}", n(*item), n(*from)),
+        EventKind::ItemAdded { to, item, count, .. } => debug!("script: {count} x {} added to {}", n(*item), n(*to)),
+        EventKind::ItemRemoved { from, item, count, .. } => debug!("script: {count} x {} removed from {}", n(*item), n(*from)),
         EventKind::Unhandled { name, unit, .. } => debug!("script: unhandled {name} in {unit}"),
         EventKind::ScriptError { unit, error } => warn!("script error in {unit}: {error}"),
         EventKind::CallFailed { name, unit, error, .. } => debug!("script: {name} failed in {unit}: {error}"),
