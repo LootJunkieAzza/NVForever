@@ -1986,12 +1986,15 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # The barber (#414) implemented ShowBarberMenu (4 calls): 44 → 43 stubs, 220 → 216 calls
 # [observed: the coordinator's run of #413 on main 34ef585d, 2026-10-18].
 # claude/plastic-surgeon implemented ShowPlasticSurgeonMenu (2 calls): 42 stubs, 214 calls.
+# claude/blockers-save-reticle implemented SystemSave, ForceSave and PlaceAtReticle (10 calls,
+# docs/spec-notes/script-saves-and-reticle.md) [observed: the coordinator's run of #430,
+# 2026-10-18]: 42 → 39 stubs, 214 → 204 calls.
 expect = [
-  { json = "summary.stubs", equals = 42 },
+  { json = "summary.stubs", equals = 39 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 41 },
+  { json = "summary.by_status.needs_system", equals = 38 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 214 },
+  { json = "summary.stub_calls", equals = 204 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -2998,7 +3001,8 @@ env = { NVFOREVER_HOME = "script-save-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3",
 args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
 run_seconds = 21
 expect = [
-  { re = 'console: PlaceAtReticle on player >> 0x[0-9A-F]{8} Stimpak', label = "a Stimpak is placed where the crosshair hits the ground" },
+  { re = 'console: PlaceAtReticle on player >> 0xFF[0-9A-F]{6}', label = "a reference is created where the crosshair hits the ground (the console names a created reference by its ID, as for PlaceAtMe)" },
+  { re = 'dropped reference 0xFF[0-9A-F]{6} drawn: meshes.clutter.health.stimpak01\.nif', label = "the placed Stimpak is drawn" },
   { re = 'console: PlaceAtReticle on player >> none', label = "nothing is placed when the ground is beyond maxDistance" },
   { text = "save: SystemSave asked by a script", min = 2, label = "both SystemSave calls are taken" },
   { re = 'save: wrote .*systemsave\.nvfsave \(system, ', min = 2, label = "the system slot is written each time" },
