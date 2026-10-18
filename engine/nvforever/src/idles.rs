@@ -160,12 +160,24 @@ impl<C> IdleSlot<C> {
     /// Play an idle from its start. What played until now is held under it while it
     /// fades in; an idle started in the same step is replaced outright (a package's
     /// change idle followed by the next package's begin idle).
-    fn start(&mut self, idle: u32, source: IdleSource, owner: Option<FormId>, clip: C, play: IdlePlay) {
+    ///
+    /// The idle that shows now asked for again by a script or a dialogue line is not
+    /// started over: it plays on, or holds its last pose again (`IdlePlay::again`);
+    /// returns false then. (Collections, fidgets and gestures that pick the same idle
+    /// again play it again.)
+    fn start(&mut self, idle: u32, source: IdleSource, owner: Option<FormId>, clip: C, play: IdlePlay) -> bool {
+        let asked = matches!(source, IdleSource::Script | IdleSource::Speaker | IdleSource::Listener);
+        if let Some(c) = self.cur.as_mut().filter(|c| asked && idle != 0 && c.idle == idle && c.group.is_none() && !c.play.gone()) {
+            c.play.again();
+            (c.source, c.owner) = (source, owner);
+            return false;
+        }
         if let Some(old) = self.cur.take().filter(|o| !o.fresh && !o.play.gone()) {
             self.prev = Some(old);
         }
         self.serial = self.serial.wrapping_add(1);
         self.cur = Some(Playing { idle, group: None, source, owner, clip, play, serial: self.serial, fresh: true });
+        true
     }
 
     /// Play a script's animation group as an idle is played (`actor_groups.rs`); returns
@@ -765,7 +777,7 @@ pub fn drive(
                 if first && pi.held.is_none() {
                     pi.held = player.as_deref().map(|p| Held { feet: p.placed.unwrap_or(p.feet), free: p.feet, heading: p.heading, pitch: p.pitch });
                 }
-                if first { &mut pi.first } else { &mut pi.third }.start(idle.0, source, owner, clip, play);
+                let started = if first { &mut pi.first } else { &mut pi.third }.start(idle.0, source, owner, clip, play);
                 match source {
                     IdleSource::Fidget => st.stats.player_fidgets += 1,
                     IdleSource::FurnitureFidget => st.stats.player_furniture_fidgets += 1,
@@ -776,7 +788,8 @@ pub fn drive(
                     let at = pi.held.filter(|_| first).map_or(p.feet, |h| h.feet);
                     format!(", at ({:.1}, {:.1}, {:.1}) facing {:.0} degrees, pitch {:.0}", at[0], at[1], at[2], p.heading.to_degrees(), p.pitch.to_degrees())
                 });
-                info!("idle: the player plays {what} on the {} rig ({source:?}){facing}", if first { "first-person" } else { "third-person" });
+                let again = if started { "" } else { " again: not started over" };
+                info!("idle: the player plays {what}{again} on the {} rig ({source:?}){facing}", if first { "first-person" } else { "third-person" });
                 continue;
             }
             let Ok((e, _, rig, slot, _, _)) = actors.get_mut(drawn[&actor.0]) else { continue };
@@ -787,14 +800,15 @@ pub fn drive(
                 continue;
             }
             let bound = Arc::new(bound);
-            match slot {
+            let started = match slot {
                 Some(mut s) => s.0.start(idle.0, source, owner, bound, play),
                 None => {
                     let mut s = ActorIdle::default();
                     s.0.start(idle.0, source, owner, bound, play);
                     commands.entity(e).insert(s);
+                    true
                 }
-            }
+            };
             match source {
                 IdleSource::Fidget => st.stats.actor_fidgets += 1,
                 IdleSource::FurnitureFidget => st.stats.actor_furniture_fidgets += 1,
@@ -803,6 +817,7 @@ pub fn drive(
             }
             match source {
                 IdleSource::PackageIdles | IdleSource::MarkerIdles | IdleSource::Gesture => debug!("idle: {name} plays {what} ({source:?})"),
+                _ if !started => info!("idle: {name} plays {what} again: not started over ({source:?})"),
                 _ => info!("idle: {name} plays {what} ({source:?})"),
             }
         }
@@ -957,6 +972,25 @@ mod tests {
         s.start(1, IdleSource::Script, None, 1, play(1.0, 0.0, None));
         s.check_owner(|_| q);
         assert!(s.playing().unwrap().play.endless());
+    }
+
+    #[test]
+    fn asked_again_by_a_line_an_idle_is_not_started_over() {
+        // The opening: stage 30's PlayIdle, then 3 s later the next line's speaker idle,
+        // the same, while the first holds its last pose and fades out.
+        let mut s: IdleSlot<u8> = IdleSlot::default();
+        assert!(s.start(7, IdleSource::Script, None, 1, play(3.0, 0.0, Some(1))));
+        s.advance(3.03);
+        s.check_owner(|_| None);
+        assert!(!s.start(7, IdleSource::Speaker, None, 2, play(3.0, 0.0, Some(1))));
+        assert_eq!(weights(&s), [(1, 1.0)]);
+        assert_eq!(s.playing().unwrap().play.time(), 3.0);
+        // A collection picking the same idle again plays it again.
+        let mut s: IdleSlot<u8> = IdleSlot::default();
+        s.start(7, IdleSource::PackageIdles, None, 1, play(3.0, 0.0, Some(1)));
+        s.advance(3.03);
+        s.check_owner(|_| None);
+        assert!(s.start(7, IdleSource::PackageIdles, None, 2, play(3.0, 0.0, Some(1))));
     }
 
     #[test]

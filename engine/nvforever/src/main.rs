@@ -43,6 +43,7 @@ mod draw_distance;
 mod doors;
 mod emittance;
 mod fade;
+mod face_morphs;
 mod facegen;
 mod flashlight;
 mod fly;
@@ -64,6 +65,7 @@ mod terminal_view;
 mod poker_view;
 mod lod;
 mod locomotion;
+mod combat_face;
 mod combat_stance;
 mod combat_tactics;
 mod console_toggles;
@@ -529,6 +531,10 @@ struct Args {
     /// (docs/spec-notes/lipsync.md).
     #[arg(long)]
     no_lip: bool,
+    /// With --play: no blinking or eye movement on faces between lines
+    /// (docs/spec-notes/lipsync.md §5.3).
+    #[arg(long)]
+    no_face_idle: bool,
     /// With --play: what an open menu holds (the dialogue screen, inventory, container,
     /// message boxes and the menus scripts open). "living": game logic only (scripts'
     /// game time, the game clock, physics, travelling NPCs, the player's movement), while
@@ -1217,7 +1223,7 @@ fn main() -> AppExit {
             if shadow_probe::enabled() {
                 app.add_plugins(shadow_probe::ShadowProbePlugin);
             }
-            app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
+            app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip, idle: !args.no_face_idle });
             // The sounds clips and doors name (anim_sounds.rs).
             app.add_plugins(anim_sounds::AnimSoundsPlugin);
             // The conversation's actor turns to the player (dialogue_look.rs).
@@ -1228,6 +1234,8 @@ fn main() -> AppExit {
             app.add_plugins(detection::DetectionPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
+            // Fighters look angry (combat_face.rs; lips.rs draws the face).
+            app.add_plugins(combat_face::CombatFacePlugin);
             // Alerted creatures raise their claws and hands (creature_stance.rs).
             app.add_plugins(creature_stance::CreatureStancePlugin);
             // Actors sneaking by script or package (sneaking.rs).

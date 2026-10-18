@@ -508,6 +508,35 @@ fn the_same_item_again_extends_the_active_effect() {
 }
 
 #[test]
+fn place_at_reticle_places_where_the_crosshair_hits() {
+    use fnv_game::functions::senses::Reticle;
+    let f = fixture();
+    let mut g = game(&f);
+    // No crosshair told (headless): nothing placed.
+    assert_eq!(call(&mut g, 0x1263, None, &[r(MISC), n(1.0)]), 0.0);
+    assert_eq!(g.world.created().count(), 0);
+    let me = g.world.get(FormId::PLAYER_REF).unwrap();
+    let (heading, cell) = (me.rot[2], me.cell);
+    g.senses.reticle = Some(Reticle { start: [100.0, 200.0, 50.0], dir: [0.0, 1.0, 0.0], hit: Some(300.0) });
+    // An item: one stack of the count, at the hit, in the player's cell, turned as the
+    // player.
+    let junk = call(&mut g, 0x1263, Some(PLAYER), &[r(MISC), n(3.0)]) as u32;
+    let s = g.world.peek(FormId(junk)).unwrap().clone();
+    assert_eq!((s.base, s.count, s.cell, s.pos, s.rot), (FormId(MISC), 3, cell, [100.0, 500.0, 50.0], [0.0, 0.0, heading]));
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::Placed { reference, .. } if reference == FormId(junk))));
+    // Anything else: one reference per count.
+    call(&mut g, 0x1263, None, &[r(CONT), n(2.0)]);
+    assert_eq!(g.world.created().filter(|(_, s)| s.base == FormId(CONT)).count(), 2);
+    // Beyond maxDistance (the 4th parameter; the 3rd is unused): nothing.
+    assert_eq!(call(&mut g, 0x1263, None, &[r(CONT), n(1.0), n(0.0), n(299.0)]), 0.0);
+    assert!(call(&mut g, 0x1263, None, &[r(CONT), n(1.0), n(0.0), n(300.0)]) != 0.0);
+    // The ray hit nothing.
+    g.senses.reticle = Some(Reticle { start: [0.0; 3], dir: [1.0, 0.0, 0.0], hit: None });
+    assert_eq!(call(&mut g, 0x1263, None, &[r(CONT), n(1.0)]), 0.0);
+    assert_eq!(g.world.created().filter(|(_, s)| s.base == FormId(CONT)).count(), 3);
+}
+
+#[test]
 fn place_at_me_drop_and_typed_removal() {
     let f = fixture();
     let mut g = game(&f);

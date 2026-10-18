@@ -109,6 +109,17 @@ below 30).
 - **End** [design]: a one-shot idle ends at the end of its clip, holds its last pose
   and fades out over its fade-out time; an idle that starts meanwhile fades in over it,
   so two idles in a row cross-fade (the sit-up into sitting on the bed).
+- **Asked again** [hypothesis: owner report 2026-10-18, the game hands the mirror over
+  once]: the opening asks Doc Mitchell for `VCG01DocGiveMirror` twice, by stage 30's
+  `PlayIdle` and 3 s later (the stage's `fQuestTimer`, then stage 35's `SayTo`) as the
+  speaker idle of "How'd I do?" (INFO 0x00104BF8) [observed: VCG01 stage scripts, INFO
+  0x00104BF7 end script `SetStage VCG01 30`]. The clip lasts 3.00 s, so the second ask
+  comes while the first holds its last pose and fades out; started over, Doc handed the
+  mirror over a second time. Ours: an idle asked by a script or a dialogue line while
+  the same idle still shows is not started over: one under way plays on, one that ended
+  shows in full again and holds its last pose for another clip's length
+  (`IdlePlay::again`; log `idle: … plays … again: not started over`). Collections,
+  fidgets and gestures that pick the same idle again still play it again [design].
 - Not read: the `Sound:` keys and every other text key.
 
 ## 4. The player
@@ -335,8 +346,24 @@ words, with where ours stands:
   aid `play_idle:SunnyRef:NPCSmokingIdle`) is given `aocigarette.nif` on `Bip01 R Hand`
   (log; the frame taken shows her greeting the player, a dialogue idle having replaced
   the smoking one and the cigarette gone with it).
-- Not done: the player's idles, the objects' own animation, and checking against the
-  game how long an object stays (the whole idle, as here, or only between keys).
+- **Nodes the idle's clip moves** [observed: files; hypothesis for the rule]: Doc
+  Mitchell's `VAODocGiveReflectron` (0x0010A433) names `VCG01DocGiveMirror` and
+  `animobjects\NVPropReflectron.NIF`. That model's root `Dummy01_Reflectron` has `Prn`
+  `Bip01 R Hand`; below it `##Dummy01_Reflectron01` carries the rest (`##NV_Reflectron`,
+  the screen and glow shapes) and is stored about 196 units from the root
+  (86.9, 160.5, -71.2), with a transform controller of its own. The idle's clip
+  `SpecialIdle_NVCG01DocGiveMirror.kf` (3.00 s, text keys start and end only) has,
+  beside the body tracks, a `Weapon` track and a track for `##Dummy01_Reflectron01`
+  (B-spline translation, rotation and scale). Drawn rigid, the mirror hung 2 m from his
+  hand, out of sight (owner report 2026-10-18: not shown before "How'd I do?"). Ours:
+  the node of an object's model that the idle's clip has a track for is posed by that
+  track every frame, under the `Prn` bone with the transforms above it in the model
+  (`anim_objects.rs`; log `anim object: … node ##Dummy01_Reflectron01 follows the
+  idle's track`).
+- Not done: the player's idles (`VAOPlayerTakeReflectron`, 0x0010BAF1, gives the same
+  model to `LooseVCG01PlayerTakeReflectron`, which no script or dialogue line of
+  FalloutNV.esm names [observed]), the objects' own controllers, and checking against
+  the game how long an object stays (the whole idle, as here, or only between keys).
 
 ## 11. Drawn-weapon fidgets from the IDLE tree
 

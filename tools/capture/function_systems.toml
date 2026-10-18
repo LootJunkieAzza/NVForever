@@ -234,19 +234,19 @@ system = "race and sex change on NPCs"
 note = "Errors on NPCs; all base-game callers are the player."
 
 [function.PlaceAtReticle]
-status = "wrong"
+status = "match"
 system = "crosshair placement"
-note = "Stub; the engine has the crosshair ray."
+note = "At the crosshair ray's first hit (spec-notes/script-saves-and-reticle.md §4)."
 
 [function.SystemSave]
-status = "wrong"
+status = "match"
 system = "saves from scripts"
-note = "Stub; saves and Autosave exist."
+note = "The one system slot (spec-notes/script-saves-and-reticle.md)."
 
 [function.ForceSave]
-status = "wrong"
+status = "match"
 system = "saves from scripts"
-note = "As SystemSave."
+note = "A new save as by hand (spec-notes/script-saves-and-reticle.md)."
 
 [function.SetCellImageSpace]
 status = "wrong"
