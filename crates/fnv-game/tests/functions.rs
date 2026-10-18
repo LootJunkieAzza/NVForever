@@ -1284,8 +1284,11 @@ fn animation_state_told_by_the_engine() {
     assert_eq!(call(&mut g, 0x1128, Some(ADULT_REF), &[idle]), 1.0);
     assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), 3.0);
     assert_eq!(call(&mut g, 0x1019, Some(ADULT_REF), &[]), 0.0);
-    // A snapshot not renewed reads as nothing.
-    g.time += 2.0;
+    // It holds however long a menu keeps the engine from renewing it; an actor the
+    // engine forgets (it left the view) reads as nothing.
+    g.time += 30.0;
+    assert_eq!(call(&mut g, 0x1128, Some(ADULT_REF), &[]), 1.0);
+    g.forget_anim_state(adult);
     assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), -1.0);
     assert_eq!(call(&mut g, 0x1128, Some(ADULT_REF), &[]), 0.0);
     // The player strafing left; aiming down the sights is action 9, other indices 0.

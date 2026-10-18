@@ -7,9 +7,11 @@
 //! ([`AnimState`], `Senses::anim`) and the rules that turn an attack's or a reload's time
 //! into GetAnimAction's codes ([`shot_action`], [`swing_action`]), so the engine's player
 //! side (`nvf-play` combat) and NPC side (`nvforever` anim_state.rs) number them alike. A
-//! snapshot not renewed for [`STALE`] seconds of game time is not read: the actor left
-//! the engine's view (unloaded, a headless run) and reads as doing nothing
-//! [engineering choice, as `Senses::weapon_told`].
+//! snapshot holds until the engine tells the next one or forgets the actor (it left the
+//! view: unloaded, hidden, dying), never by age: a clock-based expiry read Chet's
+//! snapshot as gone while the console was open (smoke `anim-state`, 2026-10-18). With
+//! no engine (a headless run) nothing is told and every actor reads as doing nothing
+//! [engineering choice].
 //!
 //! The codes are New Vegas's [documented: GECK wiki GetAnimAction, the table "revised for
 //! GECK NV"], checked against the AI observer's campaigns [observed: `anim_action` of the
@@ -21,9 +23,6 @@ use crate::functions::{none, yes, Args, Ctx};
 use crate::game::Game;
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
-
-/// Seconds of game time after which a snapshot is not read.
-pub const STALE: f64 = 1.0;
 
 /// GetAnimAction's codes [documented: GECK wiki GetAnimAction, New Vegas table]. Not
 /// answered: 10 (dodge), 11 and 12 (the page: "may be left overs"); 6 (the throwable
@@ -132,7 +131,7 @@ pub struct AnimState {
     pub group: Option<&'static str>,
     /// The player only: aiming down a gun's sights (IsPlayerActionActive 9).
     pub iron_sights: bool,
-    /// When ([`Game::time`]) it was told.
+    /// When ([`Game::time`]) it was told (for traces; it does not expire).
     pub at: f64,
 }
 
@@ -183,9 +182,9 @@ impl Game<'_> {
         self.senses.anim.remove(&actor);
     }
 
-    /// The actor's body as last told, while fresh ([`STALE`]).
+    /// The actor's body as last told, until the engine forgets it.
     pub fn anim_state(&self, actor: FormId) -> Option<&AnimState> {
-        self.senses.anim.get(&actor).filter(|s| (self.time - s.at).abs() < STALE)
+        self.senses.anim.get(&actor)
     }
 }
 
