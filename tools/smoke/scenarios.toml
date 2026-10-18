@@ -996,6 +996,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "opening-hidden-item-lines"
+source = "owner report 2026-10-18: \"Pip-Boy 3000 removed\" showed at the start of a new game; the opening's player.RemoveItem passes HideMessageFlag 1 (docs/design/script-function-params.md)"
+areas = ["corner-messages", "script-params"]
+paths = ["crates/fnv-game/src/functions/items.rs", "crates/fnv-game/src/trace.rs", "engine/nvf-play/src/script_events.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.05" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 14
+expect = [
+  { text = "player controls: movement, Pip-Boy, looking disabled by scripts", label = "the opening script that takes the Pip-Boy ran" },
+]
+forbid = [
+  { re = 'on screen: Pip-Boy (3000|Glove) removed', label = "a corner line for the Pip-Boy the script removed silently" },
+]
+
+[[scenario]]
 name = "head-look-seated"
 source = "owner report 2026-10-16: Doc Mitchell, seated in the opening, looked at the floor while saying \"Whoa, easy there\" to the player (docs/spec-notes/actors.md §12.3: the pitch limits are kept from the level, widened by the spine's lean)"
 note = "Doc sits hunched in his chair playing VCG01DocWhoaThere; speech_look forces his head onto the player's eyes for each line. The 'line over' line says how far the head ended from them: with the limits measured against the hunched spine it stayed well below"
