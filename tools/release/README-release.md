@@ -45,5 +45,16 @@ home's `NVForever.ini`). Settings, saves, logs and crash reports go to
 Run `nvf-viewer` through its launcher (or pass `--esm-schema` and `--nif-schema`): its
 built-in schema defaults point at the build machine's checkout.
 
+## Mods
+
+- **Mod Organizer 2:** add `nvforever.exe` to MO2's executables (the drop-down beside
+  **Run**, then **<Edit…>**, **+**, **Add from file…**) and start it from there. It loads the
+  plugins ticked in MO2's profile, in MO2's order, and runs on the game folder MO2 manages.
+  Details: `docs/mod-organizer-2.md` in the repository.
+- **Without a mod manager:** put the mod in the game's `Data` folder and turn its plugin on
+  in `Documents\My Games\NVForever\plugins.txt` with a `*` in front of its line; the order
+  of the lines is the load order.
+- NVSE plugins (`.dll`) do not run in NVForever; mods that need NVSE may not work yet.
+
 What works and what is not started yet: `docs/status.md` in the repository. Licence:
 GPL-3.0-or-later (`LICENSE`); legal notes in `LEGAL.md`.

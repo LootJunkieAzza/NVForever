@@ -344,6 +344,13 @@ impl Ai {
         }
     }
 
+    /// How fast `actor` goes to `post`: running if the post asks for it, walking while
+    /// it aims down its sights (module notes).
+    fn post_speed(&self, game: &Game, actor: FormId, post: Post) -> f32 {
+        let own = self.alert_speeds(actor);
+        if post.run && !game.awareness.aiming.contains(&actor) { own.run * game.awareness.pace_of(actor) } else { own.walk }
+    }
+
     /// Go to the combat AI's `post`, or stand there facing `target` (at `at`). Returns
     /// false when there is no way to it (the post is dropped).
     #[allow(clippy::too_many_arguments)]
@@ -360,6 +367,15 @@ impl Ai {
                     let feet = a.walker.feet;
                     a.search = Some(Search::AtPost { kind, target, at: post.at });
                     self.log(game, actor, AiEvent::AtPost { post: kind, target, off: flat(feet, post.at) });
+                } else {
+                    // Sights raised or lowered on the way change its pace there.
+                    let speed = self.post_speed(game, actor, post);
+                    let a = self.agents.get_mut(&actor).expect("listed");
+                    if a.walker.speed != speed {
+                        a.walker.speed = speed;
+                        let aiming = game.awareness.aiming.contains(&actor);
+                        self.log(game, actor, AiEvent::Pace { target, aiming });
+                    }
                 }
                 return true;
             }
@@ -370,9 +386,7 @@ impl Ai {
             _ => {}
         }
         let params = self.path_params(game, actor);
-        let aiming = game.awareness.aiming.contains(&actor);
-        let own = self.alert_speeds(actor);
-        let speed = if post.run && !aiming { own.run * game.awareness.pace_of(actor) } else { own.walk };
+        let speed = self.post_speed(game, actor, post);
         let a = self.agents.get_mut(&actor).expect("listed");
         let from = a.walker.feet;
         let point = nav.nearest(space, post.at, 256.0).map(|(_, p)| p);
