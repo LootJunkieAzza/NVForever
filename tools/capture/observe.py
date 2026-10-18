@@ -380,25 +380,29 @@ def do_steps(items, ctx):
 
 def place_steps(items, ctx):
     """`place`: [{"base": form, "count": n, "distance": units, "direction": d, "arm":
-    weapon | "none", "attack": ref}]: spawn actors near the player with PlaceAtMe
+    weapon | "none", "give": [[form, count], ...], "attack": ref}]: spawn actors near the player with PlaceAtMe
     (count, distance, direction 0 front, 1 back, 2 left, 3 right [documented: GECK wiki
     PlaceAtMe]). Its result cannot be kept: `let`/`set` of PlaceAtMe's return did not
     compile in the runtime compiler [observed 2026-10-17, aa_obs_place_test], so `arm`
     and `attack` then act on every reference created at run time (GetSourceModIndex 255)
     in the loaded area that is alive and not in combat: `arm` takes all its items and
-    gives and equips the weapon ("none": fists), `attack` sets it on the reference with
+    gives and equips the weapon ("none": fists), `give` adds items after that (ammo, more
+    grenades: `arm` gives one of the weapon only), `attack` sets it on the reference with
     StartCombat (spawned creatures did not always attack the player by themselves
     [observed 2026-10-17, melee_spacing]). Spawned actors are found by the nearby scan
     only (FormIDs 0xFF...)."""
     out = []
     for p in items or []:
-        unknown = set(p) - {"base", "count", "distance", "direction", "attack", "arm"}
+        unknown = set(p) - {"base", "count", "distance", "direction", "attack", "arm", "give"}
         if unknown or "base" not in p:
-            raise InputError(f"a place item takes base, count, distance, direction, arm, attack; got {sorted(p)}")
+            raise InputError(f"a place item takes base, count, distance, direction, arm, give, attack; got {sorted(p)}")
+        give = p.get("give") or []
+        if not all(isinstance(g, list) and len(g) == 2 for g in give):
+            raise InputError(f"give is a list of [form, count], got {give!r}")
         stmt = (f"player.PlaceAtMe {{0}} {int(p.get('count', 1))} {cs.number(p.get('distance', 600))} "
                 f"{int(p.get('direction', 0))}")
         out += [{"script": cs.run_script([stmt], ctx, [p["base"]])}, {"frames": DO_FRAMES}]
-        if p.get("arm") or p.get("attack"):
+        if p.get("arm") or p.get("attack") or give:
             n = cs.Names(*ctx)
             act = []
             if p.get("arm"):
@@ -406,6 +410,8 @@ def place_steps(items, ctx):
                 if p["arm"] != "none":
                     w = n.operand(p["arm"])
                     act += [f"    rA.AddItem {w} 1", f"    rA.EquipItem {w}"]
+            for form, count in give:
+                act.append(f"    rA.AddItem {n.operand(form)} {int(count)}")
             if p.get("attack"):
                 act.append(f"    rA.StartCombat {n.operand(p['attack'])}")
             body = [f"let rA := GetFirstRef {ACTOR_TYPE} 1", "while rA != 0",

@@ -788,11 +788,14 @@ impl Combat {
     /// (`fnv_game::anim_state`): drawing (0) and putting away (1) as the body says, a
     /// gun's shot by its firing cycle (2 from the pull to the shot and while an automatic
     /// fires on with the trigger held, 3 the frame after, 4 until the cycle is ready
-    /// again), a reload of any kind 9, a melee swing 2 until it strikes and 4 after,
-    /// blocking 7. A jam reads 13 [hypothesis: the page's catch-all, "every action not
-    /// included in the ones above"].
+    /// again), a reload 9, a melee swing 2 until it strikes and 4 after, blocking 7. A
+    /// weapon that spends itself (grenades, thrown weapons, mines) reads 5 until it leaves
+    /// the hand, 6 the frame after and 4 while the next is drawn (`anim_state::
+    /// throw_action`). A round-by-round reload reads 17 while it opens the weapon, 9 for
+    /// its rounds and its close [hypothesis: `AnimAction::ReloadOpen`]. A jam reads 13
+    /// [hypothesis: the page's catch-all, "every action not included in the ones above"].
     pub fn player_anim_action(&self, anim: &WeaponAnim, trigger: bool, aiming: bool, dt: f32) -> Option<fnv_game::anim_state::AnimAction> {
-        use fnv_game::anim_state::{shot_action, swing_action, AnimAction};
+        use fnv_game::anim_state::{shot_action, swing_action, throw_action, AnimAction};
         if anim.drawing {
             return Some(AnimAction::Equip);
         }
@@ -811,9 +814,12 @@ impl Combat {
         let cy = self.cycle.as_ref()?;
         let (fire, interval) = (cy.timing.fire_delay, cy.timing.interval);
         match cy.phase {
+            Phase::SpinUp { .. } | Phase::WindUp { .. } if self.self_ammo => Some(AnimAction::ThrowWindUp),
             Phase::SpinUp { .. } | Phase::WindUp { .. } => Some(AnimAction::Attack),
+            Phase::Cooldown { left } if self.self_ammo => throw_action(fire + (interval - left).max(0.0), fire, fire + interval, dt),
             Phase::Cooldown { left } => shot_action(fire + (interval - left).max(0.0), fire, fire + interval, dt, cy.automatic && trigger),
-            Phase::Reloading { .. } | Phase::ReloadOpen { .. } | Phase::ReloadRound { .. } | Phase::ReloadClose { .. } => Some(AnimAction::Reload),
+            Phase::ReloadOpen { .. } => Some(AnimAction::ReloadOpen),
+            Phase::Reloading { .. } | Phase::ReloadRound { .. } | Phase::ReloadClose { .. } => Some(AnimAction::Reload),
             Phase::Jammed { .. } => Some(AnimAction::ForceScriptAnim),
             Phase::Ready => None,
         }

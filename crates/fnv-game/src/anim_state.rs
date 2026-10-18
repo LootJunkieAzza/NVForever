@@ -16,20 +16,22 @@
 //! The codes are New Vegas's [documented: GECK wiki GetAnimAction, the table "revised for
 //! GECK NV"], checked against the AI observer's campaigns [observed: `anim_action` of the
 //! Goodsprings gunfight and the melee-spacing runs, C:\fnv-private\capture,
-//! docs/spec-notes/anim-state.md]. Codes no source explains are not answered (module
-//! notes of [`AnimAction`]).
+//! docs/spec-notes/anim-state.md]. 10–12 are never answered, and 17, which no source
+//! explains, as a hypothesis (notes of [`AnimAction`]).
 
 use crate::functions::{none, yes, Args, Ctx};
 use crate::game::Game;
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
 
-/// GetAnimAction's codes [documented: GECK wiki GetAnimAction, New Vegas table]. Not
-/// answered: 10 (dodge), 11 and 12 (the page: "may be left overs"); 6 (the throwable
-/// left the hand) and 5 (gearing up to throw) are not told apart from a shot, as
-/// NVForever's thrown weapons have no throw phases yet; 17, which the observer saw on
-/// .357 revolvers for about two seconds before a reload's 9, has no documented meaning
-/// [observed: Goodsprings gunfight, `WeapNV357Revolver` 0008F216] and is not answered.
+/// GetAnimAction's codes [documented: GECK wiki GetAnimAction, New Vegas table]. Never
+/// answered: 10 (dodge), 11 and 12 (wait for the lower body, for a special idle): the
+/// page says they "may be left overs", and none of the observer's samples read them
+/// [observed: Goodsprings gunfight and the 15 melee-spacing runs,
+/// docs/spec-notes/anim-state.md §1]. 17, which the observer saw on .357 revolvers before
+/// a reload's 9, has no documented meaning: NVForever answers it while a round-by-round
+/// reload opens the weapon ([`AnimAction::ReloadOpen`], hypothesis; the observer
+/// campaign `anim_actions` settles it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnimAction {
     /// 0: drawing the weapon.
@@ -46,8 +48,16 @@ pub enum AnimAction {
     FollowThrough,
     /// 4: "returning to the static animation after the attack" [documented]: the rest
     /// of a shot's or a swing's clip [observed: about 0.33 s after a shot, after each
-    /// creature's and the baseball bat's 2].
+    /// creature's and the baseball bat's 2], and "drawing another throw-able weapon after
+    /// one was just thrown" [documented].
     AttackReturn,
+    /// 5: "gearing up to throw" [documented]: a thrown weapon's clip until it leaves the
+    /// hand ([`throw_action`]).
+    ThrowWindUp,
+    /// 6: "the throwable weapon has left the player's hand" [documented]: the frame after
+    /// the throw, as 3 follows a semi-automatic shot [hypothesis: the observer read 6 in
+    /// 10 samples and 5 in 79 over a fight's throws, docs/spec-notes/anim-state.md §1].
+    Thrown,
     /// 7: blocking.
     Block,
     /// 8: "staggered by an npc that is blocking" [documented]: the attacker's recoil.
@@ -58,6 +68,13 @@ pub enum AnimAction {
     /// 13: "every action not included in the ones above": furniture, PlayIdle idles,
     /// staggering from crippled limbs, getting up [documented].
     ForceScriptAnim,
+    /// 17 (not in the page's table): a round-by-round reload opening the weapon (the
+    /// `reloadxstart` clip of the .357 revolver and the lever-actions), before its rounds'
+    /// 9 [hypothesis: the observer saw 17 on .357 revolvers only, for 89–116 samples
+    /// (about 1.5–1.9 s) directly before many of their reloads' 9; the opening clip
+    /// `1hpreloadxstart.kf` lasts 1.07 s, the round clip `1hpreloadx.kf` 1.77 s
+    /// [observed: `fnvtool nif anim`], so the phase may be another one].
+    ReloadOpen,
 }
 
 impl AnimAction {
@@ -68,10 +85,13 @@ impl AnimAction {
             AnimAction::Attack => 2,
             AnimAction::FollowThrough => 3,
             AnimAction::AttackReturn => 4,
+            AnimAction::ThrowWindUp => 5,
+            AnimAction::Thrown => 6,
             AnimAction::Block => 7,
             AnimAction::Stagger => 8,
             AnimAction::Reload => 9,
             AnimAction::ForceScriptAnim => 13,
+            AnimAction::ReloadOpen => 17,
         }
     }
 }
@@ -153,6 +173,19 @@ pub fn shot_action(t: f32, fire: f32, len: f32, dt: f32, repeating: bool) -> Opt
     } else {
         None
     }
+}
+
+/// GetAnimAction of a throw `t` seconds into its clip of `len` seconds, the weapon leaving
+/// the hand at `release`: as a semi-automatic shot ([`shot_action`]), with 5 for 2 and 6
+/// for 3: gearing up to throw until it leaves, the frame after it left, then 4 while the
+/// next one is drawn [documented: GECK wiki GetAnimAction, 5, 6 and 4; hypothesis: 6
+/// lasts one frame, as 3 does].
+pub fn throw_action(t: f32, release: f32, len: f32, dt: f32) -> Option<AnimAction> {
+    shot_action(t, release, len, dt, false).map(|a| match a {
+        AnimAction::Attack => AnimAction::ThrowWindUp,
+        AnimAction::FollowThrough => AnimAction::Thrown,
+        other => other,
+    })
 }
 
 /// GetAnimAction of a melee swing (or a creature's blow) `t` seconds into its clip of
@@ -246,6 +279,17 @@ mod tests {
     }
 
     #[test]
+    fn a_throw_reads_5_then_6_then_4() {
+        let dt = 1.0 / 60.0;
+        let seq: Vec<Option<i32>> = (0..40).map(|i| throw_action(i as f32 * dt, 0.2, 0.6, dt).map(AnimAction::code)).collect();
+        let first6 = seq.iter().position(|c| *c == Some(6)).unwrap();
+        assert!(seq[..first6].iter().all(|c| *c == Some(5)), "gearing up until it leaves: {seq:?}");
+        assert_eq!(seq.iter().filter(|c| **c == Some(6)).count(), 1, "6 the frame after");
+        assert!(seq[first6 + 1..].iter().take_while(|c| c.is_some()).all(|c| *c == Some(4)));
+        assert_eq!(throw_action(0.7, 0.2, 0.6, dt), None);
+    }
+
+    #[test]
     fn a_swing_reads_2_until_its_hit_then_4() {
         assert_eq!(swing_action(0.1, 0.4, 0.9), Some(AnimAction::Attack));
         assert_eq!(swing_action(0.5, 0.4, 0.9), Some(AnimAction::AttackReturn));
@@ -271,10 +315,13 @@ mod tests {
             (AnimAction::Attack, 2),
             (AnimAction::FollowThrough, 3),
             (AnimAction::AttackReturn, 4),
+            (AnimAction::ThrowWindUp, 5),
+            (AnimAction::Thrown, 6),
             (AnimAction::Block, 7),
             (AnimAction::Stagger, 8),
             (AnimAction::Reload, 9),
             (AnimAction::ForceScriptAnim, 13),
+            (AnimAction::ReloadOpen, 17),
         ];
         for (a, c) in all {
             assert_eq!(a.code(), c);

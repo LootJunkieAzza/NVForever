@@ -22,8 +22,9 @@
 //! At exit `anim state summary` counts how often each action began on an actor (the
 //! smoke test `anim-state` reads it).
 //!
-//! Getting on and off furniture, getting up after a knockdown and thrown weapons' throw
-//! phases are not told (they read as their other states) [gap left].
+//! Getting on and off furniture and getting up after a knockdown are not told (they read
+//! as their other states) [gap left]. NPCs throw nothing yet, so 5 and 6 come from the
+//! player's throws only.
 
 use crate::attack_anims::CombatPose;
 use crate::idles::{ActorIdle, PlayerIdles};
@@ -101,9 +102,12 @@ fn report(mut exit: MessageReader<AppExit>, st: Res<AnimStats>) {
         2 => "attack",
         3 => "follow-through",
         4 => "attack return",
+        5 => "throw wind-up",
+        6 => "thrown",
         7 => "block",
         8 => "stagger",
         9 => "reload",
+        17 => "reload open",
         _ => "script anim",
     };
     let begun: Vec<String> = st.begun.iter().map(|(c, n)| format!("{} ({c}) {n}", name(*c))).collect();

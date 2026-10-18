@@ -5781,3 +5781,27 @@ themselves:
   StartCombat or PlaySound). Nothing like that has been seen in a playthrough since
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
+
+## GetAnimAction's leftovers (2026-10-18, branch claude/anim-action-leftovers, stacked on #433)
+
+What GetAnimAction now answers beyond #433 (docs/spec-notes/anim-state.md §1), and the
+guesses in it:
+
+- **5 and 6 (throws)**, from the wiki's New Vegas table: 5 while the player gears up to
+  throw a grenade, spear or mine, 6 the frame it leaves the hand, then 4. *Guess*: that 6
+  lasts one frame, as 3 does after a shot. NPCs throw nothing yet in NVForever, so only
+  the player reads them.
+- **10–12**: never answered. The wiki calls them probable left-overs, and none of the
+  observer's samples showed them.
+- **17**: the original showed it only on .357 revolvers, before their reloads. *Guess*:
+  it is the opening of a round-by-round reload (cylinder or gate opened), so NVForever
+  answers it there for the .357, lever-actions and the hunting shotgun, player and NPCs.
+  The timing does not quite fit: the opening clip is 1.07 s, the original's 17 lasted
+  1.5–1.9 s. No shipped script asks for 17, so a wrong guess changes nothing scripted.
+- **IsPlayerActionActive** still answers 9 only: the ActionIndex list is not in the wiki
+  export or any other reference here.
+
+Captures that settle these (nvfstrip): AI observer campaign
+`tools/capture/observe/anim_actions.campaign.json` (troopers with grenades, spears,
+dynamite and six guns) and job `tools/capture/jobs/player_actions_anim.steps.json` (the
+player's own codes and IsPlayerActionActive 1–10 every frame).

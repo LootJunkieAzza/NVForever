@@ -354,7 +354,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetActorValue | 0x100E | 431 / 2074 | match | - | same 2 |  |
 | GetAlarmed | 0x103D | 1 / 0 | match | - | same 1 | 0 at rest [observed: probes]; meaning still hypothesis. |
 | GetAngle | 0x1008 | 10 / 0 | match | - | - |  |
-| GetAnimAction | 0x10DB | 42 / 1 | match | - | same 1 |  |
+| GetAnimAction | 0x10DB | 42 / 1 | match | - | same 1 | New Vegas codes 0-9 and 13; 5/6 on the player's throws; 10-12 never (none observed); 17 while a round-by-round reload opens [hypothesis] (anim-state.md §1; campaign anim_actions). |
 | GetArmorRating | 0x1051 | 1 / 1 | match | - | - |  |
 | GetAttacked | 0x103F | 0 / 11 | match | - | - |  |
 | GetBaseActorValue | 0x1115 | 6 / 16 | match | - | - |  |
@@ -510,7 +510,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsOwner | 0x1116 | 0 / 18 | match | - | - |  |
 | IsPC1stPerson | 0x1188 | 2 / 9 | match | - | differs 1 |  |
 | IsPCSleeping | 0x10AF | 2 / 0 | match | - | same 2 |  |
-| IsPlayerActionActive | 0x1170 | 2 / 0 | match | animation state told to the rules | same 2 | Action 9 (iron sights, not in combat [documented: GECK wiki IsPlayerActionActive]), the only one the shipped scripts ask (OWB); the other indices read 0, their list not in the wiki export (anim-state.md §4, 2026-10-18). 0 at rest matches [observed: probes]. |
+| IsPlayerActionActive | 0x1170 | 2 / 0 | match | animation state told to the rules | same 2 | Action 9 (iron sights, not in combat [documented: GECK wiki IsPlayerActionActive]), the only one the shipped scripts ask (OWB); the other indices read 0, their list not in the wiki export (anim-state.md §4, 2026-10-18); capture job player_actions_anim reads 1-10. 0 at rest matches [observed: probes]. |
 | IsPlayerGrabbedRef | 0x11D0 | 3 / 1 | no-system | grabbing objects | same 1 | 0 at rest matches [observed: probes]. |
 | IsPlayerInRegion | 0x1260 | 57 / 0 | match | - | - |  |
 | IsPlayerMovingIntoNewSpace | 0x1166 | 6 / 8 | match | - | - |  |
