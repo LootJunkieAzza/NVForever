@@ -114,7 +114,7 @@ the player in god mode, one weapon each, every game loop; private outputs
 Its argument is an ActionIndex, 1 to 10; the list is a wiki template the export lacks
 [documented: page IsPlayerActionActive, "{{:ActionIndex}}"; GetLastPlayerAction includes
 the same missing template]. No other source in the private references lists it
-(searched 2026-10-18: the GECK wiki export, the Fallout wiki pages). Known from the page's text:
+(searched 2026-10-18: the GECK wiki export, the Fallout wiki pages). The captures above answer 2 (a throw) and confirm 9; the rest read 0. Known from the page's text:
 9 is PLAYER_ACTION_IRON_SIGHTS and does not return true while the player is in combat; 8
 returns 1 while the player stands on a table or chair (the page's example); firing a weapon
 is an action that stays active about two game minutes, its index not given. Both shipped
@@ -127,6 +127,23 @@ drawing and holstering, after the sneak key and after a jump; GetLastPlayerActio
 throughout. The job's aiming, firing, throwing, swinging and blocking never happened:
 `HoldControl` and `ReleaseControl` did not compile in the runtime compiler (`TapControl`
 did). The follow-up `player_actions_anim2` taps instead.
+
+`player_actions_anim2` (2026-10-18, the inputs by TapControl, aim by HoldKey 257, values
+moving throughout) [observed]:
+
+- Pistol shot: 2 for 3 loops, 3 for 1, 4 for 28–32; the same while sneaking. .357: 2 for
+  2–3, 3 for 1, 4 for 44–46. Cowboy Repeater (lever): 2 for 3, **3 for 20**, 4 for 26
+  (3 lasts through the lever, as on the NPCs' hand-cycled guns, §1.1).
+- Grenade: 5 for 50–52, 6 for 39–41, 4 for 16–17, as the NPCs' dynamite (`THROWN_SECONDS`).
+- Knife: 2 for 17, then 4 for 49–50 (no 3), as `swing_action`.
+- Jump with a pistol drawn: −1 for 50, 12 for 54. Holster: 1 for 78.
+- The reload taps did not reload (the .357 emptied by six shots did not reload itself
+  either), so the player's 17 is not settled.
+- **IsPlayerActionActive**: **9** while aiming (HoldKey 257, out of combat); **2** from a
+  grenade throw's first loop of 5 for 181 loops (about 2.6 s), NVForever's
+  `THROW_ACTION_SECONDS`; nothing for firing (pistol, revolver, lever-action), sneaking,
+  firing while sneaking, jumping, swinging, drawing or holstering. GetLastPlayerAction
+  read 0 throughout, even after the throws.
 
 ## 5. Open, and the captures that settle it
 

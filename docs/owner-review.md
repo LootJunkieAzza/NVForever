@@ -5801,8 +5801,10 @@ guesses in it:
   The campaign confirmed where it falls: between the last shot and the reload's 9 on
   the .357 and the hunting revolver, never on the 9mm [observed]. The timing still does
   not fit: the opening clip is 1.07 s, the original's 17 lasted 1.3–1.9 s. No shipped script asks for 17, so a wrong guess changes nothing scripted.
-- **IsPlayerActionActive** still answers 9 only: the ActionIndex list is not in the wiki
-  export or any other reference here.
+- **IsPlayerActionActive**: the capture answered part of the missing list [observed]:
+  9 while aiming, 2 for about 2.6 s from a grenade throw; firing, sneaking, jumping and
+  swinging lit no index, though the wiki says firing stays active about two game
+  minutes. Ours answers 9 and 2.
 
 Captures that settle these (nvfstrip): AI observer campaign
 `tools/capture/observe/anim_actions.campaign.json` (troopers with grenades, spears,

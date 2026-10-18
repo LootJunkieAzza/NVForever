@@ -162,6 +162,9 @@ pub struct AnimState {
     pub group: Option<&'static str>,
     /// The player only: aiming down a gun's sights (IsPlayerActionActive 9).
     pub iron_sights: bool,
+    /// The player only: within [`THROW_ACTION_SECONDS`] of a throw's start
+    /// (IsPlayerActionActive 2).
+    pub throwing: bool,
     /// When ([`Game::time`]) it was told (for traces; it does not expire).
     pub at: f64,
 }
@@ -185,6 +188,12 @@ pub fn shot_action(t: f32, fire: f32, len: f32, dt: f32, repeating: bool) -> Opt
         None
     }
 }
+
+/// How long IsPlayerActionActive 2 stays 1 from the start of a throw, seconds [observed:
+/// 181 game loops on both of the player's grenade throws, from the first loop of its 5
+/// through its 6 and 4 and 73 loops after; about 2.6 s at the 69 loops a second of the
+/// same day's `disable_fade_getdisabled` job; capture `player_actions_anim2`, 2026-10-18].
+pub const THROW_ACTION_SECONDS: f32 = 2.6;
 
 /// How long a throw reads 6 after the weapon left the hand, seconds [observed: median 36
 /// samples, 11–40, at about 60 a second; campaign `anim_actions`].
@@ -253,20 +262,30 @@ pub fn get_anim_action(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Stri
 }
 
 /// `IsPlayerActionActive index`: 1 while the player performs the action [documented:
-/// GECK wiki IsPlayerActionActive]. Answered: 9, `PLAYER_ACTION_IRON_SIGHTS`, aiming down
-/// a gun's sights, and not while the player is in combat [documented: the page's notes,
-/// "will not return true if the player is in combat"] (both shipped calls, in Old World
-/// Blues, ask 9: docs/design/script-function-audit.md). The page's ActionIndex list is
-/// a template the wiki export lacks, so the other indices' meanings are not known here
-/// (8 is "standing on a table or chair" by the page's example, which NVForever's player
-/// never does): they read 0 [not answered].
+/// GECK wiki IsPlayerActionActive]. The page's ActionIndex list is a template the wiki
+/// export lacks; what the original answered [observed: capture `player_actions_anim2`,
+/// 2026-10-18, every game loop]:
+/// - 9 while the player aimed a pistol (out of combat), as the page's
+///   PLAYER_ACTION_IRON_SIGHTS; not while the player is in combat [documented: the page's
+///   notes]. Both shipped calls (Old World Blues) ask 9.
+/// - 2 from the start of a grenade throw for [`THROW_ACTION_SECONDS`].
+/// - Nothing (1–10 all 0) while firing a pistol or a revolver, sneaking, firing while
+///   sneaking, jumping, swinging a knife, drawing or holstering, though the page says
+///   firing stays active about two game minutes: no index answered it.
+///
+/// 8 is "standing on a table or chair" by the page's example, which NVForever's player
+/// never does. Every other index reads 0.
 pub fn is_player_action_active(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let index = a.num_or(0, 0.0) as i32;
-    if index != 9 {
-        return none();
+    let s = g.anim_state(FormId::PLAYER_REF);
+    match index {
+        2 => yes(s.is_some_and(|s| s.throwing)),
+        9 => {
+            let sights = s.is_some_and(|s| s.iron_sights);
+            yes(sights && !g.awareness.hunted(FormId::PLAYER_REF))
+        }
+        _ => none(),
     }
-    let sights = g.anim_state(FormId::PLAYER_REF).is_some_and(|s| s.iron_sights);
-    yes(sights && !g.awareness.hunted(FormId::PLAYER_REF))
 }
 
 #[cfg(test)]

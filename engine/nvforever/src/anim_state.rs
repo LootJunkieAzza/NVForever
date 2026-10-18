@@ -151,6 +151,7 @@ fn tell(
     body: Option<Res<crate::player_body::PlayerBody>>,
     mut stats: ResMut<AnimStats>,
     mut told: Local<HashSet<u32>>,
+    mut throw_began: Local<Option<(f32, bool)>>,
 ) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
     let g = &mut rt.game;
@@ -184,7 +185,7 @@ fn tell(
             // Drawn without a locomotion (posed by a test aid): standing.
             None => (MoveDir::None, Some("Idle")),
         };
-        let st = AnimState { action, moving, group, iron_sights: false, at: 0.0 };
+        let st = AnimState { action, moving, group, iron_sights: false, throwing: false, at: 0.0 };
         if !told.contains(&rig.reference) && stats.actors.contains(&rig.reference) {
             stats.again += 1;
             if stats.again <= LOGGED_CHANGES {
@@ -207,7 +208,17 @@ fn tell(
     let iron_sights = combat.as_deref().zip(weapon.as_deref()).is_some_and(|(c, w)| c.player_sights_up(w, aiming));
     // Landing after a jump reads 12 (`AnimAction::WaitForSpecialIdle`, hypothesis).
     let landing = body.as_deref().is_some_and(|b| b.landing()).then_some(AnimAction::WaitForSpecialIdle);
-    let st = AnimState { action: weapon_action.or(idle_action).or(landing), moving, group: Some(group(moving, !walk)), iron_sights, at: 0.0 };
+    // IsPlayerActionActive 2 from a throw's first frame of 5 (`THROW_ACTION_SECONDS`).
+    let winding = weapon_action == Some(AnimAction::ThrowWindUp);
+    let was_winding = throw_began.is_some_and(|(_, w)| w);
+    let began = match *throw_began {
+        Some((t, _)) if !winding || was_winding => t,
+        _ if winding => clock,
+        _ => f32::NEG_INFINITY,
+    };
+    *throw_began = Some((began, winding));
+    let throwing = clock - began < fnv_game::anim_state::THROW_ACTION_SECONDS;
+    let st = AnimState { action: weapon_action.or(idle_action).or(landing), moving, group: Some(group(moving, !walk)), iron_sights, throwing, at: 0.0 };
     stats.note(FormId::PLAYER_REF.0, &st);
     g.set_anim_state(FormId::PLAYER_REF, st);
     // Actors no longer drawn are forgotten (they read as doing nothing).
