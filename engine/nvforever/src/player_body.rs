@@ -626,6 +626,9 @@ pub struct PlayerBody {
     body: Option<Body>,
     /// The muzzle node of the weapon in hand in the rig in view, this frame.
     muzzle_entity: Option<Entity>,
+    /// The third-person head's eye this frame, game space, while the view is from
+    /// outside; `None` in first person or without a body.
+    head_eye: Option<[f32; 3]>,
     motion: Motion,
     /// Why the body could not be built (reported once).
     failed: Option<String>,
@@ -646,6 +649,13 @@ impl PlayerBody {
     /// Whether the body drawn is a woman's; `None` without a body.
     pub fn female(&self) -> Option<bool> {
         self.body.as_ref().map(|b| b.female)
+    }
+
+    /// The third-person head's eye this frame, game space, while the view is from
+    /// outside (the flashlight follows it, `flashlight.rs`); `None` in first person or
+    /// without a body.
+    pub fn head_eye(&self) -> Option<[f32; 3]> {
+        self.head_eye
     }
 
     /// The entity of the muzzle node (`ProjectileNode`) of the weapon in hand, in the
@@ -1603,6 +1613,7 @@ fn drive_body(
     player.body_view = None;
     anim.drawing = false;
     anim.holstering = false;
+    state.head_eye = None;
     let own_body = state.first_person_body;
     let seat_look = std::mem::take(&mut seat.look);
     let Some(body) = state.body.as_mut() else {
@@ -1723,6 +1734,7 @@ fn drive_body(
             false
         };
         player.body_eye = eye.map(|e| e.to_array());
+        state.head_eye = eye.filter(|_| third_view).map(|e| e.to_array());
         // Third person: the pivot is above the body; the further the body has lain
         // back, the higher, clear of the bed.
         let lift = lying.map_or(0.0, |frame| LYING_PIVOT_UP * (1.0 - (frame * Vec3::Z).z).clamp(0.0, 1.0));
@@ -1923,6 +1935,7 @@ fn drive_body(
         Some(e)
     });
     player.body_eye = eye.map(|e| e.to_array());
+    state.head_eye = third_eye.filter(|_| third_view).map(|e| e.to_array());
     view.pivot = third_eye.or(eye).map(|e| [feet[0], feet[1], e.z + 5.0]);
 
     // The body in first person stands where its eyes are under the camera (and a little

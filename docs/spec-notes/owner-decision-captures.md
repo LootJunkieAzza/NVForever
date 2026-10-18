@@ -137,6 +137,8 @@ order: package, type, procedure, …, x, y, z, heading.
     notes say. EvaluatePackage keeps a script package. Both **confirm the runtime's
     rules**: it has replaced since 2026-10-10. owner-review item 25's "script packages
     stack" was out of date; see #441.
+  - The actor's state now holds one script-package slot (`RefExtra::script_package`);
+    older saves' lists load as their last entry (#443).
 - **od_09a, disabled reference: its GameMode still runs.**
   - **Readings.** The skull's `timer` kept falling while the skull was disabled, from
     998.19 to 992.94 over 300 loops. That is the same rate as while enabled.

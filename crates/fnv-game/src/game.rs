@@ -156,6 +156,22 @@ pub struct Instance {
     pub run_prev: Option<f64>,
 }
 
+/// [`RefExtra::script_package`] from a save: one package, none, or the list older saves
+/// kept (its last entry was the current one).
+fn one_script_package<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<FormId>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Slot {
+        One(FormId),
+        List(Vec<FormId>),
+    }
+    Ok(match Option::<Slot>::deserialize(d)? {
+        Some(Slot::One(p)) => Some(p),
+        Some(Slot::List(l)) => l.last().copied(),
+        None => None,
+    })
+}
+
 /// Per-reference state the Layer 4 world does not keep.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RefExtra {
@@ -204,10 +220,13 @@ pub struct RefExtra {
     /// Recover active on the actor (`crate::aid`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub av_temporary: BTreeMap<u16, f64>,
-    /// The package added with AddScriptPackage: at most one, a second call replaces it
-    /// (`functions::actor::add_script_package`); the last one is current.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub packages: Vec<FormId>,
+    /// The package added with AddScriptPackage: one slot, a second call replaces the
+    /// first and RemoveScriptPackage empties it, giving the actor its own list back
+    /// [documented: GECK wiki AddScriptPackage notes, "only one script package at a
+    /// time"; observed: od_08_script_packages, owner-decision-captures.md item 8].
+    /// Saves from before the slot held a list (`packages`); its last entry is read.
+    #[serde(skip_serializing_if = "Option::is_none", default, alias = "packages", deserialize_with = "one_script_package")]
+    pub script_package: Option<FormId>,
     /// The AI package the actor chose when its packages were last evaluated
     /// ([`Game::evaluate_package`]); `None` until then.
     #[serde(skip_serializing_if = "Option::is_none", default)]

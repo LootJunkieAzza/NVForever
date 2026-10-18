@@ -47,6 +47,14 @@
 //!   [hypothesis]. A volume scales the samples linearly [hypothesis: the original's curve
 //!   is not known]. The settings page's Sound tab sets them ([`register_settings`]), kept
 //!   in the INI like every row.
+//! - **Slowed sound** (owner 2026-10-18: in slow motion sounds should be "more drawn out
+//!   and lower pitch like the base game" [observed: the owner's ear, the original's kill
+//!   camera and VATS]). [`SoundSpeed`] is the speed the engine's own slow motion (VATS
+//!   mode, the death camera) asks sounds to play at; every playing sound of a slowed
+//!   category follows it at once, as tape played slower: longer and lower together.
+//!   Effects, footsteps and voices slow; music and radio do not, nor interface sounds
+//!   ([`KeepsSpeed`]) [hypothesis: what the original leaves at speed]. A script's
+//!   SetGlobalTimeMultiplier slows only the clock, never sound (`script::time_multiplier`).
 //! - Spatial `PlaybackSettings` (Bevy's `SpatialAudioSink`) are not built: NVForever pans
 //!   its own sounds (`sfx::Panned`); a spatial request plays plain, with a warning.
 //!
@@ -124,6 +132,11 @@ impl SoundCategory {
         }
     }
 
+    /// Whether the category's sounds slow with [`SoundSpeed`] (module notes).
+    pub fn slows(self) -> bool {
+        !matches!(self, SoundCategory::Music | SoundCategory::Radio)
+    }
+
     /// The category of a sound effect by its SOUN editor ID (module notes).
     pub fn of_effect(edid: Option<&str>) -> SoundCategory {
         match edid.and_then(|e| e.get(..3)) {
@@ -132,6 +145,33 @@ impl SoundCategory {
         }
     }
 }
+
+/// The speed the engine's slow motion asks sounds to play at, 1 for none (module notes);
+/// a sound plays at its own speed times this.
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct SoundSpeed(pub f32);
+
+impl Default for SoundSpeed {
+    fn default() -> Self {
+        SoundSpeed(1.0)
+    }
+}
+
+/// The slowest slowed sound [design: below about 0.4 the shots and voices turn to a
+/// drone nobody can make out].
+pub const SOUND_FLOOR: f32 = 0.4;
+
+/// The sound speed for the engine's slow motion at clock speed `clock`: its square root,
+/// no lower than [`SOUND_FLOOR`] [design: sound stays nearer its speed than the picture;
+/// the death camera's 0.25 plays sound at 0.5, an octave down, VATS firing's 0.5 at 0.71
+/// and VATS marking's 0.05 at the floor].
+pub fn slowed_sound(clock: f32) -> f32 {
+    clock.clamp(0.0, 1.0).sqrt().max(SOUND_FLOOR)
+}
+
+/// A sound that never slows with [`SoundSpeed`]: the interface's.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct KeepsSpeed;
 
 /// The volumes, each a linear part from 0 to 1: the master's (all sound) and each
 /// category's. Shared with the mixing, so a change is heard at once.
@@ -338,7 +378,9 @@ impl Plugin for AudioOutPlugin {
         app.insert_resource(AudioOut { mixer, categories, watcher: tx, stats })
             .insert_resource(volumes)
             .init_resource::<GlobalVolume>()
+            .init_resource::<SoundSpeed>()
             .add_systems(Update, test_reopen)
+            .add_systems(PostUpdate, follow_sound_speed.before(AudioOutSystems))
             .add_systems(Last, report)
             .add_audio_source::<AudioSource>()
             .init_asset_loader::<AudioLoader>();
@@ -376,12 +418,13 @@ fn play_queued<T: Decodable + Asset>(
     out: Option<Res<AudioOut>>,
     sources: Res<Assets<T>>,
     global: Res<GlobalVolume>,
-    queued: Query<(Entity, &AudioPlayer<T>, &PlaybackSettings, Option<&SoundCategory>), Without<AudioSink>>,
+    slow: Res<SoundSpeed>,
+    queued: Query<(Entity, &AudioPlayer<T>, &PlaybackSettings, Option<&SoundCategory>, Has<KeepsSpeed>), Without<AudioSink>>,
     mut warned: Local<bool>,
     mut commands: Commands,
 ) {
     let Some(out) = out else { return };
-    for (entity, player, settings, category) in &queued {
+    for (entity, player, settings, category, keeps) in &queued {
         let Some(source) = sources.get(&player.0) else { continue };
         if settings.spatial && !*warned {
             *warned = true;
@@ -404,7 +447,7 @@ fn play_queued<T: Decodable + Asset>(
         if settings.muted {
             sink.mute();
         }
-        sink.set_speed(settings.speed);
+        sink.set_speed(settings.speed * speed_factor(slow.0, category.copied().unwrap_or_default(), keeps));
         sink.set_volume(settings.volume * global.volume);
         if settings.paused {
             sink.pause();
@@ -415,6 +458,37 @@ fn play_queued<T: Decodable + Asset>(
             PlaybackMode::Despawn => e.insert((sink, DespawnWhenDone)),
             PlaybackMode::Remove => e.insert((sink, RemoveWhenDone)),
         };
+    }
+}
+
+/// What a sound's own speed is multiplied by at sound speed `slow`.
+fn speed_factor(slow: f32, category: SoundCategory, keeps: bool) -> f32 {
+    if keeps || !category.slows() {
+        1.0
+    } else {
+        slow
+    }
+}
+
+/// A change of [`SoundSpeed`] reaches every sound already playing (new ones start at it,
+/// [`play_queued`]).
+fn follow_sound_speed(
+    slow: Res<SoundSpeed>,
+    sinks: Query<(&AudioSink, &PlaybackSettings, Option<&SoundCategory>, Has<KeepsSpeed>)>,
+    mut told: Local<Option<f32>>,
+) {
+    if !slow.is_changed() {
+        return;
+    }
+    let before = told.replace(slow.0).unwrap_or(1.0);
+    // Easing changes it every frame: the log tells only of slowing and of speed back
+    // (below 0.995, so the speed told as slowed reads below 1.00).
+    let slowed = |s: f32| s < 0.995;
+    if slowed(before) != slowed(slow.0) {
+        info!("sound speed: {before:.2} -> {:.2}", slow.0);
+    }
+    for (sink, settings, category, keeps) in &sinks {
+        sink.set_speed(settings.speed * speed_factor(slow.0, category.copied().unwrap_or_default(), keeps));
     }
 }
 
@@ -667,6 +741,23 @@ mod tests {
         assert_eq!(rest, Some(0.0));
         assert!(volumes.0.heard[SoundCategory::Music.index()].load(Ordering::Relaxed) > 0);
         assert_eq!(volumes.0.heard[SoundCategory::Voice.index()].load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn slow_motion_slows_effects_and_voices_not_music_radio_or_the_interface() {
+        assert_eq!(slowed_sound(1.0), 1.0);
+        assert!((slowed_sound(0.25) - 0.5).abs() < 1e-6, "the death camera: an octave down");
+        assert!((slowed_sound(0.5) - 0.5f32.sqrt()).abs() < 1e-6, "VATS firing");
+        assert_eq!(slowed_sound(0.05), SOUND_FLOOR, "VATS marking");
+        assert_eq!(slowed_sound(0.0), SOUND_FLOOR);
+        assert_eq!(slowed_sound(2.0), 1.0, "never faster");
+        for c in [SoundCategory::Effects, SoundCategory::Footstep, SoundCategory::Voice] {
+            assert_eq!(speed_factor(0.5, c, false), 0.5, "{c:?}");
+            assert_eq!(speed_factor(0.5, c, true), 1.0, "{c:?}, interface");
+        }
+        for c in [SoundCategory::Music, SoundCategory::Radio] {
+            assert_eq!(speed_factor(0.5, c, false), 1.0, "{c:?}");
+        }
     }
 
     #[test]
