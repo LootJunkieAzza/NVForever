@@ -283,6 +283,13 @@ pub struct Runtime {
     pub stats: TickStats,
     /// What the player's aid items did (`crate::aid`).
     pub aid: crate::aid::AidStats,
+    /// The perks' choice list answered with the default action: the target is activated
+    /// again as E does (`crate::activate`), without the list (`fnv_game::activate_choices`).
+    pub activate_again: Option<FormId>,
+    choices_passed: Option<FormId>,
+    /// The button picked in the perks' choice list, taken in the next tick (its script
+    /// needs the world).
+    activate_pick: Option<usize>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -476,6 +483,9 @@ impl Runtime {
             started: Instant::now(),
             stats: TickStats::default(),
             aid: crate::aid::AidStats::default(),
+            activate_again: None,
+            choices_passed: None,
+            activate_pick: None,
         };
         with_world(&mut rt, sim, |rt| {
             rt.game.new_game();
@@ -533,6 +543,15 @@ impl Runtime {
     pub fn answer(&mut self, button: Option<i32>) -> bool {
         if self.closing.is_some() {
             return false;
+        }
+        // The perks' choice list (`fnv_game::activate_choices`): OK is its first button;
+        // taken in the next tick, with the world.
+        if self.game.activate_menu.is_some() {
+            if self.activate_pick.is_some() {
+                return false;
+            }
+            self.activate_pick = Some(button.unwrap_or(0).max(0) as usize);
+            return true;
         }
         let Some(menu) = self.game.menu.filter(|&m| is_script_menu(m)) else { return false };
         let front = if menu == MENU_MESSAGE { self.game.boxes.first().copied() } else { None };
@@ -616,7 +635,34 @@ impl Runtime {
         now.into_iter().filter(|r| self.marked.insert(*r)).collect()
     }
 
+    /// The player picks button `index` of the perks' choice list: a perk's choice runs
+    /// its script now; the default action activates the target again as E does
+    /// ([`Runtime::activate_again`]). Whether a list was open.
+    pub fn pick_activate_choice(&mut self, index: usize) -> bool {
+        self.observe_inventory();
+        let picked = self.game.pick_activate_choice(index);
+        let g = &self.game;
+        match &picked {
+            Some(fnv_game::activate_choices::Picked::Choice(c)) => info!("activate: the player chose {} ({})", c.label, g.data.name(c.perk)),
+            Some(fnv_game::activate_choices::Picked::Default(t)) => {
+                info!("activate: the player chose the default action on {}", g.data.name(*t));
+                self.activate_again = Some(*t);
+                self.choices_passed = Some(*t);
+            }
+            None => return false,
+        }
+        self.snapshot_inventory();
+        true
+    }
+
     fn by_hand(&mut self, target: FormId) -> Result<ByHand, String> {
+        // The player's perks offer choices on it (Cannibal, Mister Sandman): the list
+        // opens first, unless it was just answered with the default action.
+        if self.choices_passed.take() != Some(target) && self.game.open_activate_menu(target) {
+            let labels: Vec<&str> = self.game.activate_menu.iter().flat_map(|m| m.choices.iter().map(|c| c.label.as_str())).collect();
+            info!("activate: {} offers the perks' choices {labels:?} and its default action", self.game.data.name(target));
+            return Ok(ByHand::Choices);
+        }
         self.observe_inventory();
         let player = FormId::PLAYER_REF;
         let from = self.game.events.len();
@@ -951,6 +997,9 @@ pub enum ByHand {
     /// The target is an actor whose greeting has the Goodbye flag: it said the line at
     /// the player and no conversation started (`Runtime::talk_after`).
     Greeted,
+    /// The player's perks offer choices on the target: their list opened
+    /// (`fnv_game::activate_choices`, `crate::script_hud`).
+    Choices,
 }
 
 /// The player activates `target` by hand (E): through the scripts when they run.
@@ -1342,6 +1391,9 @@ pub(crate) fn run_scripts(
         due.clear();
         for c in &console {
             console_out.push(crate::console::run_call(rt, c));
+        }
+        if let Some(i) = rt.activate_pick.take() {
+            rt.pick_activate_choice(i);
         }
         let from = rt.game.events.len();
         // A conversation with the player pauses the game: nobody moves, and no trigger

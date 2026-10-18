@@ -5804,3 +5804,44 @@ themselves:
   StartCombat or PlaySound). Nothing like that has been seen in a playthrough since
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
+
+## Race, sex and level changes, power armour, Cannibal and Mister Sandman, talking activators (2026-10-18, branch claude/actor-changes)
+
+Playthrough blockers rows 8, 11, 13, 14 and 18 (docs/outstanding.md). Every shipped call
+of AgeRace, SexChange and SetLevel is on the player (the opening's VCG00, VCG01 and Doc
+Mitchell's revision activator); the NPC cases are built for mods and the console. My
+guesses, each with a probe in `tools/capture/probes/actor_changes.toml` (ac1–ac6) where
+the original can answer it:
+
+- **SexChange's reset** (VCG01's "male or female?" box): the player gets the character
+  creator's first starting face for the race and the new sex, with its hair and eyes.
+  The wiki says "the default preset for that race and gender".
+- **AgeRace and SexChange on an NPC**: the new race's head and body with the NPC's own
+  face values; a hair the new race or sex may not have becomes the race's default hair.
+  The player keeps the hair.
+- **SetLevel on an NPC** rolls its carried items again *at its new level* (the wiki says
+  only that the inventory is regenerated); script-given items are lost (probe ac1: a
+  Stimpak given to Easy Pete). The wiki's bug (the level often the minimum) is not copied.
+- **Power armour**: off at the start; only the player is held back; armour with the BMDT
+  "Power Armor" flag (NCR salvaged power armour lacks it and is worn freely). On refusal
+  the game's "You lack the specialized training…" box, after the Pip-Boy closes; a
+  script's EquipItem is refused the same way (probe ac3 asks the original).
+- **The perks' choice list** (Cannibal, Ghastly Scavenger, Dine and Dash, Mister
+  Sandman): E on the target opens a box with the choices (Devour, Murder…) then the
+  default action (Search or Talk). The wiki only says "presents a choice list". *Please
+  look in the original*: sneaking at a corpse with Cannibal, does E show a list, and does
+  it include Search? Does the crosshair prompt change?
+- **The acts**: GetCannibal and GetSandman hold for 4 s (probes ac4, ac5 measure them);
+  Mister Sandman kills at once; StartCannibal adds no health of its own (the perks'
+  scripts restore it; the catalogue says the eater "regains some health", probe ac4);
+  a witnessed cannibalism turns every witness hostile as an assault ("a crime against
+  nature"); the clips are the StartCannibal idle and the SandMan child for the victim's
+  bed or floor marker, with the two perk sounds.
+- **Talking activators**: activating one talks to it; its talking actor's lines and voice
+  come through it (the actor need not be near); IsActorTalkingThroughActivator holds
+  then. The wiki notes it is false when the actor was set by script, which would make the
+  92 conditions of the masters never hold, so it is not followed (probe ac6). The
+  dialogue menu names the actor, the view turns to the activator.
+- **To check in game**: smoke `perk-cannibal-devour` (Easy Pete eaten in Goodsprings),
+  `talking-activator-intercom` (Hidden Valley's bunker intercom: Ramos's "[You hear
+  nothing.]"), `sexchange-player-reset`.

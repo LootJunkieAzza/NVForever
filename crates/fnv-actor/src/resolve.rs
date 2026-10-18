@@ -305,12 +305,40 @@ pub struct Look {
     pub facegen: FaceGen,
 }
 
+/// A script's change of an actor's race or sex (AgeRace, SexChange; `fnv_game::
+/// appearance`): `None` keeps the record's (or the look's).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct Change {
+    pub race: Option<FormId>,
+    pub female: Option<bool>,
+}
+
+impl Change {
+    pub fn is_none(&self) -> bool {
+        self.race.is_none() && self.female.is_none()
+    }
+}
+
 pub struct Resolver<'a> {
     pub actors: &'a ActorForms,
     pub forms: &'a FormStore,
 }
 
 impl<'a> Resolver<'a> {
+    /// `hair` when the race lists it (or lists none) and it is for that sex, else the
+    /// race's default hair for the sex (`Self::resolve_changed`).
+    fn valid_hair(&self, hair: Option<FormId>, race: Option<FormId>, female: bool) -> Option<FormId> {
+        let Some(race) = race.and_then(|r| self.actors.races.get(&r)) else { return hair };
+        let Some(h) = hair else { return race.default_hair[usize::from(female)] };
+        let listed = race.hairs.is_empty() || race.hairs.contains(&h);
+        let sex_ok = self.actors.hairs.get(&h).is_none_or(|d| if female { !d.choosable.not_female } else { !d.choosable.not_male });
+        if listed && sex_ok {
+            Some(h)
+        } else {
+            race.default_hair[usize::from(female)]
+        }
+    }
+
     /// Resolve an actor base placed by `reference` (the seed of its leveled choices).
     pub fn resolve(&self, base: FormId, reference: FormId) -> Result<Appearance, ResolveError> {
         self.resolve_wearing(base, reference, None)
@@ -327,6 +355,16 @@ impl<'a> Resolver<'a> {
     /// and FaceGen values of `look` in place of the record's (the player's choices in the
     /// character creator, docs/spec-notes/character-creator.md).
     pub fn resolve_as(&self, base: FormId, reference: FormId, wearing: Option<&[FormId]>, look: Option<&Look>) -> Result<Appearance, ResolveError> {
+        self.resolve_changed(base, reference, wearing, look, Change::default())
+    }
+
+    /// [`Self::resolve_as`] with a script's race or sex change on top (AgeRace,
+    /// SexChange). The new race's head, body and race FaceGen are drawn; a hair the new
+    /// race does not list (RACE HNAM) or that is not for the new sex (HAIR Not Male, Not
+    /// Female) gives way to the race's default hair for that sex [documented: GECK wiki
+    /// SexChange and AgeRace notes, "invalid hair falls back to default"; hypothesis: what
+    /// makes a hair invalid]. A chosen look (the player's) keeps its hair.
+    pub fn resolve_changed(&self, base: FormId, reference: FormId, wearing: Option<&[FormId]>, look: Option<&Look>, change: Change) -> Result<Appearance, ResolveError> {
         let mut ch = Choices { rng: rng_for(reference), picks: HashMap::new(), random: false };
         let npc = self.actor_base(base, &mut ch, 0)?;
         let traits = self.template_source(npc, template::TRAITS, &mut ch)?;
@@ -347,6 +385,18 @@ impl<'a> Resolver<'a> {
                 (&traits_own, &model_own)
             }
             None => (traits, model),
+        };
+        let (changed_traits, changed_model);
+        let (traits, model) = if change.is_none() {
+            (traits, model)
+        } else {
+            changed_traits = Npc { race: change.race.or(traits.race), female: change.female.unwrap_or(traits.female), ..traits.clone() };
+            let mut m = model.clone();
+            if look.is_none() {
+                m.hair = self.valid_hair(m.hair, changed_traits.race, changed_traits.female);
+            }
+            changed_model = m;
+            (&changed_traits, &changed_model)
         };
 
         let race_id = traits.race.ok_or(ResolveError::NoRace(traits.id))?;

@@ -17,8 +17,9 @@ abilities and worn enchantments (80, #377), corpses stood up again (76, #391), f
 travel (60, #393), knock-outs (essential and fatigue, #403; row 1 below keeps what is
 left of knockdowns), used items and the remaining package types and flags (#400),
 GetOwnerLastTarget (#403), the repair menus (#408, #412), the barber and plastic surgeon
-(#414, #417), VATS mode (NVForever's own Dead Eye-style design, #413). 42 functions are
-still stubs.
+(#414, #417), VATS mode (NVForever's own Dead Eye-style design, #413), race and sex
+changes, SetLevel, power armour training, Cannibal and Mister Sandman, talking activators
+(claude/actor-changes). 34 functions are still stubs.
 
 | # | System | Quests | What is missing | Functions |
 |---|---|---|---|---|
@@ -29,17 +30,17 @@ still stubs.
 | 5 | Repair menu (done 2026-10-17) | 10 (Raul's quests among them) | Built ([repair](spec-notes/repair.md)): ShowRepairMenu opens a vendor's repair services (worn weapons and armour repaired for caps up to the vendor's skill), and the Pip-Boy's Repair (R on the ITEMS page) uses a like item or one on the item's repair list. Left: the Pip-Boy's repair list is not clickable and does not report MenuMode 1035 | (none) |
 | 6 | Barber, plastic surgeon and tutorial menus | 9 | The barber and the plastic surgeon are built: the character creator as the barber (hair, colour and beard only) and as the surgeon (face, eyes and brows only), character-creator.md §10, §11. Not built: the tutorial menu | ShowTutorialMenu |
 | 7 | Pip-Boy reset | 8 | Not built | ResetPipboyManager |
-| 8 | Talking activators | 6 | Activators that speak (radios with lines, intercoms) do not talk | IsActorTalkingThroughActivator |
+| 8 | Talking activators (done 2026-10-18, awaiting the game's comparison) | 6 | Built ([talking-activators](spec-notes/talking-activators.md)): activating a talking activator talks to it; its talking actor (SetTalkingActivatorActor) speaks through it with its own lines and voice, IsActorTalkingThroughActivator holds meanwhile, the view turns to the activator. Left: whether the original's IsTalkingActivatorActor is false for a script-set actor (probe ac6) | (none) |
 | 9 | Menu codes | 6 | MenuMode does not report every menu's code (the Pip-Boy's 1 and the loading codes) | MenuMode |
 | 10 | Caravan | 5 | The card game is not built | ShowCaravanMenu and its functions |
-| 11 | Race and sex changes on NPCs | 5 | AgeRace is a stub; SexChange errors on NPCs (the player's works) | AgeRace, SexChange |
+| 11 | Race and sex changes (done 2026-10-18) | 5 | Built ([appearance-changes](spec-notes/appearance-changes.md) §2): AgeRace along the RACE age links and SexChange on any actor, drawn anew; SexChange's reset gives the player the first starting face (a guess). Every shipped call is on the player (the opening's VCG00 and VCG01) | (none) |
 | 12 | Placing at the crosshair | 5 | Cheap | PlaceAtReticle |
-| 13 | A leveled actor's level re-rolled | 4 | SetLevel sets the level but does not re-roll the NPC's inventory | SetLevel |
-| 14 | Cannibal and Mister Sandman | 3 | The perks' activate choices are not built | (perk entry points) |
+| 13 | A leveled actor's level re-rolled (done 2026-10-18) | 4 | Built (appearance-changes.md §3): SetLevel on an NPC rolls its carried items again at its new level (the level a guess, probe ac1); every shipped call is on the player | (none) |
+| 14 | Cannibal and Mister Sandman (done 2026-10-18, awaiting the owner) | 3 | Built ([perk-activation](spec-notes/perk-activation.md)): the perks' Activate choices open a choice list on E (Devour, Murder, then the default action); StartCannibal, StartMisterSandman, GetCannibal, GetSandman, HasBeenEaten; idles and sounds. Guesses: how the list looks, the acts' 4 s, the crime | (none) |
 | 15 | VATS | 3 quests, 250 conditions | VATS mode built (vats-mode.md), awaiting the owner | GetVATSValue and GetVATSMode answer for VATS mode; GetVATSTargetHeight and SetVatsTarget stay stubs |
 | 16 | Miscellaneous stats, scale | 3 each | Built (misc-stats.md, 2026-10-18): all 43 statistics have codes, 26 counted by the rules and the engine, the Pip-Boy shows them; SetScale drawn and collided. Not counted: the 17 of misc-stats.md §3 (pickpocketing, dismemberment, Caravan, slots, skill books, New Vegas speech checks) | (GetPCMiscStat, SetScale) |
 | 17 | Dismemberment, end videos, cell image space | 2 each | Not built | (dismemberment), PlayBink, SetCellImageSpace |
-| 18 | One quest each | 1 each | Screen splatter, AI package codes (Sandbox, Travel-at-goal), AutoDisplayObjectives, navmesh switches, SetPCCanUsePowerArmor, ExitGame | |
+| 18 | One quest each | 1 each | Screen splatter, AI package codes (Sandbox, Travel-at-goal), AutoDisplayObjectives, navmesh switches, ExitGame (SetPCCanUsePowerArmor done 2026-10-18: power armour needs the training, appearance-changes.md §4) | |
 
 Rows the coverage table ranks with 0 quests are not listed. The table's own §3.3 lists
 six functions still waiting for an in-game capture to settle their answers.

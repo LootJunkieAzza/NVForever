@@ -248,13 +248,13 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 7 | repair menu | no-system | 10 | 13 / 0 | 15 / 0 | ShowRepairMenu | - | VDialogueRaul (Raul's Dialog) |
 | 8 | barber, plastic surgeon and tutorial menus | no-system | 9 | 16 / 0 | 8 / 0 | ShowBarberMenu, ShowPlasticSurgeonMenu, ShowTutorialMenu | - | - |
 | 9 | Pip-Boy reset | wrong | 8 | 8 / 0 | 4 / 0 | ResetPipboyManager | VCG01 (Ain't That a Kick in the Head) | - |
-| 10 | talking activators | no-system | 6 | 0 / 91 | 0 / 92 | IsActorTalkingThroughActivator | - | - |
+| 10 | talking activators | built | 6 | 0 / 91 | 0 / 92 | IsActorTalkingThroughActivator | - | - |
 | 11 | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | wrong | 6 | 12 / 0 | 13 / 11 | MenuMode | VCG04 (Player Character Revision) | - |
 | 12 | Caravan card game | no-system | 5 | 29 / 0 | 33 / 0 | AddCardToPlayer, ShowCaravanMenu | - | - |
-| 13 | race and sex change on NPCs | no-system | 5 | 16 / 0 | 14 / 0 | AgeRace, SexChange | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head) | - |
+| 13 | race and sex change on NPCs | built | 5 | 16 / 0 | 14 / 0 | AgeRace, SexChange | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head) | - |
 | 14 | crosshair placement | wrong | 5 | 10 / 0 | 3 / 0 | PlaceAtReticle | - | VDialogueVeronica (Veronica Dialogue), VMS49 (I Could Make You Care) |
-| 15 | NPC inventory re-rolled on SetLevel | wrong | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
-| 16 | Cannibal and Mister Sandman | no-system | 3 | 8 / 0 | 11 / 7 | GetCannibal, GetSandman, HasBeenEaten, StartCannibal, StartMisterSandman | - | - |
+| 15 | NPC inventory re-rolled on SetLevel | built | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
+| 16 | Cannibal and Mister Sandman | built | 3 | 8 / 0 | 11 / 7 | GetCannibal, GetSandman, HasBeenEaten, StartCannibal, StartMisterSandman | - | - |
 | 17 | VATS | no-system | 3 | 6 / 0 | 12 / 259 | GetVATSMode, GetVATSTargetHeight, GetVATSValue, SetVatsTarget | - | - |
 | 18 | player statistics counters | match (2026-10-18, misc-stats.md) | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
 | 19 | drawn scale (SetScale) | match (2026-10-18, misc-stats.md §5) | 3 | 4 / 0 | 9 / 0 | SetScale | VCG00 (Welcome To Fabulous New Vegas) | - |
@@ -266,7 +266,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 25 | objective display switch | wrong | 1 | 2 / 0 | 2 / 0 | AutoDisplayObjectives | VCG01 (Ain't That a Kick in the Head) | - |
 | 26 | navmesh switches | no-system | 1 | 1 / 0 | 9 / 0 | DisableNavmesh, EnableNavMesh, setAllReachable | - | - |
 | 27 | combat targets told to weapon scripts | wrong | 1 | 1 / 0 | 5 / 0 | GetOwnerLastTarget | - | - |
-| 28 | power armour training | wrong | 1 | 1 / 0 | 2 / 0 | SetPCCanUsePowerArmor | - | - |
+| 28 | power armour training | built | 1 | 1 / 0 | 2 / 0 | SetPCCanUsePowerArmor | - | - |
 | 29 | quitting from scripts | wrong | 1 | 1 / 0 | 1 / 0 | ExitGame | - | - |
 | 30 | used-item AI | no-system | 0 | 0 / 0 | 0 / 26 | GetIsUsedItem, GetIsUsedItemEquipType, GetIsUsedItemType, GetUsedItemActivate | - | - |
 | 31 | challenge counters | wrong | 0 | 0 / 0 | 23 / 0 | GetChallengeCompleted | - | - |
@@ -306,7 +306,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | AddTagSkills | 0x121B | 3 / 0 | match | - | - |  |
 | AddToFaction | 0x117F | 542 / 0 | match | - | - |  |
 | AddTopic | 0x1058 | 11 / 0 | match | - | - |  |
-| AgeRace | 0x11E4 | 2 / 0 | no-system | race and sex change on NPCs | - | Stub, 2 calls. |
+| AgeRace | 0x11E4 | 2 / 0 | built | race and sex change on NPCs | - | Steps along RACE ONAM/YNAM, clamped [documented]; any actor; the engine draws it anew (docs/spec-notes/appearance-changes.md; smoke `agerace-sexchange-npc`; probe ac2). |
 | AlwaysShowActorSubtitles | 0x1277 | 16 / 0 | match | - | - |  |
 | ApplyImageSpaceModifier | 0x1191 | 355 / 0 | match | - | - |  |
 | AttachAshPile | 0x1211 | 4 / 0 | no-system | dismemberment and critical deaths | - | Stub. |
@@ -359,7 +359,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetBaseActorValue | 0x1115 | 6 / 16 | match | - | - |  |
 | GetBroadcastState | 0x11D4 | 6 / 0 | match | - | - |  |
 | GetButtonPressed | 0x101F | 211 / 0 | match | - | - |  |
-| GetCannibal | 0x10E3 | 0 / 1 | no-system | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]. |
+| GetCannibal | 0x10E3 | 0 / 1 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 for 4 s after StartCannibal [hypothesis: the length, probe ac4] (docs/spec-notes/perk-activation.md). |
 | GetCasinoWinningsLevel | 0x125C | 24 / 0 | open | - | - | Blackjack and roulette count winnings; whether cashing chips counts needs a capture (attended). |
 | GetCasinoWinningStage | 0x1262 | 0 / 25 | open | - | - | As GetCasinoWinningsLevel. |
 | GetCauseofDeath | 0x118D | 1 / 1 | match | - | same 3 |  |
@@ -455,7 +455,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetReputationPct | 0x123E | 0 / 2 | match | - | - |  |
 | GetReputationThreshold | 0x123F | 143 / 1643 | match | - | - |  |
 | GetRestrained | 0x10F4 | 5 / 2 | match | - | - |  |
-| GetSandman | 0x10E2 | 0 / 2 | no-system | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]. |
+| GetSandman | 0x10E2 | 0 / 2 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 for 4 s after StartMisterSandman [hypothesis, probe ac5]. |
 | GetScale | 0x1018 | 1 / 1 | match | - | - |  |
 | GetScriptVariable | 0x1035 | 0 / 1756 | match | - | - |  |
 | GetSecondsPassed | 0x100C | 821 / 0 | match | - | - |  |
@@ -475,7 +475,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetWeaponAnimType | 0x106C | 14 / 44 | match | - | - |  |
 | GetWeaponHealthPerc | 0x11F4 | 2 / 0 | match | - | - |  |
 | GetXPForNextLevel | 0x1215 | 3 / 0 | match | - | differs 1 |  |
-| HasBeenEaten | 0x107F | 6 / 4 | no-system | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]. |
+| HasBeenEaten | 0x107F | 6 / 4 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 after StartCannibal, saved (perk-activation.md). |
 | HasLoaded3D | 0x122E | 4 / 0 | match | - | differs 5, same 1 | The original needed 1 game loop after a cell load or MoveTo [observed: probes]; ours answers at once. |
 | HasMagicEffect | 0x10D6 | 41 / 5 | match | - | - | As IsSpellTarget, an effect whose conditions fail included [observed: probes abilities-1]. |
 | HasPerk | 0x11C1 | 126 / 493 | match | - | - |  |
@@ -484,7 +484,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsActionRef | 0x1069 | 578 / 0 | open | NPCs activating doors | - | As GetActionRef. |
 | IsActor | 0x1161 | 1 / 0 | match | - | - |  |
 | IsActorRefEssential | 0x1272 | 2 / 0 | match | - | - |  |
-| IsActorTalkingThroughActivator | 0x11AE | 0 / 92 | no-system | talking activators | same 1 | 0 at rest matches [observed: probes]. |
+| IsActorTalkingThroughActivator | 0x11AE | 0 / 92 | built | talking activators | same 1 | 0 at rest matches [observed: probes]; 1 on the talking actor while its lines are chosen and said through the activator (docs/spec-notes/talking-activators.md; smoke `talking-activator-intercom`; probe ac6). |
 | IsAlwaysHardcore | 0x126B | 4 / 0 | match | - | - |  |
 | IsAnimPlaying | 0x1128 | 108 / 0 | wrong | animation state told to the rules | differs 1, same 1 | Sunny standing read IsAnimPlaying Idle 1 [observed: probes]: the actor's own idle counts; ours counts PlayGroup groups only. |
 | IsChild | 0x116D | 0 / 203 | match | - | - |  |
@@ -616,7 +616,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetIgnoreFriendlyHits | 0x1151 | 132 / 0 | match | - | - |  |
 | SetInCharGen | 0x10E7 | 16 / 0 | match | - | - |  |
 | SetItemValue | 0x1155 | 2 / 0 | match | - | - |  |
-| SetLevel | 0x1133 | 6 / 0 | wrong | NPC inventory re-rolled on SetLevel | - | 6 calls; minor. |
+| SetLevel | 0x1133 | 6 / 0 | built | NPC inventory re-rolled on SetLevel | - | On an NPC the carried items are rolled again at its level [documented: regenerated; hypothesis: at its own level, probe ac1]; every shipped call is on the player (appearance-changes.md §3). |
 | SetMinimalUse | 0x1228 | 1 / 0 | match | - | - |  |
 | SetNoAvoidance | 0x115B | 3 / 0 | match | - | - | A performance switch: nothing to do here. |
 | SetNPCRadio | 0x11C4 | 6 / 0 | match | - | - |  |
@@ -625,7 +625,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetOpenState | 0x10DD | 241 / 0 | match | - | - |  |
 | SetOwnership | 0x1117 | 144 / 0 | match | - | - |  |
 | SetPackDuration | 0x1122 | 12 / 0 | match | - | - |  |
-| SetPCCanUsePowerArmor | 0x1229 | 2 / 0 | wrong | power armour training | - | Stored, never read: equipping power armour is not gated. |
+| SetPCCanUsePowerArmor | 0x1229 | 2 / 0 | built | power armour training | - | The player cannot wear BMDT Power Armor armour without it; the refusal shows PowerArmorMessage (appearance-changes.md §4; smoke `power-armor-training`; probe ac3). |
 | SetPCEnemyOfFaction | 0x10C6 | 24 / 0 | match | - | - |  |
 | SetPCSleepHours | 0x10BD | 3 / 0 | match | - | - |  |
 | SetPlayerTagSkill | 0x11CD | 23 / 0 | match | - | - |  |
@@ -648,7 +648,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetVatsTarget | 0x11EB | 10 / 0 | no-system | VATS | - | Stub. |
 | SetWeaponHealthPerc | 0x11F5 | 1 / 0 | match | - | - |  |
 | SetWeather | 0x1104 | 14 / 0 | match | - | - |  |
-| SexChange | 0x11E7 | 12 / 0 | wrong | race and sex change on NPCs | - | Errors on NPCs; all base-game callers are the player. |
+| SexChange | 0x11E7 | 12 / 0 | built | race and sex change on NPCs | - | Any actor; reset gives the player the race's first starting face [hypothesis]; all base-game callers are the player (appearance-changes.md §2). |
 | ShowAllMapMarkers | 0x11F8 | 2 / 0 | match | - | - |  |
 | ShowBarberMenu | 0x11F1 | 4 / 0 | no-system | barber, plastic surgeon and tutorial menus | - | Stub. |
 | ShowBarterMenu | 0x1173 | 168 / 0 | match | - | - |  |
@@ -668,10 +668,10 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ShowTutorialMenu | 0x11E3 | 2 / 0 | no-system | barber, plastic surgeon and tutorial menus | - | Stub. |
 | ShowWarning | 0x11B9 | 71 / 0 | match | - | - |  |
 | Sqrt | 0x121F | 2 / 0 | match | - | - |  |
-| StartCannibal | 0x107E | 4 / 0 | no-system | Cannibal and Mister Sandman | - | Stub. |
+| StartCannibal | 0x107E | 4 / 0 | built | Cannibal and Mister Sandman | - | The victim eaten, the eater in the act with the StartCannibal idle; witnesses turn on the player [hypothesis] (perk-activation.md; smoke `perk-cannibal-devour`). |
 | StartCombat | 0x1016 | 938 / 0 | match | - | - |  |
 | StartConversation | 0x1056 | 135 / 0 | match | - | - |  |
-| StartMisterSandman | 0x107C | 1 / 0 | no-system | Cannibal and Mister Sandman | - | Stub. |
+| StartMisterSandman | 0x107C | 1 / 0 | built | Cannibal and Mister Sandman | - | The victim killed by the killer at once [hypothesis, probe ac5]; the SandMan idle for its furniture marker (perk-activation.md; smoke `perk-sandman-kill`). |
 | StartQuest | 0x1036 | 423 / 0 | match | - | - |  |
 | StartRadioConversation | 0x11D6 | 16 / 0 | match | - | - |  |
 | StopCombat | 0x1017 | 282 / 0 | match | - | - |  |

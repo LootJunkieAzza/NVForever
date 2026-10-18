@@ -155,6 +155,10 @@ pub enum SimError {
     /// ([`World::equip`]) [design: the owner's rule, 2026-10-11].
     #[error("{0} is broken: it cannot be equipped until it is repaired")]
     Broken(FormId),
+    /// The player has no Power Armor Training for power armour ([`World::equip`],
+    /// `World::set_power_armor_training`).
+    #[error("{0} is power armour: the player lacks the training to wear it")]
+    NoPowerArmorTraining(FormId),
     #[error(transparent)]
     Leveled(#[from] LeveledError),
 }
@@ -256,6 +260,9 @@ pub struct World<'a> {
     /// Game settings changed at run time (the console's `SetGameSetting`), by lower-case
     /// Editor ID; they replace the record's value for [`World::setting_value`] readers.
     setting_changes: BTreeMap<String, crate::settings::Setting>,
+    /// The player may wear power armour (SetPCCanUsePowerArmor; the game layer keeps the
+    /// flag and sets it here, [`World::set_power_armor_training`]).
+    power_armor_training: bool,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -274,6 +281,7 @@ impl<'a> World<'a> {
             carry_bonus: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
+            power_armor_training: false,
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -281,6 +289,21 @@ impl<'a> World<'a> {
 
     pub fn config(&self) -> SimConfig {
         self.cfg
+    }
+
+    /// Whether the player may wear power armour (ARMO BMDT "Power Armor"): without it
+    /// [`World::equip`] refuses such armour on the player with
+    /// [`SimError::NoPowerArmorTraining`] [documented: GECK wiki SetPCCanUsePowerArmor,
+    /// "sets the flag that lets the player use power armor"; hypothesis: that the flag
+    /// gates the BMDT flag's armour]. Other actors wear it freely. Off at the start
+    /// [hypothesis: the masters set it only from a stage of the Generic quest, which the
+    /// Power Armor Training perk runs, observed].
+    pub fn set_power_armor_training(&mut self, on: bool) {
+        self.power_armor_training = on;
+    }
+
+    pub fn power_armor_training(&self) -> bool {
+        self.power_armor_training
     }
 
     /// State of a reference that has already been materialised.
@@ -377,13 +400,18 @@ impl<'a> World<'a> {
     /// A fresh inventory for a container or actor base: its carried items with leveled
     /// lists resolved. `None` for bases without carried items.
     fn roll_inventory(&mut self, base: FormId) -> Result<Option<Inventory>, SimError> {
+        self.roll_inventory_at(base, self.cfg.player_level)
+    }
+
+    /// [`World::roll_inventory`] with the leveled lists resolved at `level`.
+    fn roll_inventory_at(&mut self, base: FormId, level: u16) -> Result<Option<Inventory>, SimError> {
         let Some(entries) = self.forms.entries(base) else { return Ok(None) };
         let mut inv = Inventory::new();
         let mut out = Vec::new();
         for e in entries {
             let from = out.len();
             // LVLG globals at their current values [observed: leveled_b8 captures].
-            leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
+            leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, e.item, e.count, level, &mut self.rng, &mut out)?;
             // COED on an entry applies to whatever it resolves to. [hypothesis]
             for r in &mut out[from..] {
                 r.extra = e.extra;
@@ -776,6 +804,7 @@ impl<'a> World<'a> {
     pub fn equip_at(&mut self, actor: FormId, item: FormId, at: Option<f32>) -> Result<Equip, SimError> {
         let it = self.forms.item(item).ok_or(SimError::NotAnItem(item))?.clone();
         let forms = self.forms;
+        let trained = self.power_armor_training;
         let inv = self.inventory(actor)?;
         if it.kind == ItemKind::Aid {
             return match inv.take_at(item, 1, at).iter().map(|g| g.1).sum::<i32>() {
@@ -791,6 +820,9 @@ impl<'a> World<'a> {
         }
         if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) {
             return Err(SimError::Broken(item));
+        }
+        if it.power_armor && actor == FormId::PLAYER_REF && !trained && !inv.is_equipped(item) {
+            return Err(SimError::NoPowerArmorTraining(item));
         }
         let clashes = |other: FormId| -> bool {
             let Some(o) = forms.item(other) else { return false };
@@ -1189,9 +1221,15 @@ impl<'a> World<'a> {
     /// A fresh roll of the base's carried items replaces the reference's inventory
     /// (ResetInventory, Layer 5). `false` when the base carries no items.
     pub fn reset_inventory(&mut self, id: FormId) -> Result<bool, SimError> {
+        self.reset_inventory_at(id, self.cfg.player_level)
+    }
+
+    /// [`World::reset_inventory`] with the leveled lists resolved at `level` instead of
+    /// the player's (SetLevel on an actor, Layer 5).
+    pub fn reset_inventory_at(&mut self, id: FormId, level: u16) -> Result<bool, SimError> {
         let base = self.get(id)?.base;
         let source = self.inventory_base(id, base);
-        let mut inv = self.roll_inventory(source)?;
+        let mut inv = self.roll_inventory_at(source, level)?;
         if self.get(id)?.outfitted {
             self.equip_default(source, &mut inv);
         }
@@ -1315,6 +1353,10 @@ impl<'a> World<'a> {
                 }
             },
             BaseData::Actor(_) => Outcome::Talk { actor: target },
+            // A talking activator (an intercom, a radio with lines) is talked to, as an
+            // actor is [hypothesis: the masters' intercom scripts start the talk with the
+            // default action, `fnv_game::talking_activators`].
+            BaseData::Activator if &base.sig == b"TACT" => Outcome::Talk { actor: target },
             BaseData::Activator | BaseData::Furniture => Outcome::Activated,
             BaseData::LeveledItem(_) => Outcome::NoDefault { sig: "LVLI".into() },
             // A placed explosive activated by script: nothing happens. [observed in

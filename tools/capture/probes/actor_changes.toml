@@ -1,0 +1,173 @@
+# Script-function probes for the actor-changes round (docs/spec-notes/appearance-changes.md,
+# perk-activation.md, talking-activators.md): what the original does where NVForever
+# guesses. `function_probe.py jobs` turns this file into game jobs and our runner's
+# inputs; the batches run one after another in one session, in name order. Everything here
+# is FormIDs of the shipped masters (facts of the format, no game data). The save is
+# nvftest (Goodsprings) for the Goodsprings people; nothing here needs the early game but
+# the people, so nvfstrip would do for ac3 and ac6 too.
+format = "fnv.function.probes/1"
+
+[forms]
+pete = "FalloutNV.esm:104C80"         # EasyPeteRef (Goodsprings)
+doc = "FalloutNV.esm:104C0F"          # DocMitchellREF (CaucasianOld)
+chet = "FalloutNV.esm:104C79"         # GSChetRef
+cobb = "FalloutNV.esm:104C68"         # GSJoeCobbRef
+caucasian = "FalloutNV.esm:000019"    # RACE Caucasian
+caucasianold = "FalloutNV.esm:0042C3" # RACE CaucasianOld
+caucasianchild = "FalloutNV.esm:0042C2" # RACE CaucasianChild
+stimpak = "FalloutNV.esm:015169"      # Stimpak
+t45 = "FalloutNV.esm:014E13"          # ArmorPowerT45d (BMDT Power Armor)
+salvaged = "FalloutNV.esm:13316A"     # ArmorPowerNCRSalvaged (no Power Armor flag)
+intercom = "FalloutNV.esm:0ACD73"     # HVBunkerIntercom2 (Hidden Valley)
+ramos = "FalloutNV.esm:0E2807"        # RamosREF
+gsgas = "FalloutNV.esm:109038"        # CELL GSGasStation
+
+# ---------------------------------------------------------------- ac1: SetLevel
+[[batch]]
+name = "ac1_setlevel"
+title = "Actor changes 1: SetLevel on an NPC: does it roll the inventory again (a script-given Stimpak lost), equip again, and keep the level (about 30 s, no input)"
+start = "nvftest (Goodsprings); Easy Pete's inventory is changed."
+ours_start = [{ op = "wait_frames", frames = 60 }]
+steps = [
+  { ask = "@pete.GetLevel" },
+  { ask = "@pete.GetItemCount @stimpak", label = "pete stimpaks before" },
+  { do = "@pete.AddItem @stimpak 3" },
+  { ask = "@pete.GetItemCount @stimpak", label = "pete stimpaks given" },
+  { do = "@pete.SetLevel 7 0" },
+  { frames = 30 },
+  { ask = "@pete.GetLevel", label = "pete level after SetLevel 7" },
+  { ask = "@pete.GetItemCount @stimpak", label = "pete stimpaks after SetLevel (0: regenerated)" },
+  { ask = "@pete.GetNumItems", label = "pete items after SetLevel" },
+  { do = "@pete.SetLevel 7 0" },
+  { frames = 30 },
+  { ask = "@pete.GetNumItems", label = "pete items after the same level again" },
+  # With the level-to-player flag and bounds (the wiki's bug note: often the minimum).
+  { do = "@cobb.SetLevel 2 1 5 20" },
+  { frames = 30 },
+  { ask = "@cobb.GetLevel", label = "cobb level after SetLevel 2 1 5 20" },
+  { ask = "player.GetLevel" },
+]
+
+# ---------------------------------------------------------------- ac2: AgeRace, SexChange
+[[batch]]
+name = "ac2_agerace_sexchange"
+title = "Actor changes 2: AgeRace on Doc Mitchell (CaucasianOld) and the player, SexChange on an NPC (about 30 s, no input; look at Doc on screen)"
+start = "nvftest (Goodsprings); Doc Mitchell and the player are changed."
+ours_start = [{ op = "wait_frames", frames = 60 }]
+steps = [
+  { ask = "@doc.GetIsRace @caucasianold" },
+  { do = "@doc.AgeRace 1" },
+  { ask = "@doc.GetIsRace @caucasianold", label = "doc old after AgeRace 1 (clamped)" },
+  { do = "@doc.AgeRace -1" },
+  { ask = "@doc.GetIsRace @caucasian", label = "doc adult after AgeRace -1" },
+  { do = "@doc.AgeRace -1" },
+  { ask = "@doc.GetIsRace @caucasianchild", label = "doc child after another AgeRace -1" },
+  { ask = "@doc.IsChild", label = "doc IsChild as a child race" },
+  { do = "@doc.AgeRace 5" },
+  { ask = "@doc.GetIsRace @caucasianold", label = "doc old after AgeRace 5 (overshoot)" },
+  { ask = "@chet.GetIsSex Female", label = "chet female before" },
+  { do = "@chet.SexChange" },
+  { ask = "@chet.GetIsSex Female", label = "chet female after SexChange without a sex" },
+  { do = "@chet.SexChange Male" },
+  { ask = "@chet.GetIsSex Female", label = "chet female after SexChange Male" },
+  { ask = "player.GetIsRace @caucasian" },
+  { do = "player.AgeRace -1" },
+  { ask = "player.GetIsRace @caucasianchild", label = "player child after AgeRace -1" },
+  { do = "player.AgeRace 1" },
+  { ask = "player.GetIsRace @caucasian", label = "player back after AgeRace 1" },
+]
+
+# ---------------------------------------------------------------- ac3: power armour
+[[batch]]
+name = "ac3_power_armor"
+title = "Actor changes 3: power armour without and with SetPCCanUsePowerArmor (about 30 s; a message box may appear: note its text, the runner closes it)"
+start = "nvftest or nvfstrip, a player without Power Armor Training."
+ours_start = [{ op = "wait_frames", frames = 60 }]
+steps = [
+  { do = "player.AddItem @t45 1" },
+  { do = "player.AddItem @salvaged 1" },
+  { do = "player.EquipItem @t45" },
+  { frames = 30 },
+  { ask = "player.GetEquipped @t45", label = "T-45d worn without the training (scripted EquipItem)" },
+  { do = "player.EquipItem @salvaged" },
+  { frames = 30 },
+  { ask = "player.GetEquipped @salvaged", label = "salvaged NCR armour worn without the training" },
+  { do = "@pete.AddItem @t45 1" },
+  { do = "@pete.EquipItem @t45" },
+  { frames = 30 },
+  { ask = "@pete.GetEquipped @t45", label = "an NPC wears power armour" },
+  { do = "SetPCCanUsePowerArmor 1" },
+  { do = "player.EquipItem @t45" },
+  { frames = 30 },
+  { ask = "player.GetEquipped @t45", label = "T-45d worn with the training" },
+]
+
+# ---------------------------------------------------------------- ac4: Cannibal
+[[batch]]
+name = "ac4_cannibal"
+title = "Actor changes 4: StartCannibal on a corpse: HasBeenEaten, how long GetCannibal holds, whether StartCannibal itself restores health or changes karma (about 40 s; look at the player: the clip)"
+start = "nvftest (Goodsprings); Easy Pete is killed. tgm, not tdetect."
+ours_start = [{ op = "wait_frames", frames = 60 }]
+steps = [
+  { console = "tgm" },
+  { do = "@pete.KillActor player" },
+  { frames = 60 },
+  { ask = "@pete.HasBeenEaten", label = "pete eaten before" },
+  { do = "player.DamageAV Health 40" },
+  { ask = "player.GetAV Health", label = "health before StartCannibal" },
+  { ask = "player.GetAV Karma", label = "karma before StartCannibal" },
+  { do = "@pete.StartCannibal player" },
+  { ask = "player.GetCannibal", label = "GetCannibal at once" },
+  { ask = "@pete.HasBeenEaten", label = "pete eaten at once" },
+  { frames = 30 },
+  { ask = "player.GetCannibal", label = "GetCannibal after 30 frames" },
+  { frames = 60 },
+  { ask = "player.GetCannibal", label = "GetCannibal after 90 frames" },
+  { frames = 90 },
+  { ask = "player.GetCannibal", label = "GetCannibal after 180 frames" },
+  { frames = 120 },
+  { ask = "player.GetCannibal", label = "GetCannibal after 300 frames" },
+  { frames = 300 },
+  { ask = "player.GetCannibal", label = "GetCannibal after 600 frames" },
+  { ask = "player.GetAV Health", label = "health after StartCannibal (the catalogue: the eater regains some)" },
+  { ask = "player.GetAV Karma", label = "karma after StartCannibal (the perk scripts give -1 themselves)" },
+  { ask = "@pete.HasBeenEaten", label = "pete eaten later" },
+]
+
+# ---------------------------------------------------------------- ac5: Mister Sandman
+[[batch]]
+name = "ac5_sandman"
+title = "Actor changes 5: StartMisterSandman on an awake NPC: killed at once or at the clip's end, by whom, and how long GetSandman holds (about 30 s; look at the player: the clip)"
+start = "nvftest (Goodsprings); Joe Cobb is killed. tgm."
+ours_start = [{ op = "wait_frames", frames = 60 }]
+steps = [
+  { console = "tgm" },
+  { ask = "@cobb.GetDead", label = "cobb dead before" },
+  { do = "@cobb.StartMisterSandman player" },
+  { ask = "@cobb.GetDead", label = "cobb dead at once" },
+  { ask = "player.GetSandman", label = "GetSandman at once" },
+  { frames = 60 },
+  { ask = "@cobb.GetDead", label = "cobb dead after 60 frames" },
+  { ask = "player.GetSandman", label = "GetSandman after 60 frames" },
+  { frames = 120 },
+  { ask = "@cobb.GetDead", label = "cobb dead after 180 frames" },
+  { ask = "player.GetSandman", label = "GetSandman after 180 frames" },
+  { frames = 240 },
+  { ask = "player.GetSandman", label = "GetSandman after 420 frames" },
+  { ask = "@cobb.GetKiller", ref = true, label = "cobb's killer (xNVSE)" },
+]
+
+# ---------------------------------------------------------------- ac6: talking activators
+[[batch]]
+name = "ac6_talking_activator"
+title = "Actor changes 6: a talking activator's actor set by script: IsTalkingActivatorActor and IsActorTalkingThroughActivator outside a conversation (about 10 s, no input)"
+start = "nvftest or nvfstrip; Hidden Valley's bunker intercom is changed (not loaded)."
+ours_start = [{ op = "wait_frames", frames = 60 }]
+steps = [
+  { ask = "@intercom.IsTalkingActivatorActor @ramos", label = "Ramos the intercom's actor before" },
+  { do = "@intercom.SetTalkingActivatorActor @ramos" },
+  { ask = "@intercom.IsTalkingActivatorActor @ramos", label = "Ramos the intercom's actor after SetTalkingActivatorActor (the wiki: false when set by script)" },
+  { ask = "@ramos.IsActorTalkingThroughActivator", label = "Ramos talking through an activator, no conversation" },
+  { do = "@intercom.SetTalkingActivatorActor" },
+  { ask = "@intercom.IsTalkingActivatorActor @ramos", label = "Ramos after the actor is cleared" },
+]

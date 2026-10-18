@@ -535,13 +535,9 @@ pub fn get_is_voice_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Str
     yes(voice == v || super::refs::list_members(g, v).contains(&voice))
 }
 
+/// The actor's sex now, SexChange's included (`crate::appearance`).
 fn is_female(g: &Game, r: FormId) -> bool {
-    if r == FormId::PLAYER_REF {
-        if let Some(f) = g.player.female {
-            return f;
-        }
-    }
-    g.traits_def(r).is_some_and(|a| a.female)
+    g.actor_female(r)
 }
 
 /// Sex codes: 0 male, 1 female (scripts.md §2.4).
@@ -554,26 +550,29 @@ pub fn get_pc_is_sex(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String
     yes(is_female(g, FormId::PLAYER_REF) == (a.code(0)? == 1))
 }
 
-/// `SexChange [sex]`: without a calling reference it changes the player; without a sex
-/// it flips [documented: catalogue summary]. Other actors: not modelled.
+/// `SexChange [sex] [resetAppearance]`: without a calling reference it changes the
+/// player; without a sex it flips [documented: catalogue summary]; any actor
+/// (`crate::appearance`).
 pub fn sex_change(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
-    if r != FormId::PLAYER_REF {
-        return Err("SexChange on an actor other than the player is not modelled".into());
-    }
-    let female = match a.code(0) {
-        Ok(c) => c == 1,
-        Err(_) => !is_female(g, r),
-    };
-    g.player.female = Some(female);
+    let female = a.code(0).ok().map(|c| c == 1);
+    let reset = a.int(1).is_ok_and(|v| v != 0);
+    g.sex_change(r, female, reset);
+    none()
+}
+
+/// `AgeRace steps`: the actor's race moves along its age links (`crate::appearance`).
+pub fn age_race(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject_or_player();
+    let steps = a.int(0)?;
+    g.age_race(r, steps).ok_or_else(|| format!("{} has no race", g.data.name(r)))?;
     none()
 }
 
 pub fn get_is_race(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    // The race chosen in the character creator stands for the record's.
-    let chosen = g.player.look.as_ref().filter(|_| r == FormId::PLAYER_REF).map(|l| l.race);
-    yes(chosen.or_else(|| g.traits_def(r).and_then(|d| d.race)) == Some(a.form(0)?))
+    // The character creator's choice and AgeRace stand for the record's.
+    yes(g.actor_race(r) == Some(a.form(0)?))
 }
 
 pub fn get_is_class(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -605,7 +604,7 @@ flag!(set_player_teammate, get_player_teammate, teammate);
 /// summary of IsChild].
 pub fn is_child(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    yes(g.traits_def(r).and_then(|d| d.race).is_some_and(|race| g.data.child_races.contains(&race)))
+    yes(g.actor_race(r).is_some_and(|race| g.data.child_races.contains(&race)))
 }
 
 /// 1 for a creature of the given type (CREA DATA type) [documented: catalogue summary];
@@ -802,8 +801,16 @@ flag!(set_ignore_friendly_hits, get_ignore_friendly_hits, ignore_friendly_hits);
 
 /// `actor.SetLevel level [levelToPC min max]`: the player's level, or an actor's
 /// (with the level-to-player flag the level is an offset from the player's, kept within
-/// min and max when given) [documented: catalogue summary and notes]. Re-rolling an
-/// actor's inventory and the player's stats are not modelled.
+/// min and max when given) [documented: catalogue summary and notes]. On the player
+/// only the number changes, not the stats [documented: catalogue notes, "alters the
+/// level number but no stats"]. On another actor its carried items are rolled again,
+/// even when the level did not change [documented: catalogue notes, "regenerates the
+/// inventory, re-evaluating leveled lists"]: its record's items with the leveled lists
+/// resolved at its new level [hypothesis: an actor's leveled items follow its own
+/// level; the shipped scripts call SetLevel on the player only, observed], equipped as
+/// it starts (`fnv_sim::World::reset_inventory_at`). An actor whose record carries no
+/// items keeps what it has. The original's noted bug (the level often set to the
+/// minimum) is not copied [design].
 pub fn set_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     let mut level = a.int(0)?;
@@ -821,6 +828,7 @@ pub fn set_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         }
     }
     g.extra.entry(r).or_default().level = Some(level);
+    let _ = g.world.reset_inventory_at(r, level.clamp(1, i32::from(u16::MAX)) as u16);
     none()
 }
 
@@ -962,4 +970,45 @@ pub fn set_disposition(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     let v = a.num(1)?;
     g.extra.entry(actor).or_default().dispositions.insert(target, v);
     none()
+}
+
+// ---- Cannibal and Mister Sandman (`crate::activate_choices`) ------------------------
+
+/// `victim.StartCannibal eater`: the calling actor is eaten by `eater` (the player when
+/// not given) [documented: catalogue summary].
+pub fn start_cannibal(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let victim = ctx.subject()?;
+    let eater = a.opt_form(0).unwrap_or(FormId::PLAYER_REF);
+    g.start_cannibal(victim, eater);
+    none()
+}
+
+/// `victim.StartMisterSandman killer`: the sleeping calling actor is killed by `killer`
+/// [observed: Mister Sandman's entry script `StartMisterSandman Player`].
+pub fn start_mister_sandman(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let victim = ctx.subject()?;
+    let killer = a.opt_form(0).unwrap_or(FormId::PLAYER_REF);
+    g.start_mister_sandman(victim, killer);
+    none()
+}
+
+/// 1 while the calling actor is in the cannibalism animation [documented: catalogue
+/// summary].
+pub fn get_cannibal(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.in_perk_act(r, crate::activate_choices::Act::Cannibal))
+}
+
+/// 1 while the calling actor carries out a Mister Sandman kill [documented: catalogue
+/// summary].
+pub fn get_sandman(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.in_perk_act(r, crate::activate_choices::Act::Sandman))
+}
+
+/// 1 when the player has eaten the calling actor [documented: catalogue summary]; it
+/// stays so (saved with the reference) [hypothesis: the wiki leaves it untested].
+pub fn has_been_eaten(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.extra.get(&r).is_some_and(|e| e.eaten))
 }

@@ -530,6 +530,9 @@ struct Body {
     /// The look chosen in the character creator the body was built with (`None`: the
     /// player record's).
     look: Option<fnv_actor::Look>,
+    /// AgeRace's and SexChange's change the body was built with (`ActorWorld::change`,
+    /// `crate::appearance`).
+    change: fnv_actor::Change,
     female: bool,
     scale: f32,
     third: Rig,
@@ -778,7 +781,9 @@ fn ensure_body(
     let mut rebuilt = false;
     // A new look rebuilds the body, at most every [`LOOK_REBUILD`] seconds while a
     // slider is dragged [design].
-    let look_changed = state.body.as_ref().is_some_and(|b| b.look != look);
+    // AgeRace and SexChange before the creator gave a look (`crate::appearance`).
+    let change = world.change(FormId::PLAYER_REF.0);
+    let look_changed = state.body.as_ref().is_some_and(|b| b.look != look || b.change != change);
     let look_due = look_changed && real.elapsed_secs() - *last_look >= LOOK_REBUILD;
     if state.body.as_ref().is_none_or(|b| b.worn != worn) || look_due {
         if look_due {
@@ -948,7 +953,7 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
             None
         }
     };
-    Ok(Body { worn: worn.to_vec(), look: look.cloned(), female: a.female, scale, third, first })
+    Ok(Body { worn: worn.to_vec(), look: look.cloned(), change: world.change(FormId::PLAYER_REF.0), female: a.female, scale, third, first })
 }
 
 /// Spawn one rig of appearance `a` under `parent` (its transform set each frame).

@@ -87,6 +87,7 @@ mod ragdoll;
 mod reflection;
 mod residents;
 mod resurrect;
+mod appearance;
 mod script_look;
 mod ripples;
 mod settings;
@@ -1216,7 +1217,7 @@ fn main() -> AppExit {
             // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
             app.add_plugins(stress_sample::StressSamplePlugin);
             app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
-            app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin));
+            app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin, appearance::AppearancePlugin));
             // What drawn NPCs wear and hold follows their inventories (outfits.rs).
             app.add_plugins(outfits::OutfitsPlugin);
             if shadow_probe::enabled() {

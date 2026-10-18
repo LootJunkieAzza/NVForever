@@ -1,0 +1,53 @@
+# Spec notes: talking activators (intercoms, radios with lines, loudspeakers)
+
+Clean-room description in plain language, tags as in the other notes. Sources: the
+function catalogue (SetTalkingActivatorActor, IsTalkingActivatorActor,
+IsActorTalkingThroughActivator), xEdit's TACT definition (`schemas/fnv/placed.json`), the
+masters' compiled scripts and dialogue lines (read privately with `fnvtool script
+decompile` and `fnvtool dialogue lines`; nothing quoted beyond names, short labels and
+FormIDs). Radios as stations: [radio.md](radio.md).
+
+Code: `fnv_game::talking_activators` (who speaks, IsActorTalkingThroughActivator),
+`fnv_game::dialogue` (`Conversation::through`), `fnv_sim::World::activate` (a TACT's
+default action is Talk); the engine's `dialogue_look.rs` (the view turns to the
+activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs`. Smoke:
+`talking-activator-intercom`. Capture job: `tools/capture/probes/actor_changes.toml` ac6.
+
+## 1. What the data does [observed]
+
+- 87 TACT records in FalloutNV.esm: stations, intercoms ("Intercom", "Security
+  Intercom", "PA System"), recordings, "Lucky 38 Mainframe". TACT has a voice type
+  (VNAM), a looping sound and a radio template [documented: xEdit].
+- 31 SetTalkingActivatorActor calls in 28 scripts. The intercoms' OnActivate blocks set an
+  actor and end with `Activate` (Hidden Valley's bunker intercoms set Ramos; the Tops'
+  presidential intercom Benny; Repcon's, VMS18's waiter's, Black Mountain's radio); a few
+  set it OnLoad (VEFR0xNCRTalkingActivator, the Lucky 38 alarm, the assassination radio).
+- 92 dialogue conditions use IsActorTalkingThroughActivator, on the line's speaker: lines
+  for the intercom (`== 1`, e.g. Ramos's "[You hear nothing.]" with only GetIsID Ramos
+  beside it) and lines face to face (`== 0`, e.g. Benny's and Chris Haversam's).
+
+## 2. NVForever's rules
+
+- **The default action** of a talking activator is a conversation with it [hypothesis:
+  the intercom scripts' closing `Activate` is what starts the talk]: activating one (E, or
+  a script's Activate) answers Talk, as an actor does.
+- **Who speaks**: the activator's talking actor while it lives, else the activator itself
+  [documented: SetTalkingActivatorActor "makes a talking activator use the dialogue of a
+  given actor; with no actor it reverts to normal behaviour"; hypothesis: a dead actor
+  counts as none — the scripts test GetDead before setting it]. Its lines are chosen with
+  the actor as the speaker and said in its voice; the activator must be there, the actor
+  need not be (Ramos is in the bunker, Benny in his suite).
+- **IsActorTalkingThroughActivator** is 1 on that actor while its lines are chosen and
+  while that conversation runs, else 0 [documented: "returns true if the actor is
+  speaking via an activator; the actor must first be registered through the
+  talking-activator setter"]. The catalogue's note "false if the talking actor was
+  assigned by script" is not followed [hypothesis: every New Vegas talking actor is set
+  by script, and the 92 conditions would never hold]; probe ac6 asks the original's
+  IsTalkingActivatorActor after a script set the actor.
+- **The picture**: the view turns to the activator; the actor does not turn to the
+  player (it is not there). The subtitle and the dialogue menu name the actor
+  [hypothesis].
+- Not built: a talking activator's lines outside a conversation (Say, SayTo from an
+  intercom are said by the activator as by any speaker); distance attenuation is not an
+  issue in a conversation (heard whole) [documented: "talking activators configured by
+  script have no distance attenuation"].

@@ -31,8 +31,8 @@ impl Game<'_> {
     /// The race whose abilities the actor has: the character creator's choice for the
     /// player, else the record's (template flag "Traits").
     pub fn ability_race(&self, r: FormId) -> Option<FormId> {
-        let chosen = self.player.look.as_ref().filter(|_| r == FormId::PLAYER_REF).map(|l| l.race);
-        chosen.or_else(|| self.traits_def(r).and_then(|d| d.race))
+        // AgeRace's change included (`crate::appearance`).
+        self.actor_race(r)
     }
 
     /// The abilities among a list of actor effects: type Ability only. An SPLO entry of

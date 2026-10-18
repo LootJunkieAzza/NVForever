@@ -90,6 +90,15 @@ pub fn game_look(l: &fnv_actor::Look) -> rules::Look {
     }
 }
 
+/// The player's look after SexChange with reset (`fnv_game::appearance`): `start` (the
+/// look now, or the record's, with the new race and sex) with the race's first starting
+/// face for that sex ([`Model::reset_to_preset`]).
+pub fn preset_look(data: &CreatorData, start: fnv_actor::Look) -> fnv_actor::Look {
+    let mut m = Model::new(data.0.clone(), start);
+    m.reset_to_preset();
+    m.look
+}
+
 /// Whether the creator draws this menu (else `crate::script_hud`'s placeholder does).
 pub fn draws(code: u16, data: bool) -> bool {
     code == menus::RACE && data
