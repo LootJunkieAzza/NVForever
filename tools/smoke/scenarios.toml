@@ -1230,7 +1230,7 @@ source = "script function parameters (docs/design/script-function-params.md §3)
 areas = ["scripts", "rendering", "script-params"]
 paths = ["engine/nvf-play/src/ref_fade.rs", "engine/nvf-play/src/activate.rs", "engine/nvf-play/src/script_draw.rs", "engine/nvforever/src/effect_shaders.rs", "crates/fnv-game/src/functions/refs.rs"]
 # Enable 0 comes 5 s after Disable 1, past a fade-out that keeps the reference enabled for
-# up to 4 s (PR #455's hold), so both "gone" lines come before it either way.
+# a few seconds (PR #455's hold), so both "gone" lines come before it either way.
 env = { NVF_PLAY_TEST_CONSOLE = "9:001084B0.enable;9.3:close;12:001084B0.disable 1;12.3:close;17:001084B0.enable 0;17.3:close" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
 run_seconds = 20
