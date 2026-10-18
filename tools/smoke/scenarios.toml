@@ -3410,12 +3410,12 @@ expect = [
 [[scenario]]
 name = "crippled-limp-deathclaw"
 source = "owner 2026-10-17: every actor with limping clips limps on a crippled leg (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11, §8.12)"
-note = "the creature-alert-stance setup: the deathclaw QJDeathclawWanderer01 0x000E62E5 at Quarry Junction fights the feral ghoul 0x000CE9E7 put 500 units north of the player at 2 s; its Left Mobility Condition is damaged at 8 s, so it limps while it fights (alerted)"
+note = "the creature-alert-stance setup: the deathclaw QJDeathclawWanderer01 0x000E62E5 at Quarry Junction fights the feral ghoul 0x000CE9E7 put 500 units north of the player at 2 s; its Left Mobility Condition is damaged at 8 s, and at 9 s it is put 400 units north of the player and set on them (moveto, combat; god mode), so it has to walk back on its limp: with the scripts late the ghoul was dead before the leg went (three deathclaws fought it) and the deathclaw never moved again (PR #411's run, 2026-10-18)"
 areas = ["actors", "combat", "creatures"]
 paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/actors.rs", "crates/fnv-actor/src/locomotion.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT = "2:moveto:0x000CE9E7:player:0:500:0,8:damage:0x000E62E5:LeftMobilityCondition:1000" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIPT = "2:moveto:0x000CE9E7:player:0:500:0,8:damage:0x000E62E5:LeftMobilityCondition:1000,9:moveto:0x000E62E5:player:0:400:0,9:combat:0x000E62E5:player" }
 args = ["--pos=-14138,25200,4700", "--heading", "0", "--play", "--hour", "12", "--no-voice"]
-run_seconds = 22
+run_seconds = 30
 expect = [
   { re = 'actor locomotion: meshes.creatures.deathclaw limping: 7 of \d+ moves from hurt', label = "the deathclaw's limping set loads (walk and run forward, back, sideways, turns)" },
   { re = 'limping: \S+ 0x000E62E5 limps on a crippled leg', label = "the deathclaw limps" },
