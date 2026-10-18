@@ -156,6 +156,7 @@ pub fn hacked(g: &mut Game, reference: FormId, success: bool) -> f64 {
     if !success {
         return 0.0;
     }
+    g.count_stat(crate::misc_stats::COMPUTERS_HACKED, 1.0);
     let difficulty = crate::functions::base_of(g, reference).and_then(|b| g.data.terminals.get(&b)).map(|t| Difficulty::from_code(t.difficulty));
     let x = difficulty.map_or(0.0, |d| xp(g, d));
     crate::experience::award(g, crate::experience::Source::HackTerminal, x)

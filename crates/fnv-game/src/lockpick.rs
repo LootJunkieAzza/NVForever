@@ -511,6 +511,7 @@ pub fn xp(g: &Game, level: Level) -> f64 {
 pub fn opened(g: &mut Game, reference: FormId, level: Level, picked: bool) -> Option<FormId> {
     let _ = g.world.unlock(reference);
     if picked {
+        g.count_stat(crate::misc_stats::LOCKS_PICKED, 1.0);
         let x = xp(g, level);
         crate::experience::award(g, crate::experience::Source::PickLock, x);
     }

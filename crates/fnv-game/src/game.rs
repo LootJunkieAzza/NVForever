@@ -314,7 +314,8 @@ pub struct RefExtra {
     /// SetCriticalStage (0 none, 1 goo start, 2 goo end, 3 disintegrate start, 4 end).
     #[serde(skip_serializing_if = "is_zero", default)]
     pub critical_stage: u16,
-    /// SetScale.
+    /// SetScale in saves from before 2026-10-18 (it is now kept on the reference's state,
+    /// `fnv_sim::world::RefState::scale`); read by GetScale, cleared by the next SetScale.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub scale: Option<f64>,
     /// SetLevel of an actor other than the player.
@@ -880,8 +881,8 @@ pub struct Game<'a> {
     /// Rotate: this frame's turn per reference (axis 0–2, degrees per second); the last
     /// call of the frame counts. Applied at the end of [`Game::tick`]. Not saved.
     pub rotations: BTreeMap<FormId, (usize, f64)>,
-    /// References Rotate turned in the latest [`Game::tick`], for the engine to draw at
-    /// their new angle. Not saved.
+    /// References Rotate turned or SetScale resized in the latest [`Game::tick`], for the
+    /// engine to draw at their new angle and size. Not saved.
     pub turned: BTreeSet<FormId>,
     /// Actors whose OnStartCombat block was fired and whose OnCombatEnd was not yet
     /// (`Game::combat_blocks`). Not saved, as the combat states are not [documented:
@@ -1264,7 +1265,7 @@ impl<'a> Game<'a> {
                 let s = self.quest(q);
                 if !s.completed {
                     s.completed = true;
-                    self.emit(EventKind::QuestCompleted { quest: q });
+                    self.quest_completed(q);
                 }
             }
             if e.flags & STAGE_FAIL != 0 {
@@ -2118,6 +2119,7 @@ impl<'a> Game<'a> {
             }
             // A placed mine disarmed by the player gives its XP (`crate::experience`).
             Outcome::Disarmed { .. } if actor == FormId::PLAYER_REF => {
+                self.count_stat(crate::misc_stats::MINES_DISARMED, 1.0);
                 let x = crate::experience::mine_disarm_xp(self);
                 crate::experience::award(self, crate::experience::Source::DisarmMine, x);
             }

@@ -119,21 +119,22 @@ fn dormant_in(play: &PlayWorld, sim: &SimState, cell: RenderCell) -> Vec<Dormant
 fn pose(sim: &SimState, p: &Placement) -> Affine3A {
     let (pos, rot) = sim.world.peek(FormId(p.form_id)).map_or((p.position, p.rotation), |s| (s.pos, s.rot));
     let m = Mat3::from_cols_array(&ref_rotation(rot)).transpose(); // row-major
-    Affine3A::from_mat3_translation(m * p.scale, Vec3::from_array(pos))
+    let scale = sim.script_scale(p.form_id).unwrap_or(p.scale);
+    Affine3A::from_mat3_translation(m * scale, Vec3::from_array(pos))
 }
 
 type Cells<'w, 's> = Query<'w, 's, (Entity, &'static RenderCell, &'static Transform), Without<ScriptDrawnRoot>>;
 
 /// Move the roots of the references physics moved this frame
-/// (`PhysState::settle_placed`), or a script's Rotate turned (`Game::turned`), to the
-/// simulation's pose.
+/// (`PhysState::settle_placed`), or a script's Rotate turned or SetScale resized
+/// (`Game::turned`), to the simulation's pose and scale.
 fn follow(sim: Res<SimState>, phys: Res<PhysState>, script: Res<ScriptState>, state: Res<ScriptDrawn>, cells: Cells, mut roots: Query<&mut Transform, With<ScriptDrawnRoot>>) {
     let turned = script.rt.iter().flat_map(|rt| rt.game.turned.iter().map(|r| r.0));
     for id in phys.moved_now.iter().copied().chain(turned) {
         let Some(&(root, cell_e)) = state.drawn.get(&id) else { continue };
         let (Ok((_, _, cell)), Ok(mut t), Some(p)) = (cells.get(cell_e), roots.get_mut(root), sim.refs.get(FormId(id))) else { continue };
         let (pos, rot) = sim.moved_pose(id).unwrap_or((p.pos, p.rot));
-        *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-cell.translation) * ref_affine(pos, rot, p.scale.unwrap_or(1.0))));
+        *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-cell.translation) * ref_affine(pos, rot, sim.ref_scale(id))));
     }
 }
 

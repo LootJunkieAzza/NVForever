@@ -5621,3 +5621,35 @@ down too (GetKnockedState 2). Guesses to check against the game:
 - **A pushed actor can be searched** (E opens its inventory) until it begins to get up, as
   the wiki says; an explosion's knockdown cannot be searched [hypothesis: the note names
   only pushes].
+
+## Miscellaneous statistics and SetScale (2026-10-18, branch claude/blockers-miscstat-scale-d2c0d2)
+
+Playthrough blocker row 16 (docs/spec-notes/misc-stats.md). What I decided:
+
+- **The codes of the 43 statistics** are the order your Pip-Boy screenshot of 2026-10-14
+  shows (Quests Completed, Locations Discovered, People Killed, …). The first eleven, and
+  a few later ones, are backed by your screenshot, the five codes in the shipped scripts
+  and the counters in your saves (Total Things Killed = People + Creatures Killed in
+  Save 22). From Health From Stimpaks (16) on, the order is a guess. A screenshot of the
+  whole General list (scrolled to the bottom) would settle it.
+- **The Pip-Boy's General list** now shows the 43 in that order with their numbers, in
+  place of an alphabetical list with "--".
+- **What counts** (guesses where marked in the note): every completed quest, hidden ones
+  too; kills by the player only (not by companions); locks picked, not forced; Rad-X and
+  RadAway not also counted as chems; a doctor's bag is an item that only restores limbs;
+  Water Consumed is one per drink that lowers dehydration; Times Slept counts when a
+  sleep starts; Items Crafted is one per recipe made; Items Repaired only the Pip-Boy's
+  own repairs (not a vendor's); **Barter Amount Traded is the caps that changed hands**
+  (it may be the goods' value in the original); a challenge counts each time it
+  completes.
+- **Not counted** (no system yet): pickpocketing, dismemberment, disintegrations,
+  Caravan, slot machines, skill books, New Vegas speech-check successes and failures,
+  weapon mods, Pants Exploded, Paralyzing Punches, Mysterious Stranger, Miss Fortunate.
+  Sandman Kills, Robots Disabled and Corpses Eaten are counted by the game's own scripts.
+- **SetScale** draws placed objects and actors at the new scale and rebuilds an object's
+  collision; an actor's collision capsule stays as it was. `SetScale 0` (the game uses it
+  to hide an artillery piece) draws the object at 0.001 with no collision. The player is
+  not resized (the game only ever sets the player to 1).
+- **To check in game**: the General list against the original's, after a short session
+  of killing, picking a lock, using a stimpak and sleeping; `prid DocMitchellREF` then
+  `setscale 1.5` at the console (Doc should be half again as tall).

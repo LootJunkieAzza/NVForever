@@ -239,6 +239,7 @@ impl Game<'_> {
         // Karma and murder are judged while the victim still lives (`crate::crime`).
         if killer == Some(FormId::PLAYER_REF) {
             self.player_kills(r);
+            self.count_kill(r);
         }
         let e = self.extra.entry(r).or_default();
         e.dead = true;
@@ -359,6 +360,9 @@ impl Game<'_> {
             let (condition, crippled) = self.damage_limb(target, l, max_health);
             out.limb = Some((l.condition, condition));
             out.crippled = crippled;
+            if crippled && target == FormId::PLAYER_REF {
+                self.count_stat(crate::misc_stats::HAVE_LIMBS_CRIPPLED, 1.0);
+            }
         }
         if health <= floor && !self.is_dead(target) {
             if essential {

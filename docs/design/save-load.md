@@ -82,7 +82,7 @@ original lacks it); **Save?**: *yes* (must be saved), *have* (already in the sna
 | Player: XP, name, sex, level, perks and traits, tag skills | `player: PlayerState` | NPC_ 0x7 (SPECIAL, name), CLAS PlayerClass (§6.2), player record | have |
 | Notes, map markers, topics known | `player.notes`, `map_markers`, `topics` | NOTE records, REFR form flags on markers [hypothesis] | have |
 | Reputation (fame, infamy) | `player.reputation` | REPU bit 1, two f32 (§6.3) | have |
-| Challenges, misc statistics, achievements | `player.challenges`, `misc_stats`, `achievements` | CHAL bit 1; global type 0 (43 u32) [hypothesis] | have |
+| Challenges, misc statistics, achievements | `player.challenges`, `misc_stats`, `achievements` | CHAL bit 1; global type 0 (43 u32, in code order: misc-stats.md §1) [observed: values fit the names] | have |
 | Crime and enemies | `player.crime_counts`, `crime_enemies`, `enemy_of` | not found | have |
 | Faction reactions, names, cell owners, item values changed by script | `forms: FormChanges` | FACT bit 2 (§6.2) | have |
 | Form list additions | `form_lists` | FLST bit 31 | have |

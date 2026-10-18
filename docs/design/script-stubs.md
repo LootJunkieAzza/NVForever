@@ -261,6 +261,14 @@ ActionIndex list, so the other indices read 0. Not answered: GetAnimAction 5, 6 
 phases), 10–12, and 17 (seen on .357 revolvers before a reload, meaning unknown). 41 → 40
 stubs, 179 → 177 calls (after the knockdowns).
 
+### 3.14 Miscellaneous statistics and SetScale (claude/blockers-miscstat-scale, 2026-10-18)
+
+Not stubs, but half-built (outstanding.md §1 row 16): GetPCMiscStat now answers every New
+Vegas statistic by code, 26 of them counted by the rules and the engine, and SetScale's
+scale is drawn and collided ([misc-stats](../spec-notes/misc-stats.md)). Tests:
+`functions.rs` `misc_stats_count_and_set_scale_is_kept_on_the_reference`; smoke
+`misc-stats-scale`.
+
 ## 4. Every remaining stub
 
 Statuses: **needs a system not built yet**; **assigned to workstream** (another agent is

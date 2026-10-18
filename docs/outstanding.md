@@ -37,7 +37,7 @@ still stubs.
 | 13 | A leveled actor's level re-rolled | 4 | SetLevel sets the level but does not re-roll the NPC's inventory | SetLevel |
 | 14 | Cannibal and Mister Sandman | 3 | The perks' activate choices are not built | (perk entry points) |
 | 15 | VATS | 3 quests, 250 conditions | VATS mode built (vats-mode.md), awaiting the owner | GetVATSValue and GetVATSMode answer for VATS mode; GetVATSTargetHeight and SetVatsTarget stay stubs |
-| 16 | Miscellaneous stats, scale | 3 each | Counters other than ModPCMiscStat's; SetScale not read by the engine | GetPCMiscStat, SetScale |
+| 16 | Miscellaneous stats, scale | 3 each | Built (misc-stats.md, 2026-10-18): all 43 statistics have codes, 26 counted by the rules and the engine, the Pip-Boy shows them; SetScale drawn and collided. Not counted: the 17 of misc-stats.md §3 (pickpocketing, dismemberment, Caravan, slots, skill books, New Vegas speech checks) | (GetPCMiscStat, SetScale) |
 | 17 | Dismemberment, end videos, cell image space | 2 each | Not built | (dismemberment), PlayBink, SetCellImageSpace |
 | 18 | One quest each | 1 each | Screen splatter, AI package codes (Sandbox, Travel-at-goal), AutoDisplayObjectives, navmesh switches, SetPCCanUsePowerArmor, ExitGame | |
 

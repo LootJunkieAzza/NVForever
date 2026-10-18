@@ -26,6 +26,8 @@ pub enum EventKind {
     GlobalSet { global: FormId, value: f32 },
     RefEnabled { reference: FormId },
     RefDisabled { reference: FormId },
+    /// SetScale: the reference's new scale.
+    Scaled { reference: FormId, scale: f64 },
     ItemAdded { to: FormId, item: FormId, count: i32 },
     ItemRemoved { from: FormId, item: FormId, count: i32 },
     /// `hidden`: the indices (in `buttons`) of the buttons whose conditions failed, not shown.

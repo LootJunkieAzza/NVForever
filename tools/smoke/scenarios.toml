@@ -4372,3 +4372,21 @@ expect = [
   { re = 'knockout: Easy Pete \S+ knocked out', count = 0, label = "a knockdown is no knock-out" },
   { re = 'corner message: ".* is unconscious', count = 0, label = "no corner message for a knockdown" },
 ]
+
+[[scenario]]
+name = "misc-stats-scale"
+source = "outstanding.md §1 row 16 (docs/spec-notes/misc-stats.md): every New Vegas statistic name compiles at the console and ModPCMiscStat adds to its counter; SetScale on an actor draws it at that scale and GetScale reads it back"
+areas = ["scripts", "console", "pipboy"]
+paths = ["crates/fnv-game/src/misc_stats.rs", "crates/fnv-game/src/functions/objects.rs", "engine/nvforever/src/actor_scale.rs", "engine/nvf-play/src/moved.rs", "engine/nvf-play/src/script_draw.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:getpcmiscstat \"Barter Amount Traded\";14.3:modpcmiscstat \"Barter Amount Traded\" 7;14.6:getpcmiscstat \"barter amount traded\";15:prid DocMitchellREF;15.3:setscale 1.5;15.6:getscale;16:close", NVF_PLAY_TEST_SHOTS = "18:misc_scale_doc.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  "console: GetPCMiscStat >> 0.00",
+  "console: GetPCMiscStat >> 7.00",
+]]
+expect = [
+  { text = "console: GetScale on DocMitchellREF >> 1.50", label = "GetScale reads SetScale's value" },
+  { re = 'actor scale: [0-9A-F]{8} drawn at script scale 1\.5', label = "Doc is drawn at the script's scale" },
+]
+manual = "misc_scale_doc.png: Doc Mitchell half again as tall as before"
