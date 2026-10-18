@@ -2,7 +2,7 @@
  "format": "fnv.capture.steps/1",
  "name": "od_13_assault_faction",
  "title": "Assault on one NCR trooper: do distant NCR troopers turn hostile (owner-review: karma and crime 8) (about 2 min)",
- "start": "nvftest: Primm's NCR troopers, then a trooper hit at Goodsprings' edge (god mode). Never saved; unattended (capture_run.py --save nvftest).",
+ "start": "nvftest: Primm's NCR troopers, then a trooper hit with a lead pipe at Goodsprings' edge (god mode). Never saved; unattended (capture_run.py --save nvftest).",
  "steps": [
   {
    "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
@@ -55,6 +55,12 @@
    "field": "CaravanPack.esm"
   },
   {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
    "console": "tgm"
   },
   {
@@ -66,6 +72,12 @@
   },
   {
    "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
   },
   {
    "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet fV := rF1.GetActorFactionPlayerEnemy\nSetFunctionValue fV\nEnd\n",
@@ -194,7 +206,19 @@
    "frames": 300
   },
   {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nrF1.MoveTo player 0 150 0\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nplayer.AddItem rF1 1 1\nplayer.EquipItem rF1 0 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nrF1.MoveTo player 0 70 0\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 120
@@ -203,7 +227,10 @@
    "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
   },
   {
-   "script": "Begin Function { }\nTapControl 7\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nif player.IsWeaponOut == 0\n  TapControl 7\nendif\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 120
@@ -232,28 +259,101 @@
    "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
   },
   {
-   "script": "Begin Function { }\nTapControl 4\nSetFunctionValue 1\nEnd\n"
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
   },
   {
-   "frames": 45
+   "frames": 10
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 50
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "swing 0",
+   "field": "health"
   },
   {
    "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
   },
   {
-   "script": "Begin Function { }\nTapControl 4\nSetFunctionValue 1\nEnd\n"
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
   },
   {
-   "frames": 45
+   "frames": 10
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 50
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "swing 1",
+   "field": "health"
   },
   {
    "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
   },
   {
-   "script": "Begin Function { }\nTapControl 4\nSetFunctionValue 1\nEnd\n"
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
   },
   {
-   "frames": 45
+   "frames": 10
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 50
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "swing 2",
+   "field": "health"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 50
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "swing 3",
+   "field": "health"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 50
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "swing 4",
+   "field": "health"
   },
   {
    "frames": 120
@@ -287,6 +387,12 @@
   },
   {
    "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
   },
   {
    "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet fV := rF1.GetActorFactionPlayerEnemy\nSetFunctionValue fV\nEnd\n",
@@ -860,6 +966,9 @@
   },
   {
    "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nrF1.StopCombat\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nplayer.RemoveItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
   },
   {
    "console": "tgm"

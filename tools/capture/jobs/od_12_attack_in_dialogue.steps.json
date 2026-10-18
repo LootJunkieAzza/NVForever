@@ -1,8 +1,8 @@
 {
  "format": "fnv.capture.steps/1",
  "name": "od_12_attack_in_dialogue",
- "title": "An attack while the dialogue menu is open: does the conversation end (owner-review: dialogue pause (3)) (about 1 min)",
- "start": "nvftest: talks to RingoRef; a gecko and then Ringo attack the player (god mode). Never saved; unattended (capture_run.py --save nvftest).",
+ "title": "An attack while the dialogue menu is open: does the conversation end (owner-review: dialogue pause (3)) (about 1.5 min)",
+ "start": "nvftest: talks to RingoRef; a spawned gecko and then Ringo attack the player (god mode). Never saved; unattended (capture_run.py --save nvftest).",
  "steps": [
   {
    "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
@@ -55,17 +55,29 @@
    "field": "CaravanPack.esm"
   },
   {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
    "console": "tgm"
   },
   {
-   "console": "coc GSGasStation"
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nplayer.MoveTo rF1 0 -150 0\nSetFunctionValue 1\nEnd\n"
   },
   {
-   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085496\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "until": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nif player.GetInSameCell rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
    "max_frames": 3600
   },
   {
    "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
   },
   {
    "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nrF1.MoveTo player 0 120 0\nSetFunctionValue 1\nEnd\n"
@@ -74,7 +86,53 @@
    "frames": 120
   },
   {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
    "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "first dialogue: first activation",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "first dialogue: first activation",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "first dialogue: first activation",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "first dialogue: first activation",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "first dialogue: first activation",
+   "field": "menu.any"
+  },
+  {
+   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
   },
   {
    "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
@@ -84,7 +142,40 @@
    "frames": 60
   },
   {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nrF1.MoveTo player 0 -400 0\nrF1.StartCombat player\nSetFunctionValue 1\nEnd\n"
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "before the gecko",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "before the gecko",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "before the gecko",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "before the gecko",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "before the gecko",
+   "field": "menu.any"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nlet rB := rF1.GetBaseObject\nplayer.PlaceAtMe rB 1 400 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "ref rA\nref rG\nBegin Function { }\nlet rA := GetFirstRef 200 1\nwhile rA != 0\n  if rA.GetSourceModIndex == 255\n    if rA.GetDead == 0\n      let rG := rA\n    endif\n  endif\n  let rA := GetNextRef\nloop\nif rG\n  rG.StartCombat player\nendif\nSetFunctionValue (GetFormIDString rG)\nEnd\n",
+   "label": "gecko set on the player",
+   "field": "attacker_ref"
   },
   {
    "frames": 30
@@ -115,19 +206,9 @@
    "field": "menu.any"
   },
   {
-   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "query": "ref rA\nref rG\nref rT\nfloat fC\nfloat fX\nfloat fY\nBegin Function { }\nlet rA := GetFirstRef 200 1\nwhile rA != 0\n  if rA.GetSourceModIndex == 255\n    if rA.GetDead == 0\n      let rG := rA\n    endif\n  endif\n  let rA := GetNextRef\nloop\nif rG\n  let fC := rG.IsInCombat\n  let rT := rG.GetCombatTarget\n  let fX := rG.GetPos X\n  let fY := rG.GetPos Y\n  SetFunctionValue (($ fC) + \" \" + (GetFormIDString rT) + \" \" + ($ fX) + \" \" + ($ fY))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
    "label": "gecko attacks, 30 loops",
-   "field": "attacker_in_combat"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nlet rX := rF1.GetCombatTarget\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
-   "label": "gecko attacks, 30 loops",
-   "field": "attacker_target"
-  },
-  {
-   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nlet fV0 := rF1.GetPos X\nlet fV1 := rF1.GetPos Y\nlet fV2 := rF1.GetPos Z\nlet fV3 := rF1.GetAngle Z\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3))\nEnd\n",
-   "label": "gecko attacks, 30 loops",
-   "field": "attacker_pose"
+   "field": "attacker"
   },
   {
    "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nBegin Function { }\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3))\nEnd\n",
@@ -171,19 +252,9 @@
    "field": "menu.any"
   },
   {
-   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "query": "ref rA\nref rG\nref rT\nfloat fC\nfloat fX\nfloat fY\nBegin Function { }\nlet rA := GetFirstRef 200 1\nwhile rA != 0\n  if rA.GetSourceModIndex == 255\n    if rA.GetDead == 0\n      let rG := rA\n    endif\n  endif\n  let rA := GetNextRef\nloop\nif rG\n  let fC := rG.IsInCombat\n  let rT := rG.GetCombatTarget\n  let fX := rG.GetPos X\n  let fY := rG.GetPos Y\n  SetFunctionValue (($ fC) + \" \" + (GetFormIDString rT) + \" \" + ($ fX) + \" \" + ($ fY))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
    "label": "gecko attacks, 150 loops",
-   "field": "attacker_in_combat"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nlet rX := rF1.GetCombatTarget\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
-   "label": "gecko attacks, 150 loops",
-   "field": "attacker_target"
-  },
-  {
-   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nlet fV0 := rF1.GetPos X\nlet fV1 := rF1.GetPos Y\nlet fV2 := rF1.GetPos Z\nlet fV3 := rF1.GetAngle Z\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3))\nEnd\n",
-   "label": "gecko attacks, 150 loops",
-   "field": "attacker_pose"
+   "field": "attacker"
   },
   {
    "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nBegin Function { }\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3))\nEnd\n",
@@ -227,19 +298,9 @@
    "field": "menu.any"
   },
   {
-   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "query": "ref rA\nref rG\nref rT\nfloat fC\nfloat fX\nfloat fY\nBegin Function { }\nlet rA := GetFirstRef 200 1\nwhile rA != 0\n  if rA.GetSourceModIndex == 255\n    if rA.GetDead == 0\n      let rG := rA\n    endif\n  endif\n  let rA := GetNextRef\nloop\nif rG\n  let fC := rG.IsInCombat\n  let rT := rG.GetCombatTarget\n  let fX := rG.GetPos X\n  let fY := rG.GetPos Y\n  SetFunctionValue (($ fC) + \" \" + (GetFormIDString rT) + \" \" + ($ fX) + \" \" + ($ fY))\nelse\n  SetFunctionValue \"none\"\nendif\nEnd\n",
    "label": "gecko attacks, 300 loops",
-   "field": "attacker_in_combat"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nlet rX := rF1.GetCombatTarget\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
-   "label": "gecko attacks, 300 loops",
-   "field": "attacker_target"
-  },
-  {
-   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nlet fV0 := rF1.GetPos X\nlet fV1 := rF1.GetPos Y\nlet fV2 := rF1.GetPos Z\nlet fV3 := rF1.GetAngle Z\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3))\nEnd\n",
-   "label": "gecko attacks, 300 loops",
-   "field": "attacker_pose"
+   "field": "attacker"
   },
   {
    "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nBegin Function { }\nlet fV0 := player.GetPos X\nlet fV1 := player.GetPos Y\nlet fV2 := player.GetPos Z\nlet fV3 := player.GetAngle Z\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3))\nEnd\n",
@@ -261,13 +322,56 @@
    "frames": 60
   },
   {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1407805\nrF1.Kill\nSetFunctionValue 1\nEnd\n"
+   "script": "ref rA\nref rG\nBegin Function { }\nlet rA := GetFirstRef 200 1\nwhile rA != 0\n  if rA.GetSourceModIndex == 255\n    if rA.GetDead == 0\n      let rG := rA\n    endif\n  endif\n  let rA := GetNextRef\nloop\nif rG\n  rG.Kill\nendif\nSetFunctionValue 1\nEnd\n"
   },
   {
-   "frames": 120
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
   },
   {
    "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "second dialogue: first activation",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "second dialogue: first activation",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "second dialogue: first activation",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "second dialogue: first activation",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "second dialogue: first activation",
+   "field": "menu.any"
+  },
+  {
+   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nif MenuMode 1009 == 0\n  rF1.Activate player\nendif\nSetFunctionValue 1\nEnd\n"
   },
   {
    "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
@@ -275,6 +379,31 @@
   },
   {
    "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "before Ringo attacks",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "before Ringo attacks",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "before Ringo attacks",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "before Ringo attacks",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "before Ringo attacks",
+   "field": "menu.any"
   },
   {
    "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nrF1.StartCombat player\nSetFunctionValue 1\nEnd\n"
