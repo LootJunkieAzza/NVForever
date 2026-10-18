@@ -129,13 +129,23 @@ the campaign sessions (items 7, 14 and 15).
     nvftest), not `000200D5`. With a script package on, EvaluatePackage kept it
     (`00018E6A` at 10 and 300 loops).
   - **Verdict.** The second package replaces the first, as the GECK wiki's AddScriptPackage
-    notes say. **Our runtime's stacking is wrong.** EvaluatePackage keeping a script
-    package is confirmed.
+    notes say. EvaluatePackage keeping a script package is confirmed.
+  - **Runtime.** Already right when the capture ran: AddScriptPackage had replaced the
+    list's contents since the idles work, so RemoveScriptPackage emptied it. The
+    "stacking" in owner-review item 25 was written before that. The actor's state now
+    holds one slot (`RefExtra::script_package`, older saves' lists load as their last
+    entry), and `tests/synthetic.rs` checks A, B, EvaluatePackage, Remove as the capture
+    did (`a_second_script_package_replaces_the_first`).
 - **od_09a, disabled reference: its GameMode still runs.**
   - **Readings.** The skull's `timer` kept falling while the skull was disabled, from
     998.19 to 992.94 over 300 loops. That is the same rate as while enabled.
-  - **Verdict.** GameMode runs for disabled references, as the wiki says. **Our runtime is
-    wrong** to skip them.
+  - **Verdict.** GameMode runs for disabled references, as the wiki says.
+  - **Runtime.** Already right when the capture ran: disabled references in loaded cells
+    have run their per-frame blocks since 2026-10-09 (`Game::active_refs`), after the
+    wiki export; owner-review item 25 and script-language.md §8 predated that change. A
+    cell-load OnLoad still needs the reference enabled (no 3D to load) [hypothesis, not
+    captured]. `tests/synthetic.rs` now checks a disabled reference's GameMode count
+    (`a_disabled_reference_runs_its_game_mode_block`).
 - **od_10, stray markers: they touch no variable.**
   - **Readings.** Activated with freed 0, the living hostage opened a message box
     (menu.message 1). With freed 1, nothing opened. The dead hostage opened its loot

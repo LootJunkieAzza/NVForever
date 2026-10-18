@@ -849,8 +849,9 @@ pub fn add_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     let r = ctx.subject()?;
     let p = a.form(0)?;
     // An actor holds one script package: a second call replaces the first
-    // [documented: catalogue notes on AddScriptPackage, actor-behaviour.md §1.4].
-    g.extra.entry(r).or_default().packages = vec![p];
+    // [documented: GECK wiki AddScriptPackage notes, actor-behaviour.md §1.4; observed:
+    // od_08_script_packages, owner-decision-captures.md item 8].
+    g.extra.entry(r).or_default().script_package = Some(p);
     if g.runs_packages() {
         g.set_package(r, Some(p));
     } else {
@@ -860,12 +861,13 @@ pub fn add_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
     none()
 }
 
-/// The script package is dropped; the actor chooses again when its package is next
-/// asked for.
+/// The script package is dropped and the actor chooses from its own list again: with
+/// one slot, a package added before the last AddScriptPackage does not come back
+/// [observed: od_08_script_packages, owner-decision-captures.md item 8].
 pub fn remove_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if let Some(e) = g.extra.get_mut(&r) {
-        e.packages.pop();
+        e.script_package = None;
         if !g.runs_packages() {
             g.extra.entry(r).or_default().current_package = None;
         } else {

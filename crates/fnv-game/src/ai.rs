@@ -132,7 +132,7 @@ impl Game<'_> {
     ///   hypothesis: that this is "keep the current one" rather than "the last of the
     ///   list", which are the same package there].
     pub fn select_package(&mut self, actor: FormId) -> Option<FormId> {
-        if let Some(p) = self.extra.get(&actor).and_then(|e| e.packages.last()).copied() {
+        if let Some(p) = self.extra.get(&actor).and_then(|e| e.script_package) {
             return Some(p);
         }
         let list = self.package_list(actor);
@@ -275,7 +275,7 @@ impl Game<'_> {
         e.package_blocked.retain(|_, until| *until > now);
         e.package_blocked.insert(package, now + hours / 24.0);
         // The blocked package must not be kept as "the current one" either.
-        if e.current_package == Some(package) && e.packages.last() != Some(&package) {
+        if e.current_package == Some(package) && e.script_package != Some(package) {
             self.set_package(actor, None);
         }
         self.evaluate_package(actor)
@@ -295,7 +295,7 @@ impl Game<'_> {
     /// a separate open question, packages.md §6].
     fn start_schedule_duration(&mut self, actor: FormId) {
         let Some(e) = self.extra.get(&actor) else { return };
-        let Some(p) = e.current_package.filter(|p| e.packages.last() != Some(p)) else { return };
+        let Some(p) = e.current_package.filter(|p| e.script_package != Some(*p)) else { return };
         let Some(def) = self.data.package_defs.get(&p) else { return };
         if def.schedule.hour >= 0 || def.schedule.duration == 0 {
             return;
@@ -338,7 +338,7 @@ impl Game<'_> {
             self.extra.entry(a).or_default().package_ends = None;
             let p = self.extra.get(&a).and_then(|e| e.current_package);
             self.package_goal_met(a);
-            if p.is_some_and(|p| self.extra.get(&a).is_some_and(|e| e.packages.last() != Some(&p))) {
+            if p.is_some_and(|p| self.extra.get(&a).is_some_and(|e| e.script_package != Some(p))) {
                 self.set_package(a, None);
             }
             if self.evaluate_package(a).is_none() {

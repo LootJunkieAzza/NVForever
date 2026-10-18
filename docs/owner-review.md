@@ -337,13 +337,19 @@ sessions. You already had it from an earlier playthrough.
       in 5 shipped scripts); result-script variables don't overwrite the quest script's;
       script packages stack instead of replacing each other; EvaluatePackage keeps a
       script package. **Captured 2026-10-18 [observed]:**
-      - A second AddScriptPackage **replaces** the first, so the runtime's stacking is
-        wrong.
-      - EvaluatePackage keeps a script package, as the runtime does.
-      - A disabled reference's GameMode **runs**, so the runtime is wrong to skip it.
+      - A second AddScriptPackage **replaces** the first.
+      - EvaluatePackage keeps a script package.
+      - A disabled reference's GameMode **runs**.
 
-      Neither runtime fix is made yet. Scripted items in other inventories are still to be
-      captured (spec-notes/owner-decision-captures.md §4).
+      **No runtime fix was needed (checked 2026-10-18):** the runtime already did all
+      three. AddScriptPackage had replaced the earlier package since the idles work, and
+      disabled references have run GameMode since 2026-10-09; the two lines above
+      ("stack", "not in the runtime") were written before those changes. The actor now
+      holds one script-package slot instead of a one-entry list (older saves load), and
+      unit tests check both rules as the captures ran them. Still my guess: a disabled
+      reference gets no OnLoad when its cell loads (it has no 3D to load); the wiki names
+      no exception and nothing captured it. Scripted items in other inventories are
+      still to be captured (spec-notes/owner-decision-captures.md §4).
     - Each note ends with capture candidates. Nothing was changed in the runtime.
 
 26. **Your `objects.xml` export (9 pages, mostly category indexes).** Three facts were

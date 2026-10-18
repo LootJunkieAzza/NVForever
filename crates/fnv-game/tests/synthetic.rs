@@ -194,7 +194,7 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let qscript = [vec![sub(b"EDID", z("QScript"))], unit(1, &script(&[(0, None, body)]), &[(1, "fTimer", 0), (2, "bRun", 1)], &[QUEST])].concat();
-    // Activator script: nUsed (1, short), nHit (2, short).
+    // Activator script: nUsed (1, short), nHit (2, short), nTicks (3, short).
     //   begin OnActivate player
     //     set nUsed to nUsed + 1
     //     SetStage Q 10
@@ -205,6 +205,9 @@ fn plugin_bytes() -> Vec<u8> {
     //   end
     //   begin OnHitWith
     //     set nHit to nHit + 1
+    //   end
+    //   begin GameMode
+    //     set nTicks to nTicks + 1
     //   end
     let body = [
         set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")])),
@@ -220,8 +223,9 @@ fn plugin_bytes() -> Vec<u8> {
                 (2, Some([le16(1), r(1)].concat()), body),
                 (0x08, Some([le16(1), r(1)].concat()), set(var(b's', 2), ex(&[var(b's', 2), a("10"), a("+")]))),
                 (0x09, None, set(var(b's', 2), ex(&[var(b's', 2), a("1"), a("+")]))),
+                (0, None, set(var(b's', 3), ex(&[var(b's', 3), a("1"), a("+")]))),
             ]),
-            &[(1, "nUsed", 1), (2, "nHit", 1)],
+            &[(1, "nUsed", 1), (2, "nHit", 1), (3, "nTicks", 1)],
             &[0x14, QUEST, MESSAGE],
         ),
     ]
@@ -632,8 +636,76 @@ fn actors_choose_the_first_package_whose_conditions_pass() {
     assert_eq!(g.current_package(npc), Some(FormId(PACK_IDLE)));
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_GATED)));
     // A script package overrides the list.
-    g.extra.entry(npc).or_default().packages.push(FormId(PACK_SCRIPTED));
+    g.extra.entry(npc).or_default().script_package = Some(FormId(PACK_SCRIPTED));
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_SCRIPTED)));
+}
+
+/// An actor has one script package: AddScriptPackage A then B, and one
+/// RemoveScriptPackage gives the actor its own list back, not A [documented: GECK wiki
+/// AddScriptPackage notes; observed: od_08_script_packages, owner-decision-captures.md
+/// item 8]. EvaluatePackage keeps the script package [observed: the same capture].
+#[test]
+fn a_second_script_package_replaces_the_first() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    let call = |g: &mut Game, op: u16, args: &[ArgValue]| {
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(npc), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, args);
+    };
+    let (add, remove, evaluate) = (0x1097, 0x1098, 0x105E);
+    assert_eq!(g.current_package(npc), Some(FormId(PACK_IDLE)));
+    call(&mut g, add, &[ArgValue::Value(Value::Ref(PACK_SCRIPTED))]);
+    call(&mut g, add, &[ArgValue::Value(Value::Ref(PACK_EVENTS))]);
+    assert_eq!(g.current_package(npc), Some(FormId(PACK_EVENTS)));
+    assert_eq!(g.extra[&npc].script_package, Some(FormId(PACK_EVENTS)));
+    call(&mut g, evaluate, &[]);
+    assert_eq!(g.current_package(npc), Some(FormId(PACK_EVENTS)));
+    call(&mut g, remove, &[]);
+    assert_eq!(g.extra[&npc].script_package, None);
+    assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
+    // A second remove changes nothing.
+    call(&mut g, remove, &[]);
+    assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
+}
+
+/// Saves written while the slot was a list still load: the list's last package is the
+/// script package.
+#[test]
+fn a_saved_script_package_list_loads_as_its_last_package() {
+    use fnv_game::game::RefExtra;
+    let old: RefExtra = serde_json::from_value(json!({"packages": [FormId(PACK_SCRIPTED), FormId(PACK_EVENTS)]})).unwrap();
+    assert_eq!(old.script_package, Some(FormId(PACK_EVENTS)));
+    let empty: RefExtra = serde_json::from_value(json!({"packages": []})).unwrap();
+    assert_eq!(empty.script_package, None);
+    let new = RefExtra { script_package: Some(FormId(PACK_IDLE)), ..RefExtra::default() };
+    let back: RefExtra = serde_json::from_value(serde_json::to_value(&new).unwrap()).unwrap();
+    assert_eq!(back, new);
+    assert_eq!(serde_json::from_value::<RefExtra>(json!({})).unwrap().script_package, None);
+}
+
+/// A disabled reference in a loaded cell still runs its object script's GameMode
+/// [documented: GECK wiki Object scripts; observed: od_09a_disabled_ref_script,
+/// owner-decision-captures.md item 9a].
+#[test]
+fn a_disabled_reference_runs_its_game_mode_block() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_loaded(std::collections::BTreeSet::from([FormId(CELL)]));
+    let r = FormId(ACT_REF);
+    let ticks = |g: &Game| g.var(InstKey::Ref { reference: r }, 3).num();
+    g.frames(10);
+    let enabled = ticks(&g);
+    assert!(enabled > 0.0);
+    g.world.set_enabled(r, false).unwrap();
+    g.frames(10);
+    let disabled = ticks(&g);
+    assert_eq!(disabled - enabled, 10.0);
+    g.world.set_enabled(r, true).unwrap();
+    g.frames(10);
+    assert_eq!(ticks(&g) - disabled, 10.0);
 }
 
 #[test]
@@ -646,8 +718,8 @@ fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
     assert_eq!(global(&g), 5.0);
     // A script package starts: its begin script runs.
-    let add = |g: &mut Game| g.extra.entry(npc).or_default().packages.push(FormId(PACK_EVENTS));
-    let remove = |g: &mut Game| g.extra.entry(npc).or_default().packages.clear();
+    let add = |g: &mut Game| g.extra.entry(npc).or_default().script_package = Some(FormId(PACK_EVENTS));
+    let remove = |g: &mut Game| g.extra.entry(npc).or_default().script_package = None;
     add(&mut g);
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
     assert_eq!(global(&g), 21.0);
@@ -669,7 +741,7 @@ fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
     assert_eq!(g.current_package(npc), Some(FormId(PACK_IDLE)));
     // Without the interval a choice runs no package script (Layer 5 behaviour).
     let mut quiet = game(&f);
-    quiet.extra.entry(npc).or_default().packages.push(FormId(PACK_EVENTS));
+    quiet.extra.entry(npc).or_default().script_package = Some(FormId(PACK_EVENTS));
     assert_eq!(quiet.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
     assert_eq!(global(&quiet), 5.0);
 }
