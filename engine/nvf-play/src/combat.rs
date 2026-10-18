@@ -2061,7 +2061,7 @@ fn actor_attacks(
 /// projectile node is not used yet.
 fn script_shot(sim: &SimState, from: FormId, weapon: FormId) -> Option<ActorFire> {
     let s = sim.world.peek(from)?;
-    let actor = from == FormId::PLAYER_REF || sim.world.placed.get(from).is_some_and(|p| matches!(&p.sig, b"ACHR" | b"ACRE"));
+    let actor = from == FormId::PLAYER_REF || sim.is_actor(from.0);
     let [x, _, z] = s.rot;
     let aim = [z.sin() * x.cos(), z.cos() * x.cos(), -x.sin()];
     let origin = [s.pos[0], s.pos[1], s.pos[2] + if actor { 64.0 } else { 0.0 }];
