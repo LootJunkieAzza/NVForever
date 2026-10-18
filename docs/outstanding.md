@@ -75,8 +75,8 @@ how quests run, the rest are guessed constants and looks to compare in the game.
 **Quest-critical** (each needs a ruling):
 - Layer 5: the `L5.script.decode` choice, the `delay_*` scenario inputs, holdouts to
   demote and where `encodings.json` lives (lab rules); the runtime rules still to confirm
-  (stage conditions, timers, reputation tolerances, `ref` handling, disabled references,
-  Return, script packages).
+  (stage conditions, timers, reputation tolerances, `ref` handling, Return; disabled
+  references' GameMode and script packages were settled by captures on 2026-10-18).
 - Script stubs and the function audit: ResetAI and procedure codes, SetPackDuration,
   SetActorsAI; package durations (about 358 packages restart every duration).
 - EnablePlayerControls: a number left out now gives that control back.

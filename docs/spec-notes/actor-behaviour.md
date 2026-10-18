@@ -103,7 +103,14 @@ Paraphrased [all documented: Category:Packages]:
   - **AddScriptPackage** gives the actor a package that overrides all others until it
     finishes; an actor holds **one** script package and a second call replaces the first;
     without must-complete or must-reach-location it is dropped at the next re-evaluation;
-    it is saved with the game [documented: catalogue notes].
+    it is saved with the game [documented: catalogue notes]. Captured: after
+    AddScriptPackage A then B, one RemoveScriptPackage brings back the actor's list
+    package, not A; EvaluatePackage with a script package on keeps it (Ringo,
+    DefaultStayAtEditorLocation then DefaultSandboxEditorLocation256, which was still
+    current 10 and 300 loops after EvaluatePackage) [observed: capture job
+    `od_08_script_packages`, 2026-10-18, owner-decision-captures.md]. So the second rule
+    ("dropped at the next re-evaluation") does not hold for EvaluatePackage, at least for
+    a sandbox package.
   - **RemoveScriptPackage** removes the running script package so the actor chooses
     again; it cannot remove packages from the editor list [documented: catalogue notes].
   - Runtime: §7.2 rows 1 and 2.
@@ -347,8 +354,8 @@ actors standing still; the condition grouping of package conditions (quests-dial
 
 | # | Documented | Runtime | Where |
 |---|---|---|---|
-| 1 | An actor holds one script package; a second AddScriptPackage replaces the first (catalogue notes) | agrees: one slot (`RefExtra::script_package`); RemoveScriptPackage gives the actor its own list back. Confirmed in the game 2026-10-18 [observed: od_08_script_packages, owner-decision-captures.md §4] | `functions/actor.rs` add/remove_script_package |
-| 2 | EvaluatePackage drops even a must-complete package; a script package without must-complete or must-reach-location is dropped at the next re-evaluation (catalogue notes) | a script package wins every evaluation until RemoveScriptPackage. The game kept DefaultSandboxEditorLocation256 (no must-complete) through EvaluatePackage and 300 loops [observed: od_08_script_packages], so the runtime follows the capture for that package; must-complete packages and ResetAI are not captured | `Game::select_package` |
+| 1 | An actor holds one script package; a second AddScriptPackage replaces the first (catalogue notes; [observed: `od_08_script_packages`]) | agrees since 2026-10-10: the second replaces the first, RemoveScriptPackage returns to the list (test `a_second_script_package_replaces_the_first`) | `functions/actor.rs` add/remove_script_package |
+| 2 | EvaluatePackage drops even a must-complete package; a script package without must-complete or must-reach-location is dropped at the next re-evaluation (catalogue notes) | a script package wins every evaluation until RemoveScriptPackage; the capture agrees with the runtime for EvaluatePackage on a sandbox script package [observed: `od_08_script_packages`] | `Game::select_package` |
 | 3 | A package is chosen only while its schedule is valid (Category:Packages) | done 2026-10-10: schedules applied (`fnv_game::ai`, packages.md §3–§4) | scripts.md §7.5 |
 | 4 | Package conditions may Run on Target, the package's target (Category:Packages) | done 2026-10-10: the package's reference or linked-reference target is the conditions' target | `Game::package_target` |
 | 5 | Once Per Day, Must Complete, Continue if PC Near and the other flags | done 2026-10-10 for these three (`fnv_game::ai`); the other flags are read, not used yet | Layer 6 |
@@ -370,10 +377,12 @@ broader questions).
    `EvaluatePackage`, and does list order alone decide among valid packages?
 2. **Re-evaluation interval**: how long after a schedule boundary loaded and unloaded
    actors switch, compared with the PSDT hours (observed 0–13 game minutes).
-3. **Two script packages**: settled 2026-10-18, B replaces A and one
-   RemoveScriptPackage gives the list back (§7.2 row 1; owner-decision-captures.md §4).
-4. **EvaluatePackage after AddScriptPackage** on a package without must-complete:
-   settled 2026-10-18, the script package survives (§7.2 row 2).
+3. **Two script packages**: AddScriptPackage A, then B, then RemoveScriptPackage; which
+   package is current (`is_current_package`)? (§7.2 row 1.) Settled: the list package
+   [observed: `od_08_script_packages`].
+4. **EvaluatePackage after AddScriptPackage** on a package without must-complete: does
+   the script package survive? (§7.2 row 2.) Settled: it survives [observed:
+   `od_08_script_packages`].
 5. **Order of package start effects**: the begin result script against the actor's
    OnPackageStart block (a package whose result script and the actor's block both write
    variables).

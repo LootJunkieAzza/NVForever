@@ -1999,7 +1999,8 @@ impl<'a> Game<'a> {
 
     /// Scripted references that run per-frame blocks now: in a loaded cell and not
     /// deleted, disabled ones included [documented: GECK wiki Object scripts, owner
-    /// export: object scripts run even for disabled references]. OnLoad at a cell load
+    /// export: object scripts run even for disabled references; observed: capture job
+    /// `od_09a_disabled_ref_script`, a disabled skull's timer kept falling]. OnLoad at a cell load
     /// still needs the reference enabled (a disabled reference has no 3D to load)
     /// [hypothesis].
     fn active_refs(&self) -> Vec<FormId> {

@@ -194,7 +194,7 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let qscript = [vec![sub(b"EDID", z("QScript"))], unit(1, &script(&[(0, None, body)]), &[(1, "fTimer", 0), (2, "bRun", 1)], &[QUEST])].concat();
-    // Activator script: nUsed (1, short), nHit (2, short), nTicks (3, short).
+    // Activator script: nUsed (1, short), nHit (2, short).
     //   begin OnActivate player
     //     set nUsed to nUsed + 1
     //     SetStage Q 10
@@ -207,7 +207,7 @@ fn plugin_bytes() -> Vec<u8> {
     //     set nHit to nHit + 1
     //   end
     //   begin GameMode
-    //     set nTicks to nTicks + 1
+    //     set nFrames to nFrames + 1
     //   end
     let body = [
         set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")])),
@@ -225,7 +225,7 @@ fn plugin_bytes() -> Vec<u8> {
                 (0x09, None, set(var(b's', 2), ex(&[var(b's', 2), a("1"), a("+")]))),
                 (0, None, set(var(b's', 3), ex(&[var(b's', 3), a("1"), a("+")]))),
             ]),
-            &[(1, "nUsed", 1), (2, "nHit", 1), (3, "nTicks", 1)],
+            &[(1, "nUsed", 1), (2, "nHit", 1), (3, "nFrames", 1)],
             &[0x14, QUEST, MESSAGE],
         ),
     ]
@@ -640,33 +640,45 @@ fn actors_choose_the_first_package_whose_conditions_pass() {
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_SCRIPTED)));
 }
 
-/// An actor has one script package: AddScriptPackage A then B, and one
-/// RemoveScriptPackage gives the actor its own list back, not A [documented: GECK wiki
-/// AddScriptPackage notes; observed: od_08_script_packages, owner-decision-captures.md
-/// item 8]. EvaluatePackage keeps the script package [observed: the same capture].
+/// Call a function by opcode on `on`, as a script line would.
+fn call_on(g: &mut Game, op: u16, on: u32, args: &[ArgValue]) {
+    let ctx = Ctx {
+        unit: "test".into(),
+        opcode: op,
+        on: Some(FormId(on)),
+        self_ref: None,
+        action_ref: None,
+        quest: None,
+        inst: None,
+        in_condition: false,
+    };
+    g.call_function(&ctx, args);
+}
+
+/// AddScriptPackage A then B, then one RemoveScriptPackage: the actor is back on its own
+/// list, not on A; EvaluatePackage with a script package on keeps it [observed:
+/// `od_08_script_packages`, docs/spec-notes/owner-decision-captures.md].
 #[test]
 fn a_second_script_package_replaces_the_first() {
+    const ADD: u16 = 0x1097;
+    const REMOVE: u16 = 0x1098;
     let f = fixture();
     let mut g = game(&f);
     g.new_game();
     let npc = FormId(NPC_REF);
-    let call = |g: &mut Game, op: u16, args: &[ArgValue]| {
-        let ctx = Ctx { unit: "test".into(), opcode: op, on: Some(npc), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
-        g.call_function(&ctx, args);
-    };
-    let (add, remove, evaluate) = (0x1097, 0x1098, 0x105E);
+    let pkg = |p: u32| [ArgValue::Value(Value::Ref(p))];
     assert_eq!(g.current_package(npc), Some(FormId(PACK_IDLE)));
-    call(&mut g, add, &[ArgValue::Value(Value::Ref(PACK_SCRIPTED))]);
-    call(&mut g, add, &[ArgValue::Value(Value::Ref(PACK_EVENTS))]);
+    call_on(&mut g, ADD, NPC_REF, &pkg(PACK_SCRIPTED));
+    call_on(&mut g, ADD, NPC_REF, &pkg(PACK_EVENTS));
     assert_eq!(g.current_package(npc), Some(FormId(PACK_EVENTS)));
     assert_eq!(g.extra[&npc].script_package, Some(FormId(PACK_EVENTS)));
-    call(&mut g, evaluate, &[]);
-    assert_eq!(g.current_package(npc), Some(FormId(PACK_EVENTS)));
-    call(&mut g, remove, &[]);
+    // EvaluatePackage keeps the script package.
+    assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
+    call_on(&mut g, REMOVE, NPC_REF, &[]);
     assert_eq!(g.extra[&npc].script_package, None);
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
-    // A second remove changes nothing.
-    call(&mut g, remove, &[]);
+    // A second RemoveScriptPackage changes nothing.
+    call_on(&mut g, REMOVE, NPC_REF, &[]);
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
 }
 
@@ -685,27 +697,30 @@ fn a_saved_script_package_list_loads_as_its_last_package() {
     assert_eq!(serde_json::from_value::<RefExtra>(json!({})).unwrap().script_package, None);
 }
 
-/// A disabled reference in a loaded cell still runs its object script's GameMode
-/// [documented: GECK wiki Object scripts; observed: od_09a_disabled_ref_script,
-/// owner-decision-captures.md item 9a].
+/// A disabled reference's GameMode block runs every frame, as while it is enabled
+/// [observed: `od_09a_disabled_ref_script`, the skull's timer fell at the same rate while
+/// disabled, docs/spec-notes/owner-decision-captures.md].
 #[test]
 fn a_disabled_reference_runs_its_game_mode_block() {
     let f = fixture();
     let mut g = game(&f);
     g.new_game();
-    g.set_loaded(std::collections::BTreeSet::from([FormId(CELL)]));
-    let r = FormId(ACT_REF);
-    let ticks = |g: &Game| g.var(InstKey::Ref { reference: r }, 3).num();
-    g.frames(10);
-    let enabled = ticks(&g);
-    assert!(enabled > 0.0);
-    g.world.set_enabled(r, false).unwrap();
-    g.frames(10);
-    let disabled = ticks(&g);
-    assert_eq!(disabled - enabled, 10.0);
-    g.world.set_enabled(r, true).unwrap();
-    g.frames(10);
-    assert_eq!(ticks(&g) - disabled, 10.0);
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    let key = InstKey::Ref { reference: FormId(ACT_REF) };
+    let frames = |g: &Game| g.var(key, 3);
+    let start = match frames(&g) {
+        Value::Num(x) => x,
+        v => panic!("{v:?}"),
+    };
+    g.tick();
+    assert_eq!(frames(&g), Value::Num(start + 1.0));
+    g.world.set_enabled(FormId(ACT_REF), false).unwrap();
+    g.tick();
+    g.tick();
+    assert_eq!(frames(&g), Value::Num(start + 3.0));
+    g.world.set_enabled(FormId(ACT_REF), true).unwrap();
+    g.tick();
+    assert_eq!(frames(&g), Value::Num(start + 4.0));
 }
 
 #[test]
@@ -956,7 +971,7 @@ fn saving_functions_are_recorded_and_do_nothing() {
     assert!(!is_stub(0x115E));
     let f = fixture();
     let mut g = game(&f);
-    let ctx = fnv_game::functions::Ctx { unit: "test".into(), opcode: 0x115E, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    let ctx = Ctx { unit: "test".into(), opcode: 0x115E, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
     g.call_function(&ctx, &[]);
     g.call_function(&ctx, &[]);
     assert_eq!(g.ui.autosaves, 2);
