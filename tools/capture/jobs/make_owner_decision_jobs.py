@@ -53,12 +53,10 @@ SAVE_DOC = "nvfdoc"     # Doc Mitchell's house after the intro
 # FalloutNV.esm forms (Editor IDs from the masters; types and places from `fnvtool world
 # refs` / `ai show` / `dialogue lines`, 2026-10-18).
 RINGO = "0x00104C7D"            # RingoRef, in GSGasStation (the nvftest save's cell)
-GAS_STATION = "0x0010ABA5"      # BedMattress01FloorR in GSGasStation (Ringo's cell)
 GAS_STATION_CELL = "GSGasStation"
 GAS_STATION_CELL_ID = "0x00109038"
 DOC_HOUSE_CELL = "GSDocMitchellHouse"
 DOC_HOUSE_CELL_ID = "0x00103DF9"
-DOC_TWIN_BED = "0x00103E5B"     # NVbedtwin01 in GSDocMitchellHouse (the bed the player wakes in)
 DOC_SKULL = "0x00104C10"        # VCG01SkullBrahminActivator (script VCG01BrahminSkullSCRIPT: runtimer, timer)
 DOC = "0x00104C0F"              # DocMitchellREF
 BOONE = "0x00096BCE"            # CraigBooneREF
@@ -234,43 +232,6 @@ def start_text(save, what):
 
 
 # --------------------------------------------------------------------------- the jobs
-
-def bed_activation():
-    """Item 1: does activating a bed open the sleep/wait menu at once, or does the player
-    lie down first? Scripted Activate (the default activation: layer5-captures.md 9.3 f),
-    then the Activate control (E) aimed at the bed, for a mattress and a plain bed."""
-    steps = []
-    for name, bed, cell, cell_id, dx, dy in (("gas_station_mattress", GAS_STATION, GAS_STATION_CELL, GAS_STATION_CELL_ID, -150, 0),
-                                             ("doc_twin_bed", DOC_TWIN_BED, DOC_HOUSE_CELL, DOC_HOUSE_CELL_ID, 0, -150)):
-        steps += coc(cell, cell_id)
-        steps += go_to(bed)
-        steps += [num("player.GetSitting", f"{name} before", "sitting"), num("GameHour", f"{name} before", "hour")]
-        steps += [act("{0}.Activate player", [bed]), wait(ACTION_FRAMES)]
-        for after, frames in (("30 loops", 0), ("300 loops", 270)):
-            if frames:
-                steps.append(wait(frames))
-            label = f"{name} activated, {after}"
-            steps += menus(label) + [num("player.GetSitting", label, "sitting"), num("player.GetSleeping", label, "sleeping"),
-                                     shot(f"{name}_activated_{after.split()[0]}")]
-        steps += close_menus() + menus(f"{name} after CloseAllMenus") + [
-            num("player.GetSitting", f"{name} after CloseAllMenus", "sitting")]
-        # The key: stand off the bed, face it, look down a little; tap Activate only when
-        # the crosshair is on the bed (recorded either way).
-        steps += [act(f"player.MoveTo {{0}} {dx} {dy} 0", [bed]), wait(MOVETO_FRAMES), face(bed),
-                  act("player.SetAngle X 30"), wait(30),
-                  form("GetCrosshairRef", f"{name} key", "crosshair"),
-                  act(["let rC := GetCrosshairRef", "if rC == {0}", f"  TapControl {ACTIVATE}", "endif"], [bed],
-                      decls=["ref rC"]), wait(ACTION_FRAMES)]
-        for after, frames in (("30 loops", 0), ("300 loops", 270)):
-            if frames:
-                steps.append(wait(frames))
-            label = f"{name} key, {after}"
-            steps += menus(label) + [num("player.GetSitting", label, "sitting"), shot(f"{name}_key_{after.split()[0]}")]
-        steps += close_menus() + [num("player.GetSitting", f"{name} key after CloseAllMenus", "sitting")]
-    return job("01_bed_activation",
-               "Bed activation: sleep/wait menu at once or lying down first (owner-review: Sleeping) (about 2 min)",
-               start_text(SAVE_TEST, "coc to GSGasStation and GSDocMitchellHouse; activates two beds."), steps)
-
 
 def no_greeting():
     """Item 2: can an actor with no eligible GREETING line be talked to? Three actors with
@@ -692,7 +653,7 @@ def random_end():
 
 
 def all_jobs():
-    return [bed_activation(), no_greeting(), teammate_door(), enable_controls_sneak(), set_actors_ai(), reset_ai(),
+    return [no_greeting(), teammate_door(), enable_controls_sneak(), set_actors_ai(), reset_ai(),
             script_packages(), disabled_ref_script(), carried_item_script(), stray_markers(), clock_in_dialogue(),
             attack_in_dialogue(), assault_faction(), set_alert(), goodbye_lists(), info_connection(), random_end()]
 

@@ -2105,7 +2105,7 @@ NVForever's; `nvf-sleep.png` is the bed version).
    - **People moving during the wait.** They stand still while the menu is up and set
      off for where they should be when it closes, so after a long wait you can watch
      them walk there. The original may put them in place; I do not know.
-   - **Pressing E on a bed still lies you down** rather than opening the sleep menu
+   - **(Decided by the owner 2026-10-18: get-into-bed animation, then the sleep menu; see item 7 below.)** **Pressing E on a bed still lies you down** rather than opening the sleep menu
      directly. You asked for lying down first; T does the rest.
    - **Scripts asking "is the player asleep?" or opening this menu themselves.** The
      Well Rested beds need the first.
@@ -2284,7 +2284,7 @@ I can measure your picture. Please attach it again, or drop it in
    `docs/spec-notes/hud.md`.
 ## Sleeping, refusals and people during a wait (2026-10-11, session "sleep effects")
 
-7. **Pressing E on a bed.** You lie down as before, and when you are lying the sleep
+7. **Pressing E on a bed.** **Decided by the owner 2026-10-18:** a get-into-bed animation, then the sleep menu (NVForever's own design, not a parity question). Earlier text: You lie down as before, and when you are lying the sleep
    menu opens by itself. Cancel leaves you lying there; T opens the menu again; a
    movement key or E gets you up.
    - **For you to decide.** The original most likely opens the menu the moment you

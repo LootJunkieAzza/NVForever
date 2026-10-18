@@ -39,7 +39,7 @@ within one game session. All jobs start from the save `nvftest`, except `od_09a`
 starts from `nvfdoc`:
 
 ```
-python tools/capture/capture_run.py --game <FNV> --save nvftest tools/capture/jobs/od_0[1-8]*.steps.json tools/capture/jobs/od_09b*.steps.json tools/capture/jobs/od_1*.steps.json tools/capture/jobs/od_2*.steps.json
+python tools/capture/capture_run.py --game <FNV> --save nvftest tools/capture/jobs/od_0[2-8]*.steps.json tools/capture/jobs/od_09b*.steps.json tools/capture/jobs/od_1*.steps.json tools/capture/jobs/od_2*.steps.json
 python tools/capture/capture_run.py --game <FNV> --save nvfdoc tools/capture/jobs/od_09a_disabled_ref_script.steps.json
 python tools/capture/observe.py run tools/capture/observe/owner_decisions.campaign.json --game <FNV> --timeline C:/fnv-private/capture/observe/owner_decisions.timeline.json
 ```
@@ -50,14 +50,14 @@ python tools/capture/observe.py run tools/capture/observe/owner_decisions.campai
   `C:\fnv-private\capture\shots`. They are never committed.
 - **Plugin version.** The jobs need plugin version 7 for the screenshot step and version 4
   for observe steps. A job with a screenshot is skipped by an older plugin.
-- **Free ids.** Jobs `od_07` and `od_14` do not exist: those items are the campaign
+- **Free ids.** Jobs `od_01`, `od_07` and `od_14` do not exist. `od_01` (bed activation) was dropped because the owner decided it (item 1 below). The other two are the campaign
   sessions `hv_*`, `geckos_package_chain` and `ncr_fiends_placed`.
 
 ## 3. The items
 
 | # | Job / session | owner-review.md | What it records | Settles it |
 |---|---|---|---|---|
-| 1 | `od_01_bed_activation` | l. 2287, "Sleeping, refusals and people during a wait" item 7 (also l. 2108) | Two beds: the GSGasStation mattress and Doc Mitchell's twin bed. Each gets a scripted `Activate player`, then the Activate control with the crosshair on the bed. Read 30 and 300 loops later: MenuMode 1012 (sleep/wait) and 1009, the other menus, player GetSitting and GetSleeping, and a screenshot. | MenuMode 1012 = 1 with GetSitting 0 means the menu opens at once with no lying down: owner option (b). GetSitting 3 with 1012 = 0, then 1012 later, is our current (a). |
+| 1 | none: owner-decided design | l. 2287, "Sleeping, refusals and people during a wait" item 7 (also l. 2108) | Nothing. | Decided by the owner on 2026-10-18 [owner statement]: E on a bed plays a get-into-bed animation and then shows the sleep menu. That is NVForever's design, not a parity question, so no capture is needed. |
 | 2 | `od_02_no_greeting` | l. 463, item 32 (g) "Still assumed: an actor with no eligible greeting cannot be talked to"; dialogue.md §7 open hypothesis 3 | Three actors with no GREETING line in our headless tool from a new game: PrimmNCRDeputyRef1, HVRangerREF and GSPG01Ref. Each is enabled if disabled, moved next to the player and activated; RingoRef is the control. Read MenuMode 1009, IsTalking, GetDialogueTarget and a screenshot. | MenuMode 1009 = 0 for all three while Ringo's is 1 confirms the assumption. A 1009 = 1 with a screenshot of an empty topic list refutes it. **Caveat:** "no greeting" is our tool's reading for a new game, not the save's state [hypothesis]. |
 | 3 | `od_03_teammate_door` | l. 4122, "Followers": "Bringing teammates through doors" | Boone in his room is hired the way his recruit line does it: `VNPCFollowers.bBooneHired`, SetPlayerTeammate, EvaluatePackage. FollowersBooneFollowPlayerDEFAULT is added as a script package only if his conditions did not choose it. The player goes out by the room door, back in by the linked door, then out again with Boone told to wait (`Waiting` 1). After each door, both poses and same-cell are read every 2 loops for 60 loops, then every 30 loops. | Boone's position relative to the player's position and heading at the first samples after arrival: right (our 64-unit guess), behind, or at the door. Whether a waiting Boone stays behind (same_cell 0) confirms "only teammates whose package follows come". |
 | 4 | `od_04_enable_controls_sneak` | l. 2947, "Playtest fixes: controls…" item 2 (Ctrl crouch) | Four cases, each followed by a crouch tap and IsSneaking: all seven off then `EnablePlayerControls 1 1 1 1 1 1`; sneaking alone off then the same six numbers; and two controls (no numbers, and seven ones). Also reads `GetPlayerControlsDisabled 0 0 0 0 0 0 1` after each case. | IsSneaking 1 after the six-number enable means a left-out number gives the control back, which is our current rule. 0 means it is left off, and then the opening's scripts never give sneaking back [hypothesis about that consequence]. |
