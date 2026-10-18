@@ -5570,3 +5570,25 @@ guesses to check against the game:
   out at the end, I could not see.
 - **A second crippling while it shows** starts the 5 s again and only the new limb
   flashes; healing a limb shows nothing.
+
+## Angry faces in combat (2026-10-18, branch claude/compassionate-mendel-e1faec)
+
+An actor in Combat shows its heads' `CombatAnger` morph, fading in over 1 s and back out
+over 1 s when the fight ends (docs/spec-notes/combat-face.md; smoke `combat-face`). The
+weight is handed to lips.rs, which draws faces (the dialogue-faces session adds that
+drawing; until it lands the weight is logged but not yet shown). No game animation
+carries the combat face (none of 2,450 character `.kf` files names it), so everything
+about when and how strongly it shows is my guess:
+
+- **When**: only in the Combat state, not while Alert or searching (Lost).
+- **Strength**: the whole morph (MFG 100).
+- **Timing**: 1 s in and 1 s out, linear (the GECK wiki says MFG faces "take a second or
+  two" to come on; the way out is not described).
+- **Who**: every human and ghoul with a head, children too; the player's own face is not
+  changed; a corpse's face eases back to rest.
+- **With dialogue emotions**: a response with an emotion (Anger, Fear …) takes over from
+  combat anger while it is said ("one expression at a time", GECK wiki); a Neutral bark
+  keeps the angry face and the mouth moves on top of it.
+
+A short video of a Fiend turning hostile, from about the dialogue camera's distance,
+would settle when the face changes and how fast.

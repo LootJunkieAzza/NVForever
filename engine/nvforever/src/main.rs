@@ -41,6 +41,7 @@ mod draw_distance;
 mod doors;
 mod emittance;
 mod fade;
+mod face_morphs;
 mod facegen;
 mod flashlight;
 mod fly;
@@ -62,6 +63,7 @@ mod terminal_view;
 mod poker_view;
 mod lod;
 mod locomotion;
+mod combat_face;
 mod combat_stance;
 mod combat_tactics;
 mod console_toggles;
@@ -1226,6 +1228,8 @@ fn main() -> AppExit {
             app.add_plugins(detection::DetectionPlugin);
             // Alerted actors draw their weapons and look at what alerted them (alert.rs).
             app.add_plugins(alert::AlertPlugin);
+            // Fighters look angry (combat_face.rs; lips.rs draws the face).
+            app.add_plugins(combat_face::CombatFacePlugin);
             // Alerted creatures raise their claws and hands (creature_stance.rs).
             app.add_plugins(creature_stance::CreatureStancePlugin);
             // Actors sneaking by script or package (sneaking.rs).
