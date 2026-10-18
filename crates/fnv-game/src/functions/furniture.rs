@@ -31,6 +31,9 @@ pub(crate) fn bed(u: &FurnitureUse) -> bool {
     (1..=10).contains(&u.marker_id)
 }
 
+/// GetSitting's and GetSleeping's state while on the furniture [observed: furniture.md §3].
+pub(crate) const SEATED: u8 = 3;
+
 /// 0 when not on a seat; else 2 while getting on, 3 while on it, 4 while getting off
 /// [observed: the IDLE tree and the AI observer, furniture.md §3].
 pub fn get_sitting(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {

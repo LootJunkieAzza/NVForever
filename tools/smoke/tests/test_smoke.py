@@ -5,6 +5,7 @@ Run:  python -m unittest discover -s tools/smoke/tests     (from the repo root)
 """
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -19,7 +20,7 @@ sys.path.insert(0, str(HERE))
 from smoke import choose, cli  # noqa: E402
 from smoke.expect import Expect, ScenarioError, check_forbid, check_one, check_order  # noqa: E402
 from smoke.plan import merge, plan, shift  # noqa: E402
-from smoke.runner import Locks, judge  # noqa: E402
+from smoke.runner import FROM_SCRIPTS, Locks, aid_free_environ, game_env, judge  # noqa: E402
 from smoke.scenarios import Timed, load, load_text  # noqa: E402
 
 LOG = [
@@ -328,6 +329,25 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual((v.status, v.xpass), ("PASS", ["music summary: 1 started"]))
         s = self.suite('order = [["run finished", "music summary"]]')
         self.assertEqual(judge(s, LOG, 0).status, "FAIL")
+
+
+class GameEnvTests(unittest.TestCase):
+    def test_play_runs_count_the_world_aids_from_the_scripts(self):
+        suite = load_text(game("p", args='["--cell", "X", "--play"]', env='{ NVF_PLAY_TEST_CONSOLE = "3:tgm" }')
+                          + game("v", env='{ NVF_PLAY_TEST_SHOTS = "3" }')
+                          + game("old", args='["--play"]', env=f'{{ {FROM_SCRIPTS} = "0" }}'))
+        p, v, old = plan(suite, suite.scenarios)
+        self.assertEqual(game_env(p), {"NVF_PLAY_TEST_CONSOLE": "3:tgm", FROM_SCRIPTS: "1"})
+        self.assertNotIn(FROM_SCRIPTS, game_env(v))  # no --play: no scripts to wait for
+        self.assertEqual(game_env(old)[FROM_SCRIPTS], "0")  # a scenario keeps the old clock
+        self.assertNotIn(FROM_SCRIPTS, p.env)  # the plan itself is unchanged
+
+    def test_the_callers_switch_does_not_leak_in(self):
+        os.environ[FROM_SCRIPTS] = "1"
+        try:
+            self.assertNotIn(FROM_SCRIPTS, aid_free_environ({}))
+        finally:
+            del os.environ[FROM_SCRIPTS]
 
 
 class LockTests(unittest.TestCase):

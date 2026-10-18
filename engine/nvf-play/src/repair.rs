@@ -297,9 +297,10 @@ fn keys(
 ) {
     let Some(open) = menu.0.as_mut() else { return };
     let Some(rt) = script.and_then(|s| s.into_inner().rt.as_mut()) else { return };
-    let now = time.elapsed_secs();
+    // A world aid (`crate::pause::WorldAidClock`).
+    let now = time.world_secs();
     let mut acts = Vec::new();
-    while aid.0.first().is_some_and(|(t, _)| *t <= now) {
+    while aid.0.first().is_some_and(|(t, _)| now.is_some_and(|now| *t <= now)) {
         let (_, a) = aid.0.remove(0);
         info!("test aid NVF_PLAY_TEST_REPAIR: {a}");
         acts.push(a);

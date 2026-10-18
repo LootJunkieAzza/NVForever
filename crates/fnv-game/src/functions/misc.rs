@@ -7,13 +7,21 @@ use fnv_script::vm::Value;
 use fnv_sim::clock;
 use rand_core::RngCore;
 
-/// `ShowMessage msg [vars…] [duration]`: traced with the message text; a message with
-/// buttons waits for one (runner input `press_button`, read by GetButtonPressed of the
-/// script that showed it).
+/// `ShowMessage msg [vars…] [duration]`: traced with the message text, its format
+/// specifiers filled from the variables ([`format_message`]); a message with buttons
+/// waits for one (runner input `press_button`, read by GetButtonPressed of the script
+/// that showed it). Duration does nothing [documented: GECK wiki ShowMessage notes].
 pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let m = a.form(0)?;
     let def = g.data.messages.get(&m).ok_or_else(|| format!("{} is not a message", g.data.name(m)))?;
     let (text, buttons, is_box) = (def.text.clone(), def.buttons.clone(), def.message_box);
+    // Too few variables for the text: the message does not show [documented: GECK wiki
+    // ShowMessage notes]. Button texts take no variables [documented: same notes].
+    let vars: Vec<f64> = (1..a.len()).map(|i| a.num_or(i, 0.0)).collect();
+    let text = match text {
+        Some(t) => Some(format_message(&t, &vars).ok_or_else(|| format!("{} needs more variables than given", g.data.name(m)))?),
+        None => None,
+    };
     let hidden = g.hidden_buttons(m, ctx.self_ref);
     if !buttons.is_empty() {
         let owner = Some(MessageBox::owner_of(ctx.inst, &ctx.unit));
@@ -121,20 +129,6 @@ pub const EXE_SETTINGS: [(&str, f32); 5] = [
     ("iLockLevelMaxHard", 75.0),
     ("iLockLevelMaxVeryHard", 100.0),
 ];
-
-/// `actor.GetAnimAction`: the special animation action the actor is doing, −1 for none
-/// [documented: GECK wiki GetAnimAction, its table of codes; observed: −1 for the player
-/// and Sunny Smiles at rest (capture `fa_batch1_queries`), 0 for Ringo drawing his weapon
-/// 3 frames after SetAlert 1 and −1 once it was out (`fa_batch3_actions`)]. The engine
-/// tells the drawing and holstering of the NPCs it draws (`Senses::anim_actions`, while
-/// it keeps telling their weapon state); attacks, reloads and the player's actions are
-/// not told yet (docs/design/script-function-audit.md: gap left), so they read −1.
-pub fn get_anim_action(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
-    let r = ctx.subject()?;
-    let told = g.senses.weapon_told.get(&r).is_some_and(|&t| (g.time - t).abs() < 1.0);
-    let action = g.senses.anim_actions.get(&r).copied().filter(|_| told).unwrap_or(-1);
-    Ok(Value::Num(action as f64))
-}
 
 pub fn abs(_g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     Ok(Value::Num(a.num(0)?.abs()))
@@ -593,4 +587,150 @@ pub fn reset_3d_state(g: &mut Game, ctx: &Ctx, _: &Args) -> Result<Value, String
     let on = ctx.subject()?;
     g.anims.reset(on);
     none()
+}
+
+/// A message text with its format specifiers filled from `vars` in order, or None when
+/// there are fewer variables than specifiers [documented: GECK wiki ShowMessage,
+/// "Formatting messages"]: `%[flags][width][.precision]` then `f`, `e` or `g`, flags `+`
+/// (sign on positives), space (a space before positives), `-` (left-aligned) and `0`
+/// (zero fill); `%%` is a percent sign. The rules follow C's printf, which the page's
+/// examples match [hypothesis]; `e` writes a three-digit exponent (`1.23e+005`) as the
+/// page shows [documented], its letter case following the specifier [hypothesis]. A `%`
+/// not starting a specifier is kept as written [hypothesis].
+pub fn format_message(text: &str, vars: &[f64]) -> Option<String> {
+    let mut out = String::with_capacity(text.len());
+    let mut next = vars.iter();
+    let mut rest = text;
+    while let Some(at) = rest.find('%') {
+        out.push_str(&rest[..at]);
+        let spec = &rest[at + 1..];
+        if let Some(after) = spec.strip_prefix('%') {
+            out.push('%');
+            rest = after;
+            continue;
+        }
+        let flags_len = spec.find(|c: char| !"+- 0".contains(c)).unwrap_or(spec.len());
+        let flags = &spec[..flags_len];
+        let after_flags = &spec[flags_len..];
+        let width_len = after_flags.find(|c: char| !c.is_ascii_digit()).unwrap_or(after_flags.len());
+        let width: usize = after_flags[..width_len].parse().unwrap_or(0);
+        let mut tail = &after_flags[width_len..];
+        let mut precision = None;
+        if let Some(p) = tail.strip_prefix('.') {
+            let n = p.find(|c: char| !c.is_ascii_digit()).unwrap_or(p.len());
+            precision = Some(p[..n].parse().unwrap_or(0));
+            tail = &p[n..];
+        }
+        let Some(conv) = tail.chars().next().filter(|c| "feEgG".contains(*c)) else {
+            out.push('%');
+            rest = spec;
+            continue;
+        };
+        let v = *next.next()?;
+        let body = match conv {
+            'f' => format!("{:.*}", precision.unwrap_or(6), v.abs()),
+            'e' | 'E' => exp_form(v.abs(), precision.unwrap_or(6), conv == 'E'),
+            _ => general_form(v.abs(), precision.unwrap_or(6), conv == 'G'),
+        };
+        let sign = if v < 0.0 && body.bytes().any(|b| (b'1'..=b'9').contains(&b)) {
+            "-"
+        } else if flags.contains('+') {
+            "+"
+        } else if flags.contains(' ') {
+            " "
+        } else {
+            ""
+        };
+        let pad = width.saturating_sub(sign.len() + body.len());
+        if flags.contains('-') {
+            out.push_str(sign);
+            out.push_str(&body);
+            out.extend(std::iter::repeat_n(' ', pad));
+        } else if flags.contains('0') {
+            out.push_str(sign);
+            out.extend(std::iter::repeat_n('0', pad));
+            out.push_str(&body);
+        } else {
+            out.extend(std::iter::repeat_n(' ', pad));
+            out.push_str(sign);
+            out.push_str(&body);
+        }
+        rest = &tail[1..];
+    }
+    out.push_str(rest);
+    Some(out)
+}
+
+/// `%e` of a non-negative number: one digit, `precision` decimals, a signed exponent of
+/// at least three digits.
+fn exp_form(v: f64, precision: usize, upper: bool) -> String {
+    let s = format!("{:.*e}", precision, v);
+    let (mantissa, exp) = s.split_once('e').unwrap_or((&s, "0"));
+    let exp: i32 = exp.parse().unwrap_or(0);
+    let e = if upper { 'E' } else { 'e' };
+    format!("{mantissa}{e}{}{:03}", if exp < 0 { '-' } else { '+' }, exp.abs())
+}
+
+/// `%g` of a non-negative number: `precision` significant digits (at least 1), fixed
+/// notation unless the exponent is below −4 or not below the precision, trailing zeros
+/// dropped (C's rule).
+fn general_form(v: f64, precision: usize, upper: bool) -> String {
+    let p = precision.max(1);
+    let exp = if v == 0.0 {
+        0
+    } else {
+        let s = format!("{:.*e}", p - 1, v);
+        s.split_once('e').and_then(|(_, e)| e.parse::<i32>().ok()).unwrap_or(0)
+    };
+    let trim = |s: &str| if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s.to_string() };
+    if exp < -4 || exp >= p as i32 {
+        let s = exp_form(v, p - 1, upper);
+        let at = s.find(['e', 'E']).unwrap_or(s.len());
+        format!("{}{}", trim(&s[..at]), &s[at..])
+    } else {
+        trim(&format!("{:.*}", (p as i32 - 1 - exp).max(0) as usize, v))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_message;
+
+    #[test]
+    fn fills_specifiers_in_order() {
+        assert_eq!(format_message("Rank %.0f of %.0f", &[3.0, 5.0]).as_deref(), Some("Rank 3 of 5"));
+        assert_eq!(format_message("%.2f caps", &[1.5]).as_deref(), Some("1.50 caps"));
+        assert_eq!(format_message("No values", &[2.0]).as_deref(), Some("No values"));
+        assert_eq!(format_message("100%%", &[]).as_deref(), Some("100%"));
+    }
+
+    #[test]
+    fn too_few_variables_shows_nothing() {
+        assert_eq!(format_message("%.0f and %.0f", &[1.0]), None);
+    }
+
+    #[test]
+    fn width_and_flags() {
+        // The wiki's own example: "Number    12 wins".
+        assert_eq!(format_message("Number %5.0f wins", &[12.0]).as_deref(), Some("Number    12 wins"));
+        assert_eq!(format_message("%-5.0f|", &[12.0]).as_deref(), Some("12   |"));
+        assert_eq!(format_message("%05.0f", &[12.0]).as_deref(), Some("00012"));
+        assert_eq!(format_message("%+.0f %+.0f", &[3.0, -3.0]).as_deref(), Some("+3 -3"));
+        assert_eq!(format_message("% .0f", &[3.0]).as_deref(), Some(" 3"));
+        assert_eq!(format_message("%.0f", &[-0.2]).as_deref(), Some("0"));
+    }
+
+    #[test]
+    fn general_and_exponent_forms() {
+        assert_eq!(format_message("%g", &[25.0]).as_deref(), Some("25"));
+        assert_eq!(format_message("%g", &[0.5]).as_deref(), Some("0.5"));
+        // The wiki: 1000000 or more shows in scientific notation (1E+006).
+        assert_eq!(format_message("%g", &[1_000_000.0]).as_deref(), Some("1e+006"));
+        assert_eq!(format_message("%.2e", &[123000.0]).as_deref(), Some("1.23e+005"));
+    }
+
+    #[test]
+    fn a_lone_percent_is_kept() {
+        assert_eq!(format_message("50% off", &[]).as_deref(), Some("50% off"));
+    }
 }

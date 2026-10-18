@@ -185,9 +185,10 @@ fn input(
     let wheel: f32 = wheel.read().map(|w| if w.unit == MouseScrollUnit::Line { w.y } else { w.y / 40.0 }).sum();
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
     let mut ops: Vec<(Op, &str)> = Vec::new();
-    let now = time.elapsed_secs();
+    // A world aid (`crate::pause::WorldAidClock`).
+    let now = time.world_secs();
     // The steps wait for the scripts (a new game's take seconds to load).
-    while script.rt.is_some() && aid.0.first().is_some_and(|(t, _)| *t <= now) {
+    while script.rt.is_some() && aid.0.first().is_some_and(|(t, _)| now.is_some_and(|now| *t <= now)) {
         let (_, op) = aid.0.remove(0);
         info!("test aid: levelup {op:?}");
         ops.push((op, "test aid NVF_PLAY_TEST_LEVELUP"));

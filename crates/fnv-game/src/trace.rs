@@ -28,8 +28,10 @@ pub enum EventKind {
     RefDisabled { reference: FormId },
     /// SetScale: the reference's new scale.
     Scaled { reference: FormId, scale: f64 },
-    ItemAdded { to: FormId, item: FormId, count: i32 },
-    ItemRemoved { from: FormId, item: FormId, count: i32 },
+    /// `silent`: the script asked for no on-screen message (AddItem's and RemoveItem's
+    /// hide flag); kept out of the trace, which records what happened, not how it showed.
+    ItemAdded { to: FormId, item: FormId, count: i32, #[serde(skip)] silent: bool },
+    ItemRemoved { from: FormId, item: FormId, count: i32, #[serde(skip)] silent: bool },
     /// `hidden`: the indices (in `buttons`) of the buttons whose conditions failed, not shown.
     MessageShown {
         message: FormId,

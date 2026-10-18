@@ -23,11 +23,12 @@ use crate::lod::LodState;
 use crate::nav::NavState;
 use crate::player_body::PlayerBody;
 use crate::sky::SkyState;
+use crate::window_mode;
 use crate::world::Streamer;
 use crate::{Args, Overlay};
 use bevy::prelude::*;
 use nvf_play::pause::GROUP_MENUS;
-use nvf_play::settings::{add_setting, choice_index, choice_part, Setting, Slider};
+use nvf_play::settings::{add_choice_list, add_setting, choice_index, choice_part, ChoiceList, Setting, Slider};
 
 // The pause menu shows the groups as the original's settings categories (Gameplay,
 // Display, …), one short word each (nvf_play::pause).
@@ -97,6 +98,39 @@ pub fn register(app: &mut App) {
             slider: None,
         },
     );
+    // The resolution first, then full screen [owner 2026-10-18].
+    add_choice_list(
+        app,
+        Setting {
+            key: "resolution",
+            group: GROUP_PICTURE,
+            label: "Resolution",
+            note: "The window's size, or in full screen the monitor's (its own size: borderless). A new one goes back after 20 seconds unless you keep it. (--size)",
+            get: |_| false,
+            set: |_, _| {},
+            slider: None,
+        },
+        ChoiceList {
+            names: window_mode::resolution_names,
+            chosen: window_mode::resolution_chosen,
+            pick: window_mode::resolution_pick,
+            save: window_mode::resolution_save,
+            load: window_mode::resolution_load,
+            ask_keep: true,
+        },
+    );
+    add_setting(
+        app,
+        Setting {
+            key: "borderless",
+            group: GROUP_PICTURE,
+            label: "Full screen",
+            note: "On: the game fills the monitor it is on, without a frame, at the resolution chosen above for full screen. Off: a window of the resolution chosen for a window. (--window borderless)",
+            get: |w| w.resource::<Args>().window == window_mode::WindowChoice::Borderless,
+            set: window_mode::set_borderless,
+            slider: None,
+        },
+    );
     if has_body {
         add_setting(
             app,
@@ -111,18 +145,6 @@ pub fn register(app: &mut App) {
             },
         );
     }
-    add_setting(
-        app,
-        Setting {
-            key: "borderless",
-            group: GROUP_PICTURE,
-            label: "Borderless full screen",
-            note: "On: the game fills the monitor it is on, without a frame. Off: a window of --size. (--window borderless)",
-            get: |w| w.resource::<Args>().window == crate::window_mode::WindowChoice::Borderless,
-            set: crate::window_mode::set_borderless,
-            slider: None,
-        },
-    );
     add_setting(
         app,
         Setting {

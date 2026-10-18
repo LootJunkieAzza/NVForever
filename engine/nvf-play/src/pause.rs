@@ -41,6 +41,16 @@
 //! (`crate::settings::StartStates`; without it, as the page was first shown in this run).
 //! Esc or Backspace go back.
 //!
+//! A list's row (the resolution, `crate::settings::ChoiceList`) shows its choice in a box
+//! with a down arrow, as a dropdown [design; owner 2026-10-18]: Enter, Space or a click
+//! open the list under it (over it near the bottom), the chosen one boxed; Up/Down (W/S),
+//! the wheel and the pointer choose, Enter, Space or a click take, Esc, Backspace or a
+//! click outside close it. Left/Right on the row take the choice before or after without
+//! opening it. A choice that asks to be kept puts a question over the page: "Keep this
+//! resolution?" with the seconds left and Keep / Revert (Left/Right/Up/Down choose, Enter
+//! or Space take, Esc reverts, a click takes); unanswered it goes back by itself
+//! (`crate::settings::KEEP_SECS`).
+//!
 //! **The Controls tab**, the settings page's last category [design; owner 2026-10-16:
 //! keys can be mapped from the settings], lists every control of `crate::bindings` with
 //! its key and mouse button. Up/Down (W/S) choose; Enter, Space or a click on a row make
@@ -71,23 +81,28 @@
 //! While the virtual clock stands still, what must go on reads [`AidTime`]: the timed
 //! test aids, the menus' own timers and the scripts' frame time (MenuMode blocks and a
 //! conversation's lines run in real time under an `original` menu). `nvforever
-//! --run-seconds` counts real time then as well, so an unattended run always ends.
+//! --run-seconds` counts real time then as well, so an unattended run always ends. The
+//! test aids that act on the world can count from the scripts' first frame instead
+//! ([`WorldAidClock`], `NVF_PLAY_AIDS_FROM_SCRIPTS=1`; which aids: `crate::test_aid`).
 //!
 //! Test aid `NVF_PLAY_TEST_PAUSE=<seconds>:<seconds>[,…]`: opens the pause menu at the
 //! first time (as Esc) and resumes at the second (as Esc again, from either page), on
 //! the aids' clock. `NVF_PLAY_TEST_SETTINGS=<seconds>:<key>[,…]`: at each time, with the
 //! pause menu open, shows the settings page and flips the switch of that key (as a
-//! click on its row); `<key>=<value>` sets a slider (e.g. `actor-distance=0.5`); the key
+//! click on its row); `<key>=<value>` sets a slider (e.g. `actor-distance=0.5`) or takes a
+//! list's choice (`resolution=1024x768`, as a click on it in the open list); the key
 //! `page` only shows the page, `controls` the Controls tab, and `bind:<control>=<input>`
 //! (INI names, e.g. `bind:Jump=J`) binds a control there as Enter on its row and that key
 //! would, `padbind:<control>=<button>` (`padbind:Jump=RB`) a controller button,
 //! `device:<name>` (`device:Controller`) picks the input device, `rumble:1` or `rumble:0`
 //! sets the controller's Rumble row.
 //! `NVF_PLAY_TEST_PAUSE_MENU=<seconds>:<action>[,…]`: with the pause menu open, `save` (the
-//! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page or
-//! the quit question), `back` (from the load or the settings page, or the question),
+//! Save button), `load` (the load page), `down`, `up`, `pick` (Enter on the load page, the
+//! quit question, a list's row or its open dropdown, where `down` and `up` move too),
+//! `back` (from the load or the settings page, the question or an open dropdown),
 //! `defaults` (the settings page's Defaults), `wheel-down`, `wheel-up` (a notch of the
 //! mouse wheel on the settings page or the Controls tab),
+//! `keep` and `revert` (the keep question's answers),
 //! `quit` (the question), `shot` (a screenshot `pause_<page>.png` in the working folder).
 
 use crate::interface::{bc_supported, u, Face, Picture, Pictures};
@@ -141,6 +156,7 @@ impl PlayClock {
 pub struct AidTime<'w> {
     time: Res<'w, Time>,
     clock: Res<'w, PlayClock>,
+    world: Option<Res<'w, WorldAidClock>>,
 }
 
 impl AidTime<'_> {
@@ -149,10 +165,90 @@ impl AidTime<'_> {
         self.time.elapsed_secs() + self.clock.stopped
     }
 
+    /// The clock of the test aids that act on the world ([`WorldAidClock`]): the aids'
+    /// clock, or, with `NVF_PLAY_AIDS_FROM_SCRIPTS=1`, `None` until the scripts first run
+    /// and then the aids' clock less what the scripts' late start held it back.
+    pub fn world_secs(&self) -> Option<f32> {
+        let now = self.elapsed_secs();
+        self.world.as_deref().map_or(Some(now), |w| w.at(now))
+    }
+
     /// The frame's time: the virtual clock's, or real time (at most 0.25 s, the virtual
     /// clock's own cap) while it stands still.
     pub fn delta_secs_f64(&self) -> f64 {
         self.clock.frame.map_or_else(|| self.time.delta_secs_f64(), f64::from)
+    }
+}
+
+/// When the scripts start on a machine that is not busy, at the latest (seconds on the
+/// aids' clock) [observed: the desktop's smoke logs of 2026-10-15/16 load the script data
+/// in 4.2–6.5 s ("scripts ready in"); the scripts run from the first frame after it in
+/// which the player stands in the world; busy runs started them at 8.7 s and 9.5 s].
+/// Up to this the world aids' clock is not held back, so a scenario's times mean what
+/// they meant before the switch.
+pub const SCRIPTS_START_SECONDS: f32 = 6.5;
+
+/// `NVF_PLAY_AIDS_FROM_SCRIPTS=1` (the smoke runner sets it for `--play` runs): the test
+/// aids that act on the world count from when the scripts first run, not from the start,
+/// so on a busy machine (the script data loads late) they do not run before the world
+/// can take them [design; the console then answered "Scripts are not running", docs/
+/// outstanding.md §5].
+///
+/// Such an aid waits until the scripts first run (`crate::script`; with scripts off,
+/// until the player first stands in the world). From then its clock is the aids' clock
+/// ([`AidTime::elapsed_secs`]) less what the late start held it back: the start's time
+/// past [`SCRIPTS_START_SECONDS`]. A step due before then runs in the first frame the
+/// scripts run; every later step keeps its time on an unbusy machine and its distance
+/// from the others on a busy one. The script steps are still moved on their own when
+/// the scripts start after the first one's time (`script_events::delay_late_aids`),
+/// now by at most `SCRIPTS_START_SECONDS` less that time: a busy run then looks like
+/// the slowest unbusy one [design; follower-boone failed when only its script steps
+/// came 7.2 s late, 2026-10-17]. Aids that also work before the world (the main menu,
+/// the intro, the pause menu and its settings page, an audio device reopen) keep the
+/// aids' clock. `nvforever --run-seconds` is lengthened by the held-back seconds, so
+/// the last steps still run.
+///
+/// Without the switch the world clock is the aids' clock, as before.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Default)]
+pub struct WorldAidClock {
+    from_scripts: bool,
+    /// The seconds held back, once the scripts ran.
+    held: Option<f32>,
+}
+
+impl WorldAidClock {
+    pub fn new(from_scripts: bool) -> WorldAidClock {
+        WorldAidClock { from_scripts, held: None }
+    }
+
+    pub fn from_env() -> WorldAidClock {
+        let on = std::env::var("NVF_PLAY_AIDS_FROM_SCRIPTS").is_ok_and(|v| !matches!(v.trim(), "" | "0" | "off" | "false"));
+        WorldAidClock::new(on)
+    }
+
+    /// The world aids' clock at `now` on the aids' clock (`None`: not started yet).
+    pub fn at(&self, now: f32) -> Option<f32> {
+        if !self.from_scripts {
+            return Some(now);
+        }
+        self.held.map(|h| now - h)
+    }
+
+    /// The seconds the world aids' clock was held back (0 without the switch or before
+    /// the start).
+    pub fn held_secs(&self) -> f32 {
+        self.held.unwrap_or(0.0)
+    }
+
+    /// The scripts first ran at `now` (the aids' clock): starts the clock and returns the
+    /// seconds it is held back, the first time and with the switch only.
+    pub fn start(&mut self, now: f32) -> Option<f32> {
+        if !self.from_scripts || self.held.is_some() {
+            return None;
+        }
+        let held = (now - SCRIPTS_START_SECONDS).max(0.0);
+        self.held = Some(held);
+        Some(held)
     }
 }
 
@@ -415,6 +511,10 @@ enum PauseButton {
     Back,
     /// A choice of the quit question (its index in [`CONFIRM`]).
     Confirm(usize),
+    /// A choice in a list's open dropdown: its row and the choice's index.
+    Choice(usize, usize),
+    /// An answer of the keep question (its index in [`KEEP_ANSWERS`]).
+    Keep(usize),
 }
 
 /// A switch's state, kept as text too (tests read it).
@@ -456,6 +556,8 @@ impl Entry {
 const WARNING: &str = "WARNING:  Any unsaved progress will be lost.";
 const QUESTION: &str = "Are you sure you want to quit?";
 const CONFIRM: [&str; 3] = ["Main Menu", "Exit Game", "Cancel"];
+/// The keep question's answers [design].
+const KEEP_ANSWERS: [&str; 2] = ["Keep", "Revert"];
 
 /// The settings page's rows: this many shown at once [documented: `options_container`
 /// `_number_of_visible_items` 9], each this high [observed: 39 of 720 pixels], the list
@@ -511,6 +613,12 @@ const METER_HEIGHT: f32 = 24.0;
 const METER_ARROWS: [f32; 2] = [420.0, 692.0];
 const METER_ARROW: Vec2 = Vec2::new(17.5, 35.0);
 const PERCENT_AT: f32 = 765.0;
+/// A list's box in its row (its left edge and width, from the slider's left arrow to the
+/// row's end), the open list's rows shown at once and their height [design].
+const LIST_LEFT: f32 = 420.0;
+const LIST_WIDTH: f32 = 386.0;
+const DROP_ROWS: usize = 8;
+const DROP_ITEM: f32 = 44.0;
 /// A tick of the meter: 8 apart, the picture's top 8 × 20 texels stretched to the meter's
 /// height (as the "How many?" meter's [observed]).
 const METER_TICK: f32 = 8.0;
@@ -615,6 +723,18 @@ struct PauseView {
     bar_dragging: bool,
     /// The wheel's movement short of a notch.
     wheel: f32,
+    /// A list's open dropdown.
+    dropdown: Option<Dropdown>,
+    /// The keep question's chosen answer.
+    keep_selected: usize,
+}
+
+/// A list's open dropdown: its row, the choice the keys are on and the first shown.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Dropdown {
+    row: usize,
+    at: usize,
+    first: usize,
 }
 
 /// Everything the page drawn shows: drawn again when it changes.
@@ -640,6 +760,18 @@ struct Drawn {
     rumble: bool,
     /// The settings page's first row shown ([`PauseView::scroll`]).
     scroll: usize,
+    /// The list rows: each one's row, choices and chosen one.
+    lists: Vec<(usize, Vec<String>, String)>,
+    dropdown: Option<Dropdown>,
+    /// The keep question: its row's label, the seconds left and the chosen answer.
+    keep: Option<(&'static str, u32, usize)>,
+}
+
+impl Drawn {
+    /// List row `i`'s choices and chosen one.
+    fn list(&self, i: usize) -> Option<(&[String], &str)> {
+        self.lists.iter().find(|l| l.0 == i).map(|l| (l.1.as_slice(), l.2.as_str()))
+    }
 }
 
 impl Drawn {
@@ -886,8 +1018,39 @@ fn spawn_page(commands: &mut Commands, d: &Drawn, look: &PauseLook, settings: &[
                 right_entry(root, &f.entry, "Defaults", from_right(RIGHT, BACK_TOP - ITEM, 200.0, ITEM), 200.0, Shade::Bright, false, PauseButton::Defaults);
             }
         }
+        if let Some((label, left, sel)) = d.keep {
+            keep_question(root, f, label, left, sel);
+        }
     });
 }
+
+/// The keep question over the page: whether to keep the choice of row `label`, the
+/// seconds left, Keep and Revert.
+fn keep_question(root: &mut ChildSpawnerCommands, f: &Faces, label: &str, left: u32, sel: usize) {
+    // A sheet over the page that takes the pointer, so only the answers can be clicked.
+    root.spawn((full(), BackgroundColor(Color::BLACK.with_alpha(0.6)), Button, GlobalZIndex(112)));
+    let (w, h) = (640.0, 4.0 * ITEM + 40.0);
+    let (line, _) = highlight_colors();
+    let question = format!("Keep this {}?", label.to_lowercase());
+    let count = format!("Going back in {left} s.");
+    root.spawn((KeepLine, Text::new(format!("{question} {count}")), Node { display: Display::None, ..default() }));
+    root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(-w / 2.0, 480.0 - h / 2.0, w, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(113))).with_children(|b| {
+        for (k, t) in [&question, &count].into_iter().enumerate() {
+            let tw = f.entry.font.width(t);
+            b.spawn(at(0.0, 20.0 + k as f32 * ITEM, w, ITEM)).with_children(|r| sm_text(r, &f.entry, t, (w - tw) / 2.0, BASE, color(Shade::Bright)));
+        }
+        let bw = 180.0;
+        for (k, a) in KEEP_ANSWERS.iter().enumerate() {
+            let x = w / 2.0 + if k == 0 { -bw - 20.0 } else { 20.0 };
+            let aw = f.entry.font.width(a);
+            b.spawn((Button, PauseButton::Keep(k), boxed(at(x, 20.0 + 2.0 * ITEM + 20.0, bw, ITEM), k == sel))).with_children(|r| sm_text(r, &f.entry, a, (bw - aw) / 2.0, BASE, color(Shade::Bright)));
+        }
+    });
+}
+
+/// The keep question's lines, kept as text too (tests read it).
+#[derive(Component)]
+struct KeepLine;
 
 /// The settings page: the categories left of the column, the chosen category's switches
 /// in the middle with the chosen one's note under them, the version at the bottom left.
@@ -911,6 +1074,10 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
                 slider_row(r, look, i, v, &slider.text(v));
                 return;
             }
+            if let Some((_, chosen)) = d.list(i) {
+                list_row(r, look, i, chosen, d.dropdown.is_some_and(|o| o.row == i));
+                return;
+            }
             let value = if v > 0.5 { "ON" } else { "OFF" };
             let vw = f.entry.font.width(value);
             r.spawn((SwitchState(i), Text::new(value), Node { display: Display::None, ..default() }));
@@ -923,6 +1090,38 @@ fn settings_page(root: &mut ChildSpawnerCommands, d: &Drawn, look: &PauseLook, l
     let shown = (rows.end - first).min(OPTION_ROWS) as f32;
     root.spawn(from_middle(OPTIONS_LEFT + 10.0, top + shown * OPTION_ROW + 20.0, OPTIONS_WIDTH - 20.0, 160.0)).with_children(|t| wrapped(t, &f.small, note, OPTIONS_WIDTH - 20.0, 26.0, color(Shade::Bright)));
     version(root, f);
+    // The open dropdown over the rows under its own (over those above near the bottom).
+    let Some((o, names)) = d.dropdown.and_then(|o| Some((o, d.list(o.row)?.0))) else { return };
+    let Some(n) = (first..rows.end).take(OPTION_ROWS).position(|i| i == o.row) else { return };
+    let shown = names.len().min(DROP_ROWS);
+    let h = shown as f32 * DROP_ITEM + 2.0 * LINE;
+    let row_top = top + n as f32 * OPTION_ROW;
+    let y = if row_top + OPTION_ROW + h > 950.0 { row_top - h } else { row_top + OPTION_ROW };
+    let (line, _) = highlight_colors();
+    root.spawn((Node { border: UiRect::all(u(LINE)), ..from_middle(OPTIONS_LEFT + LIST_LEFT, y, LIST_WIDTH, h) }, BorderColor::all(line), BackgroundColor(Color::BLACK), GlobalZIndex(111))).with_children(|b| {
+        for (k, name) in names.iter().enumerate().skip(o.first).take(shown) {
+            let nw = f.entry.font.width(name);
+            b.spawn((Button, PauseButton::Choice(o.row, k), boxed(at(0.0, (k - o.first) as f32 * DROP_ITEM, LIST_WIDTH - 2.0 * LINE, DROP_ITEM), k == o.at)))
+            .with_children(|r| sm_text(r, &f.entry, name, (LIST_WIDTH - nw) / 2.0 - LINE, DROP_ITEM * 0.72, color(Shade::Bright)));
+        }
+    });
+}
+
+/// A list's row: its choice in a box with a down arrow (lit while its dropdown is open).
+fn list_row(r: &mut ChildSpawnerCommands, look: &PauseLook, i: usize, chosen: &str, open: bool) {
+    let bright = color(Shade::Bright);
+    let (line, fill) = highlight_colors();
+    r.spawn((Node { border: UiRect::all(u(LINE)), ..at(LIST_LEFT, 6.0, LIST_WIDTH, OPTION_ROW - 12.0) }, BorderColor::all(line.with_alpha(if open { 1.0 } else { 0.6 })), BackgroundColor(if open { fill } else { Color::NONE })));
+    let vw = look.faces.entry.font.width(chosen);
+    r.spawn((SwitchState(i), Text::new(chosen), Node { display: Display::None, ..default() }));
+    sm_text(r, &look.faces.entry, chosen, LIST_LEFT + (LIST_WIDTH - 30.0 - vw) / 2.0, BASE + 2.0, bright);
+    // The right arrow turned to point down.
+    let node = at(LIST_LEFT + LIST_WIDTH - 30.0, (OPTION_ROW - METER_ARROW.y) / 2.0, METER_ARROW.x, METER_ARROW.y);
+    let turned = UiTransform { rotation: Rot2::degrees(90.0), ..default() };
+    match &look.arrows[1] {
+        Some(image) => r.spawn((node, turned, ImageNode { color: bright, ..ImageNode::new(image.clone()) })),
+        None => r.spawn((node, turned, BackgroundColor(bright.with_alpha(0.5)))),
+    };
 }
 
 /// The categories left of the column: the switches' groups, then Controls; `current`
@@ -1187,7 +1386,7 @@ fn choose(
     mut sounds: MessageWriter<crate::ui_sounds::UiSound>,
     mut menu: SaveMenu,
     (mut request, main_menu, intro, mut to_main, mouse): (ResMut<PageRequest>, Option<Res<crate::main_menu::MainMenu>>, Option<Res<crate::intro::Intro>>, MessageWriter<MainMenuRequest>, Res<ButtonInput<MouseButton>>),
-    (bindings, pads, sticks): (Option<Res<crate::bindings::Bindings>>, Query<&Gamepad>, Option<Res<crate::pad::StickButtons>>),
+    (bindings, pads, sticks, pending): (Option<Res<crate::bindings::Bindings>>, Query<&Gamepad>, Option<Res<crate::pad::StickButtons>>, Option<Res<crate::settings::PendingKeep>>),
     meters: Query<(&PauseButton, &RelativeCursorPosition)>,
 ) {
     use crate::bindings::{Bindings, Input, InputDevice, GAME_CONTROLS};
@@ -1223,6 +1422,9 @@ fn choose(
     let mut steps: Vec<(usize, i32)> = Vec::new();
     let mut sets: Vec<(usize, f32)> = Vec::new();
     let is_slider = |i: usize| list.get(i).is_some_and(|s| s.slider.is_some());
+    let is_list = |i: usize| settings.choices(i).is_some();
+    // Lists' choices taken: (row, choice).
+    let mut picks: Vec<(usize, String)> = Vec::new();
     // The settings aid: show the page and flip the switch, as a click on its row, or set
     // the slider (`key=value`).
     let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut aid.switches).into_iter().partition(|(t, _)| *t <= now);
@@ -1282,6 +1484,13 @@ fn choose(
             None => (item.clone(), None),
         };
         match (settings.index(&key), key.as_str()) {
+            (Some(i), _) if is_list(i) => {
+                *page = Page::Settings { selected: i };
+                match item.split_once('=') {
+                    Some((_, v)) => picks.push((i, v.trim().to_string())),
+                    None => warn!("NVF_PLAY_TEST_SETTINGS: {key} is a list: give it a choice, {key}=<choice>"),
+                }
+            }
             (Some(i), _) if is_slider(i) => {
                 *page = Page::Settings { selected: i };
                 match value {
@@ -1374,8 +1583,18 @@ fn choose(
     // move the choice, nor the one a redrawn page puts under it).
     let moved = menu.motion.as_ref().is_some_and(|m| m.delta != Vec2::ZERO);
     let (main_before, confirm_before) = (view.main_selected, view.confirm);
+    // The keep question or an open dropdown over the page: the rows under it do not follow
+    // the pointer.
+    let over = pending.is_some() || view.dropdown.is_some();
     for (interaction, b) in &buttons {
         match (interaction, b, &mut *page) {
+            (Interaction::Hovered, PauseButton::Choice(r, k), _) if moved => {
+                if let Some(o) = view.dropdown.as_mut().filter(|o| o.row == *r) {
+                    o.at = *k;
+                }
+            }
+            (Interaction::Hovered, PauseButton::Keep(k), _) if moved => view.keep_selected = *k,
+            (Interaction::Hovered, ..) if over => {}
             (Interaction::Pressed, PauseButton::Meter(i), Page::Settings { selected }) => {
                 *selected = *i;
                 view.dragging = Some(*i);
@@ -1393,6 +1612,74 @@ fn choose(
     if act("defaults") && matches!(*page, Page::Settings { .. } | Page::Controls { .. }) {
         clicked = Some(PauseButton::Defaults);
     }
+    // The keep question takes every key and click until it is answered.
+    if pending.is_some() {
+        let answer = match clicked {
+            Some(PauseButton::Keep(k)) => Some(k),
+            _ if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || act("revert") => Some(1),
+            _ if act("keep") => Some(0),
+            _ if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) => Some(view.keep_selected),
+            _ => None,
+        };
+        let turn = [KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::ArrowUp, KeyCode::ArrowDown, KeyCode::KeyA, KeyCode::KeyD, KeyCode::KeyW, KeyCode::KeyS, KeyCode::Tab];
+        match answer {
+            Some(0) => {
+                commands.queue(crate::settings::keep);
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Picked });
+            }
+            Some(_) => {
+                commands.queue(crate::settings::revert);
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Back });
+            }
+            None if keys.any_just_pressed(turn) => {
+                view.keep_selected = 1 - view.keep_selected.min(1);
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Focus });
+            }
+            None => {}
+        }
+        if answer.is_some() {
+            view.keep_selected = 0;
+        }
+        return;
+    }
+    // An open dropdown takes the keys and clicks until it closes.
+    if let (Some(mut o), Page::Settings { .. }) = (view.dropdown, *page) {
+        let names = view.drawn.as_ref().and_then(|d| d.list(o.row)).map(|(n, _)| n.to_vec()).unwrap_or_default();
+        let n = names.len();
+        let before = o.at;
+        let mut take = None;
+        let mut shut = false;
+        match clicked {
+            Some(PauseButton::Choice(r, k)) if r == o.row => take = Some(k),
+            Some(_) => shut = true,
+            None if mouse.just_pressed(MouseButton::Left) => shut = true,
+            None if keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]) || act("back") => shut = true,
+            None if keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) || act("up") => o.at = o.at.saturating_sub(1),
+            None if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) || act("down") => o.at = (o.at + 1).min(n.saturating_sub(1)),
+            None if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) || act("pick") => take = Some(o.at),
+            None => {}
+        }
+        let last = n.saturating_sub(DROP_ROWS);
+        let wheel = menu.scroll.as_ref().map_or(0.0, |s| s.delta.y);
+        if wheel > 0.0 {
+            o.first = o.first.saturating_sub(1);
+        } else if wheel < 0.0 {
+            o.first = (o.first + 1).min(last);
+        }
+        if o.at != before {
+            o.first = o.first.max((o.at + 1).saturating_sub(DROP_ROWS)).min(o.at).min(last);
+            sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Focus });
+        }
+        if let Some(name) = take.and_then(|k| names.get(k)) {
+            pick_choice(&mut commands, &mut sounds, o.row, name.clone());
+            shut = true;
+        } else if shut {
+            sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Back });
+        }
+        view.dropdown = (!shut).then_some(o);
+        return;
+    }
+    view.dropdown = None;
     // A click on the column's entry of another page (the page's own entry closes it), or
     // on a category.
     match clicked {
@@ -1556,10 +1843,21 @@ fn choose(
                 *page = Page::Main;
             } else if let Some(PauseButton::Switch(i)) = clicked {
                 *selected = i;
-                // A click on a slider's row only chooses it.
-                if !is_slider(i) {
+                // A click on a slider's row only chooses it; on a list's it opens the list.
+                if is_list(i) {
+                    open_dropdown(&mut view, i);
+                    sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Picked });
+                } else if !is_slider(i) {
                     flips.push(i);
                 }
+            } else if is_list(*selected) && keys.any_just_pressed([KeyCode::ArrowLeft, KeyCode::KeyA, KeyCode::ArrowRight, KeyCode::KeyD]) {
+                let step = if keys.any_just_pressed([KeyCode::ArrowLeft, KeyCode::KeyA]) { -1 } else { 1 };
+                if let Some(name) = neighbour(&view, *selected, step) {
+                    picks.push((*selected, name));
+                }
+            } else if is_list(*selected) && (keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) || act("pick")) {
+                open_dropdown(&mut view, *selected);
+                sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Picked });
             } else if let Some(PauseButton::SliderStep(i, step)) = clicked {
                 *selected = i;
                 steps.push((i, step));
@@ -1753,6 +2051,34 @@ fn choose(
             crate::settings::set_slider(world, i, v);
         });
     }
+    for (i, name) in picks {
+        pick_choice(&mut commands, &mut sounds, i, name);
+    }
+}
+
+/// Take choice `name` of list row `i` (`crate::settings::pick`).
+fn pick_choice(commands: &mut Commands, sounds: &mut MessageWriter<crate::ui_sounds::UiSound>, i: usize, name: String) {
+    use crate::ui_sounds::{UiEvent, UiMenu, UiSound};
+    sounds.write(UiSound { menu: UiMenu::Settings, event: UiEvent::Flipped });
+    commands.queue(move |world: &mut World| {
+        crate::settings::pick(world, i, &name);
+    });
+}
+
+/// Open list row `i`'s dropdown on its chosen one.
+fn open_dropdown(view: &mut PauseView, i: usize) {
+    let Some((names, chosen)) = view.drawn.as_ref().and_then(|d| d.list(i)) else { return };
+    let at = names.iter().position(|n| n == chosen).unwrap_or(0);
+    let first = (at + 1).saturating_sub(DROP_ROWS).min(names.len().saturating_sub(DROP_ROWS));
+    info!("pause menu: the list of {} choice(s) open", names.len());
+    view.dropdown = Some(Dropdown { row: i, at, first });
+}
+
+/// The choice `step` (-1 or 1) from list row `i`'s chosen one, not past the ends.
+fn neighbour(view: &PauseView, i: usize, step: i32) -> Option<String> {
+    let (names, chosen) = view.drawn.as_ref()?.list(i)?;
+    let at = names.iter().position(|n| n == chosen)? as i32 + step;
+    names.get(usize::try_from(at).ok()?).cloned()
 }
 
 /// Row `i`'s value as the page last drew it.
@@ -1778,7 +2104,15 @@ fn show_status(mut done: MessageReader<crate::save::SaveDone>, mut status: ResMu
 fn drawn_now(world: &mut World) -> Drawn {
     let page = *world.resource::<Page>();
     let list = world.resource::<Settings>().list().to_vec();
-    let states: Vec<f32> = list.iter().map(|s| s.value(world)).collect();
+    let states: Vec<f32> = world.resource::<Settings>().values(world);
+    let lists: Vec<(usize, Vec<String>, String)> = {
+        let settings = world.resource::<Settings>();
+        (0..list.len()).filter_map(|i| settings.choices(i).map(|c| (i, (c.names)(world), (c.chosen)(world)))).collect()
+    };
+    let keep = world.get_resource::<crate::settings::PendingKeep>().map(|p| {
+        let now = world.get_resource::<Time<Real>>().map_or(0.0, |t| t.elapsed_secs_f64());
+        (list.get(p.row).map_or("choice", |s| s.label), p.left(now), world.resource::<PauseView>().keep_selected)
+    });
     if matches!(page, Page::Settings { .. }) && world.resource::<PauseView>().defaults.is_none() {
         let start = world.get_resource::<crate::settings::StartStates>().map(|s| s.0.clone()).filter(|s| s.len() == states.len());
         world.resource_mut::<PauseView>().defaults = Some(start.unwrap_or_else(|| states.clone()));
@@ -1799,6 +2133,9 @@ fn drawn_now(world: &mut World) -> Drawn {
         device: world.get_resource::<crate::bindings::Bindings>().map_or(("Keyboard and Mouse", false), |b| (b.device.name(), b.device == crate::bindings::InputDevice::Controller)),
         rumble: world.get_resource::<crate::bindings::Bindings>().is_some_and(|b| b.rumble),
         scroll: view.scroll,
+        lists,
+        dropdown: view.dropdown.filter(|_| matches!(page, Page::Settings { .. })),
+        keep,
     }
 }
 
@@ -1839,6 +2176,7 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
     view.dragging = None;
     view.bar_dragging = false;
     view.scroll = 0;
+    view.dropdown = None;
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -1847,6 +2185,52 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The systems that read or write the world aids' clock (directly or through
+    /// [`AidTime`]) build into a schedule: Bevy checks each system's parameters for a
+    /// resource taken twice (B0002) when it is initialized, which unit tests of the clock
+    /// alone never do. `start_world_aids` once took the clock in `AidTime` and as
+    /// `ResMut` and every `--play` run panicked (2026-10-18). The parameters are the same
+    /// whatever NVF_PLAY_AIDS_FROM_SCRIPTS says; it is set as the smoke runner sets it.
+    #[test]
+    fn the_world_aids_clock_systems_build_into_a_schedule() {
+        // SAFETY: this test's own variable; no other test reads it.
+        unsafe { std::env::set_var("NVF_PLAY_AIDS_FROM_SCRIPTS", "1") };
+        let mut world = World::new();
+        world.insert_resource(WorldAidClock::from_env());
+        let mut schedule = Schedule::default();
+        schedule.add_systems((crate::script::run_scripts, crate::script::start_world_aids, tick_play_clock).chain());
+        schedule.initialize(&mut world).expect("the schedule builds");
+        assert!(world.resource::<WorldAidClock>().from_scripts);
+    }
+
+    #[test]
+    fn the_world_aids_clock_waits_for_the_scripts_and_is_held_back_only_by_a_late_start() {
+        // Without the switch: the aids' clock, from the start.
+        let mut off = WorldAidClock::new(false);
+        assert_eq!(off.at(3.0), Some(3.0));
+        assert_eq!(off.start(20.0), None);
+        assert_eq!(off.at(25.0), Some(25.0));
+        assert_eq!(off.held_secs(), 0.0);
+        // With it: nothing before the scripts run.
+        let mut on = WorldAidClock::new(true);
+        assert_eq!(on.at(3.0), None);
+        // An unbusy start (before SCRIPTS_START_SECONDS): not held back, the times mean
+        // what they did; steps due already run in the first frame.
+        assert_eq!(on.start(5.5), Some(0.0));
+        assert_eq!(on.at(5.5), Some(5.5));
+        assert_eq!(on.at(14.0), Some(14.0));
+        // Only the first start counts.
+        assert_eq!(on.start(30.0), None);
+        assert_eq!(on.at(14.0), Some(14.0));
+        // A busy start at 20 s: the clock reads SCRIPTS_START_SECONDS then and steps keep
+        // their distances (a step 6 s after that runs 6 s after the start).
+        let mut late = WorldAidClock::new(true);
+        assert_eq!(late.start(20.0), Some(20.0 - SCRIPTS_START_SECONDS));
+        assert_eq!(late.at(20.0), Some(SCRIPTS_START_SECONDS));
+        assert_eq!(late.at(26.0), Some(SCRIPTS_START_SECONDS + 6.0));
+        assert_eq!(late.held_secs(), 20.0 - SCRIPTS_START_SECONDS);
+    }
 
     #[test]
     fn the_pause_menu_always_holds_the_picture_and_other_menus_by_the_switch() {
@@ -1977,7 +2361,7 @@ mod tests {
             list.saves.push((PathBuf::from(format!("{name}.nvfsave")), h));
         }
         app.insert_resource(list);
-        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true, scroll: 0 };
+        let drawn = Drawn { page: Page::Load { selected: 1 }, main_selected: 0, confirm: None, states: vec![], status: String::new(), column: ENTRIES.iter().map(|e| (e.label(), true)).collect(), under_main: false, thumb: None, controls: vec![], device: ("Keyboard and Mouse", false), rumble: true, scroll: 0, lists: vec![], dropdown: None, keep: None };
         app.world_mut().run_system_cached_with(|In(d): In<Drawn>, mut commands: Commands, list: Res<LoadList>| spawn_page(&mut commands, &d, &PauseLook::plain(), &[], &list), drawn).unwrap();
         let world = app.world_mut();
         let mut rows = world.query::<(&PauseButton, &BorderColor)>();
