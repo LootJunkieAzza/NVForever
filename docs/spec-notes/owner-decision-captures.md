@@ -38,7 +38,13 @@ where §4 says so.
 Every job starts by putting the player where it needs them, so the jobs run in any order
 within one game session. The jobs were written for the save `nvftest` (and `od_09a` for
 `nvfdoc`). The owner now wants captures run from `nvfstrip`, so the second round's jobs
-close any open menu first and close message boxes before each conversation (§5):
+close any open menu first and close message boxes before each conversation (§5).
+
+**`nvfstrip` caveat [observed 2026-10-18].** In that save, Cook-Cook's camp is already
+cleared: Cook-Cook (0x0013E5BB), Queenie, the brahmin, the dogs and the camp Fiends
+0x000F9CE6–9 read dead 1 from the first sample. The campaign sessions that need living
+Fiends there (`alert_noise`) are not valid from it; run them from `nvftest`. The Hidden
+Valley and gecko sessions crashed from `nvfstrip` (§4); they were written for `nvftest`.
 
 ```
 python tools/capture/capture_run.py --game <FNV> --save nvftest tools/capture/jobs/od_0[2-8]*.steps.json tools/capture/jobs/od_09b*.steps.json tools/capture/jobs/od_1*.steps.json tools/capture/jobs/od_2*.steps.json
@@ -117,8 +123,8 @@ This note was written from the readings the coordinator relayed, not from the ra
 It claims no more than those readings give. In the `ai` field the values are in this
 order: package, type, procedure, …, x, y, z, heading.
 
-**Still pending.** `od_22` (it crashed at the job's start, and a retry was running) and
-the campaign sessions (items 7, 14 and 15).
+**Still pending.** The item 7 sessions (a retry from `nvftest` was running) and the
+second round's jobs (§5).
 
 ### Settled
 
@@ -217,6 +223,33 @@ the campaign sessions (items 7, 14 and 15).
 - **od_21, Red Lucy.** A message box instead of dialogue, and the screenshots failed with
   "cannot create a bitmap". That is a plugin-side capture error the job cannot fix
   [hypothesis: the game window was not visible].
+
+### The campaign `owner_decisions`, from `nvfstrip`
+
+- **Item 14, `ncr_fiends_placed`: settled in part.** Six actors were spawned with nobody
+  provoking them and the player hidden.
+  - **Fought:** three with health 50 (FF00130D, FF00130F and FF001313, weapon 000E9C3B,
+    around (-42800, 72300)) and one with health 65 (FF001315, about 500 units from them).
+    They fought each other for 207–327 combat samples each, with targets crossing both
+    ways, and FF001315 died at sample 208 of 1,809.
+  - **Did not fight:** the other two health-65 spawns (FF001317 and FF00131A, about
+    3,000 units off) never entered combat.
+  - **Verdict.** Spawned NCR troopers and Fiends **do fight with nobody provoking them**,
+    at least within about 500 units, so the shared utility faction (GeneralIdleFaction)
+    does not keep them at peace. This supports our changed rule.
+  - **Open.** Which spawn is on which side is not read from the bases yet: they are
+    references made at run time, and the timeline has their base forms.
+- **Item 15, `alert_noise`: not settled.** The session ran (965 samples, 118 state
+  changes), but the Fiends it relies on are dead in `nvfstrip` (§2). It needs a rerun
+  from `nvftest`.
+- **Item 7, `hv_initiates`, `hv_knights`, `geckos_package_chain`: not settled.** All three
+  crashed from `nvfstrip`. The first try of `hv_initiates` crashed after about 150 s, and
+  the retries within about 15 s of starting. The observer gave up after three cut-offs
+  each. A retry from `nvftest`, the save they were written for, was running.
+- **od_22 retry (`nvfstrip`): not settled.** Ralph's dialogue never opened (the wait at
+  step 17 timed out every round), and every screenshot failed with "cannot create a
+  bitmap", as in od_21. The second round's `open_dialogue` closes a message box first;
+  the screenshot failure is an open point of the plugin (xnvse-capture.md §6).
 
 ## 5. Second round (jobs changed after the first run)
 

@@ -1,7 +1,7 @@
 {
  "format": "fnv.observe.campaign/1",
  "name": "owner_decisions",
- "title": "Owner-review AI questions that need game time (docs/spec-notes/owner-decision-captures.md): the detection Alert against IsInCombat (shots heard by hidden Fiends), whether spawned NCR troopers and Fiends fight unprovoked, and package durations (Hidden Valley's initiates and knights, whose packages 0x000D76E4-0x000D781C have durations and begin scripts; the two geckos at cell -17,-6 with their 2 h / 3 h chain). One game load serves all sessions in this order: god mode (tgm, a toggle) is in the first session only; the player is hidden for the first three and visible again from hv_initiates. All forms by FormID, so no --data is needed to write the jobs.",
+ "title": "Owner-review AI questions that need game time (docs/spec-notes/owner-decision-captures.md): the detection Alert against IsInCombat (shots heard by hidden Fiends), whether spawned NCR troopers and Fiends fight unprovoked, and package durations (Hidden Valley's initiates and knights, whose packages 0x000D76E4-0x000D781C have durations and begin scripts; the two geckos at cell -17,-6 with their 2 h / 3 h chain). One game load serves all sessions in this order: god mode (tgm, a toggle) is in the first session only; the player is hidden for the first three and visible again from hv_initiates. All forms by FormID, so no --data is needed to write the jobs. Save caveat [observed 2026-10-18]: in nvfstrip Cook-Cook's camp is already dead, so alert_noise is not valid from it; the Hidden Valley and gecko sessions crashed from nvfstrip. Run this campaign from nvftest, its save.",
  "save": "nvftest",
  "defaults": {
   "every": 60,
@@ -10,7 +10,7 @@
  "sessions": [
   {
    "name": "alert_noise",
-   "note": "Item 15. South of Cook-Cook's Fiend camp (the npc_battles spot), the player crouched, Sneak 100 and under a Stealth Boy, draws and fires three times: Fiends that hear it but do not see the player should go to the detection Alert (searching, weapon out, GetDetected 0). The sample fields in_combat, detects_player, procedure, weapon_out and alerted show what IsInCombat reads then.",
+   "note": "Item 15. South of Cook-Cook's Fiend camp (the npc_battles spot), the player crouched, Sneak 100 and under a Stealth Boy, draws and fires three times: Fiends that hear it but do not see the player should go to the detection Alert (searching, weapon out, GetDetected 0). The sample fields in_combat, detects_player, procedure, weapon_out and alerted show what IsInCombat reads then. Needs the living Fiends of nvftest: in nvfstrip they are dead from the start [observed 2026-10-18].",
    "go": {
     "cow": [
      "WastelandNV",

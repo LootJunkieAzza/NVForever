@@ -124,8 +124,21 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
   going after 120 s).
 - Melee attackers against the player in god mode or with huge health keep away in the
   original and never swing; ours always close in (the rule is not understood).
-- The Strip's crowd was not observed (the `strip` campaign from the owner's save was
-  dropped); only Gomorrah's first 12 game hours of the casinos were.
+- **The Strip's crowd** was observed on 2026-10-18 [observed]: campaign `strip`, session
+  `strip_evening`, from `nvfstrip`, 5.9 game hours, 1,442 samples, 900 state changes. The
+  timeline is private, on the coordinator's desktop
+  (`C:\fnv-private\capture\observe\strip.timeline.json`). The crowd ran on its packages:
+  - Travellers and gamblers walk between Gomorrah, the Lucky 38 and the gate on
+    VStripFluff1PortRNDTo{Top,Gom}Package (90–107 segments each).
+  - Hookers 01 and 03 hold their Dance packages; 02 patrols.
+  - The NCR MPs patrol and check (VStripMPABPatrol38, VStripFluff1MPCheckA), with escorts
+    (VStripSS2Start*Escort).
+  - NCR troopers A–D ran the SS2 travel / drunk-wall chain for 0.3–1.0 h, then left the
+    sampled area.
+  - Mr. Holdout sat on VMrHoldoutHangOutSell, and the securitrons held their gates.
+
+  It is not compared with our engine yet. Of the casinos, only Gomorrah's first 12 game
+  hours were observed.
 - No spawn aid for creature fights in our engine's test runs.
 
 ## 5. Process
