@@ -67,6 +67,7 @@ pub mod reputation;
 pub mod reticle;
 pub mod rumble;
 pub mod save;
+pub mod screen_splatter;
 pub mod script;
 pub mod script_draw;
 pub mod script_events;
@@ -288,6 +289,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(save::SavePlugin)
             .add_plugins(main_menu::MainMenuPlugin)
             .add_plugins(intro::IntroPlugin)
+            .add_plugins(screen_splatter::ScreenSplatterPlugin)
             .add_plugins(cursor::CursorPlugin)
             .add_plugins(crafting::CraftingPlugin)
             .add_plugins(repair::RepairPlugin)

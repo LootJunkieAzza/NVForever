@@ -5914,34 +5914,45 @@ themselves:
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
 
-## GetAnimAction's leftovers (2026-10-18, branch claude/anim-action-leftovers, stacked on #433)
+## Films, cell image spaces and screen blood (2026-10-18, branch claude/screen-video)
 
-What GetAnimAction now answers beyond #433 (docs/spec-notes/anim-state.md §1), and the
-guesses in it:
+Rows 17 and 18 of docs/outstanding.md §1 (docs/spec-notes/bink-films.md,
+docs/spec-notes/screen-splatter.md). What the shipped scripts ask for is small: all four
+PlayBink calls and every splatter call are the opening's (VCG00), and of the four films
+only `FNVIntro.bik` is in your `Data\Video`; the splatter stages belong to an in-engine
+version of the cemetery scene a new game skips. My choices to check:
 
-- **5 and 6 (throws)**, from the wiki's New Vegas table: 5 while the player gears up to
-  throw a grenade, spear or mine, 6 the frame it leaves the hand, then 4. 6 lasts about 0.6 s [observed: the
-  anim_actions campaign, troopers throwing dynamite]. NPCs throw nothing yet in NVForever, so only
-  the player reads them.
-- **10–11**: never answered. The wiki calls them probable left-overs, and none of the
-  observer's samples showed them. **12**: the original's player read it for about 0.8 s
-  after a jump's time in the air [observed: capture player_actions_anim]; NVForever
-  answers it while the player's landing clip plays (*guess*: that 12 is the landing).
-- **17**: the original showed it only on .357 revolvers, before their reloads. *Guess*:
-  it is the opening of a round-by-round reload (cylinder or gate opened), so NVForever
-  answers it there for the .357, lever-actions and the hunting shotgun, player and NPCs.
-  The campaign confirmed where it falls: between the last shot and the reload's 9 on
-  the .357 and the hunting revolver, never on the 9mm [observed]. The timing still does
-  not fit: the opening clip is 1.07 s, the original's 17 lasted 1.3–1.9 s. No shipped script asks for 17, so a wrong guess changes nothing scripted.
-- **IsPlayerActionActive**: the capture answered part of the missing list [observed]:
-  9 while aiming, 2 for about 2.6 s from a grenade throw; firing, sneaking, jumping and
-  swinging lit no index, though the wiki says firing stays active about two game
-  minutes. Ours answers 9 and 2.
-
-Captures that settle these (nvfstrip): AI observer campaign
-`tools/capture/observe/anim_actions.campaign.json` (troopers with grenades, spears,
-dynamite and six guns) and job `tools/capture/jobs/player_actions_anim.steps.json` (the
-player's own codes and IsPlayerActionActive 1–10 every frame).
+- **The intro film once.** The main menu's New Game plays it, and the opening's stage 0
+  asks for it again: the second request is not played. Started straight into a new game
+  (no main menu), the opening's call plays it, as the original does.
+- **A film that is not there** (fnvlogo1.bik, fnvlogo2.bik, vb01.bik) is skipped at once.
+- **A film holds the game** like the pause menu (the wiki: it "appears to stop game
+  time"); the world's sounds stop with it even when the call asks to keep them
+  (`muteAudio 0`, not built). A non-letterboxed film is stretched over the window.
+- **SetCellImageSpace waits for the cell to load again**, as the wiki says the original
+  does: in Old World Blues the Think Tank turns red only after you leave and come back
+  (or load a save made there), not while you stand in it when stage 50 is set. If you
+  would rather see it at once (as JohnnyGuitar NVSE makes it), it is one line.
+- **Screen splatter, fitted to the original's pictures** (capture fx_screen_splatter_look,
+  screen-splatter.md §5): a call puts its count of splats on the screen with no cap of
+  25, each a cell of the game's 2x2 gore atlases (dark soft blob, red core) at a random
+  place, unrotated, 0.12-0.18 of the screen **width** across x the size factor, opacity
+  from the game settings x the opacity factor with no cap at 1, fading from its start
+  to nothing at its duration, under the HUD. Still guesses: the second opacity range
+  and its chance, uniform placement, and what iBloodSplatterMaxCount and
+  fBloodSplatterFadeStart are for (neither fits the pictures as a cap or a fade start).
+  The flare (perhaps the bright glints at the cores) is not drawn. Compare smoke
+  `screen-splatter`'s splatter_t0_5 ... t15_5.png with the original's s100_20_2_2_t*.png.
+- **SetScreenSplatterFade's real effect cannot be seen**: the call quits the original
+  (below). Its values (fade from that share of the time, switch on/off) stay a
+  hypothesis; nothing shipped reaches it in a playthrough.
+- **Blood when you are hurt.** The console's ClearScreenBlood implies the original puts
+  blood on the screen when the player takes damage; `player.DamageActorValue Health 40`
+  put none there in the capture. A weapon's hit is not captured; not built.
+- **SetScreenSplatterFade quit the original** three times (from a capture job, with and
+  without splats on the screen), with nothing logged. Here the call only records
+  its values. No player meets it in the original: the opening stages that call it are
+  skipped. Details in screen-splatter.md §5.
 ## Race, sex and level changes, power armour, Cannibal and Mister Sandman, talking activators (2026-10-18, branch claude/actor-changes)
 
 Playthrough blockers rows 8, 11, 13, 14 and 18 (docs/outstanding.md). Every shipped call
@@ -6118,3 +6129,58 @@ hand-over played twice.
 - **Guess.** That the game carries on instead of starting over, and that he holds the
   pose for another 3 s, is mine; the files do not say. *Check:* in the original, does
   Doc keep the mirror held out until the face screen opens, or lower his arm?
+
+## Swimming: wading in, and NPCs swimming (2026-10-18, branch claude/swimming)
+
+Your report: the player walks along the bottom of a lake instead of swimming.
+
+- **Why.** Our rule came from captures of the game (`sw_trial`, 2026-10-08) in which the
+  scripted player walked down the Boulder Beach bed to 355 units under the surface and
+  never swam. That run had god mode on, so I ran it again with god mode off (`sw_walkin`):
+  the player still walked the bed, to 308 under, and drowned (Health falling 40 a second
+  after 10 s). The scripted player never swims when walking in, which contradicts what you
+  see in the game. The scripts' IsSwimming also reads 0 even while that player is plainly
+  floating, so I suspect the scripted setup never enters the game's real swimming state.
+- **What changed.** I followed your report. A character standing in water with its feet
+  115 units or more under the surface now starts swimming where it is (the swim speeds,
+  diving along the view and the float height are the ones measured before). A swimmer
+  that reaches the ground walks out where the ground is shallower than that and swims on
+  against a deeper bed. The 115 is my guess: deeper than every floating height measured,
+  so swimmers still walk out up the banks as in the captures, with the eyes just above the
+  water.
+- **Animations.** The player already swam on `swimmt*.kf`. NPCs and creatures had no
+  swimming clips at all: they now play their folder's `swimmt*` or `swim*` clips while
+  they swim (people, mirelurks, giant rats, spinebreakers, dogs), unarmed, and their
+  standing clips where they have none.
+- *Check:* in the original, walk into Lake Mead from Boulder Beach and note how deep the
+  water is (chest? neck?) when swimming starts; and whether a swimmer diving to the bed
+  stays swimming there or stands up.
+
+## GetAnimAction's leftovers (2026-10-18, branch claude/anim-action-leftovers, stacked on #433)
+
+What GetAnimAction now answers beyond #433 (docs/spec-notes/anim-state.md §1), and the
+guesses in it:
+
+- **5 and 6 (throws)**, from the wiki's New Vegas table: 5 while the player gears up to
+  throw a grenade, spear or mine, 6 the frame it leaves the hand, then 4. 6 lasts about 0.6 s [observed: the
+  anim_actions campaign, troopers throwing dynamite]. NPCs throw nothing yet in NVForever, so only
+  the player reads them.
+- **10–11**: never answered. The wiki calls them probable left-overs, and none of the
+  observer's samples showed them. **12**: the original's player read it for about 0.8 s
+  after a jump's time in the air [observed: capture player_actions_anim]; NVForever
+  answers it while the player's landing clip plays (*guess*: that 12 is the landing).
+- **17**: the original showed it only on .357 revolvers, before their reloads. *Guess*:
+  it is the opening of a round-by-round reload (cylinder or gate opened), so NVForever
+  answers it there for the .357, lever-actions and the hunting shotgun, player and NPCs.
+  The campaign confirmed where it falls: between the last shot and the reload's 9 on
+  the .357 and the hunting revolver, never on the 9mm [observed]. The timing still does
+  not fit: the opening clip is 1.07 s, the original's 17 lasted 1.3–1.9 s. No shipped script asks for 17, so a wrong guess changes nothing scripted.
+- **IsPlayerActionActive**: the capture answered part of the missing list [observed]:
+  9 while aiming, 2 for about 2.6 s from a grenade throw; firing, sneaking, jumping and
+  swinging lit no index, though the wiki says firing stays active about two game
+  minutes. Ours answers 9 and 2.
+
+Captures that settle these (nvfstrip): AI observer campaign
+`tools/capture/observe/anim_actions.campaign.json` (troopers with grenades, spears,
+dynamite and six guns) and job `tools/capture/jobs/player_actions_anim.steps.json` (the
+player's own codes and IsPlayerActionActive 1–10 every frame).

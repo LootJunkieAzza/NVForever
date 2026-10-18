@@ -40,6 +40,7 @@ const CONT: u32 = 0x861;
 const REGN: u32 = 0x870;
 const IMAD_FADE: u32 = 0x880;
 const IMAD_WHITE: u32 = 0x881;
+const IMGS: u32 = 0x882;
 const WRLD: u32 = 0x900;
 const EXT_CELL: u32 = 0x910;
 const CELL: u32 = 0x200;
@@ -165,6 +166,7 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"IMAD", 0, IMAD_WHITE, &[sub(b"EDID", z("WhiteTest")), imad_dnam(0, 1.0)]),
     ]
     .concat();
+    let imgs = record(b"IMGS", 0, IMGS, &[sub(b"EDID", z("TestImageSpace"))]);
     // Radio stations: Radio Station and Continuous Broadcast, and Radio Station with
     // Non-Pipboy (the header bits of radio.md §2).
     let tact = [
@@ -207,6 +209,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"CONT", &cont),
         top(b"REGN", &regn),
         top(b"IMAD", &imad),
+        top(b"IMGS", &imgs),
         top(b"TACT", &tact),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
         top(b"WRLD", &[wrld, world_children].concat()),
@@ -769,6 +772,81 @@ fn image_space_modifiers_play_end_and_are_removed() {
 
 fn s(text: &str) -> ArgValue {
     ArgValue::Str(text.into())
+}
+
+/// PlayBink hands the film to the engine with the page's defaults; the splatter
+/// functions queue, clear and set the fade; SetCellImageSpace is kept in the save and
+/// refuses what is not a cell or an image space.
+#[test]
+fn films_splatter_and_cell_image_space() {
+    use fnv_game::functions::ui::{FilmRequest, SplatterTrigger};
+    const PLAY_BINK: u16 = 0x1114;
+    const TRIGGER: u16 = 0x1240;
+    const CLEAR: u16 = 0x1241;
+    const FADE: u16 = 0x1243;
+    const SET_CELL_IMGS: u16 = 0x1196;
+    let f = fixture();
+    let mut g = game(&f);
+    // The opening's calls (QUST 0x00102037 stages 0 and 7).
+    call(&mut g, PLAY_BINK, None, &[s("fnvintro.bik"), n(1.0), n(1.0), n(0.0), n(1.0)]);
+    call(&mut g, PLAY_BINK, None, &[s("FNVLogo1.bik"), n(0.0), n(0.0), n(0.0), n(1.0)]);
+    call(&mut g, PLAY_BINK, None, &[s("..\\Sound\\Videos\\x.bik")]);
+    assert_eq!(
+        g.ui.films,
+        [
+            FilmRequest { path: "video\\fnvintro.bik".into(), interruptible: true, mute_audio: true, pause_music: false, letterboxed: true },
+            FilmRequest { path: "video\\fnvlogo1.bik".into(), interruptible: false, mute_audio: false, pause_music: false, letterboxed: true },
+            FilmRequest { path: "sound\\videos\\x.bik".into(), interruptible: false, mute_audio: true, pause_music: true, letterboxed: true },
+        ]
+    );
+    // A name that leaves Data fails the call.
+    let ctx = Ctx { unit: "test".into(), opcode: PLAY_BINK, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[s("..\\..\\x.bik")]);
+    assert!(matches!(&g.events.last().unwrap().kind, EventKind::CallFailed { name, .. } if name == "PlayBink"));
+    assert_eq!(g.ui.films.len(), 3);
+
+    // Stage 50's calls: the fade, then the triggers in order.
+    call(&mut g, FADE, None, &[n(0.5), n(1.0)]);
+    call(&mut g, TRIGGER, None, &[n(100.0), n(20.0), n(2.0), n(2.0)]);
+    call(&mut g, TRIGGER, None, &[n(50.0), n(0.0), n(2.5), n(2.0)]);
+    assert_eq!(g.ui.splatter.fade, Some((0.5, true)));
+    // Safe with any values (the original quit at this call twice): held to 0-1, a start
+    // that is not a number is 0 (fade from the start), a missing switch on.
+    call(&mut g, FADE, None, &[n(7.0), n(0.0)]);
+    assert_eq!(g.ui.splatter.fade, Some((1.0, false)));
+    call(&mut g, FADE, None, &[n(f64::NAN)]);
+    assert_eq!(g.ui.splatter.fade, Some((0.0, true)));
+    call(&mut g, FADE, None, &[]);
+    assert_eq!(g.ui.splatter.fade, Some((0.0, true)));
+    call(&mut g, FADE, None, &[n(0.5), n(1.0)]);
+    assert_eq!(
+        g.ui.splatter.triggers,
+        [SplatterTrigger { count: 100, duration: Some(20.0), size: 2.0, opacity: 2.0 }, SplatterTrigger { count: 50, duration: None, size: 2.5, opacity: 2.0 }]
+    );
+    // Out-of-range values are bounded; one that is not a number counts as missing.
+    call(&mut g, TRIGGER, None, &[n(1e12), n(1e9), n(1e6), n(f64::NAN)]);
+    call(&mut g, TRIGGER, None, &[n(-5.0), n(f64::INFINITY), n(-2.0), n(-1.0)]);
+    assert_eq!(
+        g.ui.splatter.triggers[2..],
+        [SplatterTrigger { count: u32::MAX, duration: Some(3600.0), size: 10.0, opacity: 1.0 }, SplatterTrigger { count: 0, duration: None, size: 0.0, opacity: 0.0 }]
+    );
+    call(&mut g, CLEAR, None, &[]);
+    assert!(g.ui.splatter.triggers.is_empty());
+    assert_eq!(g.ui.splatter.clears, 1);
+
+    // SetCellImageSpace: kept in the form changes, so in the save.
+    call(&mut g, SET_CELL_IMGS, None, &[r(CELL), r(IMGS)]);
+    assert_eq!(g.forms.cell_image_spaces.get(&FormId(CELL)), Some(&FormId(IMGS)));
+    let snap = g.snapshot();
+    let json = serde_json::to_string(&snap).unwrap();
+    let back: fnv_game::game::GameSnapshot = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.forms.cell_image_spaces.get(&FormId(CELL)), Some(&FormId(IMGS)));
+    let ctx = Ctx { opcode: SET_CELL_IMGS, ..ctx };
+    g.call_function(&ctx, &[r(IMGS), r(IMGS)]);
+    assert!(matches!(&g.events.last().unwrap().kind, EventKind::CallFailed { name, .. } if name == "SetCellImageSpace"));
+    g.call_function(&ctx, &[r(CELL), r(IMAD_FADE)]);
+    assert!(matches!(&g.events.last().unwrap().kind, EventKind::CallFailed { name, .. } if name == "SetCellImageSpace"));
+    assert_eq!(g.forms.cell_image_spaces.len(), 1);
 }
 
 /// Radio functions (docs/spec-notes/radio.md §5, §8, §9): the broadcast state from the

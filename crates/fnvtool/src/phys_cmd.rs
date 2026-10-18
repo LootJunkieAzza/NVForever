@@ -819,6 +819,7 @@ impl Script {
                 "max_fall_speed" => c.max_fall_speed = Some(f),
                 "push_mass" => c.push_mass = f,
                 "swim_depth" => c.swim_depth = f,
+                "wade_depth" => c.wade_depth = f,
                 "float_depth" => c.float_depth = f,
                 "swim_sink_speed" => c.swim_sink_speed = f,
                 "swim_jump_mult" => c.swim_jump_mult = f,

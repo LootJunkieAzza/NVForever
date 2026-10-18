@@ -101,6 +101,7 @@ mod imposters;
 mod sky;
 mod limping;
 mod sneaking;
+mod swimming;
 mod ssao;
 mod taa;
 mod speech_look;
@@ -1175,7 +1176,7 @@ fn main() -> AppExit {
         // The loading screen sends the travel in the Input set and reads in `Last` whether
         // the renderer is done: both this frame.
         app.add_plugins(nvf_play::PlayPlugin(data))
-            .add_systems(Update, (worldspace::switch, world::travel).chain().after(nvf_play::PlaySet::Input).before(world::stream))
+            .add_systems(Update, (worldspace::switch, world::travel, world::cell_image_space).chain().after(nvf_play::PlaySet::Input).before(world::stream))
             .add_systems(Update, world::loading_gate.after(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
         // Animation groups scripts play on objects (object_anims.rs).
@@ -1244,6 +1245,8 @@ fn main() -> AppExit {
             app.add_plugins(creature_stance::CreatureStancePlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
+            // Actors swimming in water (swimming.rs).
+            app.add_plugins(swimming::SwimmingPlugin);
             // Actors limping on a crippled leg (limping.rs).
             app.add_plugins(limping::LimpingPlugin);
             // Actors drawn at a script's scale (actor_scale.rs).
