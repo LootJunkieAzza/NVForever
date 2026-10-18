@@ -95,14 +95,14 @@ status = "match"
 note = "0 for Ringo towards the player [observed: probes]; no wiki page."
 
 [function.IsAnimPlaying]
-status = "wrong"
+status = "match"
 system = "animation state told to the rules"
-note = "Sunny standing read IsAnimPlaying Idle 1 [observed: probes]: the actor's own idle counts; ours counts PlayGroup groups only."
+note = "Sunny standing read IsAnimPlaying Idle 1 [observed: probes]: the actor's own idle counts; ours now reads the movement group the engine tells (Idle, Forward, FastLeft ...) after PlayGroup's (anim-state.md §3, 2026-10-18). Walking and running groups counting the same way is hypothesis."
 
 [function.IsIdlePlaying]
-status = "wrong"
+status = "match"
 system = "animation state told to the rules"
-note = "Easy Pete sitting read 1 [observed: probes]; ours 0 headless; the engine tells PlayIdle idles only."
+note = "Easy Pete sitting read 1 [observed: probes]; ours reads 1 on furniture (GetSitting or GetSleeping 3) and while the engine plays an idle (anim-state.md §3, 2026-10-18); beds are hypothesis."
 
 [function.IsInCriticalStage]
 status = "match"
@@ -182,14 +182,14 @@ system = "combat targets told to weapon scripts"
 note = "Stub; combat targets exist (awareness). Called by weapon scripts (cattle prod, boxing gloves)."
 
 [function.IsMoving]
-status = "wrong"
+status = "match"
 system = "animation state told to the rules"
-note = "Only 0/1; backward/left/right (2-4) never, though the player's move intent holds them. 0 at rest matches [observed: probes]."
+note = "The way told by the engine: the player's movement keys, an NPC's walk in its own axes, 1-4 [documented: GECK wiki IsMoving]; 0 at rest matches [observed: probes] (anim-state.md §2, 2026-10-18)."
 
 [function.IsPlayerActionActive]
-status = "wrong"
+status = "match"
 system = "animation state told to the rules"
-note = "Stub 0; 0 at rest matches [observed: probes]. The engine knows aiming (OWB asks action 9, iron sights)."
+note = "Action 9 (iron sights, not in combat [documented: GECK wiki IsPlayerActionActive]), the only one the shipped scripts ask (OWB); the other indices read 0, their list not in the wiki export (anim-state.md §4, 2026-10-18). 0 at rest matches [observed: probes]."
 
 [function.IsSpellTarget]
 status = "match"
@@ -210,7 +210,7 @@ note = "The rotate-body flag is kept, not drawn."
 
 [function.MenuMode]
 status = "match"
-note = "MenuMode 1 for any Pip-Boy page (1002/1003/1023, repair 1035) [documented]; loading 1007 with its blocks, VATS 1056, tutorial 1059 [observed: capture mh1_tutorial]; the pause menu's 1013 not reported (no scripts run under it). The sleep menu is 1012 [observed: probes] (script-stubs.md 3.14)."
+note = "MenuMode 1 for any Pip-Boy page (1002/1003/1023, repair 1035) [documented]; loading 1007 with its blocks, VATS 1056, tutorial 1059 [observed: capture mh1_tutorial]; the pause menu's 1013 not reported (no scripts run under it). The sleep menu is 1012 [observed: probes] (script-stubs.md 3.15)."
 
 [function.SetLevel]
 status = "wrong"
@@ -269,7 +269,7 @@ note = "Stub 0; 0 for the player and Ringo on land matches [observed: probes]. T
 
 [function.ExitGame]
 status = "match"
-note = "Back to the main menu as the pause menu's Quit [documented: GECK wiki]; the credits it plays first are not built (script-stubs.md 3.14)."
+note = "Back to the main menu as the pause menu's Quit [documented: GECK wiki]; the credits it plays first are not built (script-stubs.md 3.15)."
 
 [function.AutoDisplayObjectives]
 status = "open"
@@ -278,7 +278,7 @@ note = "Kept with the player; the HUD keeps the objective list on screen while o
 
 [function.ResetPipboyManager]
 status = "match"
-note = "The Pip-Boy's light off [documented: GECK wiki] and its pages back to their defaults [hypothesis] (script-stubs.md 3.14)."
+note = "The Pip-Boy's light off [documented: GECK wiki] and its pages back to their defaults [hypothesis] (script-stubs.md 3.15)."
 
 # ---------------------------------------------------------------- no system yet
 

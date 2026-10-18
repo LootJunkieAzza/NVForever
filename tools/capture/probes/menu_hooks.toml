@@ -1,4 +1,4 @@
-# Script-function probes for the menu hooks (docs/design/script-stubs.md §3.14,
+# Script-function probes for the menu hooks (docs/design/script-stubs.md §3.15,
 # docs/spec-notes/tutorial-menu.md): the tutorial menu's MenuMode code and what a second
 # ShowTutorialMenu does, MenuMode over it, ResetPipboyManager and AutoDisplayObjectives.
 # `function_probe.py jobs` turns this file into game jobs and our runner's inputs. Only

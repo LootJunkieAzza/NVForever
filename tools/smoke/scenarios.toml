@@ -2053,12 +2053,19 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/blockers-save-reticle implemented SystemSave, ForceSave and PlaceAtReticle (10 calls,
 # docs/spec-notes/script-saves-and-reticle.md): 41 → 38 stubs, 179 → 169 calls [observed:
 # fnvtool script stubs on the owner's masters, merged with main, 2026-10-18].
+# claude/blockers-anim-state implemented IsPlayerActionActive (2 calls, §3.13): 38 → 37
+# stubs, 169 → 167 calls [observed: fnvtool script stubs on the owner's masters, merged
+# with main 5a98cb50, 2026-10-18].
+# claude/menu-hooks implemented ResetPipboyManager, ShowTutorialMenu, ExitGame and the last
+# implementable stub, AutoDisplayObjectives (9 calls, §3.15), so no "implementable" row is
+# left: 37 → 33 stubs, 167 → 158 calls [observed: fnvtool script stubs on the owner's masters,
+# merged with main d13109f3, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 38 },
-  { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 37 },
+  { json = "summary.stubs", equals = 33 },
+  { json = "summary.by_status.implementable", count = 0, label = "no implementable stub is left" },
+  { json = "summary.by_status.needs_system", equals = 33 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 169 },
+  { json = "summary.stub_calls", equals = 158 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -4668,7 +4675,7 @@ expect = [
 
 [[scenario]]
 name = "menu-hooks-pipboy-codes"
-source = "docs/design/script-stubs.md §3.14: the Pip-Boy reports its pages' MenuMode codes (STATS 1003, DATA 1023, ITEMS 1002); ResetPipboyManager puts its pages back to ITEMS and its light (the flashlight) off; AutoDisplayObjectives 1 holds the objective list on the HUD (the test aid call:)"
+source = "docs/design/script-stubs.md §3.15: the Pip-Boy reports its pages' MenuMode codes (STATS 1003, DATA 1023, ITEMS 1002); ResetPipboyManager puts its pages back to ITEMS and its light (the flashlight) off; AutoDisplayObjectives 1 holds the objective list on the HUD (the test aid call:)"
 areas = ["scripts", "pipboy", "menus"]
 paths = [
   "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/quest_messages.rs", "crates/fnv-game/src/functions/ui.rs",
@@ -4720,7 +4727,7 @@ expect = [
 
 [[scenario]]
 name = "menu-hooks-exit-game"
-source = "docs/design/script-stubs.md §3.14: ExitGame leaves the game; a run a test aid drives quits instead of going back to the main menu (the test aid call:)"
+source = "docs/design/script-stubs.md §3.15: ExitGame leaves the game; a run a test aid drives quits instead of going back to the main menu (the test aid call:)"
 areas = ["scripts", "menus"]
 paths = ["crates/fnv-game/src/functions/ui.rs", "engine/nvf-play/src/script.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:call:-:ExitGame" }
@@ -4734,4 +4741,23 @@ order = [[
 ]]
 expect = [
   { re = 'ExitGame: back to the main menu', count = 0, label = "not handed over to the main menu in a test run" },
+]
+
+[[scenario]]
+name = "anim-state"
+source = "docs/outstanding.md §1 row 4: the engine tells the rules what each body does (crates/fnv-game/src/anim_state.rs, engine/nvforever/src/anim_state.rs): GetAnimAction's attacks and reloads, IsMoving's way, IsAnimPlaying of an actor's movement group"
+note = "as combat-npc-reload: Chet (GSChetRef) is given a .357 Magnum Revolver and set on the player, who cannot die (GOD). Before the fight the console reads Chet standing: IsAnimPlaying Idle 1 (observed on Sunny Smiles standing) and GetAnimAction -1; IsAnimPlaying without a group is read too, unchecked, to tell a missing snapshot (0) from another group (1) in a failing run, with the 'anim state: 00104C79 …' lines. In the fight his shots begin 2, 3 and 4 and his reloads 9 (the New Vegas codes, observed so in the AI observer's Goodsprings gunfight); the summary at exit counts how often each began"
+areas = ["combat", "scripts", "actors"]
+paths = ["crates/fnv-game/src/anim_state.rs", "engine/nvforever/src/anim_state.rs", "crates/fnv-game/src/anims.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/senses.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "14:GSChetRef.IsAnimPlaying Idle;14.15:GSChetRef.IsAnimPlaying;14.3:GSChetRef.GetAnimAction;14.6:close", NVF_PLAY_TEST_SCRIPT = "15:call:GSChetRef:AddItem:WeapNV357Revolver:1,15.5:call:GSChetRef:EquipItem:WeapNV357Revolver,16:combat:GSChetRef:player" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 56
+expect = [
+  { re = 'console: IsAnimPlaying on GSChetRef >> 1\.00', label = "Chet standing plays Idle" },
+  { re = 'console: GetAnimAction on GSChetRef >> -1\.00', label = "and does no special action" },
+  { re = 'npc combat: GSChetRef .* fights the player with WeapNV357Revolver \(gun\)', label = "Chet fights with the .357" },
+  { re = 'anim state summary: .*attack \(2\) (?P<n>\d+)', range = [6, 100000], label = "his shots begin 2" },
+  { re = 'anim state summary: .*follow-through \(3\) (?P<n>\d+)', range = [6, 100000], label = "then 3" },
+  { re = 'anim state summary: .*attack return \(4\) (?P<n>\d+)', range = [1, 100000], label = "then 4" },
+  { re = 'anim state summary: .*reload \(9\) (?P<n>\d+)', range = [1, 100000], label = "his reloads 9" },
 ]

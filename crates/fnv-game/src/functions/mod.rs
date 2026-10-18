@@ -469,7 +469,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x122C, "ForceRadioStationUpdate", Impl(crate::radio::force_radio_station_update)),
         // Layer 6 systems added 2026-10-09 (function coverage round): recorded, no effect.
         (0x1128, "IsAnimPlaying", Impl(crate::anims::is_anim_playing)),
-        (0x10DB, "GetAnimAction", Impl(misc::get_anim_action)),
+        (0x10DB, "GetAnimAction", Impl(crate::anim_state::get_anim_action)),
         (0x1070, "IsIdlePlaying", Impl(crate::idles::is_idle_playing)),
         (0x1064, "PickIdle", Stub("animation")),
         (0x111D, "IsLeftUp", Impl(actor::knocked_side_up)),
@@ -542,7 +542,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10B9, "IsSwimming", Stub("movement (swimming)")),
         (0x10D3, "SetForceSneak", Impl(senses::set_force_sneak)),
         (0x1166, "IsPlayerMovingIntoNewSpace", Impl(senses::is_player_moving_into_new_space)),
-        (0x1170, "IsPlayerActionActive", Stub("player input")),
+        (0x1170, "IsPlayerActionActive", Impl(crate::anim_state::is_player_action_active)),
         (0x1188, "IsPC1stPerson", Impl(senses::is_pc_1st_person)),
         (0x118A, "PushActorAway", Impl(fighting::push_actor_away)),
         (0x11D0, "IsPlayerGrabbedRef", Stub("physics (grab)")),
