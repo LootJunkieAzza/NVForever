@@ -5632,3 +5632,45 @@ down too (GetKnockedState 2). Guesses to check against the game:
 - **A pushed actor can be searched** (E opens its inventory) until it begins to get up, as
   the wiki says; an explosion's knockdown cannot be searched [hypothesis: the note names
   only pushes].
+
+## Script packages and disabled references: the 2026-10-18 captures (branch claude/gifted-nightingale-0cc6ae)
+
+Capture jobs `od_08_script_packages` and `od_09a_disabled_ref_script` (readings in
+docs/spec-notes/owner-decision-captures.md) answer two lines of item 25, "Runtime differs
+from the wiki". **Both rules were already in the runtime**; item 25's text was written
+before they changed, so it was out of date, not the runtime:
+
+- **A second AddScriptPackage replaces the first** (since 2026-10-10, the opening's
+  wake-up fix): one RemoveScriptPackage returns the actor to its own list, and
+  EvaluatePackage keeps a script package on. That is what Ringo did in the original.
+  The `fnvtool ai run` option that forces packages now replaces too.
+- **Disabled references run GameMode** (since 2026-10-09, `Game::active_refs`): the
+  skull's timer fell at the same rate while disabled, as it does in ours.
+
+What was done: the rules are written into actor-behaviour.md and script-language.md with
+the capture names; two new unit tests call AddScriptPackage/RemoveScriptPackage and tick
+a disabled scripted reference. No smoke scenario: the game shows neither in a log line
+without a new test aid, and the unit tests cover the rule.
+
+Kept as they were (not captured): OnLoad at a cell load still needs the reference
+enabled; Enable still queues one OnLoad; OnActivate, OnHit and the other event blocks run
+as before; MenuMode runs for disabled references along with GameMode [hypothesis].
+
+**What relies on it, and the risk.** Of the 14,907 decompiled script units of the masters,
+the GameMode blocks of 45 read their own GetDisabled, 12 enable themselves and 87 disable
+themselves:
+
+- **Needs the rule** (they could never come back without it): time-of-day lights that
+  enable and disable themselves (`daynightenable`, `FreesideLightsScript`,
+  `FireBarrelSwitchingScript`), the Prospector spawns (`VProspectorScript15/30/50`), the
+  B29 ballast (`B29BallastScript`) and Lonesome Road's tunnelers that wait disabled and
+  appear (`NVDLC04Tunneler*SCRIPT`).
+- **Guarded**: most Lonesome Road code holders and triggers check GetDisabled before
+  acting, so running while disabled does nothing for them.
+- **Risk**: an object script whose GameMode does not check GetDisabled now runs while its
+  reference is waiting disabled (an Initially Disabled actor, or an enable child of a
+  quest marker). The original does the same, but our functions may act on a disabled
+  reference where the original ignores it (for example a disabled actor's MoveTo,
+  StartCombat or PlaySound). Nothing like that has been seen in a playthrough since
+  2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
+  world, this is the first place to look.
