@@ -1,0 +1,133 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "od_21_dlg_info_connection",
+ "title": "Red Lucy's topic list: is a choice with only a shared line offered (owner-review: dialogue (e), visual) (about 1 min)",
+ "start": "nvftest: player to Red Lucy in the Thorn; screenshots. Never saved; unattended (capture_run.py --save nvftest).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1263664\nplayer.MoveTo rF1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1263664\nif player.GetInSameCell rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1263664\nrF1.MoveTo player 0 120 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1263664\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1263664\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif MenuMode 1009\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "screenshot": "red_lucy_300"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "screenshot": "red_lucy_600"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "screenshot": "red_lucy_900"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "red_lucy topic list",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "red_lucy topic list",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "red_lucy topic list",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "red_lucy topic list",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "red_lucy topic list",
+   "field": "menu.any"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  }
+ ]
+}

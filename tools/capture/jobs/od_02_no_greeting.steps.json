@@ -1,0 +1,540 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "od_02_no_greeting",
+ "title": "Actors with no eligible greeting: does Activate open dialogue (owner-review: dialogue (g)) (about 1 min)",
+ "start": "nvftest: moves three actors (enabled if disabled) next to the player in GSGasStation. Never saved; unattended (capture_run.py --save nvftest).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "coc GSGasStation"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085496\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo at start",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo at start",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nif rF1.GetDisabled\n  rF1.Enable 0\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nrF1.MoveTo player 0 120 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := player.GetInSameCell rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo moved",
+   "field": "same_cell"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo activated, 30 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo activated, 30 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo activated, 30 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo activated, 30 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo activated, 30 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsTalking\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo activated, 30 loops",
+   "field": "talking"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rX := rF1.GetDialogueTarget\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "control_ringo activated, 30 loops",
+   "field": "dialogue_target"
+  },
+  {
+   "screenshot": "control_ringo_activated_30"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo activated, 150 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo activated, 150 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo activated, 150 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo activated, 150 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo activated, 150 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsTalking\nSetFunctionValue fV\nEnd\n",
+   "label": "control_ringo activated, 150 loops",
+   "field": "talking"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rX := rF1.GetDialogueTarget\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "control_ringo activated, 150 loops",
+   "field": "dialogue_target"
+  },
+  {
+   "screenshot": "control_ringo_activated_150"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 843267\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy at start",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 843267\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy at start",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 843267\nif rF1.GetDisabled\n  rF1.Enable 0\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 843267\nrF1.MoveTo player 0 120 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 843267\nlet fV := player.GetInSameCell rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy moved",
+   "field": "same_cell"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 843267\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy activated, 30 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy activated, 30 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy activated, 30 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy activated, 30 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy activated, 30 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 843267\nlet fV := rF1.IsTalking\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy activated, 30 loops",
+   "field": "talking"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 843267\nlet rX := rF1.GetDialogueTarget\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "primm_deputy activated, 30 loops",
+   "field": "dialogue_target"
+  },
+  {
+   "screenshot": "primm_deputy_activated_30"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy activated, 150 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy activated, 150 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy activated, 150 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy activated, 150 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy activated, 150 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 843267\nlet fV := rF1.IsTalking\nSetFunctionValue fV\nEnd\n",
+   "label": "primm_deputy activated, 150 loops",
+   "field": "talking"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 843267\nlet rX := rF1.GetDialogueTarget\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "primm_deputy activated, 150 loops",
+   "field": "dialogue_target"
+  },
+  {
+   "screenshot": "primm_deputy_activated_150"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 707951\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger at start",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 707951\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger at start",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 707951\nif rF1.GetDisabled\n  rF1.Enable 0\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 707951\nrF1.MoveTo player 0 120 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 707951\nlet fV := player.GetInSameCell rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger moved",
+   "field": "same_cell"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 707951\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger activated, 30 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger activated, 30 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger activated, 30 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger activated, 30 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger activated, 30 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 707951\nlet fV := rF1.IsTalking\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger activated, 30 loops",
+   "field": "talking"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 707951\nlet rX := rF1.GetDialogueTarget\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "hv_ranger activated, 30 loops",
+   "field": "dialogue_target"
+  },
+  {
+   "screenshot": "hv_ranger_activated_30"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger activated, 150 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger activated, 150 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger activated, 150 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger activated, 150 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger activated, 150 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 707951\nlet fV := rF1.IsTalking\nSetFunctionValue fV\nEnd\n",
+   "label": "hv_ranger activated, 150 loops",
+   "field": "talking"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 707951\nlet rX := rF1.GetDialogueTarget\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "hv_ranger activated, 150 loops",
+   "field": "dialogue_target"
+  },
+  {
+   "screenshot": "hv_ranger_activated_150"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068144\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger at start",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068144\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger at start",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068144\nif rF1.GetDisabled\n  rF1.Enable 0\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068144\nrF1.MoveTo player 0 120 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068144\nlet fV := player.GetInSameCell rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger moved",
+   "field": "same_cell"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068144\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger activated, 30 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger activated, 30 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger activated, 30 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger activated, 30 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger activated, 30 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068144\nlet fV := rF1.IsTalking\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger activated, 30 loops",
+   "field": "talking"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068144\nlet rX := rF1.GetDialogueTarget\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "powder_ganger activated, 30 loops",
+   "field": "dialogue_target"
+  },
+  {
+   "screenshot": "powder_ganger_activated_30"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger activated, 150 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger activated, 150 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger activated, 150 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger activated, 150 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger activated, 150 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068144\nlet fV := rF1.IsTalking\nSetFunctionValue fV\nEnd\n",
+   "label": "powder_ganger activated, 150 loops",
+   "field": "talking"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rX\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068144\nlet rX := rF1.GetDialogueTarget\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "powder_ganger activated, 150 loops",
+   "field": "dialogue_target"
+  },
+  {
+   "screenshot": "powder_ganger_activated_150"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  }
+ ]
+}
