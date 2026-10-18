@@ -4334,6 +4334,11 @@ script traces may show for boxes with conditions (no lab run in this workstream)
    patrol, nor Sunny's run to the geckos. Check: those two walks at your usual frame rate;
    if they still stop and start, note whether it happens at path corners (turning on the
    spot is by design: `spot_turn_start`) or on open ground.
+   (2026-10-19) The summary counted the start of every walk as a stop too: a walk near the
+   player begins with a new character drawn where it was put down until its first physics
+   step, so each walk set off without a spot turn read as a 1-3 frame stop (5 to 8 per
+   run, as the sandbox rolls fell). A stop is now standing between two frames walking, as
+   the summary says; the walks that set off after standing are counted on their own.
 
 ## Playtest list 4: third-person crosshair
 
