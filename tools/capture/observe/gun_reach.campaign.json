@@ -1,7 +1,7 @@
 {
  "format": "fnv.observe.campaign/1",
  "name": "gun_reach",
- "title": "Gun reach (docs/design/combat-ai.md §16): one gunman at a time against the player standing still in god mode (tgm in the first session) where Violet's dogs roam near Goodsprings, as in melee_spacing; an NCR trooper spawned beyond its weapon's reach, all items taken, given one weapon and its ammunition, set on the player. Every game loop, the fight field set: the distance at which it first attacks (GetAnimAction 2 or 3) against its weapon's max range (flamer 650, its flame 640; hunting shotgun 600; sniper rifle 3548; missile launcher 1536, blast 1000), and the distance it stops at",
+ "title": "Gun reach (docs/design/combat-ai.md §16): one gunman at a time against the player standing still in god mode (tgm in the first session) where Violet's dogs roam near Goodsprings, as in melee_spacing; an NCR trooper spawned and then moved by its offset (world axes: north of the player) beyond its weapon's reach, all items taken, given one weapon and its ammunition, set on the player. Every game loop, the fight field set: the distance at which it first attacks (GetAnimAction 2 or 3) against its weapon's max range (flamer 650, its flame 640; hunting shotgun 600; sniper rifle 3548; missile launcher 1536, blast 1000), and the distance it stops at. First run 2026-10-18: PlaceAtMe's distance alone put the shotgun, sniper and missile troopers 300-460 units away; the player was moved to the dog after the flamer trooper spawned (do runs after place), so a first session now only arrives",
  "save": "nvftest",
  "defaults": {
   "fields": "fight",
@@ -12,7 +12,8 @@
  },
  "sessions": [
   {
-   "name": "flamer_far",
+   "name": "arrive",
+   "hours": 0.02,
    "go": {
     "cow": [
      "WastelandNV",
@@ -20,15 +21,22 @@
      15
     ]
    },
-   "note": "the question of the owner's request 2026-10-18: does a flamer gunman hold fire beyond its range (650) and close in? The player is put where a dog stands (on the navmesh, as melee_spacing), the trooper 1,600 units in front",
    "console_first": [
     "tgm"
    ],
+   "note": "the player is put where a dog stands (on the navmesh, as melee_spacing) before anyone is spawned",
    "do": [
     [
      "player.MoveTo {0}",
      "0x000F573F"
     ]
+   ]
+  },
+  {
+   "name": "flamer_far",
+   "note": "the question of the owner's request 2026-10-18: does a flamer gunman hold fire beyond its range (650) and close in? The trooper 1,600 units off",
+   "console_first": [
+    "killall"
    ],
    "place": [
     {
@@ -37,7 +45,12 @@
      "distance": 1600,
      "arm": "WeapFlamer",
      "ammo": "AmmoFlamerFuel",
-     "attack": "player"
+     "attack": "player",
+     "offset": [
+      0,
+      1600,
+      0
+     ]
     }
    ]
   },
@@ -54,7 +67,12 @@
      "distance": 1600,
      "arm": "WeapNVHuntingShotgun",
      "ammo": "Ammo12Ga",
-     "attack": "player"
+     "attack": "player",
+     "offset": [
+      0,
+      1600,
+      0
+     ]
     }
    ]
   },
@@ -71,7 +89,12 @@
      "distance": 2400,
      "arm": "WeapSniperRifle",
      "ammo": "Ammo308",
-     "attack": "player"
+     "attack": "player",
+     "offset": [
+      0,
+      2400,
+      0
+     ]
     }
    ]
   },
@@ -88,7 +111,12 @@
      "distance": 600,
      "arm": "WeapMissileLauncher",
      "ammo": "AmmoMissile",
-     "attack": "player"
+     "attack": "player",
+     "offset": [
+      0,
+      600,
+      0
+     ]
     }
    ]
   }

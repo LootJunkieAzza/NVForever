@@ -1146,24 +1146,58 @@ fire: … is within its weapon's blast (… units, radius …)`. It does not cha
 its reach, between 400 and 2,500 units, at least the explosion's radius plus
 `BLAST_MARGIN` (64) for an explosive projectile, and never farther than
 `GUN_REACH_EDGE` (90 %) of its reach; it closes in again once the target is beyond the
-stop ÷ 0.8, never beyond its reach (before, a gun under 500 units stopped at 400 and
-could stand beyond its reach) [design]. With the masters' weapons [observed:
-FalloutNV.esm WEAP Max Range, PROJ Range, EXPL Radius]:
+stop ÷ the share, never beyond its reach (before, a gun under 500 units stopped at 400 and
+could stand beyond its reach) [design]. Two kinds stop otherwise, after the original was
+watched (below):
+
+- a **flame** (PROJ type Flame) stops at half its reach (`FLAME_RANGE_SHARE`), without the
+  400 floor [hypothesis: fitted to one run];
+- an **area weapon**, whose explosion's radius is at least a quarter of its reach
+  (`AREA_BLAST_SHARE`: the launchers, grenades, grenade rifles and grenade machine guns,
+  not the Gauss rifle's 40 or the incinerator's 212), stops just clear of its blast
+  (radius + 64) instead of at 80 % of its reach [design].
+
+With the masters' weapons [observed: FalloutNV.esm WEAP Max Range, PROJ Range, EXPL
+Radius]:
 
 | Weapon | Max Range | Reach | Stops at | Closes in beyond |
 |---|---|---|---|---|
 | Sawed-off shotgun | 500 | 500 | 400 | 500 |
 | Hunting shotgun, caravan shotgun | 600 | 600 | 480 | 600 |
-| Flamer (flame 640) | 650 | 640 | 512 | 640 |
+| Flamer (flame 640) | 650 | 640 | 320 | 640 |
 | 10mm pistol | 768 | 768 | 614 | 768 |
 | Laser rifle | 1750 | 1750 | 1400 | 1750 |
 | Sniper rifle, service rifle | 3548 | 3548 | 2500 | 3125 |
-| Grenade rifle (blast 750) | 1536 | 1536 | 1229 | 1536 |
-| Missile launcher (blast 1000) | 1536 | 1536 | 1229 | 1536 |
+| Grenade rifle (blast 750) | 1536 | 1536 | 814 | 1017 |
+| Missile launcher (blast 1000) | 1536 | 1536 | 1064 | 1330 |
 | Fat Man (blast 1700) | 2000 | 2000 | 1764 | 2000 |
 
 So shotguns and flamers close in, rifles hang back, launchers keep clear of their blast;
 melee is unchanged (§5, §14.4).
+
+**The original, watched** (AI observer campaign `gun_reach`, save nvftest, 2026-10-18,
+one run each; GetAnimAction 2/3 = attack; distances flat to the player) [observed]:
+
+| Trooper with | Spawned at | First attack at | Then kept |
+|---|---|---|---|
+| Flamer (max range 650) | 1,283 | 726 | 164–320 |
+| Hunting shotgun (600) | 321 | 328 | drifted out to about 500 |
+| Sniper rifle (3548) | 458 | 534 | backed off to 2,150 |
+| Missile launcher (1536, blast 1000) | 323 | about 450 | about 550 |
+
+- The flamer trooper did not fire from 1,283 units: it holds fire beyond its range, as the
+  wiki says, and our rule does the same. Its first attack began at 726, about 13 % beyond
+  the max range [hypothesis: an attack begun on the way in, or a margin; our flame ends
+  at 640, so the reach stays 640]. It then fought from 164–320: the flame's stop.
+- The sniper backing off to 2,150 supports a long distance for long guns (ours 2,500).
+- The shotgun is consistent with 480 (it spawned too near to show holding fire).
+- The missile trooper fought from inside its own blast. The owner asked for launchers to
+  keep clear of it, so the blast rules stay, but an area weapon now stops just clear of
+  its blast (1,064) and not at 80 % of its reach (1,229): nearer the original without
+  firing into its own explosion [design].
+- In that run PlaceAtMe's distance put the shotgun, sniper and missile troopers 300–460
+  units away; the campaign now moves each spawn by an `offset` (and arrives first), for
+  a second run.
 
 **Cover** (§12.6): a cover edge is looked for within its reach less the 64-unit peek
 step (the peek point lies past the edge), and a fighter at its cover (hiding, waiting to
@@ -1183,10 +1217,11 @@ gun's reach, … shots beyond it`.
 **Checks**: unit tests in `npc_combat.rs` (`a_gun_reaches_its_max_range_and_its_projectile_range`,
 `shotguns_close_in_rifles_hang_back`, `launchers_keep_clear_of_their_blast`); smoke
 `combat-flamer-reach` (Cook-Cook holds fire from 1,700 units, closes in, fires within 640)
-and `combat-gun-reach` (a shotgun closes in, a sniper rifle fires from afar). The AI observer
-campaign `gun_reach` (tools/capture/observe/gun_reach.campaign.json: an NCR trooper with a
-flamer, a shotgun, a sniper rifle and a missile launcher in turn) asks whether the
-original's gunmen hold fire beyond their range and where they stop: not run yet.
+and `combat-shotgun-reach` / `combat-sniper-reach` (a shotgun closes in, a sniper rifle
+fires from afar). The AI observer campaign `gun_reach`
+(tools/capture/observe/gun_reach.campaign.json: an NCR trooper with a flamer, a shotgun, a
+sniper rifle and a missile launcher in turn) gave the readings above; a second run with
+the offsets would show the shotgun, sniper and missile troopers from afar.
 
 **Not built**: the reach of the other ammo (an NPC fires its weapon's default ammo);
 holding fire on a cliff where the shot is beyond reach but the flat distance is not (it

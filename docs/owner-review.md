@@ -5646,16 +5646,19 @@ docs/design/combat-ai.md §16; smoke `combat-flamer-reach`, `combat-shotgun-reac
   *Check:* Cook-Cook's camp from the south ridge (about 1,700 units): he should only run
   at you, not fire, until about 6 m away.
 - **Where each weapon stops** is unchanged in shape (80 % of its reach, 400 to 2,500
-  units), with two guesses: it never stops beyond 90 % of its reach (`GUN_REACH_EDGE`),
-  and a gun with an explosive projectile stops at least its blast radius + 64 units away
-  (`BLAST_MARGIN`; Fat Man 1,764, missile launcher 1,229). A sniper rifle still stops at
-  2,500 (the old cap; its reach is 3,548). *Check:* does 2,500 feel too close for
-  snipers, and are shotgunners (480) close enough?
+  units), with guesses: it never stops beyond 90 % of its reach (`GUN_REACH_EDGE`); a
+  gun with an explosive projectile stops at least its blast radius + 64 units away
+  (`BLAST_MARGIN`); a flamer stops at half its reach, 320 (`FLAME_RANGE_SHARE`), as the
+  original's flamer trooper fought from 164–320; an area weapon (blast at least a quarter
+  of its reach, `AREA_BLAST_SHARE`) stops just clear of its blast: missile launcher 1,064,
+  grenade rifle 814, Fat Man 1,764. A sniper rifle still stops at 2,500 (the original's
+  backed off to 2,150). *Check:* are shotgunners (480) and flamers (320) close enough?
 - **No shot into its own blast** (a launcher with the target nearer than its explosion's
   radius) and **a step back from it** (from the radius + 64 instead of 256 units): my
   design; it does not switch weapons (weapon choice is not built). A missile trooper you
-  rush will back away and not fire. *Check:* whether you'd rather they fire anyway when
-  cornered.
+  rush will back away and not fire. The original's missile trooper fought from 450–550
+  units, inside its own 1,000 blast [observed 2026-10-18]: you asked for them to keep
+  clear, so that stays. *Check:* whether you'd rather they fire anyway when cornered.
 - **Leaving cover**: a gunman at its cover whose target is beyond its reach leaves the
   cover and closes in, and does not take that cover again; cover is now looked for within
   its reach less 64 units (the peek point is past the edge). *Check:* Cook-Cook no longer
@@ -5664,9 +5667,12 @@ docs/design/combat-ai.md §16; smoke `combat-flamer-reach`, `combat-shotgun-reac
 - Not done: other ammo's projectiles (an NPC's reach is its default ammo's); on a cliff
   the shot's distance can be beyond reach while the flat distance is not, so a gunman can
   stand silent there.
-- **Capture** (not run): observer campaign `tools/capture/observe/gun_reach.campaign.json`
+- **Capture** (first run 2026-10-18, readings in combat-ai.md §16: the flamer trooper held
+  fire from 1,283 units and first attacked at 726, about 13 % beyond its max range of
+  650; we keep 640, where the flame ends): observer campaign `tools/capture/observe/gun_reach.campaign.json`
   (an NCR trooper with a flamer from 1,600 units, a shotgun from 1,600, a sniper rifle from
   2,400, a missile launcher from 600; the save nvftest) shows the original's first-shot
   distance and stopping distance for each, to compare with these numbers. The campaign's
   `place` items now take `ammo` (500 rounds), since a gunman without ammunition does not
-  fire in the original.
+  fire in the original, and `offset` (PlaceAtMe's distance put three of the four 300–460
+  units away; a second run with the offsets is ready).

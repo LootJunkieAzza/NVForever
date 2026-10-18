@@ -188,6 +188,17 @@ pub const GUN_REACH_EDGE: f32 = 0.9;
 /// radius from its target, and steps back from a target nearer than that, game units
 /// [design; docs/design/combat-ai.md §16].
 pub const BLAST_MARGIN: f32 = 64.0;
+/// A flame weapon stops at this share of its reach, and nearer than [`GUN_ENGAGE_MIN`]
+/// when that is less. In the original a trooper with a flamer (reach 640) closed to
+/// 164–320 units of the player [observed 2026-10-18, AI observer campaign gun_reach, one
+/// run; the share is fitted to its far end, docs/design/combat-ai.md §16].
+pub const FLAME_RANGE_SHARE: f32 = 0.5;
+/// An area weapon: one whose explosion's radius is at least this share of its reach (the
+/// missile launcher's 1,000 of 1,536; not the Gauss rifle's 40 of 2,000). It stops just
+/// clear of its blast instead of at [`GUN_RANGE_SHARE`] of its reach: in the original a
+/// missile trooper fought from 450–550 units, inside its blast [observed 2026-10-18, AI
+/// observer campaign gun_reach, one run]; the owner wants them clear of it [design].
+pub const AREA_BLAST_SHARE: f32 = 0.25;
 /// Melee: within this share of the reach the actor stops closing in [design].
 pub const MELEE_ENGAGE_SHARE: f32 = 0.8;
 /// Melee: the gap between the two bodies it closes to, and the gap within which its
@@ -606,6 +617,8 @@ pub struct GunReach {
     pub reach: Option<f32>,
     /// Its projectile's explosion radius; 0 without one.
     pub blast: f32,
+    /// Its projectile is a flame (PROJ type Flame).
+    pub flame: bool,
 }
 
 /// Why a gun holds fire at a target (docs/design/combat-ai.md §16).
@@ -629,7 +642,7 @@ pub fn gun_reach(max_range: f32, range_mult: f32, projectile_range: f32, blast: 
         (Some(w), Some(p)) => Some(w.min(p)),
         (w, p) => w.or(p),
     };
-    GunReach { reach, blast: blast.max(0.0) }
+    GunReach { reach, blast: blast.max(0.0), flame: false }
 }
 
 impl GunReach {
@@ -655,14 +668,18 @@ impl GunReach {
     }
 
     /// Where it stops closing in and beyond what it closes in again (`Awarenesses::engage`):
-    /// [`GUN_RANGE_SHARE`] of its reach, within [`GUN_ENGAGE_MIN`] and
-    /// [`GUN_ENGAGE_MAX`], clear of its blast, never beyond [`GUN_REACH_EDGE`] of its
-    /// reach; it closes in again beyond the stop over the share, never beyond its reach.
+    /// [`GUN_RANGE_SHARE`] of its reach ([`FLAME_RANGE_SHARE`] for a flame), within
+    /// [`GUN_ENGAGE_MIN`] (not for a flame) and [`GUN_ENGAGE_MAX`], clear of its blast
+    /// (an area weapon, [`AREA_BLAST_SHARE`]: just clear of it), never beyond
+    /// [`GUN_REACH_EDGE`] of its reach; it closes in again beyond the stop over the
+    /// share, never beyond its reach.
     pub fn engage(&self) -> (f32, f32) {
         let Some(r) = self.reach else { return (GUN_ENGAGE_MAX, GUN_ENGAGE_MAX / GUN_RANGE_SHARE) };
         let edge = r * GUN_REACH_EDGE;
-        let stop = (r * GUN_RANGE_SHARE).max(GUN_ENGAGE_MIN.min(edge)).min(GUN_ENGAGE_MAX).max(self.clearance().min(edge));
-        (stop, (stop / GUN_RANGE_SHARE).min(GUN_ENGAGE_MAX / GUN_RANGE_SHARE).min(r).max(stop))
+        let (share, floor) = if self.flame { (FLAME_RANGE_SHARE, 0.0) } else { (GUN_RANGE_SHARE, GUN_ENGAGE_MIN.min(edge)) };
+        let clear = self.clearance().min(edge);
+        let stop = if self.blast >= r * AREA_BLAST_SHARE { clear.max(floor) } else { (r * share).max(floor).min(GUN_ENGAGE_MAX).max(clear) };
+        (stop, (stop / share).min(GUN_ENGAGE_MAX / GUN_RANGE_SHARE).min(r).max(stop))
     }
 }
 
@@ -672,7 +689,8 @@ fn gun_reach_of(c: &Combat, id: FormId, ws: &WeaponStats, range_mult: f32) -> Gu
     let chain = c.forms.chain(id, None);
     let projectile = chain.as_ref().and_then(|ch| ch.projectile).and_then(|p| c.forms.projectiles.get(&p));
     let blast = chain.as_ref().and_then(|ch| ch.explosion).and_then(|e| c.forms.explosions.get(&e)).map_or(0.0, |e| e.radius);
-    gun_reach(ws.max_range, range_mult, projectile.map_or(0.0, |p| p.range), blast)
+    let flame = projectile.is_some_and(|p| p.kind.as_deref() == Some("Flame"));
+    GunReach { flame, ..gun_reach(ws.max_range, range_mult, projectile.map_or(0.0, |p| p.range), blast) }
 }
 
 /// An attacker's (stop, close in again beyond) distances: a gun's by its [`GunReach`],
@@ -2033,11 +2051,12 @@ mod tests {
     fn a_gun_reaches_its_max_range_and_its_projectile_range() {
         // The flamer: max range 650, its flame goes 640 (FalloutNV.esm WeapFlamer,
         // FlameProjectile [observed]).
-        let flamer = gun_reach(650.0, 1.0, 640.0, 0.0);
+        let flamer = GunReach { flame: true, ..gun_reach(650.0, 1.0, 640.0, 0.0) };
         assert_eq!(flamer.reach, Some(640.0));
         assert_eq!(flamer.holds(641.0), Some(RangeHold::Far));
         assert_eq!(flamer.holds(640.0), None);
-        assert_eq!(flamer.engage(), (512.0, 640.0));
+        // A flame closes in to half its reach (the original's trooper: 164–320).
+        assert_eq!(flamer.engage(), (320.0, 640.0));
         // The style's Ranged Weapon Max Range Mult scales the weapon's range.
         assert_eq!(gun_reach(1000.0, 1.5, 10_000.0, 0.0).reach, Some(1500.0));
         // No range in the data: no limit; a projectile range alone limits.
@@ -2062,8 +2081,12 @@ mod tests {
         let missile = gun_reach(1536.0, 1.0, 10_000.0, 1000.0);
         assert_eq!(missile.holds(900.0), Some(RangeHold::Blast));
         assert_eq!(missile.holds(1100.0), None);
+        // An area weapon stops just clear of its blast, not at 80 % of its reach.
         let (stop, resume) = missile.engage();
-        assert!(stop >= missile.clearance() && resume <= 1536.0);
+        assert_eq!(stop, 1000.0 + BLAST_MARGIN);
+        assert!(resume <= 1536.0 && resume > stop);
+        // A small blast (the Gauss rifle's 40 of 2,000) changes nothing.
+        assert_eq!(gun_reach(2000.0, 1.0, 60_000.0, 40.0).engage(), (1600.0, 2000.0));
         let fatman = gun_reach(2000.0, 1.0, 10_000.0, 1700.0);
         let (stop, resume) = fatman.engage();
         assert_eq!(stop, 1700.0 + BLAST_MARGIN);

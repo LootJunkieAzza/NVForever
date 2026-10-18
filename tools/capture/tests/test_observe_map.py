@@ -80,6 +80,15 @@ class FieldSets(unittest.TestCase):
         with self.assertRaises(ob.InputError):
             ob.campaign_jobs(self.campaign(place=[{"base": "RatBase", "ammo": "Bob"}]), EDIDS)
 
+    def test_a_spawned_actor_is_moved_to_its_offset_before_it_attacks(self):
+        c = self.campaign(place=[{"base": "RatBase", "offset": [0, 1600, 0], "attack": "player"}])
+        (_, (_, job)), = ob.campaign_jobs(c, EDIDS).items()
+        scan = next(s["script"] for s in job["steps"] if "script" in s and "GetSourceModIndex" in s["script"])
+        self.assertIn("rA.MoveTo player 0 1600 0", scan)
+        self.assertLess(scan.index("rA.MoveTo player"), scan.index("rA.StartCombat player"))
+        with self.assertRaises(ob.InputError):
+            ob.campaign_jobs(self.campaign(place=[{"base": "RatBase", "offset": [0, 1]}]), EDIDS)
+
     def test_bad_field_set_is_refused(self):
         with self.assertRaises(ob.InputError):
             ob.campaign_jobs(self.campaign(fields="fast"), EDIDS)
