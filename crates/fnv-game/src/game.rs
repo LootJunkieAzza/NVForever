@@ -345,6 +345,15 @@ pub struct RefExtra {
     /// SetLevel of an actor other than the player.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub level: Option<i32>,
+    /// AgeRace: the race in place of the record's (`crate::appearance`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub race: Option<FormId>,
+    /// SexChange: true = female, in place of the record's sex (`crate::appearance`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub female: Option<bool>,
+    /// The player ate this corpse (StartCannibal; HasBeenEaten, `crate::activate_choices`).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub eaten: bool,
     /// SetMinimalUse of a door.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub minimal_use: Option<bool>,
@@ -614,6 +623,10 @@ pub struct PlayerState {
     /// SetLevel on the player (otherwise the configuration's level).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub level: Option<i32>,
+    /// AgeRace on the player before the character creator gave a look (with a look, the
+    /// look's race changes; `crate::appearance`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub race: Option<FormId>,
     /// Hardcore mode was off at some point (IsAlwaysHardcore).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub hardcore_was_off: bool,
@@ -984,6 +997,15 @@ pub struct Game<'a> {
     /// Actors ResurrectActor brought back since the engine last took them
     /// ([`Game::take_resurrections`], `crate::resurrect`). Not saved.
     pub resurrections: Vec<crate::resurrect::Resurrection>,
+    /// Actors whose race or sex changed since the engine last took them
+    /// ([`Game::take_appearance_changes`], `crate::appearance`). Not saved.
+    pub appearance_changes: Vec<crate::appearance::AppearanceChange>,
+    /// The perks' choice list open for an activation (`crate::activate_choices`). Not
+    /// saved.
+    pub activate_menu: Option<crate::activate_choices::ActivateMenu>,
+    /// Cannibal's and Mister Sandman's acts under way (GetCannibal, GetSandman). Not
+    /// saved.
+    pub perk_acts: Vec<crate::activate_choices::PerkAct>,
     /// The open menu, by menu code. While a menu is open, [`Game::tick`] runs MenuMode
     /// blocks instead of GameMode, and game time stops for scripts (GetSecondsPassed and
     /// the quest delay of GameMode) [observed: layer5-captures.md §8.3 e]. Part of the
@@ -1021,6 +1043,10 @@ pub struct Game<'a> {
     /// The conversation between the player and an actor, if one is running
     /// (`crate::dialogue`).
     pub dialogue: Option<crate::dialogue::Conversation>,
+    /// While a conversation through a talking activator is being opened: the actor and
+    /// the activator (IsActorTalkingThroughActivator, `crate::talking_activators`). Not
+    /// saved.
+    pub talking_through: Option<(FormId, FormId)>,
     /// The lengths of voice files, when the game was given them (`crate::voice`): a
     /// response then lasts as long as its sound. Not part of the saved state.
     pub voice: Option<std::sync::Arc<dyn crate::voice::VoiceLengths>>,
@@ -1230,6 +1256,9 @@ impl<'a> Game<'a> {
             turned: BTreeSet::new(),
             cell_resets: Vec::new(),
             resurrections: Vec::new(),
+            appearance_changes: Vec::new(),
+            activate_menu: None,
+            perk_acts: Vec::new(),
             fighting: BTreeSet::new(),
             condition_target: None,
             menu: None,
@@ -1243,6 +1272,7 @@ impl<'a> Game<'a> {
             said: BTreeSet::new(),
             said_day: BTreeMap::new(),
             dialogue: None,
+            talking_through: None,
             voice: None,
             frame: 0,
             time: 0.0,
@@ -1628,6 +1658,13 @@ impl<'a> Game<'a> {
     pub fn tick(&mut self) {
         self.frame += 1;
         self.turned.clear();
+        // The world refuses power armour on an untrained player (a loaded game's flag
+        // reaches it here too).
+        self.world.set_power_armor_training(self.player.power_armor);
+        // Cannibal's and Mister Sandman's acts that are over (`crate::activate_choices`).
+        if !self.perk_acts.is_empty() {
+            self.finish_perk_acts();
+        }
         if self.loading {
             self.side_blocks(menus::LOADING);
             return;

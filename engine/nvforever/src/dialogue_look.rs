@@ -390,7 +390,8 @@ pub(crate) fn turn_speaker(
     mut transforms: Query<&mut Transform>,
 ) {
     let game = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
-    let talking = game.and_then(|g| g.dialogue.as_ref()).map(|c| c.actor.0).filter(|_| settings.enabled);
+    // An actor talking through an activator is not there to turn (`fnv_game::talking_activators`).
+    let talking = game.and_then(|g| g.dialogue.as_ref()).filter(|c| c.through.is_none()).map(|c| c.actor.0).filter(|_| settings.enabled);
     let Some(player) = player else { return };
     let dt = time.delta_secs();
     // With `--menu-pause original` the picture stands still during a conversation, so a

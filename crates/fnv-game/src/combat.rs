@@ -245,7 +245,7 @@ impl Game<'_> {
     pub fn is_immune(&self, r: FormId) -> bool {
         let invulnerable = self.base_data_def(r).is_some_and(|d| d.invulnerable);
         let ghost = self.extra.get(&r).is_some_and(|e| e.ghost);
-        invulnerable || ghost || self.traits_def(r).and_then(|d| d.race).is_some_and(|race| self.data.child_races.contains(&race))
+        invulnerable || ghost || self.actor_race(r).is_some_and(|race| self.data.child_races.contains(&race))
     }
 
     /// A creature's own attack: its damage (CREA DATA Damage) and its reach (RNAM Attack
