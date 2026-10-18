@@ -187,8 +187,9 @@ pub fn procedure_code(t: PackageType) -> i32 {
 /// `actor.Look target [rotateBody]`: the actor's head tracks the target, over all
 /// other head tracking, until StopLook or the target leaves the loaded area; with
 /// `rotateBody` 1 the whole body turns to it [documented: GECK wiki Look]. Kept here
-/// ([`Game::script_look`]); the engine turns the head (`nvforever` `script_look.rs`).
-/// The body turn is kept but not acted on yet.
+/// ([`Game::script_look`]); the engine turns the head (`nvforever` `script_look.rs`),
+/// and with `rotateBody` the body too ([`Game::body_looks`]: `fnv_ai` for an actor it
+/// runs, `script_look.rs` for one standing still).
 pub fn look(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let target = a.form(0)?;

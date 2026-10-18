@@ -5571,6 +5571,24 @@ guesses to check against the game:
 - **A second crippling while it shows** starts the 5 s again and only the new limb
   flashes; healing a limb shows nothing.
 
+## Look turning the whole body (2026-10-18, branch claude/blockers-look-body-33d444)
+
+A script's `Look target 1` now turns the actor's whole body to the target until StopLook
+(docs/design/script-stubs.md §3; smoke `script-look-body`: Sunny turns to the player in
+the Prospector Saloon). The wiki says only that the actor "will rotate his entire body";
+the observer's captures hold no Look call, so these are my guesses to check in the game:
+
+- **The rate.** An actor the AI runs turns at its walker's turn rate (as when it turns to
+  someone saying a line); a standing actor nobody runs turns on the spot like an actor
+  you talk to (about 150°/s, 0.5 to 1.4 s, and only when the target is more than 30° off
+  its front; the head covers the rest).
+- **A moving target.** The body turns again whenever the target gets 30° off its front,
+  until StopLook.
+- **After StopLook** the body keeps the heading it has; nothing turns it back.
+- **Walking actors** (a package walking them, a traveller) keep their route's heading;
+  only their head turns. A Look on Sunny or Easy Pete followed by a capture of their
+  heading (the observer) would settle the rate and whether the original stops a walker.
+
 ## Knockdowns: PushActorAway, explosions, SetUnconscious (2026-10-18, branch claude/knockdowns)
 
 Row 1 of docs/outstanding.md §1 (docs/spec-notes/unconscious.md §5; smoke
