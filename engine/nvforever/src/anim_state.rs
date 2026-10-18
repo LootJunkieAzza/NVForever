@@ -66,7 +66,14 @@ struct AnimStats {
     ways: BTreeMap<u8, u32>,
     last_way: HashMap<u32, u8>,
     actors: HashSet<u32>,
+    /// Actors no longer told (left the view), and told again after that.
+    forgotten: u32,
+    again: u32,
 }
+
+/// At most this many "no longer told" and "told again" lines are logged [engineering
+/// choice: a cell change forgets every actor of the cell].
+const LOGGED_CHANGES: u32 = 40;
 
 impl AnimStats {
     fn note(&mut self, actor: u32, s: &AnimState) {
@@ -101,7 +108,7 @@ fn report(mut exit: MessageReader<AppExit>, st: Res<AnimStats>) {
     };
     let begun: Vec<String> = st.begun.iter().map(|(c, n)| format!("{} ({c}) {n}", name(*c))).collect();
     let ways: Vec<String> = st.ways.iter().map(|(c, n)| format!("{c}: {n}")).collect();
-    info!("anim state summary: {} actors told; actions begun: {}; ways begun: {}", st.actors.len(), if begun.is_empty() { "none".into() } else { begun.join(", ") }, if ways.is_empty() { "none".into() } else { ways.join(", ") });
+    info!("anim state summary: {} actors told ({} times no longer told, {} told again); actions begun: {}; ways begun: {}", st.actors.len(), st.forgotten, st.again, if begun.is_empty() { "none".into() } else { begun.join(", ") }, if ways.is_empty() { "none".into() } else { ways.join(", ") });
 }
 
 type Body = (&'static ActorRig, &'static InheritedVisibility, Option<&'static Locomotion>, Option<&'static WeaponHold>, Option<&'static CombatPose>, Option<&'static ActorIdle>, Option<&'static Flinch>, Has<Dying>);
@@ -168,9 +175,16 @@ fn tell(
                 let way = MoveDir::of(l.velocity[0], l.velocity[1], MOVING_SPEED);
                 (way, Some(if way == MoveDir::None { "Idle" } else { l.blend.cur.mv.group() }))
             }
-            None => (MoveDir::None, None),
+            // Drawn without a locomotion (posed by a test aid): standing.
+            None => (MoveDir::None, Some("Idle")),
         };
         let st = AnimState { action, moving, group, iron_sights: false, at: 0.0 };
+        if !told.contains(&rig.reference) && stats.actors.contains(&rig.reference) {
+            stats.again += 1;
+            if stats.again <= LOGGED_CHANGES {
+                info!("anim state: {:08X} told again: group {}, way {}, action {}", rig.reference, st.group.unwrap_or("none"), st.moving.code(), st.action.map_or(-1, AnimAction::code));
+            }
+        }
         stats.note(rig.reference, &st);
         g.set_anim_state(FormId(rig.reference), st);
         now.insert(rig.reference);
@@ -191,6 +205,10 @@ fn tell(
     // Actors no longer drawn are forgotten (they read as doing nothing).
     for gone in told.difference(&now) {
         g.forget_anim_state(FormId(*gone));
+        stats.forgotten += 1;
+        if stats.forgotten <= LOGGED_CHANGES {
+            info!("anim state: {gone:08X} no longer told (not drawn, hidden or dying)");
+        }
     }
     *told = now;
 }

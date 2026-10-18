@@ -1332,3 +1332,18 @@ fn misc_stats_count_and_set_scale_is_kept_on_the_reference() {
     assert!(g.turned.contains(&FormId(ACTI_REF)));
     assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::Scaled { reference, scale } if reference == FormId(ACTI_REF) && scale == 0.25)));
 }
+
+/// The console's way in (`call_words`, as `GSChetRef.IsAnimPlaying Idle` in the smoke
+/// test `anim-state`) reads the same snapshot.
+#[test]
+fn animation_state_through_the_console() {
+    use fnv_game::anim_state::{AnimAction, AnimState};
+    let f = fixture();
+    let mut g = game(&f);
+    let adult = FormId(ADULT_REF);
+    g.set_anim_state(adult, AnimState { action: Some(AnimAction::Reload), group: Some("Idle"), ..Default::default() });
+    let c = fnv_game::functions::console::call_words(&mut g, Some(adult), "IsAnimPlaying", &["Idle".to_string()], "console").unwrap();
+    assert_eq!(c.value, Value::Num(1.0), "{:?}", c.stub);
+    let c = fnv_game::functions::console::call_words(&mut g, Some(adult), "GetAnimAction", &[], "console").unwrap();
+    assert_eq!(c.value, Value::Num(9.0));
+}
