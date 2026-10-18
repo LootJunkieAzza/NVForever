@@ -47,7 +47,7 @@ fn apply(
     world: Option<Res<WorldData>>,
     mut models: ModelCtx,
     mut swapped: ResMut<Swapped>,
-    drawn: Query<(Entity, &RefVisual, &MeshMaterial3d<NifMaterial>, Option<&ShapeName>)>,
+    mut drawn: Query<(Entity, &RefVisual, &MeshMaterial3d<NifMaterial>, Option<&ShapeName>, Option<&mut crate::effect_shaders::Faded>)>,
     added: Query<(), Added<RefVisual>>,
 ) {
     let (Some(script), Some(sim), Some(world)) = (script, sim, world) else { return };
@@ -71,11 +71,14 @@ fn apply(
                 .filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(shape)))
                 .map(|s| s.material.id())
                 .collect();
-            for (e, rv, mat, name) in &drawn {
+            for (e, rv, mat, name, mut faded) in &mut drawn {
                 if rv.0 != r.0 {
                     continue;
                 }
-                let original = swapped.original.get(&mat.id()).copied().unwrap_or(mat.id());
+                // A mesh drawn see-through (SetActorAlpha, a fade) wears a copy: its own
+                // material is the one kept aside, and the swap goes there.
+                let own = faded.as_ref().map_or(mat.id(), |f| f.original.id());
+                let original = swapped.original.get(&own).copied().unwrap_or(own);
                 if !targets.contains(&original) && name.is_none_or(|n| n.0 != *shape) {
                     continue;
                 }
@@ -97,8 +100,13 @@ fn apply(
                         h
                     }
                 };
-                if copy.id() != mat.id() {
-                    commands.entity(e).insert(MeshMaterial3d(copy));
+                match faded.as_mut() {
+                    Some(f) if f.original.id() != copy.id() => f.original = copy,
+                    Some(_) => {}
+                    None if copy.id() != mat.id() => {
+                        commands.entity(e).insert(MeshMaterial3d(copy));
+                    }
+                    None => {}
                 }
             }
         }

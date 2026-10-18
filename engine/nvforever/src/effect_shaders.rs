@@ -75,10 +75,14 @@ pub(crate) struct Active {
 struct Overlay;
 
 /// On a mesh drawn see-through for its actor's alpha: its own material and the alpha.
+/// Another system that changes the mesh's material meanwhile (`crate::texture_swap`)
+/// changes `original`, which comes back when the alpha does.
 #[derive(Component)]
-struct Faded {
-    original: Handle<NifMaterial>,
+pub(crate) struct Faded {
+    pub(crate) original: Handle<NifMaterial>,
     alpha: f32,
+    /// The material the copy was made from (`original` when nothing changed it since).
+    made_from: AssetId<NifMaterial>,
 }
 
 #[derive(Resource, Default)]
@@ -318,7 +322,7 @@ fn actor_alpha(
                 commands.entity(e).insert(MeshMaterial3d(f.original.clone())).remove::<Faded>();
                 changed.entry(rv.0).or_insert((1.0, 0)).1 += 1;
             }
-            (Some(a), Some(f)) if f.alpha == a => {}
+            (Some(a), Some(f)) if f.alpha == a && f.made_from == f.original.id() => {}
             (Some(a), f) => {
                 let original = f.map(|f| f.original.clone()).unwrap_or_else(|| mat.0.clone());
                 let key = (original.id(), (a * 256.0).round() as u16);
@@ -340,7 +344,7 @@ fn actor_alpha(
                         h
                     }
                 };
-                commands.entity(e).insert((MeshMaterial3d(copy), Faded { original, alpha: a }));
+                commands.entity(e).insert((MeshMaterial3d(copy), Faded { made_from: original.id(), original, alpha: a }));
                 changed.entry(rv.0).or_insert((a, 0)).1 += 1;
             }
         }
