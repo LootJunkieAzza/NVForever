@@ -41,8 +41,8 @@ are built (rows 2 and 12, 2026-10-18,
 | 14 | Cannibal and Mister Sandman (done 2026-10-18, awaiting the owner) | 3 | Built ([perk-activation](spec-notes/perk-activation.md)): the perks' Activate choices open a choice list on E (Devour, Murder, then the default action); StartCannibal, StartMisterSandman, GetCannibal, GetSandman, HasBeenEaten; idles and sounds. Guesses: how the list looks, the Cannibal act lasting its 7.7 s clip, the crime (Mister Sandman settled by captures: a sleeper dies at the act's end, anyone else is refused) | (none) |
 | 15 | VATS | 3 quests, 250 conditions | VATS mode built (vats-mode.md), awaiting the owner | GetVATSValue and GetVATSMode answer for VATS mode; GetVATSTargetHeight and SetVatsTarget stay stubs |
 | 16 | Miscellaneous stats, scale | 3 each | Built (misc-stats.md, 2026-10-18): all 43 statistics have codes, 26 counted by the rules and the engine, the Pip-Boy shows them; SetScale drawn and collided. Not counted: the 17 of misc-stats.md §3 (pickpocketing, dismemberment, Caravan, slots, skill books, New Vegas speech checks) | (GetPCMiscStat, SetScale) |
-| 17 | Dismemberment, end videos, cell image space | 2 each | Not built | (dismemberment), PlayBink, SetCellImageSpace |
-| 18 | One quest each | 1 each | Screen splatter. Done 2026-10-18: AutoDisplayObjectives (the HUD keeps the objectives on screen), ExitGame (back to the main menu; no credits) (script-stubs.md §3.15); the AI package codes (Sandbox, Travel-at-goal) and the navmesh switches (script-stubs.md §3.16); SetPCCanUsePowerArmor (power armour needs the training, appearance-changes.md §4) | |
+| 17 | Dismemberment, films, cell image space (films and cell image space done 2026-10-18) | 2 each | PlayBink built ([bink-films](spec-notes/bink-films.md)): a scripted film plays full screen with its sound over the held game, then the game goes on; the 4 shipped calls are all the opening's (the intro film, which the main menu already shows, and three films not in the install). SetCellImageSpace built: kept in the save, shown when the cell loads again as the original does. Not built: dismemberment | (dismemberment) |
+| 18 | One quest each | 1 each | Done 2026-10-18: screen splatter ([screen-splatter](spec-notes/screen-splatter.md); fitted to the original's capture; script-stubs.md §3.18); AutoDisplayObjectives (the HUD keeps the objectives on screen), ExitGame (back to the main menu; no credits) (script-stubs.md §3.15); the AI package codes (Sandbox, Travel-at-goal) and the navmesh switches (script-stubs.md §3.16); SetPCCanUsePowerArmor (power armour needs the training, appearance-changes.md §4) | |
 
 Rows the coverage table ranks with 0 quests are not listed. The table's own §3.3 lists
 six functions still waiting for an in-game capture to settle their answers.
@@ -59,11 +59,11 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   templates.
 - **Rendering**: exterior lighting strength and clouds against the game's frames (1 of 8
   exterior reference frames meets the threshold; all 7 interior ones do); depth of field,
-  motion blur, screen splatter; effect shaders' holes and add-on models, ash piles; about
+  motion blur, the screen splatter's flare and the blood when the player is hurt; effect shaders' holes and add-on models, ash piles; about
   66 particle-system smokes not drawn (playtest list 4 item 16).
 - **Interface**: credits; the ITEMS page's DPS, ammo badge and Mod hint; the +10
   XP line and the Locations Discovered stat.
-- **Audio and video**: reverb, spatial sinks; PlayBink (the end videos).
+- **Audio and video**: reverb, spatial sinks; a film's `muteAudio 0` (world sounds under a film).
 - **Saves**: deleting saves from the menu, loading into another load order, AI progress.
 - **Console**: several statements on a line.
 - **World**: skeleton collision still upright (playtest list 5 item 71).

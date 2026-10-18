@@ -2088,12 +2088,16 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # StartMisterSandman, GetSandman and IsActorTalkingThroughActivator (13 calls, 99 condition
 # uses, §3.17): 30 → 23 stubs, 149 → 136 calls, 125 → 26 condition uses [observed: the
 # branch's fnvtool, merged with main 3ca600ff, on the owner's masters, 2026-10-18].
+# claude/screen-video implemented PlayBink, SetCellImageSpace, TriggerScreenSplatter,
+# SetScreenSplatterFade and ClearScreenSplatter (17 calls, §3.18): 23 → 18 stubs,
+# 136 → 119 calls [observed: fnvtool script stubs on the owner's masters, merged with main
+# e5ff06d0, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 23 },
+  { json = "summary.stubs", equals = 18 },
   { json = "summary.by_status.implementable", count = 0, label = "no implementable stub is left" },
-  { json = "summary.by_status.needs_system", equals = 23 },
+  { json = "summary.by_status.needs_system", equals = 18 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 136 },
+  { json = "summary.stub_calls", equals = 119 },
   { json = "summary.stub_condition_uses", equals = 26 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -3224,7 +3228,7 @@ expect = [
 name = "main-menu"
 source = "owner 2026-10-15: the main menu (engine/nvf-play/src/main_menu.rs): loading screens behind it, its theme, Continue and Load greyed without saves, Settings, New Game starts the opening"
 areas = ["main-menu", "save"]
-paths = ["engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/start_menu.rs", "engine/nvf-play/src/cursor.rs"]
+paths = ["engine/nvf-play/src/main_menu.rs", "engine/nvf-play/src/pause.rs", "engine/nvf-play/src/start_menu.rs", "engine/nvf-play/src/cursor.rs", "engine/nvf-play/src/intro.rs"]
 env = { NVFOREVER_HOME = "menu-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "4.5:down,5:shot,6:continue,6.5:load,7:settings,11:new", NVF_PLAY_TEST_PAUSE_MENU = "8.5:shot,9:back", NVF_PLAY_TEST_INTRO_SHOT = "6", NVF_PLAY_TEST_INTRO_SKIP = "8" }
 args = ["--play", "--menu"]
 run_seconds = 34
@@ -3248,6 +3252,7 @@ expect = [
   { re = 'intro: skipped at 8\.\d s', label = "skipped (test aid) after 8 s" },
   "intro: the opening begins",
   "new game: VCG00 started at stage 0",
+  { text = 'film: video\fnvintro.bik: the intro film, shown before the opening already; not played again', label = "the opening's PlayBink of the intro film is not played twice" },
   "main menu: theme faded out",
 ]
 order = [["main menu: Settings", "main menu: New Game", "pointer: hidden (the intro film)", "intro: the opening begins", "new game: VCG00 started at stage 0"]]
@@ -4759,6 +4764,82 @@ expect = [
   { re = 'knockout: Easy Pete \S+ knocked out', count = 0, label = "a knockdown is no knock-out" },
   { re = 'corner message: ".* is unconscious', count = 0, label = "no corner message for a knockdown" },
 ]
+
+[[scenario]]
+name = "film-opening"
+source = "PlayBink (docs/spec-notes/bink-films.md): the opening's own call for the intro film (VCG00 stage 0, PlayBink \"fnvintro.bik\" 1 1 0 1) plays it full screen over the held game when no main menu showed it, then the opening goes on; test aid NVF_PLAY_TEST_FILMS=1 lets the unattended run play it"
+areas = ["film", "scripts"]
+paths = ["engine/nvf-play/src/intro.rs", "crates/fnv-game/src/functions/misc.rs", "crates/fnv-game/src/functions/ui.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_FILMS = "1", NVF_PLAY_TEST_INTRO_SHOT = "3", NVF_PLAY_TEST_INTRO_SKIP = "6" }
+args = ["--play", "--new-game", "--no-voice"]
+run_seconds = 34
+order = [[
+  { re = 'film: playing video\\fnvintro\.bik \(1280x720, \d+ frames, PlayBink, Esc ends it, letterboxed\)$', label = "the opening's call plays the intro film, interruptible, music not paused, letterboxed" },
+  { text = "pointer: hidden (a film)", label = "no mouse pointer over the film (logged as the film starts over the hidden pointer)" },
+  "film: screenshot film.png at 3 s",
+  { re = 'film: skipped at 6\.\d s \(test aid NVF_PLAY_TEST_INTRO_SKIP\)', label = "skipped (test aid) after 6 s" },
+  "film: the game goes on",
+  "image space modifiers on the screen: VCG01FadeInFromBlackISFX",
+]]
+expect = [
+  { re = 'film: .*not played', count = 0, label = "the film is not passed over" },
+]
+manual = "film.png: the intro film's frame at 3 s fitted inside the window with black bars, nothing of the world or the HUD over it"
+
+[[scenario]]
+name = "film-console"
+source = "PlayBink (docs/spec-notes/bink-films.md) from the console: a film not in Data\\Video is skipped and the game goes on at once (the opening's fnvlogo1.bik is not in the owner's install); a film that is there plays stretched over the window with the music paused, the game held under it, then the game goes on"
+areas = ["film", "scripts"]
+paths = ["engine/nvf-play/src/intro.rs", "engine/nvf-play/src/music.rs", "crates/fnv-game/src/functions/misc.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_FILMS = "1", NVF_PLAY_TEST_CONSOLE = '14:playbink "fnvlogo1.bik" 0 0 0 1;14.3:playbink "fnvintro.bik" 0 1 1 0;14.6:close', NVF_PLAY_TEST_INTRO_SHOT = "2", NVF_PLAY_TEST_INTRO_SKIP = "4", NVF_PLAY_TEST_SHOTS = "22:film_after.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 26
+order = [[
+  "film: video\\fnvlogo1.bik: not a loose file in the game's Data folder; the game goes on",
+  { re = 'film: playing video\\fnvintro\.bik \(1280x720, \d+ frames, PlayBink, music paused, stretched\)$', label = "the console's film plays with no Esc mention (not interruptible), music paused, stretched" },
+  "film: screenshot film.png at 2 s",
+  { re = 'film: skipped at 4\.\d s \(test aid NVF_PLAY_TEST_INTRO_SKIP\)' },
+  "film: the game goes on",
+]]
+manual = "film.png: the intro film stretched over the whole window (no black bars); film_after.png: Doc Mitchell's house again, nothing of the film left"
+
+[[scenario]]
+name = "screen-splatter"
+source = "TriggerScreenSplatter / SetScreenSplatterFade / ClearScreenSplatter (docs/spec-notes/screen-splatter.md): stage 50's call from the console (100 20 2 2) puts 100 splats of the game's gore textures on the screen, fading from their start to nothing at 20 s; ClearScreenSplatter takes them away; SetScreenSplatterFade is safe (it quits the original); short splats fade by themselves. The shots match the original's capture fx_screen_splatter_look in time"
+areas = ["imagespace", "scripts"]
+paths = ["engine/nvf-play/src/screen_splatter.rs", "crates/fnv-game/src/functions/misc.rs", "crates/fnv-game/src/functions/ui.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:triggerscreensplatter 100 20 2 2;14.2:close;31:clearscreensplatter;31.2:triggerscreensplatter 10 3 2 2;31.4:setscreensplatterfade 0.5 1;31.6:close", NVF_PLAY_TEST_SHOTS = "14.5:splatter_t0_5.png,19.5:splatter_t5_5.png,24.5:splatter_t10_5.png,29.5:splatter_t15_5.png,32:splatter_small.png,36:splatter_gone.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 38
+order = [[
+  "screen splatter: 100 splats on the screen (TriggerScreenSplatter 100 20 2 2)",
+  "screen splatter: cleared",
+  "screen splatter: 10 splats on the screen (TriggerScreenSplatter 10 3 2 2)",
+  "screen splatter: the last splat has faded",
+]]
+expect = [
+  { re = 'screen splatter: \S+: ', count = 0, label = "the gore textures are read" },
+  { text = "console: > setscreensplatterfade 0.5 1", label = "SetScreenSplatterFade runs (it quits the original)" },
+]
+manual = "splatter_t0_5.png to splatter_t15_5.png against the original's fx_screen_splatter_look s100_20_2_2_t0.5 to _t15.5 (C:/fnv-private/capture/shots): the view nearly black under dark soft blobs with red cores, lighter at each step; splatter_small.png ten blobs like the original's before_fade; splatter_gone.png the clean view"
+
+[[scenario]]
+name = "cell-image-space"
+source = "SetCellImageSpace (GECK wiki: a loaded cell shows the new image space only once it loads again): Old World Blues' Think Tank turns to its red image space (NVDLC03ThinkTankImageSpaceRed, as quest stage 50 does) after coc back into it (the save keeps the change: fnv-game unit test)"
+areas = ["imagespace", "scripts"]
+paths = ["engine/nvforever/src/world.rs", "engine/nvforever/src/sky.rs", "crates/fnv-game/src/functions/misc.rs", "crates/fnv-game/src/game.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:setcellimagespace NVDLC03ThinkTank NVDLC03ThinkTankImageSpaceRed;14.3:close;17:coc NVDLC03ThinkTank;17.3:close", NVF_PLAY_TEST_SHOTS = "13:think_tank_before.png,16:think_tank_called.png,22:think_tank_red.png" }
+args = ["--cell", "NVDLC03ThinkTank", "--play", "--no-voice", "--no-messages"]
+run_seconds = 25
+order = [[
+  "console: > setcellimagespace NVDLC03ThinkTank NVDLC03ThinkTankImageSpaceRed",
+  "console: > coc NVDLC03ThinkTank",
+  { re = 'cell image space: 0x[0-9a-f]{8} graded with 0x[0-9a-f]{8} \(SetCellImageSpace\)$', label = "the cell loads with the red image space" },
+]]
+expect = [
+  { re = 'cell image space: .* graded with', count = 1, label = "not before the cell loads again" },
+]
+manual = "think_tank_before.png and think_tank_called.png alike (the change waits for the cell to load); think_tank_red.png graded red"
 
 [[scenario]]
 name = "agerace-sexchange-npc"

@@ -442,6 +442,9 @@ pub struct FormChanges {
     pub public_cells: BTreeMap<FormId, bool>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub item_values: BTreeMap<FormId, i32>,
+    /// SetCellImageSpace: cell → the image space it has instead of its XCIM.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub cell_image_spaces: BTreeMap<FormId, FormId>,
 }
 
 /// A magic effect active on an actor (docs/spec-notes/scripts.md §7.6).

@@ -708,9 +708,10 @@ fn play(
     let eye = player.eye();
     let hour = game_hour(&sim);
     // The place's music is silent under the main menu, which plays its own theme, under
-    // the intro film, which has its own sound, and at the poker table, which plays its
+    // the intro film, which has its own sound, under a scripted film that pauses it
+    // (PlayBink), and at the poker table, which plays its
     // casino's station (`crate::poker`).
-    let front = main_menu.is_some_and(|m| m.open) || intro.is_some_and(|i| i.is_playing()) || poker.is_some_and(|p| p.0.is_some());
+    let front = main_menu.is_some_and(|m| m.open) || intro.is_some_and(|i| i.silences_music()) || poker.is_some_and(|p| p.0.is_some());
     let audible = settings.play && settings.volume > 0.0 && !front;
 
     // Music scripts asked for: beside the place's music.
