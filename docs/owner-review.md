@@ -5811,6 +5811,67 @@ down too (GetKnockedState 2). Guesses to check against the game:
   the wiki says; an explosion's knockdown cannot be searched [hypothesis: the note names
   only pushes].
 
+## Gun reach: no shots out of range, a distance per weapon (2026-10-18, branch claude/gun-reach)
+
+Owner request 2026-10-18 (Cook-Cook firing his flamer from cover as soon as the player is
+in sight; shotguns closer than sniper rifles, launchers clear of their blast). Rules in
+docs/design/combat-ai.md §16; smoke `combat-flamer-reach`, `combat-shotgun-reach`,
+`combat-sniper-reach`. What is decided and what to check:
+
+- **No shot beyond the weapon's reach** is the GECK wiki's rule for Max Range
+  [documented]. The reach is the WEAP Max Range times the combat style's Ranged Weapon Max
+  Range Mult, cut to the projectile's Range (the flamer: 650 cut to its flame's 640).
+  *Check:* Cook-Cook's camp from the south ridge (about 1,700 units): he should only run
+  at you, not fire, until about 6 m away.
+- **Where each weapon stops** is unchanged in shape (80 % of its reach, 400 to 2,500
+  units), with guesses: it never stops beyond 90 % of its reach (`GUN_REACH_EDGE`); a
+  gun with an explosive projectile stops at least its blast radius + 64 units away
+  (`BLAST_MARGIN`); a flamer stops at half its reach, 320 (`FLAME_RANGE_SHARE`), as the
+  original's flamer trooper fought from 164–320; an area weapon (blast at least a quarter
+  of its reach, `AREA_BLAST_SHARE`) stops just clear of its blast: missile launcher 1,064,
+  grenade rifle 814, Fat Man 1,764. A sniper rifle still stops at 2,500 (the original's
+  backed off to 2,150). *Check:* are shotgunners (480) and flamers (320) close enough?
+- **No shot into its own blast** (a launcher with the target nearer than its explosion's
+  radius) and **a step back from it** (from the radius + 64 instead of 256 units): my
+  design; it does not switch weapons (weapon choice is not built). A missile trooper you
+  rush will back away and not fire. The original's missile trooper fought from 450–550
+  units, inside its own 1,000 blast [observed 2026-10-18]: you asked for them to keep
+  clear, so that stays. *Check:* whether you'd rather they fire anyway when cornered.
+- **Leaving cover**: a gunman at its cover whose target is beyond its reach leaves the
+  cover and closes in, and does not take that cover again; cover is now looked for within
+  its reach less 64 units (the peek point is past the edge). *Check:* Cook-Cook no longer
+  shoots at you from cover while you are far off.
+- **Min Range** stays unused (it is not a back-off distance; §12.6).
+- **A rifleman's stop stays at 80 % of its reach** (Violet's hunting rifle: 1,600). Before
+  this change she walked on past 1,400, firing all the way in from out of reach; now she
+  stops at 1,600 and fires from the hip only when you come within 1,400 (smoke
+  `combat-sights` moves you to her at 38 s). *Check:* whether riflemen should close nearer.
+- **Setting off again at 90 % of its reach** (`GUN_REACH_EDGE`): a gunman standing at its
+  stop sets off again once you are beyond 90 % of its reach, while it can still fire, so
+  it walks in aiming rather than standing until you are out of reach (hunting rifle:
+  stops at 1,600, sets off beyond 1,800, reach 2,000) [design].
+- **Out of reach, a gunman runs straight in**: no flank place and no step aside for a
+  friend in its line of fire while its target is beyond its reach (it has no shot to
+  line up), so Cook-Cook runs at you instead of circling to a flank first [design].
+- **Violet no longer aims while walking in from afar.** Seen from about 2,700 units,
+  beyond her hunting rifle's reach (2,000), she holds fire and runs in with her sights
+  down; within reach she stops at 1,600, takes cover or aims. The original's flamer
+  trooper likewise held fire from 1,283 units [observed 2026-10-18, gun_reach]. Smoke
+  `combat-sights` now starts you within her reach (about 1,900 units), so it still tests
+  walking while aiming; `combat-sights-beyond-reach` tests the new case. *Check:* that a
+  rifleman running in and then aiming from cover looks right to you.
+- Not done: other ammo's projectiles (an NPC's reach is its default ammo's); on a cliff
+  the shot's distance can be beyond reach while the flat distance is not, so a gunman can
+  stand silent there.
+- **Capture** (first run 2026-10-18, readings in combat-ai.md §16: the flamer trooper held
+  fire from 1,283 units and first attacked at 726, about 13 % beyond its max range of
+  650; we keep 640, where the flame ends): observer campaign `tools/capture/observe/gun_reach.campaign.json`
+  (an NCR trooper with a flamer from 1,600 units, a shotgun from 1,600, a sniper rifle from
+  2,400, a missile launcher from 600; the save nvftest) shows the original's first-shot
+  distance and stopping distance for each, to compare with these numbers. The campaign's
+  `place` items now take `ammo` (500 rounds), since a gunman without ammunition does not
+  fire in the original, and `offset` (PlaceAtMe's distance put three of the four 300–460
+  units away; a second run with the offsets is ready).
 ## Script packages and disabled references: the 2026-10-18 captures (branch claude/gifted-nightingale-0cc6ae)
 
 Capture jobs `od_08_script_packages` and `od_09a_disabled_ref_script` (readings in
