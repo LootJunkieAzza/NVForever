@@ -125,6 +125,11 @@ pub struct QuestMessages {
     waiting: VecDeque<QuestNotice>,
     /// The line on screen and the seconds it has been there.
     showing: Option<(QuestNotice, f32)>,
+    /// AutoDisplayObjectives is on (`fnv_game::game::PlayerState::auto_objectives`): a
+    /// list of objectives on screen stays at full strength until another line waits
+    /// [hypothesis: the switch keeps the objectives in view while the Pip-Boy cannot be
+    /// used, the GECK wiki's reason for it].
+    pub hold_objectives: bool,
 }
 
 impl QuestMessages {
@@ -159,8 +164,12 @@ impl QuestMessages {
     /// Let `dt` seconds pass; `true` when another line (or none) is now on screen.
     pub fn step(&mut self, dt: f32) -> bool {
         let mut changed = false;
+        let hold = self.hold_objectives && self.waiting.is_empty();
         if let Some((n, age)) = &mut self.showing {
             *age += dt;
+            if hold && matches!(n, QuestNotice::Objectives(_)) {
+                *age = age.min(seconds(n));
+            }
             if *age >= seconds(n) + FADE {
                 self.showing = None;
                 changed = true;
@@ -320,9 +329,14 @@ fn draw(
     mut texts: Query<(&mut TextColor, &Part)>,
     mut fills: Query<(&mut BackgroundColor, &Fill)>,
     mut kit: Local<Option<Kit>>,
-    state: Option<Res<State<crate::PlayState>>>,
+    (state, script): (Option<Res<State<crate::PlayState>>>, Option<Res<crate::script::ScriptState>>),
     mut sound_forms: Local<HashMap<&'static str, Option<FormId>>>,
 ) {
+    let hold = script.as_ref().and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.player.auto_objectives);
+    if quests.hold_objectives != hold {
+        info!("quest messages: objectives {} (AutoDisplayObjectives)", if hold { "held on screen" } else { "go after their time" });
+        quests.hold_objectives = hold;
+    }
     // Behind a message box or a script's menu, and in a conversation (every HUD element
     // goes then: the owner's playtest list 5, item 74): hidden, and no time passes, so
     // the line comes back when the conversation ends.
@@ -378,6 +392,26 @@ mod tests {
     /// Letters 14 wide and lines of 36, about font 7; capitals 22 wide, about font 8.
     fn fonts() -> (Font, Font) {
         (plain_font(36.0, 14.0), plain_font(52.0, 22.0))
+    }
+
+    #[test]
+    fn auto_display_holds_the_objectives_until_another_line_waits() {
+        let mut q = QuestMessages { hold_objectives: true, ..default() };
+        q.push(objectives(&[("Follow Doc Mitchell", false)]));
+        assert!(q.step(0.0));
+        q.step(60.0);
+        assert!(matches!(q.showing(), Some(QuestNotice::Objectives(_))));
+        assert_eq!(q.strength(0.0), 1.0);
+        // A banner waits: the list goes after its time.
+        q.push(QuestNotice::Added("Back in the Saddle".into()));
+        q.step(LIST_SECONDS + FADE);
+        assert!(matches!(q.showing(), Some(QuestNotice::Added(_))));
+        // Off: a list goes after its time as before.
+        let mut q = QuestMessages::default();
+        q.push(objectives(&[("Follow Doc Mitchell", false)]));
+        q.step(0.0);
+        q.step(60.0);
+        assert!(q.showing().is_none());
     }
 
     #[test]

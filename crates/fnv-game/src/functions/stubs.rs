@@ -39,7 +39,6 @@ pub const ASSIGNED: &[(u16, &str)] = &[
 
 /// Stubs whose system exists, left for a later round; the text says what is missing.
 pub const IMPLEMENTABLE: &[(u16, &str)] = &[
-    (0x1225, "AutoDisplayObjectives: objectives already show at the left as scripts set them; what the switch adds is not documented beyond the summary"),
 ];
 
 /// Why the stub `opcode` is one; `None` for an implemented or unknown opcode.

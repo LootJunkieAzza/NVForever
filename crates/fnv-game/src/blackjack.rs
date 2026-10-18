@@ -14,8 +14,9 @@ use rand_core::RngCore;
 /// FalloutNV.esm MESG `HelpBlackjack`, flags Message Box and Auto Display].
 pub const HELP_MESSAGE: FormId = FormId(0x0017_2094);
 /// The menu's code to scripts (blackjack.md §1) [hypothesis: NVForever's own; the class
-/// number is not in the menu files and no shipped script asks for it].
-pub const MENU_CODE: u16 = 1035;
+/// number is not in the menu files and no shipped script asks for it]. Not 1035: that is
+/// the Pip-Boy's repair list (`game::menus::REPAIR`, documented).
+pub const MENU_CODE: u16 = 1102;
 /// The most cards a hand can hold on the table: the models have seven places
 /// (`Hand1_01`–`07`, `Dealer_01`–`07`) [observed].
 pub const MAX_CARDS: usize = 7;

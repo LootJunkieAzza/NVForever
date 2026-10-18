@@ -10,14 +10,15 @@
 # and unhandled functions need the masters: the smoke run checks those.
 
 [summary]
-stubs = 37
-stub_calls = 167
+stubs = 33
+stub_calls = 158
 stub_condition_uses = 125
 unhandled_used = 1
 
-[summary.by_status]
-implementable = 1
-needs_system = 36
+[summary.by_status]  # every status, 0 when no stub has it
+assigned = 0
+implementable = 0
+needs_system = 33
 no_op = 4
 
 # History (moved from scenarios.toml, 2026-10-18; the newest last):
@@ -67,3 +68,7 @@ no_op = 4
 # claude/blockers-anim-state implemented IsPlayerActionActive (2 calls, §3.13): 38 → 37
 # stubs, 169 → 167 calls [observed: fnvtool script stubs on the owner's masters, merged
 # with main 5a98cb50, 2026-10-18].
+# claude/menu-hooks implemented ResetPipboyManager, ShowTutorialMenu, ExitGame and the last
+# implementable stub, AutoDisplayObjectives (9 calls, §3.15), so no "implementable" row is
+# left: 37 → 33 stubs, 167 → 158 calls [observed: fnvtool script stubs on the owner's masters,
+# merged with main d13109f3, 2026-10-18].
