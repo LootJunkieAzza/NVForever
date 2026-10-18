@@ -1,0 +1,250 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "anim_actions",
+ "title": "GetAnimAction's leftovers (docs/spec-notes/anim-state.md \u00a75): NCR troopers spawned 900 units away, armed with one weapon each and enough ammo or throwables, set on the player (tgm); every game loop, the fight field set (anim_action). Settles 5/6 on throwers, what 17 is (only .357s so far) and whether 10-12 ever appear",
+ "save": "nvfstrip",
+ "defaults": {
+  "fields": "fight",
+  "every": 1,
+  "depth": 1,
+  "hours": 0.3,
+  "settle_frames": 120
+ },
+ "sessions": [
+  {
+   "name": "start",
+   "go": {
+    "cow": [
+     "WastelandNV",
+     -12,
+     15
+    ]
+   },
+   "console_first": [
+    "tgm"
+   ],
+   "hours": 0.05,
+   "note": "the spot of melee_spacing; tgm keeps the player standing while troopers shoot and throw"
+  },
+  {
+   "name": "grenades",
+   "console_first": [
+    "killall"
+   ],
+   "note": "two troopers with frag grenades only: 5 (gearing up) and 6 (left the hand), and 4 between throws",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 2,
+     "distance": 900,
+     "arm": "WeapGrenadeFrag",
+     "give": [
+      [
+       "WeapGrenadeFrag",
+       8
+      ]
+     ],
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "throwing_spears",
+   "console_first": [
+    "killall"
+   ],
+   "note": "a thrown weapon that is not a grenade",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 2,
+     "distance": 900,
+     "arm": "WeapNVThrowingSpear",
+     "give": [
+      [
+       "WeapNVThrowingSpear",
+       10
+      ]
+     ],
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "dynamite",
+   "console_first": [
+    "killall"
+   ],
+   "note": "lit thrown explosives",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 2,
+     "distance": 900,
+     "arm": "WeapNVDynamite",
+     "give": [
+      [
+       "WeapNVDynamite",
+       8
+      ]
+     ],
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "revolver_357",
+   "console_first": [
+    "killall"
+   ],
+   "note": "the .357 of the Goodsprings gunfight: does 17 come before every reload's 9, and how long",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 2,
+     "distance": 900,
+     "arm": "WeapNV357Revolver",
+     "give": [
+      [
+       "Ammo357Magnum",
+       60
+      ]
+     ],
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "cowboy_repeater",
+   "console_first": [
+    "killall"
+   ],
+   "note": "a lever-action that loads round by round: 17 too?",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 2,
+     "distance": 900,
+     "arm": "WeapNVCowboyRepeater",
+     "give": [
+      [
+       "Ammo357Magnum",
+       60
+      ]
+     ],
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "hunting_shotgun",
+   "console_first": [
+    "killall"
+   ],
+   "note": "a pump shotgun that loads round by round",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 2,
+     "distance": 900,
+     "arm": "WeapNVHuntingShotgun",
+     "give": [
+      [
+       "Ammo12Ga",
+       40
+      ]
+     ],
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "hunting_revolver",
+   "console_first": [
+    "killall"
+   ],
+   "note": "a revolver with a different reload",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 2,
+     "distance": 900,
+     "arm": "WeapNVHuntingRevolver",
+     "give": [
+      [
+       "Ammo4570",
+       40
+      ]
+     ],
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "pistol_9mm",
+   "console_first": [
+    "killall"
+   ],
+   "note": "a magazine pistol: 9 only, no 17 (control)",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 2,
+     "distance": 900,
+     "arm": "WeapNV9mmPistol",
+     "give": [
+      [
+       "Ammo9mm",
+       80
+      ]
+     ],
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "single_shotgun",
+   "console_first": [
+    "killall"
+   ],
+   "note": "a break-action: 9 only (control)",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 2,
+     "distance": 900,
+     "arm": "WeapNVSingleShotgun",
+     "give": [
+      [
+       "Ammo12Ga",
+       40
+      ]
+     ],
+     "attack": "player"
+    }
+   ]
+  },
+  {
+   "name": "varmint_rifle",
+   "console_first": [
+    "killall"
+   ],
+   "note": "a bolt rifle: how long 3 lasts through the bolt",
+   "place": [
+    {
+     "base": "LvlNCRTrooper",
+     "count": 2,
+     "distance": 900,
+     "arm": "WeapNVVarmintRifle",
+     "give": [
+      [
+       "Ammo556mm",
+       60
+      ]
+     ],
+     "attack": "player"
+    }
+   ]
+  }
+ ]
+}
