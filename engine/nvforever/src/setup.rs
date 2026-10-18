@@ -17,7 +17,8 @@
 //!
 //! A player's start loads the plugins turned on in the home's own `plugins.txt`
 //! (`fnv_install::plugins`), made at the first start with the game's masters on and every
-//! other plugin in `Data` off.
+//! other plugin in `Data` off. A start from Mod Organizer 2 loads the plugins of MO2's
+//! profile instead (`fnv_install::mo2`; docs/mod-organizer-2.md).
 
 use fnv_install::{check_separation, Config, EngineHome, GameInstall, InstallError};
 use std::path::Path;
@@ -150,6 +151,18 @@ fn ask(home: &EngineHome, problem: Option<String>) -> Result<GameInstall, String
 /// The plugins to load, in order, from the home's `plugins.txt` (made or given new lines
 /// here); says what the player may want to know about it.
 pub fn plugin_list(game: &GameInstall) -> Result<Vec<String>, String> {
+    // Started from Mod Organizer 2: its profile's plugins, and the home's list is left alone.
+    if let Some((file, s)) = fnv_install::mo2::sync(game).map_err(|e| e.to_string())? {
+        eprintln!("setup: Mod Organizer 2 start: plugins from its profile ({})", file.display());
+        if !s.missing.is_empty() {
+            eprintln!("setup: plugins on in Mod Organizer 2 but not in Data, skipped: {}", s.missing.join(", "));
+        }
+        if s.base_forced {
+            eprintln!("setup: FalloutNV.esm loads first whatever Mod Organizer 2's order says");
+        }
+        eprintln!("setup: plugins: {}", s.load.join(", "));
+        return Ok(s.load);
+    }
     let home = EngineHome::user().ok_or("no folder for NVForever's settings and saves could be found (set NVFOREVER_HOME)")?;
     let file = home.plugins_file();
     let s = fnv_install::plugins::sync(&home, game).map_err(|e| e.to_string())?;

@@ -22,6 +22,9 @@ saves) and its plugin list `%LOCALAPPDATA%\FalloutNV\plugins.txt` [observed: the
 `My Games`, on the owner's PC]. NVForever keeps its own settings, saves and load order, so
 playing either game never changes the other.
 
+The one exception: a start from Mod Organizer 2 reads that `plugins.txt` path, where MO2's
+hook shows the program its profile's list instead of the game's file (next section).
+
 ## First start (`engine/nvforever/src/setup.rs`)
 
 The game's folder comes from, in order:
@@ -95,6 +98,17 @@ start comments. Format and rules are our choice:
 
 The original game orders its plugins by the files' modified dates, not by its list
 [hypothesis: modding tools' documentation, not checked]; NVForever uses the lines' order.
+
+### Started from Mod Organizer 2 (`crates/fnv-install/src/mo2.rs`)
+
+MO2 starts programs with its usvfs hook, which merges the profile's mods into `Data` and
+puts the profile's `plugins.txt` at `%LOCALAPPDATA%\FalloutNV\plugins.txt` [documented:
+MO2 and modorganizer-game_gamebryo source, cited in `mo2.rs`]. A player's start that finds
+`usvfs_x64.dll` loaded in its own process and MO2's header line at the top of that file
+loads the plugins listed there, in their order (MO2's right pane), skipping any not in
+`Data`, with `FalloutNV.esm` first. The home's `plugins.txt` is then not read or written.
+Without the hook, or without MO2's header, nothing changes. Player guide:
+docs/mod-organizer-2.md.
 
 On the first start of the new home, the settings and saves of the earlier home
 (`%LOCALAPPDATA%\NVForever`, builds before 2026-10-16) are **copied** over once (the old
