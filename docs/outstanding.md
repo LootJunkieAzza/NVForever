@@ -78,7 +78,10 @@ how quests run, the rest are guessed constants and looks to compare in the game.
   (stage conditions, timers, reputation tolerances, `ref` handling, disabled references,
   Return, script packages).
 - Script stubs and the function audit: ResetAI and procedure codes, SetPackDuration,
-  SetActorsAI; package durations (about 358 packages restart every duration).
+  SetActorsAI; package durations (about 358 packages restart every duration). The
+  gecko captures contradict that rule: a duration ended a package only once its goal was
+  done, and the next choice came from the top of the list [observed 2026-10-18; the
+  reading is a hypothesis; owner-review "Package durations"].
 - EnablePlayerControls: a number left out now gives that control back.
 - Dialogue: Info Connection's shared lines, the end of a Random pool, actors without a
   greeting; whether walking away or an attack ends a conversation; force-greets; a generic

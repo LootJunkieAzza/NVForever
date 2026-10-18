@@ -123,7 +123,7 @@ This note was written from the readings the coordinator relayed, not from the ra
 It claims no more than those readings give. In the `ai` field the values are in this
 order: package, type, procedure, …, x, y, z, heading.
 
-**Still pending.** The gecko rerun (item 7) and the second round's jobs (§5).
+**Still pending.** The second round's jobs (§5).
 
 ### Settled
 
@@ -280,6 +280,28 @@ order: package, type, procedure, …, x, y, z, heading.
       package of its list. That suggests Once Per Day resets at midnight [hypothesis].
     - **A rerun was running.** It puts the player two cells away (`cow WastelandNV
       -15 -6`), with no faction change.
+  - **`geckos_package_chain` rerun: complete.**
+    - **The run.** It ran 14 game hours from 17:00, about 2,100 samples per gecko, with
+      the player two cells away and never in combat. The capture restarted once (at
+      about 15:21 real time) with no gap in the samples.
+    - **Both geckos: patrol.** They held the patrol package (VCrGeckoPatrolRunningLinkedRef:
+      3 h, no hour, Once Per Day) from 17:04 to 01:01. That is about **8 h on a 3 h
+      duration**.
+    - **Gecko 0x0016518B.** It ran FindFood (2 h) from 01:01, procedure ACQUIRE, which
+      reached DONE at 02:01. It went back to the patrol at 03:01, exactly 2 h after
+      FindFood began. It did **not** go to FindFood02, the next entry of its list.
+    - **Gecko 0x0016518C.** It ran FindFood from 01:01, with WANDER and ACQUIRE
+      alternating, and was still on it at the end (about 05:00 or later). That is over
+      4 h on a 2 h duration.
+    - **Reading [hypothesis].** A package's duration ended FindFood only once its goal had
+      been met (procedure DONE). It ended neither the patrol nor a find that never
+      completed. After a package ends, the choice starts again from the top of the list
+      (the first eligible package), not at the next entry.
+    - **Midnight not confirmed.** The switch came at 01:01, not 00:00, so this does not
+      confirm a midnight reset of Once Per Day.
+    - **What it bears on.** Our rule that a list package with a duration and no start hour
+      ends after it, so that about 358 packages restart every duration
+      (docs/outstanding.md §3). The runtime is unchanged.
 - **od_22 retry (`nvfstrip`): not settled.** Ralph's dialogue never opened (the wait at
   step 17 timed out every round), and every screenshot failed with "cannot create a
   bitmap", as in od_21. The second round's `open_dialogue` closes a message box first;

@@ -4610,11 +4610,22 @@ Skip Fallout Behavior without the aggro flag) is the first package of their list
 duration without a starting hour was ignored: the package ran all day, so the next one,
 which allows aggro, never came.
 
-**Contradicted by a capture, not settled (2026-10-18 [observed]):** both geckos held the
-patrol package (3 h duration, no start hour, Once Per Day) for 4.7 game hours and never
-moved on to FindFood02. A silent restart of the same package is not ruled out, and the
-player was in their way after that. The rule below stays until the gecko rerun reports
-(spec-notes/owner-decision-captures.md §4); the runtime is unchanged.
+**Contradicted by captures (2026-10-18 [observed]):** the rule below does not hold as
+written.
+- **First run.** Both geckos held the patrol package (3 h duration, no start hour, Once
+  Per Day) for 4.7 game hours.
+- **Rerun, with the player two cells away.**
+  - Both geckos held the patrol for about 8 h, from 17:04 to 01:01.
+  - Then both took FindFood, the **first** package of their list, not FindFood02, the
+    next one.
+  - One gecko's find reached DONE at 02:01 and it went back to the patrol at 03:01,
+    exactly 2 h after FindFood began. The other's find never completed, and it ran over
+    4 h on its 2 h duration.
+- **Reading [hypothesis].** A duration ends a package only once its goal is met (DONE).
+  When a package ends, the choice starts again from the top of the list.
+- **What it bears on.** The "restart every duration" behaviour of about 358 packages
+  (outstanding.md §3).
+- **Status.** The runtime is unchanged until the owner rules (spec-notes/owner-decision-captures.md §4).
 
 **Fix.** A list package with a duration and no starting hour now ends that many game
 hours after the actor chose it, the same way a SetPackDuration time ends (#250's
@@ -4655,8 +4666,8 @@ scenario. Whether a warning count should survive a short loss of sight is the ow
 *Check in game:* stand at the owner's spot near the two geckos (-65828, -23929) at about
 17:00 and wait 14 hours: they patrol off after about 2 hours and come back to sandbox
 after about 10, then warn when the player is within 650 units. (The observer session
-`geckos_package_chain` from `nvftest`, 2026-10-18: the patrol ran 4.7 h, past its 3 h,
-see "Contradicted" above; a rerun with the player two cells away is pending (spec-notes/owner-decision-captures.md §4).) Smoke
+`geckos_package_chain` from `nvftest`, 2026-10-18, and its rerun: the patrol ran 4.7 h
+and then 8 h on its 3 h duration; see "Contradicted" above.) Smoke
 `package-duration-geckos`.
 
 ## Aggro warnings that outlast a short loss of sight (2026-10-13, coordinator)
