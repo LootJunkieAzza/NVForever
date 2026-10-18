@@ -60,6 +60,11 @@ pub const ESSENTIAL_UP_HEALTH: f64 = 0.5;
 /// Seconds of game time a knockdown (PushActorAway, an explosion) keeps an actor down
 /// [design: no setting in the data names it].
 pub const KNOCKDOWN_DOWN: f64 = 3.0;
+/// Seconds the player lies knocked down before getting up: from the push until the
+/// character is stood up for the get-up clip [observed: capture `kd_player_knockdown`
+/// 2026-10-18, PushActorAway force 10, about 8 samples of 0.30 s in both views,
+/// docs/spec-notes/unconscious.md §5.4].
+pub const PLAYER_KNOCKDOWN_DOWN: f64 = 2.4;
 /// Game units a second of the body's start velocity per point of PushActorAway's force
 /// (the wiki calls it a "Havok force") [design: the shipped scripts use 1 to 20].
 pub const PUSH_SPEED: f32 = 30.0;
@@ -353,7 +358,7 @@ impl Game<'_> {
             let rises = match k.cause {
                 Cause::Fatigue => now - k.at + 1e-9 >= FATIGUE_DOWN,
                 Cause::Essential => now - k.at + 1e-9 >= ESSENTIAL_DOWN,
-                Cause::Pushed | Cause::KnockedDown => now - k.at + 1e-9 >= KNOCKDOWN_DOWN,
+                Cause::Pushed | Cause::KnockedDown => now - k.at + 1e-9 >= if r == FormId::PLAYER_REF { PLAYER_KNOCKDOWN_DOWN } else { KNOCKDOWN_DOWN },
             };
             // SetUnconscious holds a lying actor down until it is cleared [hypothesis:
             // the thugs that fake death, SCPT 0x00118A77, push their actor down, set it

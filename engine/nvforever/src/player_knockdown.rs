@@ -6,11 +6,12 @@
 //!   [`Corpse`], as for a death, `death_cam.rs`) and thrown with the knockdown's velocity
 //!   (`Game::take_shove`); `player_body.rs` leaves the body to the ragdoll meanwhile
 //!   ([`PlayerKnockdown::ragdolled`]). A push while the body lies shoves it again.
-//! - **The view**: in third person, and in first person too, where the view goes to third
-//!   person for the knockdown and back to first person once the player is up [hypothesis:
-//!   the original's first-person knockdown, capture job `od_player_knockdown`]. The camera
-//!   keeps its place against the body's chest, easing after it, and looks at it; in front
-//!   of walls as the death camera's (`death_cam.rs`).
+//! - **The view** [observed: capture `kd_player_knockdown` 2026-10-18, unconscious.md
+//!   §5.4]: while the body flies and lies the camera stays exactly where it was when the
+//!   player fell, not turning: at the eye in first person, which then shows the body from
+//!   outside (the view leaves first person), and where the third-person camera was in third
+//!   person. For the getting up the view is the third-person camera behind the player (in
+//!   first person too), and a first-person view comes back once the player stands.
 //! - **Controls**: all held from the fall until the get-up clip is over
 //!   (`nvf_play::script::ScriptState::locks`).
 //! - **Lying**: the side the body lies on (the knocked-out NPCs' rule, `knockouts.rs`) is
@@ -27,14 +28,10 @@
 //!   controls held until the knockdown's time is over.
 //! - The player killed while down: the death camera takes over (`death_cam.rs`).
 //!
-//! The camera's distance and easing are [design]; how the original's camera behaves
-//! during a knockdown is not in our notes (capture job `od_player_knockdown`).
-//!
 //! Log lines: `player knockdown: the player falls (…)`, `player knockdown: the player gets
 //! up face up|down …`, `player knockdown: laid over the ragdoll: …`, `player knockdown:
 //! the player is up …`.
 
-use crate::death_cam::{bone_world, clear, place_of, smoothstep, FOLLOW, LOOK_IN};
 use crate::limbs::ActorRig;
 use crate::player_body::PlayerBody;
 use crate::ragdoll::{Corpse, PlayerRig, Ragdolls};
@@ -48,20 +45,12 @@ use nvf_play::player::Player;
 use nvf_play::script::ScriptState;
 use nvf_play::{space, PlayerCamera};
 
-/// Where the camera goes when the knockdown starts in first person: this far behind the
-/// chest and this far above it, game units [design: about the third-person camera's
-/// place].
-pub const FIRST_BACK: f32 = 170.0;
-pub const FIRST_UP: f32 = 60.0;
 /// Real seconds the getting up may take at most before the game is told it is over
 /// anyway (a clip that never started) [design: the clips last 2 s].
 pub const RISE_MAX: f32 = 4.0;
 /// The get-up idles, by side (face up, face down) [observed: FalloutNV.esm IDLE records,
 /// unconscious.md §1].
 pub const GETUP_IDLES: [&str; 2] = ["GetUpFaceUp", "GetUpFaceDown"];
-
-/// The bones the camera looks at, in order of preference.
-const BODY_BONES: [&str; 3] = ["Bip01 Spine1", "Bip01 Spine", "Bip01 Pelvis"];
 
 /// The player's knockdown on screen.
 #[derive(Resource, Default)]
@@ -92,10 +81,8 @@ struct Down {
     phase: Phase,
     /// Real seconds since the fall.
     real: f32,
-    /// The camera: its offset from the bone it looks at, the turn it had, and its last
-    /// place.
-    view: Option<(usize, Vec3, Quat, f32)>,
-    last: Option<Transform>,
+    /// The camera as it was when the player fell: it stays there while the body lies.
+    held: Option<Transform>,
     /// The side the body was seen lying on.
     face_up: Option<bool>,
 }
@@ -167,7 +154,7 @@ fn watch(
     data: Option<Res<GameData>>,
     mut ragdolls: ResMut<Ragdolls>,
     (mut phys, mut player, death): (Option<ResMut<PhysState>>, ResMut<Player>, Res<crate::death_cam::DeathCam>),
-    globals: Query<&GlobalTransform>,
+    (globals, cams): (Query<&GlobalTransform>, Query<&Transform, With<PlayerCamera>>),
     mut kd: ResMut<PlayerKnockdown>,
     mut pushes: MessageWriter<nvf_play::combat::ActorPush>,
 ) {
@@ -221,7 +208,7 @@ fn watch(
             "player knockdown: the player falls ({}, {} person{}){}",
             k.cause.name(),
             if was_first { "first" } else { "third" },
-            if was_first && body.is_some() { ", the view goes to third person" } else { "" },
+            if was_first && body.is_some() { ", the view leaves first person" } else { "" },
             match (&body, shove) {
                 (Some(_), Some(v)) => format!(": ragdoll thrown at ({:.0}, {:.0}, {:.0}) units/s", v[0], v[1], v[2]),
                 (Some(_), None) => ": ragdoll".into(),
@@ -229,7 +216,9 @@ fn watch(
             }
         );
         kd.shown += 1;
-        kd.down = Some(Down { was_first: was_first && body.is_some(), body, phase: Phase::Lying, real: 0.0, view: None, last: None, face_up: None });
+        // The camera as the player fell (the eye in first person): it stays there.
+        let held = cams.single().ok().copied();
+        kd.down = Some(Down { was_first: was_first && body.is_some(), body, phase: Phase::Lying, real: 0.0, held, face_up: None });
         return;
     }
     let d = kd.down.as_mut().expect("checked");
@@ -330,48 +319,17 @@ fn watch(
     }
 }
 
-/// Hold the camera on the knocked-down player's body.
-#[allow(clippy::too_many_arguments)]
-fn follow(
-    real: Res<Time<Real>>,
-    mut kd: ResMut<PlayerKnockdown>,
-    player: Res<Player>,
-    body: Res<PlayerBody>,
-    mut phys: ResMut<PhysState>,
-    globals: Query<&GlobalTransform>,
-    transforms: Query<&Transform, Without<PlayerCamera>>,
-    mut cams: Query<&mut Transform, With<PlayerCamera>>,
-) {
+/// While the body lies, hold the camera where it was when the player fell (see the
+/// module notes); while the player gets up, leave it to the third-person camera.
+fn follow(mut kd: ResMut<PlayerKnockdown>, mut cams: Query<&mut Transform, With<PlayerCamera>>) {
     let Some(d) = kd.down.as_mut() else { return };
-    let Ok(mut t) = cams.single_mut() else { return };
-    // The ragdoll's rig while it lies, the body's own while it gets up.
-    let rig = d.body.as_ref().map(|(_, r)| r.clone()).or_else(|| body.third_rig().map(|(_, r)| r));
-    let Some(rig) = rig else { return };
-    let Some(bone) = BODY_BONES.iter().find_map(|n| rig.skel.by_name.get(*n).copied()) else { return };
-    let Some((chest, _)) = bone_world(&rig, bone, &globals, &transforms).map(|a| place_of(&a)) else { return };
-    if d.view.is_none() {
-        let offset = if d.was_first {
-            // From inside the head: behind the player and above, as the third-person
-            // camera would be.
-            let back = Vec2::new(player.heading.sin(), player.heading.cos()) * -FIRST_BACK;
-            space::to_bevy([back.x, back.y, FIRST_UP]) - space::to_bevy([0.0; 3])
-        } else {
-            t.translation - chest
-        };
-        d.view = Some((bone, offset, t.rotation, d.real));
+    if !matches!(d.phase, Phase::Lying) {
+        return;
     }
-    let Some((_, offset, from, since)) = d.view else { return };
-    let at = clear(&mut phys, chest, chest + offset);
-    let look = Transform::from_translation(at).looking_at(chest, Vec3::Y).rotation;
-    let want = Transform::from_translation(at).with_rotation(from.slerp(look, smoothstep((d.real - since) / LOOK_IN)));
-    let k = 1.0 - (-real.delta_secs() * FOLLOW).exp();
-    let out = match d.last {
-        Some(l) => Transform { translation: l.translation.lerp(want.translation, k), rotation: l.rotation.slerp(want.rotation, k).normalize(), scale: Vec3::ONE },
-        None => want,
-    };
-    if out.translation.is_finite() && out.rotation.is_finite() {
-        d.last = Some(out);
-        *t = out;
+    let Ok(mut t) = cams.single_mut() else { return };
+    match d.held {
+        Some(h) => *t = h,
+        None => d.held = Some(*t),
     }
 }
 

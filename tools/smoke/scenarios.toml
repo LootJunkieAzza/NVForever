@@ -4661,8 +4661,8 @@ expect = [
 
 [[scenario]]
 name = "knockdown-player"
-source = "playthrough blocker row 1's leftover (docs/outstanding.md): the player knocked down by PushActorAway drops as a ragdoll, the view goes from first to third person, the controls are held, the get-up idle plays and the view and the controls come back (docs/spec-notes/unconscious.md §5.4)"
-note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 14 s; at 16 s the console has him push the player with force 10 and reads the player's GetKnockedState (0 for a pushed actor); the player lies 3 s of game time (a design value), gets up with GetUpFaceUp or GetUpFaceDown and is in first person again"
+source = "playthrough blocker row 1's leftover (docs/outstanding.md): the player knocked down by PushActorAway drops as a ragdoll, the view leaves first person, the controls are held, the get-up idle plays and the view and the controls come back (docs/spec-notes/unconscious.md §5.4)"
+note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 14 s; at 16 s the console has him push the player with force 10 and reads the player's GetKnockedState (0 for a pushed actor); the player lies 2.4 s (PLAYER_KNOCKDOWN_DOWN, observed in the original), the camera held where the eye was; gets up with GetUpFaceUp or GetUpFaceDown seen from the third-person camera, and is in first person again"
 areas = ["combat", "knockouts", "player", "camera"]
 paths = [
   "crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/awareness.rs", "engine/nvforever/src/player_knockdown.rs", "engine/nvforever/src/player_body.rs",
@@ -4680,7 +4680,7 @@ order = [[
 ]]
 expect = [
   { re = 'knockout: .*\b(0x)?00000014 knocked down \(pushed\)', label = "the rules knock the player down" },
-  { re = 'player knockdown: the player falls \(pushed, first person, the view goes to third person\): ragdoll thrown at \(-?\d+, -?\d+, \d+\) units/s', label = "the body is thrown as a ragdoll and the view goes to third person" },
+  { re = 'player knockdown: the player falls \(pushed, first person, the view leaves first person\): ragdoll thrown at \(-?\d+, -?\d+, \d+\) units/s', label = "the body is thrown as a ragdoll and the view leaves first person" },
   "player controls: all held, the player is knocked down",
   { re = 'console: GetKnockedState on player >> 0\.00\b', label = "GetKnockedState reads 0 for the pushed player" },
   { re = 'player knockdown: the player gets up face (up|down) [\d.]+ s after the fall \(GetUpFace(Up|Down)\)', label = "the get-up idle of the side the body lies on" },

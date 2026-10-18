@@ -167,7 +167,7 @@ impl Plugin for DeathCamPlugin {
     }
 }
 
-pub(crate) fn smoothstep(x: f32) -> f32 {
+fn smoothstep(x: f32) -> f32 {
     let x = x.clamp(0.0, 1.0);
     x * x * (3.0 - 2.0 * x)
 }
@@ -283,7 +283,7 @@ pub(crate) fn watch(
 /// The world transform of bone `i` of `rig`: its root's, then the local transforms down
 /// to it (the ragdoll wrote them this frame; the root stands still once the player is
 /// dead).
-pub(crate) fn bone_world(rig: &ActorRig, i: usize, globals: &Query<&GlobalTransform>, transforms: &Query<&Transform, Without<PlayerCamera>>) -> Option<Affine3A> {
+fn bone_world(rig: &ActorRig, i: usize, globals: &Query<&GlobalTransform>, transforms: &Query<&Transform, Without<PlayerCamera>>) -> Option<Affine3A> {
     let mut chain = Vec::new();
     let mut cur = Some(i);
     while let Some(n) = cur.filter(|&n| n > 0 && chain.len() < 256) {
@@ -298,13 +298,13 @@ pub(crate) fn bone_world(rig: &ActorRig, i: usize, globals: &Query<&GlobalTransf
 }
 
 /// The place and turn (no scale) of a world transform.
-pub(crate) fn place_of(a: &Affine3A) -> (Vec3, Quat) {
+fn place_of(a: &Affine3A) -> (Vec3, Quat) {
     let (_, r, t) = a.to_scale_rotation_translation();
     (t, r.normalize())
 }
 
 /// `to`, or short of it in front of what lies between `from` and it (Bevy space).
-pub(crate) fn clear(phys: &mut PhysState, from: Vec3, to: Vec3) -> Vec3 {
+fn clear(phys: &mut PhysState, from: Vec3, to: Vec3) -> Vec3 {
     let d = to - from;
     let len = d.length();
     if len < 1e-3 {

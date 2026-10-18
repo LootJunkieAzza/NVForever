@@ -255,12 +255,14 @@ rules), `engine/nvforever/src/player_knockdown.rs` (on screen), `engine/nvf-play
 4. **The body**: the third-person rig drops as its ragdoll, thrown with the knockdown's
    velocity, as the dead player's does (`death_cam.rs`); a push while it lies shoves it
    again; the side it comes to rest on is told to the game (IsFacingUp, §4's rule).
-5. **The view**: in third person the camera keeps its place against the body's chest and
-   turns to look at it, easing after it and kept in front of walls (the death camera's
-   rule). In first person the view goes to third person for the knockdown (the camera 170
-   units behind and 60 above the chest) and back to first person when the player is up
-   [hypothesis: the original's first-person knockdown; capture job `kd_player_knockdown`].
-6. **Getting up**: when the rules' knockdown time is over (`KnockOut::rising`) the ragdoll
+5. **The view** [observed: the second run below]: while the body flies and lies, the
+   camera stays exactly where it was when the player fell and does not turn: at the eye in
+   first person (the view leaves first person: the body is drawn whole and seen from
+   there), where the third-person camera was in third person. For the getting up the view
+   is the ordinary third-person camera behind the player, in first person too; a
+   first-person view comes back once the get-up clip is over.
+6. **Getting up**: after `PLAYER_KNOCKDOWN_DOWN` = 2.4 s [observed; NPCs keep
+   `KNOCKDOWN_DOWN`, 3 s, design] (`KnockOut::rising`) the ragdoll
    leaves the world, the character stands on the ground under the ragdoll's pelvis, and the
    IDLE `GetUpFaceUp` or `GetUpFaceDown` (§1) is asked for on the player as PlayIdle would
    (`Game::ask_idle`), so `idles.rs` plays its clip on the third-person body. Two frames
@@ -272,16 +274,15 @@ rules), `engine/nvforever/src/player_knockdown.rs` (on screen), `engine/nvf-play
 7. **Death while down**: the death camera takes over (its own ragdoll drop).
 
 Log lines: `player knockdown: the player falls (<cause>, <first|third> person[, the view
-goes to third person]): ragdoll thrown at (x, y, z) units/s`, `player knockdown: the player
+leaves first person]): ragdoll thrown at (x, y, z) units/s`, `player knockdown: the player
 gets up face up|down <s> s after the fall (<idle>)`, `player knockdown: laid over the
 ragdoll: turned <deg>°, moved <n> units`, `player knockdown: the player is up <s> s after
 the fall; the controls[ and the first-person view] are theirs again`, and at exit `player
 knockdown: <n> knockdown(s) shown, <n> get-up clip(s)`. Smoke: `knockdown-player`,
 `knockdown-player-third`.
 
-Not known (capture job `tools/capture/jobs/kd_player_knockdown.steps.json`, nvfstrip):
-whether the original's view leaves first person, where its camera goes, how long the
-player lies and how long the get-up takes.
+Capture job `tools/capture/jobs/kd_player_knockdown.steps.json` (nvfstrip): the
+original's view, camera and timing.
 
 First run of the job (2026-10-18, attended, output `kd_player_knockdown.1792356303.jsonl`)
 [observed]: the first-person trial is void: the game window was not in front (every
@@ -295,3 +296,26 @@ what a pushed actor reads (§5.1). So the numbers neither show nor rule out the 
 reference may stay with the character while the body is a ragdoll. Nothing was fitted from
 them; §5.4's camera and timing stay [hypothesis] until a run with pictures, with the game
 window in front for the whole job.
+
+Second run (2026-10-18, attended, the game in front throughout; output
+`kd_player_knockdown.1792356663.jsonl`, 98 screenshots in `C:\fnv-private\capture\shots`)
+[observed]. Samples are 0.30 s apart (the screenshots' clock: 27 samples in 8 s).
+
+- **First person**: the save opened in conversation with a Securitron, so the push took
+  effect when it closed (sample 10). From then the picture is no longer first person: the
+  player's legs fill sample 10, the whole body is seen in the air beside a wall at 14 and
+  lying at the bottom edge at 16–17, all from one camera place and direction (samples 11
+  to 17 show the same view), at about eye height where the player stood. At sample 18
+  (8 samples, about 2.4 s after the push) the player reference turned to a new heading
+  (197.7° → 38.3°) and stopped moving, and the view became the third-person camera
+  behind it: the body lies face down in front at 18–21, rises at 22–24 and stands at 25–26
+  (about 2.1 s, the 2 s clip); at 27 the view is first person again.
+- **Third person**: the body was thrown from sample 00; samples 01 to 08 show one camera
+  place and direction (the body leaves the picture); the heading changed at 08 (0° →
+  7.2°), the camera shifted with it at 09, and the body is seen rising at 11–14 and
+  standing at 16–17 from the ordinary camera behind it; normal from 20.
+- **Time down**: about 2.4 s from the push to the heading change in both trials; the
+  player reference stopped moving one or two samples before it.
+- **Distance**: the player reference moved about 50 units (first) and 25 (third), but not
+  away from the can (§ the first run); the body flew farther than the reference in the
+  pictures. Not fitted: `PUSH_SPEED` stays a guess.

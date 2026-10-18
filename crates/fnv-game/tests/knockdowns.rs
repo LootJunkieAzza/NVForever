@@ -193,7 +193,10 @@ fn the_player_is_knocked_down_but_never_knocked_out() {
     assert!(!g.knock_out(me, Cause::Fatigue, None));
     assert_eq!(g.knockout(me).map(|k| k.cause), Some(Cause::Pushed));
     // Up after the knockdown's time; getting up until the engine's clip is over.
-    wait(&mut g, fnv_game::unconscious::KNOCKDOWN_DOWN + 0.5);
+    // The player's own time down [observed], shorter than an NPC's.
+    wait(&mut g, fnv_game::unconscious::PLAYER_KNOCKDOWN_DOWN - 0.3);
+    assert!(g.knockout(me).is_some_and(|k| k.lying()));
+    wait(&mut g, 0.6);
     let k = g.knockout(me).expect("getting up");
     assert!(!k.lying());
     g.finish_getting_up(me);

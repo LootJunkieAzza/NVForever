@@ -5829,17 +5829,13 @@ themselves:
 
 Playthrough blockers row 1's leftover and row 18 (docs/outstanding.md §1). What is mine:
 
-- **The player's knockdown view** (docs/spec-notes/unconscious.md §5.4): in first person
-  the view goes to third person while the player lies and gets up, and back afterwards; the
-  camera sits 170 units behind and 60 above the chest (from first person) or where the
-  third-person camera was, easing after the body and looking at it. Whether the original
-  leaves first person at all, and where its camera goes, is the capture job
-  `tools/capture/jobs/kd_player_knockdown.steps.json` (nvfstrip, one manual step to switch
-  the view). *If it looks wrong*: say which view the original keeps.
-- **The player's knockdown timing**: down for the NPCs' 3 s (`KNOCKDOWN_DOWN`), then the
-  game's `GetUpFaceUp`/`GetUpFaceDown` idle (2 s); controls held throughout, enemies may
-  keep attacking (a knocked-out NPC is dropped as a target; a knocked-down player is not).
-  The player sitting or talking is not knocked down.
+- **The player's knockdown view and timing**: now from the capture `kd_player_knockdown`
+  (unconscious.md §5.4, second run) [observed]: the camera stays where it was while the
+  body flies and lies (at the eye in first person, so the view leaves first person), the
+  player lies about 2.4 s (`PLAYER_KNOCKDOWN_DOWN`), gets up seen from the third-person
+  camera, and a first-person view comes back once standing. Still mine: NPCs keep 3 s down,
+  controls are held throughout, enemies may keep attacking a downed player, and the
+  player sitting or talking is not knocked down; the push's distance is not fitted.
 - **Navmesh switches**: an actor walking a way over a navmesh a script disables plans
   again from where it stands (its package taken up afresh), and sets the package aside
   when there is no way round. The wiki says the original's EnableNavMesh/DisableNavmesh
