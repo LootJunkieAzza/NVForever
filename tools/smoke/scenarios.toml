@@ -2516,6 +2516,62 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-flamer-reach"
+source = "owner request 2026-10-18: NPCs fired out of range; Cook-Cook fired his flamer from cover as soon as the player was in sight (docs/design/combat-ai.md §16)"
+note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer: max range 650, its flame 640) is set on the player about 1,700 units away at 3 s, god mode, run on his packages: he holds fire beyond 640 units, closes in and fires once within it. The other Fiends of the camp are not run on their packages; any gunman among them holds fire beyond its reach too (the summary counts every fighter)"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F5704:player" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
+run_seconds = 45
+expect = [
+  { re = 'npc combat: FiendCookCookRef \S+ fights the player with WeapFlamer \(gun\)', label = "Cook-Cook fights with his flamer" },
+  { re = 'FiendCookCookRef: (runs|walks) at the player', label = "he closes in" },
+  { re = 'npc gun reach summary: .*? (?P<n>\d+) shots beyond it', range = [0, 0], label = "no shot beyond a gun's reach in the summary" },
+  { re = 'npc gun reach summary: held fire (?P<n>\d+) times at a target beyond reach', range = [1, 1000], label = "fire held beyond reach in the summary" },
+]
+order = [[
+  { re = 'npc combat: FiendCookCookRef \S+ holds fire: the player is beyond its weapon.s reach \((?P<n>\d+) units, reach 640\)', range = [641, 5000], label = "he holds fire from afar" },
+  { re = 'npc combat: FiendCookCookRef \S+ has the player in reach \((?P<n>\d+) units, reach 640\)', range = [0, 640], label = "then has the player within his flame's reach" },
+  { re = 'attack anims: 000F5704 plays \S*2hhattackspin2?\.kf', label = "then fires" },
+]]
+
+[[scenario]]
+name = "combat-shotgun-reach"
+source = "owner request 2026-10-18: a shotgun wants to be closer than a sniper rifle (docs/design/combat-ai.md §16)"
+note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897) is given and made to equip a hunting shotgun (WeapNVHuntingShotgun: max range 600) and set on the player about 3,000 units away at 4 s, god mode: she holds fire beyond 600 units, closes in and fires within it. Pair: combat-sniper-reach"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:FiendVioletRef:AddItem:WeapNVHuntingShotgun:1,3.5:call:FiendVioletRef:EquipItem:WeapNVHuntingShotgun,4:combat:FiendVioletRef:player" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 60
+expect = [
+  { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapNVHuntingShotgun \(gun\)', label = "Violet fights with the shotgun" },
+  { re = 'FiendVioletRef: (runs|walks) at the player', label = "she closes in" },
+  { re = 'npc gun reach summary: .*? (?P<n>\d+) shots beyond it', range = [0, 0], label = "no shot beyond a gun's reach in the summary" },
+]
+order = [[
+  { re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyond its weapon.s reach \((?P<n>\d+) units, reach 600\)', range = [601, 5000], label = "she holds fire from afar" },
+  { re = 'npc combat: FiendVioletRef \S+ has the player in reach \((?P<n>\d+) units, reach 600\)', range = [0, 600], label = "then has the player within the shotgun's reach" },
+]]
+
+[[scenario]]
+name = "combat-sniper-reach"
+source = "owner request 2026-10-18: a sniper rifle hangs back where a shotgun closes in (docs/design/combat-ai.md §16)"
+note = "as combat-shotgun-reach with a sniper rifle (WeapSniperRifle: max range 3548): about 3,000 units away the player is within its reach, so she fires from afar (down the sights) and never holds fire for the distance; she stops at most 2,500 units off"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:FiendVioletRef:AddItem:WeapSniperRifle:1,3.5:call:FiendVioletRef:EquipItem:WeapSniperRifle,4:combat:FiendVioletRef:player" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 45
+expect = [
+  { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapSniperRifle \(gun\)', label = "Violet fights with the sniper rifle" },
+  { re = 'FiendVioletRef 0x000F570B aims down the sights, its target (?P<n>[\d,]+) units away', range = [1800, 3548], label = "she fires from afar, down the sights" },
+  { re = 'npc gun reach summary: .*? (?P<n>\d+) shots beyond it', range = [0, 0], label = "no shot beyond a gun's reach in the summary" },
+]
+forbid = [{ re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyond its weapon.s reach', label = "she holds fire for the distance" }]
+
+[[scenario]]
 name = "npc-flamer-holstered"
 source = "owner 2026-10-16: an NPC's holstered flamer should show its tank on the back and no gun in the hand, as the player's minigun does (animation.md §9.7)"
 note = "free camera behind Cook-Cook (000F5704), weapons holstered; screenshots of this view showed the tank on his back and empty hands, and with --actor-weapons drawn the flamer in both hands with the tank still on the back"

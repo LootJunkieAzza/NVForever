@@ -5632,3 +5632,41 @@ down too (GetKnockedState 2). Guesses to check against the game:
 - **A pushed actor can be searched** (E opens its inventory) until it begins to get up, as
   the wiki says; an explosion's knockdown cannot be searched [hypothesis: the note names
   only pushes].
+
+## Gun reach: no shots out of range, a distance per weapon (2026-10-18, branch claude/gun-reach)
+
+Owner request 2026-10-18 (Cook-Cook firing his flamer from cover as soon as the player is
+in sight; shotguns closer than sniper rifles, launchers clear of their blast). Rules in
+docs/design/combat-ai.md §16; smoke `combat-flamer-reach`, `combat-shotgun-reach`,
+`combat-sniper-reach`. What is decided and what to check:
+
+- **No shot beyond the weapon's reach** is the GECK wiki's rule for Max Range
+  [documented]. The reach is the WEAP Max Range times the combat style's Ranged Weapon Max
+  Range Mult, cut to the projectile's Range (the flamer: 650 cut to its flame's 640).
+  *Check:* Cook-Cook's camp from the south ridge (about 1,700 units): he should only run
+  at you, not fire, until about 6 m away.
+- **Where each weapon stops** is unchanged in shape (80 % of its reach, 400 to 2,500
+  units), with two guesses: it never stops beyond 90 % of its reach (`GUN_REACH_EDGE`),
+  and a gun with an explosive projectile stops at least its blast radius + 64 units away
+  (`BLAST_MARGIN`; Fat Man 1,764, missile launcher 1,229). A sniper rifle still stops at
+  2,500 (the old cap; its reach is 3,548). *Check:* does 2,500 feel too close for
+  snipers, and are shotgunners (480) close enough?
+- **No shot into its own blast** (a launcher with the target nearer than its explosion's
+  radius) and **a step back from it** (from the radius + 64 instead of 256 units): my
+  design; it does not switch weapons (weapon choice is not built). A missile trooper you
+  rush will back away and not fire. *Check:* whether you'd rather they fire anyway when
+  cornered.
+- **Leaving cover**: a gunman at its cover whose target is beyond its reach leaves the
+  cover and closes in, and does not take that cover again; cover is now looked for within
+  its reach less 64 units (the peek point is past the edge). *Check:* Cook-Cook no longer
+  shoots at you from cover while you are far off.
+- **Min Range** stays unused (it is not a back-off distance; §12.6).
+- Not done: other ammo's projectiles (an NPC's reach is its default ammo's); on a cliff
+  the shot's distance can be beyond reach while the flat distance is not, so a gunman can
+  stand silent there.
+- **Capture** (not run): observer campaign `tools/capture/observe/gun_reach.campaign.json`
+  (an NCR trooper with a flamer from 1,600 units, a shotgun from 1,600, a sniper rifle from
+  2,400, a missile launcher from 600; the save nvftest) shows the original's first-shot
+  distance and stopping distance for each, to compare with these numbers. The campaign's
+  `place` items now take `ammo` (500 rounds), since a gunman without ammunition does not
+  fire in the original.

@@ -10,6 +10,15 @@
 //! - **How near it has to be** ([`engage`]), told to the AI that moves actors
 //!   (`Awarenesses::engage`, `fnv_ai::alert` closes in): a gun's useful range, a melee
 //!   weapon's or creature's reach [design].
+//! - **A gun's reach** ([`gun_reach`], docs/design/combat-ai.md §16): its max range
+//!   (WEAP DNAM) times its style's Ranged Weapon Max Range Mult, never beyond its
+//!   projectile's range (PROJ: a flamer's flame goes 640 units). It does not fire at a
+//!   target beyond that ("Actors outside this range will not fire their weapon until
+//!   they are within distance of this value to the target" [documented: GECK wiki
+//!   Weapons]), nor with an explosive projectile at one within the explosion's radius
+//!   [design]; it leaves cover to close in on a target out of reach [design], and stops
+//!   short of it at a distance by its weapon's reach (a shotgun or flamer close, a
+//!   sniper rifle far, a launcher clear of its own blast).
 //! - **When it fires**: only while it detects and sees its target (the latest
 //!   detection of the pair: above 0, in sight), after a reaction time from the moment it
 //!   first saw it in this fight, with its weapon drawn, and a gun only facing it (within
@@ -172,6 +181,13 @@ pub const STRIKE_SECONDS: f32 = 1.2;
 pub const GUN_RANGE_SHARE: f32 = 0.8;
 pub const GUN_ENGAGE_MIN: f32 = 400.0;
 pub const GUN_ENGAGE_MAX: f32 = 2500.0;
+/// A gun never stops farther than this share of its reach ([`GunReach`]), so the
+/// lower bound above and the blast's clearance do not put it out of reach [design].
+pub const GUN_REACH_EDGE: f32 = 0.9;
+/// A gun with an explosive projectile stands at least this much beyond the explosion's
+/// radius from its target, and steps back from a target nearer than that, game units
+/// [design; docs/design/combat-ai.md §16].
+pub const BLAST_MARGIN: f32 = 64.0;
 /// Melee: within this share of the reach the actor stops closing in [design].
 pub const MELEE_ENGAGE_SHARE: f32 = 0.8;
 /// Melee: the gap between the two bodies it closes to, and the gap within which its
@@ -324,6 +340,8 @@ struct Fighter {
     hide_moves: u8,
     /// Its last melee blow's swing, for a combo (module notes).
     swing: Option<NpcSwing>,
+    /// Why its gun held fire by its reach last frame (§16), for the log.
+    range_held: Option<RangeHold>,
 }
 
 /// A fighter's last melee blow (module notes).
@@ -492,6 +510,14 @@ struct Stats {
     guards: usize,
     /// Creatures' power attacks by attack group.
     powers: BTreeMap<&'static str, usize>,
+    /// Guns' reach (§16): times a fighter held fire at a target beyond its reach and
+    /// within its blast; times it left cover to close in; the farthest shot as a share
+    /// of the gun's reach, and shots beyond it.
+    held_far: usize,
+    held_blast: usize,
+    left_cover_for_reach: usize,
+    farthest_share: f32,
+    shots_beyond: usize,
 }
 
 /// The chance (percent) of a creature's blow being a power attack where its combat style
@@ -573,13 +599,87 @@ pub fn creature_spacing(bodies: Option<f32>, reach: f32) -> (f32, f32) {
     ((b + MELEE_STOP_GAP).max(reach * MELEE_SPACING_SHARE), (b + MELEE_HIT_GAP).max(reach))
 }
 
-pub fn engage(arm_reach: Option<f32>, gun_max_range: Option<f32>) -> (f32, f32) {
-    match (gun_max_range, arm_reach) {
-        (Some(r), _) if r > 0.0 => {
-            let stop = (r * GUN_RANGE_SHARE).clamp(GUN_ENGAGE_MIN, GUN_ENGAGE_MAX);
-            (stop, (stop / GUN_RANGE_SHARE).min(GUN_ENGAGE_MAX / GUN_RANGE_SHARE))
+/// What a gun reaches and how near it is safe to fire (docs/design/combat-ai.md §16).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GunReach {
+    /// The farthest it fires, eyes to the target's chest; `None`: no limit in its data.
+    pub reach: Option<f32>,
+    /// Its projectile's explosion radius; 0 without one.
+    pub blast: f32,
+}
+
+/// Why a gun holds fire at a target (docs/design/combat-ai.md §16).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangeHold {
+    /// Beyond its reach.
+    Far,
+    /// Within its own explosion's radius.
+    Blast,
+}
+
+/// A gun's reach from its WEAP max range times its style's Ranged Weapon Max Range Mult
+/// (`range_mult`) [documented: GECK wiki Weapons, Combat Style], never beyond its
+/// projectile's range ("Maximum distance the projectile will fire" [documented: GECK
+/// wiki Projectile]); 0 for a range means it has none. `blast`: its projectile's
+/// explosion radius, 0 without one.
+pub fn gun_reach(max_range: f32, range_mult: f32, projectile_range: f32, blast: f32) -> GunReach {
+    let weapon = (max_range > 0.0).then_some(max_range * range_mult.max(0.0));
+    let projectile = (projectile_range > 0.0).then_some(projectile_range);
+    let reach = match (weapon, projectile) {
+        (Some(w), Some(p)) => Some(w.min(p)),
+        (w, p) => w.or(p),
+    };
+    GunReach { reach, blast: blast.max(0.0) }
+}
+
+impl GunReach {
+    /// The distance it keeps from its target for its own explosion: the radius plus
+    /// [`BLAST_MARGIN`]; 0 without one.
+    pub fn clearance(&self) -> f32 {
+        if self.blast > 0.0 {
+            self.blast + BLAST_MARGIN
+        } else {
+            0.0
         }
-        (Some(_), _) => (GUN_ENGAGE_MAX, GUN_ENGAGE_MAX / GUN_RANGE_SHARE),
+    }
+
+    /// Whether it holds fire at a target `distance` away (eyes to chest), and why.
+    pub fn holds(&self, distance: f32) -> Option<RangeHold> {
+        if self.reach.is_some_and(|r| distance > r) {
+            Some(RangeHold::Far)
+        } else if distance < self.blast {
+            Some(RangeHold::Blast)
+        } else {
+            None
+        }
+    }
+
+    /// Where it stops closing in and beyond what it closes in again (`Awarenesses::engage`):
+    /// [`GUN_RANGE_SHARE`] of its reach, within [`GUN_ENGAGE_MIN`] and
+    /// [`GUN_ENGAGE_MAX`], clear of its blast, never beyond [`GUN_REACH_EDGE`] of its
+    /// reach; it closes in again beyond the stop over the share, never beyond its reach.
+    pub fn engage(&self) -> (f32, f32) {
+        let Some(r) = self.reach else { return (GUN_ENGAGE_MAX, GUN_ENGAGE_MAX / GUN_RANGE_SHARE) };
+        let edge = r * GUN_REACH_EDGE;
+        let stop = (r * GUN_RANGE_SHARE).max(GUN_ENGAGE_MIN.min(edge)).min(GUN_ENGAGE_MAX).max(self.clearance().min(edge));
+        (stop, (stop / GUN_RANGE_SHARE).min(GUN_ENGAGE_MAX / GUN_RANGE_SHARE).min(r).max(stop))
+    }
+}
+
+/// A gun's [`GunReach`] from its data: the projectile its default ammo fires (as
+/// [`is_gun`] reads it) and that projectile's explosion.
+fn gun_reach_of(c: &Combat, id: FormId, ws: &WeaponStats, range_mult: f32) -> GunReach {
+    let chain = c.forms.chain(id, None);
+    let projectile = chain.as_ref().and_then(|ch| ch.projectile).and_then(|p| c.forms.projectiles.get(&p));
+    let blast = chain.as_ref().and_then(|ch| ch.explosion).and_then(|e| c.forms.explosions.get(&e)).map_or(0.0, |e| e.radius);
+    gun_reach(ws.max_range, range_mult, projectile.map_or(0.0, |p| p.range), blast)
+}
+
+/// An attacker's (stop, close in again beyond) distances: a gun's by its [`GunReach`],
+/// else by its melee reach (`arm_reach`, a creature's fallback without one).
+pub fn engage(arm_reach: Option<f32>, gun: Option<GunReach>) -> (f32, f32) {
+    match (gun, arm_reach) {
+        (Some(g), _) => g.engage(),
         (None, reach) => {
             let reach = reach.unwrap_or(CREATURE_REACH);
             (reach * MELEE_ENGAGE_SHARE, reach)
@@ -869,6 +969,7 @@ fn fight(
                         hiding: false,
                         hide_seen: 0.0,
                         hide_moves: 0,
+                        range_held: None,
                     },
                 );
                 // This fight's confidence modifier, not for the foolhardy; the first
@@ -975,7 +1076,7 @@ fn fight(
             // The style's Ranged Weapon Max Range Mult scales the weapon's range.
             let range_mult = style.map_or(1.0, |s| if s.range_mult.1 > 0.0 { s.range_mult.1 } else { 1.0 });
             let gun = match &arm {
-                Arm::Gun(w) => c.forms.weapons.get(w).map(|ws| ws.max_range * range_mult),
+                Arm::Gun(w) => c.forms.weapons.get(w).map(|ws| gun_reach_of(c, *w, ws, range_mult)),
                 _ => None,
             };
             let reach = reach_of(c, &arm, scale);
@@ -992,8 +1093,28 @@ fn fight(
             let sees = g.detection.get(me, target).is_some_and(|d| d.band == Band::Detected && d.seen);
             fighter.seen_for = if sees { fighter.seen_for + dt } else { 0.0 };
             let tchest = [tfeet[0], tfeet[1], tfeet[2] + (teyes[2] - tfeet[2]) * CHEST];
+            // Its gun's reach (§16): no shot at a target beyond it, nor within its own blast.
+            let shot_distance = vec::len(vec::sub(tchest, eyes));
+            let range_hold = gun.and_then(|r| r.holds(shot_distance));
+            if range_hold != fighter.range_held {
+                match (range_hold, gun) {
+                    (Some(RangeHold::Far), Some(r)) => {
+                        f.stats.held_far += 1;
+                        info!("npc combat: {me_name} holds fire: {target_name} is beyond its weapon's reach ({shot_distance:.0} units, reach {:.0})", r.reach.unwrap_or(0.0));
+                    }
+                    (Some(RangeHold::Blast), Some(r)) => {
+                        f.stats.held_blast += 1;
+                        info!("npc combat: {me_name} holds fire: {target_name} is within its weapon's blast ({shot_distance:.0} units, radius {:.0})", r.blast);
+                    }
+                    (None, Some(r)) => {
+                        info!("npc combat: {me_name} has {target_name} in reach ({shot_distance:.0} units, reach {:.0})", r.reach.unwrap_or(f32::INFINITY));
+                    }
+                    _ => {}
+                }
+                fighter.range_held = range_hold;
+            }
             // Tactics of a gunman (`combat_tactics`): cover, flank, line of fire.
-            let mut hold_fire = fleeing;
+            let mut hold_fire = fleeing || range_hold.is_some();
             if matches!(arm, Arm::Gun(_)) && !fleeing {
                 let name = &me_name;
                 let t = &mut fighter.tactic;
@@ -1029,6 +1150,12 @@ fn fight(
                     if !cv.edge.faces(tchest) || (cv.edge.mid[0] - tfeet[0]).hypot(cv.edge.mid[1] - tfeet[1]) > want.1 {
                         t.cover = None;
                         info!("npc combat: {name} gives up its cover: {target_name} is no longer behind it");
+                    } else if range_hold == Some(RangeHold::Far) && !matches!(cv.phase, Phase::Going) {
+                        // Out of reach from its cover: it leaves it to close in (§16).
+                        t.cover = None;
+                        t.bad_cover.push(cv.behind);
+                        f.stats.left_cover_for_reach += 1;
+                        info!("npc combat: {name} leaves its cover to close in on {target_name}: beyond its weapon's reach ({shot_distance:.0} units)");
                     }
                 }
                 if t.use_cover && t.cover.is_none() {
@@ -1041,7 +1168,9 @@ fn fight(
                             let radius = if radius > 0.0 { radius } else { tactics::COVER_SEARCH_DEFAULT }.min(tactics::COVER_MAX_RUN);
                             // Standing eyes: a crouched fighter looks from where it would stand.
                             let eye = (eyes[2] - feet[2]) / if crouched_now.contains(&id) { stance::CROUCH_EYE } else { 1.0 };
-                            if let Some(cv) = tactics::find_cover(nav, phys.as_deref_mut(), space, feet, tchest, eye, radius, want.1, &taken, person) {
+                            // Its peek point, past the edge, within its reach too (§16).
+                            let farthest = (want.1 - tactics::PEEK_STEP).max(want.0);
+                            if let Some(cv) = tactics::find_cover(nav, phys.as_deref_mut(), space, feet, tchest, eye, radius, farthest, &taken, person) {
                                 battle.cover_taken += 1;
                                 info!(
                                     "npc combat: {name} takes {}cover {:.0} units away, {:.0} units from {target_name} (a peek {:.0} units from it)",
@@ -1095,7 +1224,8 @@ fn fight(
                 }
                 // A step back from a target too near, before any cover or flank: it is on top of it.
                 {
-                    let within = tactics::BACK_OFF_WITHIN;
+                    // A launcher keeps clear of its own blast (§16).
+                    let within = tactics::BACK_OFF_WITHIN.max(gun.map_or(0.0, |r| r.clearance()));
                     let current = g.awareness.tactics.posts.get(&me).copied().filter(|p| p.kind == PostKind::BackOff);
                     let near = away < if current.is_some() { within + tactics::BACK_OFF_SLACK } else { within };
                     if near && !barred(t, PostKind::BackOff) {
@@ -1541,6 +1671,13 @@ fn fight(
                                 fire.write(ActorFire { shooter: me, weapon: *w, origin, aim, cone, muzzle, harmless: false });
                                 anims.write(PlayAttack { actor: id, weapon: Some(*w), melee: false, sights: fighter.sights, kind: Move::Attack, power: None, swing: None });
                                 f.stats.shots += 1;
+                                if let Some(r) = gun.and_then(|r| r.reach).filter(|r| *r > 0.0) {
+                                    let share = shot_distance / r;
+                                    f.stats.farthest_share = f.stats.farthest_share.max(share);
+                                    if share > 1.0 {
+                                        f.stats.shots_beyond += 1;
+                                    }
+                                }
                                 // Its Attack line, on its own timer (fnv_game::combat_lines).
                                 g.attack_line(me, Some(target), false, false);
                             }
@@ -1801,6 +1938,14 @@ fn report(mut exit: MessageReader<AppExit>, fighters: Res<Fighters>, stats: Opti
         s.charges,
         s.guards,
     );
+    info!(
+        "npc gun reach summary: held fire {} times at a target beyond reach, {} times within a blast; left cover {} times to close in; the farthest shot {:.0} % of its gun's reach, {} shots beyond it",
+        s.held_far,
+        s.held_blast,
+        s.left_cover_for_reach,
+        s.farthest_share * 100.0,
+        s.shots_beyond,
+    );
     if !s.powers.is_empty() {
         info!("npc power attacks summary: {}", s.powers.iter().map(|(g, n)| format!("{g} {n}")).collect::<Vec<_>>().join(", "));
     }
@@ -1871,12 +2016,60 @@ mod tests {
 
     #[test]
     fn guns_engage_within_their_range_and_melee_within_reach() {
-        assert_eq!(engage(None, Some(1000.0)), (800.0, 1000.0));
-        assert_eq!(engage(None, Some(100.0)).0, GUN_ENGAGE_MIN);
-        assert_eq!(engage(None, Some(10_000.0)), (GUN_ENGAGE_MAX, GUN_ENGAGE_MAX / GUN_RANGE_SHARE));
-        assert_eq!(engage(None, Some(0.0)).0, GUN_ENGAGE_MAX);
+        let gun = |max: f32| Some(gun_reach(max, 1.0, 10_000.0, 0.0));
+        assert_eq!(engage(None, gun(1000.0)), (800.0, 1000.0));
+        // A short gun stops at the lower bound when that is within its reach …
+        assert_eq!(engage(None, gun(480.0)), (GUN_ENGAGE_MIN, 480.0));
+        // … and never beyond the edge of its reach.
+        let (stop, resume) = engage(None, gun(100.0));
+        assert!((stop - 90.0).abs() < 1e-4 && (resume - 100.0).abs() < 1e-4);
+        assert_eq!(engage(None, gun(10_000.0)), (GUN_ENGAGE_MAX, GUN_ENGAGE_MAX / GUN_RANGE_SHARE));
+        assert_eq!(engage(None, Some(gun_reach(0.0, 1.0, 0.0, 0.0))).0, GUN_ENGAGE_MAX);
         let (stop, resume) = engage(Some(100.0), None);
         assert!((stop - 80.0).abs() < 1e-4 && (resume - 100.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_gun_reaches_its_max_range_and_its_projectile_range() {
+        // The flamer: max range 650, its flame goes 640 (FalloutNV.esm WeapFlamer,
+        // FlameProjectile [observed]).
+        let flamer = gun_reach(650.0, 1.0, 640.0, 0.0);
+        assert_eq!(flamer.reach, Some(640.0));
+        assert_eq!(flamer.holds(641.0), Some(RangeHold::Far));
+        assert_eq!(flamer.holds(640.0), None);
+        assert_eq!(flamer.engage(), (512.0, 640.0));
+        // The style's Ranged Weapon Max Range Mult scales the weapon's range.
+        assert_eq!(gun_reach(1000.0, 1.5, 10_000.0, 0.0).reach, Some(1500.0));
+        // No range in the data: no limit; a projectile range alone limits.
+        assert_eq!(gun_reach(0.0, 1.0, 0.0, 0.0).holds(1.0e6), None);
+        assert_eq!(gun_reach(0.0, 1.0, 640.0, 0.0).reach, Some(640.0));
+    }
+
+    #[test]
+    fn shotguns_close_in_rifles_hang_back() {
+        // Max ranges of FalloutNV.esm [observed]: hunting shotgun 600, sniper rifle 3548.
+        let shotgun = gun_reach(600.0, 1.0, 10_000.0, 0.0).engage();
+        let sniper = gun_reach(3548.0, 1.0, 53_000.0, 0.0).engage();
+        assert_eq!(shotgun, (480.0, 600.0));
+        assert_eq!(sniper, (GUN_ENGAGE_MAX, GUN_ENGAGE_MAX / GUN_RANGE_SHARE));
+        assert!(sniper.1 <= 3548.0);
+    }
+
+    #[test]
+    fn launchers_keep_clear_of_their_blast() {
+        // Missile launcher: max range 1536, explosion radius 1000; Fat Man 2000 and 1700
+        // (FalloutNV.esm [observed]).
+        let missile = gun_reach(1536.0, 1.0, 10_000.0, 1000.0);
+        assert_eq!(missile.holds(900.0), Some(RangeHold::Blast));
+        assert_eq!(missile.holds(1100.0), None);
+        let (stop, resume) = missile.engage();
+        assert!(stop >= missile.clearance() && resume <= 1536.0);
+        let fatman = gun_reach(2000.0, 1.0, 10_000.0, 1700.0);
+        let (stop, resume) = fatman.engage();
+        assert_eq!(stop, 1700.0 + BLAST_MARGIN);
+        assert_eq!(resume, 2000.0);
+        // A blast wider than the reach: it stops at the edge of its reach.
+        assert_eq!(gun_reach(1000.0, 1.0, 10_000.0, 1500.0).engage().0, 900.0);
     }
 
     #[test]
