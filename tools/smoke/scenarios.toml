@@ -13,6 +13,15 @@
 #   are written here. `offset` moves a member's timed test aids in a shared run.
 # - Expectation syntax: tools/smoke/smoke/expect.py. "run finished" and exit code 0 are
 #   always expected of a game run.
+# - Test-aid times: the runner sets NVF_PLAY_AIDS_FROM_SCRIPTS=1 for every `--play`
+#   launch, so the aids that act on the world (console, script steps, keys, moves, looks,
+#   controls, activate, talk, wait, hits, the menus' and games' aids, screenshots) wait
+#   until the scripts first run and are held back by as long as that start came after
+#   6.5 s (engine/nvf-play/src/pause.rs WorldAidClock; `--run-seconds` grows by as much).
+#   On an unbusy machine the times mean what they did, and a step need not sit at 14 s or
+#   later to be safe from a late start. The main menu, intro, pause menu, settings, go-to
+#   and face aids keep the time since the start. `NVF_PLAY_AIDS_FROM_SCRIPTS = "0"` in a
+#   scenario's env keeps the old clock for all of them.
 
 # `{masters}` in a tool command: the ten masters ("the masters" of the docs), in load order.
 masters = [
@@ -25,6 +34,7 @@ untimed = [
   "NVF_PLAY_TEST_SCRIPT_MENUS", "NVF_PLAY_TEST_GIVE", "NVF_PLAY_TEST_EQUIP", "NVF_PLAY_TEST_NEAR",
   "NVF_PLAY_TEST_MENU", "NVF_PLAY_TEST_BARTER", "NVF_PLAY_TEST_BARTER_DELAY", "NVF_PLAY_TEST_NO_SPREAD",
   "NVF_PLAY_TEST_GOD", "NVF_PLAY_TEST_TALK_HEAD_ONLY", "NVF_PLAY_TEST_UNSEEN",
+  "NVF_PLAY_AIDS_FROM_SCRIPTS",
 ]
 
 # Test aids whose value is a list of timed items (`<seconds>:<what>`), joined with sep.
@@ -2043,12 +2053,15 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/blockers-save-reticle implemented SystemSave, ForceSave and PlaceAtReticle (10 calls,
 # docs/spec-notes/script-saves-and-reticle.md): 41 → 38 stubs, 179 → 169 calls [observed:
 # fnvtool script stubs on the owner's masters, merged with main, 2026-10-18].
+# claude/blockers-anim-state implemented IsPlayerActionActive (2 calls, §3.13): 38 → 37
+# stubs, 169 → 167 calls [observed: fnvtool script stubs on the owner's masters, merged
+# with main 5a98cb50, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 38 },
+  { json = "summary.stubs", equals = 37 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 37 },
+  { json = "summary.by_status.needs_system", equals = 36 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 169 },
+  { json = "summary.stub_calls", equals = 167 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -4654,6 +4667,25 @@ expect = [
   { re = 'knockout: [0-9A-F]{8} is up: it may move again', label = "his get-up clip ends" },
   { re = 'knockout: Easy Pete \S+ knocked out', count = 0, label = "a knockdown is no knock-out" },
   { re = 'corner message: ".* is unconscious', count = 0, label = "no corner message for a knockdown" },
+]
+
+[[scenario]]
+name = "anim-state"
+source = "docs/outstanding.md §1 row 4: the engine tells the rules what each body does (crates/fnv-game/src/anim_state.rs, engine/nvforever/src/anim_state.rs): GetAnimAction's attacks and reloads, IsMoving's way, IsAnimPlaying of an actor's movement group"
+note = "as combat-npc-reload: Chet (GSChetRef) is given a .357 Magnum Revolver and set on the player, who cannot die (GOD). Before the fight the console reads Chet standing: IsAnimPlaying Idle 1 (observed on Sunny Smiles standing) and GetAnimAction -1; IsAnimPlaying without a group is read too, unchecked, to tell a missing snapshot (0) from another group (1) in a failing run, with the 'anim state: 00104C79 …' lines. In the fight his shots begin 2, 3 and 4 and his reloads 9 (the New Vegas codes, observed so in the AI observer's Goodsprings gunfight); the summary at exit counts how often each began"
+areas = ["combat", "scripts", "actors"]
+paths = ["crates/fnv-game/src/anim_state.rs", "engine/nvforever/src/anim_state.rs", "crates/fnv-game/src/anims.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/senses.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "14:GSChetRef.IsAnimPlaying Idle;14.15:GSChetRef.IsAnimPlaying;14.3:GSChetRef.GetAnimAction;14.6:close", NVF_PLAY_TEST_SCRIPT = "15:call:GSChetRef:AddItem:WeapNV357Revolver:1,15.5:call:GSChetRef:EquipItem:WeapNV357Revolver,16:combat:GSChetRef:player" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 56
+expect = [
+  { re = 'console: IsAnimPlaying on GSChetRef >> 1\.00', label = "Chet standing plays Idle" },
+  { re = 'console: GetAnimAction on GSChetRef >> -1\.00', label = "and does no special action" },
+  { re = 'npc combat: GSChetRef .* fights the player with WeapNV357Revolver \(gun\)', label = "Chet fights with the .357" },
+  { re = 'anim state summary: .*attack \(2\) (?P<n>\d+)', range = [6, 100000], label = "his shots begin 2" },
+  { re = 'anim state summary: .*follow-through \(3\) (?P<n>\d+)', range = [6, 100000], label = "then 3" },
+  { re = 'anim state summary: .*attack return \(4\) (?P<n>\d+)', range = [1, 100000], label = "then 4" },
+  { re = 'anim state summary: .*reload \(9\) (?P<n>\d+)', range = [1, 100000], label = "his reloads 9" },
 ]
 
 [[scenario]]

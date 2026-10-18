@@ -95,14 +95,14 @@ status = "match"
 note = "0 for Ringo towards the player [observed: probes]; no wiki page."
 
 [function.IsAnimPlaying]
-status = "wrong"
+status = "match"
 system = "animation state told to the rules"
-note = "Sunny standing read IsAnimPlaying Idle 1 [observed: probes]: the actor's own idle counts; ours counts PlayGroup groups only."
+note = "Sunny standing read IsAnimPlaying Idle 1 [observed: probes]: the actor's own idle counts; ours now reads the movement group the engine tells (Idle, Forward, FastLeft ...) after PlayGroup's (anim-state.md §3, 2026-10-18). Walking and running groups counting the same way is hypothesis."
 
 [function.IsIdlePlaying]
-status = "wrong"
+status = "match"
 system = "animation state told to the rules"
-note = "Easy Pete sitting read 1 [observed: probes]; ours 0 headless; the engine tells PlayIdle idles only."
+note = "Easy Pete sitting read 1 [observed: probes]; ours reads 1 on furniture (GetSitting or GetSleeping 3) and while the engine plays an idle (anim-state.md §3, 2026-10-18); beds are hypothesis."
 
 [function.IsInCriticalStage]
 status = "match"
@@ -182,14 +182,14 @@ system = "combat targets told to weapon scripts"
 note = "Stub; combat targets exist (awareness). Called by weapon scripts (cattle prod, boxing gloves)."
 
 [function.IsMoving]
-status = "wrong"
+status = "match"
 system = "animation state told to the rules"
-note = "Only 0/1; backward/left/right (2-4) never, though the player's move intent holds them. 0 at rest matches [observed: probes]."
+note = "The way told by the engine: the player's movement keys, an NPC's walk in its own axes, 1-4 [documented: GECK wiki IsMoving]; 0 at rest matches [observed: probes] (anim-state.md §2, 2026-10-18)."
 
 [function.IsPlayerActionActive]
-status = "wrong"
+status = "match"
 system = "animation state told to the rules"
-note = "Stub 0; 0 at rest matches [observed: probes]. The engine knows aiming (OWB asks action 9, iron sights)."
+note = "Action 9 (iron sights, not in combat [documented: GECK wiki IsPlayerActionActive]), the only one the shipped scripts ask (OWB); the other indices read 0, their list not in the wiki export (anim-state.md §4, 2026-10-18). 0 at rest matches [observed: probes]."
 
 [function.IsSpellTarget]
 status = "match"

@@ -26,7 +26,7 @@ still stubs. Saves from scripts and PlaceAtReticle are built (rows 2 and 12,
 | 1 | Knockdowns (done 2026-10-18, awaiting the game's comparison) | 64 (the intro chain among them) | Built ([unconscious](spec-notes/unconscious.md) §2, §5): knock-outs (essential, fatigue) and knockdowns (PushActorAway thrown from the source, explosions' knockdown) drop as ragdolls and get up with the game's clips; SetUnconscious holds a lying actor down until cleared and alone lays nobody down (robot pods, sleepers); a pushed actor's inventory can be searched. Left: the player is never knocked down; the push's force scale and the 3 s down are guesses (owner-review) | (none) |
 | 2 | Saves from scripts (done 2026-10-18) | 29 | Built ([script-saves-and-reticle](spec-notes/script-saves-and-reticle.md)): SystemSave writes the one system slot, ForceSave a new save as by hand; both behind the scripts' save switch | (none) |
 | 3 | Look turning the body (done 2026-10-18) | 26 | Built: with Look's rotate-body flag the whole body turns to the target until StopLook (an actor the AI runs at its walker's turn rate, a standing one on the spot with a conversation's turn; script-stubs.md §3). The rate and what the body does after StopLook are guesses (no capture of a Look) | (none) |
-| 4 | Animation state told to the rules | 22 | The engine knows attacks, reloads and idles but does not tell the rules | IsPlayerActionActive, IsAnimPlaying, IsIdlePlaying, IsMoving's directions, GetAnimAction for attacks and reloads |
+| 4 | Animation state told to the rules (done 2026-10-18) | 22 | Built ([anim state](spec-notes/anim-state.md)): the engine tells each drawn actor's and the player's body every frame; GetAnimAction answers shots (2, 3, 4), blows, reloads (9), blocks and special idles by the New Vegas codes, checked against the AI observer; IsMoving gives the way, IsAnimPlaying an actor's movement group, IsIdlePlaying an actor on furniture, IsPlayerActionActive action 9 (iron sights). Left: GetAnimAction's throw phases (5, 6) and the unexplained 17; IsPlayerActionActive's other indices (no list in the wiki export) | (none) |
 | 5 | Repair menu (done 2026-10-17) | 10 (Raul's quests among them) | Built ([repair](spec-notes/repair.md)): ShowRepairMenu opens a vendor's repair services (worn weapons and armour repaired for caps up to the vendor's skill), and the Pip-Boy's Repair (R on the ITEMS page) uses a like item or one on the item's repair list. Left: the Pip-Boy's repair list is not clickable and does not report MenuMode 1035 | (none) |
 | 6 | Barber, plastic surgeon and tutorial menus | 9 | The barber and the plastic surgeon are built: the character creator as the barber (hair, colour and beard only) and as the surgeon (face, eyes and brows only), character-creator.md §10, §11. Not built: the tutorial menu | ShowTutorialMenu |
 | 7 | Pip-Boy reset | 8 | Not built | ResetPipboyManager |
@@ -157,8 +157,11 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
   ragdoll sometimes never settles; cause open, new diagnostics log it). Several scenarios
   failed only because the scripts started late on a loaded machine and a test aid fired
   first; scenarios now put console and script steps at 14 s or later and use
-  `--no-messages` where the add-on packs' start-up boxes could get in the way. A runner-side
-  fix (aids that wait for the scripts) would remove the class.
+  `--no-messages` where the add-on packs' start-up boxes could get in the way. The
+  runner-side fix is built (2026-10-18): `--play` runs set NVF_PLAY_AIDS_FROM_SCRIPTS=1,
+  and the world test aids wait for the scripts' first frame, held back by as long as it
+  came after 6.5 s (`nvf-play` pause.rs WorldAidClock). The steps moved to 14 s only for
+  the race (barber-menu, anim-state) can go back once coordinator runs pass with it.
 - **Coordinator-run smoke**: since todo 6 (2026-10-17) worker sessions do not run the game;
   the coordinator builds each PR merged with main and runs its scenarios in one ordered
   queue, so the shared game is never contended.
