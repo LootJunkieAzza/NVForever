@@ -139,6 +139,7 @@ pub fn instance_dir() -> Option<PathBuf> {
 
 /// MO2's choice of instance: `app` is `ModOrganizer.exe`'s folder, `current` the
 /// registry's `CurrentInstance`, `global` the folder of global instances.
+#[cfg_attr(not(windows), allow(dead_code))]
 fn pick_instance(app: &std::path::Path, current: &str, global: Option<&std::path::Path>) -> Option<PathBuf> {
     if app.join("portable.txt").is_file() {
         return Some(app.to_path_buf());
