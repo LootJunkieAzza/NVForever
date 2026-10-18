@@ -10,10 +10,12 @@
 //!   (`fnv_combat::vats::MarkQueue`: no more marks than the AP left and the rounds loaded
 //!   allow). Right click (Block) takes the last mark back, or with none ends the mode; V
 //!   again ends it; E (Activate) fires.
-//! - **Firing** (§9): the clock is back at 1; every [`SHOT_INTERVAL`] the next mark in
+//! - **Firing** (§9): the clock runs at [`FIRE_SCALE`] (half speed); every
+//!   [`SHOT_INTERVAL`] of game time the next mark in
 //!   order: the view snaps to it and `crate::combat` fires one shot straight at it
 //!   ([`VatsMode::take_shot`]: no spread, no recoil, no jam, whatever the weapon's
-//!   cooldown), and its AP is spent. [`AFTER_LAST`] after the last shot the mode is off.
+//!   cooldown), and its AP is spent. [`AFTER_LAST`] after the last shot the mode is off
+//!   and the clock is back at 1.
 //! - **The look** (§5): the swipe, the amber grade and its fading out are four numbers
 //!   ([`VatsMode::look`]) the renderer's image-space pass draws (nvforever
 //!   `imagespace.rs`); the marks' "x"s are drawn here ([`draw_marks`]).
@@ -64,9 +66,14 @@ pub const WASH_START: f32 = 0.5;
 pub const BAND_STRENGTH: f32 = 0.85;
 /// The grade fades out over this long on leaving, real seconds [design].
 pub const LEAVE_FADE: f32 = 0.3;
-/// Between two marked shots, seconds [design: faster than any single-shot weapon].
-pub const SHOT_INTERVAL: f32 = 0.12;
-/// From the last shot to the end of the mode, seconds [design].
+/// The clock's speed while the marked shots are fired [design: owner 2026-10-18, "the
+/// firing is too fast": half speed instead of normal].
+pub const FIRE_SCALE: f32 = 0.5;
+/// Between two marked shots, game seconds: 0.4 s of real time at [`FIRE_SCALE`]
+/// [design: owner 2026-10-18; was 0.12 at full speed].
+pub const SHOT_INTERVAL: f32 = 0.2;
+/// From the last shot to the end of the mode, game seconds (0.6 s real at
+/// [`FIRE_SCALE`]) [design].
 pub const AFTER_LAST: f32 = 0.3;
 /// How far the crosshair's ray looks for a target when the projectile has no range of
 /// its own, units [design].
@@ -184,6 +191,7 @@ impl VatsMode {
     pub fn time_scale(&self) -> f32 {
         match (self.phase, self.entered_at) {
             (Phase::Marking, Some(t)) => time_scale_at((self.now - t) as f32),
+            (Phase::Firing, _) => FIRE_SCALE,
             _ => 1.0,
         }
     }
@@ -697,10 +705,15 @@ mod tests {
     }
 
     #[test]
-    fn only_marking_slows_the_clock() {
+    fn marking_nearly_stops_the_clock_and_firing_halves_it() {
         let mut v = VatsMode { phase: Phase::Marking, entered_at: Some(0.0), now: 5.0, ..Default::default() };
         assert!((v.time_scale() - MARK_SCALE).abs() < 1e-6);
         v.phase = Phase::Firing;
+        assert_eq!(v.time_scale(), FIRE_SCALE);
+        assert_eq!(FIRE_SCALE, 0.5, "owner 2026-10-18: half speed");
+        // The shots come SHOT_INTERVAL / FIRE_SCALE apart in real time.
+        assert!((SHOT_INTERVAL / FIRE_SCALE - 0.4).abs() < 1e-6);
+        v.phase = Phase::Drawing;
         assert_eq!(v.time_scale(), 1.0);
         v.phase = Phase::Off;
         assert_eq!(v.time_scale(), 1.0);

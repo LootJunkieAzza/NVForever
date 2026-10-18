@@ -26,7 +26,7 @@ quoted as "owner".
   marks left ends VATS mode.
 - **Limits** (owner): no more marks than the AP and the loaded ammunition allow (a .357
   with 6 rounds loaded takes at most 6 marks). Single-shot pistols and rifles first.
-- **Accept** (owner): E (Activate) fires every marked shot in real time, auto-aimed at
+- **Accept** (owner): E (Activate) fires every marked shot in real time (since 2026-10-18 at half speed, §4), auto-aimed at
   each mark in order, faster than the weapon's normal rate.
 - **Accuracy** (owner): 100 %; no shot misses.
 - **Sound** (owner): the base game's VATS sounds for entering, marking, accepting and
@@ -52,7 +52,7 @@ quoted as "owner".
   full speed (the mouse is read per event, not per game second); left click marks, right
   click unmarks, E accepts. The weapon's own trigger, aiming down the sights and
   activation are held (§11.5).
-- **Firing**: the clock is back at full speed; the marked shots leave one after another
+- **Firing**: the clock runs at half speed (`FIRE_SCALE`, §4); the marked shots leave one after another
   (§9); all other input is held until the mode is off [design: the sequence is the
   player's committed action, like the original's VATS playback].
 - Leaving takes the grade off over [`LEAVE_FADE`](#5-the-look) (§5); the state is Off
@@ -88,7 +88,9 @@ needs no second press; until the weapon is out the mode waits, and a second V ca
   [observed: Sample 1 and 2, the actors move a step or two over the ~10 s of marking].
 - The scale eases from 1 to 0.05 over the swipe (`ENTER_SWIPE = 0.35 s` of real time,
   smoothstep) [design], so the world is seen to slow down.
-- Firing runs at 1 (owner: "in real time").
+- Firing runs at `FIRE_SCALE = 0.5`, half speed [design: owner 2026-10-18, "the firing
+  is too fast"; first built at 1 after the owner's "in real time"]. The clock jumps from
+  0.05 to 0.5 on E and back to 1 when the mode ends after the last shot.
 - Mechanism: the engine's own slow motion multiplies SetGlobalTimeMultiplier
   (`script.rs` `time_multiplier`): `ClockScale` (the death camera's) × the VATS mode's
   scale. Everything on the virtual clock slows together: animations, physics, NPC AI,
@@ -233,9 +235,11 @@ AP, rounds needed, the shots in order). The engine module only feeds it.
 
 On E with at least one mark (`UIVATSReady`):
 
-1. The clock goes back to 1 at once; the grade stays.
-2. Every `SHOT_INTERVAL = 0.12 s` [design: faster than any single-shot weapon's own
-   rate, so the owner's "very quickly"] the next mark in the order it was made:
+1. The clock goes to `FIRE_SCALE` (0.5, half speed) at once; the grade stays.
+2. Every `SHOT_INTERVAL = 0.2 s` of game time, 0.4 s of real time at half speed [design:
+   owner 2026-10-18, the first 0.12 s at full speed was too fast; still faster than a
+   single-shot weapon's own rate, so the owner's "very quickly"] the next mark in the
+   order it was made:
    - the view turns to it: heading and pitch from the eye to the mark's point (the
      part's capsule centre now), at once [design: a snap, as Dead Eye's camera does];
    - one shot leaves through combat's own path (`combat.rs` `fire`): the cycle is made to
@@ -245,7 +249,8 @@ On E with at least one mark (`UIVATSReady`):
    - the shot leaves along the line from the eye to the point with **no spread, bloom or
      recoil** (owner: 100 % accuracy) and never jams [design];
    - the shot's AP is spent (§7.2).
-3. After the last shot, `AFTER_LAST = 0.3 s` [design], the mode is Off
+3. After the last shot, `AFTER_LAST = 0.3 s` of game time (0.6 s real) [design], the
+   mode is Off, the clock back at 1
    (`UIVATSExit`) and the grade fades out.
 
 ### 9.2 What a hit is
