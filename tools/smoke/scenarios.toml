@@ -2021,12 +2021,15 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/plastic-surgeon implemented ShowPlasticSurgeonMenu (2 calls): 42 stubs, 214 calls.
 # claude/knockdowns implemented PushActorAway (35 calls, docs/spec-notes/unconscious.md §5):
 # 41 stubs, 179 calls [observed: fnvtool script stubs on the owner's masters, 2026-10-18].
+# claude/blockers-save-reticle implemented SystemSave, ForceSave and PlaceAtReticle (10 calls,
+# docs/spec-notes/script-saves-and-reticle.md): 41 → 38 stubs, 179 → 169 calls [observed:
+# fnvtool script stubs on the owner's masters, merged with main, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 41 },
+  { json = "summary.stubs", equals = 38 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 40 },
+  { json = "summary.by_status.needs_system", equals = 37 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 179 },
+  { json = "summary.stub_calls", equals = 169 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -3053,6 +3056,24 @@ expect = [
   { re = 'console: GetDisabled on 0x0010A202 >> 1\.00', label = "the disabled bottle stays disabled" },
   { re = 'console: GetActorValue on player >> 9\.00', label = "the player's Luck came back" },
   { re = 'console: GetPos on player >> -683\d\d\.', label = "the player stands where the save was made" },
+]
+
+[[scenario]]
+name = "script-saves-reticle"
+source = "docs/outstanding.md §1 rows 2 and 12 (2026-10-18): SystemSave writes the one system slot, ForceSave a new save by hand, PlaceAtReticle places where the crosshair hits (docs/spec-notes/script-saves-and-reticle.md)"
+areas = ["save", "script"]
+paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/activate.rs", "crates/fnv-save/", "crates/fnv-game/src/functions/ui.rs", "crates/fnv-game/src/functions/objects.rs", "crates/fnv-game/src/functions/senses.rs"]
+env = { NVFOREVER_HOME = "script-save-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "10:0:-30", NVF_PLAY_TEST_CONSOLE = "12:player.placeatreticle Stimpak 2;12.5:player.placeatreticle Stimpak 1 0 1;13:systemsave;14:forcesave;16:systemsave;18:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 21
+expect = [
+  { re = 'console: PlaceAtReticle on player >> 0xFF[0-9A-F]{6}', label = "a reference is created where the crosshair hits the ground (the console names a created reference by its ID, as for PlaceAtMe)" },
+  { re = 'dropped reference 0xFF[0-9A-F]{6} drawn: meshes.clutter.health.stimpak01\.nif', label = "the placed Stimpak is drawn" },
+  { re = 'console: PlaceAtReticle on player >> none', label = "nothing is placed when the ground is beyond maxDistance" },
+  { text = "save: SystemSave asked by a script", min = 2, label = "both SystemSave calls are taken" },
+  { re = 'save: wrote .*systemsave\.nvfsave \(system, ', min = 2, label = "the system slot is written each time" },
+  { re = 'save: ForceSave asked by a script: "Save \d+"', label = "ForceSave names a new save" },
+  { re = 'save: wrote .*Save \d+\.nvfsave \(manual, ', label = "ForceSave's save is written" },
 ]
 
 [[scenario]]
