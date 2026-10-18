@@ -5592,7 +5592,8 @@ observer's gunfight and melee runs. My choices, to check against the game:
 - **IsMoving** of the player is the movement keys even against a wall ("requesting to
   move"); a diagonal reads the larger axis, forward and back on a tie.
 - **IsAnimPlaying** on an actor reads its movement group (Idle, Forward, FastLeft …)
-  after any PlayGroup group; walking and running counting like Idle is my guess.
+  after any PlayGroup group; walking and running counting like Idle is my guess. An actor turning
+  in place reads Idle, not TurnLeft or TurnRight (also a guess).
 - **IsIdlePlaying** reads 1 on beds as on seats (only a seat was observed).
 - **IsPlayerActionActive**: only 9 (iron sights) is answered, as the wiki names only it
   (and 8, standing on a table or chair, which NVForever's player never does); the

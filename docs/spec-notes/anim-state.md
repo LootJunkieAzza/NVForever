@@ -67,7 +67,9 @@ reads the larger of the two axes, forward and back on a tie [hypothesis]. 0 at r
   2026-10-17]: an actor's own movement group counts. NVForever tells the group of the
   actor's locomotion clip (`Idle`, `Forward`, `FastForward`, `Left` …, the clips' names
   [observed: `mtidle.kf`, `mtfastforward.kf` in the base archives]) and that walking and
-  running groups count the same way [hypothesis]. A script's PlayGroup group comes first.
+  running groups count the same way [hypothesis]. An actor not walking reads `Idle`
+  while it turns in place too (its clip is then TurnLeft or TurnRight) [hypothesis;
+  Chet standing at his counter read 0 before this, smoke `anim-state` 2026-10-18]. A script's PlayGroup group comes first.
 - Easy Pete sitting read IsIdlePlaying 1 with GetSitting 3 [observed: function probes
   2026-10-17]: an actor on furniture plays an idle; NVForever reads 1 at GetSitting or
   GetSleeping 3 [hypothesis for beds].

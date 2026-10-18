@@ -11,8 +11,8 @@
 //!   "furniture anim, playidle anims, staggering from crippled limbs"]. Fidgets,
 //!   collections' idles and conversation gestures are not 13 [observed: the AI observer's
 //!   sitters and talkers read −1 nearly always]. The way it moves is its locomotion's
-//!   velocity in its own axes, and the group its locomotion's clip (`Idle`, `Forward`,
-//!   `FastLeft` …).
+//!   velocity in its own axes, and the group its locomotion's clip (`Forward`,
+//!   `FastLeft` …) while it walks, else `Idle` (a turn in place included).
 //! - **The player**: the weapon's action from the combat state
 //!   (`nvf_play::combat::Combat::player_anim_action`), else a PlayIdle idle 13; the way
 //!   it moves is the movement keys ("requesting to move" [documented: GECK wiki
@@ -70,7 +70,9 @@ struct AnimStats {
 
 impl AnimStats {
     fn note(&mut self, actor: u32, s: &AnimState) {
-        self.actors.insert(actor);
+        if self.actors.insert(actor) {
+            info!("anim state: {actor:08X} first told: group {}, way {}, action {}", s.group.unwrap_or("none"), s.moving.code(), s.action.map_or(-1, AnimAction::code));
+        }
         let code = s.action.map_or(-1, AnimAction::code);
         if self.last.insert(actor, code).unwrap_or(-1) != code && code >= 0 {
             *self.begun.entry(code).or_default() += 1;
@@ -155,8 +157,17 @@ fn tell(
             })
             .or_else(|| flinch.filter(|f| clock < f.at + f.clip.clip.length()).map(|_| AnimAction::ForceScriptAnim))
             .or_else(|| idle.and_then(|i| i.0.playing()).filter(|p| p.group.is_some() || special(p.source)).map(|_| AnimAction::ForceScriptAnim));
+        // Not walking, it plays Idle, a turn in place included: the locomotion's clip
+        // is TurnLeft or TurnRight while a standing actor turns (to face the player, a
+        // spot turn), and Chet standing at his counter read `IsAnimPlaying Idle` 0 so
+        // [observed in NVForever: smoke anim-state, 2026-10-18; hypothesis: the
+        // original's standing actor reads Idle 1 while it turns, as Sunny Smiles standing
+        // read 1].
         let (moving, group) = match lo {
-            Some(l) => (MoveDir::of(l.velocity[0], l.velocity[1], MOVING_SPEED), Some(l.blend.cur.mv.group())),
+            Some(l) => {
+                let way = MoveDir::of(l.velocity[0], l.velocity[1], MOVING_SPEED);
+                (way, Some(if way == MoveDir::None { "Idle" } else { l.blend.cur.mv.group() }))
+            }
             None => (MoveDir::None, None),
         };
         let st = AnimState { action, moving, group, iron_sights: false, at: 0.0 };
