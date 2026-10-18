@@ -178,6 +178,36 @@ impl ActorWorld {
 
     /// A creature's alert-stance set (`ClipSet::alert_from`: its `h2h` movement clips over
     /// `calm`), loaded once per skeleton.
+    /// The swimming set of a skeleton and body (`ClipSet::swim_from` over
+    /// `locomotion::SWIM_STANCES`, the standing set `calm` filling the moves it lacks),
+    /// loaded once; `None` when the folder has no swimming movement clip.
+    fn swim_set(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body, calm: &ClipSet) -> Option<Arc<ClipSet>> {
+        let key = (fnv_vfs::normalize(skeleton), body, "swim+");
+        self.sets
+            .lock()
+            .expect("clip sets")
+            .entry(key)
+            .or_insert_with(|| {
+                let mut lines = Vec::new();
+                let stances = crate::locomotion::SWIM_STANCES
+                    .iter()
+                    .map(|st| {
+                        let (set, line) = ClipSet::load_stance(ctx, skeleton, skel, body, st);
+                        if !set.clips.is_empty() {
+                            lines.push(line);
+                        }
+                        set
+                    })
+                    .collect();
+                let set = ClipSet::swim_from(stances, calm);
+                if set.is_some() {
+                    info!("actor locomotion (swimming): {}", lines.join(" | "));
+                }
+                set.map(Arc::new)
+            })
+            .clone()
+    }
+
     fn alert_set(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, calm: &ClipSet) -> Option<Arc<ClipSet>> {
         let key = (fnv_vfs::normalize(skeleton), Body::Male, crate::locomotion::ALERT_STANCE);
         self.sets
@@ -441,6 +471,8 @@ pub fn spawn(
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
                 // People crouch to sneak (`sneaking.rs`).
                 lo.sneak = world.clip_set_stance(ctx, &a.skeleton, &skel, body, crate::locomotion::SNEAK_STANCE);
+                // In water they swim (`swimming.rs`).
+                lo.swim = world.swim_set(ctx, &a.skeleton, &skel, body, &set);
                 // A crippled leg limps (`limping.rs`).
                 lo.hurt = world.clip_set_hurt(ctx, &a.skeleton, &skel, body, &set, false);
                 let walk = world.walk_test.filter(|w| w.radius <= 0.0 || at.distance(w.center) <= w.radius);
@@ -539,6 +571,7 @@ pub fn spawn_creature(
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
                 lo.hurt = world.clip_set_hurt(ctx, &c.skeleton, &skel, Body::Male, &set, false);
+                lo.swim = world.swim_set(ctx, &c.skeleton, &skel, Body::Male, &set);
                 // Some creatures move otherwise when alert (`creature_pace.rs`), and limp
                 // otherwise when alert too (`limping.rs`).
                 lo.alert = world.alert_set(ctx, &c.skeleton, &skel, &set);

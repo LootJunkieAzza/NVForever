@@ -4765,3 +4765,18 @@ expect = [
   { re = 'anim state summary: .*attack return \(4\) (?P<n>\d+)', range = [1, 100000], label = "then 4" },
   { re = 'anim state summary: .*reload \(9\) (?P<n>\d+)', range = [1, 100000], label = "his reloads 9" },
 ]
+
+[[scenario]]
+name = "wade-in-swim"
+source = "owner's report 2026-10-18 (docs/spec-notes/physics.md §6.6, Walking in again): running east from the Boulder Beach shore into Lake Mead, the player starts swimming once its feet are wade_depth (115) under the surface, and keeps swimming over the deepening bed"
+areas = ["physics", "controls", "player-body"]
+paths = ["crates/fnv-phys/src/character.rs", "crates/fnv-phys/src/water.rs", "crates/fnv-phys/src/swim.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "10:1:0,17:0:0" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'player: starts swimming at \(5[78]\d{3}, 375\d\d, 24\d\d\.\d\), feet 11[5-9]\.\d below the water', label = "swims where the feet are 115-120 under the lake's 2600" },
+  { re = 'swimming summary: actors started swimming (?P<n>\d+) times', range = [1, 100], label = "the beach's attackers that follow the player into the lake swim (swimming.rs)" },
+  { re = 'swimming summary: .* (?P<n>\d+) swam without swimming clips', range = [0, 0], label = "they swim on their folder's swimmt clips" },
+]
+forbid = [{ text = "player: stops swimming", label = "swims on over the deepening bed" }]

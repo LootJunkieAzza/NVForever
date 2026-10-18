@@ -1043,7 +1043,12 @@ fn step(
             all.truncate(placed);
             b.list = all;
         }
+        let was_swimming = c.swimming;
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
+        if s.swimming != was_swimming {
+            let depth = p.world.water_surface_at(s.feet[0], s.feet[1]).map_or("no water".to_string(), |w| format!("feet {:.1} below the water", w - s.feet[2]));
+            info!("player: {} at ({:.0}, {:.0}, {:.1}), {depth}", if s.swimming { "starts swimming" } else { "stops swimming" }, s.feet[0], s.feet[1], s.feet[2]);
+        }
         if let Some(speed) = s.landed_speed {
             landed.write(crate::rumble::Landed { speed });
         }

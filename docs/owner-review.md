@@ -5977,3 +5977,29 @@ hand-over played twice.
 - **Guess.** That the game carries on instead of starting over, and that he holds the
   pose for another 3 s, is mine; the files do not say. *Check:* in the original, does
   Doc keep the mirror held out until the face screen opens, or lower his arm?
+
+## Swimming: wading in, and NPCs swimming (2026-10-18, branch claude/swimming)
+
+Your report: the player walks along the bottom of a lake instead of swimming.
+
+- **Why.** Our rule came from captures of the game (`sw_trial`, 2026-10-08) in which the
+  scripted player walked down the Boulder Beach bed to 355 units under the surface and
+  never swam. That run had god mode on, so I ran it again with god mode off (`sw_walkin`):
+  the player still walked the bed, to 308 under, and drowned (Health falling 40 a second
+  after 10 s). The scripted player never swims when walking in, which contradicts what you
+  see in the game. The scripts' IsSwimming also reads 0 even while that player is plainly
+  floating, so I suspect the scripted setup never enters the game's real swimming state.
+- **What changed.** I followed your report. A character standing in water with its feet
+  115 units or more under the surface now starts swimming where it is (the swim speeds,
+  diving along the view and the float height are the ones measured before). A swimmer
+  that reaches the ground walks out where the ground is shallower than that and swims on
+  against a deeper bed. The 115 is my guess: deeper than every floating height measured,
+  so swimmers still walk out up the banks as in the captures, with the eyes just above the
+  water.
+- **Animations.** The player already swam on `swimmt*.kf`. NPCs and creatures had no
+  swimming clips at all: they now play their folder's `swimmt*` or `swim*` clips while
+  they swim (people, mirelurks, giant rats, spinebreakers, dogs), unarmed, and their
+  standing clips where they have none.
+- *Check:* in the original, walk into Lake Mead from Boulder Beach and note how deep the
+  water is (chest? neck?) when swimming starts; and whether a swimmer diving to the bed
+  stays swimming there or stands up.
