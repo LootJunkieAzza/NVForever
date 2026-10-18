@@ -23,6 +23,12 @@
 //!   below [hypothesis]. Rads' stages hold in every mode, the needs' only in Hardcore
 //!   [hypothesis: radiation sickness is no Hardcore feature; the needs' stage effects
 //!   are taken away when Hardcore is turned off].
+//! - **Sleep heals crippled limbs** outside Hardcore: an hour slept takes away all the
+//!   damage of the player's limb conditions [observed: FalloutNV.esm MESG
+//!   `HelpHealingLimbs`, "to heal a crippled limb, you have three choices: sleep in a
+//!   bed, find a doctor, or use a Stimpak"; "In Hardcore Mode, you may only heal crippled
+//!   limbs by using Doctor's Bags or by visiting a doctor"; hypothesis: the first hour
+//!   heals them all] (docs/spec-notes/crippled-limbs.md §6).
 //! - Only the player has needs here [design].
 
 use crate::aid::{DEHYDRATION, HUNGER, RAD_LEVEL, SLEEP_DEPRIVATION};
@@ -59,6 +65,8 @@ pub struct Passed {
     pub needs: Vec<(u16, f64, f64)>,
     /// Effects on the player that ended meanwhile.
     pub effects_ended: usize,
+    /// Crippled limbs the sleep healed (condition codes).
+    pub limbs_healed: Vec<u16>,
 }
 
 impl Game<'_> {
@@ -117,8 +125,20 @@ impl Game<'_> {
             }
         }
         self.update_need_stages();
+        let limbs_healed = if sleeping && hours > 0.0 && !self.hardcore() { self.heal_limbs(p) } else { Vec::new() };
         self.emit(EventKind::TimePassed { hours, seconds, sleeping });
-        Passed { seconds, needs, effects_ended }
+        Passed { seconds, needs, effects_ended, limbs_healed }
+    }
+
+    /// Take away the damage of every limb condition of `r`; the crippled ones healed.
+    pub fn heal_limbs(&mut self, r: FormId) -> Vec<u16> {
+        let crippled: Vec<u16> = crate::combat::LIMB_CONDITIONS.filter(|&c| self.is_crippled(r, c)).collect();
+        if let Some(e) = self.extra.get_mut(&r) {
+            for code in crate::combat::LIMB_CONDITIONS {
+                e.av_damage.remove(&code);
+            }
+        }
+        crippled
     }
 
     /// The player gets the effect of the stage each need (and rads) has reached, and

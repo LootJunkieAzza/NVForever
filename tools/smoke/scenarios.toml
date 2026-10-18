@@ -3545,6 +3545,57 @@ expect = [
   { re = 'player Third rig: limping Move\(Stand, \w+, true, Forward, None, true\) plays meshes.characters._male.locomotion.hurt.mtfastforward_hurt\.kf', label = "... and running" },
   { re = 'player First rig: limping Move\(Stand, \w+, \w+, Forward, None, true\) plays meshes.characters._1stperson.locomotion.hurt.mt\w*forward_hurt\.kf', label = "the arms rig limps" },
   { re = 'limping summary: actors started limping (?P<n>\d+) times and walked normally again (?P<m>\d+) times', range = [1, 1000], label = "limping summary" },
+  { re = 'limping: GSChetRef 0x00104C79 moves at 85% of its speed', label = "Chet slows on a crippled leg (fMoveOneCrippledLegSpeedMult, crippled-limbs.md §4)" },
+  { re = 'limping: GSChetRef 0x00104C79 moves at 100% of its speed', label = "... and is quick again once healed" },
+  { re = "movement: the player's legs allow 85% of the speed", label = "the player slows on a crippled leg" },
+]
+
+[[scenario]]
+name = "crippled-head-perception"
+source = "crippled limbs (docs/spec-notes/crippled-limbs.md §2): Perception -4 while the head's condition is at 0, the player's by the masters' PlayerConcussed [observed: FalloutNV.esm GenericScript, SPEL 0x0006533A], other actors' by HeadCrippleEffect"
+note = "the console sets the player's Perception to 6, cripples the head, reads Perception (2), heals the head and reads it again (6); the console is closed between, as the conditions are checked in game time. The player's -4 is the masters' own PlayerConcussed (GenericScript casts it), which must lift once healed"
+areas = ["combat", "abilities"]
+paths = ["crates/fnv-game/src/abilities.rs", "crates/fnv-game/src/combat.rs", "crates/fnv-game/src/aid.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:player.SetAV Perception 6;10.2:player.DamageAV PerceptionCondition 1000;10.5:close;13:player.GetAV Perception;13.5:close;14:player.RestoreAV PerceptionCondition 1000;14.5:close;17:player.GetAV Perception;17.5:close" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 20
+expect = [
+  "combat: player's head crippled",
+  { re = 'console: GetActorValue on player >> 2\.00', label = "Perception 6 - 4 with the head crippled" },
+  "combat: player's head healed",
+  { re = 'console: GetActorValue on player >> 6\.00', label = "Perception back to 6 once healed" },
+]
+
+[[scenario]]
+name = "crippled-torso-arms"
+source = "crippled limbs (docs/spec-notes/crippled-limbs.md §3): with the torso crippled any hit staggers (after the cooldown) [observed: HelpCrippling, 'Higher chance to be staggered'], the player flinches the same way, and an NPC whose arm a hit cripples drops its weapon [observed: HelpCrippling, 'Enemies will be disarmed']"
+note = "the console cripples the player's and Chet's torso; the hit aid hits Chet on the torso (staggers him: torso crippled), then his right arm on a part of 1 % of his health (he drops his revolver); Chet is set on the player, whose hits on the player make it flinch"
+areas = ["combat"]
+paths = ["engine/nvf-play/src/combat.rs", "engine/nvforever/src/deaths.rs", "crates/fnv-combat/src/damage.rs", "engine/nvf-play/src/knockouts.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV EnduranceCondition 1000;10.2:GSChetRef.DamageAV EnduranceCondition 1000;10.5:close", NVF_PLAY_TEST_SCRIPT = "12:combat:GSChetRef:player", NVF_PLAY_TEST_HIT = "14:GSChetRef:1,22:GSChetRef:2:limb=RightAttackCondition" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 28
+expect = [
+  "combat: player's torso crippled",
+  { re = 'hit reaction: 00104C79 staggers for .*\(location 0, torso crippled\)', label = "Chet staggers from a torso hit (his torso crippled)" },
+  { re = 'combat: the player flinches for 0\.6 s \(torso crippled\)', label = "the player flinches from Chet's hits" },
+  { re = "combat: 0x00104C79's arm crippled: it drops its", label = "Chet drops his weapon when an arm is crippled" },
+]
+
+[[scenario]]
+name = "crippled-sleep-heals"
+source = "crippled limbs (docs/spec-notes/crippled-limbs.md §6): a sleep heals crippled limbs outside Hardcore [observed: FalloutNV.esm MESG HelpHealingLimbs]"
+note = "the console cripples the player's left leg; the player lies on the Goodsprings house bed (as sleep-goodsprings-24h) and sleeps 2 hours"
+areas = ["wait", "combat"]
+paths = ["crates/fnv-game/src/needs.rs", "engine/nvf-play/src/aid.rs"]
+env = { NVF_PLAY_TEST_CONSOLE = "10:player.DamageAV LeftMobilityCondition 1000;10.5:close", NVF_PLAY_TEST_NEAR = "00176ACE", NVF_PLAY_TEST_ACTIVATE = "16", NVF_PLAY_TEST_WAIT = "22:open,23.5:hours=2,24.5:accept" }
+args = ["--cell", "GSHouseInterior03", "--play", "--hour", "22", "--no-voice"]
+run_seconds = 34
+expect = [
+  "combat: player's left leg crippled",
+  "wait menu: open as sleep (the player lies on a bed)",
+  { re = 'sleep: crippled limbs healed: Left Mobility Condition', label = "the first hour slept heals the leg" },
+  "combat: player's left leg healed",
 ]
 
 [[scenario]]

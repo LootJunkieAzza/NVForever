@@ -21,7 +21,11 @@
 //! - **Arms, head, torso**: no archive has limping or other crippled clips for them
 //!   (actors.md §8.12) [observed]; a crippled arm widens an NPC's aim as the player's
 //!   (`npc_combat.rs`, `fnv_combat::spread`).
-//! - **How fast**: unchanged; the playback follows the ground speed as for any clip
+//! - **How fast**: a crippled leg slows the actor to `fMoveOneCrippledLegSpeedMult`
+//!   (0.85) of its speed and two to `fMoveTwoCrippledLegsSpeedMult` (0.75)
+//!   (`fnv_game::Game::leg_speed_mult`, the player's rule too; docs/spec-notes/
+//!   crippled-limbs.md §4), whether it has limping clips or not
+//!   (`fnv_ai::Ai::set_pace`); the playback follows the ground speed as for any clip
 //!   (`fnv_actor::locomotion::choose`).
 //!
 //! The player limps too: `player_body.rs` plays the same folder's clips (and the
@@ -29,6 +33,7 @@
 
 use crate::limbs::ActorRig;
 use crate::locomotion::Locomotion;
+use crate::residents::Residents;
 use bevy::prelude::*;
 use std::sync::Arc;
 use fnv_sim::FormId;
@@ -63,9 +68,12 @@ struct LimpStats {
     no_clips: std::collections::BTreeSet<u32>,
     /// (actor, move, alerted) whose limping clip was seen playing, logged once each.
     played: std::collections::BTreeSet<(u32, &'static str, bool)>,
+    /// Actors slowed by their legs, and the share of their speed they keep.
+    paces: std::collections::BTreeMap<u32, f32>,
+    slowed: usize,
 }
 
-fn limp(time: Res<Time>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>, mut actors: Query<(&ActorRig, &mut Locomotion)>, mut stats: ResMut<LimpStats>) {
+fn limp(time: Res<Time>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut<SimState>>, mut residents: Option<ResMut<Residents>>, mut actors: Query<(&ActorRig, &mut Locomotion)>, mut stats: ResMut<LimpStats>) {
     let (Some(mut script), Some(mut sim)) = (script, sim) else { return };
     let Some(rt) = script.rt.as_mut() else { return };
     // Which limping clip a limping actor moves on, once per move: looked at every frame,
@@ -91,6 +99,20 @@ fn limp(time: Res<Time>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut
         for (rig, mut lo) in &mut actors {
             let id = FormId(rig.reference);
             let want = LEGS.iter().any(|&c| game.is_crippled(id, c));
+            // Slower on crippled legs, limping clips or not.
+            let pace = game.leg_speed_mult(id) as f32;
+            if stats.paces.get(&rig.reference).copied().unwrap_or(1.0) != pace {
+                if let Some(r) = residents.as_deref_mut() {
+                    r.set_pace(id, pace);
+                }
+                if pace < 1.0 {
+                    stats.paces.insert(rig.reference, pace);
+                    stats.slowed += 1;
+                } else {
+                    stats.paces.remove(&rig.reference);
+                }
+                info!("limping: {} {id} moves at {:.0}% of its speed", game.data.name(id), pace * 100.0);
+            }
             if want == lo.limping {
                 continue;
             }
@@ -110,6 +132,12 @@ fn limp(time: Res<Time>, script: Option<ResMut<ScriptState>>, sim: Option<ResMut
 
 fn report(mut exit: MessageReader<AppExit>, stats: Res<LimpStats>) {
     if exit.read().next().is_some() {
-        info!("limping summary: actors started limping {} times and walked normally again {} times; {} crippled without limping clips", stats.started, stats.stopped, stats.no_clips.len());
+        info!(
+            "limping summary: actors started limping {} times and walked normally again {} times; {} crippled without limping clips; slowed by their legs {} times",
+            stats.started,
+            stats.stopped,
+            stats.no_clips.len(),
+            stats.slowed
+        );
     }
 }

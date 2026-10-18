@@ -8,12 +8,19 @@
 //!   them away and they are saved with it. A race change (the character creator) swaps
 //!   the race's abilities. The abilities in the list are active while the actor is
 //!   loaded ([`Game::sync_abilities`]).
+//! - The engine's own ability ([`ENGINE_ABILITIES`]): `HeadCrippleEffect` joins the list
+//!   of every actor but the player with its authored ones (docs/spec-notes/crippled-limbs.md
+//!   §2).
 //! - Worn enchantments ([`Game::sync_worn`]): the object effect (ENCH of type Apparel)
 //!   of each equipped armour piece is active on the loaded wearer while it is equipped,
 //!   and ends when it is unequipped or leaves the inventory.
 //! - Effects of abilities and worn enchantments whose conditions fail stay listed but
 //!   inactive (no value change, no script) and their conditions are checked again
-//!   every second ([`Game::recheck_conditions`]).
+//!   every second ([`Game::recheck_conditions`]). So are those of every other listed
+//!   effect with conditions (a spell's that passed when it was cast): the masters'
+//!   `PlayerConcussed`, which `GenericScript` keeps on the player for ten years, takes
+//!   Perception only while the head is crippled [hypothesis: as the abilities';
+//!   docs/spec-notes/crippled-limbs.md §2].
 
 use crate::game::Game;
 use fnv_sim::FormId;
@@ -26,6 +33,18 @@ pub const ENCHANTMENT_APPAREL: u32 = 3;
 /// Seconds between checks of an ability's or a worn enchantment's conditions
 /// [hypothesis: no source gives the interval].
 pub const CONDITION_INTERVAL: f64 = 1.0;
+
+/// Abilities no record lists that every actor but the player has: "Head Crippled",
+/// Perception −4 while its Perception Condition is at 0 or below [observed: FalloutNV.esm
+/// SPEL `HeadCrippleEffect` 0x00067572, type Ability, effect Reduced Perception 4 with
+/// the condition GetActorValue PerceptionCondition <= 0; no RACE or NPC_ lists it;
+/// hypothesis: the engine gives it to the actors, as the game's help text says the
+/// head's crippling "applies to you as well as to your enemies"]. Not the player: the
+/// masters' `GenericScript` (SCPT 0x00032DF1) casts `PlayerConcussed` on the player
+/// whenever the player lacks its Concussion effect, and that spell carries the same
+/// Perception −4 under the same condition, so the player's comes from the data
+/// [observed] (docs/spec-notes/crippled-limbs.md §2).
+pub const ENGINE_ABILITIES: [&str; 1] = ["HeadCrippleEffect"];
 
 impl Game<'_> {
     /// The race whose abilities the actor has: the character creator's choice for the
@@ -81,6 +100,9 @@ impl Game<'_> {
         let gone: Vec<FormId> = if given { self.race_abilities(had_race).into_iter().filter(|s| !own.contains(s)).collect() } else { Vec::new() };
         let mut add = if given { Vec::new() } else { own };
         add.extend(self.race_abilities(race));
+        if !given && r != FormId::PLAYER_REF {
+            add.extend(ENGINE_ABILITIES.iter().filter_map(|e| self.data.by_edid(e)).filter(|s| self.data.spell_types.get(s) == Some(&SPELL_ABILITY)));
+        }
         let e = self.extra.entry(r).or_default();
         e.abilities_given = true;
         e.ability_race = race;
@@ -219,7 +241,6 @@ impl Game<'_> {
         let ids: Vec<(u32, FormId, FormId, usize, Option<FormId>, bool)> = self
             .effects
             .iter()
-            .filter(|e| e.permanent)
             .filter(|e| data.effect_items.get(&e.source).and_then(|l| l.get(e.index)).is_some_and(|i| !i.conditions.is_empty()))
             .map(|e| (e.id, e.target, e.source, e.index, e.caster, e.inactive))
             .collect();
