@@ -5832,11 +5832,13 @@ Every parameter docs/design/script-function-params.md §3 listed as ignored is n
 are my guesses, each with what would settle it:
 
 - **Fade length and shape** (Enable/Disable, 544 shipped calls): 1 second, a straight
-  line of the reference's alpha. Capture job `tools/capture/jobs/enable_fade_timing.steps.json`
-  (nvfstrip) disables and enables the Prospector Saloon's terminal with screenshots and
-  GameDaysPassed every two frames; it also asks GetDisabled right after `Disable 1`
-  (mine: 1 at once). *Look for*: things that appear by script (quest markers' children,
-  Victor at the start) now fade in; tell me if one should pop.
+  line of the reference's alpha. The capture `enable_fade_timing` (2026-10-18) lost all
+  its screenshots (BitBlt failed), so the length is still a guess. It did read GetDisabled
+  **0** the game loop after `Disable 1` [observed]; ours reads 1 at once. Before changing
+  that I need to know whether the original stays 0 for the whole fade or for one frame
+  (plain Disable too?): job `tools/capture/jobs/disable_fade_getdisabled.steps.json`
+  reads it every loop. *Look for*: things that appear by script now fade in; tell me if
+  one should pop.
 - **Equip locks in the inventory**: an item EquipItem locked on shows "… can't be
   unequipped" (my wording; the original's message is not known). Companions ignore
   NoEquipFlag in the original (wiki); ours have no re-equipping yet, so nothing to ignore.
@@ -5848,11 +5850,9 @@ are my guesses, each with what would settle it:
   The one shipped slow motion keeps sound unchanged, so nothing shipped hears it.
 - **StartConversation allowMovement**: left out, the two actors stand while they talk, as
   before; only an explicit 1 lets them walk.
-- **AddItemToLeveledList health**: the wiki says New Vegas reads 0–100, so Honest Hearts'
-  eleven calls with 1 give items at 1 % condition. Capture job
-  `tools/capture/jobs/leveled_list_health.steps.json` (nvfstrip) adds Vance's 9mm SMG to a
-  list at 50 and at 1 and reads the drawn gun's health. *If* the game gives 1 → whole items,
-  the rule is "values up to 1 are fractions".
+- **AddItemToLeveledList health**: settled [observed: capture `leveled_list_health`,
+  2026-10-18]: 50 gave Vance's 9mm SMG at half health, 1 at 1 %, as the wiki reads. So
+  Honest Hearts' eleven calls with 1 give their vendor items at 1 % in the original too.
 ## Crippled limbs' effects (2026-10-18, branch claude/crippled-limb-effects-ab9ad8)
 
 What each crippled limb does, for the player and for NPCs, is in

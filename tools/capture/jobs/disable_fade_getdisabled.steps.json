@@ -1,0 +1,2694 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "disable_fade_getdisabled",
+ "title": "Disable 1 and plain Disable: GetDisabled every game loop until it changes, with GameDaysPassed for the time (the fade's length without screenshots; enable_fade_timing's shots failed, BitBlt), docs/design/script-function-params.md \u00a73; under 1 min",
+ "start": "nvfstrip. Travels to the Prospector Saloon and disables/enables its terminal; never saved; unattended (capture_run.py --save nvfstrip). Each sample is GameDaysPassed x 100000 + 10 x GetDisabled.",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "coc GSProspectorSaloonInterior"
+  },
+  {
+   "until": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := rF1.HasLoaded3D\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1200
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "timescale",
+   "field": "timescale"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nrF1.Disable 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nrF1.Enable 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nrF1.Disable\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_pop",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nrF1.Enable\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nrF1.Disable 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade_then_enable",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade_then_enable",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade_then_enable",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade_then_enable",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade_then_enable",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade_then_enable",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade_then_enable",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade_then_enable",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade_then_enable",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "disable_fade_then_enable",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nrF1.Enable 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1083183\nlet fV := GameDaysPassed * 100000 + 10 * rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "enable_during_fade",
+   "field": "days_x1e5_plus_10_disabled"
+  }
+ ]
+}

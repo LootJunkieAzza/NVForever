@@ -50,7 +50,7 @@ add-ons' by hand.
 
 | Function | Parameter(s) | Shipped calls | Now |
 |---|---|---|---|
-| Enable / Disable | FadeIn (default 1) / FadeOut (default 0) | 276 / 268 | the reference fades in or out over 1 s instead of popping (`nvf_play::fade`); enable children fade in unless their XESP "Pop In" flag is set, and pop out [documented: Enable, Disable notes]. GetDisabled is 1 at once [hypothesis]; length and shape [hypothesis], capture job `enable_fade_timing` |
+| Enable / Disable | FadeIn (default 1) / FadeOut (default 0) | 276 / 268 | the reference fades in or out over 1 s instead of popping (`nvf_play::fade`); enable children fade in unless their XESP "Pop In" flag is set, and pop out [documented: Enable, Disable notes]. GetDisabled read **0** the game loop after `Disable 1` in the original [observed: capture `enable_fade_timing`, 2026-10-18], while NVForever reads 1 at once: whether it stays 0 through the fade (and how long the fade is) is not settled, since the job's screenshots all failed (BitBlt); follow-up job `disable_fade_getdisabled` reads GetDisabled every loop after `Disable 1` and a plain `Disable`. Length and shape [hypothesis] |
 | EquipItem / UnequipItem | NoUnequipFlag / NoEquipFlag | 39 / 21 | `fnv_sim::world::EquipLock` on the actor, kept in snapshots: a locked-on item cannot be unequipped (inventory menu: "… can't be unequipped") and nothing else takes its slot; a locked-off one cannot be equipped; the other function takes the lock away |
 | SetPlayerTagSkill | iSkillIndex | 23 | four slots (`PlayerState::tag_slots`): the slot's old skill is untagged unless another slot holds it; an index above 3 does nothing |
 | Say / SayTo | ForceSubtitles / forceSubtitleFlag | 18 Say (all pass 1, nothing after it); 131 SayTo here, 76 in the add-ons | the subtitle shows even out of hearing (NVForever has no subtitle setting to override) [hypothesis: the flag's meaning] |
@@ -64,7 +64,7 @@ add-ons' by hand.
 | ShowLoveTesterMenuParams | iPoints | 1 (40) | the seven attributes add up to iPoints, as SetSPECIALPoints |
 | SetGlobalTimeMultiplier | keepSoundUnchanged | 1 (`0.5 1`) | without it the sounds the engine's slow motion slows play at the multiplier too (`audio_out::SoundSpeed`) [hypothesis: which sounds, and the factor itself] |
 | StartConversation | allowMovement | 1 (`0`) | between actors, 1 lets both go on with their packages while they talk (`Game::conversation_moves`); 0, or left out, keeps them standing as before [hypothesis for the default] |
-| AddItemToLeveledList | fHealthPercent100 | 0 here; 11 in Honest Hearts pass 1; 5 in Old World Blues and 4 in Lonesome Road pass 100 | the items the entry gives have that condition, 0–100 % (`LeveledEntry::condition`); Honest Hearts' 1 thus gives items at 1 % as the page reads [hypothesis until capture job `leveled_list_health`] |
+| AddItemToLeveledList | fHealthPercent100 | 0 here; 11 in Honest Hearts pass 1; 5 in Old World Blues and 4 in Lonesome Road pass 100 | the items the entry gives have that condition, 0–100 % (`LeveledEntry::condition`); Honest Hearts' 1 gives items at 1 % [observed: capture `leveled_list_health`: an entry added at 50 gave Vance's 9mm SMG at 375 of 750 health, at 1 at 7.5] |
 | EquipItem / UnequipItem | HideEquipMessage | (see above) | nothing to hide: the engine shows no equip lines |
 
 Another session's unpushed branch `claude/script-params-engine` (2026-10-18) covered the

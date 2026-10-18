@@ -23,7 +23,9 @@ pub fn enable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 
 /// `ref.Disable [FadeOut]`: the reference is no longer drawn; it fades out only when
 /// FadeOut is non-zero [documented: GECK wiki Disable, "Default = 0"]. GetDisabled is 1 at
-/// once, while the engine still draws the fade [hypothesis].
+/// once, while the engine still draws the fade [hypothesis; the original read 0 the game
+/// loop after `Disable 1`, capture `enable_fade_timing`: how long is not known yet, job
+/// `disable_fade_getdisabled`].
 pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let fade = a.num_or(0, 0.0) != 0.0;

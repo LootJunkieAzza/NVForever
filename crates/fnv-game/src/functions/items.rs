@@ -398,7 +398,9 @@ pub fn set_quest_object(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Str
 /// to 100, rather than from 0 to 1"]: the items the entry gives have that condition
 /// (`LeveledEntry::condition`); 100, or none given, is a whole item. The shipped calls
 /// ask for 1 or 100 [observed: the 20 decoded calls of Honest Hearts and Old World
-/// Blues]: 1 gives items at 1 % as the page reads [hypothesis: docs/owner-review.md].
+/// Blues]: 1 gives items at 1 % as the page reads [observed: capture `leveled_list_health`,
+/// 2026-10-18: Vance's 9mm SMG drawn from a list entry added at 50 had 375 of 750 health,
+/// at 1 had 7.5].
 /// Count and level below 1 are read as 1 [hypothesis].
 pub fn add_item_to_leveled_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let list = a.form(0)?;
