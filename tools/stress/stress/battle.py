@@ -29,7 +29,21 @@ PLACED = re.compile(r"stress battle: group (\d+) (\S+) \(([^)]*)\): (\d+) of (\d
 KILLED = re.compile(r"battle: (?:(\S+) )?(0x[0-9A-F]+) killed by (?:(\S+) )?(0x[0-9A-F]+)")
 SUMMARY = re.compile(r"battle summary: (.*)$")
 SIDE = re.compile(r"(\w+) \((\d+)\): (\d+) standing, (\d+) dead, (\d+) hits, (\d+) kills, (\d+) flights")
-NPC_SUMMARY = re.compile(r"npc combat summary: (\d+) actors fought .*?; (\d+) shots .*?, (\d+) blows .*?, (\d+) reloads; (\d+) flee checks, (\d+) fled")
+NPC_SUMMARY = re.compile(r"npc combat summary: (.*)$")
+# Each figure of the npc combat summary on its own: the line's wording around them changes
+# (`0 reloads (0 round by round);` broke one pattern for the whole line, 2026-10-18).
+NPC_FIGURES = {
+    "actors": re.compile(r"^(\d+) actors fought"),
+    "shots": re.compile(r"; (\d+) shots \("),
+    "blows": re.compile(r"\b(\d+) blows\b"),
+    "reloads": re.compile(r"\b(\d+) reloads\b"),
+    "flee_checks": re.compile(r"\b(\d+) flee checks"),
+    "fled": re.compile(r"\b(\d+) fled\b"),
+}
+
+
+def npc_figures(summary: str) -> dict:
+    return {k: int(m.group(1)) if (m := r.search(summary)) else 0 for k, r in NPC_FIGURES.items()}
 COMBAT = re.compile(r"combat: (\d+) shots .*?, (\d+) projectiles, (\d+) actor hits, (\d+) world hits.*?(\d+) melee impacts")
 RAGDOLLS = re.compile(r"ragdolls: (\d+) started")
 LINE = re.compile(r"combat line: (\S+) says (\w+) line")
@@ -85,9 +99,10 @@ def analyse(lines: list[str]) -> dict:
     if s := next((SUMMARY.search(ln) for ln in reversed(lines) if SUMMARY.search(ln)), None):
         sides = [{"faction": m.group(1), "actors": int(m.group(2)), "standing": int(m.group(3)), "dead": int(m.group(4)),
                   "hits": int(m.group(5)), "kills": int(m.group(6)), "flights": int(m.group(7))} for m in SIDE.finditer(s.group(1))]
-    npc = next((NPC_SUMMARY.search(ln) for ln in reversed(lines) if NPC_SUMMARY.search(ln)), None)
+    npc_line = next((m.group(1) for ln in reversed(lines) if (m := NPC_SUMMARY.search(ln))), "")
+    npc = npc_figures(npc_line)
     cmb = next((COMBAT.search(ln) for ln in reversed(lines) if COMBAT.search(ln)), None)
-    shots = int(npc.group(2)) if npc else 0
+    shots = npc["shots"]
     hits = int(cmb.group(3)) if cmb else 0
     switches = sum(max(len(set(v)) - 1, 0) for v in fights.values())
     timings = {}
@@ -104,14 +119,14 @@ def analyse(lines: list[str]) -> dict:
         "deaths_by_group": {g: {"dead": len(v), "median_s": round(statistics.median(v), 1), "last_s": round(max(v), 1)}
                             for g, v in sorted(by_group.items())},
         "shots": shots,
-        "blows": int(npc.group(3)) if npc else 0,
+        "blows": npc["blows"],
         "actor_hits": hits,
         "melee_impacts": int(cmb.group(5)) if cmb else 0,
         "hit_rate": round(hits / shots, 3) if shots else None,
         "projectiles": int(cmb.group(2)) if cmb else 0,
-        "reloads": int(npc.group(4)) if npc else 0,
-        "flee_checks": int(npc.group(5)) if npc else 0,
-        "fled": int(npc.group(6)) if npc else 0,
+        "reloads": npc["reloads"],
+        "flee_checks": npc["flee_checks"],
+        "fled": npc["fled"],
         "cover_taken": sum(1 for ln in lines if COVER.search(ln)),
         "flee_lines": sum(1 for ln in lines if FLEES.search(ln)),
         "target_switches": switches,
@@ -169,7 +184,7 @@ def report(res: dict) -> list[str]:
             f"- placed: " + ", ".join(f"{g['base']} {g['placed']}/{g['asked']}" for g in c["placed"]),
             f"- time to kill (from the placing): {c['time_to_kill_s']}",
             f"- deaths by group: {c['deaths_by_group']}",
-            f"- guns: shots {c['shots']}, projectile hits on actors {c['actor_hits']} (hit rate {c['hit_rate']}), reloads {c['reloads']}",
+            f"- guns: NPC shots {c['shots']}, projectile hits on actors {c['actor_hits']} (every actor's, placed ones included; hit rate {c['hit_rate']}), reloads {c['reloads']}",
             f"- melee: blows {c['blows']}, impacts {c['melee_impacts']} (the sides' hits in the table count both)",
             f"- cover taken {c['cover_taken']}, flee checks {c['flee_checks']}, fled {c['fled']}, target switches {c['target_switches']}",
             f"- combat lines a minute: {c['combat_lines_per_minute']}",

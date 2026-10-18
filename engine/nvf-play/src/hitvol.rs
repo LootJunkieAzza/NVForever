@@ -34,7 +34,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::blocking::{self, ActorBlocks};
 use crate::phys::{PhysState, PhysSystems};
 use crate::sim::SimState;
-use crate::{space, PlayWorld, RefVisual};
+use crate::{space, RefVisual};
 
 /// Radius limits, game units [design: a thin limb pose or a T-pose bind box should not
 /// make a needle or a wall].
@@ -181,13 +181,9 @@ pub fn volume_for(lo: [f32; 3], hi: [f32; 3], dead: bool) -> HitVolume {
     }
 }
 
-fn is_actor(play: &PlayWorld, form_id: u32) -> bool {
-    play.index.refs.get(&form_id).is_some_and(|e| &e.sig == b"ACHR" || &e.sig == b"ACRE")
-}
 
 #[allow(clippy::too_many_arguments)]
 fn sync_volumes(
-    play: Res<PlayWorld>,
     sim: Res<SimState>,
     script: Option<Res<crate::script::ScriptState>>,
     posed: Res<ActorParts>,
@@ -198,7 +194,8 @@ fn sync_volumes(
 ) {
     let mut bounds: BTreeMap<u32, ([f32; 3], [f32; 3])> = BTreeMap::new();
     for (r, aabb, gt, vis) in &parts {
-        if !vis.get() || !is_actor(&play, r.0) {
+        // Placed actors and created ones (PlaceAtMe), `SimState::is_actor`.
+        if !vis.get() || !sim.is_actor(r.0) {
             continue;
         }
         let (lo, hi) = game_box(aabb, gt);

@@ -328,7 +328,7 @@ class BattleTest(unittest.TestCase):
             t.format(25) + "nvforever::combat_tactics: battle: 0xFF000802 killed by 0xFF000811",
             t.format(30) + "nvforever::npc_combat: npc combat: LvlLegionRaiderMelee 0xFF000811 takes cover 300 units away",
             t.format(59) + "nvforever::combat_tactics: battle summary: 2 sides, 20 actors; NCRFactionNV (10): 9 standing, 1 dead, 30 hits, 4 kills, 0 flights; CaesarsLegionFaction (10): 6 standing, 4 dead, 10 hits, 1 kills, 2 flights; first fighter at 1 s",
-            t.format(59) + "nvforever::npc_combat: npc combat summary: 20 actors fought (...); 200 shots (200 from a muzzle, 0 from the eyes; 6 down the sights, 194 from the hip, sights raised 2 times), 12 blows (1 went on a combo, the longest 2; 0 missed), 7 reloads; 9 flee checks, 2 fled; the player was hit 0 times",
+            t.format(59) + "nvforever::npc_combat: npc combat summary: 20 actors fought (...); 200 shots (200 from a muzzle, 0 from the eyes; 6 down the sights, 194 from the hip, sights raised 2 times), 12 blows (1 went on a combo, the longest 2; 0 missed), 7 reloads (0 round by round); 9 flee checks, 2 fled; the player was hit 0 times",
             t.format(59) + "nvf_play::combat: combat: 0 shots (0 drawn from the muzzle, 0 from behind cover), 200 projectiles, 50 actor hits, 150 world hits (0 objects' hit blocks, 0 objects knocked away), 0 explosions, 0 kills, 12 melee impacts",
             t.format(59) + "nvforever: actor animation: up to 17 actors posed at once, 0.799 ms per frame on average",
         ]

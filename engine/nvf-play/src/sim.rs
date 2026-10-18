@@ -28,6 +28,18 @@ impl SimState {
         self.world.peek(id).map(|s| s.base).or_else(|| self.refs.get(id).map(|p| p.base))
     }
 
+    /// Whether a reference is an actor: a placed ACHR or ACRE, or a reference created at
+    /// run time (PlaceAtMe) of an actor base. Created actors are not among the placed
+    /// references; tests of the placed table alone left them without a hit volume, so no
+    /// shot could hit them (the stress tests' battle, 2026-10-18: the NCR troopers' rifle
+    /// fire went through the created Legion raiders into the ground).
+    pub fn is_actor(&self, form_id: u32) -> bool {
+        let id = FormId(form_id);
+        let placed = self.refs.get(id).map(|p| p.sig);
+        let created = id.is_dynamic().then(|| self.world.peek(id).and_then(|s| self.forms.sig(s.base))).flatten();
+        actor_ref(placed, created)
+    }
+
     /// Display name of a base form (FULL), else its Editor ID.
     pub fn name(&self, base: FormId) -> Option<&str> {
         let b = self.forms.get(base)?;
@@ -84,5 +96,32 @@ impl Plugin for SimPlugin {
 fn advance_clock(time: Res<Time>, mut sim: ResMut<SimState>) {
     if let Err(e) = sim.world.advance_real_seconds(time.delta_secs_f64()) {
         warn_once!("game clock: {e}");
+    }
+}
+
+/// [`SimState::is_actor`]'s rule: a placed reference by its record type (ACHR, ACRE), a
+/// created one by its base's (NPC_, CREA, or a leveled list of them).
+pub fn actor_ref(placed_sig: Option<[u8; 4]>, created_base_sig: Option<[u8; 4]>) -> bool {
+    match (placed_sig, created_base_sig) {
+        (Some(s), _) => matches!(&s, b"ACHR" | b"ACRE"),
+        (None, Some(b)) => matches!(&b, b"NPC_" | b"CREA" | b"LVLN" | b"LVLC"),
+        (None, None) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn created_actors_are_actors_as_placed_ones_are() {
+        assert!(actor_ref(Some(*b"ACHR"), None) && actor_ref(Some(*b"ACRE"), None));
+        assert!(!actor_ref(Some(*b"REFR"), None));
+        // PlaceAtMe of an NPC, a creature or a leveled list of either.
+        for base in [b"NPC_", b"CREA", b"LVLN", b"LVLC"] {
+            assert!(actor_ref(None, Some(*base)), "{base:?}");
+        }
+        // A created item or container is not.
+        assert!(!actor_ref(None, Some(*b"MISC")) && !actor_ref(None, Some(*b"CONT")) && !actor_ref(None, None));
     }
 }
