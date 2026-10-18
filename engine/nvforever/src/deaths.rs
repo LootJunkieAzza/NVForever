@@ -1,7 +1,8 @@
 //! Hits and deaths of placed actors on screen (docs/design/combat.md §5.6–5.7, step C5):
 //! `nvf_play::combat` reports each hit ([`ActorHit`]); a living actor plays the hit
 //! reaction for where it was hit (step C8) once over its other clips, when the hit
-//! cripples a body part, or lands on a crippled one and the actor's last reaction ended
+//! cripples a body part, or lands on a crippled one (or anywhere while its torso is
+//! crippled, docs/spec-notes/crippled-limbs.md §3) and the actor's last reaction ended
 //! long enough ago (`fnv_combat::damage::staggers`) [design: the owner's rule].
 //!
 //! A dead actor whose skeleton has a ragdoll becomes a [`crate::ragdoll::Corpse`]: killed
@@ -105,12 +106,18 @@ fn show_hits_and_deaths(
                 }
                 continue;
             }
-            let Some(h) = mine().find(|h| h.crippled).or_else(|| mine().find(|h| h.part_crippled)) else { continue };
-            if !fnv_combat::damage::staggers(&tuning, h.crippled, h.part_crippled, since) {
+            let Some(h) = mine().find(|h| h.crippled).or_else(|| mine().find(|h| h.part_crippled)).or_else(|| mine().find(|h| h.torso_crippled)) else { continue };
+            if !fnv_combat::damage::staggers(&tuning, h.crippled, h.part_crippled, h.torso_crippled, since) {
                 continue;
             }
             if let Some(c) = lo.set.flinch_for(h.location) {
-                let why = if h.crippled { "crippled now" } else { "crippled part hit" };
+                let why = if h.crippled {
+                    "crippled now"
+                } else if h.part_crippled {
+                    "crippled part hit"
+                } else {
+                    "torso crippled"
+                };
                 info!("hit reaction: {:08X} staggers for {:.1} s (location {}, {why})", r.0, c.clip.length(), h.location);
                 commands.entity(e).insert(Flinch { clip: c, at: now });
             }

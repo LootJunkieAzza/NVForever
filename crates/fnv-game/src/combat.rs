@@ -123,6 +123,33 @@ pub fn limb_condition(name: &str) -> Option<u16> {
     actor::av_by_name(name).filter(|c| LIMB_CONDITIONS.contains(c))
 }
 
+/// Perception Condition (the head), Endurance Condition (the torso), Left and Right
+/// Attack Condition (the arms) and Left and Right Mobility Condition (the legs)
+/// [documented: GECK wiki Actor Value list, codes 25–30].
+pub const HEAD: u16 = 25;
+pub const TORSO: u16 = 26;
+pub const LEFT_ARM: u16 = 27;
+pub const RIGHT_ARM: u16 = 28;
+pub const LEFT_MOBILITY: u16 = 29;
+pub const RIGHT_MOBILITY: u16 = 30;
+
+/// `fCombatPlayerLimbDamageMult` when the load order lacks it [observed: FalloutNV.esm].
+pub const PLAYER_LIMB_DAMAGE_MULT: f64 = 0.5;
+/// `fMoveOneCrippledLegSpeedMult` and `fMoveTwoCrippledLegsSpeedMult` when the load
+/// order lacks them [observed: FalloutNV.esm].
+pub const ONE_LEG_SPEED_MULT: f64 = 0.85;
+pub const TWO_LEGS_SPEED_MULT: f64 = 0.75;
+
+/// The share of its speed an actor keeps with `crippled` legs crippled (0, 1 or 2).
+pub fn leg_speed(g: &Game, crippled: usize) -> f64 {
+    match crippled {
+        0 => 1.0,
+        1 => setting(g, "fMoveOneCrippledLegSpeedMult", ONE_LEG_SPEED_MULT),
+        _ => setting(g, "fMoveTwoCrippledLegsSpeedMult", TWO_LEGS_SPEED_MULT),
+    }
+    .clamp(0.0, 1.0)
+}
+
 /// Settings with their documented defaults (GECK wiki Experience Settings).
 pub(crate) fn setting(g: &Game, name: &str, default: f64) -> f64 {
     g.world.setting_f32(name).map_or(default, |v| v as f64)
@@ -445,13 +472,36 @@ impl Game<'_> {
     pub fn damage_limb(&mut self, target: FormId, l: LimbHit, max_health: f64) -> (f64, bool) {
         let pool = max_health * l.health_percent / 100.0;
         let before = actor::actor_value(self, target, l.condition).unwrap_or(100.0);
-        if pool <= 0.0 || l.damage <= 0.0 || before <= 0.0 {
+        let damage = self.limb_damage(target, l.damage);
+        if pool <= 0.0 || damage <= 0.0 || before <= 0.0 {
             return (before, false);
         }
-        let loss = (l.damage / pool * 100.0).min(before);
+        let loss = (damage / pool * 100.0).min(before);
         actor::add_damage(self, target, l.condition, loss);
         let after = before - loss;
         (after, after <= 0.0)
+    }
+
+    /// The limb damage a hit does to `target`'s limb (docs/spec-notes/crippled-limbs.md
+    /// §3): the player's is times `fCombatPlayerLimbDamageMult` [observed: 0.5 in
+    /// FalloutNV.esm; hypothesis: that it scales the limb damage the player takes, from
+    /// its name], then the target's "Adjust Limb Damage" perks (Small Frame ×1.25, Tough
+    /// Guy ×0.8) [observed].
+    pub fn limb_damage(&mut self, target: FormId, damage: f64) -> f64 {
+        let player = target == FormId::PLAYER_REF;
+        let d = if player { damage * setting(self, "fCombatPlayerLimbDamageMult", PLAYER_LIMB_DAMAGE_MULT) } else { damage };
+        self.entry_point(target, crate::perks::ADJUST_LIMB_DAMAGE, d).0.max(0.0)
+    }
+
+    /// The share of its speed an actor keeps on its legs (docs/spec-notes/crippled-limbs.md
+    /// §4): 1 with both whole, `fMoveOneCrippledLegSpeedMult` with one crippled,
+    /// `fMoveTwoCrippledLegsSpeedMult` with both [observed: 0.85 and 0.75 in
+    /// FalloutNV.esm; hypothesis: the settings' role, from their names]. For the player
+    /// and every other actor alike; a creature's legs are the parts that name the two
+    /// mobility conditions (the hind legs of four-legged ones).
+    pub fn leg_speed_mult(&mut self, r: FormId) -> f64 {
+        let crippled = [LEFT_MOBILITY, RIGHT_MOBILITY].into_iter().filter(|&c| self.is_crippled(r, c)).count();
+        leg_speed(self, crippled)
     }
 
     /// An actor's limb conditions, codes 25–31 in order.

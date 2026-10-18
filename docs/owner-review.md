@@ -5853,6 +5853,49 @@ themselves:
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
 
+## Crippled limbs' effects (2026-10-18, branch claude/crippled-limb-effects-ab9ad8)
+
+What each crippled limb does, for the player and for NPCs, is in
+docs/spec-notes/crippled-limbs.md. It draws on the ESM (the game's own help text
+`HelpCrippling` and `HelpHealingLimbs`, the `HeadCrippleEffect` ability, the leg-speed
+settings) and your wiki notes. Smoke: `crippled-head-perception`, `crippled-torso-arms`,
+`crippled-sleep-heals`, and new checks in `crippled-limp`. My choices to check against
+the game:
+
+- **Melee with a crippled arm.** The two sources differ. The game's formula with its own
+  settings takes 40 % of the weapon's damage at a fully crippled arm condition and 20 %
+  at half. Your notes say −10 % (one-handed, right arm) and −5 % per arm (two-handed,
+  unarmed). *Decision:* the formula's numbers, with your notes' rule for which arm
+  counts. *Check:* a knife's damage with a crippled right arm; if it is only 10 % lower,
+  I switch to your numbers.
+- **The player's limbs take half the limb damage** (`fCombatPlayerLimbDamageMult` 0.5).
+  *Guess:* it scales the damage the player's limbs take, not the damage the player does
+  to others' limbs. *Check:* how many 10mm hits to the leg cripple the player, and an NPC.
+- **Legs**: 0.85 of the speed with one crippled leg, 0.75 with both, for everyone (the
+  game's two settings; it was 0.7 and 0.5 for the player before). A creature with a
+  crippled leg makes no forward power attack (the deathclaw's leap). With both legs
+  crippled the player's power attack is always the standing one.
+- **Torso**: any hit staggers an NPC (after the 3 s cooldown) while its torso is
+  crippled. This extends your rule of "only the crippling hit and later hits on the
+  crippled part". The player flinches by the same rule: the view jumps by up to 4°, a
+  swing is broken off, and no attack starts for 0.6 s (my numbers). It also happens in
+  god mode. *Check:* does the original stagger on every hit or only some?
+- **Arms**: an NPC drops its weapon when a hit cripples either arm. The help text says
+  "enemies", so the player keeps theirs. While aiming with a crippled arm the player's
+  view sways in a slow figure of eight, 1.5° (one arm) or 3° (both) every 2.5 s (my
+  numbers). VATS mode shots keep the crippled arms' spread.
+- **Head**: Perception −4 for every actor, plus 0.2 spread (my number for "lower
+  accuracy"). The player's −4 is the game's own `PlayerConcussed`, which a master
+  script keeps on the player. Until now it never lifted after the first head crippling
+  (fixed: effect conditions are checked again every second). *Check:* Perception after
+  a crippled head is healed. The "concussion effect" the help text names is not built.
+- **Sleeping heals crippled limbs** outside Hardcore, on the first hour slept. In
+  Hardcore it does not: the game's help text says only Doctor's Bags and doctors heal
+  limbs there, while your notes say an owned bed does. I followed the help text.
+- **Not built**: a Stimpak on one limb from the Pip-Boy (using items from the CND page
+  is not built), frenzy from crippled antennae, hit explosives going off, and the
+  concussion screen effect.
+
 ## Doc Mitchell's mirror (2026-10-18, branch claude/doc-mirror)
 
 Your report: the mirror Doc hands you before "How'd I do?" was not shown, and the
