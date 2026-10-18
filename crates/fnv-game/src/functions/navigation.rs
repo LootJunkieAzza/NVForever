@@ -1,5 +1,5 @@
 //! Navmesh switches: EnableNavMesh, DisableNavmesh and setAllReachable
-//! (docs/design/script-stubs.md §3.15). The rules keep what the scripts switched
+//! (docs/design/script-stubs.md §3.16). The rules keep what the scripts switched
 //! ([`NavSwitches`], saved); the layer that plans ways over the navmesh applies it to its
 //! graph (`fnv_ai::Ai::apply_navmesh_switches`): a disabled navmesh takes no part in
 //! paths until it is enabled again.
