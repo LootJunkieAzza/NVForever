@@ -221,6 +221,66 @@ fn is_cap(dec: &Decoded, shape: &fnv_nif::Struct) -> bool {
         })
 }
 
+impl ActorParts {
+    /// Drop the prepared parts and retextured materials nothing else holds, after their
+    /// grace time (`crate::release`); the numbers dropped (parts, materials). A
+    /// retextured material that fell back to the part's own counts as the cache's copy.
+    pub fn release(
+        &mut self,
+        parts: &mut crate::release::Unused<String>,
+        materials: &mut crate::release::Unused<(String, usize, String)>,
+        now: f64,
+    ) -> (usize, usize) {
+        use crate::release::{Holders, KEEP_UNUSED_MAX, KEEP_UNUSED_SECS};
+        let own_material = |k: &(String, usize, String)| self.parts.get(&k.0).and_then(|p| p.as_ref()).and_then(|p| p.shapes.get(k.1)).map(|s| &s.material);
+        let entries: Vec<_> = self
+            .materials
+            .iter()
+            .map(|(k, m)| {
+                let mut h = Holders::default();
+                h.add(m);
+                if let Some(o) = own_material(k).filter(|o| *o == m) {
+                    h.add(o);
+                }
+                (k.clone(), h.held_elsewhere())
+            })
+            .collect();
+        let gone = materials.sweep(now, entries, KEEP_UNUSED_SECS, KEEP_UNUSED_MAX);
+        for k in &gone {
+            self.materials.remove(k);
+        }
+        let entries: Vec<_> = self
+            .parts
+            .iter()
+            .filter_map(|(k, p)| p.as_ref().map(|p| (k, p)))
+            .map(|(k, p)| {
+                if Arc::strong_count(p) > 1 {
+                    return (k.clone(), true);
+                }
+                let mut h = Holders::default();
+                for s in &p.shapes {
+                    h.add(&s.mesh);
+                    h.add(&s.material);
+                    if let Some((b, _)) = &s.skin {
+                        h.add(b);
+                    }
+                }
+                for (mk, m) in &self.materials {
+                    if mk.0 == *k && p.shapes.get(mk.1).is_some_and(|s| s.material == *m) {
+                        h.add(m);
+                    }
+                }
+                (k.clone(), h.held_elsewhere())
+            })
+            .collect();
+        let drop = parts.sweep(now, entries, KEEP_UNUSED_SECS, KEEP_UNUSED_MAX);
+        for k in &drop {
+            self.parts.remove(k);
+        }
+        (drop.len(), gone.len())
+    }
+}
+
 impl ActorCtx<'_, '_> {
     /// The prepared skeleton at `path` (loaded on first use).
     pub fn skeleton(&mut self, path: &str) -> Option<Arc<PreparedSkeleton>> {

@@ -23,10 +23,15 @@ FIELD = re.compile(r"^(?P<name>[a-z %]+?) (?P<value>-?[\d.]+(?:/[\d.]+)*)(?: ms)
 LAP_START = re.compile(r"stress tour: lap (\d+) starts")
 WAYPOINT = re.compile(r"stress tour: lap (\d+) at waypoint (\d+)/(\d+)")
 FRAMES = re.compile(r"stress frames: (\d+) frames, mean ([\d.]+) ms, 1% low ([\d.]+) ms \(([\d.]+) fps\), worst ([\d.]+) ms")
+STARTUP = re.compile(r"stress start-up: (\d+) frames, ([\d.]+) ms, slowest ([\d.]+) ms")
+HITCH = re.compile(r"stress hitch: ([\d.]+) ms at t ([\d.]+) s, (\d+) cells loaded in it \(([\d.]+) ms\), at (.*)$")
 PROGRESS = re.compile(r"stress (tour|sample)")
 # Counts a leak would show in (the engine's sample fields, and the process's memory).
-WATCHED = ["entities", "refs drawn", "meshes", "images", "materials", "audio", "cells", "bodies", "actors",
-           "ragdolls", "working set", "private bytes"]
+WATCHED = ["entities", "refs drawn", "meshes", "images", "materials", "models cached", "textures cached", "audio",
+           "cells", "bodies", "actors", "ragdolls", "working set", "private bytes"]
+# GPU assets and the caches that hold them: back near where they were once the tour has
+# left a place behind (the caches keep what nothing uses for a minute, nvf_assets::release).
+ASSETS = ["meshes", "images", "models cached", "textures cached"]
 
 
 def ring(grid_min, grid_max, n: int = 12, inset: float = 0.3) -> list[tuple[float, float]]:
@@ -113,6 +118,41 @@ def growth(samples: list[dict], fields=WATCHED, tolerance: float = 0.05) -> dict
     return out
 
 
+def not_released(samples: list[dict], fields=ASSETS, part: float = 0.1, tolerance: float = 0.25, slack: float = 100) -> dict:
+    """Assets not let go within a lap: a lap ends where it began (the ring closes), so a
+    count whose mean over the lap's last `part` of samples is above its mean over the
+    first `part` by more than `tolerance` of it plus `slack` was kept after the places
+    that loaded it were left. Per count: the laps with (start, end, peak)."""
+    out = {}
+    for f in fields:
+        bad = []
+        for lap in sorted({s["lap"] for s in samples if s["lap"] > 0}):
+            vals = [s[f] for s in samples if s["lap"] == lap and f in s]
+            if len(vals) < 4:
+                continue
+            n = max(1, round(len(vals) * part))
+            start, end = sum(vals[:n]) / n, sum(vals[-n:]) / n
+            if end > start * (1 + tolerance) + slack:
+                bad.append({"lap": lap, "start": round(start, 1), "end": round(end, 1), "peak": max(vals)})
+        if bad:
+            out[f] = bad
+    return out
+
+
+def startup_and_hitches(lines: list[str], top: int = 10) -> tuple[dict | None, list[dict]]:
+    """The engine's start-up line, and its slowest `top` hitches after start-up."""
+    startup = None
+    hitches = []
+    for ln in lines:
+        if m := STARTUP.search(ln):
+            startup = {"frames": int(m.group(1)), "ms": float(m.group(2)), "slowest_ms": float(m.group(3))}
+        elif m := HITCH.search(ln):
+            hitches.append({"ms": float(m.group(1)), "t": float(m.group(2)), "cells": int(m.group(3)),
+                            "cell_ms": float(m.group(4)), "at": m.group(5)})
+    hitches.sort(key=lambda h: -h["ms"])
+    return startup, hitches[:top]
+
+
 def write_csv(path, samples: list[dict]) -> None:
     keys = ["t", "lap", "waypoint"] + sorted({k for s in samples for k in s} - {"t", "lap", "waypoint", "at"}) + ["at"]
     with open(path, "w", encoding="utf-8") as f:
@@ -147,6 +187,7 @@ def run(ctx: lib.Ctx, route: str, laps: int, every: float, hang: float, start_ar
     add_memory(samples, r.memory, max(offset, 0.0))
     write_csv(ctx.out / "samples.csv", samples)
     frames = next((FRAMES.search(ln) for ln in reversed(r.lines) if FRAMES.search(ln)), None)
+    startup, hitches = startup_and_hitches(r.lines)
     laps_done = max((int(m.group(1)) for ln in r.lines if (m := re.search(r"stress tour: lap (\d+) done", ln))), default=0)
     return {
         "test": "tour",
@@ -159,6 +200,9 @@ def run(ctx: lib.Ctx, route: str, laps: int, every: float, hang: float, start_ar
                                            "worst_ms": float(frames.group(5))},
         "peak": {f: max((s[f] for s in samples if f in s), default=None) for f in WATCHED},
         "possible_leaks": growth(samples),
+        "not_released": not_released(samples),
+        "startup": startup,
+        "hitches": hitches,
         "crash_groups": lib.group_crashes([("tour", c) for c in r.crashes]),
         "log": str(r.log),
         "tail": r.tail(15) if r.status != "ok" else [],
@@ -170,7 +214,14 @@ def report(res: dict) -> list[str]:
            f"{res['samples']} samples (samples.csv)."]
     if res["frames"]:
         f = res["frames"]
-        out += ["", f"Frames: {f['count']}, mean {f['mean_ms']} ms, 1% low {f['low1_ms']} ms ({f['low1_fps']} fps), worst {f['worst_ms']} ms"]
+        out += ["", f"Frames: {f['count']}, mean {f['mean_ms']} ms, 1% low {f['low1_ms']} ms ({f['low1_fps']} fps), worst {f['worst_ms']} ms"
+                " (after start-up)"]
+    if res.get("startup"):
+        st = res["startup"]
+        out.append(f"Start-up: {st['frames']} frames, {st['ms']:g} ms, slowest {st['slowest_ms']:g} ms (left out of the frames above)")
+    if res.get("hitches"):
+        out += ["", "## Slowest hitches", "", "| ms | t | cells loaded in it | at |", "|---|---|---|---|"]
+        out += [f"| {h['ms']:g} | {h['t']:g} | {h['cells']} ({h['cell_ms']:g} ms) | {h['at']} |" for h in res["hitches"]]
     out += ["", "## Peaks", "", "| count | peak |", "|---|---|"]
     for k, v in res["peak"].items():
         if v is not None:
@@ -182,6 +233,12 @@ def report(res: dict) -> list[str]:
         out.append(f"- **{k}**: lap ends {v['lap_ends']}" + (" (rising every lap)" if v["rising_every_lap"] else ""))
         for g in v["grew_at"][:10]:
             out.append(f"  - lap {g['lap']} waypoint {g['waypoint']} ({g['at']}): {g['first']:g} on lap 1, {g['now']:g} now")
+    out += ["", "## Assets not released", ""]
+    if not res.get("not_released"):
+        out.append("None: meshes, images and the caches came back near their lap-start counts by each lap's end.")
+    for k, laps in res.get("not_released", {}).items():
+        for b in laps:
+            out.append(f"- **{k}**: lap {b['lap']} started near {b['start']:g}, ended near {b['end']:g} (peak {b['peak']:g})")
     if res["crash_groups"]:
         out += ["", "## Crashes", ""] + [f"- {g['message']} at {g['location']}" for g in res["crash_groups"]]
     if res["tail"]:

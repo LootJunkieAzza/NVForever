@@ -122,6 +122,20 @@ Long play's memory: what the engine holds, sampled along laps of the Mojave.
 
   A count that settles after the first lap is caching. One that keeps rising is the one
   to look into.
+- **Assets not released.** Within one lap: a lap ends where it began, so meshes, images
+  and the asset caches (`models cached`, `textures cached`) should end near their
+  lap-start counts. One whose mean over the lap's last tenth of samples is above its first
+  tenth's by more than 25 % plus 100 is listed. The caches drop what no live entity uses
+  after a minute (`engine/nvf-assets/src/release.rs`), and the places left behind are
+  further back than that. This works with one lap. Before that sweep existed, the
+  2026-10-18 lap went from 816 meshes and 618 images to 4,726 and 2,962 at the start's
+  place [observed].
+- **Start-up and hitches.** The frames until the start's cells are in are start-up. They
+  are left out of the frame statistics and reported on their own line, because the first
+  frame carries the app's build and the Startup systems (about 2.5 s in the 2026-10-18 tour
+  and battle runs) [observed]. After start-up, every frame over 250 ms is logged with the
+  cells loaded in it and the place. The report lists the slowest ten, so a cell load can be
+  told from a stall.
 
 This does not walk on the navmesh as an actor would: it steps over the ground. That
 streams the same cells, but finds no path or collision trouble. A walking tour, with the

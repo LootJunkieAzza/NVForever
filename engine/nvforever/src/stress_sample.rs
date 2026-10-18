@@ -2,12 +2,20 @@
 //!
 //! `NVF_PLAY_TEST_SAMPLE=<seconds>`: every that many real seconds one line
 //! `stress sample: t <s> s, frames <n>, frame mean <m> ms, frame worst <w> ms, entities <n>,
-//! refs drawn <n>, meshes <n>, images <n>, materials <n>, audio <n>, cells <n>,
+//! refs drawn <n>, meshes <n>, images <n>, materials <n>, models cached <n>, textures
+//! cached <n>, audio <n>, cells <n>,
 //! bodies <fixed>/<kinematic>/<dynamic>, actors <n>, nan actors <n>, ragdolls <n>,
 //! projectiles <n>, at <place>` with what the engine holds now and where the camera is
 //! (the crash report's place text). At the exit, `stress frames: <n> frames, mean <m> ms,
-//! 1% low <l> ms (<fps> fps), worst <w> ms` over the whole run ([`frame_stats`]). The
-//! process's memory is the runner's to read (it has the process).
+//! 1% low <l> ms (<fps> fps), worst <w> ms` over the run after its start-up ([`frame_stats`]).
+//!
+//! Start-up (the frames until the start's cells are all in, `Streamer::settled`; the first
+//! takes the app's build and the Startup systems, 2.5 s in the stress runs of 2026-10-18)
+//! is left out of the samples' and the run's frame times and logged once on its own:
+//! `stress start-up: <n> frames, <ms> ms, slowest <w> ms`. After it, a frame slower than
+//! [`HITCH_MS`] logs `stress hitch: <ms> ms at t <s> s, <k> cells loaded in it (<ms> ms),
+//! at <place>`, so a stall can be told from a cell load. The process's memory is the
+//! runner's to read (it has the process).
 
 use crate::limbs::ActorRig;
 use bevy::audio::AudioSink;
@@ -32,10 +40,20 @@ impl Plugin for StressSamplePlugin {
     }
 }
 
+/// A frame slower than this (milliseconds) after start-up is logged as a hitch.
+pub const HITCH_MS: f32 = 250.0;
+
 #[derive(Resource, Default)]
 struct Samples {
     every: f32,
     since: f32,
+    /// The start's cells are in: frame times count from the next frame on.
+    started: bool,
+    /// Start-up's frame times (milliseconds).
+    startup: Vec<f32>,
+    /// The streamer's cells loaded and their load time so far, at the last frame.
+    cells_loaded: usize,
+    load_ms: f64,
     /// This window's frame times, and every frame's (milliseconds).
     window: Vec<f32>,
     all: Vec<f32>,
@@ -67,14 +85,33 @@ fn sample(
     meshes: Res<Assets<Mesh>>,
     images: Res<Assets<Image>>,
     materials: Res<Assets<StandardMaterial>>,
+    cached: (Option<Res<nvf_assets::ModelCache>>, Option<Res<nvf_assets::TextureCache>>),
     phys: Option<Res<PhysState>>,
     combat: Option<Res<nvf_play::combat::Combat>>,
+    streamer: Option<Res<crate::world::Streamer>>,
 ) {
     let dt = real.delta_secs();
     let ms = dt * 1000.0;
-    s.window.push(ms);
-    s.all.push(ms);
     s.since += dt;
+    let (cells_loaded, load_ms) = streamer.as_deref().map_or((0, 0.0), |st| (st.stats.cells_loaded, st.stats.load_ms));
+    let (new_cells, new_ms) = (cells_loaded.saturating_sub(s.cells_loaded), load_ms - s.load_ms);
+    (s.cells_loaded, s.load_ms) = (cells_loaded, load_ms);
+    if !s.started {
+        s.startup.push(ms);
+        // A start that never settles still ends start-up after a minute.
+        if streamer.as_deref().is_none_or(|st| st.settled) || s.startup.iter().sum::<f32>() > 60_000.0 {
+            s.started = true;
+            let total: f32 = s.startup.iter().sum();
+            let slowest = s.startup.iter().copied().fold(0.0, f32::max);
+            info!("stress start-up: {} frames, {total:.0} ms, slowest {slowest:.2} ms", s.startup.len());
+        }
+    } else {
+        s.window.push(ms);
+        s.all.push(ms);
+        if ms > HITCH_MS {
+            info!("stress hitch: {ms:.0} ms at t {:.1} s, {new_cells} cells loaded in it ({new_ms:.0} ms), at {}", real.elapsed_secs(), crate::crash::place_text());
+        }
+    }
     if s.since < s.every {
         return;
     }
@@ -88,13 +125,15 @@ fn sample(
         (p.cells.len(), format!("{}/{}/{}", st.bodies_fixed, st.bodies_kinematic, st.bodies_dynamic), p.world.ragdolls().count())
     });
     info!(
-        "stress sample: t {:.1} s, frames {frames}, frame mean {mean:.2} ms, frame worst {worst:.2} ms, entities {}, refs drawn {}, meshes {}, images {}, materials {}, audio {}, cells {cells}, bodies {bodies}, actors {}, nan actors {nan}, ragdolls {ragdolls}, projectiles {}, at {}",
+        "stress sample: t {:.1} s, frames {frames}, frame mean {mean:.2} ms, frame worst {worst:.2} ms, entities {}, refs drawn {}, meshes {}, images {}, materials {}, models cached {}, textures cached {}, audio {}, cells {cells}, bodies {bodies}, actors {}, nan actors {nan}, ragdolls {ragdolls}, projectiles {}, at {}",
         real.elapsed_secs(),
         entities.iter().count(),
         refs.iter().count(),
         meshes.len(),
         images.len(),
         materials.len(),
+        cached.0.as_deref().map_or(0, nvf_assets::ModelCache::held),
+        cached.1.as_deref().map_or(0, nvf_assets::TextureCache::len),
         audio.iter().count(),
         actors.iter().count(),
         combat.as_deref().map_or(0, |c| c.in_flight()),

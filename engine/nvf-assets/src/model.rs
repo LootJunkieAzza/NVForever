@@ -374,6 +374,49 @@ impl ModelCache {
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
+
+    /// Prepared models held now (remembered failures not counted).
+    pub fn held(&self) -> usize {
+        self.map.values().filter(|m| m.is_some()).count()
+    }
+
+    /// Drop the prepared models and tree billboards nothing else holds, after their grace
+    /// time (`crate::release`); the number dropped.
+    pub fn release(&mut self, idle: &mut crate::release::Unused<String>, billboards: &mut crate::release::Unused<u32>, now: f64) -> usize {
+        use crate::release::{held_beyond, KEEP_UNUSED_MAX, KEEP_UNUSED_SECS};
+        let entries = self.map.iter().filter_map(|(k, m)| m.as_ref().map(|m| (k.clone(), model_in_use(m))));
+        let drop = idle.sweep(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX);
+        for k in &drop {
+            self.map.remove(k);
+        }
+        let entries = self.billboards.iter().filter_map(|(&k, b)| b.as_ref().map(|(m, t)| (k, held_beyond(m, 1) || held_beyond(t, 1))));
+        let gone = billboards.sweep(now, entries.collect::<Vec<_>>(), KEEP_UNUSED_SECS, KEEP_UNUSED_MAX);
+        for k in &gone {
+            self.billboards.remove(k);
+        }
+        drop.len() + gone.len()
+    }
+}
+
+/// Whether anything besides the cache holds a prepared model: its `Arc` (rigs, other
+/// caches) or a handle of its shapes or rig (spawned entities).
+fn model_in_use(m: &Arc<PreparedModel>) -> bool {
+    if Arc::strong_count(m) > 1 {
+        return true;
+    }
+    let mut h = crate::release::Holders::default();
+    for s in &m.shapes {
+        h.add(&s.mesh);
+        h.add(&s.material);
+    }
+    for s in m.rig.iter().flat_map(|r| &r.shapes) {
+        h.add(&s.mesh);
+        h.add(&s.material);
+        if let Some((b, _)) = &s.skin {
+            h.add(b);
+        }
+    }
+    h.held_elsewhere()
 }
 
 #[derive(SystemParam)]
@@ -667,6 +710,44 @@ impl ModelCtx<'_> {
 mod tests {
     use super::*;
     use fnv_nif::scene::Transform as NifTransform;
+
+    #[test]
+    fn a_cached_model_goes_once_nothing_draws_it() {
+        use crate::release::Unused;
+        let mut meshes = Assets::<Mesh>::default();
+        let mut materials = Assets::<NifMaterial>::default();
+        let shape = PreparedShape {
+            mesh: meshes.add(Mesh::from(Cuboid::default())),
+            material: materials.add(crate::nif_material::nif_material(StandardMaterial::default())),
+            transform: Affine3A::IDENTITY,
+            name: None,
+            ancestors: Vec::new(),
+            node: None,
+            own: Affine3A::IDENTITY,
+            cpu: None,
+            segments: Vec::new(),
+            external_emittance: false,
+        };
+        let mut cache = ModelCache::default();
+        cache.map.insert("a.nif".into(), Some(Arc::new(PreparedModel { shapes: vec![shape.clone()], ..default() })));
+        cache.map.insert("missing.nif".into(), None);
+        let spawned = (shape.mesh.clone(), shape.material.clone());
+        drop(shape);
+        let (mut idle, mut boards) = (Unused::default(), Unused::default());
+        // Drawn: kept however long.
+        assert_eq!(cache.release(&mut idle, &mut boards, 0.0), 0);
+        assert_eq!(cache.release(&mut idle, &mut boards, 500.0), 0);
+        // A rig holding the Arc keeps it too.
+        drop(spawned);
+        let rig = cache.map["a.nif"].clone();
+        assert_eq!(cache.release(&mut idle, &mut boards, 600.0), 0);
+        drop(rig);
+        // Unused: kept for the grace time, then dropped; the failure stays remembered.
+        assert_eq!(cache.release(&mut idle, &mut boards, 700.0), 0);
+        assert_eq!(cache.held(), 1);
+        assert_eq!(cache.release(&mut idle, &mut boards, 700.0 + crate::release::KEEP_UNUSED_SECS), 1);
+        assert_eq!((cache.held(), cache.len()), (0, 1));
+    }
 
     fn object(block: usize, name: &str, parent: Option<usize>, is_node: bool, children: &[usize], x: f32) -> SceneObject {
         SceneObject {
