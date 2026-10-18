@@ -814,6 +814,13 @@ fn films_splatter_and_cell_image_space() {
         g.ui.splatter.triggers,
         [SplatterTrigger { count: 100, duration: Some(20.0), size: 2.0, opacity: 2.0 }, SplatterTrigger { count: 50, duration: None, size: 2.5, opacity: 2.0 }]
     );
+    // Out-of-range values are bounded; one that is not a number counts as missing.
+    call(&mut g, TRIGGER, None, &[n(1e12), n(1e9), n(1e6), n(f64::NAN)]);
+    call(&mut g, TRIGGER, None, &[n(-5.0), n(f64::INFINITY), n(-2.0), n(-1.0)]);
+    assert_eq!(
+        g.ui.splatter.triggers[2..],
+        [SplatterTrigger { count: u32::MAX, duration: Some(3600.0), size: 10.0, opacity: 1.0 }, SplatterTrigger { count: 0, duration: None, size: 0.0, opacity: 0.0 }]
+    );
     call(&mut g, CLEAR, None, &[]);
     assert!(g.ui.splatter.triggers.is_empty());
     assert_eq!(g.ui.splatter.clears, 1);

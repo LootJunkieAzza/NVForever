@@ -72,6 +72,14 @@ HUD and every menu [hypothesis].
 Unit tests: `nvf_play::screen_splatter` (ranges, cap, fade, settings, atlas cells),
 `fnv-game` `functions.rs` `films_splatter_and_cell_image_space`. Smoke
 `screen-splatter`. Capture job `tools/capture/jobs/fx_screen_splatter_look.steps.json`
-(save nvfstrip): pictures of stage 50's call through its 20 s, the counts 1/10/50/100,
-the size and opacity factors, ClearScreenSplatter, the fade switch off, and the screen
-after `player.DamageActorValue Health 40`.
+(save nvfstrip), one call per step with a picture after each: SetScreenSplatterFade 0.5 1
+alone, counts 1 and 10, stage 36's call (50 25 2 2), count 100, stage 50's call (100 20 2
+2) through its 20 s, the size and opacity factors, ClearScreenSplatter, the fade switch
+off, and the screen after `player.DamageActorValue Health 40`. Its first run (2026-10-18)
+ended with the original quitting, no error logged, inside the step that then held both
+SetScreenSplatterFade 0.5 1 and TriggerScreenSplatter 100 20 2 2 in one function script
+[observed, once]; the split names the call if it happens again.
+
+Bounds here [engineering choice]: count at least 0 and at most iBloodSplatterMaxCount
+on the screen (that setting itself at most 1,000), duration at most an hour, the size
+and opacity factors 0 to 10, a value that is not a number taken as missing.

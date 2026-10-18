@@ -55,6 +55,8 @@ use rand_core::{RngCore, SeedableRng};
 /// The splat shapes (alpha) and colours [observed: Fallout - Textures2.bsa].
 pub const ALPHA_ATLAS: &str = "textures\\gore\\screenbloodalpha01opt.dds";
 pub const COLOR_ATLAS: &str = "textures\\gore\\screenbloodcolor01opt.dds";
+/// The most splats on the screen whatever the setting says.
+const MAX_SPLATS: usize = 1000;
 /// Cells per side of the atlases (2×2) [observed: four splats in each].
 const ATLAS_SIDE: usize = 2;
 
@@ -95,7 +97,8 @@ impl SplatterSettings {
             opacity_chance: f("fBloodSplatterOpacityChance", d.opacity_chance),
             duration: f("fBloodSplatterDuration", d.duration),
             fade_start: f("fBloodSplatterFadeStart", d.fade_start),
-            max_count: f("iBloodSplatterMaxCount", d.max_count as f32).max(0.0) as usize,
+            // A plugin's setting is bounded too [engineering choice: one picture per splat].
+            max_count: f("iBloodSplatterMaxCount", d.max_count as f32).clamp(0.0, MAX_SPLATS as f32) as usize,
         }
     }
 }
@@ -412,6 +415,13 @@ mod tests {
         assert_eq!(s.duration, 5.0);
         assert_eq!(s.max_count, 3);
         assert_eq!(s.min_size, 0.12);
+        let huge = SplatterSettings::from_settings(|n| (n == "iBloodSplatterMaxCount").then_some(1e9));
+        assert_eq!(huge.max_count, MAX_SPLATS);
+        // The opening's largest call: 25 splats, the largest side 0.18 x 3 of the screen height.
+        let mut rng = ChaCha8Rng::seed_from_u64(3);
+        let big = splats_for(&trigger(u32::MAX, Some(12.0), 3.0, 2.0), &SplatterSettings::default(), &mut rng);
+        assert_eq!(big.len(), 25);
+        assert!(big.iter().all(|p| p.size <= 0.18 * 3.0 + 1e-6 && p.opacity <= 1.0));
     }
 
     #[test]

@@ -439,14 +439,23 @@ pub fn play_bink(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// JohnnyGuitar NVSE extension `TriggerScreenSplatterEx` documents before its texture
 /// names (splatterCount, splatterDuration, sizeMultiplier, opacityMultiplier; GECK
 /// wiki, owner export), which reads as the vanilla call with textures added; the
-/// vanilla page is empty]. A missing or 0 duration is the game setting's.
+/// vanilla page is empty]. A missing or 0 duration is the game setting's. Out-of-range
+/// values are bounded [engineering choice: no shipped call goes beyond count 100, 25 s,
+/// size 3, opacity 2]: count at least 0 (the engine shows at most iBloodSplatterMaxCount),
+/// duration at most an hour, the factors 0 to [`SPLATTER_MAX_FACTOR`]; a value that is not
+/// a number counts as missing.
 pub fn trigger_screen_splatter(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let count = a.num(0)?.max(0.0) as u32;
-    let duration = Some(a.num_or(1, 0.0) as f32).filter(|d| *d > 0.0);
-    let t = super::ui::SplatterTrigger { count, duration, size: a.num_or(2, 1.0).max(0.0) as f32, opacity: a.num_or(3, 1.0).max(0.0) as f32 };
+    let finite = |i: usize, d: f64| Some(a.num_or(i, d)).filter(|v| v.is_finite()).unwrap_or(d);
+    let count = finite(0, 0.0).clamp(0.0, f64::from(u32::MAX)) as u32;
+    let duration = Some(finite(1, 0.0).min(3600.0) as f32).filter(|d| *d > 0.0);
+    let factor = |i: usize| finite(i, 1.0).clamp(0.0, SPLATTER_MAX_FACTOR) as f32;
+    let t = super::ui::SplatterTrigger { count, duration, size: factor(2), opacity: factor(3) };
     g.ui.splatter.triggers.push(t);
     none()
 }
+
+/// The largest size or opacity factor TriggerScreenSplatter takes.
+pub const SPLATTER_MAX_FACTOR: f64 = 10.0;
 
 /// `ClearScreenSplatter`: the splats leave the screen [documented: GECK wiki
 /// ClearScreenSplatter, "Clears the screen splatter"]; calls not yet drawn go too.
