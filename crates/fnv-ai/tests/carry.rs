@@ -4,6 +4,7 @@
 
 use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Doing};
 use fnv_esm::raw::{write_subrecords, Subrecord};
+use fnv_game::ai::{AiPhase, SandboxPhase};
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_game::game::{Game, GameConfig};
 use fnv_game::package::{flags, type_flags, PackageCheck};
@@ -1445,4 +1446,69 @@ fn use_weapon_sends_the_actor_to_its_place_and_back_to_its_package_after() {
     s.run(10.0);
     let ev = s.events(R_LONER);
     assert!(ev.iter().any(|e| matches!(e, AiEvent::WeaponUseOver)), "{ev:?}");
+}
+
+/// DisableNavmesh while an actor walks a way over that navmesh: it plans again, finds no
+/// way and sets the package aside; enabled again, the way is there (docs/design/
+/// script-stubs.md §3.5). The switches are applied once per change.
+#[test]
+fn a_navmesh_disabled_under_a_walk_sends_the_actor_to_plan_again() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TRAVEL]);
+    let actor = FormId(R_TRAVEL);
+    s.run(1.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::Travelling);
+    assert_eq!(s.game.extra[&actor].ai_phase, Some(AiPhase::Travelling));
+    assert_eq!(s.ai.apply_navmesh_switches(&mut s.game, &mut s.nav), None);
+    // Cell B's navmesh goes: the way through the door ends on it.
+    s.game.nav_switches.navmeshes.insert(FormId(2), false);
+    assert_eq!(s.ai.apply_navmesh_switches(&mut s.game, &mut s.nav), Some(vec![actor]));
+    assert_eq!(s.ai.apply_navmesh_switches(&mut s.game, &mut s.nav), None, "applied once");
+    s.run(5.0);
+    assert!(s.events(R_TRAVEL).iter().any(|e| matches!(e, AiEvent::Unreachable { package, .. } if package.0 == P_TRAVEL_B)), "{:?}", s.events(R_TRAVEL));
+    s.run(30.0);
+    assert_ne!(s.game.world.peek(actor).unwrap().cell, Some(FormId(CELL_B)));
+    // Enabled again: chosen afresh, it gets there.
+    s.game.nav_switches.navmeshes.insert(FormId(2), true);
+    s.ai.apply_navmesh_switches(&mut s.game, &mut s.nav);
+    s.game.extra.get_mut(&actor).unwrap().package_blocked.clear();
+    s.game.choose_packages_now();
+    s.run(40.0);
+    assert!(dist(s.feet(R_TRAVEL), [5250.0, 5250.0, 50.0]) < 5.0);
+    assert!(s.game.extra[&actor].package_goal_met);
+    assert_eq!(s.game.extra[&actor].ai_phase, Some(AiPhase::There));
+}
+
+/// What a sandboxer does is told to the game for GetCurrentAIProcedure
+/// (`fnv_game::ai::SandboxPhase`; docs/spec-notes/packages.md §4, procedure codes): walking to the
+/// chair or marker, sitting, at the marker, and up from the chair until the next thing.
+#[test]
+fn a_sandboxer_tells_the_game_what_it_does() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    let actor = FormId(R_SB_OBJECTS);
+    let mut seen = Vec::new();
+    for _ in 0..1200 {
+        s.run(0.5);
+        let Some(AiPhase::Sandbox(p)) = s.game.extra.get(&actor).and_then(|e| e.ai_phase) else { continue };
+        if seen.last() != Some(&p) {
+            seen.push(p);
+        }
+        let a = &s.ai.agents[&actor];
+        match p {
+            SandboxPhase::Sitting => assert!(matches!(a.sandbox.as_ref().unwrap().doing, Doing::Sitting(_))),
+            SandboxPhase::ToObject => assert_eq!(a.activity, Activity::Travelling),
+            _ => {}
+        }
+    }
+    for p in [SandboxPhase::ToObject, SandboxPhase::Sitting, SandboxPhase::AtIdleMarker, SandboxPhase::GotUp] {
+        assert!(seen.contains(&p), "{p:?} not in {seen:?}");
+    }
+    // Up from the chair, then (after walking to it) the idle marker: never the chair again
+    // straight from getting up.
+    for w in seen.windows(2) {
+        if w[0] == SandboxPhase::GotUp {
+            assert_ne!(w[1], SandboxPhase::Sitting, "{seen:?}");
+        }
+    }
 }

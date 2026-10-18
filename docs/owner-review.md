@@ -5914,6 +5914,34 @@ themselves:
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
 
+## Navmesh switches, AI procedure codes, the player knocked down (2026-10-18, branch claude/nav-knockdown-9a8df4)
+
+Playthrough blockers row 1's leftover and row 18 (docs/outstanding.md §1). What is mine:
+
+- **The player's knockdown view and timing**: now from the capture `kd_player_knockdown`
+  (unconscious.md §5.4, second run) [observed]: the camera stays where it was while the
+  body flies and lies (at the eye in first person, so the view leaves first person), the
+  player lies about 2.4 s (`PLAYER_KNOCKDOWN_DOWN`), gets up seen from the third-person
+  camera, and a first-person view comes back once standing. Still mine: NPCs keep 3 s down,
+  controls are held throughout, enemies may keep attacking a downed player, and the
+  player sitting or talking is not knocked down; the push's distance is not fitted.
+- **Navmesh switches**: an actor walking a way over a navmesh a script disables plans
+  again from where it stands (its package taken up afresh), and sets the package aside
+  when there is no way round. The wiki says the original's EnableNavMesh/DisableNavmesh
+  skip the load order's FormID fix-up (so a DLC's call may miss its own navmesh in the
+  original); ours fixes them up like any reference, so the Lonesome Road elevator's
+  navmeshes really go while it rides.
+- **setAllReachable** (two Hoover Dam battle calls, one only on a PS3): kept and saved, no
+  effect; I take it to be an optimisation switch (skip the reachability test), which a
+  planner that always plans in full does not need.
+- **GetCurrentAIProcedure**: now from the AI observer's samples of the original
+  (packages.md §4, procedure codes): a sandboxer reads what it does (7 at or walking to a
+  spot, 0 between things or walking to an object, 46 at an idle marker, 48 seated, 10
+  eating, 8 asleep, 21 for a while after getting up), 45 only out of the high process; a
+  Travel package 0 on the way, 17 there (seated too). The split of a sandboxer's walking
+  between 7 (to a spot) and 0 (to an object) is my reading; the samples do not record
+  where an actor walks to. Find, Escort, Ambush and Use Weapon read 17 once their goal is
+  met (no sample reached one).
 ## Menu hooks: menu codes, the tutorial menu, ResetPipboyManager, AutoDisplayObjectives, ExitGame (2026-10-18, branch claude/menu-hooks-30bc18)
 
 docs/design/script-stubs.md §3.15, docs/spec-notes/tutorial-menu.md. Smoke

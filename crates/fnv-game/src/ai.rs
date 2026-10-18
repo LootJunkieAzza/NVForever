@@ -19,6 +19,39 @@ use crate::trace::EventKind;
 use fnv_sim::FormId;
 use std::collections::BTreeSet;
 
+/// What the layer that carries packages out (`fnv_ai`) has an actor do within its
+/// current package, as it last told ([`Game::set_ai_phase`]); GetCurrentAIProcedure reads
+/// it (`functions::ai_state`). `None` (the field unset): that layer does not run the
+/// actor now (an actor out of the high process, or no such layer, as headless). Not
+/// saved: told again on the actor's next update.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiPhase {
+    /// On its way to the package's location.
+    Travelling,
+    /// At the package's location, or the package has none to go to.
+    There,
+    /// In the area of a Sandbox package: what it does there.
+    Sandbox(SandboxPhase),
+}
+
+/// What a sandboxing actor does ([`AiPhase::Sandbox`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxPhase {
+    /// Standing with nothing in particular to do (between two things).
+    Standing,
+    /// Walking to a spot of the area, or standing at it.
+    Wandering,
+    /// Walking to something to use (furniture, an idle marker).
+    ToObject,
+    AtIdleMarker,
+    Sitting,
+    /// A meal (on a seat when one was free).
+    Eating,
+    Sleeping,
+    /// Got up from furniture, until the next thing it does begins.
+    GotUp,
+}
+
 /// The least time between two scans for actors whose choice is due, in seconds.
 const SCAN_STEP: f64 = 0.25;
 
@@ -262,6 +295,16 @@ impl Game<'_> {
         e.package_goal_met = true;
         if self.runs_packages() {
             self.package_event(actor, p, 1);
+        }
+    }
+
+    /// The layer that carries packages out tells what `actor` does within its package
+    /// ([`AiPhase`]; `None`: it does not run the actor now).
+    pub fn set_ai_phase(&mut self, actor: FormId, phase: Option<AiPhase>) {
+        match self.extra.get_mut(&actor) {
+            Some(e) => e.ai_phase = phase,
+            None if phase.is_some() => self.extra.entry(actor).or_default().ai_phase = phase,
+            None => {}
         }
     }
 

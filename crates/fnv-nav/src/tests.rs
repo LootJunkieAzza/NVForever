@@ -334,6 +334,43 @@ fn disabled_navmesh_blocks_paths() {
     assert!(!g.set_enabled(9, false));
 }
 
+/// The scripts' switches (`EnableNavMesh` / `DisableNavmesh`) applied to the graph: a
+/// path planned over a navmesh disabled since is blocked, and the way across is gone
+/// until it is enabled again; a navmesh the load order has disabled is enabled by its
+/// switch and falls back to disabled without one.
+#[test]
+fn navmesh_switches_block_and_reopen_the_way() {
+    let mut a = grid(1, [0.0, 0.0], 2, 2, 100.0, &[], flat);
+    let mut b = grid(2, [200.0, 0.0], 2, 2, 100.0, &[], flat);
+    let mut c = grid(3, [400.0, 0.0], 2, 2, 100.0, &[], flat);
+    seam(&mut a, &mut b, link_kind::PORTAL);
+    seam(&mut b, &mut c, link_kind::PORTAL);
+    let mut g = graph(&[(a, W), (b, W), (c, W)]);
+    let (from, to) = (Place { space: W, pos: [50.0, 50.0, 0.0] }, Place { space: W, pos: [550.0, 150.0, 0.0] });
+    let mut w = Walker::new(W, from.pos, 0.0, 100.0);
+    w.go_to(&g, to, &PathParams::default()).unwrap();
+    assert!(!w.follower.as_ref().unwrap().blocked(&g));
+    let mut switches = std::collections::BTreeMap::new();
+    switches.insert(2, false);
+    assert!(g.apply_switches(&switches));
+    assert!(!g.apply_switches(&switches), "applied once");
+    assert!(w.follower.as_ref().unwrap().blocked(&g));
+    assert!(!g.can_reach(from, to, &PathParams::default()));
+    switches.insert(2, true);
+    assert!(g.apply_switches(&switches));
+    assert!(!w.follower.as_ref().unwrap().blocked(&g));
+    assert!(g.can_reach(from, to, &PathParams::default()));
+    // Initially disabled (as the record's flag would make it): enabled only by a switch.
+    // (The goal then lies on no usable triangle: a path would snap it onto the middle
+    // navmesh's edge.)
+    g.meshes[2].initially_enabled = false;
+    assert!(g.apply_switches(&std::collections::BTreeMap::new()));
+    assert_eq!(g.locate(W, to.pos, 10.0), None);
+    switches.insert(3, true);
+    assert!(g.apply_switches(&switches));
+    assert!(g.locate(W, to.pos, 10.0).is_some());
+}
+
 /// A door that opens in place across a corridor: 100 wide (its model's x), 8 thick
 /// (y), turned so it spans the corridor (game y) at `x`, from y = `y0` to `y0 + 100`.
 fn hinged(door: u32, x: f32, y0: f32) -> crate::doors::InPlaceDoor {

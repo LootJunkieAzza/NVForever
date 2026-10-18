@@ -845,6 +845,17 @@ impl Core {
 
     /// One frame of the package choice and the walks in `game`. `own`: the game state is
     /// this module's (it is ticked here).
+    /// The scripts' navmesh switches (EnableNavMesh, DisableNavmesh) on the nav graph;
+    /// actors whose way crossed a navmesh disabled now plan again
+    /// (`fnv_ai::Ai::apply_navmesh_switches`).
+    fn switch_navmeshes(&mut self, game: &mut Game, nav: &mut NavState) {
+        if let Some(replanned) = self.ai.apply_navmesh_switches(game, &mut nav.graph) {
+            let off: Vec<String> = game.nav_switches.navmeshes.iter().filter(|(_, on)| !**on).map(|(m, _)| format!("{:08X}", m.0)).collect();
+            let on = game.nav_switches.navmeshes.len() - off.len();
+            info!("nav: navmeshes switched by scripts: {on} enabled, disabled [{}]; {} actors plan their way again", off.join(", "), replanned.len());
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn think(&mut self, game: &mut Game, own: bool, nav: &NavState, world: &WorldData, doors: &mut nvf_play::doors::Doors, mut phys: Option<&mut PhysState>, mut blocks: Option<&mut ActorBlocks>, dt: f32, now: f32, waited: u32) {
         // Who a walker pushed since the last frame, and (below) who may be pushed in
@@ -1402,6 +1413,7 @@ pub fn drive(
                 res.core.take_created(game);
             }
             res.core.process_levels(game, &world, &streamer);
+            res.core.switch_navmeshes(game, &mut nav);
             res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now, 0);
         }
         (None, Some(mut script), Some(mut sim)) => {
@@ -1427,6 +1439,7 @@ pub fn drive(
                     core.take_created(&rt.game);
                 }
                 core.process_levels(&rt.game, world_ref, streamer_ref);
+                core.switch_navmeshes(&mut rt.game, &mut nav);
                 core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now, waited)
             });
         }
