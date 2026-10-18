@@ -5570,3 +5570,26 @@ guesses to check against the game:
   out at the end, I could not see.
 - **A second crippling while it shows** starts the 5 s again and only the new limb
   flashes; healing a limb shows nothing.
+
+## Knockdowns: PushActorAway, explosions, SetUnconscious (2026-10-18, branch claude/knockdowns)
+
+Row 1 of docs/outstanding.md §1 (docs/spec-notes/unconscious.md §5; smoke
+`knockdown-push`). PushActorAway now lays the target down as a ragdoll thrown away from the
+source, and it gets up with the get-up clip; explosions' knockdown rolls now lay the actor
+down too (GetKnockedState 2). Guesses to check against the game:
+
+- **Time down**: 3 s of game time for a knockdown, then the get-up clip. No setting names
+  it. *Check:* `player.PushActorAway <NPC> 10` at the console; time how long it lies.
+- **Force scale**: 30 units a second per point of force, a quarter of it upwards (force 10
+  throws a body at 300 units/s, about 4 m/s). The wiki's "Havok force" is not converted.
+  *Check:* the same push; how far does the body slide?
+- **SetUnconscious alone does not lay anyone down.** Read from the scripts: robots standing
+  in pods and scheduled sleepers use it, and the thugs that fake death push their actor
+  down as well. It now also keeps a lying actor down until it is cleared (those thugs get
+  up only after being hit).
+- **The player is never knocked down** (six scripts push the player); building the
+  player's own knockdown is a separate job.
+- **No KOed/Wake line and no corner message** for a knockdown (it is no unconsciousness).
+- **A pushed actor can be searched** (E opens its inventory) until it begins to get up, as
+  the wiki says; an explosion's knockdown cannot be searched [hypothesis: the note names
+  only pushes].

@@ -104,12 +104,11 @@ function, with the system each gap needs, is now docs/design/script-function-cov
   (`fnv_sim::World::equipment`, engine/nvforever/src/outfits.rs) and redraws when that
   changes; combat's worn armour reads the same; smoke `npc-equip-drawn` [design]. NPCs
   whose cell the rules have not loaded keep the engine's own roll until they are.
-- **SetUnconscious in the engine**: an unconscious actor does not lie down (ragdolls are
-  for corpses only). (ResurrectActor's corpse is stood up again since
+- ~~**SetUnconscious in the engine**: an unconscious actor does not lie down~~: right as it
+  is (pods, sleepers); it now holds a pushed-down actor down (unconscious.md §5, 2026-10-18). (ResurrectActor's corpse is stood up again since
   docs/spec-notes/resurrect.md.)
-- **GetKnockedState / GetUnconscious**: an essential knocked out by damage sets the same
-  flag as SetUnconscious, never cleared; explosion knockdowns are rolled in the engine and
-  not told.
+- ~~**GetKnockedState / GetUnconscious**~~: fixed by knock-outs (#403) and knockdowns
+  (2026-10-18, unconscious.md §5): explosion knockdowns are told and read 2.
 - **GetAnimAction for attacks and reloads, and for the player**: the engine knows them
   (combat, nvf-play) but does not tell the rules.
 - **IsMoving** gives no direction (2–4); **Look**'s rotate-body flag is kept, not acted on;
@@ -395,7 +394,7 @@ what writes it now).
 | PlayMusic | 0x11FF | 38/- | `music_requests` | rules / music.rs | matches |  |
 | PlaySound | 0x1026 | 502/- | `sound_requests` | rules / world_sounds.rs:648 | matches |  |
 | PlaySound3D | 0x10B2 | 120/- | `sound_requests` | rules / world_sounds.rs | matches |  |
-| PushActorAway | 0x118A | 35/0 | stub | — | stub | no live knockdown |
+| PushActorAway | 0x118A | 35/0 | `Game::push_actor_away` | `RefExtra::knocked_out` → engine ragdoll | fixed 2026-10-18 | knockdown, unconscious.md §5 |
 | ReleaseWeatherOverride | 0x1158 | 11/- | `weather.release` | rules / main.rs:1430 | matches |  |
 | RemoveAllItems | 0x10AD | 59/- | `w.transfer_all/remove_all_items` | rules | matches |  |
 | RemoveAllTypedItems | 0x1249 | 295/- | inventory | rules | matches | Type codes partly [hypothesis]. |

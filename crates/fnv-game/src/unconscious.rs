@@ -1,6 +1,7 @@
 //! Unconscious actors (docs/spec-notes/unconscious.md §2): essential actors at zero
 //! health and any actor whose Fatigue runs out are knocked out instead of dying, and get
-//! up again.
+//! up again; live actors knocked down (PushActorAway, explosions) lie down for a moment
+//! the same way (§5).
 //!
 //! - A knockout ([`KnockOut`], `RefExtra::knocked_out`) has a cause and the game time it
 //!   began. It is not SetUnconscious's flag (`RefExtra::unconscious`), which only
@@ -21,6 +22,11 @@
 //!   its get-up clip ([`Game::finish_getting_up`]), or [`GETUP_MAX`] seconds for an
 //!   actor nobody draws [owner rule 2026-10-17: NPCs do not move until their get-up
 //!   animation is over].
+//! - **Knockdowns** ([`Game::push_actor_away`], [`Game::knock_down`]) are knockouts
+//!   with their own causes ([`Cause::Pushed`], [`Cause::KnockedDown`]) that last
+//!   [`KNOCKDOWN_DOWN`] seconds; a push gives the body a velocity the engine takes
+//!   ([`Game::take_shove`]).
+//! - SetUnconscious holds a lying actor down until it is cleared (§5).
 //! - Each knockout and each getting up is an event ([`EventKind::KnockedOut`],
 //!   [`EventKind::GotUp`]) for the engine (corner message, animations).
 
@@ -49,6 +55,14 @@ pub const FATIGUE_DOWN: f64 = 30.0;
 pub const GETUP_MAX: f64 = 3.0;
 /// The share of its maximum health an essential actor gets up with, at least [design].
 pub const ESSENTIAL_UP_HEALTH: f64 = 0.5;
+/// Seconds of game time a knockdown (PushActorAway, an explosion) keeps an actor down
+/// [design: no setting in the data names it].
+pub const KNOCKDOWN_DOWN: f64 = 3.0;
+/// Game units a second of the body's start velocity per point of PushActorAway's force
+/// (the wiki calls it a "Havok force") [design: the shipped scripts use 1 to 20].
+pub const PUSH_SPEED: f32 = 30.0;
+/// The upward share of a push's velocity, so that the body leaves the ground [design].
+pub const PUSH_LIFT: f32 = 0.25;
 
 /// Why an actor is knocked out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +72,10 @@ pub enum Cause {
     Essential,
     /// Its Fatigue ran out.
     Fatigue,
+    /// Knocked down by PushActorAway.
+    Pushed,
+    /// Knocked down by an explosion.
+    KnockedDown,
 }
 
 impl Cause {
@@ -65,6 +83,23 @@ impl Cause {
         match self {
             Cause::Essential => "essential",
             Cause::Fatigue => "fatigue",
+            Cause::Pushed => "pushed",
+            Cause::KnockedDown => "knocked_down",
+        }
+    }
+
+    /// A knockdown: the actor is not out cold, only down for a moment.
+    pub fn knockdown(self) -> bool {
+        matches!(self, Cause::Pushed | Cause::KnockedDown)
+    }
+
+    /// Which cause wins when a second one comes while the actor lies: essential over
+    /// fatigue over a knockdown.
+    fn rank(self) -> u8 {
+        match self {
+            Cause::Essential => 2,
+            Cause::Fatigue => 1,
+            Cause::Pushed | Cause::KnockedDown => 0,
         }
     }
 }
@@ -106,6 +141,15 @@ pub struct KnockOut {
     /// its get-up clip and still does not move.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub rising: Option<f64>,
+    /// PushActorAway laid it down: GetKnockedState reads 0 until it is up, also when it
+    /// is knocked out meanwhile, and the player can open its inventory [documented: GECK
+    /// wiki GetKnockedState and PushActorAway notes].
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub pushed: bool,
+    /// The velocity (game units a second, game space) its body is to be thrown with,
+    /// until the engine takes it ([`Game::take_shove`]).
+    #[serde(skip)]
+    pub shove: Option<[f32; 3]>,
 }
 
 impl KnockOut {
@@ -133,25 +177,90 @@ impl Game<'_> {
         self.extra.get(&r).is_some_and(|e| e.out_cold())
     }
 
-    /// Knock `r` out for `cause` (see the module notes). An essential knockout replaces
-    /// a fatigue one (its time starts again); otherwise one already knocked out stays
-    /// as it is. Returns whether it was knocked out now.
+    /// Knock `r` out for `cause` (see the module notes). A stronger cause replaces the
+    /// one it lies with (essential over fatigue over a knockdown; its time starts again);
+    /// otherwise one already lying stays as it is. Returns whether it went down now.
     pub fn knock_out(&mut self, r: FormId, cause: Cause, by: Option<FormId>) -> bool {
+        self.knock(r, cause, by, None)
+    }
+
+    fn knock(&mut self, r: FormId, cause: Cause, by: Option<FormId>, shove: Option<[f32; 3]>) -> bool {
         if r == FormId::PLAYER_REF || self.is_dead(r) {
             return false;
         }
-        match self.knockout(r) {
-            // Getting up from a fatigue knockout and beaten to zero: down again.
-            Some(k) if k.lying() && (k.cause == Cause::Essential || cause == Cause::Fatigue) => return false,
-            Some(k) if !k.lying() && cause == Cause::Fatigue => return false,
-            _ => {}
+        let old = self.knockout(r);
+        let replaces = match old {
+            None => true,
+            Some(k) if k.lying() => cause.rank() > k.cause.rank(),
+            // Getting up and knocked again: down again, unless only tired again.
+            Some(_) => cause != Cause::Fatigue,
+        };
+        let pushed = cause == Cause::Pushed || old.is_some_and(|k| k.pushed && k.lying());
+        if !replaces {
+            // Still lying: a push throws the body again and marks it pushed.
+            if let Some(k) = self.extra.get_mut(&r).and_then(|e| e.knocked_out.as_mut()).filter(|k| k.lying()) {
+                k.pushed |= pushed;
+                k.shove = shove.or(k.shove);
+            }
+            return false;
         }
         let now = self.time;
-        self.extra.entry(r).or_default().knocked_out = Some(KnockOut { cause, at: now, facing_up: None, held: false, rising: None });
+        let facing_up = old.filter(|k| k.lying()).and_then(|k| k.facing_up);
+        self.extra.entry(r).or_default().knocked_out = Some(KnockOut { cause, at: now, facing_up, held: false, rising: None, pushed, shove });
         self.emit(EventKind::KnockedOut { actor: r, cause: cause.name() });
         self.knockout_news.push(News { actor: r, cause, what: Happened::Down });
-        self.combat_line(r, by, "KOed");
+        if !cause.knockdown() {
+            self.combat_line(r, by, "KOed");
+        }
         true
+    }
+
+    /// Whether `r` is an actor that can be knocked down: alive, not the player [design:
+    /// the player's own knockdown is not built], an NPC or creature without the "No
+    /// Knockdowns" flag (its own record's, never a template's) and not an "Immobile"
+    /// creature [documented: GECK wiki PushActorAway notes, Category:NPC Template Data].
+    pub fn can_knock_down(&self, r: FormId) -> bool {
+        if r == FormId::PLAYER_REF || self.is_dead(r) {
+            return false;
+        }
+        self.def_following(r, |_| false).is_some_and(|d| !d.no_knockdowns && !d.immobile)
+    }
+
+    /// `source.PushActorAway target force`: `target` is knocked down ([`Cause::Pushed`])
+    /// and its body thrown away from `source` (towards it for a negative force), straight
+    /// up without a source [documented: GECK wiki PushActorAway]; the speed is
+    /// [`PUSH_SPEED`] per point of force, [`PUSH_LIFT`] of it upwards [design]. Returns
+    /// whether it was pushed (refused as [`Game::can_knock_down`] says).
+    pub fn push_actor_away(&mut self, source: Option<FormId>, target: FormId, force: f64) -> bool {
+        if !self.can_knock_down(target) {
+            return false;
+        }
+        let speed = force as f32 * PUSH_SPEED;
+        let to = self.world.get(target).ok().map(|s| s.pos);
+        let from = source.filter(|&s| s != target).and_then(|s| self.world.get(s).ok().map(|s| s.pos));
+        let away = from.zip(to).and_then(|(from, to)| {
+            let (dx, dy) = (to[0] - from[0], to[1] - from[1]);
+            let len = (dx * dx + dy * dy).sqrt();
+            (len > 1e-3).then(|| [dx / len, dy / len])
+        });
+        let shove = match away {
+            Some([x, y]) => [x * speed, y * speed, speed.abs() * PUSH_LIFT],
+            None => [0.0, 0.0, speed.abs()],
+        };
+        self.knock(target, Cause::Pushed, source, Some(shove));
+        true
+    }
+
+    /// An explosion knocked `r` down ([`Cause::KnockedDown`], GetKnockedState 2), its
+    /// body thrown with `shove` (game units a second). Returns whether it went down.
+    pub fn knock_down(&mut self, r: FormId, by: Option<FormId>, shove: [f32; 3]) -> bool {
+        self.can_knock_down(r) && self.knock(r, Cause::KnockedDown, by, Some(shove))
+    }
+
+    /// The velocity a knockdown gave `r`'s body, once: the engine throws the ragdoll with
+    /// it.
+    pub fn take_shove(&mut self, r: FormId) -> Option<[f32; 3]> {
+        self.extra.get_mut(&r).and_then(|e| e.knocked_out.as_mut()).and_then(|k| k.shove.take())
     }
 
     /// The actor's Fatigue was lowered: at 0 or less it is knocked out (cause fatigue).
@@ -237,8 +346,12 @@ impl Game<'_> {
             let rises = match k.cause {
                 Cause::Fatigue => now - k.at + 1e-9 >= FATIGUE_DOWN,
                 Cause::Essential => now - k.at + 1e-9 >= ESSENTIAL_DOWN,
+                Cause::Pushed | Cause::KnockedDown => now - k.at + 1e-9 >= KNOCKDOWN_DOWN,
             };
-            if !rises {
+            // SetUnconscious holds a lying actor down until it is cleared [hypothesis:
+            // the thugs that fake death, SCPT 0x00118A77, push their actor down, set it
+            // unconscious and clear it only when hit].
+            if !rises || self.extra.get(&r).is_some_and(|e| e.unconscious) {
                 continue;
             }
             if k.cause == Cause::Essential && self.fight_near(r) {
@@ -250,7 +363,9 @@ impl Game<'_> {
                 }
                 continue;
             }
-            actor::restore(self, r, FATIGUE, f64::MAX);
+            if !k.cause.knockdown() {
+                actor::restore(self, r, FATIGUE, f64::MAX);
+            }
             if k.cause == Cause::Essential {
                 let max = actor::actor_value_base(self, r, HEALTH);
                 let health = actor::actor_value(self, r, HEALTH).unwrap_or(max);
@@ -265,8 +380,11 @@ impl Game<'_> {
             self.emit(EventKind::GotUp { actor: r, cause: k.cause.name() });
             self.knockout_news.push(News { actor: r, cause: k.cause, what: Happened::Up });
             // "Said when an actor wakes from unconsciousness" [documented: GECK wiki
-            // Combat Tab, Wake; docs/spec-notes/combat-dialogue.md §5].
-            self.combat_line(r, None, "Wake");
+            // Combat Tab, Wake; docs/spec-notes/combat-dialogue.md §5]; not after a
+            // knockdown, which is no unconsciousness [design].
+            if !k.cause.knockdown() {
+                self.combat_line(r, None, "Wake");
+            }
             up.push(r);
         }
         up
@@ -281,5 +399,8 @@ mod tests {
     fn causes_have_names() {
         assert_eq!(Cause::Essential.name(), "essential");
         assert_eq!(Cause::Fatigue.name(), "fatigue");
+        assert_eq!(Cause::Pushed.name(), "pushed");
+        assert!(Cause::KnockedDown.knockdown() && !Cause::Essential.knockdown());
+        assert!(Cause::Essential.rank() > Cause::Fatigue.rank() && Cause::Fatigue.rank() > Cause::Pushed.rank());
     }
 }

@@ -111,7 +111,7 @@ impl Ragdolls {
         for (b, &n) in bones.iter().enumerate() {
             body_of[n] = Some(b);
         }
-        Some(Corpse { data: rag, bones, body_of, live: false, settled: false, lifts: 0, calm: 0.0 })
+        Some(Corpse { data: rag, bones, body_of, live: false, velocity: [0.0; 3], settled: false, lifts: 0, calm: 0.0 })
     }
 }
 
@@ -137,6 +137,9 @@ pub struct Corpse {
     body_of: Vec<Option<usize>>,
     /// The ragdoll is in the physics world.
     pub live: bool,
+    /// The velocity its bodies start with (game units a second, game space): a knockdown's
+    /// shove (`knockouts.rs`); used once.
+    pub velocity: [f32; 3],
     /// The bones hold the pose the ragdoll went to sleep in.
     settled: bool,
     lifts: u8,
@@ -229,7 +232,8 @@ fn start(
         }
         let parts = body_parts(rig, &c, limbs);
         let asleep = stored.is_some();
-        let r = phys.world.add_ragdoll(&RagdollStart { form_id: rig.reference, ragdoll: &c.data, scale, nodes: &nodes, velocity: [0.0; 3], parts: &parts, asleep });
+        let velocity = std::mem::take(&mut c.velocity);
+        let r = phys.world.add_ragdoll(&RagdollStart { form_id: rig.reference, ragdoll: &c.data, scale, nodes: &nodes, velocity, parts: &parts, asleep });
         debug!("ragdoll: actor {:08X}: {} bodies, {} joints, {} self-collision pairs{}{}", rig.reference, r.bodies, r.joints, r.self_pairs, if asleep { ", put back at rest" } else { "" }, if r.errors.is_empty() { String::new() } else { format!(", {} shape errors", r.errors.len()) });
         if r.bodies == 0 {
             phys.world.remove_ragdoll(rig.reference);

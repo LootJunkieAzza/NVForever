@@ -2086,10 +2086,13 @@ impl<'a> Game<'a> {
     /// The default action of an activation (Layer 4), with its Layer 5 consequences:
     /// a picked-up item reaches the actor's inventory (OnAdd), a door moves the player, a
     /// dead actor opens its inventory (the loot menu) [observed: a scripted Activate of a
-    /// dead actor opened the container menu, `L5.quest.dead_activation`].
+    /// dead actor opened the container menu, `L5.quest.dead_activation`], and so does one
+    /// lying pushed down by PushActorAway [documented: GECK wiki PushActorAway notes, "can
+    /// have its inventory accessed by the player until the actor gets up again"].
     pub fn default_activation(&mut self, actor: FormId, target: FormId, by_hand: bool) -> Result<serde_json::Value, String> {
         let base = functions::base_of(self, target);
-        let dead_actor = self.extra.get(&target).is_some_and(|e| e.dead)
+        let pushed = self.knockout(target).is_some_and(|k| k.pushed && k.lying());
+        let dead_actor = (self.extra.get(&target).is_some_and(|e| e.dead) || pushed)
             && base.and_then(|b| self.data.sig(b)).is_some_and(|s| &s == b"NPC_" || &s == b"CREA");
         let act = if dead_actor && self.present(target) {
             let script = base.and_then(|b| self.world.forms.get(b)).and_then(|b| b.script);
