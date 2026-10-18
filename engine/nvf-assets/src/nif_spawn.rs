@@ -85,6 +85,9 @@ pub(crate) struct Props {
     /// Glow map: texture-set slot 2 of a BSShaderPPLightingProperty without the face-gen
     /// or hair flag (docs/spec-notes/nif.md §6, "Emissive light").
     glow: Option<String>,
+    /// Parallax height map: texture-set slot 3 of a BSShaderPPLightingProperty with a
+    /// parallax shader flag ([`parallax_map`]).
+    parallax: Option<String>,
     glossiness: Option<f32>,
     /// BSShaderFlags bit 0 "Specular" of the shader property [documented: nif.xml].
     specular: bool,
@@ -175,6 +178,26 @@ fn glow_map(shader_flags: i64, textures: &[String]) -> Option<String> {
     textures.get(2).filter(|t| !t.is_empty()).cloned()
 }
 
+/// The parallax height map of a BSShaderPPLightingProperty: texture-set slot 3 ("height"
+/// [documented: nif.xml BSShaderTextureSet]) when the shader sets bit 11
+/// "Parallax_Shader_Index_15" or bit 28 "Parallax_Occlusion" [documented: nif.xml
+/// BSShaderFlags names; hypothesis: the game draws the slot only with one of them, which
+/// `crates/fnv-nif/examples/parallax_survey.rs` checks against the shipped meshes;
+/// docs/spec-notes/nif.md §6 "Parallax"].
+pub(crate) fn parallax_map(shader_flags: i64, textures: &[String]) -> Option<String> {
+    if shader_flags & (1 << 11 | 1 << 28) == 0 {
+        return None;
+    }
+    textures.get(3).filter(|t| !t.is_empty()).cloned()
+}
+
+/// How deep a height map's darkest texel lies below the surface, in texture coordinates
+/// (Bevy's `parallax_depth_scale`) [hypothesis: the game's scale is not known; 0.04 is
+/// the usual scale of offset-limited parallax mapping and keeps the flagstones' relief
+/// to a few texels. What the stored `parallax_scale` and `parallax_max_passes` of the
+/// shader property mean is open (docs/spec-notes/nif.md §6 "Parallax")].
+pub(crate) const PARALLAX_DEPTH_SCALE: f32 = 0.04;
+
 /// The shape is a decal: BSShaderFlags bit 26 "Decal_Single_Pass" or bit 27
 /// "Dynamic_Decal_Single_Pass" [documented: nif.xml BSShaderFlags]. 2,130 visible shapes
 /// in `Fallout - Meshes.bsa` set one (41 only bit 26, none only bit 27): dirt, stains,
@@ -233,6 +256,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
     }
     if shader || ty == "NiTexturingProperty" {
         p.glow = None;
+        p.parallax = None;
     }
     if shader {
         let flags = s.int("shader_flags").unwrap_or(0);
@@ -246,7 +270,11 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.falloff = None;
     }
     match ty {
-        "BSShaderPPLightingProperty" => p.glow = glow_map(s.int("shader_flags").unwrap_or(0), &p.textures),
+        "BSShaderPPLightingProperty" => {
+            let flags = s.int("shader_flags").unwrap_or(0);
+            p.glow = glow_map(flags, &p.textures);
+            p.parallax = parallax_map(flags, &p.textures);
+        }
         "BSShaderNoLightingProperty" => {
             p.unlit = true;
             if let Some(f) = s.text("file_name") {
@@ -504,6 +532,8 @@ pub(crate) fn shape_material(
     let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
     let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
     let normal = normal.filter(|_| has_uv && mesh.generate_tangents().is_ok());
+    // Parallax needs the tangents the normal map brought.
+    let depth = normal.as_ref().and(props.parallax.as_deref()).and_then(|t| textures.get_depth(t, data, images));
     let cut = blend_cut(props, mesh);
     let alpha_mode = if cut.is_some() { AlphaMode::Blend } else { shape_alpha_mode(props) };
     let gloss = props.glossiness.unwrap_or(10.0);
@@ -524,6 +554,8 @@ pub(crate) fn shape_material(
         // Green points down the image (DirectX style), Bevy expects up [observed,
         // docs/spec-notes/nif.md §6 "Normal maps"].
         flip_normal_map_y: true,
+        depth_map: depth,
+        parallax_depth_scale: PARALLAX_DEPTH_SCALE,
         perceptual_roughness: gloss_roughness(gloss),
         metallic: 0.0,
         reflectance,
@@ -936,6 +968,19 @@ mod tests {
         assert_eq!(glow_map(0, &set[..2]), None);
         let empty: Vec<String> = ["d.dds", "d_n.dds", ""].iter().map(|s| s.to_string()).collect();
         assert_eq!(glow_map(0, &empty), None);
+    }
+
+    #[test]
+    fn parallax_map_slot() {
+        let set: Vec<String> = ["d.dds", "d_n.dds", "", "d_p.dds", "", ""].iter().map(|s| s.to_string()).collect();
+        assert_eq!(parallax_map(1 << 11, &set).as_deref(), Some("d_p.dds"));
+        assert_eq!(parallax_map(1 << 28, &set).as_deref(), Some("d_p.dds"));
+        // Neither parallax flag: the slot is not drawn.
+        assert_eq!(parallax_map(0x8200_0101, &set), None);
+        // No slot 3, or an empty one.
+        assert_eq!(parallax_map(1 << 11, &set[..3]), None);
+        let empty: Vec<String> = ["d.dds", "d_n.dds", "", ""].iter().map(|s| s.to_string()).collect();
+        assert_eq!(parallax_map(1 << 11, &empty), None);
     }
 
     #[test]

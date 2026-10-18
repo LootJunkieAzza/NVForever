@@ -782,6 +782,21 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   corr(G, dH/dy) from −0.24 to −0.93, the sign of a downward green axis. Bevy assumes
   upward green (glTF), so the renderers set `flip_normal_map_y`. Unflipped, bumps were
   lit from below: rock faces looked inside-out and glistened at the wrong edges.
+- **Parallax**: texture-set slot 3 holds the height map [documented: nif.xml
+  BSShaderTextureSet]; nif.xml names BSShaderFlags bit 11 "Parallax_Shader_Index_15" and
+  bit 28 "Parallax_Occlusion", and gives BSShaderPPLightingProperty two fields after the
+  refraction ones, `parallax_max_passes` and `parallax_scale` (bs_version > 24)
+  [documented]. The `_p` maps are heights, brighter = higher [observed: the normal-map
+  correlation under "Normal maps"]. The renderers draw slot 3 as parallax when the
+  shader sets either flag and the shape has a normal map (whose tangents it needs), with
+  Bevy's parallax occlusion mapping: the map's red channel inverted into Bevy's depth map
+  (white deepest), a depth of 0.04 in texture coordinates [hypothesis on all three: the
+  flag rule, the channel, the depth]. Open, and what `crates/fnv-nif/examples/
+  parallax_survey.rs` reports from the owner's archives: which flags the meshes using
+  the seven `_p` maps set, whether other meshes name a slot-3 map with no flag, the
+  values the two stored fields take (their meaning, and so whether they should scale the
+  depth or set the step count, is unknown), and whether the maps are grey. An in-game
+  picture of the McCarran flagstones at a low angle would show how deep the relief is.
 - **Specular** [observed, 500 random meshes from `Fallout - Meshes.bsa`]: of 738
   NiMaterialProperty blocks on BSShaderPPLightingProperty shapes, 697 (94%) have a
   black specular colour, 18 white, 23 other; 1,011 of 1,279 such shader properties set
