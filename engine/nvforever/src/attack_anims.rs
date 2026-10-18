@@ -419,7 +419,10 @@ pub struct AttackAnimsPlugin;
 
 impl Plugin for AttackAnimsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<PlayAttack>().init_resource::<AttackTimes>().init_resource::<AttackClips>().add_systems(Update, start).add_systems(Last, report);
+        // After the systems that ask for attacks, so a shot's clip starts in the frame it
+        // is fired: the summaries at exit then agree (a shot fired in the last frame had
+        // no clip yet).
+        app.add_message::<PlayAttack>().init_resource::<AttackTimes>().init_resource::<AttackClips>().add_systems(Update, start.after(crate::npc_combat::fight).after(crate::use_weapon::shoot)).add_systems(Last, report);
     }
 }
 

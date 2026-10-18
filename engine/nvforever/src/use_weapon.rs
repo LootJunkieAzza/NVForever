@@ -96,7 +96,7 @@ struct Stats {
 type Shooting<'w> = (&'w ActorRig, &'w GlobalTransform, &'w InheritedVisibility, Option<&'w WeaponHold>, Has<Dying>, Has<Corpse>);
 
 #[allow(clippy::too_many_arguments)]
-fn shoot(
+pub(crate) fn shoot(
     time: Res<Time>,
     mut shooters: ResMut<Shooters>,
     combat: Res<Combat>,

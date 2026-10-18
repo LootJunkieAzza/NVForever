@@ -197,7 +197,7 @@ pub fn black_at(t: f32) -> f32 {
 /// Start the death camera when the player dies, end it when the player lives again, and
 /// keep the clock's slow motion.
 #[allow(clippy::too_many_arguments)]
-fn watch(
+pub(crate) fn watch(
     mut commands: Commands,
     (real, virt): (Res<Time<Real>>, Res<Time<Virtual>>),
     mut script: Option<ResMut<ScriptState>>,
