@@ -427,7 +427,7 @@ fn grab_cursor(
     free_cam: Option<Res<crate::free_cam::FreeCam>>,
     (intro, view, creator): (Option<Res<crate::intro::Intro>>, Option<Res<ViewDriven>>, Option<Res<crate::creator::CreatorMenu>>),
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
-    mut wanted_before: Local<Option<bool>>,
+    mut wanted_before: Local<Option<(bool, bool)>>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
     let driven = d.auto_walk > 0.0 || unattended.is_some_and(|u| u.0);
@@ -437,12 +437,15 @@ fn grab_cursor(
     // And while the console's free camera flies, also when it holds the world.
     let creating = creator.is_some_and(|c| c.is_open());
     let playing = !creating && (matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0) || free_cam.is_some_and(|f| f.active));
-    let film = intro.is_some_and(|i| i.is_playing());
+    let film = intro.as_ref().is_some_and(|i| i.is_playing());
     let scene = view.is_some_and(|v| v.0) && *state.get() != PlayState::Menu && !boxed && !creating;
     let wanted = creating || ((!playing || boxed) && !film && !scene);
-    if *wanted_before != Some(wanted) {
+    // Logged when it changes, and when a film starts or ends over a pointer already hidden.
+    if *wanted_before != Some((wanted, film)) {
         let why = if creating {
             " (the character creator)"
+        } else if film && intro.is_some_and(|i| i.playing_script_film()) {
+            " (a film)"
         } else if film {
             " (the intro film)"
         } else if scene {
@@ -451,7 +454,7 @@ fn grab_cursor(
             ""
         };
         info!("pointer: {}{why}", if wanted { "shown" } else { "hidden" });
-        *wanted_before = Some(wanted);
+        *wanted_before = Some((wanted, film));
     }
     let grab = playing && !driven && !boxed && window.focused;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.

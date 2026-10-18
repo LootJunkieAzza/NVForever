@@ -5943,6 +5943,45 @@ are my guesses, each with what would settle it:
 - **AddItemToLeveledList health**: settled [observed: capture `leveled_list_health`,
   2026-10-18]: 50 gave Vance's 9mm SMG at half health, 1 at 1 %, as the wiki reads. So
   Honest Hearts' eleven calls with 1 give their vendor items at 1 % in the original too.
+## Films, cell image spaces and screen blood (2026-10-18, branch claude/screen-video)
+
+Rows 17 and 18 of docs/outstanding.md §1 (docs/spec-notes/bink-films.md,
+docs/spec-notes/screen-splatter.md). What the shipped scripts ask for is small: all four
+PlayBink calls and every splatter call are the opening's (VCG00), and of the four films
+only `FNVIntro.bik` is in your `Data\Video`; the splatter stages belong to an in-engine
+version of the cemetery scene a new game skips. My choices to check:
+
+- **The intro film once.** The main menu's New Game plays it, and the opening's stage 0
+  asks for it again: the second request is not played. Started straight into a new game
+  (no main menu), the opening's call plays it, as the original does.
+- **A film that is not there** (fnvlogo1.bik, fnvlogo2.bik, vb01.bik) is skipped at once.
+- **A film holds the game** like the pause menu (the wiki: it "appears to stop game
+  time"); the world's sounds stop with it even when the call asks to keep them
+  (`muteAudio 0`, not built). A non-letterboxed film is stretched over the window.
+- **SetCellImageSpace waits for the cell to load again**, as the wiki says the original
+  does: in Old World Blues the Think Tank turns red only after you leave and come back
+  (or load a save made there), not while you stand in it when stage 50 is set. If you
+  would rather see it at once (as JohnnyGuitar NVSE makes it), it is one line.
+- **Screen splatter, fitted to the original's pictures** (capture fx_screen_splatter_look,
+  screen-splatter.md §5): a call puts its count of splats on the screen with no cap of
+  25, each a cell of the game's 2x2 gore atlases (dark soft blob, red core) at a random
+  place, unrotated, 0.12-0.18 of the screen **width** across x the size factor, opacity
+  from the game settings x the opacity factor with no cap at 1, fading from its start
+  to nothing at its duration, under the HUD. Still guesses: the second opacity range
+  and its chance, uniform placement, and what iBloodSplatterMaxCount and
+  fBloodSplatterFadeStart are for (neither fits the pictures as a cap or a fade start).
+  The flare (perhaps the bright glints at the cores) is not drawn. Compare smoke
+  `screen-splatter`'s splatter_t0_5 ... t15_5.png with the original's s100_20_2_2_t*.png.
+- **SetScreenSplatterFade's real effect cannot be seen**: the call quits the original
+  (below). Its values (fade from that share of the time, switch on/off) stay a
+  hypothesis; nothing shipped reaches it in a playthrough.
+- **Blood when you are hurt.** The console's ClearScreenBlood implies the original puts
+  blood on the screen when the player takes damage; `player.DamageActorValue Health 40`
+  put none there in the capture. A weapon's hit is not captured; not built.
+- **SetScreenSplatterFade quit the original** three times (from a capture job, with and
+  without splats on the screen), with nothing logged. Here the call only records
+  its values. No player meets it in the original: the opening stages that call it are
+  skipped. Details in screen-splatter.md §5.
 ## Race, sex and level changes, power armour, Cannibal and Mister Sandman, talking activators (2026-10-18, branch claude/actor-changes)
 
 Playthrough blockers rows 8, 11, 13, 14 and 18 (docs/outstanding.md). Every shipped call

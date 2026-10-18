@@ -2141,7 +2141,8 @@ fn drawn_now(world: &mut World) -> Drawn {
 
 /// Draw the page again when what it shows changed.
 fn draw(world: &mut World) {
-    if !world.resource::<Paused>().0 {
+    // A film holds the game as the pause menu does (`crate::intro`) but shows no page.
+    if !world.resource::<Paused>().0 || world.get_resource::<crate::intro::Intro>().is_some_and(|i| i.is_playing()) {
         return;
     }
     let now = drawn_now(world);

@@ -370,6 +370,39 @@ pub fn travel(
     lod.set_enabled(&mut commands, t.interior.is_none() && !args.no_lod);
 }
 
+/// SetCellImageSpace (`fnv_game::game::FormChanges::cell_image_spaces`): an interior
+/// whose image space a script changed is graded with the new one, from when the cell
+/// loads after the call (entered again, or a save made in it loaded): the original
+/// shows a change to the cell the player is in only then [documented: GECK wiki
+/// SetCellImageSpace, notes]. Looked at on every travel (which graded the cell with
+/// its XCIM) and when the script runtime (with a loaded save's changes) becomes ready.
+/// Runs after [`travel`].
+pub fn cell_image_space(
+    mut travels: MessageReader<nvf_play::Travel>,
+    streamer: Res<Streamer>,
+    world: Res<WorldData>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
+    mut sky: ResMut<crate::sky::SkyState>,
+    mut seen: Local<Option<(Option<u32>, bool)>>,
+) {
+    let rt = script.as_deref().and_then(|s| s.rt.as_ref());
+    let key = (streamer.interior, rt.is_some());
+    let travelled = travels.read().count() > 0;
+    if *seen == Some(key) && !travelled {
+        return;
+    }
+    *seen = Some(key);
+    let (Some(cell), Some(rt)) = (streamer.interior, rt) else { return };
+    let Some(&space) = rt.game.forms.cell_image_spaces.get(&fnv_sim::FormId(cell)) else { return };
+    match fnv_world::imagespace::image_space(world.lo, world.schema, space.0) {
+        Some(grade) => {
+            info!("cell image space: {cell:#010x} graded with {:#010x} (SetCellImageSpace)", space.0);
+            sky.interior_grade = Some(grade);
+        }
+        None => warn!("cell image space: {:#010x} for {cell:#010x} is not an image space the grade reads", space.0),
+    }
+}
+
 pub fn ref_affine(p: &Placement) -> Affine3A {
     let m = Mat3::from_cols_array(&ref_rotation(p.rotation)).transpose(); // row-major
     Affine3A::from_mat3_translation(m * p.scale, Vec3::from_array(p.position))
