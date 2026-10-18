@@ -3,6 +3,21 @@
 //! `NVF_PLAY_TEST_NEAR` (player.rs), `NVF_PLAY_TEST_MENU` and `NVF_PLAY_TEST_DROP`
 //! (menu/test_aid.rs). Times are seconds after the start.
 //!
+//! **Which clock.** With `NVF_PLAY_AIDS_FROM_SCRIPTS=1` (the smoke runner sets it for
+//! `--play` runs) the aids that act on the world wait until the scripts first run and
+//! count on the world aids' clock, held back by as long as that start came after
+//! `crate::pause::SCRIPTS_START_SECONDS` ([`crate::pause::WorldAidClock`]; the log says
+//! `test aids: clock starts when the scripts first run, at <N> s`). These are: here
+//! SHOTS, LOOK, MOVE, CONTROL, KEYS; `NVF_PLAY_TEST_CONSOLE`, `_SCRIPT`, `_ACTIVATE`,
+//! `_TALK`, `_WAIT`, `_HIT`, `_MENU`, `_BARTER`, `_DROP`, `_PIPBOY`, `_PIPBOY_STATS`,
+//! `_LOCKPICK`, `_TERMINAL`, `_POKER`, `_ROULETTE`, `_BLACKJACK`, `_RECIPE`, `_REPAIR`,
+//! `_LEVELUP`, `_CHARGEN`, `_CREATOR` (the character menus open in the world, from a
+//! script or the console) and `_BATTLE`. Seconds after the start in every run: GOTO and
+//! FACE (they set the stage for the scripts' first frame), `NVF_PLAY_TEST_MAIN_MENU`,
+//! `_INTRO_SKIP`, `_INTRO_SHOT`, `_PAUSE`, `_PAUSE_MENU`, `_SETTINGS` (they work before
+//! the world too) and `_AUDIO_REOPEN`; `_VIGOR` counts from its menu's first frame and
+//! `_RADIO` on the radio's own clock. Without the switch every aid counts from the start.
+//!
 //! - `NVF_PLAY_TEST_SHOTS=<seconds>[:<path.png>][,...]`: save a screenshot at each time,
 //!   to the path given, else as `play-<seconds>s.png` in `NVF_PLAY_TEST_SHOT_DIR`
 //!   (default: the current folder).
@@ -269,7 +284,7 @@ struct RealPresses {
 
 /// Press and let go the `NVF_PLAY_TEST_KEYS` inputs, right after Bevy read the real ones.
 fn real_presses(time: crate::pause::AidTime, mut p: ResMut<RealPresses>, mut keys: ResMut<ButtonInput<KeyCode>>, mut mouse: ResMut<ButtonInput<MouseButton>>) {
-    let now = time.elapsed_secs();
+    let Some(now) = time.world_secs() else { return };
     let p = &mut *p;
     p.down.retain(|&(input, until)| {
         if now < until {
@@ -458,7 +473,7 @@ fn keys_and_controls(
     mut flashlight: ResMut<crate::flashlight::Flashlight>,
     (vats, script): (Res<crate::vats_mode::VatsMode>, Option<Res<crate::script::ScriptState>>),
 ) {
-    let now = time.elapsed_secs();
+    let Some(now) = time.world_secs() else { return };
     for m in take_due(&mut aids.moves, now) {
         info!("test aid: movement keys forward {} right {}{}", m.forward, m.right, if m.walk { " walking" } else { "" });
         aids.held = Some(m);
@@ -589,7 +604,8 @@ fn aim_at_nearest_corpse(phys: &PhysState, player: &mut Player, cross: Option<&C
 }
 
 fn take_shots(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut commands: Commands) {
-    for path in take_due(&mut aids.shots, time.elapsed_secs()) {
+    let Some(now) = time.world_secs() else { return };
+    for path in take_due(&mut aids.shots, now) {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -654,6 +670,10 @@ fn goto_and_look(
             );
         }
     }
+    // The looks are world aids (`crate::pause::WorldAidClock`, they go with the
+    // screenshots); the go-tos set the stage before the scripts' first frame and keep the
+    // aids' clock, as the faces do.
+    let Some(now) = time.world_secs() else { return };
     for (h, p) in take_due(&mut aids.looks, now) {
         // The aid stands in for the mouse, which a script's lock holds (control.rs).
         if locks.looking {

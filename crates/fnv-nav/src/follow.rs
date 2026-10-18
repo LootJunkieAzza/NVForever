@@ -358,6 +358,9 @@ pub struct Walker {
     /// The triangle under the feet, or [`NONE`].
     pub tri: u32,
     pub speed: f32,
+    /// The share of [`Self::speed`] it moves at (1: all of it): an actor's crippled legs
+    /// slow it whatever speed its package or fight asks for ([`Self::moving_speed`]).
+    pub pace: f32,
     /// Fastest turn while walking, radians per second.
     pub turn_rate: f32,
     /// Turn speed standing, radians per second ([`SPOT_TURN_RATE`]).
@@ -449,6 +452,7 @@ impl Walker {
             heading,
             tri: NONE,
             speed,
+            pace: 1.0,
             turn_rate: WALK_TURN_RATE,
             spot_turn_rate: SPOT_TURN_RATE,
             spot_turn_start: SPOT_TURN_START,
@@ -457,6 +461,11 @@ impl Walker {
             follower: None,
             travelled: 0.0,
         }
+    }
+
+    /// The speed it moves at: [`Self::speed`] times [`Self::pace`].
+    pub fn moving_speed(&self) -> f32 {
+        self.speed * self.pace
     }
 
     /// Turn on the spot towards `heading` for `dt` seconds, at the standing turn speed.
@@ -503,7 +512,7 @@ impl Walker {
     }
 
     fn advance(&mut self, nav: &NavGraph, f: &mut Follower, dt: f32, open: &mut dyn FnMut(u32) -> bool) -> WalkEvent {
-        let mut budget = self.speed * dt;
+        let mut budget = self.moving_speed() * dt;
         let mut moved = false;
         // A step may pass several close corners.
         for _ in 0..8 {

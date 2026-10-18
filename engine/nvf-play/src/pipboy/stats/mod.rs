@@ -332,8 +332,9 @@ pub fn draw(
     }
     // Test aid and keys.
     let aid = mem.aid.get_or_insert_with(|| std::env::var("NVF_PLAY_TEST_PIPBOY_STATS").map(|v| parse_aid(&v)).unwrap_or_default());
-    let now = input.time.elapsed_secs();
-    while aid.first().is_some_and(|a| a.0 <= now) {
+    // A world aid (`crate::pause::WorldAidClock`).
+    let now = input.time.world_secs();
+    while let Some(now) = now.filter(|&now| aid.first().is_some_and(|a| a.0 <= now)) {
         let (_, s) = aid.remove(0);
         info!("test aid: pipboy stats {s:?} at {now:.1} s");
         let game = src.script.as_mut().and_then(|s| s.bypass_change_detection().rt.as_mut()).map(|rt| &mut rt.game);

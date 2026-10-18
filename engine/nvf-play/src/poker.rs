@@ -328,7 +328,7 @@ fn run_aid(time: AidTime, mut aid: ResMut<PokerAid>, mut sim: ResMut<SimState>, 
     if aid.steps.is_empty() {
         return;
     }
-    let now = time.elapsed_secs();
+    let Some(now) = time.world_secs() else { return };
     let mut due: Vec<(f32, AidStep)> = aid.steps.iter().filter(|(t, _)| *t <= now).copied().collect();
     due.sort_by(|a, b| a.0.total_cmp(&b.0));
     aid.steps.retain(|(t, _)| *t > now);

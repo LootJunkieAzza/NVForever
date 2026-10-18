@@ -53,8 +53,9 @@
 //! quest result can be lost). Without the switch Shift+Tab does nothing.
 //!
 //! Test aid `NVF_PLAY_TEST_TALK=<when>:<who>[=<step>|<step>…][;…]` ([`parse_talks`]):
-//! - `<when>`: seconds after the start, or `<seconds>@<quest>=<stage>` (after that stage
-//!   was first seen done), as in `NVF_PLAY_TEST_SCRIPT`;
+//! - `<when>`: seconds on the world aids' clock (`crate::pause::WorldAidClock`), or
+//!   `<seconds>@<quest>=<stage>` (after that stage was first seen done), as in
+//!   `NVF_PLAY_TEST_SCRIPT`;
 //! - `<who>`: a reference (Editor ID, hex FormID, `placed:<base>`) the player activates
 //!   then, wherever the crosshair is; or `*`: nothing is started, the steps answer the
 //!   next conversation that a script starts;
@@ -572,8 +573,9 @@ fn input(
     let Some(rt) = st.rt.as_mut() else { return };
     let mut notes: Vec<serde_json::Value> = Vec::new();
 
-    // The aid's conversations whose time has come.
-    if let Some(s) = sc.aid.due(&rt.game, now, rt.game.dialogue.is_none()) {
+    // The aid's conversations whose time has come, on the world aids' clock
+    // (`crate::pause::WorldAidClock`).
+    if let Some(s) = time.0.world_secs().and_then(|w| sc.aid.due(&rt.game, w, rt.game.dialogue.is_none())) {
         let who = s.who.clone().unwrap_or_default();
         let r = with_world(rt, &mut sim, |rt| {
             let r = fnv_game::runner::resolve(&rt.game, &who)?;

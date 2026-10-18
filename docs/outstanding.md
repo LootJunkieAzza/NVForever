@@ -157,8 +157,11 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
   ragdoll sometimes never settles; cause open, new diagnostics log it). Several scenarios
   failed only because the scripts started late on a loaded machine and a test aid fired
   first; scenarios now put console and script steps at 14 s or later and use
-  `--no-messages` where the add-on packs' start-up boxes could get in the way. A runner-side
-  fix (aids that wait for the scripts) would remove the class.
+  `--no-messages` where the add-on packs' start-up boxes could get in the way. The
+  runner-side fix is built (2026-10-18): `--play` runs set NVF_PLAY_AIDS_FROM_SCRIPTS=1,
+  and the world test aids wait for the scripts' first frame, held back by as long as it
+  came after 6.5 s (`nvf-play` pause.rs WorldAidClock). The steps moved to 14 s only for
+  the race (barber-menu, anim-state) can go back once coordinator runs pass with it.
 - **Coordinator-run smoke**: since todo 6 (2026-10-17) worker sessions do not run the game;
   the coordinator builds each PR merged with main and runs its scenarios in one ordered
   queue, so the shared game is never contended.
