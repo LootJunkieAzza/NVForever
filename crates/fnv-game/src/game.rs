@@ -204,7 +204,8 @@ pub struct RefExtra {
     /// Recover active on the actor (`crate::aid`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub av_temporary: BTreeMap<u16, f64>,
-    /// Packages added with AddScriptPackage (the last one is current).
+    /// The package added with AddScriptPackage: at most one, a second call replaces it
+    /// (`functions::actor::add_script_package`); the last one is current.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub packages: Vec<FormId>,
     /// The AI package the actor chose when its packages were last evaluated
@@ -1979,7 +1980,8 @@ impl<'a> Game<'a> {
 
     /// Scripted references that run per-frame blocks now: in a loaded cell and not
     /// deleted, disabled ones included [documented: GECK wiki Object scripts, owner
-    /// export: object scripts run even for disabled references]. OnLoad at a cell load
+    /// export: object scripts run even for disabled references; observed: capture job
+    /// `od_09a_disabled_ref_script`, a disabled skull's timer kept falling]. OnLoad at a cell load
     /// still needs the reference enabled (a disabled reference has no 3D to load)
     /// [hypothesis].
     fn active_refs(&self) -> Vec<FormId> {
