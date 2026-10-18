@@ -724,10 +724,10 @@ expect = [
 [[scenario]]
 name = "combat-sights"
 source = "playtest list 2026-10-11 items 32-33 (docs/design/combat-ai.md §10.6): NPCs aim down the sights beyond 20 m (1,400 units) and walk while aiming, fire from the hip nearer"
-note = "Violet (0x000F570B, placed at -46910,64897) starts about 1,900 units from the player, within her hunting rifle's reach (2,000; docs/design/combat-ai.md §16) and beyond the 1,800 at which a gunman sets off again, so she walks in aiming down the sights to about 1,600 units, beyond 20 m; at 38 s the player is put about 1,000 units from her: from the hip. Until PR #444 the player started 3,000 units off; beyond her reach she now runs in with her sights lowered (combat-sights-beyond-reach)"
+note = "Violet (0x000F570B, placed at -46910,64897) starts about 1,900 units from the player, within her hunting rifle's reach (2,000; docs/design/combat-ai.md §16) and beyond the 1,800 at which a gunman sets off again, so she walks in aiming down the sights to about 1,600 units, beyond 20 m; at 38 s the player is put about 1,000 units from her, just above the ground (z 4,400; the ground is about 4,290 there: from z 7,000 the player fell for seconds 2,700 units above her, beyond her reach measured to the chest, and she held fire): from the hip. Until PR #444 the player started 3,000 units off; beyond her reach she now runs in with her sights lowered (combat-sights-beyond-reach)"
 areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-ai/src/alert.rs", "crates/fnv-combat/src/spread.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOTO = "38:-45600:64896:7000" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOTO = "38:-45600:64896:4400" }
 args = ["--cell", "Goodsprings", "--pos=-45000,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
 run_seconds = 55
 expect = [
