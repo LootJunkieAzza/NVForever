@@ -282,3 +282,16 @@ knockdown: <n> knockdown(s) shown, <n> get-up clip(s)`. Smoke: `knockdown-player
 Not known (capture job `tools/capture/jobs/kd_player_knockdown.steps.json`, nvfstrip):
 whether the original's view leaves first person, where its camera goes, how long the
 player lies and how long the get-up takes.
+
+First run of the job (2026-10-18, attended, output `kd_player_knockdown.1792356303.jsonl`)
+[observed]: the first-person trial is void: the game window was not in front (every
+screenshot `foreground: false`) and the game stood still: GameDaysPassed 15.8393 and the
+same position and heading in all 48 samples (the lost-focus pause). The third-person trial
+ran (GameDaysPassed 15.8419 → 15.8462, about 12 s at timescale 30), but its 48 screenshots
+failed (`BitBlt failed`). The player reference's own position moved only about 16 units
+(away from the can's side was +y; it went −x, −y) and was still from about 1.75 s after the
+push, its heading turned 7° at about 2.25 s, and GetKnockedState read 0 throughout, which is
+what a pushed actor reads (§5.1). So the numbers neither show nor rule out the fall: the
+reference may stay with the character while the body is a ragdoll. Nothing was fitted from
+them; §5.4's camera and timing stay [hypothesis] until a run with pictures, with the game
+window in front for the whole job.

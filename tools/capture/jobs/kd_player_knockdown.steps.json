@@ -2,7 +2,7 @@
  "format": "fnv.capture.steps/1",
  "name": "kd_player_knockdown",
  "title": "The player knocked down by PushActorAway (force 10, from a tin can 150 units south), first in first person, then in third person: screenshots and the player's position, heading, GetKnockedState and GameDaysPassed every 15 game loops (eight steps and 8 frames) for 48 samples, about 12 s each (docs/spec-notes/unconscious.md \u00a75.4: whether the view goes to third person, how the camera follows, how long the player lies and gets up; one manual step to switch the view)",
- "start": "nvfstrip, in first person, standing in the open on the Strip; windowed game in front (screenshots). God mode is switched on by the job.",
+ "start": "nvfstrip, in first person, standing in the open on the Strip. Keep the game window in front for the whole job: an unfocused game stands still (the first run's first-person trial did) and its screenshots fail. God mode is switched on by the job.",
  "steps": [
   {
    "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
