@@ -76,5 +76,8 @@ and whether it goes back.
 
 ## 4. What the runtime does
 
-See `engine/nvforever/src/combat_face.rs` and its log line `face: <ref> mood CombatAnger
-<weight>` (logged on entering and leaving combat and when the fade completes).
+`engine/nvforever/src/combat_face.rs` sets the `CombatAnger` weight on the actor's
+`FaceMorphs` as §3 says; lips.rs draws it on top of lip sync and lets a line's emotion
+take over (lipsync.md §5.4). Log lines: `face: <name> <ref> mood CombatAnger rises` or
+`falls` when the actor enters or leaves combat, and `face: <name> <ref> mood CombatAnger
+<weight>` when the fade has arrived. Smoke `combat-face`.

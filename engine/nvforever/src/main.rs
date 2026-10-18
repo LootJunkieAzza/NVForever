@@ -529,6 +529,10 @@ struct Args {
     /// (docs/spec-notes/lipsync.md).
     #[arg(long)]
     no_lip: bool,
+    /// With --play: no blinking or eye movement on faces between lines
+    /// (docs/spec-notes/lipsync.md §5.3).
+    #[arg(long)]
+    no_face_idle: bool,
     /// With --play: what an open menu holds (the dialogue screen, inventory, container,
     /// message boxes and the menus scripts open). "living": game logic only (scripts'
     /// game time, the game clock, physics, travelling NPCs, the player's movement), while
@@ -1217,7 +1221,7 @@ fn main() -> AppExit {
             if shadow_probe::enabled() {
                 app.add_plugins(shadow_probe::ShadowProbePlugin);
             }
-            app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
+            app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip, idle: !args.no_face_idle });
             // The sounds clips and doors name (anim_sounds.rs).
             app.add_plugins(anim_sounds::AnimSoundsPlugin);
             // The conversation's actor turns to the player (dialogue_look.rs).

@@ -1,31 +1,33 @@
-//! Face morph weights that come from something other than a `.lip` file: the combat face
-//! (combat_face.rs, docs/spec-notes/combat-face.md), and later moods and scripted faces.
-//! Each source sets the `.tri` labels it owns on the actor's root; lips.rs draws them,
-//! added to the lip sync's own weights (lipsync.md §4.3), so there is one place that
-//! moves a face.
+//! Face morphs other systems ask for (docs/spec-notes/lipsync.md §5.4): a weight per
+//! `.tri` morph label on an actor's root (the entity with `ActorRig` and
+//! `lips::LipRig`), shown by `lips.rs` on top of the line's lip sync and emotion. The
+//! combat face (`combat_face.rs`) sets `CombatAnger` here.
 
 use bevy::prelude::*;
 use std::collections::BTreeMap;
 
-/// A weight below this counts as none.
-pub const SMALL: f32 = 1e-4;
-
-/// On an actor's root: weight per `.tri` morph label (`CombatAnger` …), 0 to 1. A label
-/// at 0 is removed, so an empty map means a face at rest.
+/// Weights 0 to 1 by `.tri` morph label. Labels `lips.rs` knows: the expressions
+/// (`Anger` … `Pained`) and the moods (`MoodNeutral` … `CombatAnger`, `lips::MOODS`).
 #[derive(Component, Default, Clone, Debug, PartialEq)]
 pub struct FaceMorphs(pub BTreeMap<&'static str, f32>);
 
 impl FaceMorphs {
+    /// The weight of a label (0 when not set).
     pub fn get(&self, label: &str) -> f32 {
         self.0.get(label).copied().unwrap_or(0.0)
     }
 
-    pub fn set(&mut self, label: &'static str, weight: f32) {
-        if weight.abs() < SMALL {
+    /// Set a label's weight; a weight of about 0 removes it.
+    pub fn set(&mut self, label: &'static str, w: f32) {
+        if w.abs() < 1e-4 {
             self.0.remove(label);
         } else {
-            self.0.insert(label, weight);
+            self.0.insert(label, w);
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -34,12 +36,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_weight_of_nothing_is_removed() {
-        let mut f = FaceMorphs::default();
-        f.set("CombatAnger", 0.5);
-        assert_eq!(f.get("CombatAnger"), 0.5);
-        f.set("CombatAnger", 0.0);
-        assert!(f.0.is_empty());
-        assert_eq!(f.get("CombatAnger"), 0.0);
+    fn set_get_and_remove() {
+        let mut m = FaceMorphs::default();
+        assert!(m.is_empty());
+        m.set("CombatAnger", 0.5);
+        assert_eq!(m.get("CombatAnger"), 0.5);
+        m.set("CombatAnger", 0.0);
+        assert!(m.is_empty() && m.get("CombatAnger") == 0.0);
     }
 }
