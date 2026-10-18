@@ -4,6 +4,9 @@
   plan   [selection]            what would run, launch by launch (nothing is started)
   check  [selection]            judge the logs of the last run again (no launch)
   list                          every scenario with its areas
+  verify [REV]                  the scenario file after a merge: rules a healthy file keeps
+                                and, when REV (default HEAD) is a merge commit, that each
+                                scenario equals the side that changed it (smoke/integrity.py)
 
 Selection (default --changed origin/main): --changed [BASE] | --all | --only NAME… |
 --area AREA…. Logs go to <repo>/target/smoke/ (or --out / NVF_SMOKE_OUT); only a
@@ -24,7 +27,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import choose
+from . import choose, integrity
 from .expect import ScenarioError
 from .plan import Launch, plan
 from .runner import (Env, Locks, Verdict, default_lock_paths, exe_is_stale, judge, missing_requirements,
@@ -42,12 +45,14 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python tools/smoke", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("run", "plan", "check", "list"):
+    for name in ("run", "plan", "check", "list", "verify"):
         q = sub.add_parser(name)
         q.add_argument("--scenarios", type=Path, default=SCENARIOS)
         q.add_argument("--repo", type=Path, default=REPO)
         q.add_argument("--out", type=Path, default=None, help="logs (default <repo>/target/smoke or NVF_SMOKE_OUT)")
-        if name == "list":
+        if name == "verify":
+            q.add_argument("rev", nargs="?", default="HEAD", help="the merge commit to judge (default HEAD)")
+        if name in ("list", "verify"):
             continue
         g = q.add_mutually_exclusive_group()
         g.add_argument("--changed", nargs="?", const="origin/main", metavar="BASE",
@@ -108,6 +113,26 @@ def print_checks(suite: Suite, files: list[str] | None, say) -> list:
     cs = choose.checks_for(suite.checks, files)
     say("push checks for this change: " + (", ".join(c.name for c in cs) if cs else "none"))
     return cs
+
+
+def merge_findings(a, say) -> list[str]:
+    """The merge check of the scenario file for `rev` (printed; empty when not a merge)."""
+    path = a.scenarios.resolve().relative_to(a.repo).as_posix() if a.scenarios.resolve().is_relative_to(a.repo) else None
+    found = integrity.merge_check(a.repo, getattr(a, "rev", "HEAD"), path) if path else None
+    if found is None:
+        say(f"merge check: {getattr(a, 'rev', 'HEAD')} is no merge commit (or its parents are not here)")
+        return []
+    for f in found:
+        say(f"merge check: {f}")
+    return found
+
+
+def cmd_verify(a, suite: Suite, say) -> int:
+    found = merge_findings(a, say)
+    say(f"scenario file: {len(suite.scenarios)} scenarios, fine" if not found else
+        f"scenario file: {len(found)} scenarios the merge got wrong; compare them with both parents "
+        "(a change the merge commit made on purpose is reported too)")
+    return 1 if found else 0
 
 
 def cmd_list(a, suite: Suite, say) -> int:
@@ -269,8 +294,15 @@ def main(argv=None) -> int:
     say = lambda s: print(s, flush=True)  # noqa: E731
     try:
         suite = load(a.scenarios)
-    except (ScenarioError, OSError) as e:
+        damage = integrity.problems(a.scenarios.read_text(encoding="utf-8"), a.scenarios.parent)
+    except (ValueError, OSError) as e:  # ScenarioError, tomllib.TOMLDecodeError
         print(f"scenario file: {e}", file=sys.stderr)
         return 2
+    for d in damage:
+        print(f"scenario file: {d}", file=sys.stderr)
+    if damage:
+        return 2
     a.repo = a.repo.resolve()
-    return {"run": cmd_run, "plan": cmd_plan, "check": cmd_check, "list": cmd_list}[a.cmd](a, suite, say)
+    if a.cmd in ("run", "plan") and merge_findings(a, say):
+        say("merge check: warning only here; `python tools/smoke verify` fails on it")
+    return {"run": cmd_run, "plan": cmd_plan, "check": cmd_check, "list": cmd_list, "verify": cmd_verify}[a.cmd](a, suite, say)

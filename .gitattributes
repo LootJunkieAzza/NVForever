@@ -1,0 +1,4 @@
+# tools/smoke/scenarios.toml: git's line merge, then checked (tools/smoke/merge_driver.py says how to
+# turn the driver on; without it git merges as usual). Never merge=union: it keeps both
+# sides of a conflict and drops the lines they share, fusing or doubling scenarios.
+tools/smoke/scenarios.toml merge=smoke-scenarios

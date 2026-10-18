@@ -8,6 +8,12 @@ Top-level tables:
   field of each item, "all" every field, "value" the whole value is one time).
 - `[[check]]` the "checks before every push": `name`, `paths` (globs), `cmd`, `cwd`.
 - `[[scenario]]` one smoke test (see `Scenario`).
+
+A scenario's `expect_file` (a path from the scenario file's folder) adds a JSON expectation
+`{ json = "<path>", equals = <value> }` for every value in that TOML file, its tables
+giving the path (`[summary.by_status]` `no_op = 4` is `summary.by_status.no_op` = 4).
+Totals that many branches change live there, in a file of their own, so a text merge of
+two changes to them conflicts in a few lines instead of mangling scenarios.toml.
 """
 from __future__ import annotations
 
@@ -20,7 +26,7 @@ from .expect import Expect, ScenarioError
 GAME, TOOL = "game", "tool"
 SCENARIO_KEYS = {
     "name", "kind", "source", "areas", "paths", "args", "run_seconds", "env", "launch", "offset",
-    "expect", "order", "forbid", "manual", "requires", "commands", "exit", "note", "timeout", "ends",
+    "expect", "expect_file", "order", "forbid", "manual", "requires", "commands", "exit", "note", "timeout", "ends",
 }
 
 
@@ -86,7 +92,30 @@ def _expects(items, where) -> list[Expect]:
     return [Expect.parse(x, f"{where}[{i}]") for i, x in enumerate(items)]
 
 
-def parse_scenario(d: dict) -> Scenario:
+def _leaves(d: dict, path: list[str]):
+    for k, v in d.items():
+        if isinstance(v, dict):
+            yield from _leaves(v, path + [k])
+        else:
+            yield ".".join(path + [k]), v
+
+
+def _expect_file(name: str, rel, base: Path | None) -> list[Expect]:
+    if not isinstance(rel, str):
+        raise ScenarioError(f"{name}.expect_file: expected a path")
+    if base is None:
+        raise ScenarioError(f"{name}.expect_file: no folder to read {rel} from")
+    try:
+        data = tomllib.loads((base / rel).read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise ScenarioError(f"{name}.expect_file {rel}: {e}") from e
+    out = [Expect.parse({"json": k, "equals": v}, f"{name}.expect_file {rel}") for k, v in _leaves(data, [])]
+    if not out:
+        raise ScenarioError(f"{name}.expect_file {rel}: holds no values")
+    return out
+
+
+def parse_scenario(d: dict, base: Path | None = None) -> Scenario:
     name = d.get("name")
     if not name or not isinstance(name, str):
         raise ScenarioError(f"scenario without a name: {d!r:.80}")
@@ -111,6 +140,8 @@ def parse_scenario(d: dict) -> Scenario:
     s.exit = int(d.get("exit", 0))
     s.timeout = float(d.get("timeout", 0))
     s.expect = _expects(d.get("expect", []), f"{name}.expect")
+    if "expect_file" in d:
+        s.expect += _expect_file(name, d["expect_file"], base)
     s.order = [_expects(seq, f"{name}.order[{i}]") for i, seq in enumerate(d.get("order", []))]
     s.forbid = _expects(d.get("forbid", []), f"{name}.forbid")
     for e in [x for seq in s.order for x in seq] + s.forbid:
@@ -131,7 +162,8 @@ def parse_scenario(d: dict) -> Scenario:
     return s
 
 
-def load_text(text: str) -> Suite:
+def load_text(text: str, base: Path | None = None) -> Suite:
+    """`base`: the folder `expect_file` paths start from (the scenario file's)."""
     data = tomllib.loads(text)
     try:
         timed = {k: Timed(**v) for k, v in data.get("timed", {}).items()}
@@ -144,7 +176,7 @@ def load_text(text: str) -> Suite:
     for k, t in timed.items():
         if t.shift not in ("lead", "all", "value"):
             raise ScenarioError(f"timed.{k}: shift must be lead, all or value")
-    scenarios = [parse_scenario(d) for d in data.get("scenario", [])]
+    scenarios = [parse_scenario(d, base) for d in data.get("scenario", [])]
     names = [s.name for s in scenarios]
     dup = {n for n in names if names.count(n) > 1}
     if dup:
@@ -157,4 +189,5 @@ def load_text(text: str) -> Suite:
 
 
 def load(path: Path) -> Suite:
-    return load_text(Path(path).read_text(encoding="utf-8"))
+    path = Path(path)
+    return load_text(path.read_text(encoding="utf-8"), path.parent)

@@ -73,6 +73,10 @@ python tools/smoke run --exe <engine target>/release/nvforever.exe --data <Data>
   captures).
 - Fix or explain every FAIL. KNOWN marks a check that fails on main for a stated reason;
   it does not fail the run, and a "now passes" line says the mark can go.
+- **After merging anything into a branch: `python tools/smoke verify`** (fails when the
+  merge fused, doubled or lost scenarios in scenarios.toml). Never `merge=union` the file;
+  turn on its merge driver once per clone (tools/smoke/merge_driver.py). The script-stubs
+  totals live in `tools/smoke/expected/script-stubs.toml`.
 - **Adding a feature worth a smoke test: add a `[[scenario]]` to the file**, not prose here
   (expectation syntax: `tools/smoke/smoke/expect.py`). Never loosen an expectation to make
   a run pass; mark it `known_failing` with the reason instead.

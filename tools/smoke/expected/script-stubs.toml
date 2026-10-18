@@ -1,0 +1,69 @@
+# The totals `fnvtool script stubs <Data> <the ten masters> --schema schemas/fnv` must
+# print (its "summary"): the smoke scenario script-stubs (tools/smoke/scenarios.toml)
+# expects each value below, by its JSON path, to equal the run's.
+#
+# A branch that implements a stub (or moves one between statuses) changes the numbers
+# here, and docs/design/script-stubs.md §1 with them; nowhere else. Two branches that
+# both lowered a number conflict here when merged: count again, never keep both lines.
+# `cargo test -p fnv-game` checks stubs and by_status against the registry
+# (crates/fnv-game/src/functions/stubs.rs) without game data; the calls, condition uses
+# and unhandled functions need the masters: the smoke run checks those.
+
+[summary]
+stubs = 37
+stub_calls = 167
+stub_condition_uses = 125
+unhandled_used = 1
+
+[summary.by_status]
+implementable = 1
+needs_system = 36
+no_op = 4
+
+# History (moved from scenarios.toml, 2026-10-18; the newest last):
+# Karma and crime (claude/karma-crime) implemented six
+# stubs (SendAssaultAlarm, SendTrespassAlarm, GetTrespassWarningLevel, IsTrespassing,
+# GetAlarmed, GetMajorCrimeCount: 100 calls, 32 condition uses) and the unregistered GetIsAlignment.
+# claude/script-stubs-2 implemented seven (34 calls, 9 condition uses), moved PushActorAway and
+# SetForceSneak to "needs a system", and registered AddItemToLeveledList, IsDLCInstalled and
+# claude/l5-npc-ai implemented SetForceSneak (3 calls): 77 stubs and 920 calls before it.
+# GetXPForNextLevel (§3.2). Then four more (§3.3, §3.4): the followers' OpenTeammateContainer
+# (26 calls, the last stub assigned to H, so no "H followers" row is left), Autosave (74 calls),
+# the crafting ShowRecipeMenu (15 calls, PR #292) and claude/l5-render-fx's SwapTexture (383
+# calls): 81 → 77 stubs, 1,418 → 920 calls, condition uses unchanged. Effect shaders
+# (claude/effect-shaders, §3.6) implemented five more (PlayMagicShaderVisuals,
+# StopMagicShaderVisuals, SetActorAlpha, SetSecuritronExpression, Reset3DState: 460 calls,
+# no condition uses): 76 → 71 stubs, 917 → 457 calls.
+# The combat round (§3.7) implemented eleven of the fifteen stubs assigned to E2 combat AI
+# (144 calls, 132 condition uses) and moved the other four to "needs a system", so no
+# "E2 combat AI" row is left: 71 → 60 stubs, 457 → 313 calls, 614 → 482 condition uses.
+# claude/use-weapon implemented UseWeapon (13 calls, §3.8): 60 → 59 stubs, 313 → 300 calls.
+# The script function audit implemented GetAnimAction (44 calls, 1 condition use, §3.9):
+# 59 → 58 stubs, 300 → 256 calls, 482 → 481 condition uses.
+# claude/blackjack implemented ShowBlackJackMenuParams (6 calls, §3.10): 58 → 57 stubs,
+# 256 → 250 calls. claude/roulette implemented ShowRouletteMenuParams (6 calls): 57 → 56,
+# 250 → 244. The function probes (script-function-coverage.md §4) implemented
+# GetDisposition, SetDisposition, IsFacingUp and IsLeftUp (2 calls, 78 condition uses,
+# observed in game): 56 → 52 stubs, 244 → 242 calls, 481 → 403 condition uses.
+# claude/package-errands implemented the four used-item functions (GetIsUsedItem,
+# GetIsUsedItemType, GetIsUsedItemEquipType, GetUsedItemActivate: 26 condition uses,
+# §3.12): 52 → 48 stubs, 403 → 377 condition uses.
+# claude/npc-unconscious implemented GetOwnerLastTarget (5 calls, the last stub assigned to J,
+# so no "assigned" or "J karma and crime" row is left; docs/spec-notes/unconscious.md §2.8):
+# 48 → 47 stubs, 242 → 237 calls.
+# claude/repair-services-menu implemented ShowRepairMenu (15 calls, docs/spec-notes/repair.md):
+# 47 → 46 stubs, 237 → 222 calls.
+# claude/vats-mode implemented GetVATSValue (250 condition uses) and GetVATSMode (2 calls,
+# 2 condition uses) for VATS mode (docs/design/vats-mode.md §12): 46 → 44 stubs,
+# 222 → 220 calls, 377 → 125 condition uses.
+# The barber (#414) implemented ShowBarberMenu (4 calls): 44 → 43 stubs, 220 → 216 calls
+# [observed: the coordinator's run of #413 on main 34ef585d, 2026-10-18].
+# claude/plastic-surgeon implemented ShowPlasticSurgeonMenu (2 calls): 42 stubs, 214 calls.
+# claude/knockdowns implemented PushActorAway (35 calls, docs/spec-notes/unconscious.md §5):
+# 41 stubs, 179 calls [observed: fnvtool script stubs on the owner's masters, 2026-10-18].
+# claude/blockers-save-reticle implemented SystemSave, ForceSave and PlaceAtReticle (10 calls,
+# docs/spec-notes/script-saves-and-reticle.md): 41 → 38 stubs, 179 → 169 calls [observed:
+# fnvtool script stubs on the owner's masters, merged with main, 2026-10-18].
+# claude/blockers-anim-state implemented IsPlayerActionActive (2 calls, §3.13): 38 → 37
+# stubs, 169 → 167 calls [observed: fnvtool script stubs on the owner's masters, merged
+# with main 5a98cb50, 2026-10-18].

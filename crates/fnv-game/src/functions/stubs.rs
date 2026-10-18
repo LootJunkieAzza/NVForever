@@ -81,4 +81,31 @@ mod tests {
         assert!(a.iter().any(|(_, n, s)| *n == "SetRumble" && s.key() == "no_op"));
         assert!(a.iter().all(|(op, ..)| !super::super::implemented(*op) || matches!(lookup(*op), Some(Kind::NoOp(_)))));
     }
+
+    /// The smoke scenario script-stubs expects the totals of tools/smoke/expected/script-stubs.toml;
+    /// those the registry decides alone (stubs, by status) are checked here, without game data,
+    /// so a branch that implements a stub and leaves the file behind fails `cargo test`.
+    #[test]
+    fn smoke_totals_match_the_registry() {
+        let text = include_str!("../../../../tools/smoke/expected/script-stubs.toml");
+        let mut table = "";
+        let mut file = std::collections::BTreeMap::new();
+        for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+            if let Some(t) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+                table = t;
+            } else if let Some((k, v)) = line.split_once('=') {
+                let v: u64 = v.trim().parse().unwrap_or_else(|_| panic!("not a count: {line}"));
+                assert!(file.insert(format!("{table}.{}", k.trim()), v).is_none(), "{table}.{} twice", k.trim());
+            }
+        }
+        let mut want = std::collections::BTreeMap::new();
+        for (.., s) in audit() {
+            *want.entry(format!("summary.by_status.{}", s.key())).or_insert(0u64) += 1;
+        }
+        let stubs = want.iter().filter(|(k, _)| !k.ends_with(".no_op")).map(|(_, n)| n).sum::<u64>();
+        want.insert("summary.stubs".into(), stubs);
+        let got: std::collections::BTreeMap<_, _> =
+            file.into_iter().filter(|(k, _)| k == "summary.stubs" || k.starts_with("summary.by_status.")).collect();
+        assert_eq!(got, want, "tools/smoke/expected/script-stubs.toml disagrees with the registry: update its stubs and by_status");
+    }
 }

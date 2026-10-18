@@ -39,7 +39,9 @@ counts each stub's calls; condition uses (CTDA) are the catalogue's
 (`schemas/script/functions.json`, from xEdit's table and the masters' scan). It lists every
 stub and no-op with its status, sorted by use, and the functions used but not registered at
 all (§6). The smoke scenario `script-stubs` (tools/smoke/scenarios.toml) checks the counts
-of §1.
+of §1, kept in tools/smoke/expected/script-stubs.toml (a branch that implements a stub
+changes them there; `cargo test -p fnv-game` checks the stub and status counts against the
+registry).
 
 [observed] The decoded call counts can differ from the catalogue's `script_calls` (e.g.
 IsLimbGone: 51 decoded calls against 12 in the catalogue): the catalogue counted compiled
