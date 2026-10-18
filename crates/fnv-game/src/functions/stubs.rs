@@ -19,6 +19,9 @@ pub enum Status {
 }
 
 impl Status {
+    /// Every [`Status::key`], in the order `fnvtool script stubs` lists them.
+    pub const KEYS: [&'static str; 4] = ["assigned", "implementable", "needs_system", "no_op"];
+
     pub fn key(self) -> &'static str {
         match self {
             Status::NeedsSystem(_) => "needs_system",
@@ -89,7 +92,7 @@ mod tests {
         let text = include_str!("../../../../tools/smoke/expected/script-stubs.toml");
         let mut table = "";
         let mut file = std::collections::BTreeMap::new();
-        for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+        for line in text.lines().map(|l| l.split('#').next().unwrap_or("").trim()).filter(|l| !l.is_empty()) {
             if let Some(t) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
                 table = t;
             } else if let Some((k, v)) = line.split_once('=') {
@@ -97,9 +100,10 @@ mod tests {
                 assert!(file.insert(format!("{table}.{}", k.trim()), v).is_none(), "{table}.{} twice", k.trim());
             }
         }
-        let mut want = std::collections::BTreeMap::new();
+        let mut want: std::collections::BTreeMap<_, _> =
+            Status::KEYS.iter().map(|k| (format!("summary.by_status.{k}"), 0u64)).collect();
         for (.., s) in audit() {
-            *want.entry(format!("summary.by_status.{}", s.key())).or_insert(0u64) += 1;
+            *want.entry(format!("summary.by_status.{}", s.key())).or_default() += 1;
         }
         let stubs = want.iter().filter(|(k, _)| !k.ends_with(".no_op")).map(|(_, n)| n).sum::<u64>();
         want.insert("summary.stubs".into(), stubs);

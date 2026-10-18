@@ -135,7 +135,7 @@ class ExpectFile(unittest.TestCase):
     def test_script_stubs_reads_its_totals(self):
         s = load(HERE / "scenarios.toml").by_name()["script-stubs"]
         got = {".".join(e.json_path) for e in s.expect}
-        self.assertEqual(got, {"summary.stubs", "summary.by_status.implementable", "summary.by_status.needs_system",
+        self.assertEqual(got, {"summary.stubs", "summary.by_status.assigned", "summary.by_status.implementable", "summary.by_status.needs_system",
                                "summary.by_status.no_op", "summary.stub_calls", "summary.stub_condition_uses",
                                "summary.unhandled_used"})
         self.assertTrue(all(e.has_equals for e in s.expect))

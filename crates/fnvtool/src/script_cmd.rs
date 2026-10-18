@@ -670,7 +670,8 @@ fn stubs(l: &Loaded) -> Value {
     let calls = |op: u16| stats.calls.get(&op).map_or(0, |c| c[0] + c[1]);
     let conds = |op: u16| l.table.get(op).map_or(0, |f| f.condition_uses);
     let mut rows: Vec<(u64, Value)> = Vec::new();
-    let mut by_status: BTreeMap<&str, u64> = BTreeMap::new();
+    // Every status, 0 when no stub has it, so a total can be expected to be 0.
+    let mut by_status: BTreeMap<&str, u64> = Status::KEYS.iter().map(|k| (*k, 0)).collect();
     let mut by_workstream: BTreeMap<&str, u64> = BTreeMap::new();
     let (mut stub_calls, mut stub_conds) = (0u64, 0u64);
     for (op, name, st) in audit() {
