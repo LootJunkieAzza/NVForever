@@ -1341,6 +1341,29 @@ fn ignored_parameters_are_honoured() {
     }
     assert_eq!(fades(&g), vec![(false, false), (true, true), (false, true), (true, false)]);
 
+    // Disable 1 holds the reference enabled while it fades (GetDisabled 0, observed), then
+    // disables it for the engine to take; an Enable during the hold ends it.
+    let acti = FormId(ACTI_REF);
+    call(&mut g, 0x1022, Some(ACTI_REF), &[n(1.0)]);
+    assert_eq!(call(&mut g, 0x1023, Some(ACTI_REF), &[]), 0.0, "enabled while it fades out");
+    g.frames(60);
+    assert_eq!(call(&mut g, 0x1023, Some(ACTI_REF), &[]), 0.0, "still held after 1 s");
+    let frames = (fnv_game::functions::FADE_OUT_HOLD / g.cfg.frame_seconds).ceil() as u64;
+    g.frames(frames);
+    assert_eq!(call(&mut g, 0x1023, Some(ACTI_REF), &[]), 1.0, "disabled once the hold ends");
+    assert!(g.script_looks.disabled_after_fade.contains(&acti));
+    call(&mut g, 0x1021, Some(ACTI_REF), &[n(0.0)]);
+    call(&mut g, 0x1022, Some(ACTI_REF), &[n(1.0)]);
+    call(&mut g, 0x1021, Some(ACTI_REF), &[]);
+    g.frames(frames + 10);
+    assert_eq!(call(&mut g, 0x1023, Some(ACTI_REF), &[]), 0.0, "an Enable ended the hold");
+    assert!(g.script_looks.fading_out.is_empty());
+    // A plain Disable during a hold disables at once.
+    call(&mut g, 0x1022, Some(ACTI_REF), &[n(1.0)]);
+    call(&mut g, 0x1022, Some(ACTI_REF), &[]);
+    assert_eq!(call(&mut g, 0x1023, Some(ACTI_REF), &[]), 1.0);
+    call(&mut g, 0x1021, Some(ACTI_REF), &[n(0.0)]);
+
     // EquipItem's NoUnequipFlag: the inventory cannot take it off; UnequipItem can, and
     // its NoEquipFlag keeps it off until EquipItem.
     g.world.add_item(p, FormId(WEAP), 1).unwrap();

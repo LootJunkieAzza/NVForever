@@ -580,6 +580,12 @@ pub struct ScriptLooks {
     pub alpha: std::collections::BTreeMap<fnv_sim::FormId, f32>,
     /// Counts the changes of `shaders` and `alpha`.
     pub generation: u64,
+    /// References a `Disable 1` is fading out, still enabled until this [`Game::time`]
+    /// (`refs::disable`).
+    pub fading_out: std::collections::BTreeMap<fnv_sim::FormId, f64>,
+    /// References whose fade-out hold ended and that are now disabled, for the engine to
+    /// take (their collision and enable children follow).
+    pub disabled_after_fade: Vec<fnv_sim::FormId>,
 }
 
 impl ScriptLooks {

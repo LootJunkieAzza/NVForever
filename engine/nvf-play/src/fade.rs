@@ -8,10 +8,11 @@
 //!   whose alpha goes from 0 to 1 (in) or 1 to 0 (out) in a straight line over
 //!   [`FADE_SECONDS`]; at the end the mesh gets its own material back [hypothesis: the
 //!   shape and the length; capture job `tools/capture/jobs/enable_fade_timing.json`].
-//! - **Out**: the simulation has the reference disabled at once (GetDisabled is 1), so
-//!   `activate::sync_visuals` hides its meshes; they are shown again here for the fade
-//!   and hidden at its end, unless the reference was enabled again meanwhile. Collision
-//!   follows the simulation at once [hypothesis].
+//! - **Out**: the simulation keeps the reference enabled while it fades
+//!   (`fnv_game::functions::refs::FADE_OUT_HOLD`, GetDisabled 0 [observed]); its meshes
+//!   fade to nothing and stay hidden until the hold ends and the simulation disables it
+//!   (`ScriptLooks::disabled_after_fade`, a `RefChanged` from `script`), when collision
+//!   goes too. A plain Disable meanwhile hides it at once.
 //! - **In**: only a reference present after its change fades in (an enable child "set to
 //!   the opposite of its parent" is disabled by its parent's Enable and pops out).
 //! - The fade runs on the game's clock (`Time<Virtual>`): it stands still in menus.
@@ -23,9 +24,11 @@
 //! Log: `fade: <id> in|out over <s> s (<n> meshes)` when one starts (meshes drawn then;
 //! a cell loaded later joins in) and `fade: <id> in|out done` at its end.
 
+use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::{PlaySet, RefVisual};
 use bevy::prelude::*;
+use fnv_sim::FormId;
 use nvf_assets::NifMaterial;
 use std::collections::HashMap;
 
@@ -88,9 +91,15 @@ pub fn fade_alpha(fade_in: bool, t: f32) -> f32 {
     }
 }
 
-fn start(mut fades: MessageReader<RefFade>, sim: Res<SimState>, time: Res<Time<Virtual>>, mut st: ResMut<Fades>, visuals: Query<&RefVisual>) {
+/// Whether a reference is (still) on its way out: disabled, or held enabled by a
+/// `Disable 1` (`ScriptLooks::fading_out`).
+fn going_out(sim: &SimState, script: Option<&ScriptState>, id: u32) -> bool {
+    !sim.present(id) || script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.script_looks.fading_out.contains_key(&FormId(id)))
+}
+
+fn start(mut fades: MessageReader<RefFade>, sim: Res<SimState>, script: Option<Res<ScriptState>>, time: Res<Time<Virtual>>, mut st: ResMut<Fades>, visuals: Query<&RefVisual>) {
     for f in fades.read() {
-        if sim.present(f.form_id) != f.fade_in {
+        if going_out(&sim, script.as_deref(), f.form_id) == f.fade_in {
             continue;
         }
         st.active.insert(f.form_id, Active { fade_in: f.fade_in, since: time.elapsed_secs() });
@@ -103,6 +112,7 @@ fn start(mut fades: MessageReader<RefFade>, sim: Res<SimState>, time: Res<Time<V
 fn step(
     mut commands: Commands,
     sim: Res<SimState>,
+    script: Option<Res<ScriptState>>,
     time: Res<Time<Virtual>>,
     mut st: ResMut<Fades>,
     mut materials: ResMut<Assets<NifMaterial>>,
@@ -113,20 +123,20 @@ fn step(
     }
     let now = time.elapsed_secs();
     // A presence that turned back ends the fade (module notes).
-    let over = |id: u32, a: &Active| now - a.since >= FADE_SECONDS || sim.present(id) != a.fade_in;
+    let out = |id: u32| going_out(&sim, script.as_deref(), id);
+    let over = |id: u32, a: &Active| now - a.since >= FADE_SECONDS || out(id) == a.fade_in;
     for (e, rv, mat, fading, mut vis) in &mut meshes {
         let Some(a) = st.active.get(&rv.0) else { continue };
         let t = now - a.since;
-        let present = sim.present(rv.0);
         if over(rv.0, a) {
             if let Some(f) = fading {
                 commands.entity(e).insert(MeshMaterial3d(f.original.clone())).remove::<Fading>();
                 materials.remove(&f.copy);
             }
-            vis.set_if_neq(if present { Visibility::Inherited } else { Visibility::Hidden });
+            vis.set_if_neq(if out(rv.0) { Visibility::Hidden } else { Visibility::Inherited });
             continue;
         }
-        if !a.fade_in && !present {
+        if !a.fade_in && !sim.present(rv.0) {
             // Hidden by `sync_visuals`; drawn while it fades out.
             vis.set_if_neq(Visibility::Inherited);
         }

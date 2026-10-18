@@ -29,6 +29,7 @@ mod objects;
 pub(crate) mod player;
 mod quest;
 mod refs;
+pub use refs::FADE_OUT_HOLD;
 mod reputation;
 pub mod senses;
 pub mod stubs;

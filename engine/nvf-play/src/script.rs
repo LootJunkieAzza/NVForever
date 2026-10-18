@@ -1384,8 +1384,16 @@ pub(crate) fn run_scripts(
     let events = std::mem::take(&mut rt.game.events);
     let skip = std::mem::take(&mut rt.skip);
     rt.stats.events += events.len() as u64;
+    // References a `Disable 1` held enabled while they faded, disabled now: their visuals,
+    // collision and enable children follow.
+    let late = std::mem::take(&mut rt.game.script_looks.disabled_after_fade);
     let ctx = PlayCtx { sim: &sim, data: rt.game.data, index: play.index, children: &rt.children, quests: &rt.game.quests };
     let mut effects = script_events::effects(&events, &skip, &ctx);
+    for r in late {
+        info!("script: {} disabled after its fade", rt.game.data.name(r));
+        effects.push(ScriptEffect::RefChanged(r.0));
+        effects.extend(ctx.enable_children(r).into_iter().map(|c| ScriptEffect::RefChanged(c.0)));
+    }
     for r in marked {
         info!("script: {r} marked for delete");
         effects.push(ScriptEffect::RefChanged(r.0));

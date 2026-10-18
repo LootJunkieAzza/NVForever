@@ -1561,6 +1561,19 @@ impl<'a> Game<'a> {
         if !in_menu {
             self.time += dt;
         }
+        // `Disable 1` holds that ended (`functions::refs::disable`).
+        let now = self.time;
+        let ended: Vec<FormId> = self.script_looks.fading_out.iter().filter(|(_, &until)| until <= now).map(|(&r, _)| r).collect();
+        for r in ended {
+            self.script_looks.fading_out.remove(&r);
+            if self.world.set_enabled(r, false).is_ok() {
+                self.script_looks.disabled_after_fade.push(r);
+            }
+        }
+        // Without an engine taking them (a headless run) the list is kept short.
+        if self.script_looks.disabled_after_fade.len() > 256 {
+            self.script_looks.disabled_after_fade.drain(..128);
+        }
         for r in std::mem::take(&mut self.pending_onload) {
             if self.present(r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
                 self.ref_event(r, event::ON_LOAD, None, None);

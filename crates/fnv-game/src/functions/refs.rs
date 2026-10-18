@@ -8,10 +8,16 @@ use fnv_sim::FormId;
 
 /// `ref.Enable [FadeIn]`: the reference is drawn and its actor's AI runs again; it fades
 /// in unless FadeIn is 0 [documented: GECK wiki Enable, "Default = 1"]. The fade is the
-/// engine's (`nvf_play::fade`); the reference counts as enabled at once [hypothesis].
+/// engine's (`nvf_play::fade`); GetDisabled reads 0 at once [observed: capture
+/// `disable_fade_getdisabled`, 2026-10-18, the game loop after Enable]. An Enable while a
+/// `Disable 1` holds the reference ([`FADE_OUT_HOLD`]) ends the hold and fades it back.
 pub fn enable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let fade = a.num_or(0, 1.0) != 0.0;
+    if g.script_looks.fading_out.remove(&r).is_some() {
+        g.emit(EventKind::RefEnabled { reference: r, fade });
+        return none();
+    }
     let was = g.world.get(r).map_err(|e| e.to_string())?.enabled;
     g.world.set_enabled(r, true).map_err(|e| e.to_string())?;
     if !was {
@@ -21,14 +27,31 @@ pub fn enable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
+/// How long a `Disable 1` leaves its reference enabled (GetDisabled 0) while it fades
+/// out, seconds of game time; then it is disabled [observed: GetDisabled stayed 0 for all
+/// 240 game loops, about 3.5 s, after `Disable 1`, and a plain Disable read 1 the next
+/// loop, capture `disable_fade_getdisabled`, 2026-10-18; hypothesis: that it then turns 1,
+/// and when].
+pub const FADE_OUT_HOLD: f64 = 4.0;
+
 /// `ref.Disable [FadeOut]`: the reference is no longer drawn; it fades out only when
-/// FadeOut is non-zero [documented: GECK wiki Disable, "Default = 0"]. GetDisabled is 1 at
-/// once, while the engine still draws the fade [hypothesis; the original read 0 the game
-/// loop after `Disable 1`, capture `enable_fade_timing`: how long is not known yet, job
-/// `disable_fade_getdisabled`].
+/// FadeOut is non-zero [documented: GECK wiki Disable, "Default = 0"]. A plain Disable
+/// reads GetDisabled 1 at once [observed]; with the fade the reference stays enabled for
+/// [`FADE_OUT_HOLD`] while the engine fades it out, then is disabled (`Game::tick`,
+/// `ScriptLooks::disabled_after_fade`). A plain Disable during the hold disables at once.
 pub fn disable(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let fade = a.num_or(0, 0.0) != 0.0;
+    let held = g.script_looks.fading_out.contains_key(&r);
+    if fade && held {
+        return none();
+    }
+    if fade && g.world.get(r).map_err(|e| e.to_string())?.enabled {
+        g.script_looks.fading_out.insert(r, g.time + FADE_OUT_HOLD);
+        g.emit(EventKind::RefDisabled { reference: r, fade });
+        return none();
+    }
+    g.script_looks.fading_out.remove(&r);
     let was = g.world.get(r).map_err(|e| e.to_string())?.enabled;
     g.world.set_enabled(r, false).map_err(|e| e.to_string())?;
     if was {

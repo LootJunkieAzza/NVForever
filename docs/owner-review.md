@@ -5832,13 +5832,13 @@ Every parameter docs/design/script-function-params.md §3 listed as ignored is n
 are my guesses, each with what would settle it:
 
 - **Fade length and shape** (Enable/Disable, 544 shipped calls): 1 second, a straight
-  line of the reference's alpha. The capture `enable_fade_timing` (2026-10-18) lost all
-  its screenshots (BitBlt failed), so the length is still a guess. It did read GetDisabled
-  **0** the game loop after `Disable 1` [observed]; ours reads 1 at once. Before changing
-  that I need to know whether the original stays 0 for the whole fade or for one frame
-  (plain Disable too?): job `tools/capture/jobs/disable_fade_getdisabled.steps.json`
-  reads it every loop. *Look for*: things that appear by script now fade in; tell me if
-  one should pop.
+  line of the reference's alpha: still a guess, the capture's screenshots failed.
+  **GetDisabled** is settled in part [observed: captures 2026-10-18]: a plain Disable reads
+  1 at once, Enable 0 at once, but after `Disable 1` the original kept reading 0 for the
+  whole 3.5 s sampled. So ours now keeps a `Disable 1` reference enabled (GetDisabled 0,
+  collision on) while it fades out, and disables it after 4 s (*guess*: that it turns 1 at
+  all, and when). *Look for*: a script that disables something with a fade and checks
+  GetDisabled right after; and things that appear by script fading in.
 - **Equip locks in the inventory**: an item EquipItem locked on shows "… can't be
   unequipped" (my wording; the original's message is not known). Companions ignore
   NoEquipFlag in the original (wiki); ours have no re-equipping yet, so nothing to ignore.
