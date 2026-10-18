@@ -66,6 +66,10 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
 - **World**: skeleton collision still upright (playtest list 5 item 71).
 - **AI packages**: Find's Allow Buying, an escort joining its charge's fights (the other
   package types and flags are carried out since #400).
+  - Find's Allow Killing is built, but only for actors whose inventory holds the food. In
+    the original a gecko on FindFood killed a radroach whose meat is only its death item
+    [observed 2026-10-18; the rule it implies is a hypothesis;
+    spec-notes/owner-decision-captures.md §4].
 
 ## 3. Decisions and checks waiting for the owner
 

@@ -4654,6 +4654,14 @@ terminate" before its goal) [documented]. The export has no Find package page.
   (AddScriptPackage) are not ended by a duration [our choice].
 - A Find package is not ended early by finding food: Find is not carried out yet, and no
   source read says what "found" ends.
+- **Find with Allow Killing, captured 2026-10-18 [observed]:** a gecko on VCrGeckoFindFood
+  (Find, target Food, Allow Killing) attacked a radroach placed 256 units away, for about
+  a game minute, and then went back to its find. The control gecko fought nothing.
+  - **Reading [hypothesis].** Allow Killing makes the actor kill a creature within reach,
+    then resume the find.
+  - **How ours differs.** Our Find attacks a living actor only if its inventory holds the
+    food, and the radroach's meat is only its death item, so ours would not attack it.
+  - **Status.** The runtime is unchanged (spec-notes/owner-decision-captures.md §4).
 - Hours passed in the Wait menu: packages are chosen once per waited hour, so each step of
   a chain can start up to an hour late during a wait.
 

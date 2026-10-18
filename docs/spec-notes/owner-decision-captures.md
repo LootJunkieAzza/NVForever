@@ -302,6 +302,28 @@ order: package, type, procedure, …, x, y, z, heading.
     - **What it bears on.** Our rule that a list package with a duration and no start hour
       ends after it, so that about 358 packages restart every duration
       (docs/outstanding.md §3). The runtime is unchanged.
+- **The owner's gecko food question (campaign `gecko_food`, private, from `nvftest`).**
+  Does a Find package with Allow Killing make a gecko kill a radroach?
+  - **Setup.** The clock was set to 00:00, the player was two cells away in god mode, and
+    one radroach (CrRadroach 0x0001CF7C) was placed 256 units from gecko 0x0016518B.
+  - **The gecko next to the radroach.** From 00:04 it was on VCrGeckoFindFood (a Find
+    whose target is the object type Food, with Allow Killing). At 00:07 it switched to a
+    combat package made at run time, targeting FF00131E: the only actor the job created,
+    so the radroach. By 00:08 it was back on FindFood, procedure ACQUIRE.
+  - **The control gecko 0x0016518C** fought nothing. It patrolled until 01:00, then took
+    FindFood (ACQUIRE), which reached DONE at 02:00.
+  - **Reading [hypothesis].** A Find package with Allow Killing makes the actor kill a
+    creature within reach and then resume the find.
+  - **Not sampled.** The radroach's death and the meat being picked up: the radroach was
+    not in the observer's scan, and the observer does not read inventories. A first,
+    narrower run, with the radroach outside the scan, saw no combat at all, so the
+    placement is not proven for that run.
+  - **How it compares with our runtime.** The base radroach carries no inventory; its meat
+    is its death item, DeathItemRadroach100 [observed: `fnvtool esm decode`]. Our Find
+    attacks a living actor only when its inventory holds what the package looks for
+    (`fnv-ai` `errand.rs`). So our gecko would leave this radroach alone. Either the
+    original counts a death item as carried food, or Allow Killing has it attack any
+    creature in reach [both hypotheses]. The runtime is unchanged.
 - **od_22 retry (`nvfstrip`): not settled.** Ralph's dialogue never opened (the wait at
   step 17 timed out every round), and every screenshot failed with "cannot create a
   bitmap", as in od_21. The second round's `open_dialogue` closes a message box first;
