@@ -43,6 +43,11 @@ pub struct UiRequests {
     pub films: Vec<FilmRequest>,
     /// The screen splatter functions' requests (`super::misc::trigger_screen_splatter`).
     pub splatter: SplatterRequests,
+    /// ResetPipboyManager calls: the Pip-Boy takes each new count once
+    /// (`nvf_play::pipboy`).
+    pub pipboy_resets: u64,
+    /// ExitGame calls the engine has not taken yet (`nvf_play::script`).
+    pub exit_game: u32,
 }
 
 /// A film a script asked for (`PlayBink`), for the engine's film player
@@ -103,6 +108,52 @@ pub struct SplatterRequests {
     /// SetScreenSplatterFade: the share of a splat's time after which it starts to
     /// fade, and whether splats fade (`None`: never called, the game settings).
     pub fade: Option<(f32, bool)>,
+}
+
+/// `ResetPipboyManager`: called after the player is given a Pip-Boy (Doc Mitchell's line
+/// in VCG01) and after a DLC adds its radio stations and map markers. It
+/// "(re-)initializes" the Pip-Boy's menus and puts its look back to the default, its
+/// light off [documented: GECK wiki ResetPipboyManager, owner export]. NVForever's
+/// Pip-Boy builds its pages afresh each time it opens, so the engine
+/// (`nvf_play::pipboy`, [`UiRequests::pipboy_resets`]) shows the default page and tabs
+/// next time and turns the Pip-Boy's light (NVForever's flashlight) off [hypothesis:
+/// what "reset" leaves of the pages chosen].
+pub fn reset_pipboy_manager(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    g.ui.pipboy_resets += 1;
+    none()
+}
+
+/// `ShowTutorialMenu message`: the message in the tutorial menu ("VDSG Manual"),
+/// [`Game::show_tutorial`].
+pub fn show_tutorial_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let m = a.form(0)?;
+    if !g.data.messages.contains_key(&m) {
+        return Err(format!("{} is not a message", g.data.name(m)));
+    }
+    g.show_tutorial(m);
+    none()
+}
+
+/// `AutoDisplayObjectives 0/1`: turns the automatic display of the active quest's
+/// objectives on or off, for while the Pip-Boy cannot be used [documented: GECK wiki
+/// AutoDisplayObjectives, owner export]. VCG01 turns it on before the player has a
+/// Pip-Boy and off at its end [observed in the masters]. Kept in
+/// `PlayerState::auto_objectives` (saved); the HUD's quest lines keep the objectives on
+/// screen while it is on (`nvf_play::quest_messages`) [hypothesis: what the display
+/// shows].
+pub fn auto_display_objectives(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.player.auto_objectives = a.num_or(0, 0.0) != 0.0;
+    none()
+}
+
+/// `ExitGame`: plays the credits and returns to the main menu [documented: GECK wiki
+/// ExitGame, owner export]. The engine takes [`UiRequests::exit_game`] at the end of the
+/// frame (`nvf_play::script`): back to the main menu as the pause menu's Quit does; the
+/// credits are not built. The one caller is the ending's fade-out (SCPT 0x0017A17D)
+/// [observed in the masters].
+pub fn exit_game(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    g.ui.exit_game += 1;
+    none()
 }
 
 /// `IncrementScriptedChallenge challenge`: one step towards the challenge's threshold

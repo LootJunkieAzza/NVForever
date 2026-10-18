@@ -2076,12 +2076,20 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/blockers-anim-state implemented IsPlayerActionActive (2 calls, §3.13): 38 → 37
 # stubs, 169 → 167 calls [observed: fnvtool script stubs on the owner's masters, merged
 # with main 5a98cb50, 2026-10-18].
+# claude/menu-hooks implemented ResetPipboyManager, ShowTutorialMenu, ExitGame and the last
+# implementable stub, AutoDisplayObjectives (9 calls, §3.15), so no "implementable" row is
+# left: 37 → 33 stubs, 167 → 158 calls [observed: fnvtool script stubs on the owner's masters,
+# merged with main d13109f3, 2026-10-18].
+# claude/screen-video implemented PlayBink, SetCellImageSpace, TriggerScreenSplatter,
+# SetScreenSplatterFade and ClearScreenSplatter (17 calls, §3.16): 33 → 28 stubs,
+# 158 → 141 calls [observed: fnvtool script stubs on the owner's masters, merged with main
+# 1bf4fb89, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 37 },
-  { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 36 },
+  { json = "summary.stubs", equals = 28 },
+  { json = "summary.by_status.implementable", count = 0, label = "no implementable stub is left" },
+  { json = "summary.by_status.needs_system", equals = 28 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 167 },
+  { json = "summary.stub_calls", equals = 141 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -4823,6 +4831,76 @@ expect = [
   { re = 'cell image space: .* graded with', count = 1, label = "not before the cell loads again" },
 ]
 manual = "think_tank_before.png and think_tank_called.png alike (the change waits for the cell to load); think_tank_red.png graded red"
+
+[[scenario]]
+name = "menu-hooks-pipboy-codes"
+source = "docs/design/script-stubs.md §3.15: the Pip-Boy reports its pages' MenuMode codes (STATS 1003, DATA 1023, ITEMS 1002); ResetPipboyManager puts its pages back to ITEMS and its light (the flashlight) off; AutoDisplayObjectives 1 holds the objective list on the HUD (the test aid call:)"
+areas = ["scripts", "pipboy", "menus"]
+paths = [
+  "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/quest_messages.rs", "crates/fnv-game/src/functions/ui.rs",
+  "crates/fnv-game/src/functions/misc.rs", "crates/fnv-game/src/game.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=stats,16:page=data,17:page=items,18:page=data,19:close", NVF_PLAY_TEST_CONTROL = "21:flashlight", NVF_PLAY_TEST_SCRIPT = "23:call:-:ResetPipboyManager,24:call:-:AutoDisplayObjectives:1,26:call:-:AutoDisplayObjectives:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 32
+order = [[
+  "pipboy: menu code 1003",
+  "pipboy: menu code 1023",
+  "pipboy: menu code 1002",
+  "pipboy: menu code 1023",
+  "pipboy: down",
+  "flashlight: on",
+  "script: test aid calls ResetPipboyManager",
+  "flashlight: off",
+  "pipboy: manager reset (ResetPipboyManager): page ITEMS tab Weapons, light off",
+  "quest messages: objectives held on screen (AutoDisplayObjectives)",
+  "quest messages: objectives go after their time (AutoDisplayObjectives)",
+]]
+
+[[scenario]]
+name = "menu-hooks-tutorial"
+source = "docs/spec-notes/tutorial-menu.md: ShowTutorialMenu HelpHealingLimbs opens the tutorial menu (MenuMode 1059) in the world and over the Pip-Boy, which is the open menu again when it closes (its page codes go on); the test aid closes it after 2 s; frames at 15 s (the menu) and 20 s (over the Pip-Boy) in target/smoke"
+areas = ["scripts", "menus", "pipboy"]
+paths = [
+  "engine/nvf-play/src/tutorial_menu.rs", "engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/script.rs",
+  "crates/fnv-game/src/functions/ui.rs", "crates/fnv-game/src/game.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "2", NVF_PLAY_TEST_SCRIPT = "14:call:-:ShowTutorialMenu:0x00072358,19:call:-:ShowTutorialMenu:0x00072358", NVF_PLAY_TEST_PIPBOY = "18:open,23:page=stats,24:close", NVF_PLAY_TEST_SHOTS = "15:tutorial_menu.png,20:tutorial_over_pipboy.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 30
+order = [[
+  "script: test aid calls ShowTutorialMenu",
+  'tutorial menu: page 1/1 "Healing Limbs"',
+  "script: menu 1059 answered (OK)",
+  "pipboy: up",
+  "script: test aid calls ShowTutorialMenu",
+  'tutorial menu: page 1/1 "Healing Limbs"',
+  "script: menu 1059 answered (OK)",
+  "pipboy: menu code 1003",
+  "pipboy: down",
+]]
+expect = [
+  { re = 'test aid: closed menu 1059 after', count = 2, label = "the tutorial menu closes twice (the aid's 2 s)" },
+  { re = 'tutorial menu: closed', count = 0, label = "no key closed it" },
+]
+
+[[scenario]]
+name = "menu-hooks-exit-game"
+source = "docs/design/script-stubs.md §3.15: ExitGame leaves the game; a run a test aid drives quits instead of going back to the main menu (the test aid call:)"
+areas = ["scripts", "menus"]
+paths = ["crates/fnv-game/src/functions/ui.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:call:-:ExitGame" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 30
+# ExitGame ends the run itself, before --run-seconds would ("run finished" is that limit's line).
+ends = "script: ExitGame: quit (a test aid drives this run)"
+order = [[
+  "script: test aid calls ExitGame",
+  "script: ExitGame: quit (a test aid drives this run)",
+]]
+expect = [
+  { re = 'ExitGame: back to the main menu', count = 0, label = "not handed over to the main menu in a test run" },
+]
 
 [[scenario]]
 name = "anim-state"
