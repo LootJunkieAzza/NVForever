@@ -2990,6 +2990,23 @@ expect = [
 ]
 
 [[scenario]]
+name = "script-saves-reticle"
+source = "docs/outstanding.md §1 rows 2 and 12 (2026-10-18): SystemSave writes the one system slot, ForceSave a new save by hand, PlaceAtReticle places where the crosshair hits (docs/spec-notes/script-saves-and-reticle.md)"
+areas = ["save", "script"]
+paths = ["engine/nvf-play/src/save.rs", "engine/nvf-play/src/activate.rs", "crates/fnv-save/", "crates/fnv-game/src/functions/ui.rs", "crates/fnv-game/src/functions/objects.rs", "crates/fnv-game/src/functions/senses.rs"]
+env = { NVFOREVER_HOME = "script-save-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_LOOK = "10:0:-30", NVF_PLAY_TEST_CONSOLE = "12:player.placeatreticle Stimpak 2;12.5:player.placeatreticle Stimpak 1 0 1;13:systemsave;14:forcesave;16:systemsave;18:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 21
+expect = [
+  { re = 'console: PlaceAtReticle on player >> 0x[0-9A-F]{8} Stimpak', label = "a Stimpak is placed where the crosshair hits the ground" },
+  { re = 'console: PlaceAtReticle on player >> none', label = "nothing is placed when the ground is beyond maxDistance" },
+  { text = "save: SystemSave asked by a script", min = 2, label = "both SystemSave calls are taken" },
+  { re = 'save: wrote .*systemsave\.nvfsave \(system, ', min = 2, label = "the system slot is written each time" },
+  { re = 'save: ForceSave asked by a script: "Save \d+"', label = "ForceSave names a new save" },
+  { re = 'save: wrote .*Save \d+\.nvfsave \(manual, ', label = "ForceSave's save is written" },
+]
+
+[[scenario]]
 name = "load-handoff"
 source = "owner 2026-10-16: loading a save while playing keeps the window: the old run's loading screen stays up while a new run loads behind it with its window hidden, then the new window takes over (engine/nvforever/src/handoff.rs)"
 areas = ["save"]

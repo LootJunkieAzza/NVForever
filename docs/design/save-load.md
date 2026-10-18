@@ -204,7 +204,9 @@ ours and never remapped.
 - **Game layer** (`fnv_game::GameSnapshot`, same format `fnv.game.state/1`, new fields with
   `#[serde(default)]`): terminals hacked or locked out, the Pip-Boy radio (on, station),
   NPC radios, the weather shown and rain, grudges and forgiveness. `Autosave` is no longer
-  a stub: it asks the engine for an autosave (`UiRequests::autosaves`).
+  a stub: it asks the engine for an autosave (`UiRequests::autosaves`); nor are SystemSave
+  (the one `systemsave` slot) and ForceSave (a new save as by hand)
+  (`UiRequests::system_saves`, `force_saves`; docs/spec-notes/script-saves-and-reticle.md).
 - **Engine** (`engine/nvf-play/src/save.rs`): `SaveRequest`, the QuickSave (F5) and
   QuickLoad (F9) keys, autosaves, `EngineSnapshot` (`nvf.engine.state/1`: first/third
   person and distance, sneak, always run, flashlight, the magazine of the weapon in hand,

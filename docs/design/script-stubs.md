@@ -296,7 +296,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | SetAllVisible | 0x115A | 5 | 0 | needs a system not built yet | detection |
 | EnableNavMesh | 0x11C0 | 5 | 0 | needs a system not built yet | navigation |
 | ShowSlotMachineMenuParams | 0x1252 | 5 | 0 | needs a system not built yet | menus (casino) |
-| SystemSave | 0x127B | 5 | 0 | needs a system not built yet | saving |
+| SystemSave | 0x127B | 5 | 0 | implemented 2026-10-18 (spec-notes/script-saves-and-reticle.md) | saving |
 | StartCannibal | 0x107E | 4 | 0 | needs a system not built yet | AI (Cannibal perk) |
 | GetVATSMode | 0x10E0 | 2 | 2 | implemented 2026-10-18 for VATS mode (docs/design/vats-mode.md §12) | combat (VATS) |
 | PlayBink | 0x1114 | 4 | 0 | needs a system not built yet | video |
@@ -307,7 +307,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | AddCardToPlayer | 0x125B | 4 | 0 | needs a system not built yet | Caravan |
 | SetNoAvoidance | 0x115B | 3 | 0 | needs a system not built yet | AI |
 | GetGroupTargetCount | 0x11A1 | 0 | 3 | implemented 2026-10-16 (§3.7) | the group's foes |
-| PlaceAtReticle | 0x1263 | 3 | 0 | needs a system not built yet | HUD (reticle) |
+| PlaceAtReticle | 0x1263 | 3 | 0 | implemented 2026-10-18 (spec-notes/script-saves-and-reticle.md §4) | HUD (reticle) |
 | GetArmorRating | 0x1051 | 1 | 1 | implemented 2026-10-16 (§3.7) | equipped ARMO DNAM DR |
 | PickIdle | 0x1064 | 2 | 0 | needs a system not built yet | animation |
 | GetSandman | 0x10E2 | 0 | 2 | needs a system not built yet | AI (Mister Sandman perk) |
@@ -321,7 +321,7 @@ exists; the note says what is missing); **deliberately no-op**.
 | ShowTutorialMenu | 0x11E3 | 2 | 0 | needs a system not built yet | menus (tutorial) |
 | AgeRace | 0x11E4 | 2 | 0 | needs a system not built yet | character appearance |
 | ShowPlasticSurgeonMenu | 0x11F2 | 2 | 0 | needs a system not built yet | menus (appearance) |
-| ForceSave | 0x1217 | 2 | 0 | needs a system not built yet | saving |
+| ForceSave | 0x1217 | 2 | 0 | implemented 2026-10-18 (spec-notes/script-saves-and-reticle.md) | saving |
 | AutoDisplayObjectives | 0x1225 | 2 | 0 | implementable, left for later | objectives already show at the left as scripts set them; what the switch adds is not documented beyond the summary |
 | SetScreenSplatterFade | 0x1243 | 2 | 0 | needs a system not built yet | image space |
 | GetForceHitReaction | 0x1259 | 0 | 2 | needs a system not built yet | combat (hit reactions forced by power attacks) |
@@ -353,8 +353,9 @@ Notes on the most used:
   (127): implemented 2026-10-16, §3.6.
 - **IsActorTalkingThroughActivator** (92 conditions): conversations through talking
   activators (intercoms, radios) are not built; with none, 0 is the right answer.
-- **SystemSave / ForceSave** (7): saves exist now (docs/design/save-load.md) and Autosave
-  is implemented; these two are not.
+- **SystemSave / ForceSave** (7): implemented 2026-10-18
+  (docs/spec-notes/script-saves-and-reticle.md): the engine writes the system slot and a
+  new save by hand, as for Autosave.
 - **PushActorAway** (35): the engine's ragdolls (`ragdoll.rs`) are for corpses; a pushed
   live actor has to be knocked down and get up again (GetKnockedState), not built.
 

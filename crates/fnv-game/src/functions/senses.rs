@@ -51,11 +51,36 @@ pub struct Senses {
     /// it (0 equipping a weapon, 1 unequipping), told with its weapon state
     /// (`Game::set_anim_action`); absent: none.
     pub anim_actions: BTreeMap<FormId, i32>,
+    /// The crosshair's ray as the engine last cast it (PlaceAtReticle); `None` before the
+    /// engine told it (a headless run).
+    pub reticle: Option<Reticle>,
+}
+
+/// The ray under the crosshair, game space: where it starts (about the player's eye,
+/// `nvf_play::control::Crosshair::ray`), its unit direction and the distance to the first
+/// thing it hits within [`RETICLE_REACH`] (`None`: nothing).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Reticle {
+    pub start: [f32; 3],
+    pub dir: [f32; 3],
+    pub hit: Option<f32>,
+}
+
+/// How far the engine casts the crosshair's ray for PlaceAtReticle: the largest
+/// maxDistance the function takes [documented: GECK wiki PlaceAtReticle, "1-50000"].
+pub const RETICLE_REACH: f32 = 50000.0;
+
+impl Reticle {
+    /// The point the crosshair hits, when it hits within `max` units.
+    pub fn point(&self, max: f32) -> Option<[f32; 3]> {
+        let d = self.hit.filter(|&d| d <= max)?;
+        Some([self.start[0] + self.dir[0] * d, self.start[1] + self.dir[1] * d, self.start[2] + self.dir[2] * d])
+    }
 }
 
 impl Default for Senses {
     fn default() -> Senses {
-        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim_actions: BTreeMap::new() }
+        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim_actions: BTreeMap::new(), reticle: None }
     }
 }
 

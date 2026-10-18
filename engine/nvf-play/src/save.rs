@@ -9,8 +9,13 @@
 //!   loading screen. Requests: [`SaveRequest`] (the console's `save <name>`), the
 //!   QuickSave key (F5, slot `quicksave`) and autosaves (slot `autosave`): after each
 //!   travel behind a loading screen and when a script calls `Autosave` [documented: GECK
-//!   wiki Autosave], each behind a switch on the settings page. A rolling slot keeps its
-//!   previous file as `.bak`.
+//!   wiki Autosave], each behind a switch on the settings page. A script's `SystemSave`
+//!   writes the one system slot (`systemsave`), overwritten by each later call; it waits
+//!   for a moment saving is allowed, as autosaves do [documented: GECK wiki SystemSave;
+//!   the waiting is a hypothesis]. A script's `ForceSave` is a save by hand under a new
+//!   name (`Save <n>`, as the pause menu names one) and fails, as one by hand does, when
+//!   saving is not allowed [documented: GECK wiki ForceSave]. Both are behind the
+//!   scripts' autosave switch. A rolling slot keeps its previous file as `.bak`.
 //! - **Loading** starts the world from the plugins at the saved place and applies the save
 //!   before the scripts' first frame: nvforever `--load <name|path>` reads the header,
 //!   starts there, and hands the body over as [`PendingLoad`]; `crate::script` restores the
@@ -281,7 +286,7 @@ impl Plugin for SavePlugin {
         );
         crate::settings::add_setting(
             app,
-            setting("autosave-scripts", "Autosave when a script asks", "On: a script's Autosave saves to the autosave slot, as quests do at their milestones.", |w| w.resource::<SaveConfig>().autosave_scripts, |w, on| w.resource_mut::<SaveConfig>().autosave_scripts = on),
+            setting("autosave-scripts", "Save when a script asks", "On: a script's Autosave saves to the autosave slot, as quests do at their milestones; SystemSave to the system slot; ForceSave as a new save.", |w| w.resource::<SaveConfig>().autosave_scripts, |w, on| w.resource_mut::<SaveConfig>().autosave_scripts = on),
         );
     }
 }
@@ -310,7 +315,8 @@ fn requests(input: crate::bindings::ControlInput, state: Res<State<PlayState>>, 
     }
 }
 
-/// Autosaves: after a loading screen comes down, and on a script's `Autosave`.
+/// Autosaves: after a loading screen comes down, and on a script's `Autosave`; a script's
+/// `SystemSave` and `ForceSave`.
 fn autosaves(loading: Res<crate::loading::Loading>, mut was: Local<bool>, script: Option<ResMut<ScriptState>>, cfg: Res<SaveConfig>, mut queue: ResMut<SaveQueue>, pending: Option<Res<PendingEngine>>) {
     let auto = || SaveRequest { name: fnv_save::AUTO_NAME.into(), kind: SaveKind::Auto };
     let active = loading.travelling();
@@ -327,6 +333,20 @@ fn autosaves(loading: Res<crate::loading::Loading>, mut was: Local<bool>, script
     if n > 0 && cfg.autosave_scripts {
         info!("save: autosave asked by a script");
         queue.0.push(auto());
+    }
+    let system = std::mem::take(&mut rt.game.ui.system_saves);
+    let force = std::mem::take(&mut rt.game.ui.force_saves);
+    if !cfg.autosave_scripts {
+        return;
+    }
+    if system > 0 {
+        info!("save: SystemSave asked by a script");
+        queue.0.push(SaveRequest { name: fnv_save::SYSTEM_NAME.into(), kind: SaveKind::System });
+    }
+    if force > 0 {
+        let name = crate::pause::new_save_name(&cfg);
+        info!("save: ForceSave asked by a script: {name:?}");
+        queue.0.push(SaveRequest { name, kind: SaveKind::Manual });
     }
 }
 
@@ -361,10 +381,15 @@ fn write_saves(world: &mut World) {
         return;
     }
     if let Some(why) = not_now(world) {
-        // Autosaves wait for their moment; a save asked for by hand says why not.
+        // Autosaves and the system save wait for their moment (one of each); a save asked
+        // for by hand says why not.
         let mut q = world.resource_mut::<SaveQueue>();
-        let (auto, asked): (Vec<_>, Vec<_>) = std::mem::take(&mut q.0).into_iter().partition(|r| r.kind == SaveKind::Auto);
-        q.0 = auto.into_iter().take(1).collect();
+        let (waits, asked): (Vec<_>, Vec<_>) = std::mem::take(&mut q.0).into_iter().partition(|r| matches!(r.kind, SaveKind::Auto | SaveKind::System));
+        for r in waits {
+            if !q.0.iter().any(|k| k.kind == r.kind) {
+                q.0.push(r);
+            }
+        }
         for r in asked {
             let line = format!("Cannot save {:?} now: {why}", r.name);
             info!("save: not now: {why}");
@@ -406,6 +431,7 @@ fn save_now(world: &mut World, r: &SaveRequest) -> Result<(), String> {
     let name = match r.kind {
         SaveKind::Quick => fnv_save::QUICK_NAME,
         SaveKind::Auto => fnv_save::AUTO_NAME,
+        SaveKind::System => fnv_save::SYSTEM_NAME,
         SaveKind::Manual => r.name.as_str(),
     };
     let path = cfg.path_of(name)?;

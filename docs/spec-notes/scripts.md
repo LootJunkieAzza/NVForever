@@ -797,8 +797,8 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   (SendTrespassAlarm), animation (PlayGroup, PlayIdle, Look, StopLook), appearance
   (AgeRace), sound and video, image space, weather, SetGlobalTimeMultiplier, rendering
   (SwapTexture, SetActorAlpha, PlayMagicShaderVisuals), HUD and Pip-Boy, menus,
-  Autosave (a recorded no-op: no script ever writes a save here; SystemSave and
-  ForceSave too), IncrementScriptedChallenge, IsSneaking. Round 3 adds 117: animation
+  Autosave (a recorded no-op then; since built, with SystemSave and ForceSave:
+  script-saves-and-reticle.md), IncrementScriptedChallenge, IsSneaking. Round 3 adds 117: animation
   (IsAnimPlaying, GetAnimAction, IsIdlePlaying, PickIdle, IsLeftUp, IsFacingUp,
   Rotate), AI (GetSitting, IsCurrentFurnitureObj, GetSleeping, GetIsAlerted, ForceFlee,
   SetPackDuration, the used-item checks, the Cannibal and Mister Sandman perk checks),
