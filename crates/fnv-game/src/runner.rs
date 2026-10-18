@@ -1270,7 +1270,7 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
         // ---- round 4 (layer5-captures.md §10.4) ----
         Action::StartStopwatch {} => st.stopwatch = Some(g.time),
         Action::CloseMenus {} => {
-            g.close_menu();
+            g.close_all_menus();
         }
         Action::DismissMessageBoxes { max, wait_frames, label: l } => {
             // As the capture does it: wait for a box (checked before each frame), note
