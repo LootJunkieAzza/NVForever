@@ -48,6 +48,9 @@ pub struct Stance {
     /// The weapon-model nodes the holster clip switches off (`##FlamerGun`,
     /// `##MinigunGun`): the clips show and hide them ([`gun_shown`]).
     pub holstered_off: Vec<String>,
+    /// The stance's walks, runs and turns, played while the weapon is drawn
+    /// (`locomotion::Locomotion::set_armed`).
+    pub moves: Arc<crate::locomotion::WeaponMoves>,
 }
 
 impl Stance {
@@ -78,15 +81,16 @@ impl Stance {
                 bones.insert(n, i);
             }
         }
+        let (moves, moves_line) = crate::locomotion::WeaponMoves::load(ctx, skeleton, skel, prefix);
         let line = format!(
-            "{folder} {prefix}: clips {:?}, holstered at {holster}, drawn at {drawn}, bones found {}",
+            "{folder} {prefix}: clips {:?}, holstered at {holster}, drawn at {drawn}, bones found {}; {moves_line}",
             clips.keys().collect::<Vec<_>>(),
             bones.len()
         );
         let weapon_only = clips.iter().map(|(c, b)| (*c, Arc::new(weapon_track_only(b, weapon_node)))).collect();
         let weapon_rest = clips.get(&EquipClip::Equip).and_then(|c| track_end(c, weapon_node, skel.locals[weapon_node]));
         let holstered_off = clips.get(&EquipClip::Holster).map_or_else(Vec::new, |c| holstered_off(&c.clip));
-        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, bones, weapon_rest, holstered_off }, line))
+        Ok((Stance { prefix: prefix.to_string(), clips, weapon_only, facts, holster, drawn, weapon_node, bones, weapon_rest, holstered_off, moves: Arc::new(moves) }, line))
     }
 }
 
@@ -356,7 +360,7 @@ mod tests {
             (EquipClip::Unequip, f(0.5, "Bip01 Pelvis")),
         ]);
         let bones = HashMap::from([("Bip01 Pelvis".to_string(), 3), ("Bip01 R Hand".to_string(), 7)]);
-        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones, weapon_rest: None, holstered_off: Vec::new() })
+        Arc::new(Stance { prefix: "1hp".into(), clips: BTreeMap::new(), weapon_only: BTreeMap::new(), facts, holster: "Bip01 Pelvis".into(), drawn: "Bip01 R Hand".into(), weapon_node: 8, bones, weapon_rest: None, holstered_off: Vec::new(), moves: Arc::default() })
     }
 
     #[test]

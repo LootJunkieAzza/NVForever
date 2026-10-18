@@ -33,6 +33,8 @@ pub const ALERT_STANCE: &str = "h2h";
 pub struct SetClip {
     pub bound: Arc<BoundClip>,
     pub info: ClipInfo,
+    /// The file (VFS path), for the log.
+    pub path: String,
 }
 
 /// The locomotion clips of one skeleton and body, shared by the actors that use them.
@@ -130,27 +132,7 @@ impl ClipSet {
         let s = fnv_vfs::normalize(skeleton);
         let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();
         let found = LocomotionSet::find(&folder, body, stance, |p| ctx.models.data.vfs.exists(p));
-        let mut set = ClipSet::default();
-        let mut report = Vec::new();
-        for (m, path) in found.clips {
-            let Some(clip) = ctx.clip(&path) else {
-                report.push(format!("{}: {path} does not load", m.group()));
-                continue;
-            };
-            let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
-            let (bound, unbound) = clip_binding(skel, &clip);
-            report.push(format!(
-                "{} {:.2}s {:.1}u/s blend {:.2}s foot {:.2} ({} tracks bound{})",
-                m.group(),
-                info.duration,
-                info.speed,
-                info.blend_time,
-                info.foot_phase,
-                bound.len(),
-                if unbound.is_empty() { String::new() } else { format!(", unbound {unbound:?}") }
-            ));
-            set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info });
-        }
+        let (mut set, report) = ClipSet::bind_moves(ctx, skel, found);
         for p in DEATH_POSES {
             let path = format!("{folder}\\{p}");
             if let Some(clip) = ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten() {
@@ -170,6 +152,44 @@ impl ClipSet {
         let missing: Vec<&str> = Move::ALL.iter().filter(|m| !set.clips.contains_key(m)).map(|m| m.group()).collect();
         let line = format!("{folder} {body:?} {stance}: {} clips, missing {missing:?}: {}", set.clips.len(), report.join("; "));
         (set, line)
+    }
+
+    /// The clips of `found` loaded and bound to `skel`, with a report entry per move.
+    fn bind_moves(ctx: &mut ActorCtx, skel: &PreparedSkeleton, found: LocomotionSet) -> (ClipSet, Vec<String>) {
+        let mut set = ClipSet::default();
+        let mut report = Vec::new();
+        for (m, path) in found.clips {
+            let Some(clip) = ctx.clip(&path) else {
+                report.push(format!("{}: {path} does not load", m.group()));
+                continue;
+            };
+            let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
+            let (bound, unbound) = clip_binding(skel, &clip);
+            report.push(format!(
+                "{} {:.2}s {:.1}u/s blend {:.2}s foot {:.2} ({} tracks bound{})",
+                m.group(),
+                info.duration,
+                info.speed,
+                info.blend_time,
+                info.foot_phase,
+                bound.len(),
+                if unbound.is_empty() { String::new() } else { format!(", unbound {unbound:?}") }
+            ));
+            set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info, path });
+        }
+        (set, report)
+    }
+
+    /// `base` with the clips of `top` in place of its own for the moves `top` has that
+    /// `keep` says yes to; `base` itself when there are none.
+    fn overlay(base: &Arc<ClipSet>, top: &ClipSet, keep: impl Fn(Move) -> bool) -> Arc<ClipSet> {
+        let mut over = top.clips.iter().filter(|(m, _)| keep(**m)).peekable();
+        if over.peek().is_none() {
+            return base.clone();
+        }
+        let mut set = ClipSet::clone(base);
+        set.clips.extend(over.map(|(m, c)| (*m, c.clone())));
+        Arc::new(set)
     }
 
     /// The limping set of a skeleton (a leg crippled): `base` with each move that the
@@ -197,7 +217,7 @@ impl ClipSet {
                 let info = ClipInfo::from_parts(clip.start, clip.stop, &clip.text_keys, clip.accum_track());
                 found.retain(|(f, _)| *f != m);
                 found.push((m, format!("{} {stem} {:.1}u/s", m.group(), info.speed)));
-                set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info });
+                set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info, path: path.clone() });
             }
         }
         if found.is_empty() {
@@ -208,6 +228,51 @@ impl ClipSet {
         let line = format!("{folder} {what}: {} of {} moves from hurt\\: {}", moves.len(), set.clips.len(), moves.join("; "));
         Some((set, line))
     }
+}
+
+/// A weapon stance's movement clips bound to one skeleton
+/// (`fnv_actor::locomotion::weapon_moves`): standing (`locomotion\1hpfastforward.kf`,
+/// `1hpturnleft.kf`), crouched (`sneak2hhforward.kf`) and limping
+/// (`locomotion\hurt\1hpforward_hurt.kf`). While the weapon is drawn they play in place
+/// of the unarmed moves, the stance's aim clip over them ([`Locomotion::set_armed`]).
+/// Loaded with the stance (`weapons::Stance::load`).
+#[derive(Default)]
+pub struct WeaponMoves {
+    pub prefix: String,
+    pub stand: ClipSet,
+    pub sneak: ClipSet,
+    pub hurt: ClipSet,
+}
+
+impl WeaponMoves {
+    /// The moves of stance `prefix` in the folder of the skeleton at `skeleton` (archive
+    /// path), bound to `skel`; also a report line.
+    pub fn load(ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, prefix: &str) -> (WeaponMoves, String) {
+        let s = fnv_vfs::normalize(skeleton);
+        let folder = s.rfind('\\').map_or("", |i| &s[..i]).to_string();
+        let mut find = |stance: &str| {
+            let found = fnv_actor::locomotion::weapon_moves(&folder, stance, |p| ctx.models.data.vfs.exists(p));
+            ClipSet::bind_moves(ctx, skel, found).0
+        };
+        let stand = find(prefix);
+        let sneak = find(&format!("sneak{prefix}"));
+        let hurt = ClipSet::load_hurt(ctx, skeleton, skel, &ClipSet::default(), &[prefix]).map(|(s, _)| s).unwrap_or_default();
+        let list = |set: &ClipSet| set.clips.keys().map(|m| m.group()).collect::<Vec<_>>();
+        let line = format!("{folder} {prefix} moves: standing {:?}, crouched {:?}, limping {:?}", list(&stand), list(&sneak), list(&hurt));
+        (WeaponMoves { prefix: prefix.to_string(), stand, sneak, hurt }, line)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.stand.clips.is_empty() && self.sneak.clips.is_empty() && self.hurt.clips.is_empty()
+    }
+}
+
+/// An actor's sets with a weapon's moves in them ([`Locomotion::set_armed`]).
+struct Armed {
+    moves: Arc<WeaponMoves>,
+    stand: Arc<ClipSet>,
+    sneak: Option<Arc<ClipSet>>,
+    hurt: Option<Arc<ClipSet>>,
 }
 
 /// An actor's locomotion state.
@@ -249,11 +314,17 @@ pub struct Locomotion {
     /// The speed (at the clips' pace) smoothed over [`GAIT_SMOOTHING`], which decides
     /// between walking and running.
     pub gait_speed: f32,
+    /// The sets with the drawn weapon's moves in them, built for the last weapon drawn,
+    /// and whether they play ([`Locomotion::set_armed`]).
+    armed: Option<Armed>,
+    pub armed_on: bool,
+    /// The clip files logged while armed ([`Locomotion::armed_clip_news`]).
+    armed_logged: Vec<String>,
 }
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0 }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, armed: None, armed_on: false, armed_logged: Vec::new() }
     }
 
     /// The upright set: the alert stance's while alerted, else the standing one.
@@ -268,10 +339,67 @@ impl Locomotion {
     /// crouched limping clips [observed]); limping while alerted takes the alert limping
     /// set where there is one, else the calm limping set wins over the alert stance
     /// [design]; either falls back to the upright set.
+    /// With a weapon drawn each takes the armed form of the set where there is one
+    /// ([`Locomotion::set_armed`]).
     fn posture_set(&self) -> Arc<ClipSet> {
+        let armed = self.armed.as_ref().filter(|_| self.armed_on);
         let limp = if self.alerted { self.hurt_alert.as_ref().or(self.hurt.as_ref()) } else { self.hurt.as_ref() };
-        let pick = if self.sneaking { self.sneak.as_ref() } else if self.limping { limp } else { None };
-        pick.cloned().unwrap_or_else(|| self.upright())
+        let pick = if self.sneaking {
+            armed.and_then(|a| a.sneak.as_ref()).or(self.sneak.as_ref())
+        } else if self.limping {
+            armed.and_then(|a| a.hurt.as_ref()).or(limp)
+        } else {
+            None
+        };
+        pick.cloned().unwrap_or_else(|| armed.map_or_else(|| self.upright(), |a| a.stand.clone()))
+    }
+
+    /// Move with the drawn weapon's own clips (`moves`, `Some` while it is drawn) or
+    /// unarmed again (`None`), blending from the old pose as between postures
+    /// ([`Locomotion::switch_set`]). The armed sets are the actor's own with the weapon's
+    /// moves in place of the unarmed ones it has clips for ([`WeaponMoves`]): standing,
+    /// crouched (the stance's `sneak…` clips over the crouched set), and limping, where
+    /// the limping clips of the weapon go over the unarmed limping set, and the weapon's
+    /// turns too, as the player's body chooses (`player_clips::limping_move_clips` and
+    /// `limping_turn_clips`: the weapon's limp, the unarmed limp, then the weapon's
+    /// walk). Built from the standing set, not a creature's alert set (no creature draws
+    /// a weapon stance). Returns whether anything changed; a stance without movement
+    /// clips changes nothing.
+    pub fn set_armed(&mut self, moves: Option<&Arc<WeaponMoves>>) -> bool {
+        match moves.filter(|m| !m.is_empty()) {
+            None if !self.armed_on => return false,
+            None => self.armed_on = false,
+            Some(m) => {
+                let built = self.armed.as_ref().is_some_and(|a| Arc::ptr_eq(&a.moves, m));
+                if built && self.armed_on {
+                    return false;
+                }
+                if !built {
+                    self.armed = Some(Armed {
+                        moves: m.clone(),
+                        stand: ClipSet::overlay(&self.stand, &m.stand, |_| true),
+                        sneak: self.sneak.as_ref().map(|s| ClipSet::overlay(s, &m.sneak, |_| true)),
+                        hurt: self.hurt.as_ref().map(|h| ClipSet::overlay(&ClipSet::overlay(h, &m.stand, Move::is_turn), &m.hurt, |_| true)),
+                    });
+                }
+                self.armed_on = true;
+            }
+        }
+        self.switch_set(self.posture_set());
+        true
+    }
+
+    /// While armed, the weapon prefix, move and file of the clip the actor plays now, the
+    /// first time that file plays for it (for the log).
+    pub fn armed_clip_news(&mut self) -> Option<(&str, Move, String)> {
+        let a = self.armed.as_ref().filter(|_| self.armed_on)?;
+        let mv = self.blend.cur.mv;
+        let path = &self.set.clips.get(&mv)?.path;
+        if self.armed_logged.contains(path) {
+            return None;
+        }
+        self.armed_logged.push(path.clone());
+        Some((&a.moves.prefix, mv, path.clone()))
     }
 
     /// Change to another set (crouching, standing up, a limp starting or ending), fading
@@ -444,6 +572,7 @@ type ActorAnimParts = (
     Option<&'static crate::idles::ActorIdle>,
     Option<&'static mut crate::attack_anims::CombatPose>,
     Option<&'static mut crate::creature_stance::CreatureStance>,
+    Option<&'static Name>,
 );
 
 /// Choose, blend and pose every actor with a [`Locomotion`], with its weapon clips
@@ -458,7 +587,7 @@ pub fn drive(
     let t0 = std::time::Instant::now();
     let (dt, now) = (time.delta_secs(), time.elapsed_secs());
     let mut n = 0;
-    for (mut lo, mut player, weapon, dying, flinch, seated, idle, pose, creature) in &mut actors {
+    for (mut lo, mut player, weapon, dying, flinch, seated, idle, pose, creature, name) in &mut actors {
         if let Some(mut d) = dying {
             // Dead: the death pose to its end and held; without one the pose stays.
             let Some(clip) = d.clip.clone() else { continue };
@@ -494,7 +623,13 @@ pub fn drive(
             continue;
         }
         if !lo.hold {
+            // A drawn weapon's own walks, runs and turns (`WeaponMoves`).
+            let drawn = weapon.as_deref().filter(|w| crate::attack_anims::drawn(Some(w)));
+            lo.set_armed(drawn.map(|w| &w.stance.moves));
             lo.step(dt);
+            if let Some((prefix, mv, path)) = lo.armed_clip_news() {
+                info!("armed locomotion: {} {prefix} {} plays {path}", name.map_or("actor", |n| n.as_str()), mv.group());
+            }
         }
         cost.turn_frames += u64::from(lo.blend.cur.mv.is_turn());
         lo.layers(&mut player);
@@ -873,9 +1008,88 @@ mod tests {
         }), tracks: Vec::new(), root: None, root_track: None });
         let mut s = ClipSet::default();
         for (m, duration, speed) in [(Move::Idle, 4.0, 0.0), (Move::Forward, 1.2, 85.26), (Move::Backward, 1.133, 67.44), (Move::TurnLeft, 1.0, 0.0), (Move::TurnRight, 1.0, 0.0)] {
-            s.clips.insert(m, SetClip { bound: bound.clone(), info: ClipInfo { duration, speed, foot_phase: 0.3, blend_time: 0.2 } });
+            s.clips.insert(m, SetClip { bound: bound.clone(), info: ClipInfo { duration, speed, foot_phase: 0.3, blend_time: 0.2 }, path: format!("mt{}.kf", m.group()) });
         }
         Arc::new(s)
+    }
+
+    /// `base` with the clips of `moves` (move, file) put in, at the same infos.
+    fn with(base: &ClipSet, moves: &[(Move, &str)]) -> ClipSet {
+        let mut s = base.clone();
+        for (m, path) in moves {
+            let c = base.clips.get(m).or_else(|| base.clips.get(&Move::Forward)).expect("a clip to copy").clone();
+            s.clips.insert(*m, SetClip { path: path.to_string(), ..c });
+        }
+        s
+    }
+
+    fn path(lo: &Locomotion, m: Move) -> &str {
+        &lo.set.clips[&m].path
+    }
+
+    #[test]
+    fn a_drawn_weapon_moves_with_its_own_clips() {
+        let stand = set();
+        let only = |moves: &[(Move, &str)]| {
+            let mut s = with(&stand, moves);
+            s.clips.retain(|m, _| moves.iter().any(|(k, _)| k == m));
+            s
+        };
+        let pistol = Arc::new(WeaponMoves {
+            prefix: "1hp".into(),
+            stand: only(&[(Move::Forward, r"locomotion\1hpforward.kf"), (Move::TurnLeft, "1hpturnleft.kf")]),
+            sneak: ClipSet::default(),
+            hurt: only(&[(Move::Backward, r"hurt\1hpbackward_hurt.kf")]),
+        });
+        let sneak = Arc::new(with(&stand, &[(Move::Idle, "sneakmtidle.kf"), (Move::Forward, "sneakmtforward.kf")]));
+        let hurt = Arc::new(with(&stand, &[(Move::Forward, r"hurt\mtforward_hurt.kf"), (Move::TurnLeft, r"hurt\mtturnleft.kf")]));
+        let mut lo = Locomotion::new(stand.clone(), 0.0);
+        lo.sneak = Some(sneak.clone());
+        lo.hurt = Some(hurt.clone());
+        // Walking unarmed.
+        lo.velocity = [0.0, 85.26];
+        for _ in 0..30 {
+            lo.step(1.0 / 60.0);
+        }
+        assert_eq!((lo.blend.cur.mv, path(&lo, Move::Forward)), (Move::Forward, "mtForward.kf"));
+        assert_eq!(lo.armed_clip_news(), None);
+        let phase = lo.blend.cur.phase;
+        // The weapon drawn: the walk goes on as the pistol's walk, faded in from the
+        // unarmed one; the moves the pistol has no clip for stay unarmed (the idle and the
+        // walk back).
+        assert!(lo.set_armed(Some(&pistol)));
+        assert!(!lo.set_armed(Some(&pistol)), "drawn already");
+        assert_eq!(path(&lo, Move::Forward), r"locomotion\1hpforward.kf");
+        assert_eq!(path(&lo, Move::TurnLeft), "1hpturnleft.kf");
+        assert_eq!(path(&lo, Move::Idle), "mtIdle.kf");
+        assert_eq!(path(&lo, Move::Backward), "mtBackward.kf");
+        assert_eq!(lo.blend.cur.mv, Move::Forward);
+        assert!((lo.blend.cur.phase - phase).abs() < 1e-6);
+        assert!(lo.prev_set.as_ref().is_some_and(|s| Arc::ptr_eq(s, &stand)));
+        assert_eq!(lo.blend.weight(), 0.0);
+        lo.step(0.25);
+        assert_eq!((lo.blend.prev, lo.blend.weight()), (None, 1.0));
+        assert_eq!(lo.armed_clip_news(), Some(("1hp", Move::Forward, r"locomotion\1hpforward.kf".to_string())));
+        assert_eq!(lo.armed_clip_news(), None, "once per file");
+        // Crouched: the crouched set, the pistol having no crouched clips.
+        assert!(lo.set_sneaking(true));
+        assert!(Arc::ptr_eq(&lo.set, &sneak));
+        assert!(lo.set_sneaking(false));
+        // Limping: the unarmed limp wins over the pistol's walk, the pistol's own limp and
+        // turn over the unarmed ones.
+        assert!(lo.set_limping(true));
+        assert_eq!(path(&lo, Move::Forward), r"hurt\mtforward_hurt.kf");
+        assert_eq!(path(&lo, Move::Backward), r"hurt\1hpbackward_hurt.kf");
+        assert_eq!(path(&lo, Move::TurnLeft), "1hpturnleft.kf");
+        // Put away: the unarmed limp, faded from the armed one.
+        assert!(lo.set_armed(None));
+        assert!(!lo.set_armed(None));
+        assert!(Arc::ptr_eq(&lo.set, &hurt));
+        assert!(lo.set_limping(false));
+        assert!(Arc::ptr_eq(&lo.set, &stand));
+        // A stance without movement clips changes nothing.
+        assert!(!lo.set_armed(Some(&Arc::new(WeaponMoves::default()))));
+        assert!(Arc::ptr_eq(&lo.set, &stand));
     }
 
     #[test]

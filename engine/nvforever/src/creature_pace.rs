@@ -223,7 +223,7 @@ mod tests {
             root: None,
             root_track: None,
         });
-        let clip = |speed: f32| crate::locomotion::SetClip { bound: bound.clone(), info: ClipInfo { duration: 1.0, speed, blend_time: 0.1, foot_phase: 0.0 } };
+        let clip = |speed: f32| crate::locomotion::SetClip { bound: bound.clone(), info: ClipInfo { duration: 1.0, speed, blend_time: 0.1, foot_phase: 0.0 }, path: String::new() };
         let mut s = ClipSet::default();
         s.clips.insert(Move::Forward, clip(walk));
         if let Some(r) = run {

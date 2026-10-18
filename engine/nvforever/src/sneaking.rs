@@ -15,8 +15,9 @@
 //!
 //! Not built: an actor sneaking because its Follow leader sneaks (Pretend In Combat and
 //! Continue During Combat Follow packages, fCombatFollowSneakFollowRadius [documented:
-//! GECK wiki Combat Package Flags]), and weapon clips of the sneaking stance (an actor
-//! with its weapon out holds it with the standing aim clip over the crouched legs).
+//! GECK wiki Combat Package Flags]). With its weapon out an actor moves on the stance's
+//! crouched clips where it has them (`sneak2hhforward.kf`, `locomotion::WeaponMoves`),
+//! else holds it with the standing aim clip over the crouched legs.
 
 use crate::limbs::ActorRig;
 use crate::locomotion::Locomotion;
