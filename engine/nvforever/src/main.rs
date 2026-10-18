@@ -18,6 +18,7 @@
 mod activators;
 mod actor_feet;
 mod anim_objects;
+mod anim_state;
 mod actor_groups;
 mod actors;
 mod attack_anims;
@@ -1245,6 +1246,8 @@ fn main() -> AppExit {
             app.add_plugins(provoked::ProvokedPlugin);
             // How fighters aim, shoot and bite (attack_anims.rs).
             app.add_plugins(attack_anims::AttackAnimsPlugin);
+            // What the actors' bodies do, told to the rules (anim_state.rs).
+            app.add_plugins(anim_state::AnimStatePlugin);
         }
     }
     if play.is_some() {

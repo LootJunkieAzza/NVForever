@@ -5570,3 +5570,31 @@ guesses to check against the game:
   out at the end, I could not see.
 - **A second crippling while it shows** starts the 5 s again and only the new limb
   flashes; healing a limb shows nothing.
+
+## Animation state told to the rules (2026-10-18, branch claude/blockers-anim-state-d26319)
+
+The engine now tells the rules what each body does every frame (docs/spec-notes/anim-state.md;
+smoke `anim-state`). The codes are the wiki's New Vegas table, checked against the AI
+observer's gunfight and melee runs. My choices, to check against the game:
+
+- **Where a shot's 2, 3 and 4 change**: 2 on the shot's first frame, 3 the frame after, 4
+  for the rest of the clip. The observer saw 2 for 2–4 frames on semi-automatic guns, and
+  the bolt-action rifles (varmint, hunting rifle) held 3 for about 0.45 s, through the
+  bolt; NVForever holds 3 one frame for every gun.
+- **A blow's 2 to 4** at the clip's Hit key (the observer saw 2 then 4, no 3, for the
+  baseball bat and creatures; where it changes is my guess).
+- **17**, seen on the .357 revolvers for about two seconds before most of their reloads'
+  9, is not in the wiki's table; NVForever never answers it. A capture of a .357 reload
+  with GetAnimAction every frame and the clip playing would say what it is.
+- **13** for PlayIdle idles, a package's begin/end/change idles, cowering, PlayGroup
+  groups on actors, crippled-limb staggers and the player's jams; not for fidgets,
+  idle-marker idles or talking gestures (the observer's sitters and talkers read −1).
+- **IsMoving** of the player is the movement keys even against a wall ("requesting to
+  move"); a diagonal reads the larger axis, forward and back on a tie.
+- **IsAnimPlaying** on an actor reads its movement group (Idle, Forward, FastLeft …)
+  after any PlayGroup group; walking and running counting like Idle is my guess.
+- **IsIdlePlaying** reads 1 on beds as on seats (only a seat was observed).
+- **IsPlayerActionActive**: only 9 (iron sights) is answered, as the wiki names only it
+  (and 8, standing on a table or chair, which NVForever's player never does); the
+  others read 0. The wiki export lacks the ActionIndex list; a capture of indices 1–10
+  while firing, sneaking and aiming would give it.

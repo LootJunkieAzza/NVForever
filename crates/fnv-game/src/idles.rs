@@ -542,10 +542,13 @@ pub fn play_idle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 }
 
 /// 1 while the calling actor plays a special idle [documented: catalogue summary]: an
-/// idle it was asked to play here and the animating layer reports as playing.
+/// idle it was asked to play here and the animating layer reports as playing, or while
+/// it sits on (or lies in) furniture, GetSitting 3 [observed: Easy Pete sitting read
+/// IsIdlePlaying 1 and GetSitting 3, function probes 2026-10-17; hypothesis for beds].
 pub fn is_idle_playing(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
-    yes(g.idle_playing(actor).is_some())
+    let seated = g.furniture_use(actor).is_some_and(|u| u.state == crate::functions::furniture::SEATED);
+    yes(g.idle_playing(actor).is_some() || seated)
 }
 
 #[cfg(test)]

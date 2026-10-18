@@ -47,15 +47,14 @@ pub struct Senses {
     /// animated containers), as GetOpenState numbers it: 1 open, 2 opening, 3 closed,
     /// 4 closing. Told by the engine's door animation (`nvf-play` doors.rs).
     pub open_states: BTreeMap<FormId, u8>,
-    /// The special animation action each drawn actor is doing, as GetAnimAction numbers
-    /// it (0 equipping a weapon, 1 unequipping), told with its weapon state
-    /// (`Game::set_anim_action`); absent: none.
-    pub anim_actions: BTreeMap<FormId, i32>,
+    /// What each drawn actor's body does (GetAnimAction, IsMoving's way, its movement
+    /// group), told every frame (`Game::set_anim_state`, `crate::anim_state`).
+    pub anim: BTreeMap<FormId, crate::anim_state::AnimState>,
 }
 
 impl Default for Senses {
     fn default() -> Senses {
-        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim_actions: BTreeMap::new() }
+        Senses { motion: BTreeMap::new(), first_person: true, always_subtitles: BTreeSet::new(), looks: BTreeMap::new(), weapon_told: BTreeMap::new(), open_states: BTreeMap::new(), anim: BTreeMap::new() }
     }
 }
 
@@ -111,12 +110,18 @@ pub fn is_sneaking(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> 
 }
 
 /// `actor.IsMoving`: 0 not moving, 1 forward, 2 backward, 3 left, 4 right: the
-/// direction the actor is asking to move in [documented: GECK wiki IsMoving]. The engine
-/// tells only whether it moves, so a moving actor reads 1, forward [hypothesis: actors
-/// walk where they face; the player's strafing and backing up are not told apart yet].
+/// direction the actor is "requesting to move" in [documented: GECK wiki IsMoving]. The
+/// engine tells the way each frame (`crate::anim_state`, [`Game::anim_state`]): the
+/// player's movement keys, an NPC's walk in its own axes. An actor with no fresh
+/// snapshot that the engine still measures moving reads 1 [hypothesis, as before the
+/// way was told]; 0 at rest [observed: probes].
 pub fn is_moving(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
-    Ok(Value::Num(if g.motion(r).moving { 1.0 } else { 0.0 }))
+    let code = match g.anim_state(r) {
+        Some(s) => s.moving.code(),
+        None => u8::from(g.motion(r).moving),
+    };
+    Ok(Value::Num(code as f64))
 }
 
 /// `actor.IsRunning`: 1 when the actor's speed mode is run rather than walk, "even if

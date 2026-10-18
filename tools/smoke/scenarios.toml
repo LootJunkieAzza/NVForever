@@ -4324,3 +4324,22 @@ order = [[
   "creator: closed",
 ]]
 manual = "surgeon_open.png: the panel titled SURGEON with BASICS, FACE, DETAIL, SKIN, EYES (no HAIR) and on Basics only the starting face and age, framed on the face; surgeon_changed.png: another face, the same hair"
+
+[[scenario]]
+name = "anim-state"
+source = "docs/outstanding.md §1 row 4: the engine tells the rules what each body does (crates/fnv-game/src/anim_state.rs, engine/nvforever/src/anim_state.rs): GetAnimAction's attacks and reloads, IsMoving's way, IsAnimPlaying of an actor's movement group"
+note = "as combat-npc-reload: Chet (GSChetRef) is given a .357 Magnum Revolver and set on the player, who cannot die (GOD). Before the fight the console reads Chet standing: IsAnimPlaying Idle 1 (observed on Sunny Smiles standing) and GetAnimAction -1. In the fight his shots begin 2, 3 and 4 and his reloads 9 (the New Vegas codes, observed so in the AI observer's Goodsprings gunfight); the summary at exit counts how often each began"
+areas = ["combat", "scripts", "actors"]
+paths = ["crates/fnv-game/src/anim_state.rs", "engine/nvforever/src/anim_state.rs", "crates/fnv-game/src/anims.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/senses.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:GSChetRef.IsAnimPlaying Idle;8.3:GSChetRef.GetAnimAction;8.6:close", NVF_PLAY_TEST_SCRIPT = "9:call:GSChetRef:AddItem:WeapNV357Revolver:1,9.5:call:GSChetRef:EquipItem:WeapNV357Revolver,10:combat:GSChetRef:player" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 50
+expect = [
+  { re = 'console: IsAnimPlaying on GSChetRef >> 1\.00', label = "Chet standing plays Idle" },
+  { re = 'console: GetAnimAction on GSChetRef >> -1\.00', label = "and does no special action" },
+  { re = 'npc combat: GSChetRef .* fights the player with WeapNV357Revolver \(gun\)', label = "Chet fights with the .357" },
+  { re = 'anim state summary: .*attack \(2\) (?P<n>\d+)', range = [6, 100000], label = "his shots begin 2" },
+  { re = 'anim state summary: .*follow-through \(3\) (?P<n>\d+)', range = [6, 100000], label = "then 3" },
+  { re = 'anim state summary: .*attack return \(4\) (?P<n>\d+)', range = [1, 100000], label = "then 4" },
+  { re = 'anim state summary: .*reload \(9\) (?P<n>\d+)', range = [1, 100000], label = "his reloads 9" },
+]

@@ -1055,10 +1055,9 @@ fn script_function_audit_fixes() {
     assert_eq!(call(&mut g, 0x1100, None, &[ArgValue::Str("iLockLevelMaxHard".into())]), 75.0);
     // GetAnimAction: none, unless the engine tells a drawing (0).
     assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), -1.0);
-    g.set_weapon_out(adult, false);
-    g.set_anim_action(adult, Some(0));
+    g.set_anim_state(adult, fnv_game::anim_state::AnimState { action: Some(fnv_game::anim_state::AnimAction::Equip), ..Default::default() });
     assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), 0.0);
-    g.set_anim_action(adult, None);
+    g.forget_anim_state(adult);
     // Perks for the player's teammates are their own list.
     call(&mut g, 0x1176, None, &[r(MISC), n(1.0)]);
     assert_eq!(call(&mut g, 0x11C1, None, &[r(MISC), n(1.0)]), 1.0);
@@ -1248,4 +1247,52 @@ fn show_repair_menu_opens_the_vendors_repair_services() {
     call(&mut g, 0x117A, Some(ADULT_REF), &[]);
     assert_eq!(g.repair_requests, vec![RepairRequest { vendor: FormId(ADULT_REF) }]);
     assert_eq!(g.menu, Some(REPAIR_SERVICES_MENU));
+}
+
+/// What the engine tells of the actors' bodies (`fnv_game::anim_state`): GetAnimAction,
+/// IsMoving's way, IsAnimPlaying of an actor's movement group, IsIdlePlaying on
+/// furniture, IsPlayerActionActive 9 (row 4 of docs/outstanding.md §1).
+#[test]
+fn animation_state_told_by_the_engine() {
+    use fnv_game::anim_state::{AnimAction, AnimState, MoveDir};
+    use fnv_game::game::FurnitureUse;
+    let f = fixture();
+    let mut g = game(&f);
+    let adult = FormId(ADULT_REF);
+    let group = |g: &Game, name: &str| ArgValue::Enum(fnv_game::functions::console::enum_code(g, "anim_group", name).unwrap());
+    // Nothing told: none, still, nothing playing.
+    assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), -1.0);
+    assert_eq!(call(&mut g, 0x1019, Some(ADULT_REF), &[]), 0.0);
+    assert_eq!(call(&mut g, 0x1128, Some(ADULT_REF), &[]), 0.0);
+    // A reload (9), walking backward, the Backward group playing.
+    g.set_anim_state(adult, AnimState { action: Some(AnimAction::Reload), moving: MoveDir::Backward, group: Some("Backward"), ..Default::default() });
+    assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), 9.0);
+    assert_eq!(call(&mut g, 0x1019, Some(ADULT_REF), &[]), 2.0);
+    assert_eq!(call(&mut g, 0x1128, Some(ADULT_REF), &[]), 1.0);
+    let backward = group(&g, "Backward");
+    let idle = group(&g, "Idle");
+    assert_eq!(call(&mut g, 0x1128, Some(ADULT_REF), &[backward]), 1.0);
+    assert_eq!(call(&mut g, 0x1128, Some(ADULT_REF), std::slice::from_ref(&idle)), 0.0);
+    // Standing: Idle plays (observed on Sunny Smiles); a shot's follow-through is 3.
+    g.set_anim_state(adult, AnimState { action: Some(AnimAction::FollowThrough), group: Some("Idle"), ..Default::default() });
+    assert_eq!(call(&mut g, 0x1128, Some(ADULT_REF), &[idle]), 1.0);
+    assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), 3.0);
+    assert_eq!(call(&mut g, 0x1019, Some(ADULT_REF), &[]), 0.0);
+    // A snapshot not renewed reads as nothing.
+    g.time += 2.0;
+    assert_eq!(call(&mut g, 0x10DB, Some(ADULT_REF), &[]), -1.0);
+    assert_eq!(call(&mut g, 0x1128, Some(ADULT_REF), &[]), 0.0);
+    // The player strafing left; aiming down the sights is action 9, other indices 0.
+    g.set_anim_state(FormId::PLAYER_REF, AnimState { moving: MoveDir::Left, group: Some("FastLeft"), iron_sights: true, ..Default::default() });
+    assert_eq!(call(&mut g, 0x1019, None, &[]), 3.0);
+    assert_eq!(call(&mut g, 0x1170, None, &[n(9.0)]), 1.0);
+    assert_eq!(call(&mut g, 0x1170, None, &[n(8.0)]), 0.0);
+    g.set_anim_state(FormId::PLAYER_REF, AnimState::default());
+    assert_eq!(call(&mut g, 0x1170, None, &[n(9.0)]), 0.0);
+    // Seated on furniture: an idle plays (observed on Easy Pete); getting on does not.
+    assert_eq!(call(&mut g, 0x1070, Some(ADULT_REF), &[]), 0.0);
+    g.set_furniture_use(adult, Some(FurnitureUse { reference: FormId(CONT_REF), marker_id: 11, state: 2 }));
+    assert_eq!(call(&mut g, 0x1070, Some(ADULT_REF), &[]), 0.0);
+    g.set_furniture_use(adult, Some(FurnitureUse { reference: FormId(CONT_REF), marker_id: 11, state: 3 }));
+    assert_eq!(call(&mut g, 0x1070, Some(ADULT_REF), &[]), 1.0);
 }
