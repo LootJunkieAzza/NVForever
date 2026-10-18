@@ -42,6 +42,12 @@ The game's folder comes from, in order:
 A stored folder that no longer works (moved, files missing) brings back the picker with the
 reason. Saving the INI changes only `Path` and keeps other lines and comments.
 
+A player's start is `nvforever.exe` with no arguments (double-clicked, or through
+`tools/release/nvforever.cmd` / `.sh`): the folder comes from step 2 or 3, then the game
+opens on its main menu, as `--play --menu` (the rule and its list of world and mode
+arguments: `engine/nvforever/src/main.rs`, `MODE_ARGS`). The schemas are read from
+`schemas/` beside the program when they are there, as in the release archive.
+
 The settings page's switches (pause menu and main menu) are kept in the same INI, one
 `key=1` / `key=0` line each under `[Settings]` (`nvf_play::settings`). Every flip writes
 all of them; each start, including the restart that loads a save, sets the listed

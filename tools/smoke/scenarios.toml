@@ -3038,6 +3038,22 @@ expect = [
 order = [["main menu: Settings", "main menu: New Game", "pointer: hidden (the intro film)", "intro: the opening begins", "new game: VCG00 started at stage 0"]]
 
 [[scenario]]
+name = "main-menu-no-args"
+source = "owner 2026-10-18 (release v0.2.0): nvforever with no argument that chooses a world or a mode opens on the main menu, as --play --menu (engine/nvforever/src/main.rs, MODE_ARGS); the release launchers pass only the schemas"
+areas = ["main-menu", "release"]
+paths = ["engine/nvforever/src/main.rs", "engine/nvforever/src/handoff.rs", "tools/release/nvforever.cmd", "tools/release/nvforever.sh"]
+env = { NVFOREVER_HOME = "menu-no-args-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_MAIN_MENU = "5:continue" }
+args = []
+run_seconds = 12
+expect = [
+  { re = 'main menu: open \(\d+ loading screens, 0 saves\)', label = "no arguments open the main menu" },
+  'main menu: theme music\special\maintitle.mp3',
+  { re = 'main menu: slide interface.loading.', label = "a loading screen behind it" },
+  { text = "main menu: Continue is greyed out", label = "the menu takes input (test aid picks Continue, no saves)" },
+]
+forbid = [{ text = "explore: the free-camera explorer", label = "not the explorer" }]
+
+[[scenario]]
 name = "menus-look"
 source = "owner todo 5 items 8, 19, 51: the pause menu in the original's look (column, highlight box, settings categories, quit question, load page), the game's pointer, the wait menu in the HUD's colour and fonts; frames pause_main/quit/settings/load.png and wait_menu.png in the working folder"
 areas = ["main-menu", "save"]

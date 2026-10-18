@@ -1,6 +1,12 @@
-//! nvforever — the NVForever game binary. Without `--play` it is a free-camera explorer:
+//! nvforever — the NVForever game binary. Started with no argument that chooses a world or
+//! a mode (`MODE_ARGS`; e.g. double-clicked, or with `--data` and window or sound switches
+//! only) it is the game on its main menu, as `--play --menu`. `--explore`, or `--cell`,
+//! `--pos` and the other world arguments without `--play`, open the free-camera explorer:
 //! terrain and objects of a worldspace from the user's own game data, streamed around the
 //! camera (docs/design/layer3.md). Read-only: plugins and archives are only read.
+//! Without `--esm-schema`, `--nif-schema` and NVF_PLAY_SCRIPT_FUNCTIONS the schemas are
+//! looked for in `schemas/` beside the program (the release archive's layout,
+//! tools/release/README-release.md), else in the build's checkout.
 //!
 //! Keys: W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed,
 //! F12 screenshot, Esc quit. With `--play` the camera is the player instead (Layer 4,
@@ -128,7 +134,12 @@ const MASTERS: [&str; 10] = [
     "CaravanPack.esm",
 ];
 
-/// NVForever world explorer (terrain and objects from your own game data).
+/// NVForever: Fallout: New Vegas on your own game data.
+///
+/// With no argument that chooses a world or a mode it opens on the main menu (as
+/// `--play --menu`). The free-camera explorer needs `--explore`, or `--cell`, `--pos` or
+/// another world argument without `--play`. Without the schema options the schemas are
+/// read from `schemas/` beside the program when it is there (the release archive).
 #[derive(Parser, Clone, Resource)]
 #[command(name = "nvforever", version)]
 struct Args {
@@ -351,6 +362,10 @@ struct Args {
     /// (Layer 4, nvf-play) instead of the free-fly camera.
     #[arg(long)]
     play: bool,
+    /// The free-camera explorer (a developer's view, no player) even when no other
+    /// argument chooses a world; with no such argument the game opens on its main menu.
+    #[arg(long, conflicts_with = "play")]
+    explore: bool,
     /// Do not draw NPCs (workstream 5, docs/design/static-actors.md).
     #[arg(long)]
     no_actors: bool,
@@ -616,8 +631,62 @@ fn report_archives(data: Res<GameData>) {
     info!("archives: {}", data.vfs.archives().collect::<Vec<_>>().join(", "));
 }
 
+/// Arguments that choose a world or a mode. A command line with none of them is the game
+/// on its main menu (`with_default_mode`); with any of them it means what it did before.
+const MODE_ARGS: [&str; 23] = [
+    "--play", "--explore", "--menu", "--new-game", "--load", "--handoff", "--cell", "--pos", "--world", "--screenshot", "--frame-json",
+    "--timelapse", "--time-scale", "--auto-fly", "--npc-travel", "--npc-sit", "--npc-packages", "--follow-npc", "--head-track-camera",
+    "--actor-walk-test", "--actor-turn-test", "--actor-weapon-test", "--show-navmesh",
+];
+
+/// The command line (program name first) with `--play --menu` added when none of its
+/// arguments chooses a world or a mode (`MODE_ARGS`, as `--flag value` or `--flag=value`).
+fn with_default_mode(mut args: Vec<String>) -> Vec<String> {
+    let chosen = args.iter().skip(1).any(|a| MODE_ARGS.contains(&a.split('=').next().unwrap_or(a)));
+    if !chosen {
+        args.extend(["--play".to_string(), "--menu".to_string()]);
+    }
+    args
+}
+
+/// `--esm-schema` and `--nif-schema` from beside the program (the release archive:
+/// `schemas/fnv`, `schemas/nif` next to the executable) when the command line does not
+/// name them and they are there; the build's checkout otherwise (the options' defaults).
+fn with_schemas_beside(mut args: Vec<String>, dir: &std::path::Path) -> Vec<String> {
+    for (flag, rel) in [("--esm-schema", "schemas/fnv"), ("--nif-schema", "schemas/nif")] {
+        let given = args.iter().skip(1).any(|a| a.split('=').next() == Some(flag));
+        let path = dir.join(rel);
+        if !given && path.is_dir() {
+            args.extend([flag.to_string(), path.display().to_string()]);
+        }
+    }
+    args
+}
+
+/// The command line this run acts on (`with_default_mode`, `with_schemas_beside`); a run
+/// taking over a load starts from it (handoff.rs).
+static COMMAND_LINE: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// This run's arguments after the program name, as acted on (`COMMAND_LINE`).
+fn command_line() -> Vec<String> {
+    COMMAND_LINE.get().map_or_else(|| std::env::args().skip(1).collect(), |a| a[1..].to_vec())
+}
+
 fn main() -> AppExit {
-    let mut args = Args::parse();
+    let mut line = with_default_mode(std::env::args().collect());
+    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) {
+        line = with_schemas_beside(line, &dir);
+        let functions = dir.join("schemas").join("script").join("functions.json");
+        if std::env::var_os("NVF_PLAY_SCRIPT_FUNCTIONS").is_none() && functions.is_file() {
+            // Before any thread starts; read by the script engines (nvf_play::script, residents.rs).
+            std::env::set_var("NVF_PLAY_SCRIPT_FUNCTIONS", &functions);
+        }
+    }
+    let mut args = Args::parse_from(&line);
+    let _ = COMMAND_LINE.set(line);
+    if args.explore {
+        eprintln!("explore: the free-camera explorer (--explore)");
+    }
     let developer_data = args.data.is_some();
     // The game's folder: `--data`, NVForever.ini or asked for; its files checked (setup.rs).
     let install = match setup::game_install(args.data.as_deref()) {
@@ -1639,7 +1708,52 @@ fn screenshot_and_exit(
 
 #[cfg(test)]
 mod tests {
-    use super::{restart_args, vertical_fov};
+    use super::{restart_args, vertical_fov, with_default_mode, with_schemas_beside, Args};
+    use clap::Parser;
+
+    fn parse(a: &[&str]) -> Args {
+        let line: Vec<String> = std::iter::once("nvforever").chain(a.iter().copied()).map(String::from).collect();
+        Args::try_parse_from(with_default_mode(line)).unwrap()
+    }
+
+    #[test]
+    fn no_arguments_open_the_main_menu() {
+        for a in [&[][..], &["--data", "D"], &["--data=D", "--run-seconds", "20", "--size", "1600x900", "--no-music"]] {
+            let args = parse(a);
+            assert!(args.play && args.menu && !args.explore, "{a:?}");
+        }
+    }
+
+    #[test]
+    fn world_and_mode_arguments_keep_their_meaning() {
+        let args = parse(&["--cell", "Goodsprings"]);
+        assert!(!args.play && !args.menu && !args.explore);
+        assert_eq!(args.cell, "Goodsprings");
+        let args = parse(&["--pos=-1,2,3"]);
+        assert!(!args.play && !args.menu);
+        let args = parse(&["--explore"]);
+        assert!(args.explore && !args.play && !args.menu);
+        let args = parse(&["--cell", "Goodsprings", "--play"]);
+        assert!(args.play && !args.menu);
+        let args = parse(&["--play", "--new-game"]);
+        assert!(args.play && args.new_game && !args.menu);
+        let args = parse(&["--play", "--load", "quicksave"]);
+        assert!(args.play && !args.menu && args.load.is_some());
+        let args = parse(&["--play", "--menu"]);
+        assert!(args.play && args.menu);
+        assert!(Args::try_parse_from(["nvforever", "--explore", "--play"]).is_err());
+    }
+
+    #[test]
+    fn schemas_beside_the_program() {
+        let dir = std::env::temp_dir().join(format!("nvf-schemas-beside-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("schemas/fnv")).unwrap();
+        let line = with_schemas_beside(vec!["nvforever".into()], &dir);
+        assert_eq!(line, ["nvforever".to_string(), "--esm-schema".into(), dir.join("schemas/fnv").display().to_string()]);
+        let given = vec!["nvforever".to_string(), "--esm-schema=X".into()];
+        assert_eq!(with_schemas_beside(given.clone(), &dir), given);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn a_restart_for_a_load_drops_what_the_save_decides() {
