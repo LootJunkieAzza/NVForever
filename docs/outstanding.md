@@ -24,7 +24,7 @@ GetOwnerLastTarget (#403). About 50 functions are still stubs.
 | 2 | Saves from scripts | 29 | Saves exist; the script calls do nothing (cheap) | SystemSave, ForceSave |
 | 3 | Look turning the body | 26 | Look's rotate-body flag is stored, never acted on | Look |
 | 4 | Animation state told to the rules | 22 | The engine knows attacks, reloads and idles but does not tell the rules | IsPlayerActionActive, IsAnimPlaying, IsIdlePlaying, IsMoving's directions, GetAnimAction for attacks and reloads |
-| 5 | Repair menu | 10 (Raul's quests among them) | No repair menu; item condition and broken weapons exist | ShowRepairMenu |
+| 5 | Repair menu (done 2026-10-17) | 10 (Raul's quests among them) | Built ([repair](spec-notes/repair.md)): ShowRepairMenu opens a vendor's repair services (worn weapons and armour repaired for caps up to the vendor's skill), and the Pip-Boy's Repair (R on the ITEMS page) uses a like item or one on the item's repair list. Left: the Pip-Boy's repair list is not clickable and does not report MenuMode 1035 | (none) |
 | 6 | Barber, plastic surgeon and tutorial menus | 9 | The barber is built: the character creator as the barber, hair, colour and beard only (character-creator.md §10). Not built: the plastic surgeon, the tutorial menu | ShowPlasticSurgeonMenu, ShowTutorialMenu |
 | 7 | Pip-Boy reset | 8 | Not built | ResetPipboyManager |
 | 8 | Talking activators | 6 | Activators that speak (radios with lines, intercoms) do not talk | IsActorTalkingThroughActivator |
@@ -56,7 +56,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   exterior reference frames meets the threshold; all 7 interior ones do); depth of field,
   motion blur, screen splatter; effect shaders' holes and add-on models, ash piles; about
   66 particle-system smokes not drawn (playtest list 4 item 16).
-- **Interface**: credits; the ITEMS page's DPS, ammo badge and Maintain/Mod hints; the +10
+- **Interface**: credits; the ITEMS page's DPS, ammo badge and Mod hint; the +10
   XP line and the Locations Discovered stat; the controller's button pictures and
   per-menu buttons.
 - **Audio and video**: reverb, spatial sinks; PlayBink (the end videos).

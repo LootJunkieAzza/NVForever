@@ -334,6 +334,16 @@ pub fn show_recipe_menu(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
     open(g, crate::crafting::RECIPE_MENU)
 }
 
+/// `vendor.ShowRepairMenu` (alias `srm`): the repair services menu with the calling
+/// actor's Repair skill, the caps paid going to it (`Game::repair_requests`; the engine
+/// draws it and closes the menu) [documented: GECK wiki ShowRepairMenu]. Without a
+/// calling reference nothing happens [documented: the same page].
+pub fn show_repair_menu(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let Ok(vendor) = ctx.subject() else { return none() };
+    g.repair_requests.push(crate::repair::RepairRequest { vendor });
+    open(g, crate::repair::REPAIR_SERVICES_MENU)
+}
+
 /// `ShowBlackJackMenuParams casino [minBet] [maxBet] [maxWinnings]`: the blackjack menu
 /// at a casino's table (`Game::blackjack_requests`; the engine checks the chips and the
 /// ban and opens it) [documented: GECK wiki ShowBlackJackMenuParams; docs/spec-notes/

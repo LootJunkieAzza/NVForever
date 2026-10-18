@@ -71,6 +71,8 @@ pub enum UiMenu {
     Creator,
     /// The blackjack table (`crate::blackjack`).
     Blackjack,
+    /// A vendor's repair services (`crate::repair`).
+    Repair,
 }
 
 impl UiMenu {
@@ -102,6 +104,7 @@ impl UiMenu {
             UiMenu::Recipe => "recipe",
             UiMenu::Creator => "creator",
             UiMenu::Blackjack => "blackjack",
+            UiMenu::Repair => "repair services",
         }
     }
 }
@@ -263,7 +266,7 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         (Container, Opened | Closed) => Silent("the container's own sound (world_sounds)"),
         // The rows' mouse-over sound [observed: list_box_template.xml, included by the
         // container, barter, dialogue and pause menus' rows]; for the keys too [design].
-        (Container | Barter | Dialogue | Settings | Recipe, Focus) => Named("UIMenuFocus"),
+        (Container | Barter | Dialogue | Settings | Recipe | Repair, Focus) => Named("UIMenuFocus"),
         // The arrows of other menus' lists (level up, character, tutorial) [design].
         (Container | Barter | Recipe, Switch) => Named("UIMenuPrevNext"),
         (Container, TakeAll) => Named("UIItemTakeAll"),
@@ -274,10 +277,10 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         (Barter, Traded { caps }) if caps < 0 => Caps { up: false },
         (Barter, Traded { .. }) => Named("UIMenuOK"),
         // The menu modes' sound by its name [design].
-        (Barter | Wait | Sleep | Pause | Recipe, Opened) => Named("UIMenuMode"),
+        (Barter | Wait | Sleep | Pause | Recipe | Repair, Opened) => Named("UIMenuMode"),
         // Exit and cancel as the settings' back button [observed: start_menu.xml
         // main_back_button `UIMenuCancel`; design for these menus].
-        (Barter | Wait | Sleep | Pause | Settings | Recipe, Back | Closed) => Named("UIMenuCancel"),
+        (Barter | Wait | Sleep | Pause | Settings | Recipe | Repair, Back | Closed) => Named("UIMenuCancel"),
         // Lockpicking (lockpicking.md §6): the SOUN records named for it [observed:
         // FalloutNV.esm `UILockpicking…`; design: which event each is for, by its name].
         // Opening: the lock model's own sound key [observed: lockinterface01.nif
@@ -364,6 +367,10 @@ pub fn sound_for(menu: UiMenu, event: UiEvent) -> Choice {
         // Making a recipe: the list's click [observed: list_box_template.xml `clicksound`;
         // design: no crafting sound is named in the files].
         (Recipe, Picked) => Named("UIMenuOK"),
+        // A repair made: the SOUN named for it [observed: FalloutNV.esm `UIRepairWeapon`;
+        // hypothesis: that it is the repair's sound, for armour too]. The rows' own click
+        // is silenced [observed: repair_services_menu.xml `&nosound;`].
+        (Repair, Picked) => Named("UIRepairWeapon"),
         // The pause and main menus' entries are list rows too [observed: start_menu.xml
         // `main_container` includes list_box.xml; list_box_template.xml `mouseoversound`].
         (Pause | MainMenu, Focus) => Named("UIMenuFocus"),
@@ -724,6 +731,15 @@ mod tests {
         assert_eq!(sound_for(UiMenu::Barter, UiEvent::Traded { caps: 0 }), Choice::Named("UIMenuOK"));
         assert_eq!(sound_for(UiMenu::Container, UiEvent::TakeAll), Choice::Named("UIItemTakeAll"));
         assert!(matches!(sound_for(UiMenu::Container, UiEvent::Opened), Choice::Silent(_)));
+    }
+
+    #[test]
+    fn repair_services_sounds() {
+        assert_eq!(sound_for(UiMenu::Repair, UiEvent::Picked), Choice::Named("UIRepairWeapon"));
+        assert_eq!(sound_for(UiMenu::Repair, UiEvent::Focus), Choice::Named("UIMenuFocus"));
+        assert_eq!(sound_for(UiMenu::Repair, UiEvent::Opened), Choice::Named("UIMenuMode"));
+        assert_eq!(sound_for(UiMenu::Repair, UiEvent::Back), Choice::Named("UIMenuCancel"));
+        assert_eq!(sound_for(UiMenu::Repair, UiEvent::Refused), Choice::Named("UIMenuCancel"));
     }
 
     #[test]
