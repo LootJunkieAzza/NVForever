@@ -374,6 +374,9 @@ impl ScriptState {
             _ if self.before_opening() => ControlLocks::ALL,
             // The player is dead: nothing more to do [design] (`crate::combat`).
             Some(rt) if rt.game.is_dead(FormId::PLAYER_REF) => ControlLocks::ALL,
+            // Knocked down: until the get-up clip is over (docs/spec-notes/unconscious.md
+            // §5.4; `nvforever` player_knockdown.rs).
+            Some(rt) if rt.game.knockout(FormId::PLAYER_REF).is_some() => ControlLocks::ALL,
             Some(rt) => ControlLocks::from_flags(rt.game.player.controls_disabled),
             None => ControlLocks::default(),
         }
@@ -1560,6 +1563,10 @@ fn sync_locks(mut script: ResMut<ScriptState>, mut locks: ResMut<ControlLocks>, 
     }
     if script.rt.as_ref().is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF)) {
         info!("player controls: all held, the player is dead");
+        return;
+    }
+    if script.rt.as_ref().is_some_and(|rt| rt.game.knockout(FormId::PLAYER_REF).is_some()) {
+        info!("player controls: all held, the player is knocked down");
         return;
     }
     stats.changes += 1;

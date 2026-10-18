@@ -3,6 +3,7 @@
 //! forced head tracking of Look and StopLook (docs/design/script-stubs.md §3).
 
 use super::{none, Args, Ctx};
+use crate::ai::{AiPhase, SandboxPhase};
 use crate::awareness::State;
 use crate::functions::furniture::bed;
 use crate::functions::senses::Look;
@@ -123,49 +124,115 @@ pub fn get_current_ai_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Valu
 /// `actor.GetCurrentAIProcedure`: what the actor is doing within its package, by the
 /// codes of the GECK wiki's table [documented: GECK wiki GetCurrentAIProcedure: 0
 /// TRAVEL, 2 ACQUIRE, 3 WAIT, 4 DIALOGUE, 7 WANDER, 8 SLEEP, 10 EAT, 11 FOLLOW, 12
-/// ESCORT, 13 COMBAT, 17 DONE, 21 GET_UP, 27 ACCOMPANY, 28 USE_ITEM_AT, 30 WAIT_AMBUSH, 34
-/// FLEE_NON_COMBAT, 36 SEARCH, 41 PATROL, 42 USE_WEAPON, 44 GUARD, 45 SANDBOX, 48
-/// SITTING; "a Travel package travels, then waits at its destination"]. Chosen here:
+/// ESCORT, 13 COMBAT, 16 FLEE, 17 DONE, 21 GET_UP, 27 ACCOMPANY, 28 USE_ITEM_AT, 30
+/// WAIT_AMBUSH, 34 FLEE_NON_COMBAT, 36 SEARCH, 41 PATROL, 42 USE_WEAPON, 43
+/// DIALOGUE_ACTIVATE, 44 GUARD, 45 SANDBOX, 46 USE_IDLE_MARKER, 48 SITTING; "a single
+/// package can contain several possible procedures"]. Chosen here:
 ///
 /// - a conversation with the player or between two actors 4, combat 13, Alert or Lost 36;
 /// - fleeing from a fight 16 FLEE [documented: the wiki's table names 16 FLEE;
 ///   hypothesis: it is the procedure of the combat AI's flight, as the IDLE tree reads it:
 ///   `CowerIdles` (FalloutNV.esm 0x0006CB4A) and `3rdPCrouchedHit` want 16 or 34 with
 ///   IsMoving 0, and the creatures' combat idles 13 or 16];
-/// - getting off a seat or bed 21, lying on a bed 8, sitting 48;
-/// - a package whose goal was met 17 DONE [hypothesis: the end scripts of eight
-///   packages of FalloutNV.esm (0x0012FEED-F0, 0x0016954E-51) wait for four actors' 17];
-/// - else by the package type: Travel 0, Sleep 0 (on its way to the bed), Find 2,
-///   Wander 7, Eat 10, Follow 11, Escort 12, Accompany 27, Use Item At 28, Ambush 30,
-///   Flee Not Combat 34, Patrol 41, Use Weapon 42, Guard 44, Sandbox 45 [hypothesis:
-///   each package's main procedure]; Dialogue 43 [observed: Sunny Smiles on her Dialogue
-///   package, near and far, captures `fa_batch2_loaded_npcs` and `fp7_packages_locks`;
-///   not in the wiki's table];
+/// - else what the actor does in its package ([`package_procedure`]);
 /// - 0 with no package [observed: Trudy and Joe Cobb, `fp7_packages_locks`].
 pub fn get_current_ai_procedure(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let furniture = g.furniture_use(r);
-    let goal_met = g.extra.get(&r).is_some_and(|e| e.package_goal_met);
+    let (goal_met, phase) = g.extra.get(&r).map_or((false, None), |e| (e.package_goal_met, e.ai_phase));
     let code = match doing(g, r) {
         Doing::Talking => 4,
         Doing::Fighting => 13,
         Doing::Fleeing => 16,
         Doing::Searching => 36,
-        Doing::Package(t) => match furniture {
-            Some(u) if u.state == 4 => 21,
-            Some(u) if u.state == 3 && bed(&u) => 8,
-            Some(u) if u.state == 3 => 48,
-            _ if goal_met => 17,
-            _ => t.map_or(0, procedure_code),
-        },
+        Doing::Package(None) => 0,
+        Doing::Package(Some(t)) => package_procedure(t, phase, furniture.map(|u| (u.state, bed(&u))), goal_met),
     };
     Ok(Value::Num(code as f64))
 }
 
-/// The main procedure of a package type (see [`get_current_ai_procedure`]).
+/// The procedure of an actor in a package of type `t` (see [`get_current_ai_procedure`]),
+/// from what the AI layer has it do (`phase`, [`AiPhase`]; `None` when that layer does
+/// not run it), the furniture it uses (its state, 3 on it and 4 getting off, and whether
+/// it is a bed) and whether the package met its goal. From the AI observer's samples of
+/// the original, about 430 000 actor samples over the Goodsprings, Strip, casino,
+/// package-kind and owner-decision campaigns (docs/spec-notes/packages.md §4, procedure codes)
+/// [observed]:
+///
+/// - getting off furniture 21 GET_UP;
+/// - a package that ends at its goal (Travel, Patrol, Dialogue, Use Item At, Flee Not
+///   Combat) 17 DONE once there, seated or in bed too [observed: Travel 17 standing,
+///   seated and asleep, 0 on the way]; Find, Escort, Ambush and Use Weapon too
+///   [hypothesis: their goals end as those do; no sample reached one]. Not Sandbox,
+///   Wander, Guard, Follow, Accompany, Eat or Sleep, which never read 17 [observed];
+/// - Sandbox, by what it does there: on the way to the area or to something to use, or
+///   standing between two things, 0; walking to a spot of the area or standing at it 7
+///   WANDER; at an idle marker 46; seated 48; eating 10; asleep 8; up from furniture 21
+///   until it does the next thing (walking away too); an actor the AI does not run (out
+///   of the high process) 45 [observed: 45 only for an actor out of the loaded cells,
+///   Chet; the others by what each was seen doing, sitting, sleeping and moving read
+///   with GetSitting, GetSleeping and IsMoving];
+/// - on the way to its location, 0 for Travel, Eat, Use Item At, Use Weapon, Dialogue and
+///   Sandbox packages [observed]; the others keep their own procedure walking (Patrol 41,
+///   Follow 11, Guard 44, Wander 7, Escort 12) [observed];
+/// - Sleep 8 (in bed and on the way to it) [observed: 8 while moving outnumbered 0
+///   three to one];
+/// - else the package type's main procedure ([`procedure_code`]).
+pub fn package_procedure(t: PackageType, phase: Option<AiPhase>, furniture: Option<(u8, bool)>, goal_met: bool) -> i32 {
+    if furniture.is_some_and(|(state, _)| state == 4) {
+        return 21;
+    }
+    if goal_met && ends_at_goal(t) {
+        return 17;
+    }
+    let seated = furniture.filter(|(state, _)| *state == 3);
+    if t == PackageType::Sandbox {
+        return match phase {
+            Some(AiPhase::Sandbox(p)) => match p {
+                SandboxPhase::Standing | SandboxPhase::ToObject => 0,
+                SandboxPhase::Wandering => 7,
+                SandboxPhase::AtIdleMarker => 46,
+                SandboxPhase::Sitting => 48,
+                SandboxPhase::Eating => 10,
+                SandboxPhase::Sleeping => 8,
+                SandboxPhase::GotUp => 21,
+            },
+            Some(AiPhase::Travelling | AiPhase::There) => 0,
+            None => match seated {
+                Some((_, true)) => 8,
+                Some((_, false)) => 48,
+                None => 45,
+            },
+        };
+    }
+    if phase == Some(AiPhase::Travelling) && walks_as_travel(t) {
+        return 0;
+    }
+    procedure_code(t)
+}
+
+/// Package types whose procedure is 17 DONE once their goal is met (see
+/// [`package_procedure`]).
+fn ends_at_goal(t: PackageType) -> bool {
+    matches!(t, PackageType::Travel | PackageType::Patrol | PackageType::Dialogue | PackageType::UseItemAt | PackageType::FleeNotCombat | PackageType::Find | PackageType::Escort | PackageType::Ambush | PackageType::UseWeapon)
+}
+
+/// Package types whose actor reads 0 TRAVEL on its way to the package's location (see
+/// [`package_procedure`]).
+fn walks_as_travel(t: PackageType) -> bool {
+    matches!(t, PackageType::Travel | PackageType::Eat | PackageType::UseItemAt | PackageType::UseWeapon | PackageType::Dialogue)
+}
+
+/// The main procedure of a package type (see [`package_procedure`]): Travel 0, Find 2,
+/// Wander 7, Sleep 8, Eat 10, Follow 11, Escort 12, Accompany 27, Use Item At 28, Ambush
+/// 30, Flee Not Combat 34, Patrol 41, Use Weapon 42, Dialogue 43, Guard 44, Sandbox 45
+/// [observed for all but Find and Ambush, AI observer samples; Dialogue 43 also Sunny
+/// Smiles, captures `fa_batch2_loaded_npcs` and `fp7_packages_locks`; hypothesis: Find 2
+/// and Ambush 30, the wiki's ACQUIRE and WAIT_AMBUSH].
 pub fn procedure_code(t: PackageType) -> i32 {
     match t {
-        PackageType::Travel | PackageType::Sleep => 0,
+        PackageType::Travel => 0,
+        PackageType::Sleep => 8,
         PackageType::Find => 2,
         PackageType::Dialogue => 43,
         PackageType::Wander => 7,

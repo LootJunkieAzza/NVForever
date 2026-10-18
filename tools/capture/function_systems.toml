@@ -524,11 +524,11 @@ note = "AI off (no walking, packages, talk) and holds a lying actor down until c
 
 [function.Enable]
 status = "match"
-note = "FadeIn (default 1) fades the reference in over 1 s [hypothesis: the length]; enable children fade unless Pop In (script-function-params.md §3, smoke enable-disable-fade)."
+note = "FadeIn (default 1) fades the reference in over 2 s [hypothesis: the length, as the measured fade out]; enable children fade unless Pop In (script-function-params.md §3, smoke enable-disable-fade)."
 
 [function.Disable]
 status = "match"
-note = "FadeOut 1 fades the reference out; children pop out [documented]."
+note = "FadeOut 1 fades the reference out over 2 s, kept enabled meanwhile (GetDisabled 0 about 2 s [observed: capture disable_fade_long]); children pop out [documented]."
 
 [function.Say]
 status = "match"

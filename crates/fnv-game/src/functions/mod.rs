@@ -25,6 +25,7 @@ pub(crate) mod furniture;
 mod items;
 mod magic;
 pub mod misc;
+pub mod navigation;
 mod objects;
 pub(crate) mod player;
 mod quest;
@@ -548,9 +549,9 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x118A, "PushActorAway", Impl(fighting::push_actor_away)),
         (0x11D0, "IsPlayerGrabbedRef", Stub("physics (grab)")),
         (0x110C, "trapUpdate", Stub("physics (traps)")),
-        (0x11C0, "EnableNavMesh", Stub("navigation")),
-        (0x11BF, "DisableNavmesh", Stub("navigation")),
-        (0x1159, "setAllReachable", Stub("navigation")),
+        (0x11C0, "EnableNavMesh", Impl(navigation::enable_navmesh)),
+        (0x11BF, "DisableNavmesh", Impl(navigation::disable_navmesh)),
+        (0x1159, "setAllReachable", Impl(navigation::set_all_reachable)),
         (0x1125, "StopMagicShaderVisuals", Impl(misc::stop_magic_shader_visuals)),
         (0x1248, "SetSecuritronExpression", Impl(misc::set_securitron_expression)),
         (0x1146, "Reset3DState", Impl(misc::reset_3d_state)),
