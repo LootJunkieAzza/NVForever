@@ -5942,6 +5942,47 @@ Captures that settle these (nvfstrip): AI observer campaign
 `tools/capture/observe/anim_actions.campaign.json` (troopers with grenades, spears,
 dynamite and six guns) and job `tools/capture/jobs/player_actions_anim.steps.json` (the
 player's own codes and IsPlayerActionActive 1–10 every frame).
+## Menu hooks: menu codes, the tutorial menu, ResetPipboyManager, AutoDisplayObjectives, ExitGame (2026-10-18, branch claude/menu-hooks-30bc18)
+
+docs/design/script-stubs.md §3.15, docs/spec-notes/tutorial-menu.md. Smoke
+`menu-hooks-pipboy-codes`, `menu-hooks-tutorial`, `menu-hooks-exit-game`; capture job
+`tools/capture/probes/menu_hooks.toml` (batches `mh1_tutorial`, `mh2_reset_objectives`,
+save nvfstrip). Guesses, each waiting for you or the capture:
+
+- **The tutorial menu's code is 1059: confirmed** by capture mh1_tutorial (nvfstrip,
+  2026-10-18): MenuMode 1059 was 1, 1001 and 1060 were 0, so it is not a message box. A
+  second ShowTutorialMenu left one 1059 menu, and one CloseAllMenus closed it and the menu
+  that had been open before it (MenuMode 0); NVForever's CloseAllMenus now does the same.
+  Not settled by the capture: whether the second message is a second page (NVForever) or
+  replaces the first. Capture mh2_reset_objectives: ResetPipboyManager and
+  AutoDisplayObjectives open no menu (MenuMode 0), as in NVForever; it could not show the
+  objectives (VCG01 not running in nvfstrip), so that guess stays.
+- **The tutorial menu opens over the Pip-Boy** (CGTutorial shows it from its MenuMode 1
+  block) and the Pip-Boy is back when it closes. A second ShowTutorialMenu while it is
+  open adds a page (Next / Previous, "1/2" at the top right). *Check:* cripple a limb with
+  the Pip-Boy open; the "Healing Limbs" page should come over it.
+- **Its look**: the file's layout, but as dark as the other menus (the file's fill alpha
+  of 32/255 was hard to read over the Pip-Boy); the words "Next", "Previous", "Close",
+  "A) S) E)" and "VDSG Manual" (the game settings are not in the masters); the text in
+  font 1. A frame is saved at 15 s and 20 s of `menu-hooks-tutorial` in target/smoke.
+- **MenuMode 1007 under loading screens**: the 1007 blocks run (and only they) in the two
+  frames after travel and after a save is loaded; the DLC scripts use them to put their
+  hologram shaders back. The pause menu's 1013 is not reported: scripts still do not run
+  under NVForever's pause menu.
+- **VATS 1056**: NVForever's VATS is no menu, so `Begin MenuMode 1056` blocks run beside
+  GameMode while it marks (CGTutorial's VATS tutorial message comes from one).
+- **Blackjack's menu code moved from 1035 to 1102**: 1035 is the Pip-Boy's repair list in
+  the wiki; neither is asked for by a shipped script.
+- **ResetPipboyManager** turns the flashlight off (the wiki says the reset turns the
+  Pip-Boy light off; the flashlight is NVForever's Pip-Boy light) and puts the pages back
+  to ITEMS / first tabs. The wiki's "without a reset the Pip-Boy acts as an NPC's" is not
+  built: the Pip-Boy opens without a reset (test runs open the inventory without one).
+- **AutoDisplayObjectives 1** keeps the objective list on the HUD (no fading) until
+  another quest line comes; VCG01 turns it on at stage 55 (before the player has the
+  Pip-Boy) and off at 200. *Check:* in the opening, after Doc Mitchell's first lines, the
+  "Ain't That a Kick in the Head" objectives should stay at the left.
+- **ExitGame** goes back to the main menu as Quit to the main menu does; the end credits
+  are not built. A run a test aid drives quits instead (so a smoke log ends there).
 ## Crippled limbs' effects (2026-10-18, branch claude/crippled-limb-effects-ab9ad8)
 
 What each crippled limb does, for the player and for NPCs, is in
