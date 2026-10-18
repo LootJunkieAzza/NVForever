@@ -2624,11 +2624,11 @@ expect = [
 [[scenario]]
 name = "combat-flee-hide"
 source = "owner 2026-10-17: fleeing NPCs run off and hide crouched when they stop, out of their enemy's way, with the original's cowering (docs/design/combat-ai.md §12.2.1, docs/spec-notes/idles.md §13)"
-note = "Violet (FiendVioletRef) fights the player from 3 s and is made to flee by ForceFlee at 8 s (god mode, the player does not shoot); at her flee spot she crouches and plays the IDLE tree's CowerIdles (3rdP_Cowering.kf)"
+note = "Violet (FiendVioletRef) fights the player from 3 s, about 1,900 units away, within her hunting rifle's reach (2,000; since PR #444 she would only run in from the old 3,000-unit start, docs/design/combat-ai.md §16) and is made to flee by ForceFlee at 8 s (god mode, the player does not shoot); at her flee spot she crouches and plays the IDLE tree's CowerIdles (3rdP_Cowering.kf)"
 areas = ["combat", "combat-groups", "animation"]
 paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/npc_combat.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:FiendVioletRef:player,8:call:FiendVioletRef:ForceFlee" }
-args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+args = ["--cell", "Goodsprings", "--pos=-45000,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
 run_seconds = 40
 expect = [
   { re = 'ai \[.*Violet\S*: flees from the player (to cover|away|through door)', label = "Violet runs from the player to a flee spot" },
