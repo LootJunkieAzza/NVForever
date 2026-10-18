@@ -461,21 +461,48 @@ fn reset_ai_drops_the_script_package_and_the_codes_follow_the_package() {
     assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (14.0, 0.0));
     g.package_goal_met(a);
     assert_eq!(call(&mut g, procedure, &[]), 17.0);
+    // Seated at its goal it is still done (the original's Travel packages to chairs).
+    g.set_furniture_use(a, Some(FurnitureUse { reference: id(MARKER), marker_id: 20, state: 3 }));
+    assert_eq!(call(&mut g, procedure, &[]), 17.0);
+    g.set_furniture_use(a, None);
     // ResetAI: the script package is gone and the list is chosen from again.
     call(&mut g, 0x11FA, &[]);
     assert!(g.extra[&a].script_package.is_none());
     assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (36.0, 45.0));
-    // Night: the sleep package, walking to the bed, lying on it, getting up; a chair.
+    // The sandbox as the AI layer runs it (docs/spec-notes/packages.md §4, procedure codes): on the way
+    // 0, by what it does in the area, and its goal met is not 17; a seat with no AI
+    // layer 48.
+    use fnv_game::ai::{AiPhase, SandboxPhase};
+    let on = |marker_id, state| Some(FurnitureUse { reference: id(MARKER), marker_id, state });
+    for (phase, code) in [
+        (AiPhase::Travelling, 0.0),
+        (AiPhase::Sandbox(SandboxPhase::Standing), 0.0),
+        (AiPhase::Sandbox(SandboxPhase::Wandering), 7.0),
+        (AiPhase::Sandbox(SandboxPhase::ToObject), 0.0),
+        (AiPhase::Sandbox(SandboxPhase::AtIdleMarker), 46.0),
+        (AiPhase::Sandbox(SandboxPhase::Sitting), 48.0),
+        (AiPhase::Sandbox(SandboxPhase::Eating), 10.0),
+        (AiPhase::Sandbox(SandboxPhase::Sleeping), 8.0),
+        (AiPhase::Sandbox(SandboxPhase::GotUp), 21.0),
+    ] {
+        g.set_ai_phase(a, Some(phase));
+        assert_eq!(call(&mut g, procedure, &[]), code, "{phase:?}");
+    }
+    g.package_goal_met(a);
+    assert_eq!(call(&mut g, procedure, &[]), 21.0);
+    g.set_ai_phase(a, None);
+    g.set_furniture_use(a, on(20, 3));
+    assert_eq!(call(&mut g, procedure, &[]), 48.0);
+    g.set_furniture_use(a, None);
+    // Night: the sleep package, 8 walking to the bed and lying on it, getting up 21.
     set(&mut g, G_HOUR, 23.0);
     g.evaluate_package(a);
-    assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (4.0, 0.0));
-    let on = |marker_id, state| Some(FurnitureUse { reference: id(MARKER), marker_id, state });
+    g.set_ai_phase(a, Some(AiPhase::Travelling));
+    assert_eq!((call(&mut g, package, &[]), call(&mut g, procedure, &[])), (4.0, 8.0));
     g.set_furniture_use(a, on(1, 3));
     assert_eq!(call(&mut g, procedure, &[]), 8.0);
     g.set_furniture_use(a, on(1, 4));
     assert_eq!(call(&mut g, procedure, &[]), 21.0);
-    g.set_furniture_use(a, on(20, 3));
-    assert_eq!(call(&mut g, procedure, &[]), 48.0);
     // In combat 13; fleeing from it 16 FLEE, the package still 5 COMBAT
     // (docs/spec-notes/idles.md §13); fighting again 13.
     g.set_furniture_use(a, None);
@@ -553,4 +580,43 @@ fn a_schedule_duration_ends_the_package_and_the_next_one_takes_over() {
     assert_eq!(g.evaluate_package(h), Some(id(P_FIND_2H)));
     // Its timer starts afresh.
     assert!(g.extra[&h].package_ends.is_some_and(|(p, t)| p == id(P_FIND_2H) && (t - (6.01 + 2.0 / 24.0)).abs() < 1e-4));
+}
+
+/// EnableNavMesh, DisableNavmesh and setAllReachable keep their switches, and the save
+/// keeps them (docs/design/script-stubs.md §3.5).
+#[test]
+fn navmesh_switches_are_kept_and_saved() {
+    use fnv_game::functions::Ctx;
+    use fnv_script::vm::{ArgValue, Value};
+    let f = fixture();
+    let mut g = game(&f, None);
+    let call = |g: &mut Game, op: u16, args: &[ArgValue]| {
+        let ctx = Ctx { unit: "test".into(), opcode: op, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+        g.call_function(&ctx, args);
+    };
+    let (enable, disable, reachable) = (0x11C0, 0x11BF, 0x1159);
+    call(&mut g, disable, &[ArgValue::Value(Value::Ref(0xA553))]);
+    call(&mut g, disable, &[ArgValue::Value(Value::Ref(0xA555))]);
+    call(&mut g, enable, &[ArgValue::Value(Value::Ref(0xA555))]);
+    call(&mut g, reachable, &[ArgValue::Value(Value::Num(1.0))]);
+    let want: std::collections::BTreeMap<FormId, bool> = [(FormId(0xA553), false), (FormId(0xA555), true)].into();
+    assert_eq!(g.nav_switches.navmeshes, want);
+    // A raw FormID as a number, and the console's words.
+    call(&mut g, disable, &[ArgValue::Value(Value::Num(0xBE880 as f64))]);
+    assert_eq!(g.nav_switches.navmeshes.get(&FormId(0xBE880)), Some(&false));
+    fnv_game::functions::console::call_words(&mut g, None, "enablenavmesh", &["000BE880".into()], "test").unwrap();
+    assert_eq!(g.nav_switches.navmeshes.get(&FormId(0xBE880)), Some(&true));
+    fnv_game::functions::console::call_words(&mut g, None, "disablenavmesh", &["0010A1DA".into()], "test").unwrap();
+    assert_eq!(g.nav_switches.navmeshes.get(&FormId(0x10A1DA)), Some(&false));
+    g.nav_switches.navmeshes.remove(&FormId(0xBE880));
+    g.nav_switches.navmeshes.remove(&FormId(0x10A1DA));
+    assert!(g.nav_switches.all_reachable);
+    assert_eq!(g.nav_switches.by_id(), [(0xA553, false), (0xA555, true)].into());
+    let snap: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let back = Game::restore(&f.data, world, GameConfig::default(), &snap).unwrap();
+    assert_eq!(back.nav_switches, g.nav_switches);
+    // None switched: nothing written to the save.
+    let fresh = game(&f, None);
+    assert!(serde_json::to_value(fresh.snapshot()).unwrap().get("nav_switches").is_none());
 }

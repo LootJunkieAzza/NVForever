@@ -352,7 +352,7 @@ mod tests {
     fn store(items: &[(u32, ItemKind)]) -> FormStore {
         let mut f = FormStore::default();
         for &(id, kind) in items {
-            let it = Item { kind, value: Some(10), weight: Some(1.0), slots: None, projectile: None, health: Some(100), non_playable: false, armor_class: Default::default(), armor_dr: None, armor_dt: Some(5.0), weapon_damage: None, drawable: false, quest_item: false, icon: None, placed_count: None };
+            let it = Item { kind, value: Some(10), weight: Some(1.0), slots: None, projectile: None, health: Some(100), non_playable: false, armor_class: Default::default(), power_armor: false, armor_dr: None, armor_dt: Some(5.0), weapon_damage: None, drawable: false, quest_item: false, icon: None, placed_count: None };
             f.bases.insert(FormId(id), BaseForm { id: FormId(id), sig: *b"ARMO", edid: None, name: Some(format!("Item {id}")), script: None, data: BaseData::Item(it) });
         }
         f

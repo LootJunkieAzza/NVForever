@@ -298,6 +298,8 @@ mod tests {
 
     fn header() -> SaveHeader {
         let mut h = SaveHeader::new(SaveKind::Quick);
+        // Fixed, so two calls a clock second apart still compare equal.
+        h.saved_unix = 1_700_000_000;
         h.player_name = "Courier".into();
         h.place = Place { world: Some(0xDA726), interior: None, feet: [1.0, 2.0, 3.0], heading_deg: 90.0, pitch_deg: -5.0 };
         h.plugins = vec![PluginEntry { name: "FalloutNV.esm".into(), size: 10 }];

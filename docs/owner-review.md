@@ -5914,6 +5914,119 @@ themselves:
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
 
+## Race, sex and level changes, power armour, Cannibal and Mister Sandman, talking activators (2026-10-18, branch claude/actor-changes)
+
+Playthrough blockers rows 8, 11, 13, 14 and 18 (docs/outstanding.md). Every shipped call
+of AgeRace, SexChange and SetLevel is on the player (the opening's VCG00, VCG01 and Doc
+Mitchell's revision activator); the NPC cases are built for mods and the console. My
+guesses, each with a probe in `tools/capture/probes/actor_changes.toml` (ac1–ac6) where
+the original can answer it:
+
+- **SexChange's reset** (VCG01's "male or female?" box): the player gets the character
+  creator's first starting face for the race and the new sex, with its hair and eyes.
+  The wiki says "the default preset for that race and gender".
+- **AgeRace and SexChange on an NPC**: the new race's head and body with the NPC's own
+  face values; a hair the new race or sex may not have becomes the race's default hair.
+  The player keeps the hair.
+- **SetLevel on an NPC**: settled by capture ac1 — the original keeps the inventory (three
+  Stimpaks given to Easy Pete stayed), against the wiki's "regenerates"; so NVForever only
+  sets the level. The offset and bounds matched.
+- **Power armour**: off at the start; only the player is held back; armour with the BMDT
+  "Power Armor" flag (NCR salvaged power armour lacks it and is worn freely). On refusal
+  the game's "You lack the specialized training…" box, after the Pip-Boy closes; a
+  script's EquipItem is refused the same way (probe ac3 asks the original).
+- **The perks' choice list** (Cannibal, Ghastly Scavenger, Dine and Dash, Mister
+  Sandman): E on the target opens a box with the choices (Devour, Murder…) then the
+  default action (Search or Talk). The wiki only says "presents a choice list". *Please
+  look in the original*: sneaking at a corpse with Cannibal, does E show a list, and does
+  it include Search? Does the crosshair prompt change?
+- **The acts**: GetCannibal and GetSandman hold for their clips' length (7.7 s and 6 s);
+  the corpse counts as eaten (HasBeenEaten) only when the act is over (capture ac4: still
+  0 while GetCannibal was 1); StartCannibal adds no health or karma of its own (ac4
+  confirmed it). Mister Sandman, settled by capture ac5c on Ringo asleep in his bed: the victim dies
+  when the act ends (alive at 3 s, dead at 7 s; NVForever uses the clip's 6 s). On an
+  awake NPC (ac5) or one made unconscious (ac5b) the original crashed; NVForever refuses
+  there and nothing happens;
+  a witnessed cannibalism turns every witness hostile as an assault ("a crime against
+  nature"); the clips are the StartCannibal idle and the SandMan child for the victim's
+  bed or floor marker, with the two perk sounds.
+- **Talking activators**: activating one talks to it; its talking actor's lines and voice
+  come through it (the actor need not be near); IsActorTalkingThroughActivator holds
+  then. Capture ac6 showed the wiki's "false when set by script" wrong:
+  IsTalkingActivatorActor reads 1 after a script sets the actor, as in NVForever. The
+  dialogue menu names the actor, the view turns to the activator.
+- **To check in game**: smoke `perk-cannibal-devour` (Easy Pete eaten in Goodsprings),
+  `talking-activator-intercom` (Hidden Valley's bunker intercom: Ramos's "[You hear
+  nothing.]"), `sexchange-player-reset`.
+## Navmesh switches, AI procedure codes, the player knocked down (2026-10-18, branch claude/nav-knockdown-9a8df4)
+
+Playthrough blockers row 1's leftover and row 18 (docs/outstanding.md §1). What is mine:
+
+- **The player's knockdown view and timing**: now from the capture `kd_player_knockdown`
+  (unconscious.md §5.4, second run) [observed]: the camera stays where it was while the
+  body flies and lies (at the eye in first person, so the view leaves first person), the
+  player lies about 2.4 s (`PLAYER_KNOCKDOWN_DOWN`), gets up seen from the third-person
+  camera, and a first-person view comes back once standing. Still mine: NPCs keep 3 s down,
+  controls are held throughout, enemies may keep attacking a downed player, and the
+  player sitting or talking is not knocked down; the push's distance is not fitted.
+- **Navmesh switches**: an actor walking a way over a navmesh a script disables plans
+  again from where it stands (its package taken up afresh), and sets the package aside
+  when there is no way round. The wiki says the original's EnableNavMesh/DisableNavmesh
+  skip the load order's FormID fix-up (so a DLC's call may miss its own navmesh in the
+  original); ours fixes them up like any reference, so the Lonesome Road elevator's
+  navmeshes really go while it rides.
+- **setAllReachable** (two Hoover Dam battle calls, one only on a PS3): kept and saved, no
+  effect; I take it to be an optimisation switch (skip the reachability test), which a
+  planner that always plans in full does not need.
+- **GetCurrentAIProcedure**: now from the AI observer's samples of the original
+  (packages.md §4, procedure codes): a sandboxer reads what it does (7 at or walking to a
+  spot, 0 between things or walking to an object, 46 at an idle marker, 48 seated, 10
+  eating, 8 asleep, 21 for a while after getting up), 45 only out of the high process; a
+  Travel package 0 on the way, 17 there (seated too). The split of a sandboxer's walking
+  between 7 (to a spot) and 0 (to an object) is my reading; the samples do not record
+  where an actor walks to. Find, Escort, Ambush and Use Weapon read 17 once their goal is
+  met (no sample reached one).
+## Menu hooks: menu codes, the tutorial menu, ResetPipboyManager, AutoDisplayObjectives, ExitGame (2026-10-18, branch claude/menu-hooks-30bc18)
+
+docs/design/script-stubs.md §3.15, docs/spec-notes/tutorial-menu.md. Smoke
+`menu-hooks-pipboy-codes`, `menu-hooks-tutorial`, `menu-hooks-exit-game`; capture job
+`tools/capture/probes/menu_hooks.toml` (batches `mh1_tutorial`, `mh2_reset_objectives`,
+save nvfstrip). Guesses, each waiting for you or the capture:
+
+- **The tutorial menu's code is 1059: confirmed** by capture mh1_tutorial (nvfstrip,
+  2026-10-18): MenuMode 1059 was 1, 1001 and 1060 were 0, so it is not a message box. A
+  second ShowTutorialMenu left one 1059 menu, and one CloseAllMenus closed it and the menu
+  that had been open before it (MenuMode 0); NVForever's CloseAllMenus now does the same.
+  Not settled by the capture: whether the second message is a second page (NVForever) or
+  replaces the first. Capture mh2_reset_objectives: ResetPipboyManager and
+  AutoDisplayObjectives open no menu (MenuMode 0), as in NVForever; it could not show the
+  objectives (VCG01 not running in nvfstrip), so that guess stays.
+- **The tutorial menu opens over the Pip-Boy** (CGTutorial shows it from its MenuMode 1
+  block) and the Pip-Boy is back when it closes. A second ShowTutorialMenu while it is
+  open adds a page (Next / Previous, "1/2" at the top right). *Check:* cripple a limb with
+  the Pip-Boy open; the "Healing Limbs" page should come over it.
+- **Its look**: the file's layout, but as dark as the other menus (the file's fill alpha
+  of 32/255 was hard to read over the Pip-Boy); the words "Next", "Previous", "Close",
+  "A) S) E)" and "VDSG Manual" (the game settings are not in the masters); the text in
+  font 1. A frame is saved at 15 s and 20 s of `menu-hooks-tutorial` in target/smoke.
+- **MenuMode 1007 under loading screens**: the 1007 blocks run (and only they) in the two
+  frames after travel and after a save is loaded; the DLC scripts use them to put their
+  hologram shaders back. The pause menu's 1013 is not reported: scripts still do not run
+  under NVForever's pause menu.
+- **VATS 1056**: NVForever's VATS is no menu, so `Begin MenuMode 1056` blocks run beside
+  GameMode while it marks (CGTutorial's VATS tutorial message comes from one).
+- **Blackjack's menu code moved from 1035 to 1102**: 1035 is the Pip-Boy's repair list in
+  the wiki; neither is asked for by a shipped script.
+- **ResetPipboyManager** turns the flashlight off (the wiki says the reset turns the
+  Pip-Boy light off; the flashlight is NVForever's Pip-Boy light) and puts the pages back
+  to ITEMS / first tabs. The wiki's "without a reset the Pip-Boy acts as an NPC's" is not
+  built: the Pip-Boy opens without a reset (test runs open the inventory without one).
+- **AutoDisplayObjectives 1** keeps the objective list on the HUD (no fading) until
+  another quest line comes; VCG01 turns it on at stage 55 (before the player has the
+  Pip-Boy) and off at 200. *Check:* in the opening, after Doc Mitchell's first lines, the
+  "Ain't That a Kick in the Head" objectives should stay at the left.
+- **ExitGame** goes back to the main menu as Quit to the main menu does; the end credits
+  are not built. A run a test aid drives quits instead (so a smoke log ends there).
 ## Crippled limbs' effects (2026-10-18, branch claude/crippled-limb-effects-ab9ad8)
 
 What each crippled limb does, for the player and for NPCs, is in

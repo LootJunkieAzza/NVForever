@@ -464,6 +464,9 @@ pub struct Applied {
     /// Caps that changed hands in an accepted trade (Barter Amount Traded,
     /// `fnv_game::misc_stats`).
     pub traded: u32,
+    /// Power armour the player has no training for was refused: the runtime shows the
+    /// game's message (`fnv_game::functions::refuse_power_armor`).
+    pub power_armor_refused: bool,
 }
 
 const PLAYER: FormId = FormId::PLAYER_REF;
@@ -851,7 +854,13 @@ impl MenuModel {
                     world.unequip(PLAYER, r.item)?;
                     return Ok(format!("Unequipped {}", name(&r)));
                 }
-                let e = world.equip_at(PLAYER, r.item, r.at)?;
+                let e = match world.equip_at(PLAYER, r.item, r.at) {
+                    Err(SimError::NoPowerArmorTraining(_)) => {
+                        out.power_armor_refused = true;
+                        return Ok(format!("Cannot wear {} without Power Armor Training", name(&r)));
+                    }
+                    e => e?,
+                };
                 if e.consumed {
                     out.used = Some(r.item);
                 }

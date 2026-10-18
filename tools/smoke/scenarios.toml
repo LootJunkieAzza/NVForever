@@ -2073,16 +2073,28 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/blockers-save-reticle implemented SystemSave, ForceSave and PlaceAtReticle (10 calls,
 # docs/spec-notes/script-saves-and-reticle.md): 41 → 38 stubs, 179 → 169 calls [observed:
 # fnvtool script stubs on the owner's masters, merged with main, 2026-10-18].
+# claude/nav-knockdown implemented EnableNavMesh, DisableNavmesh and setAllReachable (9 calls,
+# docs/design/script-stubs.md §3.16): 38 → 35 stubs, 169 → 160 calls [observed: fnvtool
+# script stubs on the owner's masters, merged with main after #451 and #454, 2026-10-18].
 # claude/blockers-anim-state implemented IsPlayerActionActive (2 calls, §3.13): 38 → 37
 # stubs, 169 → 167 calls [observed: fnvtool script stubs on the owner's masters, merged
 # with main 5a98cb50, 2026-10-18].
+# claude/menu-hooks implemented ResetPipboyManager, ShowTutorialMenu, ExitGame and the last
+# implementable stub, AutoDisplayObjectives (9 calls, §3.15), so no "implementable" row is
+# left: 37 → 33 stubs, 167 → 158 calls [observed: fnvtool script stubs on the owner's masters,
+# merged with main d13109f3, 2026-10-18]. With claude/nav-knockdown's three: 30 stubs, 149
+# calls [observed: fnvtool script stubs on the owner's masters, merged with main 1bf4fb89].
+# claude/actor-changes implemented AgeRace, StartCannibal, GetCannibal, HasBeenEaten,
+# StartMisterSandman, GetSandman and IsActorTalkingThroughActivator (13 calls, 99 condition
+# uses, §3.17): 30 → 23 stubs, 149 → 136 calls, 125 → 26 condition uses [observed: the
+# branch's fnvtool, merged with main 3ca600ff, on the owner's masters, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 37 },
-  { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 36 },
+  { json = "summary.stubs", equals = 23 },
+  { json = "summary.by_status.implementable", count = 0, label = "no implementable stub is left" },
+  { json = "summary.by_status.needs_system", equals = 23 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 167 },
-  { json = "summary.stub_condition_uses", equals = 125 },
+  { json = "summary.stub_calls", equals = 136 },
+  { json = "summary.stub_condition_uses", equals = 26 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
 
@@ -4560,13 +4572,14 @@ name = "barber-menu"
 source = "owner todo 6 task 2: ShowBarberMenu opens the character creator as the barber, the hair, its colour and the beard only (docs/spec-notes/character-creator.md §10)"
 areas = ["chargen", "menus"]
 paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/**", "crates/fnv-game/src/functions/misc.rs"]
-# The console runs a script function only once the scripts run (about 7–9 s after launch,
-# later when the add-ons' start-up boxes are slow): ShowBarberMenu at 14 s. --no-messages
-# closes those OK-only boxes at once (a Classic Pack box at 13 s held the console step
-# otherwise); the barber menu (1036) is no message box and stays open.
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:ShowBarberMenu;14.3:close", NVF_PLAY_TEST_CREATOR = "17:next:Hair style,17.5:next:Facial hair,18:next:Hair colour,18.5:random,19:next:Origin,19.5:tab:face,21:done", NVF_PLAY_TEST_SHOTS = "16.5:barber_open.png,20:barber_changed.png" }
+# The console runs a script function only once the scripts run; the smoke runner's
+# NVF_PLAY_AIDS_FROM_SCRIPTS holds the world aids until then (PR #453), so ShowBarberMenu
+# is at 6.5 s, the latest unbusy start, and the steps after it keep their distance from it.
+# --no-messages closes the add-ons' OK-only start-up boxes at once (a Classic Pack box held
+# the console step otherwise); the barber menu (1036) is no message box and stays open.
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "6.5:ShowBarberMenu;6.8:close", NVF_PLAY_TEST_CREATOR = "9.5:next:Hair style,10:next:Facial hair,10.5:next:Hair colour,11:random,11.5:next:Origin,12:tab:face,13.5:done", NVF_PLAY_TEST_SHOTS = "9:barber_open.png,12.5:barber_changed.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
-run_seconds = 28
+run_seconds = 21
 order = [[
   "console: > ShowBarberMenu",
   "script: menu 1036 open",
@@ -4748,14 +4761,275 @@ expect = [
 ]
 
 [[scenario]]
+name = "agerace-sexchange-npc"
+source = "outstanding.md §1 row 11 (docs/spec-notes/appearance-changes.md): AgeRace moves an NPC along its race's age links and SexChange changes an NPC's sex; GetIsRace and GetIsSex read the change and the NPC is drawn anew"
+note = "Doc Mitchell is CaucasianOld (RACE 000042C3, younger link Caucasian): AgeRace -1 makes him Caucasian, SexChange without a sex makes him female"
+areas = ["scripts", "console", "actors"]
+paths = ["crates/fnv-game/src/appearance.rs", "crates/fnv-game/src/functions/actor.rs", "crates/fnv-actor/src/resolve.rs", "engine/nvforever/src/appearance.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/resurrect.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:prid DocMitchellREF;14.3:agerace -1;14.6:getisrace Caucasian;15:sexchange;15.3:getissex female;16:close", NVF_PLAY_TEST_SHOTS = "18:agerace_doc.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  "console: > agerace -1",
+  "appearance: … (DocMitchell) is now Caucasian male: drawn anew",
+  "console: > sexchange",
+  "appearance: … (DocMitchell) is now Caucasian female: drawn anew",
+]]
+expect = [
+  { text = "console: GetIsRace on DocMitchellREF >> 1.00", label = "GetIsRace reads AgeRace's younger race" },
+  { text = "console: GetIsSex on DocMitchellREF >> 1.00", label = "GetIsSex reads SexChange's sex" },
+  { re = 'appearance: 0x[0-9A-F]{8} \(DocMitchell\) is now Caucasian male: drawn anew', label = "Doc is drawn anew after AgeRace (adult, still a man)" },
+  { re = 'appearance: 0x[0-9A-F]{8} \(DocMitchell\) is now Caucasian female: drawn anew', label = "Doc is drawn anew as a woman" },
+]
+manual = "agerace_doc.png: Doc Mitchell drawn with the adult Caucasian head and a woman's body"
+
+[[scenario]]
+name = "sexchange-player-reset"
+source = "outstanding.md §1 row 11: the opening's SexChange with reset (VCG01) gives the player the race's first starting face for the new sex; AgeRace -1 then 1 (VCG00 stage 5) leaves the player's race as it was (docs/spec-notes/appearance-changes.md)"
+areas = ["scripts", "console", "chargen"]
+paths = ["crates/fnv-game/src/appearance.rs", "engine/nvforever/src/appearance.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:player.sexchange female 1;14.5:getpcissex female;15:player.agerace -1;15.3:player.agerace 1;15.6:player.getisrace Caucasian;16:close", NVF_PLAY_TEST_SHOTS = "18:sexchange_player.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = "appearance: the player's face reset to the first starting face of .* female", label = "reset gives the race's first female starting face" },
+  { re = 'appearance: the player is now .* female; the body is rebuilt', label = "the player's body is rebuilt as a woman" },
+  { re = 'GetPCIsSex.*>> 1\.00', label = "GetPCIsSex reads the new sex" },
+  { re = 'GetIsRace.*>> 1\.00', label = "younger then older comes back to the same race" },
+]
+manual = "sexchange_player.png: the player's hands and body are a woman's (first person)"
+
+[[scenario]]
+name = "setlevel-npc-reroll"
+source = "outstanding.md §1 row 13: SetLevel on an NPC sets its level; its inventory stays as it was (capture ac1; docs/spec-notes/appearance-changes.md §3)"
+areas = ["scripts", "console", "inventory"]
+paths = ["crates/fnv-game/src/functions/actor.rs", "crates/fnv-sim/src/world.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:prid DocMitchellREF;14.3:setlevel 12 0;14.6:getlevel;15:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { text = "console: GetLevel on DocMitchellREF >> 12.00", label = "GetLevel reads SetLevel's level" },
+]
+
+[[scenario]]
+name = "power-armor-training"
+source = "outstanding.md §1 row 18: without Power Armor Training (SetPCCanUsePowerArmor, off at the start) the player cannot wear power armour and gets the game's PowerArmorMessage; with it the armour is worn (docs/spec-notes/appearance-changes.md §4)"
+note = "00014E13 is ArmorPowerT45d (BMDT Power Armor); the refusal's box waits for the console to close and the menu aid closes it"
+areas = ["scripts", "console", "inventory"]
+paths = ["crates/fnv-sim/src/world.rs", "crates/fnv-sim/src/forms.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/functions/items.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:player.additem 00014E13 1;14.3:player.equipitem 00014E13;14.6:player.getequipped 00014E13;15:setpccanusepowerarmor 1;15.3:player.equipitem 00014E13;15.6:player.getequipped 00014E13;16:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'message box shown: You lack the specialized training needed to move in Power Armor', label = "the game's refusal message" },
+  { re = 'GetEquipped.*>> 0\.00', label = "not worn without the training" },
+  { re = 'GetEquipped.*>> 1\.00', label = "worn with the training" },
+]
+
+[[scenario]]
+name = "perk-cannibal-devour"
+source = "outstanding.md §1 row 14 (docs/spec-notes/perk-activation.md): with Cannibal, sneaking, activating a corpse opens the perks' choice list; Devour runs the perk's script: GetCannibal 1 while the act runs, HasBeenEaten 1 once it is over"
+note = "Easy Pete is brought in front of the player and killed by the test aid; the player sneaks; the activation's choice list is answered with its first button (Devour) by the menu aid after 1 s"
+areas = ["scripts", "perks", "activation"]
+paths = ["crates/fnv-game/src/activate_choices.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/crime.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/activate.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:player.addperk 00094EBC;14.3:close;19:player.getcannibal;19.3:EasyPeteRef.hasbeeneaten;19.6:close;28:EasyPeteRef.hasbeeneaten;28.3:close", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:120:0,15:kill:EasyPeteRef,17:activate:EasyPeteRef", NVF_PLAY_TEST_CONTROL = "15.5:sneak" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 31
+expect = [
+  { re = 'activate: .* offers the perks. choices \["Devour"\] and its default action', label = "the choice list opens on the corpse" },
+  { text = "activate: the player chose Devour (Cannibal)", label = "Devour is chosen" },
+  { re = 'GetCannibal.*>> 1\.00', label = "the player is in the cannibalism act" },
+  { re = 'HasBeenEaten.*>> 0\.00', label = "not eaten while the act lasts (capture ac4)" },
+  { re = 'HasBeenEaten.*>> 1\.00', label = "eaten once the 7.7 s act is over" },
+]
+
+[[scenario]]
+name = "perk-sandman-refused-awake"
+source = "outstanding.md §1 row 14 (docs/spec-notes/perk-activation.md §3): StartMisterSandman on an NPC that is not asleep is refused: it lives and the player is not in the act (the original crashed on an awake and on an unconscious NPC, captures ac5 and ac5b; on a sleeping one it killed at the act's end, ac5c)"
+note = "Easy Pete at noon is awake; the sleeping case (killed when the 6 s act ends) is the unit test perk_talk.rs mister_sandman_kills_a_sleeper_at_the_acts_end"
+areas = ["scripts", "console", "perks"]
+paths = ["crates/fnv-game/src/activate_choices.rs", "crates/fnv-game/src/functions/actor.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:prid EasyPeteRef;14.3:startmistersandman player;14.6:getdead;15:player.getsandman;22:EasyPeteRef.getdead;22.3:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { text = "console: GetDead on EasyPeteRef >> 0.00", label = "the awake victim lives" },
+  { re = 'GetSandman.*>> 0\.00', label = "the player is not in the Mister Sandman act" },
+  { re = 'GetDead.*>> 1\.00', count = 0, label = "nobody dies, not even when an act would have ended" },
+]
+
+[[scenario]]
+name = "talking-activator-intercom"
+source = "outstanding.md §1 row 8 (docs/spec-notes/talking-activators.md): Hidden Valley's bunker intercom sets Ramos as its talking actor and activates itself; the conversation goes through it: Ramos's line conditioned on IsActorTalkingThroughActivator 1 is said, and the view turns to the intercom"
+note = "HVBunkerIntercom2 (REFR 000ACD73, outside the bunker) runs its OnActivate (SCPT 000E3EE7); Ramos's GREETING '[You hear nothing.]' (INFO 000A3D0D) needs only GetIsID Ramos and IsActorTalkingThroughActivator 1"
+areas = ["scripts", "dialogue", "activation"]
+paths = ["crates/fnv-game/src/talking_activators.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-sim/src/world.rs", "engine/nvf-play/src/dialogue_look.rs", "engine/nvforever/src/dialogue_look.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "15:activate:HVBunkerIntercom2" }
+args = ["--play", "--world", "WastelandNV", "--pos=1058,-3905,11800", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { re = 'You hear nothing', label = "Ramos's line through the intercom is said" },
+  { re = 'dialogue look: the view turns to', label = "the view turns to the intercom, not to Ramos" },
+]
+
+[[scenario]]
+name = "knockdown-player"
+source = "playthrough blocker row 1's leftover (docs/outstanding.md): the player knocked down by PushActorAway drops as a ragdoll, the view leaves first person, the controls are held, the get-up idle plays and the view and the controls come back (docs/spec-notes/unconscious.md §5.4)"
+note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 14 s; at 16 s the console has him push the player with force 10 and reads the player's GetKnockedState (0 for a pushed actor); the player lies 2.4 s (PLAYER_KNOCKDOWN_DOWN, observed in the original), the camera held where the eye was; gets up with GetUpFaceUp or GetUpFaceDown seen from the third-person camera, and is in first person again"
+areas = ["combat", "knockouts", "player", "camera"]
+paths = [
+  "crates/fnv-game/src/unconscious.rs", "crates/fnv-game/src/awareness.rs", "engine/nvforever/src/player_knockdown.rs", "engine/nvforever/src/player_body.rs",
+  "engine/nvforever/src/death_cam.rs", "engine/nvforever/src/ragdoll.rs", "engine/nvforever/src/idles.rs", "engine/nvf-play/src/script.rs",
+]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "16:EasyPeteRef.pushactoraway player 10;16.3:player.getknockedstate;16.6:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+order = [[
+  "console: > EasyPeteRef.pushactoraway player 10",
+  { re = 'player knockdown: the player falls \(pushed, first person', label = "the player falls" },
+  { re = 'player knockdown: the player gets up face (up|down)', label = "the player gets up" },
+  { re = 'player knockdown: the player is up', label = "the player is up" },
+  "player controls: all enabled",
+]]
+expect = [
+  { re = 'knockout: .*\b(0x)?00000014 knocked down \(pushed\)', label = "the rules knock the player down" },
+  { re = 'player knockdown: the player falls \(pushed, first person, the view leaves first person\): ragdoll thrown at \(-?\d+, -?\d+, \d+\) units/s', label = "the body is thrown as a ragdoll and the view leaves first person" },
+  "player controls: all held, the player is knocked down",
+  { re = 'console: GetKnockedState on player >> 0\.00\b', label = "GetKnockedState reads 0 for the pushed player" },
+  { re = 'player knockdown: the player gets up face (up|down) [\d.]+ s after the fall \(GetUpFace(Up|Down)\)', label = "the get-up idle of the side the body lies on" },
+  { re = 'player knockdown: laid over the ragdoll: turned -?\d+°, moved (?P<n>\d+) units', range = [0, 200], label = "the clip is laid over where the ragdoll lay" },
+  { re = 'player knockdown: the player is up (?P<n>[\d.]+) s after the fall; the controls and the first-person view are theirs again', range = [3.0, 12.0], label = "up again, back in first person" },
+  { re = 'player knockdown: over without getting up', count = 0, label = "the knockdown ends by getting up" },
+  { re = 'death camera: the player died', count = 0, label = "the player does not die" },
+]
+
+[[scenario]]
+name = "knockdown-player-third"
+source = "docs/spec-notes/unconscious.md §5.4: the player knocked down in third person stays in third person, the camera following the ragdoll"
+note = "as knockdown-player, with the view put in third person at 4 s (the test aid's view switch)"
+areas = ["combat", "knockouts", "player", "camera"]
+paths = ["engine/nvforever/src/player_knockdown.rs", "engine/nvforever/src/player_body.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONTROL = "4:view", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:300:0", NVF_PLAY_TEST_CONSOLE = "16:EasyPeteRef.pushactoraway player 10;16.3:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 40
+expect = [
+  { re = 'player knockdown: the player falls \(pushed, third person\): ragdoll', label = "the body drops as a ragdoll, the view stays in third person" },
+  { re = 'player knockdown: the player is up [\d.]+ s after the fall; the controls are theirs again', label = "up again, still in third person" },
+  { re = 'death camera: the player died', count = 0, label = "the player does not die" },
+]
+
+[[scenario]]
+name = "navmesh-switches"
+source = "docs/design/script-stubs.md §3.16: DisableNavmesh takes a navmesh out of the residents' paths and EnableNavMesh puts it back (the Lonesome Road elevator, Red Rock Canyon's bridge)"
+note = "in the Prospector Saloon at noon with its residents run by the AI; at 16 s the console disables the saloon's navmesh (0010A1DA, fnvtool nav near TrudyRef), at 20 s enables it again; the graph follows each switch and anyone walking over it plans again"
+areas = ["navigation", "ai", "scripts"]
+paths = ["crates/fnv-game/src/functions/navigation.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/follow.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "16:disablenavmesh 0010A1DA;16.3:close;20:enablenavmesh 0010A1DA;20.3:close" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 32
+order = [[
+  { re = 'nav: navmeshes switched by scripts: 0 enabled, disabled \[0010A1DA\]; \d+ actors plan their way again', label = "the saloon's navmesh goes" },
+  { re = 'nav: navmeshes switched by scripts: 1 enabled, disabled \[\]; 0 actors plan their way again', label = "and comes back" },
+]]
+expect = [
+  { re = 'DisableNavmesh: not built', count = 0, label = "DisableNavmesh is no stub" },
+  { re = 'EnableNavMesh: not built', count = 0, label = "EnableNavMesh is no stub" },
+]
+
+[[scenario]]
+name = "ai-procedure-codes"
+source = "docs/spec-notes/packages.md §4, procedure codes: GetCurrentAIProcedure reads what an actor does within its package as the original's AI observer samples show: a loaded sandboxing actor never 45 (that is an unloaded one's)"
+note = "in Chet's store (GSGeneralStore) at noon with the residents run by the AI; at 18 s, 24 s and 30 s the console reads Chet's package and procedure: his package from 6 to 22 is GSChetStoreSandbox (fnvtool ai day GSChetRef), and the original read 0 for him sandboxing in his store (function probes fp7_packages_locks); a sandboxer the AI runs reads 0, 7, 46, 48, 10, 8 or 21, never 45. Trudy, used first, has no valid package at any hour, here and in the original (0)"
+areas = ["ai", "scripts"]
+paths = ["crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-game/src/ai.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/sandbox.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "18:GSChetRef.getcurrentaipackage;18.2:GSChetRef.getcurrentaiprocedure;18.4:close;24:GSChetRef.getcurrentaiprocedure;24.2:close;30:GSChetRef.getcurrentaiprocedure;30.2:close" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 36
+expect = [
+  { re = 'console: GetCurrentAIPackage on GSChetRef >> 36\.00', label = "Chet sandboxes at noon" },
+  { re = 'console: GetCurrentAIProcedure on GSChetRef >> (0|7|46|48|10|8|21)\.00', count = 3, label = "what he does in the sandbox, as the original's codes" },
+  { re = 'console: GetCurrentAIProcedure on GSChetRef >> 45\.00', count = 0, label = "never the unloaded actor's 45" },
+]
+
+[[scenario]]
+name = "menu-hooks-pipboy-codes"
+source = "docs/design/script-stubs.md §3.15: the Pip-Boy reports its pages' MenuMode codes (STATS 1003, DATA 1023, ITEMS 1002); ResetPipboyManager puts its pages back to ITEMS and its light (the flashlight) off; AutoDisplayObjectives 1 holds the objective list on the HUD (the test aid call:)"
+areas = ["scripts", "pipboy", "menus"]
+paths = [
+  "engine/nvf-play/src/pipboy.rs", "engine/nvf-play/src/quest_messages.rs", "crates/fnv-game/src/functions/ui.rs",
+  "crates/fnv-game/src/functions/misc.rs", "crates/fnv-game/src/game.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_PIPBOY = "14:open,15:page=stats,16:page=data,17:page=items,18:page=data,19:close", NVF_PLAY_TEST_CONTROL = "21:flashlight", NVF_PLAY_TEST_SCRIPT = "23:call:-:ResetPipboyManager,24:call:-:AutoDisplayObjectives:1,26:call:-:AutoDisplayObjectives:0" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 32
+order = [[
+  "pipboy: menu code 1003",
+  "pipboy: menu code 1023",
+  "pipboy: menu code 1002",
+  "pipboy: menu code 1023",
+  "pipboy: down",
+  "flashlight: on",
+  "script: test aid calls ResetPipboyManager",
+  "flashlight: off",
+  "pipboy: manager reset (ResetPipboyManager): page ITEMS tab Weapons, light off",
+  "quest messages: objectives held on screen (AutoDisplayObjectives)",
+  "quest messages: objectives go after their time (AutoDisplayObjectives)",
+]]
+
+[[scenario]]
+name = "menu-hooks-tutorial"
+source = "docs/spec-notes/tutorial-menu.md: ShowTutorialMenu HelpHealingLimbs opens the tutorial menu (MenuMode 1059) in the world and over the Pip-Boy, which is the open menu again when it closes (its page codes go on); the test aid closes it after 2 s; frames at 15 s (the menu) and 20 s (over the Pip-Boy) in target/smoke"
+areas = ["scripts", "menus", "pipboy"]
+paths = [
+  "engine/nvf-play/src/tutorial_menu.rs", "engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/script.rs",
+  "crates/fnv-game/src/functions/ui.rs", "crates/fnv-game/src/game.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "2", NVF_PLAY_TEST_SCRIPT = "14:call:-:ShowTutorialMenu:0x00072358,19:call:-:ShowTutorialMenu:0x00072358", NVF_PLAY_TEST_PIPBOY = "18:open,23:page=stats,24:close", NVF_PLAY_TEST_SHOTS = "15:tutorial_menu.png,20:tutorial_over_pipboy.png" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 30
+order = [[
+  "script: test aid calls ShowTutorialMenu",
+  'tutorial menu: page 1/1 "Healing Limbs"',
+  "script: menu 1059 answered (OK)",
+  "pipboy: up",
+  "script: test aid calls ShowTutorialMenu",
+  'tutorial menu: page 1/1 "Healing Limbs"',
+  "script: menu 1059 answered (OK)",
+  "pipboy: menu code 1003",
+  "pipboy: down",
+]]
+expect = [
+  { re = 'test aid: closed menu 1059 after', count = 2, label = "the tutorial menu closes twice (the aid's 2 s)" },
+  { re = 'tutorial menu: closed', count = 0, label = "no key closed it" },
+]
+
+[[scenario]]
+name = "menu-hooks-exit-game"
+source = "docs/design/script-stubs.md §3.15: ExitGame leaves the game; a run a test aid drives quits instead of going back to the main menu (the test aid call:)"
+areas = ["scripts", "menus"]
+paths = ["crates/fnv-game/src/functions/ui.rs", "engine/nvf-play/src/script.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:call:-:ExitGame" }
+args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
+run_seconds = 30
+# ExitGame ends the run itself, before --run-seconds would ("run finished" is that limit's line).
+ends = "script: ExitGame: quit (a test aid drives this run)"
+order = [[
+  "script: test aid calls ExitGame",
+  "script: ExitGame: quit (a test aid drives this run)",
+]]
+expect = [
+  { re = 'ExitGame: back to the main menu', count = 0, label = "not handed over to the main menu in a test run" },
+]
+
+[[scenario]]
 name = "anim-state"
 source = "docs/outstanding.md §1 row 4: the engine tells the rules what each body does (crates/fnv-game/src/anim_state.rs, engine/nvforever/src/anim_state.rs): GetAnimAction's attacks and reloads, IsMoving's way, IsAnimPlaying of an actor's movement group"
 note = "as combat-npc-reload: Chet (GSChetRef) is given a .357 Magnum Revolver and set on the player, who cannot die (GOD). Before the fight the console reads Chet standing: IsAnimPlaying Idle 1 (observed on Sunny Smiles standing) and GetAnimAction -1; IsAnimPlaying without a group is read too, unchecked, to tell a missing snapshot (0) from another group (1) in a failing run, with the 'anim state: 00104C79 …' lines. In the fight his shots begin 2, 3 and 4 and his reloads 9 (the New Vegas codes, observed so in the AI observer's Goodsprings gunfight); the summary at exit counts how often each began"
 areas = ["combat", "scripts", "actors"]
 paths = ["crates/fnv-game/src/anim_state.rs", "engine/nvforever/src/anim_state.rs", "crates/fnv-game/src/anims.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/senses.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "14:GSChetRef.IsAnimPlaying Idle;14.15:GSChetRef.IsAnimPlaying;14.3:GSChetRef.GetAnimAction;14.6:close", NVF_PLAY_TEST_SCRIPT = "15:call:GSChetRef:AddItem:WeapNV357Revolver:1,15.5:call:GSChetRef:EquipItem:WeapNV357Revolver,16:combat:GSChetRef:player" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:GSChetRef.IsAnimPlaying Idle;8.15:GSChetRef.IsAnimPlaying;8.3:GSChetRef.GetAnimAction;8.6:close", NVF_PLAY_TEST_SCRIPT = "9:call:GSChetRef:AddItem:WeapNV357Revolver:1,9.5:call:GSChetRef:EquipItem:WeapNV357Revolver,10:combat:GSChetRef:player" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
-run_seconds = 56
+run_seconds = 50
 expect = [
   { re = 'console: IsAnimPlaying on GSChetRef >> 1\.00', label = "Chet standing plays Idle" },
   { re = 'console: GetAnimAction on GSChetRef >> -1\.00', label = "and does no special action" },

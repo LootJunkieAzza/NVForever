@@ -116,9 +116,10 @@ const PLAY_GROUP: u16 = 0x1013;
 /// The container menu [documented: GECK wiki MenuMode, as used in
 /// docs/spec-notes/xnvse-capture.md and simulation.md captures].
 pub const MENU_CONTAINER: u16 = 1008;
-/// The inventory (Pip-Boy) menu [hypothesis: the GECK wiki's list as remembered; not
-/// checked against a capture].
-pub const MENU_INVENTORY: u16 = 1002;
+/// The inventory menu, the Pip-Boy (`menus::INVENTORY`, documented). While the Pip-Boy is
+/// up its page's code is reported instead (`crate::pipboy`: STATS 1003, ITEMS 1002, DATA
+/// 1023, the repair list 1035), `MenuMode 1` for any of them.
+pub const MENU_INVENTORY: u16 = menus::INVENTORY;
 
 /// The Sleep / Wait menu (`crate::wait`) [observed: `Begin MenuMode 1012` blocks of six
 /// FalloutNV.esm scripts, one commented as the rest menu; docs/spec-notes/wait-menu.md
@@ -143,7 +144,7 @@ pub fn menu_code(mode: Mode) -> u16 {
 /// and the player closes it there.
 pub fn is_script_menu(code: u16) -> bool {
     code != MENU_CONTAINER
-        && code != MENU_INVENTORY
+        && !menus::is_pipboy(code)
         && code != MENU_SLEEP_WAIT
         && code != MENU_BARTER
         && code != crate::terminal::MENU_HACKING
@@ -284,6 +285,13 @@ pub struct Runtime {
     pub stats: TickStats,
     /// What the player's aid items did (`crate::aid`).
     pub aid: crate::aid::AidStats,
+    /// The perks' choice list answered with the default action: the target is activated
+    /// again as E does (`crate::activate`), without the list (`fnv_game::activate_choices`).
+    pub activate_again: Option<FormId>,
+    choices_passed: Option<FormId>,
+    /// The button picked in the perks' choice list, taken in the next tick (its script
+    /// needs the world).
+    activate_pick: Option<usize>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -373,6 +381,9 @@ impl ScriptState {
             _ if self.before_opening() => ControlLocks::ALL,
             // The player is dead: nothing more to do [design] (`crate::combat`).
             Some(rt) if rt.game.is_dead(FormId::PLAYER_REF) => ControlLocks::ALL,
+            // Knocked down: until the get-up clip is over (docs/spec-notes/unconscious.md
+            // §5.4; `nvforever` player_knockdown.rs).
+            Some(rt) if rt.game.knockout(FormId::PLAYER_REF).is_some() => ControlLocks::ALL,
             Some(rt) => ControlLocks::from_flags(rt.game.player.controls_disabled),
             None => ControlLocks::default(),
         }
@@ -403,12 +414,12 @@ pub fn engine_menu_opened(script: Option<&mut ScriptState>, mode: Mode) {
 }
 
 /// The container or inventory menu closed (menu.rs): `Game::close_menu` when it is still
-/// the runtime's open menu (a message box shown meanwhile then opens).
+/// the runtime's open menu (the Pip-Boy by any of its page codes; a message box shown
+/// meanwhile then opens), or forgotten when it waits under the tutorial menu
+/// (`Game::engine_menu_closed`).
 pub fn engine_menu_closed(script: Option<&mut ScriptState>, mode: Mode) {
     if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
-        if rt.game.menu == Some(menu_code(mode)) {
-            rt.game.close_menu();
-        }
+        rt.game.engine_menu_closed(menu_code(mode));
     }
 }
 
@@ -477,6 +488,9 @@ impl Runtime {
             started: Instant::now(),
             stats: TickStats::default(),
             aid: crate::aid::AidStats::default(),
+            activate_again: None,
+            choices_passed: None,
+            activate_pick: None,
         };
         with_world(&mut rt, sim, |rt| {
             rt.game.new_game();
@@ -534,6 +548,15 @@ impl Runtime {
     pub fn answer(&mut self, button: Option<i32>) -> bool {
         if self.closing.is_some() {
             return false;
+        }
+        // The perks' choice list (`fnv_game::activate_choices`): OK is its first button;
+        // taken in the next tick, with the world.
+        if self.game.activate_menu.is_some() {
+            if self.activate_pick.is_some() {
+                return false;
+            }
+            self.activate_pick = Some(button.unwrap_or(0).max(0) as usize);
+            return true;
         }
         let Some(menu) = self.game.menu.filter(|&m| is_script_menu(m)) else { return false };
         let front = if menu == MENU_MESSAGE { self.game.boxes.first().copied() } else { None };
@@ -617,7 +640,34 @@ impl Runtime {
         now.into_iter().filter(|r| self.marked.insert(*r)).collect()
     }
 
+    /// The player picks button `index` of the perks' choice list: a perk's choice runs
+    /// its script now; the default action activates the target again as E does
+    /// ([`Runtime::activate_again`]). Whether a list was open.
+    pub fn pick_activate_choice(&mut self, index: usize) -> bool {
+        self.observe_inventory();
+        let picked = self.game.pick_activate_choice(index);
+        let g = &self.game;
+        match &picked {
+            Some(fnv_game::activate_choices::Picked::Choice(c)) => info!("activate: the player chose {} ({})", c.label, g.data.name(c.perk)),
+            Some(fnv_game::activate_choices::Picked::Default(t)) => {
+                info!("activate: the player chose the default action on {}", g.data.name(*t));
+                self.activate_again = Some(*t);
+                self.choices_passed = Some(*t);
+            }
+            None => return false,
+        }
+        self.snapshot_inventory();
+        true
+    }
+
     fn by_hand(&mut self, target: FormId) -> Result<ByHand, String> {
+        // The player's perks offer choices on it (Cannibal, Mister Sandman): the list
+        // opens first, unless it was just answered with the default action.
+        if self.choices_passed.take() != Some(target) && self.game.open_activate_menu(target) {
+            let labels: Vec<&str> = self.game.activate_menu.iter().flat_map(|m| m.choices.iter().map(|c| c.label.as_str())).collect();
+            info!("activate: {} offers the perks' choices {labels:?} and its default action", self.game.data.name(target));
+            return Ok(ByHand::Choices);
+        }
         self.observe_inventory();
         let player = FormId::PLAYER_REF;
         let from = self.game.events.len();
@@ -952,6 +1002,9 @@ pub enum ByHand {
     /// The target is an actor whose greeting has the Goodbye flag: it said the line at
     /// the player and no conversation started (`Runtime::talk_after`).
     Greeted,
+    /// The player's perks offer choices on the target: their list opened
+    /// (`fnv_game::activate_choices`, `crate::script_hud`).
+    Choices,
 }
 
 /// The player activates `target` by hand (E): through the scripts when they run.
@@ -1095,8 +1148,32 @@ impl Plugin for ScriptPlugin {
             .insert_resource(crate::pause::WorldAidClock::from_env())
             .init_resource::<ClockScale>()
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
-            .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, run_scripts, start_world_aids, sync_locks, walk_player, hold_player, time_multiplier).chain().in_set(PlaySet::Scripts))
+            .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, crate::tutorial_menu::keys, run_scripts, start_world_aids, sync_locks, walk_player, hold_player, time_multiplier, exit_game).chain().in_set(PlaySet::Scripts))
             .add_systems(Last, (crate::aid::report, write_final));
+    }
+}
+
+/// ExitGame (`UiRequests::exit_game`): back to the main menu, as the pause menu's Quit
+/// to the main menu (`crate::pause::MainMenuRequest`) [documented: GECK wiki ExitGame,
+/// "returns the game to the main menu"; the credits it plays first are not built]. A run
+/// a test aid drives quits instead, as the console's `qqq` does, so that it ends where
+/// its log can be read [design]. Logged: `script: ExitGame: …`.
+fn exit_game(
+    mut script: ResMut<ScriptState>,
+    unattended: Option<Res<crate::test_aid::Unattended>>,
+    mut to_main: MessageWriter<crate::pause::MainMenuRequest>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let Some(rt) = script.rt.as_mut() else { return };
+    if std::mem::take(&mut rt.game.ui.exit_game) == 0 {
+        return;
+    }
+    if unattended.is_some_and(|u| u.0) {
+        info!("script: ExitGame: quit (a test aid drives this run)");
+        exit.write(AppExit::Success);
+    } else {
+        info!("script: ExitGame: back to the main menu (no credits)");
+        to_main.write(crate::pause::MainMenuRequest);
     }
 }
 
@@ -1263,6 +1340,10 @@ pub(crate) fn run_scripts(
                     match rt.restore_save(&mut sim, *snap) {
                         Ok(changed_refs) => {
                             info!("load: restored {}: {} changed references, {} quests, {} script instances", path.display(), changed_refs.len(), rt.game.quests.len(), rt.game.instances.len());
+                            // The frames after a load are the loading screen's for the
+                            // scripts, as after travel: their `Begin MenuMode 1007`
+                            // blocks run (`game::menus::LOADING`) [hypothesis].
+                            rt.frozen_frames = 2;
                             // The drawn world follows the restored simulation.
                             for id in changed_refs {
                                 changed.write(RefChanged { form_id: id.0 });
@@ -1377,6 +1458,9 @@ pub(crate) fn run_scripts(
         due.clear();
         for c in &console {
             console_out.push(crate::console::run_call(rt, c));
+        }
+        if let Some(i) = rt.activate_pick.take() {
+            rt.pick_activate_choice(i);
         }
         let from = rt.game.events.len();
         // A conversation with the player pauses the game: nobody moves, and no trigger
@@ -1511,6 +1595,10 @@ fn sync_locks(mut script: ResMut<ScriptState>, mut locks: ResMut<ControlLocks>, 
     }
     if script.rt.as_ref().is_some_and(|rt| rt.game.is_dead(FormId::PLAYER_REF)) {
         info!("player controls: all held, the player is dead");
+        return;
+    }
+    if script.rt.as_ref().is_some_and(|rt| rt.game.knockout(FormId::PLAYER_REF).is_some()) {
+        info!("player controls: all held, the player is knocked down");
         return;
     }
     stats.changes += 1;

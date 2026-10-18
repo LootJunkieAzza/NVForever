@@ -762,7 +762,7 @@ fn pace(two_handed_drawn: bool, penalty: f32) -> f32 {
 
 /// One frame of every fight (module notes).
 #[allow(clippy::too_many_arguments)]
-fn fight(
+pub(crate) fn fight(
     time: Res<Time>,
     mut fighters: ResMut<Fighters>,
     mut combat: ResMut<Combat>,
@@ -1618,13 +1618,15 @@ fn fight(
             if sights && !fighter.sights {
                 f.stats.sights_raised += 1;
             }
-            // The first time it is ready in a fight is logged too (a new fight after a
-            // search may begin from the hip).
-            if Some(sights) != fighter.ready_sights && ready {
+            // The first time a gunman is ready in a fight is logged too (a new fight after
+            // a search may begin from the hip); melee fighters and creatures have no aim.
+            if Some(sights) != fighter.ready_sights && ready && matches!(arm, Arm::Gun(_)) {
                 fighter.ready_sights = Some(sights);
                 let name = g.data.name(me);
                 if sights {
                     info!("npc combat: {name} {me} aims down the sights, its target {away:.0} units away (beyond {HIP_FIRE_WITHIN:.0}): walks while aiming");
+                } else if sight_fov <= 0.0 {
+                    info!("npc combat: {name} {me} fires from the hip, its target {away:.0} units away (its weapon has no sights)");
                 } else {
                     info!("npc combat: {name} {me} fires from the hip, its target {away:.0} units away (within {HIP_FIRE_WITHIN:.0})");
                 }

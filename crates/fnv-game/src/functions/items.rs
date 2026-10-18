@@ -101,7 +101,15 @@ pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
 pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let item = a.form(0)?;
-    let e = g.world.equip(actor, item).map_err(|e| e.to_string())?;
+    let e = match g.world.equip(actor, item) {
+        // Power armour on the untrained player: the game's message, as from the Pip-Boy
+        // [hypothesis: a script's EquipItem is refused as the player's own equipping is].
+        Err(fnv_sim::world::SimError::NoPowerArmorTraining(_)) => {
+            super::player::refuse_power_armor(g);
+            return Err(format!("{} needs Power Armor Training", g.data.name(item)));
+        }
+        r => r.map_err(|e| e.to_string())?,
+    };
     for u in e.unequipped {
         g.item_event(actor, u, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
     }

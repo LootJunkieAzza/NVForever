@@ -112,6 +112,9 @@ pub struct NavMesh {
     /// Disabled navmeshes take no part in paths (NAVM "Initially Disabled";
     /// `DisableNavmesh` / `EnableNavMesh` change it at run time).
     pub enabled: bool,
+    /// Its state as the load order has it (not "Initially Disabled"), before any switch
+    /// ([`NavGraph::apply_switches`]).
+    pub initially_enabled: bool,
 }
 
 /// A door that joins two triangles (usually in two spaces).
@@ -298,6 +301,7 @@ impl NavGraph {
                 tri_count: m.triangles.len() as u32,
                 first_vertex,
                 enabled: !m.initially_disabled(),
+                initially_enabled: !m.initially_disabled(),
             });
         }
         // Edges.
@@ -509,6 +513,24 @@ impl NavGraph {
             }
             None => false,
         }
+    }
+
+    /// Set every navmesh as `switches` has it (navmesh FormID → enabled; the scripts'
+    /// `EnableNavMesh` / `DisableNavmesh`), the others as the load order has them.
+    /// Returns whether any navmesh changed.
+    pub fn apply_switches(&mut self, switches: &std::collections::BTreeMap<u32, bool>) -> bool {
+        let mut changed = false;
+        for m in &mut self.meshes {
+            let want = switches.get(&m.form_id).copied().unwrap_or(m.initially_enabled);
+            if m.enabled != want {
+                m.enabled = want;
+                changed = true;
+            }
+        }
+        if changed {
+            self.compute_areas();
+        }
+        changed
     }
 
     /// Height of triangle `t`'s plane at (x, y).

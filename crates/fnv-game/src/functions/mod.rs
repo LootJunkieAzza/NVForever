@@ -25,6 +25,7 @@ pub(crate) mod furniture;
 mod items;
 mod magic;
 pub mod misc;
+pub mod navigation;
 mod objects;
 pub(crate) mod player;
 mod quest;
@@ -39,6 +40,7 @@ pub use actor::{actor_value, actor_value_capped, actor_value_parts, temporary as
 pub use actor::{faction_rank, faction_relation, factions_of, factions_relation};
 pub use misc::clock_now;
 pub use objects::scale_of;
+pub use player::refuse_power_armor;
 pub use refs::{list_members, repair_list};
 pub use fighting::cause_code;
 /// The level (0–3) of fame or infamy against a reputation's scale (the Pip-Boy's STATS page).
@@ -341,6 +343,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x11D5, "SetBroadcastState", Impl(objects::set_broadcast_state)),
         (0x11D4, "GetBroadcastState", Impl(crate::radio::get_broadcast_state)),
         (0x1171, "SetTalkingActivatorActor", Impl(objects::set_talking_activator_actor)),
+        (0x1172, "IsTalkingActivatorActor", Impl(crate::talking_activators::is_talking_activator_actor)),
         // Inventories (items.rs).
         (0x1249, "RemoveAllTypedItems", Impl(items::remove_all_typed_items)),
         (0x11BC, "AddItemHealthPercent", Impl(items::add_item_health_percent)),
@@ -425,7 +428,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1190, "PlayIdle", Impl(crate::idles::play_idle)),
         (0x105C, "Look", Impl(ai_state::look)),
         (0x105D, "StopLook", Impl(ai_state::stop_look)),
-        (0x11E4, "AgeRace", Stub("character appearance")),
+        (0x11E4, "AgeRace", Impl(actor::age_race)),
         (0x1026, "PlaySound", Impl(crate::sound::play_sound)),
         (0x11FF, "PlayMusic", Impl(crate::sound::play_music)),
         (0x1114, "PlayBink", Stub("video")),
@@ -439,7 +442,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1158, "ReleaseWeatherOverride", Impl(crate::weather::release_weather_override)),
         (0x1186, "SetGlobalTimeMultiplier", Impl(misc::set_global_time_multiplier)),
         (0x1269, "SwapTexture", Impl(misc::swap_texture)),
-        (0x1225, "AutoDisplayObjectives", Stub("HUD")),
+        (0x1225, "AutoDisplayObjectives", Impl(ui::auto_display_objectives)),
         (0x11DD, "ForceActiveQuest", Impl(ui::force_active_quest)),
         (0x115E, "Autosave", Impl(ui::autosave)),
         (0x11E1, "GetPlayerName", Impl(misc::get_player_name)),
@@ -465,7 +468,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x105A, "SetAlert", Impl(crate::awareness::set_alert)),
         (0x1042, "GetShouldAttack", Impl(fighting::get_should_attack)),
         (0x1275, "IncrementScriptedChallenge", Impl(ui::increment_scripted_challenge)),
-        (0x1201, "ResetPipboyManager", Stub("Pip-Boy")),
+        (0x1201, "ResetPipboyManager", Impl(ui::reset_pipboy_manager)),
         (0x122C, "ForceRadioStationUpdate", Impl(crate::radio::force_radio_station_update)),
         // Layer 6 systems added 2026-10-09 (function coverage round): recorded, no effect.
         (0x1128, "IsAnimPlaying", Impl(crate::anims::is_anim_playing)),
@@ -487,11 +490,11 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10F7, "GetIsUsedItemType", Impl(furniture::get_is_used_item_type)),
         (0x11E0, "GetIsUsedItemEquipType", Impl(furniture::get_is_used_item_equip_type)),
         (0x1103, "GetUsedItemActivate", Impl(furniture::get_used_item_activate)),
-        (0x107E, "StartCannibal", Stub("AI (Cannibal perk)")),
-        (0x10E3, "GetCannibal", Stub("AI (Cannibal perk)")),
-        (0x107F, "HasBeenEaten", Stub("AI (Cannibal perk)")),
-        (0x107C, "StartMisterSandman", Stub("AI (Mister Sandman perk)")),
-        (0x10E2, "GetSandman", Stub("AI (Mister Sandman perk)")),
+        (0x107E, "StartCannibal", Impl(actor::start_cannibal)),
+        (0x10E3, "GetCannibal", Impl(actor::get_cannibal)),
+        (0x107F, "HasBeenEaten", Impl(actor::has_been_eaten)),
+        (0x107C, "StartMisterSandman", Impl(actor::start_mister_sandman)),
+        (0x10E2, "GetSandman", Impl(actor::get_sandman)),
         (0x1101, "StopCombatAlarmOnActor", Impl(crate::awareness::stop_combat_alarm_on_actor)),
         (0x10B1, "SetCombatStyle", Impl(fighting::set_combat_style)),
         (0x11A0, "GetGroupMemberCount", Impl(fighting::get_group_member_count)),
@@ -531,7 +534,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1118, "IsCellOwner", Impl(crate::crime::is_cell_owner)),
         (0x1092, "IsInMyOwnedCell", Impl(crate::crime::is_in_my_owned_cell)),
         (0x124E, "GetOwnerLastTarget", Impl(actor::get_owner_last_target)),
-        (0x11AE, "IsActorTalkingThroughActivator", Stub("dialogue (talking activators)")),
+        (0x11AE, "IsActorTalkingThroughActivator", Impl(crate::talking_activators::is_actor_talking_through_activator)),
         (0x11B3, "GetDialogueEmotion", Impl(misc::get_dialogue_emotion)),
         (0x104C, "GetDisposition", Impl(actor::get_disposition)),
         (0x1277, "AlwaysShowActorSubtitles", Impl(senses::always_show_actor_subtitles)),
@@ -547,9 +550,9 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x118A, "PushActorAway", Impl(fighting::push_actor_away)),
         (0x11D0, "IsPlayerGrabbedRef", Stub("physics (grab)")),
         (0x110C, "trapUpdate", Stub("physics (traps)")),
-        (0x11C0, "EnableNavMesh", Stub("navigation")),
-        (0x11BF, "DisableNavmesh", Stub("navigation")),
-        (0x1159, "setAllReachable", Stub("navigation")),
+        (0x11C0, "EnableNavMesh", Impl(navigation::enable_navmesh)),
+        (0x11BF, "DisableNavmesh", Impl(navigation::disable_navmesh)),
+        (0x1159, "setAllReachable", Impl(navigation::set_all_reachable)),
         (0x1125, "StopMagicShaderVisuals", Impl(misc::stop_magic_shader_visuals)),
         (0x1248, "SetSecuritronExpression", Impl(misc::set_securitron_expression)),
         (0x1146, "Reset3DState", Impl(misc::reset_3d_state)),
@@ -585,7 +588,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1252, "ShowSlotMachineMenuParams", Stub("menus (casino)")),
         (0x11F1, "ShowBarberMenu", Impl(misc::show_barber_menu)),
         (0x11F2, "ShowPlasticSurgeonMenu", Impl(misc::show_plastic_surgeon_menu)),
-        (0x11E3, "ShowTutorialMenu", Stub("menus (tutorial)")),
+        (0x11E3, "ShowTutorialMenu", Impl(ui::show_tutorial_menu)),
         (0x1279, "ShowSleepWaitMenu", Impl(crate::rest::show_sleep_wait_menu)),
         (0x1270, "EnableLoadingMenu", Stub("menus (loading)")),
         (0x11F8, "ShowAllMapMarkers", Impl(player::show_all_map_markers)),
@@ -596,7 +599,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x120A, "GetIsLockBroken", Impl(refs::get_is_lock_broken)),
         (0x127B, "SystemSave", Impl(ui::system_save)),
         (0x1217, "ForceSave", Impl(ui::force_save)),
-        (0x11B5, "ExitGame", Stub("menus (credits, main menu)")),
+        (0x11B5, "ExitGame", Impl(ui::exit_game)),
         (0x121B, "AddTagSkills", Impl(ui::add_tag_skills)),
         (0x119F, "Exists", Impl(fighting::exists)),
         (0x1130, "IsWaterObject", Stub("AI (drinking)")),

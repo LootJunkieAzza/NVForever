@@ -86,6 +86,9 @@ pub struct ActorWorld {
     /// How many times ResurrectActor rolled a reference's random choices again
     /// (`fnv_game::resurrect`, told by `resurrect.rs`): the seed of its leveled picks.
     pub rolls: Mutex<HashMap<u32, u32>>,
+    /// The race and sex scripts gave a reference (AgeRace, SexChange;
+    /// `fnv_game::appearance`, told by `appearance.rs`): drawn in place of the record's.
+    pub changes: Mutex<HashMap<u32, fnv_actor::Change>>,
 }
 
 type ClipSets = HashMap<(String, Body, &'static str), Option<Arc<ClipSet>>>;
@@ -108,6 +111,7 @@ impl ActorWorld {
             sets: Mutex::new(HashMap::new()),
             stances: Mutex::new(HashMap::new()),
             rolls: Mutex::new(HashMap::new()),
+            changes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -125,13 +129,19 @@ impl ActorWorld {
     /// [`Self::resolve`] wearing the given armour instead of the chosen one
     /// (`Resolver::resolve_wearing`; the player's body).
     pub fn resolve_wearing(&self, base: u32, reference: u32, wearing: Option<&[FormId]>) -> Result<Appearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_wearing(FormId(base), self.seed(reference), wearing).map_err(|e| e.to_string())
+        self.resolve_as(base, reference, wearing, None)
+    }
+
+    /// A script's race or sex change of `reference` (`Self::changes`).
+    pub fn change(&self, reference: u32) -> fnv_actor::Change {
+        self.changes.lock().map_or_else(|_| Default::default(), |c| c.get(&reference).copied().unwrap_or_default())
     }
 
     /// [`Self::resolve_wearing`] with a chosen look (the player's, from the character
     /// creator) in place of the record's.
     pub fn resolve_as(&self, base: u32, reference: u32, wearing: Option<&[FormId]>, look: Option<&fnv_actor::Look>) -> Result<Appearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve_as(FormId(base), self.seed(reference), wearing, look).map_err(|e| e.to_string())
+        let change = self.change(reference);
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_changed(FormId(base), self.seed(reference), wearing, look, change).map_err(|e| e.to_string())
     }
 
     pub fn resolve_creature(&self, base: u32, reference: u32) -> Result<CreatureAppearance, String> {

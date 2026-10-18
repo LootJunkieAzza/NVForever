@@ -530,6 +530,9 @@ struct Body {
     /// The look chosen in the character creator the body was built with (`None`: the
     /// player record's).
     look: Option<fnv_actor::Look>,
+    /// AgeRace's and SexChange's change the body was built with (`ActorWorld::change`,
+    /// `crate::appearance`).
+    change: fnv_actor::Change,
     female: bool,
     scale: f32,
     third: Rig,
@@ -763,12 +766,13 @@ fn ensure_body(
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
-    death: Res<crate::death_cam::DeathCam>,
+    (death, knock): (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
     (script, real, mut last_look): (Option<Res<nvf_play::script::ScriptState>>, Res<Time<Real>>, Local<f32>),
 ) {
     let (Some(world), Ok(world_root)) = (world, root.single()) else { return };
-    // The dead player's body lies as its ragdoll left it: it is not rebuilt.
-    if state.failed.is_some() || death.down() {
+    // The dead or knocked-down player's body lies as its ragdoll left it: it is not
+    // rebuilt.
+    if state.failed.is_some() || death.down() || knock.ragdolled() {
         return;
     }
     let (worn, weapon) = equipped(&sim, &world);
@@ -778,7 +782,9 @@ fn ensure_body(
     let mut rebuilt = false;
     // A new look rebuilds the body, at most every [`LOOK_REBUILD`] seconds while a
     // slider is dragged [design].
-    let look_changed = state.body.as_ref().is_some_and(|b| b.look != look);
+    // AgeRace and SexChange before the creator gave a look (`crate::appearance`).
+    let change = world.change(FormId::PLAYER_REF.0);
+    let look_changed = state.body.as_ref().is_some_and(|b| b.look != look || b.change != change);
     let look_due = look_changed && real.elapsed_secs() - *last_look >= LOOK_REBUILD;
     if state.body.as_ref().is_none_or(|b| b.worn != worn) || look_due {
         if look_due {
@@ -948,7 +954,7 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
             None
         }
     };
-    Ok(Body { worn: worn.to_vec(), look: look.cloned(), female: a.female, scale, third, first })
+    Ok(Body { worn: worn.to_vec(), look: look.cloned(), change: world.change(FormId::PLAYER_REF.0), female: a.female, scale, third, first })
 }
 
 /// Spawn one rig of appearance `a` under `parent` (its transform set each frame).
@@ -1597,7 +1603,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, death): (
+    (furniture, mut idles, mut seat, pip, cams, first_fov, limbs, (death, knock)): (
         Res<crate::furniture::BodyOverride>,
         ResMut<PlayerIdles>,
         ResMut<nvf_play::furniture::PlayerSeat>,
@@ -1605,7 +1611,7 @@ fn drive_body(
         Query<&Projection, With<nvf_play::PlayerCamera>>,
         Option<Res<nvf_play::free_cam::FirstPersonFov>>,
         Option<Res<nvf_play::combat::PlayerLimbs>>,
-        Res<crate::death_cam::DeathCam>,
+        (Res<crate::death_cam::DeathCam>, Res<crate::player_knockdown::PlayerKnockdown>),
     ),
     mut driven: ResMut<nvf_play::player::ViewDriven>,
 ) {
@@ -1626,14 +1632,15 @@ fn drive_body(
         state.muzzle_entity = None;
         return;
     };
-    if death.down() {
-        // Dead: the clips stop and the ragdoll has the body (`death_cam.rs`). The whole
-        // body is drawn, but for its head while the view is inside it.
+    if death.down() || knock.ragdolled() {
+        // Dead or knocked down: the clips stop and the ragdoll has the body
+        // (`death_cam.rs`, `player_knockdown.rs`). The whole body is drawn, but for its
+        // head while the view is inside it (a knockdown's view is outside).
         anim.ready = false;
         anim.muzzle = None;
         anim.casing = None;
         state.muzzle_entity = None;
-        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person(), arms: true, weapon: true }, false);
+        show_rigs(body, &mut commands, &mut visibility, Seen { body: true, head: death.third_person() || knock.ragdolled(), arms: true, weapon: true }, false);
         return;
     }
     let dt = time.delta_secs();

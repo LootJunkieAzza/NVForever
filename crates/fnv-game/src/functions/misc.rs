@@ -177,11 +177,13 @@ pub fn zero(_g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 /// 1 while a menu is open, or that menu with a menu code [documented: catalogue summary].
 /// A conversation with the player is a menu: `MenuMode` and `MenuMode 1009` read 1 from
 /// its greeting to its end [owner statement 2026-10-10: such a dialogue pauses the game;
-/// documented: GECK wiki GetMenuTargetRef, owner export, for the code 1009].
+/// documented: GECK wiki GetMenuTargetRef, owner export, for the code 1009]. `MenuMode 1`
+/// is any of the Pip-Boy's menus; a loading screen is a menu (1007) [hypothesis]; the
+/// codes: `Game::menu_open`, `game::menus`.
 pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     Ok(Value::bool(match a.num(0).ok().filter(|c| *c != 0.0) {
-        None => g.in_menu(),
-        Some(c) => g.menu.is_some_and(|m| m as f64 == c) || (c == menus::DIALOGUE as f64 && g.dialogue.is_some()),
+        None => g.in_menu() || g.loading,
+        Some(c) => c.fract() == 0.0 && (0.0..=u16::MAX as f64).contains(&c) && g.menu_open(c as u16),
     }))
 }
 

@@ -209,6 +209,9 @@ fn plugin_bytes() -> Vec<u8> {
     //   begin GameMode
     //     set nFrames to nFrames + 1
     //   end
+    //   begin MenuMode 1 / 1007 / 1056
+    //     set nPip / nLoad / nVats to … + 1
+    //   end
     let body = [
         set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")])),
         call(SET_STAGE, &[r(2), n(10)]),
@@ -224,8 +227,11 @@ fn plugin_bytes() -> Vec<u8> {
                 (0x08, Some([le16(1), r(1)].concat()), set(var(b's', 2), ex(&[var(b's', 2), a("10"), a("+")]))),
                 (0x09, None, set(var(b's', 2), ex(&[var(b's', 2), a("1"), a("+")]))),
                 (0, None, set(var(b's', 3), ex(&[var(b's', 3), a("1"), a("+")]))),
+                (1, Some([le16(1), n(1)].concat()), set(var(b's', 4), ex(&[var(b's', 4), a("1"), a("+")]))),
+                (1, Some([le16(1), n(1007)].concat()), set(var(b's', 5), ex(&[var(b's', 5), a("1"), a("+")]))),
+                (1, Some([le16(1), n(1056)].concat()), set(var(b's', 6), ex(&[var(b's', 6), a("1"), a("+")]))),
             ]),
-            &[(1, "nUsed", 1), (2, "nHit", 1), (3, "nFrames", 1)],
+            &[(1, "nUsed", 1), (2, "nHit", 1), (3, "nFrames", 1), (4, "nPip", 1), (5, "nLoad", 1), (6, "nVats", 1)],
             &[0x14, QUEST, MESSAGE],
         ),
     ]
@@ -1192,4 +1198,134 @@ fn a_level_is_earned_by_experience_and_waits_for_no_one_hunting_the_player() {
     assert_eq!(experience::level_up(&mut g), 2);
     assert!(g.menu_open(fnv_game::game::menus::LEVEL_UP));
     assert!(!experience::level_up_due(&g));
+}
+
+/// `Begin MenuMode 1` runs for any of the Pip-Boy's menus; `Begin MenuMode 1007` under a
+/// loading screen and `1056` while VATS marks, with nothing else running then
+/// (`game::menus`).
+#[test]
+fn coded_menu_mode_blocks_run_for_their_menus() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_loaded([FormId(CELL)].into_iter().collect());
+    let key = InstKey::Ref { reference: FormId(ACT_REF) };
+    let v = |g: &Game, i: u16| g.var(key, i).num();
+    g.frames(2);
+    let frames = v(&g, 3);
+    assert!(frames > 0.0, "GameMode runs");
+    assert_eq!((v(&g, 4), v(&g, 5), v(&g, 6)), (0.0, 0.0, 0.0));
+    // The Pip-Boy by each of its pages: MenuMode 1.
+    for code in [menus::INVENTORY, menus::STATS, menus::MAP, menus::REPAIR] {
+        g.menu = Some(code);
+        g.tick();
+    }
+    assert_eq!(v(&g, 4), 4.0);
+    // Another menu is not the Pip-Boy.
+    g.menu = Some(menus::MESSAGE);
+    g.tick();
+    assert_eq!(v(&g, 4), 4.0);
+    g.menu = None;
+    // A loading screen: only the 1007 block runs; GameMode does not, nor does time pass.
+    let (t, frames) = (g.time, v(&g, 3));
+    g.loading = true;
+    g.frames(2);
+    g.loading = false;
+    assert_eq!((v(&g, 5), v(&g, 3), g.time), (2.0, frames, t));
+    // VATS marking: GameMode goes on, and the 1056 block runs beside it.
+    g.vats.mode = fnv_game::vats::MODE_TARGET_SELECT;
+    g.tick();
+    assert_eq!((v(&g, 6), v(&g, 3)), (1.0, frames + 1.0));
+    g.vats.mode = fnv_game::vats::MODE_OFF;
+    g.tick();
+    assert_eq!(v(&g, 6), 1.0);
+}
+
+fn ui_call(g: &mut Game, op: u16, args: &[ArgValue]) {
+    let ctx = Ctx { unit: "test".into(), opcode: op, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    let before = g.events.len();
+    g.call_function(&ctx, args);
+    assert!(!g.events[before..].iter().any(|e| matches!(e.kind, EventKind::CallFailed { .. } | EventKind::Unhandled { .. })), "0x{op:04X}: {:?}", &g.events[before..]);
+}
+
+fn menu_mode(g: &mut Game, code: f64) -> f64 {
+    let ctx = Ctx { unit: "test".into(), opcode: 0x1024, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[ArgValue::Value(Value::Num(code))]).num()
+}
+
+/// ShowTutorialMenu opens the tutorial menu (1059) over the Pip-Boy and gives the
+/// Pip-Boy back when it closes; MenuMode answers for both meanwhile; a second message is
+/// a second page; a message box waits for it.
+#[test]
+fn the_tutorial_menu_opens_over_the_pipboy_and_gives_it_back() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = game(&f);
+    g.open_menu(menus::STATS);
+    assert_eq!((menu_mode(&mut g, 1.0), menu_mode(&mut g, 1003.0), menu_mode(&mut g, 1002.0)), (1.0, 1.0, 0.0));
+    let msg = ArgValue::Value(Value::Ref(MESSAGE));
+    ui_call(&mut g, 0x11E3, std::slice::from_ref(&msg));
+    assert_eq!((g.menu, g.menu_under, g.tutorial.clone()), (Some(menus::TUTORIAL), Some(menus::STATS), vec![FormId(MESSAGE)]));
+    assert_eq!((menu_mode(&mut g, 1059.0), menu_mode(&mut g, 1.0)), (1.0, 1.0));
+    // Shown again while open: no second page of the same message.
+    ui_call(&mut g, 0x11E3, &[msg]);
+    assert_eq!(g.tutorial.len(), 1);
+    // A message box waits until the tutorial and the Pip-Boy are closed.
+    g.show_box(FormId(MESSAGE));
+    assert_eq!(g.menu, Some(menus::TUTORIAL));
+    assert_eq!(g.close_menu(), Some(menus::TUTORIAL));
+    assert_eq!((g.menu, g.menu_under, g.tutorial.len()), (Some(menus::STATS), None, 0));
+    // The Pip-Boy turns its page; the engine closes it by any code; the box opens.
+    assert!(g.set_pipboy_menu(menus::MAP));
+    assert_eq!(menu_mode(&mut g, 1023.0), 1.0);
+    assert!(g.engine_menu_closed(menus::INVENTORY));
+    assert_eq!(g.menu, Some(menus::MESSAGE));
+    assert!(!g.set_pipboy_menu(menus::STATS), "a message box is no Pip-Boy page");
+    g.close_menu();
+    // The Pip-Boy put away under the tutorial: closing the tutorial leaves no menu.
+    g.open_menu(menus::INVENTORY);
+    g.show_tutorial(FormId(MESSAGE));
+    assert!(g.engine_menu_closed(menus::INVENTORY));
+    assert_eq!((g.menu, g.menu_under), (Some(menus::TUTORIAL), None));
+    g.close_menu();
+    assert_eq!(g.menu, None);
+    // CloseAllMenus closes the tutorial and the menu under it [observed: mh1_tutorial].
+    g.open_menu(menus::MESSAGE);
+    g.show_tutorial(FormId(MESSAGE));
+    assert_eq!(g.close_all_menus(), vec![menus::TUTORIAL, menus::MESSAGE]);
+    assert_eq!(g.menu, None);
+    // Not a message: refused.
+    let ctx = Ctx { unit: "test".into(), opcode: 0x11E3, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    let before = g.events.len();
+    g.call_function(&ctx, &[ArgValue::Value(Value::Ref(GLOBAL))]);
+    assert!(g.events[before..].iter().any(|e| matches!(e.kind, EventKind::CallFailed { .. })));
+    assert_eq!(g.menu, None);
+    // A loading screen is MenuMode 1007, and a menu for MenuMode without a code.
+    let ctx0 = Ctx { opcode: 0x1024, ..ctx };
+    g.loading = true;
+    assert_eq!((menu_mode(&mut g, 1007.0), g.call_function(&ctx0, &[]).num()), (1.0, 1.0));
+    g.loading = false;
+    assert_eq!(menu_mode(&mut g, 1007.0), 0.0);
+}
+
+/// ResetPipboyManager, ExitGame and AutoDisplayObjectives leave their requests for the
+/// engine; the objective switch is saved with the player.
+#[test]
+fn pipboy_reset_exit_and_objective_display_requests() {
+    let f = fixture();
+    let mut g = game(&f);
+    ui_call(&mut g, 0x1201, &[]);
+    ui_call(&mut g, 0x1201, &[]);
+    assert_eq!(g.ui.pipboy_resets, 2);
+    ui_call(&mut g, 0x11B5, &[]);
+    assert_eq!(g.ui.exit_game, 1);
+    assert!(!g.player.auto_objectives);
+    ui_call(&mut g, 0x1225, &[ArgValue::Value(Value::Num(1.0))]);
+    assert!(g.player.auto_objectives);
+    let saved = serde_json::to_value(&g.player).unwrap();
+    assert_eq!(saved["auto_objectives"], true);
+    ui_call(&mut g, 0x1225, &[ArgValue::Value(Value::Num(0.0))]);
+    assert!(!g.player.auto_objectives);
+    assert!(serde_json::to_value(&g.player).unwrap().get("auto_objectives").is_none());
 }
