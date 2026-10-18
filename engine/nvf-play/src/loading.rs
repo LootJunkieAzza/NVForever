@@ -24,6 +24,8 @@
 //!   going back to the main menu, which start the program again behind it
 //!   (nvforever `handoff.rs`); [`Loading::unseen`] is that new run's own start while its
 //!   window is still hidden, when streaming may take long frames as behind a screen.
+//!   An [`Uncover`] goes back to what the game was in when the cover came: the main
+//!   menu or the pause menu, still holding the game, after a load that came to nothing.
 
 use crate::phys::PhysState;
 use crate::{Location, PlaySet, PlayState, PlayWorld, Travel};
@@ -84,6 +86,12 @@ pub struct Loading {
     trip: Option<Trip>,
     /// A screen is up for a [`CoverRequest`].
     cover: bool,
+    /// What the game was in when a [`CoverRequest`] came (its state, and whether the
+    /// pause menu held it): an [`Uncover`] goes back to it. Leaving `PlayState::Menu`
+    /// for the screen closes the pause menu (`crate::pause`), so a load from the main
+    /// menu or the pause menu that comes to nothing would otherwise go on playing, quest
+    /// scripts and all, behind the menu.
+    cover_from: Option<(PlayState, bool)>,
     /// Nothing of the game is on screen yet (nvforever `handoff.rs`: a start whose window
     /// is still hidden): loading may take long frames, as behind a screen.
     pub unseen: bool,
@@ -221,7 +229,8 @@ fn hold(
     mut down: MessageReader<Uncover>,
     mut loading: ResMut<Loading>,
     mut clock: ResMut<Time<Virtual>>,
-    mut next: ResMut<NextState<PlayState>>,
+    (state, mut next): (Res<State<PlayState>>, ResMut<NextState<PlayState>>),
+    mut paused: Option<ResMut<crate::pause::Paused>>,
     mut art: Art,
     roots: Query<Entity, With<LoadingRoot>>,
 ) {
@@ -233,7 +242,11 @@ fn hold(
             commands.entity(e).despawn();
         }
         clock.unpause();
-        next.set(PlayState::Playing);
+        let (back, held) = loading.cover_from.take().unwrap_or((PlayState::Playing, false));
+        next.set(back);
+        if let Some(p) = paused.as_mut() {
+            p.0 = held;
+        }
         return;
     }
     let Some(CoverRequest { to }) = asked else { return };
@@ -245,6 +258,7 @@ fn hold(
     }
     spawn_screen(&mut commands, &mut loading, &mut art, to.as_ref());
     clock.pause();
+    loading.cover_from = Some((*state.get(), paused.is_some_and(|p| p.0)));
     next.set(PlayState::Loading);
     loading.cover = true;
 }
@@ -463,5 +477,27 @@ mod tests {
         assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
         assert!(!app.world().resource::<Time<Virtual>>().is_paused());
         assert_eq!(app.world_mut().query::<&LoadingRoot>().iter(app.world()).count(), 0);
+    }
+
+    #[test]
+    fn a_held_screen_coming_down_goes_back_to_the_menu_it_came_from() {
+        let mut app = app();
+        app.insert_resource(crate::pause::Paused(true));
+        // As the pause menu's own `close` on leaving the menu state.
+        app.add_systems(OnExit(PlayState::Menu), |mut p: ResMut<crate::pause::Paused>| p.0 = false);
+        app.world_mut().resource_mut::<NextState<PlayState>>().set(PlayState::Menu);
+        app.update();
+        app.world_mut().write_message(CoverRequest { to: None });
+        app.update();
+        app.update();
+        assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Loading);
+        assert!(!app.world().resource::<crate::pause::Paused>().0);
+        // The new run came to nothing: the menu again, still holding the game.
+        app.world_mut().write_message(Uncover);
+        app.update();
+        app.update();
+        assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Menu);
+        assert!(app.world().resource::<crate::pause::Paused>().0);
+        assert!(!app.world().resource::<Loading>().active());
     }
 }
