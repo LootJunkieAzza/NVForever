@@ -5854,15 +5854,17 @@ the original can answer it:
 - **The acts**: GetCannibal and GetSandman hold for their clips' length (7.7 s and 6 s);
   the corpse counts as eaten (HasBeenEaten) only when the act is over (capture ac4: still
   0 while GetCannibal was 1); StartCannibal adds no health or karma of its own (ac4
-  confirmed it). Mister Sandman kills at once; a script calling it on an awake NPC
-  crashed the original (ac5), NVForever just kills;
+  confirmed it). Mister Sandman kills at once [guess]; a script calling it crashed the original, on an
+  awake NPC (ac5) and on one made unconscious (ac5b), so only the perk's own use on a
+  sleeping NPC can show it: *please try it once in the original* (sneak up on a sleeper
+  with Mister Sandman: killed at once or at the clip's end?). NVForever just kills;
   a witnessed cannibalism turns every witness hostile as an assault ("a crime against
   nature"); the clips are the StartCannibal idle and the SandMan child for the victim's
   bed or floor marker, with the two perk sounds.
 - **Talking activators**: activating one talks to it; its talking actor's lines and voice
   come through it (the actor need not be near); IsActorTalkingThroughActivator holds
-  then. The wiki notes it is false when the actor was set by script, which would make the
-  92 conditions of the masters never hold, so it is not followed (probe ac6). The
+  then. Capture ac6 showed the wiki's "false when set by script" wrong:
+  IsTalkingActivatorActor reads 1 after a script sets the actor, as in NVForever. The
   dialogue menu names the actor, the view turns to the activator.
 - **To check in game**: smoke `perk-cannibal-devour` (Easy Pete eaten in Goodsprings),
   `talking-activator-intercom` (Hidden Valley's bunker intercom: Ramos's "[You hear

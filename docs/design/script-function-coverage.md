@@ -456,7 +456,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetReputationPct | 0x123E | 0 / 2 | match | - | - |  |
 | GetReputationThreshold | 0x123F | 143 / 1643 | match | - | - |  |
 | GetRestrained | 0x10F4 | 5 / 2 | match | - | - |  |
-| GetSandman | 0x10E2 | 0 / 2 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 for the clips' 5.967 s after StartMisterSandman [hypothesis; probe ac5 crashed the original on an awake victim]. |
+| GetSandman | 0x10E2 | 0 / 2 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 for the clips' 5.967 s after StartMisterSandman [hypothesis; scripted StartMisterSandman crashed the original on an awake and on an unconscious victim, captures ac5, ac5b]. |
 | GetScale | 0x1018 | 1 / 1 | match | - | - |  |
 | GetScriptVariable | 0x1035 | 0 / 1756 | match | - | - |  |
 | GetSecondsPassed | 0x100C | 821 / 0 | match | - | - |  |

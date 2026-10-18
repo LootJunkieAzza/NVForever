@@ -40,8 +40,9 @@
 //! **Mister Sandman** (`victim.StartMisterSandman killer`): the sleeping victim is killed
 //! by the killer at once, silently [documented: GetSandman, "the silent sleeping-NPC
 //! kill"; hypothesis: at once rather than at the clip's end]. Called by a script on an
-//! awake actor the original crashed [observed: capture ac5, 2026-10-18, once, on Joe
-//! Cobb]; NVForever kills it as a sleeping one [design]. The killer is in the act for
+//! awake actor, and on one a script made unconscious, the original crashed [observed:
+//! captures ac5 and ac5b, 2026-10-18, once each, on Joe Cobb]; NVForever kills it as a
+//! sleeping one [design]. The killer is in the act for
 //! [`SANDMAN_SECONDS`] (GetSandman 1) and plays the IDLE `SandMan` tree's clip for
 //! the victim's furniture marker (bed left 1, bed right 2, floor left 3, floor right 4:
 //! the children's GetFurnitureMarkerID conditions, judged on the victim [hypothesis]),

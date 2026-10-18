@@ -13,7 +13,7 @@ Code: `fnv_game::activate_choices` (the choices, the acts), `fnv_game::data::Ent
 `script_hud.rs` (`activate_panel`), `activate.rs` (the default action activated again).
 Tests: `crates/fnv-game/tests/perk_talk.rs`. Smoke: `perk-cannibal-devour`,
 `perk-sandman-kill`. Capture jobs: `tools/capture/probes/actor_changes.toml` ac4, ac5 (run
-2026-10-18; ac5 crashed the game, so ac5b asks again on an unconscious victim).
+2026-10-18; ac5 and ac5b crashed the game, so no more Mister Sandman probes are run).
 
 ## 1. The records [observed]
 
@@ -77,8 +77,11 @@ Ghastly Scavenger "Devour", Dine and Dash "Dine and Dash" (FalloutNV.esm), Miste
   silently (no alarm of its own [documented: "the silent sleeping-NPC kill"]); karma and
   murder are judged as for any kill by the player; GetSandman 1 for the clips' 5.967 s
   [observed: the four `SandMan*.kf`; hypothesis: that the act lasts the clip]. A script's
-  StartMisterSandman on an awake actor crashed the original [observed: capture ac5,
-  2026-10-18, once, on Joe Cobb in Goodsprings]; NVForever kills it as if asleep
-  [design]. The
+  StartMisterSandman crashed the original both on an awake actor and on one a script
+  had made unconscious [observed: captures ac5 and ac5b, 2026-10-18, once each, on Joe
+  Cobb in Goodsprings, GetUnconscious 1 and GetDead 0 before the call]. So what it does
+  is only to be seen through the perk's own activation on a sleeping NPC, which needs a
+  player in the game; NVForever's rule (killed at once, the act for the clip) stays
+  [hypothesis], and on a victim that is not asleep it kills too [design].
   killer plays the SandMan child idle whose GetFurnitureMarkerID condition holds on the
   victim, else the first [hypothesis], and the sound.

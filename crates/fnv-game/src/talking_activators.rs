@@ -19,10 +19,10 @@
 //!   and while the conversation through the activator runs [documented: catalogue,
 //!   "returns true if the actor is speaking via an activator; the actor must first be
 //!   registered through the talking-activator setter"; the 92 conditions of the masters'
-//!   lines use it so, observed]. The catalogue's note that it is false "if the talking
-//!   actor was assigned by script" is not followed: every New Vegas talking actor is
-//!   assigned by script, and the lines conditioned on it would never be said
-//!   [hypothesis; capture job in owner-review].
+//!   lines use it so, observed; hypothesis: that it holds during the conversation].
+//!   Outside one it is 0 with the actor set [observed: capture ac6]. The catalogue's
+//!   note that IsTalkingActivatorActor is false "if the talking actor was assigned by
+//!   script" does not hold: it read 1 after SetTalkingActivatorActor [observed: ac6].
 //! - The engine looks at the activator, not at the far-away actor, while the
 //!   conversation runs (`Conversation::through`).
 
@@ -72,8 +72,8 @@ pub fn is_actor_talking_through_activator(g: &mut Game, ctx: &Ctx, _a: &Args) ->
 }
 
 /// `activator.IsTalkingActivatorActor actor`: 1 when `actor` is the activator's talking
-/// actor [documented: catalogue summary]; set by script too (module notes: the note that
-/// it is false then is not followed [hypothesis]).
+/// actor [documented: catalogue summary], set by script too [observed: capture ac6, 0
+/// before, 1 after SetTalkingActivatorActor, 0 once cleared].
 pub fn is_talking_activator_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let actor = a.form(0)?;

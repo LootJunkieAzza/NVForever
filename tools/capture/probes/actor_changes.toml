@@ -136,9 +136,9 @@ steps = [
 
 # ---------------------------------------------------------------- ac5: Mister Sandman
 # ac5_sandman (StartMisterSandman on an awake Joe Cobb) crashed the original on its first
-# call, 2026-10-18 [observed, once]; it is kept out of the runs. ac5b asks again with the
-# victim lying down (SetUnconscious, the nearest a script gets to the perk's sleeping
-# NPC); it may crash too: run it on its own, last.
+# call, 2026-10-18 [observed, once]; ac5b, below, with the victim made unconscious first,
+# crashed it too [observed, once, 2026-10-18]. Do not run either again: only the perk's
+# own activation on a sleeping NPC, by a player in the game, can answer them.
 [[batch]]
 name = "ac5b_sandman_unconscious"
 title = "Actor changes 5b: StartMisterSandman on an unconscious NPC (set by script): killed at once or at the clip's end, and how long GetSandman holds (about 30 s; it may crash the game as ac5 did on an awake NPC; run it alone)"

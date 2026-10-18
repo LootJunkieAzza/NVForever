@@ -11,7 +11,8 @@ Code: `fnv_game::talking_activators` (who speaks, IsActorTalkingThroughActivator
 `fnv_game::dialogue` (`Conversation::through`), `fnv_sim::World::activate` (a TACT's
 default action is Talk); the engine's `dialogue_look.rs` (the view turns to the
 activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs`. Smoke:
-`talking-activator-intercom`. Capture job: `tools/capture/probes/actor_changes.toml` ac6.
+`talking-activator-intercom`. Capture job: `tools/capture/probes/actor_changes.toml` ac6
+(run 2026-10-18 on nvftest: every answer the same as ours).
 
 ## 1. What the data does [observed]
 
@@ -40,10 +41,13 @@ activator; the actor does not turn). Tests: `crates/fnv-game/tests/perk_talk.rs`
 - **IsActorTalkingThroughActivator** is 1 on that actor while its lines are chosen and
   while that conversation runs, else 0 [documented: "returns true if the actor is
   speaking via an activator; the actor must first be registered through the
-  talking-activator setter"]. The catalogue's note "false if the talking actor was
-  assigned by script" is not followed [hypothesis: every New Vegas talking actor is set
-  by script, and the 92 conditions would never hold]; probe ac6 asks the original's
-  IsTalkingActivatorActor after a script set the actor.
+  talking-activator setter"]. Outside a conversation it is 0 even with the actor set
+  [observed: capture ac6, 2026-10-18]. The catalogue's note "false if the talking actor
+  was assigned by script" does not hold: IsTalkingActivatorActor read 0 before, 1 after
+  SetTalkingActivatorActor by script and 0 again once the actor was cleared [observed:
+  ac6, the same as NVForever's]. That IsActorTalkingThroughActivator is 1 during a
+  conversation through the activator is still [hypothesis] (the 92 conditions rely on it;
+  smoke `talking-activator-intercom`).
 - **The picture**: the view turns to the activator; the actor does not turn to the
   player (it is not there). The subtitle and the dialogue menu name the actor
   [hypothesis].
