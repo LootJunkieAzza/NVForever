@@ -37,7 +37,8 @@ angles are degrees unless a name says otherwise.
   - `ammo_use` (rounds per shot), `min_spread` (the cone's median angle in degrees; the
     `spread` field is unused in New Vegas [documented]), `sight_fov`.
   - `projectile`, `projectile_count`.
-  - `min_range` / `max_range`: for the combat AI only [documented].
+  - `min_range` / `max_range`: for the combat AI only [documented]; Max Range is the reach
+    an NPC fires within (docs/design/combat-ai.md §16).
   - `on_hit`: normal / dismember only / explode only / neither [documented].
   - `fire_rate`: shots per second, used by automatic weapons only [documented]. The
     values bear this out [observed]: automatic weapons have 1–42; most others have 1
