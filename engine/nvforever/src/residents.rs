@@ -460,8 +460,8 @@ struct Core {
     staggering: HashSet<u32>,
     /// Load doors used since the last frame: actor, door, the door it leads to.
     door_uses: Vec<(FormId, u32, u32)>,
-    /// People in Combat (standing, closing in, going to a flank or a step back; not
-    /// fleeing nor running to cover): where their target is. They are drawn facing it
+    /// People in Combat (standing, closing in, going to a flank or a step back, in and
+    /// out of their cover; not fleeing nor running to new cover): where their target is. They are drawn facing it
     /// and step sideways or back as they go, so they can fire on the move (owner's
     /// playtest list 5 item 33; owner 2026-10-16, strafing and backing away) [design].
     aims: HashMap<FormId, [f32; 3]>,
@@ -988,7 +988,8 @@ impl Core {
         // back away instead of turning to where they go (owner 2026-10-16: NCR troopers
         // fighting Fiends turned between their way and their target, as if they could
         // not decide whether to move or shoot) [design]. Not while fleeing (it runs
-        // away) or running to cover (it runs there, out of the fight for a while).
+        // away) or running to new cover (it runs there, out of the fight for a while);
+        // out to its peek point and back behind its cover it strafes (`PostKind::Duck`).
         self.aims.clear();
         for r in self.list.iter().filter(|r| !r.creature) {
             let Some(a) = self.ai.agents.get(&r.actor) else { continue };
