@@ -4568,7 +4568,7 @@ env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_FILMS = "1", NVF_PLAY_TE
 args = ["--play", "--new-game", "--no-voice"]
 run_seconds = 34
 order = [[
-  { re = 'film: playing video\fnvintro\.bik \(1280x720, \d+ frames, PlayBink, Esc ends it, letterboxed\)$', label = "the opening's call plays the intro film, interruptible, music not paused, letterboxed" },
+  { re = 'film: playing video\\fnvintro\.bik \(1280x720, \d+ frames, PlayBink, Esc ends it, letterboxed\)$', label = "the opening's call plays the intro film, interruptible, music not paused, letterboxed" },
   { text = "pointer: hidden (the intro film)", label = "no mouse pointer over the film" },
   "film: screenshot film.png at 3 s",
   { re = 'film: skipped at 6\.\d s \(test aid NVF_PLAY_TEST_INTRO_SKIP\)', label = "skipped (test aid) after 6 s" },
@@ -4590,7 +4590,7 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 26
 order = [[
   "film: video\\fnvlogo1.bik: not a loose file in the game's Data folder; the game goes on",
-  { re = 'film: playing video\fnvintro\.bik \(1280x720, \d+ frames, PlayBink, music paused, stretched\)$', label = "the console's film plays, not interruptible, music paused, stretched" },
+  { re = 'film: playing video\\fnvintro\.bik \(1280x720, \d+ frames, PlayBink, music paused, stretched\)$', label = "the console's film plays with no Esc mention (not interruptible), music paused, stretched" },
   "film: screenshot film.png at 2 s",
   { re = 'film: skipped at 4\.\d s \(test aid NVF_PLAY_TEST_INTRO_SKIP\)' },
   "film: the game goes on",
