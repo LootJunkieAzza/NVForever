@@ -59,6 +59,8 @@ const LURKER: u32 = 0x871;
 /// A creature with no data of its own: name (Base Data), traits, inventory and script
 /// from the wolf list (item 20).
 const NAMELESS: u32 = 0x872;
+/// What a wolf carries (a created leveled wolf carries it too).
+const PELT: u32 = 0x880;
 
 const CELL: u32 = 0x200;
 const LEADER_REF: u32 = 0x320;
@@ -183,7 +185,7 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let creatures = [
-        record(b"CREA", 0, WOLF, &[sub(b"EDID", z("Wolf")), acbs(0), snam(RAIDERS, 0), aidt(2), pkid(PACK_WOLF)]),
+        record(b"CREA", 0, WOLF, &[sub(b"EDID", z("Wolf")), acbs(0), snam(RAIDERS, 0), aidt(2), pkid(PACK_WOLF), sub(b"CNTO", [PELT.to_le_bytes(), 1i32.to_le_bytes()].concat())]),
         record(b"CREA", 0, RAT, &[sub(b"EDID", z("Rat")), acbs(0), snam(RATS, 0), aidt(0), pkid(PACK_RAT)]),
         record(b"CREA", 0, SPAWN, &[sub(b"EDID", z("Spawn")), acbs(FACTIONS | AI_DATA | AI_PACKAGES), tplt(LIST_NESTED), aidt(0)]),
         record(b"CREA", 0, SPAWN_MIXED, &[sub(b"EDID", z("SpawnMixed")), acbs(FACTIONS | AI_DATA | AI_PACKAGES), tplt(LIST_MIXED), aidt(1)]),
@@ -228,6 +230,7 @@ fn plugin_bytes() -> Vec<u8> {
     [
         tes4(),
         top(b"FACT", &factions),
+        top(b"MISC", &record(b"MISC", 0, PELT, &[sub(b"EDID", z("Pelt")), sub(b"DATA", [1i32.to_le_bytes(), 1f32.to_le_bytes()].concat())])),
         top(b"NPC_", &npcs),
         top(b"CREA", &creatures),
         top(b"LVLC", &lists),
@@ -674,6 +677,22 @@ fn an_actor_warns_then_attacks_a_player_inside_its_aggro_radius() {
     assert!(g.provocations.take_notes().iter().any(|n| matches!(n, Note::AggroAttacks { actor, .. } if *actor == lurker)));
     assert!(g.would_attack(lurker, player));
     assert_eq!(g.provocations.grudges[&(lurker, player)].why, Why::Aggro);
+}
+
+#[test]
+fn a_created_leveled_actor_carries_what_its_pick_carries() {
+    // The stress tests' battle (2026-10-18): troopers created from a leveled list carried
+    // nothing and fought with their fists. A created reference of a leveled list, or of an
+    // actor whose Inventory comes from one, carries the picked actor's items.
+    let f = fixture();
+    let mut g = game(&f);
+    for base in [LIST_WOLF, NAMELESS] {
+        let r = g.create_at(FormId(base), Some(FormId(CELL)), [10.0, 20.0, 0.0], [0.0; 3]).unwrap();
+        assert_eq!(g.world.item_count(r, FormId(PELT)).unwrap(), 1, "{base:#x}");
+    }
+    // An actor with items of its own keeps them as before.
+    let w = g.create_at(FormId(WOLF), Some(FormId(CELL)), [0.0; 3], [0.0; 3]).unwrap();
+    assert_eq!(g.world.item_count(w, FormId(PELT)).unwrap(), 1);
 }
 
 #[test]

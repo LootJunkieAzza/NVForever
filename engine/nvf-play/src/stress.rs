@@ -167,6 +167,20 @@ pub fn lap_points(route: &Route) -> Vec<([f32; 2], usize)> {
     out
 }
 
+/// Where to arrive in a cell without a door or marker: the position of the reference
+/// nearest the middle (the mean) of `refs`, a little above it so the player falls onto
+/// what is there; the cell's origin when it has none.
+pub fn middle_spot(refs: &[[f32; 3]]) -> [f32; 3] {
+    if refs.is_empty() {
+        return [0.0, 0.0, 0.0];
+    }
+    let n = refs.len() as f32;
+    let mean = [0, 1, 2].map(|k| refs.iter().map(|p| p[k]).sum::<f32>() / n);
+    let d = |p: &[f32; 3]| (p[0] - mean[0]).powi(2) + (p[1] - mean[1]).powi(2) + (p[2] - mean[2]).powi(2);
+    let best = refs.iter().min_by(|a, b| d(a).total_cmp(&d(b))).expect("not empty");
+    [best[0], best[1], best[2] + 64.0]
+}
+
 /// One group of a battle.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Group {
@@ -371,7 +385,17 @@ fn walk_cells(
                 let stop = walk.stops[i].clone();
                 info!("stress cell: {}/{n} start {}", i + 1, stop.describe());
                 let t = match &stop {
-                    Stop::Interior { cell, .. } => crate::player::safe::cell_spot(sim.refs, *cell).map(|s| Travel { world: None, interior: Some(*cell), feet: s.feet, heading_deg: s.heading.to_degrees() }).ok_or("no marker or door to arrive at"),
+                    Stop::Interior { cell, .. } => Ok(match crate::player::safe::cell_spot(sim.refs, *cell) {
+                        Some(s) => Travel { world: None, interior: Some(*cell), feet: s.feet, heading_deg: s.heading.to_degrees() },
+                        None => {
+                            // No door or marker: by the reference nearest the middle of the
+                            // cell's, or the cell's origin, so the cell is load-tested too.
+                            let at: Vec<[f32; 3]> = sim.refs.by_cell.get(&FormId(*cell)).into_iter().flatten().filter_map(|r| sim.refs.refs.get(r).map(|p| p.pos)).collect();
+                            let feet = middle_spot(&at);
+                            info!("stress cell: {}/{n} has no marker or door: arriving at ({:.0}, {:.0}, {:.0}), by {} placed references", i + 1, feet[0], feet[1], feet[2], at.len());
+                            Travel { world: None, interior: Some(*cell), feet, heading_deg: 0.0 }
+                        }
+                    }),
                     Stop::Exterior { world, x, y, cell, .. } => match sim.refs.world_grid.get(&FormId(*world)).and_then(|g| g.get(&(*x, *y))) {
                         Some(c) if c.0 == *cell => Ok(exterior(Some(*world), [(*x as f32 + 0.5) * CELL, (*y as f32 + 0.5) * CELL])),
                         Some(_) => Err("the grid has another cell there (another load order?)"),
@@ -535,7 +559,11 @@ fn start_battle(
                         g.create_at(base, cell, [p[0], p[1], z], [0.0, 0.0, heading]).map_err(|e| warn!("stress battle: group {} {}: {e}", i + 1, grp.base)).ok()
                     })
                     .collect();
-                info!("stress battle: group {} {} ({}): {} of {} placed around ({:.0}, {:.0})", i + 1, grp.base, base, made.len(), grp.count, grp.at[0], grp.at[1]);
+                let ids = match (made.first(), made.last()) {
+                    (Some(a), Some(b)) => format!(": {a}..{b}"),
+                    _ => String::new(),
+                };
+                info!("stress battle: group {} {} ({}): {} of {} placed around ({:.0}, {:.0}){ids}", i + 1, grp.base, base, made.len(), grp.count, grp.at[0], grp.at[1]);
                 made
             })
             .collect();
@@ -584,6 +612,14 @@ mod tests {
         assert!(parse_cells("exterior 1 2 3").unwrap_err().starts_with("line 1"));
         assert!(parse_cells("interior zz").is_err());
         assert!(parse_cells("door 12").is_err());
+    }
+
+    #[test]
+    fn a_cell_without_doors_is_entered_by_the_reference_nearest_its_middle() {
+        assert_eq!(middle_spot(&[]), [0.0, 0.0, 0.0]);
+        let refs = [[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [480.0, 10.0, 5.0], [-2000.0, 0.0, 0.0]];
+        // The mean is (-130, 2.5, 1.25): the reference at the origin is nearest.
+        assert_eq!(middle_spot(&refs), [0.0, 0.0, 64.0]);
     }
 
     #[test]

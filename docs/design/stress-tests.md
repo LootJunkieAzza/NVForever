@@ -57,8 +57,10 @@ Every run writes `target/stress/<test>/<run>/results.json` (everything) and `rep
   - An exterior's ground is found once the cell is in.
   - Each visit logs `stress cell: i/n start …` before it goes, and `stress cell: i/n
     loaded in <s> s …` when the loading screen comes down.
-  - A cell that cannot be gone to (no marker or door; a grid cell that is not the listed
-    one, for a list made with another load order) logs `skipped:` with the reason.
+  - An interior with no door or marker is entered by the placed reference nearest the
+    middle of its references (its origin when it has none), so it is load-tested too.
+  - A grid cell that is not the listed one (a list made with another load order) logs
+    `skipped:` with the reason.
 - **`NVF_PLAY_TEST_TOUR=<route>`.** Steps the player along a closed route. The route file
   has `world`, `step`, `dwell` and `laps` lines, and `<x> <y>` waypoints.
   - A step within the loaded ground puts the player on it at once; a step beyond it goes
@@ -68,6 +70,8 @@ Every run writes `target/stress/<test>/<run>/results.json` (everything) and `rep
   group's fighters in a block on the ground round (x, y), facing the other groups
   (`Game::create_at`, made as PlaceAtMe makes references).
   - Each fighter is set on the nearest fighter of another group (StartCombat).
+  - The placing line ends with each group's FormIDs (`0xFF000000..0xFF000009`): created
+    actors have no Editor ID, and the runner tells the sides' deaths apart by them.
   - Created actors become residents and fight as placed ones do.
 - **`NVF_PLAY_TEST_SAMPLE=<seconds>`.** Every that many seconds, logs one `stress sample:`
   line with what the engine holds and where the camera is:
@@ -90,6 +94,13 @@ visited, so a crash anywhere in loading shows up.
   launch, not the sweep.
 - **Choosing cells.** `--kinds interior|exterior`, `--worlds`, `--stride N` (exteriors
   on every N-th grid line both ways) and `--limit` pick a sample.
+- **Long sweeps.** All 44,517 cells take about 30 hours at 50 a launch; batches of 200
+  are fine. After every batch the runner saves `state.json` and rewrites
+  `results.json` and `report.md`, so a sweep can be read while it runs.
+  `--resume <run>` goes on with a stopped sweep in the same folder: cells it already has
+  a row for are skipped, and its rows and crash groups stay in the results.
+- **Whose crash.** A crash or hang counts against the cell the launch last went to,
+  whether it came while that cell loaded or after.
 - **Results.** Totals (OK, crashed, hung, skipped, not reached), the mean and slowest
   loads, the crash groups with their cells, and each bad cell's last log lines.
 
@@ -133,7 +144,9 @@ watching from the south.
 - **Combat**, for AI tuning:
   - the sides' standing, dead, hits, kills and flights (`battle summary:`);
   - time to kill, counted from the placing;
-  - shots against actor hits, blows and reloads;
+  - guns: shots against projectile hits on actors, and reloads; melee: blows and impacts
+    (the sides' hits in `battle summary:` count both);
+  - deaths by group, with the median and last time to kill;
   - flee checks and flights, cover taken, target switches;
   - combat lines a minute by kind;
   - melee spacing (swing distances), and stuck actors.

@@ -118,6 +118,86 @@ class CellsTest(unittest.TestCase):
         self.assertTrue(any("Crash groups" in ln for ln in cells.report(res)))
 
 
+def many_cells(n: int) -> list[cells.Cell]:
+    return [cells.Cell("exterior", f"{0x100000 + i:08X}", "WastelandNV", "000DA726", i % 40 - 20, i // 40 - 20) for i in range(n)]
+
+
+def fake_game(crash_on: set[str], crash_after_load: bool = False, calls: list | None = None):
+    """A stand-in for lib.run: logs every cell of the batch's list as loaded, and crashes
+    on the cells named (before their load line, or after it)."""
+    def run(ctx, launch):
+        listed = Path(launch.aids["NVF_PLAY_TEST_CELLS"].split(";")[0]).read_text().splitlines()[1:]
+        if calls is not None:
+            calls.append(len(listed))
+        lines, status, crashes = [], "ok", []
+        for i, ln in enumerate(listed, 1):
+            lines.append(f"stress cell: {i}/{len(listed)} start {ln}")
+            bad = any(c in ln for c in crash_on)
+            if bad and not crash_after_load:
+                status, crashes = "crashed", [lib.parse_crash(REPORT)]
+                break
+            lines.append(f"stress cell: {i}/{len(listed)} loaded in 0.5 s {ln}")
+            if bad:
+                status, crashes = "crashed", [lib.parse_crash(REPORT)]
+                break
+        return lib.Result(launch.name, 101 if crashes else 0, 1.0, status, Path("x.log"), lines, crashes, [])
+    return run
+
+
+class SweepTest(unittest.TestCase):
+    def sweep(self, out: Path, cs, batch: int, game, on_batch=None):
+        ctx = lib.Ctx(out, Path("nvforever"), "Data", Path("fnvtool"), out, say=lambda *_: None)
+        real, lib.run = lib.run, game
+        try:
+            return cells.run(ctx, cs, batch=batch, dwell=0, hang=10, start_args=[], on_batch=on_batch)
+        finally:
+            lib.run = real
+
+    def test_a_big_batch_is_one_launch_and_stride_takes_negative_grid_lines(self):
+        cs = many_cells(250)
+        calls = []
+        with tempfile.TemporaryDirectory() as d:
+            res = self.sweep(Path(d), cs, 250, fake_game(set(), calls=calls))
+        self.assertEqual((calls, res["total"], res["ok"]), ([250], 250, 250))
+        strided = cells.choose(cs, "exterior", stride=4)
+        self.assertTrue(strided and all(c.x % 4 == 0 and c.y % 4 == 0 for c in strided))
+        self.assertIn(-20, {c.x for c in strided})
+
+    def test_a_crash_after_the_load_line_is_still_that_cells(self):
+        cs = many_cells(5)
+        with tempfile.TemporaryDirectory() as d:
+            res = self.sweep(Path(d), cs, 5, fake_game({cs[2].cell}, crash_after_load=True))
+        self.assertEqual((res["total"], res["ok"], res["crashed"]), (5, 4, 1))
+        bad = [r for r in res["cells"] if r["status"] == "crashed"]
+        self.assertEqual((bad[0]["cell"], bad[0]["loaded_in"]), (cs[2].name(), 0.5))
+
+    def test_a_stopped_sweep_resumes_with_its_whole_state(self):
+        cs = many_cells(9)
+        reports = []
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            # The runner stops after its second batch (as if the machine went down).
+            class Stop(Exception):
+                pass
+
+            def stop_after_two(res):
+                reports.append(res["total"])
+                if len(reports) == 2:
+                    raise Stop
+
+            with self.assertRaises(Stop):
+                self.sweep(out, cs, 3, fake_game({cs[1].cell}), stop_after_two)
+            self.assertTrue((out / cells.STATE).exists())
+            calls = []
+            res = self.sweep(out, cs, 3, fake_game({cs[1].cell}, calls=calls))
+        # First run: batch 1 crashed on cell 2 (cells 1-2 done), batch 2 did cells 3-5.
+        self.assertEqual(reports, [2, 5])
+        self.assertEqual(calls, [3, 1])  # the rest: cells 6-8, then 9
+        self.assertEqual((res["total"], res["ok"], res["crashed"], res["launches"]), (9, 8, 1, 4))
+        self.assertEqual(res["crash_groups"][0]["where"], [cs[1].name()])
+        self.assertEqual(len({r["cell"] for r in res["cells"]}), 9)
+
+
 class TourTest(unittest.TestCase):
     def test_the_ring_lies_inside_the_grid(self):
         pts = tour.ring((-30, -30), (29, 29), n=4, inset=0.5)
@@ -170,22 +250,28 @@ class BattleTest(unittest.TestCase):
     def test_the_log_gives_kills_hits_lines_switches_and_spacing(self):
         t = "2026-10-18T10:00:{:02d}.000000Z  INFO "
         lines = [
-            t.format(0) + "nvf_play::stress: stress battle: group 1 LvlNCRTrooper (0x0010A4F2): 10 of 10 placed around (-1500, 0)",
+            t.format(0) + "nvf_play::stress: stress battle: group 1 LvlNCRTrooper (0x0010A4F2): 10 of 10 placed around (-1500, 0): 0xFF000800..0xFF000809",
+            t.format(0) + "nvf_play::stress: stress battle: group 2 LvlLegionRaiderMelee (0x001252E6): 10 of 10 placed around (1500, 0): 0xFF00080A..0xFF000813",
             t.format(0) + "nvf_play::stress: stress battle: 2 groups, 20 fighters, 20 set on the nearest enemy",
             t.format(3) + "nvforever::npc_combat: npc combat: LvlNCRTrooper 0xFF000801 fights LvlLegionRaiderMelee 0xFF000810 with WeapNVServiceRifle (gun)",
             t.format(9) + "nvforever::npc_combat: npc combat: LvlNCRTrooper 0xFF000801 fights LvlLegionRaiderMelee 0xFF000811 with WeapNVServiceRifle (gun)",
             t.format(10) + "nvforever::npc_combat: npc combat: LvlLegionRaiderMelee 0xFF000810 swings at LvlNCRTrooper 0xFF000801 from 84 units (feet to feet, reach 96)",
             t.format(12) + "nvf_play::combat: combat line: 0xFF000801 says Attack line 0015B6C4",
             t.format(20) + "nvforever::combat_tactics: battle: LvlLegionRaiderMelee 0xFF000810 killed by LvlNCRTrooper 0xFF000801",
+            # Created actors have no Editor ID: FormIDs alone.
+            t.format(25) + "nvforever::combat_tactics: battle: 0xFF000802 killed by 0xFF000811",
             t.format(30) + "nvforever::npc_combat: npc combat: LvlLegionRaiderMelee 0xFF000811 takes cover 300 units away",
             t.format(59) + "nvforever::combat_tactics: battle summary: 2 sides, 20 actors; NCRFactionNV (10): 9 standing, 1 dead, 30 hits, 4 kills, 0 flights; CaesarsLegionFaction (10): 6 standing, 4 dead, 10 hits, 1 kills, 2 flights; first fighter at 1 s",
             t.format(59) + "nvforever::npc_combat: npc combat summary: 20 actors fought (...); 200 shots (200 from a muzzle, 0 from the eyes; 6 down the sights, 194 from the hip, sights raised 2 times), 12 blows (1 went on a combo, the longest 2; 0 missed), 7 reloads; 9 flee checks, 2 fled; the player was hit 0 times",
-            t.format(59) + "nvf_play::combat: combat: 0 shots (0 drawn from the muzzle, 0 from behind cover), 200 projectiles, 50 actor hits, 150 world hits (0 objects' hit blocks)",
+            t.format(59) + "nvf_play::combat: combat: 0 shots (0 drawn from the muzzle, 0 from behind cover), 200 projectiles, 50 actor hits, 150 world hits (0 objects' hit blocks, 0 objects knocked away), 0 explosions, 0 kills, 12 melee impacts",
             t.format(59) + "nvforever: actor animation: up to 17 actors posed at once, 0.799 ms per frame on average",
         ]
         c = battle.analyse(lines)
-        self.assertEqual(c["placed"], [{"group": 1, "base": "LvlNCRTrooper", "placed": 10, "asked": 10}])
-        self.assertEqual(c["time_to_kill_s"]["first"], 20.0)
+        self.assertEqual(c["placed"][0], {"group": 1, "base": "LvlNCRTrooper", "placed": 10, "asked": 10, "ids": [0xFF000800, 0xFF000809]})
+        self.assertEqual((c["time_to_kill_s"]["first"], c["time_to_kill_s"]["count"]), (20.0, 2))
+        self.assertEqual(c["deaths_by_group"], {"LvlLegionRaiderMelee": {"dead": 1, "median_s": 20.0, "last_s": 20.0},
+                                                "LvlNCRTrooper": {"dead": 1, "median_s": 25.0, "last_s": 25.0}})
+        self.assertEqual(c["melee_impacts"], 12)
         self.assertEqual((c["shots"], c["actor_hits"], c["hit_rate"], c["fled"]), (200, 50, 0.25, 2))
         self.assertEqual((c["target_switches"], c["cover_taken"]), (1, 1))
         self.assertEqual(c["melee_spacing"]["closest"], 84)
