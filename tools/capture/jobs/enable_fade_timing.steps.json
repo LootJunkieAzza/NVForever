@@ -88,7 +88,8 @@
   },
   {
    "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
-   "field": "timescale"
+   "field": "timescale",
+   "label": "timescale"
   },
   {
    "screenshot": "before"

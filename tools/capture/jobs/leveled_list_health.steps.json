@@ -63,7 +63,8 @@
   },
   {
    "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 930548\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
-   "field": "smg_before"
+   "field": "smg_before",
+   "label": "smg_before"
   },
   {
    "script": "float fM1\nref rF1\nref rF2\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1367639\nlet rF2 := BuildRef fM1 930548\nAddItemToLeveledList rF1 rF2 %{lvl} 1 50\nSetFunctionValue 1\nEnd\n"
@@ -142,7 +143,8 @@
   },
   {
    "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 930548\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
-   "field": "smg_after_50"
+   "field": "smg_after_50",
+   "label": "smg_after_50"
   },
   {
    "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 930548\nplayer.EquipItem rF1 0 1\nSetFunctionValue 1\nEnd\n"
@@ -152,11 +154,13 @@
   },
   {
    "query": "float fV\nBegin Function { }\nlet fV := player.GetEquippedCurrentHealth 5\nSetFunctionValue fV\nEnd\n",
-   "field": "health_points_50"
+   "field": "health_points_50",
+   "label": "health_points_50"
   },
   {
    "query": "float fV\nBegin Function { }\nlet fV := player.GetWeaponHealthPerc\nSetFunctionValue fV\nEnd\n",
-   "field": "health_perc_50"
+   "field": "health_perc_50",
+   "label": "health_perc_50"
   },
   {
    "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 930548\nplayer.UnequipItem rF1 0 1\nplayer.RemoveItem rF1 99 1\nSetFunctionValue 1\nEnd\n"
@@ -241,7 +245,8 @@
   },
   {
    "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 930548\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
-   "field": "smg_after_1"
+   "field": "smg_after_1",
+   "label": "smg_after_1"
   },
   {
    "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 930548\nplayer.EquipItem rF1 0 1\nSetFunctionValue 1\nEnd\n"
@@ -251,11 +256,13 @@
   },
   {
    "query": "float fV\nBegin Function { }\nlet fV := player.GetEquippedCurrentHealth 5\nSetFunctionValue fV\nEnd\n",
-   "field": "health_points_1"
+   "field": "health_points_1",
+   "label": "health_points_1"
   },
   {
    "query": "float fV\nBegin Function { }\nlet fV := player.GetWeaponHealthPerc\nSetFunctionValue fV\nEnd\n",
-   "field": "health_perc_1"
+   "field": "health_perc_1",
+   "label": "health_perc_1"
   }
  ]
 }
