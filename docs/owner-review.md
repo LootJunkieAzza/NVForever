@@ -5664,6 +5664,12 @@ docs/design/combat-ai.md §16; smoke `combat-flamer-reach`, `combat-shotgun-reac
   its reach less 64 units (the peek point is past the edge). *Check:* Cook-Cook no longer
   shoots at you from cover while you are far off.
 - **Min Range** stays unused (it is not a back-off distance; §12.6).
+- **Violet no longer aims while walking in from afar** (smoke `combat-sights`, its "she
+  walks while aiming" check now marked known_failing). She first sees you about 2,700
+  units away, beyond her hunting rifle's reach (2,000), so she runs in with her sights
+  down instead of aiming and walking from out of range; within reach she stops at 1,600 or
+  takes cover. That is the rule you asked for. *Check:* that a rifleman running in and
+  then aiming from cover looks right to you.
 - Not done: other ammo's projectiles (an NPC's reach is its default ammo's); on a cliff
   the shot's distance can be beyond reach while the flat distance is not, so a gunman can
   stand silent there.

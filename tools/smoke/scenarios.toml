@@ -630,10 +630,10 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 30
 expect = [
-  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "machine-dependent (laptop, main baf3806 2026-10-16, 3 of 3 runs: 13-14 blows; desktop 3 of 3 passes, 16 at 54 frames/s): the dogs attack at the combat style's 55 % each time they may and hold otherwise (combat-ai.md §10.4), so the count follows how long they fight in game time, which a slower start-up and long frames (game time is capped at 0.25 s a frame) shorten [hypothesis: the laptop's frame rate was not measured]" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary" },
   { re = 'attack anims summary.*h2hattack' },
   { re = 'npc melee spacing: \d+ blows began at .*\(median (?P<n>\d+), feet to feet\)', range = [100, 170], label = "the dogs bite from their reach and body, (RNAM 48 + 59) x 1.2 = 128 at most, not from inside the player (the original's dogs began a median 133 units away; ours 121 on 2026-10-17; npc-behaviour-compare.md §3)" },
-  { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines", known_failing = "machine-dependent (laptop, main baf3806 2026-10-16, 2 of 3 runs over 8; desktop 4 lines): the dogs close in again each time the player gets out of reach, which depends on the frame timing as the blow count above [hypothesis]" },
+  { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines" },
 ]
 
 [[scenario]]
@@ -699,7 +699,7 @@ args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", 
 run_seconds = 55
 expect = [
   { re = 'FiendVioletRef 0x000F570B aims down the sights, its target (?P<n>[\d,]+) units away \(beyond 1400\)', range = [1400, 3500], label = "Violet aims down the sights beyond 1,400 units" },
-  { re = 'FiendVioletRef: walks on, aiming down the sights at the player|FiendVioletRef: walks at the player, .* aiming down the sights', label = "she walks while aiming" },
+  { re = 'FiendVioletRef: walks on, aiming down the sights at the player|FiendVioletRef: walks at the player, .* aiming down the sights', label = "she walks while aiming", known_failing = "by design since claude/gun-reach (PR #444, docs/design/combat-ai.md §16): she first sees the player 2,688 units away, beyond her hunting rifle's reach (2,000), so she holds fire and runs in with her sights lowered; within reach she stops at 1,600 or takes cover and peeks (smoke 2026-10-18 on main bc13755b + eca02fbb), so this scene no longer has her walking while aiming. Aiming on the move still shows when a post moves her within reach" },
   { re = 'FiendVioletRef 0x000F570B fires from the hip, its target (?P<n>[\d,]+) units away \(within 1400\)', range = [0, 1400], label = "Violet fires from the hip within 1,400 units" },
   { re = 'npc combat summary:.*?(?P<n>\d+) down the sights', range = [1, 1000], label = "shots down the sights in the npc combat summary" },
   { re = 'npc combat summary:.*?down the sights, (?P<n>\d+) from the hip', range = [1, 1000], label = "shots from the hip in the npc combat summary" },
@@ -2385,9 +2385,9 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIP
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
 expect = [
-  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); claude/creature-melee-spacing the same, cover in 1 of 3 runs (937 units away); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
-  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); claude/creature-melee-spacing the same, cover in 1 of 3 runs (937 units away); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
-  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); claude/creature-melee-spacing the same, cover in 1 of 3 runs (937 units away); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
+  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units" },
+  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover" },
+  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary" },
 ]
 
 [[scenario]]
@@ -2526,7 +2526,7 @@ args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", 
 run_seconds = 45
 expect = [
   { re = 'npc combat: FiendCookCookRef \S+ fights the player with WeapFlamer \(gun\)', label = "Cook-Cook fights with his flamer" },
-  { re = 'FiendCookCookRef: (runs|walks) at the player', label = "he closes in" },
+  { re = 'ai \[[\d:]+\] (FiendCookCookRef|000F5704): (runs at|walks at|goes to a flank against) the player', label = "he closes in (running at the player or to a flank place, which lies within his flame's stop)" },
   { re = 'npc gun reach summary: .*? (?P<n>\d+) shots beyond it', range = [0, 0], label = "no shot beyond a gun's reach in the summary" },
   { re = 'npc gun reach summary: held fire (?P<n>\d+) times at a target beyond reach', range = [1, 1000], label = "fire held beyond reach in the summary" },
 ]
