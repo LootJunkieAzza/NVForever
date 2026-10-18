@@ -353,6 +353,8 @@ struct Fighter {
     swing: Option<NpcSwing>,
     /// Why its gun held fire by its reach last frame (§16), for the log.
     range_held: Option<RangeHold>,
+    /// It has fired at its target in this fight (the first shot's distance is logged).
+    opened_fire: bool,
 }
 
 /// A fighter's last melee blow (module notes).
@@ -988,6 +990,7 @@ fn fight(
                         hide_seen: 0.0,
                         hide_moves: 0,
                         range_held: None,
+                        opened_fire: false,
                     },
                 );
                 // This fight's confidence modifier, not for the foolhardy; the first
@@ -1275,7 +1278,8 @@ fn fight(
                             battle.held_fire += 1;
                             info!("npc combat: {name} holds fire: {} stands in its line of fire to {target_name}", tactics::who(g, FormId(k)));
                         }
-                        if want_post.is_none() && !barred(t, PostKind::Sidestep) {
+                        // Out of reach it has no shot to clear: it closes in (§16).
+                        if want_post.is_none() && range_hold != Some(RangeHold::Far) && !barred(t, PostKind::Sidestep) {
                             let at = tactics::sidestep(feet, tfeet, p, tactics::SIDESTEP);
                             if g.awareness.tactics.posts.get(&me).is_none_or(|q| q.kind != PostKind::Sidestep) {
                                 battle.sidesteps += 1;
@@ -1294,7 +1298,8 @@ fn fight(
                     }
                 }
                 // Flank places for a group's gunmen not in cover.
-                if want_post.is_none() && mates.len() >= 2 && !barred(t, PostKind::Flank) {
+                // Out of reach it closes in straight, not round to a flank (§16).
+                if want_post.is_none() && mates.len() >= 2 && range_hold != Some(RangeHold::Far) && !barred(t, PostKind::Flank) {
                     t.flank_in -= dt;
                     let current = g.awareness.tactics.posts.get(&me).copied().filter(|p| p.kind == PostKind::Flank);
                     // Crouched to fire, it keeps the place it has (§14.2).
@@ -1659,6 +1664,10 @@ fn fight(
                                 let len = vec::len(to).max(1.0);
                                 let aim = vec::scale(to, 1.0 / len);
                                 let origin = vec::add(eyes, vec::scale(aim, MUZZLE_AHEAD));
+                                if !fighter.opened_fire {
+                                    fighter.opened_fire = true;
+                                    info!("npc combat: {me_name} opens fire on {target_name} from {shot_distance:.0} units (reach {:.0})", gun.and_then(|r| r.reach).unwrap_or(f32::INFINITY));
+                                }
                                 let first = f.stats.from_muzzle + f.stats.from_eyes == 0 || fighter.firing_for <= dt;
                                 match muzzle {
                                     Some(_) => f.stats.from_muzzle += 1,

@@ -1205,6 +1205,11 @@ fire or firing) whose target is beyond its reach leaves it to close in, and does
 that cover again (`leaves its cover to close in on …: beyond its weapon's reach (… units)`)
 [design: owner, "fire his flamer from cover"].
 
+**Closing in straight** [design]: while its target is beyond its reach, a gunman takes
+no flank place and no step aside for a friend in its line of fire (it has no shot to
+line up); it runs at the target (`fnv_ai::alert`, `runs at …`). Log of each fighter's
+first shot in a fight: `npc combat: … opens fire on … from … units (reach …)`.
+
 **A step back** (§12.6): an explosive gun steps back from a target nearer than its
 blast's clearance (radius + 64) instead of 256 [design]. The weapon's Min Range is still
 not a back-off distance: "they don't need to be closer than this value" [documented:
@@ -1217,8 +1222,10 @@ gun's reach, … shots beyond it`.
 **Checks**: unit tests in `npc_combat.rs` (`a_gun_reaches_its_max_range_and_its_projectile_range`,
 `shotguns_close_in_rifles_hang_back`, `launchers_keep_clear_of_their_blast`); smoke
 `combat-flamer-reach` (Cook-Cook holds fire from 1,700 units, closes in, fires within 640)
-and `combat-shotgun-reach` / `combat-sniper-reach` (a shotgun closes in, a sniper rifle
-fires from afar). The AI observer campaign `gun_reach`
+`combat-shotgun-reach` / `combat-sniper-reach` (a shotgun closes in, a sniper rifle
+fires from afar) and `combat-sights-beyond-reach` (Violet from 3,000 units: holds fire,
+runs in with sights lowered, first shot within reach; `combat-sights` now starts within
+her reach). The AI observer campaign `gun_reach`
 (tools/capture/observe/gun_reach.campaign.json: an NCR trooper with a flamer, a shotgun, a
 sniper rifle and a missile launcher in turn) gave the readings above; a second run with
 the offsets would show the shotgun, sniper and missile troopers from afar.
