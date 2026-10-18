@@ -338,6 +338,7 @@ fn keys(
         });
         match made {
             Ok(added) => {
+                rt.game.count_stat(fnv_game::misc_stats::ITEMS_CRAFTED, 1.0);
                 info!("recipe menu: made {:?} ({})", recipe.name, added.iter().map(|(i, k)| format!("{k} x {}", crate::menu::model::display_name(forms, *i))).collect::<Vec<_>>().join(", "));
                 sounds.write(UiSound { menu: UiMenu::Recipe, event: UiEvent::Picked });
                 if let Some(c) = corner.as_deref_mut() {

@@ -589,6 +589,11 @@ fn apply_input(
         if let Some(item) = a.used {
             used.write(ItemUsed { item: item.0 });
         }
+        if a.traded > 0 {
+            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                rt.game.count_stat(fnv_game::misc_stats::BARTER_AMOUNT_TRADED, f64::from(a.traded));
+            }
+        }
         // Taking owned items is theft (`crate::crime`).
         if let (Mode::Container(c), false) = (m.mode, a.taken.is_empty()) {
             taken.write(crate::crime::ItemsTaken { container: c, items: a.taken.clone() });

@@ -633,6 +633,7 @@ fn apply(
                         s.reveal = None;
                         s.status = None;
                         take_chips(rt, &mut sim, s, bet);
+                        rt.game.count_stat(fnv_game::misc_stats::BLACKJACK_GAMES_PLAYED, 1.0);
                         stats.rounds += 1;
                         info!("blackjack: round {}: bet {bet} of {chips} chips", s.table.rounds);
                         schedule(s, events, t, &mut stats, rt, &mut sim);
