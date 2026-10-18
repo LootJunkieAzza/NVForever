@@ -636,7 +636,7 @@ fn actors_choose_the_first_package_whose_conditions_pass() {
     assert_eq!(g.current_package(npc), Some(FormId(PACK_IDLE)));
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_GATED)));
     // A script package overrides the list.
-    g.extra.entry(npc).or_default().packages.push(FormId(PACK_SCRIPTED));
+    g.extra.entry(npc).or_default().script_package = Some(FormId(PACK_SCRIPTED));
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_SCRIPTED)));
 }
 
@@ -671,15 +671,30 @@ fn a_second_script_package_replaces_the_first() {
     call_on(&mut g, ADD, NPC_REF, &pkg(PACK_SCRIPTED));
     call_on(&mut g, ADD, NPC_REF, &pkg(PACK_EVENTS));
     assert_eq!(g.current_package(npc), Some(FormId(PACK_EVENTS)));
-    assert_eq!(g.extra[&npc].packages, vec![FormId(PACK_EVENTS)]);
+    assert_eq!(g.extra[&npc].script_package, Some(FormId(PACK_EVENTS)));
     // EvaluatePackage keeps the script package.
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
     call_on(&mut g, REMOVE, NPC_REF, &[]);
-    assert!(g.extra[&npc].packages.is_empty());
+    assert_eq!(g.extra[&npc].script_package, None);
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
     // A second RemoveScriptPackage changes nothing.
     call_on(&mut g, REMOVE, NPC_REF, &[]);
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
+}
+
+/// Saves written while the slot was a list still load: the list's last package is the
+/// script package.
+#[test]
+fn a_saved_script_package_list_loads_as_its_last_package() {
+    use fnv_game::game::RefExtra;
+    let old: RefExtra = serde_json::from_value(json!({"packages": [FormId(PACK_SCRIPTED), FormId(PACK_EVENTS)]})).unwrap();
+    assert_eq!(old.script_package, Some(FormId(PACK_EVENTS)));
+    let empty: RefExtra = serde_json::from_value(json!({"packages": []})).unwrap();
+    assert_eq!(empty.script_package, None);
+    let new = RefExtra { script_package: Some(FormId(PACK_IDLE)), ..RefExtra::default() };
+    let back: RefExtra = serde_json::from_value(serde_json::to_value(&new).unwrap()).unwrap();
+    assert_eq!(back, new);
+    assert_eq!(serde_json::from_value::<RefExtra>(json!({})).unwrap().script_package, None);
 }
 
 /// A disabled reference's GameMode block runs every frame, as while it is enabled
@@ -718,8 +733,8 @@ fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
     assert_eq!(global(&g), 5.0);
     // A script package starts: its begin script runs.
-    let add = |g: &mut Game| g.extra.entry(npc).or_default().packages.push(FormId(PACK_EVENTS));
-    let remove = |g: &mut Game| g.extra.entry(npc).or_default().packages.clear();
+    let add = |g: &mut Game| g.extra.entry(npc).or_default().script_package = Some(FormId(PACK_EVENTS));
+    let remove = |g: &mut Game| g.extra.entry(npc).or_default().script_package = None;
     add(&mut g);
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
     assert_eq!(global(&g), 21.0);
@@ -741,7 +756,7 @@ fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
     assert_eq!(g.current_package(npc), Some(FormId(PACK_IDLE)));
     // Without the interval a choice runs no package script (Layer 5 behaviour).
     let mut quiet = game(&f);
-    quiet.extra.entry(npc).or_default().packages.push(FormId(PACK_EVENTS));
+    quiet.extra.entry(npc).or_default().script_package = Some(FormId(PACK_EVENTS));
     assert_eq!(quiet.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
     assert_eq!(global(&quiet), 5.0);
 }

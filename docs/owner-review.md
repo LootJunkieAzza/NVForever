@@ -341,6 +341,11 @@ sessions. You already had it from an earlier playthrough.
       - EvaluatePackage keeps a script package.
       - A disabled reference's GameMode **runs**.
 
+      **No runtime fix was needed:** the runtime already did all three; see "Script
+      packages and disabled references: the 2026-10-18 captures" at the end of this file.
+      The actor now holds one script-package slot instead of a one-entry list (older
+      saves load). Scripted items in other inventories are still to be captured
+      (spec-notes/owner-decision-captures.md §4).
       All three confirm the runtime's rules. The runtime has replaced script packages
       since 2026-10-10 and run disabled references' GameMode since 2026-10-09, so this
       item's wording on those two points was out of date (#441). Scripted items in other

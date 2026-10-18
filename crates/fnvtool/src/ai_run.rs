@@ -43,8 +43,7 @@ fn set_global(g: &mut Game, edid: &str, v: f64) -> anyhow::Result<()> {
 
 fn force(game: &mut Game, forced: &[(FormId, FormId)]) {
     for &(actor, package) in forced {
-        // One script package per actor: a second replaces the first, as AddScriptPackage.
-        game.extra.entry(actor).or_default().packages = vec![package];
+        game.extra.entry(actor).or_default().script_package = Some(package);
     }
 }
 
