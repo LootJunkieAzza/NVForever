@@ -267,7 +267,7 @@ outstanding.md §1 rows 6, 7, 9 and 18; the menu codes in `fnv_game::game::menus
   [design]. The pause menu's 1013 is not reported (scripts do not run under it). The
   blackjack table moved from 1035 (the repair list's) to its own 1102.
 - **ShowTutorialMenu** (2 calls, CGTutorial's crippled-limb help from its
-  `Begin MenuMode 1` block): the tutorial menu, MenuMode 1059 [hypothesis], over the menu
+  `Begin MenuMode 1` block): the tutorial menu, MenuMode 1059 [observed: capture mh1_tutorial], over the menu
   that is open, which it gives back when closed (docs/spec-notes/tutorial-menu.md).
 - **ResetPipboyManager** (4 calls: Doc Mitchell's Pip-Boy, the three DLC starts): the
   Pip-Boy's pages go back to their defaults and its light (NVForever's flashlight) goes

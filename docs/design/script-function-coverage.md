@@ -534,7 +534,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | Lock | 0x1072 | 303 / 0 | match | - | - | On a terminal: locked at the level (at most 5), the terminal's own state, read by the opening [observed: probes; documented: GECK wiki Lock]. |
 | Look | 0x105C | 159 / 0 | built | Look turning the body | - | With rotateBody 1 the whole body turns to the target until StopLook [documented: GECK wiki Look]: the AI's actors at the walker's turn rate (`fnv_ai` social.rs), standing ones on the spot with a conversation's turn (`script_look.rs`); the rate and the body keeping its heading after StopLook are [hypothesis] (no capture covers a Look; smoke `script-look-body`). |
 | MarkForDelete | 0x11BB | 602 / 0 | match | - | - |  |
-| MenuMode | 0x1024 | 13 / 11 | match | - | differs 2, same 3 | MenuMode 1 for any Pip-Boy page (1002/1003/1023, repair 1035) [documented]; loading 1007 with its blocks, VATS 1056, tutorial 1059 [hypothesis]; the pause menu's 1013 not reported (no scripts run under it). The sleep menu is 1012 [observed: probes] (script-stubs.md §3.14). |
+| MenuMode | 0x1024 | 13 / 11 | match | - | differs 2, same 3 | MenuMode 1 for any Pip-Boy page (1002/1003/1023, repair 1035) [documented]; loading 1007 with its blocks, VATS 1056, tutorial 1059 [observed: capture mh1_tutorial]; the pause menu's 1013 not reported (no scripts run under it). The sleep menu is 1012 [observed: probes] (script-stubs.md §3.14). |
 | ModActorValue | 0x1010 | 62 / 0 | match | - | - |  |
 | ModPCMiscStat | 0x1137 | 6 / 0 | match | - | - |  |
 | ModWeaponHealthPerc | 0x11F6 | 8 / 0 | match | - | - |  |
@@ -666,7 +666,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ShowSleepWaitMenu | 0x1279 | 2 / 0 | match | - | - |  |
 | ShowSlotMachineMenuParams | 0x1252 | 5 / 0 | no-system | casino slot machines | - | Stub; blackjack and roulette are built. |
 | ShowTraitMenu | 0x1268 | 5 / 0 | match | - | - |  |
-| ShowTutorialMenu | 0x11E3 | 2 / 0 | match | - | - | The tutorial menu from tutorial_menu.xml over the open menu (tutorial-menu.md); its code 1059 a guess [hypothesis; capture job menu_hooks]. |
+| ShowTutorialMenu | 0x11E3 | 2 / 0 | match | - | - | The tutorial menu from tutorial_menu.xml over the open menu (tutorial-menu.md); its code 1059 [observed: capture mh1_tutorial]; CloseAllMenus closes it with the menu under it [observed]. |
 | ShowWarning | 0x11B9 | 71 / 0 | match | - | - |  |
 | Sqrt | 0x121F | 2 / 0 | match | - | - |  |
 | StartCannibal | 0x107E | 4 / 0 | no-system | Cannibal and Mister Sandman | - | Stub. |

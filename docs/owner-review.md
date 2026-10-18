@@ -5832,8 +5832,14 @@ docs/design/script-stubs.md §3.14, docs/spec-notes/tutorial-menu.md. Smoke
 `tools/capture/probes/menu_hooks.toml` (batches `mh1_tutorial`, `mh2_reset_objectives`,
 save nvfstrip). Guesses, each waiting for you or the capture:
 
-- **The tutorial menu's code is 1059** (remembered from the wiki's menu list, which the
-  local export lacks). The capture asks MenuMode 1059, 1060 and 1001 with it open.
+- **The tutorial menu's code is 1059: confirmed** by capture mh1_tutorial (nvfstrip,
+  2026-10-18): MenuMode 1059 was 1, 1001 and 1060 were 0, so it is not a message box. A
+  second ShowTutorialMenu left one 1059 menu, and one CloseAllMenus closed it and the menu
+  that had been open before it (MenuMode 0); NVForever's CloseAllMenus now does the same.
+  Not settled by the capture: whether the second message is a second page (NVForever) or
+  replaces the first. Capture mh2_reset_objectives: ResetPipboyManager and
+  AutoDisplayObjectives open no menu (MenuMode 0), as in NVForever; it could not show the
+  objectives (VCG01 not running in nvfstrip), so that guess stays.
 - **The tutorial menu opens over the Pip-Boy** (CGTutorial shows it from its MenuMode 1
   block) and the Pip-Boy is back when it closes. A second ShowTutorialMenu while it is
   open adds a page (Next / Previous, "1/2" at the top right). *Check:* cripple a limb with

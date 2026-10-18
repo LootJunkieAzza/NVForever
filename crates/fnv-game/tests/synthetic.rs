@@ -1290,6 +1290,11 @@ fn the_tutorial_menu_opens_over_the_pipboy_and_gives_it_back() {
     assert_eq!((g.menu, g.menu_under), (Some(menus::TUTORIAL), None));
     g.close_menu();
     assert_eq!(g.menu, None);
+    // CloseAllMenus closes the tutorial and the menu under it [observed: mh1_tutorial].
+    g.open_menu(menus::MESSAGE);
+    g.show_tutorial(FormId(MESSAGE));
+    assert_eq!(g.close_all_menus(), vec![menus::TUTORIAL, menus::MESSAGE]);
+    assert_eq!(g.menu, None);
     // Not a message: refused.
     let ctx = Ctx { unit: "test".into(), opcode: 0x11E3, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
     let before = g.events.len();

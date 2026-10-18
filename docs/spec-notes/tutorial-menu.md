@@ -52,9 +52,11 @@ The strings are game settings that are not in the masters (the executable's defa
   menu the open one again; a message already shown is not added twice; further messages
   while it is open are more pages [hypothesis]. A message box shown meanwhile waits.
   If the engine closes the menu underneath (the Pip-Boy put away), it is forgotten.
-- MenuMode 1059 while it is open [hypothesis: the code as remembered from the GECK wiki's
-  menu list, whose template the owner's export lacks]. `MenuMode 1` stays true over the
-  Pip-Boy.
+- MenuMode 1059 while it is open, and not 1001: it is no message box [observed: capture mh1_tutorial, save nvfstrip, 2026-10-18].
+  `MenuMode 1` stays true over the Pip-Boy [hypothesis]. A second ShowTutorialMenu while it
+  is open leaves one 1059 menu, and one CloseAllMenus closes it together with the menu that
+  was open under it (MenuMode 0 after it) [observed: the same capture]; NVForever's
+  `Game::close_all_menus` does the same.
 - Drawn as §2 says, with these choices: the words are "Next", "Previous", "Close", "A)",
   "S)", "E)" and "VDSG Manual" [hypothesis]; the background as dark as the other menus
   (0.75) instead of the file's alpha 32 [design: readable over the Pip-Boy]; the page
@@ -67,5 +69,8 @@ The strings are game settings that are not in the masters (the executable's defa
 
 ## 4. Open
 
-- The code 1059, the words and whether a second call adds a page or replaces it:
-  capture job `tools/capture/probes/menu_hooks.toml` (the menu codes while it is open).
+- Settled by capture mh1_tutorial (`tools/capture/probes/menu_hooks.toml`): the code 1059.
+  Still open: the words, and whether a second message is a second page or replaces the
+  first (the capture shows only that it stays one menu, 1059); which menu was open under
+  it in the capture (MenuMode was 1 before the first call, its code not asked), so whether
+  the menu under the tutorial answers MenuMode is not settled.

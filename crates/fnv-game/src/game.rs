@@ -715,9 +715,8 @@ pub mod menus {
     /// `Begin MenuMode 1056` blocks run while it marks, beside GameMode (`Game::tick`)
     /// [design].
     pub const VATS: u16 = 1056;
-    /// The tutorial menu (ShowTutorialMenu, `Game::show_tutorial`) [hypothesis: 1059 as
-    /// remembered from the GECK wiki's menu list; the owner's export lacks the list's
-    /// template and no shipped script asks for it].
+    /// The tutorial menu (ShowTutorialMenu, `Game::show_tutorial`) [observed: MenuMode 1059
+    /// was 1, and 1001 and 1060 were 0, with it open, capture mh1_tutorial, save nvfstrip, 2026-10-18]. Not a message box.
     pub const TUTORIAL: u16 = 1059;
 
     /// The codes of the Pip-Boy's menus, which `MenuMode 1` answers for: its three pages
@@ -1945,6 +1944,18 @@ impl<'a> Game<'a> {
             self.open_menu(menus::MESSAGE);
         }
         Some(m)
+    }
+
+    /// The console's CloseAllMenus: the open menu closes as [`Game::close_menu`] has it,
+    /// and with the tutorial menu the menu under it too [observed: one CloseAllMenus left
+    /// MenuMode 0 after ShowTutorialMenu over a menu already open, capture mh1_tutorial,
+    /// docs/spec-notes/tutorial-menu.md §4]. Returns the menus closed.
+    pub fn close_all_menus(&mut self) -> Vec<u16> {
+        let mut closed: Vec<u16> = self.close_menu().into_iter().collect();
+        if closed == [menus::TUTORIAL] && self.menu.is_some() {
+            closed.extend(self.close_menu());
+        }
+        closed
     }
 
     /// The player picks a button of the open message box: GetButtonPressed of the script
