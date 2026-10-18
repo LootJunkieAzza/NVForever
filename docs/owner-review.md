@@ -5839,9 +5839,9 @@ the original can answer it:
 - **AgeRace and SexChange on an NPC**: the new race's head and body with the NPC's own
   face values; a hair the new race or sex may not have becomes the race's default hair.
   The player keeps the hair.
-- **SetLevel on an NPC** rolls its carried items again *at its new level* (the wiki says
-  only that the inventory is regenerated); script-given items are lost (probe ac1: a
-  Stimpak given to Easy Pete). The wiki's bug (the level often the minimum) is not copied.
+- **SetLevel on an NPC**: settled by capture ac1 — the original keeps the inventory (three
+  Stimpaks given to Easy Pete stayed), against the wiki's "regenerates"; so NVForever only
+  sets the level. The offset and bounds matched.
 - **Power armour**: off at the start; only the player is held back; armour with the BMDT
   "Power Armor" flag (NCR salvaged power armour lacks it and is worn freely). On refusal
   the game's "You lack the specialized training…" box, after the Pip-Boy closes; a
@@ -5851,9 +5851,11 @@ the original can answer it:
   default action (Search or Talk). The wiki only says "presents a choice list". *Please
   look in the original*: sneaking at a corpse with Cannibal, does E show a list, and does
   it include Search? Does the crosshair prompt change?
-- **The acts**: GetCannibal and GetSandman hold for 4 s (probes ac4, ac5 measure them);
-  Mister Sandman kills at once; StartCannibal adds no health of its own (the perks'
-  scripts restore it; the catalogue says the eater "regains some health", probe ac4);
+- **The acts**: GetCannibal and GetSandman hold for their clips' length (7.7 s and 6 s);
+  the corpse counts as eaten (HasBeenEaten) only when the act is over (capture ac4: still
+  0 while GetCannibal was 1); StartCannibal adds no health or karma of its own (ac4
+  confirmed it). Mister Sandman kills at once; a script calling it on an awake NPC
+  crashed the original (ac5), NVForever just kills;
   a witnessed cannibalism turns every witness hostile as an assault ("a crime against
   nature"); the clips are the StartCannibal idle and the SandMan child for the victim's
   bed or floor marker, with the two perk sounds.

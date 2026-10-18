@@ -803,14 +803,12 @@ flag!(set_ignore_friendly_hits, get_ignore_friendly_hits, ignore_friendly_hits);
 /// (with the level-to-player flag the level is an offset from the player's, kept within
 /// min and max when given) [documented: catalogue summary and notes]. On the player
 /// only the number changes, not the stats [documented: catalogue notes, "alters the
-/// level number but no stats"]. On another actor its carried items are rolled again,
-/// even when the level did not change [documented: catalogue notes, "regenerates the
-/// inventory, re-evaluating leveled lists"]: its record's items with the leveled lists
-/// resolved at its new level [hypothesis: an actor's leveled items follow its own
-/// level; the shipped scripts call SetLevel on the player only, observed], equipped as
-/// it starts (`fnv_sim::World::reset_inventory_at`). An actor whose record carries no
-/// items keeps what it has. The original's noted bug (the level often set to the
-/// minimum) is not copied [design].
+/// level number but no stats"]. On another actor only the level changes too: its
+/// inventory is not rolled again [observed: capture ac1, 2026-10-18: three Stimpaks
+/// given to Easy Pete were still carried after SetLevel 7, and his item count stayed 8
+/// after a second SetLevel 7; the catalogue's note that it "regenerates the inventory"
+/// did not show]. With the flag, the offset and bounds as the original: player level 1,
+/// `SetLevel 2 1 5 20` gives 5 [observed: ac1, Joe Cobb].
 pub fn set_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     let mut level = a.int(0)?;
@@ -828,7 +826,6 @@ pub fn set_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         }
     }
     g.extra.entry(r).or_default().level = Some(level);
-    let _ = g.world.reset_inventory_at(r, level.clamp(1, i32::from(u16::MAX)) as u16);
     none()
 }
 

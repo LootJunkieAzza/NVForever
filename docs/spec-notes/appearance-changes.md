@@ -14,7 +14,9 @@ player::refuse_power_armor`; the engine's `appearance.rs` (drawing anew), `playe
 `nvf_play::creator::preset_look`, `fnv_actor::Resolver::resolve_changed`. Tests:
 `crates/fnv-game/tests/appearance.rs`. Smoke: `agerace-sexchange-npc`,
 `sexchange-player-reset`, `setlevel-npc-reroll`, `power-armor-training`. Capture jobs:
-`tools/capture/probes/actor_changes.toml` batches ac1–ac3.
+`tools/capture/probes/actor_changes.toml` batches ac1–ac3, run 2026-10-18 on nvftest: every
+answer of ac2 (AgeRace, SexChange) and ac3 (power armour) matched NVForever's; ac1 showed
+that SetLevel keeps the inventory (§3).
 
 ## 1. Who calls them [observed]
 
@@ -62,15 +64,14 @@ So the NPC cases below are built for mods and the console; the quests need the p
 
 - On the player it changes the level number only, not the stats [documented: catalogue
   notes]; nothing else changed here.
-- On another actor it sets the level (with the level-to-player flag an offset from the
-  player's, within min and max) and "regenerates the inventory, re-evaluating leveled
-  lists, even if the level did not change" [documented: catalogue notes]. NVForever rolls
-  the record's carried items again (its template's when it takes them from one) with the
-  leveled lists resolved at the actor's new level, and equips what it starts with
-  [hypothesis: that an actor's leveled items follow its own level]. An actor whose record
-  carries nothing keeps what it has [design]. The noted bug (the level often the minimum)
-  is not copied [design]. Probe ac1 asks the original: a Stimpak given to Easy Pete,
-  then SetLevel; is it gone?
+- On another actor it sets the level, with the level-to-player flag as an offset from the
+  player's within min and max [documented]: player level 1, `SetLevel 2 1 5 20` gave 5
+  [observed: capture ac1, Joe Cobb]. **The inventory stays** [observed: ac1, 2026-10-18:
+  three Stimpaks given to Easy Pete were still carried after `SetLevel 7 0`, and his item
+  count was 8 after it and after a second `SetLevel 7 0`]. The catalogue's note that it
+  "regenerates the inventory, re-evaluating leveled lists, even if the level did not
+  change" did not show within a second of the call; whether it happens later (when the
+  actor's 3D or cell reloads) is not captured.
 
 ## 4. Power armour
 

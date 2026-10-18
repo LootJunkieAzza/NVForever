@@ -1,5 +1,4 @@
-//! AgeRace and SexChange on the player and on NPCs, SetLevel re-rolling an actor's
-//! leveled items, and SetPCCanUsePowerArmor gating power armour on the player, on a
+//! AgeRace and SexChange on the player and on NPCs, SetLevel on an actor, and SetPCCanUsePowerArmor gating power armour on the player, on a
 //! synthetic plugin (no game data). docs/spec-notes/appearance-changes.md.
 
 mod common;
@@ -249,10 +248,10 @@ fn sex_change_works_on_npcs_and_the_player() {
     assert!(c.len() == 1 && c[0].actor == P && c[0].reset);
 }
 
-/// SetLevel on an NPC rolls its leveled items again at the new level, even at the same
-/// level; on the player only the number changes.
+/// SetLevel on an NPC changes its level only: what it carries stays, leveled items
+/// included (capture ac1); on the player only the number changes.
 #[test]
-fn set_level_rerolls_an_actors_leveled_items() {
+fn set_level_keeps_an_actors_inventory() {
     let f = fixture();
     let mut g = game(&f);
     let joe = FormId(JOE_REF);
@@ -260,10 +259,10 @@ fn set_level_rerolls_an_actors_leveled_items() {
     assert_eq!((count(&mut g, KNIFE), count(&mut g, SWORD)), (1.0, 0.0));
     call(&mut g, Some(joe), SET_LEVEL, &[num(12.0), num(0.0)]);
     assert_eq!(call(&mut g, Some(joe), GET_LEVEL, &[]), 12.0);
-    assert_eq!((count(&mut g, KNIFE), count(&mut g, SWORD)), (0.0, 1.0));
-    // Back down: the knife again.
-    call(&mut g, Some(joe), SET_LEVEL, &[num(3.0), num(0.0)]);
     assert_eq!((count(&mut g, KNIFE), count(&mut g, SWORD)), (1.0, 0.0));
+    // With the level-to-player flag: player level 1 + 2, raised to the minimum 5.
+    call(&mut g, Some(joe), SET_LEVEL, &[num(2.0), num(1.0), num(5.0), num(20.0)]);
+    assert_eq!(call(&mut g, Some(joe), GET_LEVEL, &[]), 5.0);
     // The player: the level, nothing rolled.
     call(&mut g, Some(P), SET_LEVEL, &[num(6.0), num(0.0)]);
     assert_eq!(call(&mut g, Some(P), GET_LEVEL, &[]), 6.0);

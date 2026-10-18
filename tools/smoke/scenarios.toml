@@ -4701,7 +4701,7 @@ manual = "sexchange_player.png: the player's hands and body are a woman's (first
 
 [[scenario]]
 name = "setlevel-npc-reroll"
-source = "outstanding.md §1 row 13: SetLevel on an NPC sets its level and rolls its leveled items again at that level (docs/spec-notes/appearance-changes.md §3)"
+source = "outstanding.md §1 row 13: SetLevel on an NPC sets its level; its inventory stays as it was (capture ac1; docs/spec-notes/appearance-changes.md §3)"
 areas = ["scripts", "console", "inventory"]
 paths = ["crates/fnv-game/src/functions/actor.rs", "crates/fnv-sim/src/world.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:prid DocMitchellREF;14.3:setlevel 12 0;14.6:getlevel;15:close" }
@@ -4728,18 +4728,19 @@ expect = [
 
 [[scenario]]
 name = "perk-cannibal-devour"
-source = "outstanding.md §1 row 14 (docs/spec-notes/perk-activation.md): with Cannibal, sneaking, activating a corpse opens the perks' choice list; Devour runs the perk's script: HasBeenEaten 1, GetCannibal 1 while the act runs"
+source = "outstanding.md §1 row 14 (docs/spec-notes/perk-activation.md): with Cannibal, sneaking, activating a corpse opens the perks' choice list; Devour runs the perk's script: GetCannibal 1 while the act runs, HasBeenEaten 1 once it is over"
 note = "Easy Pete is brought in front of the player and killed by the test aid; the player sneaks; the activation's choice list is answered with its first button (Devour) by the menu aid after 1 s"
 areas = ["scripts", "perks", "activation"]
 paths = ["crates/fnv-game/src/activate_choices.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/crime.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/activate.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:player.addperk 00094EBC;14.3:close;19:player.getcannibal;19.3:EasyPeteRef.hasbeeneaten;19.6:close", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:120:0,15:kill:EasyPeteRef,17:activate:EasyPeteRef", NVF_PLAY_TEST_CONTROL = "15.5:sneak" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:player.addperk 00094EBC;14.3:close;19:player.getcannibal;19.3:EasyPeteRef.hasbeeneaten;19.6:close;28:EasyPeteRef.hasbeeneaten;28.3:close", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:120:0,15:kill:EasyPeteRef,17:activate:EasyPeteRef", NVF_PLAY_TEST_CONTROL = "15.5:sneak" }
 args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 24
+run_seconds = 31
 expect = [
   { re = 'activate: .* offers the perks. choices \["Devour"\] and its default action', label = "the choice list opens on the corpse" },
   { text = "activate: the player chose Devour (Cannibal)", label = "Devour is chosen" },
   { re = 'GetCannibal.*>> 1\.00', label = "the player is in the cannibalism act" },
-  { re = 'HasBeenEaten.*>> 1\.00', label = "the corpse has been eaten" },
+  { re = 'HasBeenEaten.*>> 0\.00', label = "not eaten while the act lasts (capture ac4)" },
+  { re = 'HasBeenEaten.*>> 1\.00', label = "eaten once the 7.7 s act is over" },
 ]
 
 [[scenario]]

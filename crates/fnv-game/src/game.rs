@@ -1571,6 +1571,10 @@ impl<'a> Game<'a> {
         // The world refuses power armour on an untrained player (a loaded game's flag
         // reaches it here too).
         self.world.set_power_armor_training(self.player.power_armor);
+        // Cannibal's and Mister Sandman's acts that are over (`crate::activate_choices`).
+        if !self.perk_acts.is_empty() {
+            self.finish_perk_acts();
+        }
         if self.loading {
             return;
         }

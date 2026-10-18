@@ -12,7 +12,8 @@ Code: `fnv_game::activate_choices` (the choices, the acts), `fnv_game::data::Ent
 `script.rs` (`Runtime::by_hand` opens the list, `Runtime::pick_activate_choice`),
 `script_hud.rs` (`activate_panel`), `activate.rs` (the default action activated again).
 Tests: `crates/fnv-game/tests/perk_talk.rs`. Smoke: `perk-cannibal-devour`,
-`perk-sandman-kill`. Capture jobs: `tools/capture/probes/actor_changes.toml` ac4, ac5.
+`perk-sandman-kill`. Capture jobs: `tools/capture/probes/actor_changes.toml` ac4, ac5 (run
+2026-10-18; ac5 crashed the game, so ac5b asks again on an unconscious victim).
 
 ## 1. The records [observed]
 
@@ -61,16 +62,23 @@ Ghastly Scavenger "Devour", Dine and Dash "Dine and Dash" (FalloutNV.esm), Miste
 
 ## 3. The acts
 
-- **StartCannibal eater** on a victim: HasBeenEaten 1 from then on (saved) [documented];
-  GetCannibal 1 on the eater for 4 s [documented: "while in the cannibalism animation";
-  hypothesis: the length, probe ac4 measures it]; the eater plays the StartCannibal idle
-  and its sound [hypothesis by name]. "A crime against nature" when seen [documented:
+- **StartCannibal eater** on a victim: GetCannibal 1 on the eater at once and for the
+  clip's 7.667 s (`3rdP_Cannibal.kf`) [documented: "while in the cannibalism animation";
+  observed: capture ac4, 1 at once and still 1 after 600 frames; hypothesis: that the act
+  lasts the clip — in ac4 the player was not at the corpse and the act had not ended];
+  HasBeenEaten 1 once the act is over, saved [observed: ac4, still 0 600 frames after
+  the call; hypothesis: that it turns 1 at the end]; the eater plays the StartCannibal
+  idle and its sound [hypothesis by name]. "A crime against nature" when seen [documented:
   Cannibal's DESC]: every witness turns on the player as for an assault [hypothesis].
-  The catalogue says the eater "regains some health" [documented]; NVForever leaves the
-  health to the perk scripts' RestoreAV, which every shipped caller has [observed];
-  probe ac4 checks whether StartCannibal adds its own.
+  The catalogue says the eater "regains some health" [documented], but StartCannibal
+  itself changed neither health nor karma [observed: ac4]: both come from the perk
+  scripts' RestoreAV and RewardKarma [observed].
 - **StartMisterSandman killer** on a victim: killed by the killer at once [hypothesis],
   silently (no alarm of its own [documented: "the silent sleeping-NPC kill"]); karma and
-  murder are judged as for any kill by the player; GetSandman 1 for 4 s [hypothesis]; the
+  murder are judged as for any kill by the player; GetSandman 1 for the clips' 5.967 s
+  [observed: the four `SandMan*.kf`; hypothesis: that the act lasts the clip]. A script's
+  StartMisterSandman on an awake actor crashed the original [observed: capture ac5,
+  2026-10-18, once, on Joe Cobb in Goodsprings]; NVForever kills it as if asleep
+  [design]. The
   killer plays the SandMan child idle whose GetFurnitureMarkerID condition holds on the
   victim, else the first [hypothesis], and the sound.

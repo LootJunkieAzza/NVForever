@@ -135,13 +135,20 @@ steps = [
 ]
 
 # ---------------------------------------------------------------- ac5: Mister Sandman
+# ac5_sandman (StartMisterSandman on an awake Joe Cobb) crashed the original on its first
+# call, 2026-10-18 [observed, once]; it is kept out of the runs. ac5b asks again with the
+# victim lying down (SetUnconscious, the nearest a script gets to the perk's sleeping
+# NPC); it may crash too: run it on its own, last.
 [[batch]]
-name = "ac5_sandman"
-title = "Actor changes 5: StartMisterSandman on an awake NPC: killed at once or at the clip's end, by whom, and how long GetSandman holds (about 30 s; look at the player: the clip)"
-start = "nvftest (Goodsprings); Joe Cobb is killed. tgm."
+name = "ac5b_sandman_unconscious"
+title = "Actor changes 5b: StartMisterSandman on an unconscious NPC (set by script): killed at once or at the clip's end, and how long GetSandman holds (about 30 s; it may crash the game as ac5 did on an awake NPC; run it alone)"
+start = "nvftest (Goodsprings); Joe Cobb is made unconscious and killed. tgm."
 ours_start = [{ op = "wait_frames", frames = 60 }]
 steps = [
   { console = "tgm" },
+  { do = "@cobb.SetUnconscious 1" },
+  { frames = 120 },
+  { ask = "@cobb.GetUnconscious", label = "cobb unconscious" },
   { ask = "@cobb.GetDead", label = "cobb dead before" },
   { do = "@cobb.StartMisterSandman player" },
   { ask = "@cobb.GetDead", label = "cobb dead at once" },
@@ -153,8 +160,8 @@ steps = [
   { ask = "@cobb.GetDead", label = "cobb dead after 180 frames" },
   { ask = "player.GetSandman", label = "GetSandman after 180 frames" },
   { frames = 240 },
+  { ask = "@cobb.GetDead", label = "cobb dead after 420 frames" },
   { ask = "player.GetSandman", label = "GetSandman after 420 frames" },
-  { ask = "@cobb.GetKiller", ref = true, label = "cobb's killer (xNVSE)" },
 ]
 
 # ---------------------------------------------------------------- ac6: talking activators

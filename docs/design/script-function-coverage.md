@@ -254,7 +254,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 12 | Caravan card game | no-system | 5 | 29 / 0 | 33 / 0 | AddCardToPlayer, ShowCaravanMenu | - | - |
 | 13 | race and sex change on NPCs | built | 5 | 16 / 0 | 14 / 0 | AgeRace, SexChange | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head) | - |
 | 14 | crosshair placement | built | 5 | 10 / 0 | 3 / 0 | PlaceAtReticle | - | VDialogueVeronica (Veronica Dialogue), VMS49 (I Could Make You Care) |
-| 15 | NPC inventory re-rolled on SetLevel | built | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
+| 15 | NPC inventory re-rolled on SetLevel | match (2026-10-18: the original keeps the inventory, capture ac1) | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
 | 16 | Cannibal and Mister Sandman | built | 3 | 8 / 0 | 11 / 7 | GetCannibal, GetSandman, HasBeenEaten, StartCannibal, StartMisterSandman | - | - |
 | 17 | VATS | no-system | 3 | 6 / 0 | 12 / 259 | GetVATSMode, GetVATSTargetHeight, GetVATSValue, SetVatsTarget | - | - |
 | 18 | player statistics counters | match (2026-10-18, misc-stats.md) | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
@@ -360,7 +360,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetBaseActorValue | 0x1115 | 6 / 16 | match | - | - |  |
 | GetBroadcastState | 0x11D4 | 6 / 0 | match | - | - |  |
 | GetButtonPressed | 0x101F | 211 / 0 | match | - | - |  |
-| GetCannibal | 0x10E3 | 0 / 1 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 for 4 s after StartCannibal [hypothesis: the length, probe ac4] (docs/spec-notes/perk-activation.md). |
+| GetCannibal | 0x10E3 | 0 / 1 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 at once after StartCannibal [observed: ac4], for the clip's 7.667 s [hypothesis] (docs/spec-notes/perk-activation.md). |
 | GetCasinoWinningsLevel | 0x125C | 24 / 0 | open | - | - | Blackjack and roulette count winnings; whether cashing chips counts needs a capture (attended). |
 | GetCasinoWinningStage | 0x1262 | 0 / 25 | open | - | - | As GetCasinoWinningsLevel. |
 | GetCauseofDeath | 0x118D | 1 / 1 | match | - | same 3 |  |
@@ -456,7 +456,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetReputationPct | 0x123E | 0 / 2 | match | - | - |  |
 | GetReputationThreshold | 0x123F | 143 / 1643 | match | - | - |  |
 | GetRestrained | 0x10F4 | 5 / 2 | match | - | - |  |
-| GetSandman | 0x10E2 | 0 / 2 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 for 4 s after StartMisterSandman [hypothesis, probe ac5]. |
+| GetSandman | 0x10E2 | 0 / 2 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 for the clips' 5.967 s after StartMisterSandman [hypothesis; probe ac5 crashed the original on an awake victim]. |
 | GetScale | 0x1018 | 1 / 1 | match | - | - |  |
 | GetScriptVariable | 0x1035 | 0 / 1756 | match | - | - |  |
 | GetSecondsPassed | 0x100C | 821 / 0 | match | - | - |  |
@@ -476,7 +476,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetWeaponAnimType | 0x106C | 14 / 44 | match | - | - |  |
 | GetWeaponHealthPerc | 0x11F4 | 2 / 0 | match | - | - |  |
 | GetXPForNextLevel | 0x1215 | 3 / 0 | match | - | differs 1 |  |
-| HasBeenEaten | 0x107F | 6 / 4 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; 1 after StartCannibal, saved (perk-activation.md). |
+| HasBeenEaten | 0x107F | 6 / 4 | built | Cannibal and Mister Sandman | same 1 | 0 at rest matches [observed: probes]; still 0 while the act lasts [observed: ac4], 1 once it is over [hypothesis], saved (perk-activation.md). |
 | HasLoaded3D | 0x122E | 4 / 0 | match | - | differs 5, same 1 | The original needed 1 game loop after a cell load or MoveTo [observed: probes]; ours answers at once. |
 | HasMagicEffect | 0x10D6 | 41 / 5 | match | - | - | As IsSpellTarget, an effect whose conditions fail included [observed: probes abilities-1]. |
 | HasPerk | 0x11C1 | 126 / 493 | match | - | - |  |
@@ -617,7 +617,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetIgnoreFriendlyHits | 0x1151 | 132 / 0 | match | - | - |  |
 | SetInCharGen | 0x10E7 | 16 / 0 | match | - | - |  |
 | SetItemValue | 0x1155 | 2 / 0 | match | - | - |  |
-| SetLevel | 0x1133 | 6 / 0 | built | NPC inventory re-rolled on SetLevel | - | On an NPC the carried items are rolled again at its level [documented: regenerated; hypothesis: at its own level, probe ac1]; every shipped call is on the player (appearance-changes.md §3). |
+| SetLevel | 0x1133 | 6 / 0 | match | NPC inventory re-rolled on SetLevel | - | Only the level changes; the inventory stays [observed: capture ac1, against the catalogue's "regenerates"]; the offset and bounds match [observed: ac1]; every shipped call is on the player (appearance-changes.md §3). |
 | SetMinimalUse | 0x1228 | 1 / 0 | match | - | - |  |
 | SetNoAvoidance | 0x115B | 3 / 0 | match | - | - | A performance switch: nothing to do here. |
 | SetNPCRadio | 0x11C4 | 6 / 0 | match | - | - |  |

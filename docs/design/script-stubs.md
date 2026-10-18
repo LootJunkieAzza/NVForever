@@ -258,8 +258,8 @@ scale is drawn and collided ([misc-stats](../spec-notes/misc-stats.md)). Tests:
 
 Playthrough blockers rows 8, 11, 13, 14 and 18 (docs/outstanding.md). Implemented:
 AgeRace (0x11E4, 2 calls) and SexChange on any actor (it had refused NPCs;
-[appearance-changes](../spec-notes/appearance-changes.md) §2), SetLevel rolling an actor's
-items again (§3), SetPCCanUsePowerArmor gating power armour (§4); the perks' activate
+[appearance-changes](../spec-notes/appearance-changes.md) §2), SetLevel keeping an actor's
+items, as the original does (§3, capture ac1), SetPCCanUsePowerArmor gating power armour (§4); the perks' activate
 choices with StartCannibal (0x107E, 4 calls), GetCannibal (0x10E3, 1 condition use),
 HasBeenEaten (0x107F, 6 calls, 4 condition uses), StartMisterSandman (0x107C, 1 call) and
 GetSandman (0x10E2, 2 condition uses) ([perk-activation](../spec-notes/perk-activation.md));

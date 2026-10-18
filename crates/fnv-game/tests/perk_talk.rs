@@ -196,8 +196,8 @@ fn activate_entries_are_read() {
 }
 
 /// Devour is offered on a corpse to a player with the perk; picking it runs the perk's
-/// script on the corpse: eaten from then on, the player in the act for a while; it is
-/// not offered again; the default action is the last button.
+/// script on the corpse: the player in the act for a while, the corpse eaten when it is
+/// over; it is not offered again; the default action is the last button.
 #[test]
 fn cannibal_devours_a_corpse() {
     let f = fixture();
@@ -215,12 +215,15 @@ fn cannibal_devours_a_corpse() {
     assert!(matches!(picked, Some(Picked::Choice(ref c)) if c.label == "Devour"));
     assert_eq!(g.menu, None);
     no_errors(&g);
-    assert_eq!(call(&mut g, victim, OP_HAS_BEEN_EATEN, &[]), 1.0);
+    // Eaten when the act is over (capture ac4: still 0 while it lasts).
+    assert_eq!(call(&mut g, victim, OP_HAS_BEEN_EATEN, &[]), 0.0);
     assert_eq!(call(&mut g, P, OP_GET_CANNIBAL, &[]), 1.0);
-    assert!(g.activate_choices(victim).is_empty(), "eaten once");
-    // The act ends with time.
+    assert!(g.activate_choices(victim).is_empty(), "not offered during the act");
     g.time += 10.0;
+    g.tick();
     assert_eq!(call(&mut g, P, OP_GET_CANNIBAL, &[]), 0.0);
+    assert_eq!(call(&mut g, victim, OP_HAS_BEEN_EATEN, &[]), 1.0);
+    assert!(g.activate_choices(victim).is_empty(), "eaten once");
     // The default action: the list's last button.
     g.player.perks.insert(FormId(SANDMAN), 1);
     let sleeper = FormId(SLEEPER_REF);

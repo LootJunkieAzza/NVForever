@@ -400,18 +400,13 @@ impl<'a> World<'a> {
     /// A fresh inventory for a container or actor base: its carried items with leveled
     /// lists resolved. `None` for bases without carried items.
     fn roll_inventory(&mut self, base: FormId) -> Result<Option<Inventory>, SimError> {
-        self.roll_inventory_at(base, self.cfg.player_level)
-    }
-
-    /// [`World::roll_inventory`] with the leveled lists resolved at `level`.
-    fn roll_inventory_at(&mut self, base: FormId, level: u16) -> Result<Option<Inventory>, SimError> {
         let Some(entries) = self.forms.entries(base) else { return Ok(None) };
         let mut inv = Inventory::new();
         let mut out = Vec::new();
         for e in entries {
             let from = out.len();
             // LVLG globals at their current values [observed: leveled_b8 captures].
-            leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, e.item, e.count, level, &mut self.rng, &mut out)?;
+            leveled::resolve_with(self.forms, &self.globals, &self.leveled_added, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
             // COED on an entry applies to whatever it resolves to. [hypothesis]
             for r in &mut out[from..] {
                 r.extra = e.extra;
@@ -1221,15 +1216,9 @@ impl<'a> World<'a> {
     /// A fresh roll of the base's carried items replaces the reference's inventory
     /// (ResetInventory, Layer 5). `false` when the base carries no items.
     pub fn reset_inventory(&mut self, id: FormId) -> Result<bool, SimError> {
-        self.reset_inventory_at(id, self.cfg.player_level)
-    }
-
-    /// [`World::reset_inventory`] with the leveled lists resolved at `level` instead of
-    /// the player's (SetLevel on an actor, Layer 5).
-    pub fn reset_inventory_at(&mut self, id: FormId, level: u16) -> Result<bool, SimError> {
         let base = self.get(id)?.base;
         let source = self.inventory_base(id, base);
-        let mut inv = self.roll_inventory_at(source, level)?;
+        let mut inv = self.roll_inventory(source)?;
         if self.get(id)?.outfitted {
             self.equip_default(source, &mut inv);
         }

@@ -22,14 +22,16 @@
 //! and `StartMisterSandman Player` without a reference, so the act starts on the
 //! target]. Run Immediately is kept but changes nothing here: the masters' four are off.
 //!
-//! **Cannibal** (`victim.StartCannibal eater`): the victim has been eaten (HasBeenEaten
-//! 1 from then on, saved) [documented: catalogue, "makes the calling actor the victim of
-//! a cannibalism act by a given actor"]; the eater is in the cannibalism animation for
-//! [`CANNIBAL_SECONDS`] (GetCannibal 1) [documented: GetCannibal "returns 1 while the
-//! calling actor is in the cannibalism animation"; hypothesis: the length], and plays
-//! the IDLE `StartCannibal` (`3rdP_Cannibal.kf`, conditioned on GetCannibal 1
-//! [observed]) and the sound `NPCHumanPerkCannibal` [observed: the SOUN's name;
-//! hypothesis: that it is the act's]. It is a hostile act [documented: catalogue notes];
+//! **Cannibal** (`victim.StartCannibal eater`): the eater is in the cannibalism
+//! animation for [`CANNIBAL_SECONDS`] (GetCannibal 1 at once) [documented: GetCannibal
+//! "returns 1 while the calling actor is in the cannibalism animation"; observed:
+//! capture ac4, 1 at once and still 1 after 600 frames], and plays the IDLE
+//! `StartCannibal` (`3rdP_Cannibal.kf`, conditioned on GetCannibal 1 [observed]) and the
+//! sound `NPCHumanPerkCannibal` [observed: the SOUN's name; hypothesis: that it is the
+//! act's]. The victim has been eaten (HasBeenEaten 1 from then on, saved) only when the
+//! act is over [observed: ac4, HasBeenEaten still 0 600 frames after StartCannibal, the
+//! act not yet over; hypothesis: that it turns 1 at the end]. StartCannibal itself adds
+//! no health and no karma [observed: ac4, both unchanged]. It is a hostile act [documented: catalogue notes];
 //! seen, "a crime against nature" [documented: Cannibal's DESC]: every witness turns on
 //! the player as for an assault [hypothesis]. Health, Hunger, radiation, karma, the
 //! Corpses Eaten statistic and Meat of Champions are the perk scripts' own [observed:
@@ -37,8 +39,10 @@
 //!
 //! **Mister Sandman** (`victim.StartMisterSandman killer`): the sleeping victim is killed
 //! by the killer at once, silently [documented: GetSandman, "the silent sleeping-NPC
-//! kill"; hypothesis: at once rather than at the clip's end]; the killer is in the act
-//! for [`SANDMAN_SECONDS`] (GetSandman 1) and plays the IDLE `SandMan` tree's clip for
+//! kill"; hypothesis: at once rather than at the clip's end]. Called by a script on an
+//! awake actor the original crashed [observed: capture ac5, 2026-10-18, once, on Joe
+//! Cobb]; NVForever kills it as a sleeping one [design]. The killer is in the act for
+//! [`SANDMAN_SECONDS`] (GetSandman 1) and plays the IDLE `SandMan` tree's clip for
 //! the victim's furniture marker (bed left 1, bed right 2, floor left 3, floor right 4:
 //! the children's GetFurnitureMarkerID conditions, judged on the victim [hypothesis]),
 //! and the sound `NPCHumanPerkMrSandman`. The kill is the player's: karma and murder are
@@ -56,11 +60,14 @@ use serde::{Deserialize, Serialize};
 pub const ACTIVATE: u8 = 27;
 /// Entry point function Add Activate Choice [hypothesis, module notes].
 pub const ADD_ACTIVATE_CHOICE: u8 = 9;
-/// How long the eater is in the cannibalism animation, seconds of game time
-/// [hypothesis: about the clip's length; not measured].
-pub const CANNIBAL_SECONDS: f64 = 4.0;
-/// How long the killer is in the Mister Sandman act [hypothesis, as above].
-pub const SANDMAN_SECONDS: f64 = 4.0;
+/// How long the eater is in the cannibalism animation, seconds of game time: the clip's
+/// length [observed: `3rdP_Cannibal.kf`, sequence SpecialIdle_Cannibal 7.667 s;
+/// hypothesis: that the act lasts the clip; capture ac4 saw it last more than 600 frames
+/// with the player not at the corpse].
+pub const CANNIBAL_SECONDS: f64 = 7.667;
+/// How long the killer is in the Mister Sandman act: the clips' length [observed: the
+/// four `SandMan*.kf`, 5.967 s each; hypothesis, as above].
+pub const SANDMAN_SECONDS: f64 = 5.967;
 
 /// One offered choice: the perk, the entry (its PRKE place) and its label.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,6 +118,9 @@ impl Game<'_> {
         let player = FormId::PLAYER_REF;
         let data = self.data;
         let mut found = Vec::new();
+        if self.in_act_as_victim(target) {
+            return Vec::new();
+        }
         let owned: Vec<(FormId, u8)> = self.player.perks.iter().map(|(&p, &r)| (p, r)).collect();
         for (perk, rank) in owned {
             let Some(def) = data.perks.get(&perk) else { continue };
@@ -187,9 +197,25 @@ impl Game<'_> {
     }
 
     fn begin_act(&mut self, actor: FormId, victim: FormId, act: Act, seconds: f64) {
+        self.finish_perk_acts();
+        self.perk_acts.retain(|a| a.actor != actor);
+        self.perk_acts.push(PerkAct { actor, victim, act, until: self.time + seconds });
+    }
+
+    /// The acts whose time is over end: a cannibalism's victim has been eaten (module
+    /// notes). Each frame (`Game::tick`).
+    pub fn finish_perk_acts(&mut self) {
         let now = self.time;
-        self.perk_acts.retain(|a| a.until > now && a.actor != actor);
-        self.perk_acts.push(PerkAct { actor, victim, act, until: now + seconds });
+        let (over, going): (Vec<PerkAct>, Vec<PerkAct>) = self.perk_acts.drain(..).partition(|a| a.until <= now);
+        self.perk_acts = going;
+        for a in over.iter().filter(|a| a.act == Act::Cannibal) {
+            self.extra.entry(a.victim).or_default().eaten = true;
+        }
+    }
+
+    /// Whether `r` is the victim of an act under way: no choice is offered on it then.
+    fn in_act_as_victim(&self, r: FormId) -> bool {
+        self.perk_acts.iter().any(|a| a.victim == r && a.until > self.time)
     }
 
     fn act_sound(&mut self, edid: &str, at: FormId) {
@@ -200,7 +226,6 @@ impl Game<'_> {
 
     /// `victim.StartCannibal eater` (module notes).
     pub fn start_cannibal(&mut self, victim: FormId, eater: FormId) {
-        self.extra.entry(victim).or_default().eaten = true;
         self.begin_act(eater, victim, Act::Cannibal, CANNIBAL_SECONDS);
         if let Some(idle) = self.data.by_edid("StartCannibal") {
             self.ask_idle(eater, idle, IdleSource::Script);
