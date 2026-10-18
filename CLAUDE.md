@@ -44,6 +44,7 @@ cargo clippy --workspace --all-targets --release -- -D warnings
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 python -m unittest discover -s tools/smoke/tests
+python -m unittest discover -s tools/stress/tests
 (cd engine && cargo clippy --release --all-targets -- -D warnings)   # Bevy workspace (viewer + game)
 ```
 

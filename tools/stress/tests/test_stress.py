@@ -1,0 +1,242 @@
+"""Unit tests for tools/stress (no game needed): `python -m unittest discover -s tools/stress/tests`."""
+from __future__ import annotations
+
+import os
+import re
+import sys
+import tempfile
+import textwrap
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from stress import battle, cells, lib, tour  # noqa: E402
+
+REPORT = textwrap.dedent("""\
+    NVForever 0.2.0 crashed (panic)
+    time (UTC): 2026-10-18 10:00:00
+    thread: Compute Task Pool (3)
+    message: index out of bounds: the len is 3 but the index is 7
+    at: crates/fnv-nif/src/scene.rs:812:17
+    where: WastelandNV cell -2,26 CrimsonCaravan, position 1, 2, 3
+    command line: nvforever.exe
+    run log: C:/h/logs/run.log
+
+    backtrace:
+       0: std::backtrace_rs::backtrace::trace::h0123456789abcdef
+       1: std::panicking::begin_panic_handler
+       2: core::panicking::panic_bounds_check
+       3: fnv_nif::scene::Decoded::block::h89abcdef01234567
+       4: nvf_assets::models::load
+       5: nvforever::world::spawn_cell
+       6: bevy_ecs::system::function_system::run
+       7: BaseThreadInitThunk
+    """)
+
+
+class CrashReports(unittest.TestCase):
+    def test_a_report_gives_message_place_and_the_engines_own_frames(self):
+        c = lib.parse_crash(REPORT, "crash-1.txt")
+        self.assertEqual(c.message, "index out of bounds: the len is 3 but the index is 7")
+        self.assertEqual(c.location, "crates/fnv-nif/src/scene.rs:812:17")
+        self.assertEqual(c.frames[:3], ["fnv_nif::scene::Decoded::block", "nvf_assets::models::load", "nvforever::world::spawn_cell"])
+        self.assertNotIn("BaseThreadInitThunk", c.frames)
+
+    def test_crashes_group_by_cause_whatever_the_numbers(self):
+        a = lib.parse_crash(REPORT)
+        b = lib.parse_crash(REPORT.replace("index is 7", "index is 9").replace(":812:17", ":812:30"))
+        other = lib.parse_crash(REPORT.replace("index out of bounds", "called `Option::unwrap()` on a `None` value"))
+        groups = lib.group_crashes([("cell A", a), ("cell B", b), ("cell C", other)])
+        self.assertEqual([len(g["where"]) for g in groups], [2, 1])
+        self.assertEqual(groups[0]["where"], ["cell A", "cell B"])
+
+
+def fake_world():
+    wl = {"worldspaces": [{"formid": "0x000DA726", "edid": "WastelandNV"}, {"formid": "0x01000F2B", "edid": "SierraMadre"}]}
+    per = {
+        "0x000DA726": {"cells": [{"formid": "0x000DA727", "edid": None, "grid": None},
+                                 {"formid": "0x000DA7A6", "edid": "Goodsprings", "grid": [-17, 1]},
+                                 {"formid": "0x000DA7A7", "edid": None, "grid": [-16, 2]}]},
+        "0x01000F2B": {"cells": [{"formid": "0x01000F30", "edid": None, "grid": [0, 0]}]},
+    }
+    ints = {"cells": [{"formid": "0x00010C0E", "edid": "GSGeneralStore"}]}
+    return cells.cells_from_json(wl, per, ints)
+
+
+class CellsTest(unittest.TestCase):
+    def test_the_list_has_interiors_then_grid_cells_without_persistent_ones(self):
+        cs = fake_world()
+        self.assertEqual([c.kind for c in cs], ["interior", "exterior", "exterior", "exterior"])
+        self.assertEqual(cs[0].line(), "interior 00010C0E GSGeneralStore")
+        self.assertEqual(cs[1].line(), "exterior 000DA726 -17 1 000DA7A6 Goodsprings")
+        self.assertEqual(cs[2].label, "WastelandNV")  # a cell without its own Editor ID
+
+    def test_choose_by_kind_stride_world_and_limit(self):
+        cs = fake_world()
+        self.assertEqual(len(cells.choose(cs, "interior")), 1)
+        self.assertEqual([c.cell for c in cells.choose(cs, "exterior", stride=2)], ["000DA7A7", "01000F30"])
+        self.assertEqual([c.world for c in cells.choose(cs, "exterior", worlds=["SierraMadre"])], ["01000F2B"])
+        self.assertEqual(len(cells.choose(cs, limit=2)), 2)
+        self.assertEqual([len(b) for b in cells.batches(cs, 3)], [3, 1])
+
+    def test_a_batch_log_gives_loads_skips_and_the_last_cell_started(self):
+        lines = ["INFO nvf_play::stress: stress cell: 1/3 start interior 00010C0E GSGeneralStore",
+                 "INFO nvf_play::stress: stress cell: 1/3 loaded in 1.25 s interior 00010C0E GSGeneralStore",
+                 "INFO nvf_play::stress: stress cell: 2/3 start exterior ...",
+                 "INFO nvf_play::stress: stress cell: 2/3 skipped: not in the worldspace's grid",
+                 "INFO nvf_play::stress: stress cell: 3/3 start exterior ..."]
+        self.assertEqual(cells.read_batch(lines), {"loaded": {1: 1.25}, "skipped": {2: "not in the worldspace's grid"}, "last_started": 3})
+
+    def test_a_crash_ends_its_batch_and_the_sweep_goes_on_after_the_cell(self):
+        cs = fake_world()
+        calls = []
+
+        def fake_run(ctx, launch):
+            listed = Path(launch.aids["NVF_PLAY_TEST_CELLS"].split(";")[0]).read_text().splitlines()[1:]
+            calls.append(listed)
+            lines, status, crashes = [], "ok", []
+            for i, ln in enumerate(listed, 1):
+                lines.append(f"stress cell: {i}/{len(listed)} start {ln}")
+                if "000DA7A6" in ln:  # Goodsprings crashes
+                    status, crashes = "crashed", [lib.parse_crash(REPORT)]
+                    break
+                lines.append(f"stress cell: {i}/{len(listed)} loaded in 0.5 s {ln}")
+            return lib.Result(launch.name, 101 if crashes else 0, 1.0, status, Path("x.log"), lines, crashes, [])
+
+        with tempfile.TemporaryDirectory() as d:
+            ctx = lib.Ctx(Path(d), Path("nvforever"), "Data", Path("fnvtool"), Path(d), say=lambda *_: None)
+            real, lib.run = lib.run, fake_run
+            try:
+                res = cells.run(ctx, cs, batch=3, dwell=0, hang=10, start_args=[])
+            finally:
+                lib.run = real
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls[1]), 2)  # the two cells after Goodsprings
+        self.assertEqual((res["total"], res["ok"], res["crashed"]), (4, 3, 1))
+        self.assertEqual(res["crash_groups"][0]["where"], [cs[1].name()])
+        self.assertTrue(any("Crash groups" in ln for ln in cells.report(res)))
+
+
+class TourTest(unittest.TestCase):
+    def test_the_ring_lies_inside_the_grid(self):
+        pts = tour.ring((-30, -30), (29, 29), n=4, inset=0.5)
+        self.assertEqual(len(pts), 4)
+        for x, y in pts:
+            self.assertLess(abs(x), 30 * 4096 * 0.51)
+            self.assertLess(abs(y), 30 * 4096 * 0.51)
+        text = tour.route_text("0x000DA726", pts, 1024, 1, 2)
+        self.assertIn("laps 2", text)
+        self.assertIn("world 0x000DA726", text)
+
+    def sample(self, t, lap_entities):
+        return (f"INFO nvforever::stress_sample: stress sample: t {t:.1f} s, frames 60, frame mean 16.70 ms, frame worst 30.10 ms, "
+                f"entities {lap_entities}, refs drawn 2000, meshes 900, images 1200, materials 300, audio 4, cells 25, "
+                f"bodies 3000/10/40, actors 12, nan actors 0, ragdolls 0, projectiles 0, at WastelandNV cell -17,1 Goodsprings, position 1, 2, 3")
+
+    def test_a_sample_line_reads_into_numbers(self):
+        s = tour.parse_sample(self.sample(5, 10000))
+        self.assertEqual((s["t"], s["entities"], s["bodies"], s["refs drawn"], s["frame mean"]), (5.0, 10000, 3050, 2000, 16.7))
+        self.assertTrue(s["at"].startswith("WastelandNV cell -17,1"))
+
+    def test_a_count_that_stays_up_on_coming_back_is_a_possible_leak(self):
+        lines = []
+        for lap in (1, 2, 3):
+            lines.append(f"INFO stress tour: lap {lap} starts")
+            for wp in (1, 2):
+                lines.append(f"INFO stress tour: lap {lap} at waypoint {wp}/2 (0, 0)")
+                lines.append(self.sample(lap * 10 + wp, 10000 + (lap - 1) * 2000))
+        samples = tour.tag_laps(lines)
+        self.assertEqual([(s["lap"], s["waypoint"]) for s in samples][:2], [(1, 1), (1, 2)])
+        leaks = tour.growth(samples)
+        self.assertIn("entities", leaks)
+        self.assertTrue(leaks["entities"]["rising_every_lap"])
+        self.assertEqual(leaks["entities"]["grew_at"][0]["first"], 10000)
+        self.assertNotIn("meshes", leaks)
+
+    def test_memory_goes_on_the_nearest_sample(self):
+        samples = [{"t": 1.0}, {"t": 10.0}]
+        tour.add_memory(samples, [(0.5, 100, 200), (9.0, 300, 400)])
+        self.assertEqual((samples[0]["working set"], samples[1]["private bytes"]), (100, 400))
+
+
+class BattleTest(unittest.TestCase):
+    def test_the_layout_puts_the_sides_across_the_centre(self):
+        aid, player = battle.layout(10, 0, (0.0, 0.0), 3000.0)
+        self.assertEqual(aid, "5;LvlNCRTrooper:10:-1500:0;LvlLegionRaiderMelee:10:1500:0")
+        self.assertEqual(player, (0.0, -1800.0))
+        self.assertEqual(battle.layout(10, 5, (0.0, 0.0))[0].count(";"), 3)
+
+    def test_the_log_gives_kills_hits_lines_switches_and_spacing(self):
+        t = "2026-10-18T10:00:{:02d}.000000Z  INFO "
+        lines = [
+            t.format(0) + "nvf_play::stress: stress battle: group 1 LvlNCRTrooper (0x0010A4F2): 10 of 10 placed around (-1500, 0)",
+            t.format(0) + "nvf_play::stress: stress battle: 2 groups, 20 fighters, 20 set on the nearest enemy",
+            t.format(3) + "nvforever::npc_combat: npc combat: LvlNCRTrooper 0xFF000801 fights LvlLegionRaiderMelee 0xFF000810 with WeapNVServiceRifle (gun)",
+            t.format(9) + "nvforever::npc_combat: npc combat: LvlNCRTrooper 0xFF000801 fights LvlLegionRaiderMelee 0xFF000811 with WeapNVServiceRifle (gun)",
+            t.format(10) + "nvforever::npc_combat: npc combat: LvlLegionRaiderMelee 0xFF000810 swings at LvlNCRTrooper 0xFF000801 from 84 units (feet to feet, reach 96)",
+            t.format(12) + "nvf_play::combat: combat line: 0xFF000801 says Attack line 0015B6C4",
+            t.format(20) + "nvforever::combat_tactics: battle: LvlLegionRaiderMelee 0xFF000810 killed by LvlNCRTrooper 0xFF000801",
+            t.format(30) + "nvforever::npc_combat: npc combat: LvlLegionRaiderMelee 0xFF000811 takes cover 300 units away",
+            t.format(59) + "nvforever::combat_tactics: battle summary: 2 sides, 20 actors; NCRFactionNV (10): 9 standing, 1 dead, 30 hits, 4 kills, 0 flights; CaesarsLegionFaction (10): 6 standing, 4 dead, 10 hits, 1 kills, 2 flights; first fighter at 1 s",
+            t.format(59) + "nvforever::npc_combat: npc combat summary: 20 actors fought (...); 200 shots (200 from a muzzle, 0 from the eyes; 6 down the sights, 194 from the hip, sights raised 2 times), 12 blows (1 went on a combo, the longest 2; 0 missed), 7 reloads; 9 flee checks, 2 fled; the player was hit 0 times",
+            t.format(59) + "nvf_play::combat: combat: 0 shots (0 drawn from the muzzle, 0 from behind cover), 200 projectiles, 50 actor hits, 150 world hits (0 objects' hit blocks)",
+            t.format(59) + "nvforever: actor animation: up to 17 actors posed at once, 0.799 ms per frame on average",
+        ]
+        c = battle.analyse(lines)
+        self.assertEqual(c["placed"], [{"group": 1, "base": "LvlNCRTrooper", "placed": 10, "asked": 10}])
+        self.assertEqual(c["time_to_kill_s"]["first"], 20.0)
+        self.assertEqual((c["shots"], c["actor_hits"], c["hit_rate"], c["fled"]), (200, 50, 0.25, 2))
+        self.assertEqual((c["target_switches"], c["cover_taken"]), (1, 1))
+        self.assertEqual(c["melee_spacing"]["closest"], 84)
+        self.assertEqual(c["combat_lines_per_minute"], {"Attack": 1.0})
+        self.assertEqual([s["faction"] for s in c["sides"]], ["NCRFactionNV", "CaesarsLegionFaction"])
+        self.assertIn("nvforever", c["system_times"])
+
+
+@unittest.skipUnless(os.name == "nt", "the fake game is a .cmd")
+class LaunchTest(unittest.TestCase):
+    """lib.run against a fake game: a script that prints lines, then crashes or hangs."""
+
+    def fake(self, d: Path, body: str) -> Path:
+        script = d / "fake_game.py"
+        script.write_text(textwrap.dedent(body), encoding="utf-8")
+        cmd = d / "fake_game.cmd"
+        cmd.write_text(f'@"{sys.executable}" "{script}" %*\n', encoding="utf-8")
+        return cmd
+
+    def test_a_crash_report_in_the_launch_home_is_collected(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            exe = self.fake(d, f"""
+                import os, pathlib, sys
+                print("stress cell: 1/1 start interior 00010C0E", flush=True)
+                logs = pathlib.Path(os.environ["NVFOREVER_HOME"]) / "logs"
+                logs.mkdir(parents=True, exist_ok=True)
+                (logs / "crash-20261018-100000-1.txt").write_text({REPORT!r})
+                assert os.environ["NVF_PLAY_TEST_STRESS"] == "1"
+                sys.exit(101)
+                """)
+            ctx = lib.Ctx(d, exe, "Data", Path("fnvtool"), d)
+            r = lib.run(ctx, lib.Launch("one", [], {}, run_seconds=5, progress=re.compile("stress"), hang_seconds=30))
+            self.assertEqual((r.status, r.exit), ("crashed", 101))
+            self.assertEqual(r.crashes[0].message, "index out of bounds: the len is 3 but the index is 7")
+            self.assertIn("stress cell: 1/1 start", r.lines[0])
+            self.assertTrue((d / "one.cmd.txt").exists())
+
+    def test_no_progress_is_a_hang(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            exe = self.fake(d, """
+                import time
+                print("stress cell: 1/1 start", flush=True)
+                time.sleep(60)
+                """)
+            ctx = lib.Ctx(d, exe, "Data", Path("fnvtool"), d)
+            r = lib.run(ctx, lib.Launch("hang", [], {}, run_seconds=120, progress=re.compile("stress"), hang_seconds=2, memory_every=0.5))
+            self.assertEqual(r.status, "hung")
+            self.assertTrue(r.stacks and r.stacks.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

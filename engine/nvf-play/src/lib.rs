@@ -80,6 +80,7 @@ pub mod terminal;
 mod test_aid;
 pub mod sfx;
 pub mod ui_sounds;
+pub mod stress;
 pub mod vats_mode;
 pub mod voice;
 pub mod wait;
@@ -291,6 +292,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin);
         test_aid::setup(app);
+        stress::setup(app);
         settings::setup(app);
     }
 }

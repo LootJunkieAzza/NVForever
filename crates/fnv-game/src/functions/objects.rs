@@ -27,6 +27,18 @@ pub fn note_created(g: &mut Game, r: FormId) {
     }
 }
 
+impl Game<'_> {
+    /// A new reference of `base` at `pos` in `cell` (with angles `rot`), made and announced
+    /// as PlaceAtMe makes its references ([`place_at_me`]), at a place the caller chooses:
+    /// the stress tests' battles (nvf-play `stress.rs`) put fighters where no reference
+    /// stands. A created actor (or leveled actor list) becomes a resident as PlaceAtMe's do.
+    pub fn create_at(&mut self, base: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3]) -> Result<FormId, String> {
+        let r = self.world.place(base, cell, pos, rot, 1).map_err(|e| e.to_string())?;
+        note_created(self, r);
+        Ok(r)
+    }
+}
+
 /// `ref.PlaceAtMe object count [distance direction]`: new references of `object` at
 /// the calling reference's cell and position, with its angles [documented: catalogue
 /// notes, the copy of the caller's angles]. The distance and direction do nothing and

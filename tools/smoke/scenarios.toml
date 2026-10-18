@@ -116,6 +116,11 @@ name = "smoke runner tests"
 paths = ["tools/smoke/"]
 cmd = ["python", "-m", "unittest", "discover", "-s", "tools/smoke/tests"]
 
+[[check]]
+name = "stress runner tests"
+paths = ["tools/stress/", "tools/smoke/smoke/runner.py", "tools/smoke/smoke/stacks.py", "tools/smoke/smoke/expect.py"]
+cmd = ["python", "-m", "unittest", "discover", "-s", "tools/stress/tests"]
+
 # ------------------------------------------------------------------ renderer, sky, image space
 
 [[scenario]]

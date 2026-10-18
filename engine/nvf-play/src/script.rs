@@ -1410,6 +1410,9 @@ pub(crate) fn run_scripts(
                     changed.write(RefChanged { form_id: id });
                 }
             }
+            ScriptEffect::Travel(t) if crate::stress::holds_player() => {
+                info!("test aid NVF_PLAY_TEST_STRESS: a script's move of the player to {:?} / {:?} at {:?} left out", t.interior, t.world, t.feet);
+            }
             ScriptEffect::Travel(t) => {
                 // A move to where the player already stands (VCG00 stage 0's MoveTo to the
                 // new game's start) needs no loading.

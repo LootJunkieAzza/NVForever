@@ -544,6 +544,20 @@ fn place_at_me_drop_and_typed_removal() {
 }
 
 #[test]
+fn create_at_puts_an_actor_where_asked_and_makes_it_a_created_actor() {
+    let f = fixture();
+    let mut g = game(&f);
+    let at = [1234.0, -567.0, 89.0];
+    let r = g.create_at(FormId(NPC_ADULT), Some(FormId(CELL)), at, [0.0, 0.0, 1.5]).unwrap();
+    let s = g.world.peek(r).unwrap().clone();
+    assert_eq!((s.base, s.cell, s.pos), (FormId(NPC_ADULT), Some(FormId(CELL)), at));
+    assert!(g.created_actors().contains(&r));
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::Placed { reference, .. } if reference == r)));
+    // An unknown base is refused.
+    assert!(g.create_at(FormId(0x00FF_FFF0), Some(FormId(CELL)), at, [0.0; 3]).is_err());
+}
+
+#[test]
 fn actor_flags_factions_and_essential_state() {
     let f = fixture();
     let mut g = game(&f);
