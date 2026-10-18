@@ -206,7 +206,9 @@ left is [outstanding.md](../outstanding.md) §1). Read with it:
 6. ~~**Fast travel**~~ (60 quests, the whole VMQ line): built from the Pip-Boy's world map
    (PR #393; EnableFastTravel gates it).
 7. **Saves from scripts** (SystemSave, ForceSave; 29 quests): cheap, saves exist.
-8. **Look turning the body**, **the engine's animation state** (IsAnimPlaying,
+8. ~~**Look turning the body**~~ (built: the rotate-body flag turns the whole body to
+   the target until StopLook, `script_look.rs` and `fnv_ai`; docs/design/script-stubs.md §3),
+   **the engine's animation state** (IsAnimPlaying,
    IsIdlePlaying, IsMoving's directions, IsPlayerActionActive) and **AI package codes**
    (GetCurrentAIProcedure's Sandbox and Travel-at-goal codes, §3.2): each a few dozen quests.
 9. Menus not built: **repair** (Raul's quests), **barber/surgeon/tutorial**, **Caravan**,
@@ -241,7 +243,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 2 | knockdowns and knock-outs | no-system | 64 | 196 / 10 | 282 / 134 | GetKnockedState, GetUnconscious, PushActorAway, SetUnconscious | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ01 (They Went That-a-Way) | - |
 | 3 | fast travel | no-system | 60 | 140 / 0 | 83 / 0 | EnableFastTravel | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ04 (Bright and Shiny), VMQ05 (For the Republic, Part 2) and 4 more | - |
 | 4 | saves from scripts | wrong | 29 | 32 / 0 | 7 / 0 | ForceSave, SystemSave | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQ04 (Bright and Shiny) and 8 more | - |
-| 5 | Look turning the body | wrong | 26 | 110 / 0 | 159 / 0 | Look | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ03a (You'll Know It When It Happens) | VDialogueVeronica (Veronica Dialogue), VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest) |
+| 5 | Look turning the body | built | 26 | 110 / 0 | 159 / 0 | Look | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ03a (You'll Know It When It Happens) | VDialogueVeronica (Veronica Dialogue), VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest) |
 | 6 | animation state told to the rules | wrong | 22 | 46 / 0 | 121 / 51 | IsAnimPlaying, IsIdlePlaying, IsMoving, IsPlayerActionActive | VMQ03a (You'll Know It When It Happens), VMQ03b (Arizona Killer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQYesMan03 (Wild Card: Finishing Touches) | - |
 | 7 | repair menu | no-system | 10 | 13 / 0 | 15 / 0 | ShowRepairMenu | - | VDialogueRaul (Raul's Dialog) |
 | 8 | barber, plastic surgeon and tutorial menus | no-system | 9 | 16 / 0 | 8 / 0 | ShowBarberMenu, ShowPlasticSurgeonMenu, ShowTutorialMenu | - | - |
@@ -529,7 +531,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | IsXBox | 0x1135 | 2 / 2 | match | - | - |  |
 | KillActor | 0x108B | 597 / 0 | match | - | - |  |
 | Lock | 0x1072 | 303 / 0 | match | - | - | On a terminal: locked at the level (at most 5), the terminal's own state, read by the opening [observed: probes; documented: GECK wiki Lock]. |
-| Look | 0x105C | 159 / 0 | wrong | Look turning the body | - | The rotate-body flag is kept, not drawn. |
+| Look | 0x105C | 159 / 0 | built | Look turning the body | - | With rotateBody 1 the whole body turns to the target until StopLook [documented: GECK wiki Look]: the AI's actors at the walker's turn rate (`fnv_ai` social.rs), standing ones on the spot with a conversation's turn (`script_look.rs`); the rate and the body keeping its heading after StopLook are [hypothesis] (no capture covers a Look; smoke `script-look-body`). |
 | MarkForDelete | 0x11BB | 602 / 0 | match | - | - |  |
 | MenuMode | 0x1024 | 13 / 11 | wrong | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | differs 2, same 3 | MenuMode 1 is compared as a literal code; 1007/1013 never set (audit §5). The sleep menu is 1012 [observed: probes]. |
 | ModActorValue | 0x1010 | 62 / 0 | match | - | - |  |

@@ -314,6 +314,16 @@ impl Sim<'_> {
         }
     }
 
+    /// As [`Sim::run`], with the hellos and random conversations of each frame too
+    /// (`Ai::social`, which turns bodies to whom they face), as the engine runs them.
+    fn run_social(&mut self, seconds: f64) {
+        for _ in 0..(seconds * 4.0) as usize {
+            self.game.tick();
+            self.ai.update(&mut self.game, &self.nav, 0.25);
+            self.ai.social(&mut self.game, &self.nav, 0.25);
+        }
+    }
+
     fn events(&self) -> Vec<&AiEvent> {
         self.ai.events.iter().map(|e| &e.event).collect()
     }
@@ -576,5 +586,46 @@ fn an_actor_talked_to_turns_to_the_player_and_keeps_facing_the_player() {
     // The conversation is over: nothing turns it back.
     assert!(s.game.end_dialogue());
     s.ai.update_held(&mut s.game, 0.25);
+    assert_eq!(s.agent(R_GREET).walker.heading, heading);
+}
+
+/// A script's Look with `rotateBody` 1 turns the whole body of an actor the AI runs to
+/// its target, at the walker's own turn rate, and keeps it there; StopLook ends it and
+/// the body keeps its heading. Without the flag only the head turns (the engine's): the
+/// body stays (docs/design/script-stubs.md §3, GECK wiki Look).
+#[test]
+fn a_look_turning_the_body_faces_the_target_until_stop_look() {
+    use fnv_game::functions::senses::Look;
+    let f = fixture();
+    let mut s = sim(&f, R_GREET, CORNER);
+    s.run(0.5);
+    assert_eq!(s.agent(R_GREET).talk, Some(Talking::Waiting));
+    let before = s.agent(R_GREET).walker.heading;
+    let want = fnv_nav::follow::heading_of([CORNER[0] - GREETER[0], CORNER[1] - GREETER[1]]);
+    let off = |h: f32| (h - want + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+    assert!(off(before).abs() > 1.0, "it starts facing away: {before} against {want}");
+
+    // The head only: the body stays.
+    s.game.senses.looks.insert(FormId(R_GREET), Look { target: FormId(PLAYER), rotate_body: false });
+    s.run_social(2.0);
+    assert_eq!(s.agent(R_GREET).walker.heading, before);
+    assert!(s.game.body_looks().is_empty());
+
+    // The whole body: it turns, not at once (the walker's turn rate), then faces the player.
+    s.game.senses.looks.insert(FormId(R_GREET), Look { target: FormId(PLAYER), rotate_body: true });
+    assert_eq!(s.game.body_looks(), vec![(FormId(R_GREET), FormId(PLAYER))]);
+    s.run_social(0.25);
+    let first = s.agent(R_GREET).walker.heading;
+    assert!(off(first).abs() < off(before).abs() && off(first).abs() > 0.05, "it turns over time: {first}");
+    s.run_social(5.0);
+    let heading = s.agent(R_GREET).walker.heading;
+    assert!(off(heading).abs() < 0.05, "{heading} against {want}");
+    assert_eq!(s.agent(R_GREET).walker.feet, GREETER);
+    assert!((s.game.world.peek(FormId(R_GREET)).unwrap().rot[2] - heading).abs() < 1e-4);
+
+    // StopLook: nothing turns it back.
+    s.game.senses.looks.remove(&FormId(R_GREET));
+    assert!(s.game.body_looks().is_empty());
+    s.run_social(2.0);
     assert_eq!(s.agent(R_GREET).walker.heading, heading);
 }

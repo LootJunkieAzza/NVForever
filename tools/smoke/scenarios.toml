@@ -2026,6 +2026,32 @@ order = [
 expect = ["script look summary: 1 looks started, 1 stopped"]
 
 [[scenario]]
+name = "script-look-body"
+source = "docs/design/script-stubs.md §3, engine/nvforever/src/script_look.rs: Look with rotateBody 1 turns Sunny's whole body, first to Cheyenne, then to the player, until StopLook (GECK wiki Look)"
+areas = ["scripts", "speech-look"]
+paths = [
+  "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-game/src/functions/senses.rs", "engine/nvforever/src/script_look.rs",
+  "engine/nvforever/src/speech_look.rs",
+]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "6:call:SunnyRef:Look:0x0010588E:1,13:call:SunnyRef:Look:player:1,20:call:SunnyRef:StopLook" }
+args = ["--cell", "GSProspectorSaloonInterior", "--play", "--no-voice", "--no-messages"]
+run_seconds = 28
+# Sunny stands in her idle (no --npc-packages): the engine turns her on the spot. Cheyenne
+# and the player stand in different directions from her, so at least one Look is more
+# than 30 degrees off her front and turns her body; a moving player can make more.
+order = [
+  [
+    { re = 'script look: SunnyRef looks at ', label = "script look: Sunny looks at Cheyenne" },
+    { re = 'script look: SunnyRef turns its body to ', label = "script look: Sunny turns her body" },
+    { re = 'script look: SunnyRef stops looking', label = "script look: StopLook ends it" },
+  ],
+]
+expect = [
+  { re = 'script look summary: 1 looks started, 1 stopped; (?P<n>\d+) body turns, 0 bodies left to the AI, 0 stayed', range = [1, 6] },
+  { re = 'script look: .*the body stays here', count = 0 },
+]
+
+[[scenario]]
 name = "script-stubs-2-play"
 source = "docs/design/script-stubs.md §3.2: SetGlobalTimeMultiplier slows the clock and puts it back; ShowAllMapMarkers 1 0 0 (the Explorer perk) puts the markers on the Pip-Boy's world map (the test aid call:)"
 areas = ["scripts", "stubs", "pipboy"]

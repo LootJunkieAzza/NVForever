@@ -405,10 +405,12 @@ impl Ai {
     /// Who says a line to someone turns its body to the listener, and the listener of a
     /// conversation between actors to the speaker (`Game::facings`: SayTo lines, hellos,
     /// conversations; not a line whose script asked for no turning); who waits for a
-    /// partner turns to it as it comes. Not on furniture, on its way, or turning with its
-    /// Dialogue package already.
+    /// partner turns to it as it comes; and an actor a script's Look turns whole
+    /// (`rotateBody` 1, [`Game::body_looks`]) turns to its target until StopLook. Not on
+    /// furniture, on its way, or turning with its Dialogue package already.
     fn face_listeners(&mut self, game: &mut Game, dt: f32) {
         let mut pairs: Vec<(FormId, FormId)> = game.facings().into_iter().filter(|f| f.body).map(|f| (f.who, f.to)).collect();
+        pairs.extend(game.body_looks());
         pairs.extend(self.agents.iter().filter_map(|(id, a)| match a.chat {
             Some(Chat::Waiting { starter }) => Some((*id, starter)),
             _ => None,

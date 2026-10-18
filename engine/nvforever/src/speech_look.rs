@@ -85,14 +85,22 @@ impl Plugin for SpeechLookPlugin {
 type Actor = (Entity, &'static ActorRig, &'static ChildOf, Option<&'static LookOverride>, Has<Dying>, Has<Corpse>, Has<WalkTest>, Has<BodyHeld>);
 
 /// The body is the AI's to turn.
-const BY_AI: &str = "the AI turns it (--npc-packages)";
+pub(crate) const BY_AI: &str = "the AI turns it (--npc-packages)";
 
 /// Why a body does not turn here, or `None` when it does.
 #[allow(clippy::too_many_arguments)]
 fn body_stays(f: &Facing, npc: bool, dead: bool, held: bool, walk_test: bool, traveller: bool, by_ai: bool, lo: Option<&Locomotion>) -> Option<&'static str> {
     if !f.body {
         Some("a listener of a SayTo line turns its head only")
-    } else if dead {
+    } else {
+        standing_body_stays(npc, dead, held, walk_test, traveller, by_ai, lo)
+    }
+}
+
+/// Why an actor's body may not be turned on the spot by the engine (also a script's
+/// Look, `script_look.rs`), or `None` when it may.
+pub(crate) fn standing_body_stays(npc: bool, dead: bool, held: bool, walk_test: bool, traveller: bool, by_ai: bool, lo: Option<&Locomotion>) -> Option<&'static str> {
+    if dead {
         Some("it is dead")
     } else if !npc {
         Some("it is not a human-style NPC")
@@ -309,4 +317,21 @@ fn report(mut exit: MessageReader<AppExit>, looks: Res<SpeechLooks>) {
         looks.stayed.values().sum::<usize>(),
         if stayed.is_empty() { String::new() } else { format!(": {}", stayed.join(", ")) }
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Who the engine turns on the spot, for a line said (and a script's Look).
+    #[test]
+    fn only_a_standing_npc_nobody_else_turns_is_turned_on_the_spot() {
+        assert_eq!(standing_body_stays(true, false, false, false, false, false, None), None);
+        assert_eq!(standing_body_stays(true, true, false, false, false, false, None), Some("it is dead"));
+        assert_eq!(standing_body_stays(false, false, false, false, false, false, None), Some("it is not a human-style NPC"));
+        assert_eq!(standing_body_stays(true, false, true, false, false, false, None), Some("it is in furniture"));
+        assert_eq!(standing_body_stays(true, false, false, false, false, true, None), Some(BY_AI));
+        assert_eq!(standing_body_stays(true, false, false, false, true, false, None), Some("its heading is its route's (--npc-travel)"));
+        assert_eq!(standing_body_stays(true, false, false, true, false, false, None), Some("the walk test moves it"));
+    }
 }

@@ -54,7 +54,7 @@ evidence tags are on each function (`functions/ai_state.rs`, `senses.rs`, `ui.rs
 | Function | Opcode | Calls | Conditions | Over | Engine hook |
 |---|---|---|---|---|---|
 | ResetAI | 0x11FA | 711 | 0 | packages (`crate::ai`): the script package dropped, goal and unreachable packages forgotten, a Look let go, packages chosen again | the residents take the new package |
-| StopLook / Look | 0x105D / 0x105C | 242 / 159 | 0 | `Game::script_look` | `nvforever` `script_look.rs`: a `LookOverride` over every other look (the player, an actor, or a marker's position); `rotateBody` kept, not acted on |
+| StopLook / Look | 0x105D / 0x105C | 242 / 159 | 0 | `Game::script_look` | `nvforever` `script_look.rs`: a `LookOverride` over every other look (the player, an actor, or a marker's position); with `rotateBody` 1 the whole body turns to the target until StopLook [documented: GECK wiki Look]: `fnv_ai` turns an actor it runs at the walker's turn rate (`Game::body_looks`), `script_look.rs` turns a standing one on the spot with a conversation's turn (`dialogue_look::BodyTurn`, again whenever the target is 30° off its front); after StopLook the body keeps its heading [hypothesis: no capture covers a Look] |
 | IncrementScriptedChallenge | 0x1275 | 134 | 0 | `PlayerState::challenges` progress against the CHAL DATA threshold; a recurring one starts again from 0 | none (no challenge page or message yet) |
 | GetCurrentAIProcedure | 0x108F | 32 | 64 | package type, goal met (17 DONE), furniture (8 SLEEP, 21 GET_UP, 48 SITTING), combat (13), search (36), conversation (4) | none |
 | ForceActiveQuest | 0x11DD | 82 | 0 | `UiRequests::active_quest` | the Pip-Boy DATA page takes it (`pipboy data: active quest … (ForceActiveQuest)`) |
