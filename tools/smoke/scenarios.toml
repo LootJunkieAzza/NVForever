@@ -3382,12 +3382,12 @@ expect = [
 [[scenario]]
 name = "crippled-limp-gecko"
 source = "owner 2026-10-17: every actor with limping clips limps on a crippled leg; a gecko's hind legs are its mobility limbs (engine/nvforever/src/limping.rs, docs/spec-notes/actors.md §8.11, §8.12)"
-note = "VERGSGecko2REF 0x00157B3D (Very Aggressive) at the wait-enemies-near spot goes for the player (god mode); its Left Mobility Condition (left hind leg) is damaged at 8 s"
+note = "VERGSGecko2REF 0x00157B3D (Very Aggressive) at the wait-enemies-near spot goes for the player (god mode); its Left Mobility Condition (left hind leg) is damaged at 8 s; at 9 s it is put 400 units from the player and set on them (moveto, combat), so it has to come back on its limp: it may already stand at the player when the leg goes (the scripts ran 7 s late on PR #411's run, 2026-10-18), and then it never moves"
 areas = ["actors", "combat", "creatures"]
 paths = ["engine/nvforever/src/limping.rs", "engine/nvforever/src/locomotion.rs", "engine/nvforever/src/actors.rs", "crates/fnv-actor/src/locomotion.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "8:damage:0x00157B3D:LeftMobilityCondition:1000" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "8:damage:0x00157B3D:LeftMobilityCondition:1000,9:moveto:0x00157B3D:player:400:0:0,9:combat:0x00157B3D:player" }
 args = ["--play", "--pos=-69100,-17219,9000", "--hour", "12", "--no-voice", "--no-messages"]
-run_seconds = 20
+run_seconds = 30
 expect = [
   { re = 'actor locomotion: meshes.creatures.nvgecko limping: 2 of \d+ moves from hurt', label = "the gecko's limping set loads (walk and run forward)" },
   { re = 'limping: \S+ 0x00157B3D limps on a crippled leg', label = "the gecko limps" },
