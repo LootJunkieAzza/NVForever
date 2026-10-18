@@ -1,0 +1,56 @@
+# Script-function probes for the menu hooks (docs/design/script-stubs.md §3.14,
+# docs/spec-notes/tutorial-menu.md): the tutorial menu's MenuMode code and what a second
+# ShowTutorialMenu does, MenuMode over it, ResetPipboyManager and AutoDisplayObjectives.
+# `function_probe.py jobs` turns this file into game jobs and our runner's inputs. Only
+# FormIDs of the shipped masters (facts of the format, no game data).
+format = "fnv.function.probes/1"
+
+[forms]
+helplimbs = "FalloutNV.esm:072358"    # HelpHealingLimbs (MESG, Message Box)
+helplimbsx = "FalloutNV.esm:072359"   # HelpHealingLimbsXBox (MESG, Message Box)
+vcg01 = "FalloutNV.esm:104C1C"        # the quest whose stages 55 and 200 call AutoDisplayObjectives
+
+# ---------------------------------------------------------------- 1: the tutorial menu
+
+[[batch]]
+name = "mh1_tutorial"
+title = "Menu hooks 1: ShowTutorialMenu twice, the menu codes while it is open (about 30 s, no input)"
+start = "nvfstrip; the tutorial menu is closed with CloseAllMenus at the end."
+ours_start = [{ op = "wait_frames", frames = 300 }]
+steps = [
+  { ask = "MenuMode", label = "MenuMode before" },
+  { do = "ShowTutorialMenu @helplimbs", settle = 30 },
+  { ask = "MenuMode", label = "MenuMode with the tutorial menu" },
+  # NVForever's guess is 1059; the others are the neighbours of the remembered list and
+  # the message box's code, to tell a tutorial menu from a message box.
+  { ask = "MenuMode 1059", label = "MenuMode 1059 with the tutorial menu" },
+  { ask = "MenuMode 1001", label = "MenuMode 1001 with the tutorial menu" },
+  { ask = "MenuMode 1060", label = "MenuMode 1060 with the tutorial menu" },
+  { ask = "MenuMode 1", label = "MenuMode 1 with the tutorial menu" },
+  # A second message while it is open: a page more (NVForever), or a new menu?
+  { do = "ShowTutorialMenu @helplimbsx", settle = 30 },
+  { ask = "MenuMode 1059", label = "MenuMode 1059 after a second ShowTutorialMenu" },
+  { ask = "MenuMode 1001", label = "MenuMode 1001 after a second ShowTutorialMenu" },
+  { console = "CloseAllMenus", settle = 30 },
+  { ask = "MenuMode", label = "MenuMode after one CloseAllMenus" },
+  { ask = "MenuMode 1059", label = "MenuMode 1059 after one CloseAllMenus" },
+  { console = "CloseAllMenus", settle = 30 },
+  { ask = "MenuMode", label = "MenuMode after two CloseAllMenus" },
+]
+
+# ---------------------------------------------------------------- 2: reset and objectives
+
+[[batch]]
+name = "mh2_reset_objectives"
+title = "Menu hooks 2: ResetPipboyManager and AutoDisplayObjectives change no menu state (about 20 s, no input)"
+start = "after mh1_tutorial."
+ours_start = [{ op = "wait_frames", frames = 300 }]
+steps = [
+  { do = "ResetPipboyManager", settle = 30 },
+  { ask = "MenuMode", label = "MenuMode after ResetPipboyManager" },
+  { do = "AutoDisplayObjectives 1", settle = 300 },
+  { ask = "MenuMode", label = "MenuMode with AutoDisplayObjectives on" },
+  { ask = "GetQuestRunning @vcg01", label = "VCG01 running (whose objectives would show)" },
+  { do = "AutoDisplayObjectives 0", settle = 30 },
+  { ask = "MenuMode", label = "MenuMode with AutoDisplayObjectives off" },
+]

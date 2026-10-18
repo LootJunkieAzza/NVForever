@@ -209,9 +209,8 @@ system = "Look turning the body"
 note = "The rotate-body flag is kept, not drawn."
 
 [function.MenuMode]
-status = "wrong"
-system = "menu codes: Pip-Boy as 1, loading 1007, start menu 1013"
-note = "MenuMode 1 is compared as a literal code; 1007/1013 never set (audit §5). The sleep menu is 1012 [observed: probes]."
+status = "match"
+note = "MenuMode 1 for any Pip-Boy page (1002/1003/1023, repair 1035) [documented]; loading 1007 with its blocks, VATS 1056, tutorial 1059 [hypothesis]; the pause menu's 1013 not reported (no scripts run under it). The sleep menu is 1012 [observed: probes] (script-stubs.md 3.14)."
 
 [function.SetLevel]
 status = "wrong"
@@ -269,19 +268,17 @@ system = "swimming told to the rules"
 note = "Stub 0; 0 for the player and Ringo on land matches [observed: probes]. The engine knows the player swims."
 
 [function.ExitGame]
-status = "wrong"
-system = "quitting from scripts"
-note = "Stub, 1 call; the console's qqq exists."
+status = "match"
+note = "Back to the main menu as the pause menu's Quit [documented: GECK wiki]; the credits it plays first are not built (script-stubs.md 3.14)."
 
 [function.AutoDisplayObjectives]
-status = "wrong"
+status = "open"
 system = "objective display switch"
-note = "Implementable (script-stubs.md)."
+note = "Kept with the player; the HUD keeps the objective list on screen while on [hypothesis: what the display shows; capture job menu_hooks]."
 
 [function.ResetPipboyManager]
-status = "wrong"
-system = "Pip-Boy reset"
-note = "Stub, 4 calls."
+status = "match"
+note = "The Pip-Boy's light off [documented: GECK wiki] and its pages back to their defaults [hypothesis] (script-stubs.md 3.14)."
 
 # ---------------------------------------------------------------- no system yet
 
@@ -421,9 +418,8 @@ system = "barber, plastic surgeon and tutorial menus"
 note = "Stub."
 
 [function.ShowTutorialMenu]
-status = "no-system"
-system = "barber, plastic surgeon and tutorial menus"
-note = "Stub."
+status = "match"
+note = "The tutorial menu from tutorial_menu.xml over the open menu (tutorial-menu.md); its code 1059 a guess [hypothesis; capture job menu_hooks]."
 
 [function.TriggerScreenSplatter]
 status = "no-system"

@@ -5804,3 +5804,39 @@ themselves:
   StartCombat or PlaySound). Nothing like that has been seen in a playthrough since
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
+
+## Menu hooks: menu codes, the tutorial menu, ResetPipboyManager, AutoDisplayObjectives, ExitGame (2026-10-18, branch claude/menu-hooks-30bc18)
+
+docs/design/script-stubs.md §3.14, docs/spec-notes/tutorial-menu.md. Smoke
+`menu-hooks-pipboy-codes`, `menu-hooks-tutorial`, `menu-hooks-exit-game`; capture job
+`tools/capture/probes/menu_hooks.toml` (batches `mh1_tutorial`, `mh2_reset_objectives`,
+save nvfstrip). Guesses, each waiting for you or the capture:
+
+- **The tutorial menu's code is 1059** (remembered from the wiki's menu list, which the
+  local export lacks). The capture asks MenuMode 1059, 1060 and 1001 with it open.
+- **The tutorial menu opens over the Pip-Boy** (CGTutorial shows it from its MenuMode 1
+  block) and the Pip-Boy is back when it closes. A second ShowTutorialMenu while it is
+  open adds a page (Next / Previous, "1/2" at the top right). *Check:* cripple a limb with
+  the Pip-Boy open; the "Healing Limbs" page should come over it.
+- **Its look**: the file's layout, but as dark as the other menus (the file's fill alpha
+  of 32/255 was hard to read over the Pip-Boy); the words "Next", "Previous", "Close",
+  "A) S) E)" and "VDSG Manual" (the game settings are not in the masters); the text in
+  font 1. A frame is saved at 15 s and 20 s of `menu-hooks-tutorial` in target/smoke.
+- **MenuMode 1007 under loading screens**: the 1007 blocks run (and only they) in the two
+  frames after travel and after a save is loaded; the DLC scripts use them to put their
+  hologram shaders back. The pause menu's 1013 is not reported: scripts still do not run
+  under NVForever's pause menu.
+- **VATS 1056**: NVForever's VATS is no menu, so `Begin MenuMode 1056` blocks run beside
+  GameMode while it marks (CGTutorial's VATS tutorial message comes from one).
+- **Blackjack's menu code moved from 1035 to 1102**: 1035 is the Pip-Boy's repair list in
+  the wiki; neither is asked for by a shipped script.
+- **ResetPipboyManager** turns the flashlight off (the wiki says the reset turns the
+  Pip-Boy light off; the flashlight is NVForever's Pip-Boy light) and puts the pages back
+  to ITEMS / first tabs. The wiki's "without a reset the Pip-Boy acts as an NPC's" is not
+  built: the Pip-Boy opens without a reset (test runs open the inventory without one).
+- **AutoDisplayObjectives 1** keeps the objective list on the HUD (no fading) until
+  another quest line comes; VCG01 turns it on at stage 55 (before the player has the
+  Pip-Boy) and off at 200. *Check:* in the opening, after Doc Mitchell's first lines, the
+  "Ain't That a Kick in the Head" objectives should stay at the left.
+- **ExitGame** goes back to the main menu as Quit to the main menu does; the end credits
+  are not built. A run a test aid drives quits instead (so a smoke log ends there).

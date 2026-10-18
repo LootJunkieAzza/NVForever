@@ -27,8 +27,10 @@ privately). Nothing here comes from the executable.
 - A `maxWinnings` of 0 means the casino's own (§2) [hypothesis: every script passes 0,
   and the casinos' records hold the caps the bans are known for].
 - It is a menu: the world and the game clock stand still (`PlayState::Menu`), menu code
-  1035 to scripts [hypothesis: the menu's `&BlackJackMenu;` class number is not in the
-  menu files; NVForever's own code, unused by any script].
+  1102 to scripts [hypothesis: the menu's `&BlackJackMenu;` class number is not in the
+  menu files; NVForever's own code, unused by any script, next to roulette's 1101. It was
+  1035 until 2026-10-18, which is the Pip-Boy's repair list (documented: GECK wiki
+  GetSelectedItemRef)].
 
 ## 2. The casino record (CSNO)
 

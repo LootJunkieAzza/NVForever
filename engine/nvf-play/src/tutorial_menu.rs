@@ -1,0 +1,467 @@
+//! The tutorial menu (ShowTutorialMenu, docs/spec-notes/tutorial-menu.md): a message as a
+//! page of the "VDSG Manual", laid out by the game's `menus\tutorial_menu.xml`
+//! [documented, §2] and drawn with the menus' fonts and lines (`crate::chargen::draw`).
+//!
+//! - **What it shows**: the runtime's tutorial pages (`fnv_game::Game::tutorial`, opened
+//!   by `Game::show_tutorial`): the message's title (MESG FULL) at the top left, its text
+//!   (DESC, its `<div>` and `<p>` marks made into paragraphs, [`plain_text`]) in a
+//!   scrolling column, "n/N" at the top right when there is more than one page, and
+//!   Next, Previous and Close at the right.
+//! - **Keys**: A or Right the next page, S or Left the previous one, E, Esc or Enter
+//!   close it [documented: the file's `_PCButton_A`, `_S`, `_E`; design: the arrows,
+//!   Esc and Enter]; Up, Down and the wheel scroll the text; a click on a button does as
+//!   its key. Closing goes through `ScriptState::answer` (`Game::close_menu`: the menu
+//!   under it, the Pip-Boy in CGTutorial's case, is the open one again). While it is open
+//!   over the Pip-Boy, the Pip-Boy's keys are held (`crate::pipboy`).
+//! - It is a script menu (`script::is_script_menu`): the player is held and game time
+//!   stops; an unattended run closes it as any script menu (`NVF_PLAY_TEST_SCRIPT_MENUS`).
+//!
+//! Log lines: `tutorial menu: page <n>/<N> "<title>" (<message>)` when a page shows,
+//! `tutorial menu: closed (<how>)`.
+
+use crate::chargen::draw::{Align, Ctx, Kit, Which, BODY_BASE, LINE_PITCH, THICK};
+use crate::interface::{amber, at, set_line, u};
+use crate::script::ScriptState;
+use crate::PlaySet;
+use bevy::image::CompressedImageFormatSupport;
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
+use fnv_game::game::menus;
+use fnv_sim::FormId;
+use nvf_assets::GameData;
+
+// ---- the menu file's numbers [documented: menus\tutorial_menu.xml, §2] ------------------
+
+/// The background is this part of the screen, centred.
+const SCALE: f32 = 0.8;
+/// The corner lines: 48 in from the sides, 96 down from the top (and up from the bottom).
+const EDGE_X: f32 = 48.0;
+const EDGE_Y: f32 = 96.0;
+/// The short lines along the top and bottom from each corner, and the lines fading
+/// down (up) from the corners (vertical_fade_line.xml).
+const STUB: f32 = 50.0;
+const FADE: f32 = 60.0;
+/// The room between the pieces (`_buffer`).
+const BUF: f32 = 10.0;
+/// The title stands 5 lower than centred on the top line.
+const TITLE_DROP: f32 = 5.0;
+/// The buttons' right side, in from the background's right edge, and the room round
+/// their text (text_box.xml `_horbuf`, `_verbuf`).
+const BUTTON_RIGHT: f32 = 81.0;
+const HOR_BUF: f32 = 20.0;
+const VER_BUF: f32 = 20.0;
+/// The text column ends this far before the buttons; its text starts 5 in and 21 down
+/// (the file's "font adjustment"), wrapping 5 short of the column.
+const TEXT_GAP: f32 = 64.0;
+const TEXT_X: f32 = 5.0;
+const TEXT_Y: f32 = 21.0;
+/// A scroll step (`_step_size`).
+const STEP: f32 = 30.0;
+/// The VDSG symbol: 64 high, its picture's width less 36 (`_dead_space`), which it also
+/// starts that much before its place.
+const SYMBOL: &str = "interface\\loading\\glow_loading_vdsgsymbol.dds";
+const SYMBOL_H: f32 = 64.0;
+const SYMBOL_DEAD: f32 = 36.0;
+/// The text after the symbol stands 7 lower than centred on the bottom line.
+const VDSG_DROP: f32 = 7.0;
+/// The PC key hint's place: 5 right of its button (text_box.xml `PCShortcutLabel`).
+const HINT_GAP: f32 = 5.0;
+
+// ---- NVForever's own -----------------------------------------------------------------------
+
+/// The words the file takes from the game's settings (`sNext`, `sPrevious`,
+/// `sCloseButton`, `sPCMenuHintA/S/E`, `sVDSGManual`), which are not in the masters
+/// [hypothesis: the words; the hints as the level-up menu's "A)", observed there].
+const NEXT: &str = "Next";
+const PREVIOUS: &str = "Previous";
+const CLOSE: &str = "Close";
+const HINTS: [&str; 3] = ["A)", "S)", "E)"];
+const VDSG: &str = "VDSG Manual";
+/// The background's darkness: the menus' (`crate::interface::MENU_BACKING`) [design: the
+/// file's fill alpha of 32 of 255 leaves the text hard to read over the Pip-Boy].
+const SHADE: f32 = crate::interface::MENU_BACKING;
+/// The picture's width when its file cannot be read.
+const SYMBOL_W: f32 = 64.0;
+
+/// A button of the menu.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TmButton {
+    Next,
+    Previous,
+    Close,
+}
+
+/// A page: the message's title and its text as shown.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Page {
+    pub message: FormId,
+    pub title: String,
+    pub text: String,
+}
+
+/// The message's text without its marks: `<p>` and `<br>` start a new paragraph, other
+/// tags (`<div>`) go, a paragraph's lines are joined into one [hypothesis: how the menu
+/// reads HelpHealingLimbs' `<div>` and `<p>`, the only marks the tutorial messages
+/// carry, observed in the masters].
+pub fn plain_text(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find('<') {
+        out.push_str(&rest[..i]);
+        let Some(j) = rest[i..].find('>') else {
+            out.push_str(&rest[i..]);
+            rest = "";
+            break;
+        };
+        let tag = rest[i + 1..i + j].trim().trim_start_matches('/').to_ascii_lowercase();
+        if tag == "p" || tag.starts_with("p ") || tag.starts_with("br") {
+            out.push_str("\n\n");
+        }
+        rest = &rest[i + j + 1..];
+    }
+    out.push_str(rest);
+    let mut paragraphs: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for line in out.replace('\r', "").split('\n') {
+        let line = line.trim();
+        if line.is_empty() {
+            if !current.is_empty() {
+                paragraphs.push(std::mem::take(&mut current));
+            }
+        } else {
+            if !current.is_empty() {
+                current.push(' ');
+            }
+            current.push_str(line);
+        }
+    }
+    if !current.is_empty() {
+        paragraphs.push(current);
+    }
+    paragraphs.join("\n\n")
+}
+
+/// The pages of the open tutorial menu, none when it is not the open menu.
+pub fn pages(script: &ScriptState) -> Vec<Page> {
+    let Some(rt) = script.rt.as_ref().filter(|rt| rt.game.menu == Some(menus::TUTORIAL)) else { return Vec::new() };
+    let g = &rt.game;
+    g.tutorial
+        .iter()
+        .map(|&m| {
+            let def = g.data.messages.get(&m);
+            Page {
+                message: m,
+                title: def.and_then(|d| d.title.clone()).unwrap_or_default(),
+                text: plain_text(def.and_then(|d| d.text.as_deref()).unwrap_or_default()),
+            }
+        })
+        .collect()
+}
+
+// ---- layout --------------------------------------------------------------------------------
+
+/// Where the pieces go, from the background's top left, for a background `w` × `h`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Layout {
+    pub w: f32,
+    pub h: f32,
+    /// The buttons' rectangles (left, top, width, height): Next, Previous, Close.
+    pub buttons: [[f32; 4]; 3],
+    /// The text column: left, top, width, height.
+    pub column: [f32; 4],
+}
+
+/// The buttons' widths are their words' and the room round them; `button_h` a text
+/// line's height and the room.
+pub fn layout(w: f32, h: f32, widths: [f32; 3], text_h: f32) -> Layout {
+    let bh = text_h + VER_BUF;
+    let right = w - BUTTON_RIGHT;
+    let top = EDGE_Y + FADE;
+    let bottom = h - EDGE_Y - FADE;
+    let next = [right - widths[0] - HOR_BUF, top, widths[0] + HOR_BUF, bh];
+    let prev = [right - widths[1] - HOR_BUF, top + bh, widths[1] + HOR_BUF, bh];
+    let close = [right - widths[2] - HOR_BUF, bottom - bh, widths[2] + HOR_BUF, bh];
+    let x = EDGE_X + STUB + BUF;
+    let column = [x, top, (prev[0] - x - TEXT_GAP).max(0.0), (bottom - top).max(0.0)];
+    Layout { w, h, buttons: [next, prev, close], column }
+}
+
+/// How far the text can scroll: its height less the column's, in whole steps.
+pub fn max_scroll(text_height: f32, column_h: f32) -> f32 {
+    ((text_height + STEP - column_h) / STEP).ceil().max(0.0) * STEP
+}
+
+// ---- state ---------------------------------------------------------------------------------
+
+/// The page shown, the text's scroll and the button under the pointer.
+#[derive(Resource, Default)]
+pub struct TutorialView {
+    pub page: usize,
+    pub scroll: f32,
+    pub hover: Option<TmButton>,
+    /// How far the shown page can scroll (set when drawn).
+    max_scroll: f32,
+    kit: Option<Kit>,
+}
+
+#[derive(Component)]
+struct TutorialRoot;
+
+/// What was drawn last: the pages, the view and the screen's size in units.
+#[derive(Default, PartialEq)]
+struct Shown(Vec<Page>, usize, i32, Option<TmButton>, (i32, i32));
+
+pub struct TutorialMenuPlugin;
+
+impl Plugin for TutorialMenuPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<TutorialView>().add_systems(Update, draw.in_set(PlaySet::Ui));
+    }
+}
+
+/// Keys, the wheel and clicks of the open tutorial menu (before the frame's scripts run,
+/// `crate::script`): pages, scrolling, Close through `ScriptState::answer`.
+pub fn keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut wheel: MessageReader<MouseWheel>,
+    clicks: Query<(&Interaction, &TmButton), Changed<Interaction>>,
+    mut view: ResMut<TutorialView>,
+    mut script: ResMut<ScriptState>,
+) {
+    use KeyCode::*;
+    let n = pages(&script).len();
+    if n == 0 {
+        wheel.clear();
+        if view.page != 0 || view.scroll != 0.0 {
+            view.page = 0;
+            view.scroll = 0.0;
+        }
+        return;
+    }
+    let mut hover = None;
+    let mut clicked = None;
+    for (i, b) in &clicks {
+        match i {
+            Interaction::Pressed => clicked = Some(*b),
+            Interaction::Hovered => hover = Some(Some(*b)),
+            Interaction::None if view.hover == Some(*b) => hover = hover.or(Some(None)),
+            Interaction::None => {}
+        }
+    }
+    if let Some(h) = hover.filter(|h| *h != view.hover) {
+        view.hover = h;
+    }
+    let page = view.page.min(n - 1);
+    let turn = |to: usize, view: &mut TutorialView| {
+        if to != view.page {
+            view.page = to;
+            view.scroll = 0.0;
+        }
+    };
+    if keys.any_just_pressed([KeyA, ArrowRight]) || clicked == Some(TmButton::Next) {
+        turn((page + 1).min(n - 1), &mut view);
+    } else if keys.any_just_pressed([KeyS, ArrowLeft]) || clicked == Some(TmButton::Previous) {
+        turn(page.saturating_sub(1), &mut view);
+    } else if keys.any_just_pressed([KeyE, Escape, Enter, NumpadEnter]) || clicked == Some(TmButton::Close) {
+        let how = if clicked.is_some() { "click" } else { "key" };
+        if script.answer(None, how) {
+            info!("tutorial menu: closed ({how})");
+        }
+        return;
+    }
+    let mut by = 0.0;
+    if keys.just_pressed(ArrowDown) {
+        by += STEP;
+    }
+    if keys.just_pressed(ArrowUp) {
+        by -= STEP;
+    }
+    for w in wheel.read() {
+        let lines = match w.unit {
+            MouseScrollUnit::Line => w.y,
+            MouseScrollUnit::Pixel => w.y / 40.0,
+        };
+        by -= lines.signum() * STEP;
+    }
+    if by != 0.0 {
+        let s = (view.scroll + by).clamp(0.0, view.max_scroll);
+        if s != view.scroll {
+            view.scroll = s;
+        }
+    }
+}
+
+// ---- drawing -------------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+fn draw(
+    mut commands: Commands,
+    script: Res<ScriptState>,
+    view: ResMut<TutorialView>,
+    roots: Query<Entity, With<TutorialRoot>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    data: Option<Res<GameData>>,
+    mut images: ResMut<Assets<Image>>,
+    formats: Option<Res<CompressedImageFormatSupport>>,
+    mut shown: Local<Shown>,
+) {
+    let pages = pages(&script);
+    // The screen in the interface's units: 960 high.
+    let screen = windows.single().map_or(Vec2::new(1280.0, 960.0), |w| Vec2::new(960.0 * w.width() / w.height().max(1.0), 960.0));
+    let page = view.page.min(pages.len().saturating_sub(1));
+    let now = Shown(pages.clone(), page, view.scroll.round() as i32, view.hover, (screen.x.round() as i32, screen.y.round() as i32));
+    if now == *shown {
+        return;
+    }
+    if now.0 != shown.0 || now.1 != shown.1 {
+        if let Some(p) = pages.get(page) {
+            info!("tutorial menu: page {}/{} {:?} ({})", page + 1, pages.len(), p.title, p.message);
+        }
+    }
+    *shown = now;
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    let Some(p) = pages.get(page) else { return };
+    let bc = crate::interface::bc_supported(formats.as_deref());
+    let view = view.into_inner();
+    let kit = view.kit.get_or_insert_with(|| Kit::load(data.as_deref(), &mut images, bc));
+    let mut c = Ctx { kit, data: data.as_deref(), images: &mut images, bc };
+    let (w, h) = (screen.x * SCALE, screen.y * SCALE);
+    let widths = [NEXT, PREVIOUS, CLOSE].map(|s| c.width(Which::Body, s));
+    let l = layout(w, h, widths, crate::chargen::draw::BODY_H);
+    let lines = c.face(Which::Glow).font.lines(&p.text, Some(l.column[2] - TEXT_X)).len();
+    let text_h = if lines == 0 { 0.0 } else { crate::chargen::draw::BODY_H + LINE_PITCH * (lines - 1) as f32 };
+    view.max_scroll = max_scroll(text_h + TEXT_Y, l.column[3]);
+    view.scroll = view.scroll.min(view.max_scroll);
+    let root = Node {
+        position_type: PositionType::Absolute,
+        width: Val::Percent(100.0),
+        height: Val::Percent(100.0),
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        ..default()
+    };
+    let (count, scroll, hover, max) = ((page + 1, pages.len()), view.scroll, view.hover, view.max_scroll);
+    commands.spawn((root, GlobalZIndex(109), TutorialRoot)).with_children(|r| {
+        r.spawn(Node { width: u(w), height: u(h), ..default() }).with_children(|b| spawn_page(b, &mut c, &l, p, count, scroll, max, hover));
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_page(b: &mut ChildSpawnerCommands, c: &mut Ctx, l: &Layout, p: &Page, (n, of): (usize, usize), scroll: f32, max: f32, hover: Option<TmButton>) {
+    let bright = amber(255.0);
+    let shade = Color::srgba(0.0, 0.0, 0.0, SHADE);
+    if c.image(b, "interface\\shared\\background\\solid_black.dds", at(0.0, 0.0, l.w, l.h), shade, ()).is_none() {
+        b.spawn((at(0.0, 0.0, l.w, l.h), BackgroundColor(shade)));
+    }
+    let (w, h) = (l.w, l.h);
+    let right = w - EDGE_X;
+    // The top: a corner fading down at each end, a stub, the title, a line on to the
+    // page count (or to the stub at the right with one page), the stub.
+    c.fade(b, EDGE_X, EDGE_Y, FADE, false, bright);
+    c.fade(b, right, EDGE_Y, FADE, false, bright);
+    c.line(b, EDGE_X, EDGE_Y, STUB, THICK, bright);
+    c.line(b, right - STUB, EDGE_Y, STUB, THICK, bright);
+    let title_top = EDGE_Y + (THICK - 38.0) / 2.0 + TITLE_DROP;
+    let title_x = EDGE_X + STUB + BUF;
+    let tw = c.text(b, Which::Title, &p.title, title_x, title_top, Align::Left, bright);
+    let mut line_end = right - STUB - BUF;
+    if of > 1 {
+        let pw = c.text(b, Which::Title, &format!("{n}/{of}"), right - STUB - BUF, title_top, Align::Right, bright);
+        line_end -= pw + BUF;
+    }
+    let line_from = title_x + tw + BUF;
+    if line_end > line_from {
+        c.line(b, line_from, EDGE_Y, line_end - line_from, THICK, bright);
+    }
+    // The bottom: the corners fading up, a stub, the VDSG symbol and words, a line on
+    // to the right corner.
+    let low = h - EDGE_Y;
+    c.fade(b, EDGE_X, low - FADE, FADE, true, bright);
+    c.fade(b, right, low - FADE, FADE, true, bright);
+    c.line(b, EDGE_X, low - THICK, STUB, THICK, bright);
+    let sx = EDGE_X + STUB + BUF - SYMBOL_DEAD;
+    let sw = c.picture(SYMBOL).and_then(|(_, rect)| rect.map(|r| r.width())).unwrap_or(SYMBOL_W + SYMBOL_DEAD) - SYMBOL_DEAD;
+    let sy = low - THICK + (THICK - SYMBOL_H) / 2.0;
+    c.image(b, SYMBOL, at(sx, sy, sw.max(1.0), SYMBOL_H), bright, ());
+    let vx = sx + sw + BUF;
+    let vw = c.text(b, Which::Body, VDSG, vx, low - THICK + (THICK - crate::chargen::draw::BODY_H) / 2.0 + VDSG_DROP, Align::Left, bright);
+    let from = vx + vw + BUF;
+    if right > from {
+        c.line(b, from, low - THICK, right - from, THICK, bright);
+    }
+    // The text, clipped to its column and moved up by the scroll.
+    let [cx, cy, cw, ch] = l.column;
+    b.spawn(Node { overflow: Overflow::clip(), ..at(cx, cy, cw, ch) }).with_children(|col| {
+        let face = c.face(Which::Glow);
+        for (k, line) in face.font.lines(&p.text, Some(cw - TEXT_X)).iter().enumerate() {
+            set_line(col, face, line, TEXT_X, TEXT_Y - scroll + BODY_BASE + LINE_PITCH * k as f32, bright);
+        }
+    });
+    // A scroll mark beside the column while the text is longer than it [design: the
+    // file's scroll bar is a prefab not drawn here].
+    if max > 0.0 {
+        let track = ch - THICK;
+        let thumb = (track * ch / (ch + max)).max(20.0);
+        let y = cy + (track - thumb) * scroll / max;
+        c.line(b, EDGE_X, cy, THICK, ch, amber(128.0));
+        c.line(b, EDGE_X - 2.0, y, THICK + 4.0, thumb, bright);
+    }
+    // The buttons: their words right-aligned in the box, the key hint after it; the box
+    // shows under the pointer (text_box.xml).
+    let words = [(TmButton::Next, NEXT), (TmButton::Previous, PREVIOUS), (TmButton::Close, CLOSE)];
+    for (k, (which, word)) in words.into_iter().enumerate() {
+        let [x, y, bw, bh] = l.buttons[k];
+        let usable = match which {
+            TmButton::Next => n < of,
+            TmButton::Previous => n > 1,
+            TmButton::Close => true,
+        };
+        let color = amber(255.0).with_alpha(if usable { 1.0 } else { 0.5 });
+        if hover == Some(which) && usable {
+            c.highlight(b, x, y, bw, bh, 1.0);
+        }
+        let top = y + VER_BUF / 2.0;
+        c.text(b, Which::Body, word, x + bw - HOR_BUF / 2.0, top, Align::Right, color);
+        c.text(b, Which::Body, HINTS[k], x + bw + HINT_GAP, top, Align::Left, color);
+        b.spawn((Button, which, at(x, y, bw, bh)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_marks_become_paragraphs() {
+        let s = "<div>\r\nIn order to heal a crippled limb, you have three choices.\r\n<p>\r\nStimpaks can be used\r\nfor general healing.\r\n<p>\r\nTo heal a limb directly.";
+        assert_eq!(plain_text(s), "In order to heal a crippled limb, you have three choices.\n\nStimpaks can be used for general healing.\n\nTo heal a limb directly.");
+        assert_eq!(plain_text("No marks"), "No marks");
+        assert_eq!(plain_text("a<br>b </div>"), "a\n\nb");
+        assert_eq!(plain_text("a < b"), "a < b");
+        assert_eq!(plain_text(""), "");
+    }
+
+    #[test]
+    fn the_layout_follows_the_file() {
+        // A 1280 × 960 screen: the background is 1024 × 768.
+        let l = layout(1024.0, 768.0, [40.0, 80.0, 50.0], 31.0);
+        // Next at the column's top, its right side 81 in; Previous under it.
+        assert_eq!(l.buttons[0], [1024.0 - 81.0 - 60.0, 156.0, 60.0, 51.0]);
+        assert_eq!(l.buttons[1], [1024.0 - 81.0 - 100.0, 207.0, 100.0, 51.0]);
+        // Close stands on the lower corners' fade lines' top.
+        assert_eq!(l.buttons[2][1] + l.buttons[2][3], 768.0 - 96.0 - 60.0);
+        // The column: after the title's stub, down to the lower corners' lines, 64 short
+        // of Previous.
+        assert_eq!(l.column, [108.0, 156.0, 1024.0 - 81.0 - 100.0 - 64.0 - 108.0, 768.0 - 312.0]);
+    }
+
+    #[test]
+    fn the_text_scrolls_by_whole_steps() {
+        assert_eq!(max_scroll(100.0, 456.0), 0.0);
+        assert_eq!(max_scroll(456.0, 456.0), 30.0);
+        assert_eq!(max_scroll(500.0, 456.0), 90.0);
+    }
+}

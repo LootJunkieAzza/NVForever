@@ -115,9 +115,10 @@ const PLAY_GROUP: u16 = 0x1013;
 /// The container menu [documented: GECK wiki MenuMode, as used in
 /// docs/spec-notes/xnvse-capture.md and simulation.md captures].
 pub const MENU_CONTAINER: u16 = 1008;
-/// The inventory (Pip-Boy) menu [hypothesis: the GECK wiki's list as remembered; not
-/// checked against a capture].
-pub const MENU_INVENTORY: u16 = 1002;
+/// The inventory menu, the Pip-Boy (`menus::INVENTORY`, documented). While the Pip-Boy is
+/// up its page's code is reported instead (`crate::pipboy`: STATS 1003, ITEMS 1002, DATA
+/// 1023, the repair list 1035), `MenuMode 1` for any of them.
+pub const MENU_INVENTORY: u16 = menus::INVENTORY;
 
 /// The Sleep / Wait menu (`crate::wait`) [observed: `Begin MenuMode 1012` blocks of six
 /// FalloutNV.esm scripts, one commented as the rest menu; docs/spec-notes/wait-menu.md
@@ -142,7 +143,7 @@ pub fn menu_code(mode: Mode) -> u16 {
 /// and the player closes it there.
 pub fn is_script_menu(code: u16) -> bool {
     code != MENU_CONTAINER
-        && code != MENU_INVENTORY
+        && !menus::is_pipboy(code)
         && code != MENU_SLEEP_WAIT
         && code != MENU_BARTER
         && code != crate::terminal::MENU_HACKING
@@ -402,12 +403,12 @@ pub fn engine_menu_opened(script: Option<&mut ScriptState>, mode: Mode) {
 }
 
 /// The container or inventory menu closed (menu.rs): `Game::close_menu` when it is still
-/// the runtime's open menu (a message box shown meanwhile then opens).
+/// the runtime's open menu (the Pip-Boy by any of its page codes; a message box shown
+/// meanwhile then opens), or forgotten when it waits under the tutorial menu
+/// (`Game::engine_menu_closed`).
 pub fn engine_menu_closed(script: Option<&mut ScriptState>, mode: Mode) {
     if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
-        if rt.game.menu == Some(menu_code(mode)) {
-            rt.game.close_menu();
-        }
+        rt.game.engine_menu_closed(menu_code(mode));
     }
 }
 
@@ -1093,8 +1094,32 @@ impl Plugin for ScriptPlugin {
         app.insert_resource(ScriptState::new(d, refs, new_game, unattended, no_messages))
             .init_resource::<ClockScale>()
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
-            .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, run_scripts, sync_locks, walk_player, hold_player, time_multiplier).chain().in_set(PlaySet::Scripts))
+            .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, crate::tutorial_menu::keys, run_scripts, sync_locks, walk_player, hold_player, time_multiplier, exit_game).chain().in_set(PlaySet::Scripts))
             .add_systems(Last, (crate::aid::report, write_final));
+    }
+}
+
+/// ExitGame (`UiRequests::exit_game`): back to the main menu, as the pause menu's Quit
+/// to the main menu (`crate::pause::MainMenuRequest`) [documented: GECK wiki ExitGame,
+/// "returns the game to the main menu"; the credits it plays first are not built]. A run
+/// a test aid drives quits instead, as the console's `qqq` does, so that it ends where
+/// its log can be read [design]. Logged: `script: ExitGame: …`.
+fn exit_game(
+    mut script: ResMut<ScriptState>,
+    unattended: Option<Res<crate::test_aid::Unattended>>,
+    mut to_main: MessageWriter<crate::pause::MainMenuRequest>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let Some(rt) = script.rt.as_mut() else { return };
+    if std::mem::take(&mut rt.game.ui.exit_game) == 0 {
+        return;
+    }
+    if unattended.is_some_and(|u| u.0) {
+        info!("script: ExitGame: quit (a test aid drives this run)");
+        exit.write(AppExit::Success);
+    } else {
+        info!("script: ExitGame: back to the main menu (no credits)");
+        to_main.write(crate::pause::MainMenuRequest);
     }
 }
 
@@ -1231,6 +1256,10 @@ pub(crate) fn run_scripts(
                     match rt.restore_save(&mut sim, *snap) {
                         Ok(changed_refs) => {
                             info!("load: restored {}: {} changed references, {} quests, {} script instances", path.display(), changed_refs.len(), rt.game.quests.len(), rt.game.instances.len());
+                            // The frames after a load are the loading screen's for the
+                            // scripts, as after travel: their `Begin MenuMode 1007`
+                            // blocks run (`game::menus::LOADING`) [hypothesis].
+                            rt.frozen_frames = 2;
                             // The drawn world follows the restored simulation.
                             for id in changed_refs {
                                 changed.write(RefChanged { form_id: id.0 });
