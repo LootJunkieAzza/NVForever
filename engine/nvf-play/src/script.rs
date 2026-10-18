@@ -58,7 +58,8 @@
 //!   ([`crate::script_events::ScriptAid`]; `<when>` is seconds after the start, or
 //!   `<seconds>@<quest>=<stage>`, seconds after the stage was first seen done; when the
 //!   scripts first run after the first timed step's time, the timed steps all come that
-//!   much later, [`script_events::delay_late_aids`]):
+//!   much later, [`script_events::delay_late_aids`]; with `NVF_PLAY_AIDS_FROM_SCRIPTS=1`
+//!   the seconds are on the world aids' clock, [`crate::pause::WorldAidClock`]):
 //!   `start:<quest>`, `stop:<quest>`, `stage:<quest>:<n>`, `objective:<quest>:<n>`,
 //!   `objective_done:<quest>:<n>`, `info:<INFO>[:<speaker>]`, `button:<n>`, `close`,
 //!   `message:<MESG>`, `menu:<code>`,
@@ -1140,9 +1141,10 @@ impl Plugin for ScriptPlugin {
         let unattended = crate::test_aid::Unattended::from_env().0;
         let no_messages = app.world().contains_resource::<NoMessages>();
         app.insert_resource(ScriptState::new(d, refs, new_game, unattended, no_messages))
+            .insert_resource(crate::pause::WorldAidClock::from_env())
             .init_resource::<ClockScale>()
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
-            .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, run_scripts, sync_locks, walk_player, hold_player, time_multiplier).chain().in_set(PlaySet::Scripts))
+            .add_systems(Update, (take_pending_game, crate::script_hud::menu_keys, run_scripts, start_world_aids, sync_locks, walk_player, hold_player, time_multiplier).chain().in_set(PlaySet::Scripts))
             .add_systems(Last, (crate::aid::report, write_final));
     }
 }
@@ -1238,6 +1240,36 @@ fn due_aids(st: &mut ScriptState, now: f32) -> Vec<ScriptAid> {
     due
 }
 
+/// Start the world aids' clock ([`crate::pause::WorldAidClock`]) in the first frame the
+/// scripts ran (as [`run_scripts`] lets them: the player in the world, no pause menu, no
+/// loading screen), or, with the scripts off, the first such frame. It reads the aids'
+/// clock from its parts, not through `AidTime`, which holds the clock this system writes
+/// (one system may not have both: Bevy's B0002, every `--play` run panicked on it).
+pub(crate) fn start_world_aids(
+    (time, play_clock): (Res<Time>, Res<crate::pause::PlayClock>),
+    script: Res<ScriptState>,
+    phys: Res<PhysState>,
+    paused: Res<crate::pause::Paused>,
+    loading: Res<crate::loading::Loading>,
+    clock: Option<ResMut<crate::pause::WorldAidClock>>,
+) {
+    let Some(mut clock) = clock else { return };
+    let ran = script.rt.is_some() || script.loader.is_none();
+    if !ran || paused.0 || loading.active() || phys.player.is_none() {
+        return;
+    }
+    // The aids' clock (`AidTime::elapsed_secs`).
+    let now = time.elapsed_secs() + play_clock.stopped_secs();
+    if let Some(held) = clock.start(now) {
+        let why = if script.rt.is_some() { "the scripts first run" } else { "the player first stands in the world (scripts are off)" };
+        if held > 0.0 {
+            info!("test aids: clock starts when {why}, at {now:.1} s: the world aids' steps come {held:.1} s later than asked (a start after {} s), as far apart as asked", crate::pause::SCRIPTS_START_SECONDS);
+        } else {
+            info!("test aids: clock starts when {why}, at {now:.1} s: the world aids' steps come at the times asked");
+        }
+    }
+}
+
 /// One frame of scripts, then their effects.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_scripts(
@@ -1311,7 +1343,10 @@ pub(crate) fn run_scripts(
     let player_capsule = Some(Capsule { feet: character.feet, radius: character.params.radius, height: character.params.height });
     // The aids' clock, which goes on while a menu holds the picture (`crate::pause`).
     let now = time.elapsed_secs();
-    let mut due = due_aids(st, now);
+    // The script steps are world aids (`crate::pause::WorldAidClock`): with
+    // NVF_PLAY_AIDS_FROM_SCRIPTS they count on the clock [`start_world_aids`] starts,
+    // and are moved as before when they start after the first step's time.
+    let mut due = time.world_secs().map_or_else(Vec::new, |w| due_aids(st, w));
     let used = std::mem::take(&mut st.used);
     let console = std::mem::take(&mut st.console);
     let mut console_out = Vec::new();

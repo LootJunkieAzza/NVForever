@@ -448,19 +448,6 @@ impl Game<'_> {
         }
     }
 
-    /// Tell the scripts the special animation action an actor is doing (GetAnimAction's
-    /// code), `None` for none; told with [`Game::set_weapon_out`].
-    pub fn set_anim_action(&mut self, actor: FormId, action: Option<i32>) {
-        match action {
-            Some(a) => {
-                self.senses.anim_actions.insert(actor, a);
-            }
-            None => {
-                self.senses.anim_actions.remove(&actor);
-            }
-        }
-    }
-
     /// Whether an actor wants its weapon out: alerted (SetAlert, or fighting), its
     /// package's Weapon Drawn flag, or a scripted weapon use (UseWeapon); never under its
     /// package's Weapons Unequipped flag while it does not fight, nor while it flees a

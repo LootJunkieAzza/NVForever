@@ -78,6 +78,7 @@ use bevy::prelude::*;
 use fnv_actor::idle_play::DEFAULT_FADE;
 use fnv_actor::player_clips::{aim_variant, aim_weights, attack_clips, attack_stem, block_clips, reload_clips, reload_open_clips, Aim, ClipKeys, Stance};
 use fnv_actor::weapon::{AnimType, Stage};
+use fnv_game::anim_state::{shot_action, swing_action, AnimAction};
 use fnv_combat::melee::{swing_stem, NextAttack};
 use fnv_sim::FormId;
 use nvf_assets::actor::{bind_clip, ActorCtx, ActorParts, PreparedSkeleton};
@@ -222,6 +223,33 @@ pub struct Attack {
     pub fade_in: bool,
     /// A reload clip: the actor's body block moves with it (an attack's holds still).
     pub reload: bool,
+    /// What it plays, and whether it is a blow (melee, a creature's) rather than a shot.
+    pub kind: Move,
+    pub melee: bool,
+    /// Seconds into the clip of its `Hit` key (a blow's strike); shots leave at the start.
+    pub hit: f32,
+}
+
+impl Attack {
+    /// GetAnimAction's code for it (`fnv_game::anim_state`), `dt` being the step the clip
+    /// was advanced by this frame: a reload 9, a blocked blow's recoil 8, a block's
+    /// reaction 7, a blow 2 until it strikes and 4 after, a shot 2 on its first frame
+    /// (and while an automatic weapon's loop goes round), 3 the frame after and 4 for
+    /// the rest of the clip.
+    pub fn action(&self, dt: f32) -> Option<AnimAction> {
+        match self.kind {
+            Move::Reload | Move::ReloadRound => Some(AnimAction::Reload),
+            Move::Recoil => Some(AnimAction::Stagger),
+            Move::BlockHit => Some(AnimAction::Block),
+            Move::Attack if self.melee => swing_action(self.t, self.hit, self.len),
+            Move::Attack => {
+                let from = self.repeat.map_or(0.0, |r| r.0);
+                let repeating = self.repeat.is_some_and(|(_, to)| self.since <= LOOP_HOLD && self.t < to);
+                // The clip was advanced before this is read: its time at the frame's start.
+                shot_action((self.t - from - dt).max(0.0), 0.0, self.len - from, dt, repeating)
+            }
+        }
+    }
 }
 
 /// A clip's repeated part: from its `Fire` key to its `Loop` key, seconds into it.
@@ -644,7 +672,8 @@ fn start(
             *st.clips.entry(name).or_default() += 1;
             let repeat = repeat_of(&clip).filter(|_| !a.melee && !reloads);
             let t = repeat.map_or(0.0, |(from, _)| from);
-            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in: a.kind != Move::ReloadRound, reload: reloads });
+            let hit = if a.melee { hit_time(&clip).unwrap_or(DEFAULT_HIT).min(len) } else { 0.0 };
+            new_pose.attack = Some(Attack { clip, up, down, t, len, repeat, since: 0.0, fade_in: a.kind != Move::ReloadRound, reload: reloads, kind: a.kind, melee: a.melee, hit });
         }
         match pose {
             Some(mut p) => *p = new_pose,

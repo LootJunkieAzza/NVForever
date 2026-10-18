@@ -106,7 +106,7 @@ pub(super) fn run_barter(
     mut input: MessageWriter<MenuInput>,
 ) {
     let Some(mut s) = script else { return };
-    let now = time.elapsed_secs();
+    let Some(now) = time.world_secs() else { return };
     if now < s.next_at.unwrap_or(s.delay) {
         return;
     }
@@ -256,7 +256,7 @@ pub(super) fn run_drops(
     script: Option<Res<crate::script::ScriptState>>,
 ) {
     let Some(mut d) = drops else { return };
-    let now = time.elapsed_secs();
+    let Some(now) = time.world_secs() else { return };
     let m = active.0.as_ref();
     match d.current {
         None => {
@@ -384,7 +384,7 @@ pub(super) fn run(
     scripts: Option<Res<crate::script::ScriptState>>,
 ) {
     let Some(mut s) = script else { return };
-    let now = time.elapsed_secs();
+    let Some(now) = time.world_secs() else { return };
     let due = s.next_at.unwrap_or(s.delay);
     if now < due {
         return;

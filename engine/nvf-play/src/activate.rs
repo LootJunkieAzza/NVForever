@@ -16,7 +16,7 @@
 //!   reference is not in the world, on `RefChanged` and when cells stream in.
 //!
 //! Test aid: `NVF_PLAY_TEST_ACTIVATE=<seconds>[,<seconds>...]` presses E at those times
-//! after start (unattended in-game checks).
+//! on the world aids' clock (`crate::pause::WorldAidClock`; unattended in-game checks).
 //!
 //! With Layer 5 scripts running, E goes through `script::activate_by_hand`: a target
 //! whose script has an OnActivate block runs it instead of the default action (whose
@@ -305,7 +305,8 @@ fn owned_by_other(game: Option<&fnv_game::Game>, sim: &SimState, form_id: u32, a
     judged && g.ownership_in(&sim.world, FormId(form_id)).is_some_and(|o| !g.counts_as_owner(FormId::PLAYER_REF, &o))
 }
 
-/// Test aid: times (seconds after start) at which E counts as pressed.
+/// Test aid: times (seconds on the world aids' clock, `crate::pause::WorldAidClock`) at
+/// which E counts as pressed.
 #[derive(Resource, Default)]
 struct AutoActivate {
     times: Vec<f32>,
@@ -327,12 +328,15 @@ impl AutoActivate {
     }
 }
 
+/// The clocks of the activate aid: time, the stopped-clock time and the world aids' clock
+/// (each absent in tests that build without them).
+type AidClocks<'w> = (Option<Res<'w, Time>>, Option<Res<'w, crate::pause::PlayClock>>, Option<Res<'w, crate::pause::WorldAidClock>>);
+
 /// Activate (E) activates the target; the outcome's effects go out as messages.
 #[allow(clippy::too_many_arguments)]
 fn activate(
     input: crate::bindings::ControlInput,
-    time: Option<Res<Time>>,
-    clock: Option<Res<crate::pause::PlayClock>>,
+    (time, clock, world): AidClocks,
     auto: Option<ResMut<AutoActivate>>,
     (target, next, vats): (Res<Target>, Option<ResMut<ActivateNext>>, Option<Res<crate::vats_mode::VatsMode>>),
     mut sim: ResMut<SimState>,
@@ -362,8 +366,12 @@ fn activate(
         Some(Targeted { form_id: id, name, action, distance: 0.0, source: Source::Bounds, crime: false })
     });
     let fired = match (auto, time) {
-        // The aids' clock goes on while a menu holds the picture (`crate::pause`).
-        (Some(mut a), Some(t)) => a.fire(t.elapsed_secs() + clock.map_or(0.0, |c| c.stopped_secs())),
+        // The aids' clock goes on while a menu holds the picture (`crate::pause`); a world
+        // aid, it waits for the scripts with NVF_PLAY_AIDS_FROM_SCRIPTS (`WorldAidClock`).
+        (Some(mut a), Some(t)) => {
+            let now = t.elapsed_secs() + clock.map_or(0.0, |c| c.stopped_secs());
+            world.map_or(Some(now), |w| w.at(now)).is_some_and(|now| a.fire(now))
+        }
         _ => false,
     };
     if !input.just_pressed(crate::bindings::Control::Activate) && !fired && queued.is_none() {

@@ -520,7 +520,7 @@ fn start_battle(
     mut sim: ResMut<SimState>,
     phys: Res<PhysState>,
 ) {
-    if battle.done || time.elapsed_secs() < battle.at || *state.get() != PlayState::Playing || !phys.loading_done() {
+    if battle.done || time.world_secs().is_none_or(|now| now < battle.at) || *state.get() != PlayState::Playing || !phys.loading_done() {
         return;
     }
     let Some(mut script) = script else { return };

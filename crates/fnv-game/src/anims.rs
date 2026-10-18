@@ -169,13 +169,20 @@ pub fn play_group(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// scripts test `IsAnimPlaying Forward` and `IsAnimPlaying Backward` as different
 /// states, activators.md §5]. What plays is what the engine reports: a group asked by
 /// PlayGroup, while it runs (a group played once until its end, a looping one until
-/// another replaces it); an idle the object plays by itself is not counted [hypothesis].
+/// another replaces it); on an actor without one, the movement group its body plays
+/// (`Idle` standing, `Forward`, `FastLeft` …, `crate::anim_state`) [observed: Sunny
+/// Smiles standing read `IsAnimPlaying Idle` 1, function probes 2026-10-17; hypothesis:
+/// the walking and running groups count the same way]. An idle an object plays by
+/// itself is not counted [hypothesis].
 pub fn is_anim_playing(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let on = ctx.subject()?;
-    let playing = g.anims.playing(on);
+    if let Some(playing) = g.anims.playing(on) {
+        return yes(group_code(a, 0).is_none_or(|want| playing == want));
+    }
+    let Some(body) = g.anim_state(on).and_then(|s| s.group) else { return none() };
     yes(match group_code(a, 0) {
-        Some(want) => playing == Some(want),
-        None => playing.is_some(),
+        Some(want) => g.anim_group_name(want).is_some_and(|n| n.eq_ignore_ascii_case(body)),
+        None => true,
     })
 }
 

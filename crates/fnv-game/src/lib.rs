@@ -37,6 +37,7 @@ pub mod aggro;
 pub mod aid;
 pub mod appearance;
 pub mod ai;
+pub mod anim_state;
 pub mod anims;
 pub mod awareness;
 pub mod blackjack;
