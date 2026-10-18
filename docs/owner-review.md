@@ -5814,6 +5814,10 @@ docs/design/combat-ai.md §16; smoke `combat-flamer-reach`, `combat-shotgun-reac
   its reach less 64 units (the peek point is past the edge). *Check:* Cook-Cook no longer
   shoots at you from cover while you are far off.
 - **Min Range** stays unused (it is not a back-off distance; §12.6).
+- **A rifleman's stop stays at 80 % of its reach** (Violet's hunting rifle: 1,600). Before
+  this change she walked on past 1,400, firing all the way in from out of reach; now she
+  stops at 1,600 and fires from the hip only when you come within 1,400 (smoke
+  `combat-sights` moves you to her at 38 s). *Check:* whether riflemen should close nearer.
 - **Setting off again at 90 % of its reach** (`GUN_REACH_EDGE`): a gunman standing at its
   stop sets off again once you are beyond 90 % of its reach, while it can still fire, so
   it walks in aiming rather than standing until you are out of reach (hunting rifle:
