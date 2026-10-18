@@ -3935,7 +3935,7 @@ expect = [
 name = "roulette"
 source = "docs/spec-notes/roulette.md §7: The Tops' roulette table (0x0011ED93 in TOPSCasino) activated with 500 Tops chips: the help the first time, a straight-up on 17 and red, the ball made to stop in 17 (black): 25 x 36 back, 10 lost; screenshots of the felt and the wheel"
 areas = ["roulette"]
-paths = ["crates/fnv-game/src/roulette.rs", "crates/fnv-game/src/casino.rs", "engine/nvf-play/src/roulette*", "engine/nvf-play/src/roulette/**", "engine/nvforever/src/roulette_view.rs", "crates/fnv-nif/src/anim.rs"]
+paths = ["crates/fnv-game/src/roulette.rs", "crates/fnv-game/src/casino.rs", "engine/nvf-play/src/roulette*", "engine/nvf-play/src/roulette/**", "engine/nvforever/src/roulette_view.rs", "crates/fnv-nif/src/anim.rs", "engine/nvf-play/src/lockpick/help.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_NEAR = "0011ED93", NVF_PLAY_TEST_SCRIPT = "34:activate:0x0011ED93", NVF_PLAY_TEST_ROULETTE = "18:chips:500,36:help,37:bet:25,37.2:at:D12,37.4:place,37.6:bet:10,37.8:at:S08,38:place,38.2:at:C13,39:pocket:17,39.2:spin,53.5:exit", NVF_PLAY_TEST_SHOTS = "35.5:roulette_help.png,38.8:roulette_bets.png,42:roulette_spin.png,46:roulette_ball.png,48:roulette_ball2.png,49.3:roulette_result.png" }
 args = ["--cell", "TOPSCasino", "--play", "--no-voice"]
 run_seconds = 56
@@ -3959,7 +3959,7 @@ expect = [
 name = "blackjack"
 source = "docs/spec-notes/blackjack.md: ShowBlackJackMenuParams GomorrahCasinoData 1 200 0 (as the tables' script) refused without chips; with 500 the Gomorrah table opens with its help; a stacked natural pays 3 to 2, a split pair loses both hands to the dealer's 21, then rounds play by themselves and the player leaves"
 areas = ["blackjack", "menus"]
-paths = ["crates/fnv-game/src/blackjack.rs", "engine/nvf-play/src/blackjack.rs", "engine/nvf-play/src/blackjack/**", "engine/nvforever/src/blackjack_view.rs"]
+paths = ["crates/fnv-game/src/blackjack.rs", "engine/nvf-play/src/blackjack.rs", "engine/nvf-play/src/blackjack/**", "engine/nvforever/src/blackjack_view.rs", "engine/nvf-play/src/lockpick/help.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_CONSOLE = "13:ShowBlackJackMenuParams GomorrahCasinoData 1 200 0;13.2:close;16:ShowBlackJackMenuParams GomorrahCasinoData 1 200 0;16.2:close", NVF_PLAY_TEST_BLACKJACK = "1:seed:7,12:chips:140521:0,15:chips:140521:500,15.5:stack:Ah-9c-Kd-7s-8h-10c-8d-6s-3c-10d-9h-5c,19:help,20:bet:25,21:deal,25:deal,29:split,32:hit,34:stay,36:stay,40:auto,52:exit", NVF_PLAY_TEST_SHOTS = "18:blackjack_help.png,24:blackjack_natural.png,38.5:blackjack_split.png" }
 args = ["--cell", "GSHouseInterior02", "--play", "--no-voice"]
 run_seconds = 60

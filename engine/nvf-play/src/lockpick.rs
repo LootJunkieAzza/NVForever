@@ -292,6 +292,8 @@ impl Plugin for LockpickPlugin {
                     .after(crate::menu::open_menus)
                     .in_set(PlaySet::Ui),
             )
+            // The help box's scrolling, for every menu that shows it.
+            .add_systems(Update, help::scroll.in_set(PlaySet::Ui))
             .add_systems(OnExit(PlayState::Menu), close)
             .add_systems(Last, report);
     }
