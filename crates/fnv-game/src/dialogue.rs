@@ -101,7 +101,12 @@ pub struct Choice {
 /// neither.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Conversation {
+    /// Who speaks: the actor, or the talking actor of the activator `through`.
     pub actor: FormId,
+    /// The talking activator (TACT) the conversation goes through: the actor's lines are
+    /// heard from it (`crate::talking_activators`). `None`: face to face.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub through: Option<FormId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line: Option<Line>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -450,12 +455,16 @@ impl<'a> Game<'a> {
         if let Some(c) = &self.dialogue {
             return Err(format!("a conversation with {} is running", data.name(c.actor)));
         }
-        if !self.present(actor) || self.extra.get(&actor).is_some_and(|e| e.dead) {
+        // A talking activator speaks for its talking actor, else for itself
+        // (`crate::talking_activators`): the activator must be there, the actor alive.
+        let (actor, through) = self.talker(actor);
+        let place = through.unwrap_or(actor);
+        if !self.present(place) || self.extra.get(&actor).is_some_and(|e| e.dead) {
             return Err(format!("{} is not there to talk to", data.name(actor)));
         }
         // Knocked out or set unconscious: no conversation (docs/spec-notes/unconscious.md
         // §3); the player's attempt is told (`EventKind::TalkedToUnconscious`).
-        if self.is_out_cold(actor) {
+        if through.is_none() && self.is_out_cold(actor) {
             // Knocked down for a moment (unconscious.md §5): no conversation, but not
             // told as unconscious [design].
             if self.knockout(actor).is_some_and(|k| k.cause.knockdown()) && !self.extra.get(&actor).is_some_and(|e| e.unconscious) {
@@ -468,7 +477,11 @@ impl<'a> Game<'a> {
         }
         let topic = topic.or(data.greeting).ok_or("the load order has no GREETING topic")?;
         let listener = Some(FormId::PLAYER_REF);
-        let Some(info) = self.select_line(actor, listener, topic) else {
+        // IsActorTalkingThroughActivator holds while its lines are chosen.
+        self.talking_through = through.map(|t| (actor, t));
+        let info = self.select_line(actor, listener, topic);
+        self.talking_through = None;
+        let Some(info) = info else {
             self.emit(EventKind::NoLine { speaker: actor, topic });
             return Err(format!("{} has no line of {} to say", data.name(actor), data.name(topic)));
         };
@@ -477,7 +490,7 @@ impl<'a> Game<'a> {
             self.say_line(actor, listener, topic, info, LineKind::Greeting);
             return Ok(info);
         }
-        self.dialogue = Some(Conversation { actor, line: None, choices: Vec::new(), lines: 0 });
+        self.dialogue = Some(Conversation { actor, through, line: None, choices: Vec::new(), lines: 0 });
         self.extra.entry(actor).or_default().talked_to_pc = true;
         self.emit(EventKind::DialogueStarted { actor, topic });
         self.speak(actor, topic, info);
@@ -540,7 +553,7 @@ impl<'a> Game<'a> {
     pub(crate) fn update_dialogue(&mut self, dt: f64) {
         let Some(c) = self.dialogue.as_ref() else { return };
         let actor = c.actor;
-        if !self.present(actor) || self.extra.get(&actor).is_some_and(|e| e.dead) {
+        if !self.present(c.through.unwrap_or(actor)) || self.extra.get(&actor).is_some_and(|e| e.dead) {
             self.end_dialogue_as(ended::ACTOR_GONE);
             return;
         }

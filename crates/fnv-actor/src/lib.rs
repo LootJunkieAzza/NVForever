@@ -46,4 +46,4 @@ pub mod tri;
 pub mod weapon;
 
 pub use records::ActorForms;
-pub use resolve::{Appearance, CreatureAppearance, Look, Part, ResolveError, Resolver};
+pub use resolve::{Appearance, Change, CreatureAppearance, Look, Part, ResolveError, Resolver};

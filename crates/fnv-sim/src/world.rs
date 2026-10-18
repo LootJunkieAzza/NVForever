@@ -175,6 +175,10 @@ pub enum SimError {
     /// (the item itself, or the one holding its slot).
     #[error("{item} was locked by a script and cannot be {}", if *on { "unequipped" } else { "equipped" })]
     EquipLocked { item: FormId, on: bool },
+    /// The player has no Power Armor Training for power armour ([`World::equip`],
+    /// `World::set_power_armor_training`).
+    #[error("{0} is power armour: the player lacks the training to wear it")]
+    NoPowerArmorTraining(FormId),
     #[error(transparent)]
     Leveled(#[from] LeveledError),
 }
@@ -276,6 +280,9 @@ pub struct World<'a> {
     /// Game settings changed at run time (the console's `SetGameSetting`), by lower-case
     /// Editor ID; they replace the record's value for [`World::setting_value`] readers.
     setting_changes: BTreeMap<String, crate::settings::Setting>,
+    /// The player may wear power armour (SetPCCanUsePowerArmor; the game layer keeps the
+    /// flag and sets it here, [`World::set_power_armor_training`]).
+    power_armor_training: bool,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -294,6 +301,7 @@ impl<'a> World<'a> {
             carry_bonus: BTreeMap::new(),
             inventory_sources: BTreeMap::new(),
             setting_changes: BTreeMap::new(),
+            power_armor_training: false,
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -301,6 +309,21 @@ impl<'a> World<'a> {
 
     pub fn config(&self) -> SimConfig {
         self.cfg
+    }
+
+    /// Whether the player may wear power armour (ARMO BMDT "Power Armor"): without it
+    /// [`World::equip`] refuses such armour on the player with
+    /// [`SimError::NoPowerArmorTraining`] [documented: GECK wiki SetPCCanUsePowerArmor,
+    /// "sets the flag that lets the player use power armor"; hypothesis: that the flag
+    /// gates the BMDT flag's armour]. Other actors wear it freely. Off at the start
+    /// [hypothesis: the masters set it only from a stage of the Generic quest, which the
+    /// Power Armor Training perk runs, observed].
+    pub fn set_power_armor_training(&mut self, on: bool) {
+        self.power_armor_training = on;
+    }
+
+    pub fn power_armor_training(&self) -> bool {
+        self.power_armor_training
     }
 
     /// State of a reference that has already been materialised.
@@ -816,6 +839,7 @@ impl<'a> World<'a> {
     pub fn equip_at(&mut self, actor: FormId, item: FormId, at: Option<f32>) -> Result<Equip, SimError> {
         let it = self.forms.item(item).ok_or(SimError::NotAnItem(item))?.clone();
         let forms = self.forms;
+        let trained = self.power_armor_training;
         let inv = self.inventory(actor)?;
         if it.kind == ItemKind::Aid {
             return match inv.take_at(item, 1, at).iter().map(|g| g.1).sum::<i32>() {
@@ -831,6 +855,9 @@ impl<'a> World<'a> {
         }
         if it.kind == ItemKind::Weapon && !inv.has_sound_at(item, at) && !inv.is_equipped(item) {
             return Err(SimError::Broken(item));
+        }
+        if it.power_armor && actor == FormId::PLAYER_REF && !trained && !inv.is_equipped(item) {
+            return Err(SimError::NoPowerArmorTraining(item));
         }
         let clashes = |other: FormId| -> bool {
             let Some(o) = forms.item(other) else { return false };
@@ -1388,6 +1415,10 @@ impl<'a> World<'a> {
                 }
             },
             BaseData::Actor(_) => Outcome::Talk { actor: target },
+            // A talking activator (an intercom, a radio with lines) is talked to, as an
+            // actor is [hypothesis: the masters' intercom scripts start the talk with the
+            // default action, `fnv_game::talking_activators`].
+            BaseData::Activator if &base.sig == b"TACT" => Outcome::Talk { actor: target },
             BaseData::Activator | BaseData::Furniture => Outcome::Activated,
             BaseData::LeveledItem(_) => Outcome::NoDefault { sig: "LVLI".into() },
             // A placed explosive activated by script: nothing happens. [observed in

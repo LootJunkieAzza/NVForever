@@ -99,6 +99,8 @@ pub struct Look {
 /// (GetIsSex, GetPCIsSex; GetIsRace reads the look's race).
 pub fn apply_look(g: &mut Game, look: Look) {
     g.player.female = Some(look.female);
+    // The look's race stands for an AgeRace made before it (`crate::appearance`).
+    g.player.race = None;
     g.player.look = Some(look);
 }
 

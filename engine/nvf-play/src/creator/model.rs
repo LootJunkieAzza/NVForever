@@ -613,6 +613,21 @@ impl Model {
         self.look != before || row == Row::Preset
     }
 
+    /// The look as SexChange with reset leaves the player (`fnv_game::appearance`): fitted
+    /// to its race and sex, then the race's first starting face for that sex, its hair,
+    /// eyes and head parts included, as the Starting Face row's first entry gives it.
+    pub fn reset_to_preset(&mut self) {
+        self.fit_to_race();
+        if let Some(p) = self.data.catalogue.presets(self.look.race, self.look.female).first() {
+            self.look.facegen = p.facegen.clone();
+            self.look.eyes = p.eyes.or(self.look.eyes);
+            self.look.hair = p.hair.or(self.look.hair);
+            self.look.hair_color = p.hair_color.or(self.look.hair_color);
+            self.look.head_parts = p.head_parts.clone();
+            self.preset = 1;
+        }
+    }
+
     /// The hair, eyes and beard the race and sex allow: kept when allowed, else the
     /// race's default hair and its first eyes; a woman has no beard [design].
     fn fit_to_race(&mut self) {
