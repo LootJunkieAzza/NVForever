@@ -12,9 +12,10 @@
 //!   would be]. A target that is not in the world (disabled, not loaded) leaves the head
 //!   to the proximity choice: "until … the target leaves the loaded area" [documented].
 //! - **The body.** With Look's `rotateBody` 1 "Actor will rotate his entire body to
-//!   Target ref" [documented: GECK wiki Look]. An actor the AI runs (`--npc-packages`)
-//!   is turned by `fnv_ai` at its walker's turn rate (`Game::body_looks`). Any other
-//!   actor standing in its idle is turned on the spot here with the turn of a
+//!   Target ref" [documented: GECK wiki Look]. An actor the AI runs (every actor with
+//!   `--play`) is turned by `fnv_ai` at its walker's turn rate, over the package's own
+//!   facing (`Game::body_looks`, `Ai::face_looks`; log `ai [..] <actor>: turns its body
+//!   to … for a script's Look`, `faces …`). Any other actor standing in its idle is turned on the spot here with the turn of a
 //!   conversation (`dialogue_look::BodyTurn`: the same speed, turn clips and the 30°
 //!   from which a body turns at all), and turned again whenever the target is that far
 //!   off its front, until StopLook; the body keeps its last heading afterwards

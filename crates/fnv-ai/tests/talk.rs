@@ -623,9 +623,14 @@ fn a_look_turning_the_body_faces_the_target_until_stop_look() {
     assert_eq!(s.agent(R_GREET).walker.feet, GREETER);
     assert!((s.game.world.peek(FormId(R_GREET)).unwrap().rot[2] - heading).abs() < 1e-4);
 
+    // Logged once each: the turn starts, then it faces the player.
+    let looks: Vec<&AiEvent> = s.events().into_iter().filter(|e| matches!(e, AiEvent::LookTurn { .. } | AiEvent::LookFaced { .. } | AiEvent::LookHeld { .. })).collect();
+    assert!(matches!(looks.as_slice(), [AiEvent::LookTurn { target, .. }, AiEvent::LookFaced { .. }] if *target == FormId(PLAYER)), "{looks:?}");
+
     // StopLook: nothing turns it back.
     s.game.senses.looks.remove(&FormId(R_GREET));
     assert!(s.game.body_looks().is_empty());
     s.run_social(2.0);
     assert_eq!(s.agent(R_GREET).walker.heading, heading);
+    assert!(s.events().iter().any(|e| matches!(e, AiEvent::LookOver { .. })));
 }
