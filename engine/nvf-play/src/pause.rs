@@ -71,7 +71,9 @@
 //! While the virtual clock stands still, what must go on reads [`AidTime`]: the timed
 //! test aids, the menus' own timers and the scripts' frame time (MenuMode blocks and a
 //! conversation's lines run in real time under an `original` menu). `nvforever
-//! --run-seconds` counts real time then as well, so an unattended run always ends.
+//! --run-seconds` counts real time then as well, so an unattended run always ends. The
+//! test aids that act on the world can count from the scripts' first frame instead
+//! ([`WorldAidClock`], `NVF_PLAY_AIDS_FROM_SCRIPTS=1`; which aids: `crate::test_aid`).
 //!
 //! Test aid `NVF_PLAY_TEST_PAUSE=<seconds>:<seconds>[,…]`: opens the pause menu at the
 //! first time (as Esc) and resumes at the second (as Esc again, from either page), on
@@ -141,6 +143,7 @@ impl PlayClock {
 pub struct AidTime<'w> {
     time: Res<'w, Time>,
     clock: Res<'w, PlayClock>,
+    world: Option<Res<'w, WorldAidClock>>,
 }
 
 impl AidTime<'_> {
@@ -149,10 +152,90 @@ impl AidTime<'_> {
         self.time.elapsed_secs() + self.clock.stopped
     }
 
+    /// The clock of the test aids that act on the world ([`WorldAidClock`]): the aids'
+    /// clock, or, with `NVF_PLAY_AIDS_FROM_SCRIPTS=1`, `None` until the scripts first run
+    /// and then the aids' clock less what the scripts' late start held it back.
+    pub fn world_secs(&self) -> Option<f32> {
+        let now = self.elapsed_secs();
+        self.world.as_deref().map_or(Some(now), |w| w.at(now))
+    }
+
     /// The frame's time: the virtual clock's, or real time (at most 0.25 s, the virtual
     /// clock's own cap) while it stands still.
     pub fn delta_secs_f64(&self) -> f64 {
         self.clock.frame.map_or_else(|| self.time.delta_secs_f64(), f64::from)
+    }
+}
+
+/// When the scripts start on a machine that is not busy, at the latest (seconds on the
+/// aids' clock) [observed: the desktop's smoke logs of 2026-10-15/16 load the script data
+/// in 4.2–6.5 s ("scripts ready in"); the scripts run from the first frame after it in
+/// which the player stands in the world; busy runs started them at 8.7 s and 9.5 s].
+/// Up to this the world aids' clock is not held back, so a scenario's times mean what
+/// they meant before the switch.
+pub const SCRIPTS_START_SECONDS: f32 = 6.5;
+
+/// `NVF_PLAY_AIDS_FROM_SCRIPTS=1` (the smoke runner sets it for `--play` runs): the test
+/// aids that act on the world count from when the scripts first run, not from the start,
+/// so on a busy machine (the script data loads late) they do not run before the world
+/// can take them [design; the console then answered "Scripts are not running", docs/
+/// outstanding.md §5].
+///
+/// Such an aid waits until the scripts first run (`crate::script`; with scripts off,
+/// until the player first stands in the world). From then its clock is the aids' clock
+/// ([`AidTime::elapsed_secs`]) less what the late start held it back: the start's time
+/// past [`SCRIPTS_START_SECONDS`]. A step due before then runs in the first frame the
+/// scripts run; every later step keeps its time on an unbusy machine and its distance
+/// from the others on a busy one. The script steps are still moved on their own when
+/// the scripts start after the first one's time (`script_events::delay_late_aids`),
+/// now by at most `SCRIPTS_START_SECONDS` less that time: a busy run then looks like
+/// the slowest unbusy one [design; follower-boone failed when only its script steps
+/// came 7.2 s late, 2026-10-17]. Aids that also work before the world (the main menu,
+/// the intro, the pause menu and its settings page, an audio device reopen) keep the
+/// aids' clock. `nvforever --run-seconds` is lengthened by the held-back seconds, so
+/// the last steps still run.
+///
+/// Without the switch the world clock is the aids' clock, as before.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Default)]
+pub struct WorldAidClock {
+    from_scripts: bool,
+    /// The seconds held back, once the scripts ran.
+    held: Option<f32>,
+}
+
+impl WorldAidClock {
+    pub fn new(from_scripts: bool) -> WorldAidClock {
+        WorldAidClock { from_scripts, held: None }
+    }
+
+    pub fn from_env() -> WorldAidClock {
+        let on = std::env::var("NVF_PLAY_AIDS_FROM_SCRIPTS").is_ok_and(|v| !matches!(v.trim(), "" | "0" | "off" | "false"));
+        WorldAidClock::new(on)
+    }
+
+    /// The world aids' clock at `now` on the aids' clock (`None`: not started yet).
+    pub fn at(&self, now: f32) -> Option<f32> {
+        if !self.from_scripts {
+            return Some(now);
+        }
+        self.held.map(|h| now - h)
+    }
+
+    /// The seconds the world aids' clock was held back (0 without the switch or before
+    /// the start).
+    pub fn held_secs(&self) -> f32 {
+        self.held.unwrap_or(0.0)
+    }
+
+    /// The scripts first ran at `now` (the aids' clock): starts the clock and returns the
+    /// seconds it is held back, the first time and with the switch only.
+    pub fn start(&mut self, now: f32) -> Option<f32> {
+        if !self.from_scripts || self.held.is_some() {
+            return None;
+        }
+        let held = (now - SCRIPTS_START_SECONDS).max(0.0);
+        self.held = Some(held);
+        Some(held)
     }
 }
 
@@ -1841,6 +1924,34 @@ fn close(mut commands: Commands, mut paused: ResMut<Paused>, mut page: ResMut<Pa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_world_aids_clock_waits_for_the_scripts_and_is_held_back_only_by_a_late_start() {
+        // Without the switch: the aids' clock, from the start.
+        let mut off = WorldAidClock::new(false);
+        assert_eq!(off.at(3.0), Some(3.0));
+        assert_eq!(off.start(20.0), None);
+        assert_eq!(off.at(25.0), Some(25.0));
+        assert_eq!(off.held_secs(), 0.0);
+        // With it: nothing before the scripts run.
+        let mut on = WorldAidClock::new(true);
+        assert_eq!(on.at(3.0), None);
+        // An unbusy start (before SCRIPTS_START_SECONDS): not held back, the times mean
+        // what they did; steps due already run in the first frame.
+        assert_eq!(on.start(5.5), Some(0.0));
+        assert_eq!(on.at(5.5), Some(5.5));
+        assert_eq!(on.at(14.0), Some(14.0));
+        // Only the first start counts.
+        assert_eq!(on.start(30.0), None);
+        assert_eq!(on.at(14.0), Some(14.0));
+        // A busy start at 20 s: the clock reads SCRIPTS_START_SECONDS then and steps keep
+        // their distances (a step 6 s after that runs 6 s after the start).
+        let mut late = WorldAidClock::new(true);
+        assert_eq!(late.start(20.0), Some(20.0 - SCRIPTS_START_SECONDS));
+        assert_eq!(late.at(20.0), Some(SCRIPTS_START_SECONDS));
+        assert_eq!(late.at(26.0), Some(SCRIPTS_START_SECONDS + 6.0));
+        assert_eq!(late.held_secs(), 20.0 - SCRIPTS_START_SECONDS);
+    }
 
     #[test]
     fn the_pause_menu_always_holds_the_picture_and_other_menus_by_the_switch() {

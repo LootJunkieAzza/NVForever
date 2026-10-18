@@ -121,7 +121,7 @@ fn run(
     mut aid: ResMut<PipBoyAid>,
     (mut ask, mut repair): (MessageWriter<FastTravelAsk>, MessageWriter<super::repair::RepairInput>),
 ) {
-    let now = time.elapsed_secs();
+    let Some(now) = time.world_secs() else { return };
     while let Some(&(t, s)) = script.0.first() {
         if t > now {
             break;

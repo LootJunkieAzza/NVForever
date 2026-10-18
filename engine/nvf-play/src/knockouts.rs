@@ -92,7 +92,7 @@ fn test_hits(
     mut hud: Option<ResMut<HudMessage>>,
     mut messages: MessageWriter<ActorHit>,
 ) {
-    let now = time.elapsed_secs();
+    let Some(now) = time.world_secs() else { return };
     while hits.0.first().is_some_and(|h| h.at <= now) {
         // A hit due before the scripts run waits for them (a slow start-up dropped it).
         let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
