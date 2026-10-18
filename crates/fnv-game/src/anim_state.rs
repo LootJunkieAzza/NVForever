@@ -195,20 +195,25 @@ pub fn shot_action(t: f32, fire: f32, len: f32, dt: f32, repeating: bool) -> Opt
 /// same day's `disable_fade_getdisabled` job; capture `player_actions_anim2`, 2026-10-18].
 pub const THROW_ACTION_SECONDS: f32 = 2.6;
 
-/// How long a throw reads 6 after the weapon left the hand, seconds [observed: median 36
-/// samples, 11–40, at about 60 a second; campaign `anim_actions`].
+/// How long a throw reads 6 after the weapon left the hand when its clip has no `Attach`
+/// key, seconds [observed: median 36 samples, 11–40, at about 60 a second; campaign
+/// `anim_actions`].
 pub const THROWN_SECONDS: f32 = 0.6;
 
-/// GetAnimAction of a throw `t` seconds into its clip of `len` seconds, the weapon leaving
-/// the hand at `release` (at least one frame, `dt`, in): 5 until it leaves, 6 for
-/// [`THROWN_SECONDS`] after, then 4 for the rest of the clip while the next one is drawn,
-/// then none [documented: GECK wiki GetAnimAction, 5, 6 and 4; observed: 5 → 6 → 4 or
-/// −1 on four dynamite throws; hypothesis: the boundaries are the clip's release and end].
-pub fn throw_action(t: f32, release: f32, len: f32, dt: f32) -> Option<AnimAction> {
+/// GetAnimAction of a throw `t` seconds into its clip of `len` seconds: 5 until the
+/// weapon leaves the hand at `release` (the clip's `Release` key; at least one frame,
+/// `dt`, in), 6 until the next one is in hand at `attach` (the clip's `Attach` key, else
+/// [`THROWN_SECONDS`] after the release), then 4 to the clip's end, then none
+/// [documented: GECK wiki GetAnimAction, 5, 6 and 4; observed: the player's grenade
+/// throws read 5 for 50–52 loops, 6 for 39–41, 4 for 16–17 (capture
+/// `player_actions_anim2`), where `1gtattackthrow.kf` has `Release` at 0.867 s, `Attach`
+/// at 1.533 s and ends at 1.7 s].
+pub fn throw_action(t: f32, release: f32, attach: Option<f32>, len: f32, dt: f32) -> Option<AnimAction> {
     let release = release.max(dt);
+    let back = attach.filter(|a| *a > release).unwrap_or(release + THROWN_SECONDS);
     if t < release {
         Some(AnimAction::ThrowWindUp)
-    } else if t < release + THROWN_SECONDS {
+    } else if t < back {
         Some(AnimAction::Thrown)
     } else if t < len {
         Some(AnimAction::AttackReturn)
@@ -320,15 +325,22 @@ mod tests {
     #[test]
     fn a_throw_reads_5_then_6_then_4() {
         let dt = 1.0 / 60.0;
-        let seq: Vec<Option<i32>> = (0..100).map(|i| throw_action(i as f32 * dt, 0.9, 1.6, dt).map(AnimAction::code)).collect();
+        let seq: Vec<Option<i32>> = (0..100).map(|i| throw_action(i as f32 * dt, 0.9, None, 1.6, dt).map(AnimAction::code)).collect();
         let first6 = seq.iter().position(|c| *c == Some(6)).unwrap();
         assert!(seq[..first6].iter().all(|c| *c == Some(5)), "gearing up until it leaves: {seq:?}");
         let sixes = seq.iter().filter(|c| **c == Some(6)).count();
         assert!((35..=37).contains(&sixes), "6 for about 0.6 s: {sixes}");
         assert_eq!(seq.iter().position(|c| *c == Some(4)), Some(first6 + sixes));
-        assert_eq!(throw_action(1.7, 0.9, 1.6, dt), None);
+        assert_eq!(throw_action(1.7, 0.9, None, 1.6, dt), None);
         // A clip that ends within 0.6 s of the release ends while it still reads 6.
-        assert_eq!(throw_action(0.4, 0.2, 0.5, dt), Some(AnimAction::Thrown));
+        assert_eq!(throw_action(0.4, 0.2, None, 0.5, dt), Some(AnimAction::Thrown));
+        // The grenade clip's keys: Release 0.867 s, Attach 1.533 s, end 1.7 s, played as the
+        // original's player read them (5 for about 52 loops, 6 for about 40, then 4).
+        let codes: Vec<i32> = (0..102).filter_map(|i| throw_action(i as f32 * dt, 0.867, Some(1.533), 1.7, dt).map(AnimAction::code)).collect();
+        let count = |c: i32| codes.iter().filter(|x| **x == c).count();
+        assert!((50..=53).contains(&count(5)), "5 until the release: {codes:?}");
+        assert!((39..=41).contains(&count(6)), "6 until the attach: {codes:?}");
+        assert!((9..=11).contains(&count(4)), "4 to the clip's end: {codes:?}");
     }
 
     #[test]

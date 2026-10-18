@@ -832,7 +832,7 @@ impl Combat {
         match cy.phase {
             Phase::SpinUp { .. } | Phase::WindUp { .. } if self.self_ammo => Some(AnimAction::ThrowWindUp),
             Phase::SpinUp { .. } | Phase::WindUp { .. } => Some(AnimAction::Attack),
-            Phase::Cooldown { left } if self.self_ammo => throw_action(fire + (interval - left).max(0.0), fire, fire + interval, dt),
+            Phase::Cooldown { left } if self.self_ammo => throw_action(fire + (interval - left).max(0.0), fire, cy.timing.attach, fire + interval, dt),
             Phase::Cooldown { left } => shot_action(fire + (interval - left).max(0.0), fire, fire + interval, dt, cy.automatic && trigger),
             Phase::ReloadOpen { .. } => Some(AnimAction::ReloadOpen),
             Phase::Reloading { .. } | Phase::ReloadRound { .. } | Phase::ReloadClose { .. } => Some(AnimAction::Reload),
@@ -2766,9 +2766,11 @@ fn update_hit_hud(time: Res<Time>, state: Res<State<PlayState>>, mut fb: ResMut<
 /// The cycle's clip timing from the attack clip (length, `Hit` or `Fire` key, and
 /// whether a `Loop` key follows that key), the reload clip (length and `Hit` key) and the
 /// length of the reload's opening clip, as the player body reads them; `next_attack`: the
-/// attack clip's `a:` key, its time and text (`fnv_actor::player_clips::ClipKeys`).
-pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32, Option<f32>)>, reload_open: Option<f32>, next_attack: Option<(f32, &str)>) -> ClipTiming {
+/// attack clip's `a:` key, its time and text (`fnv_actor::player_clips::ClipKeys`);
+/// `attach`: the attack clip's `Attach` key (a thrown weapon's).
+pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<(f32, Option<f32>)>, reload_open: Option<f32>, next_attack: Option<(f32, &str)>, attach: Option<f32>) -> ClipTiming {
     ClipTiming {
+        attach_time: attach,
         next_attack: next_attack.and_then(|(t, v)| fnv_combat::melee::NextAttack::parse(v).map(|n| (t, n))),
         attack_len: attack.map(|a| a.0).filter(|l| *l > 0.0),
         hit_time: attack.and_then(|a| a.1),

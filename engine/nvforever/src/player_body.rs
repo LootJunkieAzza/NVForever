@@ -1787,6 +1787,7 @@ fn drive_body(
         reload_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit)),
         reload_open.as_ref().map(|c| c.clip.length()),
         attack_clip.as_ref().and_then(|c| c.keys.next_attack.as_ref()).map(|(t, v)| (*t, v.as_str())),
+        attack_clip.as_ref().and_then(|c| c.keys.attach),
     );
     anim.timing.jam_len = jam_len;
     anim.timed = Some(attack.to_string());

@@ -134,7 +134,12 @@ moving throughout) [observed]:
 - Pistol shot: 2 for 3 loops, 3 for 1, 4 for 28–32; the same while sneaking. .357: 2 for
   2–3, 3 for 1, 4 for 44–46. Cowboy Repeater (lever): 2 for 3, **3 for 20**, 4 for 26
   (3 lasts through the lever, as on the NPCs' hand-cycled guns, §1.1).
-- Grenade: 5 for 50–52, 6 for 39–41, 4 for 16–17, as the NPCs' dynamite (`THROWN_SECONDS`).
+- Grenade: 5 for 50–52, 6 for 39–41, 4 for 16–17. These are the throw clip's own keys:
+  `1gtattackthrow.kf` has `Hold` 0.567 s, `Release` 0.867 s, `Attach` 1.533 s and ends at
+  1.7 s [observed: `fnvtool nif decode`]. NVForever's throws now leave the hand at
+  `Release` (they left at the press: the clips have no `Hit` or `Fire` key, so no 5 was
+  ever told, smoke `anim-state-throw` 2026-10-18) and read 6 until `Attach`
+  (`throw_action`; `THROWN_SECONDS` only for a clip without one).
 - Knife: 2 for 17, then 4 for 49–50 (no 3), as `swing_action`.
 - Jump with a pistol drawn: −1 for 50, 12 for 54. Holster: 1 for 78.
 - The reload taps did not reload (the .357 emptied by six shots did not reload itself
