@@ -97,6 +97,7 @@ mod sneaking;
 mod ssao;
 mod taa;
 mod speech_look;
+mod stress_sample;
 mod terrain;
 mod texture_swap;
 mod effect_particles;
@@ -1199,6 +1200,8 @@ fn main() -> AppExit {
             app.add_plugins(creator_view::CreatorViewPlugin { light_scale: args.light_scale });
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, stealth_field::StealthFieldPlugin, pipboy_arm::PipBoyArmPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
             app.add_plugins(knockouts::KnockoutsPlugin);
+            // The stress tests' samples (NVF_PLAY_TEST_SAMPLE; nothing without it).
+            app.add_plugins(stress_sample::StressSamplePlugin);
             app.insert_resource(death_cam::DeathCam::with_imod(death_imod)).add_plugins(death_cam::DeathCamPlugin);
             app.add_plugins((cell_resets::CellResetsPlugin, resurrect::ResurrectPlugin));
             // What drawn NPCs wear and hold follows their inventories (outfits.rs).

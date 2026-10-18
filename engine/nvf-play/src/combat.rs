@@ -693,6 +693,13 @@ pub struct Combat {
 }
 
 impl Combat {
+    /// Projectiles in flight now (the stress tests' samples).
+    pub fn in_flight(&self) -> usize {
+        self.flying.len()
+    }
+}
+
+impl Combat {
     /// The weapon the player fights with now: the equipped one, else the Fists.
     pub fn player_weapon(&self) -> Option<FormId> {
         self.weapon

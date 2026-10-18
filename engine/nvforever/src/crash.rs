@@ -275,6 +275,11 @@ pub fn note_place(cam: Query<&GlobalTransform, With<crate::fly::FlyCam>>, stream
     }
 }
 
+/// Where the camera is, as a crash report would say (the stress tests' samples).
+pub fn place_text() -> String {
+    PLACE.try_lock().map(|p| p.clone()).unwrap_or_default()
+}
+
 /// Log [`CLEAN_EXIT`] when the run ends normally.
 pub fn report_exit(mut exit: MessageReader<AppExit>) {
     if exit.read().next().is_some() {
