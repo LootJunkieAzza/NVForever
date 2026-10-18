@@ -246,8 +246,9 @@ is the top left 85 × 92 of `head.dds`) [observed].
   and infamy (Accepted, Liked, Mixed …) [documented: GECK wiki GetReputationThreshold;
   hypothesis: "Dark Hero" with more infamy, "Soft-Hearted Devil" with more fame], and
   "Fame n, Infamy n" [design]. Statistics: the 43 New Vegas names [documented: GECK wiki
-  GetPCMiscStat, its order] with "--": the game's own counters are not kept, and
-  ModPCMiscStat's are kept by code, whose names are not known. Beside them the karma:
+  GetPCMiscStat] in the order of their codes [observed: the owner's screenshot of the
+  original's list, 2026-10-14] with their counters (docs/spec-notes/misc-stats.md; "--"
+  without the script runtime). Beside them the karma:
   "Karma: <alignment>", the picture, the karma title and the karma's number
   [hypothesis: alignments by the globals `KarmaVeryEvil`, `KarmaEvil`, `KarmaGood`,
   `KarmaVeryGood`; pictures `karma_evil`, `_bad`, `_neutral`, `_good`, `_saintly`].
@@ -273,7 +274,7 @@ is the top left 85 × 92 of `head.dds`) [observed].
   whether the hints count 0 and when they are bright; whether worn enchantments should
   change the actor values themselves (then the page needs no sum of its own); the
   highlight box's rule; General's list height, order and right buffer, the reputation
-  list's rule and second line, the karma titles, the misc statistics' codes.
+  list's rule and second line, the karma titles. (The misc statistics' codes: misc-stats.md §1.)
 
 ### 5.3 DATA
 

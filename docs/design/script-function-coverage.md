@@ -166,8 +166,8 @@ After the fixes 182 of the 281 probes give the same answer on both sides; of the
 the found marker, XP, first person), 16 are what only the engine measures, which the
 headless runner cannot (detection and line of sight 5, 3D one loop later 6, furniture and
 idles 3, menus 2; the player as a detector and the actor's own idle are also gaps of §5),
-and 3 are the Sandbox procedure gap. 39 "ours error" are GetPCMiscStat names whose codes no
-shipped script uses.
+and 3 are the Sandbox procedure gap. 39 "ours error" were GetPCMiscStat names whose codes no
+shipped script uses; all 43 compile since 2026-10-18 (misc-stats.md §1).
 
 Tests: `crates/fnv-game/tests/functions.rs` (`function_probe_round_two_fixes`),
 `crates/fnv-sim/src/clock.rs` (`rollover`); smoke `script-stubs` (counts).
@@ -256,8 +256,8 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 15 | NPC inventory re-rolled on SetLevel | wrong | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
 | 16 | Cannibal and Mister Sandman | no-system | 3 | 8 / 0 | 11 / 7 | GetCannibal, GetSandman, HasBeenEaten, StartCannibal, StartMisterSandman | - | - |
 | 17 | VATS | no-system | 3 | 6 / 0 | 12 / 259 | GetVATSMode, GetVATSTargetHeight, GetVATSValue, SetVatsTarget | - | - |
-| 18 | player statistics counters | wrong | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
-| 19 | drawn scale (SetScale) | wrong | 3 | 4 / 0 | 9 / 0 | SetScale | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 18 | player statistics counters | match (2026-10-18, misc-stats.md) | 3 | 6 / 0 | 4 / 0 | GetPCMiscStat | VCG01 (Ain't That a Kick in the Head), VCG02 (Back in the Saddle) | - |
+| 19 | drawn scale (SetScale) | match (2026-10-18, misc-stats.md §5) | 3 | 4 / 0 | 9 / 0 | SetScale | VCG00 (Welcome To Fabulous New Vegas) | - |
 | 20 | dismemberment and critical deaths | no-system | 2 | 4 / 0 | 23 / 0 | AttachAshPile, IsLimbGone, SetCriticalStage | - | - |
 | 21 | Bink videos | wrong | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
 | 22 | cell image spaces | wrong | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
@@ -438,7 +438,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | GetParentRef | 0x1113 | 2 / 0 | match | - | - |  |
 | GetPCEnemyOfFaction | 0x10C5 | 7 / 2 | match | - | - |  |
 | GetPCIsSex | 0x1083 | 8 / 190 | match | - | - |  |
-| GetPCMiscStat | 0x1138 | 4 / 0 | wrong | player statistics counters | differs 2, ours error 39, same 4 | The two names the shipped scripts ask for now count: Locations Discovered the found map markers [hypothesis, one data point], Times Addicted the addiction rolls. People Killed read 1 after a kill in the original [observed]; the codes of the other wiki names are not known, so no script can ask for them. |
+| GetPCMiscStat | 0x1138 | 4 / 0 | match | - | differs 2, ours error 39, same 4 | All 43 New Vegas names have codes (the order of the original General list and saves, misc-stats.md §1) and compile; 26 are counted by the rules and the engine (kills, quests, locks, hacking, aid items, sleep, casino, crafting, repair, barter; misc-stats.md §3), the others only by ModPCMiscStat. People Killed read 1 after a kill in the original [observed]. |
 | GetPermanentActorValue | 0x11EF | 7 / 134 | match | - | - |  |
 | GetPlantedExplosive | 0x11AC | 0 / 1 | no-system | planted explosives (reverse pickpocket) | same 1 | 0 at rest matches [observed: probes]. |
 | GetPlayerControlsDisabled | 0x1062 | 5 / 0 | match | - | - |  |
@@ -636,7 +636,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetReputation | 0x1238 | 255 / 0 | match | - | - |  |
 | SetRestrained | 0x10F3 | 281 / 0 | match | - | - |  |
 | SetRumble | 0x11FB | 17 / 0 | match | - | - | No-op (script-stubs.md §5); the controller workstream may take it. |
-| SetScale | 0x113C | 9 / 0 | wrong | drawn scale (SetScale) | - | GetScale is right; the drawn size does not change. |
+| SetScale | 0x113C | 9 / 0 | match | - | - | Drawn and collided at the new scale (objects; actors drawn only), kept on the reference and saved (misc-stats.md §5). |
 | SetSceneIsComplex | 0x115D | 2 / 0 | match | - | - | No-op (script-stubs.md §5). |
 | SetScreenSplatterFade | 0x1243 | 2 / 0 | no-system | screen blood splatter | - | Stub. |
 | SetSecuritronExpression | 0x1248 | 37 / 0 | match | - | - |  |

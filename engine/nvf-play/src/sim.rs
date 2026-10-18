@@ -68,12 +68,30 @@ impl SimState {
         (s.pos != p.pos || s.rot != p.rot).then_some((s.pos, s.rot))
     }
 
+    /// The scale a reference is drawn and collides at: a script's (SetScale), else its
+    /// placement's (XSCL), else 1; never below [`MIN_DRAWN_SCALE`].
+    pub fn ref_scale(&self, form_id: u32) -> f32 {
+        let id = FormId(form_id);
+        self.script_scale(form_id).or_else(|| self.refs.get(id).and_then(|p| p.scale)).unwrap_or(1.0).max(MIN_DRAWN_SCALE)
+    }
+
+    /// The scale a script set on a reference (SetScale), if any.
+    pub fn script_scale(&self, form_id: u32) -> Option<f32> {
+        self.world.peek(FormId(form_id)).and_then(|s| s.scale)
+    }
+
     /// Whether a placed reference is in the world now (not taken or deleted, enabled).
     pub fn present(&self, form_id: u32) -> bool {
         let id = FormId(form_id);
         !self.world.peek(id).is_some_and(|s| s.deleted) && self.world.is_enabled(id).unwrap_or(true)
     }
 }
+
+/// The smallest scale a reference is drawn at: `SetScale 0` (an artillery piece the
+/// scripts hide that way, FalloutNV.esm SCPT 0x001043CC) draws it this small, too small
+/// to see, so that the drawn transform stays invertible; below it the reference has no
+/// collision (`crate::phys`) [design].
+pub const MIN_DRAWN_SCALE: f32 = 1e-3;
 
 pub struct SimPlugin;
 

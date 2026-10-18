@@ -112,6 +112,10 @@ pub struct RefState {
     /// ([`World::outfit`]): done the first time its cell is loaded.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub outfitted: bool,
+    /// The scale a script set (SetScale), drawn and collided in place of the
+    /// placement's (XSCL).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub scale: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -343,6 +347,7 @@ impl<'a> World<'a> {
             },
             actor_values: BTreeMap::new(),
             last_restock: None,
+            scale: None,
             outfitted: false,
         })
     }
@@ -732,6 +737,7 @@ impl<'a> World<'a> {
                     actor_values: BTreeMap::new(),
                     last_restock: None,
                     outfitted: false,
+                    scale: None,
                 },
             );
             out.push(id);
@@ -1141,6 +1147,7 @@ impl<'a> World<'a> {
                 actor_values: BTreeMap::new(),
                 last_restock: None,
                 outfitted,
+                scale: None,
             },
         );
         Ok(id)

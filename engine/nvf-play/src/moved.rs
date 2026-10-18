@@ -5,8 +5,10 @@
 //! Render streaming (`engine/nvforever`) draws placed references at their placement, as
 //! children of their cell's [`RenderCell`] entity; this module moves those entities by
 //! the change from the pose they were drawn at to the simulation's: each frame for the
-//! references physics moved or a script's Rotate turned (`Game::turned`), and for every reference whose entities just appeared (a
-//! cell streamed in) and whose simulation pose differs. Only entities whose parent is the
+//! references physics moved or a script's Rotate turned or SetScale resized
+//! (`Game::turned`), and for every reference whose entities just appeared (a cell
+//! streamed in) and whose simulation pose or script scale differs. The scale is a
+//! script's (SetScale, kept on the reference's state) in place of the placement's. Only entities whose parent is the
 //! cell are moved (a model with its own node hierarchy moves with its root). Actors are
 //! left alone (their placement is not their pose once AI runs; Layer 6).
 
@@ -60,7 +62,7 @@ fn follow(
 ) {
     let mut ids: BTreeSet<u32> = phys.moved_now.iter().copied().collect();
     ids.extend(script.rt.iter().flat_map(|rt| rt.game.turned.iter().map(|r| r.0)));
-    ids.extend(added.iter().map(|r| r.0).filter(|&id| sim.moved_pose(id).is_some()));
+    ids.extend(added.iter().map(|r| r.0).filter(|&id| sim.moved_pose(id).is_some() || sim.script_scale(id).is_some()));
     if ids.is_empty() {
         return;
     }
@@ -70,10 +72,10 @@ fn follow(
         }
         let Ok(cell) = cells.get(parent.parent()) else { continue };
         let Some(p) = sim.refs.get(FormId(r.0)).filter(|p| &p.sig != b"ACHR" && &p.sig != b"ACRE") else { continue };
-        let scale = p.scale.unwrap_or(1.0);
+        let placed = p.scale.unwrap_or(1.0);
         let (pos, rot) = sim.moved_pose(r.0).unwrap_or((p.pos, p.rot));
-        let want = ref_affine(pos, rot, scale);
-        let have = baked.map_or_else(|| ref_affine(p.pos, p.rot, scale), |b| b.0);
+        let want = ref_affine(pos, rot, sim.ref_scale(r.0));
+        let have = baked.map_or_else(|| ref_affine(p.pos, p.rot, placed), |b| b.0);
         if want.abs_diff_eq(have, 1e-5) {
             continue;
         }
