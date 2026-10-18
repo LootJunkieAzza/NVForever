@@ -1,0 +1,417 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "od_09b_carried_item_script",
+ "title": "Scripted item in an NPC's inventory: does its GameMode run (owner-review: runtime differs, scripted items) (about 1.5 min)",
+ "start": "nvftest: RingoRef; both join the Legion faction; Ringo fights the player (god mode). Never saved; unattended (capture_run.py --save nvftest).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "coc GSGasStation"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085496\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nrF1.MoveTo player 0 150 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1206184\nlet fV := player.IsSpellTarget rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: before",
+   "field": "aura"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "player: before",
+   "field": "perception"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "player: before",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1290664\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: before",
+   "field": "tokens"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1206184\nlet fV := rF1.IsSpellTarget rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: before",
+   "field": "aura"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: before",
+   "field": "perception"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: before",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1290664\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: before",
+   "field": "tokens"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 976522\nplayer.AddToFaction rF2 0\nrF1.AddToFaction rF2 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1206184\nplayer.CastImmediateOnSelf rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1206184\nlet fV := player.IsSpellTarget rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: aura cast directly",
+   "field": "aura"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "player: aura cast directly",
+   "field": "perception"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "player: aura cast directly",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1290664\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: aura cast directly",
+   "field": "tokens"
+  },
+  {
+   "frames": 900
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1206184\nlet fV := player.IsSpellTarget rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: direct aura over",
+   "field": "aura"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "player: direct aura over",
+   "field": "perception"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "player: direct aura over",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1290664\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: direct aura over",
+   "field": "tokens"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1290664\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1290664\nrF1.AddItem rF2 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1206184\nlet fV := player.IsSpellTarget rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: tokens given",
+   "field": "aura"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "player: tokens given",
+   "field": "perception"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "player: tokens given",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1290664\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: tokens given",
+   "field": "tokens"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1206184\nlet fV := rF1.IsSpellTarget rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: tokens given",
+   "field": "aura"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: tokens given",
+   "field": "perception"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: tokens given",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1290664\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: tokens given",
+   "field": "tokens"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nrF1.StartCombat player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 150
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1206184\nlet fV := player.IsSpellTarget rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 150 loops",
+   "field": "aura"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 150 loops",
+   "field": "perception"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 150 loops",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1290664\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 150 loops",
+   "field": "tokens"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1206184\nlet fV := rF1.IsSpellTarget rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 150 loops",
+   "field": "aura"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 150 loops",
+   "field": "perception"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 150 loops",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1290664\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 150 loops",
+   "field": "tokens"
+  },
+  {
+   "frames": 150
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1206184\nlet fV := player.IsSpellTarget rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 300 loops",
+   "field": "aura"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 300 loops",
+   "field": "perception"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 300 loops",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1290664\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 300 loops",
+   "field": "tokens"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1206184\nlet fV := rF1.IsSpellTarget rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 300 loops",
+   "field": "aura"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 300 loops",
+   "field": "perception"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 300 loops",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1290664\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 300 loops",
+   "field": "tokens"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1206184\nlet fV := player.IsSpellTarget rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 600 loops",
+   "field": "aura"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 600 loops",
+   "field": "perception"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 600 loops",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1290664\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 600 loops",
+   "field": "tokens"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1206184\nlet fV := rF1.IsSpellTarget rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 600 loops",
+   "field": "aura"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 600 loops",
+   "field": "perception"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 600 loops",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1290664\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 600 loops",
+   "field": "tokens"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1206184\nlet fV := player.IsSpellTarget rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 900 loops",
+   "field": "aura"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 900 loops",
+   "field": "perception"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 900 loops",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1290664\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player: in combat, 900 loops",
+   "field": "tokens"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1206184\nlet fV := rF1.IsSpellTarget rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 900 loops",
+   "field": "aura"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetAV Perception\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 900 loops",
+   "field": "perception"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 900 loops",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1290664\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo: in combat, 900 loops",
+   "field": "tokens"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rF2 := BuildRef fM1 1290664\nlet rF3 := BuildRef fM1 976522\nrF1.StopCombat\nplayer.RemoveItem rF2 1 1\nrF1.RemoveItem rF2 1 1\nplayer.RemoveFromFaction rF3\nrF1.RemoveFromFaction rF3\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "console": "tgm"
+  }
+ ]
+}

@@ -1,0 +1,977 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "od_13_assault_faction",
+ "title": "Assault on one NCR trooper: do distant NCR troopers turn hostile (owner-review: karma and crime 8) (about 2 min)",
+ "start": "nvftest: Primm's NCR troopers, then a trooper hit with a lead pipe at Goodsprings' edge (god mode). Never saved; unattended (capture_run.py --save nvftest).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nplayer.MoveTo rF1 400 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nif player.GetInSameCell rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet fV := rF1.GetActorFactionPlayerEnemy\nSetFunctionValue fV\nEnd\n",
+   "label": "before primm_trooper_1",
+   "field": "faction_enemy"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet fV := rF1.GetMajorCrimeCount\nSetFunctionValue fV\nEnd\n",
+   "label": "before primm_trooper_1",
+   "field": "major_crimes"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet fV := rF1.GetActorFactionPlayerEnemy\nSetFunctionValue fV\nEnd\n",
+   "label": "before primm_trooper_3",
+   "field": "faction_enemy"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet fV := rF1.GetMajorCrimeCount\nSetFunctionValue fV\nEnd\n",
+   "label": "before primm_trooper_3",
+   "field": "major_crimes"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet fV := rF1.GetActorFactionPlayerEnemy\nSetFunctionValue fV\nEnd\n",
+   "label": "before primm_trooper_4",
+   "field": "faction_enemy"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet fV := rF1.GetMajorCrimeCount\nSetFunctionValue fV\nEnd\n",
+   "label": "before primm_trooper_4",
+   "field": "major_crimes"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_1 00",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_3 00",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_4 00",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_1 01",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_3 01",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_4 01",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_1 02",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_3 02",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_4 02",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_1 03",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_3 03",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_4 03",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_1 04",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_3 04",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "before primm_trooper_4 04",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "console": "cow WastelandNV -18 0"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nplayer.AddItem rF1 1 1\nplayer.EquipItem rF1 0 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nrF1.MoveTo player 0 70 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle X 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nif player.IsWeaponOut == 0\n  TapControl 7\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "victim before",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetMajorCrimeCount\nSetFunctionValue fV\nEnd\n",
+   "label": "victim before",
+   "field": "major_crimes"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetActorFactionPlayerEnemy\nSetFunctionValue fV\nEnd\n",
+   "label": "victim before",
+   "field": "faction_enemy"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "victim before",
+   "field": "health"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 50
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "swing 0",
+   "field": "health"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 50
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "swing 1",
+   "field": "health"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 50
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "swing 2",
+   "field": "health"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 50
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "swing 3",
+   "field": "health"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 4\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 50
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "swing 4",
+   "field": "health"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "victim after the hits",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetMajorCrimeCount\nSetFunctionValue fV\nEnd\n",
+   "label": "victim after the hits",
+   "field": "major_crimes"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetActorFactionPlayerEnemy\nSetFunctionValue fV\nEnd\n",
+   "label": "victim after the hits",
+   "field": "faction_enemy"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nlet fV := rF1.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "victim after the hits",
+   "field": "health"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nplayer.MoveTo rF1 400 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nif player.GetInSameCell rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nif MenuMode 1001\n  con_CloseAllMenus\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet fV := rF1.GetActorFactionPlayerEnemy\nSetFunctionValue fV\nEnd\n",
+   "label": "after primm_trooper_1",
+   "field": "faction_enemy"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet fV := rF1.GetMajorCrimeCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after primm_trooper_1",
+   "field": "major_crimes"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet fV := rF1.GetActorFactionPlayerEnemy\nSetFunctionValue fV\nEnd\n",
+   "label": "after primm_trooper_3",
+   "field": "faction_enemy"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet fV := rF1.GetMajorCrimeCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after primm_trooper_3",
+   "field": "major_crimes"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet fV := rF1.GetActorFactionPlayerEnemy\nSetFunctionValue fV\nEnd\n",
+   "label": "after primm_trooper_4",
+   "field": "faction_enemy"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet fV := rF1.GetMajorCrimeCount\nSetFunctionValue fV\nEnd\n",
+   "label": "after primm_trooper_4",
+   "field": "major_crimes"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 00",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 00",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 00",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 01",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 01",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 01",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 02",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 02",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 02",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 03",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 03",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 03",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 04",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 04",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 04",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 05",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 05",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 05",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 06",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 06",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 06",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 07",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 07",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 07",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 08",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 08",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 08",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 09",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 09",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 09",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 10",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 10",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 10",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 11",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 11",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 11",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 12",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 12",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 12",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 13",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 13",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 13",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 14",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 14",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 14",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 15",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 15",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 15",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 16",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 16",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 16",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 17",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 17",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 17",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 18",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 18",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 18",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 19",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 19",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 19",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 20",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 20",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 20",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 21",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 21",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 21",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 22",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 22",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 22",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 23",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 23",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 23",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 24",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 24",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 24",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 25",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 25",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 25",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 26",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 26",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 26",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 27",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 27",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 27",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 28",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 28",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 28",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664503\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_1 29",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664505\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_3 29",
+   "field": "ai"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 664506\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "after primm_trooper_4 29",
+   "field": "ai"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 997109\nrF1.StopCombat\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17207\nplayer.RemoveItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "console": "tgm"
+  }
+ ]
+}

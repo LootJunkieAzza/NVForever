@@ -806,11 +806,17 @@ fn audited_stubs_answer_from_the_engine_state_and_leave_requests() {
     let mut g = game(&f);
     let (adult, child) = (FormId(ADULT_REF), FormId(CHILD_REF));
 
-    // Look holds the head on the target until StopLook; the body flag is kept.
+    // Look holds the head on the target until StopLook; with the flag the body turns
+    // to it too (`body_looks`, for the AI and the engine), without it only the head.
+    call(&mut g, 0x105C, Some(ADULT_REF), &[r(CHILD_REF)]);
+    assert_eq!(g.script_look(adult), Some(Look { target: child, rotate_body: false }));
+    assert!(g.body_looks().is_empty());
     call(&mut g, 0x105C, Some(ADULT_REF), &[r(CHILD_REF), n(1.0)]);
     assert_eq!(g.script_look(adult), Some(Look { target: child, rotate_body: true }));
+    assert_eq!(g.body_looks(), vec![(adult, child)]);
     call(&mut g, 0x105D, Some(ADULT_REF), &[]);
     assert_eq!(g.script_look(adult), None);
+    assert!(g.body_looks().is_empty());
 
     // Movement and sneaking as the engine told them; nothing told is standing still.
     assert_eq!(call(&mut g, 0x111E, None, &[]), 0.0);

@@ -696,12 +696,16 @@ fn apply_engine(world: &mut World) {
 /// Refuses a save made with another load order (remapping is not built, design §4).
 pub fn read_for_load(path: &std::path::Path, current: &[PluginEntry]) -> Result<(SaveHeader, SaveBody), String> {
     let f = fnv_save::read(path).map_err(|e| e.to_string())?;
-    if let fnv_save::PluginCheck::Differs { missing, added, reordered } = fnv_save::check_plugins(&f.header.plugins, current) {
-        return Err(format!(
-            "{} was made with other plugins (missing now: {missing:?}, added: {added:?}{}); loading it into another load order is not built",
-            path.display(),
-            if reordered { ", order changed" } else { "" }
-        ));
+    match fnv_save::check_plugins(&f.header.plugins, current) {
+        fnv_save::PluginCheck::Same => {}
+        fnv_save::PluginCheck::Appended { added } => info!("load: plugins added since the save, after its own: {}", added.join(", ")),
+        fnv_save::PluginCheck::Differs { missing, added, reordered } => {
+            return Err(format!(
+                "{} was made with other plugins (missing now: {missing:?}, added: {added:?}{}); only plugins added after the save's own load into it",
+                path.display(),
+                if reordered { ", order changed" } else { "" }
+            ));
+        }
     }
     let body: SaveBody = serde_json::from_slice(&f.body).map_err(|e| format!("{}: {e}", path.display()))?;
     if body.format != BODY_FORMAT {

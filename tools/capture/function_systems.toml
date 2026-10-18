@@ -31,7 +31,7 @@ note = "GetDisposition reads the value set [observed: probes]."
 
 [function.IsFacingUp]
 status = "match"
-note = "1 on a standing actor [observed: probes]; knockdowns are not built, so never 0."
+note = "1 on a standing actor [observed: probes]; a knocked-out or knocked-down actor reads the side the engine saw its ragdoll come to rest on (unconscious.md §4, §5)."
 
 [function.IsLeftUp]
 status = "match"
@@ -162,19 +162,19 @@ system = "dialogue: current response"
 note = "SayTo/Say lines read the first response's emotion throughout (audit §6)."
 
 [function.GetKnockedState]
-status = "no-system"
+status = "match"
 system = "knockdowns and knock-outs"
-note = "Never 2: explosion knockdowns are rolled in the engine but not animated or told; 1 never clears after an essential knock-out."
+note = "-1 fatigue knock-out, 1 essential knock-out or SetUnconscious, 2 explosion knockdown, 0 while pushed down by PushActorAway (also once knocked out meanwhile), as the wiki's notes say (unconscious.md §2.8, §5.2) [documented]; not compared in game."
 
 [function.GetUnconscious]
-status = "no-system"
+status = "match"
 system = "knockdowns and knock-outs"
-note = "An essential knocked out stays unconscious for good; 0 for Ringo at rest and dead [observed: probes]."
+note = "Reads SetUnconscious's flag only, not knock-outs, as the wiki says [documented]; 0 for Ringo at rest and dead [observed: probes]."
 
 [function.PushActorAway]
-status = "no-system"
+status = "open"
 system = "knockdowns and knock-outs"
-note = "Stub."
+note = "Built (unconscious.md §5): the target falls as a ragdoll thrown from the source, lies 3 s, gets up; refused for the dead, Immobile, No Knockdowns and the player. The force scale and the time down are design guesses, not compared in game."
 
 [function.GetOwnerLastTarget]
 status = "wrong"
@@ -519,6 +519,6 @@ system = "corpses stood up again"
 note = "Rules state right (dead, cause, health) [observed: probes]; the engine does not stand a corpse up."
 
 [function.SetUnconscious]
-status = "no-system"
+status = "open"
 system = "knockdowns and knock-outs"
-note = "Unconscious actors stop walking; lying down is not built."
+note = "AI off (no walking, packages, talk) and holds a lying actor down until cleared; alone it lays nobody down, as the pods and the fake-death thugs need (unconscious.md §5.1) [hypothesis]."

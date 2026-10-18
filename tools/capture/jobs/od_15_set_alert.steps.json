@@ -1,0 +1,163 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "od_15_set_alert",
+ "title": "SetAlert / GetIsAlerted against IsInCombat (owner-review: alert 4) (about 20 s)",
+ "start": "nvftest: RingoRef in GSGasStation. Never saved; unattended (capture_run.py --save nvftest).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "coc GSGasStation"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085496\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetIsAlerted\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "alerted"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "start",
+   "field": "ai"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nrF1.SetAlert 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetIsAlerted\nSetFunctionValue fV\nEnd\n",
+   "label": "SetAlert 1",
+   "field": "alerted"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "SetAlert 1",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "SetAlert 1",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "SetAlert 1",
+   "field": "ai"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetIsAlerted\nSetFunctionValue fV\nEnd\n",
+   "label": "SetAlert 1, 300 loops",
+   "field": "alerted"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "SetAlert 1, 300 loops",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "SetAlert 1, 300 loops",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "SetAlert 1, 300 loops",
+   "field": "ai"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nrF1.SetAlert 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetIsAlerted\nSetFunctionValue fV\nEnd\n",
+   "label": "SetAlert 0",
+   "field": "alerted"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsInCombat\nSetFunctionValue fV\nEnd\n",
+   "label": "SetAlert 0",
+   "field": "in_combat"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.IsWeaponOut\nSetFunctionValue fV\nEnd\n",
+   "label": "SetAlert 0",
+   "field": "weapon_out"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nref rV7\nfloat fV8\nfloat fV9\nfloat fV10\nfloat fV11\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet rV0 := rF1.GetCurrentPackage\nlet fV1 := rF1.GetCurrentAIPackage\nlet fV2 := rF1.GetCurrentAIProcedure\nlet fV3 := rF1.GetDetected player\nlet fV4 := rF1.GetAnimAction\nlet fV5 := rF1.IsMoving\nlet fV6 := rF1.IsInCombat\nlet rV7 := rF1.GetCombatTarget\nlet fV8 := rF1.GetPos X\nlet fV9 := rF1.GetPos Y\nlet fV10 := rF1.GetPos Z\nlet fV11 := rF1.GetAngle Z\nSetFunctionValue ((GetFormIDString rV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + (GetFormIDString rV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10) + \" \" + ($ fV11))\nEnd\n",
+   "label": "SetAlert 0",
+   "field": "ai"
+  }
+ ]
+}

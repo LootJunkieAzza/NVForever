@@ -65,6 +65,7 @@ use crate::goal::{self, dist};
 use crate::sandbox::Rng;
 use fnv_game::game::Game;
 use fnv_game::package::{fallout, flags, type_flags, PackageDef, PackageType};
+use fnv_nav::follow::{heading_delta, heading_of};
 use fnv_nav::{NavGraph, Place, Space};
 use fnv_sim::FormId;
 use serde::Serialize;
@@ -117,7 +118,22 @@ pub(crate) struct Social {
     greeted: BTreeSet<FormId>,
     pub(crate) rng: Rng,
     pub(crate) stats: SocialStats,
+    /// The Looks turning bodies, by actor: the target and how far the turn is.
+    looks: BTreeMap<FormId, (FormId, LookTurn)>,
 }
+
+/// Where the body of an actor held by a Look with `rotateBody` is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum LookTurn {
+    Turning,
+    Facing,
+    Held(&'static str),
+}
+
+/// A body held by a Look that is further than this off its target turns again (and the
+/// turn is logged), radians [design: a few degrees, so a target moving about is followed
+/// without a log line every frame].
+pub const LOOK_TURN_FROM: f32 = 0.1;
 
 /// Counts for the log's summary, to set the conversation rate against the original's
 /// (docs/spec-notes/npc-behaviour-compare.md §5).
@@ -134,7 +150,7 @@ pub struct SocialStats {
 
 impl Default for Social {
     fn default() -> Self {
-        Social { next_try: None, next_chat: BTreeMap::new(), greeted: BTreeSet::new(), rng: Rng(0x5EED_C0DE), stats: SocialStats::default() }
+        Social { next_try: None, next_chat: BTreeMap::new(), greeted: BTreeSet::new(), rng: Rng(0x5EED_C0DE), stats: SocialStats::default(), looks: BTreeMap::new() }
     }
 }
 
@@ -188,6 +204,8 @@ impl Ai {
         }
         self.chats_on(game, nav);
         self.face_listeners(game, dt);
+        // A script's Look turning the body wins over facing a listener: last.
+        self.face_looks(game, dt);
         let data = game.data;
         let now = game.time;
         let mut free: Vec<Free> = Vec::new();
@@ -420,6 +438,71 @@ impl Ai {
             }
             if let Some(at) = goal::place_of_ref(game, to) {
                 self.face(game, who, at, dt);
+            }
+        }
+    }
+}
+
+impl Ai {
+    /// An actor a script's Look turns whole (`rotateBody` 1, [`Game::body_looks`])
+    /// turns its body to the target at the walker's turn rate and keeps facing it, over
+    /// the package's own facing, until StopLook; the body then keeps its heading
+    /// [documented: GECK wiki Look, "rotate his entire body"; hypothesis: the rate, and
+    /// what happens after StopLook]. Not turned (its head still is, the engine's): an
+    /// actor out of the loaded area, dead, in furniture, on its way (its route has its
+    /// heading), or turning to the player for its Dialogue package.
+    fn face_looks(&mut self, game: &mut Game, dt: f32) {
+        let wanted = game.body_looks();
+        let over: Vec<FormId> = self.social.looks.keys().copied().filter(|a| !wanted.iter().any(|(w, t)| w == a && self.social.looks.get(a).is_some_and(|l| l.0 == *t))).collect();
+        for a in over {
+            self.social.looks.remove(&a);
+            if !wanted.iter().any(|(w, _)| *w == a) {
+                if let Some(heading) = self.agents.get(&a).map(|g| g.walker.heading) {
+                    self.log(game, a, AiEvent::LookOver { heading });
+                }
+            }
+        }
+        for (who, to) in wanted {
+            let Some(a) = self.agents.get(&who) else { continue };
+            let why = if game.extra.get(&who).is_some_and(|e| e.dead) {
+                Some("it is dead")
+            } else if !self.is_high(who) {
+                Some("it is out of the loaded area")
+            } else if a.using.is_some() {
+                Some("it is in furniture")
+            } else if a.activity == Activity::Travelling {
+                Some("it is on its way (its route turns it)")
+            } else if a.talk == Some(Talking::Speaking) {
+                Some("it faces whom it talks to (its Dialogue package)")
+            } else {
+                None
+            };
+            let state = self.social.looks.get(&who).map(|l| l.1);
+            if let Some(why) = why {
+                if state != Some(LookTurn::Held(why)) {
+                    self.social.looks.insert(who, (to, LookTurn::Held(why)));
+                    self.log(game, who, AiEvent::LookHeld { target: to, why });
+                }
+                continue;
+            }
+            let Some(at) = goal::place_of_ref(game, to) else { continue };
+            let (feet, from) = (a.walker.feet, a.walker.heading);
+            let d = [at.pos[0] - feet[0], at.pos[1] - feet[1]];
+            if d[0].hypot(d[1]) < 1.0 {
+                continue;
+            }
+            let want = heading_of(d);
+            if state != Some(LookTurn::Turning) && heading_delta(from, want).abs() > LOOK_TURN_FROM {
+                self.social.looks.insert(who, (to, LookTurn::Turning));
+                self.log(game, who, AiEvent::LookTurn { target: to, from, to: want });
+            } else if state.is_none() || matches!(state, Some(LookTurn::Held(_))) {
+                self.social.looks.insert(who, (to, LookTurn::Facing));
+            }
+            self.face(game, who, at, dt);
+            let heading = self.agents[&who].walker.heading;
+            if self.social.looks.get(&who).map(|l| l.1) == Some(LookTurn::Turning) && heading_delta(heading, want).abs() < 0.02 {
+                self.social.looks.insert(who, (to, LookTurn::Facing));
+                self.log(game, who, AiEvent::LookFaced { target: to, heading });
             }
         }
     }

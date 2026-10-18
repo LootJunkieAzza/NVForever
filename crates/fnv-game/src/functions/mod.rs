@@ -544,7 +544,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1166, "IsPlayerMovingIntoNewSpace", Impl(senses::is_player_moving_into_new_space)),
         (0x1170, "IsPlayerActionActive", Stub("player input")),
         (0x1188, "IsPC1stPerson", Impl(senses::is_pc_1st_person)),
-        (0x118A, "PushActorAway", Stub("physics (a live actor knocked down and getting up; ragdolls are for corpses only)")),
+        (0x118A, "PushActorAway", Impl(fighting::push_actor_away)),
         (0x11D0, "IsPlayerGrabbedRef", Stub("physics (grab)")),
         (0x110C, "trapUpdate", Stub("physics (traps)")),
         (0x11C0, "EnableNavMesh", Stub("navigation")),

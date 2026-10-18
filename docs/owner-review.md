@@ -195,7 +195,9 @@ sessions. You already had it from an earlier playthrough.
     - OR binds tighter than AND in condition lists.
     - IsInCombat and IsTalking read 0 until Layer 6; IsXBox and IsPS3 read 0.
     - Stray Else/ElseIf/EndIf markers: one capture of SCPT 0x00123191 would settle the
-      rule.
+      rule. **Settled in game 2026-10-18 [observed]:** activating the hostage left its
+      variables unchanged, and the dead one opened its loot menu through the stray
+      ElseIf, as the runtime does (spec-notes/owner-decision-captures.md §4).
     - GetSecondsPassed after a long gap returns the whole gap, so timers can expire at
       once after a pause.
 17. **Where M5 stands (headless).** With scripted stand-ins for dialogue lines, packages,
@@ -334,7 +336,14 @@ sessions. You already had it from an earlier playthrough.
       containers' inventories don't run; Return ends one block, not the frame (matters
       in 5 shipped scripts); result-script variables don't overwrite the quest script's;
       script packages stack instead of replacing each other; EvaluatePackage keeps a
-      script package.
+      script package. **Captured 2026-10-18 [observed]:**
+      - A second AddScriptPackage **replaces** the first, so the runtime's stacking is
+        wrong.
+      - EvaluatePackage keeps a script package, as the runtime does.
+      - A disabled reference's GameMode **runs**, so the runtime is wrong to skip it.
+
+      Neither runtime fix is made yet. Scripted items in other inventories are still to be
+      captured (spec-notes/owner-decision-captures.md §4).
     - Each note ends with capture candidates. Nothing was changed in the runtime.
 
 26. **Your `objects.xml` export (9 pages, mostly category indexes).** Three facts were
@@ -461,6 +470,9 @@ sessions. You already had it from an earlier playthrough.
       and the quest's own conditions must pass as well as the line's (113 of 640 quests
       have such conditions, covering 8,151 lines; the runtime already checked them).
       Still assumed: an actor with no eligible greeting cannot be talked to.
+      **Partly captured 2026-10-18 [observed]:** two such actors could not be talked to.
+      HVRangerREF could; his screenshot decides whether he had a greeting after all
+      (spec-notes/owner-decision-captures.md §4).
 
     **Left as stand-ins in the intro:** sitting on the couch and Doc walking over (AI
     packages), the two walk-in triggers and the menus' OK (the player), and all of Sunny
@@ -2105,7 +2117,7 @@ NVForever's; `nvf-sleep.png` is the bed version).
    - **People moving during the wait.** They stand still while the menu is up and set
      off for where they should be when it closes, so after a long wait you can watch
      them walk there. The original may put them in place; I do not know.
-   - **Pressing E on a bed still lies you down** rather than opening the sleep menu
+   - **(Decided by the owner 2026-10-18: get-into-bed animation, then the sleep menu; see item 7 below.)** **Pressing E on a bed still lies you down** rather than opening the sleep menu
      directly. You asked for lying down first; T does the rest.
    - **Scripts asking "is the player asleep?" or opening this menu themselves.** The
      Well Rested beds need the first.
@@ -2284,7 +2296,7 @@ I can measure your picture. Please attach it again, or drop it in
    `docs/spec-notes/hud.md`.
 ## Sleeping, refusals and people during a wait (2026-10-11, session "sleep effects")
 
-7. **Pressing E on a bed.** You lie down as before, and when you are lying the sleep
+7. **Pressing E on a bed.** **Decided by the owner 2026-10-18:** a get-into-bed animation, then the sleep menu (NVForever's own design, not a parity question). Earlier text: You lie down as before, and when you are lying the sleep
    menu opens by itself. Cancel leaves you lying there; T opens the menu again; a
    movement key or E gets you up.
    - **For you to decide.** The original most likely opens the menu the moment you
@@ -2774,7 +2786,10 @@ enemy far off) before they have confirmed it, as the start of NPC combat. Branch
    moves within 256 (indoors) or 512 (outdoors) units. A bullet's impact is as loud as
    the gun. Actors with a faction in common, or of the same kind, never turn on each
    other.
-4. **Scripts see it:** IsInCombat is 1 for an NPC on Alert, in Combat or Lost, and for
+4. **Scripts see it** (partly captured 2026-10-18 [observed]: GetIsAlerted/SetAlert is
+   an animation state, with IsInCombat 0. The detection Alert is the pending campaign
+   session `alert_noise` (spec-notes/owner-decision-captures.md §4)). IsInCombat is 1 for an NPC on Alert, in Combat or Lost,
+   and for
    you while one hunts you (the documentation says so). This can change quest scripts
    that test IsInCombat; nothing showed in the runs, but watch for it.
 5. **Fixed on the way:** detection's line of sight looked through hills when the NPC's own
@@ -2950,7 +2965,9 @@ Branch `claude/playtest-controls`. One commit per item.
    and we read a left-out number as "leave it off". Now a left-out number of
    `EnablePlayerControls` gives that control back, as the form with no numbers does.
    **Guess:** that this is the game's rule (no other script gives sneaking back, so it
-   must be). **Check:** after leaving Doc's house, Ctrl crouches; inside his house before
+   must be). **Supported in game 2026-10-18 [observed]:** after `EnablePlayerControls 1 1
+   1 1 1 1`, GetPlayerControlsDisabled reads 0 for sneaking. The crouch tap itself did
+   not register in the job, so IsSneaking was not shown (spec-notes/owner-decision-captures.md §4). **Check:** after leaving Doc's house, Ctrl crouches; inside his house before
    that, it does not (as the scripts ask).
 3. **Wake-up camera.** While the opening's wake-up/sit-up/stand-up idles drive the view,
    the mouse, the look test aid and movement keys are ignored; the camera is the
@@ -4124,6 +4141,10 @@ Decisions where the sources were unclear:
   (not those told to wait) [hypothesis], put **64 units to the player's right** (a second
   one to the left, then further out) facing the player's way [guess]. Check: go through a
   door with a companion; does the original put them behind you, beside you, or at the door?
+  **Captured 2026-10-18 [observed]:** going out of his Novac room, Boone (following)
+  arrived about 168 units to the player's **left** and 12 ahead, and settled about 153 left
+  and 13 ahead. The player arrives on the door's teleport marker. Boone told to wait
+  stayed behind. The way back in is still to be captured (spec-notes/owner-decision-captures.md §4).
 - **Teammates in combat** ("as if in the player faction"): anyone attacks a teammate exactly
   when it would attack the player; a teammate attacks whoever would attack the player and
   also whomever its own records have it attack (so Boone keeps his Legion enmity) [design].
@@ -5602,3 +5623,44 @@ Playthrough blocker row 16 (docs/spec-notes/misc-stats.md). What I decided:
 - **To check in game**: the General list against the original's, after a short session
   of killing, picking a lock, using a stimpak and sleeping; `prid DocMitchellREF` then
   `setscale 1.5` at the console (Doc should be half again as tall).
+
+## Look turning the whole body (2026-10-18, branch claude/blockers-look-body-33d444)
+
+A script's `Look target 1` now turns the actor's whole body to the target until StopLook
+(docs/design/script-stubs.md §3; smoke `script-look-body`: Sunny turns to the player in
+the Prospector Saloon). The wiki says only that the actor "will rotate his entire body";
+the observer's captures hold no Look call, so these are my guesses to check in the game:
+
+- **The rate.** An actor the AI runs turns at its walker's turn rate (as when it turns to
+  someone saying a line); a standing actor nobody runs turns on the spot like an actor
+  you talk to (about 150°/s, 0.5 to 1.4 s, and only when the target is more than 30° off
+  its front; the head covers the rest).
+- **A moving target.** The body turns again whenever the target gets 30° off its front,
+  until StopLook.
+- **After StopLook** the body keeps the heading it has; nothing turns it back.
+- **Walking actors** (a package walking them, a traveller) keep their route's heading;
+  only their head turns. A Look on Sunny or Easy Pete followed by a capture of their
+  heading (the observer) would settle the rate and whether the original stops a walker.
+
+## Knockdowns: PushActorAway, explosions, SetUnconscious (2026-10-18, branch claude/knockdowns)
+
+Row 1 of docs/outstanding.md §1 (docs/spec-notes/unconscious.md §5; smoke
+`knockdown-push`). PushActorAway now lays the target down as a ragdoll thrown away from the
+source, and it gets up with the get-up clip; explosions' knockdown rolls now lay the actor
+down too (GetKnockedState 2). Guesses to check against the game:
+
+- **Time down**: 3 s of game time for a knockdown, then the get-up clip. No setting names
+  it. *Check:* `player.PushActorAway <NPC> 10` at the console; time how long it lies.
+- **Force scale**: 30 units a second per point of force, a quarter of it upwards (force 10
+  throws a body at 300 units/s, about 4 m/s). The wiki's "Havok force" is not converted.
+  *Check:* the same push; how far does the body slide?
+- **SetUnconscious alone does not lay anyone down.** Read from the scripts: robots standing
+  in pods and scheduled sleepers use it, and the thugs that fake death push their actor
+  down as well. It now also keeps a lying actor down until it is cleared (those thugs get
+  up only after being hit).
+- **The player is never knocked down** (six scripts push the player); building the
+  player's own knockdown is a separate job.
+- **No KOed/Wake line and no corner message** for a knockdown (it is no unconsciousness).
+- **A pushed actor can be searched** (E opens its inventory) until it begins to get up, as
+  the wiki says; an explosion's knockdown cannot be searched [hypothesis: the note names
+  only pushes].

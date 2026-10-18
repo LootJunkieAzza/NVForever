@@ -168,6 +168,13 @@ normal case; a reordered list is remapped by name (rewrite the high byte of ever
 ID); a missing plugin drops the forms from it with a warning. Dynamic (created) IDs are
 ours and never remapped.
 
+Built so far (2026-10-18): equal lists, and plugins added after all of the save's
+(`fnv_save::PluginCheck::Appended`: every saved form ID keeps its plugin's place, so the
+save loads as it is and the added plugins' objects appear, a save holding only the
+differences). Anything else, a plugin added before one of the save's, a missing or
+reordered one, still refuses to load, saying which plugins differ; a load from the menu or
+the pause menu that fails this way says so in a message box.
+
 ## 5. Decisions (owner 2026-10-15: the recommendations below)
 
 1. **When saving is allowed**: in the world, from the pause menu and from the console.
