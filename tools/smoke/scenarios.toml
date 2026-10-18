@@ -1978,12 +1978,14 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/vats-mode implemented GetVATSValue (250 condition uses) and GetVATSMode (2 calls,
 # 2 condition uses) for VATS mode (docs/design/vats-mode.md §12): 46 → 44 stubs,
 # 222 → 220 calls, 377 → 125 condition uses.
+# The barber (#414) implemented ShowBarberMenu (4 calls): 44 → 43 stubs, 220 → 216 calls
+# [observed: the coordinator's run of #413 on main 34ef585d, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 44 },
+  { json = "summary.stubs", equals = 43 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 43 },
+  { json = "summary.by_status.needs_system", equals = 42 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 220 },
+  { json = "summary.stub_calls", equals = 216 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -4232,10 +4234,10 @@ forbid = [{ re = 'vats mode: firing', label = "nothing is fired" }]
 [[scenario]]
 name = "vats-mode-ammo-limit"
 source = "owner's todo 6: marks are limited by the rounds loaded as well as the AP (docs/design/vats-mode.md §7.2)"
-note = "a .357 with one round (no god mode, so the magazine holds what is carried) among the Goodsprings dogs, left to their packages. The player's AP covers three 26 AP shots, so the second mark is refused for the rounds; E fires the one mark. V at 10 s, after the start-up boxes"
+note = "a .357 with one round (no god mode, so the magazine holds what is carried) among the Goodsprings dogs, left to their packages; the console gives the player 5000 health at 6 s, as the flamer scenarios do (without it the dogs killed the player before V, coordinator run 2026-10-18, and a dead player cannot enter). The player's AP covers three 26 AP shots, so the second mark is refused for the rounds; E fires the one mark. V at 10 s, after the start-up boxes"
 areas = ["combat", "vats"]
 paths = ["engine/nvf-play/src/vats_mode.rs", "crates/fnv-combat/src/vats.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:1", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "6:player.setav health 5000;6.5:close", NVF_PLAY_TEST_EQUIP = "0008F216", NVF_PLAY_TEST_GIVE = "0008ED02:1", NVF_PLAY_TEST_CONTROL = "3:weapon,4.5:reload,10.3:aimvats,10.36:aimvats", NVF_PLAY_TEST_KEYS = "10:v,10.32:mouse-left,10.38:mouse-left,10.42:e" }
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 16
 order = [[
