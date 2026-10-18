@@ -706,13 +706,14 @@ expect = [
 [[scenario]]
 name = "armed-npc-moves"
 source = "owner's todo 6 item 2 (2026-10-17): Ringo running with his pistol drawn held it at the hip, as standing; a moving NPC with a weapon drawn plays the weapon type's own walk, run and turn clips (locomotion\\1hpfastforward.kf …) with the aim clip over them, as the player's body (engine/nvforever/src/locomotion.rs WeaponMoves)"
-note = "in Goodsprings Ringo (GSRingo, 1hp) is brought 600 units north of the player at 3 s and set on the player at 5 s, who cannot die (GOD); he draws his pistol and moves to fight: each clip file he plays with it drawn is logged once. The 1hp stance has all eight walks and runs [observed: the base meshes archive], so no unarmed walk or run plays while it is drawn"
+note = "in Goodsprings Ringo (GSRingo, 1hp) is brought 1300 units north of the player at 3 s and set on the player at 5 s, who cannot die (GOD); he draws his pistol and runs in: his 9mm (max range 768) stops him at about 614 units (npc_combat::engage) and he aims down his sights and walks only beyond 1400 (HIP_FIRE_WITHIN), so he runs about 700 units with it drawn (from 600 units he held his ground at once and never ran, run 2026-10-18). Each clip file he plays with it drawn is logged once. The 1hp stance has all eight walks and runs [observed: the base meshes archive], so no unarmed walk or run plays while it is drawn"
 areas = ["combat", "actors"]
 paths = ["engine/nvforever/src/locomotion.rs", "engine/nvforever/src/weapons.rs", "crates/fnv-actor/src/locomotion.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:RingoRef:player:0:600:0,5:combat:RingoRef:player,40:call:RingoRef:StopCombat" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:moveto:RingoRef:player:0:1300:0,5:combat:RingoRef:player,40:call:RingoRef:StopCombat" }
 args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice"]
 run_seconds = 45
 expect = [
+  { re = 'RingoRef: runs at the player, 1[0-9]{3} units away', label = "Ringo sets off running from beyond his range" },
   { re = 'actor weapons: .* 1hp: clips .*1hp moves: standing \[[^]]*"FastForward"', label = "the pistol stance's run clips are loaded with it" },
   { re = 'armed locomotion: Actor 00104C7D .* 1hp (Forward|Backward|Left|Right|TurnLeft|TurnRight) plays .*\\1hp\w+\.kf', label = "Ringo walks or turns on the pistol's own clips" },
   { re = 'armed locomotion: Actor 00104C7D .* 1hp Fast\w+ plays .*\\locomotion\\1hpfast\w+\.kf', label = "Ringo runs on the pistol's own run clips (pistol up)" },
