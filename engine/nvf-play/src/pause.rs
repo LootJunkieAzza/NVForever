@@ -347,7 +347,14 @@ fn kind_name(k: SaveKind) -> &'static str {
         SaveKind::Manual => "manual",
         SaveKind::Quick => "quick",
         SaveKind::Auto => "auto",
+        SaveKind::System => "system",
     }
+}
+
+/// The name of a new save in the saves folder ([`next_save_name`] of the files there).
+pub fn new_save_name(cfg: &crate::save::SaveConfig) -> String {
+    let stems: Vec<String> = cfg.dir.as_deref().and_then(|d| std::fs::read_dir(d).ok()).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == fnv_save::EXTENSION)).map(|p| stem(&p)).collect();
+    next_save_name(stems.iter().map(String::as_str))
 }
 
 /// The name of a new save: `Save <n>`, one more than the highest such name in `stems`.
@@ -1517,8 +1524,7 @@ fn choose(
                     view.confirm = Some(2);
                 }
                 Some(Entry::Save) => {
-                    let stems: Vec<String> = menu.cfg.dir.as_deref().and_then(|d| std::fs::read_dir(d).ok()).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == fnv_save::EXTENSION)).map(|p| stem(&p)).collect();
-                    let name = next_save_name(stems.iter().map(String::as_str));
+                    let name = new_save_name(&menu.cfg);
                     info!("pause menu: saving as {name:?}");
                     match menu.cfg.path_of(&name) {
                         Ok(path) => {

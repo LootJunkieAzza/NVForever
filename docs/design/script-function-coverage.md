@@ -205,7 +205,8 @@ left is [outstanding.md](../outstanding.md) §1). Read with it:
    never gets up in the rules; no actor lies down.
 6. ~~**Fast travel**~~ (60 quests, the whole VMQ line): built from the Pip-Boy's world map
    (PR #393; EnableFastTravel gates it).
-7. **Saves from scripts** (SystemSave, ForceSave; 29 quests): cheap, saves exist.
+7. ~~**Saves from scripts**~~ (SystemSave, ForceSave; 29 quests): built 2026-10-18
+   (spec-notes/script-saves-and-reticle.md).
 8. ~~**Look turning the body**~~ (built: the rotate-body flag turns the whole body to
    the target until StopLook, `script_look.rs` and `fnv_ai`; docs/design/script-stubs.md §3),
    **the engine's animation state** (IsAnimPlaying,
@@ -214,7 +215,7 @@ left is [outstanding.md](../outstanding.md) §1). Read with it:
 9. Menus not built: **repair** (Raul's quests), **barber/surgeon/tutorial** (all three built since), **Caravan**,
    **slot machines**.
 
-Cheap fixes left (the system exists, little use): PlaceAtReticle, SetCellImageSpace,
+Cheap fixes left (the system exists, little use): SetCellImageSpace,
 PlayBink, GetDialogueEmotion's
 current response, GetOwnerLastTarget, SetPCCanUsePowerArmor, a loaded
 the sim treating every XLOC as locked (the gas station's inner door has XLOC level 255
@@ -227,8 +228,8 @@ with no Locked flag and is open in the original; worth a GetLocked probe on it).
 
 | Status | Functions | Calls | Condition uses |
 |---|---|---|---|
-| matches the original | 325 | 63114 | 79607 |
-| wrong or stub, system exists | 26 | 910 | 153 |
+| matches the original | 328 | 63124 | 79607 |
+| wrong or stub, system exists | 23 | 900 | 153 |
 | no system yet | 43 | 500 | 530 |
 | open (capture needed) | 6 | 1648 | 43 |
 | all used | 400 | 66172 | 80333 |
@@ -242,7 +243,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 1 | corpses stood up again | built | 76 | 603 / 0 | 515 / 0 | ResurrectActor | VMQTops (Ring-a-Ding-Ding!), VMQYesMan01 (Wild Card: Change in Management), VMQYesManSupport (Scripting for Yes Man positioning and resurrections) | VDialogueArcadeGannon (Arcade Gannon Dialogue), VDialogueCass, VDialogueCraigBoone (Craig Boone Dialogue), VDialogueRaul (Raul's Dialog) and 6 more |
 | 2 | knockdowns and knock-outs | no-system | 64 | 196 / 10 | 282 / 134 | GetKnockedState, GetUnconscious, PushActorAway, SetUnconscious | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ01 (They Went That-a-Way) | - |
 | 3 | fast travel | no-system | 60 | 140 / 0 | 83 / 0 | EnableFastTravel | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ04 (Bright and Shiny), VMQ05 (For the Republic, Part 2) and 4 more | - |
-| 4 | saves from scripts | wrong | 29 | 32 / 0 | 7 / 0 | ForceSave, SystemSave | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQ04 (Bright and Shiny) and 8 more | - |
+| 4 | saves from scripts | built | 29 | 32 / 0 | 7 / 0 | ForceSave, SystemSave | VMQ02 (Render Unto Caesar), VMQ03a (You'll Know It When It Happens), VMQ03aTimer (VMQ03a Timer), VMQ03b (Arizona Killer), VMQ03bTimer (VMQ03b Timer), VMQ04 (Bright and Shiny) and 8 more | - |
 | 5 | Look turning the body | built | 26 | 110 / 0 | 159 / 0 | Look | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head), VMQ03a (You'll Know It When It Happens) | VDialogueVeronica (Veronica Dialogue), VMS24 (Nothin' But a Hound Dog), VNPCFollowers (NV Followers quest) |
 | 6 | animation state told to the rules | wrong | 22 | 46 / 0 | 121 / 51 | IsAnimPlaying, IsIdlePlaying, IsMoving, IsPlayerActionActive | VMQ03a (You'll Know It When It Happens), VMQ03b (Arizona Killer), VMQCaesarFail (Beware the Wrath of Caesar!), VMQYesMan03 (Wild Card: Finishing Touches) | - |
 | 7 | repair menu | no-system | 10 | 13 / 0 | 15 / 0 | ShowRepairMenu | - | VDialogueRaul (Raul's Dialog) |
@@ -252,7 +253,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 11 | menu codes: Pip-Boy as 1, loading 1007, start menu 1013 | built | 6 | 12 / 0 | 13 / 11 | MenuMode | VCG04 (Player Character Revision) | - |
 | 12 | Caravan card game | no-system | 5 | 29 / 0 | 33 / 0 | AddCardToPlayer, ShowCaravanMenu | - | - |
 | 13 | race and sex change on NPCs | no-system | 5 | 16 / 0 | 14 / 0 | AgeRace, SexChange | VCG00 (Welcome To Fabulous New Vegas), VCG01 (Ain't That a Kick in the Head) | - |
-| 14 | crosshair placement | wrong | 5 | 10 / 0 | 3 / 0 | PlaceAtReticle | - | VDialogueVeronica (Veronica Dialogue), VMS49 (I Could Make You Care) |
+| 14 | crosshair placement | built | 5 | 10 / 0 | 3 / 0 | PlaceAtReticle | - | VDialogueVeronica (Veronica Dialogue), VMS49 (I Could Make You Care) |
 | 15 | NPC inventory re-rolled on SetLevel | wrong | 4 | 13 / 0 | 6 / 0 | SetLevel | VCG04 (Player Character Revision) | - |
 | 16 | Cannibal and Mister Sandman | no-system | 3 | 8 / 0 | 11 / 7 | GetCannibal, GetSandman, HasBeenEaten, StartCannibal, StartMisterSandman | - | - |
 | 17 | VATS | no-system | 3 | 6 / 0 | 12 / 259 | GetVATSMode, GetVATSTargetHeight, GetVATSValue, SetVatsTarget | - | - |
@@ -345,7 +346,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | ForceActorValue | 0x110E | 31 / 0 | match | - | - |  |
 | ForceFlee | 0x10F5 | 8 / 0 | match | - | - |  |
 | ForceRadioStationUpdate | 0x122C | 3 / 0 | match | - | - |  |
-| ForceSave | 0x1217 | 2 / 0 | wrong | saves from scripts | - | As SystemSave. |
+| ForceSave | 0x1217 | 2 / 0 | match | saves from scripts | - | A new save as by hand (spec-notes/script-saves-and-reticle.md). |
 | ForceTerminalBack | 0x1223 | 80 / 0 | match | - | - |  |
 | ForceWeather | 0x112D | 13 / 0 | match | - | - |  |
 | GetActionRef | 0x10CD | 328 / 0 | open | NPCs activating doors | - | Correct for scripts and the player; whether an NPC opening a door fires its OnActivate is not captured (attended). |
@@ -544,7 +545,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | PipBoyRadio | 0x11A7 | 6 / 0 | match | - | - |  |
 | PipBoyRadioOff | 0x1224 | 11 / 0 | match | - | - |  |
 | PlaceAtMe | 0x1025 | 468 / 0 | match | - | - |  |
-| PlaceAtReticle | 0x1263 | 3 / 0 | wrong | crosshair placement | - | Stub; the engine has the crosshair ray. |
+| PlaceAtReticle | 0x1263 | 3 / 0 | match | crosshair placement | - | At the crosshair ray's first hit (spec-notes/script-saves-and-reticle.md §4). |
 | PlaceLeveledActorAtMe | 0x11D1 | 5 / 0 | match | - | - |  |
 | PlayBink | 0x1114 | 4 / 0 | wrong | Bink videos | - | Stub; the intro decoder exists (licence note). |
 | PlayerInRegion | 0x1264 | 0 / 74 | match | - | - |  |
@@ -680,7 +681,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | StopMagicShaderVisuals | 0x1125 | 79 / 0 | match | - | - |  |
 | StopQuest | 0x1037 | 466 / 0 | match | - | - |  |
 | SwapTexture | 0x1269 | 383 / 0 | match | - | - |  |
-| SystemSave | 0x127B | 5 / 0 | wrong | saves from scripts | - | Stub; saves and Autosave exist. |
+| SystemSave | 0x127B | 5 / 0 | match | saves from scripts | - | The one system slot (spec-notes/script-saves-and-reticle.md). |
 | trapUpdate | 0x110C | 1 / 0 | no-system | trap updates | - | Stub; the catalogue says nothing. |
 | TriggerScreenSplatter | 0x1240 | 8 / 0 | no-system | screen blood splatter | - | Stub. |
 | UnequipItem | 0x10EF | 51 / 0 | match | - | - | As EquipItem. |
