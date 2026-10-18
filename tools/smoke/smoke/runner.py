@@ -16,7 +16,12 @@ from .plan import Launch, fmt
 from .scenarios import GAME, Scenario
 from .stacks import dump as dump_stacks
 
-AID_PREFIXES = ("NVF_PLAY_TEST_", "NVF_PLAY_DEBUG_")
+AID_PREFIXES = ("NVF_PLAY_TEST_", "NVF_PLAY_DEBUG_", "NVF_PLAY_AIDS_")
+# The world test aids (the console's lines, the script steps, keys, talks, screenshots…)
+# count from when the scripts first run, so a busy machine's late start does not run them
+# before the world can take them (engine/nvf-play/src/pause.rs WorldAidClock). Set for
+# every `--play` launch; a scenario can set it to "0" for the old clock.
+FROM_SCRIPTS = "NVF_PLAY_AIDS_FROM_SCRIPTS"
 OWNER = "smoke-owner.txt"
 
 
@@ -235,6 +240,14 @@ def aid_free_environ(extra: dict[str, str]) -> dict[str, str]:
     return env
 
 
+def game_env(launch: Launch) -> dict[str, str]:
+    """The test aids a game launch runs with: its own, and FROM_SCRIPTS on for `--play`."""
+    env = dict(launch.env)
+    if "--play" in launch.args:
+        env.setdefault(FROM_SCRIPTS, "1")
+    return env
+
+
 def launch_timeout(launch: Launch) -> float:
     explicit = max((s.timeout for s in launch.scenarios), default=0)
     return explicit or launch.run_seconds * 3 + 240
@@ -267,8 +280,9 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
     started = time.monotonic()
     if launch.kind == GAME:
         cmd = [str(env.exe), "--data", str(env.data), *launch.args, "--run-seconds", fmt(launch.run_seconds)]
+        aids = game_env(launch)
         (env.out / f"{launch.name}.cmd.txt").write_text(
-            "".join(f"{k}={v}\n" for k, v in sorted(launch.env.items())) + subprocess.list2cmdline(cmd) + "\n")
+            "".join(f"{k}={v}\n" for k, v in sorted(aids.items())) + subprocess.list2cmdline(cmd) + "\n")
         (env.out / f"{launch.name}.stacks.txt").unlink(missing_ok=True)
         if locks:
             locks.acquire()
@@ -276,7 +290,7 @@ def run_launch(launch: Launch, env: Env, locks: Locks | None) -> tuple[int | Non
         try:
             with open(log, "w", encoding="utf-8", errors="replace") as f:
                 p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=env.out,
-                                     env=aid_free_environ(launch.env))
+                                     env=aid_free_environ(aids))
                 try:
                     code = p.wait(timeout=launch_timeout(launch))
                     err = ""

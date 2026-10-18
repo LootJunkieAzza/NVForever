@@ -400,7 +400,7 @@ fn run_aid(
     if aid.0.is_empty() {
         return;
     }
-    let now = time.elapsed_secs();
+    let Some(now) = time.world_secs() else { return };
     let held = match menu.is_open() || in_world(state.get(), &menu, &active, &paused, script.as_deref()) {
         true => None,
         false => hold_open(&mut aid, now),
@@ -445,7 +445,8 @@ fn aid_pointer(
     if aid.0.is_empty() {
         return;
     }
-    for step in due_steps(&mut aid, time.elapsed_secs(), true) {
+    let Some(now) = time.world_secs() else { return };
+    for step in due_steps(&mut aid, now, true) {
         info!("test aid NVF_PLAY_TEST_WAIT: {step:?}");
         match step {
             AidStep::Point(x, y) => {
