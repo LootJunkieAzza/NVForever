@@ -43,6 +43,81 @@ def ring(grid_min, grid_max, n: int = 12, inset: float = 0.3) -> list[tuple[floa
     return [(round(cx + rx * math.cos(2 * math.pi * k / n)), round(cy + ry * math.sin(2 * math.pi * k / n))) for k in range(n)]
 
 
+def ring_on_cells(cells, n: int = 12, inset: float = 0.3, fill: float = 2.0) -> list[tuple[float, float]]:
+    """A ring inside the walkable world: `cells` are the exterior cells of the
+    worldspace's largest navmesh area (`fnvtool nav cells`, [x, y, triangles] each).
+    From the cells' middle, `n` directions; in each, the farthest navmesh cell within
+    that direction's sector, `inset` of the way back towards the middle, snapped onto the
+    nearest navmesh cell's centre. Each leg follows the walkable cells between those
+    ([`cell_path`]), a point every `fill` cells, so the route stays on the walkable world
+    where the area bends (the grid's bounds took the ring into the empty landscape
+    beyond it, 2026-10-18). Game units, in order counter-clockwise from the east,
+    without repeats."""
+    centres = [((x + 0.5) * CELL, (y + 0.5) * CELL) for x, y, *_ in cells]
+    if not centres:
+        raise ValueError("no navmesh cells")
+    cx = sum(p[0] for p in centres) / len(centres)
+    cy = sum(p[1] for p in centres) / len(centres)
+
+    def nearest(p):
+        return min(centres, key=lambda c: (c[0] - p[0]) ** 2 + (c[1] - p[1]) ** 2)
+
+    sector = math.pi / n
+    corners = []
+    for k in range(n):
+        a = 2 * math.pi * k / n
+        best = 0.0
+        for x, y in centres:
+            d = math.hypot(x - cx, y - cy)
+            off = abs((math.atan2(y - cy, x - cx) - a + math.pi) % (2 * math.pi) - math.pi)
+            if d > best and off <= sector:
+                best = d
+        r = best * (1 - inset)
+        corners.append(nearest((cx + r * math.cos(a), cy + r * math.sin(a))))
+    # Each leg along the walkable cells (a shortest path over the cell grid, eight
+    # neighbours), every `fill`-th cell of it kept: a straight leg could cross the empty
+    # land in a bend of the area.
+    on = {(x, y) for x, y, *_ in cells}
+    cell_of = lambda p: (math.floor(p[0] / CELL), math.floor(p[1] / CELL))  # noqa: E731
+    centre = lambda c: ((c[0] + 0.5) * CELL, (c[1] + 0.5) * CELL)  # noqa: E731
+    out: list[tuple[float, float]] = []
+    every = max(1, round(fill))
+    for i, a in enumerate(corners):
+        path = cell_path(on, cell_of(a), cell_of(corners[(i + 1) % len(corners)]))
+        for c in path[:-1][::every]:
+            p = centre(c)
+            if not out or out[-1] != p:
+                out.append(p)
+    while len(out) > 1 and out[-1] == out[0]:
+        out.pop()
+    return [(round(x), round(y)) for x, y in out]
+
+
+def cell_path(on: set, start: tuple[int, int], goal: tuple[int, int]) -> list[tuple[int, int]]:
+    """The shortest way from cell `start` to cell `goal` over the cells in `on` (eight
+    neighbours, breadth first), both ends included; just the two ends when there is none."""
+    if start == goal:
+        return [start]
+    prev = {start: None}
+    frontier = [start]
+    while frontier and goal not in prev:
+        nxt = []
+        for c in frontier:
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    n = (c[0] + dx, c[1] + dy)
+                    if n in on and n not in prev:
+                        prev[n] = c
+                        nxt.append(n)
+        frontier = nxt
+    if goal not in prev:
+        return [start, goal]
+    path = [goal]
+    while path[-1] != start:
+        path.append(prev[path[-1]])
+    return path[::-1]
+
+
 def route_text(world: str, points, step: float, dwell: float, laps: int) -> str:
     return (f"# tools/stress tour\nworld {world}\nstep {step:g}\ndwell {dwell:g}\nlaps {laps}\n"
             + "".join(f"{x:g} {y:g}\n" for x, y in points))
@@ -159,6 +234,12 @@ def write_csv(path, samples: list[dict]) -> None:
         f.write(",".join(keys) + "\n")
         for s in samples:
             f.write(",".join('"' + str(s.get(k, "")).replace('"', "'") + '"' if k == "at" else str(s.get(k, "")) for k in keys) + "\n")
+
+
+def nav_cells(ctx: lib.Ctx, world: str) -> list:
+    """The worldspace's walkable cells (`fnvtool nav cells`, fnv.nav.cells/1)."""
+    cmd = [str(ctx.fnvtool), "nav", "cells", str(ctx.data), *ctx.masters, "--schema", "schemas/fnv", "--space", world]
+    return json.loads(subprocess.run(cmd, capture_output=True, text=True, cwd=ctx.repo, check=True).stdout)["cells"]
 
 
 def world_bounds(ctx: lib.Ctx, world: str):
