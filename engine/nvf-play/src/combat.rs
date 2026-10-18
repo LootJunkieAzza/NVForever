@@ -44,9 +44,11 @@
 //!   (`crate::hitvol::ActorParts`) is hit on a part of its BPTD: the part's damage
 //!   multiplier, its location for `GetHitLocation`, and limb damage (the damage dealt
 //!   times the weapon's Limb Dmg Mult) on its condition (`Game::hit`), which cripples the
-//!   limb at 0. Explosions hit no part (location −1) [design]. The player's crippled limbs
-//!   ([`PlayerLimbs`]) widen the spread (the documented crippled-arm terms), weaken melee
-//!   (`Attacker::arm_condition`) and slow movement [design]; the HUD lists them.
+//!   limb at 0. Explosions hit no part (location −1) [design]. Crippled limbs widen the
+//!   spread (the documented crippled-arm terms, the head's), weaken melee
+//!   (`Attacker::arm_condition`), slow movement by the game settings, make the torso
+//!   flinch from any hit ([`player_flinch`]), sway the aim ([`arm_sway`]) and disarm
+//!   NPCs ([`disarm`]) (docs/spec-notes/crippled-limbs.md); the HUD lists the player's.
 //! - **Explosives and destructibles** (step C7): grenades and other thrown weapons are
 //!   lobbed projectiles; mines arm and wait for an actor; C-4 waits for
 //!   `DetonatePlacedExplosives`, which the detonator's OnFire script calls (weapons' OnFire
@@ -320,6 +322,8 @@ pub struct ActorHit {
     pub crippled: bool,
     /// The body part hit is crippled (by this hit or an earlier one).
     pub part_crippled: bool,
+    /// Its torso is crippled: any hit may stagger it (`damage::staggers`).
+    pub torso_crippled: bool,
     /// Who hit it.
     pub by: Option<FormId>,
     /// The share of its maximum health the hit took (0 to 1; `crate::rumble`).
@@ -328,9 +332,10 @@ pub struct ActorHit {
     pub guard_broken: bool,
 }
 
-/// An actor's weapon reached zero condition in its hand and fell (§17): the renderer
-/// takes it out of the hand (nvforever `weapons`); `dropped` is the reference lying on
-/// the ground, drawn like any dropped item.
+/// An actor's weapon left its hand: it reached zero condition and fell (§17), or a hit
+/// crippled the actor's arm ([`disarm`]). The renderer takes it out of the hand
+/// (nvforever `weapons`); `dropped` is the reference lying on the ground, drawn like any
+/// dropped item.
 #[derive(Message, Clone, Copy, Debug)]
 pub struct WeaponBroken {
     pub form_id: u32,
@@ -371,20 +376,18 @@ pub const OBJECT_PUSH_MAX_SPEED: f32 = 700.0;
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct PlayerLimbs {
     pub condition: [f32; 7],
+    /// The share of normal movement speed the legs allow (`fnv_game::Game::leg_speed_mult`).
+    pub leg_speed: f32,
 }
 
 impl Default for PlayerLimbs {
     fn default() -> Self {
-        PlayerLimbs { condition: [100.0; 7] }
+        PlayerLimbs { condition: [100.0; 7], leg_speed: 1.0 }
     }
 }
 
 /// The limbs by condition code 25–31, for messages.
 const LIMB_NAMES: [&str; 7] = ["head", "torso", "left arm", "right arm", "left leg", "right leg", "brain"];
-
-/// Movement with one or both legs crippled, as a share of normal speed [design].
-const ONE_LEG_SPEED: f32 = 0.7;
-const BOTH_LEGS_SPEED: f32 = 0.5;
 
 impl PlayerLimbs {
     pub fn crippled(&self, code: u16) -> bool {
@@ -396,23 +399,17 @@ impl PlayerLimbs {
         (self.crippled(27), self.crippled(28))
     }
 
-    /// Arm condition as `Attacker::arm_condition` takes it: 1 healthy, 0.5 with one arm
-    /// crippled, 0 with both [design].
-    pub fn arm_condition(&self) -> f32 {
-        match self.arms() {
-            (false, false) => 1.0,
-            (true, true) => 0.0,
-            _ => 0.5,
-        }
+    /// The share of normal movement speed the legs allow: the game settings for one and
+    /// two crippled legs, 0.85 and 0.75 in FalloutNV.esm (docs/spec-notes/crippled-limbs.md
+    /// §4), the rule of every actor.
+    pub fn speed_mult(&self) -> f32 {
+        self.leg_speed
     }
 
-    /// The share of normal movement speed the legs allow.
-    pub fn speed_mult(&self) -> f32 {
-        match (self.crippled(29), self.crippled(30)) {
-            (false, false) => 1.0,
-            (true, true) => BOTH_LEGS_SPEED,
-            _ => ONE_LEG_SPEED,
-        }
+    /// Both legs crippled: no directional power attacks outside VATS mode
+    /// (crippled-limbs.md §4).
+    pub fn both_legs(&self) -> bool {
+        self.crippled(29) && self.crippled(30)
     }
 
     /// A leg is crippled: the body limps (`locomotion\hurt\` clips) [design: either leg,
@@ -456,6 +453,18 @@ pub struct HitFeedback {
     pub kill: bool,
     /// The last actor hit: name, health, maximum, seconds since.
     pub target: Option<(String, f32, f32, f32)>,
+    /// Hits the player took since [`player_flinch`] last looked.
+    pub player_hits: Vec<PlayerHit>,
+    /// Actors whose arm a hit crippled since [`disarm`] last looked.
+    pub disarms: Vec<FormId>,
+}
+
+/// A hit the player took, for the flinch rule (`damage::staggers`).
+#[derive(Debug, Clone, Copy)]
+pub struct PlayerHit {
+    pub crippled: bool,
+    pub part_crippled: bool,
+    pub torso_crippled: bool,
 }
 
 /// Height above a destructible's position its stage explosions go off [design].
@@ -512,6 +521,8 @@ pub struct CombatStats {
     pub weapons_broken: u32,
     pub armor_wear: f32,
     pub armor_broken: u32,
+    /// Actors disarmed by a crippled arm ([`disarm`]).
+    pub disarmed: u32,
     /// Other actors' shots and blows (combat AI), their hits on the player and the
     /// damage those did, and whether the player died.
     pub actor_shots: u32,
@@ -694,6 +705,11 @@ pub struct Combat {
     /// The spread cone's half-angle in degrees a shot would leave in now, while a weapon
     /// with a firing cycle is drawn and ready; for the crosshair (`crate::reticle`).
     pub crosshair_cone: Option<f32>,
+    /// The player's flinch (crippled-limbs.md §3): until when no attack starts, when the
+    /// last one ended, and its own rolls (the view's kick).
+    flinch_until: f32,
+    flinch_end: Option<f32>,
+    flinch_rng: SplitMix,
 }
 
 impl Combat {
@@ -827,7 +843,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, player_flinch, arm_sway, weapon_state, equip_sync, run_pace, weapon_sounds, fire, melee, actor_attacks, fly, disarm, log_combat_lines).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hit_hud, watch_hit_effects).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -850,7 +866,12 @@ fn run_pace(c: Res<Combat>, control: Res<PlayerControl>, pace: Option<ResMut<cra
 /// Read the player's limb conditions from the script runtime (step C8).
 fn track_limbs(mut limbs: ResMut<PlayerLimbs>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>) {
     let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
-    let now = with_world(rt, &mut sim, |rt| rt.game.limb_conditions(FormId::PLAYER_REF)).map(|v| v as f32);
+    let (now, legs) = with_world(rt, &mut sim, |rt| (rt.game.limb_conditions(FormId::PLAYER_REF), rt.game.leg_speed_mult(FormId::PLAYER_REF)));
+    let now = now.map(|v| v as f32);
+    if legs as f32 != limbs.leg_speed {
+        limbs.leg_speed = legs as f32;
+        info!("movement: the player's legs allow {:.0}% of the speed", legs * 100.0);
+    }
     if now != limbs.condition {
         let before = *limbs;
         limbs.condition = now;
@@ -860,6 +881,108 @@ fn track_limbs(mut limbs: ResMut<PlayerLimbs>, mut script: Option<ResMut<ScriptS
             }
         }
     }
+}
+
+/// The player flinches from a staggering hit (docs/spec-notes/crippled-limbs.md §3): the
+/// hit that cripples a limb, a later hit on a crippled limb, or any hit while the torso
+/// is crippled, by the rule NPCs stagger by (`damage::staggers`, with its cooldown after
+/// the last flinch ended) [observed: `HelpCrippling`, "Chest: Higher chance to be
+/// staggered", "These effects apply to you as well as to your enemies"; documented:
+/// Fallout wiki crippling text, owner chat 2026-10-18, for the player a crippled torso
+/// "throws off aim and interrupts attacks"; design: how]. The view is thrown off by up to
+/// `flinch_kick_deg`, a swing under way is broken off, and for `flinch_time` no attack
+/// starts (the trigger counts as released).
+fn player_flinch(mut c: ResMut<Combat>, mut feedback: ResMut<HitFeedback>, mut player: ResMut<Player>, mut control: ResMut<PlayerControl>, mut anim: ResMut<WeaponAnim>) {
+    let c = &mut *c;
+    let now = c.time;
+    for h in std::mem::take(&mut feedback.player_hits) {
+        let since = c.flinch_end.map(|end| now - end);
+        if now < c.flinch_until || !damage::staggers(&c.tuning, h.crippled, h.part_crippled, h.torso_crippled, since) {
+            continue;
+        }
+        let (yaw, pitch) = ((c.flinch_rng.next_f32() * 2.0 - 1.0) * c.tuning.flinch_kick_deg, (c.flinch_rng.next_f32() * 2.0 - 1.0) * c.tuning.flinch_kick_deg * 0.5);
+        player.heading += yaw.to_radians();
+        player.pitch = (player.pitch + pitch.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
+        c.flinch_until = now + c.tuning.flinch_time;
+        c.flinch_end = Some(c.flinch_until);
+        let broke = c.swings.swing.is_some();
+        c.swings.reset();
+        anim.swing = None;
+        let why = if h.crippled {
+            "crippled now"
+        } else if h.part_crippled {
+            "crippled part hit"
+        } else {
+            "torso crippled"
+        };
+        info!("combat: the player flinches for {:.1} s ({why}): view thrown off by {yaw:.1}°, {pitch:.1}°{}", c.tuning.flinch_time, if broke { ", the swing broken off" } else { "" });
+    }
+    if now < c.flinch_until {
+        control.trigger = false;
+    }
+}
+
+/// An actor other than the player drops the weapon in its hand when a hit cripples one of
+/// its arms (docs/spec-notes/crippled-limbs.md §3) [observed: FalloutNV.esm MESG
+/// `HelpCrippling`, "Arms: … Enemies will be disarmed at the moment their arm is
+/// crippled"; hypothesis: either arm, every actor but the player, as the text names
+/// enemies]. The weapon falls as a broken one does (`WeaponBroken`): a reference in front
+/// of it, out of its inventory.
+fn disarm(mut feedback: ResMut<HitFeedback>, mut sim: ResMut<SimState>, mut stats: ResMut<CombatStats>, parts: Res<ActorParts>, mut broken: MessageWriter<WeaponBroken>) {
+    for actor in std::mem::take(&mut feedback.disarms) {
+        let Some(item) = parts.by_ref.get(&actor.0).and_then(|p| p.weapon) else { continue };
+        if sim.world.inventory_mut(actor).is_ok_and(|i| i.count(item) == 0) {
+            let _ = sim.world.add_item(actor, item, 1);
+        }
+        let dropped = match sim.world.drop_equipped(actor, item) {
+            Ok(refs) if !refs.is_empty() => Ok(refs),
+            _ => sim.world.drop_item(actor, item, 1),
+        };
+        match dropped {
+            Ok(refs) => {
+                stats.disarmed += 1;
+                let dropped = refs.first().copied();
+                info!("combat: {actor}'s arm crippled: it drops its {} ({item}){}", item_name(&sim, item), dropped.map_or(String::new(), |r| format!(": reference {r}")));
+                broken.write(WeaponBroken { form_id: actor.0, weapon: item, dropped });
+            }
+            Err(e) => warn!("combat: {actor}'s arm crippled: its {} could not be dropped: {e}", item_name(&sim, item)),
+        }
+    }
+}
+
+/// The view sways while the player aims with a crippled arm (crippled-limbs.md §3): a
+/// slow figure of eight of `arm_sway_deg` (one arm) or `arms_sway_deg` (both) at its
+/// widest, which the shots follow as they leave along the view [documented: Fallout wiki
+/// crippling text, owner chat 2026-10-18, "the first-person weapon sways, which shows
+/// most through scopes"; design: the shape and size]. The view comes back when the arms
+/// heal or the player stops aiming.
+#[allow(clippy::type_complexity)]
+fn arm_sway(time: Res<Time>, c: Res<Combat>, limbs: Res<PlayerLimbs>, control: Res<PlayerControl>, anim: Res<WeaponAnim>, mut player: ResMut<Player>, mut sway: Local<(f32, [f32; 2], bool)>) {
+    let amp = match limbs.arms() {
+        (true, true) => c.tuning.arms_sway_deg,
+        (false, false) => 0.0,
+        _ => c.tuning.arm_sway_deg,
+    };
+    let on = amp > 0.0 && control.aiming && anim.ready;
+    let (t, last, was) = &mut *sway;
+    if on != *was {
+        info!("combat: the view {} (crippled arms)", if on { "sways while aiming" } else { "stops swaying" });
+        *was = on;
+    }
+    let want = if on {
+        *t += time.delta_secs();
+        let a = *t / c.tuning.arm_sway_period.max(0.1) * std::f32::consts::TAU;
+        [amp * a.sin(), 0.5 * amp * (2.0 * a).sin()]
+    } else {
+        *t = 0.0;
+        [0.0, 0.0]
+    };
+    if want == *last {
+        return;
+    }
+    player.heading += (want[0] - last[0]).to_radians();
+    player.pitch = (player.pitch + (want[1] - last[1]).to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
+    *last = want;
 }
 
 /// Tell the script runtime whether the player's weapon is out (`IsWeaponOut`): drawn and
@@ -909,6 +1032,9 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         tracer_hold,
         load_magazine: None,
         crosshair_cone: None,
+        flinch_until: 0.0,
+        flinch_end: None,
+        flinch_rng: SplitMix(3),
     });
 }
 
@@ -926,6 +1052,7 @@ fn player_stance(control: &PlayerControl, phys: &PhysState, limbs: &PlayerLimbs,
         aiming_move_divisor: 1.0,
         left_arm_crippled: limbs.arms().0,
         right_arm_crippled: limbs.arms().1,
+        head_crippled: limbs.crippled(fnv_game::combat::HEAD),
     }
 }
 
@@ -1112,13 +1239,17 @@ fn actor_av(script: Option<&mut ScriptState>, sim: &mut SimState, actor: FormId,
     Some(with_world(rt, sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, actor, code)) as f32)
 }
 
-/// An actor's attacker values: the weapon's skill, Strength, Luck and Unarmed, and
-/// what the Melee Damage, Unarmed Damage and Critical Chance actor values hold above
-/// their formulas (scripts' changes). Without a script runtime, the defaults.
-fn attacker(mut script: Option<&mut ScriptState>, sim: &mut SimState, rules: &Rules, p: FormId, skill: Option<&str>, aiming_vats: bool) -> Attacker {
+/// An actor's attacker values with weapon `w`: the weapon's skill, Strength, Luck and
+/// Unarmed, what the Melee Damage, Unarmed Damage and Critical Chance actor values hold
+/// above their formulas (scripts' changes), and its arms' condition for the weapon
+/// (`damage::arm_condition`: the player's and every other actor's). Without a script
+/// runtime, the defaults.
+fn attacker(mut script: Option<&mut ScriptState>, sim: &mut SimState, rules: &Rules, p: FormId, w: &WeaponStats, aiming_vats: bool) -> Attacker {
     use fnv_game::actor_values as avs;
     let d = Attacker::default();
+    let skill = w.skill.as_deref();
     let mut av = |code: u16, or: f32| actor_av(script.as_deref_mut(), sim, p, code).unwrap_or(or);
+    let (left, right) = (av(fnv_game::combat::LEFT_ARM, 100.0) <= 0.0, av(fnv_game::combat::RIGHT_ARM, 100.0) <= 0.0);
     let (strength, luck, unarmed_skill) = (av(avs::STRENGTH, d.strength), av(avs::LUCK, d.luck), av(avs::UNARMED, d.unarmed_skill));
     let skill = skill.and_then(fnv_game::functions::av_by_name).map_or(d.skill, |code| av(code, d.skill));
     let melee = damage::melee_damage_av(rules, strength);
@@ -1132,6 +1263,7 @@ fn attacker(mut script: Option<&mut ScriptState>, sim: &mut SimState, rules: &Ru
         melee_damage_bonus: av(avs::MELEE_DAMAGE, melee) - melee,
         unarmed_damage_bonus: av(avs::UNARMED_DAMAGE, unarmed) - unarmed,
         crit_chance_bonus: av(avs::CRITICAL_CHANCE, crit) - crit,
+        arm_condition: damage::arm_condition(w, left, right),
         in_vats: aiming_vats,
         ..d
     }
@@ -1237,7 +1369,7 @@ pub(crate) fn fire(
     // The cone a shot would leave in now, for the crosshair (bloom included).
     {
         let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
-        let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, w.skill.as_deref(), false);
+        let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
         let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength);
         let cone = spread::cone_deg(spread::actor_spread(&c.rules, &c.tuning, &w, &stance), c.kick.bloom, &w, &effects);
         c.crosshair_cone = Some(if c.no_spread { 0.0 } else { cone });
@@ -1295,10 +1427,17 @@ pub(crate) fn fire(
                     sounds.write(PlaySound { sound, at: None });
                 }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
-                let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, w.skill.as_deref(), false);
+                let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
                 let stance = player_stance(&control, &phys, &limbs, shooter.skill, shooter.strength);
                 let actor_spread = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
-                let cone = if c.no_spread || vats_shot.is_some() { 0.0 } else { spread::cone_deg(actor_spread, c.kick.bloom, &w, &effects) };
+                // A VATS mode shot has no spread but its crippled limbs' (crippled-limbs.md §3).
+                let cone = if c.no_spread {
+                    0.0
+                } else if vats_shot.is_some() {
+                    spread::deviation_deg(spread::crippled_spread(&c.rules, &c.tuning, &w, &stance), 0.0)
+                } else {
+                    spread::cone_deg(actor_spread, c.kick.bloom, &w, &effects)
+                };
                 let eye = player.eye();
                 let gravity = phys.world.params.gravity;
                 let (tracer_chance, force, range) =
@@ -1609,7 +1748,7 @@ pub(crate) fn apply_hit(
     let mine = info.attacker == Some(FormId::PLAYER_REF);
     let rt = script.and_then(|s| s.rt.as_mut())?;
     if target == FormId::PLAYER_REF {
-        return hit_player(rt, sim, dealt, info, stats, hud, effects);
+        return hit_player(rt, sim, dealt, info, stats, hud, effects, feedback);
     }
     // The hit's effects go on before its damage (`hit_effects`).
     with_world(rt, sim, |rt| hit_effects::apply(&mut rt.game, &mut stats.hit_effects, target, effects, info.attacker));
@@ -1633,6 +1772,9 @@ pub(crate) fn apply_hit(
     }
     if let Some((code, condition)) = r.limb {
         let limb = code.checked_sub(25).and_then(|i| LIMB_NAMES.get(i as usize)).copied().unwrap_or("limb");
+        if r.crippled && !r.died && !r.knocked_out && matches!(code, fnv_game::combat::LEFT_ARM | fnv_game::combat::RIGHT_ARM) {
+            feedback.disarms.push(target);
+        }
         if r.crippled {
             info!("combat: {name} {target}: {limb} crippled");
             if let Some(h) = hud.filter(|_| !r.died && mine) {
@@ -1643,12 +1785,13 @@ pub(crate) fn apply_hit(
         }
     }
     if !r.immune {
+        let torso_crippled = with_world(rt, sim, |rt| rt.game.is_crippled(target, fnv_game::combat::TORSO));
         if mine {
             feedback.marker_age = Some(0.0);
             feedback.kill = r.died;
             feedback.target = Some((name, r.health as f32, r.max_health as f32, 0.0));
         }
-        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 }, guard_broken });
+        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), torso_crippled, by: info.attacker, share: if r.max_health > 0.0 { (r.dealt / r.max_health) as f32 } else { 0.0 }, guard_broken });
     }
     Some(r)
 }
@@ -1670,11 +1813,15 @@ pub fn set_god_mode(on: bool) {
 
 /// Another actor hits the player (module notes): the player's health takes the damage
 /// through `Game::hit`, and at 0 the player dies.
-fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, info: HitInfo, stats: &mut CombatStats, hud: Option<&mut HudMessage>, effects: &[FormId]) -> Option<HitResult> {
+#[allow(clippy::too_many_arguments)]
+fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, info: HitInfo, stats: &mut CombatStats, hud: Option<&mut HudMessage>, effects: &[FormId], feedback: &mut HitFeedback) -> Option<HitResult> {
     let by = info.attacker.map_or("?".to_string(), |a| sim.ref_name(Some(rt.game.data), a.0).map_or_else(|| a.to_string(), str::to_string));
     stats.player_hits += 1;
     if god_mode() {
         info!("combat: {by} hits the player for {dealt:.1} (god mode: no damage taken)");
+        // Still a hit: a crippled torso flinches (`player_flinch`).
+        let torso_crippled = with_world(rt, sim, |rt| rt.game.is_crippled(FormId::PLAYER_REF, fnv_game::combat::TORSO));
+        feedback.player_hits.push(PlayerHit { crippled: false, part_crippled: false, torso_crippled });
         let health = with_world(rt, sim, |rt| fnv_game::functions::actor_value(&mut rt.game, FormId::PLAYER_REF, fnv_game::actor_values::HEALTH).unwrap_or(0.0));
         return Some(HitResult { health, immune: true, ..HitResult::default() });
     }
@@ -1682,6 +1829,10 @@ fn hit_player(rt: &mut crate::script::Runtime, sim: &mut SimState, dealt: f32, i
     let r = with_world(rt, sim, |rt| rt.game.hit(FormId::PLAYER_REF, dealt as f64, info));
     stats.player_damage += r.dealt as f32;
     info!("combat: {by} hits the player for {:.1}, health {:.0}/{:.0}", r.dealt, r.health, r.max_health);
+    if !r.died {
+        let torso_crippled = with_world(rt, sim, |rt| rt.game.is_crippled(FormId::PLAYER_REF, fnv_game::combat::TORSO));
+        feedback.player_hits.push(PlayerHit { crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0), torso_crippled });
+    }
     if r.died {
         stats.player_died = true;
         info!("combat: the player died, killed by {by}");
@@ -1728,7 +1879,10 @@ fn melee(
     }
     let fallback = Timing::of(&w, &ClipTiming::default(), &c.tuning).interval;
     let first = fnv_actor::player_clips::attack_stem(anim.attack.as_deref());
-    let input = MeleeInput { trigger: control.trigger, dt, forward: intent.forward, right: intent.right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()] };
+    // Both legs crippled: no directional power attacks outside VATS mode (crippled-limbs.md
+    // §4): the swing takes the standing one.
+    let (forward, right) = if limbs.both_legs() { (0.0, 0.0) } else { (intent.forward, intent.right) };
+    let input = MeleeInput { trigger: control.trigger, dt, forward, right, first: &first, rolls: [c.swing_rng.next_f32(), c.swing_rng.next_f32()] };
     let mut strike = None;
     for e in c.swings.tick(input, &c.tuning, SwingTiming::of(None, None, None, speed, fallback)) {
         match e {
@@ -1810,8 +1964,7 @@ fn melee(
             let target = FormId(actor as u32);
             stats.melee_hits += 1;
             let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
-            let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, w.skill.as_deref(), false);
-            a.arm_condition = limbs.arm_condition();
+            let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, FormId::PLAYER_REF, &w, false);
             let bp = body_part(c, &parts, actor, hit.part);
             let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
             let h = HitInput { weapon: &w, projectiles: 1, condition: weapon_condition, ammo_effects: &[], part, power: power_mult };
@@ -2003,7 +2156,7 @@ fn actor_attacks(
             w.base_damage = d.round() as i32;
         }
         stats.actor_strikes += 1;
-        let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, b.attacker, w.skill.as_deref(), false);
+        let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, b.attacker, &w, false);
         let h = HitInput { weapon: &w, projectiles: 1, condition: item_condition(&sim, b.attacker, id), ammo_effects: &[], part: HitPart::default(), power: 1.0 };
         let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, b.target);
         let roll = c.rng.next_f32();
@@ -2340,7 +2493,7 @@ fn fly(
             continue;
         }
         let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
-        let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, shooter, w.skill.as_deref(), p.by.vats);
+        let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, shooter, &w, p.by.vats);
         let bp = p.actor.and_then(|a| body_part(c, &parts, a, p.part));
         let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
         let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: item_condition(&sim, shooter, id), ammo_effects: &ammo_effects, part, power: 1.0 };
@@ -2506,6 +2659,9 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
             s.weapon_wear, s.weapon_hits, s.weapons_broken, s.armor_wear, s.armor_broken
         );
         info!("{}", hit_effects::summary(&s.hit_effects));
+        if s.disarmed > 0 {
+            info!("crippled limbs summary: {} actors disarmed by a crippled arm", s.disarmed);
+        }
     }
 }
 

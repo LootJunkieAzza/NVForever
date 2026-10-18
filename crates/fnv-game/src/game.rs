@@ -2164,7 +2164,7 @@ impl<'a> Game<'a> {
         }
         match act.outcome {
             Outcome::PickedUp { item, count, .. } => {
-                self.emit(EventKind::ItemAdded { to: actor, item, count });
+                self.emit(EventKind::ItemAdded { to: actor, item, count, silent: false });
                 self.item_event(actor, item, event::ON_ADD, Some(Value::Ref(actor.0)));
             }
             Outcome::Teleported { cell, .. } if actor == FormId::PLAYER_REF => {
@@ -2369,7 +2369,7 @@ impl<'a> Game<'a> {
         if removed == 0 {
             return Err(format!("{} carries no {}", self.data.name(actor), self.data.name(item)));
         }
-        self.emit(EventKind::ItemRemoved { from: actor, item, count: 1 });
+        self.emit(EventKind::ItemRemoved { from: actor, item, count: 1, silent: false });
         Ok(self.ingest(actor, item).effects)
     }
 

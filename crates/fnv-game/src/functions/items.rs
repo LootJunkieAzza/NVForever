@@ -20,29 +20,41 @@ fn items(g: &Game, item: FormId) -> Vec<FormId> {
     }
 }
 
+/// A hide-message flag argument: non-zero hides the on-screen "added"/"removed" line
+/// [documented: GECK wiki AddItem SilentlyAdd, RemoveItem HideMessageFlag,
+/// AddItemHealthPercent MessageHiddenFlag, RemoveAllItems hideMessages].
+fn hide_flag(a: &Args, i: usize) -> bool {
+    a.num_or(i, 0.0) != 0.0
+}
+
 /// `Container.AddItem item count [silent]`: leveled lists resolve as in Layer 4; OnAdd
 /// runs on the item's script [documented: GECK wiki AddItem, once per item in the count;
 /// here once per call, hypothesis].
 pub fn add_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let to = ctx.subject()?;
     let count = a.int(1)?;
+    let silent = hide_flag(a, 2);
     for item in items(g, a.form(0)?) {
         let added = g.world.add_item(to, item, count).map_err(|e| e.to_string())?;
         for (i, n) in added {
-            g.emit(EventKind::ItemAdded { to, item: i, count: n });
+            g.emit(EventKind::ItemAdded { to, item: i, count: n, silent });
             g.item_event(to, i, event::ON_ADD, Some(Value::Ref(to.0)));
         }
     }
     none()
 }
 
+/// `Container.RemoveItem item count [hideMessage]`: the items are destroyed. The
+/// opening's `player.RemoveItem` of the Pip-Boy 3000 and its glove passes 1 [observed:
+/// FalloutNV.esm scripts, decompiled].
 pub fn remove_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let from = ctx.subject()?;
     let count = a.int(1)?;
+    let silent = hide_flag(a, 2);
     for item in items(g, a.form(0)?) {
         let n = g.world.remove_item(from, item, count).map_err(|e| e.to_string())?;
         if n > 0 {
-            g.emit(EventKind::ItemRemoved { from, item, count: n });
+            g.emit(EventKind::ItemRemoved { from, item, count: n, silent });
         }
     }
     none()
@@ -64,21 +76,24 @@ pub fn get_item_count(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String
     Ok(Value::Num(n as f64))
 }
 
-/// `RemoveAllItems [target]`: into the target container, or destroyed.
+/// `RemoveAllItems [target] [retainOwnership] [hideMessages]`: into the target
+/// container, or destroyed. The retain-ownership flag is not modelled yet: moved items
+/// keep their owner either way (docs/design/script-function-params.md).
 pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let from = ctx.subject()?;
+    let silent = hide_flag(a, 2);
     let stacks = match a.opt_form(0) {
         Some(to) => {
             let moved = g.world.transfer_all(from, to).map_err(|e| e.to_string())?;
             for &(item, count) in &moved {
-                g.emit(EventKind::ItemAdded { to, item, count });
+                g.emit(EventKind::ItemAdded { to, item, count, silent });
             }
             moved
         }
         None => g.world.remove_all_items(from).map_err(|e| e.to_string())?,
     };
     for (item, count) in stacks {
-        g.emit(EventKind::ItemRemoved { from, item, count });
+        g.emit(EventKind::ItemRemoved { from, item, count, silent });
     }
     none()
 }
@@ -102,7 +117,8 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         // An aid item is consumed: it is used as from the inventory (Game::consume), with
         // potency and the addiction roll [documented: GECK wiki EquipItem, "the item is
         // treated as though it were used normally"].
-        g.emit(EventKind::ItemRemoved { from: actor, item, count: 1 });
+        // The hide-equip-message flag also hides its "removed" line [hypothesis].
+        g.emit(EventKind::ItemRemoved { from: actor, item, count: 1, silent: hide_flag(a, 2) });
         g.ingest(actor, item);
     } else {
         g.item_event(actor, item, event::ON_EQUIP, Some(Value::Ref(actor.0)));
@@ -160,11 +176,11 @@ pub fn remove_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     };
     let n = g.world.remove_item(holder, item, 1).map_err(|e| e.to_string())?;
     if n > 0 {
-        g.emit(EventKind::ItemRemoved { from: holder, item, count: n });
+        g.emit(EventKind::ItemRemoved { from: holder, item, count: n, silent: false });
     }
     if let Some(to) = a.opt_form(0) {
         for (i, c) in g.world.add_item(to, item, 1).map_err(|e| e.to_string())? {
-            g.emit(EventKind::ItemAdded { to, item: i, count: c });
+            g.emit(EventKind::ItemAdded { to, item: i, count: c, silent: false });
         }
     }
     if g.world.item_count(holder, item).unwrap_or(0) == 0 {
@@ -213,6 +229,7 @@ pub fn remove_all_typed_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
     let from = ctx.subject()?;
     let to = a.opt_form(0);
     let retain = a.num_or(1, 0.0) != 0.0;
+    let silent = hide_flag(a, 2);
     let code = a.num(3).map(|c| c as i32).unwrap_or(-1);
     if code == 0 {
         return none();
@@ -235,7 +252,7 @@ pub fn remove_all_typed_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
             continue;
         }
         let groups = fnv_sim::inventory::unequipped(g.world.inventory_mut(from).map_err(|e| e.to_string())?.take(item, n));
-        g.emit(EventKind::ItemRemoved { from, item, count: n });
+        g.emit(EventKind::ItemRemoved { from, item, count: n, silent });
         if let Some(to) = to {
             for (mut extra, c) in groups {
                 if !retain {
@@ -243,7 +260,7 @@ pub fn remove_all_typed_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
                 }
                 g.world.add_item_extra(to, item, c, extra).map_err(|e| e.to_string())?;
             }
-            g.emit(EventKind::ItemAdded { to, item, count: n });
+            g.emit(EventKind::ItemAdded { to, item, count: n, silent });
         }
     }
     none()
@@ -258,11 +275,13 @@ pub fn add_item_health_percent(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Valu
     let count = a.int(1)?;
     let health = a.num(2)?.clamp(0.0, 1.0) as f32;
     if g.world.forms.leveled(item).is_some() {
-        return add_item(g, ctx, &Args(&a.0[..2]));
+        let mut args = a.0[..2].to_vec();
+        args.extend(a.get(3).cloned());
+        return add_item(g, ctx, &Args(&args));
     }
     let extra = Extra { condition: (health < 1.0).then_some(health), ..Extra::default() };
     g.world.add_item_extra(to, item, count, extra).map_err(|e| e.to_string())?;
-    g.emit(EventKind::ItemAdded { to, item, count });
+    g.emit(EventKind::ItemAdded { to, item, count, silent: hide_flag(a, 3) });
     g.item_event(to, item, event::ON_ADD, Some(Value::Ref(to.0)));
     none()
 }

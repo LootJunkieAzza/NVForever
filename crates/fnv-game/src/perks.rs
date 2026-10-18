@@ -23,6 +23,12 @@ use crate::data::{PerkEffect, PerkEntry};
 use crate::game::Game;
 use fnv_sim::FormId;
 
+/// "Adjust Limb Damage" [documented: GECK wiki Entry Point, the name; observed: the
+/// two perks of FalloutNV.esm with code 6 are the trait Small Frame, "your limbs are
+/// more easily crippled", Multiply 1.25, and the challenge perk Tough Guy, "breaking
+/// bones has led them to become stronger", Multiply 0.8; hypothesis: it runs for the
+/// actor whose limb is hit] (`Game::damage_limb`, docs/spec-notes/crippled-limbs.md).
+pub const ADJUST_LIMB_DAMAGE: u8 = 6;
 /// "Adjust Experience Points" [documented: GECK wiki Entry Point, "Run when the player
 /// gains any experience", the example Swift Learner; observed: Swift Learner's and
 /// Skilled's entries have code 9] (`crate::experience::award`).
