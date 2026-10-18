@@ -62,6 +62,7 @@ pub mod pipboy;
 pub mod player;
 pub mod quest_messages;
 pub mod radio;
+pub mod repair;
 pub mod reputation;
 pub mod reticle;
 pub mod rumble;
@@ -286,6 +287,7 @@ impl Plugin for PlayPlugin {
             .add_plugins(intro::IntroPlugin)
             .add_plugins(cursor::CursorPlugin)
             .add_plugins(crafting::CraftingPlugin)
+            .add_plugins(repair::RepairPlugin)
             .add_plugins(container_anim::ContainerAnimPlugin)
             .add_plugins(vats_mode::VatsModePlugin);
         test_aid::setup(app);

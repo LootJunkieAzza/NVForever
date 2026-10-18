@@ -281,7 +281,9 @@ fn sync(mut st: ResMut<CreatorMenu>, data: Option<Res<CreatorData>>, script: Opt
     }
     info!("creator: open on {} ({} sliders, {} races, {} beards, {} starting faces)", m.caption(), m.sliders().len(), data.0.catalogue.races.len(), data.0.catalogue.facial_hair.len(), data.0.catalogue.presets(m.look.race, m.look.female).len());
     let mut m = m;
-    control.portrait = Some(m.camera());
+    let c = m.camera();
+    info!("creator: camera on opening: {:.0} units away, looking {:.0} under the eye (the face)", c.distance, c.drop);
+    control.portrait = Some(c);
     st.written = Some(m.look.clone());
     st.model = Some(m);
     st.answered = false;

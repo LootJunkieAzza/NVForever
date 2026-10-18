@@ -1934,12 +1934,14 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/npc-unconscious implemented GetOwnerLastTarget (5 calls, the last stub assigned to J,
 # so no "assigned" or "J karma and crime" row is left; docs/spec-notes/unconscious.md §2.8):
 # 48 → 47 stubs, 242 → 237 calls.
+# claude/repair-services-menu implemented ShowRepairMenu (15 calls, docs/spec-notes/repair.md):
+# 47 → 46 stubs, 237 → 222 calls.
 expect = [
-  { json = "summary.stubs", equals = 47 },
+  { json = "summary.stubs", equals = 46 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 46 },
+  { json = "summary.by_status.needs_system", equals = 45 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 237 },
+  { json = "summary.stub_calls", equals = 222 },
   { json = "summary.stub_condition_uses", equals = 377 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -3039,6 +3041,43 @@ expect = [
 order = [["recipe menu: cannot make", "recipe menu: made"]]
 
 [[scenario]]
+name = "repair-services"
+source = "todo 6 item 4: the vendor's repair services menu (engine/nvf-play/src/repair.rs, crates/fnv-game/src/repair.rs, docs/spec-notes/repair.md) opened by ShowRepairMenu on Raul (RaulREF, the call his dialogue makes); a worn 9mm Pistol and Varmint Rifle listed with their costs, a Straight Razor at full condition not listed (owner's rule), the pistol repaired for caps; frame repair_menu.png in the working folder"
+areas = ["repair", "menus"]
+paths = ["engine/nvf-play/src/repair.rs", "crates/fnv-game/src/repair.rs"]
+env = { NVFOREVER_HOME = "repair-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "10:call:player:AddItem:Caps001:150,10.2:call:player:AddItemHealthPercent:WeapNV9mmPistol:1:0.35,10.4:call:player:AddItemHealthPercent:WeapNVVarmintRifle:1:0.34,10.6:call:player:AddItem:WeapNVStraightRazor:1,11:call:RaulREF:ShowRepairMenu", NVF_PLAY_TEST_REPAIR = "13:shot,14:repair,15:down,16:repair,17:all,18:done" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 21
+expect = [
+  "script: test aid calls ShowRepairMenu on RaulREF",
+  { re = 'repair menu: open, vendor RaulREF \(Repair \d+\), player caps \d+: 2 listed, [0-2] repairable', label = "the two worn weapons are listed, the razor at full condition is not" },
+  { re = 'repair menu: open, .*9mm Pistol 35% \d+ caps, Varmint Rifle 34% \d+ caps', label = "each row with its condition and cost, by name" },
+  "repair menu: screenshot repair_menu.png",
+  { re = 'repair menu: repaired 9mm Pistol 35% -> \d+% for \d+ caps', label = "the pistol is repaired for caps" },
+  { text = "ui sounds: repair services row or button picked: UIRepairWeapon", label = "a repair plays UIRepairWeapon" },
+  { re = 'repair menu: (repaired|cannot repair) Varmint Rifle', label = "the rifle is repaired or refused by the caps left" },
+  "repair menu: done",
+  "repair menu: closed",
+]
+order = [["repair menu: open", "repair menu: repaired 9mm Pistol", "repair menu: done", "repair menu: closed"]]
+
+[[scenario]]
+name = "pipboy-repair"
+source = "todo 6 item 5: repair from the Pip-Boy (engine/nvf-play/src/pipboy/repair.rs, crates/fnv-game/src/repair.rs, docs/spec-notes/repair.md §5): two worn 10mm Pistols (Weap10mmPistol, first in the Weapons tab by name), the ITEMS page's Repair R) hint, R lists the other pistol as the part, using it scraps it and raises the first by the GECK wiki's repair formula at the player's Repair skill; frame pipboy_repair.png in the working folder"
+areas = ["repair", "pipboy"]
+paths = ["engine/nvf-play/src/pipboy/repair.rs", "engine/nvf-play/src/pipboy/items.rs", "crates/fnv-game/src/repair.rs"]
+env = { NVFOREVER_HOME = "pipboy-repair-home", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_SCRIPT = "9:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.4,9.5:call:player:AddItemHealthPercent:Weap10mmPistol:1:0.3", NVF_PLAY_TEST_PIPBOY = "12:open,13:page=items,13.5:tab=0,15:repair=open,16:repair=down,18:repair=use,20:close", NVF_PLAY_TEST_SHOTS = "14.5:pipboy_items_hint.png,17:pipboy_repair.png" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 23
+expect = [
+  { re = 'pipboy items: 10mm Pistol Repair R\)(?! \(dim)', label = "the worn pistol shows Repair R), bright (another pistol can repair it)" },
+  { re = 'pipboy repair: open 10mm Pistol at [34]0% \(Repair \d+\): 10mm Pistol [34]0%', label = "R lists the other pistol as the part" },
+  { re = 'pipboy repair: 10mm Pistol [34]0% with 10mm Pistol [34]0% -> \d+% \(Repair \d+\)', label = "using it repairs the pistol" },
+  { text = "ui sounds: repair services row or button picked: UIRepairWeapon", label = "a repair plays UIRepairWeapon" },
+]
+order = [["test aid calls AddItemHealthPercent on", "pipboy repair: open", "pipboy repair: 10mm Pistol"]]
+
+[[scenario]]
 name = "item-stacks"
 source = "owner 2026-10-15: the two 9mm stacks on the Goodsprings gas station counter hold 20 rounds each (AMMO Clip Rounds, GECK wiki Ammo; fnv-sim Item::placed_count); a stack of more than 5 asks \"How many?\" (menu::model::Quantity) and a dropped stack is one reference holding the count"
 areas = ["menu", "items"]
@@ -3598,6 +3637,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "death-fade"
+source = "owner todo 6 item 3 (2026-10-17): 2 s after the player dies the screen slowly fades to black, in real time whatever the slow motion (engine/nvforever/src/death_cam.rs FADE_DELAY, FADE_SECONDS)"
+note = "killed at 10 s as death-cam-first; the fade starts 2 s of real time after the death and is black 4 s later; the slow motion runs meanwhile, so these are not game seconds"
+areas = ["combat", "camera"]
+paths = ["engine/nvforever/src/death_cam.rs", "engine/nvforever/src/imagespace.rs"]
+env = { NVF_PLAY_TEST_GOTO = "1:-68375:4800:8600", NVF_PLAY_TEST_CONSOLE = "10:player.killactor;11:close" }
+args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700"]
+run_seconds = 22
+expect = [
+  "death camera: the player died in first person: the body drops as a ragdoll, the view stays on its head",
+  { re = 'death camera: the screen starts fading to black (?P<n>[\d.]+) s after the death', range = [2.0, 2.3], label = "the fade starts about 2 s after the death" },
+  { re = 'death camera: the screen is black (?P<n>[\d.]+) s after the death', range = [6.0, 6.3], label = "the screen is black about 6 s after the death" },
+]
+
+[[scenario]]
 name = "death-cam-third"
 source = "owner 2026-10-16: in third person the camera stays on the player's body as it drops, in slow motion and blurred (engine/nvforever/src/death_cam.rs)"
 areas = ["combat", "camera"]
@@ -3748,12 +3802,13 @@ expect = [
   { text = "ui sounds: creator accepted: UIMenuOK", label = "Done" },
   { text = "creator: camera (test aid NVF_PLAY_TEST_CREATOR): turned", count = 4, label = "orbit, zoom, pan, zoom (owner 2026-10-17)" },
   { text = "creator view: lights on", count = 1, label = "the creator's lights (owner 2026-10-17)" },
+  { text = "creator: camera on opening: 42 units away, looking 2 under the eye (the face)", label = "opens framed on the face (owner, todo 6)" },
   { re = "player body: rebuilt; it goes on with the old body's [1-9][0-9]* clips and pose", min = 3, label = "no T-pose between bodies: each new look's body takes over the playing clips (owner 2026-10-17)" },
   { text = "creator view: lights off", count = 1, label = "and gone again after Done" },
   { re = 'creator: camera \(test aid NVF_PLAY_TEST_CREATOR\): turned 69°, tilted (?P<n>\d+)°', range = [16, 19], label = "turned 60° and tilted 15° on the face framing" },
   { re = 'creator: camera .*, 61 units away, looking (?P<n>\d+) under the eye', range = [5, 15], label = "zoomed in on the whole body: aimed near the face, not the pelvis" },
 ]
-manual = "creator_open.png … creator_body_zoomed.png in the run's folder: the panel on the left, the player framed on the right; after the changes a darker-skinned woman with longer nose; orbit: her face from her left and above; pan_zoom: nearer, moved; body: the whole body; body_zoomed: the head and shoulders"
+manual = "creator_open.png … creator_body_zoomed.png in the run's folder: the panel on the left, the player framed on the right, creator_open.png on the face (todo 6); after the changes a darker-skinned woman with longer nose; orbit: her face from her left and above; pan_zoom: nearer, moved; body: the whole body; body_zoomed: the head and shoulders"
 
 [[scenario]]
 name = "actor-creator"
