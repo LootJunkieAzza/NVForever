@@ -5914,35 +5914,6 @@ themselves:
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
 
-## Script parameters honoured (2026-10-18, branch claude/script-params-honoured, stacked on #451)
-
-Every parameter docs/design/script-function-params.md §3 listed as ignored is now read
-(the table there says what each does now). The GECK wiki pages settle most of them; these
-are my guesses, each with what would settle it:
-
-- **Fade length and shape** (Enable/Disable, 544 shipped calls). Settled in part
-  [observed: captures 2026-10-18]: a plain Disable reads GetDisabled 1 at once and Enable
-  0 at once; after `Disable 1`, facing the object, the original kept it enabled for about
-  2 s and then disabled it. Ours now fades out over 2 s, keeping the reference enabled
-  (collision on) meanwhile, then disables it. *Guesses*: the fade's shape (a straight line
-  of alpha) and the fade in's length (2 s too); all screenshots failed, so a rerun with
-  the window in front is needed to see them. *Not explained*: one earlier `Disable 1`,
-  from the cell's arrival spot, stayed enabled for all 3.5 s sampled. Perhaps the
-  original fades only what it draws.
-- **Equip locks in the inventory**: an item EquipItem locked on shows "… can't be
-  unequipped" (my wording; the original's message is not known). Companions ignore
-  NoEquipFlag in the original (wiki); ours have no re-equipping yet, so nothing to ignore.
-- **Say's ForceSubtitles** (18 calls, all 1; SayTo's flag, 207 calls over the masters): read as "show the subtitle even out of
-  hearing". **is2D**: heard flat and full wherever the player is. **Actor and isVoice**:
-  not read; nothing documents them, and Old World Blues' 103 calls name the speaker itself.
-- **SetGlobalTimeMultiplier without keepSoundUnchanged**: effects, footsteps and voices
-  play at the multiplier (music and radio do not), as with the engine's own slow motion.
-  The one shipped slow motion keeps sound unchanged, so nothing shipped hears it.
-- **StartConversation allowMovement**: left out, the two actors stand while they talk, as
-  before; only an explicit 1 lets them walk.
-- **AddItemToLeveledList health**: settled [observed: capture `leveled_list_health`,
-  2026-10-18]: 50 gave Vance's 9mm SMG at half health, 1 at 1 %, as the wiki reads. So
-  Honest Hearts' eleven calls with 1 give their vendor items at 1 % in the original too.
 ## Films, cell image spaces and screen blood (2026-10-18, branch claude/screen-video)
 
 Rows 17 and 18 of docs/outstanding.md §1 (docs/spec-notes/bink-films.md,
@@ -6158,3 +6129,59 @@ hand-over played twice.
 - **Guess.** That the game carries on instead of starting over, and that he holds the
   pose for another 3 s, is mine; the files do not say. *Check:* in the original, does
   Doc keep the mirror held out until the face screen opens, or lower his arm?
+
+## Swimming: wading in, and NPCs swimming (2026-10-18, branch claude/swimming)
+
+Your report: the player walks along the bottom of a lake instead of swimming.
+
+- **Why.** Our rule came from captures of the game (`sw_trial`, 2026-10-08) in which the
+  scripted player walked down the Boulder Beach bed to 355 units under the surface and
+  never swam. That run had god mode on, so I ran it again with god mode off (`sw_walkin`):
+  the player still walked the bed, to 308 under, and drowned (Health falling 40 a second
+  after 10 s). The scripted player never swims when walking in, which contradicts what you
+  see in the game. The scripts' IsSwimming also reads 0 even while that player is plainly
+  floating, so I suspect the scripted setup never enters the game's real swimming state.
+- **What changed.** I followed your report. A character standing in water with its feet
+  115 units or more under the surface now starts swimming where it is (the swim speeds,
+  diving along the view and the float height are the ones measured before). A swimmer
+  that reaches the ground walks out where the ground is shallower than that and swims on
+  against a deeper bed. The 115 is my guess: deeper than every floating height measured,
+  so swimmers still walk out up the banks as in the captures, with the eyes just above the
+  water.
+- **Animations.** The player already swam on `swimmt*.kf`. NPCs and creatures had no
+  swimming clips at all: they now play their folder's `swimmt*` or `swim*` clips while
+  they swim (people, mirelurks, giant rats, spinebreakers, dogs), unarmed, and their
+  standing clips where they have none.
+- *Check:* in the original, walk into Lake Mead from Boulder Beach and note how deep the
+  water is (chest? neck?) when swimming starts; and whether a swimmer diving to the bed
+  stays swimming there or stands up.
+
+## Script parameters honoured (2026-10-18, branch claude/script-params-honoured, stacked on #451)
+
+Every parameter docs/design/script-function-params.md §3 listed as ignored is now read
+(the table there says what each does now). The GECK wiki pages settle most of them; these
+are my guesses, each with what would settle it:
+
+- **Fade length and shape** (Enable/Disable, 544 shipped calls). Settled in part
+  [observed: captures 2026-10-18]: a plain Disable reads GetDisabled 1 at once and Enable
+  0 at once; after `Disable 1`, facing the object, the original kept it enabled for about
+  2 s and then disabled it. Ours now fades out over 2 s, keeping the reference enabled
+  (collision on) meanwhile, then disables it. *Guesses*: the fade's shape (a straight line
+  of alpha) and the fade in's length (2 s too); all screenshots failed, so a rerun with
+  the window in front is needed to see them. *Not explained*: one earlier `Disable 1`,
+  from the cell's arrival spot, stayed enabled for all 3.5 s sampled. Perhaps the
+  original fades only what it draws.
+- **Equip locks in the inventory**: an item EquipItem locked on shows "… can't be
+  unequipped" (my wording; the original's message is not known). Companions ignore
+  NoEquipFlag in the original (wiki); ours have no re-equipping yet, so nothing to ignore.
+- **Say's ForceSubtitles** (18 calls, all 1; SayTo's flag, 207 calls over the masters): read as "show the subtitle even out of
+  hearing". **is2D**: heard flat and full wherever the player is. **Actor and isVoice**:
+  not read; nothing documents them, and Old World Blues' 103 calls name the speaker itself.
+- **SetGlobalTimeMultiplier without keepSoundUnchanged**: effects, footsteps and voices
+  play at the multiplier (music and radio do not), as with the engine's own slow motion.
+  The one shipped slow motion keeps sound unchanged, so nothing shipped hears it.
+- **StartConversation allowMovement**: left out, the two actors stand while they talk, as
+  before; only an explicit 1 lets them walk.
+- **AddItemToLeveledList health**: settled [observed: capture `leveled_list_health`,
+  2026-10-18]: 50 gave Vance's 9mm SMG at half health, 1 at 1 %, as the wiki reads. So
+  Honest Hearts' eleven calls with 1 give their vendor items at 1 % in the original too.

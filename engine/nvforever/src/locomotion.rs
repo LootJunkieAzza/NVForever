@@ -26,6 +26,13 @@ pub const SNEAK_STANCE: &str = "sneakmt";
 /// flight; it scurries along the ground on its `mt…` clips while calm [observed: the
 /// owner's playtest 2026-10-16; the `creatures\nvcazadores\locomotion` file list]).
 pub const ALERT_STANCE: &str = "h2h";
+/// … while swimming: `swimmtidle.kf`, `swimmtforward.kf`, `swimmtfastforward.kf` … in the
+/// skeleton's folder itself (people: `characters\_male`, the four directions walking and
+/// running, the idle and the turns; the mirelurk, giant rat and spinebreaker: idle,
+/// forward walking and running, the turns), and `swim…` without `mt` where a folder names
+/// them so (the dog's `swimforward.kf`, the mirelurk king's `swimidle.kf`) [observed: the
+/// base meshes archive listing, 2026-10-18]. Loaded together ([`ClipSet::swim_from`]).
+pub const SWIM_STANCES: [&str; 2] = ["swimmt", "swim"];
 
 /// One clip of a set: its tracks bound to the skeleton and what choosing needs to know
 /// about it.
@@ -121,6 +128,21 @@ impl ClipSet {
         }
         let mut set = calm.clone();
         set.clips.extend(stance.clips);
+        Some(set)
+    }
+
+    /// The swimming set: the moves of the swim stances (`stances`, each loaded as a set,
+    /// the first that has a move winning), the moves they lack taken from `calm` (a
+    /// creature without a swimming idle floats in its standing idle [design]). `None`
+    /// when no stance has a movement clip: the actor swims on its standing clips.
+    pub fn swim_from(stances: Vec<ClipSet>, calm: &ClipSet) -> Option<ClipSet> {
+        if !stances.iter().any(|s| s.clips.keys().any(|m| m.is_moving())) {
+            return None;
+        }
+        let mut set = calm.clone();
+        for s in stances.into_iter().rev() {
+            set.clips.extend(s.clips);
+        }
         Some(set)
     }
 
@@ -301,6 +323,10 @@ pub struct Locomotion {
     pub hurt_alert: Option<Arc<ClipSet>>,
     pub sneaking: bool,
     pub limping: bool,
+    /// The swimming set (skeletons whose folder has swimming clips, [`SWIM_STANCES`]) and
+    /// whether it plays: while the actor's character swims ([`Locomotion::set_swimming`]).
+    pub swim: Option<Arc<ClipSet>>,
+    pub swimming: bool,
     /// The alert stance's set (creatures whose folder has `h2h` movement clips: the
     /// cazador flies when alert, [`ClipSet::alert_from`]) and whether it plays
     /// ([`Locomotion::set_alert`]).
@@ -324,7 +350,7 @@ pub struct Locomotion {
 
 impl Locomotion {
     pub fn new(set: Arc<ClipSet>, phase: f32) -> Locomotion {
-        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, armed: None, armed_on: false, armed_logged: Vec::new() }
+        Locomotion { stand: set.clone(), set, blend: Blend::new(Move::Idle, phase), prev_set: None, velocity: [0.0; 2], turn: 0.0, hold: false, sneak: None, hurt: None, hurt_alert: None, sneaking: false, limping: false, swim: None, swimming: false, alert: None, alerted: false, pace: 1.0, gait_speed: 0.0, armed: None, armed_on: false, armed_logged: Vec::new() }
     }
 
     /// The upright set: the alert stance's while alerted, else the standing one.
@@ -335,13 +361,18 @@ impl Locomotion {
         }
     }
 
-    /// The set for the actor's posture: sneaking wins over limping (there are no
+    /// The set for the actor's posture: swimming wins over everything, unarmed (the
+    /// player's body holsters in water and no weapon has swimming clips [observed: the
+    /// `_male` file list]; NPCs alike [design]); sneaking wins over limping (there are no
     /// crouched limping clips [observed]); limping while alerted takes the alert limping
     /// set where there is one, else the calm limping set wins over the alert stance
     /// [design]; either falls back to the upright set.
     /// With a weapon drawn each takes the armed form of the set where there is one
     /// ([`Locomotion::set_armed`]).
     fn posture_set(&self) -> Arc<ClipSet> {
+        if let (true, Some(s)) = (self.swimming, &self.swim) {
+            return s.clone();
+        }
         let armed = self.armed.as_ref().filter(|_| self.armed_on);
         let limp = if self.alerted { self.hurt_alert.as_ref().or(self.hurt.as_ref()) } else { self.hurt.as_ref() };
         let pick = if self.sneaking {
@@ -468,6 +499,18 @@ impl Locomotion {
             return false;
         }
         self.sneaking = on;
+        self.switch_set(self.posture_set());
+        true
+    }
+
+    /// Swim (`true`: the actor's character swims, `fnv_phys`) or move on land again: the
+    /// set changes by a cross-fade from the old pose ([`Locomotion::switch_set`]). Without
+    /// a swimming set nothing changes. Returns whether anything changed.
+    pub fn set_swimming(&mut self, on: bool) -> bool {
+        if self.swimming == on || self.swim.is_none() {
+            return false;
+        }
+        self.swimming = on;
         self.switch_set(self.posture_set());
         true
     }
@@ -953,6 +996,28 @@ mod tests {
         let turn = |step: f32| choose(|m| s.info(m), [0.0; 2], -step / dt).mv;
         assert_eq!(turn(SPOT_TURN_RATE * dt), Move::TurnRight);
         assert_eq!(turn(-SPOT_TURN_RATE * dt), Move::TurnLeft);
+    }
+
+    #[test]
+    fn swimming_takes_the_swim_set_unarmed_and_fills_missing_moves() {
+        let stand = set();
+        // A creature with a swimming walk and no swimming idle: the idle is the standing one.
+        let mut only_walk = (*set()).clone();
+        only_walk.clips.retain(|m, _| *m == Move::Forward);
+        only_walk.clips.get_mut(&Move::Forward).expect("walk").path = "swimmtforward.kf".into();
+        assert!(ClipSet::swim_from(vec![ClipSet::default(), ClipSet::default()], &stand).is_none());
+        let swim = Arc::new(ClipSet::swim_from(vec![only_walk.clone(), ClipSet::default()], &stand).expect("swim set"));
+        assert_eq!(swim.clips[&Move::Idle].path, "mtIdle.kf");
+        assert_eq!(swim.clips[&Move::Forward].path, "swimmtforward.kf");
+        let mut lo = Locomotion::new(stand.clone(), 0.0);
+        assert!(!lo.set_swimming(true), "no swimming set: nothing changes");
+        lo.swim = Some(swim.clone());
+        lo.sneaking = true;
+        assert!(lo.set_swimming(true));
+        assert!(Arc::ptr_eq(&lo.set, &swim), "swimming wins over sneaking");
+        assert!(!lo.set_swimming(true));
+        assert!(lo.set_swimming(false));
+        assert!(!Arc::ptr_eq(&lo.set, &swim));
     }
 
     #[test]

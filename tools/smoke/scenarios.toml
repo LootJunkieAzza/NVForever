@@ -5122,6 +5122,21 @@ expect = [
 ]
 
 [[scenario]]
+name = "wade-in-swim"
+source = "owner's report 2026-10-18 (docs/spec-notes/physics.md §6.6, Walking in again): running east from the Boulder Beach shore into Lake Mead, the player starts swimming once its feet are wade_depth (115) under the surface, and keeps swimming over the deepening bed"
+areas = ["physics", "controls", "player-body"]
+paths = ["crates/fnv-phys/src/character.rs", "crates/fnv-phys/src/water.rs", "crates/fnv-phys/src/swim.rs", "engine/nvf-play/src/player.rs", "engine/nvf-play/src/phys.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_MOVE = "10:1:0,17:0:0" }
+args = ["--play", "--pos=56992,37536,2745", "--heading", "90", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = 'player: starts swimming at \(5[78]\d{3}, 375\d\d, 24\d\d\.\d\), feet 11[5-9]\.\d below the water', label = "swims where the feet are 115-120 under the lake's 2600" },
+  { re = 'swimming summary: actors started swimming (?P<n>\d+) times', range = [1, 100], label = "the beach's attackers that follow the player into the lake swim (swimming.rs)" },
+  { re = 'swimming summary: .* (?P<n>\d+) swam without swimming clips', range = [0, 0], label = "they swim on their folder's swimmt clips" },
+]
+forbid = [{ text = "player: stops swimming", label = "swims on over the deepening bed" }]
+
+[[scenario]]
 name = "enable-disable-fade"
 source = "docs/design/script-function-params.md §3: Enable fades in unless FadeIn is 0, Disable fades out only with FadeOut 1 (GECK wiki Enable, Disable; 544 shipped calls pass the flag)"
 note = "Sunny (SunnyRef 00104E85) is disabled with a fade at 14 s, enabled with the default fade at 17 s, then disabled and enabled without one at 20 s and 22 s: one fade each way. A fade lasts 2 s: the time the original kept a Disable 1 reference enabled (capture disable_fade_long); the fade in's length is a guess"

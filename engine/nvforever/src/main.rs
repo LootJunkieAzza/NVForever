@@ -101,6 +101,7 @@ mod imposters;
 mod sky;
 mod limping;
 mod sneaking;
+mod swimming;
 mod ssao;
 mod taa;
 mod speech_look;
@@ -1244,6 +1245,8 @@ fn main() -> AppExit {
             app.add_plugins(creature_stance::CreatureStancePlugin);
             // Actors sneaking by script or package (sneaking.rs).
             app.add_plugins(sneaking::SneakingPlugin);
+            // Actors swimming in water (swimming.rs).
+            app.add_plugins(swimming::SwimmingPlugin);
             // Actors limping on a crippled leg (limping.rs).
             app.add_plugins(limping::LimpingPlugin);
             // Actors drawn at a script's scale (actor_scale.rs).
