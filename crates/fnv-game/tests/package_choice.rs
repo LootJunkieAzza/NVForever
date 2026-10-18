@@ -601,6 +601,15 @@ fn navmesh_switches_are_kept_and_saved() {
     call(&mut g, reachable, &[ArgValue::Value(Value::Num(1.0))]);
     let want: std::collections::BTreeMap<FormId, bool> = [(FormId(0xA553), false), (FormId(0xA555), true)].into();
     assert_eq!(g.nav_switches.navmeshes, want);
+    // A raw FormID as a number, and the console's words.
+    call(&mut g, disable, &[ArgValue::Value(Value::Num(0xBE880 as f64))]);
+    assert_eq!(g.nav_switches.navmeshes.get(&FormId(0xBE880)), Some(&false));
+    fnv_game::functions::console::call_words(&mut g, None, "enablenavmesh", &["000BE880".into()], "test").unwrap();
+    assert_eq!(g.nav_switches.navmeshes.get(&FormId(0xBE880)), Some(&true));
+    fnv_game::functions::console::call_words(&mut g, None, "disablenavmesh", &["0010A1DA".into()], "test").unwrap();
+    assert_eq!(g.nav_switches.navmeshes.get(&FormId(0x10A1DA)), Some(&false));
+    g.nav_switches.navmeshes.remove(&FormId(0xBE880));
+    g.nav_switches.navmeshes.remove(&FormId(0x10A1DA));
     assert!(g.nav_switches.all_reachable);
     assert_eq!(g.nav_switches.by_id(), [(0xA553, false), (0xA555, true)].into());
     let snap: fnv_game::game::GameSnapshot = serde_json::from_str(&serde_json::to_string(&g.snapshot()).unwrap()).unwrap();

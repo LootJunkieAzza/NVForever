@@ -1,12 +1,12 @@
 //! Navmesh switches: EnableNavMesh, DisableNavmesh and setAllReachable
-//! (docs/design/script-stubs.md §3.5). The rules keep what the scripts switched
+//! (docs/design/script-stubs.md §3.14). The rules keep what the scripts switched
 //! ([`NavSwitches`], saved); the layer that plans ways over the navmesh applies it to its
 //! graph (`fnv_ai::Ai::apply_navmesh_switches`): a disabled navmesh takes no part in
 //! paths until it is enabled again.
 
 use super::{none, Args, Ctx};
 use crate::game::Game;
-use fnv_script::vm::Value;
+use fnv_script::vm::{ArgValue, Value};
 use fnv_sim::FormId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -35,6 +35,18 @@ impl NavSwitches {
     }
 }
 
+/// The navmesh a call names: a reference to the NAVM record, a raw FormID as a number
+/// (the wiki's "only works using FormIDs"; the decompiled bridge script shows two of its
+/// four arguments as bare numbers, `be880` and `be87f` [observed]), or, from the console,
+/// an Editor ID or hex FormID as text.
+fn navmesh_arg(g: &Game, a: &Args) -> Result<FormId, String> {
+    match a.get(0) {
+        Some(ArgValue::Str(s)) => super::console::form(g, s),
+        Some(ArgValue::Value(Value::Num(n))) if *n >= 1.0 => Ok(FormId(*n as u32)),
+        _ => a.form(0),
+    }
+}
+
 /// `EnableNavMesh navmesh`: the navmesh takes part in paths again [documented: GECK
 /// wiki EnableNavMesh, "Enables the specified navmesh"]. The shipped calls open ways
 /// once something that blocked them is gone: Red Rock Canyon's bridge
@@ -43,7 +55,7 @@ impl NavSwitches {
 /// set off) [observed: decompiled scripts]. The argument names the NAVM record itself
 /// [observed: `NVDLC04ElevNav01REF` and `NVDLC04ElevNav02REF` are NAVM records].
 pub fn enable_navmesh(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let m = a.form(0)?;
+    let m = navmesh_arg(g, a)?;
     g.nav_switches.navmeshes.insert(m, true);
     none()
 }
@@ -57,7 +69,7 @@ pub fn enable_navmesh(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 /// references are fixed up like any other, so a DLC's call names its own navmesh
 /// [design; listed in docs/owner-review.md].
 pub fn disable_navmesh(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let m = a.form(0)?;
+    let m = navmesh_arg(g, a)?;
     g.nav_switches.navmeshes.insert(m, false);
     none()
 }

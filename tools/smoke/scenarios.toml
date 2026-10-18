@@ -4656,7 +4656,7 @@ expect = [
 
 [[scenario]]
 name = "navmesh-switches"
-source = "docs/design/script-stubs.md §3.5: DisableNavmesh takes a navmesh out of the residents' paths and EnableNavMesh puts it back (the Lonesome Road elevator, Red Rock Canyon's bridge)"
+source = "docs/design/script-stubs.md §3.14: DisableNavmesh takes a navmesh out of the residents' paths and EnableNavMesh puts it back (the Lonesome Road elevator, Red Rock Canyon's bridge)"
 note = "in the Prospector Saloon at noon with its residents run by the AI; at 16 s the console disables the saloon's navmesh (0010A1DA, fnvtool nav near TrudyRef), at 20 s enables it again; the graph follows each switch and anyone walking over it plans again"
 areas = ["navigation", "ai", "scripts"]
 paths = ["crates/fnv-game/src/functions/navigation.rs", "crates/fnv-nav/src/graph.rs", "crates/fnv-nav/src/follow.rs", "crates/fnv-ai/src/carry.rs", "engine/nvforever/src/residents.rs"]
@@ -4675,14 +4675,14 @@ expect = [
 [[scenario]]
 name = "ai-procedure-codes"
 source = "docs/spec-notes/packages.md §4, procedure codes: GetCurrentAIProcedure reads what an actor does within its package as the original's AI observer samples show: a loaded sandboxing actor never 45 (that is an unloaded one's)"
-note = "in the Prospector Saloon at noon with the residents run by the AI; at 18 s, 24 s and 30 s the console reads Trudy's package and procedure (her noon package is a Sandbox in the saloon [hypothesis: the package choice at that hour]); a sandboxer the AI runs reads 0, 7, 46, 48, 10, 8 or 21, never 45"
+note = "in Chet's store (GSGeneralStore) at noon with the residents run by the AI; at 18 s, 24 s and 30 s the console reads Chet's package and procedure: his package from 6 to 22 is GSChetStoreSandbox (fnvtool ai day GSChetRef), and the original read 0 for him sandboxing in his store (function probes fp7_packages_locks); a sandboxer the AI runs reads 0, 7, 46, 48, 10, 8 or 21, never 45. Trudy, used first, has no valid package at any hour, here and in the original (0)"
 areas = ["ai", "scripts"]
 paths = ["crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-game/src/ai.rs", "crates/fnv-ai/src/carry.rs", "crates/fnv-ai/src/sandbox.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "18:TrudyRef.getcurrentaipackage;18.2:TrudyRef.getcurrentaiprocedure;18.4:close;24:TrudyRef.getcurrentaiprocedure;24.2:close;30:TrudyRef.getcurrentaiprocedure;30.2:close" }
-args = ["--cell", "GSProspectorSaloonInterior", "--play", "--hour", "12", "--no-voice", "--no-messages"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "18:GSChetRef.getcurrentaipackage;18.2:GSChetRef.getcurrentaiprocedure;18.4:close;24:GSChetRef.getcurrentaiprocedure;24.2:close;30:GSChetRef.getcurrentaiprocedure;30.2:close" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice", "--no-messages"]
 run_seconds = 36
 expect = [
-  { re = 'console: GetCurrentAIPackage on Trudy >> 36\.00', label = "Trudy sandboxes at noon" },
-  { re = 'console: GetCurrentAIProcedure on Trudy >> (0|7|46|48|10|8|21)\.00', count = 3, label = "what she does in the sandbox, as the original's codes" },
-  { re = 'console: GetCurrentAIProcedure on Trudy >> 45\.00', count = 0, label = "never the unloaded actor's 45" },
+  { re = 'console: GetCurrentAIPackage on GSChetRef >> 36\.00', label = "Chet sandboxes at noon" },
+  { re = 'console: GetCurrentAIProcedure on GSChetRef >> (0|7|46|48|10|8|21)\.00', count = 3, label = "what he does in the sandbox, as the original's codes" },
+  { re = 'console: GetCurrentAIProcedure on GSChetRef >> 45\.00', count = 0, label = "never the unloaded actor's 45" },
 ]
