@@ -101,6 +101,10 @@ visited, so a crash anywhere in loading shows up.
   a row for are skipped, and its rows and crash groups stay in the results.
 - **Whose crash.** A crash or hang counts against the cell the launch last went to,
   whether it came while that cell loaded or after.
+- **A game that does not start.** A launch that ends before its first cell (an exe
+  being rebuilt: 0xC0000142, DLL init failed) blames no cell: its cells are tried again.
+  After `--abort-after` (3) such launches in a row the sweep stops with status
+  "aborted", its state saved and the cells left not reached; `--resume` goes on.
 - **Results.** Totals (OK, crashed, hung, skipped, not reached), the mean and slowest
   loads, the crash groups with their cells, and each bad cell's last log lines.
 
