@@ -109,7 +109,7 @@ pub fn drop_me(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     };
     let made = g.world.drop_item(holder, item, 1).map_err(|e| e.to_string())?;
     if !made.is_empty() {
-        g.emit(EventKind::ItemRemoved { from: holder, item, count: 1 });
+        g.emit(EventKind::ItemRemoved { from: holder, item, count: 1, silent: false });
     }
     for r in made {
         note_created(g, r);
@@ -133,7 +133,7 @@ pub fn drop(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         return none();
     }
     let made = g.world.drop_item(actor, item, n).map_err(|e| e.to_string())?;
-    g.emit(EventKind::ItemRemoved { from: actor, item, count: n });
+    g.emit(EventKind::ItemRemoved { from: actor, item, count: n, silent: false });
     for r in made {
         note_created(g, r);
     }
