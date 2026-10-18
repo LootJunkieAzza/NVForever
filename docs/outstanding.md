@@ -89,7 +89,10 @@ how quests run, the rest are guessed constants and looks to compare in the game.
 - Sleeping: whether E on a bed opens the sleep menu at once.
 
 Capture jobs that let the original game answer the factual ones (not the lab rules or the
-design choices) are ready to run: [spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md).
+design choices) are in [spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md).
+Its §4 has the first run's outcomes (2026-10-18), and its §5 has the jobs changed for the
+second round. The bed item is decided by the owner: a get-into-bed animation, then the
+sleep menu.
 
 **Looks and constants by area** (open, not quest-critical): rendering 29, menus and
 interface 27, combat 16, AI 11, dialogue 9, animation 9, world and physics 5, gameplay
@@ -107,6 +110,14 @@ item 22 (convict karma); Victor's and Sunny's stop-and-go (list 4 items 2–3). 
 `combat-violet` and `combat-dogs` known-failing marks need the owner's word.
 
 ## 4. Found by today's comparisons with the original
+
+From the owner-decision captures (2026-10-18 [observed],
+[spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md) §4). The
+runtime is not fixed yet in either case:
+- **AddScriptPackage replaces** the actor's script package; it does not stack. One
+  RemoveScriptPackage brings back the list package. Our script runtime stacks them.
+- **Disabled references still run their GameMode blocks** (the skull's timer kept falling
+  while it was disabled). Our runtime skips disabled references.
 
 From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) §8:
 - Fights end far sooner in ours (NCR against Fiends over in 32 s; the original's still
