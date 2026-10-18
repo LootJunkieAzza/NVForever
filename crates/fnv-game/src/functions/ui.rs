@@ -40,6 +40,9 @@ pub struct UiRequests {
     pub time_keeps_sound: bool,
     /// Autosave calls the engine has not taken yet.
     pub autosaves: u32,
+    /// SystemSave and ForceSave calls the engine has not taken yet.
+    pub system_saves: u32,
+    pub force_saves: u32,
     /// The console's camera functions (`super::camera`).
     pub camera: super::camera::CameraRequests,
 }
@@ -73,9 +76,6 @@ pub fn increment_scripted_challenge(g: &mut Game, _ctx: &Ctx, a: &Args) -> Resul
     none()
 }
 
-/// `ForceActiveQuest quest`: the quest becomes the active quest [documented: GECK wiki
-/// ForceActiveQuest]: the Pip-Boy's Quests list marks it and its notes and map markers
-/// follow (`nvf_play::pipboy` takes [`UiRequests::active_quest`]).
 /// `Autosave`: the game saves over the current autosave slot [documented: GECK wiki
 /// Autosave]. The engine takes the request at the end of the frame (`nvf_play::save`).
 pub fn autosave(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
@@ -83,6 +83,26 @@ pub fn autosave(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     Ok(Value::ZERO)
 }
 
+/// `SystemSave`: the one system save, overwritten by each later call; listed for loading,
+/// not offered to save over [documented: GECK wiki SystemSave]. The engine writes it to
+/// its own slot (`nvf_play::save`).
+pub fn system_save(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    g.ui.system_saves += 1;
+    none()
+}
+
+/// `ForceSave`: a new save in a new slot, as if the player saved by hand, with the limits
+/// of saving by hand [documented: GECK wiki ForceSave, "it will fail if called while a
+/// message box is being displayed"]. Taken by the engine as a pause-menu save
+/// (`nvf_play::save`).
+pub fn force_save(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    g.ui.force_saves += 1;
+    none()
+}
+
+/// `ForceActiveQuest quest`: the quest becomes the active quest [documented: GECK wiki
+/// ForceActiveQuest]: the Pip-Boy's Quests list marks it and its notes and map markers
+/// follow (`nvf_play::pipboy` takes [`UiRequests::active_quest`]).
 pub fn force_active_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let q = a.form(0)?;
     if !g.data.quests.contains_key(&q) {

@@ -27,6 +27,14 @@
 //! few (the anti-aliasing, [`Slider::choice`]) or a number of its own (the field of
 //! view's degrees), still kept as the part.
 //!
+//! A row can be a list of choices instead, shown as a dropdown ([`ChoiceList`],
+//! [`add_choice_list`]): the choices are named (e.g. the resolutions of the window's
+//! monitor) and may differ from run to run, so it is kept by its own text (e.g.
+//! `resolution=1600x900;desktop`), not as a number. A list that asks to be kept (the
+//! resolution) takes a choice for a while only ([`KEEP_SECS`]): the page asks whether to
+//! keep it, and unless it is kept by then it goes back to the one before
+//! ([`PendingKeep`]); until it is kept, the INI keeps the one before.
+//!
 //! What is not here: choices fixed when the game starts (which NPCs live by their
 //! packages, FaceGen, the load order), most numbers (the volumes, the field of view and the
 //! draw distances are sliders) and the test aids.
@@ -104,6 +112,44 @@ impl Slider {
     }
 }
 
+/// A row of named choices, shown as a dropdown ([`add_choice_list`]); its [`Setting`]'s
+/// `get`, `set` and `slider` do nothing.
+#[derive(Clone, Copy)]
+pub struct ChoiceList {
+    /// The choices as the page lists them now, the chosen one among them.
+    pub names: fn(&World) -> Vec<String>,
+    /// The chosen one's name.
+    pub chosen: fn(&World) -> String,
+    /// Take the choice of this name; false: not one of the list's.
+    pub pick: fn(&mut World, &str) -> bool,
+    /// The state as kept in the INI (it may hold more than the chosen name).
+    pub save: fn(&World) -> String,
+    /// The state from its INI text; false: not one.
+    pub load: fn(&mut World, &str) -> bool,
+    /// A choice from the page is taken for [`KEEP_SECS`] only unless kept (module notes).
+    pub ask_keep: bool,
+}
+
+/// How long a choice that asks to be kept waits for it [design; owner 2026-10-18: 20
+/// seconds].
+pub const KEEP_SECS: f64 = 20.0;
+
+/// A choice taken from the page that waits to be kept: its row, the state before (as the
+/// INI keeps it) and when it was taken (real seconds).
+#[derive(Resource, Clone, Debug)]
+pub struct PendingKeep {
+    pub row: usize,
+    pub before: String,
+    pub since: f64,
+}
+
+impl PendingKeep {
+    /// Whole seconds left (at least 1 while it waits).
+    pub fn left(&self, now: f64) -> u32 {
+        (KEEP_SECS - (now - self.since)).ceil().max(1.0) as u32
+    }
+}
+
 /// Choice `i` of `n` as a slider's part, as [`Slider::fit`] keeps it.
 pub fn choice_part(i: usize, n: usize) -> f32 {
     let n = n.max(2) - 1;
@@ -158,7 +204,7 @@ impl Setting {
 /// The switches in the order the page lists them: by group, each group in the order its
 /// switches were added.
 #[derive(Resource, Default)]
-pub struct Settings(Vec<Setting>);
+pub struct Settings(Vec<Setting>, Vec<(&'static str, ChoiceList)>);
 
 impl Settings {
     /// Add a switch, after the last one of its group. A key added twice is kept once.
@@ -178,6 +224,28 @@ impl Settings {
     pub fn index(&self, key: &str) -> Option<usize> {
         self.0.iter().position(|s| s.key == key)
     }
+
+    /// Row `i`'s choices, when it is a list.
+    pub fn choices(&self, i: usize) -> Option<ChoiceList> {
+        let key = self.0.get(i)?.key;
+        self.1.iter().find(|(k, _)| *k == key).map(|(_, c)| *c)
+    }
+
+    /// Every row's state as a number: [`Setting::value`], a list's chosen index (-1: not
+    /// listed).
+    pub fn values(&self, world: &World) -> Vec<f32> {
+        (0..self.0.len()).map(|i| self.value(world, i)).collect()
+    }
+
+    fn value(&self, world: &World, i: usize) -> f32 {
+        match self.choices(i) {
+            Some(c) => {
+                let chosen = (c.chosen)(world);
+                (c.names)(world).iter().position(|n| *n == chosen).map_or(-1.0, |p| p as f32)
+            }
+            None => self.0[i].value(world),
+        }
+    }
 }
 
 /// Register a switch of the settings page.
@@ -186,11 +254,84 @@ pub fn add_setting(app: &mut App, s: Setting) {
     app.world_mut().resource_mut::<Settings>().add(s);
 }
 
+/// Register a row of named choices (a dropdown) with its [`Setting`] (`slider` `None`).
+pub fn add_choice_list(app: &mut App, s: Setting, list: ChoiceList) {
+    app.init_resource::<Settings>();
+    let mut settings = app.world_mut().resource_mut::<Settings>();
+    if settings.index(s.key).is_none() {
+        settings.1.push((s.key, list));
+    }
+    settings.add(s);
+}
+
+/// Take choice `name` of list row `i` and keep every row in the INI; false: not taken
+/// (not a list, not one of its choices, or chosen already). A list that asks to be kept
+/// waits for it ([`keep`]).
+pub fn pick(world: &mut World, i: usize, name: &str) -> bool {
+    let Some(c) = world.get_resource::<Settings>().and_then(|s| s.choices(i)) else { return false };
+    if (c.chosen)(world) == name {
+        return false;
+    }
+    let pick = c.pick;
+    take(world, i, |w| pick(w, name))
+}
+
+/// List row `i`'s state changed by `apply` (false: not taken), then kept in the INI; a
+/// list that asks to be kept waits for it.
+fn take(world: &mut World, i: usize, apply: impl FnOnce(&mut World) -> bool) -> bool {
+    let Some(settings) = world.get_resource::<Settings>() else { return false };
+    let (Some(s), Some(c)) = (settings.list().get(i).copied(), settings.choices(i)) else { return false };
+    let before = (c.save)(world);
+    if !apply(world) {
+        warn!("settings: {} has no such choice", s.key);
+        return false;
+    }
+    let name = (c.chosen)(world);
+    if c.ask_keep {
+        // Chosen again while waiting: the one before the first goes back.
+        let before = world.get_resource::<PendingKeep>().filter(|p| p.row == i).map_or(before, |p| p.before.clone());
+        let since = world.get_resource::<Time<Real>>().map_or(0.0, |t| t.elapsed_secs_f64());
+        info!("settings: {} {name}, until kept (back in {KEEP_SECS:.0} s)", s.key);
+        world.insert_resource(PendingKeep { row: i, before, since });
+    } else {
+        info!("settings: {} {name}", s.key);
+    }
+    store(world);
+    true
+}
+
+/// Keep the choice that waits ([`PendingKeep`]).
+pub fn keep(world: &mut World) {
+    let Some(p) = world.remove_resource::<PendingKeep>() else { return };
+    let key = world.resource::<Settings>().list().get(p.row).map_or("", |s| s.key);
+    info!("settings: {key} kept");
+    store(world);
+}
+
+/// Put the choice that waits back to the one before.
+pub fn revert(world: &mut World) {
+    let Some(p) = world.remove_resource::<PendingKeep>() else { return };
+    let settings = world.resource::<Settings>();
+    let (Some(s), Some(c)) = (settings.list().get(p.row).copied(), settings.choices(p.row)) else { return };
+    (c.load)(world, &p.before);
+    info!("settings: {} back to {} (not kept)", s.key, (c.chosen)(world));
+    store(world);
+}
+
+/// A choice not kept in time goes back.
+fn revert_unkept(world: &mut World) {
+    let Some(p) = world.get_resource::<PendingKeep>() else { return };
+    if world.resource::<Time<Real>>().elapsed_secs_f64() - p.since >= KEEP_SECS {
+        revert(world);
+    }
+}
+
 /// Flip switch `i`, as a click on its row, and keep every switch in the INI; the new
-/// state. A slider's row is not flipped (`None`).
+/// state. A slider's or a list's row is not flipped (`None`).
 pub fn flip(world: &mut World, i: usize) -> Option<bool> {
-    let s = *world.get_resource::<Settings>()?.list().get(i)?;
-    if s.slider.is_some() {
+    let settings = world.get_resource::<Settings>()?;
+    let s = *settings.list().get(i)?;
+    if s.slider.is_some() || settings.choices(i).is_some() {
         return None;
     }
     let on = !(s.get)(world);
@@ -221,10 +362,29 @@ pub fn set_slider(world: &mut World, i: usize, v: f32) -> Option<f32> {
     Some(v)
 }
 
-/// Put row `i` back to `v` (the page's Defaults): flip a switch, set a slider.
+/// Put row `i` back to `v` (the page's Defaults): flip a switch, set a slider, pick a
+/// list's choice of that index.
 pub fn restore(world: &mut World, i: usize, v: f32) {
-    let Some(s) = world.get_resource::<Settings>().and_then(|l| l.list().get(i).copied()) else { return };
-    if s.value(world) == v {
+    let Some(settings) = world.get_resource::<Settings>() else { return };
+    let Some(s) = settings.list().get(i).copied() else { return };
+    if settings.value(world, i) == v && settings.choices(i).is_none() {
+        return;
+    }
+    if let Some(c) = settings.choices(i) {
+        // A list goes back to its state as kept at the start: its choices may differ by
+        // now (the monitor's sizes come after the start), so not by its index.
+        match world.get_resource::<StartChoices>().and_then(|sc| sc.0.iter().find(|(r, _)| *r == i)).map(|(_, t)| t.clone()) {
+            Some(t) if (c.save)(world) != t => {
+                let load = c.load;
+                take(world, i, |w| load(w, &t));
+            }
+            Some(_) => {}
+            None => {
+                if let Some(name) = (v >= 0.0).then(|| (c.names)(world).get(v as usize).cloned()).flatten() {
+                    pick(world, i, &name);
+                }
+            }
+        }
         return;
     }
     if s.slider.is_some() {
@@ -238,6 +398,7 @@ pub(crate) fn setup(app: &mut App) {
     app.init_resource::<Settings>();
     app.insert_resource(SettingsFile::for_run(crate::test_aid::Unattended::from_env().0));
     app.add_systems(PostStartup, (apply_stored, crate::bindings::apply_stored));
+    app.add_systems(Update, revert_unkept);
 }
 
 /// `1`/`0` (also true/false, on/off, yes/no, any case).
@@ -255,10 +416,13 @@ fn with_switches(text: &str, states: &[(&str, String)]) -> String {
 }
 
 /// The rows' states stored in `text`: (index in `list`, [`Setting::value`]); values that
-/// are not of the row's kind go to `bad`.
-fn stored(text: &str, list: &[Setting], bad: &mut Vec<String>) -> Vec<(usize, f32)> {
+/// are not of the row's kind go to `bad`. The list rows (`lists`, by key) are left out.
+fn stored(text: &str, list: &[Setting], lists: &[&str], bad: &mut Vec<String>) -> Vec<(usize, f32)> {
     let mut out = Vec::new();
     for (i, s) in list.iter().enumerate() {
+        if lists.contains(&s.key) {
+            continue;
+        }
         let Some(v) = ini_get(text, SECTION, s.key) else { continue };
         match s.parse(&v) {
             Some(x) => out.push((i, x)),
@@ -273,11 +437,18 @@ fn stored(text: &str, list: &[Setting], bad: &mut Vec<String>) -> Vec<(usize, f3
 #[derive(Resource, Clone, Debug, Default)]
 pub struct StartStates(pub Vec<f32>);
 
+/// The list rows' states before the INI was read, as the INI keeps them (what the page's
+/// Defaults goes back to): (row, text).
+#[derive(Resource, Clone, Debug, Default)]
+pub struct StartChoices(pub Vec<(usize, String)>);
+
 /// Set the rows the INI lists (module notes), after noting the states before.
 pub fn apply_stored(world: &mut World) {
     let Some(settings) = world.get_resource::<Settings>() else { return };
-    let start = settings.list().iter().map(|s| s.value(world)).collect();
+    let start = settings.values(world);
+    let choices = (0..settings.list().len()).filter_map(|i| settings.choices(i).map(|c| (i, (c.save)(world)))).collect();
     world.insert_resource(StartStates(start));
+    world.insert_resource(StartChoices(choices));
     let Some(path) = world.get_resource::<SettingsFile>().and_then(|f| f.0.clone()) else { return };
     let text = match std::fs::read_to_string(&path) {
         Ok(t) => t,
@@ -288,9 +459,24 @@ pub fn apply_stored(world: &mut World) {
         }
     };
     let list = world.resource::<Settings>().list().to_vec();
+    let lists: Vec<(usize, ChoiceList)> = (0..list.len()).filter_map(|i| Some((i, world.resource::<Settings>().choices(i)?))).collect();
+    let keys: Vec<&str> = lists.iter().map(|(i, _)| list[*i].key).collect();
     let mut bad = Vec::new();
-    let found = stored(&text, &list, &mut bad);
+    let found = stored(&text, &list, &keys, &mut bad);
     let mut changed = Vec::new();
+    let mut listed = 0;
+    for (i, c) in lists {
+        let Some(v) = ini_get(&text, SECTION, list[i].key) else { continue };
+        let v = v.trim();
+        if (c.save)(world) == v {
+            listed += 1;
+        } else if (c.load)(world, v) {
+            listed += 1;
+            changed.push(format!("{} {}", list[i].key, (c.chosen)(world)));
+        } else {
+            bad.push(format!("{}={v}", list[i].key));
+        }
+    }
     for &(i, v) in &found {
         let s = list[i];
         if s.value(world) != v {
@@ -302,17 +488,28 @@ pub fn apply_stored(world: &mut World) {
         }
     }
     for b in &bad {
-        warn!("settings: [{SECTION}] {b} in {} is not 1 or 0 (a slider's: a number); left as it is", path.display());
+        warn!("settings: [{SECTION}] {b} in {} is not 1 or 0 (a slider's: a number, a list's: one of its choices); left as it is", path.display());
     }
     let what = if changed.is_empty() { String::new() } else { format!(": {}", changed.join(", ")) };
-    info!("settings: {} of {} switch(es) read from {}, {} changed{what}", found.len(), list.len(), path.display(), changed.len());
+    info!("settings: {} of {} switch(es) read from {}, {} changed{what}", found.len() + listed, list.len(), path.display(), changed.len());
 }
 
 /// Write every switch's state to the INI, keeping its other lines.
 fn store(world: &World) {
     let Some(path) = world.get_resource::<SettingsFile>().and_then(|f| f.0.clone()) else { return };
     let Some(settings) = world.get_resource::<Settings>() else { return };
-    let states: Vec<(&str, String)> = settings.list().iter().map(|s| (s.key, s.stored_text(s.value(world)))).collect();
+    // A choice waiting to be kept is kept as the one before.
+    let pending = world.get_resource::<PendingKeep>();
+    let states: Vec<(&str, String)> = settings
+        .list()
+        .iter()
+        .enumerate()
+        .map(|(i, s)| match (settings.choices(i), pending) {
+            (Some(_), Some(p)) if p.row == i => (s.key, p.before.clone()),
+            (Some(c), _) => (s.key, (c.save)(world)),
+            (None, _) => (s.key, s.stored_text(s.value(world))),
+        })
+        .collect();
     match write(&path, &states) {
         Ok(()) => debug!("settings: {} switch(es) written to {}", states.len(), path.display()),
         Err(e) => warn!("settings: not saved: {e}"),
@@ -386,7 +583,7 @@ mod tests {
         let list = [setting("lamp", "Test"), setting("grass", "Test"), setting("god-mode", "Test")];
         let mut bad = Vec::new();
         let text = format!("{text}lamp=maybe\n");
-        assert_eq!(stored(&text, &list, &mut bad), [(1, 1.0), (2, 1.0)]);
+        assert_eq!(stored(&text, &list, &[], &mut bad), [(1, 1.0), (2, 1.0)]);
         assert_eq!(bad, ["lamp=maybe"]);
         assert_eq!(parse_switch(" Off "), Some(false));
     }
@@ -443,9 +640,84 @@ mod tests {
         assert_eq!(app.world().resource::<Reach>().0, 0.55, "the stored value wins");
         assert_eq!(app.world().resource::<StartStates>().0, [0.0, 1.0], "Defaults goes back to the start");
         let mut bad = Vec::new();
-        assert!(stored("[Settings]\nreach=far\n", &[slider("reach")], &mut bad).is_empty());
+        assert!(stored("[Settings]\nreach=far\n", &[slider("reach")], &[], &mut bad).is_empty());
         assert_eq!(bad, ["reach=far"]);
-        assert_eq!(stored("[Settings]\nreach=3\n", &[slider("reach")], &mut bad), [(0, 1.0)]);
+        assert_eq!(stored("[Settings]\nreach=3\n", &[slider("reach")], &[], &mut bad), [(0, 1.0)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[derive(Resource)]
+    struct Size(String);
+
+    fn sizes() -> ChoiceList {
+        ChoiceList {
+            names: |_| ["800x600", "1280x800", "1920x1080"].map(String::from).to_vec(),
+            chosen: |w| w.resource::<Size>().0.clone(),
+            pick: |w, n| {
+                let ok = ["800x600", "1280x800", "1920x1080"].contains(&n);
+                if ok {
+                    w.resource_mut::<Size>().0 = n.to_string();
+                }
+                ok
+            },
+            save: |w| format!("{};kept", w.resource::<Size>().0),
+            load: |w, t| match t.strip_suffix(";kept") {
+                Some(n) => {
+                    w.resource_mut::<Size>().0 = n.to_string();
+                    true
+                }
+                None => false,
+            },
+            ask_keep: true,
+        }
+    }
+
+    #[test]
+    fn a_list_choice_goes_back_unless_kept_and_the_ini_keeps_only_a_kept_one() {
+        let dir = std::env::temp_dir().join(format!("nvf-settings-list-{}", std::process::id()));
+        let path = dir.join("NVForever.ini");
+        let _ = std::fs::remove_dir_all(&dir);
+        let start = |path: &Path| {
+            let mut app = App::new();
+            app.init_resource::<Lamp>().insert_resource(Size("1280x800".into())).init_resource::<Time<Real>>();
+            app.insert_resource(SettingsFile(Some(path.to_path_buf())));
+            add_setting(&mut app, setting("lamp", "Test"));
+            add_choice_list(&mut app, Setting { slider: None, ..setting("size", "Test") }, sizes());
+            app.add_systems(PostStartup, apply_stored);
+            app.update();
+            app
+        };
+        let mut app = start(&path);
+        let w = app.world_mut();
+        assert_eq!(w.resource::<Settings>().values(w), [0.0, 1.0], "a list's state is its chosen index");
+        assert_eq!(flip(w, 1), None, "a list is not flipped");
+        assert!(!pick(w, 1, "640x480"), "not one of its choices");
+        assert!(!pick(w, 1, "1280x800"), "chosen already");
+        assert!(pick(w, 1, "1920x1080"));
+        assert_eq!(w.resource::<Size>().0, "1920x1080", "taken at once");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("size=1280x800;kept"), "the INI keeps the one before until kept: {text}");
+        assert!(pick(w, 1, "800x600"));
+        assert_eq!(w.resource::<PendingKeep>().before, "1280x800;kept", "chosen again: the first one before goes back");
+        // Not kept in time: back to the one before.
+        w.resource_mut::<Time<Real>>().advance_by(std::time::Duration::from_secs_f64(KEEP_SECS + 0.1));
+        revert_unkept(w);
+        assert_eq!(w.resource::<Size>().0, "1280x800");
+        assert!(w.get_resource::<PendingKeep>().is_none());
+        // Kept: the INI has it and the next start takes it.
+        assert!(pick(w, 1, "800x600"));
+        keep(w);
+        revert_unkept(w);
+        assert_eq!(w.resource::<Size>().0, "800x600");
+        let app = start(&path);
+        assert_eq!(app.world().resource::<Size>().0, "800x600", "the kept choice is read back");
+        // Defaults picks the start's index again, and asks to be kept.
+        let mut app = app;
+        let w = app.world_mut();
+        restore(w, 1, 1.0);
+        assert_eq!((w.resource::<Size>().0.as_str(), w.contains_resource::<PendingKeep>()), ("1280x800", true));
+        revert(w);
+        assert_eq!(w.resource::<Size>().0, "800x600");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
