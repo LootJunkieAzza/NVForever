@@ -31,9 +31,11 @@
 //! Behaviour notes with confidence tags: docs/spec-notes/scripts.md §4 and later.
 
 pub mod abilities;
+pub mod activate_choices;
 pub mod actor_values;
 pub mod aggro;
 pub mod aid;
+pub mod appearance;
 pub mod ai;
 pub mod anim_state;
 pub mod anims;
@@ -74,6 +76,7 @@ pub mod resurrect;
 pub mod rest;
 pub mod roulette;
 pub mod sound;
+pub mod talking_activators;
 pub mod runner;
 pub mod sight;
 pub mod templates;

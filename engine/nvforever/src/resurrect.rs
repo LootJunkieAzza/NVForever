@@ -118,26 +118,46 @@ fn show_resurrections(
             continue;
         }
         // Drawn by its cell: spawned again there, where the game has its reference.
-        let Some(p) = fnv_world::placed::placement(world.lo, world.schema, id) else { continue };
-        let Some(base) = p.base.and_then(|b| fnv_world::placed::base_object(world.lo, world.schema, b)) else { continue };
-        let parent = parent.parent();
-        let to_parent = transforms.get(parent).map_or(Affine3A::IDENTITY, |t| t.compute_affine()).inverse();
-        let m = Mat3::from_cols_array(&fnv_world::transform::ref_rotation(rot)).transpose();
-        let rt_affine = to_parent * Affine3A::from_mat3_translation(m * p.scale, Vec3::from_array(pos));
         let hidden = !rt.game.present(res.actor);
-        commands.entity(e).despawn();
         let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-        let mut stats = Default::default();
-        let drawn = match &base.sig {
-            b"NPC_" => crate::actors::spawn(&mut commands, parent, rt_affine, Vec3::from_array(pos), id, base.form_id, &aw, &mut ctx, &mut stats, hidden),
-            b"CREA" => crate::actors::spawn_creature(&mut commands, parent, rt_affine, id, base.form_id, &aw, &mut ctx, &mut stats, hidden),
-            _ => false,
-        };
+        let Some(drawn) = respawn(&mut commands, e, parent.parent(), id, (pos, rot), hidden, &aw, &world, &mut ctx, &transforms) else { continue };
         info!("resurrect: {} ({name}) alive again (animate {flag}): its {was} taken away, {} at {at}, rolls {}", res.actor, if drawn { "spawned standing" } else { "could not be drawn" }, res.rolls);
         if drawn {
             waiting.push((id, time.elapsed_secs()));
         }
     }
+}
+
+/// Draw again the actor `id` that its cell drew as `root` under `parent`, at the game's
+/// place for it (`pos`, `rot`): `root` is taken away and the actor spawned anew from its
+/// record (with `ActorWorld`'s rolls and changes). `None` when it has no placement (a
+/// reference created at run time), else whether anything was drawn. Shared with
+/// `crate::appearance`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn respawn(
+    commands: &mut Commands,
+    root: Entity,
+    parent: Entity,
+    id: u32,
+    (pos, rot): ([f32; 3], [f32; 3]),
+    hidden: bool,
+    aw: &ActorWorld,
+    world: &WorldData,
+    ctx: &mut ActorCtx,
+    transforms: &Query<&Transform>,
+) -> Option<bool> {
+    let p = fnv_world::placed::placement(world.lo, world.schema, id)?;
+    let base = p.base.and_then(|b| fnv_world::placed::base_object(world.lo, world.schema, b))?;
+    let to_parent = transforms.get(parent).map_or(Affine3A::IDENTITY, |t| t.compute_affine()).inverse();
+    let m = Mat3::from_cols_array(&fnv_world::transform::ref_rotation(rot)).transpose();
+    let rt_affine = to_parent * Affine3A::from_mat3_translation(m * p.scale, Vec3::from_array(pos));
+    commands.entity(root).despawn();
+    let mut stats = Default::default();
+    Some(match &base.sig {
+        b"NPC_" => crate::actors::spawn(commands, parent, rt_affine, Vec3::from_array(pos), id, base.form_id, aw, ctx, &mut stats, hidden),
+        b"CREA" => crate::actors::spawn_creature(commands, parent, rt_affine, id, base.form_id, aw, ctx, &mut stats, hidden),
+        _ => false,
+    })
 }
 
 /// The ragdoll body on the pelvis (the body the actor's place is read from), else the
