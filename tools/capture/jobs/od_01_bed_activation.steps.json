@@ -1,0 +1,572 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "od_01_bed_activation",
+ "title": "Bed activation: sleep/wait menu at once or lying down first (owner-review: Sleeping) (about 2 min)",
+ "start": "nvftest: coc to GSGasStation and GSDocMitchellHouse; activates two beds. Never saved; unattended (capture_run.py --save nvftest).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "coc GSGasStation"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085496\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1092517\nplayer.MoveTo rF1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1092517\nif player.GetInSameCell rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress before",
+   "field": "sitting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress before",
+   "field": "hour"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1092517\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 30 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 30 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 30 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 30 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 30 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 30 loops",
+   "field": "sitting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSleeping\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 30 loops",
+   "field": "sleeping"
+  },
+  {
+   "screenshot": "gas_station_mattress_activated_30"
+  },
+  {
+   "frames": 270
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 300 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 300 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 300 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 300 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 300 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 300 loops",
+   "field": "sitting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSleeping\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress activated, 300 loops",
+   "field": "sleeping"
+  },
+  {
+   "screenshot": "gas_station_mattress_activated_300"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress after CloseAllMenus",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress after CloseAllMenus",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress after CloseAllMenus",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress after CloseAllMenus",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress after CloseAllMenus",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress after CloseAllMenus",
+   "field": "sitting"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1092517\nplayer.MoveTo rF1 -150 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1092517\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle X 30\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "ref rX\nBegin Function { }\nlet rX := GetCrosshairRef\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "gas_station_mattress key",
+   "field": "crosshair"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1092517\nlet rC := GetCrosshairRef\nif rC == rF1\n  TapControl 5\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key, 30 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key, 30 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key, 30 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key, 30 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key, 30 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key, 30 loops",
+   "field": "sitting"
+  },
+  {
+   "screenshot": "gas_station_mattress_key_30"
+  },
+  {
+   "frames": 270
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key, 300 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key, 300 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key, 300 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key, 300 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key, 300 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key, 300 loops",
+   "field": "sitting"
+  },
+  {
+   "screenshot": "gas_station_mattress_key_300"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "gas_station_mattress key after CloseAllMenus",
+   "field": "sitting"
+  },
+  {
+   "console": "coc GSDocMitchellHouse"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064441\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064539\nplayer.MoveTo rF1 0 0 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064539\nif player.GetInSameCell rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed before",
+   "field": "sitting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed before",
+   "field": "hour"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064539\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 30 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 30 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 30 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 30 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 30 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 30 loops",
+   "field": "sitting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSleeping\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 30 loops",
+   "field": "sleeping"
+  },
+  {
+   "screenshot": "doc_twin_bed_activated_30"
+  },
+  {
+   "frames": 270
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 300 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 300 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 300 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 300 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 300 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 300 loops",
+   "field": "sitting"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSleeping\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed activated, 300 loops",
+   "field": "sleeping"
+  },
+  {
+   "screenshot": "doc_twin_bed_activated_300"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed after CloseAllMenus",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed after CloseAllMenus",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed after CloseAllMenus",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed after CloseAllMenus",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed after CloseAllMenus",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed after CloseAllMenus",
+   "field": "sitting"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064539\nplayer.MoveTo rF1 0 -150 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064539\nlet fA := player.GetAngle Z + player.GetHeadingAngle rF1\nplayer.SetAngle Z fA\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle X 30\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "ref rX\nBegin Function { }\nlet rX := GetCrosshairRef\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "doc_twin_bed key",
+   "field": "crosshair"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064539\nlet rC := GetCrosshairRef\nif rC == rF1\n  TapControl 5\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key, 30 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key, 30 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key, 30 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key, 30 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key, 30 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key, 30 loops",
+   "field": "sitting"
+  },
+  {
+   "screenshot": "doc_twin_bed_key_30"
+  },
+  {
+   "frames": 270
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key, 300 loops",
+   "field": "menu.dialogue"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1012\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key, 300 loops",
+   "field": "menu.sleep_wait"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key, 300 loops",
+   "field": "menu.container"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key, 300 loops",
+   "field": "menu.message"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key, 300 loops",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key, 300 loops",
+   "field": "sitting"
+  },
+  {
+   "screenshot": "doc_twin_bed_key_300"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetSitting\nSetFunctionValue fV\nEnd\n",
+   "label": "doc_twin_bed key after CloseAllMenus",
+   "field": "sitting"
+  }
+ ]
+}

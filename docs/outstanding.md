@@ -88,6 +88,9 @@ how quests run, the rest are guessed constants and looks to compare in the game.
   Alert.
 - Sleeping: whether E on a bed opens the sleep menu at once.
 
+Capture jobs that let the original game answer the factual ones (not the lab rules or the
+design choices) are ready to run: [spec-notes/owner-decision-captures.md](spec-notes/owner-decision-captures.md).
+
 **Looks and constants by area** (open, not quest-critical): rendering 29, menus and
 interface 27, combat 16, AI 11, dialogue 9, animation 9, world and physics 5, gameplay
 3, sound 3; the repository and install 8 (old remote branches to delete, figures to
