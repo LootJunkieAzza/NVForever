@@ -72,13 +72,23 @@ HUD and every menu [hypothesis].
 Unit tests: `nvf_play::screen_splatter` (ranges, cap, fade, settings, atlas cells),
 `fnv-game` `functions.rs` `films_splatter_and_cell_image_space`. Smoke
 `screen-splatter`. Capture job `tools/capture/jobs/fx_screen_splatter_look.steps.json`
-(save nvfstrip), one call per step with a picture after each: SetScreenSplatterFade 0.5 1
-alone, counts 1 and 10, stage 36's call (50 25 2 2), count 100, stage 50's call (100 20 2
-2) through its 20 s, the size and opacity factors, ClearScreenSplatter, the fade switch
-off, and the screen after `player.DamageActorValue Health 40`. Its first run (2026-10-18)
-ended with the original quitting, no error logged, inside the step that then held both
-SetScreenSplatterFade 0.5 1 and TriggerScreenSplatter 100 20 2 2 in one function script
-[observed, once]; the split names the call if it happens again.
+(save nvfstrip), one call per step with a picture after each: counts 1 and 10, stage
+36's call (50 25 2 2), count 100, stage 50's call (100 20 2 2) through its 20 s, the size
+and opacity factors, ClearScreenSplatter, the screen after `player.DamageActorValue
+Health 40`, and last SetScreenSplatterFade: once with splats already on the screen,
+then with the fade switch off.
+
+**SetScreenSplatterFade quits the original** [observed 2026-10-18, three runs]: as the
+first splatter call of a session, made from a capture job's function script, the game
+ended with nothing logged, before the step returned. That happened twice with
+`SetScreenSplatterFade 0.5 1` alone (the split job's step 7, after only the "clean"
+picture). The first run also ended, inside a step that began with the same call and then
+made `TriggerScreenSplatter 100 20 2 2`. TriggerScreenSplatter has not been seen to
+crash. Not known: whether the call crashes only with no splatter set up yet (the
+reordered job calls it after a trigger to see), only from a function script, or always.
+The shipped calls (VCG00 stages 36 and 50) come before that stage's triggers, but a new
+game never reaches those stages (§1), so no player meets this. Here the call only
+records its two values and is safe with any input (`misc::set_screen_splatter_fade`).
 
 Bounds here [engineering choice]: count at least 0 and at most iBloodSplatterMaxCount
 on the screen (that setting itself at most 1,000), duration at most an hour, the size

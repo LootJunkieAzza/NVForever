@@ -5857,6 +5857,10 @@ version of the cemetery scene a new game skips. My choices to check:
 - **Blood when you are hurt.** The console's ClearScreenBlood implies the original puts
   blood on the screen when the player takes damage, but nothing says when or how much;
   not built. The same capture job takes a picture after damage.
+- **SetScreenSplatterFade quit the original** twice, both times as the first splatter call
+  of a session (from a capture job), and with nothing logged. Here the call only records
+  its values. No player meets it in the original: the opening stages that call it are
+  skipped. Details in screen-splatter.md §5.
 ## Crippled limbs' effects (2026-10-18, branch claude/crippled-limb-effects-ab9ad8)
 
 What each crippled limb does, for the player and for NPCs, is in

@@ -810,6 +810,15 @@ fn films_splatter_and_cell_image_space() {
     call(&mut g, TRIGGER, None, &[n(100.0), n(20.0), n(2.0), n(2.0)]);
     call(&mut g, TRIGGER, None, &[n(50.0), n(0.0), n(2.5), n(2.0)]);
     assert_eq!(g.ui.splatter.fade, Some((0.5, true)));
+    // Safe with any values (the original quit at this call twice): held to 0-1, a start
+    // that is not a number is the game setting's (0.4 without the GMST), a missing switch on.
+    call(&mut g, FADE, None, &[n(7.0), n(0.0)]);
+    assert_eq!(g.ui.splatter.fade, Some((1.0, false)));
+    call(&mut g, FADE, None, &[n(f64::NAN)]);
+    assert_eq!(g.ui.splatter.fade, Some((0.4, true)));
+    call(&mut g, FADE, None, &[]);
+    assert_eq!(g.ui.splatter.fade, Some((0.4, true)));
+    call(&mut g, FADE, None, &[n(0.5), n(1.0)]);
     assert_eq!(
         g.ui.splatter.triggers,
         [SplatterTrigger { count: 100, duration: Some(20.0), size: 2.0, opacity: 2.0 }, SplatterTrigger { count: 50, duration: None, size: 2.5, opacity: 2.0 }]

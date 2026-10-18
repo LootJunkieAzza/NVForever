@@ -1,7 +1,7 @@
 {
  "format": "fnv.capture.steps/1",
  "name": "fx_screen_splatter_look",
- "title": "Screen splatter look, one call per step: SetScreenSplatterFade, TriggerScreenSplatter counts 1/10/50/100, stage 50's call over time, size and opacity factors, ClearScreenSplatter, fade off; blood when hurt (pictures, about 1.5 min, no input)",
+ "title": "Screen splatter look, one call per step: TriggerScreenSplatter counts 1/10/50/100, stage 50's call over time, size and opacity factors, ClearScreenSplatter, blood when hurt; SetScreenSplatterFade last (it crashed the original twice as the first call) (pictures, about 1.5 min, no input)",
  "start": "nvfstrip (any bright view; the job does not move the player; windowed game in front for the pictures)",
  "steps": [
   {
@@ -24,17 +24,6 @@
   },
   {
    "screenshot": "clean"
-  },
-  {
-   "query": "Begin Function { }\nSetScreenSplatterFade 0.5 1\nSetFunctionValue 1\nEnd\n",
-   "label": "fade 0.5 1",
-   "field": "ran"
-  },
-  {
-   "frames": 30
-  },
-  {
-   "screenshot": "after_fade"
   },
   {
    "query": "Begin Function { }\nTriggerScreenSplatter 1 20 1 1\nSetFunctionValue 1\nEnd\n",
@@ -197,6 +186,57 @@
    "screenshot": "cleared"
   },
   {
+   "console": "tgm"
+  },
+  {
+   "console": "player.DamageActorValue Health 40"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "screenshot": "hurt_t0.2"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "screenshot": "hurt_t1.2"
+  },
+  {
+   "console": "player.RestoreActorValue Health 40"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "query": "Begin Function { }\nTriggerScreenSplatter 10 20 2 2\nSetFunctionValue 1\nEnd\n",
+   "label": "splats before fade",
+   "field": "ran"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "before_fade"
+  },
+  {
+   "query": "Begin Function { }\nSetScreenSplatterFade 0.5 1\nSetFunctionValue 1\nEnd\n",
+   "label": "fade 0.5 1 with splats on",
+   "field": "ran"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "screenshot": "after_fade"
+  },
+  {
+   "query": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
+   "label": "clear after fade",
+   "field": "ran"
+  },
+  {
    "query": "Begin Function { }\nSetScreenSplatterFade 0.5 0\nSetFunctionValue 1\nEnd\n",
    "label": "fade 0.5 0",
    "field": "ran"
@@ -231,35 +271,6 @@
    "query": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
    "label": "clear after no-fade",
    "field": "ran"
-  },
-  {
-   "query": "Begin Function { }\nSetScreenSplatterFade 0.4 1\nSetFunctionValue 1\nEnd\n",
-   "label": "fade back",
-   "field": "ran"
-  },
-  {
-   "console": "tgm"
-  },
-  {
-   "console": "player.DamageActorValue Health 40"
-  },
-  {
-   "frames": 10
-  },
-  {
-   "screenshot": "hurt_t0.2"
-  },
-  {
-   "frames": 60
-  },
-  {
-   "screenshot": "hurt_t1.2"
-  },
-  {
-   "console": "player.RestoreActorValue Health 40"
-  },
-  {
-   "console": "tgm"
   },
   {
    "console": "tm"
