@@ -7,22 +7,25 @@ NVForever is an independent project, not affiliated with or endorsed by Bethesda
 Softworks, ZeniMax Media, Microsoft or Obsidian Entertainment; *Fallout* and *Fallout:
 New Vegas* are their trademarks. See [LEGAL.md](LEGAL.md).
 
-Status (2026-10-17, FNV 1.4.0.525, base game + all DLC): the archive and plugin readers,
+Status (2026-10-18, release v0.2.0, FNV 1.4.0.525, base game + all DLC): the archive and plugin readers,
 the asset formats, the world renderer, physics, the simulation core and the script runtime
 run on the whole game. `nvforever --play --menu` opens on the original's main menu
 (Continue, New Game, Load Game, Settings, Quit); New Game plays the intro film and the
-opening at Doc Mitchell's, with NVForever's own character creator for the face. From there
+opening at Doc Mitchell's, with NVForever's own character creator for the face (and the
+same creator as the barber and the plastic surgeon). From there
 it is a playable slice of the game: walk the Mojave with collision and fast travel from the
 Pip-Boy's map; talk to NPCs in the original's dialogue menu with their recorded voices;
 NPCs live by their AI packages, talk among themselves, detect you, fight, flee and hide,
 take cover, limp when crippled and are knocked out and get up again; shoot, strike and throw with the player's side of
 combat; companions such as Boone follow you through doors and fight with you; gain
 experience, level up and pick perks; pick locks, hack terminals, use aid items, craft at
-workbenches and campfires, play blackjack, roulette and NVForever's own poker, wait and sleep; crime, karma and
+workbenches and campfires, have your gear repaired or repair it yourself, play blackjack,
+roulette and NVForever's own poker, wait and sleep; VATS mode, NVForever's own Dead
+Eye-style slow-time mark and fire (V); crime, karma and
 reputation are tracked; the HUD, Pip-Boy, inventory, barter, container, pause, settings
 and main menus are drawn from the game's own menu files; music, sounds and radio play;
-save and load games (F5/F9, the pause menu, autosaves). Not built yet: VATS, live knockdowns (knock-outs are built),
-the repair menu, Caravan and the slot machines, the companion wheel.
+save and load games (F5/F9, the pause menu, autosaves). Not built yet: live knockdowns (knock-outs are built), Caravan and the slot
+machines, the companion wheel, the tutorial menu.
 
 **What is complete, partly built and not started, per system: [docs/status.md](docs/status.md).
 Everything still to do, ranked by what blocks a full playthrough:
@@ -35,9 +38,9 @@ Everything still to do, ranked by what blocks a full playthrough:
 | 2 | NIF, DDS, KF assets, viewer | done ([docs/design/layer2.md](docs/design/layer2.md)) |
 | 3 | World and rendering | done, with known gaps: exterior lighting and clouds against the game's frames, effect shaders, depth of field; an optional enhanced look (`--graphics enhanced`) ([docs/design/layer3.md](docs/design/layer3.md)) |
 | 4 | Core simulation, collision, physics, play | done; 3 accepted physics residuals ([docs/design/layer4.md](docs/design/layer4.md)) |
-| 5 | Scripting | done; every function the shipped scripts use probed against the original, about 55 still stubs that need systems not built yet ([docs/design/layer5.md](docs/design/layer5.md), [docs/design/script-function-coverage.md](docs/design/script-function-coverage.md)) |
-| 6 | Gameplay: AI, dialogue, combat, followers, crime, aid, progression | mostly done; levelling up and perks, blackjack and roulette built; crafting first version; VATS, live knockdowns, repair and Caravan not started |
-| 7 | Interface, audio, saves | mostly done; saved games and the main menu first versions; the companion wheel, credits, repair, barber and surgeon, Caravan and slot menus not started |
+| 5 | Scripting | done; every function the shipped scripts use probed against the original, 42 still stubs that need systems not built yet ([docs/design/layer5.md](docs/design/layer5.md), [docs/design/script-function-coverage.md](docs/design/script-function-coverage.md)) |
+| 6 | Gameplay: AI, dialogue, combat, followers, crime, aid, progression | mostly done; levelling up and perks, repair, knock-outs, blackjack, roulette and poker built; VATS mode (our own Dead Eye-style design) built; crafting first version; live knockdowns and Caravan not started |
+| 7 | Interface, audio, saves | mostly done; saved games and the main menu first versions; repair, barber and plastic surgeon menus built; the companion wheel, credits, tutorial, Caravan and slot menus not started |
 
 Decisions taken by working sessions while the owner was away, and questions for the
 owner, are listed in [docs/owner-review.md](docs/owner-review.md).

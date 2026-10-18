@@ -1,11 +1,11 @@
-# What is left (2026-10-17)
+# What is left (2026-10-18)
 
 Everything NVForever still lacks, in one place, ranked by what blocks a full playthrough
 of the base game. Drawn from [status.md](status.md) (per system), the script function
 coverage table ([design/script-function-coverage.md](design/script-function-coverage.md),
 every function the shipped scripts use, probed against the original), the open items of
 [owner-review.md](owner-review.md) and the outcome sections of the playtest lists in
-[handoff/](handoff/). It states the project's own state as of PR #403; facts about the
+[handoff/](handoff/). It states the project's own state as of PR #417 (release v0.2.0); facts about the
 original game are tagged in the linked notes. Update it when a PR closes an item.
 
 ## 1. Playthrough blockers (systems the quests need)
@@ -16,7 +16,9 @@ drawn from the rules (82 quests, #374), detection by and of the player (153, #37
 abilities and worn enchantments (80, #377), corpses stood up again (76, #391), fast
 travel (60, #393), knock-outs (essential and fatigue, #403; row 1 below keeps what is
 left of knockdowns), used items and the remaining package types and flags (#400),
-GetOwnerLastTarget (#403). About 50 functions are still stubs.
+GetOwnerLastTarget (#403), the repair menus (#408, #412), the barber and plastic surgeon
+(#414, #417), VATS mode (NVForever's own Dead Eye-style design, #413). 42 functions are
+still stubs.
 
 | # | System | Quests | What is missing | Functions |
 |---|---|---|---|---|
@@ -57,8 +59,7 @@ From [status.md](status.md); the playthrough blockers above are not repeated.
   motion blur, screen splatter; effect shaders' holes and add-on models, ash piles; about
   66 particle-system smokes not drawn (playtest list 4 item 16).
 - **Interface**: credits; the ITEMS page's DPS, ammo badge and Mod hint; the +10
-  XP line and the Locations Discovered stat; the controller's button pictures and
-  per-menu buttons.
+  XP line and the Locations Discovered stat.
 - **Audio and video**: reverb, spatial sinks; PlayBink (the end videos).
 - **Saves**: deleting saves from the menu, loading into another load order, AI progress.
 - **Console**: several statements on a line.
@@ -115,11 +116,16 @@ From [spec-notes/npc-behaviour-compare.md](spec-notes/npc-behaviour-compare.md) 
 
 ## 5. Process
 
-- **Smoke scenarios failing on main**: #403's full changed-path run (2026-10-17) found
-  `follower-boone`, `crippled-limp-gecko` and `death-cam-first` failing the same way on
-  origin/main as on its branch, from the #400 build on. They are not marked
-  `known_failing`; each needs a look (a regression from #400–#402, or timing on a loaded
-  machine).
+- **Smoke scenarios on main** (2026-10-18): the failures #403 found are fixed (#411,
+  #415, #416) except `death-cam-first`'s rest check, marked `known_failing` (the player's
+  ragdoll sometimes never settles; cause open, new diagnostics log it). Several scenarios
+  failed only because the scripts started late on a loaded machine and a test aid fired
+  first; scenarios now put console and script steps at 14 s or later and use
+  `--no-messages` where the add-on packs' start-up boxes could get in the way. A runner-side
+  fix (aids that wait for the scripts) would remove the class.
+- **Coordinator-run smoke**: since todo 6 (2026-10-17) worker sessions do not run the game;
+  the coordinator builds each PR merged with main and runs its scenarios in one ordered
+  queue, so the shared game is never contended.
 
 - **Game lock queue**: the smoke runner takes the game locks per launch, and the waiter
   that polls fastest wins, so a multi-scenario run is split up and early waiters can
