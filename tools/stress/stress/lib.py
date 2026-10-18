@@ -265,6 +265,31 @@ def run(ctx: Ctx, launch: Launch) -> Result:
 
 # ---------------------------------------------------------------- results
 
+STRAY = re.compile(r"stray entity command #(\d+) \(ignored; the entity is gone\): (.*?)(?:; where: (.*))?$")
+
+
+def stray_commands(lines: list[str]) -> dict:
+    """Commands the engine sent to entities that were gone (nvforever stray_commands.rs):
+    how many warnings, and each distinct command or system with its first place."""
+    count, first = 0, {}
+    for ln in lines:
+        if m := STRAY.search(ln):
+            count += 1
+            what = m.group(2)
+            key = what.split(": ", 1)[0]
+            first.setdefault(key, {"what": what, "where": m.group(3) or ""})
+    return {"count": count, "distinct": list(first.values())}
+
+
+def stray_report(s: dict) -> list[str]:
+    if not s["count"]:
+        return []
+    out = ["", f"## Stray entity commands ({s['count']} logged, ignored)", "",
+           "Commands for entities that were gone; each names what failed (stray_commands.rs).", ""]
+    out += [f"- `{d['what']}`" + (f" at {d['where']}" if d["where"] else "") for d in s["distinct"]]
+    return out
+
+
 def write_results(out: Path, results: dict, report: list[str]) -> None:
     (out / "results.json").write_text(json.dumps(results, indent=1), encoding="utf-8")
     (out / "report.md").write_text("\n".join(report) + "\n", encoding="utf-8")

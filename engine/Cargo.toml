@@ -12,7 +12,8 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 # Pinned exactly: upgrade deliberately, in its own commit, with a full parity-lab run.
 # pbr_specular_textures: normal-map alpha as the specular mask (docs/spec-notes/nif.md §6).
-bevy = { version = "=0.19.1", features = ["pbr_specular_textures"] }
+# `debug`: errors name the command or system that failed (stray_commands.rs in nvforever).
+bevy = { version = "=0.19.1", features = ["pbr_specular_textures", "debug"] }
 fnv-nif = { path = "../crates/fnv-nif" }
 fnv-dds = { path = "../crates/fnv-dds" }
 fnv-spt = { path = "../crates/fnv-spt" }
