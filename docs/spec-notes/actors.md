@@ -1531,6 +1531,39 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
   clips are layered over the locomotion clips: with the priorities of §9.1 the equip
   clip takes the upper body (55) and, standing, the legs (25–27 > idle 10), while a
   walk's legs (30) win.
+- **Moving with the weapon drawn** (2026-10-17, owner's todo 6 item 2: Ringo ran with
+  his pistol at the hip, as when standing). While the draw cycle is at "drawn" the
+  stance's own walks, runs and turns take the place of the unarmed `mt` ones
+  (`locomotion::WeaponMoves`, `fnv_actor::locomotion::weapon_moves`), blended in and out
+  over the clip's blend time as a change of posture is, and the aim clip still plays over
+  them, as the player's body does (`player_clips::move_clips`).
+  - Clips [observed: `Fallout - Meshes.bsa` file list, 2026-10-17]: in
+    `_male\locomotion\`, all eight walks and runs (`forward`, `backward`, `left`,
+    `right`, each also `fast…`) for `1hp`, `1hm`, `2hh`, `2hl` and `h2h`; `2hr` has the
+    four runs and `2hrforward.kf`, `2ha` the same, `2hm` and `1gt` the four runs only;
+    turns `1gtturnleft/right.kf`, `1lmturnleft/right.kf`, `1mdturnleft/right.kf` and
+    `2hhturnleft/right.kf` there and
+    `1hpturnleft/right.kf`, `1hmturnleft/right.kf`, `h2hturnleft/right.kf` in `_male\`
+    itself; crouched only `sneak2hh*.kf` (eight); limping (`locomotion\hurt\`) the eight
+    of `1hp` and `1hm` and `h2hforward_hurt.kf`. The weapon clips are not per body (no
+    `male\`/`female\` copies).
+  - Why it matters [observed: controlled-block priorities, `fnvtool nif decode`]:
+    `1hpfastforward.kf` drives spine and arms at 36 and `Weapon` at 35, over `1hpaim.kf`
+    (spine 30, left arm 30, right arm 35), so the run holds the pistol up; the unarmed
+    `mtfastforward.kf` is 30 everywhere and left the arms to the aim clip. The same
+    holds for `2hrfastforward.kf` (36 over `2hraim.kf` 30/35), `2hafastforward.kf`,
+    `2hhforward.kf` and `2hhfastforward.kf` (36), `2hmfastforward.kf` (arms 46 over
+    `2hmaim.kf` 45) and `h2hfastforward.kf` (arms 46 over `h2haim.kf` 45). The walks are
+    closer to their aim clip (`1hpforward.kf` spine and left arm 31, right arm 35 as the
+    aim's; `1hmforward.kf` 30) and share the body with it by the blending rule above.
+    Turns drive the legs only (`1hpturnleft.kf` 30).
+  - Moves without a clip of the stance keep the unarmed one under the aim clip [design,
+    as the player's body]. No weapon idle: standing, the aim clip over `mtidle.kf` stays
+    the drawn pose (`1hmidle.kf`, `h2hidle.kf` exist and are not used) [design].
+  - Limping armed: the weapon's limping clip, else the unarmed limp, else the weapon's
+    walk; the weapon's turn over the limping turn (the player's order).
+  - Each clip file an armed NPC plays is logged once: `armed locomotion: <actor> <prefix>
+    <move> plays <file>` (smoke `armed-npc-moves`).
 - **Weapon model**: drawn as a rigid part under the actor's `Weapon` node, which is moved
   to the bone of §9.2 when it changes. The `##` part tracks are not played yet (the parts
   stay at their model pose).
