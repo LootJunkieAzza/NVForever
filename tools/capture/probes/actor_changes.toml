@@ -12,6 +12,7 @@ pete = "FalloutNV.esm:104C80"         # EasyPeteRef (Goodsprings)
 doc = "FalloutNV.esm:104C0F"          # DocMitchellREF (CaucasianOld)
 chet = "FalloutNV.esm:104C79"         # GSChetRef
 cobb = "FalloutNV.esm:104C68"         # GSJoeCobbRef
+ringo = "FalloutNV.esm:104C7D"        # RingoRef (in the gas station of nvftest)
 caucasian = "FalloutNV.esm:000019"    # RACE Caucasian
 caucasianold = "FalloutNV.esm:0042C3" # RACE CaucasianOld
 caucasianchild = "FalloutNV.esm:0042C2" # RACE CaucasianChild
@@ -162,6 +163,48 @@ steps = [
   { frames = 240 },
   { ask = "@cobb.GetDead", label = "cobb dead after 420 frames" },
   { ask = "player.GetSandman", label = "GetSandman after 420 frames" },
+]
+
+# ac5c: the perk's own setting, a really sleeping NPC (the owner's suggestion after ac5 and
+# ac5b: both crashes were on NPCs that were not asleep). Ringo: the save nvftest starts in
+# the Goodsprings gas station with him; his GSRingoSleepPackage22x8 (PACK 0010ABA8, Sleep,
+# in cell GSGasStation 00109038, 22:00 for 8 hours) is the package he runs from 22 to 6 in a
+# game where nothing has happened (`fnvtool ai day`); he is not essential (ACBS flags: only
+# Auto-calc stats) and the Mister Sandman entry's tab-1 conditions ask for a sleeping,
+# conscious, non-essential human [observed]. If GetSleeping never reaches 3 (asleep) the
+# until step times out and the batch ends there. Run it on its own and last: it may crash
+# as ac5 and ac5b did.
+[[batch]]
+name = "ac5c_sandman_sleeping"
+title = "Actor changes 5c: StartMisterSandman on a sleeping NPC (Ringo in his bed at 23:00): killed at once or at the clip's end, by whom, and how long GetSandman holds (up to 2.5 min waiting for him to fall asleep; it may crash the game; run it alone, last)"
+start = "nvftest (Goodsprings gas station, Ringo inside); the hour is set to 23 and Ringo is killed. tgm."
+ours_start = [{ op = "go_to_cell", cell = "GSGasStation" }, { op = "wait_frames", frames = 60 }]
+steps = [
+  { console = "tgm" },
+  { ask = "@ringo.GetSleeping", label = "ringo sleeping before (0 awake, 3 asleep)" },
+  { ask = "@ringo.GetDead", label = "ringo dead before" },
+  { console = "set gamehour to 23", note = "inside his 22:00-06:00 sleep window" },
+  { frames = 60 },
+  { do = "@ringo.EvaluatePackage" },
+  { ask = "@ringo.GetSleeping", label = "ringo sleeping just after the hour is set" },
+  { until = "@ringo.GetSleeping == 3", max_frames = 9000, side = "game", label = "ringo asleep (GetSleeping 3)", note = "time to walk to his bed and lie down" },
+  { ask = "@ringo.GetSleeping", label = "ringo sleeping after the wait" },
+  { moveto = "@ringo", note = "the player next to the sleeping Ringo, as the perk's activation would have it" },
+  { frames = 60 },
+  { ask = "@ringo.GetSleeping", label = "ringo still asleep with the player beside him" },
+  { do = "@ringo.StartMisterSandman player" },
+  { ask = "@ringo.GetDead", label = "ringo dead at once" },
+  { ask = "player.GetSandman", label = "GetSandman at once" },
+  { frames = 60 },
+  { ask = "@ringo.GetDead", label = "ringo dead after 60 frames" },
+  { ask = "player.GetSandman", label = "GetSandman after 60 frames" },
+  { frames = 120 },
+  { ask = "@ringo.GetDead", label = "ringo dead after 180 frames" },
+  { ask = "player.GetSandman", label = "GetSandman after 180 frames" },
+  { frames = 240 },
+  { ask = "@ringo.GetDead", label = "ringo dead after 420 frames" },
+  { ask = "player.GetSandman", label = "GetSandman after 420 frames" },
+  { ask = "@ringo.GetKiller", ref = true, side = "game", label = "ringo's killer (xNVSE)" },
 ]
 
 # ---------------------------------------------------------------- ac6: talking activators
