@@ -472,14 +472,8 @@ pub fn drive(
     }
     for (_, v, _, _, _, hold) in &actors {
         if let Some(h) = hold {
+            // GetAnimAction's drawing and putting away: `anim_state.rs`.
             game.set_weapon_out(FormId(v.0), h.anim.stage == Stage::Drawn);
-            // GetAnimAction: 0 drawing the weapon, 1 putting it away.
-            let action = match h.anim.stage {
-                Stage::Equipping => Some(0),
-                Stage::Unequipping => Some(1),
-                Stage::Holstered | Stage::Drawn => None,
-            };
-            game.set_anim_action(FormId(v.0), action);
         }
     }
     // Who is in a conversation, and their part in it (talking gestures).

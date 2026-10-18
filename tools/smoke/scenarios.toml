@@ -625,7 +625,7 @@ args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", 
 run_seconds = 45
 expect = [
   "fights the player with WeapHuntingRifle (gun)",
-  { re = 'stops and faces .*?(?P<n>[\d,]+) units away', range = [1200, 2000], label = "stops and faces the player at about 1,600 units", known_failing = "claude/combat-ai-2 2026-10-12, 1 of 1 runs, by design: her combat style's Take Cover Chance (combat-ai.md §12.6) has her run to cover 900 units off instead of stopping in the open (the only 'stops and faces' line is at 2,656 units, before she fights)" },
+  { re = 'stops and faces .*?(?P<n>[\d,]+) units away', range = [1200, 2000], label = "stops and faces the player at about 1,600 units" },
   "shots are drawn from its weapon's muzzle",
   { re = 'attack anims summary.*2hrattack3\.kf', known_failing = "claude/playtest-combat 2026-10-12, by design: Violet stops about 1,600 units off, beyond 20 m, so every shot is aimed down the sights and plays the iron-sights clip (attack anims summary: 2hrattack3is.kf 13); the owner's playtest list items 32-33, combat-ai.md §10.6. combat-sights checks both clips" },
   { re = 'Violet hits the player for 44\.7', min = 9, max = 15, label = "a dozen 'Violet hits the player for 44.7'", known_failing = "main fea339c 2026-10-15, 3 of 3 runs: 8 hits; cause not looked at (her run to cover, the mark above, leaves less time to shoot)" },
@@ -640,10 +640,10 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST
 args = ["--cell", "Goodsprings", "--pos=-45600,65000,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "000F573F,0013E5BB"]
 run_seconds = 30
 expect = [
-  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary", known_failing = "machine-dependent (laptop, main baf3806 2026-10-16, 3 of 3 runs: 13-14 blows; desktop 3 of 3 passes, 16 at 54 frames/s): the dogs attack at the combat style's 55 % each time they may and hold otherwise (combat-ai.md §10.4), so the count follows how long they fight in game time, which a slower start-up and long frames (game time is capped at 0.25 s a frame) shorten [hypothesis: the laptop's frame rate was not measured]" },
+  { re = 'npc combat summary.*?(?P<n>\d+) blows', range = [15, 25], label = "about 20 blows in the npc combat summary" },
   { re = 'attack anims summary.*h2hattack' },
   { re = 'npc melee spacing: \d+ blows began at .*\(median (?P<n>\d+), feet to feet\)', range = [100, 170], label = "the dogs bite from their reach and body, (RNAM 48 + 59) x 1.2 = 128 at most, not from inside the player (the original's dogs began a median 133 units away; ours 121 on 2026-10-17; npc-behaviour-compare.md §3)" },
-  { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines", known_failing = "machine-dependent (laptop, main baf3806 2026-10-16, 2 of 3 runs over 8; desktop 4 lines): the dogs close in again each time the player gets out of reach, which depends on the frame timing as the blow count above [hypothesis]" },
+  { re = 'runs at |stops and faces ', max = 8, label = "only a few runs at / stops and faces lines" },
 ]
 
 [[scenario]]
@@ -734,11 +734,11 @@ expect = [
 [[scenario]]
 name = "combat-sights"
 source = "playtest list 2026-10-11 items 32-33 (docs/design/combat-ai.md §10.6): NPCs aim down the sights beyond 20 m (1,400 units) and walk while aiming, fire from the hip nearer"
-note = "Violet (0x000F570B, placed at -46910,64897) stops about 1,600 units from the player, beyond 20 m: down the sights; at 38 s the player is put about 1,000 units from her: from the hip"
+note = "Violet (0x000F570B, placed at -46910,64897) starts about 1,900 units from the player, within her hunting rifle's reach (2,000; docs/design/combat-ai.md §16) and beyond the 1,800 at which a gunman sets off again, so she walks in aiming down the sights to about 1,600 units, beyond 20 m; at 38 s the player is put about 1,000 units from her, just above the ground (z 4,400; the ground is about 4,290 there: from z 7,000 the player fell for seconds 2,700 units above her, beyond her reach measured to the chest, and she held fire): from the hip. Until PR #444 the player started 3,000 units off; beyond her reach she now runs in with her sights lowered (combat-sights-beyond-reach)"
 areas = ["combat"]
 paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/attack_anims.rs", "crates/fnv-ai/src/alert.rs", "crates/fnv-combat/src/spread.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOTO = "38:-44500:64896:7000" }
-args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_GOTO = "38:-45600:64896:4400" }
+args = ["--cell", "Goodsprings", "--pos=-45000,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
 run_seconds = 55
 expect = [
   { re = 'FiendVioletRef 0x000F570B aims down the sights, its target (?P<n>[\d,]+) units away \(beyond 1400\)', range = [1400, 3500], label = "Violet aims down the sights beyond 1,400 units" },
@@ -749,6 +749,26 @@ expect = [
   { re = 'attack anims summary.*2hrattack3is\.kf', label = "the iron-sights attack clip played" },
   { re = 'attack anims summary.*2hrattack3\.kf', label = "the hip attack clip played" },
 ]
+
+[[scenario]]
+name = "combat-sights-beyond-reach"
+source = "owner request 2026-10-18: NPCs fired out of range (docs/design/combat-ai.md §16); the original's flamer trooper held fire from 1,283 units and first attacked at 726 [observed 2026-10-18, AI observer campaign gun_reach]"
+note = "combat-sights' old start: the player about 3,000 units from Violet (0x000F570B, placed at -46910,64897), beyond her hunting rifle's reach (2,000). She holds fire, runs in with her sights lowered, and once the player is within reach stops, takes cover or aims; her first shot is within reach"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+run_seconds = 45
+expect = [
+  { re = 'npc gun reach summary: .*? (?P<n>\d+) shots beyond it', range = [0, 0], label = "no shot beyond a gun's reach in the summary" },
+]
+order = [[
+  { re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyond its weapon.s reach \((?P<n>\d+) units, reach 2000\)', range = [2001, 5000], label = "she holds fire beyond her rifle's reach" },
+  { re = 'FiendVioletRef: runs at the player, [\d,]+ units away, [\d,]+ units to go$', label = "she runs in with her sights lowered" },
+  { re = 'npc combat: FiendVioletRef \S+ has the player in reach \((?P<n>\d+) units, reach 2000\)', range = [0, 2000], label = "then has the player within reach" },
+  { re = 'FiendVioletRef: (stops and faces|goes to cover against) the player|npc combat: FiendVioletRef \S+ (crouches to fire at|aims down the sights, its target)', label = "then stops, takes cover or aims" },
+  { re = 'npc combat: FiendVioletRef \S+ opens fire on the player from (?P<n>\d+) units \(reach 2000\)', range = [0, 2000], label = "her first shot is within reach" },
+]]
 
 [[scenario]]
 name = "combat-npc-reload"
@@ -2053,12 +2073,15 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # claude/blockers-save-reticle implemented SystemSave, ForceSave and PlaceAtReticle (10 calls,
 # docs/spec-notes/script-saves-and-reticle.md): 41 → 38 stubs, 179 → 169 calls [observed:
 # fnvtool script stubs on the owner's masters, merged with main, 2026-10-18].
+# claude/blockers-anim-state implemented IsPlayerActionActive (2 calls, §3.13): 38 → 37
+# stubs, 169 → 167 calls [observed: fnvtool script stubs on the owner's masters, merged
+# with main 5a98cb50, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 38 },
+  { json = "summary.stubs", equals = 37 },
   { json = "summary.by_status.implementable", equals = 1 },
-  { json = "summary.by_status.needs_system", equals = 37 },
+  { json = "summary.by_status.needs_system", equals = 36 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 169 },
+  { json = "summary.stub_calls", equals = 167 },
   { json = "summary.stub_condition_uses", equals = 125 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
@@ -2450,9 +2473,9 @@ env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_UNSEEN = "1", NVF_PLAY_TEST_SCRIP
 args = ["--cell", "Goodsprings", "--pos=-43200,72000,7000", "--play", "--hour", "12", "--no-voice"]
 run_seconds = 120
 expect = [
-  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); claude/creature-melee-spacing the same, cover in 1 of 3 runs (937 units away); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
-  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); claude/creature-melee-spacing the same, cover in 1 of 3 runs (937 units away); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
-  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary", known_failing = "branch observer-npc-behaviour 2026-10-17: no cover in 2 of 3 runs of this scene (2 covers taken in the third, cmp-battle); claude/creature-melee-spacing the same, cover in 1 of 3 runs (937 units away); the Take Cover Chance roll every 10 s with melee fighters now held at their reach and fewer combat lines, the battle runs longer and differently; not looked at further [hypothesis]" },
+  { re = 'npc combat: .* takes cover (?P<n>\d+) units away', range = [0, 1100], label = "a fighter takes cover within 1,024 units" },
+  { re = 'ai \[.*goes to cover against ', label = "it goes behind the cover" },
+  { re = 'battle summary: .*?(?P<n>\d+) cover taken', range = [1, 1000], label = "cover taken in the battle summary" },
 ]
 
 [[scenario]]
@@ -2581,6 +2604,64 @@ expect = [
 ]
 
 [[scenario]]
+name = "combat-flamer-reach"
+source = "owner request 2026-10-18: NPCs fired out of range; Cook-Cook fired his flamer from cover as soon as the player was in sight (docs/design/combat-ai.md §16)"
+note = "Cook-Cook (FiendCookCookRef 000F5704, WeapFlamer: max range 650, its flame 640) is set on the player about 1,700 units away at 3 s, god mode, run on his packages: he holds fire beyond 640 units, runs at the player (out of reach a gunman takes no flank place) and fires once within it. The AI's lines name him by FormID (ai [..] 000F5704: …). The other Fiends of the camp are not run on their packages; any gunman among them holds fire beyond its reach too (the summary counts every fighter)"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:0x000F5704:player" }
+args = ["--cell", "Goodsprings", "--pos=-43200,73000,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "000F5704"]
+run_seconds = 45
+expect = [
+  { re = 'npc combat: FiendCookCookRef \S+ fights the player with WeapFlamer \(gun\)', label = "Cook-Cook fights with his flamer" },
+  { re = 'ai \[[\d:]+\] 000F5704: (runs|walks) at the player', label = "he closes in" },
+  { re = 'npc gun reach summary: .*? (?P<n>\d+) shots beyond it', range = [0, 0], label = "no shot beyond a gun's reach in the summary" },
+  { re = 'npc gun reach summary: held fire (?P<n>\d+) times at a target beyond reach', range = [1, 1000], label = "fire held beyond reach in the summary" },
+]
+order = [[
+  { re = 'npc combat: FiendCookCookRef \S+ holds fire: the player is beyond its weapon.s reach \((?P<n>\d+) units, reach 640\)', range = [641, 5000], label = "he holds fire from afar" },
+  { re = 'ai \[[\d:]+\] 000F5704: (runs|walks) at the player', label = "then runs at the player (no flank place while out of reach)" },
+  { re = 'npc combat: FiendCookCookRef \S+ has the player in reach \((?P<n>\d+) units, reach 640\)', range = [0, 640], label = "then has the player within his flame's reach" },
+  { re = 'npc combat: FiendCookCookRef \S+ opens fire on the player from (?P<n>\d+) units \(reach 640\)', range = [0, 640], label = "then fires, from within his flame's reach" },
+  { re = 'attack anims: 000F5704 plays \S*2hhattackspin2?\.kf', label = "with the flamer's attack clip" },
+]]
+
+[[scenario]]
+name = "combat-shotgun-reach"
+source = "owner request 2026-10-18: a shotgun wants to be closer than a sniper rifle (docs/design/combat-ai.md §16)"
+note = "Violet (FiendVioletRef 0x000F570B, placed at -46910,64897) is given and made to equip a hunting shotgun (WeapNVHuntingShotgun: max range 600) and set on the player about 3,000 units away at 4 s, god mode: she holds fire beyond 600 units, closes in and fires within it. Pair: combat-sniper-reach"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:FiendVioletRef:AddItem:WeapNVHuntingShotgun:1,3.5:call:FiendVioletRef:EquipItem:WeapNVHuntingShotgun,4:combat:FiendVioletRef:player" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 60
+expect = [
+  { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapNVHuntingShotgun \(gun\)', label = "Violet fights with the shotgun" },
+  { re = 'FiendVioletRef: (runs|walks) at the player', label = "she closes in" },
+  { re = 'npc gun reach summary: .*? (?P<n>\d+) shots beyond it', range = [0, 0], label = "no shot beyond a gun's reach in the summary" },
+]
+order = [[
+  { re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyond its weapon.s reach \((?P<n>\d+) units, reach 600\)', range = [601, 5000], label = "she holds fire from afar" },
+  { re = 'npc combat: FiendVioletRef \S+ has the player in reach \((?P<n>\d+) units, reach 600\)', range = [0, 600], label = "then has the player within the shotgun's reach" },
+]]
+
+[[scenario]]
+name = "combat-sniper-reach"
+source = "owner request 2026-10-18: a sniper rifle hangs back where a shotgun closes in (docs/design/combat-ai.md §16)"
+note = "as combat-shotgun-reach with a sniper rifle (WeapSniperRifle: max range 3548): about 3,000 units away the player is within its reach, so she fires from afar (down the sights) and never holds fire for the distance; she stops at most 2,500 units off"
+areas = ["combat"]
+paths = ["engine/nvforever/src/npc_combat.rs", "engine/nvforever/src/combat_tactics.rs", "crates/fnv-ai/src/alert.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:call:FiendVioletRef:AddItem:WeapSniperRifle:1,3.5:call:FiendVioletRef:EquipItem:WeapSniperRifle,4:combat:FiendVioletRef:player" }
+args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--no-messages", "--npc-packages", "FiendVioletRef"]
+run_seconds = 45
+expect = [
+  { re = 'npc combat: FiendVioletRef \S+ fights the player with WeapSniperRifle \(gun\)', label = "Violet fights with the sniper rifle" },
+  { re = 'FiendVioletRef 0x000F570B aims down the sights, its target (?P<n>[\d,]+) units away', range = [1800, 3548], label = "she fires from afar, down the sights" },
+  { re = 'npc gun reach summary: .*? (?P<n>\d+) shots beyond it', range = [0, 0], label = "no shot beyond a gun's reach in the summary" },
+]
+forbid = [{ re = 'npc combat: FiendVioletRef \S+ holds fire: the player is beyond its weapon.s reach', label = "she holds fire for the distance" }]
+
+[[scenario]]
 name = "npc-flamer-holstered"
 source = "owner 2026-10-16: an NPC's holstered flamer should show its tank on the back and no gun in the hand, as the player's minigun does (animation.md §9.7)"
 note = "free camera behind Cook-Cook (000F5704), weapons holstered; screenshots of this view showed the tank on his back and empty hands, and with --actor-weapons drawn the flamer in both hands with the tank still on the back"
@@ -2611,11 +2692,11 @@ expect = [
 [[scenario]]
 name = "combat-flee-hide"
 source = "owner 2026-10-17: fleeing NPCs run off and hide crouched when they stop, out of their enemy's way, with the original's cowering (docs/design/combat-ai.md §12.2.1, docs/spec-notes/idles.md §13)"
-note = "Violet (FiendVioletRef) fights the player from 3 s and is made to flee by ForceFlee at 8 s (god mode, the player does not shoot); at her flee spot she crouches and plays the IDLE tree's CowerIdles (3rdP_Cowering.kf)"
+note = "Violet (FiendVioletRef) fights the player from 3 s, about 1,900 units away, within her hunting rifle's reach (2,000; since PR #444 she would only run in from the old 3,000-unit start, docs/design/combat-ai.md §16) and is made to flee by ForceFlee at 8 s (god mode, the player does not shoot); at her flee spot she crouches and plays the IDLE tree's CowerIdles (3rdP_Cowering.kf)"
 areas = ["combat", "combat-groups", "animation"]
 paths = ["crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/ai_state.rs", "crates/fnv-ai/src/alert.rs", "engine/nvforever/src/idles.rs", "engine/nvforever/src/npc_combat.rs"]
 env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "3:combat:FiendVioletRef:player,8:call:FiendVioletRef:ForceFlee" }
-args = ["--cell", "Goodsprings", "--pos=-43900,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
+args = ["--cell", "Goodsprings", "--pos=-45000,64896,7000", "--play", "--hour", "12", "--no-voice", "--npc-packages", "FiendVioletRef"]
 run_seconds = 40
 expect = [
   { re = 'ai \[.*Violet\S*: flees from the player (to cover|away|through door)', label = "Violet runs from the player to a flee spot" },
@@ -4742,3 +4823,20 @@ expect = [
   { re = 'cell image space: .* graded with', count = 1, label = "not before the cell loads again" },
 ]
 manual = "think_tank_before.png and think_tank_called.png alike (the change waits for the cell to load); think_tank_red.png graded red"
+name = "anim-state"
+source = "docs/outstanding.md §1 row 4: the engine tells the rules what each body does (crates/fnv-game/src/anim_state.rs, engine/nvforever/src/anim_state.rs): GetAnimAction's attacks and reloads, IsMoving's way, IsAnimPlaying of an actor's movement group"
+note = "as combat-npc-reload: Chet (GSChetRef) is given a .357 Magnum Revolver and set on the player, who cannot die (GOD). Before the fight the console reads Chet standing: IsAnimPlaying Idle 1 (observed on Sunny Smiles standing) and GetAnimAction -1; IsAnimPlaying without a group is read too, unchecked, to tell a missing snapshot (0) from another group (1) in a failing run, with the 'anim state: 00104C79 …' lines. In the fight his shots begin 2, 3 and 4 and his reloads 9 (the New Vegas codes, observed so in the AI observer's Goodsprings gunfight); the summary at exit counts how often each began"
+areas = ["combat", "scripts", "actors"]
+paths = ["crates/fnv-game/src/anim_state.rs", "engine/nvforever/src/anim_state.rs", "crates/fnv-game/src/anims.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/senses.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "14:GSChetRef.IsAnimPlaying Idle;14.15:GSChetRef.IsAnimPlaying;14.3:GSChetRef.GetAnimAction;14.6:close", NVF_PLAY_TEST_SCRIPT = "15:call:GSChetRef:AddItem:WeapNV357Revolver:1,15.5:call:GSChetRef:EquipItem:WeapNV357Revolver,16:combat:GSChetRef:player" }
+args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
+run_seconds = 56
+expect = [
+  { re = 'console: IsAnimPlaying on GSChetRef >> 1\.00', label = "Chet standing plays Idle" },
+  { re = 'console: GetAnimAction on GSChetRef >> -1\.00', label = "and does no special action" },
+  { re = 'npc combat: GSChetRef .* fights the player with WeapNV357Revolver \(gun\)', label = "Chet fights with the .357" },
+  { re = 'anim state summary: .*attack \(2\) (?P<n>\d+)', range = [6, 100000], label = "his shots begin 2" },
+  { re = 'anim state summary: .*follow-through \(3\) (?P<n>\d+)', range = [6, 100000], label = "then 3" },
+  { re = 'anim state summary: .*attack return \(4\) (?P<n>\d+)', range = [1, 100000], label = "then 4" },
+  { re = 'anim state summary: .*reload \(9\) (?P<n>\d+)', range = [1, 100000], label = "his reloads 9" },
+]
