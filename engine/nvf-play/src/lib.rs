@@ -34,6 +34,7 @@ pub mod dialogue_look;
 pub mod dialogue_menu;
 pub mod doors;
 pub mod dropped;
+pub mod fade;
 pub mod flashlight;
 pub mod free_cam;
 pub mod furniture;
@@ -273,7 +274,7 @@ impl Plugin for PlayPlugin {
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, sfx::SfxPlugin, music::MusicPlugin, ambient::AmbientPlugin, radio::RadioPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin, hud::HudPlugin, compass::CompassPlugin))
             .add_plugins((world_sounds::WorldSoundsPlugin, reticle::ReticlePlugin, xp_meter::XpMeterPlugin))
             .add_plugins((ui_sounds::UiSoundsPlugin, pad::PadPlugin, rumble::RumblePlugin))
-            .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin))
+            .add_plugins((chargen::ChargenPlugin, creator::CreatorPlugin, fade::FadePlugin))
             .add_plugins(levelup::LevelUpPlugin)
             .add_plugins(pipboy::PipBoyPlugin)
             .add_plugins(terminal::TerminalPlugin)

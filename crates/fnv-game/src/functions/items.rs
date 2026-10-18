@@ -7,6 +7,7 @@ use crate::trace::EventKind;
 use fnv_script::vm::Value;
 use fnv_sim::forms::ItemKind;
 use fnv_sim::inventory::Extra;
+use fnv_sim::world::EquipLock;
 use fnv_sim::FormId;
 
 /// The items an item parameter stands for: the form itself, or every member of a form
@@ -77,14 +78,15 @@ pub fn get_item_count(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String
 }
 
 /// `RemoveAllItems [target] [retainOwnership] [hideMessages]`: into the target
-/// container, or destroyed. The retain-ownership flag is not modelled yet: moved items
-/// keep their owner either way (docs/design/script-function-params.md).
+/// container, or destroyed. Moved items keep their owner only with retainOwnership
+/// non-zero [documented: GECK wiki RemoveAllItems] (`fnv_sim::World::transfer_all_owned`).
 pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let from = ctx.subject()?;
     let silent = hide_flag(a, 2);
+    let keep_owner = a.num_or(1, 0.0) != 0.0;
     let stacks = match a.opt_form(0) {
         Some(to) => {
-            let moved = g.world.transfer_all(from, to).map_err(|e| e.to_string())?;
+            let moved = g.world.transfer_all_owned(from, to, keep_owner).map_err(|e| e.to_string())?;
             for &(item, count) in &moved {
                 g.emit(EventKind::ItemAdded { to, item, count, silent });
             }
@@ -98,9 +100,18 @@ pub fn remove_all_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Stri
     none()
 }
 
+/// `actor.EquipItem item [NoUnequipFlag] [HideEquipMessage]`. EquipItem takes away a
+/// NoEquip lock UnequipItem put on the item; with NoUnequipFlag 1 the item is locked on:
+/// neither the actor nor the player's inventory can take it off, and nothing else goes
+/// into its slot, until UnequipItem [documented: GECK wiki EquipItem]
+/// (`fnv_sim::EquipLock`). A slot held by a locked item refuses the item [documented:
+/// same page], an error of the call.
 pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let item = a.form(0)?;
+    if g.world.equip_lock(actor, item) == Some(EquipLock::NoEquip) {
+        g.world.lock_equip(actor, item, None).map_err(|e| e.to_string())?;
+    }
     let e = match g.world.equip(actor, item) {
         // Power armour on the untrained player: the game's message, as from the Pip-Boy
         // [hypothesis: a script's EquipItem is refused as the player's own equipping is].
@@ -110,6 +121,9 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
         }
         r => r.map_err(|e| e.to_string())?,
     };
+    if !e.consumed && hide_flag(a, 1) {
+        g.world.lock_equip(actor, item, Some(EquipLock::NoUnequip)).map_err(|e| e.to_string())?;
+    }
     for u in e.unequipped {
         g.item_event(actor, u, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
     }
@@ -128,11 +142,22 @@ pub fn equip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
+/// `actor.UnequipItem item [NoEquipFlag] [HideEquipMessage]`. UnequipItem takes away a
+/// NoUnequip lock EquipItem put on; with NoEquipFlag 1 the item is locked off until
+/// EquipItem [documented: GECK wiki UnequipItem] (`fnv_sim::EquipLock`). The page's note
+/// that companions ignore the flag is not modelled (no actor re-equips by itself yet).
+/// HideEquipMessage has nothing to hide: the engine shows no equip lines.
 pub fn unequip_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let actor = ctx.subject()?;
     let item = a.form(0)?;
+    if g.world.equip_lock(actor, item) == Some(EquipLock::NoUnequip) {
+        g.world.lock_equip(actor, item, None).map_err(|e| e.to_string())?;
+    }
     if g.world.unequip(actor, item).map_err(|e| e.to_string())? {
         g.item_event(actor, item, event::ON_UNEQUIP, Some(Value::Ref(actor.0)));
+    }
+    if hide_flag(a, 1) {
+        g.world.lock_equip(actor, item, Some(EquipLock::NoEquip)).map_err(|e| e.to_string())?;
     }
     g.sync_actor_effects(actor);
     none()
@@ -376,15 +401,21 @@ pub fn set_quest_object(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Str
 /// `AddItemToLeveledList list form level count health`: from now on `form` (an item or
 /// a leveled list) is an entry of the leveled item list `list` at `level`, `count` at a
 /// time; kept in the saved state and never taken back [documented: GECK wiki
-/// AddItemToLeveledList] (`fnv_sim::World::add_to_leveled_list`). The health (0–100 in
-/// New Vegas [documented]) is not kept: leveled entries here carry no condition, and the
-/// shipped calls all ask for 1 or 100 [observed: the 20 decoded calls of Honest Hearts
-/// and Old World Blues]. Count and level below 1 are read as 1 [hypothesis].
+/// AddItemToLeveledList] (`fnv_sim::World::add_to_leveled_list`). The health is a
+/// percentage, 0–100 in New Vegas [documented: same page, "now accepts values from 0
+/// to 100, rather than from 0 to 1"]: the items the entry gives have that condition
+/// (`LeveledEntry::condition`); 100, or none given, is a whole item. The shipped calls
+/// ask for 1 or 100 [observed: the 20 decoded calls of Honest Hearts and Old World
+/// Blues]: 1 gives items at 1 % as the page reads [observed: capture `leveled_list_health`,
+/// 2026-10-18: Vance's 9mm SMG drawn from a list entry added at 50 had 375 of 750 health,
+/// at 1 had 7.5].
+/// Count and level below 1 are read as 1 [hypothesis].
 pub fn add_item_to_leveled_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let list = a.form(0)?;
     let item = a.form(1)?;
     let level = a.num_or(2, 1.0).clamp(1.0, u16::MAX as f64) as u16;
     let count = a.num_or(3, 1.0).clamp(1.0, u16::MAX as f64) as u16;
-    g.world.add_to_leveled_list(list, fnv_sim::forms::LeveledEntry { level, item, count }).map_err(|e| e.to_string())?;
+    let condition = a.num(4).ok().map(|h| (h / 100.0).clamp(0.0, 1.0) as f32).filter(|c| *c < 1.0);
+    g.world.add_to_leveled_list(list, fnv_sim::forms::LeveledEntry { level, item, count, condition }).map_err(|e| e.to_string())?;
     none()
 }

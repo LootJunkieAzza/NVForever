@@ -192,21 +192,35 @@ pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// docs/spec-notes/scripts.md §7.7). The two turn to each other while it is said; with
 /// `noTargetLookFlag` 1 the target is not made to look at the speaker [documented: GECK
 /// wiki SayTo, owner export] and only the speaker turns (`Game::facings`). The
-/// subtitle flag is not read (subtitles are always shown).
+/// subtitle flag shows the subtitle even out of hearing, as Say's ForceSubtitles.
 pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let (target, topic) = (a.form(0)?, a.form(1)?);
-    if g.say(speaker, Some(target), topic, true).is_some() && a.num_or(3, 0.0) != 0.0 {
-        g.set_line_look(speaker, LineLook::Speaker);
+    if g.say(speaker, Some(target), topic, true).is_some() {
+        if a.num_or(3, 0.0) != 0.0 {
+            g.set_line_look(speaker, LineLook::Speaker);
+        }
+        // forceSubtitleFlag as Say's ForceSubtitles (207 shipped calls pass 1).
+        g.set_line_flags(speaker, a.num_or(2, 0.0) != 0.0, false);
     }
     none()
 }
 
-/// `speaker.Say topic`: as SayTo, with no listener.
+/// `speaker.Say topic [ForceSubtitles] [Actor] [is2D] [isVoice]`: as SayTo, with no
+/// listener [documented: GECK wiki Say, the parameters' names only]. ForceSubtitles 1
+/// shows the line's subtitle even out of hearing (NVForever has no subtitle setting for
+/// it to override); is2D 1 plays it as a 2D sound: at full volume, not panned, heard
+/// wherever the player is (`Speech::force_subtitles`, `Speech::two_d`, read by
+/// `nvf_play::voice` and `script_hud`) [hypothesis: what the names mean; the shipped
+/// calls pass ForceSubtitles 1 and nothing after it, docs/design/script-function-params.md
+/// §3]. Actor and isVoice are not read: no page says what they do and no shipped script
+/// passes them.
 pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let topic = a.form(0)?;
-    g.say(speaker, None, topic, false);
+    if g.say(speaker, None, topic, false).is_some() {
+        g.set_line_flags(speaker, a.num_or(1, 0.0) != 0.0, a.num_or(3, 0.0) != 0.0);
+    }
     none()
 }
 
@@ -221,15 +235,26 @@ pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// player overhears them (`Game::start_actor_conversation`, docs/spec-notes/dialogue.md
 /// §5.1). There `headTrack` 0 turns nobody for the whole conversation [documented:
 /// "Enter 0 to disable" head tracking during the conversation; hypothesis: left out, it
-/// is on] (`Game::facings`); the location references and allow-movement are not read,
-/// nor is head-track in a conversation with the player.
+/// is on] (`Game::facings`). Both stand still while they talk unless `allowMovement` is 1
+/// [documented: "Enter 1 to enable movement during conversation. Enter 0 to disable";
+/// hypothesis: left out, they stand, as before the parameter was read]
+/// (`Game::conversation_moves`). The location references are not read, nor are
+/// head-track and allow-movement in a conversation with the player (the player's
+/// conversation holds the world anyway).
 pub fn start_conversation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let target = a.form(0)?;
     if target != fnv_sim::FormId::PLAYER_REF {
         // Refusals are not errors of the script, as below.
-        if g.start_actor_conversation(speaker, target, a.opt_form(1)).is_ok() && a.num_or(4, 1.0) == 0.0 {
-            g.set_line_look(speaker, LineLook::Nobody);
+        if g.start_actor_conversation(speaker, target, a.opt_form(1)).is_ok() {
+            if a.num_or(4, 1.0) == 0.0 {
+                g.set_line_look(speaker, LineLook::Nobody);
+            }
+            let talkers = [speaker, target];
+            g.moving_talkers.retain(|&r| !talkers.contains(&r) && g.speech.iter().any(|s| s.conversation.is_some() && (s.speaker == r || s.target == Some(r))));
+            if a.num_or(5, 0.0) != 0.0 {
+                g.moving_talkers.extend(talkers);
+            }
         }
         return none();
     }
@@ -302,8 +327,12 @@ pub fn show_barber_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, St
     open(g, menus::RACE)
 }
 
-/// SetTagSkills: the tag-skill menu.
-pub fn set_tag_skills(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+/// `SetTagSkills addedPoints [showInitialTaggedSkills]`: the tag-skill menu, with
+/// `addedPoints` skills tagged in all; the second parameter defaults to 1 [documented:
+/// GECK wiki SetTagSkills] (`crate::chargen::TagSheet::for_menu`).
+pub fn set_tag_skills(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let n = a.num(0)?.max(0.0) as usize;
+    g.ui.set_tags = Some((n, a.num_or(1, 1.0) != 0.0));
     open(g, menus::TAG_SKILLS)
 }
 
@@ -381,8 +410,15 @@ pub fn show_roulette_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, S
     none()
 }
 
-/// ShowLoveTesterMenuParams: the Vigor Tester's S.P.E.C.I.A.L. menu.
-pub fn show_love_tester_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+/// `ShowLoveTesterMenuParams points`: the Vigor Tester's S.P.E.C.I.A.L. menu, the seven
+/// attributes adding up to `points` [documented: GECK wiki ShowLoveTesterMenuParams,
+/// "the total number of SPECIAL points the player will have to distribute"], as
+/// SetSPECIALPoints (`crate::chargen::SpecialSheet::for_menu`). Without points: the
+/// menu's own total [hypothesis].
+pub fn show_love_tester_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    if let Ok(n) = a.int(0) {
+        g.ui.special = Some(super::ui::SpecialMenu::Set(n));
+    }
     open(g, menus::LOVE_TESTER)
 }
 
@@ -510,16 +546,18 @@ pub fn is_dlc_installed(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Str
 
 /// `SetGlobalTimeMultiplier mult [keepSoundUnchanged]`: the speed of the whole game,
 /// 1 normal, 0.5 slow motion [documented: GECK wiki SetGlobalTimeMultiplier]. The
-/// engine takes it (`UiRequests::time_multiplier`, read by `nvf_play`); sound speed and
-/// pitch are not changed either way (the second parameter's "unchanged" is the only
-/// behaviour; the shipped slow motion asks for it, `QUST 0x00102037` stage 27 [observed]).
-/// 0 "will break the game" [documented]: values at or below 0 are refused.
+/// engine takes it (`UiRequests::time_multiplier`, read by `nvf_play`). Sounds play at
+/// the multiplier too unless keepSoundUnchanged is 1 ("sounds will not be sped up/slowed
+/// down when the time mult is changed" [documented: same page]); the shipped slow motion
+/// asks for unchanged sound (`QUST 0x00102037` stage 27 [observed]). 0 "will break the
+/// game" [documented]: values at or below 0 are refused.
 pub fn set_global_time_multiplier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let m = a.num(0)?;
     if m <= 0.0 || !m.is_finite() {
         return Err(format!("time multiplier {m} refused (must be above 0)"));
     }
     g.ui.time_multiplier = Some(m);
+    g.ui.time_keeps_sound = a.num_or(1, 0.0) != 0.0;
     none()
 }
 
@@ -613,6 +651,12 @@ pub struct ScriptLooks {
     pub alpha: std::collections::BTreeMap<fnv_sim::FormId, f32>,
     /// Counts the changes of `shaders` and `alpha`.
     pub generation: u64,
+    /// References a `Disable 1` is fading out, still enabled until this [`Game::time`]
+    /// (`refs::disable`).
+    pub fading_out: std::collections::BTreeMap<fnv_sim::FormId, f64>,
+    /// References whose fade-out hold ended and that are now disabled, for the engine to
+    /// take (their collision and enable children follow).
+    pub disabled_after_fade: Vec<fnv_sim::FormId>,
 }
 
 impl ScriptLooks {

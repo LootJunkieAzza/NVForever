@@ -905,11 +905,12 @@ impl Core {
             b.take_pushes()
         });
         // Whoever is on furniture, or getting off it, does not walk yet; nor do two actors
-        // talking to each other (`fnv_ai::social`).
+        // talking to each other (`fnv_ai::social`), unless the script that started their
+        // conversation allowed movement (`Game::conversation_moves`).
         let held: HashSet<u32> = self
             .list
             .iter()
-            .filter(|r| matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_)) || game.in_actor_conversation(r.actor) || self.ai.holds_for_chat(r.actor) || self.staggering.contains(&r.actor.0))
+            .filter(|r| matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_)) || (game.in_actor_conversation(r.actor) && !game.conversation_moves(r.actor)) || self.ai.holds_for_chat(r.actor) || self.staggering.contains(&r.actor.0))
             .map(|r| r.actor.0)
             .collect();
         if !self.prepared {

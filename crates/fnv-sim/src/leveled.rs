@@ -97,7 +97,7 @@ pub fn resolve_with(
     rng: &mut impl RngCore,
     out: &mut Vec<Entry>,
 ) -> Result<(), LeveledError> {
-    resolve_at(&Ctx { forms, globals, added }, item, count, level, rng, out, 0)
+    resolve_at(&Ctx { forms, globals, added }, item, count, None, level, rng, out, 0)
 }
 
 struct Ctx<'a> {
@@ -106,10 +106,15 @@ struct Ctx<'a> {
     added: &'a BTreeMap<FormId, Vec<LeveledEntry>>,
 }
 
+/// `condition`: the condition the entry that led here asked for (a script's added
+/// entry, [`LeveledEntry::condition`]); it carries down into nested lists unless one of
+/// their entries asks for its own [hypothesis].
+#[allow(clippy::too_many_arguments)]
 fn resolve_at(
     cx: &Ctx,
     item: FormId,
     count: i32,
+    condition: Option<f32>,
     level: u16,
     rng: &mut impl RngCore,
     out: &mut Vec<Entry>,
@@ -121,7 +126,9 @@ fn resolve_at(
         return Ok(());
     }
     let Some(list) = cx.forms.leveled(item) else {
-        out.push(Entry::new(item, count));
+        let mut e = Entry::new(item, count);
+        e.extra.condition = condition;
+        out.push(e);
         return Ok(());
     };
     if depth >= MAX_DEPTH {
@@ -142,7 +149,7 @@ fn resolve_at(
         }
         if list.use_all {
             for e in &eligible {
-                resolve_at(cx, e.item, e.count as i32 * mult, level, rng, out, depth + 1)?;
+                resolve_at(cx, e.item, e.count as i32 * mult, e.condition.or(condition), level, rng, out, depth + 1)?;
             }
             continue;
         }
@@ -153,7 +160,7 @@ fn resolve_at(
             eligible.iter().copied().filter(|e| e.level == top).collect()
         };
         let e = pool[below(rng, pool.len() as u32) as usize];
-        resolve_at(cx, e.item, e.count as i32 * mult, level, rng, out, depth + 1)?;
+        resolve_at(cx, e.item, e.count as i32 * mult, e.condition.or(condition), level, rng, out, depth + 1)?;
     }
     Ok(())
 }

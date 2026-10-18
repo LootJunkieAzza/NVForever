@@ -228,8 +228,9 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState, player: Option<&c
     for s in &g.speech {
         // A line the player does not hear has no subtitle (`crate::voice::audible`),
         // unless a script asked for the speaker's subtitles always
-        // (AlwaysShowActorSubtitles).
-        if !crate::voice::audible(sim, player, s.speaker) && !g.always_subtitles(s.speaker) {
+        // (AlwaysShowActorSubtitles), or for this line's (Say's ForceSubtitles), or said
+        // it as a 2D sound heard anywhere (Say's is2D).
+        if !crate::voice::audible(sim, player, s.speaker) && !g.always_subtitles(s.speaker) && !s.force_subtitles && !s.two_d {
             continue;
         }
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };

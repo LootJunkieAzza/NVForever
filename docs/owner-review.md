@@ -6189,3 +6189,33 @@ Captures that settle these (nvfstrip): AI observer campaign
 `tools/capture/observe/anim_actions.campaign.json` (troopers with grenades, spears,
 dynamite and six guns) and job `tools/capture/jobs/player_actions_anim.steps.json` (the
 player's own codes and IsPlayerActionActive 1–10 every frame).
+
+## Script parameters honoured (2026-10-18, branch claude/script-params-honoured, stacked on #451)
+
+Every parameter docs/design/script-function-params.md §3 listed as ignored is now read
+(the table there says what each does now). The GECK wiki pages settle most of them; these
+are my guesses, each with what would settle it:
+
+- **Fade length and shape** (Enable/Disable, 544 shipped calls). Settled in part
+  [observed: captures 2026-10-18]: a plain Disable reads GetDisabled 1 at once and Enable
+  0 at once; after `Disable 1`, facing the object, the original kept it enabled for about
+  2 s and then disabled it. Ours now fades out over 2 s, keeping the reference enabled
+  (collision on) meanwhile, then disables it. *Guesses*: the fade's shape (a straight line
+  of alpha) and the fade in's length (2 s too); all screenshots failed, so a rerun with
+  the window in front is needed to see them. *Not explained*: one earlier `Disable 1`,
+  from the cell's arrival spot, stayed enabled for all 3.5 s sampled. Perhaps the
+  original fades only what it draws.
+- **Equip locks in the inventory**: an item EquipItem locked on shows "… can't be
+  unequipped" (my wording; the original's message is not known). Companions ignore
+  NoEquipFlag in the original (wiki); ours have no re-equipping yet, so nothing to ignore.
+- **Say's ForceSubtitles** (18 calls, all 1; SayTo's flag, 207 calls over the masters): read as "show the subtitle even out of
+  hearing". **is2D**: heard flat and full wherever the player is. **Actor and isVoice**:
+  not read; nothing documents them, and Old World Blues' 103 calls name the speaker itself.
+- **SetGlobalTimeMultiplier without keepSoundUnchanged**: effects, footsteps and voices
+  play at the multiplier (music and radio do not), as with the engine's own slow motion.
+  The one shipped slow motion keeps sound unchanged, so nothing shipped hears it.
+- **StartConversation allowMovement**: left out, the two actors stand while they talk, as
+  before; only an explicit 1 lets them walk.
+- **AddItemToLeveledList health**: settled [observed: capture `leveled_list_health`,
+  2026-10-18]: 50 gave Vance's 9mm SMG at half health, 1 at 1 %, as the wiki reads. So
+  Honest Hearts' eleven calls with 1 give their vendor items at 1 % in the original too.
