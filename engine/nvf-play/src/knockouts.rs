@@ -92,8 +92,9 @@ fn test_hits(
 ) {
     let now = time.elapsed_secs();
     while hits.0.first().is_some_and(|h| h.at <= now) {
-        let h = hits.0.remove(0);
+        // A hit due before the scripts run waits for them (a slow start-up dropped it).
         let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+        let h = hits.0.remove(0);
         let found = with_world(rt, &mut sim, |rt| {
             let g = &rt.game;
             let target = fnv_game::runner::resolve(g, &h.target)?;

@@ -671,10 +671,16 @@ impl Game<'_> {
             }
             // Targets and alarm owners that died or went are forgotten, and so are those
             // knocked out: no longer a threat until they are up and seen again
-            // (docs/spec-notes/unconscious.md §3) [design, owner request 2026-10-17].
+            // (docs/spec-notes/unconscious.md §3) [design, owner request 2026-10-17]. A
+            // dead player is forgotten too, whether or not the engine measures it again:
+            // a fighter whose targets are all dead goes back to Normal and says
+            // CombatToNormal, not CombatToLost [documented: Category:Detection, "Combat
+            // --> Normal … no targets in my combat list (i.e. they're all dead …)";
+            // docs/spec-notes/combat-dialogue.md §5].
             let gone: Vec<FormId> = {
                 let a = &self.awareness.actors[&id];
-                a.targets.keys().copied().chain(a.alarms.iter().map(|x| x.owner)).filter(|&o| o != FormId::PLAYER_REF && (!self.present(o) || self.is_dead(o) || self.knockout(o).is_some())).collect()
+                let gone = |o: FormId| if o == FormId::PLAYER_REF { self.is_dead(o) } else { !self.present(o) || self.is_dead(o) || self.knockout(o).is_some() };
+                a.targets.keys().copied().chain(a.alarms.iter().map(|x| x.owner)).filter(|&o| gone(o)).collect()
             };
             let may_alert = !self.no_combat_alert(id);
             let a = self.awareness.actors.get_mut(&id).expect("listed");
