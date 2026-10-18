@@ -337,13 +337,14 @@ sessions. You already had it from an earlier playthrough.
       in 5 shipped scripts); result-script variables don't overwrite the quest script's;
       script packages stack instead of replacing each other; EvaluatePackage keeps a
       script package. **Captured 2026-10-18 [observed]:**
-      - A second AddScriptPackage **replaces** the first, so the runtime's stacking is
-        wrong.
-      - EvaluatePackage keeps a script package, as the runtime does.
-      - A disabled reference's GameMode **runs**, so the runtime is wrong to skip it.
+      - A second AddScriptPackage **replaces** the first.
+      - EvaluatePackage keeps a script package.
+      - A disabled reference's GameMode **runs**.
 
-      Neither runtime fix is made yet. Scripted items in other inventories are still to be
-      captured (spec-notes/owner-decision-captures.md §4).
+      All three confirm the runtime's rules. The runtime has replaced script packages
+      since 2026-10-10 and run disabled references' GameMode since 2026-10-09, so this
+      item's wording on those two points was out of date (#441). Scripted items in other
+      inventories are still to be captured (spec-notes/owner-decision-captures.md §4).
     - Each note ends with capture candidates. Nothing was changed in the runtime.
 
 26. **Your `objects.xml` export (9 pages, mostly category indexes).** Three facts were
@@ -2787,8 +2788,9 @@ enemy far off) before they have confirmed it, as the start of NPC combat. Branch
    the gun. Actors with a faction in common, or of the same kind, never turn on each
    other.
 4. **Scripts see it** (partly captured 2026-10-18 [observed]: GetIsAlerted/SetAlert is
-   an animation state, with IsInCombat 0. The detection Alert is the pending campaign
-   session `alert_noise` (spec-notes/owner-decision-captures.md §4)). IsInCombat is 1 for an NPC on Alert, in Combat or Lost,
+   an animation state, with IsInCombat 0. The detection Alert is the campaign session
+   `alert_noise`, not settled: its Fiends were already dead in `nvfstrip`, so it needs a
+   rerun from `nvftest` (spec-notes/owner-decision-captures.md §4)). IsInCombat is 1 for an NPC on Alert, in Combat or Lost,
    and for
    you while one hunts you (the documentation says so). This can change quest scripts
    that test IsInCombat; nothing showed in the runs, but watch for it.
@@ -4050,7 +4052,10 @@ is our own design is said so.
    factions name the other an enemy, and a shared faction that names no reactions (a
    utility faction such as GeneralIdleFaction) only counts when one of the two has no
    faction that does. *Check:* NCR patrols near Fiend ground should fight them; no new
-   fights among townsfolk and their animals.
+   fights among townsfolk and their animals. **Captured 2026-10-18 [observed]:** NCR
+   troopers and Fiends spawned together with nobody provoking them fought each other
+   when within about 500 units; two spawns about 3,000 units off never did. This supports
+   the changed rule (spec-notes/owner-decision-captures.md §4).
 7. **Watching fights at scale.** Test aids: `NVF_PLAY_TEST_SCRIPT=<s>:moveto:<ref>:player:x:y:z`
    moves any actor next to you; `NVF_PLAY_TEST_UNSEEN=1` makes you invisible to everyone.
    Every fight logs `battle: X killed by Y`, `battle over after … s` and a `battle summary`
@@ -4103,7 +4108,12 @@ Decisions where the sources were unclear:
   the package counts as done (end script, OnPackageDone) and the actor chooses again,
   which may pick the same package and start it afresh. Check: the Hidden Valley bunker
   Paladins (packages 0x000D76E4–0x000D781C) change activity about every 30–90 game
-  minutes rather than staying all day.
+  minutes rather than staying all day. **Note 2026-10-18:** those packages belong to
+  the bunker's initiates and knights, not the paladins [observed: `fnvtool ai show`]. The
+  observer sessions for them crashed from the save `nvfstrip`. **Captured from `nvftest`
+  2026-10-18 [observed]:** over 12 game hours the initiates switched activity often, and
+  the paladins every few hours, so the check's direction holds. The knights on L2 needed
+  `SetAlly` with the player's faction to be watched (spec-notes/owner-decision-captures.md §4).
 - **Rotate** turns a reference for one frame per call (the shipped callers call it
   every frame from GameMode). Check: the turning objects of `SCPT 0x0013414C/D/E` (via
   their linked references) spin steadily.
@@ -4600,6 +4610,23 @@ Skip Fallout Behavior without the aggro flag) is the first package of their list
 duration without a starting hour was ignored: the package ran all day, so the next one,
 which allows aggro, never came.
 
+**Contradicted by captures (2026-10-18 [observed]):** the rule below does not hold as
+written.
+- **First run.** Both geckos held the patrol package (3 h duration, no start hour, Once
+  Per Day) for 4.7 game hours.
+- **Rerun, with the player two cells away.**
+  - Both geckos held the patrol for about 8 h, from 17:04 to 01:01.
+  - Then both took FindFood, the **first** package of their list, not FindFood02, the
+    next one.
+  - One gecko's find reached DONE at 02:01 and it went back to the patrol at 03:01,
+    exactly 2 h after FindFood began. The other's find never completed, and it ran over
+    4 h on its 2 h duration.
+- **Reading [hypothesis].** A duration ends a package only once its goal is met (DONE).
+  When a package ends, the choice starts again from the top of the list.
+- **What it bears on.** The "restart every duration" behaviour of about 358 packages
+  (outstanding.md §3).
+- **Status.** The runtime is unchanged until the owner rules (spec-notes/owner-decision-captures.md §4).
+
 **Fix.** A list package with a duration and no starting hour now ends that many game
 hours after the actor chose it, the same way a SetPackDuration time ends (#250's
 `end_timed_packages`: end script and OnPackageDone, then the actor chooses again). Once
@@ -4627,6 +4654,14 @@ terminate" before its goal) [documented]. The export has no Find package page.
   (AddScriptPackage) are not ended by a duration [our choice].
 - A Find package is not ended early by finding food: Find is not carried out yet, and no
   source read says what "found" ends.
+- **Find with Allow Killing, captured 2026-10-18 [observed]:** a gecko on VCrGeckoFindFood
+  (Find, target Food, Allow Killing) attacked a radroach placed 256 units away, for about
+  a game minute, and then went back to its find. The control gecko fought nothing.
+  - **Reading [hypothesis].** Allow Killing makes the actor kill a creature within reach,
+    then resume the find.
+  - **How ours differs.** Our Find attacks a living actor only if its inventory holds the
+    food, and the radroach's meat is only its death item, so ours would not attack it.
+  - **Status.** The runtime is unchanged (spec-notes/owner-decision-captures.md §4).
 - Hours passed in the Wait menu: packages are chosen once per waited hour, so each step of
   a chain can start up to an hour late during a wait.
 
@@ -4638,7 +4673,9 @@ scenario. Whether a warning count should survive a short loss of sight is the ow
 
 *Check in game:* stand at the owner's spot near the two geckos (-65828, -23929) at about
 17:00 and wait 14 hours: they patrol off after about 2 hours and come back to sandbox
-after about 10, then warn when the player is within 650 units. Smoke
+after about 10, then warn when the player is within 650 units. (The observer session
+`geckos_package_chain` from `nvftest`, 2026-10-18, and its rerun: the patrol ran 4.7 h
+and then 8 h on its 3 h duration; see "Contradicted" above.) Smoke
 `package-duration-geckos`.
 
 ## Aggro warnings that outlast a short loss of sight (2026-10-13, coordinator)

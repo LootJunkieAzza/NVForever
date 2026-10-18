@@ -197,6 +197,22 @@ function on a NULL reference") and the step fails without harm.
 
 ## 6. Open points
 
+- **"cannot create a bitmap" (2026-10-18) [observed].** Every screenshot of od_21 and
+  od_22 (from `nvfstrip`) failed with this error, while od_20's Ringo pictures were
+  taken in the same run.
+  - **Where it comes from.** In `src/shot.rs` the text is returned only when
+    `CreateCompatibleDC` or `CreateDIBSection` gives no bitmap. That is before
+    `BitBlt`, and it does not depend on the window being in front: a window that is not
+    capturable gives "no visible game window" (minimised) or "BitBlt failed" instead.
+  - **So the error means GDI could not make a 32-bit DIB of the client area's size.**
+    That is about 3.7 MB at 1280 × 720.
+  - **Candidates [hypothesis].** The game is a 32-bit process. After a long session, with
+    the Strip loaded, its address space may have no room left for the DIB's mapping. Or
+    the window picked as "largest visible" had an unexpected size.
+  - **Next step.** A small diagnostic would settle it: add the width, height and
+    `GetLastError` to the message. The plugin is not changed here, because the DLL needs
+    the owner to copy it.
+
 - First automatic trial (2026-10-08) [observed]: xNVSE sends MainGameLoop while the main
   menu is shown (the log's "first game loop" came 2 s after the plugin loaded, before any
   save load). The console line `load nvftest`, run from the plugin's MainGameLoop handler,
