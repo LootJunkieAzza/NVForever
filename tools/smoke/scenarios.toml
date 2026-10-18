@@ -4766,15 +4766,15 @@ args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
 run_seconds = 20
 order = [[
   "console: > agerace -1",
-  "appearance: … (Doc Mitchell) is now … male: drawn anew",
+  "appearance: … (DocMitchell) is now Caucasian male: drawn anew",
   "console: > sexchange",
-  "appearance: … (Doc Mitchell) is now … female: drawn anew",
+  "appearance: … (DocMitchell) is now Caucasian female: drawn anew",
 ]]
 expect = [
   { text = "console: GetIsRace on DocMitchellREF >> 1.00", label = "GetIsRace reads AgeRace's younger race" },
   { text = "console: GetIsSex on DocMitchellREF >> 1.00", label = "GetIsSex reads SexChange's sex" },
-  { re = 'appearance: [0-9A-F]{8} \(Doc Mitchell\) is now .* male: drawn anew', label = "Doc is drawn anew after AgeRace" },
-  { re = 'appearance: [0-9A-F]{8} \(Doc Mitchell\) is now .* female: drawn anew', label = "Doc is drawn anew as a woman" },
+  { re = 'appearance: 0x[0-9A-F]{8} \(DocMitchell\) is now Caucasian male: drawn anew', label = "Doc is drawn anew after AgeRace (adult, still a man)" },
+  { re = 'appearance: 0x[0-9A-F]{8} \(DocMitchell\) is now Caucasian female: drawn anew', label = "Doc is drawn anew as a woman" },
 ]
 manual = "agerace_doc.png: Doc Mitchell drawn with the adult Caucasian head and a woman's body"
 
