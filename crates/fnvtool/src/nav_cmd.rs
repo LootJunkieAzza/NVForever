@@ -28,6 +28,16 @@ pub enum NavCmd {
         #[arg(long)]
         space: Option<String>,
     },
+    /// The exterior cells of a worldspace's largest connected navmesh area, with its
+    /// triangles in each (fnv.nav.cells/1): the walkable world, without the landscape
+    /// beyond it.
+    Cells {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// The worldspace (Editor ID or FormID).
+        #[arg(long)]
+        space: String,
+    },
     /// The navmesh triangles near a point: corners, flags, what each edge leads to, and
     /// the doors of each (fnv.nav.near/1).
     Near {
@@ -84,6 +94,7 @@ pub fn run(cmd: NavCmd) -> anyhow::Result<Value> {
     match cmd {
         NavCmd::Survey { w } => with_lo(&w, |lo, schema| Ok(survey(lo, &WorldIndex::build(lo, schema), &NavRecords::read(lo)))),
         NavCmd::Graph { w, space } => with_lo(&w, |lo, schema| crate::nav_path::graph_cmd(lo, schema, space.as_deref())),
+        NavCmd::Cells { w, space } => with_lo(&w, |lo, schema| crate::nav_path::cells_cmd(lo, schema, &space)),
         NavCmd::Near { w, at, space, radius } => with_lo(&w, |lo, schema| crate::nav_path::near_cmd(lo, schema, &at, &space, radius)),
         NavCmd::Observed { w, samples, min_walk } => with_lo(&w, |lo, schema| crate::nav_path::observed_cmd(lo, schema, &samples, min_walk)),
         NavCmd::Path { w, ends, opts } => with_lo(&w, |lo, schema| crate::nav_path::path_cmd(lo, schema, &ends, &opts)),

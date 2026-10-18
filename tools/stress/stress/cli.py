@@ -54,7 +54,8 @@ def parser() -> argparse.ArgumentParser:
     t.add_argument("--world", default="WastelandNV")
     t.add_argument("--laps", type=int, default=1)
     t.add_argument("--waypoints", type=int, default=12, help="waypoints on the ring (without --route)")
-    t.add_argument("--inset", type=float, default=0.3, help="how far in from the grid's edges the ring lies (0..1)")
+    t.add_argument("--inset", type=float, default=0.3,
+                   help="how far in from the walkable world's edge (its largest navmesh area) the ring lies (0..1)")
     t.add_argument("--route", type=Path, default=None, help="a route file of your own (nvf-play stress.rs parse_route)")
     t.add_argument("--step", type=float, default=1024.0, help="units a step")
     t.add_argument("--dwell", type=float, default=1.0, help="seconds between steps")
@@ -116,8 +117,10 @@ def main(argv=None) -> int:
         else:
             if not ctx.fnvtool.exists():
                 raise SystemExit(f"no fnvtool at {ctx.fnvtool}: build it (root workspace), or pass --fnvtool or --route")
-            wid, lo, hi = tour.world_bounds(ctx, a.world)
-            pts = tour.ring(lo, hi, a.waypoints, a.inset)
+            wid, _, _ = tour.world_bounds(ctx, a.world)
+            # On the walkable world (the largest navmesh area), not the grid's bounds: the
+            # grid runs on into empty landscape beyond the playable area.
+            pts = tour.ring_on_cells(tour.nav_cells(ctx, a.world), a.waypoints, a.inset)
             route = tour.route_text(wid, pts, a.step, a.dwell, a.laps)
             npts = len(pts)
             perimeter = sum(((pts[i][0] - pts[i - 1][0]) ** 2 + (pts[i][1] - pts[i - 1][1]) ** 2) ** 0.5 for i in range(len(pts)))

@@ -231,14 +231,14 @@ fn place_json(nav: &Nav, p: &Place, r: Option<u32>) -> Value {
     json!({"space": nav.space_json(p.space), "pos": p.pos, "ref": r.map(fid)})
 }
 
-pub fn graph_cmd(lo: &LoadOrder, schema: &Schema, only: Option<&str>) -> anyhow::Result<Value> {
-    let nav = Nav::open(lo, schema, false);
-    let g = &nav.graph;
-    let only = only.map(|s| nav.space_by_name(s)).transpose()?;
-    // Connected areas per space, through edges a walking human may cross (internal and
-    // portal links; no ledges, no doors).
+/// Connected areas per space, through edges a walking human may cross (internal and
+/// portal links; no ledges, no doors): each usable triangle's area (the id of its first
+/// triangle), and per space its areas as (id, triangles).
+type Areas = BTreeMap<Space, Vec<(u32, usize)>>;
+
+fn connected_areas(g: &fnv_nav::graph::NavGraph, only: Option<Space>) -> (Vec<u32>, Areas) {
     let mut comp = vec![NONE; g.tris.len()];
-    let mut areas: BTreeMap<Space, Vec<usize>> = BTreeMap::new();
+    let mut areas: Areas = BTreeMap::new();
     let mut stack = Vec::new();
     for s in 0..g.tris.len() as u32 {
         if comp[s as usize] != NONE || !g.usable(s) {
@@ -263,9 +263,17 @@ pub fn graph_cmd(lo: &LoadOrder, schema: &Schema, only: Option<&str>) -> anyhow:
                 }
             }
         }
-        areas.entry(space).or_default().push(n);
+        areas.entry(space).or_default().push((id, n));
     }
-    let mut spaces: Vec<(Space, Vec<usize>)> = areas.into_iter().collect();
+    (comp, areas)
+}
+
+pub fn graph_cmd(lo: &LoadOrder, schema: &Schema, only: Option<&str>) -> anyhow::Result<Value> {
+    let nav = Nav::open(lo, schema, false);
+    let g = &nav.graph;
+    let only = only.map(|s| nav.space_by_name(s)).transpose()?;
+    let (_, areas) = connected_areas(g, only);
+    let mut spaces: Vec<(Space, Vec<usize>)> = areas.into_iter().map(|(s, a)| (s, a.into_iter().map(|(_, n)| n).collect())).collect();
     spaces.sort_by_key(|(_, a)| std::cmp::Reverse(a.iter().sum::<usize>()));
     Ok(json!({
         "schema": "fnv.nav.graph/1",
@@ -284,6 +292,39 @@ pub fn graph_cmd(lo: &LoadOrder, schema: &Schema, only: Option<&str>) -> anyhow:
                 "single_triangle_areas": a.iter().filter(|&&n| n == 1).count(),
             })
         }).collect::<Vec<_>>(),
+    }))
+}
+
+/// The exterior cells the largest connected navmesh area of a worldspace lies in, with
+/// its triangles in each (fnv.nav.cells/1): where an actor can walk to from most of the
+/// world. For WastelandNV it is the playable Mojave; the landscape beyond it, which has
+/// no navmesh, is left out (the stress tests' tour drew its ring there, 2026-10-18).
+pub fn cells_cmd(lo: &LoadOrder, schema: &Schema, space: &str) -> anyhow::Result<Value> {
+    let nav = Nav::open(lo, schema, false);
+    let g = &nav.graph;
+    let sp = nav.space_by_name(space)?;
+    if !matches!(sp, Space::World(_)) {
+        anyhow::bail!("{space} is not a worldspace");
+    }
+    let (comp, areas) = connected_areas(g, Some(sp));
+    let Some(&(largest, size)) = areas.get(&sp).and_then(|a| a.iter().max_by_key(|(_, n)| *n)) else {
+        anyhow::bail!("{space} has no navmesh");
+    };
+    let mut cells: BTreeMap<(i32, i32), usize> = BTreeMap::new();
+    for t in 0..g.tris.len() as u32 {
+        if comp[t as usize] != largest {
+            continue;
+        }
+        let c = g.corners(t);
+        let (x, y) = ((c[0][0] + c[1][0] + c[2][0]) / 3.0, (c[0][1] + c[1][1] + c[2][1]) / 3.0);
+        *cells.entry(((x / 4096.0).floor() as i32, (y / 4096.0).floor() as i32)).or_default() += 1;
+    }
+    Ok(json!({
+        "schema": "fnv.nav.cells/1",
+        "space": nav.space_json(sp),
+        "triangles": size,
+        "areas": areas.get(&sp).map_or(0, Vec::len),
+        "cells": cells.iter().map(|(&(x, y), &n)| json!([x, y, n])).collect::<Vec<_>>(),
     }))
 }
 

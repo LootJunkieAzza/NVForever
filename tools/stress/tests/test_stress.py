@@ -1,6 +1,7 @@
 """Unit tests for tools/stress (no game needed): `python -m unittest discover -s tools/stress/tests`."""
 from __future__ import annotations
 
+import math
 import os
 import re
 import sys
@@ -255,6 +256,27 @@ class TourTest(unittest.TestCase):
         text = tour.route_text("0x000DA726", pts, 1024, 1, 2)
         self.assertIn("laps 2", text)
         self.assertIn("world 0x000DA726", text)
+
+    def test_the_ring_stays_on_the_walkable_cells(self):
+        # An L-shaped walkable area (a wide band along the south, a tall one up the west)
+        # inside a grid that runs far beyond it, as WastelandNV's does.
+        cells = [[x, y, 50] for x in range(-30, 11) for y in range(-20, -9)]
+        cells += [[x, y, 50] for x in range(-30, -19) for y in range(-9, 21)]
+        walkable = {(x, y) for x, y, _ in cells}
+        pts = tour.ring_on_cells(cells, n=12, inset=0.2)
+        self.assertGreaterEqual(len(pts), 6)
+        cell = lambda p: (math.floor(p[0] / tour.CELL), math.floor(p[1] / tour.CELL))  # noqa: E731
+        for p in pts:
+            self.assertIn(cell(p), walkable, p)
+        # Consecutive points (the closing leg too) a few cells apart at most, so a
+        # straight step between them barely leaves the area.
+        for a, b in zip(pts, pts[1:] + pts[:1]):
+            self.assertLessEqual(math.hypot(b[0] - a[0], b[1] - a[1]), 3.5 * tour.CELL, (a, b))
+        # The old ring, on the grid's bounds, left the area.
+        old = tour.ring((-60, -60), (59, 59), 12, 0.3)
+        self.assertTrue(any(cell(p) not in walkable for p in old))
+        with self.assertRaises(ValueError):
+            tour.ring_on_cells([])
 
     def sample(self, t, lap_entities):
         return (f"INFO nvforever::stress_sample: stress sample: t {t:.1f} s, frames 60, frame mean 16.70 ms, frame worst 30.10 ms, "
