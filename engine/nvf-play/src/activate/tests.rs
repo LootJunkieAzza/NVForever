@@ -147,6 +147,7 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .add_message::<TravelRequest>()
         .add_message::<OpenContainer>()
         .add_message::<RefChanged>()
+        .init_resource::<crate::ref_fade::RefFades>()
         .add_message::<crate::furniture::UseFurniture>()
         .add_message::<crate::world_sounds::Activated>()
         .add_message::<crate::terminal::OpenTerminal>()

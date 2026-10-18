@@ -477,7 +477,7 @@ type AllVisuals<'w, 's> = Query<'w, 's, (&'static RefVisual, &'static mut Visibi
 /// (`crate::ref_fade`): a reference fading out stays drawn until the fade is over.
 fn sync_visuals(
     sim: Res<SimState>,
-    time: Res<Time>,
+    time: Option<Res<Time>>,
     mut fades: ResMut<crate::ref_fade::RefFades>,
     mut changes: MessageReader<RefChanged>,
     mut visuals: ParamSet<(NewVisuals, AllVisuals)>,
@@ -492,7 +492,7 @@ fn sync_visuals(
     for m in changes.read() {
         changed.insert(m.form_id, 0);
         if m.fade {
-            fades.start(m.form_id, sim.present(m.form_id), time.elapsed_secs());
+            fades.start(m.form_id, sim.present(m.form_id), time.as_ref().map_or(0.0, |t| t.elapsed_secs()));
         } else {
             // A change without a fade (Enable 0 while it fades out) ends a running one.
             fades.cancel(m.form_id);
