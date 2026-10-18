@@ -26,7 +26,7 @@
    "screenshot": "clean"
   },
   {
-   "script": "Begin Function { }\nSetScreenSplatterFade 0.5 1\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nSetScreenSplatterFade 0.5 1\nSetFunctionValue 1\nEnd\n",
    "label": "fade 0.5 1",
    "field": "ran"
   },
@@ -37,7 +37,7 @@
    "screenshot": "after_fade"
   },
   {
-   "script": "Begin Function { }\nTriggerScreenSplatter 1 20 1 1\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nTriggerScreenSplatter 1 20 1 1\nSetFunctionValue 1\nEnd\n",
    "label": "count 1",
    "field": "ran"
   },
@@ -48,7 +48,7 @@
    "screenshot": "count1"
   },
   {
-   "script": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
    "label": "clear after count 1",
    "field": "ran"
   },
@@ -56,7 +56,7 @@
    "frames": 10
   },
   {
-   "script": "Begin Function { }\nTriggerScreenSplatter 10 20 1 1\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nTriggerScreenSplatter 10 20 1 1\nSetFunctionValue 1\nEnd\n",
    "label": "count 10",
    "field": "ran"
   },
@@ -67,7 +67,7 @@
    "screenshot": "count10"
   },
   {
-   "script": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
    "label": "clear after count 10",
    "field": "ran"
   },
@@ -75,7 +75,7 @@
    "frames": 10
   },
   {
-   "script": "Begin Function { }\nTriggerScreenSplatter 50 25 2 2\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nTriggerScreenSplatter 50 25 2 2\nSetFunctionValue 1\nEnd\n",
    "label": "stage 36 call",
    "field": "ran"
   },
@@ -86,7 +86,7 @@
    "screenshot": "s50_25_2_2"
   },
   {
-   "script": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
    "label": "clear after stage 36 call",
    "field": "ran"
   },
@@ -94,7 +94,7 @@
    "frames": 10
   },
   {
-   "script": "Begin Function { }\nTriggerScreenSplatter 100 1 1 1\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nTriggerScreenSplatter 100 1 1 1\nSetFunctionValue 1\nEnd\n",
    "label": "count 100",
    "field": "ran"
   },
@@ -105,7 +105,7 @@
    "screenshot": "count100"
   },
   {
-   "script": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
    "label": "clear after count 100",
    "field": "ran"
   },
@@ -113,7 +113,7 @@
    "frames": 10
   },
   {
-   "script": "Begin Function { }\nTriggerScreenSplatter 100 20 2 2\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nTriggerScreenSplatter 100 20 2 2\nSetFunctionValue 1\nEnd\n",
    "label": "stage 50 call",
    "field": "ran"
   },
@@ -148,7 +148,7 @@
    "screenshot": "s100_20_2_2_t21"
   },
   {
-   "script": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
    "label": "clear before factors",
    "field": "ran"
   },
@@ -156,7 +156,7 @@
    "frames": 10
   },
   {
-   "script": "Begin Function { }\nTriggerScreenSplatter 10 20 3 1\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nTriggerScreenSplatter 10 20 3 1\nSetFunctionValue 1\nEnd\n",
    "label": "size 3",
    "field": "ran"
   },
@@ -167,7 +167,7 @@
    "screenshot": "size3"
   },
   {
-   "script": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
    "label": "clear after size 3",
    "field": "ran"
   },
@@ -175,7 +175,7 @@
    "frames": 10
   },
   {
-   "script": "Begin Function { }\nTriggerScreenSplatter 10 20 1 2\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nTriggerScreenSplatter 10 20 1 2\nSetFunctionValue 1\nEnd\n",
    "label": "opacity 2",
    "field": "ran"
   },
@@ -186,7 +186,7 @@
    "screenshot": "opacity2"
   },
   {
-   "script": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
    "label": "clear after opacity 2",
    "field": "ran"
   },
@@ -197,7 +197,7 @@
    "screenshot": "cleared"
   },
   {
-   "script": "Begin Function { }\nSetScreenSplatterFade 0.5 0\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nSetScreenSplatterFade 0.5 0\nSetFunctionValue 1\nEnd\n",
    "label": "fade 0.5 0",
    "field": "ran"
   },
@@ -205,7 +205,7 @@
    "frames": 10
   },
   {
-   "script": "Begin Function { }\nTriggerScreenSplatter 10 6 2 2\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nTriggerScreenSplatter 10 6 2 2\nSetFunctionValue 1\nEnd\n",
    "label": "no-fade call",
    "field": "ran"
   },
@@ -228,12 +228,12 @@
    "screenshot": "nofade_t7.5"
   },
   {
-   "script": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nClearScreenSplatter\nSetFunctionValue 1\nEnd\n",
    "label": "clear after no-fade",
    "field": "ran"
   },
   {
-   "script": "Begin Function { }\nSetScreenSplatterFade 0.4 1\nSetFunctionValue 1\nEnd\n",
+   "query": "Begin Function { }\nSetScreenSplatterFade 0.4 1\nSetFunctionValue 1\nEnd\n",
    "label": "fade back",
    "field": "ran"
   },
