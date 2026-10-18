@@ -35,6 +35,7 @@ pub mod actor_values;
 pub mod aggro;
 pub mod aid;
 pub mod ai;
+pub mod anim_state;
 pub mod anims;
 pub mod awareness;
 pub mod blackjack;

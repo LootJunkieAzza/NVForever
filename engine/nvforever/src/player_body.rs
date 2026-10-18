@@ -1611,6 +1611,8 @@ fn drive_body(
 ) {
     let state = &mut *state;
     player.body_view = None;
+    anim.drawing = false;
+    anim.holstering = false;
     state.head_eye = None;
     let own_body = state.first_person_body;
     let seat_look = std::mem::take(&mut seat.look);
@@ -1784,6 +1786,8 @@ fn drive_body(
     anim.timing.jam_len = jam_len;
     anim.timed = Some(attack.to_string());
     anim.ready = m.hands.phase == WeaponPhase::Drawn && m.hands.in_hand;
+    anim.drawing = m.hands.phase == WeaponPhase::Drawing;
+    anim.holstering = m.hands.phase == WeaponPhase::Holstering;
     let attack_now = anim.attacks != m.attacks_seen;
     let reload_now = anim.reloads != m.reloads_seen;
     let reload_round_now = anim.reload_rounds != m.reload_rounds_seen;

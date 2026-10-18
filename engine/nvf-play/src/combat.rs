@@ -104,7 +104,7 @@
 //!   along each hitscan shot.
 
 use bevy::prelude::*;
-use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
+use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Phase, Timing};
 use fnv_combat::condition::{self, Wear, Zone};
 use fnv_combat::damage::{self, Attacker, AttackKind, HitInput, HitPart, NoPerks, Target};
 use fnv_combat::melee::{Melee, MeleeEvent, MeleeInput, SwingTiming};
@@ -169,6 +169,9 @@ pub struct WeaponAnim {
     pub swing: Option<String>,
     /// Set by the body: the attack stem whose clip [`Self::timing`] was read from.
     pub timed: Option<String>,
+    /// Set by the body: the weapon is being drawn, or put away (GetAnimAction 0 and 1).
+    pub drawing: bool,
+    pub holstering: bool,
     /// Set by the body each frame: where the muzzle of the weapon in hand is, in the rig
     /// in view (game space): the weapon model's `ProjectileNode` [hypothesis: that the
     /// node marks where projectiles and the muzzle flash start, from its name and its
@@ -795,6 +798,47 @@ impl Combat {
             rounds,
             reach: if range > 0.0 { range } else { crate::vats_mode::REACH },
         })
+    }
+
+    /// GetAnimAction's code for what the player's weapon does now
+    /// (`fnv_game::anim_state`): drawing (0) and putting away (1) as the body says, a
+    /// gun's shot by its firing cycle (2 from the pull to the shot and while an automatic
+    /// fires on with the trigger held, 3 the frame after, 4 until the cycle is ready
+    /// again), a reload of any kind 9, a melee swing 2 until it strikes and 4 after,
+    /// blocking 7. A jam reads 13 [hypothesis: the page's catch-all, "every action not
+    /// included in the ones above"].
+    pub fn player_anim_action(&self, anim: &WeaponAnim, trigger: bool, aiming: bool, dt: f32) -> Option<fnv_game::anim_state::AnimAction> {
+        use fnv_game::anim_state::{shot_action, swing_action, AnimAction};
+        if anim.drawing {
+            return Some(AnimAction::Equip);
+        }
+        if anim.holstering {
+            return Some(AnimAction::Unequip);
+        }
+        if !anim.ready {
+            return None;
+        }
+        if self.melee {
+            if let Some(s) = &self.swings.swing {
+                return swing_action(s.t, s.timing.hit, s.timing.len);
+            }
+            return aiming.then_some(AnimAction::Block);
+        }
+        let cy = self.cycle.as_ref()?;
+        let (fire, interval) = (cy.timing.fire_delay, cy.timing.interval);
+        match cy.phase {
+            Phase::SpinUp { .. } | Phase::WindUp { .. } => Some(AnimAction::Attack),
+            Phase::Cooldown { left } => shot_action(fire + (interval - left).max(0.0), fire, fire + interval, dt, cy.automatic && trigger),
+            Phase::Reloading { .. } | Phase::ReloadOpen { .. } | Phase::ReloadRound { .. } | Phase::ReloadClose { .. } => Some(AnimAction::Reload),
+            Phase::Jammed { .. } => Some(AnimAction::ForceScriptAnim),
+            Phase::Ready => None,
+        }
+    }
+
+    /// The player aims down a gun's sights now: a gun with sights in hand and Block held
+    /// (IsPlayerActionActive 9).
+    pub fn player_sights_up(&self, anim: &WeaponAnim, aiming: bool) -> bool {
+        anim.ready && aiming && self.sight_fov().is_some()
     }
 
     /// The BPTD part an actor's hit volume part is (VATS mode's marks).
