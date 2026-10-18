@@ -2787,8 +2787,9 @@ enemy far off) before they have confirmed it, as the start of NPC combat. Branch
    the gun. Actors with a faction in common, or of the same kind, never turn on each
    other.
 4. **Scripts see it** (partly captured 2026-10-18 [observed]: GetIsAlerted/SetAlert is
-   an animation state, with IsInCombat 0. The detection Alert is the pending campaign
-   session `alert_noise` (spec-notes/owner-decision-captures.md §4)). IsInCombat is 1 for an NPC on Alert, in Combat or Lost,
+   an animation state, with IsInCombat 0. The detection Alert is the campaign session
+   `alert_noise`, not settled: its Fiends were already dead in `nvfstrip`, so it needs a
+   rerun from `nvftest` (spec-notes/owner-decision-captures.md §4)). IsInCombat is 1 for an NPC on Alert, in Combat or Lost,
    and for
    you while one hunts you (the documentation says so). This can change quest scripts
    that test IsInCombat; nothing showed in the runs, but watch for it.
@@ -4050,7 +4051,10 @@ is our own design is said so.
    factions name the other an enemy, and a shared faction that names no reactions (a
    utility faction such as GeneralIdleFaction) only counts when one of the two has no
    faction that does. *Check:* NCR patrols near Fiend ground should fight them; no new
-   fights among townsfolk and their animals.
+   fights among townsfolk and their animals. **Captured 2026-10-18 [observed]:** NCR
+   troopers and Fiends spawned together with nobody provoking them fought each other
+   when within about 500 units; two spawns about 3,000 units off never did. This supports
+   the changed rule (spec-notes/owner-decision-captures.md §4).
 7. **Watching fights at scale.** Test aids: `NVF_PLAY_TEST_SCRIPT=<s>:moveto:<ref>:player:x:y:z`
    moves any actor next to you; `NVF_PLAY_TEST_UNSEEN=1` makes you invisible to everyone.
    Every fight logs `battle: X killed by Y`, `battle over after … s` and a `battle summary`
@@ -4103,7 +4107,10 @@ Decisions where the sources were unclear:
   the package counts as done (end script, OnPackageDone) and the actor chooses again,
   which may pick the same package and start it afresh. Check: the Hidden Valley bunker
   Paladins (packages 0x000D76E4–0x000D781C) change activity about every 30–90 game
-  minutes rather than staying all day.
+  minutes rather than staying all day. **Note 2026-10-18:** those packages belong to
+  the bunker's initiates and knights, not the paladins [observed: `fnvtool ai show`]. The
+  observer sessions for them crashed from the save `nvfstrip`; a retry from `nvftest` is
+  pending (spec-notes/owner-decision-captures.md §4).
 - **Rotate** turns a reference for one frame per call (the shipped callers call it
   every frame from GameMode). Check: the turning objects of `SCPT 0x0013414C/D/E` (via
   their linked references) spin steadily.
@@ -4638,7 +4645,9 @@ scenario. Whether a warning count should survive a short loss of sight is the ow
 
 *Check in game:* stand at the owner's spot near the two geckos (-65828, -23929) at about
 17:00 and wait 14 hours: they patrol off after about 2 hours and come back to sandbox
-after about 10, then warn when the player is within 650 units. Smoke
+after about 10, then warn when the player is within 650 units. (The observer session
+`geckos_package_chain` crashed from `nvfstrip` on 2026-10-18; a retry from `nvftest` is
+pending (spec-notes/owner-decision-captures.md §4).) Smoke
 `package-duration-geckos`.
 
 ## Aggro warnings that outlast a short loss of sight (2026-10-13, coordinator)
