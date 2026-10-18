@@ -4726,6 +4726,8 @@ paths = ["crates/fnv-game/src/functions/ui.rs", "engine/nvf-play/src/script.rs"]
 env = { NVF_PLAY_TEST_SCRIPT_MENUS = "0.3", NVF_PLAY_TEST_SCRIPT = "14:call:-:ExitGame" }
 args = ["--cell", "Goodsprings", "--play", "--no-voice", "--no-messages", "--hour", "12"]
 run_seconds = 30
+# ExitGame ends the run itself, before --run-seconds would ("run finished" is that limit's line).
+ends = "script: ExitGame: quit (a test aid drives this run)"
 order = [[
   "script: test aid calls ExitGame",
   "script: ExitGame: quit (a test aid drives this run)",
