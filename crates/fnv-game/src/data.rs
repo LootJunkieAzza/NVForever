@@ -672,6 +672,10 @@ pub struct GameData {
     /// Notes (NOTE).
     pub notes: HashMap<FormId, NoteDef>,
     pub form_lists: HashMap<FormId, Vec<FormId>>,
+    /// WEAP and ARMO `REPL`: the form list of the items that can repair the item
+    /// [documented: xEdit wbREPL, GECK wiki Armor "Repair Item List"]; read raw
+    /// (docs/spec-notes/repair.md §5).
+    pub repair_lists: HashMap<FormId, FormId>,
     /// MICN (Menu Icon) ICON: the icon's texture file as the record names it, under
     /// the textures folder [documented: GECK wiki, MenuIcon; corner-messages.md §3].
     pub menu_icons: HashMap<FormId, String>,
@@ -1058,6 +1062,7 @@ struct Read {
     /// RACE SPLO list; ARMO EITM; ENCH ENIT type (`GameData::race_spells` …).
     race_spells: Option<Vec<FormId>>,
     object_effect: Option<FormId>,
+    repair_list: Option<FormId>,
     enchantment_type: Option<u32>,
     child_race: bool,
     faction: Option<Vec<(FormId, i64)>>,
@@ -1123,6 +1128,7 @@ impl GameData {
             terminals: HashMap::new(),
             notes: HashMap::new(),
             form_lists: HashMap::new(),
+            repair_lists: HashMap::new(),
             menu_icons: HashMap::new(),
             actors: HashMap::new(),
             combat_styles: HashMap::new(),
@@ -1311,6 +1317,9 @@ impl GameData {
             }
             if let Some(v) = r.object_effect {
                 d.armor_enchantments.insert(id, v);
+            }
+            if let Some(v) = r.repair_list {
+                d.repair_lists.insert(id, v);
             }
             if let Some(v) = r.enchantment_type {
                 d.enchantment_types.insert(id, v);
@@ -1648,6 +1657,9 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         b"ARMO" => out.object_effect = subs.iter().find(|s| &s.sig == b"EITM").and_then(|s| word(&s.data)).filter(|&l| l != 0).and_then(map).map(FormId),
         b"ENCH" => out.enchantment_type = subs.iter().find(|s| &s.sig == b"ENIT").and_then(|s| word(&s.data)),
         _ => {}
+    }
+    if matches!(&sig, b"WEAP" | b"ARMO") {
+        out.repair_list = subs.iter().find(|s| &s.sig == b"REPL").and_then(|s| word(&s.data)).filter(|&l| l != 0).and_then(map).map(FormId);
     }
     if &sig == b"FURN" {
         let flags = subs.iter().find(|s| &s.sig == b"MNAM").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(u32::from_le_bytes);

@@ -199,6 +199,7 @@ struct RowButton(usize);
 /// The ITEMS page's keys and wheel, while it is shown.
 pub fn keys(
     pip: Res<PipBoy>,
+    repair: Res<super::repair::PipRepair>,
     active: Res<ActiveMenu>,
     keys: Res<ButtonInput<KeyCode>>,
     mut wheel: MessageReader<MouseWheel>,
@@ -206,7 +207,8 @@ pub fn keys(
     mut out: MessageWriter<MenuInput>,
 ) {
     use KeyCode::*;
-    let items = pip.open() && pip.page == Page::Items && active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
+    // The repair list has the keys while it is shown (`super::repair`).
+    let items = pip.open() && pip.page == Page::Items && !repair.is_open() && active.0.as_ref().is_some_and(|m| m.mode == Mode::Inventory);
     let mut send = |c| {
         out.write(MenuInput(c));
     };
@@ -272,9 +274,16 @@ pub fn draw(
     combat: Option<Res<crate::combat::Combat>>,
     play: Option<Res<crate::PlayWorld>>,
     mut forms: Local<Option<super::stats::read::Forms>>,
+    (repair, script): (Res<super::repair::PipRepair>, Option<Res<crate::script::ScriptState>>),
 ) {
     let Some((body, _)) = bodies.iter().find(|(_, b)| b.page == Page::Items) else { return };
-    if added.get(body).is_err() && !active.is_changed() {
+    if added.get(body).is_err() && !active.is_changed() && !repair.is_changed() {
+        return;
+    }
+    // The repair list in place of the page's body (`super::repair`).
+    if let Some(s) = repair.0.as_ref() {
+        let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
+        commands.entity(body).despawn_children().with_children(|p| super::repair::draw_list(p, &mut c, s, combat.as_deref()));
         return;
     }
     let Some(m) = active.0.as_ref().filter(|m| m.mode == Mode::Inventory) else { return };
@@ -288,6 +297,7 @@ pub fn draw(
     if let (Some(r), Some((_, i))) = (selected, &info) {
         info!("pipboy items: {} selected: {:?}", r.name, i);
     }
+    let offer = super::repair::current(&active, sim, script.as_deref());
     let mut c = Ctx::new(&mut kit, data.as_deref(), &mut images, formats.as_deref());
     commands.entity(body).despawn_children().with_children(|p| {
         let wg = match &m.encumbrance {
@@ -302,6 +312,7 @@ pub fn draw(
         ];
         frame::heading(p, &mut c, Page::Items.title(), &cards);
         list(p, &mut c, m);
+        super::repair::draw_hint(p, &mut c, offer.as_ref());
         if let Some((icon, i)) = &info {
             item_info(p, &mut c, icon.as_deref(), i);
         }

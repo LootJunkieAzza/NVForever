@@ -13,6 +13,8 @@
 //! - `click=stats|items|data`: a left click on the page's button on the device;
 //! - `drag=<dx>:<dy>`: drag the map shown by that much (canvas units), as the left button
 //!   held on it and moved would;
+//! - `repair=<open|down|up|use|cancel>`: R on the ITEMS page's selected item, and the
+//!   repair list's keys (`super::repair`);
 //! - `travel=<marker FormID>`: what a click on that map marker of the World Map does (the
 //!   fast-travel question, docs/spec-notes/fast-travel.md); `key=use` takes the chosen
 //!   answer (Yes at first), `key=down` moves to No.
@@ -36,6 +38,7 @@ enum Step {
     Click(AidTarget),
     Drag(Vec2),
     Travel(u32),
+    Repair(super::repair::RepairInput),
 }
 
 fn page(p: &str) -> Option<Page> {
@@ -67,6 +70,14 @@ fn step(s: &str) -> Option<Step> {
             ("drag", p) => Step::Drag(canvas(p)?),
             ("travel", m) => Step::Travel(u32::from_str_radix(m.trim().trim_start_matches("0x"), 16).ok()?),
             ("click", p) => Step::Click(page(p).map(AidTarget::Button).or_else(|| canvas(p).map(AidTarget::Canvas))?),
+            ("repair", r) => Step::Repair(match r.trim() {
+                "open" => super::repair::RepairInput::Open,
+                "down" => super::repair::RepairInput::Down,
+                "up" => super::repair::RepairInput::Up,
+                "use" => super::repair::RepairInput::Use,
+                "cancel" => super::repair::RepairInput::Cancel,
+                _ => return None,
+            }),
             ("tab", t) => Step::Tab(t.trim().parse().ok().filter(|t| *t < 5)?),
             ("key", k) => Step::Key(match k.trim() {
                 "down" => Command::Down,
@@ -108,7 +119,7 @@ fn run(
     mut menu: MessageWriter<MenuInput>,
     mut pip: MessageWriter<PipBoyInput>,
     mut aid: ResMut<PipBoyAid>,
-    mut ask: MessageWriter<FastTravelAsk>,
+    (mut ask, mut repair): (MessageWriter<FastTravelAsk>, MessageWriter<super::repair::RepairInput>),
 ) {
     let now = time.elapsed_secs();
     while let Some(&(t, s)) = script.0.first() {
@@ -151,6 +162,9 @@ fn run(
             Step::Travel(m) => {
                 ask.write(FastTravelAsk(m));
             }
+            Step::Repair(r) => {
+                repair.write(r);
+            }
         }
     }
 }
@@ -161,7 +175,7 @@ mod tests {
 
     #[test]
     fn steps_are_read_in_time_order() {
-        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25, 8.95:travel=0x000CDF51");
+        let s = parse("9:close, 3:open,4:page=stats, 5:tab=2, 6:key=down, 7:tab=9, x:open, 8:click=data, 8.5:click=100:650, 8.7:point=off, 8.8:point=1:2, 8.9:drag=-40:25, 8.95:travel=0x000CDF51, 8.97:repair=use");
         assert_eq!(
             s,
             vec![
@@ -175,6 +189,7 @@ mod tests {
                 (8.8, Step::Point(Some(Vec2::new(1.0, 2.0)))),
                 (8.9, Step::Drag(Vec2::new(-40.0, 25.0))),
                 (8.95, Step::Travel(0x000C_DF51)),
+                (8.97, Step::Repair(super::super::repair::RepairInput::Use)),
                 (9.0, Step::Close)
             ]
         );

@@ -198,7 +198,10 @@ A sketch: the published mockup (the owner's review). The rules:
 ## 5. The camera and the preview [design unless tagged]
 
 - While the creator is open the camera stands in front of the player looking back
-  (`control::Portrait`). Each tab has a framing: the **whole body** on Basics (175
+  (`control::Portrait`). It **opens on the face** [owner 2026-10-17, todo 6: "the
+  camera starts framed on the face instead of the whole body"]: on the Basics tab, with
+  the face tabs' distance and tilt, straight on (`model::View::face_on`); zooming out from
+  there shows the whole body. Each tab has a framing: the **whole body** on Basics (175
   units away), the head turned 0.45 rad and seen a little from above on Hair (58), the
   **face** on the others (42, turned 0.15). The camera steps left a third of its
   distance so the player stands right of the picture's middle, clear of the panel
