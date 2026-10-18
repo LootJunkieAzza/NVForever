@@ -4244,6 +4244,8 @@ order = [[
   { re = 'vats mode: mark refused: No more rounds loaded\.', label = "the second mark is refused for the rounds" },
   { re = 'vats mode: off \(1 shots fired, 26 AP spent; all shots fired\)', label = "the one mark is fired" },
 ]]
+
+[[scenario]]
 name = "barber-menu"
 source = "owner todo 6 task 2: ShowBarberMenu opens the character creator as the barber, the hair, its colour and the beard only (docs/spec-notes/character-creator.md §10)"
 areas = ["chargen", "menus"]
