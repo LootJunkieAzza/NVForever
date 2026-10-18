@@ -231,7 +231,7 @@ note = "Drawn and collided at the new scale (objects; actors drawn only), kept o
 [function.SexChange]
 status = "wrong"
 system = "race and sex change on NPCs"
-note = "Errors on NPCs; all base-game callers are the player. resetAppearance sets the race's first starting face (script-function-params.md §3)."
+note = "Errors on NPCs; all base-game callers are the player."
 
 [function.PlaceAtReticle]
 status = "wrong"

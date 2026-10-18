@@ -554,30 +554,18 @@ pub fn get_pc_is_sex(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String
     yes(is_female(g, FormId::PLAYER_REF) == (a.code(0)? == 1))
 }
 
-/// `SexChange [sex] [resetAppearance]`: without a calling reference it changes the
-/// player; without a sex it flips [documented: catalogue summary]. With resetAppearance
-/// 1, when the player's sex changes, the player's look becomes "the default preset for
-/// their race+gender", the one the race menu shows on a change of race [documented: GECK
-/// wiki SexChange] (`UiRequests::reset_look`, done by the engine, which has the race
-/// menu's presets). Without it the face stays and only the sex changes. Other actors:
-/// not modelled.
+/// `SexChange [sex]`: without a calling reference it changes the player; without a sex
+/// it flips [documented: catalogue summary]. Other actors: not modelled.
 pub fn sex_change(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject_or_player();
     if r != FormId::PLAYER_REF {
         return Err("SexChange on an actor other than the player is not modelled".into());
     }
-    let was = is_female(g, r);
     let female = match a.code(0) {
         Ok(c) => c == 1,
-        Err(_) => !was,
+        Err(_) => !is_female(g, r),
     };
     g.player.female = Some(female);
-    if let Some(look) = g.player.look.as_mut() {
-        look.female = female;
-    }
-    if female != was && a.num_or(1, 0.0) != 0.0 {
-        g.ui.reset_look = true;
-    }
     none()
 }
 

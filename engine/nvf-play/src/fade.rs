@@ -15,6 +15,10 @@
 //! - **In**: only a reference present after its change fades in (an enable child "set to
 //!   the opposite of its parent" is disabled by its parent's Enable and pops out).
 //! - The fade runs on the game's clock (`Time<Virtual>`): it stands still in menus.
+//! - A reference whose presence turns back while it fades (Enable 0 during a fade out,
+//!   Disable during a fade in) ends its fade at once and is drawn as it now is.
+//! - References scripts draw (`script_draw`) are kept while they fade out
+//!   ([`Fades::fading_out`]).
 //!
 //! Log: `fade: <id> in|out over <s> s (<n> meshes)` when one starts (meshes drawn then;
 //! a cell loaded later joins in) and `fade: <id> in|out done` at its end.
@@ -53,8 +57,15 @@ struct Active {
 }
 
 #[derive(Resource, Default)]
-struct Fades {
+pub struct Fades {
     active: HashMap<u32, Active>,
+}
+
+impl Fades {
+    /// The reference is fading out: it is still drawn though disabled.
+    pub fn fading_out(&self, id: u32) -> bool {
+        self.active.get(&id).is_some_and(|a| !a.fade_in)
+    }
 }
 
 /// On a mesh drawn see-through for a fade: its own material, and the copy drawn.
@@ -101,11 +112,13 @@ fn step(
         return;
     }
     let now = time.elapsed_secs();
+    // A presence that turned back ends the fade (module notes).
+    let over = |id: u32, a: &Active| now - a.since >= FADE_SECONDS || sim.present(id) != a.fade_in;
     for (e, rv, mat, fading, mut vis) in &mut meshes {
         let Some(a) = st.active.get(&rv.0) else { continue };
         let t = now - a.since;
         let present = sim.present(rv.0);
-        if t >= FADE_SECONDS {
+        if over(rv.0, a) {
             if let Some(f) = fading {
                 commands.entity(e).insert(MeshMaterial3d(f.original.clone())).remove::<Fading>();
                 materials.remove(&f.copy);
@@ -147,7 +160,7 @@ fn step(
         let h = materials.add(m);
         commands.entity(e).insert((MeshMaterial3d(h.clone()), Fading { original: copy, copy: h, alpha: base, cut }));
     }
-    let done: Vec<(u32, bool)> = st.active.iter().filter(|(_, a)| now - a.since >= FADE_SECONDS).map(|(&id, a)| (id, a.fade_in)).collect();
+    let done: Vec<(u32, bool)> = st.active.iter().filter(|(&id, a)| over(id, a)).map(|(&id, a)| (id, a.fade_in)).collect();
     for (id, fade_in) in done {
         st.active.remove(&id);
         info!("fade: 0x{id:08X} {} done", if fade_in { "in" } else { "out" });

@@ -648,7 +648,7 @@ Calls / cond.: the catalogue's script calls and condition uses over the ten mast
 | SetVatsTarget | 0x11EB | 10 / 0 | no-system | VATS | - | Stub. |
 | SetWeaponHealthPerc | 0x11F5 | 1 / 0 | match | - | - |  |
 | SetWeather | 0x1104 | 14 / 0 | match | - | - |  |
-| SexChange | 0x11E7 | 12 / 0 | wrong | race and sex change on NPCs | - | Errors on NPCs; all base-game callers are the player. resetAppearance sets the race's first starting face (script-function-params.md §3). |
+| SexChange | 0x11E7 | 12 / 0 | wrong | race and sex change on NPCs | - | Errors on NPCs; all base-game callers are the player. |
 | ShowAllMapMarkers | 0x11F8 | 2 / 0 | match | - | - |  |
 | ShowBarberMenu | 0x11F1 | 4 / 0 | no-system | barber, plastic surgeon and tutorial menus | - | Stub. |
 | ShowBarterMenu | 0x1173 | 168 / 0 | match | - | - |  |

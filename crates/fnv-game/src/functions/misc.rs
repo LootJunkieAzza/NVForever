@@ -204,12 +204,16 @@ pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// docs/spec-notes/scripts.md §7.7). The two turn to each other while it is said; with
 /// `noTargetLookFlag` 1 the target is not made to look at the speaker [documented: GECK
 /// wiki SayTo, owner export] and only the speaker turns (`Game::facings`). The
-/// subtitle flag is not read (subtitles are always shown).
+/// subtitle flag shows the subtitle even out of hearing, as Say's ForceSubtitles.
 pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let speaker = ctx.subject()?;
     let (target, topic) = (a.form(0)?, a.form(1)?);
-    if g.say(speaker, Some(target), topic, true).is_some() && a.num_or(3, 0.0) != 0.0 {
-        g.set_line_look(speaker, LineLook::Speaker);
+    if g.say(speaker, Some(target), topic, true).is_some() {
+        if a.num_or(3, 0.0) != 0.0 {
+            g.set_line_look(speaker, LineLook::Speaker);
+        }
+        // forceSubtitleFlag as Say's ForceSubtitles (207 shipped calls pass 1).
+        g.set_line_flags(speaker, a.num_or(2, 0.0) != 0.0, false);
     }
     none()
 }

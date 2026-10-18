@@ -456,29 +456,6 @@ impl Catalogue {
         self.faces.iter().filter(|f| f.preset && f.race == race && f.female == female).collect()
     }
 
-    /// The default look of a race and sex: its first starting face (face, eyes, hair,
-    /// hair colour, head parts), what the race menu shows on a change of sex; without one
-    /// the race's own values, its default hair (else its first) and first eyes. SexChange
-    /// with resetAppearance sets the player's look to it [documented: GECK wiki SexChange,
-    /// "the default preset for their race+gender. This default preset can be seen when
-    /// opening ShowRaceMenu and changing the race"; hypothesis: "the default preset" is
-    /// the first]. `None` for a race not in the list.
-    pub fn starting_look(&self, race: FormId, female: bool) -> Option<Look> {
-        let r = self.race(race)?;
-        let sex = usize::from(female);
-        let p = self.presets(race, female).into_iter().next();
-        let hair = p.and_then(|p| p.hair).or(r.default_hair[sex]).or_else(|| r.hairs[sex].first().map(|c| c.id));
-        Some(Look {
-            race,
-            female,
-            hair,
-            hair_color: p.and_then(|p| p.hair_color),
-            eyes: p.and_then(|p| p.eyes).or_else(|| r.eyes[sex].first().map(|c| c.id)),
-            head_parts: p.map(|p| p.head_parts.clone()).unwrap_or_default(),
-            facegen: full(&p.map(|p| p.facegen.clone()).unwrap_or_default()),
-        })
-    }
-
     /// Own + race values of the authored faces of one sex, for [`spread`].
     pub fn drawn_faces(&self, female: bool, races: &HashMap<FormId, [Option<FaceGen>; 2]>) -> Vec<FaceGen> {
         let sex = usize::from(female);

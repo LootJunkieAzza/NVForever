@@ -4454,15 +4454,3 @@ expect = [
   { text = "menu: One: 9mm Pistol can't be equipped", label = "locked off: the inventory cannot put it on" },
   { text = "menu: One: Unequipped 9mm Pistol", label = "a plain EquipItem freed it" },
 ]
-
-[[scenario]]
-name = "sexchange-reset-look"
-source = "docs/design/script-function-params.md §3: SexChange with resetAppearance sets the player's look to the default preset of the race and new sex (GECK wiki SexChange; the six shipped calls pass 1)"
-areas = ["script-params", "chargen"]
-paths = ["crates/fnv-game/src/functions/actor.rs", "engine/nvf-play/src/creator.rs", "crates/fnv-actor/src/creator.rs"]
-env = { NVF_PLAY_TEST_CONSOLE = "14:player.sexchange female 1;14.3:close;16:player.sexchange female 1;16.3:close" }
-args = ["--cell", "Goodsprings", "--play", "--pos=-68375,4800,8700", "--no-voice"]
-run_seconds = 19
-expect = [
-  { re = "creator: SexChange reset the look to .*'s starting face for a woman", count = 1, label = "reset once: the second call changes no sex" },
-]

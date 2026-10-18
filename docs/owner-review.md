@@ -5768,11 +5768,9 @@ are my guesses, each with what would settle it:
 - **Equip locks in the inventory**: an item EquipItem locked on shows "… can't be
   unequipped" (my wording; the original's message is not known). Companions ignore
   NoEquipFlag in the original (wiki); ours have no re-equipping yet, so nothing to ignore.
-- **Say's ForceSubtitles** (18 calls, all 1): read as "show the subtitle even out of
+- **Say's ForceSubtitles** (18 calls, all 1; SayTo's flag, 207 calls over the masters): read as "show the subtitle even out of
   hearing". **is2D**: heard flat and full wherever the player is. **Actor and isVoice**:
-  not read, nothing documents them and no shipped script passes them.
-- **SexChange resetAppearance**: "the default preset for their race+gender" taken as the
-  race's first starting face (the one the race menu shows on a change of sex).
+  not read; nothing documents them, and Old World Blues' 103 calls name the speaker itself.
 - **SetGlobalTimeMultiplier without keepSoundUnchanged**: effects, footsteps and voices
   play at the multiplier (music and radio do not), as with the engine's own slow motion.
   The one shipped slow motion keeps sound unchanged, so nothing shipped hears it.

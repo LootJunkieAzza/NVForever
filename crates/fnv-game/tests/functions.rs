@@ -1344,12 +1344,6 @@ fn ignored_parameters_are_honoured() {
     call(&mut g, 0x1245, None, &[n(33.0)]);
     assert_eq!(SpecialSheet::for_menu(&mut g).total, 33);
 
-    // SexChange with resetAppearance asks the engine for the starting look, only on a change.
-    call(&mut g, 0x11E7, None, &[n(0.0), n(1.0)]);
-    assert!(!g.ui.reset_look, "a man already");
-    call(&mut g, 0x11E7, None, &[n(1.0), n(1.0)]);
-    assert!(g.ui.reset_look && g.player.female == Some(true));
-
     // SetGlobalTimeMultiplier: the sound flag is kept for the engine.
     call(&mut g, 0x1186, None, &[n(0.5)]);
     assert!(!g.ui.time_keeps_sound);

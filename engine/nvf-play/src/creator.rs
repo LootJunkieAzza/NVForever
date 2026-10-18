@@ -215,7 +215,7 @@ impl Plugin for CreatorPlugin {
         };
         app.init_resource::<CreatorMenu>()
             .insert_resource(CreatorAid(aid))
-            .add_systems(Update, (reset_look, sync, input, write_look, camera, draw).chain().in_set(PlaySet::Ui))
+            .add_systems(Update, (sync, input, write_look, camera, draw).chain().in_set(PlaySet::Ui))
             .add_systems(Startup, say_data);
     }
 }
@@ -661,28 +661,6 @@ fn describe(m: &Model) -> String {
         })
         .collect();
     format!("{}, {}, hair colour {:?}", m.caption(), parts.join(", "), m.look.hair_color)
-}
-
-/// SexChange with resetAppearance (`UiRequests::reset_look`): the player's look becomes
-/// the race's starting look for the new sex (`fnv_actor::creator::Catalogue::starting_look`).
-/// The request waits for the creator's data.
-fn reset_look(data: Option<Res<CreatorData>>, mut script: Option<ResMut<ScriptState>>) {
-    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
-    if !rt.game.ui.reset_look {
-        return;
-    }
-    let Some(data) = data else { return };
-    rt.game.ui.reset_look = false;
-    let female = rt.game.player.female.unwrap_or(false);
-    let cat = &data.0.catalogue;
-    let race = rt.game.player.look.as_ref().map(|l| l.race).or_else(|| data.0.player.as_ref().map(|l| l.race)).or_else(|| cat.races.first().map(|r| r.id));
-    match race.and_then(|r| cat.starting_look(r, female)) {
-        Some(look) => {
-            info!("creator: SexChange reset the look to {}'s starting face for a {}", rt.game.data.name(look.race), if female { "woman" } else { "man" });
-            rules::apply_look(&mut rt.game, game_look(&look));
-        }
-        None => warn!("creator: SexChange asked for the look to be reset, but the race has no starting look"),
-    }
 }
 
 /// Write the look into the game when it changed.
