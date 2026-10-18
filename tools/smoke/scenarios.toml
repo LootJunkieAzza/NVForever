@@ -4479,13 +4479,14 @@ name = "barber-menu"
 source = "owner todo 6 task 2: ShowBarberMenu opens the character creator as the barber, the hair, its colour and the beard only (docs/spec-notes/character-creator.md §10)"
 areas = ["chargen", "menus"]
 paths = ["engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/**", "crates/fnv-game/src/functions/misc.rs"]
-# The console runs a script function only once the scripts run (about 7–9 s after launch,
-# later when the add-ons' start-up boxes are slow): ShowBarberMenu at 14 s. --no-messages
-# closes those OK-only boxes at once (a Classic Pack box at 13 s held the console step
-# otherwise); the barber menu (1036) is no message box and stays open.
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:ShowBarberMenu;14.3:close", NVF_PLAY_TEST_CREATOR = "17:next:Hair style,17.5:next:Facial hair,18:next:Hair colour,18.5:random,19:next:Origin,19.5:tab:face,21:done", NVF_PLAY_TEST_SHOTS = "16.5:barber_open.png,20:barber_changed.png" }
+# The console runs a script function only once the scripts run; the smoke runner's
+# NVF_PLAY_AIDS_FROM_SCRIPTS holds the world aids until then (PR #453), so ShowBarberMenu
+# is at 6.5 s, the latest unbusy start, and the steps after it keep their distance from it.
+# --no-messages closes the add-ons' OK-only start-up boxes at once (a Classic Pack box held
+# the console step otherwise); the barber menu (1036) is no message box and stays open.
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "6.5:ShowBarberMenu;6.8:close", NVF_PLAY_TEST_CREATOR = "9.5:next:Hair style,10:next:Facial hair,10.5:next:Hair colour,11:random,11.5:next:Origin,12:tab:face,13.5:done", NVF_PLAY_TEST_SHOTS = "9:barber_open.png,12.5:barber_changed.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
-run_seconds = 28
+run_seconds = 21
 order = [[
   "console: > ShowBarberMenu",
   "script: menu 1036 open",
