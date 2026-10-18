@@ -32,6 +32,10 @@ Code: data `crates/fnv-actor/src/creator.rs` (with the controls file reader in
   "ShowRaceMenu"; hypothesis: which scenes, e.g. Doc Mitchell's last question and the
   New Vegas Medical Clinic, not checked]. The creator always opens on the player's
   current look, so reopening it edits rather than starts over [design].
+- `ShowBarberMenu` and `ShowPlasticSurgeonMenu` open the same menu 1036 [documented:
+  GECK wiki "MenuMode (Function)", notes: "ShowRaceMenu, ShowPlasticSurgeonMenu, and
+  ShowBarberMenu all return true for MenuMode 1036"]. The game keeps which function
+  opened it (`Game::race_menu`), and the creator shows what that one may change (§10).
 
 ## 2. What the game data offers [observed unless tagged]
 
@@ -352,3 +356,24 @@ A sketch: the published mockup (the owner's review). The rules:
 4. Ranges: the authored faces' spread plus a quarter at each end — wider or narrower?
 5. Should Randomise also change the race?
 6. Add the "Weathered" (older race) switch and a height slider?
+
+## 10. The barber (ShowBarberMenu)
+
+- ShowBarberMenu opens menu 1036 as the barber's (`fnv_game::game::RaceMenu::Barber`;
+  the function was a stub before). What it changes: the hair style and the hair colour
+  [documented: GECK wiki ShowBarberMenu, "Brings up the menu which allows the player to
+  select hair color and style"] and the facial hair [owner 2026-10-17, todo 6: "can
+  change only the hair and beard options"]. The race, the sex and the name can not be
+  changed [owner, same].
+- Not the brows [design: the GECK wiki names only the hair; the brows are a head part of
+  the face, as the eyes are, and stay with the plastic surgeon], nor the face's beard
+  shading (a FaceGen texture value of the face).
+- The panel is the creator's with the title BARBER and one tab, HAIR: hair style, the
+  hair-colour swatches, shade, warmth and grey, and facial hair for a man; the camera
+  opens on the Hair tab's framing (the head, turned a little). Random draws the hair,
+  its colour and the beard from an authored face of the race and sex and keeps
+  everything else; Undo, Reset and Done as in the creator. Other tabs can not be chosen
+  (keys, pointer or the test aid).
+- Log: "creator: as the barber (ShowBarberMenu): the hair, its colour and the beard
+  only" after "creator: open on …". Smoke scenario `barber-menu` (the console runs
+  ShowBarberMenu in Doc Mitchell's house).

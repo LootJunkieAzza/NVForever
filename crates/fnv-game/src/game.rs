@@ -470,6 +470,21 @@ pub struct AllMarkers {
     pub skip_hidden: bool,
 }
 
+/// What the race menu (1036) lets the player change, by the function that opened it:
+/// ShowRaceMenu, ShowBarberMenu and ShowPlasticSurgeonMenu all open menu 1036
+/// [documented: GECK wiki "MenuMode (Function)", notes: "ShowRaceMenu,
+/// ShowPlasticSurgeonMenu, and ShowBarberMenu all return true for MenuMode 1036"].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RaceMenu {
+    /// ShowRaceMenu: everything (the character creator).
+    #[default]
+    Creator,
+    /// ShowBarberMenu: the hair [documented: GECK wiki ShowBarberMenu, "select hair color
+    /// and style"] and the beard [owner 2026-10-17, todo 6]; not the race, sex or name
+    /// [owner].
+    Barber,
+}
+
 /// The player's state outside the world's reference table.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayerState {
@@ -879,6 +894,10 @@ pub struct Game<'a> {
     /// the quest delay of GameMode) [observed: layer5-captures.md §8.3 e]. Part of the
     /// engine API, docs/spec-notes/scripts.md §7.2.
     pub menu: Option<u16>,
+    /// Which function opened the race menu (1036): it is one menu for the race menu, the
+    /// barber and the plastic surgeon, which change different parts of the look
+    /// (docs/spec-notes/character-creator.md §10). Not saved.
+    pub race_menu: RaceMenu,
     /// A loading screen is up: [`Game::tick`] runs no script and game time stops
     /// [observed: GetSecondsPassed did not count a `coc` loading screen,
     /// layer5-captures.md §8.3 e]. Part of the engine API, scripts.md §7.2.
@@ -1107,6 +1126,7 @@ impl<'a> Game<'a> {
             fighting: BTreeSet::new(),
             condition_target: None,
             menu: None,
+            race_menu: RaceMenu::Creator,
             loading: false,
             message_box: None,
             boxes: Vec::new(),
