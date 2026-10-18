@@ -4110,8 +4110,10 @@ Decisions where the sources were unclear:
   Paladins (packages 0x000D76E4–0x000D781C) change activity about every 30–90 game
   minutes rather than staying all day. **Note 2026-10-18:** those packages belong to
   the bunker's initiates and knights, not the paladins [observed: `fnvtool ai show`]. The
-  observer sessions for them crashed from the save `nvfstrip`; a retry from `nvftest` is
-  pending (spec-notes/owner-decision-captures.md §4).
+  observer sessions for them crashed from the save `nvfstrip`. **Captured from `nvftest`
+  2026-10-18 [observed]:** over 12 game hours the initiates switched activity often, and
+  the paladins every few hours, so the check's direction holds. The knights on L2 needed
+  `SetAlly` with the player's faction to be watched (spec-notes/owner-decision-captures.md §4).
 - **Rotate** turns a reference for one frame per call (the shipped callers call it
   every frame from GameMode). Check: the turning objects of `SCPT 0x0013414C/D/E` (via
   their linked references) spin steadily.
@@ -4608,6 +4610,12 @@ Skip Fallout Behavior without the aggro flag) is the first package of their list
 duration without a starting hour was ignored: the package ran all day, so the next one,
 which allows aggro, never came.
 
+**Contradicted by a capture, not settled (2026-10-18 [observed]):** both geckos held the
+patrol package (3 h duration, no start hour, Once Per Day) for 4.7 game hours and never
+moved on to FindFood02. A silent restart of the same package is not ruled out, and the
+player was in their way after that. The rule below stays until the gecko rerun reports
+(spec-notes/owner-decision-captures.md §4); the runtime is unchanged.
+
 **Fix.** A list package with a duration and no starting hour now ends that many game
 hours after the actor chose it, the same way a SetPackDuration time ends (#250's
 `end_timed_packages`: end script and OnPackageDone, then the actor chooses again). Once
@@ -4647,8 +4655,8 @@ scenario. Whether a warning count should survive a short loss of sight is the ow
 *Check in game:* stand at the owner's spot near the two geckos (-65828, -23929) at about
 17:00 and wait 14 hours: they patrol off after about 2 hours and come back to sandbox
 after about 10, then warn when the player is within 650 units. (The observer session
-`geckos_package_chain` crashed from `nvfstrip` on 2026-10-18; a retry from `nvftest` is
-pending (spec-notes/owner-decision-captures.md §4).) Smoke
+`geckos_package_chain` from `nvftest`, 2026-10-18: the patrol ran 4.7 h, past its 3 h,
+see "Contradicted" above; a rerun with the player two cells away is pending (spec-notes/owner-decision-captures.md §4).) Smoke
 `package-duration-geckos`.
 
 ## Aggro warnings that outlast a short loss of sight (2026-10-13, coordinator)

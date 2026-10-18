@@ -94,7 +94,7 @@
   },
   {
    "name": "hv_knights",
-   "note": "Item 7. Hidden Valley bunker L2: the knights (HVKnightWeaponRepair, HVKnightWeaponRepair2, HVKnightFloorRepair, HVKnightRepair, HVKnightSleep), from the next 06:00 for 12 game hours.",
+   "note": "Item 7. Hidden Valley bunker L2: the knights (HVKnightWeaponRepair, HVKnightWeaponRepair2, HVKnightFloorRepair, HVKnightRepair, HVKnightSleep), from the next 06:00 for 12 game hours. Needs the console line `SetAlly 0001D3FE 0001B2A4` (BrotherhoodSteelFaction and PlayerFaction made allies): the ESM lists PlayerFaction as an enemy of the Brotherhood, AddToFaction VBrotherhoodOfSteelFaction did not help, and tdetect is not used because it also stops NPCs detecting each other (owner's ruling) [observed 2026-10-18, run from nvftest].",
    "go": {
     "coc": "HiddenValley02"
    },
@@ -111,9 +111,13 @@
   },
   {
    "name": "geckos_package_chain",
-   "note": "Item 7. The owner's two geckos at cell -17,-6 (0x0016518B, 0x0016518C): from 17:00 for 14 game hours (find food 2 h, patrol 3 h, find food 2 h, patrol 3 h, then a sandbox that allows aggro, by our reading of their list).",
+   "note": "Item 7. The owner's two geckos at cell -17,-6 (0x0016518B, 0x0016518C): from 17:00 for 14 game hours (find food 2 h, patrol 3 h, find food 2 h, patrol 3 h, then a sandbox that allows aggro, by our reading of their list). The 2026-10-18 run put the player on a gecko's spot (go: moveto) and they fought from 21:43; the rerun stands two cells away (cow WastelandNV -15 -6).",
    "go": {
-    "moveto": "0x0016518B"
+    "cow": [
+     "WastelandNV",
+     -15,
+     -6
+    ]
    },
    "hour": 17,
    "hours": 14,

@@ -123,8 +123,7 @@ This note was written from the readings the coordinator relayed, not from the ra
 It claims no more than those readings give. In the `ai` field the values are in this
 order: package, type, procedure, …, x, y, z, heading.
 
-**Still pending.** The item 7 sessions (a retry from `nvftest` was running) and the
-second round's jobs (§5).
+**Still pending.** The gecko rerun (item 7) and the second round's jobs (§5).
 
 ### Settled
 
@@ -244,10 +243,43 @@ second round's jobs (§5).
 - **Item 15, `alert_noise`: not settled.** The session ran (965 samples, 118 state
   changes), but the Fiends it relies on are dead in `nvfstrip` (§2). It needs a rerun
   from `nvftest`.
-- **Item 7, `hv_initiates`, `hv_knights`, `geckos_package_chain`: not settled.** All three
-  crashed from `nvfstrip`. The first try of `hv_initiates` crashed after about 150 s, and
-  the retries within about 15 s of starting. The observer gave up after three cut-offs
-  each. A retry from `nvftest`, the save they were written for, was running.
+- **Item 7 from `nvfstrip`: all three sessions crashed.** The first try of
+  `hv_initiates` crashed after about 150 s, and the retries within about 15 s of
+  starting. The observer gave up after three cut-offs each. They were rerun from
+  `nvftest`, the save they were written for (next item).
+- **Item 7 from `nvftest`.** The summaries come from `observe.py report --text` on the
+  coordinator's desktop; the package-change times in full are there too.
+  - **`hv_initiates` (bunker L1): complete.** It ran from 06:00 to about 18:14, 1,519
+    samples, and the player was never in combat.
+    - The paladins cycle TargetPractice1/2/3, PaladinSandboxDay and PaladinDaySleep,
+      each lasting a few game hours.
+    - The initiates switch often between Class, Matrix, Running, Exercise and Sandbox,
+      with many packages made at run time (0xFF…).
+    - Knights AF and CM on L1 held FloorRepair / Repair for all 12 hours.
+  - **`hv_knights` (bunker L2): complete.** It ran from 06:04 to about 18:13, 1,470
+    samples, and the player was never in combat.
+    - **It needed `SetAlly 0001D3FE 0001B2A4`.** That makes BrotherhoodSteelFaction and
+      PlayerFaction allies. The ESM lists PlayerFaction as an enemy of
+      BrotherhoodSteelFaction, and `AddToFaction` VBrotherhoodOfSteelFaction did not help.
+    - `tdetect` was rejected by the owner, because it also stops NPCs detecting each
+      other.
+  - **Item 7 verdict, the bunker.** Activities do change every few hours rather than
+    staying all day. So the SetPackDuration check is answered in its direction; the exact
+    times are in the desktop report.
+  - **`geckos_package_chain`: partly usable.** Their list is VCrGeckoFindFood (2 h),
+    VCrGeckoPatrolRunningLinkedRef (3 h), FindFood02, Patrol02 and a sandbox. None has a
+    start hour, and all are Once Per Day.
+    - **The patrol ran past its duration.** Both geckos held the patrol (0x001651B5)
+      from 17:03 to 21:43, which is 4.7 h against its 3 h duration, and never went on
+      to FindFood02. That is evidence **against** our rule that a duration without a
+      start hour ends the package [observed]. A silent restart of the same package
+      cannot be ruled out: the package and procedure were the same throughout.
+    - **The rest of the run is not clean.** From 21:43 they fought the player, because
+      `go: moveto` put the player on gecko 8B's spot.
+    - **A hint about midnight.** At 00:10 one gecko in combat chose FindFood, the first
+      package of its list. That suggests Once Per Day resets at midnight [hypothesis].
+    - **A rerun was running.** It puts the player two cells away (`cow WastelandNV
+      -15 -6`), with no faction change.
 - **od_22 retry (`nvfstrip`): not settled.** Ralph's dialogue never opened (the wait at
   step 17 timed out every round), and every screenshot failed with "cannot create a
   bitmap", as in od_21. The second round's `open_dialogue` closes a message box first;
