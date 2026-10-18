@@ -1141,6 +1141,28 @@ fn a_fighter_goes_to_its_post_and_faces_its_target() {
 }
 
 #[test]
+fn a_fighter_running_to_its_post_walks_once_it_raises_its_sights() {
+    // Aiming down the sights slows it to a walk (alert.rs module notes), also on a run to
+    // a post already under way.
+    use fnv_game::combat_group::{Post, PostKind};
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(1.0);
+    let target = [10500.0, 10900.0, 0.0];
+    fighting(&mut s, R_SB_NOTHING, target);
+    s.game.awareness.engage.insert(FormId(R_SB_NOTHING), (2000.0, 2500.0));
+    let post = [10200.0, 10600.0, 0.0];
+    s.game.awareness.tactics.posts.insert(FormId(R_SB_NOTHING), Post { at: post, kind: PostKind::Flank, run: true });
+    s.run(0.5);
+    assert!(s.events(R_SB_NOTHING).iter().any(|e| matches!(e, AiEvent::Post { post: PostKind::Flank, .. })), "{:?}", s.events(R_SB_NOTHING));
+    assert!(!s.events(R_SB_NOTHING).iter().any(|e| matches!(e, AiEvent::AtPost { .. })), "still on its way");
+    s.game.awareness.aiming.insert(FormId(R_SB_NOTHING));
+    s.run(0.5);
+    let ev = s.events(R_SB_NOTHING);
+    assert!(ev.iter().any(|e| matches!(e, AiEvent::Pace { aiming: true, .. })), "{ev:?}");
+}
+
+#[test]
 fn a_search_party_splits_the_circle() {
     // Combat Search (combat-ai.md §12.5): two sitters placed from one base form, alarmed
     // by the same shot, search together, each its own half of the circle round it.
