@@ -96,7 +96,12 @@ triangles, its door stops and the door that ends it.
   units on along its path (past corners, never past a door stop it has not opened or the
   end of its leg; the point is on the path, so on the navmesh), and physics puts it down
   there again; the log says "actor … stuck at …: moved on along its path to …" and the
-  residents' summary counts "moved N stuck actors on".
+  residents' summary counts "moved N stuck actors on". Stuck again where it was put down,
+  before a second's progress, it is moved on again after a second, without the four
+  detours that already failed (`Unstuck::after_skip`): a stretch blocked for longer than
+  one skip cost 7.4 s per 160 units otherwise (Boone just past his room's door, smoke
+  follower-boone, 2026-10-17: 16.7 s to reach the player, against 9.5 s with the walker
+  fallback before the skip).
 - `Walker` moves an actor along the path on the navmesh surface (height from the
   triangle under it), turning at up to 180°/s (`WALK_TURN_RATE`; 720°/s before
   2026-10-11) and slowing while its heading is off the way (`turn_slowdown`; actors.md

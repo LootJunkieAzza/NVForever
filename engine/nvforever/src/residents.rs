@@ -167,7 +167,14 @@ impl Mover for PhysMover<'_> {
             if !phys.add_npc(id, walker.feet) {
                 return None;
             }
-            self.unstuck.insert(id, unstuck(walker.speed));
+            // Put down where it was moved on to: stuck again there, it is moved on again
+            // without the detours that failed already (`Unstuck::after_skip`).
+            let moved_on = self.unstuck.remove(&id).is_some_and(|u| u.skipped);
+            let mut u = unstuck(walker.speed);
+            if moved_on {
+                u.after_skip();
+            }
+            self.unstuck.insert(id, u);
         }
         let feet = phys.npcs[&id].ch.feet;
         let mut f = walker.follower.take()?;

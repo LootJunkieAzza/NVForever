@@ -222,6 +222,9 @@ pub struct Unstuck {
     pub detours: usize,
     /// Replans (or skips) advised.
     pub replans: usize,
+    /// An [`Advice::Skip`] was given ([`Unstuck::after_skip`] for the stuck rule of the
+    /// actor put down where it was moved on to).
+    pub skipped: bool,
 }
 
 /// Detour turns (radians, positive = to the left / counter-clockwise seen from above).
@@ -235,7 +238,17 @@ fn rotate(d: [f32; 2], a: f32) -> [f32; 2] {
 
 impl Unstuck {
     pub fn new(speed: f32) -> Unstuck {
-        Unstuck { speed, max_replans: 5, skip: false, history: Default::default(), detour: None, tried: 0, stuck_at: None, last: None, moved_left: 0.0, detours: 0, replans: 0 }
+        Unstuck { speed, max_replans: 5, skip: false, history: Default::default(), detour: None, tried: 0, stuck_at: None, last: None, moved_left: 0.0, detours: 0, replans: 0, skipped: false }
+    }
+
+    /// For an actor just moved on along its path ([`Advice::Skip`]): the detours were
+    /// tried where it got stuck, so if it is stuck again before it has made a second's
+    /// progress it is moved on again at once (a second without progress), not after the
+    /// four detours. Once it gets on, the detours come back [design: a stretch blocked for
+    /// longer than one skip (Boone just past his room's door, follower-boone smoke,
+    /// 2026-10-17) cost 7.4 s per 160 units].
+    pub fn after_skip(&mut self) {
+        self.tried = DETOURS.len();
     }
 
     /// Forget the progress history (after a door, a teleport or a new path).
@@ -309,6 +322,7 @@ impl Unstuck {
         }
         self.replans += 1;
         if self.skip {
+            self.skipped = true;
             Advice::Skip
         } else {
             Advice::Replan
@@ -660,6 +674,31 @@ mod tests {
         }
         assert_eq!(advice, vec![Advice::Skip]);
         assert_eq!((u.detours, u.replans), (4, 1));
+    }
+
+    #[test]
+    fn after_a_skip_a_still_stuck_actor_is_moved_on_again_at_once() {
+        // Stuck for good: the first skip comes after a second and four detours.
+        let first = |u: &mut Unstuck| (1..400).find(|_| u.advise(800.0, [1.0, 0.0], 0.1) == Advice::Skip).unwrap();
+        let mut u = Unstuck::new(100.0);
+        u.skip = true;
+        let steps = first(&mut u);
+        assert!(u.skipped && steps > 60, "{steps}");
+        // Put down further on and stuck again: moved on after a second without progress.
+        let mut again = Unstuck::new(100.0);
+        again.skip = true;
+        again.after_skip();
+        let steps = first(&mut again);
+        assert!(steps <= 11 && again.detours == 0, "{steps} {}", again.detours);
+        // Getting on after the skip brings the detours back.
+        let mut free = Unstuck::new(100.0);
+        free.skip = true;
+        free.after_skip();
+        for i in 0..20 {
+            assert_eq!(free.advise(800.0 - i as f32 * 10.0, [1.0, 0.0], 0.1), Advice::Head([1.0, 0.0]));
+        }
+        let steps = first(&mut free);
+        assert!(free.detours == 4 && steps > 60, "{steps} {}", free.detours);
     }
 
     #[test]
