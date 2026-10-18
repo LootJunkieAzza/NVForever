@@ -4707,22 +4707,23 @@ manual = "film.png: the intro film stretched over the whole window (no black bar
 
 [[scenario]]
 name = "screen-splatter"
-source = "TriggerScreenSplatter / SetScreenSplatterFade / ClearScreenSplatter (docs/spec-notes/screen-splatter.md): the opening's stage 50 calls from the console put at most iBloodSplatterMaxCount (25) splats of the game's gore textures on the screen, they fade from half their time, ClearScreenSplatter takes them away, short ones fade by themselves"
+source = "TriggerScreenSplatter / SetScreenSplatterFade / ClearScreenSplatter (docs/spec-notes/screen-splatter.md): stage 50's call from the console (100 20 2 2) puts 100 splats of the game's gore textures on the screen, fading from their start to nothing at 20 s; ClearScreenSplatter takes them away; SetScreenSplatterFade is safe (it quits the original); short splats fade by themselves. The shots match the original's capture fx_screen_splatter_look in time"
 areas = ["imagespace", "scripts"]
 paths = ["engine/nvf-play/src/screen_splatter.rs", "crates/fnv-game/src/functions/misc.rs", "crates/fnv-game/src/functions/ui.rs"]
-env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:setscreensplatterfade 0.5 1;14.2:triggerscreensplatter 100 20 2 2;14.5:close;26:clearscreensplatter;26.3:triggerscreensplatter 10 3 1 1;26.6:close", NVF_PLAY_TEST_SHOTS = "16:splatter_full.png,24.5:splatter_fading.png,25.8:splatter_before_clear.png,27:splatter_small.png,31:splatter_gone.png" }
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:triggerscreensplatter 100 20 2 2;14.2:close;31:clearscreensplatter;31.2:triggerscreensplatter 10 3 2 2;31.4:setscreensplatterfade 0.5 1;31.6:close", NVF_PLAY_TEST_SHOTS = "14.5:splatter_t0_5.png,19.5:splatter_t5_5.png,24.5:splatter_t10_5.png,29.5:splatter_t15_5.png,32:splatter_small.png,36:splatter_gone.png" }
 args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages", "--hour", "12"]
-run_seconds = 33
+run_seconds = 38
 order = [[
-  "screen splatter: 25 splats on the screen (TriggerScreenSplatter 100 20 2 2)",
+  "screen splatter: 100 splats on the screen (TriggerScreenSplatter 100 20 2 2)",
   "screen splatter: cleared",
-  "screen splatter: 10 splats on the screen (TriggerScreenSplatter 10 3 1 1)",
+  "screen splatter: 10 splats on the screen (TriggerScreenSplatter 10 3 2 2)",
   "screen splatter: the last splat has faded",
 ]]
 expect = [
   { re = 'screen splatter: \S+: ', count = 0, label = "the gore textures are read" },
+  { text = "console: > setscreensplatterfade 0.5 1", label = "SetScreenSplatterFade runs (it quits the original)" },
 ]
-manual = "splatter_full.png: dark red blood splats over the view, large (about a quarter to a third of the screen's height each), mostly opaque; splatter_fading.png the same splats fainter; splatter_small.png ten smaller, fainter splats; splatter_gone.png the clean view. Compare with the original's (capture job tools/capture/jobs/screen_splatter_look.json)"
+manual = "splatter_t0_5.png to splatter_t15_5.png against the original's fx_screen_splatter_look s100_20_2_2_t0.5 to _t15.5 (C:/fnv-private/capture/shots): the view nearly black under dark soft blobs with red cores, lighter at each step; splatter_small.png ten blobs like the original's before_fade; splatter_gone.png the clean view"
 
 [[scenario]]
 name = "cell-image-space"

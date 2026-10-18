@@ -449,7 +449,7 @@ pub fn play_bink(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 /// wiki, owner export), which reads as the vanilla call with textures added; the
 /// vanilla page is empty]. A missing or 0 duration is the game setting's. Out-of-range
 /// values are bounded [engineering choice: no shipped call goes beyond count 100, 25 s,
-/// size 3, opacity 2]: count at least 0 (the engine shows at most iBloodSplatterMaxCount),
+/// size 3, opacity 2]: count at least 0 (the engine draws at most 1,000),
 /// duration at most an hour, the factors 0 to [`SPLATTER_MAX_FACTOR`]; a value that is not
 /// a number counts as missing.
 pub fn trigger_screen_splatter(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -480,10 +480,11 @@ pub fn clear_screen_splatter(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Valu
 /// last parameter is an int `fade`; screen-splatter.md §2]. The original game quit at
 /// this call, made as the first splatter call of a session from a capture job's function
 /// script, twice [observed 2026-10-18, screen-splatter.md §5]; here it only records the
-/// two values, with or without splats on the screen: a start that is not a number is the
-/// game setting's (fBloodSplatterFadeStart), any other is held to 0–1.
+/// two values, with or without splats on the screen: a start that is not a number is 0
+/// (the original's splats fade from their start, screen-splatter.md §5), any other is
+/// held to 0–1.
 pub fn set_screen_splatter_fade(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let start = Some(a.num_or(0, f64::NAN)).filter(|v| v.is_finite()).map_or_else(|| crate::combat::setting(g, "fBloodSplatterFadeStart", 0.4), |v| v.clamp(0.0, 1.0)) as f32;
+    let start = Some(a.num_or(0, f64::NAN)).filter(|v| v.is_finite()).map_or(0.0, |v| v.clamp(0.0, 1.0)) as f32;
     let on = Some(a.num_or(1, 1.0)).filter(|v| v.is_finite()).is_none_or(|v| v != 0.0);
     g.ui.splatter.fade = Some((start, on));
     none()

@@ -261,7 +261,7 @@ Missing or wrong systems ranked by the quests whose scripts or conditions use th
 | 20 | dismemberment and critical deaths | no-system | 2 | 4 / 0 | 23 / 0 | AttachAshPile, IsLimbGone, SetCriticalStage | - | - |
 | 21 | Bink videos | match (2026-10-18, bink-films.md) | 2 | 4 / 0 | 4 / 0 | PlayBink | VCG00 (Welcome To Fabulous New Vegas) | - |
 | 22 | cell image spaces | match (2026-10-18, bink-films.md §4) | 2 | 2 / 0 | 2 / 0 | SetCellImageSpace | - | - |
-| 23 | screen blood splatter | match (2026-10-18, screen-splatter.md; look awaiting a capture) | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
+| 23 | screen blood splatter | match (2026-10-18, screen-splatter.md; fitted to a capture) | 1 | 11 / 0 | 11 / 0 | ClearScreenSplatter, SetScreenSplatterFade, TriggerScreenSplatter | VCG00 (Welcome To Fabulous New Vegas) | - |
 | 24 | AI package codes | wrong | 1 | 5 / 0 | 16 / 64 | GetCurrentAIProcedure | - | - |
 | 25 | objective display switch | wrong | 1 | 2 / 0 | 2 / 0 | AutoDisplayObjectives | VCG01 (Ain't That a Kick in the Head) | - |
 | 26 | navmesh switches | no-system | 1 | 1 / 0 | 9 / 0 | DisableNavmesh, EnableNavMesh, setAllReachable | - | - |

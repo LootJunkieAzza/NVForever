@@ -5,32 +5,40 @@
 //! and 50, cleared at stage 100) [observed: decoded scripts]: Benny's shots leave blood
 //! over the player's view. Each call puts `count` splats on the screen
 //! (`fnv_game::functions::ui::SplatterTrigger`), each at a random place, with a random
-//! size and opacity from the game settings (`fBloodSplatter*`, `iBloodSplatterMaxCount`)
-//! [observed: the values in FalloutNV.esm; documented: their names; hypothesis: how the
-//! names are used, below]:
+//! size and opacity from the game settings (`fBloodSplatter*`) [observed: the values in
+//! FalloutNV.esm; documented: their names], fitted to the original's pictures of the
+//! capture job `fx_screen_splatter_look` (screen-splatter.md §5, 2026-10-18):
 //!
+//! - count: that many splats; 100 darkened the screen about seven times as much as 10, so
+//!   `iBloodSplatterMaxCount` (25) does not cap a call [observed]; what that setting
+//!   bounds is not known. At most [`MAX_SPLATS`] here [engineering choice];
 //! - size: between `fBloodSplatterMinSize` (0.12) and `fBloodSplatterMaxSize` (0.18)
-//!   times the call's size factor, as a share of the screen's height (a square);
+//!   times the call's size factor, as a share of the screen's **width** (a square): the
+//!   original's splats are about a quarter of the screen height across at factor 1
+//!   [observed]; the darkening grew about as the square of the size factor [observed];
 //! - opacity: between `fBloodSplatterMinOpacity` (0.5) and `fBloodSplatterMaxOpacity`
 //!   (1.0), or with the chance `fBloodSplatterOpacityChance` (0.3) between
-//!   `fBloodSplatterMinOpacity2` (0.3) and `fBloodSplatterMaxOpacity2` (0.6), times the
-//!   call's opacity factor, at most 1;
-//! - time: the call's duration (else `fBloodSplatterDuration`, 20 s); from
-//!   `fBloodSplatterFadeStart` (0.4) of it, or SetScreenSplatterFade's share, the splat
-//!   fades out to nothing at its end;
-//! - at most `iBloodSplatterMaxCount` (25) on the screen: a new splat beyond that takes
-//!   the place of the oldest.
+//!   `fBloodSplatterMinOpacity2` (0.3) and `fBloodSplatterMaxOpacity2` (0.6)
+//!   [hypothesis], times the call's opacity factor with no cap at 1: factor 2 darkened
+//!   about two and a half times as much as 1 [observed]. A texel's alpha is the shape's
+//!   alpha times the opacity, at most 1, so a strong splat's soft edge spreads;
+//! - time: the call's duration (else `fBloodSplatterDuration`, 20 s); the splat fades
+//!   from its start to nothing at its end: stage 50's call (100 20 2 2) darkened the
+//!   screen less at 5.5, 10.5 and 15.5 s and not at all at 21 s [observed]. Whether
+//!   SetScreenSplatterFade changes that cannot be seen, since the call quits the original
+//!   (§5); its share and switch are used as [hypothesis], and `fBloodSplatterFadeStart`
+//!   (0.4) is not used (the pictures show fading before 40 % of the time).
 //!
 //! The picture is the game's own textures: the shape is the alpha of a cell of
 //! `textures\gore\screenbloodalpha01opt.dds`, the colour the same cell of
 //! `textures\gore\screenbloodcolor01opt.dds` (both 2×2 atlases of four splats) [observed:
 //! Fallout - Textures2.bsa; hypothesis: the atlas pair, not the single-splat
-//! `screenbloodalpha01`–`03` / `screenbloodcolor01`, is the one New Vegas draws, as the
-//! Ex variant's "atlas" textures suggest]. The splats lie over the world and under every
-//! menu and the HUD. Not built: the flare the settings `fBloodSplatterFlareSize`,
-//! `…FlareMult` and `…FlareOffsetScale` describe (its texture and how it is drawn are
-//! not known); the blood the engine itself puts on the screen when the player is hurt
-//! (ClearScreenBlood's page names it; nothing says when or how much).
+//! `screenbloodalpha01`–`03` / `screenbloodcolor01`, is the one New Vegas draws]: dark
+//! soft blobs with a red core, as the original's [observed]. The splats lie over the
+//! world and under every menu and the HUD. Not built: the flare the settings
+//! `fBloodSplatterFlareSize`, `…FlareMult` and `…FlareOffsetScale` describe (the small
+//! bright glints in the original's splats may be it); blood the engine puts on the
+//! screen by itself (DamageActorValue on the player put none there [observed]).
 //!
 //! The splats age with the game's frames while nothing holds the game (the pause menu,
 //! a loading screen). `[ScreenSplatter] bScreenSplatterEnabled=1` is the original's INI
@@ -44,6 +52,7 @@
 use crate::sim::SimState;
 use crate::PlaySet;
 use bevy::asset::RenderAssetUsages;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::PrimaryWindow;
@@ -55,10 +64,13 @@ use rand_core::{RngCore, SeedableRng};
 /// The splat shapes (alpha) and colours [observed: Fallout - Textures2.bsa].
 pub const ALPHA_ATLAS: &str = "textures\\gore\\screenbloodalpha01opt.dds";
 pub const COLOR_ATLAS: &str = "textures\\gore\\screenbloodcolor01opt.dds";
-/// The most splats on the screen whatever the setting says.
-const MAX_SPLATS: usize = 1000;
+/// The most splats on the screen; beyond it a new splat takes the oldest's place
+/// [engineering choice: one picture per splat].
+pub const MAX_SPLATS: usize = 1000;
 /// Cells per side of the atlases (2×2) [observed: four splats in each].
 const ATLAS_SIDE: usize = 2;
+/// Steps of the alpha gain baked into a strong splat's picture (a quarter).
+const GAIN_STEPS: f32 = 4.0;
 
 /// The game settings that shape the splats, with the values FalloutNV.esm gives them
 /// [observed 2026-10-18] as defaults.
@@ -72,13 +84,11 @@ pub struct SplatterSettings {
     pub max_opacity2: f32,
     pub opacity_chance: f32,
     pub duration: f32,
-    pub fade_start: f32,
-    pub max_count: usize,
 }
 
 impl Default for SplatterSettings {
     fn default() -> Self {
-        SplatterSettings { min_size: 0.12, max_size: 0.18, min_opacity: 0.5, max_opacity: 1.0, min_opacity2: 0.3, max_opacity2: 0.6, opacity_chance: 0.3, duration: 20.0, fade_start: 0.4, max_count: 25 }
+        SplatterSettings { min_size: 0.12, max_size: 0.18, min_opacity: 0.5, max_opacity: 1.0, min_opacity2: 0.3, max_opacity2: 0.6, opacity_chance: 0.3, duration: 20.0 }
     }
 }
 
@@ -86,7 +96,7 @@ impl SplatterSettings {
     /// From the load order's game settings; a missing one keeps its default.
     pub fn from_settings(get: impl Fn(&str) -> Option<f32>) -> SplatterSettings {
         let d = SplatterSettings::default();
-        let f = |name: &str, v: f32| get(name).unwrap_or(v);
+        let f = |name: &str, v: f32| get(name).filter(|x| x.is_finite()).unwrap_or(v);
         SplatterSettings {
             min_size: f("fBloodSplatterMinSize", d.min_size),
             max_size: f("fBloodSplatterMaxSize", d.max_size),
@@ -96,9 +106,6 @@ impl SplatterSettings {
             max_opacity2: f("fBloodSplatterMaxOpacity2", d.max_opacity2),
             opacity_chance: f("fBloodSplatterOpacityChance", d.opacity_chance),
             duration: f("fBloodSplatterDuration", d.duration),
-            fade_start: f("fBloodSplatterFadeStart", d.fade_start),
-            // A plugin's setting is bounded too [engineering choice: one picture per splat].
-            max_count: f("iBloodSplatterMaxCount", d.max_count as f32).clamp(0.0, MAX_SPLATS as f32) as usize,
         }
     }
 }
@@ -108,8 +115,9 @@ impl SplatterSettings {
 pub struct Splat {
     /// Its centre, as shares of the screen's width and height from the top left.
     pub center: Vec2,
-    /// Its side, as a share of the screen's height.
+    /// Its side, as a share of the screen's width.
     pub size: f32,
+    /// Its opacity; above 1 its soft edge spreads.
     pub opacity: f32,
     pub duration: f32,
     pub age: f32,
@@ -132,6 +140,16 @@ impl Splat {
     }
 }
 
+/// How a splat of opacity `alpha` is drawn: the gain baked into its picture's alpha (in
+/// quarters, 4 = none) and the opacity left for the picture as a whole (at most 1).
+pub fn gain_and_rest(alpha: f32) -> (u16, f32) {
+    if alpha <= 1.0 {
+        return (GAIN_STEPS as u16, alpha.max(0.0));
+    }
+    let q = (alpha * GAIN_STEPS).ceil().min(f32::from(u16::MAX));
+    (q as u16, alpha * GAIN_STEPS / q)
+}
+
 /// A uniform number in [0, 1).
 fn unit(rng: &mut ChaCha8Rng) -> f32 {
     (rng.next_u32() >> 8) as f32 / (1u32 << 24) as f32
@@ -140,7 +158,7 @@ fn unit(rng: &mut ChaCha8Rng) -> f32 {
 /// The splats one call puts on the screen.
 pub fn splats_for(t: &SplatterTrigger, s: &SplatterSettings, rng: &mut ChaCha8Rng) -> Vec<Splat> {
     let duration = t.duration.unwrap_or(s.duration).max(0.0);
-    let n = (t.count as usize).min(s.max_count);
+    let n = (t.count as usize).min(MAX_SPLATS);
     (0..n)
         .map(|_| {
             let lerp = |a: f32, b: f32, x: f32| a + (b - a) * x;
@@ -149,7 +167,7 @@ pub fn splats_for(t: &SplatterTrigger, s: &SplatterSettings, rng: &mut ChaCha8Rn
             let second = unit(rng) < s.opacity_chance;
             let base = if second { lerp(s.min_opacity2, s.max_opacity2, unit(rng)) } else { lerp(s.min_opacity, s.max_opacity, unit(rng)) };
             let cell = (rng.next_u32() as usize) % (ATLAS_SIDE * ATLAS_SIDE);
-            Splat { center, size, opacity: (base * t.opacity).clamp(0.0, 1.0), duration, age: 0.0, cell }
+            Splat { center, size, opacity: (base * t.opacity).max(0.0), duration, age: 0.0, cell }
         })
         .collect()
 }
@@ -180,14 +198,45 @@ pub fn compose(alpha: &[u8], color: &[u8], side: usize) -> Vec<Vec<u8>> {
         .collect()
 }
 
+/// A picture's alpha times `gain` quarters, at most 255.
+pub fn with_gain(px: &[u8], gain: u16) -> Vec<u8> {
+    let mut out = px.to_vec();
+    for a in out.iter_mut().skip(3).step_by(4) {
+        *a = (u32::from(*a) * u32::from(gain) / GAIN_STEPS as u32).min(255) as u8;
+    }
+    out
+}
+
+/// The splat pictures: the composed cells, and the images made of them per gain.
+struct Pictures {
+    cells: Vec<Vec<u8>>,
+    side: u32,
+    images: HashMap<(usize, u16), Handle<Image>>,
+}
+
+impl Pictures {
+    fn image(&mut self, cell: usize, gain: u16, images: &mut Assets<Image>) -> Handle<Image> {
+        let cell = cell % self.cells.len();
+        let side = self.side;
+        let px = &self.cells[cell];
+        self.images
+            .entry((cell, gain))
+            .or_insert_with(|| {
+                let px = if gain == GAIN_STEPS as u16 { px.clone() } else { with_gain(px, gain) };
+                images.add(Image::new(Extent3d { width: side, height: side, depth_or_array_layers: 1 }, TextureDimension::D2, px, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD))
+            })
+            .clone()
+    }
+}
+
 #[derive(Resource)]
 pub struct ScreenSplatter {
     pub splats: Vec<Splat>,
-    /// SetScreenSplatterFade's share and switch, else the game setting's share.
+    /// SetScreenSplatterFade's share and switch.
     fade: Option<(f32, bool)>,
     settings: Option<SplatterSettings>,
-    /// The four splat pictures, once read (`Err`: they cannot be).
-    pictures: Option<Result<Vec<Handle<Image>>, String>>,
+    /// The splat pictures, once read (`Err`: they cannot be).
+    pictures: Option<Result<Pictures, String>>,
     clears_seen: u64,
     rng: ChaCha8Rng,
     root: Option<Entity>,
@@ -199,14 +248,14 @@ impl Default for ScreenSplatter {
     }
 }
 
-impl ScreenSplatter {
-    /// The share of a splat's time after which it fades, or none.
-    fn fade_share(&self, s: &SplatterSettings) -> Option<f32> {
-        match self.fade {
-            Some((share, true)) => Some(share),
-            Some((_, false)) => None,
-            None => Some(s.fade_start),
-        }
+/// The share of a splat's time after which it fades, or none: from its start unless
+/// SetScreenSplatterFade said otherwise [observed: the original's fade; hypothesis: the
+/// call's meaning].
+pub fn fade_share(fade: Option<(f32, bool)>) -> Option<f32> {
+    match fade {
+        Some((share, true)) => Some(share),
+        Some((_, false)) => None,
+        None => Some(0.0),
     }
 }
 
@@ -224,7 +273,7 @@ impl Plugin for ScreenSplatterPlugin {
 }
 
 /// Read and compose the splat pictures.
-fn read_pictures(data: &GameData, images: &mut Assets<Image>) -> Result<Vec<Handle<Image>>, String> {
+fn read_pictures(data: &GameData) -> Result<Pictures, String> {
     let decode = |path: &str| -> Result<(usize, Vec<u8>), String> {
         let bytes = data.read(path).ok_or_else(|| format!("{path}: not in the game's files"))?;
         let dds = fnv_dds::Dds::parse(&bytes).map_err(|e| format!("{path}: {e}"))?;
@@ -240,11 +289,7 @@ fn read_pictures(data: &GameData, images: &mut Assets<Image>) -> Result<Vec<Hand
     if side != side2 {
         return Err(format!("{COLOR_ATLAS}: {side2} wide, the shapes {side}"));
     }
-    let cell = (side / ATLAS_SIDE) as u32;
-    Ok(compose(&alpha, &color, side)
-        .into_iter()
-        .map(|px| images.add(Image::new(Extent3d { width: cell, height: cell, depth_or_array_layers: 1 }, TextureDimension::D2, px, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD)))
-        .collect())
+    Ok(Pictures { cells: compose(&alpha, &color, side), side: (side / ATLAS_SIDE) as u32, images: HashMap::default() })
 }
 
 /// The scripts' calls (`UiRequests::splatter`): clear, fade, new splats.
@@ -266,7 +311,7 @@ fn take_requests(mut splatter: ResMut<ScreenSplatter>, script: Option<ResMut<cra
     let settings = *sp.settings.get_or_insert_with(|| sim.as_deref().map_or_else(SplatterSettings::default, |s| SplatterSettings::from_settings(|n| s.forms.setting_f32(n))));
     for t in std::mem::take(&mut asked.triggers) {
         let new = splats_for(&t, &settings, &mut sp.rng);
-        add_splats(&mut sp.splats, new, settings.max_count);
+        add_splats(&mut sp.splats, new, MAX_SPLATS);
         info!(
             "screen splatter: {} splats on the screen (TriggerScreenSplatter {} {} {} {})",
             sp.splats.len(),
@@ -310,8 +355,8 @@ fn draw(
         return;
     }
     let Some(data) = data else { return };
-    let handles = match sp.pictures.get_or_insert_with(|| read_pictures(&data, &mut images)) {
-        Ok(h) => h.clone(),
+    let pics = match sp.pictures.get_or_insert_with(|| read_pictures(&data)) {
+        Ok(p) => p,
         Err(e) => {
             warn!("screen splatter: {e}; nothing is drawn");
             sp.splats.clear();
@@ -320,20 +365,18 @@ fn draw(
     };
     let Ok(w) = windows.single() else { return };
     let (width, height) = (w.width(), w.height());
-    let settings = sp.settings.unwrap_or_default();
-    let fade = sp.fade_share(&settings);
+    let fade = fade_share(sp.fade);
     // The pictures follow the splats: rebuilt when their number changed.
     let count = pictures.iter().count();
     if sp.root.is_none() || count != sp.splats.len() {
         if let Some(root) = sp.root.take() {
             commands.entity(root).despawn();
         }
-        let splats = sp.splats.clone();
+        let laid: Vec<(Node, ImageNode)> = sp.splats.iter().map(|s| layout(s, pics, &mut images, fade, width, height)).collect();
         let root = commands
             .spawn((SplatRoot, Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, GlobalZIndex(-1), Pickable::IGNORE))
             .with_children(|r| {
-                for (i, s) in splats.iter().enumerate() {
-                    let (node, image) = layout(s, &handles, fade, width, height);
+                for (i, (node, image)) in laid.into_iter().enumerate() {
                     r.spawn((SplatPicture(i), image, node, Pickable::IGNORE));
                 }
             })
@@ -342,15 +385,16 @@ fn draw(
     }
     for (pic, mut node, mut image) in &mut pictures {
         let Some(s) = sp.splats.get(pic.0) else { continue };
-        (*node, *image) = layout(s, &handles, fade, width, height);
+        (*node, *image) = layout(s, pics, &mut images, fade, width, height);
     }
 }
 
 /// A splat's place, size and picture on a window of `width` × `height`.
-fn layout(s: &Splat, handles: &[Handle<Image>], fade: Option<f32>, width: f32, height: f32) -> (Node, ImageNode) {
-    let side = s.size * height;
+fn layout(s: &Splat, pics: &mut Pictures, images: &mut Assets<Image>, fade: Option<f32>, width: f32, height: f32) -> (Node, ImageNode) {
+    let side = s.size * width;
     let node = Node { position_type: PositionType::Absolute, width: Val::Px(side), height: Val::Px(side), left: Val::Px(s.center.x * width - side / 2.0), top: Val::Px(s.center.y * height - side / 2.0), ..default() };
-    let image = ImageNode { image_mode: NodeImageMode::Stretch, color: Color::srgba(1.0, 1.0, 1.0, s.alpha(fade)), ..ImageNode::new(handles[s.cell % handles.len()].clone()) };
+    let (gain, rest) = gain_and_rest(s.alpha(fade));
+    let image = ImageNode { image_mode: NodeImageMode::Stretch, color: Color::srgba(1.0, 1.0, 1.0, rest), ..ImageNode::new(pics.image(s.cell, gain, images)) };
     (node, image)
 }
 
@@ -375,53 +419,64 @@ mod tests {
             assert_eq!(p.duration, 25.0);
             assert!(p.cell < 4);
         }
-        // The opacity factor, at most 1; no duration: the setting's.
-        let strong = splats_for(&trigger(5, None, 1.0, 2.0), &s, &mut rng);
-        assert!(strong.iter().all(|p| p.opacity >= 0.6 && p.opacity <= 1.0 && p.duration == 20.0));
+        // The opacity factor with no cap at 1 (the original's factor 2 darkened more than
+        // 1); no duration: the setting's.
+        let strong = splats_for(&trigger(50, None, 1.0, 2.0), &s, &mut rng);
+        assert!(strong.iter().all(|p| p.opacity >= 0.6 && p.opacity <= 2.0 && p.duration == 20.0));
+        assert!(strong.iter().any(|p| p.opacity > 1.0));
     }
 
     #[test]
-    fn the_screen_holds_at_most_the_max_count_and_new_splats_replace_the_oldest() {
+    fn a_call_is_not_capped_at_the_max_count_setting() {
         let s = SplatterSettings::default();
         let mut rng = ChaCha8Rng::seed_from_u64(2);
         let mut on = Vec::new();
-        add_splats(&mut on, splats_for(&trigger(50, Some(25.0), 2.0, 2.0), &s, &mut rng), s.max_count);
-        assert_eq!(on.len(), 25);
-        add_splats(&mut on, splats_for(&trigger(10, Some(21.0), 2.0, 2.0), &s, &mut rng), s.max_count);
-        assert_eq!(on.len(), 25);
-        assert_eq!(on.iter().filter(|p| p.duration == 21.0).count(), 10);
+        // The original's 100 darkened about seven times as much as 10.
+        add_splats(&mut on, splats_for(&trigger(100, Some(20.0), 2.0, 2.0), &s, &mut rng), MAX_SPLATS);
+        assert_eq!(on.len(), 100);
+        add_splats(&mut on, splats_for(&trigger(u32::MAX, Some(21.0), 1.0, 1.0), &s, &mut rng), MAX_SPLATS);
+        assert_eq!(on.len(), MAX_SPLATS);
+        assert!(on.iter().all(|p| p.duration == 21.0), "beyond the engine's bound the newest stay");
     }
 
     #[test]
-    fn splats_fade_from_the_fade_share_to_nothing_at_their_end() {
+    fn splats_fade_from_their_start_unless_told_otherwise() {
         let mut p = Splat { center: Vec2::splat(0.5), size: 0.2, opacity: 0.8, duration: 10.0, age: 0.0, cell: 0 };
-        assert_eq!(p.alpha(Some(0.5)), 0.8);
+        let default = fade_share(None);
+        assert_eq!(p.alpha(default), 0.8);
         p.age = 5.0;
-        assert_eq!(p.alpha(Some(0.5)), 0.8);
+        assert!((p.alpha(default) - 0.4).abs() < 1e-6, "half way, half the opacity");
+        assert_eq!(p.alpha(fade_share(Some((0.5, true)))), 0.8, "SetScreenSplatterFade's share");
         p.age = 7.5;
-        assert!((p.alpha(Some(0.5)) - 0.4).abs() < 1e-6);
-        assert_eq!(p.alpha(None), 0.8, "no fade: full to the end");
+        assert!((p.alpha(fade_share(Some((0.5, true)))) - 0.4).abs() < 1e-6);
+        assert_eq!(p.alpha(fade_share(Some((0.5, false)))), 0.8, "fade off: full to the end");
         p.age = 10.0;
         assert_eq!(p.alpha(None), 0.0);
+    }
+
+    #[test]
+    fn a_strong_splat_bakes_its_gain_and_keeps_the_rest_under_one() {
+        assert_eq!(gain_and_rest(0.7), (4, 0.7));
+        assert_eq!(gain_and_rest(1.0), (4, 1.0));
+        let (g, r) = gain_and_rest(1.6);
+        assert_eq!(g, 7);
+        assert!((r - 1.6 * 4.0 / 7.0).abs() < 1e-6 && r <= 1.0);
+        let (g, r) = gain_and_rest(2.0);
+        assert_eq!((g, r), (8, 1.0));
+        // Twice the gain doubles a texel's alpha, at most 255.
+        let px = [10, 20, 30, 100, 1, 2, 3, 200];
+        assert_eq!(with_gain(&px, 8), vec![10, 20, 30, 200, 1, 2, 3, 255]);
     }
 
     #[test]
     fn settings_come_from_the_game_settings() {
         let s = SplatterSettings::from_settings(|n| match n {
             "fBloodSplatterDuration" => Some(5.0),
-            "iBloodSplatterMaxCount" => Some(3.0),
+            "fBloodSplatterMinSize" => Some(f32::NAN),
             _ => None,
         });
         assert_eq!(s.duration, 5.0);
-        assert_eq!(s.max_count, 3);
-        assert_eq!(s.min_size, 0.12);
-        let huge = SplatterSettings::from_settings(|n| (n == "iBloodSplatterMaxCount").then_some(1e9));
-        assert_eq!(huge.max_count, MAX_SPLATS);
-        // The opening's largest call: 25 splats, the largest side 0.18 x 3 of the screen height.
-        let mut rng = ChaCha8Rng::seed_from_u64(3);
-        let big = splats_for(&trigger(u32::MAX, Some(12.0), 3.0, 2.0), &SplatterSettings::default(), &mut rng);
-        assert_eq!(big.len(), 25);
-        assert!(big.iter().all(|p| p.size <= 0.18 * 3.0 + 1e-6 && p.opacity <= 1.0));
+        assert_eq!(s.min_size, 0.12, "a setting that is not a number keeps the default");
     }
 
     #[test]

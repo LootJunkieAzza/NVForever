@@ -5844,21 +5844,24 @@ version of the cemetery scene a new game skips. My choices to check:
   does: in Old World Blues the Think Tank turns red only after you leave and come back
   (or load a save made there), not while you stand in it when stage 50 is set. If you
   would rather see it at once (as JohnnyGuitar NVSE makes it), it is one line.
-- **Screen splatter: the parameters** are read as count, seconds, size factor, opacity
-  factor (from a script extender's documented `TriggerScreenSplatterEx`; the vanilla page
-  is empty); `SetScreenSplatterFade 0.5 1` as "fade from half the time, fade on".
-- **Screen splatter: the look.** Each splat is a cell of the game's 2×2 gore atlases
-  (`screenbloodalpha01opt` shape, `screenbloodcolor01opt` colour), placed anywhere on the
-  screen, unrotated, sized 0.12–0.18 of the screen height × the size factor, with the
-  game settings' opacities, at most 25 on the screen (new ones replace the oldest), under
-  the HUD. The settings' flare is not drawn. The capture job
-  `tools/capture/jobs/fx_screen_splatter_look.steps.json` (save nvfstrip) takes the
-  original's pictures to compare with smoke `screen-splatter`'s.
+- **Screen splatter, fitted to the original's pictures** (capture fx_screen_splatter_look,
+  screen-splatter.md §5): a call puts its count of splats on the screen with no cap of
+  25, each a cell of the game's 2x2 gore atlases (dark soft blob, red core) at a random
+  place, unrotated, 0.12-0.18 of the screen **width** across x the size factor, opacity
+  from the game settings x the opacity factor with no cap at 1, fading from its start
+  to nothing at its duration, under the HUD. Still guesses: the second opacity range
+  and its chance, uniform placement, and what iBloodSplatterMaxCount and
+  fBloodSplatterFadeStart are for (neither fits the pictures as a cap or a fade start).
+  The flare (perhaps the bright glints at the cores) is not drawn. Compare smoke
+  `screen-splatter`'s splatter_t0_5 ... t15_5.png with the original's s100_20_2_2_t*.png.
+- **SetScreenSplatterFade's real effect cannot be seen**: the call quits the original
+  (below). Its values (fade from that share of the time, switch on/off) stay a
+  hypothesis; nothing shipped reaches it in a playthrough.
 - **Blood when you are hurt.** The console's ClearScreenBlood implies the original puts
-  blood on the screen when the player takes damage, but nothing says when or how much;
-  not built. The same capture job takes a picture after damage.
-- **SetScreenSplatterFade quit the original** twice, both times as the first splatter call
-  of a session (from a capture job), and with nothing logged. Here the call only records
+  blood on the screen when the player takes damage; `player.DamageActorValue Health 40`
+  put none there in the capture. A weapon's hit is not captured; not built.
+- **SetScreenSplatterFade quit the original** three times (from a capture job, with and
+  without splats on the screen), with nothing logged. Here the call only records
   its values. No player meets it in the original: the opening stages that call it are
   skipped. Details in screen-splatter.md §5.
 ## Crippled limbs' effects (2026-10-18, branch claude/crippled-limb-effects-ab9ad8)
