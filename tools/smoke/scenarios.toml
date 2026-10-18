@@ -2084,17 +2084,21 @@ commands = [["script", "stubs", "{data}", "{masters}", "--schema", "schemas/fnv"
 # left: 37 → 33 stubs, 167 → 158 calls [observed: fnvtool script stubs on the owner's masters,
 # merged with main d13109f3, 2026-10-18]. With claude/nav-knockdown's three: 30 stubs, 149
 # calls [observed: fnvtool script stubs on the owner's masters, merged with main 1bf4fb89].
+# claude/actor-changes implemented AgeRace, StartCannibal, GetCannibal, HasBeenEaten,
+# StartMisterSandman, GetSandman and IsActorTalkingThroughActivator (13 calls, 99 condition
+# uses, §3.17): 30 → 23 stubs, 149 → 136 calls, 125 → 26 condition uses [observed: the
+# branch's fnvtool, merged with main 3ca600ff, on the owner's masters, 2026-10-18].
 # claude/screen-video implemented PlayBink, SetCellImageSpace, TriggerScreenSplatter,
-# SetScreenSplatterFade and ClearScreenSplatter (17 calls, §3.17): 30 → 25 stubs,
-# 149 → 132 calls [observed: fnvtool script stubs on the owner's masters, merged with main
-# 3ca600ff, 2026-10-18].
+# SetScreenSplatterFade and ClearScreenSplatter (17 calls, §3.18): 23 → 18 stubs,
+# 136 → 119 calls [observed: fnvtool script stubs on the owner's masters, merged with main
+# e5ff06d0, 2026-10-18].
 expect = [
-  { json = "summary.stubs", equals = 25 },
+  { json = "summary.stubs", equals = 18 },
   { json = "summary.by_status.implementable", count = 0, label = "no implementable stub is left" },
-  { json = "summary.by_status.needs_system", equals = 25 },
+  { json = "summary.by_status.needs_system", equals = 18 },
   { json = "summary.by_status.no_op", equals = 4 },
-  { json = "summary.stub_calls", equals = 132 },
-  { json = "summary.stub_condition_uses", equals = 125 },
+  { json = "summary.stub_calls", equals = 119 },
+  { json = "summary.stub_condition_uses", equals = 26 },
   { json = "summary.unhandled_used", equals = 1 },
 ]
 
@@ -4838,6 +4842,118 @@ expect = [
 manual = "think_tank_before.png and think_tank_called.png alike (the change waits for the cell to load); think_tank_red.png graded red"
 
 [[scenario]]
+name = "agerace-sexchange-npc"
+source = "outstanding.md §1 row 11 (docs/spec-notes/appearance-changes.md): AgeRace moves an NPC along its race's age links and SexChange changes an NPC's sex; GetIsRace and GetIsSex read the change and the NPC is drawn anew"
+note = "Doc Mitchell is CaucasianOld (RACE 000042C3, younger link Caucasian): AgeRace -1 makes him Caucasian, SexChange without a sex makes him female"
+areas = ["scripts", "console", "actors"]
+paths = ["crates/fnv-game/src/appearance.rs", "crates/fnv-game/src/functions/actor.rs", "crates/fnv-actor/src/resolve.rs", "engine/nvforever/src/appearance.rs", "engine/nvforever/src/actors.rs", "engine/nvforever/src/resurrect.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:prid DocMitchellREF;14.3:agerace -1;14.6:getisrace Caucasian;15:sexchange;15.3:getissex female;16:close", NVF_PLAY_TEST_SHOTS = "18:agerace_doc.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+order = [[
+  "console: > agerace -1",
+  "appearance: … (DocMitchell) is now Caucasian male: drawn anew",
+  "console: > sexchange",
+  "appearance: … (DocMitchell) is now Caucasian female: drawn anew",
+]]
+expect = [
+  { text = "console: GetIsRace on DocMitchellREF >> 1.00", label = "GetIsRace reads AgeRace's younger race" },
+  { text = "console: GetIsSex on DocMitchellREF >> 1.00", label = "GetIsSex reads SexChange's sex" },
+  { re = 'appearance: 0x[0-9A-F]{8} \(DocMitchell\) is now Caucasian male: drawn anew', label = "Doc is drawn anew after AgeRace (adult, still a man)" },
+  { re = 'appearance: 0x[0-9A-F]{8} \(DocMitchell\) is now Caucasian female: drawn anew', label = "Doc is drawn anew as a woman" },
+]
+manual = "agerace_doc.png: Doc Mitchell drawn with the adult Caucasian head and a woman's body"
+
+[[scenario]]
+name = "sexchange-player-reset"
+source = "outstanding.md §1 row 11: the opening's SexChange with reset (VCG01) gives the player the race's first starting face for the new sex; AgeRace -1 then 1 (VCG00 stage 5) leaves the player's race as it was (docs/spec-notes/appearance-changes.md)"
+areas = ["scripts", "console", "chargen"]
+paths = ["crates/fnv-game/src/appearance.rs", "engine/nvforever/src/appearance.rs", "engine/nvforever/src/player_body.rs", "engine/nvf-play/src/creator.rs", "engine/nvf-play/src/creator/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:player.sexchange female 1;14.5:getpcissex female;15:player.agerace -1;15.3:player.agerace 1;15.6:player.getisrace Caucasian;16:close", NVF_PLAY_TEST_SHOTS = "18:sexchange_player.png" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 20
+expect = [
+  { re = "appearance: the player's face reset to the first starting face of .* female", label = "reset gives the race's first female starting face" },
+  { re = 'appearance: the player is now .* female; the body is rebuilt', label = "the player's body is rebuilt as a woman" },
+  { re = 'GetPCIsSex.*>> 1\.00', label = "GetPCIsSex reads the new sex" },
+  { re = 'GetIsRace.*>> 1\.00', label = "younger then older comes back to the same race" },
+]
+manual = "sexchange_player.png: the player's hands and body are a woman's (first person)"
+
+[[scenario]]
+name = "setlevel-npc-reroll"
+source = "outstanding.md §1 row 13: SetLevel on an NPC sets its level; its inventory stays as it was (capture ac1; docs/spec-notes/appearance-changes.md §3)"
+areas = ["scripts", "console", "inventory"]
+paths = ["crates/fnv-game/src/functions/actor.rs", "crates/fnv-sim/src/world.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:prid DocMitchellREF;14.3:setlevel 12 0;14.6:getlevel;15:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice", "--no-messages"]
+run_seconds = 18
+expect = [
+  { text = "console: GetLevel on DocMitchellREF >> 12.00", label = "GetLevel reads SetLevel's level" },
+]
+
+[[scenario]]
+name = "power-armor-training"
+source = "outstanding.md §1 row 18: without Power Armor Training (SetPCCanUsePowerArmor, off at the start) the player cannot wear power armour and gets the game's PowerArmorMessage; with it the armour is worn (docs/spec-notes/appearance-changes.md §4)"
+note = "00014E13 is ArmorPowerT45d (BMDT Power Armor); the refusal's box waits for the console to close and the menu aid closes it"
+areas = ["scripts", "console", "inventory"]
+paths = ["crates/fnv-sim/src/world.rs", "crates/fnv-sim/src/forms.rs", "crates/fnv-game/src/functions/player.rs", "crates/fnv-game/src/functions/items.rs", "engine/nvf-play/src/menu.rs", "engine/nvf-play/src/menu/model.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:player.additem 00014E13 1;14.3:player.equipitem 00014E13;14.6:player.getequipped 00014E13;15:setpccanusepowerarmor 1;15.3:player.equipitem 00014E13;15.6:player.getequipped 00014E13;16:close" }
+args = ["--cell", "GSDocMitchellHouse", "--play", "--no-voice"]
+run_seconds = 22
+expect = [
+  { re = 'message box shown: You lack the specialized training needed to move in Power Armor', label = "the game's refusal message" },
+  { re = 'GetEquipped.*>> 0\.00', label = "not worn without the training" },
+  { re = 'GetEquipped.*>> 1\.00', label = "worn with the training" },
+]
+
+[[scenario]]
+name = "perk-cannibal-devour"
+source = "outstanding.md §1 row 14 (docs/spec-notes/perk-activation.md): with Cannibal, sneaking, activating a corpse opens the perks' choice list; Devour runs the perk's script: GetCannibal 1 while the act runs, HasBeenEaten 1 once it is over"
+note = "Easy Pete is brought in front of the player and killed by the test aid; the player sneaks; the activation's choice list is answered with its first button (Devour) by the menu aid after 1 s"
+areas = ["scripts", "perks", "activation"]
+paths = ["crates/fnv-game/src/activate_choices.rs", "crates/fnv-game/src/data.rs", "crates/fnv-game/src/crime.rs", "engine/nvf-play/src/script.rs", "engine/nvf-play/src/script_hud.rs", "engine/nvf-play/src/activate.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_CONSOLE = "14:player.addperk 00094EBC;14.3:close;19:player.getcannibal;19.3:EasyPeteRef.hasbeeneaten;19.6:close;28:EasyPeteRef.hasbeeneaten;28.3:close", NVF_PLAY_TEST_SCRIPT = "14:moveto:EasyPeteRef:player:0:120:0,15:kill:EasyPeteRef,17:activate:EasyPeteRef", NVF_PLAY_TEST_CONTROL = "15.5:sneak" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 31
+expect = [
+  { re = 'activate: .* offers the perks. choices \["Devour"\] and its default action', label = "the choice list opens on the corpse" },
+  { text = "activate: the player chose Devour (Cannibal)", label = "Devour is chosen" },
+  { re = 'GetCannibal.*>> 1\.00', label = "the player is in the cannibalism act" },
+  { re = 'HasBeenEaten.*>> 0\.00', label = "not eaten while the act lasts (capture ac4)" },
+  { re = 'HasBeenEaten.*>> 1\.00', label = "eaten once the 7.7 s act is over" },
+]
+
+[[scenario]]
+name = "perk-sandman-refused-awake"
+source = "outstanding.md §1 row 14 (docs/spec-notes/perk-activation.md §3): StartMisterSandman on an NPC that is not asleep is refused: it lives and the player is not in the act (the original crashed on an awake and on an unconscious NPC, captures ac5 and ac5b; on a sleeping one it killed at the act's end, ac5c)"
+note = "Easy Pete at noon is awake; the sleeping case (killed when the 6 s act ends) is the unit test perk_talk.rs mister_sandman_kills_a_sleeper_at_the_acts_end"
+areas = ["scripts", "console", "perks"]
+paths = ["crates/fnv-game/src/activate_choices.rs", "crates/fnv-game/src/functions/actor.rs"]
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "off", NVF_PLAY_TEST_CONSOLE = "14:prid EasyPeteRef;14.3:startmistersandman player;14.6:getdead;15:player.getsandman;22:EasyPeteRef.getdead;22.3:close" }
+args = ["--play", "--cell", "Goodsprings", "--pos=-68375,4800,8700", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 24
+expect = [
+  { text = "console: GetDead on EasyPeteRef >> 0.00", label = "the awake victim lives" },
+  { re = 'GetSandman.*>> 0\.00', label = "the player is not in the Mister Sandman act" },
+  { re = 'GetDead.*>> 1\.00', count = 0, label = "nobody dies, not even when an act would have ended" },
+]
+
+[[scenario]]
+name = "talking-activator-intercom"
+source = "outstanding.md §1 row 8 (docs/spec-notes/talking-activators.md): Hidden Valley's bunker intercom sets Ramos as its talking actor and activates itself; the conversation goes through it: Ramos's line conditioned on IsActorTalkingThroughActivator 1 is said, and the view turns to the intercom"
+note = "HVBunkerIntercom2 (REFR 000ACD73, outside the bunker) runs its OnActivate (SCPT 000E3EE7); Ramos's GREETING '[You hear nothing.]' (INFO 000A3D0D) needs only GetIsID Ramos and IsActorTalkingThroughActivator 1"
+areas = ["scripts", "dialogue", "activation"]
+paths = ["crates/fnv-game/src/talking_activators.rs", "crates/fnv-game/src/dialogue.rs", "crates/fnv-sim/src/world.rs", "engine/nvf-play/src/dialogue_look.rs", "engine/nvforever/src/dialogue_look.rs"]
+env = { NVF_PLAY_TEST_SCRIPT_MENUS = "1", NVF_PLAY_TEST_SCRIPT = "15:activate:HVBunkerIntercom2" }
+args = ["--play", "--world", "WastelandNV", "--pos=1058,-3905,11800", "--heading", "0", "--hour", "12", "--no-voice", "--no-messages"]
+run_seconds = 26
+expect = [
+  { re = 'You hear nothing', label = "Ramos's line through the intercom is said" },
+  { re = 'dialogue look: the view turns to', label = "the view turns to the intercom, not to Ramos" },
+]
+
+[[scenario]]
 name = "knockdown-player"
 source = "playthrough blocker row 1's leftover (docs/outstanding.md): the player knocked down by PushActorAway drops as a ragdoll, the view leaves first person, the controls are held, the get-up idle plays and the view and the controls come back (docs/spec-notes/unconscious.md §5.4)"
 note = "in Goodsprings, Easy Pete is brought 300 units north of the player at 14 s; at 16 s the console has him push the player with force 10 and reads the player's GetKnockedState (0 for a pushed actor); the player lies 2.4 s (PLAYER_KNOCKDOWN_DOWN, observed in the original), the camera held where the eye was; gets up with GetUpFaceUp or GetUpFaceDown seen from the third-person camera, and is in first person again"
@@ -4992,9 +5108,9 @@ source = "docs/outstanding.md §1 row 4: the engine tells the rules what each bo
 note = "as combat-npc-reload: Chet (GSChetRef) is given a .357 Magnum Revolver and set on the player, who cannot die (GOD). Before the fight the console reads Chet standing: IsAnimPlaying Idle 1 (observed on Sunny Smiles standing) and GetAnimAction -1; IsAnimPlaying without a group is read too, unchecked, to tell a missing snapshot (0) from another group (1) in a failing run, with the 'anim state: 00104C79 …' lines. In the fight his shots begin 2, 3 and 4 and his reloads 9 (the New Vegas codes, observed so in the AI observer's Goodsprings gunfight); the summary at exit counts how often each began"
 areas = ["combat", "scripts", "actors"]
 paths = ["crates/fnv-game/src/anim_state.rs", "engine/nvforever/src/anim_state.rs", "crates/fnv-game/src/anims.rs", "crates/fnv-game/src/idles.rs", "crates/fnv-game/src/functions/senses.rs"]
-env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "14:GSChetRef.IsAnimPlaying Idle;14.15:GSChetRef.IsAnimPlaying;14.3:GSChetRef.GetAnimAction;14.6:close", NVF_PLAY_TEST_SCRIPT = "15:call:GSChetRef:AddItem:WeapNV357Revolver:1,15.5:call:GSChetRef:EquipItem:WeapNV357Revolver,16:combat:GSChetRef:player" }
+env = { NVF_PLAY_TEST_GOD = "1", NVF_PLAY_TEST_SCRIPT_MENUS = "0.05", NVF_PLAY_TEST_CONSOLE = "8:GSChetRef.IsAnimPlaying Idle;8.15:GSChetRef.IsAnimPlaying;8.3:GSChetRef.GetAnimAction;8.6:close", NVF_PLAY_TEST_SCRIPT = "9:call:GSChetRef:AddItem:WeapNV357Revolver:1,9.5:call:GSChetRef:EquipItem:WeapNV357Revolver,10:combat:GSChetRef:player" }
 args = ["--cell", "GSGeneralStore", "--play", "--hour", "12", "--no-voice"]
-run_seconds = 56
+run_seconds = 50
 expect = [
   { re = 'console: IsAnimPlaying on GSChetRef >> 1\.00', label = "Chet standing plays Idle" },
   { re = 'console: GetAnimAction on GSChetRef >> -1\.00', label = "and does no special action" },

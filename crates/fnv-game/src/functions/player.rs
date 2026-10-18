@@ -350,9 +350,32 @@ pub fn get_casino_winnings_level(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<V
     Ok(Value::Num(g.player.casino_levels.get(&a.form(0)?).copied().unwrap_or(0) as f64))
 }
 
+/// `SetPCCanUsePowerArmor flag`: whether the player may wear power armour (ARMO BMDT
+/// "Power Armor"); off at the start. The Power Armor Training perk is a display dummy:
+/// its rank sets the Generic quest's stage 80, whose result script calls this with 1
+/// [documented: catalogue notes; observed: PERK PowerArmorTraining's Quest + Stage
+/// effect `Generic` 0x50, and the stage's script]. The world refuses the armour without
+/// it (`fnv_sim::World::set_power_armor_training`), and the engine shows
+/// [`refuse_power_armor`]'s box.
 pub fn set_pc_can_use_power_armor(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     g.player.power_armor = a.num(0)? != 0.0;
+    g.world.set_power_armor_training(g.player.power_armor);
     none()
+}
+
+/// The message the player gets on trying to wear power armour without the training: the
+/// masters' `PowerArmorMessage` ("You lack the specialized training needed to move in
+/// Power Armor.", a message box) [observed: MESG 00058FEF, the one message of the
+/// masters with that text; hypothesis: that the engine shows it on the refusal, as the
+/// box flag says it is a box]. It waits for the open menu (the Pip-Boy) to close, as any
+/// message box shown under a menu (`Game::show_box`). Returns the message, `None` when
+/// the load order has none.
+pub fn refuse_power_armor(g: &mut Game) -> Option<FormId> {
+    let m = g.data.by_edid("PowerArmorMessage")?;
+    let text = g.data.messages.get(&m).and_then(|d| d.text.clone());
+    g.emit(crate::trace::EventKind::MessageShown { message: m, text, buttons: Vec::new(), hidden: Vec::new() });
+    g.show_box(m);
+    Some(m)
 }
 
 /// The topic joins the topics the player knows: from then on every actor that can say

@@ -585,6 +585,19 @@ impl Game<'_> {
         self.crimes.notes.push(Note::Crime { kind: Kind::Assault, victim: Some(victim), seen_by: Vec::new(), hostile: vec![victim] });
     }
 
+    /// The player ate `victim`'s corpse (Cannibal, `crate::activate_choices`): "a crime
+    /// against nature" when seen [documented: PERK Cannibal DESC]; every witness turns
+    /// on the player as for an assault [hypothesis]. Returns how many did.
+    pub fn player_cannibalized(&mut self, victim: FormId) -> usize {
+        let seen_by = self.crime_witnesses();
+        let hostile: Vec<FormId> = seen_by.iter().copied().filter(|&w| self.turn_on_player(w, Kind::Assault)).collect();
+        let n = hostile.len();
+        if !seen_by.is_empty() {
+            self.crimes.notes.push(Note::Crime { kind: Kind::Assault, victim: Some(victim), seen_by, hostile });
+        }
+        n
+    }
+
     /// Where the player trespasses now: an owned cell, not public, that the player does
     /// not own (module notes).
     pub fn trespass_cell(&self) -> Option<(FormId, Ownership)> {

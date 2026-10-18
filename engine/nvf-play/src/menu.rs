@@ -589,6 +589,14 @@ fn apply_input(
         if let Some(item) = a.used {
             used.write(ItemUsed { item: item.0 });
         }
+        // Power armour without the training: the game's message, once the Pip-Boy is
+        // closed (`fnv_game::functions::refuse_power_armor`).
+        if a.power_armor_refused {
+            if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                let m = fnv_game::functions::refuse_power_armor(&mut rt.game);
+                info!("menu: power armour refused: no Power Armor Training (message {})", m.map_or_else(|| "none".to_string(), |m| m.to_string()));
+            }
+        }
         if a.traded > 0 {
             if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
                 rt.game.count_stat(fnv_game::misc_stats::BARTER_AMOUNT_TRADED, f64::from(a.traded));
