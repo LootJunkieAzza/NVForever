@@ -27,6 +27,8 @@
 //!   [`KNOCKDOWN_DOWN`] seconds; a push gives the body a velocity the engine takes
 //!   ([`Game::take_shove`]).
 //! - SetUnconscious holds a lying actor down until it is cleared (§5).
+//! - The player is knocked down like anyone (§5.4) but never knocked out; enemies may
+//!   still attack it while it lies (`Game::would_attack`).
 //! - Each knockout and each getting up is an event ([`EventKind::KnockedOut`],
 //!   [`EventKind::GotUp`]) for the engine (corner message, animations).
 
@@ -185,7 +187,8 @@ impl Game<'_> {
     }
 
     fn knock(&mut self, r: FormId, cause: Cause, by: Option<FormId>, shove: Option<[f32; 3]>) -> bool {
-        if r == FormId::PLAYER_REF || self.is_dead(r) {
+        // The player is knocked down but never knocked out (§2.1, §5.4).
+        if (r == FormId::PLAYER_REF && !cause.knockdown()) || self.is_dead(r) {
             return false;
         }
         let old = self.knockout(r);
@@ -215,13 +218,17 @@ impl Game<'_> {
         true
     }
 
-    /// Whether `r` is an actor that can be knocked down: alive, not the player [design:
-    /// the player's own knockdown is not built], an NPC or creature without the "No
-    /// Knockdowns" flag (its own record's, never a template's) and not an "Immobile"
-    /// creature [documented: GECK wiki PushActorAway notes, Category:NPC Template Data].
+    /// Whether `r` is an actor that can be knocked down: alive, an NPC or creature
+    /// without the "No Knockdowns" flag (its own record's, never a template's) and not an
+    /// "Immobile" creature [documented: GECK wiki PushActorAway notes, Category:NPC
+    /// Template Data]; the player too, unless on furniture or in a conversation [design:
+    /// unconscious.md §5.4; six shipped PushActorAway calls throw the player, §5.1].
     pub fn can_knock_down(&self, r: FormId) -> bool {
-        if r == FormId::PLAYER_REF || self.is_dead(r) {
+        if self.is_dead(r) {
             return false;
+        }
+        if r == FormId::PLAYER_REF {
+            return self.furniture_use(r).is_none() && self.dialogue.is_none();
         }
         self.def_following(r, |_| false).is_some_and(|d| !d.no_knockdowns && !d.immobile)
     }

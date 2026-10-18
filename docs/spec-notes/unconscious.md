@@ -72,7 +72,7 @@ on screen).
    essential or fatigue, and the game time it began. It is separate from SetUnconscious's
    flag (`RefExtra::unconscious`), which only scripts set and GetUnconscious reads (§1).
    The player is never knocked out [design: not asked for; the gloves' script spares the
-   player anyway].
+   player anyway], but is knocked down (§5.4).
 2. **Essential at zero health**: a hit or a harmful effect that would bring an essential
    actor's health to 0 leaves it at 1 and knocks it out (cause essential). It does not
    die: no Death line, no kill, no XP, no dead flag, no OnDeath, no loot [documented: §1
@@ -202,9 +202,9 @@ Code: `crates/fnv-game/src/unconscious.rs` (`Game::push_actor_away`, `Game::knoc
    then the actor gets up as in §2.5 (getting up stage, get-up clip) [design: no setting
    in the data names it]. No KOed or Wake line, no corner message, no fatigue or health
    restored [design: a knockdown is no unconsciousness].
-2. Refused (nothing happens) for the player [design: the player's own knockdown is not
-   built], dead actors, actors whose own record has No Knockdowns, and Immobile creatures
-   [documented: §5.1].
+2. Refused (nothing happens) for dead actors, actors whose own record has No Knockdowns,
+   and Immobile creatures [documented: §5.1], and for the player on furniture or in a
+   conversation [design]; the player is knocked down otherwise (§5.4).
 3. **Order**: an essential knockout replaces a fatigue one, and either replaces a
    knockdown (its time starts again); a knockdown never replaces a knockout. Knocked again
    while getting up: down again (unless only out of fatigue again, §2) [design].
@@ -234,3 +234,51 @@ lying shoves the ragdoll at its pelvis (`ActorPush`). Log lines: `knockout: <nam
 knocked down (pushed|knocked_down)`, `knockout: <id> thrown at (x, y, z) units/s`, the
 explosion's `…, knocked down` in its `combat: blast` line, and the exit count
 `knockouts: … N knocked down, …`.
+
+### 5.4 The player knocked down
+
+Built 2026-10-18 (claude/nav-knockdown). Code: `crates/fnv-game/src/unconscious.rs` (the
+rules), `engine/nvforever/src/player_knockdown.rs` (on screen), `engine/nvf-play/src/script.rs`
+(the controls).
+
+1. **Rules**: PushActorAway and an explosion's knockdown lay the player down as anyone
+   (§5.2: the push's velocity, `KNOCKDOWN_DOWN`, GetKnockedState 0 pushed and 2 for a
+   blast), unless the player sits on furniture or is in a conversation [design]. A blow
+   that would knock the player out (essential, fatigue) does not (§2.1). Six shipped
+   PushActorAway calls throw the player (§5.1) [observed].
+2. **Enemies** may attack the player while down: `Game::would_attack` keeps a knocked-down
+   player a target, where it drops a knocked-out NPC (§3) [design; how the original's
+   attackers treat a downed player is not in our notes].
+3. **Controls**: all held (movement, looking, fighting, the Pip-Boy, POV) from the fall
+   until the get-up idle is over; log `player controls: all held, the player is knocked
+   down` [design].
+4. **The body**: the third-person rig drops as its ragdoll, thrown with the knockdown's
+   velocity, as the dead player's does (`death_cam.rs`); a push while it lies shoves it
+   again; the side it comes to rest on is told to the game (IsFacingUp, §4's rule).
+5. **The view**: in third person the camera keeps its place against the body's chest and
+   turns to look at it, easing after it and kept in front of walls (the death camera's
+   rule). In first person the view goes to third person for the knockdown (the camera 170
+   units behind and 60 above the chest) and back to first person when the player is up
+   [hypothesis: the original's first-person knockdown; capture job `kd_player_knockdown`].
+6. **Getting up**: when the rules' knockdown time is over (`KnockOut::rising`) the ragdoll
+   leaves the world, the character stands on the ground under the ragdoll's pelvis, and the
+   IDLE `GetUpFaceUp` or `GetUpFaceDown` (§1) is asked for on the player as PlayIdle would
+   (`Game::ask_idle`), so `idles.rs` plays its clip on the third-person body. Two frames
+   into it the character is turned and moved so that the clip's pelvis and pelvis → head
+   line lie where the ragdoll's did (the NPCs' rule, §4); when the idle has played (or
+   after 4 s of real time) the rules are told (`finish_getting_up`), and the controls and
+   the view are the player's again. Without a ragdoll the player stays where they are
+   until the knockdown's time is over.
+7. **Death while down**: the death camera takes over (its own ragdoll drop).
+
+Log lines: `player knockdown: the player falls (<cause>, <first|third> person[, the view
+goes to third person]): ragdoll thrown at (x, y, z) units/s`, `player knockdown: the player
+gets up face up|down <s> s after the fall (<idle>)`, `player knockdown: laid over the
+ragdoll: turned <deg>°, moved <n> units`, `player knockdown: the player is up <s> s after
+the fall; the controls[ and the first-person view] are theirs again`, and at exit `player
+knockdown: <n> knockdown(s) shown, <n> get-up clip(s)`. Smoke: `knockdown-player`,
+`knockdown-player-third`.
+
+Not known (capture job `tools/capture/jobs/kd_player_knockdown.steps.json`, nvfstrip):
+whether the original's view leaves first person, where its camera goes, how long the
+player lies and how long the get-up takes.

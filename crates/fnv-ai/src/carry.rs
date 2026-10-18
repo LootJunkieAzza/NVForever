@@ -21,6 +21,7 @@
 
 use crate::goal::{self, Goal, Route, Talk};
 use crate::sandbox::{Doing, Sandbox};
+use fnv_game::ai::AiPhase;
 use fnv_game::game::Game;
 use fnv_game::package::{flags, PackageType};
 use fnv_game::use_weapon::Source;
@@ -399,6 +400,9 @@ pub struct Ai {
     /// Actors with speeds of their own (creatures, from their clips); the others move at
     /// [`AiConfig::walk_speed`] and [`AiConfig::run_speed`].
     pub speeds: BTreeMap<FormId, ActorSpeeds>,
+    /// The scripts' navmesh switches last applied to the graph
+    /// ([`Ai::apply_navmesh_switches`]).
+    applied_switches: Option<BTreeMap<u32, bool>>,
 }
 
 /// A walker turning at its actor's own rate ([`ActorSpeeds::turn_rate`]).
@@ -417,7 +421,40 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Ai {
     pub fn new(cfg: AiConfig) -> Ai {
-        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), speeds: BTreeMap::new() }
+        Ai { cfg, agents: BTreeMap::new(), events: Vec::new(), taken: BTreeMap::new(), social: Default::default(), low: BTreeMap::new(), process_stats: Default::default(), far: Default::default(), coming: Default::default(), speeds: BTreeMap::new(), applied_switches: None }
+    }
+
+    /// Bring the graph's navmeshes in line with the scripts' switches (EnableNavMesh,
+    /// DisableNavmesh: `fnv_game::functions::navigation`), when they changed since the
+    /// last call or a game was loaded. Every actor whose way crosses a navmesh disabled
+    /// now takes up its package afresh from where it stands, so it plans a way around,
+    /// or sets the package aside when there is none (`Game::block_package`) [design: the
+    /// original's behaviour for an actor on a navmesh being disabled is not documented].
+    /// Returns the actors sent to plan again, `None` when no navmesh changed.
+    pub fn apply_navmesh_switches(&mut self, game: &mut Game, nav: &mut NavGraph) -> Option<Vec<FormId>> {
+        if self.applied_switches.as_ref().is_some_and(|a| a.len() == game.nav_switches.navmeshes.len() && a.iter().zip(&game.nav_switches.navmeshes).all(|((k, v), (k2, v2))| *k == k2.0 && v == v2)) {
+            return None;
+        }
+        let want = game.nav_switches.by_id();
+        let changed = nav.apply_switches(&want);
+        self.applied_switches = Some(want);
+        if !changed {
+            return None;
+        }
+        let blocked: Vec<FormId> = self.agents.iter().filter(|(_, a)| a.walker.follower.as_ref().is_some_and(|f| f.blocked(nav))).map(|(id, _)| *id).collect();
+        for &actor in &blocked {
+            let a = self.agents.get_mut(&actor).expect("listed");
+            a.walker.follower = None;
+            a.walker.tri = fnv_nav::graph::NONE;
+            a.activity = Activity::None;
+            // Seen afresh by `step_actor`, which begins the package again from here.
+            a.package = None;
+            a.goal = None;
+            a.sandbox = None;
+            a.errand = None;
+            a.following = None;
+        }
+        Some(blocked)
     }
 
     /// Give `actor` speeds of its own; its walker turns at its own rate from now on.
@@ -687,8 +724,34 @@ impl Ai {
         }
     }
 
-    /// One update of one actor (see [`Ai::step`]).
+    /// One update of one actor (see [`Ai::step`]); the game is told what it does now
+    /// ([`Ai::publish_phase`]).
     pub(crate) fn step_actor(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, open: &mut dyn Mover, quiet: bool) {
+        self.step_actor_inner(game, nav, actor, dt, open, quiet);
+        self.publish_phase(game, actor);
+    }
+
+    /// Tell the game what `actor` does within its package (`fnv_game::ai::AiPhase`), for
+    /// GetCurrentAIProcedure: nothing for an actor out of the high process (the original
+    /// reads its package's main procedure there, 45 for a Sandbox; docs/spec-notes/packages.md
+    /// §4, procedure codes), its sandbox's doing in a sandbox, else on its way or there.
+    pub(crate) fn publish_phase(&self, game: &mut Game, actor: FormId) {
+        let Some(a) = self.agents.get(&actor) else { return };
+        let phase = if self.low.contains_key(&actor) || a.package.is_none() {
+            None
+        } else if let Some(sb) = &a.sandbox {
+            Some(AiPhase::Sandbox(sb.phase()))
+        } else if a.activity == Activity::Travelling {
+            Some(AiPhase::Travelling)
+        } else {
+            Some(AiPhase::There)
+        };
+        if game.extra.get(&actor).and_then(|e| e.ai_phase) != phase {
+            game.set_ai_phase(actor, phase);
+        }
+    }
+
+    fn step_actor_inner(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, open: &mut dyn Mover, quiet: bool) {
         // SetActorsAI 0: no packages, no walking, until it is switched on again. A
         // restrained actor stays in place though it still thinks and talks [documented:
         // catalogue summary of SetRestrained]; an unconscious one does nothing [hypothesis].
@@ -1146,6 +1209,7 @@ impl Ai {
         // Up from what it was on, unless it stays on the same thing; the furniture it
         // is going to is kept for it from now.
         if a.using != choice.doing.furniture() {
+            sb.got_up = a.using.is_some();
             self.set_using(game, actor, None);
         }
         self.taken.retain(|_, user| *user != actor);

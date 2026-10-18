@@ -2277,8 +2277,8 @@ fn fly(
                     0.0
                 };
                 let rolled = chance > 0.0 && c.rng.next_f32() < chance;
-                // The rules lay it down (unconscious.md §5); refused for the player and
-                // actors flagged No Knockdowns.
+                // The rules lay it down (unconscious.md §5); refused for actors flagged
+                // No Knockdowns and for the player seated or talking.
                 let shove = [b.push[0] * BLAST_KNOCKDOWN_SPEED, b.push[1] * BLAST_KNOCKDOWN_SPEED, b.push[2].max(0.0) * BLAST_KNOCKDOWN_SPEED + BLAST_KNOCKDOWN_SPEED * fnv_game::unconscious::PUSH_LIFT];
                 let down = rolled && script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| rt.game.knock_down(target, info.attacker, shove));
                 if down {
@@ -2291,7 +2291,7 @@ fn fly(
                     r.dealt,
                     r.health,
                     r.max_health,
-                    if down { ", knocked down" } else if rolled { ", knockdown refused (player or No Knockdowns)" } else { "" }
+                    if down { ", knocked down" } else if rolled { ", knockdown refused (No Knockdowns, or the player seated or talking)" } else { "" }
                 );
             }
         }

@@ -161,19 +161,52 @@ fn push_without_a_source_throws_straight_up_and_a_negative_force_pulls() {
 }
 
 #[test]
-fn push_actor_away_spares_the_dead_the_player_and_actors_flagged_no_knockdowns() {
+fn push_actor_away_spares_the_dead_and_actors_flagged_no_knockdowns() {
     let f = fixture();
     let mut g = game(&f);
     push(&mut g, Some(HERO_REF), ROCK_REF, 10.0);
     assert!(g.knockout(ROCK_REF).is_none(), "No Knockdowns");
-    push(&mut g, Some(HERO_REF), FormId::PLAYER_REF, 10.0);
-    assert!(g.knockout(FormId::PLAYER_REF).is_none(), "the player's knockdown is not built");
     ask(&mut g, Some(THUG_REF), KILL_ACTOR, &[]);
     push(&mut g, Some(HERO_REF), THUG_REF, 10.0);
     assert!(g.knockout(THUG_REF).is_none(), "dead");
     // Explosions follow the same refusals.
     assert!(!g.knock_down(ROCK_REF, None, [0.0, 0.0, 100.0]));
-    assert!(!g.knock_down(FormId::PLAYER_REF, None, [0.0, 0.0, 100.0]));
+}
+
+/// The player is knocked down like anyone (unconscious.md §5.4): PushActorAway and
+/// explosions lay the player down for the knockdown's time, then the getting up waits for
+/// the engine's clip; enemies may still attack; the player is never knocked out.
+#[test]
+fn the_player_is_knocked_down_but_never_knocked_out() {
+    let f = fixture();
+    let mut g = game(&f);
+    let me = FormId::PLAYER_REF;
+    push(&mut g, Some(HERO_REF), me, 10.0);
+    let k = g.knockout(me).expect("the player lies pushed");
+    assert_eq!(k.cause, Cause::Pushed);
+    assert!(k.pushed && k.lying());
+    assert_eq!(knocked_state(&mut g, me), 0.0, "pushed reads 0");
+    let shove = g.take_shove(me).expect("thrown");
+    assert!(shove[2] > 0.0);
+    // A blow that would knock out (essential, fatigue) does not.
+    assert!(!g.knock_out(me, Cause::Essential, None));
+    assert!(!g.knock_out(me, Cause::Fatigue, None));
+    assert_eq!(g.knockout(me).map(|k| k.cause), Some(Cause::Pushed));
+    // Up after the knockdown's time; getting up until the engine's clip is over.
+    wait(&mut g, fnv_game::unconscious::KNOCKDOWN_DOWN + 0.5);
+    let k = g.knockout(me).expect("getting up");
+    assert!(!k.lying());
+    g.finish_getting_up(me);
+    assert!(g.knockout(me).is_none());
+    // An explosion: GetKnockedState 2.
+    assert!(g.knock_down(me, None, [0.0, 0.0, 100.0]));
+    assert_eq!(knocked_state(&mut g, me), 2.0);
+    g.end_knockout(me);
+    // Not seated and not talking only.
+    g.set_furniture_use(me, Some(fnv_game::game::FurnitureUse { reference: HERO_REF, marker_id: 0, state: 3 }));
+    assert!(!g.can_knock_down(me));
+    g.set_furniture_use(me, None);
+    assert!(g.can_knock_down(me));
 }
 
 #[test]

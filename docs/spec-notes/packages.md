@@ -603,6 +603,44 @@ different thing: `fnv_ai::alert`); ForceFlee]:
     nothing threatening him: type 18 FLEE_NON_COMBAT, procedure 17 DONE at once, and he
     stayed (as in the three gunfight runs, until the fight came to him and he fought).
 
+- **Procedure codes: what GetCurrentAIProcedure reads by what the actor does** [observed
+  2026-10-18: every sample of the AI observer captures in `C:\fnv-private\capture\out`
+  (82 sessions: the Goodsprings, Strip, casino, conversation, package-kind, owner-decision
+  and fight campaigns), about 430,000 actor samples, each with GetCurrentAIPackage,
+  GetCurrentAIProcedure, GetSitting, GetSleeping, IsMoving, IsInCombat and IsTalking;
+  counted not in combat and not talking; numbers are samples (actors)]:
+
+  | Package (code) | Procedure codes seen |
+  |---|---|
+  | Sandbox (36), moving | 7 WANDER 70,273 (52); 0 TRAVEL 12,548 (68); 21 GET_UP 3,072 (36) |
+  | Sandbox, standing | 7 39,571 (45); 0 35,888 (81); 46 USE_IDLE_MARKER 14,767 (16); 21 3,575 (38); 45 SANDBOX 188 (1) |
+  | Sandbox, getting on or seated | 48 SITTING 21,778 (≈30); 10 EAT 192 (≈8); 0 479 |
+  | Sandbox, asleep | 8 SLEEP 1,754 (2) |
+  | Travel (14) | 0 on the way 6,105 moving (15), 1,913 standing (16); 17 DONE 36,777 standing (32), 9,193 seated (5), 1,409 asleep (1) |
+  | Patrol (37) | 41 PATROL 46,576 (37, moving, standing and seated); 17 236 (1) |
+  | Follow (1) | 11 FOLLOW 4,090 (7), never 17 |
+  | Escort (2) | 12 ESCORT 1,519 (1) |
+  | Eat (3) | 10 6,686 standing and 1,191 seated; 0 723 moving; 7 3,284 seated (1) |
+  | Sleep (4) | 8 1,820 asleep, 258 moving; 0 76 moving |
+  | Wander (13) | 7 1,434 (7) |
+  | Accompany (15) | 27 ACCOMPANY 3,374; 19 TRAVEL_TARGET 773 (1 each) |
+  | Use Item At (16) | 28 USE_ITEM_AT 3,509 seated; 2 ACQUIRE 1,102 seated; 17 114; 0 80 |
+  | Flee Not Combat (18) | 17 182; 34 FLEE_NON_COMBAT 72 |
+  | Use Weapon (33) | 0 4,182 moving; 42 USE_WEAPON 36; 2 90 seated |
+  | Dialogue package (34) | 17 3,171; 43 DIALOGUE_ACTIVATE 773; 0 16 moving |
+  | Guard (35) | 44 GUARD 5,503 (12) |
+
+  The 45 a Sandbox reads elsewhere is an actor out of the loaded cells (Chet, function
+  probes `fp7_packages_locks`, §3.2 of docs/design/script-function-coverage.md); the
+  observer's earlier timeline counts held 27,313 samples of 45 from five actors sampled
+  far away. So the procedure of a loaded actor is what it is doing inside the package (the
+  wiki's note, "a single package can contain several possible procedures" [documented:
+  GECK wiki GetCurrentAIProcedure]); out of the high process it reads the package's own.
+  How NVForever maps its AI's doings onto these codes: `fnv_game::functions::ai_state::package_procedure`
+  (walking to a spot of the sandbox 7, to an object 0; the getting-up 21 held until the
+  next thing begins) [hypothesis for the split between 7 and 0 while walking, which the
+  samples do not tell apart by destination].
+
 ## 5. The reader and the CLI contract
 
 `fnv_game::package` holds a package as typed data (`PackageDef`): type, general /

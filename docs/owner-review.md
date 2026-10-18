@@ -5824,3 +5824,36 @@ themselves:
   StartCombat or PlaySound). Nothing like that has been seen in a playthrough since
   2026-10-09. *If you see* a sound, a fight or a message from something not yet in the
   world, this is the first place to look.
+
+## Navmesh switches, AI procedure codes, the player knocked down (2026-10-18, branch claude/nav-knockdown-9a8df4)
+
+Playthrough blockers row 1's leftover and row 18 (docs/outstanding.md §1). What is mine:
+
+- **The player's knockdown view** (docs/spec-notes/unconscious.md §5.4): in first person
+  the view goes to third person while the player lies and gets up, and back afterwards; the
+  camera sits 170 units behind and 60 above the chest (from first person) or where the
+  third-person camera was, easing after the body and looking at it. Whether the original
+  leaves first person at all, and where its camera goes, is the capture job
+  `tools/capture/jobs/kd_player_knockdown.steps.json` (nvfstrip, one manual step to switch
+  the view). *If it looks wrong*: say which view the original keeps.
+- **The player's knockdown timing**: down for the NPCs' 3 s (`KNOCKDOWN_DOWN`), then the
+  game's `GetUpFaceUp`/`GetUpFaceDown` idle (2 s); controls held throughout, enemies may
+  keep attacking (a knocked-out NPC is dropped as a target; a knocked-down player is not).
+  The player sitting or talking is not knocked down.
+- **Navmesh switches**: an actor walking a way over a navmesh a script disables plans
+  again from where it stands (its package taken up afresh), and sets the package aside
+  when there is no way round. The wiki says the original's EnableNavMesh/DisableNavmesh
+  skip the load order's FormID fix-up (so a DLC's call may miss its own navmesh in the
+  original); ours fixes them up like any reference, so the Lonesome Road elevator's
+  navmeshes really go while it rides.
+- **setAllReachable** (two Hoover Dam battle calls, one only on a PS3): kept and saved, no
+  effect; I take it to be an optimisation switch (skip the reachability test), which a
+  planner that always plans in full does not need.
+- **GetCurrentAIProcedure**: now from the AI observer's samples of the original
+  (packages.md §4, procedure codes): a sandboxer reads what it does (7 at or walking to a
+  spot, 0 between things or walking to an object, 46 at an idle marker, 48 seated, 10
+  eating, 8 asleep, 21 for a while after getting up), 45 only out of the high process; a
+  Travel package 0 on the way, 17 there (seated too). The split of a sandboxer's walking
+  between 7 (to a spot) and 0 (to an object) is my reading; the samples do not record
+  where an actor walks to. Find, Escort, Ambush and Use Weapon read 17 once their goal is
+  met (no sample reached one).
